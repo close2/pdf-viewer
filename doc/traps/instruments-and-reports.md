@@ -955,6 +955,14 @@ the new one; otherwise it stays named in a re-measure population until a run re-
 entry and a real file sharing a prefix silently decided which rung a pointer fell on (round 1271).
 Match the whole path component.
 
+### 63. A gate run with `--ignored` over a file with no ignored test checks nothing
+
+`doc/todo/02`'s change-to-gate map named `-p pdf-transform --test gate` with no `--ignored`, and the
+file's one test is ignored, so the line ran zero tests and exited 0; a `render-gpu` line had the
+opposite shape (ADR 1392). `tools/conformance/tests/batch.rs` now matches every gate line's flag
+against the file's own `#[ignore]` attributes, and `gates()` fails any line whose summary shows no
+test passed. A green line is read for what it ran, not for its exit status.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

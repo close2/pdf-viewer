@@ -161,7 +161,10 @@ fn the_panel_puts_ink_on_the_rows_it_lists() {
 /// row has been told the document states nothing there.
 #[test]
 fn a_title_this_interfaces_font_cannot_set_draws_a_box_for_each_character() {
-    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    // The compiled-in faces alone: with the machine's behind them (ADR 1382) these five characters
+    // would be drawn wherever a face on this machine states them, and the box is what every
+    // machine draws without one.
+    let chrome = Chrome::compiled_in_only().expect("§9.6.2.2's fourteen are compiled in");
     let title = "多边形批注";
     let outline = Outline {
         items: vec![item(title, 10, Vec::new())],
@@ -1469,4 +1472,65 @@ fn a_free_form_thumbnail_is_where_the_click_finds_it() {
         ink(&list, band) > 40,
         "the thumbnails and their labels are on the surface"
     );
+}
+
+/// A tab naming a file in Chinese is set from a face this machine offers, and is not boxes
+/// (ADR 1382).
+///
+/// A file name is not a document's text and no clause states how an interface draws it; the
+/// compiled-in faces state no glyph for these characters, so without the machine's faces each is
+/// [`Chrome`]'s box. Where the machine offers no face that states them, the test says so and
+/// skips, as ADR 1154's tests do: the answer is the machine's, not the code's.
+#[test]
+fn a_tab_naming_a_file_in_chinese_is_set_from_the_machines_face() {
+    let label = "多边形批注.pdf";
+    let offered = label.chars().filter(|c| !c.is_ascii()).all(|character| {
+        pdf_font::substitute::installed_covering(
+            pdf_font::substitute::Request {
+                family: pdf_font::substitute::Family::SansSerif,
+                bold: false,
+                italic: false,
+                standard: false,
+            },
+            &[character],
+        )
+        .is_some()
+    });
+    if !offered {
+        eprintln!("skipped: this machine offers no face stating {label:?}'s characters");
+        return;
+    }
+    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    assert_eq!(
+        chrome.without_a_code(label, Style::default()),
+        0,
+        "every character is set from a face, so none is counted as missing"
+    );
+    let strip = viewer_ui::chrome::DocumentStrip {
+        labels: vec!["plain.pdf".to_owned(), label.to_owned()],
+        focused: 1,
+    };
+    let drawn = strip
+        .draw(&chrome, WIDTH, 1.0)
+        .expect("two tabs draw a strip");
+    let boxes = drawn
+        .commands()
+        .iter()
+        .filter(|command| {
+            matches!(
+                command,
+                pdf_render::Command::Fill {
+                    fill_rule: pdf_render::FillRule::EvenOdd,
+                    ..
+                }
+            )
+        })
+        .count();
+    assert_eq!(boxes, 0, "no placeholder box is drawn in the strip");
+    let inked = ink_within(&drawn, 0..24, WIDTH / 2..WIDTH);
+    assert!(inked > 40, "the second tab's label drew ink: {inked}");
+    // Against the compiled-in chrome, the same label is five boxes: the difference is the machine's
+    // face and nothing else.
+    let compiled = Chrome::compiled_in_only().expect("compiled in");
+    assert_eq!(compiled.without_a_code(label, Style::default()), 5);
 }

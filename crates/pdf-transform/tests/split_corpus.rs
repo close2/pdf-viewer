@@ -66,19 +66,15 @@ use support::{check_navigation, check_structure};
 /// fonts.
 const DPI: f32 = 48.0;
 
-/// The corpus documents that refuse §7.6.4.1's default user password, with the password each
-/// one's own pdf.js issue records — `writer_corpus.rs`'s list, so that the population is every
-/// document the suite can open rather than every document that opens for free.
-const KNOWN_PASSWORDS: &[(&str, &str)] = &[
-    ("issue15893_reduced.pdf", "test"),
-    ("issue3371.pdf", "ELXRTQWS"),
-    ("bug1782186.pdf", "Hello"),
-    ("issue6010_1.pdf", "abc"),
-    ("issue6010_2.pdf", "\u{E6}\u{F8}\u{E5}"),
-    ("saslprep-r6.pdf", "S\u{AA}SL\u{AD}prep"),
-    ("pr6531_1.pdf", "asdfasdf"),
-    ("print_protection.pdf", "1234"),
-];
+/// The published passwords of the corpus's encrypted documents, read from the one table
+/// (`crates/pdf-model/tests/support/corpus_passwords.rs`), so that the population is every document
+/// the suite can open rather than every document that opens for free.
+#[path = "../../pdf-model/tests/support/corpus_passwords.rs"]
+#[expect(
+    dead_code,
+    reason = "the references' spelling of a password is the oracle's; this gate hands the document to nothing but this tree"
+)]
+mod corpus_passwords;
 
 /// Documents whose piece does not draw as its source page does, each with its diagnosis.
 ///
@@ -181,10 +177,7 @@ fn corpus() -> Option<Vec<PathBuf>> {
 
 /// The password the corpus records for this document, or the empty one.
 fn password_for(name: &str) -> &'static str {
-    KNOWN_PASSWORDS
-        .iter()
-        .find(|(known, _)| *known == name)
-        .map_or("", |(_, password)| password)
+    corpus_passwords::corpus_password(name).map_or("", |known| known.password)
 }
 
 /// A source over these bytes, with the corpus's known password where the file has one.

@@ -124,23 +124,20 @@ const FREE_TEXT_WITNESS: &str = "quorra save round-trip free text witness 499";
 /// answering one question cannot pass as answering the other.
 const FIELD_WITNESS: &str = "quorra field witness 499";
 
-/// The corpus documents that refuse §7.6.4.1's default user password, with the password each
-/// one's own pdf.js issue records.
+/// The published passwords of the corpus's encrypted documents, read from the one table
+/// (`crates/pdf-model/tests/support/corpus_passwords.rs`), so that the population is every document
+/// the suite can open rather than every document that opens for free.
 ///
-/// The same eight `pdf-syntax`'s `encryption.rs` verifies; the instrument's rule is ADR 0323's
+/// The same nine `pdf-syntax`'s `encryption.rs` verifies; the instrument's rule is ADR 0323's
 /// "without a password or with the corpus's known ones". `print_protection.pdf`'s `1234` is its
 /// **owner** password, which §7.6.4.1 gives full access — so Table 22 withholds nothing from it
 /// and the policy census must not count it.
-const KNOWN_PASSWORDS: &[(&str, &str)] = &[
-    ("issue15893_reduced.pdf", "test"),
-    ("issue3371.pdf", "ELXRTQWS"),
-    ("bug1782186.pdf", "Hello"),
-    ("issue6010_1.pdf", "abc"),
-    ("issue6010_2.pdf", "\u{E6}\u{F8}\u{E5}"),
-    ("saslprep-r6.pdf", "S\u{AA}SL\u{AD}prep"),
-    ("pr6531_1.pdf", "asdfasdf"),
-    ("print_protection.pdf", "1234"),
-];
+#[path = "support/corpus_passwords.rs"]
+#[expect(
+    dead_code,
+    reason = "the references' spelling of a password is `REFERENCE_PASSWORDS`'s here, which also carries a file this table does not"
+)]
+mod corpus_passwords;
 
 /// How long one reference invocation may run before it is killed — `pdfref`'s own bound, kept
 /// here because there is deliberately no unbounded way to wait on a reference.
@@ -801,10 +798,7 @@ fn examine(path: &Path, tally: &Mutex<Tally>) {
         return;
     };
 
-    let password = KNOWN_PASSWORDS
-        .iter()
-        .find(|(known, _)| *known == name)
-        .map_or("", |(_, password)| *password);
+    let password = corpus_passwords::corpus_password(&name).map_or("", |known| known.password);
     let Some(document) = open_corpus_document(&name, bytes.clone(), password, tally) else {
         return;
     };
@@ -1064,19 +1058,15 @@ fn every_corpus_document_saves_and_three_readers_see_the_edit() {
 /// pinned by commit and identical in every clone.
 const TRACKED_POPULATION: usize = 974;
 
-/// The three documents this reader cannot open at all: one encryption it does not implement and
-/// two passwords nobody has recorded.
+/// The two documents this reader cannot open at all: `PDFBOX-4352-0.pdf`, whose `/Encrypt` does
+/// not resolve, and `encrypted-attachment.pdf`, whose password nobody has recorded. Every other
+/// encrypted corpus document opens with the password `corpus_passwords` publishes for it.
 ///
-/// **`encrypted-attachment.pdf` is the third since the thousand-and-twenty-third session**, and it
-/// moved here out of `SAVE_REFUSED_ON`: its crypt filter states no `/AuthEvent`, so §7.6.6 Table
-/// 25's default of `DocOpen` wants a key before the document is open and the file is one waiting
-/// for a person rather than one whose save was refused. Its twin `auth-event-ef-open.pdf` states
+/// **`encrypted-attachment.pdf` is a document waiting for a person, not one whose save was
+/// refused**: its crypt filter states no `/AuthEvent`, so §7.6.6 Table 25's default of `DocOpen`
+/// wants a key before the document is open. Its twin `auth-event-ef-open.pdf` states
 /// `/AuthEvent /EFOpen`, opens, and is saved and read back like any other document. ADR 1040.
-const REFUSED_OPEN: &[&str] = &[
-    "PDFBOX-4352-0.pdf",
-    "encrypted-attachment.pdf",
-    "issue21579.pdf",
-];
+const REFUSED_OPEN: &[&str] = &["PDFBOX-4352-0.pdf", "encrypted-attachment.pdf"];
 
 /// The documents with no page an update can put an annotation on — five with no reachable page
 /// one, and `issue9105_other.pdf`, whose page one is an inline dictionary in `/Kids`.
@@ -1089,9 +1079,10 @@ const PAGELESS: &[&str] = &[
     "poppler-937-0-fuzzed.pdf",
 ];
 
-/// The policy census: every document `Restrict(On)` withholds an operation from, by name. All
-/// nine withhold *adding an annotation* — eight by §7.6.4.2 Table 22 bit 6 and
-/// `xfa_filled_imm1344e.pdf` by §12.8.2.2's certification — and none withholds filling a field.
+/// The policy census: every document `Restrict(On)` withholds an operation from, by name. Every
+/// one withholds *adding an annotation* — `xfa_filled_imm1344e.pdf` by §12.8.2.2's certification
+/// and the rest by §7.6.4.2 Table 22 bit 6 (`issue21579.pdf`'s `/P -1084` clears it) — and none
+/// withholds filling a field.
 const POLICY_REFUSED: &[&str] = &[
     "bug1782186.pdf",
     "bug1815476.pdf",
@@ -1100,6 +1091,7 @@ const POLICY_REFUSED: &[&str] = &[
     "issue17215.pdf",
     "issue19484_1.pdf",
     "issue19484_2.pdf",
+    "issue21579.pdf",
     "secHandler.pdf",
     "xfa_filled_imm1344e.pdf",
 ];
@@ -1113,6 +1105,7 @@ const NOTHING_TO_SAVE_ON: &[&str] = &[
     "issue17215.pdf",
     "issue19484_1.pdf",
     "issue19484_2.pdf",
+    "issue21579.pdf",
     "xfa_filled_imm1344e.pdf",
 ];
 
@@ -1278,7 +1271,7 @@ fn ratchet(tally: &Tally, population: usize) {
         tally.on.fields_checked,
         80,
     );
-    gate_ratchet::floor("saved under Restrict(Off)", tally.off.saved, 8);
+    gate_ratchet::floor("saved under Restrict(Off)", tally.off.saved, 9);
     gate_ratchet::floor(
         "field values checked under Restrict(Off)",
         tally.off.fields_checked,

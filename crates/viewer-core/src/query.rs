@@ -753,8 +753,9 @@ pub struct PageStructure {
     /// producer free to state no structure, and a reader that invented a reading order for one
     /// would be presenting a guess where a person is entitled to the author's answer.
     pub nodes: Vec<crate::AccessibilityNode>,
-    /// The widget annotations of a page whose document states **no** structure tree, as nodes a
-    /// person can reach and act on.
+    /// The page's widget annotations that no element of [`Self::nodes`] reaches, as nodes a person
+    /// can reach and act on: all of them where the document states **no** structure tree, and on a
+    /// tagged page the ones its structure left out.
     ///
     /// Apart from [`Self::nodes`] because they are not §14.7's elements: each is a `Form` in the
     /// sense of Table 368, answered from §12.7's field tree rather than from a structure tree, named
@@ -763,8 +764,10 @@ pub struct PageStructure {
     /// its annotations and the one the keyboard already walks. No reading order is invented for the
     /// page's text; its fields are interactive content whether or not the producer tagged it.
     ///
-    /// Empty for a tagged document, whose widgets are reached through §14.7.5.3's object
-    /// references, and for a page with no widget a person may interact with. ADR 1369.
+    /// A tagged page's widgets are reached through §14.7.5.3's object references, so on one this
+    /// holds only the widgets no element names — never one a node already offers, and published
+    /// after the structure's own nodes rather than placed in its reading order. Empty for a page
+    /// with no such widget a person may interact with. ADRs 1369 and 1381.
     pub widgets: Vec<crate::AccessibilityNode>,
 }
 

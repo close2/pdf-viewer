@@ -67,8 +67,15 @@ open_batch() {
 run() {
     local name=$1; shift; local out rc
     out=$(RAYON_NUM_THREADS="${RAYON_NUM_THREADS:-4}" flock /home/AI/heavy-walk.lock "$@" 2>&1) && rc=0 || rc=$?
+    # A test line that ran nothing exits 0: `--ignored` over a file with no ignored test is green
+    # while checking nothing. It is a failure here, and `tests/batch.rs` holds every line's flag
+    # to its file's `#[ignore]` attributes before anything runs (ADR 1392).
+    if [ "$rc" -eq 0 ] && [ "$1 $2" = "cargo test" ] &&
+        ! printf '%s\n' "$out" | grep -qE 'test result: [a-z]+\. [1-9][0-9]* passed'; then
+        rc=98; out+=$'\nran zero tests — a green line that checked nothing (ADR 1392)'
+    fi
     printf '%-24s exit=%-4s %s\n' "$name" "$rc" \
-        "$(printf '%s\n' "$out" | grep -iE 'test result|documents|pages|passed|FAILED|panicked' | tail -1 | cut -c1-150)" >> "$log"
+        "$(printf '%s\n' "$out" | grep -iE 'test result|documents|pages|passed|FAILED|panicked|ran zero tests' | tail -1 | cut -c1-150)" >> "$log"
     [ "$rc" -ne 0 ] && printf '%s\n' "$out" | tail -30 > "$log.fail.$name"
     return 0
 }
@@ -128,9 +135,10 @@ check_batch() {
     # it is admitted **by path rather than by extension**: `data/icc/` is the only place one
     # belongs, `NOTICE` and `data/icc/PROVENANCE.md` are what it owes, and a `.icc` anywhere else
     # is still somebody's copy. `scratchpad/` is the rounds' and never committed (`commit`
-    # refuses it), so it is not a finding here either.
-    found=$(git status --porcelain --untracked-files=all |
-        awk '$1 == "??" { print $2 }' | grep -v '^scratchpad/' |
+    # refuses it), so it is not a finding here either — and it is left out by `population`, the
+    # function `commit` stages from, so a path git would print quoted (a space, a non-ASCII
+    # character) is excluded by its real directory rather than by the spelling of its quotes.
+    found=$(untracked_paths |
         grep -vE '\.(rs|md|toml|tsv|txt|py|pem|der|crt|xfdf|j2k|jp2)$' |
         grep -vE '^data/icc/[^/]+\.icc$' || true)
     printf 'untracked, unexpected extension  %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) file(s)")"
@@ -167,8 +175,7 @@ check_batch() {
     local newest
     newest=$(git ls-files doc/history |
         sed -n 's|^doc/history/\([0-9]\{1,\}\)-.*\.md$|\1|p' | sort -n | tail -1)
-    found=$(git status --porcelain --untracked-files=all -- doc/history |
-        awk '$1 == "??" { print $NF }' |
+    found=$(untracked_paths | grep '^doc/history/' |
         sed -n 's|^\(doc/history/\([0-9]\{1,\}\)-.*\.md\)$|\2 \1|p' |
         awk -v newest="${newest:-0}" '$1 <= newest { printf "%s is numbered %s, behind the committed %s\n", $2, $1, newest }')
     printf 'record numbered behind a merged one %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) record(s)")"
@@ -190,10 +197,11 @@ check_batch() {
     # to be editing that file for something else, which is a finding addressed to the wrong person.
     # What this catches is a round writing one now, which is what batch 28 lost an hour to.
     local untracked
-    untracked=$(git status --porcelain --untracked-files=all |
-        awk '$1 == "??" { print $NF }' | grep -E '^crates/.*\.rs$' || true)
+    untracked=$(untracked_paths | grep -E '^crates/.*\.rs$' || true)
     found=$( { git diff -U0 -- 'crates/*.rs'; git diff -U0 main...HEAD -- 'crates/*.rs'
-               [ -z "$untracked" ] || sed 's/^/+/' $untracked; } 2>/dev/null |
+               printf '%s\n' "$untracked" | while IFS= read -r path; do
+                   [ -z "$path" ] || sed 's/^/+/' "$path"
+               done; } 2>/dev/null |
         grep -E '^\+\s*(///|//!).*\\u\{[aA]7\}' || true)
     printf 'escaped section sign in a doc comment %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) line(s)")"
     [ -z "$found" ] || { printf '%s\n' "$found" | cut -c1-140 | sed 's/^/    /'; bad=1; }
@@ -216,8 +224,10 @@ check_batch() {
 
 # The population a merge commits and a close would destroy: every path `git status` reports in
 # the worktree — modified, deleted, untracked, both sides of a rename — except `scratchpad/`, which
-# is the rounds' and never committed. One record per path, `XY<TAB>path`, NUL-terminated. `check`
-# reads the same `git status`, so what it reports and what `commit` stages are one population.
+# is the rounds' and never committed. One record per path, `XY<TAB>path`, NUL-terminated, read from
+# `-z`'s listing, where a path is its bytes and never git's quoted, escaped spelling of them.
+# `check` reads this function too (through `untracked_paths`), so what it reports and what `commit`
+# stages are one population.
 population() {
     local entry
     git -C "$wt" status --porcelain=v1 -z --untracked-files=all --no-renames |
@@ -225,6 +235,16 @@ population() {
             case "${entry:3}" in scratchpad/*) continue ;; esac
             printf '%s\t%s\0' "${entry:0:2}" "${entry:3}"
         done
+}
+
+# The untracked part of `population`, one real path per line: what `check`'s findings about added
+# files read. A path holding a newline is the one spelling this cannot carry, and no round writes one.
+untracked_paths() {
+    local entry
+    population | while IFS= read -r -d '' entry; do
+        [ "${entry%%$'\t'*}" = "??" ] && printf '%s\n' "${entry#*$'\t'}"
+    done
+    return 0
 }
 
 # Stage the population by name, prove the index holds exactly it, and commit. It never

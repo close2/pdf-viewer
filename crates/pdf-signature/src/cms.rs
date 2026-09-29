@@ -222,12 +222,10 @@ pub enum SignatureAlgorithm<'a> {
     /// states: ISO/TS 32002 section 5.1.4 requires the `SignerInfo`'s own `digestAlgorithm` to be
     /// the one "passed to the signature algorithm", so that is the one entry read.
     Ecdsa,
-    /// `EdDSA` — RFC 8410's `id-Ed25519`, the row ISO/TS 32002 section 5.1.2 adds to Table 260.
-    ///
-    /// `id-Ed448` is deliberately *not* here: it is [`Self::Unrecognised`], so a file stating it
-    /// is answered with that number rather than with a curve this program cannot compute on. See
-    /// [`crate::eddsa`].
-    EdDsa,
+    /// `EdDSA` — RFC 8410's `id-Ed25519` or `id-Ed448`, the row ISO/TS 32002 section 5.1.2 adds
+    /// to Table 260, carrying which: RFC 8419 section 2.4 makes the signature's identifier the
+    /// key's, so the curve is stated twice and the two must agree.
+    EdDsa(crate::eddsa::Curve),
     /// Anything else, as the identifier the file wrote.
     Unrecognised(&'a [u8]),
 }
@@ -249,8 +247,8 @@ impl<'a> SignatureAlgorithm<'a> {
         if crate::ecdsa::is_ecdsa(oid) {
             return Self::Ecdsa;
         }
-        if oid == crate::eddsa::ID_ED25519.as_bytes() {
-            return Self::EdDsa;
+        if let Some(curve) = crate::eddsa::Curve::of(oid) {
+            return Self::EdDsa(curve);
         }
         match oid {
             // `pkcs-1` is 1.2.840.113549.1.1; the last octet is `rsaEncryption` (1) and the
@@ -340,23 +338,25 @@ pub enum Digest {
     /// holds is now a NOTE describing a requirement that is no longer there. That is stranded text
     /// rather than a rule.
     ///
-    /// So 512 bits is a **documented choice** and not a derivation (ADR 0390), and it is the
-    /// narrow one: this variant is `id-shake256` squeezed to [`SHAKE256_OCTETS`], the reading both
-    /// the retired sentence and the surviving NOTE agree on. Whatever else RFC 8702 section 3.1 and
-    /// RFC 8419 sections 3.1 and 3.2 stipulate is unknown here, because this tree holds neither —
-    /// and the cost of that is bounded in the safe direction: any other identifier, including any
-    /// variable-length one those RFCs may define, is not in [`Self::from_oid`] and is reported by
-    /// its own dotted decimal rather than computed at a guessed length.
+    /// **The two stipulations the replacement defers to settle it**, and `doc/md/rfc/` holds both.
+    /// RFC 8702 section 3.1 admits `id-shake256` as a CMS digest algorithm with its parameters
+    /// absent and fixes its output at 64 octets, which is [`SHAKE256_OCTETS`]. RFC 8419 section 3.1
+    /// has an Ed448 signer with signed attributes state `id-shake256-len` with a parameter of 512
+    /// instead, and section 3.2 has one without them state `id-shake256`. So 512 bits is derived
+    /// rather than chosen (ADR 1386 amends ADR 0390's reading), and the one identifier outside
+    /// [`Self::from_oid`] that names this function is recognised where a `SignerInfo` is read, with
+    /// its length checked; any other length is reported by its own number rather than computed at
+    /// one the file did not state.
     Shake256,
 }
 
 /// The octets [`Digest::Shake256`]'s output is squeezed to — "512 bits", ISO/TS 32001 section
 /// 5.1.4's NOTE.
 ///
-/// Named rather than written as 64 at the point of use because it is a *decision* and not a buffer
-/// size: an extendable-output function has no natural length, this one was pinned by the published
-/// text and unpinned by Errata Collection 3's issue #404, and [`Digest::Shake256`] carries the
-/// argument for keeping the number the errata left standing in an unstruck NOTE.
+/// Named rather than written as 64 at the point of use because it is a *requirement* and not a
+/// buffer size: an extendable-output function has no natural length, and this one is RFC 8702
+/// section 3.1's for a CMS digest, the stipulation Errata Collection 3's issue #404 defers to.
+/// [`Digest::Shake256`] carries the argument.
 pub const SHAKE256_OCTETS: usize = 512 / 8;
 
 impl Digest {
@@ -1021,7 +1021,7 @@ fn read_signed_data(signed: Value<'_>) -> Result<SignedData<'_>, CmsError> {
         encapsulated,
         certificates,
         signers,
-        digest: Digest::from_oid(parsed.digest_algorithm),
+        digest: parsed.digest,
         digest_algorithm: parsed.digest_algorithm,
         signature_algorithm: parsed.signature_algorithm,
         signature_algorithm_parameters: parsed.signature_algorithm_parameters,
@@ -1040,8 +1040,30 @@ fn read_signed_data(signed: Value<'_>) -> Result<SignedData<'_>, CmsError> {
     })
 }
 
+/// RFC 8419 section 2.3's `id-shake256-len`, `2.16.840.1.101.3.4.2.18` — the `hashAlgs` arc's
+/// eighteenth, as that section prints it. `const_oid` carries no constant for it.
+const ID_SHAKE256_LEN: &[u8] = &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x12];
+
+/// A `SignerInfo`'s `digestAlgorithm`, identifier and parameters together.
+///
+/// Every identifier [`Digest::from_oid`] recognises names its function alone. One more does not:
+/// RFC 8419 section 3.1 requires an Ed448 signer with signed attributes to state
+/// `id-shake256-len` with a parameter of 512, the output length in bits. That is the same function
+/// [`Digest::Shake256`] computes, at the same 64 octets, so it is recognised as that — and only
+/// with that parameter: any other length is a digest this program does not compute, and is
+/// reported by its number rather than squeezed to a length the file did not state.
+fn signer_digest(oid: &[u8], parameters: Option<Value<'_>>) -> Option<Digest> {
+    if oid == ID_SHAKE256_LEN {
+        // `ShakeOutputLen ::= INTEGER`, and 512 in DER is `02 00` after the tag and length.
+        let length = parameters.filter(|value| value.identifier == INTEGER)?;
+        return (length.contents == [0x02, 0x00]).then_some(Digest::Shake256);
+    }
+    Digest::from_oid(oid)
+}
+
 /// The parts of one `SignerInfo` this program reads.
 struct Signer<'a> {
+    digest: Option<Digest>,
     digest_algorithm: &'a [u8],
     signature_algorithm: &'a [u8],
     signature_algorithm_parameters: Option<Value<'a>>,
@@ -1082,13 +1104,15 @@ fn read_signer_info(info: Value<'_>) -> Result<Signer<'_>, CmsError> {
     let Some(algorithm) = members.next_value()? else {
         return Err(CmsError::MalformedSignedData);
     };
-    let Some(oid) = algorithm.children()?.next_value()? else {
+    let mut identifier = algorithm.children()?;
+    let Some(oid) = identifier.next_value()? else {
         return Err(CmsError::MalformedSignedData);
     };
     let Some(digest_algorithm) = oid.object_identifier() else {
         return Err(CmsError::MalformedSignedData);
     };
     let mut signer = Signer {
+        digest: signer_digest(digest_algorithm, identifier.next_value()?),
         digest_algorithm,
         signature_algorithm: &[],
         signature_algorithm_parameters: None,
@@ -2447,6 +2471,36 @@ mod tests {
     }
 
     /// The base standard's six, and one identifier the tables do not name.
+    #[test]
+    fn an_ed448_signers_shake256_len_is_shake256_only_at_512_bits() {
+        let parameter = |encoded: &'static [u8]| {
+            crate::der::Reader::new(encoded)
+                .expect("a value")
+                .next_value()
+                .expect("well formed")
+        };
+        assert_eq!(
+            crate::x509::dotted(super::ID_SHAKE256_LEN).as_deref(),
+            Some("2.16.840.1.101.3.4.2.18")
+        );
+        assert_eq!(
+            super::signer_digest(super::ID_SHAKE256_LEN, parameter(&[0x02, 0x02, 0x02, 0x00])),
+            Some(Digest::Shake256),
+            "RFC 8419 section 3.1's 512"
+        );
+        assert_eq!(
+            super::signer_digest(super::ID_SHAKE256_LEN, parameter(&[0x02, 0x02, 0x01, 0x00])),
+            None,
+            "256 bits is a length this program does not compute"
+        );
+        assert_eq!(super::signer_digest(super::ID_SHAKE256_LEN, None), None);
+        assert_eq!(
+            super::signer_digest(Digest::Shake256.oid(), None),
+            Some(Digest::Shake256),
+            "RFC 8702 section 3.1's id-shake256, parameters absent"
+        );
+    }
+
     #[test]
     fn the_digest_algorithms_are_the_ones_the_tables_name() {
         assert_eq!(

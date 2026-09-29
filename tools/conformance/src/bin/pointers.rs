@@ -12,15 +12,16 @@
 //!
 //! It prints the absent pointers first, standing claims above corrections, then the symbol
 //! pointers no file defines, then the owner's answers named here whose question this checkout
-//! holds and whose `A` file it does not, then the counts on every rung — so that a clean run says
-//! what it was clean over. It exits non-zero only where it cannot read what it needs.
+//! holds and whose `A` file it does not, then the pointers a `.gitignore` pattern ignores counted by
+//! that pattern, then the counts on every rung — so that a clean run says what it was clean over.
+//! It exits non-zero only where it cannot read what it needs.
 
 #![expect(
     clippy::print_stdout,
     reason = "the report is the whole output of the program"
 )]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -121,10 +122,27 @@ fn run() -> Result<(), Error> {
         println!("    none.");
     }
 
+    let mut by_pattern: BTreeMap<&str, usize> = BTreeMap::new();
+    for pointer in found.reaching(Reach::Ignored) {
+        let count = by_pattern
+            .entry(pointer.pattern.as_deref().unwrap_or_default())
+            .or_default();
+        *count = count.saturating_add(1);
+    }
+    println!();
+    println!("Not carried, gitignored — by the pattern that ignores each:");
+    for (pattern, count) in &by_pattern {
+        println!("    {count:>5}  {pattern}");
+    }
+    if by_pattern.is_empty() {
+        println!("    none.");
+    }
+
     println!();
     println!(
         "{} path pointer(s): {} live, {} absent, {} in another crate, {} unrooted, {} a form, \
-         {} not carried, {} an answer not in this checkout. {} symbol pointer(s), {} undefined.",
+         {} not carried (the hand list), {} not carried, gitignored, {} an answer not in this \
+         checkout. {} symbol pointer(s), {} undefined.",
         found.pointers.len(),
         found.reaching(Reach::Live).len(),
         absent.len(),
@@ -132,6 +150,7 @@ fn run() -> Result<(), Error> {
         found.reaching(Reach::Unrooted).len(),
         found.reaching(Reach::Placeholder).len(),
         found.reaching(Reach::NotCarried).len(),
+        found.reaching(Reach::Ignored).len(),
         found.reaching(Reach::AnswerNotHere).len(),
         found.symbols.len(),
         undefined.len(),

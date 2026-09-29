@@ -43,8 +43,9 @@
 //! §7.7.3.3's rotation. Glyph outlines arrive from `pdf-font` in font units with y *upwards*, and
 //! [`Chrome::text`] is the one place that flip happens.
 
+use std::collections::BTreeMap;
 use std::ops::Range;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use pdf_render::{Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Transform};
 use pdf_syntax::ObjectId;
@@ -163,6 +164,26 @@ pub struct Chrome {
     /// would turn its licence texts into ragged prose — and both licences it carries oblige a
     /// binary to reproduce them. §9.6.2.2 supplies a fixed-pitch face for exactly this.
     mono: pdf_font::LoadedFont,
+    /// The machine's faces for characters the four above state no glyph for, found as a line asks
+    /// for them; `None` where this chrome draws the compiled-in faces alone.
+    ///
+    /// Asked only after both of [`Chrome::set`]'s routes into the compiled-in face have failed, so
+    /// every character those faces state is drawn the same on every machine, which is ADR 0133's
+    /// argument kept whole; what varies from machine to machine is only what would otherwise be a
+    /// box on all of them (ADR 1382). Behind a lock because a line is set through `&self`, and
+    /// empty until a line needs it, so that nothing reads the machine's fonts on the launch path
+    /// of a window whose text the compiled-in faces cover.
+    machine: Option<Mutex<MachineFaces>>,
+}
+
+/// The machine's faces [`Chrome`] has found so far, and what it has asked of them.
+#[derive(Default)]
+struct MachineFaces {
+    /// Every face loaded, in the order they were found.
+    faces: Vec<Arc<pdf_font::LoadedFont>>,
+    /// Which of [`Self::faces`] answers a character in a style, or `None` where the machine
+    /// offers none — kept, so a label drawn every frame searches the machine once.
+    answered: BTreeMap<(char, bool, bool), Option<usize>>,
 }
 
 impl std::fmt::Debug for Chrome {
@@ -190,6 +211,21 @@ impl Chrome {
     /// `every_compiled_in_face_parses` is what should catch it first — but a program that drew
     /// no chrome and said nothing would be trap 5 in its own interface.
     pub fn new() -> Result<Self, String> {
+        let mut chrome = Self::compiled_in_only()?;
+        chrome.machine = Some(Mutex::new(MachineFaces::default()));
+        Ok(chrome)
+    }
+
+    /// The same four faces, with no machine face behind them: a character §9.6.2.2's fourteen do
+    /// not state is a box on every machine.
+    ///
+    /// What [`Self::new`] adds to this is ADR 1382's; this is the chrome whose every pixel is the
+    /// binary's, for a caller that measures the compiled-in faces themselves.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::new`].
+    pub fn compiled_in_only() -> Result<Self, String> {
         let named = |name: &str| {
             pdf_font::LoadedFont::standard(name)
                 .map_err(|error| format!("the interface's own {name}: {error}"))
@@ -202,6 +238,7 @@ impl Chrome {
                 named("Helvetica-BoldOblique")?,
             ],
             mono: named("Courier")?,
+            machine: None,
         })
     }
 
@@ -280,7 +317,13 @@ impl Chrome {
     /// 54 corpus documents whose panels lost a character, 41 lose none at all once the face is
     /// asked by character, and the commonest thing it had been drawing boxes for was an accented
     /// Latin letter. ADR 0326, `pdf-model --example interface_font_census`.
-    fn set(face: &pdf_font::LoadedFont, character: char) -> (Set, f32) {
+    ///
+    /// **And a character neither route reaches is asked of the machine before it is a box**
+    /// (ADR 1382): the same catalogue search §9.7.4.2's substituted composite fonts are drawn
+    /// through, [`pdf_font::substitute::installed_covering`], asked for this one character. Where
+    /// the machine offers no face it is still the box, and nothing else is said.
+    fn set(&self, style: Style, character: char) -> (Set, f32) {
+        let face = self.face(style);
         if let Some(code) = face.code_for(character) {
             return (Set::Glyph(code), face.advance(code));
         }
@@ -316,7 +359,60 @@ impl Chrome {
             // that case and the panel says so.
             return (Set::Blank, 0.0);
         }
+        // U+FFFD stays a box, for the reason the arm above gives: it is §7.9.2.2's report about the
+        // file rather than a character a face could be missing.
+        if character != char::REPLACEMENT_CHARACTER
+            && let Some((index, advance)) = self.machine_glyph(style, character)
+        {
+            return (Set::Machine(index, character), advance);
+        }
         (Set::Missing, MISSING_WIDTH)
+    }
+
+    /// Which machine face states a glyph for `character` in `style`, and its advance in ems.
+    ///
+    /// The faces already found are asked first, so a line of Japanese searches the machine for its
+    /// first character and finds the rest in the face that answered it. The answer — including
+    /// "none" — is kept per character and style.
+    fn machine_glyph(&self, style: Style, character: char) -> Option<(usize, f32)> {
+        let machine = self.machine.as_ref()?;
+        let mut machine = machine.lock().unwrap_or_else(PoisonError::into_inner);
+        let key = (character, style.bold, style.italic);
+        let index = if let Some(answered) = machine.answered.get(&key) {
+            *answered
+        } else {
+            let found = machine
+                .faces
+                .iter()
+                .position(|face| face.character_glyph(character).is_some())
+                .or_else(|| {
+                    let face = machine_face(style, character)?;
+                    machine.faces.push(Arc::new(face));
+                    Some(machine.faces.len().saturating_sub(1))
+                });
+            machine.answered.insert(key, found);
+            found
+        }?;
+        let advance = machine
+            .faces
+            .get(index)?
+            .character_glyph(character)?
+            .advance;
+        Some((index, advance))
+    }
+
+    /// The outline machine face `index` states for `character`, in ems, y upwards.
+    fn machine_outline(&self, index: usize, character: char) -> Option<Arc<Path>> {
+        let machine = self
+            .machine
+            .as_ref()?
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        machine
+            .faces
+            .get(index)?
+            .character_glyph(character)?
+            .outline
     }
 
     /// How wide a string is at a size, in the same pixels [`Self::text`] draws it in.
@@ -326,9 +422,8 @@ impl Chrome {
     /// every elision and every wrap in the wrong place.
     #[must_use]
     pub fn width(&self, text: &str, size: f32, style: Style) -> f32 {
-        let face = self.face(style);
         text.chars()
-            .map(|character| Self::set(face, character).1 * size)
+            .map(|character| self.set(style, character).1 * size)
             .sum()
     }
 
@@ -348,9 +443,8 @@ impl Chrome {
     /// be worse than no count.
     #[must_use]
     pub fn without_a_code(&self, text: &str, style: Style) -> usize {
-        let face = self.face(style);
         text.chars()
-            .filter(|character| matches!(Self::set(face, *character).0, Set::Missing))
+            .filter(|character| matches!(self.set(style, *character).0, Set::Missing))
             .count()
     }
 
@@ -371,7 +465,11 @@ impl Chrome {
         let face = self.face(style);
         let mut x = at.0;
         for character in text.chars() {
-            let (set, advance) = Self::set(face, character);
+            let (set, advance) = self.set(style, character);
+            let machine = match set {
+                Set::Machine(index, character) => self.machine_outline(index, character),
+                _ => None,
+            };
             match set {
                 Set::Glyph(code) => {
                     if let Some(path) = face.outline(code) {
@@ -416,6 +514,26 @@ impl Chrome {
                         });
                     }
                 }
+                Set::Machine(..) => {
+                    if let Some(path) = machine {
+                        list.push(Command::Fill {
+                            path,
+                            transform: Transform {
+                                a: size,
+                                b: 0.0,
+                                c: 0.0,
+                                d: -size,
+                                e: x,
+                                f: at.1,
+                            },
+                            fill_rule: FillRule::NonZero,
+                            paint: Paint::Solid(colour),
+                            clip: None,
+                            mask: None,
+                            blend: pdf_render::BlendMode::Normal,
+                        });
+                    }
+                }
                 Set::Blank => {}
                 Set::Missing => missing_box(list, (x, at.1), size, colour),
             }
@@ -427,9 +545,9 @@ impl Chrome {
 
 /// What stands for one character on a line of chrome.
 ///
-/// Four cases rather than two, because a space and a character with no glyph at all are
+/// Five cases rather than two, because a space and a character with no glyph at all are
 /// different silences — one of them is what the document meant — and because a character with a
-/// glyph and no *code* is a third thing again.
+/// glyph and no *code* is a third thing again, and one only the machine's face states a fourth.
 #[derive(Debug, Clone, Copy)]
 enum Set {
     /// The face states a code for it, and this is it.
@@ -440,10 +558,67 @@ enum Set {
     /// arms are the same shape: [`Chrome::set`] settles what is drawn and what it costs, and
     /// [`Chrome::text`] asks the face for the outline, exactly as it does for a code.
     Character(char),
+    /// The compiled-in face states no glyph for it and machine face `.0` does (ADR 1382).
+    Machine(usize, char),
     /// Nothing is drawn and the line still moves.
     Blank,
     /// [`missing_box`], because §9.6.2.2's fourteen have no glyph for it by either route.
     Missing,
+}
+
+/// A face this machine offers that states a glyph for `character`, loaded the ordinary way.
+///
+/// The search is [`pdf_font::substitute::installed_covering`], which is how a substituted
+/// composite font's face is found (§9.7.4.2): the sans-serif family's preferred faces first and
+/// the whole catalogue after them, kept only if the face states the character. **The route to a
+/// [`pdf_font::LoadedFont`] is the one [`pdf_font::LoadedFont::standard`] takes**: a font
+/// dictionary is assembled — here a `/TrueType` one whose descriptor's `/FontFile2` holds the
+/// face, which Table 124 gives to a `TrueType` program and which the loader reads for any `sfnt`
+/// face — and handed to [`pdf_font::LoadedFont::load`] against an empty document, so there is no
+/// second reader of a font program here. `None` where the machine offers no face, or offers one
+/// that will not load.
+fn machine_face(style: Style, character: char) -> Option<pdf_font::LoadedFont> {
+    use pdf_syntax::{Dictionary, Name, Object};
+    let request = pdf_font::substitute::Request {
+        family: pdf_font::substitute::Family::SansSerif,
+        bold: style.bold,
+        italic: style.italic,
+        standard: false,
+    };
+    let bytes = pdf_font::substitute::installed_covering(request, &[character])?;
+    let name = |value: &str| Object::Name(Name::new(value.as_bytes().to_vec()));
+    let key = |value: &str| Name::new(value.as_bytes().to_vec());
+    let mut stream = Dictionary::new();
+    stream.insert(
+        key("Length"),
+        Object::Integer(i64::try_from(bytes.len()).ok()?),
+    );
+    let mut descriptor = Dictionary::new();
+    descriptor.insert(key("Type"), name("FontDescriptor"));
+    descriptor.insert(key("FontName"), name("InterfaceFallback"));
+    // Table 121's bit 6, Nonsymbolic: the face is asked by character and never through a
+    // symbolic font's built-in code table.
+    descriptor.insert(key("Flags"), Object::Integer(32));
+    descriptor.insert(
+        key("FontFile2"),
+        Object::Stream(Arc::new(pdf_syntax::Stream {
+            dict: stream,
+            data: bytes,
+            decryption_failed: false,
+        })),
+    );
+    let mut font = Dictionary::new();
+    font.insert(key("Type"), name("Font"));
+    font.insert(key("Subtype"), name("TrueType"));
+    font.insert(key("BaseFont"), name("InterfaceFallback"));
+    font.insert(key("FontDescriptor"), Object::Dictionary(descriptor));
+    let face = pdf_font::LoadedFont::load(
+        &pdf_syntax::Document::empty(),
+        &font,
+        "the interface's machine face",
+    )
+    .ok()?;
+    face.character_glyph(character).is_some().then_some(face)
 }
 
 /// The box drawn for a character the interface's own font cannot set.

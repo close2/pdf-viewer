@@ -87,10 +87,11 @@ pub(super) fn disjoint(pieces: Vec<Polyline>, at_a_tight_bend: &[bool]) -> Vec<P
         if out.len().saturating_add(fragments.len()) > MAX_FRAGMENTS {
             return pieces;
         }
-        out.extend(fragments.into_iter().map(|(points, _)| Polyline {
-            points,
-            closed: true,
-        }));
+        out.extend(
+            fragments
+                .into_iter()
+                .map(|(points, _)| Polyline::polygon(points)),
+        );
     }
     out.extend(
         pieces

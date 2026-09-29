@@ -467,8 +467,8 @@ pub struct Structured {
     pub page: usize,
     /// §14.7's structure for it, parent-first, in §14.8.2.5's logical order.
     pub nodes: Vec<viewer_core::AccessibilityNode>,
-    /// An untagged page's widget annotations, as [`viewer_core::PageStructure::widgets`] states
-    /// them (ADR 1369).
+    /// The page's widget annotations no element reaches, as
+    /// [`viewer_core::PageStructure::widgets`] states them (ADRs 1369, 1381).
     pub widgets: Vec<viewer_core::AccessibilityNode>,
 }
 

@@ -122,9 +122,20 @@ pub(crate) fn stroke_polylines(
         let (mut pieces, mut at_a_tight_bend) = (Vec::new(), Vec::new());
         // One piece per segment, less those another segment's piece already holds.
         let held = held_by_a_neighbour(&pts, polyline.closed, segment_count);
+        // The end of the piece and the cap are both squared off to the path's own
+        // direction at each open end (§8.4.3.3; ADR 1389).
+        let last = pts.len() - 1;
+        let (start_dir, end_dir) = open_ends(polyline, &pts, hw);
+        let left_normal = |d: Point| Point::new(-d.y * hw, d.x * hw);
         for i in (0..segment_count).filter(|&i| !held[i]) {
             let (from, to) = (i, (i + 1) % pts.len());
-            pieces.push(segment_piece(pts[from], pts[to], hw, cuts[from], cuts[to]));
+            let ends = PieceEnds {
+                start: cuts[from],
+                end: cuts[to],
+                start_normal: start_dir.filter(|_| i == 0).map(left_normal),
+                end_normal: end_dir.filter(|_| i + 1 == segment_count).map(left_normal),
+            };
+            pieces.push(segment_piece(pts[from], pts[to], hw, ends));
             at_a_tight_bend.push(tight[from] || tight[to]);
         }
         // Joins at interior vertices (all vertices when closed).
@@ -150,9 +161,8 @@ pub(crate) fn stroke_polylines(
         }
         // Caps at open ends.
         if !polyline.closed {
-            let first_dir = direction(pts[0], pts[1]);
-            let last = pts.len() - 1;
-            let last_dir = direction(pts[last - 1], pts[last]);
+            let first_dir = start_dir.unwrap_or_else(|| direction(pts[0], pts[1]));
+            let last_dir = end_dir.unwrap_or_else(|| direction(pts[last - 1], pts[last]));
             cap_at(
                 &mut pieces,
                 pts[0],
@@ -173,6 +183,27 @@ pub(crate) fn stroke_polylines(
         }
     }
     out
+}
+
+/// The path's own direction at each open end of `polyline`, whose deduplicated points are
+/// `pts`, where a curve decides it and the end chord can carry it ([`carried`]); `None` at
+/// an end the chord already runs along, and at both ends of a closed subpath.
+#[expect(clippy::arithmetic_side_effects)] // `pts` has at least two points here
+fn open_ends(polyline: &Polyline, pts: &[Point], hw: f32) -> (Option<Point>, Option<Point>) {
+    if polyline.closed {
+        return (None, None);
+    }
+    let last = pts.len() - 1;
+    (
+        polyline
+            .ends
+            .start
+            .and_then(|t| carried(t, pts[0], pts[1], hw)),
+        polyline
+            .ends
+            .end
+            .and_then(|t| carried(t, pts[last - 1], pts[last], hw)),
+    )
 }
 
 /// Whether the path changes direction at `v` at all, other than straight back: a vertex
@@ -329,49 +360,76 @@ fn inner_cut(prev: Point, v: Point, next: Point, hw: f32) -> Option<InnerCut> {
     })
 }
 
+/// How a segment's piece ends at each of its two points: an inner cut where a join
+/// has one, and at an open end of the path, the normal of the path's own direction
+/// there where it is not the chord's.
+#[derive(Debug, Clone, Copy)]
+struct PieceEnds {
+    start: Option<InnerCut>,
+    end: Option<InnerCut>,
+    start_normal: Option<Point>,
+    end_normal: Option<Point>,
+}
+
 /// The piece one segment contributes: its rectangle (§8.4.3.2's points within the
 /// half-width, across the segment's own length), with the inner corner at either end
 /// replaced by that vertex's [`InnerCut`] where it has one.
+///
+/// At an open end of a curve the end is squared off to the curve's own direction rather
+/// than to the chord ([`carried`], ADR 1389): the rectangle becomes the quadrilateral
+/// whose end edge is the cap's line, and the piece still meets the cap edge to edge.
 ///
 /// The points are visited in the rectangle's own order — left side forward, right side
 /// back — so a cut piece is wound as every other piece is. At a cut end the vertex
 /// itself is inserted between the inner point and the uncut half of the end, because
 /// that half is the edge the join on the outer side shares.
-fn segment_piece(
-    a: Point,
-    b: Point,
-    hw: f32,
-    start: Option<InnerCut>,
-    end: Option<InnerCut>,
-) -> Polyline {
+fn segment_piece(a: Point, b: Point, hw: f32, ends: PieceEnds) -> Polyline {
     let n = normal(a, b, hw);
+    let (na, nb) = (ends.start_normal.unwrap_or(n), ends.end_normal.unwrap_or(n));
     let (a_left, a_right) = (
-        Point::new(a.x + n.x, a.y + n.y),
-        Point::new(a.x - n.x, a.y - n.y),
+        Point::new(a.x + na.x, a.y + na.y),
+        Point::new(a.x - na.x, a.y - na.y),
     );
     let (b_left, b_right) = (
-        Point::new(b.x + n.x, b.y + n.y),
-        Point::new(b.x - n.x, b.y - n.y),
+        Point::new(b.x + nb.x, b.y + nb.y),
+        Point::new(b.x - nb.x, b.y - nb.y),
     );
     let mut points = Vec::with_capacity(6);
-    match start {
+    match ends.start {
         Some(cut) if cut.left => points.push(cut.point),
         _ => points.push(a_left),
     }
-    match end {
+    match ends.end {
         Some(cut) if cut.left => points.extend([cut.point, b, b_right]),
         Some(cut) => points.extend([b_left, b, cut.point]),
         None => points.extend([b_left, b_right]),
     }
-    match start {
+    match ends.start {
         Some(cut) if cut.left => points.extend([a_right, a]),
         Some(cut) => points.extend([cut.point, a]),
         None => points.push(a_right),
     }
-    Polyline {
-        points,
-        closed: true,
-    }
+    Polyline::polygon(points)
+}
+
+/// The unit direction `tangent` gives an open end of the path whose end chord runs from
+/// `a` to `b`, or `None` where that chord cannot carry it and the end stays square to the
+/// chord.
+///
+/// §8.4.3.3's butt cap: "The stroke shall be squared off at the endpoint of the path.
+/// There shall be no projection beyond the end of the path." The path's direction at its
+/// endpoint is the curve's tangent, so the line the stroke ends on is square to that —
+/// and square to the last chord it is turned by half the chord's angle, one corner past
+/// the end and the other short of it. Turning the piece's end edge by that angle keeps
+/// the piece a simple quadrilateral while its far corners stay ahead of the turned ones,
+/// which is `hw · tan θ ≤ |ab|`: a chord shorter than that (a curve bent more tightly
+/// than the half-width, at a coarse flattening) keeps the chord's square end, and so
+/// does a tangent pointing back along the chord (`cos θ ≤ 0`, a cusp at the end).
+fn carried(tangent: Point, a: Point, b: Point, hw: f32) -> Option<Point> {
+    let u = direction(Point::new(0.0, 0.0), tangent);
+    let d = direction(a, b);
+    let (cos, sin) = (u.x * d.x + u.y * d.y, (u.x * d.y - u.y * d.x).abs());
+    (cos > 0.0 && hw * sin <= distance(a, b) * cos).then_some(u)
 }
 
 /// The left normal of `a → b`, scaled to the half-width.
@@ -416,10 +474,7 @@ fn join_at(
     // wedge along with its side. Visiting `p2` first on that turn undoes the mirror.
     let (first, second) = if cross > 0.0 { (p2, p1) } else { (p1, p2) };
     match join {
-        LineJoin::Bevel => out.push(Polyline {
-            points: vec![v, first, second],
-            closed: true,
-        }),
+        LineJoin::Bevel => out.push(Polyline::polygon(vec![v, first, second])),
         LineJoin::Miter => {
             // §8.4.3.5: the miter stands until length/width exceeds the limit; then
             // the join is a bevel. Ratio = 1 / cos(half-angle), via the unit normals.
@@ -429,15 +484,9 @@ fn join_at(
             if ratio_sq <= miter_limit * miter_limit {
                 let scale = 1.0 / denom.max(f32::EPSILON);
                 let m = Point::new(v.x + (n1.x + n2.x) * scale, v.y + (n1.y + n2.y) * scale);
-                out.push(Polyline {
-                    points: vec![v, first, m, second],
-                    closed: true,
-                });
+                out.push(Polyline::polygon(vec![v, first, m, second]));
             } else {
-                out.push(Polyline {
-                    points: vec![v, first, second],
-                    closed: true,
-                });
+                out.push(Polyline::polygon(vec![v, first, second]));
             }
         }
         LineJoin::Round => {
@@ -451,15 +500,12 @@ fn cap_at(out: &mut Vec<Polyline>, end: Point, dir: Point, hw: f32, cap: LineCap
     let n = Point::new(-dir.y * hw, dir.x * hw);
     match cap {
         LineCap::Butt => {}
-        LineCap::Square => out.push(Polyline {
-            points: vec![
-                Point::new(end.x + n.x, end.y + n.y),
-                Point::new(end.x + n.x + dir.x * hw, end.y + n.y + dir.y * hw),
-                Point::new(end.x - n.x + dir.x * hw, end.y - n.y + dir.y * hw),
-                Point::new(end.x - n.x, end.y - n.y),
-            ],
-            closed: true,
-        }),
+        LineCap::Square => out.push(Polyline::polygon(vec![
+            Point::new(end.x + n.x, end.y + n.y),
+            Point::new(end.x + n.x + dir.x * hw, end.y + n.y + dir.y * hw),
+            Point::new(end.x - n.x + dir.x * hw, end.y - n.y + dir.y * hw),
+            Point::new(end.x - n.x, end.y - n.y),
+        ])),
         // §8.4.3.3, Table 53: "[a] semicircular arc with a diameter equal to the line
         // width shall be drawn around the endpoint and shall be filled in."
         LineCap::Round => out.push(cap_fan(end, dir, n, hw)),
@@ -504,10 +550,7 @@ fn cap_fan(end: Point, dir: Point, n: Point, hw: f32) -> Polyline {
         points.push(Point::new(end.x + hw * t.cos(), end.y + hw * t.sin()));
     }
     points.push(Point::new(end.x - n.x, end.y - n.y));
-    Polyline {
-        points,
-        closed: true,
-    }
+    Polyline::polygon(points)
 }
 
 /// The coarsest angle one step of an arc advances. Deterministic (brief section 4.6),
@@ -576,8 +619,5 @@ fn arc_fan(centre: Point, from: Point, to: Point, radius: f32) -> Polyline {
         ));
     }
     points.push(to);
-    Polyline {
-        points,
-        closed: true,
-    }
+    Polyline::polygon(points)
 }

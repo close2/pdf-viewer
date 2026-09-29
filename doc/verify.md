@@ -1014,3 +1014,328 @@ feature would falsify it, which is why the commands are here and the conclusion 
 `--unit-graph` is nightly-only, which is why this is a method rather than a gate. The gate that
 does exist for the neighbouring failure — a gate measuring a build whose *binaries* are incomplete
 — is `tools/conformance/tests/sandbox_gates.rs`, and it is trap 16's.
+
+**The examples no paragraph above names, one line each** — a census, a cost, a probe a later round
+re-runs. Each is the example's own usage line and the first sentence of its own header, which says
+what it measures; the header is the rest of the argument, and the ADR or ledger note that used the
+number is where the number is. One that walks a corpus is a heavy walk and runs behind the lock
+`doc/todo/02` names. Grouped by package, in the order `tools/state.sh instruments` lists them.
+
+```sh
+cargo run -p pdf-archive --example frontier
+  # What the structural audit covers, at both of its granularities, and where it stops.
+cargo run --release -p pdf-archive --example survey_cost -- FILE.pdf
+  # What one survey of a document costs, and what a full report costs on top of it.
+cargo run --release -p pdf-archive --example unreferenced -- doc/veraPDF-corpus
+  # What ISO 19005's unreferenced-named-resource exemption reaches, and what nothing reaches.
+cargo run --release -p pdf-font --example partial_to_unicode_census -- doc/pdf.js doc/corpora
+  # How many substituted composite fonts state a `/ToUnicode` that omits codes their character
+  # collection names.
+cargo run --release -p pdf-font --example to_unicode_kind_census -- doc/pdf.js doc/corpora
+  # How many font dictionaries state a `/ToUnicode` that is not the stream the clause requires.
+cargo run --release -p pdf-font --example type1_encoding_census -- doc doc/pdf.js
+  # How many bare Type 1 programs claim to encode codes their own `/Encoding` array never names.
+cargo run --release -p pdf-model --example anisotropic_band_census -- doc/pdf.js/test/pdfs/*.pdf
+  # How wide the sub-pixel substitution's band actually becomes, when the placement is anisotropic.
+cargo run --release -p pdf-model --example annotation_group_census -- doc/pdf.js/test/pdfs/*.pdf
+  # §12.5.6.2's `/IRT` and `/RT`, counted: how many annotations belong to a group, and how many of
+  # them state a group attribute of their own.
+cargo run --release -p pdf-model --example annotation_state_census -- doc/pdf.js/test/pdfs/*.pdf
+  # §12.5.6.3's `/State` and `/StateModel`, counted: how many annotations a reviewer has ruled on.
+cargo run --release -p pdf-model --example appearance_transparency_census
+  # §12.5.5's transparency sentences, counted: what an annotation's appearance says about the group
+  # it is composited as, and what the annotation says about how that group meets the page.
+cargo run --release -p pdf-model --example attribute_owner_census -- doc/pdf.js/test/pdfs/*.pdf
+  # §14.8.5.3's ranking, measured: how often two owners state one attribute, and who owns them.
+cargo run --release -p pdf-model --example black_generation_census -- doc/pdf.js/test/pdfs/*.pdf
+  # How many documents state §10.4.2.4's black generation or undercolour removal, and how many state
+  # a *function* rather than naming the device's own.
+cargo run --release -p pdf-model --example black_point_census
+  # How many corpus pages state a Cal space's `/BlackPoint`, and how many state a real one.
+cargo run --release -p pdf-model --example border_overhang_census
+  # §12.5.4's "completely inside the annotation rectangle", measured in pixels rather than read.
+cargo run --release -p pdf-model --example border_precedence_census
+  # §12.5.4's borders, counted where this tree actually constructs one.
+cargo run --release -p pdf-model --example callgrind_pages -- 20
+  # Interprets a *run of distinct pages*, for deterministic instruction counting.
+cargo run --release -p pdf-model --example cloudy_border_census
+  # Table 169's cloudy border effect, counted where it is stated and where it is constructed.
+cargo run -p pdf-model --example coincident_edge_probe
+  # Which composition multiplies a rectangle's edge coverage by itself, and which does not.
+cargo run --release -p pdf-model --example colour_key_mask_census -- <file.pdf>…
+  # How many documents state §8.9.6.4's colour key `/Mask`, and how many of those are filtered.
+cargo run -p pdf-model --example compare_rasters -- <left.png> <right.png>
+  # Prints the oracle's own four measurements between two PNGs on disk.
+cargo run --release -p pdf-model --example crop_box_census -- doc/pdf.js/test/pdfs/*.pdf
+  # How many documents draw where ISO 32000-2 §14.11.2.1 says nothing shall be shown.
+cargo run --release -p pdf-model --example damaged_dictionary_consumers -- <dir-or-file>...
+  # Which of a file's damaged dictionaries something in the document *names*, and under what key.
+cargo run --release -p pdf-model --example damaged_stream_census -- <dir-or-file>...
+  # How many documents hold a stream that decodes only as far as its damage, and where.
+cargo run --release -p pdf-model --example delegated_census -- doc/pdf.js/test/pdfs/*.pdf
+  # How much of a page §6.3.2.2's instruction takes off it, over the corpus.
+cargo run --release -p pdf-model --example display_list_digest -- doc/pdf.js/test/pdfs/*.pdf
+  # A digest of every corpus document's first page, for proving a change drew nothing differently.
+cargo run --release -p pdf-model --example element_bounds_census -- doc/pdf.js/test/pdfs/*.pdf
+  # Table 379's `/BBox`, and the structure elements that reach an assistive technology with no place
+  # at all.
+cargo run --release -p pdf-model --example empty_font_program_census -- doc/pdf.js/test/pdfs/*.pdf
+  # How many embedded font programs decode to no bytes at all, and what each one is.
+cargo run --release -p pdf-model --example encryption_census -- doc/pdf.js/test/pdfs/*.pdf
+  # ISO 32000-2 §7.6's populations, counted rather than remembered.
+cargo run --release -p pdf-model --example file_attachment_census -- doc/pdf.js/test/pdfs/*.pdf
+  # §12.5.6.15's `/FS`, counted against §7.7.4's `/EmbeddedFiles` tree.
+cargo run --release -p pdf-model --example filter_census
+  # How many corpus documents carry each sandboxed image codec, and how large each codestream is.
+cargo run --release -p pdf-model --example fixed_print_census -- doc/pdf.js/test/pdfs/*.pdf
+  # §12.5.6.22's watermark annotations, and how many of them state Table 193's `/FixedPrint`.
+cargo run --release -p pdf-model --example font_cache_budget -- 100
+  # What each font-cache budget gives up, over a run of pages.
+cargo run --release -p pdf-model --example font_flags_census
+  # How a corpus writes a font descriptor's `/Flags`, against what ISO 32000-2 §9.8.2 states of it.
+cargo run --release -p pdf-model --example form_depth_cost -- [KIND] [DEPTH_A DEPTH_B]
+  # What one nested form `XObject` costs in stack, measured rather than assumed.
+cargo run --release -p pdf-model --example free_text_census -- doc/pdf.js/test/pdfs/*.pdf
+  # §12.5.6.6's annotations as the corpus states them, and what Table 167 says about editing one.
+cargo run --release -p pdf-model --example glyph_class_census
+  # What a corpus writes in ISO 32000-2 §9.8.3.3's `/FD`, and which of it could change a page.
+cargo run --release -p pdf-model --example group_space_census -- doc/pdf.js/test/pdfs/*.pdf
+  # Which space a *painted* group actually composites in — §11.4.7's page group and §11.6.6's
+  # inheritance, rather than whatever `/CS` a group dictionary happens to carry.
+cargo run --release -p pdf-model --example image_prefix_census -- doc/pdf.js/test/pdfs
+  # What `Document::image_stream` decodes, and how often one page asks it for the same bytes.
+cargo run --release -p pdf-model --example image_region_census -- doc/pdf.js/test/pdfs/*.pdf
+  # How much of an image a magnified view actually shows, and how much was decoded to show it.
+cargo run --release -p pdf-model --example indexed_all_census -- <file.pdf>…
+  # How the corpus states §8.6.6.3's `Indexed` spaces and §8.6.6.4's `/All` colourant.
+cargo run --release -p pdf-model --example jpx_dump -- doc/pdf.js/test/pdfs/issue5475.pdf /tmp/jpx
+  # Writes one document's `/JPXDecode` codestreams out as files, for work outside this tree.
+cargo run --release -p pdf-model --example kidless_node_census -- <file.pdf>…
+  # How many documents state a page tree node with no `/Kids`, and what is beside it.
+cargo run --release -p pdf-model --example list_continuation_census -- \
+    $(find doc/pdf.js/test/pdfs -maxdepth 1 -name '*.pdf') $(find -L doc/corpora corpus-cache -name '*.pdf') doc/*.pdf
+  # Table 382's `/ContinuedList` and `/ContinuedFrom`: how many lists say they continue another.
+cargo run --release -p pdf-model --example long_mitre_census
+  # How often a document asks for a mitre a rasteriser's own join code will not draw.
+cargo run --release -p pdf-model --example markup_text_census -- doc/pdf.js/test/pdfs/*.pdf
+  # What a markup annotation offers §12.5.6.14's popup window to display.
+cargo run --release -p pdf-model --example mcid_stream_census -- \
+    $(find doc/pdf.js/test/pdfs -maxdepth 1 -name '*.pdf') $(find -L doc/corpora -name '*.pdf') doc/*.pdf
+  # How many pages number two content streams' marked-content sequences from zero, and collide.
+cargo run --release -p pdf-model --example media_box_census -- <file.pdf>…
+  # How many pages state no usable `/MediaBox` anywhere in their ancestry.
+cargo run --release -p pdf-model --example mesh_census
+  # How many corpus documents state a mesh shading, and how many of them state a `/Function`.
+cargo run --release -p pdf-model --example mesh_triangle_census -- \
+    doc/pdf.js/test/pdfs doc/corpora corpus-cache
+  # How close a real mesh shading comes to the bound that stops one being read.
+cargo run --release -p pdf-model --example name_dictionary_and_file_spec_census -- \
+    doc/pdf.js/test/pdfs/*.pdf
+  # Three entries two tables define and nothing in this tree consumed: `/Names /AP`, `/Thumb`,
+  # `/EP`.
+cargo run --release -p pdf-model --example nchannel_census -- @paths.txt
+  # How many documents state an `NChannel` colour space, and how many of those name a spot
+  # colourant.
+cargo run --release -p pdf-model --example numeric_form_census -- <file.pdf>…
+  # Which of ISO 32000-2 §7.3.3's numeric forms real documents actually write, and what they write
+  # instead.
+cargo run --release -p pdf-model --example object_metadata_census -- --pdfjs
+  # §14.3.2's *object-level* metadata: a `/Metadata` stream on something other than the catalog.
+cargo run --release -p pdf-model --example oc_usage_census -- doc/pdf.js/test/pdfs/*.pdf
+  # Which of Table 100's usage categories the corpus actually asks for.
+cargo run --release -p pdf-model --example open_annotation_census -- doc/pdf.js/test/pdfs/*.pdf
+  # §12.5.6.4's `/Open`, counted against §12.5.6.14's.
+cargo run -p pdf-model --example open_one -- <file.pdf> [scale] [out.png]
+  # Opens, interprets and rasterises one document, for isolating a pathological file.
+cargo run --release -p pdf-model --example operator_shape_census
+  # Two negatives whose witness is a *shape in a content stream* rather than a name anywhere.
+cargo run --release -p pdf-model --example own_ink > before.tsv
+  # This backend's **own** ink on every tracked corpus first page, one line per document.
+cargo run --release -p pdf-model --example pattern_state_census -- doc/pdf.js/test/pdfs/*.pdf
+  # When a shading pattern's colours are resolved, and how many documents can tell the difference.
+cargo run --release -p pdf-model --example point_rectangle_census -- <file.pdf>…
+  # How many annotations state a `/Rect` covering no area, and what their subtype clause states.
+cargo run --release -p pdf-model --example print_preference_census
+  # §12.2's print half of Table 147, counted: which documents ask for something on paper.
+cargo run --release -p pdf-model --example push_button_census -- doc/pdf.js/test/pdfs/*.pdf
+  # Which of Table 192's push-button icon and caption entries the corpus actually states.
+cargo run --release -p pdf-model --example raster_digest -- doc/pdf.js/test/pdfs/*.pdf
+  # A digest of every corpus document's first page **as pixels**, for proving a change to a
+  # rasteriser drew nothing differently.
+cargo run --release -p pdf-model --example readback -- file.pdf [page]
+  # What one page reads back as, which is §9.10.2's answer for every code it showed.
+cargo run --release -p pdf-model --example rectangular_path_census -- <dir-or-file>...
+  # How many fills state their region as *several* axis-aligned rectangles, and how many of those
+  # put two of them in one device pixel.
+cargo run --release -p pdf-model --example refused_action_census -- \
+    doc/pdf.js/test/pdfs/*.pdf doc/corpora/*/**/*.pdf
+  # Table 201's twenty action types, counted over every document this tree can reach, and what this
+  # reader answers for each.
+cargo run --release -p pdf-model --example refused_segment_census
+  # How many real first pages state ISO 32000-2 §8.5.2.1's error, asked of the *interpreter*.
+cargo run --profile gates -p pdf-model --example replace_cost -- <file.pdf> <page> [runs]
+  # What re-placing §12.5.3's annotations would cost, against re-interpreting the page.
+cargo run --profile gates -p pdf-model --example replacement_census -- <directory>…
+  # Whether re-placing §12.5.3's annotations produces the page a whole interpretation does, over
+  # every document of a corpus rather than over the eight pages a test can afford.
+cargo run --release -p pdf-model --example required_entry_census -- doc/pdf.js/test/pdfs/*.pdf
+  # Which of ISO 32000-2 §8.9.5.1 Table 87's *required* entries each image `XObject` states, and
+  # which state one malformed — the census behind `crate::image`'s refusals.
+cargo run --release -p pdf-model --example reset_form_census -- doc/pdf.js/test/pdfs/*.pdf
+  # Which of Table 241's two spellings of `/Fields` the corpus's reset-form actions use.
+cargo run --release -p pdf-model --example shading_grid_census -- \
+    doc/pdf.js/test/pdfs/*.pdf doc/corpora/*/**/*.pdf doc/corpora-own/*.pdf
+  # What share of a function-based shading's grid a magnified window actually shows.
+cargo run --release -p pdf-model --example singular_transform_census -- <dir-or-file>...
+  # How many documents paint under a matrix that has no inverse, and what it costs them.
+cargo run --release -p pdf-model --example standing_count_census -- <dir-or-file>...
+  # How many documents state a page count this reader cannot produce a page for, and why.
+cargo run --release -p pdf-model --example structure_destination_census -- \
+    doc/pdf.js/test/pdfs/*.pdf
+  # The `/SD` entry, counted where the standard states it: on §12.6.4.2's go-to action, and on
+  # §12.3.2.4's named destination.
+cargo run --release -p pdf-model --example structure_tree_census -- <file.pdf>…
+  # What §14.7's logical structure a corpus actually states, and where it is stated.
+cargo run --release -p pdf-model --example sub_pixel_width_census -- <file.pdf> [page]
+  # What a page's sub-pixel strokes are, and what their caps are worth in ink.
+cargo run --release -p pdf-model --example substitute_stretch_census -- doc/pdf.js/test/pdfs/*.pdf
+  # How far the corpus's substituted faces are from the widths their documents state.
+cargo run --release -p pdf-model --example table_header_census -- doc/pdf.js/test/pdfs/*.pdf
+  # §14.8.5.7's table attributes, counted over a corpus.
+cargo run --release -p pdf-model --example tiling_type_census -- doc/pdf.js/test/pdfs/*.pdf
+  # Table 74's `/TilingType`: which code a corpus asks for, and what the lattice does about it.
+cargo run --profile gates -p pdf-model --example token_window_census -- doc
+  # How large a window a content stream needs: the biggest single token, and the inline images.
+cargo run --release -p pdf-model --example transfer_function_census -- doc/pdf.js/test/pdfs/*.pdf
+  # How many documents state §10.5's transfer function, how many state a real one, and how many
+  # paint a **shading** under it.
+cargo run --release -p pdf-model --example type4_operator_census -- \
+    doc/pdf.js/test/pdfs/*.pdf doc/corpora/*/**/*.pdf doc/corpora-own/*.pdf
+  # Which of Table 42's operators the corpora's §7.10.5 programs actually reach, and what the two
+  # defects of the five-hundred-and-thirty-fourth session cost where they were reached.
+cargo run --release -p pdf-model --example type4_type_census -- \
+    doc/pdf.js/test/pdfs/*.pdf doc/corpora/*/**/*.pdf doc/corpora-own/*.pdf
+  # What a typed operand stack costs the files that exist, rather than in principle.
+cargo run --release -p pdf-model --example uncovered_share -- <file.pdf> <page> <index> [scale]...
+  # How much of what a page draws early still shines through what it draws later.
+cargo run --release -p pdf-model --example unknown_subtype_census -- doc/pdf.js/test/pdfs
+  # Annotations whose `/Subtype` is outside Table 171, and whether each states an appearance.
+cargo run --profile gates -p pdf-model --example unnamed_code_census -- doc/pdf.js/test/pdfs/*.pdf
+  # What the codes ISO 32000-2 §9.10.2 cannot name are made of, by which method could have named
+  # them.
+cargo run --release -p pdf-model --example unnamed_field_census -- <file.pdf>…
+  # How many documents state a form field dictionary with no `/T`, and where in the tree it is.
+cargo run --release -p pdf-model --example unreached_content_census -- \
+    $(find doc/pdf.js/test/pdfs -maxdepth 1 -name '*.pdf') $(find -L doc/corpora -name '*.pdf') doc/*.pdf
+  # How much of a tagged page's readback no structure element reaches — §14.8.2.2.2's artifact by
+  # absence, measured before it is computed.
+cargo run --profile gates -p pdf-model --example window_lexer_spike -- <pdf> 0 whole
+  # Road D's sink, as an experiment: a `Lexer` fed from a fixed window instead of a `Vec`.
+cargo run --release -p pdf-render --example area_bench -- [runs]
+  # What [`pdf_render::Image::area_averaged`] costs, against the serial shape it replaced.
+cargo run --release -p pdf-transform --example r1175_separation_pixels
+  # What choosing one definition of an ink over another does to the page, on the corpus witnesses.
+cargo run --release -p pdf-vfs --example faces_on_the_port
+  # What `doc/todo/59`'s resource port costs and what it buys, measured on the documents that named
+  # it.
+cargo run --profile gates -p pdf-vfs --example vfs_cost -- [DOCUMENT ...]
+  # What a mount costs: a worker per generation, a question in each transport, and the peak.
+cargo run --release -p render-raster --example atlas_squeeze -- [file.pdf] [page]
+  # What a small glyph atlas does to a page of text, frame after frame.
+cargo run --release -p render-raster --example clip_cost -- bug1844576 issue16473
+  # What a page's clips cost each backend in ink — the instrument that says whether a clip is
+  # *cutting* a mark or a backend is *losing* one at it.
+cargo run --release -p render-raster --example coverage_lattice -- endchar issue15150
+  # Where a backend's partial coverages *land* — the instrument that says whether a rasteriser
+  # states an edge on a lattice or anywhere the geometry puts it.
+cargo run --release -p render-raster --example device_under_confinement
+  # What a graphics device does when the process holding it is confined.
+cargo run --release -p render-raster --example edge_coverage_ladder
+  # What each backend paints at the *edge* of a shape wider than a pixel — ISO 32000-2 §10.7.4.
+cargo run --release -p render-raster --example encode_threads_across_the_seam -- \
+    <file.pdf> [page] [scale] [1,2,4,…]
+  # How many threads this host should let raster's geometry phase use, on *this* machine.
+cargo run --release -p render-raster --example frame_race
+  # The number `RENDER_LIBRARY.md` section 6.2 judges everything by: wall-clock `rasterize` time on
+  # the dense page, all three backends, same display list, same target.
+cargo run --release -p render-raster --example function_paint_census -- \
+    doc/pdf.js/test/pdfs/*.pdf doc/corpora/*/**/*.pdf doc/corpora-own/*.pdf
+  # How many of the type 1 shadings that exist a device will evaluate, and why not the rest.
+cargo run --release -p render-raster --example image_phase
+  # Whether each backend filters an image drawn at **exactly one device pixel per sample** — and
+  # §10.7.4 says which answer is right: the centre of each device pixel is mapped back into source
+  # space to decide its colour, and there is no averaging over the pixel area.
+cargo run --release -p render-raster --example image_residual
+  # `doc/QUORRA_FEEDBACK.md` section 46's residual reduction drawn without the page — and the
+  # measurement that **excludes** it as the cause section 46 named.
+cargo run --release -p render-raster --example lane_diff -- bug1743245 issue16500
+  # One page through both of raster's coverage lanes, beside the CPU oracle.
+cargo run --release -p render-raster --example mark_width
+  # The instrument behind `doc/QUORRA_HAIRLINE_MARKS.md`: how many pixel rows a §10.7.4 mark
+  # occupies, and how much ink it carries, per backend and per scale.
+cargo run --release -p render-raster --example mitre_ladder
+  # What each backend draws for a mitre at each ratio ISO 32000-2 §8.4.3.5 admits.
+cargo run --release -p render-raster --example outline_stability -- \
+    [file.pdf] [page] [scale] [atlas budget in bytes]
+  # Are the resource identifiers this backend hands raster the same from one render of one display
+  # list to the next?
+cargo run --release -p render-raster --example quantum_diff
+  # The measurement behind `tests/real_pages.rs`'s gates: the glyph-phase quantum's cost against the
+  # CPU oracle on a real text page, per `RENDER_LIBRARY.md` section 4.5's "measured, never assumed".
+cargo run --release -p render-raster --example rect_and_residue_census
+  # Two facts about this corpus in one walk: how many of its fills are axis-aligned rectangles, and
+  # what its clip chains cost the device.
+cargo run --release -p render-raster --example sub_pixel_marks
+  # What each backend does with a mark thinner than a pixel — the two numbers `doc/todo/11` called
+  # *unmeasured*, and then the instrument that closed them.
+cargo run --release -p render-raster --example viewport_refusal -- <file.pdf> [page] [scale] [w] [h]
+  # Whether a page the 4× gate refuses is also refused by the *product*, whose target is a window.
+cargo run --release -p viewer-confined --example confined_cancel -- [levels] [--finish] [--marks]
+  # A hostile document, and a host taking its thread back — from **either** of the two places the
+  # drawing can happen.
+cargo run --release -p viewer-confined --example confined_page -- file.pdf [page] [out.png]
+  # A page drawn in a confined process, with what each step of it cost.
+cargo run --release -p viewer-confined --example confined_panels -- file.pdf [page]
+  # A sidebar's worth of a document, read out of a process that cannot open a file.
+cargo run --release -p viewer-confined --example confined_peak -- file.pdf [more.pdf …]
+  # What a confined viewer's address space peaks at, against the ceiling it was given.
+cargo run --release -p viewer-confined --example host_draw -- [--scale N] [--levels K] <file.pdf>…
+  # What a page's marks cost the **host** that draws them, and whether anything predicts it.
+cargo run --release -p viewer-confined --example list_against_raster -- [--scale N] <file.pdf>…
+  # What a display list would cost to send, against what its raster costs.
+cargo run --release -p viewer-core --example accessibility_cost -- \
+    file.pdf [page] [repeats] [column]
+  # What `Query::AccessibilityTree` costs, on the document whose size makes it a question.
+cargo run --profile gates -p viewer-core --example find_cost -- \
+    file.pdf needle [repeats] [split] [pages]
+  # What a document-wide search costs, measured in `find_step` alone rather than in a host's loop.
+cargo run --profile gates -p viewer-core --example zoom_cost -- <file.pdf> [ticks]
+  # What one wheel notch costs the event thread, with and without §12.5.3's re-interpretation.
+cargo run --release -p raster-gpu --example encode_threads [-- <adapter substring> [rounds] [thread counts, comma separated]]
+  # What `encode: geometry` costs, and what more than one thread does to it.
+cargo run --release -p raster-gpu --example function_compile [-- <adapter substring> [rounds]]
+  # What a §7.10.5 program's generated shader costs to compile, by the program's length (ADR 0053).
+cargo run --release -p raster-gpu --example function_paint
+  # A feasibility spike: is a §7.10.5 function a paint the device should evaluate?
+cargo run --release -p raster-gpu --example lane_placement
+  # **Where each coverage lane puts a hairline, and what the sampled grid does to its ink.**.
+cargo run --release -p raster-gpu --example outline_upload [-- <adapter substring> [rounds]]
+  # What an outline upload costs, and where the GPU lane's conversion went (ADR 0075).
+cargo run -p raster-gpu --example present_thread
+  # **The proof of ADR 0056**: a page rendered on one thread while the window is presented from
+  # another, and the pixels read back to show where the affine put them.
+cargo run --release -p raster-gpu --example rect_lane
+  # The caller's section 19 measurement: what does a `Rect` command save over a `Fill` of the same
+  # four-edge outline?
+cargo run --release -p raster-gpu --example residue_clip [-- <adapter substring> [rounds]]
+  # What a page of curve-clipped marks costs to encode (ADR 0049).
+cargo run --release -p raster-gpu --example retained [-- <adapter substring> [rounds]]
+  # What an unchanged frame costs when it does not encode itself again (ADR 0048).
+cargo run --release -p raster-gpu --example startup -- <adapter substring>
+  # What bring-up costs, one step at a time — the brief section 7 measurement, attributable.
+cargo run --release -p raster-gpu --example surface_measure
+  # The two surface-tier numbers only a person at the real GPU can take.
+DISPLAY=:77 cargo run -p raster-gpu --example window_smoke   # under Xvfb :77
+  # The surface-path smoke test: a real window, real presents, and pixels a person (or `xwd`) can
+  # look at.
+```

@@ -303,10 +303,10 @@ pub enum PublicKey<'a> {
     Rsa(pkcs1::PublicKey<'a>),
     /// RFC 3279's `id-dsa`, with the four integers [`crate::dsa::verify`] needs.
     Dsa(dsa::PublicKey<'a>),
-    /// RFC 5480's `id-ecPublicKey` on one of ISO/TS 32002 Table 3's first three curves.
+    /// RFC 5480's `id-ecPublicKey` on one of ISO/TS 32002 Table 3's six curves.
     Ec(ecdsa::PublicKey<'a>),
-    /// RFC 8410's `id-Ed25519`, the first of ISO/TS 32002 Table 4's two.
-    Ed25519(eddsa::PublicKey<'a>),
+    /// RFC 8410's `id-Ed25519` or `id-Ed448`, ISO/TS 32002 Table 4's two.
+    EdDsa(eddsa::PublicKey<'a>),
     /// `id-ecPublicKey` on a curve this program does not compute on, or on none it can name.
     ///
     /// Two cases, and the difference between them is whose fault it is. `Some` is one of
@@ -325,8 +325,7 @@ pub enum PublicKey<'a> {
     /// **Named by its number and not by a word**, which is `CLAUDE.md` principle 5 applied to a
     /// document this tree does not hold: neither ISO 32000-2 nor either Technical Specification
     /// prints a digit of an object identifier, so the file's own digits are the only claim that
-    /// can be checked. [`dotted`] is what turns the encoding into them. `id-Ed448` arrives here —
-    /// ISO/TS 32002 Table 4 names the curve and [`crate::eddsa`] says why it is not computed.
+    /// can be checked. [`dotted`] is what turns the encoding into them.
     Unverifiable {
         /// The `AlgorithmIdentifier`'s object identifier, as encoded.
         algorithm: &'a [u8],
@@ -776,11 +775,11 @@ fn read_public_key(spki: Value<'_>) -> Result<PublicKey<'_>, X509Error> {
         let _identifier = members.next_value()?;
         return read_ec_key(members.next_value()?, bits);
     }
-    if oid == eddsa::ID_ED25519.as_bytes() {
+    if let Some(curve) = eddsa::Curve::of(oid) {
         // RFC 8410 section 3: "the parameters field MUST be absent", and section 4 puts the key in
         // the `BIT STRING` with no structure around it at all.
         let key = key_octets(&bits).ok_or(X509Error::MalformedEdKey)?;
-        return Ok(PublicKey::Ed25519(eddsa::PublicKey { key }));
+        return Ok(PublicKey::EdDsa(eddsa::PublicKey { curve, key }));
     }
     Ok(PublicKey::Unverifiable { algorithm: oid })
 }
@@ -1361,9 +1360,9 @@ pub(crate) fn verify_signature(
             let computed = digest.compute(&[message]);
             ecdsa::verify(key, signature, &computed).map_err(|_| named())
         }
-        (SignatureAlgorithm::EdDsa, PublicKey::Ed25519(key)) => {
+        (SignatureAlgorithm::EdDsa(stated), PublicKey::EdDsa(key)) if stated == key.curve => {
             // RFC 8032 signs the message rather than a digest of it, which is why this arm has no
-            // `signature_digest` call and why a structure signed with Ed25519 states no hash.
+            // `signature_digest` call and why a structure signed with EdDSA states no hash.
             eddsa::verify(key, signature, &[message]).map_err(|_| named())
         }
         _ => Err(named()),

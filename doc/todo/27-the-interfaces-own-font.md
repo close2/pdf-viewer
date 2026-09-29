@@ -1,8 +1,9 @@
 # The interface's own font, and the text it cannot set
 
 Status: **most of it was never a font question**, and the four-hundred-and-ninety-first session
-closed that half. What is open is a *script* this binary does not carry, which is a decision the
-project owner has not been asked for — and the demand for it is four documents.
+closed that half. A *script* this binary does not carry is set from a face the machine offers (ADR
+1382); what is open is a machine that offers none, which is a decision the project owner has not been
+asked for — and the demand for it is four documents.
 Priority: 27
 Corpus: **13 documents** still state something in a panel this program cannot set, out of 54 that
 did. What remains is Hebrew, Thai and CJK, plus one malformed file's U+FFFD.
@@ -60,7 +61,10 @@ Two answers remain, and neither is obviously right at this size:
    `doc/todo/30` is about, this whole item is `viewer-ui`'s alone. That is an argument for not
    spending a megabyte on it here.
 
-**Falling back to a face on the machine is no longer on this list.** It was the cheapest of the
-three and it costs ADR 0133's argument outright — the interface would stop looking the same on two
-machines — and what it would have bought is now thirteen documents rather than seventy-four, two
-of which are malformed rather than foreign.
+**`quorra` now asks the machine for a character the compiled-in faces do not state** (ADR 1382),
+the same covering search a substituted composite font uses, and draws the box only where the machine
+offers no face. Every character the fourteen state is still drawn from the binary, so ADR 0133's
+argument holds for all of them; what differs from machine to machine is only what was a box on every
+machine. `Chrome::compiled_in_only` is the chrome with no machine face behind it. So on a machine
+with the faces, the thirteen documents above lose nothing in `quorra`'s panels either, and the two
+answers above are now about a machine that has none.

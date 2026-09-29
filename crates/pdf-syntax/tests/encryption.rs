@@ -59,6 +59,14 @@ use std::path::{Path, PathBuf};
 
 use pdf_syntax::{Document, Limits, Object, SyntaxError};
 
+#[path = "../../pdf-model/tests/support/corpus_passwords.rs"]
+#[expect(
+    dead_code,
+    reason = "the references' spelling of a password is the oracle's, and this test looks a \
+              document up by walking the table rather than by name"
+)]
+mod corpus_passwords;
+
 /// A corpus document's bytes, or `None` when the submodule is not checked out.
 fn corpus_bytes(name: &str) -> Option<Vec<u8>> {
     let path: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -175,34 +183,19 @@ fn each_revision_and_method_decrypts_to_a_readable_content_stream() {
 
 /// §7.6.4.4's password algorithms, on the documents whose passwords are known.
 ///
-/// `pr6531_2.pdf` and `saslprep-r6.pdf` are the two that make §7.6.4.1's preprocessing
+/// `issue6010_2.pdf` and `saslprep-r6.pdf` are the two that make §7.6.4.1's preprocessing
 /// load-bearing: the first is a non-ASCII password that has to reach the hash as UTF-8, and
 /// the second is one `SASLprep` *changes* — U+00AA becomes `a` under the Normalize option and
 /// U+00AD, a soft hyphen, is mapped to nothing.
 ///
-/// Where the passwords come from: each is published in the pdf.js issue or pull request the
-/// file is named after, which is worth saying because it is the only reason this test can
-/// exist. `pr6531_1.pdf`'s is in pull request #6531's discussion, and the file is the one that
-/// request was about — a document with a user password and **no** owner password, which pdf.js
-/// was opening without asking for either. This covers all eight of the corpus's
-/// password-protected documents. `print_protection.pdf`'s was the last one found and it is in
-/// no issue at all: it is typed into pdf.js's own browser test,
-/// `test/integration/viewer_spec.mjs`, which is the only place that file is used.
+/// The cases are every row of the one table the corpus gates read,
+/// `crates/pdf-model/tests/support/corpus_passwords.rs`, which says where each password is
+/// published — the only reason this test can exist.
 #[test]
 fn a_document_with_a_password_opens_with_it_and_not_without() {
-    let cases = [
-        ("issue15893_reduced.pdf", "test"),
-        ("issue3371.pdf", "ELXRTQWS"),
-        ("bug1782186.pdf", "Hello"),
-        ("issue6010_1.pdf", "abc"),
-        ("issue6010_2.pdf", "\u{E6}\u{F8}\u{E5}"),
-        ("saslprep-r6.pdf", "S\u{AA}SL\u{AD}prep"),
-        ("pr6531_1.pdf", "asdfasdf"),
-        ("print_protection.pdf", "1234"),
-    ];
-
     let mut checked = 0;
-    for (name, password) in cases {
+    for known in &corpus_passwords::CORPUS_PASSWORDS {
+        let (name, password) = (known.name, known.password);
         let Some(bytes) = corpus_bytes(name) else {
             continue;
         };
@@ -226,7 +219,11 @@ fn a_document_with_a_password_opens_with_it_and_not_without() {
     }
 
     if corpus_bytes("issue3371.pdf").is_some() {
-        assert_eq!(checked, 8, "every listed document should have been checked");
+        assert_eq!(
+            checked,
+            corpus_passwords::CORPUS_PASSWORDS.len(),
+            "every listed document should have been checked"
+        );
     }
 }
 

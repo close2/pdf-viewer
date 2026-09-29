@@ -679,7 +679,7 @@ fn signature_algorithm(cms: &cms::SignedData<'_>) -> String {
         SignatureAlgorithm::RsaPss => format!("{number} (RSASSA-PSS)"),
         SignatureAlgorithm::Dsa => format!("{number} (DSA)"),
         SignatureAlgorithm::Ecdsa => format!("{number} (ECDSA)"),
-        SignatureAlgorithm::EdDsa => format!("{number} (EdDSA)"),
+        SignatureAlgorithm::EdDsa(curve) => format!("{number} (EdDSA, {})", curve.name()),
         SignatureAlgorithm::Unrecognised(oid) => identifier(oid),
     }
 }
@@ -716,7 +716,7 @@ fn signer_key(cms: &cms::SignedData<'_>) -> String {
                 "1.2.840.10045.2.1 (id-ecPublicKey, curve {})",
                 curve.map_or_else(|| "(not a namedCurve)".to_owned(), identifier)
             ),
-            PublicKey::Ed25519(_) => "1.3.101.112 (id-Ed25519)".to_owned(),
+            PublicKey::EdDsa(key) => format!("{} (id-{})", key.curve.oid(), key.curve.name()),
             PublicKey::Unverifiable { algorithm } => identifier(algorithm),
         },
         None => "(the signer's certificate was not found)".to_owned(),

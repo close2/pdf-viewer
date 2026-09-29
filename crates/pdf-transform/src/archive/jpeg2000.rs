@@ -58,10 +58,11 @@
 //!
 //! Removing bytes from inside the `jp2h` superbox moves every byte after it. ISO/IEC
 //! 15444-1:2000 Annex I defines no box that states a byte offset into the file, so a file built
-//! only from part 1's boxes can take the edit; ISO/IEC 15444-2 — which defines the fragment
-//! tables that do state such offsets — **is not held by this project**, so a file carrying any
-//! box part 1 does not define is refused rather than guessed at. The same conservatism applies
-//! to the stream: the rewrite replaces the object's own bytes, so a `/Filter` that is anything
+//! only from part 1's boxes can take the edit. ISO/IEC 15444-2, held as ITU-T T.801, defines
+//! the boxes that do state such offsets — its Fragment List box, M.11.3.1, holds byte offsets
+//! counted from the start of the file — and this rewrite does not re-point them, so a file
+//! carrying any box part 1 does not define is refused rather than shifted. The same conservatism
+//! applies to the stream: the rewrite replaces the object's own bytes, so a `/Filter` that is anything
 //! other than `JPXDecode` alone is refused, because then the stream's bytes are not the JPEG
 //! 2000 data.
 //!
@@ -154,8 +155,8 @@ const DATA_NOT_READ: &str = "a JPXDecode image whose colour specifications fail 
 const BOX_NOT_IN_PART_ONE: &str = "a JPXDecode image whose colour specifications fail ISO 19005 \
      carries a box ISO/IEC 15444-1:2000 Annex I does not define. Removing a colour specification \
      box moves every byte after it, and part 1 defines no box that states a byte offset into the \
-     file — but ISO/IEC 15444-2, which defines the fragment tables that do, is not held by this \
-     project. So a box this converter cannot name is a box it will not shift bytes past";
+     file — but ITU-T T.801's Fragment List boxes do, and this rewrite does not re-point them. So \
+     a box part 1 does not define is a box it will not shift bytes past";
 
 /// Why a file whose specifications rank themselves ambiguously is refused.
 const NO_SELECTED_SPECIFICATION: &str = "a JPXDecode image states several colour space \

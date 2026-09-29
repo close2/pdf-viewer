@@ -28,9 +28,15 @@ p256.workspace = true
 p384.workspace = true
 p521.workspace = true
 # Two of Table 3's three Brainpool curves — RFC 5639 section 3.4's and section 3.6's — for the
-# same module; the third has no package and is refused by name. ADR 1063.
+# same module. ADR 1063.
 bp256.workspace = true
 bp384.workspace = true
+# The third, RFC 5639 section 3.7's brainpoolP512r1, has no package: `brainpool_p512.rs` states
+# its constants over these two reviewed frames, the field and the group law the packages above
+# are themselves built from. A stopgap until a reviewed crate covers the curve (the owner's
+# answer A170, ADR 1385).
+primefield.workspace = true
+primeorder.workspace = true
 # §12.8.1's `/ByteRange` is a range of the file's bytes and Table 255 is a dictionary, so the
 # object reader is what this crate is built over. It is the only internal dependency, and
 # `pdf-model` is deliberately not among them: a signature is read from the object graph, never

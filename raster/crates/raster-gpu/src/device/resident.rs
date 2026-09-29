@@ -20,7 +20,7 @@ use raster_scene::{
 };
 
 use super::Device;
-use super::ramp::{RAMP_RESOLUTION, sample_ramp};
+use super::ramp::{RAMP_RESOLUTION, RAMP_ROWS, sample_ramp};
 use crate::encode::Encoded;
 use crate::error::{DeviceError, RenderError};
 
@@ -231,7 +231,7 @@ impl Device {
                 return Err(RenderError::UnknownRamp { ramp: RampId(id) });
             };
             let samples = sample_ramp(&stored.stops);
-            let pair = self.rgba_texture("raster ramp", RAMP_RESOLUTION, 1, &samples);
+            let pair = self.rgba_texture("raster ramp", RAMP_RESOLUTION, RAMP_ROWS, &samples);
             bytes = bytes.saturating_add(samples.len() as u64);
             self.ramp_textures.insert(id, pair);
         }

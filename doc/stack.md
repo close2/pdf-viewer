@@ -64,7 +64,7 @@ a dependency needs from those three ADRs:
   and four of the corpus's ten signature values begin `30 80` — X.690 clause 8.1.3.6's indefinite
   length, which DER forbids and Adobe's handler emits. `openssl pkcs7` refuses exactly those four.
   This is why the CMS/X.509 *parsing* stays in tree whatever the arithmetic does.
-- **Elliptic curves are taken, and what refuses now is two curves rather than a family** (ADR
+- **Elliptic curves are taken, and every ISO/TS 32002 curve computes** (ADR
   0532, measured 2026-08-23, and ADR 1063, 2026-09-14; supersedes the refusal ADRs 0314 and 0331
   recorded). `p256`, `p384`
   and `p521` 0.14.0 plus `ed25519-dalek` 3.0.0, all stable on this tree's `digest` 0.11 line, with
@@ -81,13 +81,27 @@ a dependency needs from those three ADRs:
     `#![forbid(unsafe_code)]`, and **no new transitive package** — `primefield` and `primeorder`
     were already here. RFC 5639 sections 3.4 and 3.6 state the two curves' parameters and
     `doc/md/rfc/rfc5639.txt` holds them, so the arithmetic is reviewed code over constants a held
-    document states. `ecdsa.rs`'s one generic verification now serves five curves.
-  - **What is still not takeable, re-measured rather than quoted** (2026-09-14): **`bp512` does
-    not exist on crates.io**; `ed448-goldilocks`'s stable 0.9.0 has the field arithmetic and **no
-    signature scheme**, on `rand_core` 0.6, and its only line carrying one is 0.14.0-pre.15. So
-    two of ISO/TS 32002's eight curves are refused by *package availability*, each named at
-    runtime by its own identifier — and the gap is about supply rather than about specification,
-    since RFC 5639 section 3.7 and RFC 8032 state both curves.
+    document states. `ecdsa.rs`'s one generic verification serves all six Table 3 curves.
+  - **The two curves no reviewed package carries are this tree's own, and that is the owner's
+    exception to the rule above rather than a change of it** (`doc/questions/A170`, ADRs 1385
+    and 1386). brainpoolP512r1 has no stable, reviewed crate, and Ed448's signature scheme is on
+    `ed448-goldilocks`' pre-release line only; the owner's answer is that the algorithms belong in
+    a crypto library, that implementing them here is a workaround until one does, that it is not
+    advertised, and that it is built so the switch is easy. So both are **private modules of
+    `pdf-signature`** behind the named-curve seam — `brainpool_p512.rs` is RFC 5639 section 3.7's
+    constants over `primefield` and `primeorder`, the frames `bp256` and `bp384` are made of, with
+    no new locked package (the one lock change is `hybrid-array` 0.4.13 to 0.4.15, whose 0.4.15
+    adds the 513-element array size a 512-bit scalar's wNAF needs); `ed448.rs` is RFC 8032 section
+    5.2 over `crypto-bigint`'s constant-modulus Montgomery form and the `shake` already here.
+    Neither re-exports anything; the crate's public surface is still the signature questions.
+    **The swap condition is A170's: the day a stable, reviewed crate covers the curve, the swap is
+    decided on this file's terms**, module for module. Where that day would come from, as far as a
+    search shows (`cargo search bp512`, `cargo info ed448-goldilocks`): RustCrypto's own `bp512`
+    (pull request 1914 against `RustCrypto/elliptic-curves`) and a stable 0.14 of
+    `ed448-goldilocks`. Two packages a search turns up are not candidates for reasons that are
+    not a version number: `ed448` is RustCrypto's *type* crate with no verification in it, and
+    `bp512-nestler` is licensed PolyForm-Noncommercial-1.0.0, which this project's Apache licence
+    cannot take.
   - **`const-oid`'s `db` feature is the identifier supply, at zero new packages** — it is already
     here through `digest` — and it is what keeps a dozen object identifiers out of this project's
     memory. It also gave `cms::Digest` a second reading for six of its ten, retiring ADR 0390's

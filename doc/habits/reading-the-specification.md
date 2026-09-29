@@ -244,3 +244,10 @@ PDF was the remote-documents act under the four levels, not a sandbox refusal (A
 shading type's own geometry sentence is read before its values are called "located in the region":
 an axial shading "extends indefinitely perpendicular to that axis", so its sampled function holds
 nothing the region alone carries (ADR 1363).
+
+## A held text's edition is read off its own title pages, not off a catalogue
+
+Q169 described T.801 as "Amendment 1 and Corrigenda 1 and 2 integrated"; the file's title pages say
+T.801 (08/2002), © ITU 2003, with running heads "ISO/IEC 15444-2:2003 (E)", and nothing about
+integration — that sentence is ITU's catalogue page's (ADR 1383). Cite what the held file says of
+itself.

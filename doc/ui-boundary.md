@@ -87,9 +87,10 @@ identifier is unique "within its content stream" and §14.7.5.4 keys the route i
 `Role::Document` node per page. Five consumers failed to compile, `QUORRA_EVENT_KIND_COUNT` stayed 16,
 and the C ABI gained two entry points — `quorra_reported_pages` and `quorra_reported_page`, for
 `quorra_frame_count`'s reason (ADR 0445).
-`PageStructure` also carries `widgets`: an untagged page's widget annotations, answered beside its
-empty element list rather than in it, and crossing the confined wire as a second list. No message
-was added (ADR 1369).
+`PageStructure` also carries `widgets`: the page's widget annotations no element reaches — every one
+on an untagged page, and on a tagged page those its structure left out — answered beside the element
+list rather than in it, and crossing the confined wire as a second list. No message was added (ADRs
+1369, 1381).
 **And the six-hundred-and-thirty-eighth added nothing at all**, which is the second time that has
 been the whole answer and the strongest form of this section's claim: §12.4.4's presentation got the
 full-screen *window* it had never had, in all three hosts, and every channel it needed was already

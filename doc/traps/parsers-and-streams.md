@@ -322,6 +322,13 @@ the writer and in the checker that was meant to catch the writer (ADR 1293). Bui
 `Pages::get(i).id`; the corpus walk found it, not the unit tests, because every fixture had a flat
 tree.
 
+### 64. A cofactored verification equation accepts any message under a small-order key
+
+The x509 fuzz target's "never verifies over an unsigned message" property fell to an Ed448 key of 57
+zero octets, which decodes to a point of order 4 and satisfies RFC 8032's cofactored equation with an
+all-zero signature for every message (ADR 1386). That is the equation behaving as written; the
+refusal is of the key. A verification property needs a key-validity rung before the equation.
+
 ## Things worth knowing
 
 - **A recovery searches for something, and *where that thing can be* is a claim the standard

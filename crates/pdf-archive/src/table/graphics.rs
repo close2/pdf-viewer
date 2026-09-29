@@ -95,7 +95,10 @@ use std::sync::Arc;
 
 use pdf_model::Pages;
 use pdf_model::icc;
-use pdf_model::jpeg2000::{Channel, ColourSpecification, Headers};
+use pdf_model::jpeg2000::{
+    Channel, Collection, ColourSpecification, HeaderError, Headers,
+    MULTIPLE_COMPONENT_TRANSFORMATION,
+};
 use pdf_syntax::{Dictionary, Document, Object, ObjectId, Stream};
 
 use crate::Examination;
@@ -637,7 +640,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                extensions part describes.",
         clauses: Clauses::both("6.2.8.3", "6.2.7.3"),
         applies: Applies::Always,
-        check: Check::Unchecked(JPEG2000_BASELINE_IS_IN_THE_PART_NOT_HELD),
+        check: Check::Implemented(jpeg2000_uses_the_baseline_feature_set),
     },
     Requirement {
         id: "graphics/jpeg2000-channel-count",
@@ -952,42 +955,23 @@ const JPEG2000_DEVICE_COLOUR_IS_DELEGATED: &str = "delegated, and the delegation
      report those same failures under a clause number that adds nothing to them. What the \
      sentence adds beyond them is its second route, which is the row beside this one";
 
-/// Why the second half of the device-colour sentence needs a part this project does not hold.
+/// Why the second half of the device-colour sentence is not checked.
 ///
-/// `pdf_model::jpeg2000` reads the `colr` boxes, so what the codestream *declares* is legible.
-/// What is not is the word the clause turns on. Neither part says which of the enumerated colour
-/// spaces makes an image *effectively* `DeviceGray`, `DeviceRGB` or `DeviceCMYK`: 16 and 17 are
-/// sRGB and an sRGB-nonlinearity greyscale, which are calibrated rather than device, and 12
-/// (CMYK) carries no such definition at all. Both parts' NOTE 3 sends the question to
-/// ISO/IEC 15444-2, which `doc/questions/A51` settles will not be bought.
-const JPEG2000_DEVICE_COLOUR_IN_THE_CODESTREAM: &str = "the codestream is readable — `pdf_model::jpeg2000` reports the `colr` boxes — and the word \
-     the rule turns on is not: neither part says which enumerated colour space makes an image \
-     *effectively* a device one, and both send the question to ISO/IEC 15444-2 in their NOTE 3. \
-     Numbers 16 and 17 are sRGB and an sRGB-nonlinearity greyscale, which are calibrated rather \
-     than device; 12 (CMYK) has no such definition attached. `doc/questions/A51` rules that the \
-     extensions part will not be bought, so this is settled rather than outstanding, and a later \
-     round should neither reconstruct the reading from a secondary source nor soften this reason";
-
-/// Why the baseline-feature row is unchecked, where five rows beside it no longer are.
-///
-/// The project holds ISO/IEC 15444-1:2000, which is what the other five needed; it does not hold
-/// ISO/IEC 15444-2:2004, which is what this one needs and the only place either sentence of it is
-/// defined. **`doc/questions/A51` closed that**: the owner will not buy the extensions part, so
-/// this row is settled rather than pending, and `doc/adr/0928` records the argument.
-///
-/// The two later editions of part 1 in `doc/` cannot substitute for it, and a round that has not
-/// opened them will assume they can: they are iTeh STANDARD PREVIEW extracts, fifteen pages of
-/// front matter apiece, and neither contains a single occurrence of `colr` or `EnumCS`.
-const JPEG2000_BASELINE_IS_IN_THE_PART_NOT_HELD: &str = "both sentences of this rule name the extensions part rather than the core one. Its NOTE 1 \
-     says the JPX baseline set of features is defined in ISO/IEC 15444-2:2004 M.9.2, and the \
-     subclause closes by requiring the image to be created and read as that document describes. \
-     This project holds ISO/IEC 15444-1:2000 — enough for the channel count, the colour \
-     specification boxes and the bit depth, which are checked — and does not hold part 2, so \
-     there is no list of baseline features to judge an image against and `CLAUDE.md` principle 5 \
-     forbids reconstructing one from another implementation. This is settled rather than \
-     outstanding: `doc/questions/A51` rules that the extensions part will not be bought, so the \
-     row stays unchecked deliberately and a later round should neither reconstruct the list from \
-     a secondary source nor soften this reason (`doc/adr/0928`)";
+/// The reading is available: ITU-T T.801, the extensions part's identical text, is held (ADR
+/// 1383), and its T.801 Table M.25 defines CMY (11) and CMYK (12) as ink coverages for a printing
+/// device, where sRGB (16), its greyscale (17) and the other baseline codes name calibrated
+/// definitions. ISO 32000-2 §7.4.9's fallback makes a third route: an image whose data states no
+/// colour space a processor supports is drawn in `DeviceGray`, `DeviceRGB` or `DeviceCMYK` by its
+/// channel count. What is missing is the build: `crate::survey` records the `ColorSpace` of every
+/// image a content stream draws, and an image stating none is recorded as nothing, so the six
+/// section 6.2.4.3 rows never see the device space its codestream implies.
+const JPEG2000_DEVICE_COLOUR_IN_THE_CODESTREAM: &str = "not built: the reading is available and the \
+     survey does not reach it. ITU-T T.801, held since ADR 1383, defines enumerated CMY (11) and \
+     CMYK (12) as ink coverages for a printing device and the other baseline codes as calibrated \
+     spaces, and ISO 32000-2 §7.4.9 draws an image whose data states no supported colour space in \
+     the device space of its channel count. `crate::survey` records a drawn image's ColorSpace \
+     entry and records nothing for an image that states none, so the section 6.2.4.3 rows cannot \
+     judge the device space such a codestream implies until the survey records it";
 
 /// How deep into one cross-referenced object's own structure the walk below goes.
 ///
@@ -3672,10 +3656,9 @@ const JPEG2000_DEPTHS: std::ops::RangeInclusive<u8> = 1..=38;
 
 /// The colour specification methods both parts admit in a `colr` box.
 ///
-/// **Three of them, and ISO/IEC 15444-1:2000 Table I-9 defines only two.** The third comes from
-/// the later work the extensions part carries, so a validator that judged `METH` against the
-/// core part alone would reject a value ISO 19005 permits. The rule implemented here is
-/// ISO 19005's, not part 1's.
+/// **Three of them, and ISO/IEC 15444-1:2000 Table I-9 defines only two.** The third is ITU-T
+/// T.801 Table M.22's Any ICC method, so a validator that judged `METH` against the core part
+/// alone would reject a value ISO 19005 permits. The rule implemented here is ISO 19005's.
 const JPEG2000_METHODS: [u8; 3] = [0x01, 0x02, 0x03];
 
 /// The enumerated colour space both parts forbid, `CIEJab`.
@@ -3700,14 +3683,26 @@ const JPEG2000_BEST_APPROXIMATION: u8 = 0x01;
 ///
 /// **Data that does not parse is passed over rather than reported**, which is the same choice
 /// [`icc_profiles_conform_to_the_base_standard`] makes about a stream that does not decode: what
-/// a malformed codestream breaks is §7.4.9 and the closing sentence of these two subclauses, and
-/// that sentence is the row this file leaves [`Check::Unchecked`]. Announcing it under the
+/// a malformed codestream breaks is §7.4.9 and the two subclauses' first and closing sentences,
+/// which [`jpeg2000_uses_the_baseline_feature_set`] reports. Announcing it under the
 /// channel-count rule would put a true finding under a false clause.
 ///
 /// The headers are parsed once per requirement rather than once per report, and deliberately: a
-/// parse here reads a hundred-odd bytes of boxes already in memory, decodes nothing, and starts
+/// parse here reads boxes and marker segments already in memory, decodes nothing, and starts
 /// no process — unlike the `/Annots` walk that put [`crate::Examination`]'s shared work there.
 fn for_each_jpeg2000(exam: &Examination<'_>, mut visit: impl FnMut(ObjectId, &Headers<'_>)) {
+    for_each_jpeg2000_reading(exam, |id, reading| {
+        if let Ok(headers) = reading {
+            visit(id, headers);
+        }
+    });
+}
+
+/// Visits every `JPXDecode` stream's headers, or why they could not be read.
+fn for_each_jpeg2000_reading(
+    exam: &Examination<'_>,
+    mut visit: impl FnMut(ObjectId, Result<&Headers<'_>, &HeaderError>),
+) {
     let document = exam.document;
     for (id, object) in exam.objects() {
         let Object::Stream(stream) = object else {
@@ -3719,10 +3714,10 @@ fn for_each_jpeg2000(exam: &Examination<'_>, mut visit: impl FnMut(ObjectId, &He
         if image.codec.as_deref() != Some(b"JPXDecode".as_slice()) {
             continue;
         }
-        let Ok(headers) = Headers::parse(&image.data) else {
-            continue;
-        };
-        visit(*id, &headers);
+        match Headers::parse(&image.data) {
+            Ok(headers) => visit(*id, Ok(&headers)),
+            Err(error) => visit(*id, Err(&error)),
+        }
     }
 }
 
@@ -3969,6 +3964,291 @@ fn jpeg2000_no_ciejab_colour_space(exam: &Examination<'_>, findings: &mut Findin
             }
         }
     });
+}
+
+/// The enumerated colour spaces ITU-T T.801 M.9.2.4 lists for a JPX baseline file.
+///
+/// sRGB (16) and sRGB-grey (17), part 1's two; sYCC (18), e-sRGB (20), ROMM-RGB (21) and e-sYCC
+/// (24); CIE Lab (14) and CIE Jab (19) with default or enumerated parameters, which is every
+/// statement of either since the `EP` field is one or the other. CIE Jab stays in the list
+/// because both parts forbid it by a sentence of their own, which
+/// [`jpeg2000_no_ciejab_colour_space`] reports; counting it here as well would report one
+/// statement twice.
+const JPX_BASELINE_ENUMERATED: [u32; 8] = [14, 16, 17, 18, 19, 20, 21, 24];
+
+/// The enumerated colour space ISO 32000 adds to the baseline for a PDF, CMYK.
+///
+/// ISO 32000-2 §7.4.9: "In addition, enumerated colour space 12 (CMYK), which is part of JPX but
+/// not JPX baseline, shall be supported in a PDF file." Both parts' subclauses admit it again, and
+/// both take the baseline as the base standard restricts or extends it.
+const JPX_CMYK: u32 = 12;
+
+/// T.801 M.9.2.4's ceiling on the best `APPROX` of the first compositing layer's specifications.
+///
+/// T.801 Table M.23 makes 3 a reasonable approximation. Part 1's 0 — a JP2 file's field, which
+/// I.5.3.3 sets to zero — is below it, and a JP2 file is JPX baseline by §7.4.9 NOTE 5.
+const JPX_BASELINE_APPROXIMATION: u8 = 3;
+
+/// T.801 M.9.2.1's compression type, JPEG 2000, in the image header's `C` field.
+const JPX_BASELINE_COMPRESSION: u8 = 7;
+
+/// T.801 M.9.2.7: the boxes the JP2 Header box shall precede.
+const JPX_AFTER_THE_HEADER: [[u8; 4]; 5] = [*b"jp2c", *b"ftbl", *b"mdat", *b"jpch", *b"jplh"];
+
+/// Names one colour specification box for a finding, with whether M.9.2.4's list holds it.
+fn jpx_colour_named(colour: &ColourSpecification<'_>) -> String {
+    match (colour.method, colour.enumerated) {
+        (_, Some(JPX_CMYK)) => "enumerated colour space 12 (CMYK), which ISO 32000 adds to the \
+                                 JPX baseline"
+            .to_owned(),
+        (_, Some(space)) if JPX_BASELINE_ENUMERATED.contains(&space) => {
+            format!("enumerated colour space {space}, which is in the JPX baseline set")
+        }
+        (_, Some(space)) => {
+            format!("enumerated colour space {space}, which is not in the JPX baseline set")
+        }
+        (ColourSpecification::RESTRICTED_ICC, None) => {
+            "the Restricted ICC method, which is in the JPX baseline set".to_owned()
+        }
+        (ColourSpecification::ANY_ICC, None) => {
+            "the Any ICC method, which is in the JPX baseline set".to_owned()
+        }
+        (4, None) => "the Vendor Colour method, which is not in the JPX baseline set".to_owned(),
+        (method, None) => format!("specification method {method}, which T.801 reserves"),
+    }
+}
+
+/// Whether one colour specification is on T.801 M.9.2.4's list, as ISO 32000 extends it.
+fn jpx_colour_is_baseline(colour: &ColourSpecification<'_>) -> bool {
+    match colour.enumerated {
+        Some(space) => space == JPX_CMYK || JPX_BASELINE_ENUMERATED.contains(&space),
+        None => matches!(
+            colour.method,
+            ColourSpecification::RESTRICTED_ICC | ColourSpecification::ANY_ICC
+        ),
+    }
+}
+
+/// ISO 19005-2 section 6.2.8.3, ISO 19005-4 section 6.2.7.3: only the JPX baseline set of
+/// features, as ISO 32000 and the subclause restrict or extend it.
+///
+/// Both parts' NOTE 1 sends the definition to ISO/IEC 15444-2 M.9.2, and this tree holds that
+/// text as its identical joint publication ITU-T T.801 (`doc/md/T.801.md`, ADR 1383). M.9.2
+/// defines a baseline *file* in nine subclauses, and each of those a file can break is asked of
+/// the data here, with the subclause named in the finding:
+///
+/// - M.9.2.1: the image header's compression type is JPEG 2000's.
+/// - M.9.2.2: where the first Compositing Layer Header box registers codestreams, it registers
+///   one, and that one is the file's first.
+/// - M.9.2.3: the first codestream requires no extension of T.801 but the multiple component
+///   transformation, and where it requires that one, every `MCC` series holds one collection, an
+///   array-based decorrelation, irreversible, and every `MCO` states one stage. The non-linear
+///   point transformation M.9.2.3 also admits is one T.801 Table A.2 calls useful rather than
+///   required, so it is never among the required ones.
+/// - M.9.2.4: the first compositing layer states at least one colour specification from the list
+///   — as ISO 32000 extends it with enumerated CMYK — and at least one of its specifications
+///   states an `APPROX` of 3 or less. The layer's specifications are its Colour Group box's where
+///   it has one, and the JP2 Header box's otherwise, which is T.801 M.11.7's own default.
+/// - M.9.2.5 and M.9.2.6: every fragment a Fragment List box names is in this file and they are
+///   listed in the order they occur in it.
+/// - M.9.2.7: the JP2 Header box precedes every codestream and every header or media box.
+///
+/// And the subclauses' first and last sentences — JPEG 2000 used as ISO 32000 specifies it,
+/// created and read as the extensions part describes — are asked as far as this crate reads
+/// them: data that is not a JPX file at all is reported, a bare codestream among it, because
+/// §7.4.9 has the filter "expect to read a full JPX file structure" and M.9.2 defines a baseline
+/// *file*.
+///
+/// # What is not asked, and why
+///
+/// M.9.2's `jpxb` compatibility code is a file's declaration that a baseline reader can open it,
+/// not a feature it uses, and a JP2 file — which §7.4.9 NOTE 5 calls a subset of the baseline —
+/// never states it; the subclauses bind the features used. M.9.2.8 and M.9.2.9's first sentence
+/// bind a reader. M.9.2.6's last requirement — that a cross-referenced fragment precede the
+/// codestream's own data — and M.9.2.7's second sentence, about which boxes of the JP2 Header
+/// box a layer's header may repeat, are not read (ADR 1383 names both).
+fn jpeg2000_uses_the_baseline_feature_set(exam: &Examination<'_>, findings: &mut Findings) {
+    for_each_jpeg2000_reading(exam, |id, reading| {
+        let headers = match reading {
+            Ok(headers) => headers,
+            Err(error) => {
+                findings.record(
+                    jpeg2000_site(id),
+                    format!("the JPEG 2000 data cannot be read as a JPX file: {error}"),
+                );
+                return;
+            }
+        };
+        if headers.file_type.is_none() && headers.image.is_none() && headers.colour.is_empty() {
+            findings.record(
+                jpeg2000_site(id),
+                "the JPEG 2000 data is a bare codestream rather than a JPX file, so it states \
+                 none of the file structure ITU-T T.801 M.9.2 defines a JPX baseline file by",
+            );
+            return;
+        }
+        jpx_compression_and_order(id, headers, findings);
+        jpx_first_layer(id, headers, findings);
+        if let Some(codestream) = &headers.codestream {
+            jpx_codestream_extensions(id, codestream, findings);
+        }
+        for list in &headers.fragment_lists {
+            let container = String::from_utf8_lossy(&list.container).into_owned();
+            if list
+                .fragments
+                .iter()
+                .any(|fragment| fragment.reference != 0)
+            {
+                findings.record(
+                    jpeg2000_site(id),
+                    format!(
+                        "a Fragment List box in a {container} box names a fragment in another \
+                         file, where ITU-T T.801 M.9.2.5 and M.9.2.6 keep every fragment in the \
+                         JPX file itself"
+                    ),
+                );
+            }
+            if list
+                .fragments
+                .windows(2)
+                .any(|pair| pair[1].offset <= pair[0].offset)
+            {
+                findings.record(
+                    jpeg2000_site(id),
+                    format!(
+                        "a Fragment List box in a {container} box lists its fragments out of the \
+                         order they occur in the file, which ITU-T T.801 M.9.2.5 and M.9.2.6 \
+                         require"
+                    ),
+                );
+            }
+        }
+    });
+}
+
+/// T.801 M.9.2.1's compression type and M.9.2.7's position of the JP2 Header box.
+fn jpx_compression_and_order(id: ObjectId, headers: &Headers<'_>, findings: &mut Findings) {
+    if let Some(image) = headers.image
+        && image.compression != JPX_BASELINE_COMPRESSION
+    {
+        findings.record(
+            jpeg2000_site(id),
+            format!(
+                "the JPEG 2000 image header states compression type {}, where ITU-T T.801 \
+                 M.9.2.1 requires JPEG 2000's 7",
+                image.compression
+            ),
+        );
+    }
+    let header = headers.top_level.iter().position(|kind| kind == b"jp2h");
+    let first_after = headers
+        .top_level
+        .iter()
+        .position(|kind| JPX_AFTER_THE_HEADER.contains(kind));
+    match (header, first_after) {
+        (None, _) => findings.record(
+            jpeg2000_site(id),
+            "the JPEG 2000 data states no JP2 Header box, which ITU-T T.801 M.9.2.7 places \
+             before its codestreams",
+        ),
+        (Some(header), Some(after)) if after < header => findings.record(
+            jpeg2000_site(id),
+            "the JPEG 2000 data's JP2 Header box follows a codestream or a header or media box, \
+             which ITU-T T.801 M.9.2.7 forbids",
+        ),
+        _ => {}
+    }
+}
+
+/// T.801 M.9.2.2's one codestream and M.9.2.4's colour specifications, of the first layer.
+fn jpx_first_layer(id: ObjectId, headers: &Headers<'_>, findings: &mut Findings) {
+    if let Some(streams) = headers
+        .first_layer
+        .as_ref()
+        .and_then(|layer| layer.codestreams.as_ref())
+        && streams.as_slice() != [0]
+    {
+        findings.record(
+            jpeg2000_site(id),
+            format!(
+                "the first compositing layer registers codestreams {streams:?}, where ITU-T T.801 \
+                 M.9.2.2 makes it one codestream and the file's first"
+            ),
+        );
+    }
+    let colour = headers
+        .first_layer
+        .as_ref()
+        .map(|layer| layer.colour.as_slice())
+        .filter(|colour| !colour.is_empty())
+        .unwrap_or(&headers.colour);
+    if !colour.iter().any(jpx_colour_is_baseline) {
+        let stated: Vec<String> = colour.iter().map(jpx_colour_named).collect();
+        findings.record(
+            jpeg2000_site(id),
+            if stated.is_empty() {
+                "the first compositing layer of the JPEG 2000 data states no colour specification, \
+                 where ITU-T T.801 M.9.2.4 requires one from the JPX baseline's list"
+                    .to_owned()
+            } else {
+                format!(
+                    "the first compositing layer of the JPEG 2000 data states no colour \
+                     specification from the list ITU-T T.801 M.9.2.4 gives the JPX baseline: it \
+                     states {}",
+                    stated.join("; ")
+                )
+            },
+        );
+    }
+    if !colour.is_empty()
+        && !colour
+            .iter()
+            .any(|colour| colour.approximation <= JPX_BASELINE_APPROXIMATION)
+    {
+        findings.record(
+            jpeg2000_site(id),
+            "no colour specification of the first compositing layer states an APPROX of 3 or \
+             less, which ITU-T T.801 M.9.2.4 requires of one of them",
+        );
+    }
+}
+
+/// T.801 M.9.2.3: the extensions the first codestream requires, and the multiple component
+/// transformation's four restrictions where it requires that one.
+fn jpx_codestream_extensions(
+    id: ObjectId,
+    codestream: &pdf_model::jpeg2000::Codestream,
+    findings: &mut Findings,
+) {
+    let required = codestream.required_extensions();
+    for extension in required
+        .iter()
+        .filter(|extension| **extension != MULTIPLE_COMPONENT_TRANSFORMATION)
+    {
+        findings.record(
+            jpeg2000_site(id),
+            format!(
+                "the JPEG 2000 codestream requires the {extension} extension to decode, which \
+                 ITU-T T.801 M.9.2.3 leaves out of the JPX baseline"
+            ),
+        );
+    }
+    if !required.contains(&MULTIPLE_COMPONENT_TRANSFORMATION) {
+        return;
+    }
+    let broken = codestream.collections.iter().any(|collection| {
+        collection.count != 1
+            || collection.kind != Some(Collection::DECORRELATION)
+            || collection.reversible != Some(false)
+    }) || codestream.orderings.iter().any(|stages| *stages != 1);
+    if broken {
+        findings.record(
+            jpeg2000_site(id),
+            "the JPEG 2000 codestream's multiple component transformation is not the one \
+             array-based irreversible decorrelation, in one collection and one stage, that ITU-T \
+             T.801 M.9.2.3 admits to the JPX baseline",
+        );
+    }
 }
 
 /// ISO 19005-2 section 6.2.8.3, ISO 19005-4 section 6.2.7.3: 1 to 38 bits, the same on every colour

@@ -1787,3 +1787,159 @@ fn cpu_and_gpu_smooth_a_stencils_edges_without_darkening_its_colour() {
         );
     }
 }
+
+/// `issue10572.pdf`'s stripes, reduced to one column: an axis 1 800 units long under a flipping
+/// pattern matrix, `/Domain [-6 6]` as twenty-four hard stripes, a rectangle showing `t` from 0
+/// to 3. `render-cpu`'s `stripe_rows.rs` holds the CPU oracle to the exact rows on the same shape.
+fn stripe_column(axis: (f32, f32), extend: (bool, bool)) -> pdf_render::DisplayList {
+    use pdf_render::{
+        BlendMode, Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Point, Ramp,
+        Shading, ShadingKind, Size, Transform,
+    };
+    let mut list = DisplayList::new(Size::new(20.0, 470.0));
+    let mut path = Path::new();
+    path.push(PathCommand::MoveTo(Point::new(2.0, 10.0)));
+    path.push(PathCommand::LineTo(Point::new(18.0, 10.0)));
+    path.push(PathCommand::LineTo(Point::new(18.0, 460.0)));
+    path.push(PathCommand::LineTo(Point::new(2.0, 460.0)));
+    path.push(PathCommand::Close);
+    let breaks: Vec<f32> = (1..24_u8).map(|k| f32::from(k) / 24.0).collect();
+    // The last stripe owns the domain's top: §7.10.4 closes a stitching function's last
+    // subdomain on the right.
+    let ramp = Ramp::sample_across(&breaks, |at| {
+        let stripe = (1..24_u8).filter(|k| at >= f32::from(*k) / 24.0).count();
+        if stripe % 2 == 0 {
+            Color::rgb(0.0, 1.0, 0.0)
+        } else {
+            Color::rgb(0.0, 0.0, 1.0)
+        }
+    });
+    list.push(Command::Fill {
+        path: std::sync::Arc::new(path),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Shading(std::sync::Arc::new(Shading {
+            background: None,
+            kind: std::sync::Arc::new(ShadingKind::Axial {
+                start: Point::new(0.0, axis.0),
+                end: Point::new(0.0, axis.1),
+                ramp,
+                extend,
+            }),
+            transform: Transform::new(1.0, 0.0, 0.0, -1.0, 2.0, 460.0),
+        })),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    });
+    list
+}
+
+/// The rows of the column's middle where the colour changes between green and blue.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "row and column indices of a raster at most 160 by 3 760 pixels"
+)]
+fn stripe_boundaries(raster: &pdf_render::Raster, scale: u32) -> Vec<u32> {
+    let x = 10 * scale;
+    let green = |row: u32| {
+        let at = ((row * raster.width + x) * 4) as usize;
+        raster.data[at + 1] > raster.data[at + 2]
+    };
+    // Two rows in from the rectangle's edges, where its own antialiasing lives.
+    ((10 * scale + 3)..(460 * scale - 2))
+        .filter(|row| green(*row) != green(row - 1))
+        .collect()
+}
+
+/// §8.7.4.5.3's `/Extend` says what is painted *past* an end and nothing about the colours
+/// between, so the stripes of a shading land on the same rows whichever pair it states — and
+/// within half of Vello's ramp texel of the rows the file gives (ADR 1387).
+///
+/// Vello bakes a gradient into 512 texels and reads texel `round(t · 511)`, so a boundary here
+/// can be up to half a texel — 1 800 / 1 022 units of this axis, 14 rows at 8× — from the row
+/// exact arithmetic gives: that is the bound, and the CPU oracle is held to the row itself. A
+/// ramp compressed at a non-extended end moved boundaries across a texel, so the four pairs
+/// disagreed at every scale and one boundary sat 16 rows off at 8×.
+#[test]
+fn a_stripe_boundary_is_where_the_file_puts_it_whatever_extend_says() {
+    let mut rasterizer = gpu();
+    for scale in [1_u32, 2, 4, 8] {
+        // Rows 85, 160, 235, 310 and 385 at 1×: t = 0.5, 1.0, …, 2.5, from the file's numbers.
+        let exact: Vec<u32> = (13..18_u32).map(|k| (75 * k - 890) * scale).collect();
+        let half_texel = 1800.0 / 1022.0 * f64::from(scale);
+        let mut first: Option<Vec<u32>> = None;
+        for extend in [(true, true), (false, false), (false, true), (true, false)] {
+            let list = stripe_column((-900.0, 900.0), extend);
+            let target =
+                TargetSpec::for_page(&list, scale_of(scale), GENEROUS).expect("valid target");
+            let raster = rasterizer.rasterize(&list, target).expect("supported");
+            let found = stripe_boundaries(&raster, scale);
+            assert_eq!(
+                found.len(),
+                exact.len(),
+                "{extend:?} at {scale}×: {found:?}"
+            );
+            for (row, wanted) in found.iter().zip(&exact) {
+                let off = (f64::from(*row) - f64::from(*wanted)).abs();
+                assert!(
+                    off <= half_texel + 1.0,
+                    "{extend:?} at {scale}×: a boundary at row {row} is {off} rows from {wanted}, \
+                     past half a ramp texel ({half_texel:.2})"
+                );
+            }
+            match &first {
+                None => first = Some(found),
+                Some(rows) => assert_eq!(
+                    &found, rows,
+                    "{extend:?} at {scale}×: /Extend moved the stripes between the ends"
+                ),
+            }
+        }
+    }
+}
+
+/// Both of a shortened axis's non-extended ends are cut, each within half a ramp texel of its
+/// row, and nothing past either is painted — the far end being the one a hard stop at 1 cannot
+/// express in Vello's ramp, which is why `render_gpu::shading` places that pair just below 1.
+#[test]
+fn both_non_extended_ends_are_cut_on_the_gpu() {
+    let mut rasterizer = gpu();
+    // Pattern y 150..300 is page y 310..160, so device rows 160·s and 310·s.
+    let list = stripe_column((150.0, 300.0), (false, false));
+    for scale in [1_u32, 2, 4, 8] {
+        let target = TargetSpec::for_page(&list, scale_of(scale), GENEROUS).expect("valid target");
+        let raster = rasterizer.rasterize(&list, target).expect("supported");
+        let x = 10 * scale;
+        let painted = |row: u32| {
+            let at = ((row * raster.width + x) * 4) as usize;
+            !(raster.data[at] == raster.data[at + 1] && raster.data[at + 1] == raster.data[at + 2])
+        };
+        let first = (0..raster.height)
+            .find(|row| painted(*row))
+            .expect("a painted row");
+        let past = (0..raster.height)
+            .rev()
+            .find(|row| painted(*row))
+            .expect("a painted row")
+            + 1;
+        // 150 units of axis over 512 texels: half a texel is 150 / 1022 units.
+        let half_texel = 150.0 / 1022.0 * f64::from(scale) + 1.0;
+        for (what, row, wanted) in [("start", first, 160 * scale), ("end", past, 310 * scale)] {
+            let off = (f64::from(row) - f64::from(wanted)).abs();
+            assert!(
+                off <= half_texel,
+                "{what} at {scale}×: cut at row {row}, {off} rows from {wanted}"
+            );
+        }
+    }
+}
+
+/// A small integer scale as the `f32` a target takes; exact for every scale these tests use.
+#[expect(
+    clippy::expect_used,
+    reason = "test code: a scale past u16 is a mistake in the test itself"
+)]
+fn scale_of(scale: u32) -> f32 {
+    f32::from(u16::try_from(scale).expect("a small scale"))
+}

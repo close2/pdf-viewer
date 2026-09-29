@@ -5,7 +5,8 @@
 // device position maps back through the inverse of the command × viewport transform
 // carried in the params, so a sheared or rotated placement sweeps correctly. The
 // ramp was sampled to straight-RGBA texels on the CPU at upload (deterministic);
-// t indexes it with textureLoad — no sampler, no filtering, adapter-invariant.
+// t indexes it with textureLoad — no sampler, no filtering, adapter-invariant — through
+// `ramp_texel`, which places a hard step at its own offset (ADR 1389).
 //
 // Coverage comes either from the frame's scratch (a rasterised fill/stroke shape,
 // ADR 0008) or analytically from the coverage rectangle for the rectangle case, and
@@ -48,7 +49,8 @@ struct Params {
 }
 
 @group(0) @binding(0) var<uniform> params: Params;
-// The ramp (RAMP_RESOLUTION x 1) for axial/radial, or the mesh raster.
+// The ramp (RAMP_RESOLUTION x RAMP_ROWS: colours, bounds, layout) for axial/radial, or
+// the mesh raster.
 @group(0) @binding(1) var paint_tex: texture_2d<f32>;
 @group(0) @binding(2) var scratch_tex: texture_2d<f32>;
 // The active soft mask, realised at its own plan's rectangle.
@@ -204,12 +206,50 @@ fn paint_at(p: vec2f) -> vec4f {
     if t < 0.0 {
         return vec4f(0.0, 0.0, 0.0, -1.0);
     }
-    // The ramp was sampled on the CPU to the texture's own width (4096 texels —
-    // fine enough that a banded shading's hard boundary sits within an eighth
-    // of a pixel on a page-spanning axis): index by rounding, exactly.
-    let entries = f32(textureDimensions(paint_tex).x - 1u);
-    let index = i32(round(t * entries));
-    return textureLoad(paint_tex, vec2i(index, 0), 0);
+    return textureLoad(paint_tex, vec2i(ramp_texel(t), 0), 0);
+}
+
+// One word of the ramp's rows 1 and 2: four RGBA8 bytes, little-endian. An `rgba8unorm`
+// channel reads as `byte / 255`, which `round(· × 255)` returns to the byte exactly.
+fn ramp_word(x: i32, row: i32) -> u32 {
+    let b = vec4u(round(textureLoad(paint_tex, vec2i(x, row), 0) * 255.0));
+    return b.x | (b.y << 8u) | (b.z << 16u) | (b.w << 24u);
+}
+
+// The colour texel for `t` (ADR 1389; `device/ramp.rs`'s `texel_for` states it in Rust).
+//
+// §8.7.4.5.3 makes a pixel's colour the function's at the `t` of its centre, so a hard
+// step — a §7.10.4 stitching bound, two stops at one offset — is found by comparing `t`
+// with the bound itself, carried exactly in row 1, and never by rounding onto a grid.
+// Segment k lies between row 1's texels k and k + 1; it is the first whose upper offset
+// is above `t` (closed on the left), or the last, and a `t` at or below the first offset
+// is the first segment's. Only within the segment does the index round.
+fn ramp_texel(t: f32) -> i32 {
+    let count = i32(ramp_word(0, 2));
+    var k = 0;
+    if t > bitcast<f32>(ramp_word(0, 1)) {
+        var lo = 0;
+        var hi = count - 1;
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            if t < bitcast<f32>(ramp_word(mid + 1, 1)) {
+                hi = mid;
+            } else {
+                lo = mid + 1;
+            }
+        }
+        k = lo;
+    }
+    let lower = bitcast<f32>(ramp_word(k, 1));
+    let upper = bitcast<f32>(ramp_word(k + 1, 1));
+    let info = ramp_word(k + 1, 2);
+    let base = i32(info & 0xffffu);
+    let texels = i32(info >> 16u);
+    if texels <= 1 || upper <= lower {
+        return base;
+    }
+    let u = clamp((t - lower) / (upper - lower), 0.0, 1.0);
+    return base + i32(round(u * f32(texels - 1)));
 }
 
 @fragment

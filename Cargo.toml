@@ -442,15 +442,22 @@ crypto-bigint = { version = "0.7.5", default-features = false, features = ["allo
 # else, because `primefield` and `primeorder` — the field and curve arithmetic they build on —
 # are already here under the NIST three.
 #
-# **brainpoolP512r1 has no crate on crates.io at all** (re-measured 2026-09-14). RFC 5639 section
-# 3.7 states its parameters, so the curve is not unspecified — but the arithmetic under it would
-# be this tree's own, which is what ADR 0331 declines. It reaches a reader as the curve identifier
-# the certificate states rather than as a silence; `ecdsa.rs` names it by the constant `const-oid`
-# carries.
+# **brainpoolP512r1 has no crate on crates.io at all**, so its curve module is this tree's own
+# (`crates/pdf-signature/src/brainpool_p512.rs`, the owner's answer `doc/questions/A170`, ADR
+# 1385) — and it is built from the same two reviewed frames the curve crates above are built from
+# rather than from arithmetic written here. `primefield` supplies the field and scalar types over
+# `crypto-bigint`'s Montgomery form, `primeorder` the complete short-Weierstrass group law; what the
+# module writes is RFC 5639 section 3.7's constants and the trait wiring. Both are already locked
+# under the five curve crates, so the lock gains no package — only the two direct edges. No default
+# features on either: `primeorder`'s `alloc`/`std`/`basepoint-table` buy nothing a verifier uses.
+# The swap condition is A170's: the day a stable, reviewed crate covers the curve, the swap is
+# decided on `doc/stack.md`'s terms.
+primefield = { version = "0.14.0", default-features = false }
+primeorder = { version = "0.14.0", default-features = false }
 #
 # **`ecdsa` is named directly and costs nothing**: it is the same package the five curve crates
 # already lock, and naming it is what lets `ecdsa.rs` write *one* generic verification over the
-# five curves instead of five copies of a security-critical path.
+# six curves instead of six copies of a security-critical path.
 ecdsa = { version = "0.17.0", default-features = false, features = ["algorithm"] }
 p256 = { version = "0.14.0", default-features = false, features = ["ecdsa"] }
 p384 = { version = "0.14.0", default-features = false, features = ["ecdsa"] }

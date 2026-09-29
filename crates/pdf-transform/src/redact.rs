@@ -5868,6 +5868,23 @@ fn own_dictionary(
         pdf_model::image::JpxSpace::Gray => Some(Object::Name(Name::new(&b"DeviceGray"[..]))),
         pdf_model::image::JpxSpace::Rgb => Some(Object::Name(Name::new(&b"DeviceRGB"[..]))),
         pdf_model::image::JpxSpace::Cmyk => Some(Object::Name(Name::new(&b"DeviceCMYK"[..]))),
+        pdf_model::image::JpxSpace::Lab => {
+            // §8.6.5.4's `Lab`, under the D50 white point and the range the codestream's CIELab
+            // samples were delivered over (ADR 1383).
+            let mut parameters = Dictionary::new();
+            parameters.insert(
+                Name::new(&b"WhitePoint"[..]),
+                reals(&[0.964_2, 1.0, 0.824_9]),
+            );
+            parameters.insert(
+                Name::new(&b"Range"[..]),
+                reals(&[-128.0, 127.0, -128.0, 127.0]),
+            );
+            Some(Object::Array(vec![
+                Object::Name(Name::new(&b"Lab"[..])),
+                Object::Dictionary(parameters),
+            ]))
+        }
         pdf_model::image::JpxSpace::Icc(profile) => {
             // §8.6.5.5: an `ICCBased` space is an array of the name and a stream whose `/N` is
             // the component count, holding the profile the codestream carried.

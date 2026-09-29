@@ -190,7 +190,9 @@ depends on nothing but `thiserror`.
   means its own crate's tests and the same words in a document under `doc/` are *unrooted* rather
   than dead; the other four rungs it prints instead of a finding are a fragment that resolves in
   another crate, a form (`doc/todo/NN`, a glob, a template such as `scratchpad/r<round>/`), a path
-  this tree deliberately does not carry (a submodule, an ignored directory, a round's scratch), and
+  this tree deliberately does not carry — split into what a `.gitignore` pattern ignores, printed
+  with the pattern and counted by it (ADR 1391), and the short hand list no pattern covers (a
+  submodule, the owner's revisit notes, a round's scratch) — and
   an owner's `A` file whose `Q` is here — an answer lands through the owner's own commit, so a
   worktree can hold the question and cite the answer before it does, and `tests/questions.rs` owns
   that directory (ADR 1379). The oldest false positive is a correction quoting the pointer it retired, and it is marked rather

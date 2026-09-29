@@ -113,6 +113,11 @@ pub(crate) struct StoredOutline {
     /// [`ResourceStore::release`] adds them up — and it does so through
     /// [`AtomicU64::into_inner`], which it may because a release owns the record.
     quad_bytes: AtomicU64,
+    /// Whether the outline winds every point two neighbouring values, asked by the first
+    /// frame that places it on the compute lane (ADR 1389): that lane integrates the
+    /// winding, which is the set's area only then, and an outline that can wind more is
+    /// drawn by the CPU lane, which asks the set.
+    two_values: OnceLock<bool>,
 }
 
 impl StoredOutline {
@@ -158,6 +163,40 @@ impl StoredOutline {
         // `OnceLock` has no infallible getter afterwards.
         #[expect(clippy::expect_used)]
         Ok(self.quads.get().expect("set on either arm above"))
+    }
+
+    /// Whether the outline winds every point of the plane two neighbouring values —
+    /// no subpath crossing itself or another, and their nesting alternating in
+    /// orientation — so that an integrated winding is its set's area in every pixel
+    /// (ADR 1389). Asked once per outline, of whichever flattening reaches it first:
+    /// crossing and nesting are what an invertible transform keeps, so every placement
+    /// shares the answer. An outline too crowded to ask within the question's bound
+    /// answers yes, and keeps the integral, as a region past the same bound does.
+    ///
+    /// This form flattens the outline in its own space, for the compute lane, which
+    /// flattens nothing on the host; [`Self::winds_two_values_as`] takes a flattening the
+    /// caller already has.
+    pub(crate) fn winds_two_values(&self) -> bool {
+        *self.two_values.get_or_init(|| {
+            let identity = crate::raster::DeviceTransform {
+                a: 1.0,
+                b: 0.0,
+                c: 0.0,
+                d: 1.0,
+                e: 0.0,
+                f: 0.0,
+            };
+            crate::raster::winds_two_values(&crate::raster::flatten(&self.segments, identity))
+                .unwrap_or(true)
+        })
+    }
+
+    /// [`Self::winds_two_values`], asked of `flattened` — this outline under some
+    /// placement — where nobody has asked yet.
+    pub(crate) fn winds_two_values_as(&self, flattened: &[crate::raster::Polyline]) -> bool {
+        *self
+            .two_values
+            .get_or_init(|| crate::raster::winds_two_values(flattened).unwrap_or(true))
     }
 
     /// Whether the converted form is resident, for the tests that state *when* it is.
@@ -485,6 +524,7 @@ impl ResourceStore {
                 segments: path.into(),
                 bytes,
                 quad_bytes: AtomicU64::new(0),
+                two_values: OnceLock::new(),
             },
         );
         Ok(OutlineId(id))

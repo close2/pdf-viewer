@@ -979,8 +979,8 @@ decoding and re-encoding.
 | not the enumerated CIEJab colour space | same | wrapper (`colr` `EnumCS` 19) | **Ask** — the samples mean CIEJab, so replacing the box relabels them and changes the picture |
 | 1, 3 or 4 colour channels | same | wrapper (`ihdr` `NC`, `cdef`) or codestream (`SIZ` `Csiz`) | **depends, and this is the interesting one** — see below |
 | bit depth 1 to 38, the same on every colour channel | same | codestream (`SIZ` `Ssiz`), mirrored in the wrapper | **Re-encode** |
-| the JPX baseline feature set | same | codestream | **not checkable here** — the feature set is defined by ISO/IEC 15444-2, which this project does not hold (`doc/questions/Q51`) |
-| device colour spaces obey the device colour rules | same | wrapper | **not checkable here** — neither part says which enumerated colour space is *effectively* a device space |
+| the JPX baseline feature set | same | wrapper (`colr`, box order, fragment lists, first layer) and codestream (`Rsiz`, `MCC`, `MCO`) | **checked** against ITU-T T.801 M.9.2 (ADR 1383); **refused by name** — a colour specification off M.9.2.4's list is what the samples mean, and a required extension is what decoding them needs, so either fix is a re-encode (`doc/pdf-a-mitigations.md` section 4.5) |
+| device colour spaces obey the device colour rules | same | wrapper | **not built** — ITU-T T.801 Table M.25 defines CMY and CMYK as device ink coverages and ISO 32000-2 §7.4.9's fallback is device by channel count, and the survey does not record an image that states no `ColorSpace` (ADR 1383) |
 
 **The channel-count row is where a converter earns its keep.** A two-channel image — greyscale
 plus alpha — has two colour channels only because nothing says otherwise. A `cdef` box states

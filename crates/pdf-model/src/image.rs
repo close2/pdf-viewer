@@ -2443,9 +2443,8 @@ fn decode_jpx(
         dict,
         resources,
     } = at;
-    // Resolved before the request, because whether the codestream's own palette should be
-    // applied depends on it: §7.4.9 gives `/ColorSpace` precedence over every colour
-    // specification in the JPEG 2000 data, a palette included.
+    // Resolved before the request: §7.4.9 gives `/ColorSpace` precedence over every colour
+    // specification in the JPEG 2000 data, a palette included, so it decides what is decoded.
     let declared = document.get_key(dict, "ColorSpace");
     let declared_space = if matches!(declared, Object::Null) {
         None
@@ -2472,8 +2471,9 @@ fn decode_jpx(
         Some(crate::colour::ColourSpace::Indexed { .. })
     );
 
+    let choice = jpx_colour_choice(&source.data, declared_space.is_some());
     let decoded = pdf_sandbox::decode(&Request::Jpx {
-        data: &source.data,
+        data: &choice.data,
         indices,
     })
     .map_err(|error| ImageError::Sandboxed {
@@ -2501,18 +2501,14 @@ fn decode_jpx(
 
     // §8.9.5.1 Table 87, `/SMaskInData`: code 1 and 2 both mean the samples carry opacity,
     // and 2 additionally means the colour components were multiplied by it. Absent or 0
-    // means ignore any that is there. (This cited §8.9.5.4 until the eleventh session, which
-    // is *alternate images* — a real clause, and not this one. The citation checker holds
-    // every clause number to one the standard has, and cannot tell that from the right one.)
+    // means ignore any that is there.
     let smask_in_data = document
         .get_key(dict, "SMaskInData")
         .as_integer()
         .unwrap_or(0);
-    let use_opacity = smask_in_data != 0 && raster.has_opacity;
-    let premultiplied = smask_in_data == 2;
     let opacity_channel = JpxOpacity {
-        use_opacity,
-        premultiplied,
+        use_opacity: smask_in_data != 0 && raster.has_opacity,
+        premultiplied: smask_in_data == 2,
     };
 
     if painting.is_mask {
@@ -2520,7 +2516,7 @@ fn decode_jpx(
     }
 
     let stated_by_the_dictionary = declared_space.is_some();
-    let space = match declared_space {
+    let space = match declared_space.or(choice.space) {
         Some(space) => space,
         None => codestream_colour_space(&raster)?,
     };
@@ -2561,7 +2557,7 @@ fn decode_jpx(
             on_grid.as_ref().or(painting.matte),
         ),
         grid,
-        opacity_included: use_opacity,
+        opacity_included: opacity_channel.use_opacity,
         stencil_opacity: None,
         shortfall,
     })
@@ -2627,6 +2623,10 @@ pub enum JpxSpace {
     Cmyk,
     /// The codestream's own ICC profile, which this crate can read.
     Icc(Vec<u8>),
+    /// The codestream's enumerated CIE Lab under CIE Illuminant D50, T.801 M.11.7.4.1, whose
+    /// samples are §8.6.5.4's `Lab` over a `Range` of `[-128 127 -128 127]` and the D50 white
+    /// point (ADR 1383).
+    Lab,
 }
 
 /// Decodes a `JPXDecode` image's samples through the confined decoder without converting them.
@@ -2667,8 +2667,9 @@ pub fn jpx_samples(
         declared_space,
         Some(crate::colour::ColourSpace::Indexed { .. })
     );
+    let choice = jpx_colour_choice(data, declared_space.is_some());
     let decoded = pdf_sandbox::decode(&Request::JpxWhole {
-        data,
+        data: &choice.data,
         indices,
         samples,
     })
@@ -2693,7 +2694,7 @@ pub fn jpx_samples(
         .as_integer()
         .unwrap_or(0);
     let stated = declared_space.is_some();
-    let space = match declared_space {
+    let space = match declared_space.or(choice.space) {
         Some(space) => space,
         None => codestream_colour_space(&raster)?,
     };
@@ -2702,6 +2703,7 @@ pub fn jpx_samples(
         JpxSpace::Stated
     } else {
         match (&space, &raster.colour) {
+            (crate::colour::ColourSpace::Lab { .. }, _) => JpxSpace::Lab,
             (crate::colour::ColourSpace::Icc { .. }, pdf_sandbox::Colour::Icc(profile)) => {
                 JpxSpace::Icc(profile.clone())
             }
@@ -3156,6 +3158,146 @@ fn scaled_to_byte(raw: u32, highest: u32) -> u8 {
     )]
     let fraction = raw as f32 / highest as f32;
     channel(fraction)
+}
+
+/// The JPEG 2000 data the confined decoder is handed, and the space its samples are read in
+/// where that is this crate's to state rather than the codec's.
+struct JpxColourChoice<'a> {
+    /// The data, with every colour specification box the choice sets aside made a Free box.
+    data: std::borrow::Cow<'a, [u8]>,
+    /// The space, where the kept specification is one the codec does not describe in a way this
+    /// crate draws: T.801's enumerated CIE Lab, which the codec hands back as ICC-encoded
+    /// L\*a\*b\* under an abstract profile ISO 32000-2 §8.6.5.5 admits for no colour space.
+    space: Option<crate::colour::ColourSpace>,
+}
+
+/// T.801 Table M.25's CIE Lab.
+const JPX_CIELAB: u32 = 14;
+
+/// The enumerated colour spaces the codec draws as their definitions state, besides CIE Lab.
+///
+/// Part 1 Table I-10's sRGB (16) and greyscale (17), and T.801 Table M.25's CMYK (12), sYCC (18)
+/// and ROMM-RGB (21). The last two are the codec's conversions — sYCC's matrix and a ROMM-RGB
+/// profile — whose defining texts (IEC 61966-2-1 Amd. 1, PIMA 7666) this project does not hold;
+/// `tests/jpx_enumerated_spaces.rs` pins what the held texts do fix, that a colour of no chroma
+/// or of equal components is a neutral one. The others T.801 Table M.25 lists are not here: e-sRGB
+/// (20) and e-sYCC (24) are defined by PIMA 7667 and CIE Jab (19) by CIE Publication 131, none of
+/// them held, and §7.4.9's fallback is what a processor then does (ADR 1383).
+const JPX_ENUMERATED_DRAWN: [u32; 5] = [12, 16, 17, 18, 21];
+
+/// T.801 Table M.29's CIE Illuminant D50, the `IL` field's default under M.11.7.4.1.
+const JPX_ILLUMINANT_D50: [u8; 4] = [0x00, 0x44, 0x35, 0x30];
+
+/// Which of a `JPXDecode` image's colour specifications its samples are read through.
+///
+/// ISO 32000-2 §7.4.9 decides it in three sentences, and the codec knows none of them:
+///
+/// > If present, it shall determine how the image samples are interpreted, and the colour space
+/// > specifications in the JPEG 2000 data shall be ignored.
+///
+/// > If multiple colour space specifications are given in the JPEG 2000 data, a PDF processor
+/// > should attempt to use the one with the highest precedence and best approximation value. If
+/// > the colour space is given by an unsupported ICC profile, the next lower colour space, in
+/// > terms of precedence and approximation value, shall be used. If no supported colour space is
+/// > found, the colour space used shall be DeviceGray , DeviceRGB , or DeviceCMYK , depending on
+/// > the whether the number of ordinary channels in the JPEG 2000 data is 1, 3, or 4.
+///
+/// The codec reads the first `colr` box, as part 1's I.5.3.3 tells a JP2 reader to, converts
+/// some enumerated spaces before its samples leave it, and refuses the image outright over a
+/// space it does not know. So the choice is made here, from [`crate::jpeg2000::Headers`], and
+/// handed over as the data itself: every specification set aside becomes a Free box (T.801
+/// M.11.20) and the kept one is the first the codec meets. A dictionary stating a space sets
+/// all of them aside; otherwise they are ranked by precedence, then by approximation (1 best,
+/// 4 worst, and part 1's 0 — no statement — after those), then in file order, and the first this
+/// crate draws is kept. Where none is, none is kept, and the codec's own fallback is the one the
+/// third sentence names. ADR 1383.
+fn jpx_colour_choice(data: &[u8], declared: bool) -> JpxColourChoice<'_> {
+    let borrowed = || JpxColourChoice {
+        data: std::borrow::Cow::Borrowed(data),
+        space: None,
+    };
+    let Ok(headers) = crate::jpeg2000::Headers::parse(data) else {
+        return borrowed();
+    };
+    if headers.colour.is_empty() {
+        return borrowed();
+    }
+    if declared {
+        return JpxColourChoice {
+            data: std::borrow::Cow::Owned(headers.keeping_colour(data, None, None)),
+            space: None,
+        };
+    }
+    let mut ranked: Vec<(usize, &crate::jpeg2000::ColourSpecification<'_>)> =
+        headers.colour.iter().enumerate().collect();
+    ranked.sort_by_key(|(index, colour)| {
+        let approximation = if colour.approximation == 0 {
+            u8::MAX
+        } else {
+            colour.approximation
+        };
+        (std::cmp::Reverse(colour.precedence), approximation, *index)
+    });
+    let kept = ranked
+        .into_iter()
+        .find_map(|(index, colour)| jpx_drawn(colour).map(|drawn| (index, colour, drawn)));
+    let Some((index, colour, drawn)) = kept else {
+        return JpxColourChoice {
+            data: std::borrow::Cow::Owned(headers.keeping_colour(data, None, None)),
+            space: None,
+        };
+    };
+    // T.801 M.11.7.3.2 lays the Any ICC method's field out as part 1's restricted one, which
+    // is the only one the codec reads a profile from.
+    let method = (colour.method == crate::jpeg2000::ColourSpecification::ANY_ICC)
+        .then_some(crate::jpeg2000::ColourSpecification::RESTRICTED_ICC);
+    let data = if index == 0 && method.is_none() {
+        std::borrow::Cow::Borrowed(data)
+    } else {
+        std::borrow::Cow::Owned(headers.keeping_colour(data, Some(index), method))
+    };
+    let space = match drawn {
+        JpxDrawn::ByTheCodec => None,
+        JpxDrawn::As(space) => Some(space),
+    };
+    JpxColourChoice { data, space }
+}
+
+/// How this crate draws a colour specification it draws at all.
+enum JpxDrawn {
+    /// Through the codec's own answer: its gray, RGB or CMYK, or the profile it hands back.
+    ByTheCodec,
+    /// In a space of this crate's, which the codec's answer does not describe.
+    As(crate::colour::ColourSpace),
+}
+
+/// Whether this crate draws one colour specification, and in which space where that is its own.
+///
+/// `None` for a specification it does not draw. Enumerated CIE Lab is drawn as §8.6.5.4's `Lab`:
+/// the codec applies T.801's Equation M-18 with M.11.7.4.1's defaults and returns lightness over
+/// 0 to 100 and a\* and b\* offset by 128, which is `Lab`'s default `Decode` over a `Range` of
+/// `[-128 127 -128 127]`. Only under CIE Illuminant D50, the field's default and the white
+/// point this crate's `Lab` is drawn under; an `EP` naming another illuminant is not drawn.
+fn jpx_drawn(colour: &crate::jpeg2000::ColourSpecification<'_>) -> Option<JpxDrawn> {
+    /// `RL`, `OL`, `RA`, `OA`, `RB` and `OB`, four bytes each, before `IL`. T.801 Table M.30.
+    const RANGES: usize = 24;
+    match (colour.method, colour.enumerated, colour.profile) {
+        (_, Some(JPX_CIELAB), _) => {
+            let illuminant = colour.parameters.get(RANGES..RANGES + 4);
+            illuminant
+                .is_none_or(|stated| stated == JPX_ILLUMINANT_D50)
+                .then_some(JpxDrawn::As(crate::colour::ColourSpace::Lab {
+                    range: [-128.0, 127.0, -128.0, 127.0],
+                }))
+        }
+        (_, Some(space), _) => JPX_ENUMERATED_DRAWN
+            .contains(&space)
+            .then_some(JpxDrawn::ByTheCodec),
+        (_, None, Some(profile)) => {
+            crate::icc::Profile::parse(profile).map(|_| JpxDrawn::ByTheCodec)
+        }
+        _ => None,
+    }
 }
 
 /// Chooses the colour space a JPEG 2000 codestream says its samples are in.

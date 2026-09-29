@@ -32,6 +32,7 @@
 //! |---|---|
 //! | [`flatten`](flatten) | §10.7.2 and ADR 0044 — how finely a curve becomes chords, and what that costs its ink |
 //! | [`fill`](fill) | §8.5.3.3 and ADR 0005/0049 — coverage from polylines, the two rules, and a region's cut at a tile border |
+//! | [`fill_set`](fill_set) | §8.5.3.3 with §10.7.4 — the inside set's area where a path's own portions overlap, on a 1× to 8× ladder (ADR 1389) |
 //! | [`stroke`](stroke) | §8.4.3 — caps, joins, and the expansion's arithmetic at the ends of the coordinate range |
 //! | [`stroke_set`](stroke_set) | §8.4.3.2 — the stroke as one set of points whichever way its path runs, on a 1× to 8× ladder (ADR 1361) |
 //!
@@ -50,6 +51,7 @@
 #![allow(clippy::arithmetic_side_effects)] // test indices are tiny and literal
 
 mod fill;
+mod fill_set;
 mod flatten;
 mod stroke;
 mod stroke_set;

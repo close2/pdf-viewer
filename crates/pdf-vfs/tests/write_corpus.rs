@@ -126,23 +126,19 @@ const ATTACHMENT: &str = "pdf-vfs-witness-909.txt";
 const INFORMATION: &[u8] =
     br#"{"title": "round 909 wrote this", "author": "the write-side corpus walk"}"#;
 
-/// The corpus documents that refuse §7.6.4.1's default user password, with the password each
-/// one's own pdf.js issue records — `split_corpus.rs`'s list, so that the population is every
-/// document the suite can open rather than every document that opens for free.
+/// The published passwords of the corpus's encrypted documents, read from the one table
+/// (`crates/pdf-model/tests/support/corpus_passwords.rs`), so that the population is every document
+/// the suite can open rather than every document that opens for free.
 ///
 /// Handed to [`Vfs::with_password`], which is what a face does with the password it was given —
-/// so the eight are in this walk's population on the same path a mount uses rather than through a
+/// so the nine are in this walk's population on the same path a mount uses rather than through a
 /// factory of the test's own.
-const KNOWN_PASSWORDS: &[(&str, &str)] = &[
-    ("issue15893_reduced.pdf", "test"),
-    ("issue3371.pdf", "ELXRTQWS"),
-    ("bug1782186.pdf", "Hello"),
-    ("issue6010_1.pdf", "abc"),
-    ("issue6010_2.pdf", "\u{E6}\u{F8}\u{E5}"),
-    ("saslprep-r6.pdf", "S\u{AA}SL\u{AD}prep"),
-    ("pr6531_1.pdf", "asdfasdf"),
-    ("print_protection.pdf", "1234"),
-];
+#[path = "../../pdf-model/tests/support/corpus_passwords.rs"]
+#[expect(
+    dead_code,
+    reason = "the references' spelling of a password is the oracle's; this gate hands the document to nothing but this tree"
+)]
+mod corpus_passwords;
 
 /// Documents whose edit the walk cannot explain, each with its diagnosis.
 ///
@@ -248,10 +244,7 @@ fn corpus() -> Option<Vec<PathBuf>> {
 
 /// The password the corpus records for this document, or the empty one.
 fn password_for(name: &str) -> &'static str {
-    KNOWN_PASSWORDS
-        .iter()
-        .find(|(known, _)| *known == name)
-        .map_or("", |(_, password)| password)
+    corpus_passwords::corpus_password(name).map_or("", |known| known.password)
 }
 
 /// A backing the walk and the tree both hold, so that "what reached the file" is a thing the walk

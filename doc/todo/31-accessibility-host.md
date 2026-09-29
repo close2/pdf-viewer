@@ -351,9 +351,12 @@ both named for the binary, one carrying the toolkit's widgets and one carrying �
   carries each widget annotation §12.5.3 lets a person interact with, as the control its field type
   is, named by Table 226's `/TU` or its §12.7.4.2 name, in §12.5.1's tab order, with the click a
   `Form` element declares. It is interactive content rather than a reading order, so the sentence
-  above still stands for the page's text. `tools/state.sh accessibility` counts both, and a tagged
-  page answered with such a list is a defect class held at zero. **What it leaves**: a *tagged*
-  page's widget that no `Form` element's `/OBJR` names is still reached by no node.
+  above still stands for the page's text. **A tagged page's widget that no element's `/OBJR` names
+  is published the same way, after the structure's own nodes** (ADR 1381): Table 368's `Form`
+  `shall` binds the producer, and an omitted field is still §12.5.1's to click. `tools/state.sh
+  accessibility` counts both populations, and a widget published both as an element and in the list
+  is a defect class held at zero. **What it leaves**: a tagged page whose structure reaches nothing
+  on it still says the untagged sentence, because `PageView` does not know the document is tagged.
 - **macOS and Windows have no bridge**, and `Bridge::shortfall` says so in the program's first
   lines rather than exposing nothing quietly — in all three windows since the
   seven-hundred-and-thirty-first, because the sentence is the crate's rather than a host's. AccessKit has adapters for both; nothing in this

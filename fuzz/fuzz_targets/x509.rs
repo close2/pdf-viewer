@@ -140,9 +140,12 @@ fuzz_target!(|data: &[u8]| {
             }
             return;
         }
-        PublicKey::Ed25519(key) => {
+        PublicKey::EdDsa(key) => {
             inside(key.key);
-            for signature in [data, &[][..], &[0u8; 64][..]] {
+            // Both of ISO/TS 32002 Table 4's widths, so each curve's length check is passed and
+            // the decoding and the group equation are what the fuzzer reaches: Ed448's is this
+            // tree's own arithmetic (ADR 1386).
+            for signature in [data, &[][..], &[0u8; 64][..], &[0u8; 114][..]] {
                 #[expect(
                     clippy::match_same_arms,
                     reason = "`Ok(false)` and a named refusal are two different answers with the same consequence for this target, and the comment on each says which is which — merging the arms would delete that"
@@ -150,7 +153,7 @@ fuzz_target!(|data: &[u8]| {
                 match eddsa::verify(key, signature, &[b"a message nobody signed"]) {
                     Ok(false) => {}
                     Ok(true) => {
-                        panic!("an Ed25519 signature verified over a message nobody signed")
+                        panic!("an EdDSA signature verified over a message nobody signed")
                     }
                     Err(_) => {}
                 }

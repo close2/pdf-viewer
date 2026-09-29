@@ -852,6 +852,35 @@ ISO 19005-2 6.2.8.3, ISO 19005-4 6.2.7.3 · all six · today `not-built-yet`
   still decodable; what the clause protects is the narrower set a PDF reader is obliged to handle.
   Narrowable declaratively per field, `fields = ["bit-depth"]`.
 
+#### `graphics/jpeg2000-uses-the-baseline-feature-set`
+ISO 19005-2 6.2.8.3, ISO 19005-4 6.2.7.3 · all six · **checked** against ITU-T T.801 M.9.2 (ADR
+1383) · today `not-built-yet`, refused by name
+
+- **What the validator reports.** Each M.9.2 subclause a file can break, named in the finding: a
+  first compositing layer with no colour specification from M.9.2.4's list as ISO 32000 extends it
+  with enumerated CMYK — each stated specification named with whether the list holds it — or none
+  at an `APPROX` of 3 or less; a codestream requiring a Table A.2 extension other than the
+  restricted multiple component transformation (M.9.2.3); a layer registering more than the file's
+  first codestream (M.9.2.2); a fragment in another file or out of order (M.9.2.5, M.9.2.6); a JP2
+  Header box after a codestream or header box (M.9.2.7); a bare codestream or data that is not a
+  JPX file at all.
+- **Mitigation** — **re-express in the file's own domain where there is one, and refuse by name
+  where there is not**, which is ADR 1371's rule read against these shapes. Where the image
+  dictionary states a `ColorSpace`, §7.4.9 has a reader ignore every colour specification in the
+  data, so the samples are already in the dictionary's domain and transcoding them to
+  `FlateDecode` keeps it — section 4.5's universal fallback above, with its two costs, and not
+  built. Where it states none, a specification off the list is what the samples mean: writing a
+  baseline code in its place relabels the picture, which is the choice this catalogue refuses
+  everywhere. A required extension is what decoding needs, and this tree's codec has none of them.
+  The structural shapes — box order, fragments, layers — are byte surgery on the wrapper whose
+  fragment offsets a rewrite would have to re-point, and are refused with the rest.
+- **By target** — none; both parts state the rule.
+- **From a configuration** — `remedy = "preserve"`, `codec = "flate"`, once the transcoding exists,
+  and only for the `ColorSpace`-stated shape.
+- **Departure** — **B**. A non-baseline JPX file is still ISO/IEC 15444-2 and decodable by a
+  reader that implements the extension; what the rule protects is the set every PDF reader is
+  obliged to handle.
+
 #### `graphics/inline-image-interpolation-is-off`
 ISO 19005-2 6.2.8.1, ISO 19005-4 6.2.7.1 · all six · today `the-fence`
 

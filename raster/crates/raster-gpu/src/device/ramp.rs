@@ -7,48 +7,216 @@
 //! adapter gets the same texel, where filtering between two texels would not promise
 //! that.
 //!
+//! **A table may not move a hard step** (ADR 1389). §8.7.4.5.3 makes a point's colour the
+//! function's at that point's own `t`, so where the function jumps — a §7.10.4 stitching
+//! bound, which arrives here as two stops at one offset — the pixel whose centre lies
+//! below the bound takes the lower piece whatever grid the table is on. So the table is
+//! cut at every such bound into **segments**, each sampled on its own grid, and the bounds
+//! travel beside it as exact `f32`s: the shader finds the segment by comparing `t` with
+//! the bounds, and rounds only within it. A smooth ramp is one segment, and its texels
+//! and its lookup are what they were before the cut, to the bit.
+//!
 //! Nothing here touches the GPU, which is why it is not in the file that owns one. The
 //! texture these bytes become is [`super::textures`]'s, and which ramps a frame needs
 //! at all is [`super::resident`]'s.
 
 use raster_scene::{Color, Stop};
 
-/// Texels per sampled ramp. 4096 rather than the 256 first chosen: a ramp with
-/// *hard* stop boundaries (a banded shading) has its boundaries snapped to this
-/// grid, and a page-spanning axis divided by 510 was a visible ~3.5 px band
-/// displacement on a real page (the corpus's `issue10572.pdf`). Divided by 8190
-/// it is under an eighth of a pixel on the same page, for 16 KiB per resident
-/// ramp — priced against the resource budget like everything else.
-///
-/// The snap is one-sided and strictly under one step: a boundary lands on the first
-/// grid position **at or after** its offset, never before it. That follows from
-/// [`ramp_color_at`] giving a bound to the interval that starts there
-/// (ISO 32000-2 §7.10.4), and it is what the bound above is a bound *on* — before
-/// ADR 0055 a boundary that fell exactly on a grid position was displaced a whole
-/// step past it, which no resolution would have fixed.
+/// Texels per row of a sampled ramp, and the most texels the colour row spends on one
+/// ramp. At 4096 a smooth ramp's nearest-texel rounding moves `t` by at most half of
+/// `1/4095`, a fraction of one 8-bit level between any two stops; a hard step is not
+/// rounded at all (ADR 1389), so this number no longer bounds where a step lands.
 pub(super) const RAMP_RESOLUTION: u32 = 4096;
 
-/// Sample a validated ramp to [`RAMP_RESOLUTION`] straight-RGBA8 texels, on the
-/// CPU (ADR 0011).
+/// Rows of a sampled ramp's texture: the colours, the segment bounds, the segment
+/// layout — the three the shader's `ramp_texel` reads, in that order.
+pub(super) const RAMP_ROWS: u32 = 3;
+
+/// The most segments a ramp is cut into. Row 1 holds the first offset and then one bound
+/// per segment, so it holds at most `RAMP_RESOLUTION − 1` segments, and each needs at least
+/// one colour texel; past this a ramp is sampled as one segment, which rounds its steps to
+/// the nearest texel (half of `1/4095` of the parameter either way), the answer this table
+/// gave every ramp before ADR 1389. No stitching the corpus holds comes near it.
+const MAX_SEGMENTS: usize = 1024;
+
+/// One run of stops with no hard step inside it, and where its texels sit in row 0.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Segment {
+    /// The stops `first..=last` of the ramp.
+    first: usize,
+    last: usize,
+    /// Its first colour texel, and how many it has.
+    base: u32,
+    texels: u32,
+}
+
+/// The ramp's segments: cut after every stop whose successor shares its offset.
 ///
-/// The shader indexes the result with `textureLoad` at `round(t·(N−1))`, reading
-/// N from the texture itself, so the sweep's colour arithmetic is this
-/// function's — deterministic across adapters — rather than the driver's
-/// texture filtering.
-#[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // round of 0..=255
-#[expect(clippy::cast_precision_loss)] // i < RAMP_RESOLUTION, far below 2^24
+/// A run of three or more stops at one offset leaves zero-width segments between them;
+/// one in the middle of the ramp can hold no `t` — the interval that starts at the
+/// offset is the last stop's (§7.10.4, closed on the left) — so it is dropped. A
+/// zero-width segment at either end is kept: §7.10.4's degenerate first interval is
+/// closed on both sides, and the last interval is closed on the right, so each end
+/// offset is a `t` with a colour of its own.
+fn segments(stops: &[Stop]) -> Vec<(usize, usize)> {
+    let mut runs = Vec::new();
+    let mut start = 0;
+    for (i, pair) in stops.windows(2).enumerate() {
+        #[expect(clippy::float_cmp)] // exact: a coincident pair is the step itself
+        if pair[0].offset == pair[1].offset {
+            runs.push((start, i));
+            start = i.saturating_add(1);
+        }
+    }
+    if !stops.is_empty() {
+        runs.push((start, stops.len().saturating_sub(1)));
+    }
+    let count = runs.len();
+    runs.into_iter()
+        .enumerate()
+        .filter(|&(index, (first, last))| {
+            #[expect(clippy::float_cmp)] // exact, as above
+            let zero_width = stops[first].offset == stops[last].offset;
+            !zero_width || index == 0 || index.saturating_add(1) == count
+        })
+        .map(|(_, run)| run)
+        .collect()
+}
+
+/// Share row 0's texels between the segments in proportion to their width, at least
+/// one each: `1 + ⌊(w / W) · (N − K)⌋` for a segment of width `w` of `W`, `K` segments
+/// and `N` texels, which sums to at most `N`. One segment spanning the ramp gets all `N`.
+#[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // floor of 0..=N
+#[expect(clippy::cast_precision_loss)] // counts below 4096
+fn lay_out(stops: &[Stop], runs: &[(usize, usize)]) -> Vec<Segment> {
+    let (Some(first), Some(last)) = (stops.first(), stops.last()) else {
+        return Vec::new();
+    };
+    let whole = last.offset - first.offset;
+    let free = RAMP_RESOLUTION.saturating_sub(runs.len() as u32) as f32;
+    let mut base = 0_u32;
+    runs.iter()
+        .map(|&(from, to)| {
+            let width = stops[to].offset - stops[from].offset;
+            let share = if whole > 0.0 {
+                (width / whole * free).floor() as u32
+            } else {
+                0
+            };
+            let texels = share.saturating_add(1);
+            let segment = Segment {
+                first: from,
+                last: to,
+                base,
+                texels,
+            };
+            base = base.saturating_add(texels);
+            segment
+        })
+        .collect()
+}
+
+/// Sample a validated ramp to [`RAMP_RESOLUTION`] × [`RAMP_ROWS`] RGBA8 texels, on the
+/// CPU (ADR 0011, ADR 1389).
+///
+/// - **Row 0**, the colours, straight RGBA: segment `k`'s texel `j` of `n` is the ramp at
+///   `lo + (hi − lo) · j / (n − 1)`, evaluated over that segment's stops alone, so its last
+///   texel is the colour *below* the step that ends it.
+/// - **Row 1**, the bounds, each an `f32`'s little-endian bytes: texel 0 is the ramp's
+///   first offset, texel `k + 1` segment `k`'s upper offset — so texel `k` is segment `k`'s
+///   lower offset for every `k`.
+/// - **Row 2**, the layout: texel 0 the segment count as a little-endian `u32`, texel
+///   `k + 1` segment `k`'s first texel and texel count as two little-endian `u16`s.
+///
+/// The shader's `ramp_texel` is the reader and [`texel_for`] its statement in Rust.
+// Every offset below is a texel slot inside one of the three rows, whose length is fixed.
+#[expect(clippy::arithmetic_side_effects)]
 pub(super) fn sample_ramp(stops: &[Stop]) -> Vec<u8> {
-    let entries = RAMP_RESOLUTION as usize;
-    let mut out = Vec::with_capacity(entries.saturating_mul(4));
-    let last = (RAMP_RESOLUTION.saturating_sub(1)) as f32;
-    for i in 0..RAMP_RESOLUTION {
-        let color = ramp_color_at(stops, i as f32 / last);
-        for component in [color.r, color.g, color.b, color.a] {
-            // Components were validated into 0..=1 at upload.
-            out.push((component * 255.0).round() as u8);
+    let row = RAMP_RESOLUTION as usize * 4;
+    let mut out = vec![0_u8; row.saturating_mul(RAMP_ROWS as usize)];
+    let Some(first) = stops.first() else {
+        return out;
+    };
+    let mut runs = segments(stops);
+    if runs.len() > MAX_SEGMENTS {
+        runs = vec![(0, stops.len().saturating_sub(1))];
+    }
+    let layout = lay_out(stops, &runs);
+    let (colours, rest) = out.split_at_mut(row);
+    let (bounds, table) = rest.split_at_mut(row);
+    bounds[0..4].copy_from_slice(&first.offset.to_le_bytes());
+    let count = u32::try_from(layout.len()).unwrap_or(u32::MAX);
+    table[0..4].copy_from_slice(&count.to_le_bytes());
+    for (k, segment) in layout.iter().enumerate() {
+        let own = &stops[segment.first..=segment.last];
+        let (lo, hi) = (stops[segment.first].offset, stops[segment.last].offset);
+        let slot = k.saturating_add(1).saturating_mul(4);
+        bounds[slot..slot + 4].copy_from_slice(&hi.to_le_bytes());
+        let (base, texels) = (
+            u16::try_from(segment.base).unwrap_or(u16::MAX),
+            u16::try_from(segment.texels).unwrap_or(u16::MAX),
+        );
+        table[slot..slot + 2].copy_from_slice(&base.to_le_bytes());
+        table[slot + 2..slot + 4].copy_from_slice(&texels.to_le_bytes());
+        let last = f32::from(texels.saturating_sub(1).max(1));
+        for j in 0..segment.texels {
+            #[expect(clippy::cast_precision_loss)] // j < 4096
+            let t = lo + (hi - lo) * (j as f32 / last);
+            let color = ramp_color_at(own, t);
+            let at = (segment.base.saturating_add(j) as usize).saturating_mul(4);
+            for (c, component) in [color.r, color.g, color.b, color.a].into_iter().enumerate() {
+                // Components were validated into 0..=1 at upload.
+                #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                {
+                    colours[at + c] = (component * 255.0).round() as u8;
+                }
+            }
         }
     }
     out
+}
+
+/// The colour texel the shader's `ramp_texel` reads for `t`, stated in Rust over the bytes
+/// [`sample_ramp`] writes — the lookup the tests hold to the clauses. The WGSL function
+/// is this function's copy, statement for statement.
+///
+/// The segment is the first whose upper offset is **above** `t` (§7.10.4's intervals are
+/// closed on the left), or the last; a `t` at or below the first offset is the first
+/// segment's (its degenerate interval is closed on both sides). Within the segment the
+/// index rounds to the nearest of its own texels.
+#[cfg(test)]
+#[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#[expect(clippy::cast_precision_loss)]
+#[expect(clippy::arithmetic_side_effects)] // slots inside the table
+pub(super) fn texel_for(table: &[u8], t: f32) -> usize {
+    let row = RAMP_RESOLUTION as usize * 4;
+    let word = |r: usize, x: usize| {
+        let at = r * row + x * 4;
+        u32::from_le_bytes([table[at], table[at + 1], table[at + 2], table[at + 3]])
+    };
+    let bound = |x: usize| f32::from_bits(word(1, x));
+    let count = word(2, 0) as usize;
+    let mut k = 0;
+    if t > bound(0) {
+        let (mut lo, mut hi) = (0, count - 1);
+        while lo < hi {
+            let mid = usize::midpoint(lo, hi);
+            if t < bound(mid + 1) {
+                hi = mid;
+            } else {
+                lo = mid + 1;
+            }
+        }
+        k = lo;
+    }
+    let (lower, upper) = (bound(k), bound(k + 1));
+    let info = word(2, k + 1);
+    let (base, texels) = ((info & 0xffff) as usize, (info >> 16) as usize);
+    if texels <= 1 || upper <= lower {
+        return base;
+    }
+    let u = ((t - lower) / (upper - lower)).clamp(0.0, 1.0);
+    base + (u * (texels - 1) as f32).round() as usize
 }
 
 /// The ramp's colour at `t`: constant before the first and after the last stop, and
@@ -134,196 +302,5 @@ fn ramp_color_at(stops: &[Stop], t: f32) -> Color {
     previous.color
 }
 
-/// The sweep's arithmetic against the clauses that define it.
-///
-/// Every expected number below is derived from ISO 32000-2 and the comment above it says
-/// from which clause — never from what this function returns, which would make the test
-/// a record of the implementation rather than a check on it.
 #[cfg(test)]
-mod tests {
-    use raster_scene::{Color, Stop};
-
-    use super::{RAMP_RESOLUTION, ramp_color_at, sample_ramp};
-
-    const RED: Color = Color {
-        r: 1.0,
-        g: 0.0,
-        b: 0.0,
-        a: 1.0,
-    };
-    const BLUE: Color = Color {
-        r: 0.0,
-        g: 0.0,
-        b: 1.0,
-        a: 1.0,
-    };
-
-    fn stop(offset: f32, color: Color) -> Stop {
-        Stop { offset, color }
-    }
-
-    /// The last index `sample_ramp` divides by, and the grid every claim below is on.
-    #[expect(clippy::cast_precision_loss)] // 4095, exact in f32
-    const LAST: f32 = (RAMP_RESOLUTION - 1) as f32;
-
-    /// Two stops are §7.10.3's type 2 exponential with `N` of 1, whose value is
-    /// `C0 + x^N × (C1 − C0)` — linear, so a quarter of the way along is a quarter of
-    /// the way between the colours, exactly.
-    #[test]
-    fn two_stops_are_the_type_2_interpolation_between_them() {
-        let stops = [stop(0.0, RED), stop(1.0, BLUE)];
-        assert_eq!(ramp_color_at(&stops, 0.0), RED);
-        assert_eq!(ramp_color_at(&stops, 1.0), BLUE);
-        assert_eq!(
-            ramp_color_at(&stops, 0.25),
-            Color::new(0.75, 0.0, 0.25, 1.0)
-        );
-        assert_eq!(ramp_color_at(&stops, 0.5), Color::new(0.5, 0.0, 0.5, 1.0));
-    }
-
-    /// §7.10.1 clips an input outside a function's declared domain to the nearest
-    /// boundary value, so a ramp whose stops span only the middle of `0..=1` holds its
-    /// end colours over the rest rather than fading out of them.
-    #[test]
-    fn outside_the_stops_a_ramp_holds_its_end_colours() {
-        let stops = [stop(0.25, RED), stop(0.75, BLUE)];
-        assert_eq!(ramp_color_at(&stops, 0.0), RED);
-        assert_eq!(ramp_color_at(&stops, 0.25), RED);
-        assert_eq!(ramp_color_at(&stops, 0.75), BLUE);
-        assert_eq!(ramp_color_at(&stops, 1.0), BLUE);
-    }
-
-    /// A coincident pair of offsets is §7.10.4's stitching boundary: two subfunctions
-    /// meet at a bound and neither interpolates across it, so the two sides are the two
-    /// colours and there is nothing between them.
-    ///
-    /// **The bound itself is the later subfunction's**, because §7.10.4's subdomains are
-    /// "closed on the left and open on the right" away from the two ends — so `t == 0.5`
-    /// is in `[0.5, 1.0]` and not in `[0.0, 0.5)`, and the colour there is `BLUE`.
-    #[test]
-    fn a_coincident_pair_is_a_step_and_not_a_ramp() {
-        let stops = [
-            stop(0.0, RED),
-            stop(0.5, RED),
-            stop(0.5, BLUE),
-            stop(1.0, BLUE),
-        ];
-        // One grid step either side of the boundary: the two subfunctions' own values,
-        // not a blend of them.
-        assert_eq!(ramp_color_at(&stops, 0.5 - 1.0 / LAST), RED);
-        assert_eq!(ramp_color_at(&stops, 0.5 + 1.0 / LAST), BLUE);
-        // And the bound belongs to the interval that starts there.
-        assert_eq!(ramp_color_at(&stops, 0.5), BLUE);
-        // And each subfunction is constant over its own subdomain, which is what makes
-        // the step a step: §7.10.3's `C0 == C1` is a type 2 that does not move.
-        assert_eq!(ramp_color_at(&stops, 0.1), RED);
-        assert_eq!(ramp_color_at(&stops, 0.9), BLUE);
-    }
-
-    /// §7.10.4's two exceptions to *closed on the left*, which point opposite ways and
-    /// are the only two places a ramp's boundary rule reverses:
-    ///
-    /// > - the last interval, shall always be closed on the right,
-    /// > - if Domain0 = Bounds0 then the first interval shall be closed on both the left
-    /// >   and right and the second (next) interval shall be open on the left.
-    ///
-    /// So a pair coincident at the ramp's **first** offset gives that point to the
-    /// earlier stop — the degenerate first interval `[0, 0]` — and a pair coincident at
-    /// its **last** offset gives it to the later one, whose interval `[1, 1]` is closed
-    /// on the right while the one below it is open there. Both are grid positions
-    /// `sample_ramp` visits exactly, so both are texels of every such ramp.
-    #[test]
-    fn the_ramps_two_ends_take_a_coincident_pair_opposite_ways() {
-        let at_the_start = [stop(0.0, RED), stop(0.0, BLUE), stop(1.0, BLUE)];
-        assert_eq!(ramp_color_at(&at_the_start, 0.0), RED);
-        let at_the_end = [stop(0.0, RED), stop(1.0, RED), stop(1.0, BLUE)];
-        assert_eq!(ramp_color_at(&at_the_end, 1.0), BLUE);
-        // Each is one texel of the table and not a region of it: the neighbour on the
-        // inside is the other subfunction's colour in both cases.
-        assert_eq!(ramp_color_at(&at_the_start, 1.0 / LAST), BLUE);
-        assert_eq!(ramp_color_at(&at_the_end, 1.0 - 1.0 / LAST), RED);
-    }
-
-    /// The table is one texel per grid step, ending on the last stop, with each
-    /// component the 8-bit level nearest the colour — the arithmetic ADR 0011 keeps on
-    /// the CPU so that every adapter reads the same texel.
-    #[test]
-    fn the_table_is_one_texel_per_grid_step() {
-        let stops = [stop(0.0, RED), stop(1.0, BLUE)];
-        let bytes = sample_ramp(&stops);
-        assert_eq!(bytes.len(), RAMP_RESOLUTION as usize * 4);
-        assert_eq!(&bytes[0..4], &[255, 0, 0, 255]);
-        assert_eq!(&bytes[bytes.len() - 4..], &[0, 0, 255, 255]);
-        // Texel `i` is the ramp at `i / (N − 1)`: a quarter of the way along the grid is
-        // §7.10.3's quarter, rounded to a byte — `round(0.75 × 255)` is 191.
-        let quarter = (RAMP_RESOLUTION as usize - 1) / 4;
-        assert_eq!(&bytes[quarter * 4..quarter * 4 + 4], &[191, 0, 64, 255]);
-    }
-
-    /// What [`RAMP_RESOLUTION`] buys, as a bound rather than as a size: a hard boundary
-    /// is snapped to the grid, and the grid is fine enough that the snap moves it by
-    /// less than one step of the shading's parameter.
-    ///
-    /// The constant's own comment is the claim being checked — 256 texels displaced a
-    /// band by ~3.5 px on a page-spanning axis, and this resolution keeps it under an
-    /// eighth of a pixel. A resolution lowered without that being noticed fails here.
-    ///
-    /// The bound is one-sided because §7.10.4's interval is closed on the left: the
-    /// boundary lands on the first grid position **at or after** its offset, and
-    /// strictly under one step past it.
-    #[test]
-    fn a_hard_boundary_lands_within_one_grid_step_of_its_offset() {
-        // Deliberately not a multiple of the grid step, so the boundary falls between
-        // two texels and the snapping is what is being measured.
-        let boundary = 0.313_79_f32;
-        let stops = [
-            stop(0.0, RED),
-            stop(boundary, RED),
-            stop(boundary, BLUE),
-            stop(1.0, BLUE),
-        ];
-        let bytes = sample_ramp(&stops);
-        let first_blue = bytes
-            .chunks_exact(4)
-            .position(|texel| texel == [0, 0, 255, 255])
-            .expect("the ramp's second half is blue");
-        #[expect(clippy::cast_precision_loss)] // an index below 4096
-        let placed = first_blue as f32 / LAST;
-        assert!(
-            placed >= boundary && placed - boundary < 1.0 / LAST,
-            "the boundary at {boundary} was placed at {placed}, not on the first grid \
-             position at or after it"
-        );
-    }
-
-    /// The texel a boundary *on* the grid falls in, which is where §7.10.4 and this
-    /// table can disagree at all.
-    ///
-    /// Every other offset puts the bound strictly between two grid positions, so no
-    /// sample asks the question; an offset of exactly `2048/4095` is asked by texel 2048
-    /// and by nothing else. Closed on the left makes that texel the later subfunction's,
-    /// and it is the witness ADR 0055 was written from — it read red before.
-    #[test]
-    fn a_boundary_on_the_grid_gives_its_texel_to_the_later_subfunction() {
-        let boundary = 2048.0 / LAST;
-        let stops = [
-            stop(0.0, RED),
-            stop(boundary, RED),
-            stop(boundary, BLUE),
-            stop(1.0, BLUE),
-        ];
-        let bytes = sample_ramp(&stops);
-        assert_eq!(&bytes[2047 * 4..2047 * 4 + 4], &[255, 0, 0, 255]);
-        assert_eq!(&bytes[2048 * 4..2048 * 4 + 4], &[0, 0, 255, 255]);
-    }
-
-    /// An empty ramp is refused at upload (`ResourceProblem::RampEmpty`), and this
-    /// function still answers rather than dividing by a span it does not have:
-    /// transparent black over the whole table, which is a colour and not a NaN.
-    #[test]
-    fn an_empty_ramp_samples_to_transparency() {
-        let bytes = sample_ramp(&[]);
-        assert_eq!(bytes.len(), RAMP_RESOLUTION as usize * 4);
-        assert!(bytes.iter().all(|byte| *byte == 0));
-    }
-}
+mod tests;

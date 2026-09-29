@@ -2881,6 +2881,131 @@ fn a_drag_inside_a_pressed_button_is_still_a_click() {
     assert!(turned, "the release performed the button's /A");
 }
 
+/// Two push buttons side by side, each stating a rollover appearance of its own.
+///
+/// The left one is at `[20 80 90 120]` and the right one at `[110 80 180 120]`; each has `/N`, `/R`
+/// and `/D`, so every one of §12.5.5's three appearances is a change a display list can show.
+fn two_buttons_with_rollovers() -> Vec<u8> {
+    let normal = "0 0 1 rg 0 0 70 40 re f";
+    let rollover = "0 1 0 rg 0 0 70 40 re f";
+    let down = "1 0 0 rg 0 0 70 40 re f";
+    let form = |object: usize, content: &str| {
+        format!(
+            "{object} 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 70 40] /Length {} >>\n\
+             stream\n{content}\nendstream\nendobj\n",
+            content.len()
+        )
+    };
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 5 0 R] >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R 5 0 R] >>\n\
+         endobj\n\
+         4 0 obj\n<< /Type /Annot /Subtype /Widget /FT /Btn /Ff 65536 /T (left) \
+         /Rect [20 80 90 120] /P 3 0 R /AP << /N 6 0 R /R 7 0 R /D 8 0 R >> >>\nendobj\n\
+         5 0 obj\n<< /Type /Annot /Subtype /Widget /FT /Btn /Ff 65536 /T (right) \
+         /Rect [110 80 180 120] /P 3 0 R /AP << /N 6 0 R /R 7 0 R /D 8 0 R >> >>\nendobj\n\
+         {}{}{}",
+        form(6, normal),
+        form(7, rollover),
+        form(8, down),
+    );
+    assemble(&body)
+}
+
+/// §12.5.5's rollover is shown only with the button **up**:
+///
+/// > - The rollover appearance shall be used when the user moves the cursor into the annotation's
+/// >   active area without pressing the mouse button.
+///
+/// So a press on nothing followed by a move onto an annotation shows no rollover, and neither does
+/// a press on one button held and moved onto the other; the release is what makes the cursor's
+/// presence a rollover again. The observable is the display list, for
+/// `a_move_while_the_button_is_held_keeps_the_down_appearance`'s reason, and the control is the
+/// same move with the button up, which does draw the page again.
+#[test]
+fn a_move_with_the_button_down_shows_no_rollover() {
+    let mut viewer = Viewer::new(400, 400, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: two_buttons_with_rollovers().into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("the page has a geometry");
+    };
+    let at = |x: f32, y: f32| {
+        (
+            geometry.origin.0 + x * geometry.scale,
+            geometry.origin.1 + (geometry.page.height - y) * geometry.scale,
+        )
+    };
+    let (nothing, left, right) = (at(100.0, 20.0), at(55.0, 100.0), at(145.0, 100.0));
+    let mut send = |at: (f32, f32), action: PointerAction| -> bool {
+        viewer
+            .handle(Command::Pointer { at, action })
+            .any(|event| matches!(event, Event::NeedsRender(_)))
+    };
+
+    // The control: with the button up, entering a button shows its rollover.
+    assert!(send(left, PointerAction::Moved), "the rollover, button up");
+    assert!(
+        send(nothing, PointerAction::Moved),
+        "and leaving it, the normal"
+    );
+
+    // Pressed on nothing, moved onto a button: the button is pressed, so no rollover.
+    assert!(!send(nothing, PointerAction::Pressed), "a press on nothing");
+    assert!(
+        !send(left, PointerAction::Moved),
+        "a move onto a button with the button down shows no rollover"
+    );
+    // Released over it: the button is up and the cursor is inside, which is the rollover.
+    assert!(
+        send(left, PointerAction::Released),
+        "the release over the button is its rollover"
+    );
+
+    // Pressed on the left button, held and moved onto the right: neither the left one's down
+    // appearance (the pointer is not within it) nor the right one's rollover (the button is down).
+    assert!(send(left, PointerAction::Pressed), "the left one's down");
+    assert!(
+        send(right, PointerAction::Moved),
+        "leaving the left button ends its down appearance"
+    );
+    assert!(
+        !send(at(150.0, 105.0), PointerAction::Moved),
+        "moving within the right button with the button down still shows nothing of it"
+    );
+    assert!(
+        send(right, PointerAction::Released),
+        "the release over the right button is its rollover"
+    );
+
+    // The same with the host's other name for a move with the button down: a drag off the pressed
+    // button ends its down appearance, and a drag over the other shows nothing of it.
+    assert!(send(left, PointerAction::Pressed), "the left one's down");
+    assert!(
+        send(right, PointerAction::Dragged),
+        "a drag off the left button ends its down appearance"
+    );
+    assert!(
+        !send(at(150.0, 105.0), PointerAction::Dragged),
+        "a drag within the right button shows nothing of it"
+    );
+    assert!(
+        send(left, PointerAction::Dragged),
+        "a drag back onto the pressed button shows its down appearance again"
+    );
+    assert!(
+        send(left, PointerAction::Released),
+        "and the release there is its rollover"
+    );
+}
+
 #[test]
 fn a_click_finds_the_field_it_landed_on() {
     // What a host asks before it can send an edit: §12.5.2 puts a widget's rectangle in default

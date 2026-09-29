@@ -24,6 +24,9 @@
 //! [`pss`] for RFC 8017's two RSA paddings, [`dsa`], [`ecdsa`], and [`eddsa`] for the row ISO/TS
 //! 32002 section 5.1.2 adds. `bigint` is the seam over `crypto-bigint` that keeps the budgets
 //! and the refusal names this project's own while the multiplications are reviewed code.
+//! `brainpool_p512` and `ed448` are the two curves no reviewed package carries, private stopgaps
+//! behind [`ecdsa`]'s and [`eddsa`]'s named-curve seams until one does (the owner's answer A170,
+//! ADRs 1385 and 1386); nothing of either is re-exported.
 //!
 //! Three modules answer questions the clause asks after the arithmetic. [`revision`] is
 //! §12.8.2.2.2's second step — the signed revision beside the current one, object by object,
@@ -75,10 +78,12 @@
 #![warn(missing_docs)]
 
 mod bigint;
+mod brainpool_p512;
 pub mod cms;
 pub mod der;
 pub mod dsa;
 pub mod ecdsa;
+mod ed448;
 pub mod eddsa;
 pub mod ess;
 pub mod pkcs1;

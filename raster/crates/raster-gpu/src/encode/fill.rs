@@ -472,10 +472,7 @@ impl<'a> Encoder<'a> {
         if corners.iter().any(|p| !p.x.is_finite() || !p.y.is_finite()) {
             return Ok(());
         }
-        let polylines = vec![Polyline {
-            points: corners.to_vec(),
-            closed: true,
-        }];
+        let polylines = vec![Polyline::polygon(corners.to_vec())];
         match ink {
             MarkInk::Solid(color) => self.push_coverage_styled(
                 &polylines,
@@ -510,17 +507,8 @@ impl<'a> Encoder<'a> {
         resolved: &ResolvedClip,
     ) -> Result<(), RenderError> {
         let stored = fill.stored;
-        if self.coverage == Coverage::Compute && resolved.residues.is_none() {
-            return self.fill_compute(
-                fill.outline,
-                &fill.to_device,
-                fill.bounds,
-                fill.rule == Rule::EvenOdd,
-                fill.color,
-                fill.style,
-                fill.mask,
-                resolved,
-            );
+        if self.coverage == Coverage::Compute && Self::compute_takes(fill, resolved) {
+            return self.fill_on_compute(fill, resolved);
         }
         let (bx0, by0, bx1, by1) = fill.bounds;
         let (tile_width, tile_height) = (tile_side(bx0, bx1), tile_side(by0, by1));
@@ -602,18 +590,21 @@ impl<'a> Encoder<'a> {
                 f: placement.phase[1],
                 ..fill.to_device
             };
-            return self.enqueue(Job::glyph(
-                &stored.segments,
-                tile_transform,
-                fill.rule,
-                placement.key,
-                placement.origin,
-                entry,
-                // The tile the atlas was just asked about, which is the hull's box and so
-                // an upper bound on the one the rasteriser will make.
-                u64::from(tile_width).saturating_mul(u64::from(tile_height)),
-                Draw::new(fill.color, resolved.rect, fill.style, fill.mask),
-            ));
+            return self.enqueue(
+                Job::glyph(
+                    &stored.segments,
+                    tile_transform,
+                    fill.rule,
+                    placement.key,
+                    placement.origin,
+                    entry,
+                    // The tile the atlas was just asked about, which is the hull's box and so
+                    // an upper bound on the one the rasteriser will make.
+                    u64::from(tile_width).saturating_mul(u64::from(tile_height)),
+                    Draw::new(fill.color, resolved.rect, fill.style, fill.mask),
+                )
+                .of_outline(stored),
+            );
         }
         // ADR 0090's hybrid: a tile the atlas will not hold flattens on the device
         // where one is worth using. After the atlas admission — glyphs keep the cache
@@ -625,15 +616,18 @@ impl<'a> Encoder<'a> {
         }
         if let Some(rect) = self.deferrable_bounds(resolved) {
             let bound = self.tile_bound(fill.bounds, resolved);
-            return self.enqueue(Job::sheet(
-                &stored.segments,
-                fill.to_device,
-                None,
-                fill.rule,
-                rect,
-                bound,
-                Draw::new(fill.color, resolved.rect, fill.style, fill.mask),
-            ));
+            return self.enqueue(
+                Job::sheet(
+                    &stored.segments,
+                    fill.to_device,
+                    None,
+                    fill.rule,
+                    rect,
+                    bound,
+                    Draw::new(fill.color, resolved.rect, fill.style, fill.mask),
+                )
+                .of_outline(stored),
+            );
         }
         let span = self.clock.start();
         let polylines = raster::flatten(&stored.segments, fill.to_device);
@@ -655,9 +649,30 @@ impl<'a> Encoder<'a> {
         fill: &SolidFill<'a>,
         resolved: &ResolvedClip,
     ) -> Result<bool, RenderError> {
-        if !(self.compute_assist && self.coverage == Coverage::Cpu && resolved.residues.is_none()) {
+        if !(self.compute_assist
+            && self.coverage == Coverage::Cpu
+            && Self::compute_takes(fill, resolved))
+        {
             return Ok(false);
         }
+        self.fill_on_compute(fill, resolved)?;
+        Ok(true)
+    }
+
+    /// Whether the compute lane may draw this fill: no residue clip to multiply in, and an
+    /// outline that winds every point two neighbouring values — the lane integrates the
+    /// winding, and an outline that can wind more stays on the scratch lane, which asks
+    /// the set (ADR 1389).
+    fn compute_takes(fill: &SolidFill<'a>, resolved: &ResolvedClip) -> bool {
+        resolved.residues.is_none() && fill.stored.winds_two_values()
+    }
+
+    /// One solid fill onto the compute lane, by [`Encoder::fill_compute`].
+    fn fill_on_compute(
+        &mut self,
+        fill: &SolidFill<'a>,
+        resolved: &ResolvedClip,
+    ) -> Result<(), RenderError> {
         self.fill_compute(
             fill.outline,
             &fill.to_device,
@@ -667,8 +682,7 @@ impl<'a> Encoder<'a> {
             fill.style,
             fill.mask,
             resolved,
-        )?;
-        Ok(true)
+        )
     }
 
     /// The compute lane's tile for one solid fill: cull to the visible tile, charge,

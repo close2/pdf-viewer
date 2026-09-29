@@ -7,9 +7,10 @@
 //! `/Tabs` states for the page's annotations — and the name is Table 226's `/TU` where the field
 //! states one.
 //!
-//! One hand-built document, twice: untagged, and with a `/StructTreeRoot` and nothing else changed
-//! (trap 8), so that the second answers with no widget list because its widgets are §14.7.5.3's to
-//! reach and not because something else differed.
+//! One hand-built document, three times: untagged; with a `/StructTreeRoot` whose one `Form` element
+//! names the text field and nothing else changed (trap 8); and with a tree naming both fields. A
+//! tagged page's widget that no element names is published after the structure's own nodes, and one
+//! an element names is published only as that element (ADR 1381).
 
 #![expect(
     clippy::panic,
@@ -44,29 +45,32 @@ fn assembled(objects: &[&str]) -> Vec<u8> {
     out
 }
 
-/// A form of three fields and a link, with `catalog_extra` added to the catalog.
+/// A form of three fields and a link, with `catalog_extra` added to the catalog and `structure`
+/// appended as objects 8 onwards: the structure tree root and its elements, where there are any.
 ///
 /// The page lists the push button first and the text field second, and asks for Table 31's row
 /// order: the text field is the higher of the two, so row order puts it first and array order
 /// would not. The third widget is Hidden (§12.5.3 bit 2), and the link is not a widget.
-fn form(catalog_extra: &str) -> Vec<u8> {
+fn form(catalog_extra: &str, structure: &[&str]) -> Vec<u8> {
     let catalog = format!(
         "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 5 0 R 6 0 R] >> \
          {catalog_extra} >>"
     );
-    assembled(&[
+    let mut objects: Vec<&str> = vec![
         &catalog,
         "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Tabs /R \
          /Annots [4 0 R 5 0 R 6 0 R 7 0 R] >>",
         "<< /Type /Annot /Subtype /Widget /FT /Btn /Ff 65536 /T (go) /TU (Place the order) \
          /Rect [10 10 60 30] /P 3 0 R >>",
-        "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /Rect [10 150 190 170] /P 3 0 R >>",
+        "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /Rect [10 150 190 170] /P 3 0 R \
+         /StructParent 0 >>",
         "<< /Type /Annot /Subtype /Widget /FT /Tx /T (secret) /F 2 /Rect [10 80 190 100] \
          /P 3 0 R >>",
         "<< /Type /Annot /Subtype /Link /Rect [100 10 150 30] /A << /S /URI /URI (a:b) >> >>",
-        "<< /Type /StructTreeRoot >>",
-    ])
+    ];
+    objects.extend_from_slice(structure);
+    assembled(&objects)
 }
 
 /// Opens a document and asks for the one page's accessibility answer.
@@ -90,7 +94,7 @@ fn answered(bytes: Vec<u8>) -> PageStructure {
 /// The untagged page's fields, in the page's tab order, named by `/TU` where one is stated.
 #[test]
 fn an_untagged_pages_fields_are_answered_in_its_tab_order() {
-    let page = answered(form(""));
+    let page = answered(form("", &[]));
     assert!(
         page.nodes.is_empty(),
         "no structure is invented for the page (ADR 0214)"
@@ -131,10 +135,68 @@ fn an_untagged_pages_fields_are_answered_in_its_tab_order() {
     );
 }
 
-/// The same document with a structure tree answers no widget list: its widgets are §14.7.5.3's
-/// `Form` elements to reach, and publishing both would state a field twice.
+/// A structure tree whose one `Form` element names the text field through §14.7.5.3's `/OBJR`, and
+/// whose parent tree answers that widget's `/StructParent` (§14.7.5.4).
+const ONE_FORM: &str = "<< /Type /StructTreeRoot /K 9 0 R /ParentTree << /Nums [0 9 0 R] >> >>";
+
+/// The `Form` element [`ONE_FORM`] holds: the text field, and nothing else of the page.
+const TEXT_FIELD_ELEMENT: &str = "<< /Type /StructElem /S /Form /P 8 0 R /Pg 3 0 R \
+     /K << /Type /OBJR /Obj 5 0 R >> >>";
+
+/// A tagged page whose structure names one widget and leaves the other out: the one it names is
+/// its `Form` element and nothing else, and the one it leaves out is still published, by `/TU`, as
+/// a widget after the structure's nodes (ADR 1381). Table 368's `Form` "shall be used for each PDF
+/// widget annotation that belongs to the real content of the document" binds the producer; the
+/// button is still §12.5.1's to click.
 #[test]
-fn a_tagged_document_answers_its_widgets_through_its_structure() {
-    let page = answered(form("/StructTreeRoot 8 0 R"));
+fn a_tagged_pages_widget_no_element_names_is_still_published() {
+    let page = answered(form(
+        "/StructTreeRoot 8 0 R /MarkInfo << /Marked true >>",
+        &[ONE_FORM, TEXT_FIELD_ELEMENT],
+    ));
+    let named: Vec<Option<pdf_syntax::ObjectId>> =
+        page.nodes.iter().map(|node| node.annotation).collect();
+    assert_eq!(
+        named,
+        [Some(pdf_syntax::ObjectId::new(5, 0))],
+        "the structure's one element is the text field's Form: {:?}",
+        page.nodes
+    );
+    let said: Vec<(&str, &str, Option<pdf_syntax::ObjectId>)> = page
+        .widgets
+        .iter()
+        .map(|widget| {
+            (
+                widget.role.as_str(),
+                widget.name.as_str(),
+                widget.annotation,
+            )
+        })
+        .collect();
+    assert_eq!(
+        said,
+        [(
+            "Form",
+            "Place the order",
+            Some(pdf_syntax::ObjectId::new(4, 0))
+        )],
+        "the button no element names is published once, by /TU; the text field is not published \
+         twice, and the hidden field and the link are not offered"
+    );
+}
+
+/// The same page with an element for the button too publishes no widget list: every interactable
+/// widget is an element's, and a list beside them would announce each field twice.
+#[test]
+fn a_tagged_page_whose_structure_names_every_widget_answers_no_list() {
+    let page = answered(form(
+        "/StructTreeRoot 8 0 R",
+        &[
+            "<< /Type /StructTreeRoot /K [9 0 R 10 0 R] /ParentTree << /Nums [0 9 0 R] >> >>",
+            TEXT_FIELD_ELEMENT,
+            "<< /Type /StructElem /S /Form /P 8 0 R /Pg 3 0 R /K << /Type /OBJR /Obj 4 0 R >> >>",
+        ],
+    ));
+    assert_eq!(page.nodes.len(), 2, "{:?}", page.nodes);
     assert!(page.widgets.is_empty(), "{:?}", page.widgets);
 }

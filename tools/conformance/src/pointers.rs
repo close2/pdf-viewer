@@ -67,6 +67,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use crate::gitignore::Ignore;
 use crate::ledger::Ledger;
 use crate::retired::{self, Kind};
 
@@ -85,38 +86,28 @@ pub const RELATIVE_HEADS: [&str; 4] = ["src", "tests", "examples", "benches"];
 /// the usage line two viewer binaries print. A segment of nothing but `N`s is the same device.
 pub const PLACEHOLDERS: [&str; 6] = ["foo", "foo.rs", "bar.rs", "file.rs", "x.pdf", "NN-slug.md"];
 
-/// The paths a checkout of this repository does not carry, with what puts them there.
+/// The paths a checkout of this repository does not carry and no `.gitignore` pattern covers.
+///
+/// Everything a pattern ignores is read from the patterns themselves ([`crate::gitignore`], ADR
+/// 1391) and printed with the pattern that matched; what stays here is what git has another
+/// reason not to hold, and each survivor names it:
 ///
 /// - `doc/corpora`, `doc/pdf.js`, `doc/arlington-pdf-model` and `doc/veraPDF-corpus` are
-///   submodules, and three of the four corpora are optional in the strong sense
-///   (`doc/environment.md`): a pointer into one is live for a developer who checked it out and
-///   absent for everybody else, so it is neither.
-/// - `doc/pdfa`, `doc/veraPDF-library` and `doc/specifications.password` are ignored by
-///   `.gitignore` or `doc/.gitignore`: bought texts, a validator's sources read as evidence, and
-///   the key to the archive below (`doc/third-party-data.md`). `doc/errata.md` is ignored too,
-///   and `tools/spec-errata` writes it.
-/// - `doc/adr_revisit` is the owner's own notes on ADRs, kept in the owner's checkout and read
-///   from there by the round a note is addressed to.
-/// - `fuzz/corpus` is what a fuzzing run builds, and `.gitignore` covers it.
-/// - `doc/md` and the specifications beside it are unpacked from `doc/specifications.zip`, which
-///   ADR 0187 decided and `NOTICE` section 3 explains.
-/// - `target` is the build directory.
-/// - `scratchpad` is where a round keeps its own intermediate files (`doc/todo/02` section 8);
-///   a merge stages explicit paths and never one under it, so a record naming a file there is
-///   naming something no checkout has.
-pub const NOT_CARRIED: [&str; 13] = [
+///   submodules — tracked as a commit, not ignored — and three of the four corpora are optional
+///   in the strong sense (`doc/environment.md`): a pointer into one is live for a developer who
+///   checked it out and absent for everybody else, so it is neither.
+/// - `doc/adr_revisit` is the owner's own notes on ADRs, untracked in the owner's checkout and
+///   read from there by the round a note is addressed to; ignoring it would hide it from the
+///   owner's own `git status`.
+/// - `scratchpad` is where a round keeps its own intermediate files (`doc/todo/02` section 8); a
+///   merge stages explicit paths and never one under it (`tools/batch.sh`'s `population`), and it
+///   stays visible to `git status` so that `tools/batch.sh check` can say what a round left.
+pub const NOT_CARRIED: [&str; 6] = [
     "doc/corpora",
     "doc/pdf.js",
     "doc/arlington-pdf-model",
     "doc/veraPDF-corpus",
-    "doc/pdfa",
-    "doc/veraPDF-library",
-    "doc/specifications.password",
-    "doc/errata.md",
     "doc/adr_revisit",
-    "fuzz/corpus",
-    "doc/md",
-    "target",
     "scratchpad",
 ];
 
@@ -140,6 +131,9 @@ pub enum Reach {
     Placeholder,
     /// Under one of [`NOT_CARRIED`]: the tree deliberately does not have it here.
     NotCarried,
+    /// Ignored by a pattern of the tree's own `.gitignore` files, which [`Pointer::pattern`]
+    /// names: no checkout carries it, whether or not this one happens to hold a copy.
+    Ignored,
     /// `doc/questions/A<n>`, absent, where `doc/questions/Q<n>` is here: the owner's answer to a
     /// question this tree asked, not in this checkout. The owner writes an `A` file and it lands
     /// through the owner's own commit, so a worktree can be a round ahead of it; whether a
@@ -159,6 +153,7 @@ impl fmt::Display for Reach {
             Self::Unrooted => "unrooted",
             Self::Placeholder => "a form",
             Self::NotCarried => "not carried",
+            Self::Ignored => "not carried, gitignored",
             Self::AnswerNotHere => "an answer not in this checkout",
             Self::Live => "live",
         })
@@ -177,6 +172,8 @@ pub struct Pointer {
     pub sentence: String,
     /// What it resolved to.
     pub reach: Reach,
+    /// For [`Reach::Ignored`], the pattern that ignores it: `.gitignore: /doc/md`.
+    pub pattern: Option<String>,
     /// Whether the sentence narrates a retirement — the known false positive — or makes a claim.
     pub kind: Kind,
 }
@@ -237,6 +234,7 @@ pub struct Tree {
     present: BTreeSet<String>,
     crates: Vec<String>,
     heads: BTreeSet<String>,
+    ignore: Ignore,
 }
 
 impl Tree {
@@ -271,7 +269,15 @@ impl Tree {
             present,
             crates,
             heads,
+            ignore: Ignore::default(),
         }
+    }
+
+    /// The same tree, with the `.gitignore` patterns that decide [`Reach::Ignored`].
+    #[must_use]
+    pub fn ignoring(mut self, ignore: Ignore) -> Self {
+        self.ignore = ignore;
+        self
     }
 
     /// Whether a path head is one of the tree's own top-level directories.
@@ -292,10 +298,14 @@ impl Tree {
         self.heads.contains(head)
     }
 
-    /// Walks the workspace, skipping what [`NOT_CARRIED`] names and every hidden directory.
+    /// Walks the workspace, skipping what [`NOT_CARRIED`] names, every hidden directory and
+    /// every directory a `.gitignore` pattern ignores — git does not descend into one either, and
+    /// a pointer below it is [`Reach::Ignored`] before it is looked up.
     ///
     /// A hidden *file* is walked: `doc/.gitignore` is cited as the reason a directory is not
-    /// carried, and it is a file every checkout has.
+    /// carried, and it is a file every checkout has. Each `.gitignore` is read as the walk
+    /// enters its directory, so a nested file's patterns follow its parent's, which is the
+    /// precedence git gives them.
     ///
     /// # Errors
     ///
@@ -303,8 +313,9 @@ impl Tree {
     /// clean tree for a tree it had not looked at.
     pub fn walk(root: &Path) -> std::io::Result<Self> {
         let mut paths = Vec::new();
-        collect(root, root, &mut paths)?;
-        Ok(Self::of(paths))
+        let mut ignore = Ignore::default();
+        collect(root, root, &mut paths, &mut ignore)?;
+        Ok(Self::of(paths).ignoring(ignore))
     }
 
     /// The crate directory a file belongs to, or `None` where it is in no crate.
@@ -370,7 +381,21 @@ impl Tree {
 }
 
 /// Every path in the tree, relative to `root`.
-fn collect(root: &Path, directory: &Path, into: &mut Vec<String>) -> std::io::Result<()> {
+fn collect(
+    root: &Path,
+    directory: &Path,
+    into: &mut Vec<String>,
+    ignore: &mut Ignore,
+) -> std::io::Result<()> {
+    let patterns = directory.join(".gitignore");
+    if patterns.is_file() {
+        let relative = patterns
+            .strip_prefix(root)
+            .unwrap_or(&patterns)
+            .to_string_lossy()
+            .replace('\\', "/");
+        ignore.read(root, &relative)?;
+    }
     for entry in std::fs::read_dir(directory)? {
         let entry = entry?;
         let path = entry.path();
@@ -382,14 +407,17 @@ fn collect(root: &Path, directory: &Path, into: &mut Vec<String>) -> std::io::Re
         let name = entry.file_name();
         let name = name.to_string_lossy();
         let hidden_directory = name.starts_with('.') && path.is_dir();
-        if hidden_directory || NOT_CARRIED.iter().any(|skipped| relative == *skipped) {
+        if hidden_directory
+            || NOT_CARRIED.iter().any(|skipped| relative == *skipped)
+            || (path.is_dir() && ignore.ignoring(&relative, Some(true)).is_some())
+        {
             continue;
         }
         into.push(relative);
         // A symbolic link to a directory is how a worktree reaches the checkouts beside it;
         // following one would walk a third-party tree, or the same tree twice.
         if path.is_dir() && !path.is_symlink() {
-            collect(root, &path, into)?;
+            collect(root, &path, into, ignore)?;
         }
     }
     Ok(())
@@ -451,8 +479,10 @@ pub fn sweep(
         for sentence in crate::unread::sentences(block) {
             let kind = retired::kind_of(sentence);
             for text in paths_in(sentence) {
+                let (reach, pattern) = reach_of(&text, home.as_deref(), tree);
                 found.pointers.push(Pointer {
-                    reach: reach_of(&text, home.as_deref(), tree),
+                    reach,
+                    pattern,
                     text,
                     location: location.clone(),
                     sentence: sentence.to_owned(),
@@ -487,37 +517,54 @@ fn source_index(sources: &[(PathBuf, String)]) -> BTreeMap<String, &str> {
         .collect()
 }
 
-/// What a pointer reaches, given the crate it was written in.
-fn reach_of(text: &str, home: Option<&str>, tree: &Tree) -> Reach {
+/// What a pointer reaches, given the crate it was written in, and the pattern for
+/// [`Reach::Ignored`].
+///
+/// A pattern is asked before the tree is: whether a checkout happens to hold an ignored file is
+/// the machine's, and the sweep's answer should be the same in the merge and in a fresh clone.
+fn reach_of(text: &str, home: Option<&str>, tree: &Tree) -> (Reach, Option<String>) {
     if text.contains(['*', '<']) || text.split('/').any(is_a_placeholder) {
-        return Reach::Placeholder;
+        return (Reach::Placeholder, None);
     }
     let head = text.split('/').next().unwrap_or_default();
-    let path = if tree.is_a_head(head) {
-        text.to_owned()
-    } else if RELATIVE_HEADS.contains(&head) {
+    let path = if RELATIVE_HEADS.contains(&head) && !tree.is_a_head(head) {
         match home {
             Some(directory) => format!("{directory}/{text}"),
-            None => return Reach::Unrooted,
+            None => return (Reach::Unrooted, None),
         }
-    } else if is_not_carried(text) {
-        // The walk skips what the tree does not carry, so a top-level directory among them
-        // (`scratchpad`, `target`) is not a head the walk saw.
-        return Reach::NotCarried;
     } else {
-        return Reach::Unrooted;
+        text.to_owned()
     };
-    if tree.holds(&path) {
+    // The walk skips what the tree does not carry, so a top-level directory among them
+    // (`scratchpad`, `target`) is not a head the walk saw; a head a pattern ignores is still this
+    // tree's, and any other is another tree's path.
+    let ignored_head = tree.ignore.ignoring(head, Some(true)).is_some();
+    if !tree.is_a_head(head) && !RELATIVE_HEADS.contains(&head) && !ignored_head {
+        let reach = if is_not_carried(text) {
+            Reach::NotCarried
+        } else {
+            Reach::Unrooted
+        };
+        return (reach, None);
+    }
+    if let Some(pattern) = tree.ignore.ignoring(&path, None) {
+        return (
+            Reach::Ignored,
+            Some(format!("{}: {}", pattern.file, pattern.text)),
+        );
+    }
+    let reach = if tree.holds(&path) {
         Reach::Live
     } else if RELATIVE_HEADS.contains(&head) && tree.holds_anywhere(text) {
         Reach::AnotherCrate
-    } else if is_not_carried(&path) || is_a_specification(&path) {
+    } else if is_not_carried(&path) {
         Reach::NotCarried
     } else if question_of_answer(&path).is_some_and(|question| tree.holds(&question)) {
         Reach::AnswerNotHere
     } else {
         Reach::Absent
-    }
+    };
+    (reach, None)
 }
 
 /// The question an answer's path is addressed to: `doc/questions/A72-…` → `doc/questions/Q72`.
@@ -544,15 +591,6 @@ fn is_not_carried(path: &str) -> bool {
 fn is_a_placeholder(segment: &str) -> bool {
     PLACEHOLDERS.contains(&segment)
         || (!segment.is_empty() && segment.chars().all(|character| character == 'N'))
-}
-
-/// Whether a path names one of the documents unpacked from `doc/specifications.zip`.
-///
-/// They are `doc/*.pdf` and everything under `doc/md/`; the second is [`NOT_CARRIED`]'s and this
-/// is the first. ADR 0187: the standard is free to obtain and not free to redistribute, so the
-/// repository carries it encrypted and a developer unpacks it.
-fn is_a_specification(path: &str) -> bool {
-    path.starts_with("doc/") && path.matches('/').count() == 1 && extension_is(path, "pdf")
 }
 
 /// Whether a path's extension is this one.
@@ -825,15 +863,28 @@ mod tests {
     }
 
     /// A submodule nobody checked out is not a dead pointer, and neither is a specification
-    /// unpacked from the archive.
+    /// unpacked from the archive — the first by the hand list, the second by the `.gitignore`
+    /// pattern that ignores it, which the pointer carries.
     #[test]
     fn a_path_the_tree_does_not_carry_is_its_own_rung() {
+        let mut ignore = Ignore::default();
+        ignore.add(".gitignore", "/target\n/doc/*.pdf\n");
+        let tree = tree().ignoring(ignore);
         let documents = vec![file(
             "doc/oracle-and-corpus.md",
-            "The file is `doc/corpora/pdfbox/one.pdf`, quoted from `doc/ISO_32000-2.pdf`.\n",
+            "The file is `doc/corpora/pdfbox/one.pdf`, quoted from `doc/ISO_32000-2.pdf`; the \
+             renders are `target/pdfref/one.png`.\n",
         )];
-        let found = sweep(&tree(), &ledger(Vec::new()), &[], &documents);
-        assert_eq!(found.reaching(Reach::NotCarried).len(), 2);
+        let found = sweep(&tree, &ledger(Vec::new()), &[], &documents);
+        assert_eq!(found.reaching(Reach::NotCarried).len(), 1);
+        let ignored = found.reaching(Reach::Ignored);
+        assert_eq!(
+            ignored
+                .iter()
+                .map(|pointer| pointer.pattern.as_deref())
+                .collect::<Vec<_>>(),
+            [Some(".gitignore: /doc/*.pdf"), Some(".gitignore: /target")]
+        );
         assert!(found.reaching(Reach::Absent).is_empty());
     }
 

@@ -2438,6 +2438,10 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "graphics/jpeg2000-no-ciejab-colour-space",
         Because::NotBuiltYet(JPEG2000_SAMPLES_NOT_RE_ENCODED),
     ),
+    (
+        "graphics/jpeg2000-uses-the-baseline-feature-set",
+        Because::NotBuiltYet(JPEG2000_BASELINE_NOT_REACHED),
+    ),
     // ISO 19005-4 section 6.2.4.2 and section 6.2.4.4.
     (
         "graphics/no-icc-space-duplicating-the-output-intent-profile",
@@ -2797,6 +2801,24 @@ const JPEG2000_SAMPLES_NOT_RE_ENCODED: &str = "doc/pdf-a-conversion-limits.md se
      and puts this tree's own JPEG 2000 decoder's output into the archive permanently. One \
      channel-count case is cheaper and is unbuilt too: a cdef box declaring the second channel \
      as opacity leaves one colour channel without a sample being touched";
+
+/// Why JPEG 2000 data outside the JPX baseline is not brought into it.
+///
+/// ADR 1383 reads each shape against ITU-T T.801 M.9.2 and ADR 1371's rule that a codec's output
+/// is the image's samples. Where the dictionary states a `ColorSpace`, the data's colour
+/// specifications are ones §7.4.9 has a reader ignore, and the samples are already in the
+/// dictionary's domain: transcoding them keeps that domain and is the universal remedy
+/// `doc/pdf-a-conversion-limits.md` section 4.10 names, not built. Where it states none, a
+/// specification off M.9.2.4's list is what the samples mean, and any baseline space written in
+/// its place relabels them. A required extension is what decoding them needs, which this tree's
+/// codec does not provide. So every shape waits on a re-encode.
+const JPEG2000_BASELINE_NOT_REACHED: &str = "ITU-T T.801 M.9.2 defines the JPX baseline and \
+     each way out of it is the samples' own: a colour specification off M.9.2.4's list is what the \
+     samples mean where the image dictionary states no ColorSpace, so writing a baseline one in its \
+     place relabels the picture; a codestream extension M.9.2.3 leaves out is what decoding needs; \
+     and where the dictionary does state a ColorSpace the samples are already in its domain, so the \
+     remedy that keeps them is transcoding to FlateDecode (doc/pdf-a-conversion-limits.md section \
+     4.10), which is not built";
 
 /// Why an `ICCBased` space duplicating the output intent's profile is not collapsed.
 ///

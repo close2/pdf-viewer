@@ -15,12 +15,18 @@
 //!
 //! # The definition of coverage
 //!
-//! Flattened edges deposit exact signed trapezoid areas into an accumulation grid;
-//! a left-to-right prefix sum recovers the average winding `w` per pixel; coverage is
-//! - non-zero rule (ISO 32000-2 §8.5.3.3.2): `min(|w|, 1)`,
-//! - even-odd rule (§8.5.3.3.3): `1 − |1 − (w mod 2)|`, the triangle fold, which
-//!   agrees with the parity of the winding number wherever a pixel is crossed by a
-//!   single edge and is our stated behaviour where several cross one pixel.
+//! A pixel's coverage is the area of the set ISO 32000-2 §8.5.3.3's rule declares inside,
+//! within the pixel (§10.7.4 scan-converts after "all 'insideness' computations have been
+//! performed"; ADR 1389). Flattened edges deposit exact signed trapezoid areas into an
+//! accumulation grid; a left-to-right prefix sum recovers the average winding `w` per pixel;
+//! and where the winding in the pixel takes at most two neighbouring values — every pixel
+//! of a fill whose subpaths neither cross nor nest the same way round — the rule applied
+//! to the average is that area:
+//! - non-zero rule (§8.5.3.3.2): `min(|w|, 1)`,
+//! - even-odd rule (§8.5.3.3.3): `1 − |1 − (w mod 2)|`, the triangle fold.
+//!
+//! The other pixels — where a path's portions overlap, cross, or wind against one another
+//! — are recomputed from the set itself, band by band (`fill::exact`).
 //!
 //! Curves flatten by recursive midpoint subdivision to a stated tolerance — the tighter
 //! of [`FLATTEN_TOLERANCE`](flatten::FLATTEN_TOLERANCE) and
@@ -54,7 +60,7 @@ mod flatten;
 pub(crate) mod reduce;
 mod stroke;
 
-pub(crate) use fill::{CoverageMask, Rule, fill_mask};
+pub(crate) use fill::{CoverageMask, Rule, fill_mask, fill_mask_settled, winds_two_values};
 pub(crate) use flatten::{DeviceTransform, Polyline, flatten, polyline_bounds};
 pub(crate) use stroke::{resolve_width, stroke_polylines};
 

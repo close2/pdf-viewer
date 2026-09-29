@@ -14,18 +14,19 @@
 //! the difference between a band across part of a shape and a wash over all of it.
 //!
 //! `tiny-skia`'s spread modes cannot express it: `Pad` paints the end colour forever,
-//! `Repeat` and `Reflect` tile. So a non-extended end gets a fully transparent stop at
-//! the very edge of the ramp, carrying the same colour so that no fringe appears as it
-//! fades. `Pad` then repeats *transparency* beyond that point, which is precisely what
-//! `/Extend false` asks for. The cost is that the cut-off is a gradient a fraction of a
-//! percent of the axis wide rather than a hard edge, which is well under a pixel on any
-//! real page.
+//! `Repeat` and `Reflect` tile. So a non-extended end gets a fully transparent stop at the
+//! same position as the ramp's own end stop — a hard stop, carrying the end's colour so no
+//! fringe appears — and `Pad` then repeats *transparency* beyond it, which is precisely what
+//! `/Extend false` asks for. `tiny-skia` keeps a hard stop at 0 or 1 intact under `Pad` by
+//! evaluating its general gradient stage on the unclamped parameter.
+//!
+//! **Every other stop stays where the ramp put it.** ISO 32000-2 §8.7.4.5.3 gives the point
+//! at `t` from its projection onto the axis alone, so a stop moved along the ramp is a colour
+//! moved along the page, by a distance that grows with the axis and with the scale; a stripe
+//! boundary that falls on a whole device row must be drawn on that row at every scale (ADR
+//! 1387).
 
 use pdf_render::{Color, Point, Ramp, Shading, ShadingKind, Transform};
-
-/// How wide the transparent transition at a non-extended end is, as a fraction of the
-/// ramp. Small enough to be sub-pixel on any page, large enough to survive `f32`.
-const CUTOFF: f32 = 0.0005;
 
 /// Builds a shader for a shading, or `None` for kinds the caller must draw itself.
 ///
@@ -116,26 +117,20 @@ pub(crate) fn shader<'a>(
 }
 
 /// Builds the gradient stops for a ramp, honouring `/Extend`.
+///
+/// The ramp's stops are handed over at their own positions, and a non-extended end adds a
+/// transparent stop at the same position as the end it closes. See the note at the top of
+/// this module for why nothing else may move.
 fn stops(ramp: &Ramp, extend: (bool, bool)) -> Vec<tiny_skia::GradientStop> {
     let mut stops: Vec<tiny_skia::GradientStop> =
         Vec::with_capacity(ramp.stops.len().saturating_add(2));
-
-    // A non-extended end is cut off by a transparent stop just inside the ramp, so `Pad`
-    // repeats transparency beyond it. See the note at the top of this module.
-    let (low, high) = match extend {
-        (true, true) => (0.0, 1.0),
-        (false, true) => (CUTOFF, 1.0),
-        (true, false) => (0.0, 1.0 - CUTOFF),
-        (false, false) => (CUTOFF, 1.0 - CUTOFF),
-    };
 
     if !extend.0 {
         stops.push(transparent_stop(0.0, ramp.colour_at(0.0)));
     }
     for stop in ramp.stops.iter() {
-        let position = low + stop.at * (high - low);
         stops.push(tiny_skia::GradientStop::new(
-            position.clamp(0.0, 1.0),
+            stop.at.clamp(0.0, 1.0),
             crate::convert::color(stop.colour),
         ));
     }

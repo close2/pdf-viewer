@@ -78,7 +78,7 @@ struct PageReading {
     bounds: [f32; 4],
     /// §14.7's elements for it, in §14.8.2.5's order.
     nodes: Vec<viewer_core::AccessibilityNode>,
-    /// Its widget annotations, where the document states no structure tree (ADR 1369).
+    /// Its widget annotations no element reaches (ADRs 1369, 1381).
     widgets: Vec<viewer_core::AccessibilityNode>,
     /// What the page could not draw.
     reports: Vec<String>,
@@ -186,10 +186,11 @@ impl Reading {
         self.shown.iter().map(|page| page.nodes.len()).sum()
     }
 
-    /// How many widget annotations crossed from untagged pages, over every page on the screen.
+    /// How many widget annotations no element reaches crossed, over every page on the screen.
     ///
     /// Counted apart from [`Self::elements`] because they are not §14.7's elements: ADR 1369
-    /// publishes them where the document states no structure tree.
+    /// publishes them where the document states no structure tree, and ADR 1381 where a tagged
+    /// page's structure left them out.
     #[must_use]
     pub fn widgets(&self) -> usize {
         self.shown.iter().map(|page| page.widgets.len()).sum()

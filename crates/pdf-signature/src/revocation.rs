@@ -1622,7 +1622,9 @@ fn verify(
             let computed = digest.compute(&[message]);
             ecdsa::verify(key, signature, &computed).map_err(|_| named())
         }
-        (crate::cms::SignatureAlgorithm::EdDsa, PublicKey::Ed25519(key)) => {
+        (crate::cms::SignatureAlgorithm::EdDsa(stated), PublicKey::EdDsa(key))
+            if stated == key.curve =>
+        {
             // RFC 8032 signs the message rather than a digest of it.
             eddsa::verify(key, signature, &[message]).map_err(|_| named())
         }

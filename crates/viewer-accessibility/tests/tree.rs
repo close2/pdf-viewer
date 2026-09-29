@@ -1115,18 +1115,32 @@ fn an_untagged_pages_widgets_are_controls_beside_the_untagged_sentence() {
     assert!(tick.supports_action(Action::Click));
 }
 
-/// A tagged page publishes its widgets as its `Form` elements and nothing else, so a list handed
-/// in beside its elements is not published a second time.
+/// A tagged page's widget that no element names is published **after** the structure's own
+/// elements, as a control (ADR 1381): Table 368's "[i]n a tagged PDF, Form shall be used for each
+/// PDF widget annotation that belongs to the real content of the document" binds the producer, and
+/// where one left a field out the field is still §12.5.1's to click. Its place is after everything
+/// the structure states, never one inside a reading order the page did not give it.
 #[test]
-fn a_tagged_page_publishes_no_widget_list_beside_its_elements() {
+fn a_tagged_pages_unreached_widget_follows_its_elements() {
     let nodes = [element(None, "P", "a paragraph")];
     let widgets = [widget("go", Control::PushButton, 12)];
     let update = built(PageView {
         widgets: &widgets,
         ..view(&nodes, &[])
     });
-    assert!(
-        update.nodes.iter().all(|(id, _)| id.0 < 100_000),
-        "no widget identifier on a tagged page"
+    let page = node(&update, NodeId(2));
+    assert_eq!(
+        page.children(),
+        [NodeId(16), NodeId(100_016)],
+        "the structure's element first, then the widget no element names"
     );
+    let said = node(&update, NodeId(16)).label().unwrap_or_default();
+    assert!(
+        !said.contains("no logical structure"),
+        "a tagged page does not say it is untagged: {said:?}"
+    );
+    let button = node(&update, NodeId(100_016));
+    assert_eq!(button.role(), Role::Button);
+    assert_eq!(button.label(), Some("go"));
+    assert!(button.supports_action(Action::Click));
 }

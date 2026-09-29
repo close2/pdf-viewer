@@ -5727,3 +5727,16 @@ the ramp's hard stops beside the table and compare `t` against them in the shade
 table only between steps. The first keeps the table for everything smooth, which is nearly every
 ramp; §7.10.4's half-open intervals, already in `ramp_color_at`, say which side a pixel exactly on
 the step takes.
+
+## 56. Sections 45 and 55 closed on this side (ADR 1389)
+
+**Section 45 is closed.** A pixel's coverage is now the area of the set §8.5.3.3's rule declares
+inside: a fill whose subpaths neither cross nor nest the same way round keeps its integral, which is
+that area, and every other pixel is recomputed from its own edges, band by band, with the
+integral fixing the one constant a local walk cannot know — the band stated twice reads 3.00, not
+4.00, and a star, two opposed squares and two nested same-wound squares meet their closed forms to
+the byte at 1×–8× (ADR 1389).
+
+**Section 55 is closed.** A ramp's hard step is compared against its own offset, carried beside the
+table, and only rounded within the segment it falls in: `issue10572.pdf`'s stripe shape reads no
+wrong row at 1×, 2×, 4× or 8×, and the page leaves the 4× differing set on the GPU lane (ADR 1389).

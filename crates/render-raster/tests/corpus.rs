@@ -309,16 +309,10 @@ const REFUSED_BEFORE_THE_SCENE: [&str; 4] = [
 ///
 /// The second of the two stages. A refusal here is raised inside raster at render time, against
 /// a capability or a budget the adapter states: a page that translated into a scene, went to
-/// the device, and could not be drawn there. This array held nothing — "at a page's own
-/// resolution, nothing in this corpus asks the adapter for more than it has" — until the
-/// owner-merged GPU arc took raster's `5fb011a` and rebuilt the scene in page space (ADR 0702),
-/// after which `issue1905.pdf` is over the frame's scene-byte budget at 1× as well as over the
-/// coverage-sheet texture ceiling at 4×: *frame refused: frame needs 272158852 scene-derived
-/// bytes, over the stated budget of 268435456* — 1.4% over. The merge round that pinned it
-/// (773) ran this gate at the arc's own head with the four merged rounds absent and got the
-/// identical refusal, byte for byte, so the name is the arc's and not the merge's; the CPU
-/// backend draws the page and says so, which is `CLAUDE.md`'s rule for a budget refusal. The
-/// upstream ask, with the run's message, is `doc/QUORRA_FEEDBACK.md` section 40.
+/// the device, and could not be drawn there. `issue1905.pdf` stood here for being 1.4% over
+/// the frame's scene-byte budget at 1× (`doc/QUORRA_FEEDBACK.md` section 40); it is under it now
+/// and agrees with the oracle, and at 4× it is still refused, over the coverage sheet's texture
+/// ceiling, in [`REFUSED_BY_THE_DEVICE_AT_FOUR`].
 ///
 /// **What a departure from this list means.** A name arriving is a page a person could open at
 /// 100% and not see: it is raster's to move, or this adapter's, and the round that finds one
@@ -356,11 +350,8 @@ const REFUSED_BEFORE_THE_SCENE: [&str; 4] = [
 /// its ceiling and the ceiling it meets first is that one. Both are budgets, both are reported
 /// out loud, and the name is on this list either way; what a round may not do is read the printed
 /// figure as this page's own cost.
-const REFUSED_BY_THE_DEVICE: [&str; 3] = [
-    "ContentStreamCycleType3insideType3.pdf",
-    "issue1905.pdf",
-    "issue19517.pdf",
-];
+const REFUSED_BY_THE_DEVICE: [&str; 2] =
+    ["ContentStreamCycleType3insideType3.pdf", "issue19517.pdf"];
 
 /// The same at [`MAGNIFIED`], which is the population the zoom path actually draws.
 ///

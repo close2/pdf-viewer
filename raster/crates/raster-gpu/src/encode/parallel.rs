@@ -161,6 +161,11 @@ pub(super) struct Job<'a> {
     /// [`Encoder::in_flight_limit`], which is what stops a queue from being a way to
     /// hold a thousand full-page tiles at once where the walk held one (principle 3).
     held: u64,
+    /// The stored outline a fill's segments are, when the job is one: it answers once,
+    /// for every placement, whether the outline winds two neighbouring values, and a fill
+    /// that does keeps its integral without asking again (ADR 1389). `None` for a stroke,
+    /// whose pieces are not the outline.
+    outline: Option<&'a crate::resources::StoredOutline>,
 }
 
 /// Which rectangle a job's coverage is rasterised over: the two lanes' own arithmetic,
@@ -248,6 +253,7 @@ impl<'a> Job<'a> {
             draw,
             weight: weight_of(segments, resident_already),
             held: held_by(tile_bound, resident_already),
+            outline: None,
         }
     }
 
@@ -271,6 +277,16 @@ impl<'a> Job<'a> {
             draw,
             weight: weight_of(segments, false),
             held: held_by(tile_bound, false),
+            outline: None,
+        }
+    }
+
+    /// This fill's segments as the stored outline they are, whose answer to the
+    /// two-values question is asked once for all its placements (ADR 1389).
+    pub(super) fn of_outline(self, outline: &'a crate::resources::StoredOutline) -> Self {
+        Self {
+            outline: Some(outline),
+            ..self
         }
     }
 
@@ -357,8 +373,17 @@ pub(super) fn rasterise(job: &Job<'_>) -> Rasterised {
     if width == 0 || height == 0 {
         return None;
     }
-    Some(raster::fill_mask(
-        &polylines, job.rule, left, top, width, height,
+    // A fill of an outline known to wind two neighbouring values keeps its integral;
+    // the question is asked on the worker, once per outline, not on the walk.
+    let settled = job.stroke.is_none()
+        && job
+            .outline
+            .is_some_and(|o| o.winds_two_values_as(&polylines));
+    Some(raster::fill_mask_settled(
+        &polylines,
+        job.rule,
+        (left, top, width, height),
+        settled,
     ))
 }
 

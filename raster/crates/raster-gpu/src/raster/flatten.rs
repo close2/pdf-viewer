@@ -88,6 +88,47 @@ impl DeviceTransform {
 pub(crate) struct Polyline {
     pub points: Vec<Point>,
     pub closed: bool,
+    /// The directions the source path leaves its first point and arrives at its last,
+    /// where a curve decides them; `None` at an end a straight segment decides, whose
+    /// chord is its own direction. Only a stroke's caps read it (ADR 1389).
+    pub ends: Ends,
+}
+
+/// The source path's own direction at each end of a subpath (ISO 32000-2 §8.4.3.3).
+///
+/// §8.4.3.3 squares a butt cap off "at the endpoint of the path", and the path at its
+/// end runs along its curve's tangent there — the Bézier's derivative at `t = 1`, and
+/// at `t = 0` for the start. Flattening keeps the points and loses that direction: the
+/// last chord of a quarter arc is turned from the arc's end tangent by half its angle.
+/// So the direction is taken from the control points before they are dropped.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(crate) struct Ends {
+    /// The direction leaving the first point, not normalised.
+    pub start: Option<Point>,
+    /// The direction arriving at the last point, not normalised.
+    pub end: Option<Point>,
+}
+
+impl Polyline {
+    /// A closed polygon with no curve behind it, as the stroker and the rectangle paths
+    /// build them.
+    pub(crate) fn polygon(points: Vec<Point>) -> Self {
+        Self {
+            points,
+            closed: true,
+            ends: Ends::default(),
+        }
+    }
+}
+
+/// The first of `candidates` that is a direction at all: a cubic's derivative at an end
+/// is zero where the control point coincides with the end point, and the curve then
+/// leaves along the next control point that does not (the derivative's first non-zero
+/// order).
+fn first_direction(candidates: [Point; 3]) -> Option<Point> {
+    candidates
+        .into_iter()
+        .find(|d| (d.x != 0.0 || d.y != 0.0) && d.x.is_finite() && d.y.is_finite())
 }
 
 /// Flatten an outline under a transform into polylines, one per subpath.
@@ -100,25 +141,40 @@ pub(crate) struct Polyline {
 pub(crate) fn flatten(segments: &[Segment], transform: DeviceTransform) -> Vec<Polyline> {
     let mut subpaths = Vec::new();
     let mut current: Vec<Point> = Vec::new();
-    let mut push_current = |current: &mut Vec<Point>, closed: bool| {
+    // The ends' directions: `moved` is whether any segment has left the first point yet,
+    // which is what decides the start; the end is re-decided by every segment that moves.
+    let mut ends = Ends::default();
+    let mut moved = false;
+    let mut push_current = |current: &mut Vec<Point>, ends: &mut Ends, closed: bool| {
         if current.len() > 1 {
             subpaths.push(Polyline {
                 points: std::mem::take(current),
                 closed,
+                ends: *ends,
             });
         } else {
             current.clear();
         }
+        *ends = Ends::default();
     };
     for segment in segments {
         match *segment {
             Segment::MoveTo(p) => {
-                push_current(&mut current, false);
+                push_current(&mut current, &mut ends, false);
+                moved = false;
                 current.push(transform.apply(p));
             }
             Segment::LineTo(p) => {
-                if !current.is_empty() {
-                    current.push(transform.apply(p));
+                if let Some(&from) = current.last() {
+                    let to = transform.apply(p);
+                    // A line that goes nowhere decides no direction; one that moves is its
+                    // own chord, which the stroker already has.
+                    #[expect(clippy::float_cmp)] // exact: a zero-length segment
+                    if to.x != from.x || to.y != from.y {
+                        moved = true;
+                        ends.end = None;
+                    }
+                    current.push(to);
                 }
             }
             Segment::CubicTo { c1, c2, to } => {
@@ -128,6 +184,15 @@ pub(crate) fn flatten(segments: &[Segment], transform: DeviceTransform) -> Vec<P
                         transform.apply(c2),
                         transform.apply(to),
                     );
+                    let leaving = first_direction([c1, c2, to].map(|q| difference(from, q)));
+                    let arriving = first_direction([c2, c1, from].map(|q| difference(q, to)));
+                    if leaving.is_some() {
+                        if !moved {
+                            ends.start = leaving;
+                        }
+                        moved = true;
+                        ends.end = arriving;
+                    }
                     // Measured once for the whole cubic and carried down the
                     // subdivision, not recomputed per half: the bound is "within a
                     // fraction of *this curve*", and a bound that shrank with every
@@ -140,12 +205,18 @@ pub(crate) fn flatten(segments: &[Segment], transform: DeviceTransform) -> Vec<P
                 }
             }
             Segment::Close => {
-                push_current(&mut current, true);
+                push_current(&mut current, &mut ends, true);
+                moved = false;
             }
         }
     }
-    push_current(&mut current, false);
+    push_current(&mut current, &mut ends, false);
     subpaths
+}
+
+/// `to − from`.
+fn difference(from: Point, to: Point) -> Point {
+    Point::new(to.x - from.x, to.y - from.y)
 }
 
 /// The flatness bound for one cubic: the tighter of the device tolerance and

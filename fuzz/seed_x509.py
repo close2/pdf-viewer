@@ -2,7 +2,7 @@
 """Seed `fuzz/corpus/x509/` with every certificate this tree already contains.
 
     find -L corpus-cache doc/corpora doc/pdf.js/test/pdfs -name '*.pdf' -print0 \\
-        | python3 fuzz/seed_x509.py fuzz/corpus/x509 crates/pdf-model/src/*.rs -
+        | python3 fuzz/seed_x509.py fuzz/corpus/x509 crates/pdf-signature/src/*.rs -
 
 A `-` argument stands for a NUL-separated list of paths on standard input, which is what makes the
 whole tree one run rather than one run per `xargs` batch. `find -L` because a worktree's corpora
@@ -39,9 +39,11 @@ self-delimiting instead, so this route *proposes* by the opening bytes of RFC 52
 checks and why the check has to reach as far as `Validity`. Each file's `stream` bodies are
 inflated and scanned as well, which is where a `/Certs` entry actually lives.
 
-*This tree states it in hexadecimal.* `crates/pdf-model/src/{x509,dsa,pss,ecdsa,eddsa}.rs` carry
-the certificates their `fixtures` modules verify against — the P-384, P-521, brainpoolP256r1 and
-Ed25519 ones are the only inputs that reach `ecdsa`'s and `eddsa`'s curve arms at all — and until
+*This tree states it in hexadecimal.* `crates/pdf-signature/src/{x509,dsa,pss,ecdsa,eddsa}.rs`
+carry the certificates their `fixtures` modules verify against — the P-384, P-521, Brainpool,
+Ed25519 and Ed448 ones are the only inputs that reach `ecdsa`'s and `eddsa`'s curve arms at all,
+and the brainpoolP512r1 and Ed448 ones the only inputs that reach this tree's own curve arithmetic
+(ADRs 1385 and 1386) — and until
 this route existed `doc/verify.md` asked a round to re-make them with `openssl`. A clone now
 re-seeds those arms from the repository. A `.rs` argument takes this route; anything else takes
 the other two.

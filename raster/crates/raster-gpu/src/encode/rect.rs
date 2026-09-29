@@ -101,10 +101,7 @@ impl Encoder<'_> {
         if self.culled(bounds, &resolved) {
             return Ok(());
         }
-        let polylines = vec![Polyline {
-            points: corners.to_vec(),
-            closed: true,
-        }];
+        let polylines = vec![Polyline::polygon(corners.to_vec())];
         // A fill, not a stroke: the four corners' device box is the only bound on how
         // thin this parallelogram is, which is the residual ADR 0070 states.
         self.push_coverage(&polylines, Rule::NonZero, color, &resolved, None, mask)

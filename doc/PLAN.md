@@ -259,7 +259,10 @@ the disagreement the consensus references show among themselves **on that page**
 cannot serve both a page of flat fills, where they agree to a worst tile of 0.4, and a page of
 small text, where they differ by 26 among themselves. Only pages we claim to draw completely are
 gated, every contradicted page is named in the source, and both a new disagreement and a stale
-entry fail the build. See ADR 0011.
+entry fail the build. See ADR 0011. An encrypted corpus document whose password is published opens
+with it — ours and the references' alike — from the one table every corpus gate reads,
+`crates/pdf-model/tests/support/corpus_passwords.rs`, so it is a page the rule holds rather than one
+it skips (ADR 1377).
 
 ### Goldens
 

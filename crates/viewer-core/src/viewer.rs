@@ -102,6 +102,14 @@ pub struct Viewer {
     documents: BTreeMap<DocumentId, Open>,
     /// Which one commands apply to.
     focused: Option<DocumentId>,
+    /// Whether the pointer's button is down: a `Pressed` has arrived and its `Released` has not.
+    ///
+    /// The pointer's state rather than a document's, and apart from `Open::pressed_on` because a
+    /// press may land on no annotation at all. §12.5.5's rollover "shall be used when the user
+    /// moves the cursor into the annotation's active area without pressing the mouse button", so
+    /// a move with the button down shows no rollover whatever it was pressed on (ADR 1370's
+    /// press state, completed).
+    button_down: bool,
     /// The viewport in device pixels.
     viewport: (u32, u32),
     /// Device pixels per logical pixel.
@@ -243,6 +251,7 @@ impl Viewer {
         Self {
             documents: BTreeMap::new(),
             focused: None,
+            button_down: false,
             viewport: (width, height),
             scale: if scale > 0.0 { scale } else { 1.0 },
             next_token: 0,
@@ -1070,6 +1079,14 @@ impl Viewer {
                   Splitting it would separate the state they all read from the state they set"
     )]
     fn pointer(&mut self, at: (f32, f32), action: PointerAction, events: &mut Vec<Event>) {
+        // Whether this message is a move with the button down, read before this message changes
+        // the button's state.
+        let held = action == PointerAction::Moved && self.button_down;
+        match action {
+            PointerAction::Pressed => self.button_down = true,
+            PointerAction::Released => self.button_down = false,
+            PointerAction::Moved | PointerAction::Dragged => {}
+        }
         let Some(id) = self.focused else { return };
         let viewport = self.viewport;
         // **Which page of Table 29's arrangement the pointer is over**, and where on it. Under
@@ -1118,24 +1135,26 @@ impl Viewer {
         // mouse button is pressed or held down within the annotation's active area" — so while
         // the annotation the press went down on is still under the pointer, its down appearance
         // stays. ADR 1370.
-        let held_on = open.pressed_on.filter(|_| action == PointerAction::Moved);
+        //
+        // **And over anything else it shows nothing**, including after a press on no annotation
+        // at all: the rollover "shall be used when the user moves the cursor into the
+        // annotation's active area without pressing the mouse button", and the button is pressed.
+        //
+        // **A drag is the same move under another name**: winit reports the pointer with the
+        // button down as `Dragged`, and the clause's "within the annotation's active area" holds
+        // for it exactly as for a held `Moved`, so a drag off the pressed annotation ends its down
+        // appearance and a drag onto another shows nothing of it.
         let wanted = match action {
-            PointerAction::Moved if held_on.is_some() => over
-                .filter(|annotation| Some(*annotation) == held_on)
+            PointerAction::Moved if held => over
+                .filter(|annotation| Some(*annotation) == open.pressed_on)
                 .map(|annotation| (annotation, Pointer::Down)),
-            PointerAction::Moved | PointerAction::Dragged => {
-                over.map(|annotation| (annotation, Pointer::Over))
-            }
+            PointerAction::Dragged => over
+                .filter(|annotation| Some(*annotation) == open.pressed_on)
+                .map(|annotation| (annotation, Pointer::Down)),
+            PointerAction::Moved => over.map(|annotation| (annotation, Pointer::Over)),
             PointerAction::Pressed => over.map(|annotation| (annotation, Pointer::Down)),
             // Back to hovering: the button is up and the cursor is still where it was.
             PointerAction::Released => over.map(|annotation| (annotation, Pointer::Over)),
-        };
-        // A drag is a person choosing text, not looking at an annotation, so it leaves §12.5.5's
-        // appearance where the press put it.
-        let wanted = if action == PointerAction::Dragged {
-            open.pointer
-        } else {
-            wanted
         };
         let wanted = wanted
             .filter(|(annotation, pointer)| interact::has_appearance(open, *annotation, *pointer));
@@ -1161,8 +1180,7 @@ impl Viewer {
         // true when the cursor later leaves it. The entry is postponed rather than dropped: this
         // field stays empty until a message finds the button up over the same annotation, which
         // is the earliest moment the first constraint allows one.
-        let button_down =
-            matches!(action, PointerAction::Pressed | PointerAction::Dragged) || held_on.is_some();
+        let button_down = matches!(action, PointerAction::Pressed | PointerAction::Dragged) || held;
         let mut raised: Vec<(ObjectId, Trigger)> = Vec::new();
         if open.inside != over {
             raised.extend(open.inside.map(|left| (left, Trigger::Exit)));
@@ -2986,15 +3004,33 @@ impl Viewer {
     fn accessibility(&self, open: &Open) -> Vec<PageStructure> {
         open.on_screen
             .iter()
-            .map(|on_screen| PageStructure {
-                page: on_screen.page,
-                nodes: self.structure(open, on_screen),
-                widgets: self.untagged_widgets(open, on_screen),
+            .map(|on_screen| {
+                let (nodes, widgets) = match self.structure(open, on_screen) {
+                    Some((nodes, named)) => {
+                        let widgets = self.unreached_widgets(open, on_screen, &named);
+                        (nodes, widgets)
+                    }
+                    // A page not yet interpreted has no elements to answer, and on a tagged page
+                    // which widgets they reach is unknown until it has; an untagged page's
+                    // widgets are reached by nothing whatever the interpreter says.
+                    None if pdf_model::structure::Tree::of(&open.document).is_none() => (
+                        Vec::new(),
+                        self.unreached_widgets(open, on_screen, &BTreeSet::new()),
+                    ),
+                    None => (Vec::new(), Vec::new()),
+                };
+                PageStructure {
+                    page: on_screen.page,
+                    nodes,
+                    widgets,
+                }
             })
             .collect()
     }
 
-    /// An untagged page's widget annotations, as [`PageStructure::widgets`] states them.
+    /// The page's widget annotations that no published element names, as
+    /// [`PageStructure::widgets`] states them: every one on an untagged page, and on a tagged page
+    /// each one no element's §14.7.5.3 object reference reached.
     ///
     /// **What a person must be able to reach is decided by what the page lets them do, not by
     /// whether the producer tagged it.** §12.5.1 makes an annotation something "the user activates
@@ -3006,16 +3042,23 @@ impl Viewer {
     /// shall be used in place of the actual field name wherever the field shall be identified in
     /// the user interface" — or the §12.7.4.2 name where there is none. ADR 1369.
     ///
+    /// **A tagged page's structure may leave a widget out, and the widget is still there.** Table
+    /// 368's "[i]n a tagged PDF, Form shall be used for each PDF widget annotation that belongs to
+    /// the real content of the document" binds the producer; where one did not, the field is still
+    /// §12.5.1's interactive content, and nothing in §14.7 lets a reader withhold what the page
+    /// lets a person do. `named` is every object the page's published elements name through
+    /// §14.7.5.3's `/OBJR` or Table 357's `/StmOwn`, so a widget is offered here exactly when no
+    /// node already offers it — never twice, and never given a place in the structure's reading
+    /// order it does not state. ADR 1381.
+    ///
     /// §12.5.3's `Hidden`, `NoView` and `ReadOnly` decide whether a widget is offered at all, as they
     /// decide whether a click reaches it.
-    fn untagged_widgets(
+    fn unreached_widgets(
         &self,
         open: &Open,
         on_screen: &crate::open::OnScreen,
+        named: &BTreeSet<ObjectId>,
     ) -> Vec<crate::AccessibilityNode> {
-        if pdf_model::structure::Tree::of(&open.document).is_some() {
-            return Vec::new();
-        }
         let Some(page_id) = on_screen.object.id else {
             return Vec::new();
         };
@@ -3029,7 +3072,12 @@ impl Viewer {
         order
             .iter()
             .filter(|annotation| {
-                pdf_model::view::annotation_interacts(&open.document, **annotation, &open.view)
+                !named.contains(*annotation)
+                    && pdf_model::view::annotation_interacts(
+                        &open.document,
+                        **annotation,
+                        &open.view,
+                    )
             })
             .filter_map(|annotation| {
                 let (field, widget) = fields.iter().find_map(|field| {
@@ -3063,21 +3111,27 @@ impl Viewer {
     /// cached to keep `Pages::get`'s tree walk — 3.8 ms on ISO 32000-2's thousandth page — off
     /// the paths a person drives. Asking the page tree once per page on the screen would have put
     /// several of those walks behind one question.
+    ///
+    /// Answered beside the elements: every object their own content items name, which is what
+    /// [`Self::unreached_widgets`] reads to offer a widget no element reached. `None` while the page
+    /// is not yet interpreted, when neither half can be known.
     fn structure(
         &self,
         open: &Open,
         on_screen: &crate::open::OnScreen,
-    ) -> Vec<crate::AccessibilityNode> {
-        let Some(interpreted) = on_screen.interpreted.as_ref() else {
-            return Vec::new();
-        };
+    ) -> Option<(Vec<crate::AccessibilityNode>, BTreeSet<ObjectId>)> {
+        let interpreted = on_screen.interpreted.as_ref()?;
         // Table 355's `/Pg` names a page *object*, and what this crate holds is an index.
         let Some(page) = on_screen.object.id else {
-            return Vec::new();
+            return Some((Vec::new(), BTreeSet::new()));
         };
         let index = on_screen.page;
         let gathered =
             crate::accessibility::nodes(&open.document, page, interpreted.language.as_deref());
+        let named: BTreeSet<ObjectId> = gathered
+            .iter()
+            .flat_map(|(_, element)| element.objects.iter().copied())
+            .collect();
         // §14.7.5.3's object references, answered once for the page. Both readings are skipped
         // entirely where no element states one, which is nearly every page: `annotation_rectangles`
         // walks `/Annots` and `form::fields` walks §12.7.4.1's field tree, and neither is worth
@@ -3098,7 +3152,7 @@ impl Viewer {
             languages: &referenced.languages,
             controls: &referenced.controls,
         };
-        gathered
+        let nodes = gathered
             .into_iter()
             .map(|(parent, gathered)| {
                 crate::accessibility::finish(
@@ -3111,7 +3165,8 @@ impl Viewer {
                     |rect| self.device_marks(open, index, rect),
                 )
             })
-            .collect()
+            .collect();
+        Some((nodes, named))
     }
 
     /// A rectangle in the **display list's** space, in device pixels of the viewport.

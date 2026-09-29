@@ -76,19 +76,15 @@ const PAYLOAD: &[u8] = b"pdf-transform writer corpus witness 875\n";
 /// The name the file is filed under, and the same for the annotation's file specification.
 const NAME: &str = "pdf-transform-witness-875.txt";
 
-/// The corpus documents that refuse §7.6.4.1's default user password, with the password each
-/// one's own pdf.js issue records — `save_round_trip.rs`'s list, so that the population is
-/// every document the suite can open rather than every document that opens for free.
-const KNOWN_PASSWORDS: &[(&str, &str)] = &[
-    ("issue15893_reduced.pdf", "test"),
-    ("issue3371.pdf", "ELXRTQWS"),
-    ("bug1782186.pdf", "Hello"),
-    ("issue6010_1.pdf", "abc"),
-    ("issue6010_2.pdf", "\u{E6}\u{F8}\u{E5}"),
-    ("saslprep-r6.pdf", "S\u{AA}SL\u{AD}prep"),
-    ("pr6531_1.pdf", "asdfasdf"),
-    ("print_protection.pdf", "1234"),
-];
+/// The published passwords of the corpus's encrypted documents, read from the one table
+/// (`crates/pdf-model/tests/support/corpus_passwords.rs`), so that the population is every document
+/// the suite can open rather than every document that opens for free.
+#[path = "../../pdf-model/tests/support/corpus_passwords.rs"]
+#[expect(
+    dead_code,
+    reason = "the references' spelling of a password is the oracle's; this gate hands the document to nothing but this tree"
+)]
+mod corpus_passwords;
 
 /// Documents the walk cannot explain yet, each with its diagnosis: a refusal that is neither
 /// an `UpdateError` nor a page the document does not have. Empty is the state to keep.
@@ -145,9 +141,9 @@ fn corpus() -> Option<Vec<PathBuf>> {
 
 /// A source over these bytes, with the corpus's known password where the file has one.
 fn source(name: &str, bytes: &[u8]) -> Source {
-    match KNOWN_PASSWORDS.iter().find(|(known, _)| *known == name) {
-        Some((_, password)) => {
-            Source::with_password(bytes.to_vec(), Secret::from((*password).to_owned()))
+    match corpus_passwords::corpus_password(name) {
+        Some(known) => {
+            Source::with_password(bytes.to_vec(), Secret::from(known.password.to_owned()))
         }
         None => Source::new(bytes.to_vec()),
     }
@@ -260,10 +256,7 @@ fn examine(path: &Path, tally: &Mutex<Tally>) {
     let Ok(bytes) = std::fs::read(path) else {
         return;
     };
-    let password = KNOWN_PASSWORDS
-        .iter()
-        .find(|(known, _)| *known == name)
-        .map_or("", |(_, password)| password);
+    let password = corpus_passwords::corpus_password(&name).map_or("", |known| known.password);
     let document = match Document::open_with_password(bytes.clone(), Limits::DEFAULT, password) {
         Ok(document) => document,
         Err(SyntaxError::PasswordRequired) => {

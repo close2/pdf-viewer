@@ -136,7 +136,7 @@ const REPORT_BASE: u64 = 1_000_000;
 /// line's identifier from its element's would have to bound the lines per element to stay
 /// injective.
 const RUN_BASE: u64 = 2_000_000;
-/// How far an untagged page's widgets are moved inside its band, past every element's identifier.
+/// How far a page's unreached widgets are moved inside its band, past every element's identifier.
 ///
 /// Above [`ELEMENT_BASE`] plus `viewer_core`'s 8192 elements, and below [`REPORT_BASE`], so a
 /// widget's identifier meets neither an element's nor a report's (ADR 1369).
@@ -185,7 +185,7 @@ impl Band {
         )
     }
 
-    /// The band an untagged page's widgets are built in: this one, moved past every element.
+    /// The band a page's unreached widgets are built in: this one, moved past every element.
     ///
     /// [`elements`] builds a widget exactly as it builds a `Form` element, and takes its
     /// identifiers from [`Self::element`]; moving the band by [`WIDGETS`] is what keeps the two
@@ -272,11 +272,11 @@ pub struct PageView<'a> {
     /// §14.7's elements for this page, parent-first, as `viewer_core::Query::AccessibilityTree`
     /// answers for it.
     pub nodes: &'a [AccessibilityNode],
-    /// The page's widget annotations where its document states no structure tree, as
-    /// `viewer_core::PageStructure::widgets` answers them (ADR 1369).
+    /// The page's widget annotations no element of [`Self::nodes`] reaches, as
+    /// `viewer_core::PageStructure::widgets` answers them (ADRs 1369, 1381).
     ///
-    /// Published after the sentence saying the page is untagged, and never on a tagged page, whose
-    /// widgets are `Form` elements in [`Self::nodes`].
+    /// Published after the sentence saying the page is untagged, and on a tagged page after the
+    /// structure's own elements, whose `Form` elements already carry every widget they name.
     pub widgets: &'a [AccessibilityNode],
     /// What this page could not draw, as `viewer_core::Query::Reports` answers.
     pub reports: &'a [String],
@@ -533,8 +533,26 @@ fn elements(view: &PageView, band: Band, out: &mut Vec<(NodeId, Node)>) -> Vec<N
 
     if view.nodes.is_empty() {
         untagged(view, band, out, &mut roots);
+    } else if !view.widgets.is_empty() {
+        // **A tagged page's widgets that no element names come after its elements** (ADR 1381).
+        // Table 368 asks the producer for a `Form` element per widget of the real content; where
+        // the structure left one out, the field is still §12.5.1's to click, and the place given
+        // it is after everything the structure states, in §12.5.1's tab order — the one order the
+        // page does state for it — rather than a place in a reading order the page never gave.
+        roots.extend(widget_nodes(view, band, out));
     }
     roots
+}
+
+/// The page's widgets no element reaches, built by the same walk as a `Form` element in their own
+/// band, and the identifiers of the ones at the top.
+fn widget_nodes(view: &PageView, band: Band, out: &mut Vec<(NodeId, Node)>) -> Vec<NodeId> {
+    let widgets = PageView {
+        nodes: view.widgets,
+        widgets: &[],
+        ..*view
+    };
+    elements(&widgets, band.widgets(), out)
 }
 
 /// What an untagged page publishes in place of §14.7's elements: one sentence saying so, and its
@@ -558,12 +576,7 @@ fn untagged(view: &PageView, band: Band, out: &mut Vec<(NodeId, Node)>, roots: &
     // same walk as a `Form` element, in a band of their own so that no identifier meets the
     // sentence above or a tagged page's elements.
     if !view.widgets.is_empty() {
-        let widgets = PageView {
-            nodes: view.widgets,
-            widgets: &[],
-            ..*view
-        };
-        roots.extend(elements(&widgets, band.widgets(), out));
+        roots.extend(widget_nodes(view, band, out));
     }
 }
 

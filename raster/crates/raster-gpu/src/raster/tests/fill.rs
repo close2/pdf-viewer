@@ -9,6 +9,7 @@
 
 use raster_scene::{Point, Segment};
 
+use crate::raster::flatten::Ends;
 use crate::raster::{Polyline, Rule, fill_mask, flatten, polyline_bounds};
 
 use super::{IDENTITY, cov, rect_path};
@@ -255,6 +256,7 @@ fn an_edge_whose_slope_leaves_f32_deposits_nothing() {
             Point::new(0.0, 2e-30),
         ],
         closed: true,
+        ends: Ends::default(),
     };
     let mask = fill_mask(&[sliver], Rule::NonZero, 0, 0, 8, 8);
     assert!(

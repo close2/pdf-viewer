@@ -35,8 +35,17 @@
 //! PDF's data shall be a full JPX file structure, so that case is a malformed file being read
 //! as far as it can be rather than a shape this module endorses.
 //!
+//! And, from ITU-T T.801 (the identical text of ISO/IEC 15444-2, held as `doc/md/T.801.md`),
+//! what its M.9.2 names as the JPX baseline: the File Type box's brand and compatibility list
+//! (I.5.2, M.9.2), the order of the top-level boxes (M.9.2.7), the Fragment List boxes of a
+//! Fragment Table or a Cross-Reference box (M.11.3.1, M.9.2.5, M.9.2.6), the first Compositing
+//! Layer Header box's Colour Group and Codestream Registration boxes (M.11.7.1, M.11.7.7,
+//! M.9.2.2, M.9.2.4), the enumerated parameters and the Any ICC method's profile (M.11.7.3), and
+//! the extended `Rsiz` with the `MCC` and `MCO` marker segments of every header in the first
+//! codestream (A.2.1, A.3.8, A.3.9, M.9.2.3).
+//!
 //! Not read: the contents of `pclr` and `cmap` (I.5.3.4, I.5.3.5), which decide how codestream
-//! components become channels through a palette, and every marker segment after `SIZ`. Whether a
+//! components become channels through a palette, and every other marker segment. Whether a
 //! `cmap` box is *present* is reported, because that alone decides whether a `cdef` box's channel
 //! indices address components directly (I.5.3.6).
 //!
@@ -53,9 +62,9 @@
 //! - **Disagreement is reported, not resolved.** I.5.3.1 says a file whose `ihdr` contradicts
 //!   its codestream is not a conforming file, and that a reader may prefer the codestream. Both
 //!   statements are kept here, side by side, so a caller can say which one it is judging.
-//! - **ISO/IEC 15444-2 is not held by this project**, so nothing here knows what the JPX
-//!   baseline feature set is, and the meaning of a `METH` value of 3 is left unstated rather
-//!   than guessed: part 1's Table I-9 defines 1 and 2 and reserves the rest.
+//! - **Only the first Compositing Layer Header box is read.** M.9.2.2 makes the first
+//!   compositing layer the one a baseline reader renders, and it is the only one M.9.2 states a
+//!   requirement about.
 
 /// The `jp2h` superbox, I.5.3.
 const JP2_HEADER: [u8; 4] = *b"jp2h";
@@ -72,10 +81,54 @@ const CHANNEL_DEFINITION: [u8; 4] = *b"cdef";
 /// The `jp2c` contiguous codestream box, I.5.4.
 const CODESTREAM: [u8; 4] = *b"jp2c";
 
+/// The `ftyp` box, I.5.2.
+const FILE_TYPE: [u8; 4] = *b"ftyp";
+/// The Fragment Table box, T.801 M.11.3.
+const FRAGMENT_TABLE: [u8; 4] = *b"ftbl";
+/// The Fragment List box, T.801 M.11.3.1.
+const FRAGMENT_LIST: [u8; 4] = *b"flst";
+/// The Cross-Reference box, T.801 M.11.4.
+const CROSS_REFERENCE: [u8; 4] = *b"cref";
+/// The Codestream Header box, T.801 M.11.6.
+const CODESTREAM_HEADER: [u8; 4] = *b"jpch";
+/// The Compositing Layer Header box, T.801 M.11.7.
+const LAYER_HEADER: [u8; 4] = *b"jplh";
+/// The Colour Group box, T.801 M.11.7.1.
+const COLOUR_GROUP: [u8; 4] = *b"cgrp";
+/// The Codestream Registration box, T.801 M.11.7.7.
+const REGISTRATION: [u8; 4] = *b"creg";
+/// The Free box, T.801 M.11.20, whose contents that subclause tells every reader to ignore.
+const FREE: [u8; 4] = *b"free";
+
 /// The `SOC` marker that opens a codestream, Table A-2.
 const SOC: [u8; 2] = [0xFF, 0x4F];
 /// The `SIZ` marker, which A.5.1 requires immediately after `SOC`.
 const SIZ: [u8; 2] = [0xFF, 0x51];
+/// The `SOT` marker that opens a tile-part, Table A-2.
+const SOT: [u8; 2] = [0xFF, 0x90];
+/// The `SOD` marker that ends a tile-part header, Table A-2.
+const SOD: [u8; 2] = [0xFF, 0x93];
+/// The `MCC` marker, T.801 Table A.34.
+const MCC: [u8; 2] = [0xFF, 0x75];
+/// The `MCO` marker, T.801 Table A.40.
+const MCO: [u8; 2] = [0xFF, 0x77];
+
+/// T.801 Table A.2: the high bit of `Rsiz`, set where an extension of that part is present.
+const EXTENDED: u16 = 0x8000;
+/// T.801 Table A.2's bits whose extension is required to decode, with the table's names.
+const REQUIRED_EXTENSIONS: [(u16, &str); 9] = [
+    (0x0001, "variable DC offset"),
+    (0x0002, "variable scalar quantization"),
+    (0x0010, "single sample overlap"),
+    (0x0020, "arbitrary decomposition style"),
+    (0x0040, "arbitrary transformation kernel"),
+    (0x0080, "whole sample symmetric transformation kernel"),
+    (0x0100, "multiple component transformation"),
+    (0x0400, "arbitrary shaped region of interest"),
+    (0x0800, "precinct-dependent quantization"),
+];
+/// The name [`Codestream::required_extensions`] gives the multiple component transformation.
+pub const MULTIPLE_COMPONENT_TRANSFORMATION: &str = "multiple component transformation";
 
 /// A box header is at least a four-byte length and a four-byte type, I.4 Table I-1.
 const BOX_HEADER: usize = 8;
@@ -180,7 +233,7 @@ pub struct ImageHeader {
     pub rights: u8,
 }
 
-/// One `colr` box, ISO/IEC 15444-1:2000 I.5.3.3.
+/// One `colr` box, ISO/IEC 15444-1:2000 I.5.3.3 and ITU-T T.801 M.11.7.2.
 ///
 /// A JP2 file holds at least one and may hold several, each describing the same colourspace by a
 /// different method. Which one a *reader* uses is not this type's business: I.5.3.3 tells a
@@ -188,7 +241,10 @@ pub struct ImageHeader {
 /// so all of them are kept and the choice is the caller's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ColourSpecification<'a> {
-    /// `METH`, the specification method. Table I-9 defines 1 and 2 and reserves the rest.
+    /// `METH`, the specification method.
+    ///
+    /// Table I-9 of part 1 defines 1 and 2; T.801 Table M.22 adds 3, the Any ICC method, and 4,
+    /// the Vendor Colour method, and reserves the rest.
     pub method: u8,
     /// `PREC`, the precedence, which I.5.3.3 reserves and sets to zero.
     pub precedence: i8,
@@ -197,21 +253,94 @@ pub struct ColourSpecification<'a> {
     /// `EnumCS`, present only where `METH` is 1.
     ///
     /// Table I-10 gives 16 (sRGB) and 17 (greyscale) as the values a conforming first edition
-    /// file may state in its first `colr` box, and reserves the rest for later ISO use — which
-    /// later work then assigned, so a number outside that pair is unknown here rather than
-    /// wrong.
+    /// file may state in its first `colr` box, and T.801 Table M.25 assigns the others a JPX
+    /// file may state.
     pub enumerated: Option<u32>,
-    /// `PROFILE`, the embedded ICC profile, present only where `METH` is 2.
+    /// `EP`, the enumerated parameters after `EnumCS`, empty where the box states none.
     ///
-    /// Borrowed rather than copied: a profile runs to hundreds of kilobytes, and a caller that
-    /// wants it parsed hands these bytes to [`crate::icc::Profile::parse`].
+    /// T.801 M.11.7.4 defines them for CIE Lab (14) and CIE Jab (19) alone, and makes their
+    /// absence mean each field's default.
+    pub parameters: &'a [u8],
+    /// `PROFILE`, the embedded ICC profile, present only where `METH` is 2 or 3.
+    ///
+    /// Part 1 I.5.3.3 defines the restricted profile of method 2, and T.801 M.11.7.3.2 gives
+    /// method 3 the same field holding any input profile. Borrowed rather than copied: a profile
+    /// runs to hundreds of kilobytes, and a caller that wants it parsed hands these bytes to
+    /// [`crate::icc::Profile::parse`].
     pub profile: Option<&'a [u8]>,
-    /// Everything after `APPROX` that this module did not read as one of the two fields above.
+    /// Everything after `APPROX` that this module did not read as one of the fields above.
     ///
-    /// Non-empty only for a `METH` value part 1 reserves. Table I-9 says a conforming JP2 reader
-    /// shall ignore such a box entirely, and this module keeps the bytes instead of discarding
-    /// them because ISO 32000-2 §7.4.9 admits methods part 1 does not define.
+    /// Non-empty only for the Vendor Colour method and the values T.801 Table M.22 reserves,
+    /// which the same table tells a conforming reader to ignore entirely where it does not
+    /// understand them. The bytes are kept rather than discarded because ISO 32000-2 §7.4.9 admits a
+    /// vendor-defined colour space.
     pub reserved: &'a [u8],
+    /// Where the box's `TBox` field is in the data, for [`Headers::keeping_colour`].
+    kind_at: usize,
+    /// Where the box's `METH` field is in the data, for the same.
+    method_at: usize,
+}
+
+impl ColourSpecification<'_> {
+    /// T.801 Table M.22's value 3, the Any ICC method.
+    pub const ANY_ICC: u8 = 3;
+    /// Part 1 Table I-9's value 2, the Restricted ICC method.
+    pub const RESTRICTED_ICC: u8 = 2;
+    /// Part 1 Table I-9's value 1, the Enumerated method.
+    pub const ENUMERATED: u8 = 1;
+}
+
+/// The `ftyp` box, ISO/IEC 15444-1:2000 I.5.2.
+///
+/// What a file says a reader needs. T.801 M.9.2 makes one entry of its compatibility list the
+/// statement that a JPX baseline reader can open the file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileType {
+    /// `BR`, the brand.
+    pub brand: [u8; 4],
+    /// `MinV`, the minor version.
+    pub version: u32,
+    /// `CL`*ᵢ*, the compatibility list.
+    pub compatibility: Vec<[u8; 4]>,
+}
+
+impl FileType {
+    /// The `CL` value T.801 M.9.2 gives a file written so that a reader supporting only the JPX
+    /// baseline set of features can open it.
+    pub const JPX_BASELINE: [u8; 4] = *b"jpxb";
+}
+
+/// One `{OFF, LEN, DR}` tuple of a Fragment List box, T.801 Table M.17 in M.11.3.1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Fragment {
+    /// `OFF`, the fragment's first byte, counted from the first byte of its file.
+    pub offset: u64,
+    /// `LEN`, the fragment's length.
+    pub length: u32,
+    /// `DR`, zero where the fragment is in this file and otherwise an index into the Data
+    /// Reference box's URLs (M.11.2).
+    pub reference: u16,
+}
+
+/// A Fragment List box and the box that holds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FragmentList {
+    /// `ftbl` where the list assembles a codestream (M.11.3), `cref` where it assembles a
+    /// shared header or metadata box (M.11.4).
+    pub container: [u8; 4],
+    /// The fragments, in the order the list states them.
+    pub fragments: Vec<Fragment>,
+}
+
+/// What the first Compositing Layer Header box says, T.801 M.11.7.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FirstLayer<'a> {
+    /// The `colr` boxes of its Colour Group box, M.11.7.1, empty where it has none — in which
+    /// case the layer's colour is the JP2 Header box's specifications, as M.11.7 says.
+    pub colour: Vec<ColourSpecification<'a>>,
+    /// The `CDN`*ᵢ* of its Codestream Registration box, M.11.7.7, or `None` where it has none —
+    /// in which case the same subclause makes the layer one codestream.
+    pub codestreams: Option<Vec<u16>>,
 }
 
 /// One description in the `cdef` box, ISO/IEC 15444-1:2000 I.5.3.6.
@@ -236,7 +365,11 @@ impl Channel {
 /// the `ihdr` box and authoritative where the two disagree.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Codestream {
-    /// `Rsiz`, the capabilities a decoder needs. Table A-10 defines only zero.
+    /// `Rsiz`, the capabilities a decoder needs.
+    ///
+    /// Part 1's Table A-10 defines zero; T.801 Table A.2 sets the high bit where an extension of
+    /// its own is present and one bit below it for each extension, which
+    /// [`Self::required_extensions`] reads.
     pub capabilities: u16,
     /// `Xsiz`, the reference grid's width.
     pub grid_width: u32,
@@ -248,6 +381,29 @@ pub struct Codestream {
     pub y_offset: u32,
     /// `Ssiz`*ᵢ* for each component, in codestream order. Its length is `Csiz`.
     pub depths: Vec<Depth>,
+    /// Every `MCC` marker segment series, T.801 A.3.8, from the main header and from every
+    /// tile-part header, in the order they were read.
+    pub collections: Vec<Collection>,
+    /// `Nmco` of every `MCO` marker segment, T.801 A.3.9, from the same headers.
+    pub orderings: Vec<u8>,
+}
+
+/// The facts of one `MCC` marker segment series T.801 M.9.2.3 asks about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Collection {
+    /// `Qmcc`, the number of component collections.
+    pub count: u16,
+    /// The first collection's `Xmcc` transform type, the two low bits of T.801 Table A.35:
+    /// 0 dependency, 1 decorrelation, 3 wavelet. `None` where the series ends before the field.
+    pub kind: Option<u8>,
+    /// Whether the first collection's `Tmcc` marks its array-based transform reversible, Table
+    /// A.38. `None` where the series ends before the field, or the collection is not array-based.
+    pub reversible: Option<bool>,
+}
+
+impl Collection {
+    /// The value T.801 Table A.35 gives an array-based decorrelation transform.
+    pub const DECORRELATION: u8 = 1;
 }
 
 impl Codestream {
@@ -258,6 +414,24 @@ impl Codestream {
     #[must_use]
     pub fn components(&self) -> u16 {
         u16::try_from(self.depths.len()).unwrap_or(u16::MAX)
+    }
+
+    /// The T.801 Table A.2 extensions `Rsiz` says are *required* to decode this codestream.
+    ///
+    /// Empty where the high bit is clear, which is every codestream using part 1's capabilities
+    /// alone. T.801 Table A.2 marks three of its bits useful rather than required — trellis coded
+    /// quantization, visual masking and the non-linear point transformation — and its note c)
+    /// says such data can still be decoded without them, so they are not listed.
+    #[must_use]
+    pub fn required_extensions(&self) -> Vec<&'static str> {
+        if self.capabilities & EXTENDED == 0 {
+            return Vec::new();
+        }
+        REQUIRED_EXTENSIONS
+            .iter()
+            .filter(|(bit, _)| self.capabilities & bit != 0)
+            .map(|(_, name)| *name)
+            .collect()
     }
 }
 
@@ -286,6 +460,15 @@ pub struct Headers<'a> {
     pub component_mapping: bool,
     /// The first codestream's `SIZ` marker segment.
     pub codestream: Option<Codestream>,
+    /// The `ftyp` box, absent from a bare codestream.
+    pub file_type: Option<FileType>,
+    /// The type of every top-level box, in file order.
+    pub top_level: Vec<[u8; 4]>,
+    /// Every Fragment List box of a top-level Fragment Table box, and of a Cross-Reference box
+    /// inside a top-level Codestream Header or Compositing Layer Header box.
+    pub fragment_lists: Vec<FragmentList>,
+    /// The first Compositing Layer Header box, absent where the file states none.
+    pub first_layer: Option<FirstLayer<'a>>,
 }
 
 impl<'a> Headers<'a> {
@@ -307,6 +490,10 @@ impl<'a> Headers<'a> {
             channels: Vec::new(),
             component_mapping: false,
             codestream: None,
+            file_type: None,
+            top_level: Vec::new(),
+            fragment_lists: Vec::new(),
+            first_layer: None,
         };
 
         // §7.4.9 requires a full JPX file structure, so boxes are the shape expected. Data that
@@ -328,10 +515,23 @@ impl<'a> Headers<'a> {
 
         let mut next = Some(first);
         while let Some(found) = next {
+            headers.top_level.push(found.kind);
             match found.kind {
-                JP2_HEADER => headers.read_jp2_header(found.payload)?,
+                JP2_HEADER => headers.read_jp2_header(found.payload, found.payload_at)?,
                 CODESTREAM if headers.codestream.is_none() => {
                     headers.codestream = Some(parse_codestream(found.payload)?);
+                }
+                FILE_TYPE if headers.file_type.is_none() => {
+                    headers.file_type = Some(parse_file_type(found.payload)?);
+                }
+                FRAGMENT_TABLE => headers.read_fragment_lists(found.kind, found.payload)?,
+                CODESTREAM_HEADER => headers.read_cross_references(found.payload)?,
+                LAYER_HEADER => {
+                    headers.read_cross_references(found.payload)?;
+                    if headers.first_layer.is_none() {
+                        headers.first_layer =
+                            Some(parse_first_layer(found.payload, found.payload_at)?);
+                    }
                 }
                 _ => {}
             }
@@ -340,12 +540,79 @@ impl<'a> Headers<'a> {
         Ok(headers)
     }
 
+    /// A copy of `data` in which every `colr` box of the JP2 Header box but the one at `keep` is
+    /// a Free box, and the kept one states `method` in place of its own where that is given.
+    ///
+    /// What a reader does with a colour specification it is to ignore, said in the format's own
+    /// vocabulary: T.801 M.11.20 makes a Free box's contents meaningless and tells every reader
+    /// to ignore it, and a box keeps its length when only its type changes, so no offset
+    /// anywhere in the file moves. ISO 32000-2 §7.4.9 is the reason a caller asks: a dictionary
+    /// that states `/ColorSpace` has the data's specifications ignored, and one that does not
+    /// has a processor choose among them. Rewriting the method is for the Any ICC method, whose
+    /// field T.801 M.11.7.3.2 lays out as part 1's restricted one.
+    ///
+    /// `data` must be the bytes these headers were parsed from.
+    #[must_use]
+    pub fn keeping_colour(&self, data: &[u8], keep: Option<usize>, method: Option<u8>) -> Vec<u8> {
+        let mut out = data.to_vec();
+        for (index, colour) in self.colour.iter().enumerate() {
+            let at = colour.kind_at;
+            if Some(index) == keep {
+                if let (Some(method), Some(byte)) = (method, out.get_mut(colour.method_at)) {
+                    *byte = method;
+                }
+                continue;
+            }
+            if let Some(kind) = out.get_mut(at..at.saturating_add(4)) {
+                kind.copy_from_slice(&FREE);
+            }
+        }
+        out
+    }
+
+    /// Reads the Fragment List box of a Fragment Table or Cross-Reference box, M.11.3 and M.11.4.
+    fn read_fragment_lists(
+        &mut self,
+        container: [u8; 4],
+        payload: &[u8],
+    ) -> Result<(), HeaderError> {
+        let mut at = 0usize;
+        while let Some(found) = next_box(payload, at)? {
+            if found.kind == FRAGMENT_LIST {
+                self.fragment_lists.push(FragmentList {
+                    container,
+                    fragments: parse_fragments(found.payload)?,
+                });
+            }
+            at = found.end;
+        }
+        Ok(())
+    }
+
+    /// Reads the Cross-Reference boxes one level inside a header superbox, M.11.4.
+    ///
+    /// A Cross-Reference box is `Rtyp` followed by a Fragment List box, so it is read by
+    /// stepping over the four-byte field.
+    fn read_cross_references(&mut self, payload: &[u8]) -> Result<(), HeaderError> {
+        /// `Rtyp`, the referenced box type, T.801 Table M.18.
+        const REFERENCED_TYPE: usize = 4;
+        let mut at = 0usize;
+        while let Some(found) = next_box(payload, at)? {
+            if found.kind == CROSS_REFERENCE {
+                let list = found.payload.get(REFERENCED_TYPE..).unwrap_or_default();
+                self.read_fragment_lists(CROSS_REFERENCE, list)?;
+            }
+            at = found.end;
+        }
+        Ok(())
+    }
+
     /// Reads the boxes inside the `jp2h` superbox, I.5.3.
     ///
     /// Iterative rather than recursive, and only one level deep, because I.5.3 names every box
     /// that may appear here and none of them is itself a superbox — so there is no depth for a
     /// hostile file to exhaust.
-    fn read_jp2_header(&mut self, payload: &'a [u8]) -> Result<(), HeaderError> {
+    fn read_jp2_header(&mut self, payload: &'a [u8], base: usize) -> Result<(), HeaderError> {
         let mut at = 0usize;
         while let Some(found) = next_box(payload, at)? {
             match found.kind {
@@ -360,7 +627,9 @@ impl<'a> Headers<'a> {
                         .map(Depth::from_byte)
                         .collect();
                 }
-                COLOUR_SPECIFICATION => self.colour.push(parse_colour(found.payload)?),
+                COLOUR_SPECIFICATION => {
+                    self.colour.push(parse_colour(found.payload, base, &found)?);
+                }
                 CHANNEL_DEFINITION if self.channels.is_empty() => {
                     self.channels = parse_channels(found.payload)?;
                 }
@@ -433,6 +702,10 @@ struct Found<'a> {
     kind: [u8; 4],
     /// `DBox`, the box's contents.
     payload: &'a [u8],
+    /// Where the box's `LBox` field is, in the slice the walk read.
+    start: usize,
+    /// Where `DBox` begins, in the same slice.
+    payload_at: usize,
     /// Where the next box begins.
     end: usize,
 }
@@ -495,6 +768,8 @@ fn next_box(data: &[u8], at: usize) -> Result<Option<Found<'_>>, HeaderError> {
     Ok(Some(Found {
         kind,
         payload,
+        start: at,
+        payload_at: at.saturating_add(header),
         // `length` is at least `BOX_HEADER`, so every step of the walk makes progress.
         end: at.saturating_add(length),
     }))
@@ -523,8 +798,15 @@ fn parse_image_header(payload: &[u8]) -> Result<ImageHeader, HeaderError> {
     })
 }
 
-/// One `colr` box, I.5.3.3 Table I-11.
-fn parse_colour(payload: &[u8]) -> Result<ColourSpecification<'_>, HeaderError> {
+/// One `colr` box, I.5.3.3 Table I-11 and T.801 Table M.24.
+///
+/// `base` is where the slice `found` was read from begins in the whole data, so that the box's
+/// own fields can be found again by [`Headers::keeping_colour`].
+fn parse_colour<'a>(
+    payload: &'a [u8],
+    base: usize,
+    found: &Found<'_>,
+) -> Result<ColourSpecification<'a>, HeaderError> {
     /// `METH`, `PREC` and `APPROX`, which every `colr` box carries whatever its method.
     const NEEDED: usize = 3;
     /// `EnumCS` is a four-byte big endian unsigned integer.
@@ -538,12 +820,11 @@ fn parse_colour(payload: &[u8]) -> Result<ColourSpecification<'_>, HeaderError> 
     let method = fields[0];
     let rest = payload.get(NEEDED..).unwrap_or_default();
 
-    // Table I-9 makes the remainder of the box a function of `METH`, and defines only two
-    // values. A method it reserves leaves the remainder uninterpreted rather than guessed —
-    // ISO 32000-2 §7.4.9 admits methods this edition does not define, and inventing a reading
-    // for them here would be reading a standard this project does not hold.
-    let (enumerated, profile) = match method {
-        1 => {
+    // T.801 Table M.22 makes the remainder of the box a function of `METH`. The Vendor Colour
+    // method and the values the table reserves leave it uninterpreted: the first is a vendor's own
+    // definition, and the table tells a reader to ignore the second outright.
+    let (enumerated, parameters, profile) = match method {
+        ColourSpecification::ENUMERATED => {
             let value = rest
                 .get(..ENUMERATED)
                 .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
@@ -553,10 +834,17 @@ fn parse_colour(payload: &[u8]) -> Result<ColourSpecification<'_>, HeaderError> 
                     held: payload.len(),
                     needed: NEEDED.saturating_add(ENUMERATED),
                 })?;
-            (Some(value), None)
+            // M.11.7.3.1: the `EP` field is every byte after `EnumCS` to the end of the box.
+            (
+                Some(value),
+                rest.get(ENUMERATED..).unwrap_or_default(),
+                None,
+            )
         }
-        2 => (None, Some(rest)),
-        _ => (None, None),
+        ColourSpecification::RESTRICTED_ICC | ColourSpecification::ANY_ICC => {
+            (None, &[][..], Some(rest))
+        }
+        _ => (None, &[][..], None),
     };
 
     Ok(ColourSpecification {
@@ -565,13 +853,118 @@ fn parse_colour(payload: &[u8]) -> Result<ColourSpecification<'_>, HeaderError> 
         precedence: i8::from_be_bytes([fields[1]]),
         approximation: fields[2],
         enumerated,
+        parameters,
         profile,
         reserved: if enumerated.is_none() && profile.is_none() {
             rest
         } else {
             &[]
         },
+        kind_at: base.saturating_add(found.start).saturating_add(4),
+        method_at: base.saturating_add(found.payload_at),
     })
+}
+
+/// The `ftyp` box's fields, I.5.2 Table I-3.
+fn parse_file_type(payload: &[u8]) -> Result<FileType, HeaderError> {
+    /// `BR` and `MinV`, four bytes each.
+    const NEEDED: usize = 8;
+    let fields = payload.get(..NEEDED).ok_or_else(|| HeaderError::ShortBox {
+        name: name_of(FILE_TYPE),
+        held: payload.len(),
+        needed: NEEDED,
+    })?;
+    Ok(FileType {
+        brand: [fields[0], fields[1], fields[2], fields[3]],
+        version: u32::from_be_bytes([fields[4], fields[5], fields[6], fields[7]]),
+        compatibility: payload
+            .get(NEEDED..)
+            .unwrap_or_default()
+            .chunks_exact(4)
+            .map(|entry| [entry[0], entry[1], entry[2], entry[3]])
+            .collect(),
+    })
+}
+
+/// A Fragment List box's tuples, T.801 Table M.17 in M.11.3.1.
+fn parse_fragments(payload: &[u8]) -> Result<Vec<Fragment>, HeaderError> {
+    /// `NF`, a two-byte count.
+    const COUNT: usize = 2;
+    /// `OFF`, `LEN` and `DR`: eight, four and two bytes.
+    const EACH: usize = 14;
+    let count = payload
+        .get(..COUNT)
+        .and_then(|bytes| <[u8; 2]>::try_from(bytes).ok())
+        .map(u16::from_be_bytes)
+        .ok_or_else(|| HeaderError::ShortBox {
+            name: name_of(FRAGMENT_LIST),
+            held: payload.len(),
+            needed: COUNT,
+        })?;
+    let needed = COUNT.saturating_add(usize::from(count).saturating_mul(EACH));
+    let body = payload
+        .get(COUNT..needed)
+        .ok_or_else(|| HeaderError::ShortBox {
+            name: name_of(FRAGMENT_LIST),
+            held: payload.len(),
+            needed,
+        })?;
+    Ok(body
+        .chunks_exact(EACH)
+        .map(|entry| Fragment {
+            offset: u64::from_be_bytes([
+                entry[0], entry[1], entry[2], entry[3], entry[4], entry[5], entry[6], entry[7],
+            ]),
+            length: u32::from_be_bytes([entry[8], entry[9], entry[10], entry[11]]),
+            reference: u16::from_be_bytes([entry[12], entry[13]]),
+        })
+        .collect())
+}
+
+/// The first Compositing Layer Header box's Colour Group and Codestream Registration boxes.
+///
+/// `base` is where `payload` begins in the whole data. The Colour Group box is one more level
+/// down, so its `colr` boxes are found at that box's own payload offset added on.
+fn parse_first_layer(payload: &[u8], base: usize) -> Result<FirstLayer<'_>, HeaderError> {
+    /// `XS` and `YS`, two bytes each, T.801 M.11.7.7.
+    const GRID: usize = 4;
+    /// `CDN`, `XR`, `YR`, `XO` and `YO`: two bytes and four of one byte.
+    const EACH: usize = 6;
+    let mut layer = FirstLayer {
+        colour: Vec::new(),
+        codestreams: None,
+    };
+    let mut at = 0usize;
+    while let Some(found) = next_box(payload, at)? {
+        match found.kind {
+            COLOUR_GROUP if layer.colour.is_empty() => {
+                let group_base = base.saturating_add(found.payload_at);
+                let mut inner = 0usize;
+                while let Some(colour) = next_box(found.payload, inner)? {
+                    if colour.kind == COLOUR_SPECIFICATION {
+                        layer
+                            .colour
+                            .push(parse_colour(colour.payload, group_base, &colour)?);
+                    }
+                    inner = colour.end;
+                }
+            }
+            REGISTRATION if layer.codestreams.is_none() => {
+                layer.codestreams = Some(
+                    found
+                        .payload
+                        .get(GRID..)
+                        .unwrap_or_default()
+                        .chunks_exact(EACH)
+                        .map(|entry| u16::from_be_bytes([entry[0], entry[1]]))
+                        .collect(),
+                );
+            }
+            _ => {}
+        }
+        at = found.end;
+    }
+    Ok(layer)
 }
 
 /// The `cdef` box's array of channel descriptions, I.5.3.6 Table I-19.
@@ -641,7 +1034,157 @@ fn parse_codestream(data: &[u8]) -> Result<Codestream, HeaderError> {
             .chunks_exact(SIZ_PER_COMPONENT)
             .map(|entry| Depth::from_byte(entry[0]))
             .collect(),
+        collections: Vec::new(),
+        orderings: Vec::new(),
     })
+    .map(|mut codestream| {
+        read_component_transforms(data, &mut codestream);
+        codestream
+    })
+}
+
+/// Reads the `MCC` and `MCO` marker segments of the main header and of every tile-part header,
+/// T.801 A.3.8 and A.3.9.
+///
+/// A walk over marker segments and nothing else: each has a two-byte length after its marker
+/// (A.1.4), and a tile-part's data is stepped over whole by its `SOT`'s `Psot` (A.4.2). A
+/// malformed length ends the walk rather than failing the parse, because what the codestream
+/// has already stated about itself is still what it stated; A.5.1's `SIZ` is the only segment
+/// this module refuses a codestream for.
+///
+/// Every step advances by at least the four bytes of a marker and its length, or by a
+/// tile-part's non-zero `Psot`, so the walk ends.
+fn read_component_transforms(data: &[u8], codestream: &mut Codestream) {
+    /// A marker and its two-byte length.
+    const MARKER_AND_LENGTH: usize = 4;
+    /// `Isot`, `Psot`, `TPsot` and `TNsot` follow the `SOT` marker's length, A.4.2.
+    const PSOT_AT: usize = 6;
+
+    let mut at = 0usize;
+    // Collected per header, because T.801 A.3.8 joins a series only within one header.
+    let mut series: Vec<(u8, u16, Vec<u8>)> = Vec::new();
+    let mut tile_part: Option<usize> = None;
+    while let Some(marker) = data.get(at..at.saturating_add(2)) {
+        if marker == SOC {
+            at = at.saturating_add(2);
+            continue;
+        }
+        if marker == SOD {
+            flush_series(&mut series, codestream);
+            // `Psot` counts from the first byte of the `SOT` marker; zero means the tile-part
+            // runs to the end of the codestream, which ends the walk.
+            let Some(start) = tile_part else {
+                break;
+            };
+            let psot = data
+                .get(start.saturating_add(PSOT_AT)..start.saturating_add(PSOT_AT + 4))
+                .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+                .map_or(0, u32::from_be_bytes);
+            if psot == 0 {
+                break;
+            }
+            at = start.saturating_add(usize::try_from(psot).unwrap_or(usize::MAX));
+            tile_part = None;
+            continue;
+        }
+        let Some(length) = data
+            .get(at.saturating_add(2)..at.saturating_add(MARKER_AND_LENGTH))
+            .and_then(|bytes| <[u8; 2]>::try_from(bytes).ok())
+            .map(u16::from_be_bytes)
+        else {
+            break;
+        };
+        let length = usize::from(length);
+        if length < 2 {
+            break;
+        }
+        let Some(segment) =
+            data.get(at.saturating_add(MARKER_AND_LENGTH)..at.saturating_add(2 + length))
+        else {
+            break;
+        };
+        if marker == SOT {
+            flush_series(&mut series, codestream);
+            tile_part = Some(at);
+        } else if marker == MCC {
+            // `Zmcc` (two bytes) and `Imcc` (one) open every segment of a series.
+            if let [z_high, z_low, index, rest @ ..] = segment {
+                series.push((*index, u16::from_be_bytes([*z_high, *z_low]), rest.to_vec()));
+            }
+        } else if marker == MCO
+            && let Some(stages) = segment.first()
+        {
+            codestream.orderings.push(*stages);
+        }
+        at = at.saturating_add(2).saturating_add(length);
+    }
+    flush_series(&mut series, codestream);
+}
+
+/// Joins the `MCC` segments one header held into series and reads each, T.801 A.3.8.
+///
+/// A series is the segments sharing an `Imcc`, appended in `Zmcc` order; the first carries
+/// `Ymcc` and `Qmcc` before the collections (T.801 Table A.34).
+fn flush_series(series: &mut Vec<(u8, u16, Vec<u8>)>, codestream: &mut Codestream) {
+    series.sort_by_key(|(index, z, _)| (*index, *z));
+    let mut joined: Vec<(u8, Vec<u8>)> = Vec::new();
+    for (index, _, bytes) in series.drain(..) {
+        match joined.last_mut() {
+            Some((last, stream)) if *last == index => stream.extend_from_slice(&bytes),
+            _ => joined.push((index, bytes)),
+        }
+    }
+    for (_, stream) in joined {
+        codestream.collections.push(read_collection(&stream));
+    }
+}
+
+/// The facts of one joined `MCC` series: `Ymcc`, `Qmcc`, then the first collection's fields.
+fn read_collection(stream: &[u8]) -> Collection {
+    /// `Ymcc` and `Qmcc`, two bytes each.
+    const COUNTS: usize = 4;
+    /// T.801 Tables A.36 and A.37: the high bit of `Nmcc` and `Mmcc` makes each index two
+    /// bytes.
+    const WIDE: u16 = 0x8000;
+
+    let count = stream
+        .get(2..COUNTS)
+        .and_then(|bytes| <[u8; 2]>::try_from(bytes).ok())
+        .map_or(0, u16::from_be_bytes);
+    let mut collection = Collection {
+        count,
+        kind: None,
+        reversible: None,
+    };
+    let Some(kind) = stream.get(COUNTS).copied() else {
+        return collection;
+    };
+    collection.kind = Some(kind & 0b11);
+    let read_u16 = |at: usize| {
+        stream
+            .get(at..at.saturating_add(2))
+            .and_then(|bytes| <[u8; 2]>::try_from(bytes).ok())
+            .map(u16::from_be_bytes)
+    };
+    let indices = |field: u16| {
+        usize::from(field & !WIDE).saturating_mul(if field & WIDE == 0 { 1 } else { 2 })
+    };
+    let at = COUNTS.saturating_add(1);
+    let Some(inputs) = read_u16(at) else {
+        return collection;
+    };
+    let at = at.saturating_add(2).saturating_add(indices(inputs));
+    let Some(outputs) = read_u16(at) else {
+        return collection;
+    };
+    let at = at.saturating_add(2).saturating_add(indices(outputs));
+    // T.801 Table A.38: the top byte's lowest bit of the 24-bit `Tmcc` marks an array-based
+    // transform reversible. A wavelet-based collection's `Tmcc` is read by T.801 Table A.39 and
+    // states no such bit.
+    if kind & 0b10 == 0 {
+        collection.reversible = stream.get(at).map(|top| top & 1 == 1);
+    }
+    collection
 }
 
 /// A box type as the four characters a clause names it by, for a report.
@@ -854,18 +1397,168 @@ mod tests {
         assert_eq!(headers.colour_channels(), Some(3));
     }
 
-    /// Table I-9 reserves every `METH` but 1 and 2, so nothing is invented for those bytes.
+    /// T.801 Table M.22 reserves every `METH` above 4, so nothing is invented for those bytes.
     #[test]
     fn a_reserved_method_leaves_its_remainder_uninterpreted() {
+        let mut header = boxed(IMAGE_HEADER, &image_header(3, 7));
+        header.extend_from_slice(&boxed(COLOUR_SPECIFICATION, &[5, 0, 1, 0xAA, 0xBB]));
+        let data = jp2(&header, &[7, 7, 7]);
+
+        let headers = Headers::parse(&data).expect("the file is well formed");
+        assert_eq!(headers.colour[0].method, 5);
+        assert_eq!(headers.colour[0].enumerated, None);
+        assert_eq!(headers.colour[0].profile, None);
+        assert_eq!(headers.colour[0].reserved, &[0xAA, 0xBB]);
+    }
+
+    /// T.801 M.11.7.3.2 gives the Any ICC method part 1's profile field.
+    #[test]
+    fn the_any_icc_method_carries_a_profile() {
         let mut header = boxed(IMAGE_HEADER, &image_header(3, 7));
         header.extend_from_slice(&boxed(COLOUR_SPECIFICATION, &[3, 0, 1, 0xAA, 0xBB]));
         let data = jp2(&header, &[7, 7, 7]);
 
         let headers = Headers::parse(&data).expect("the file is well formed");
-        assert_eq!(headers.colour[0].method, 3);
-        assert_eq!(headers.colour[0].enumerated, None);
-        assert_eq!(headers.colour[0].profile, None);
-        assert_eq!(headers.colour[0].reserved, &[0xAA, 0xBB]);
+        assert_eq!(headers.colour[0].profile, Some(&[0xAA, 0xBB][..]));
+        assert!(headers.colour[0].reserved.is_empty());
+    }
+
+    /// T.801 M.11.7.3.1: the `EP` field is every byte after `EnumCS`.
+    #[test]
+    fn enumerated_parameters_are_the_rest_of_the_box() {
+        let mut colour = enumerated_colour(1, 14);
+        colour.extend_from_slice(&[0, 0, 0, 100]);
+        let mut header = boxed(IMAGE_HEADER, &image_header(3, 7));
+        header.extend_from_slice(&boxed(COLOUR_SPECIFICATION, &colour));
+        let data = jp2(&header, &[7, 7, 7]);
+
+        let headers = Headers::parse(&data).expect("the file is well formed");
+        assert_eq!(headers.colour[0].enumerated, Some(14));
+        assert_eq!(headers.colour[0].parameters, &[0, 0, 0, 100]);
+    }
+
+    /// The file type box and the order of the top-level boxes, I.5.2 and T.801 M.9.2.7.
+    #[test]
+    fn the_file_type_and_the_box_order_are_read() {
+        let mut header = boxed(IMAGE_HEADER, &image_header(3, 7));
+        header.extend_from_slice(&boxed(COLOUR_SPECIFICATION, &enumerated_colour(0, 16)));
+        let data = jp2(&header, &[7, 7, 7]);
+
+        let headers = Headers::parse(&data).expect("the file is well formed");
+        let file_type = headers.file_type.expect("an ftyp box was stated");
+        assert_eq!(file_type.brand, *b"jp2 ");
+        assert_eq!(file_type.compatibility, vec![*b"jp2 "]);
+        assert_eq!(
+            headers.top_level,
+            vec![*b"jP  ", FILE_TYPE, JP2_HEADER, CODESTREAM]
+        );
+    }
+
+    /// A Fragment Table box's list, T.801 M.11.3.1.
+    #[test]
+    fn a_fragment_table_is_read_for_its_fragments() {
+        let mut list = 2u16.to_be_bytes().to_vec();
+        for (offset, length, reference) in [(100u64, 20u32, 0u16), (400, 30, 1)] {
+            list.extend_from_slice(&offset.to_be_bytes());
+            list.extend_from_slice(&length.to_be_bytes());
+            list.extend_from_slice(&reference.to_be_bytes());
+        }
+        let mut data = jp2(&boxed(IMAGE_HEADER, &image_header(3, 7)), &[7, 7, 7]);
+        data.extend_from_slice(&boxed(FRAGMENT_TABLE, &boxed(FRAGMENT_LIST, &list)));
+
+        let headers = Headers::parse(&data).expect("the file is well formed");
+        assert_eq!(headers.fragment_lists.len(), 1);
+        assert_eq!(headers.fragment_lists[0].container, FRAGMENT_TABLE);
+        assert_eq!(
+            headers.fragment_lists[0].fragments[1],
+            Fragment {
+                offset: 400,
+                length: 30,
+                reference: 1
+            }
+        );
+    }
+
+    /// The first Compositing Layer Header box's colour group and registration, T.801 M.11.7.
+    #[test]
+    fn the_first_layer_states_its_colour_and_its_codestreams() {
+        let group = boxed(
+            COLOUR_GROUP,
+            &boxed(COLOUR_SPECIFICATION, &enumerated_colour(1, 3)),
+        );
+        let mut registration = vec![0, 1, 0, 1];
+        for stream in [0u16, 2] {
+            registration.extend_from_slice(&stream.to_be_bytes());
+            registration.extend_from_slice(&[1, 1, 0, 0]);
+        }
+        let mut layer = group;
+        layer.extend_from_slice(&boxed(REGISTRATION, &registration));
+        let mut data = jp2(&boxed(IMAGE_HEADER, &image_header(3, 7)), &[7, 7, 7]);
+        data.extend_from_slice(&boxed(LAYER_HEADER, &layer));
+
+        let headers = Headers::parse(&data).expect("the file is well formed");
+        let first = headers.first_layer.expect("a jplh box was stated");
+        assert_eq!(first.colour[0].enumerated, Some(3));
+        assert_eq!(first.codestreams, Some(vec![0, 2]));
+    }
+
+    /// Every `colr` box but the kept one becomes a Free box, and nothing moves.
+    #[test]
+    fn keeping_one_colour_specification_frees_the_others() {
+        let mut header = boxed(IMAGE_HEADER, &image_header(3, 7));
+        header.extend_from_slice(&boxed(COLOUR_SPECIFICATION, &enumerated_colour(0, 19)));
+        header.extend_from_slice(&boxed(COLOUR_SPECIFICATION, &[3, 0, 0, 0xAA]));
+        let data = jp2(&header, &[7, 7, 7]);
+
+        let headers = Headers::parse(&data).expect("the file is well formed");
+        let kept =
+            headers.keeping_colour(&data, Some(1), Some(ColourSpecification::RESTRICTED_ICC));
+        assert_eq!(kept.len(), data.len());
+        let again = Headers::parse(&kept).expect("the copy is well formed");
+        assert_eq!(again.colour.len(), 1);
+        assert_eq!(again.colour[0].method, ColourSpecification::RESTRICTED_ICC);
+        assert_eq!(again.colour[0].profile, Some(&[0xAA][..]));
+
+        let none = headers.keeping_colour(&data, None, None);
+        assert!(
+            Headers::parse(&none)
+                .expect("well formed")
+                .colour
+                .is_empty()
+        );
+    }
+
+    /// `Rsiz`'s extended bits, T.801 Table A.2, and the `MCC` and `MCO` segments A.3.8 and A.3.9.
+    #[test]
+    fn the_extended_capabilities_and_the_component_transforms_are_read() {
+        let mut stream = codestream(&[7, 7, 7]);
+        stream[6..8].copy_from_slice(&0x8104u16.to_be_bytes());
+        // MCC: Zmcc 0, Imcc 1, Ymcc 0, Qmcc 1; Xmcc 1; Nmcc 3 with 8-bit indices; Mmcc 3; Tmcc.
+        let mut mcc = vec![
+            0, 0, 1, 0, 0, 0, 1, 1, 0, 3, 0, 1, 2, 0, 3, 0, 1, 2, 0, 0, 1,
+        ];
+        let length = u16::try_from(mcc.len() + 2).expect("small");
+        let mut segment = MCC.to_vec();
+        segment.extend_from_slice(&length.to_be_bytes());
+        segment.append(&mut mcc);
+        segment.extend_from_slice(&[0xFF, 0x77, 0, 4, 1, 1]);
+        segment.extend_from_slice(&[0xFF, 0x90, 0, 10, 0, 0, 0, 0, 0, 0, 0, 1, 0xFF, 0x93]);
+        stream.extend_from_slice(&segment);
+
+        let codestream = parse_codestream(&stream).expect("well formed");
+        assert_eq!(
+            codestream.required_extensions(),
+            vec![MULTIPLE_COMPONENT_TRANSFORMATION]
+        );
+        assert_eq!(
+            codestream.collections,
+            vec![Collection {
+                count: 1,
+                kind: Some(Collection::DECORRELATION),
+                reversible: Some(false),
+            }]
+        );
+        assert_eq!(codestream.orderings, vec![1]);
     }
 
     /// I.4's `LBox` of 0 makes a box run to the end of the data, and the walk still terminates.

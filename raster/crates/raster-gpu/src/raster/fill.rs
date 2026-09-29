@@ -11,8 +11,24 @@
 //! [`CoverageMask::crop`] a lookup rather than a second rasterisation. The three
 //! deposit functions below are that one rule at three scales — a row slab, the borders
 //! it crosses, and one single-cell trapezoid.
+//!
+//! **The integral is the set's area only where a pixel sees at most two adjacent windings**
+//! (ADR 1389). §8.5.3.3's rules decide, point by point, whether a point is inside, and
+//! §10.7.4 scan-converts only after "all 'insideness' computations have been performed" —
+//! so a pixel's coverage is the area of the inside set within it. Clamping the integrated
+//! winding gives that area wherever the winding in the pixel takes two neighbouring
+//! values, which is every pixel one boundary passes through; where two boundaries of the
+//! path meet in one pixel, it may not (two same-wound squares' overlap reads their sum,
+//! two opposed ones cancel). [`topology`] settles most fills at once — no subpath crossing
+//! itself or another, and their nesting alternating in orientation, winds every pixel two
+//! neighbouring values — [`overlap`] finds the pixels of the rest where more can happen,
+//! and [`exact`] replaces each by the area of the set the rule declares inside.
 
 use super::flatten::Polyline;
+
+mod exact;
+mod overlap;
+mod topology;
 
 /// A rasterised coverage tile: `width × height` bytes anchored at integer device
 /// pixel `(left, top)`.
@@ -102,10 +118,6 @@ pub(crate) enum Rule {
 /// the accumulator's own rounding, which ADR 0049 measures at **1 of 255 on 2 pixels in
 /// 2.9 million**. That is what lets one rasterisation of a clip's region serve every
 /// tile cut out of it (`encode::residue`).
-// The accumulation arithmetic below is bounded by construction: coordinates are
-// clamped into the region, whose dimensions were checked against the frame budget
-// before allocation. Stated once here rather than per line of a hot loop.
-#[expect(clippy::arithmetic_side_effects)]
 pub(crate) fn fill_mask(
     polylines: &[Polyline],
     rule: Rule,
@@ -113,6 +125,23 @@ pub(crate) fn fill_mask(
     top: i32,
     width: u32,
     height: u32,
+) -> CoverageMask {
+    fill_mask_settled(polylines, rule, (left, top, width, height), false)
+}
+
+/// [`fill_mask`], told whether the fill is already known to wind every point two
+/// neighbouring values — the answer a stored outline keeps for all its placements
+/// ([`winds_two_values`]) — in which case the integral is the set's area everywhere and
+/// the question is not asked again (ADR 1389).
+// The accumulation arithmetic below is bounded by construction: coordinates are
+// clamped into the region, whose dimensions were checked against the frame budget
+// before allocation. Stated once here rather than per line of a hot loop.
+#[expect(clippy::arithmetic_side_effects)]
+pub(crate) fn fill_mask_settled(
+    polylines: &[Polyline],
+    rule: Rule,
+    (left, top, width, height): (i32, i32, u32, u32),
+    two_values: bool,
 ) -> CoverageMask {
     let w = width as usize;
     let h = height as usize;
@@ -122,16 +151,11 @@ pub(crate) fn fill_mask(
     #[expect(clippy::cast_precision_loss)] // region dims are bounded by target limits
     let (fw, fh) = (w as f32, h as f32);
     for polyline in polylines {
-        let n = polyline.points.len();
-        for i in 0..n {
-            let p0 = polyline.points[i];
-            // Filling closes every subpath: the last edge returns to the start.
-            let p1 = polyline.points[(i + 1) % n];
-            #[expect(clippy::cast_precision_loss)]
-            let (x0, y0) = (p0.x - left as f32, p0.y - top as f32);
-            #[expect(clippy::cast_precision_loss)]
-            let (x1, y1) = (p1.x - left as f32, p1.y - top as f32);
-            accumulate_edge(&mut acc, w, fw, fh, x0, y0, x1, y1);
+        for i in 0..polyline.points.len() {
+            let (x0, y0, x1, y1) = local_edge(polyline, i, left, top);
+            if let Some(edge) = Edge::cut(x0, y0, x1, y1, fh) {
+                accumulate_edge(&mut acc, w, fw, &edge);
+            }
         }
     }
 
@@ -142,6 +166,9 @@ pub(crate) fn fill_mask(
         let mut running = 0.0_f32;
         for x in 0..w {
             running += acc[y * (w + 1) + x];
+            // Kept: the pixel's average winding is what fixes the winding's constant
+            // where a complex pixel is recomputed.
+            acc[y * (w + 1) + x] = running;
             let cov = match rule {
                 Rule::NonZero => running.abs().min(1.0),
                 Rule::EvenOdd => {
@@ -155,12 +182,150 @@ pub(crate) fn fill_mask(
             }
         }
     }
+    // Where the fill can wind a pixel more than two neighbouring values, the integral
+    // above is not the set's area there: those pixels are recomputed from the set itself.
+    if !two_values && let Some(complex) = complex_pixels(polylines, (left, top), (w, h)) {
+        exact::correct(
+            &complex,
+            polylines,
+            rule,
+            (left, top),
+            (w, h),
+            &acc,
+            &mut coverage,
+        );
+    }
     CoverageMask {
         left,
         top,
         width,
         height,
         coverage,
+    }
+}
+
+/// Whether `polylines` wind every point of the plane two neighbouring values — the
+/// question [`fill_mask`] asks of a region, asked of the whole fill — or `None` where the
+/// fill is too crowded to answer within the bound [`topology`] states.
+pub(crate) fn winds_two_values(polylines: &[Polyline]) -> Option<bool> {
+    let (x0, y0, x1, y1) = super::flatten::polyline_bounds(polylines)?;
+    let region = [x0, y0, x1, y1];
+    if topology::plainly_two_values(polylines, region) {
+        return Some(true);
+    }
+    Some(topology::Topology::of(polylines, region, 0)?.two_values())
+}
+
+/// The pixels of the region at `origin` of `size` pixels whose winding may take more than
+/// two neighbouring values, or `None` where no pixel's can — the plain fill, and the fill
+/// whose subpaths nest in alternation ([`topology`]) — or where the question is past its
+/// bound, and the integral stands (ADR 1389).
+#[expect(clippy::cast_precision_loss)] // region corners are bounded by target limits
+fn complex_pixels(
+    polylines: &[Polyline],
+    origin: (i32, i32),
+    size: (usize, usize),
+) -> Option<overlap::Complex> {
+    let (w, h) = size;
+    let (x, y) = (origin.0 as f32, origin.1 as f32);
+    let region = [x, y, x + w as f32, y + h as f32];
+    if topology::plainly_two_values(polylines, region) {
+        return None;
+    }
+    let mut topology = topology::Topology::of(polylines, region, w.saturating_mul(h))?;
+    if topology.two_values() {
+        return None;
+    }
+    Some(overlap::Marks::walk(polylines, origin, size).complex_pixels(&mut topology, h))
+}
+
+/// Edge `i` of `polyline` in the region's coordinates, the last one returning to the
+/// start: filling closes every subpath (§8.5.3.1).
+#[expect(clippy::arithmetic_side_effects)] // `i + 1` below `usize::MAX`, `% n` with n > i
+#[expect(clippy::cast_precision_loss)] // region origins are bounded by target limits
+fn local_edge(polyline: &Polyline, i: usize, left: i32, top: i32) -> (f32, f32, f32, f32) {
+    let n = polyline.points.len();
+    let (p0, p1) = (polyline.points[i], polyline.points[(i + 1) % n]);
+    (
+        p0.x - left as f32,
+        p0.y - top as f32,
+        p1.x - left as f32,
+        p1.y - top as f32,
+    )
+}
+
+/// One edge cut to the region's rows, top to bottom, with the winding it carries.
+#[derive(Debug, Clone, Copy)]
+struct Edge {
+    top_x: f32,
+    top_y: f32,
+    bot_y: f32,
+    /// `x` per unit of `y`, finite by construction.
+    dxdy: f32,
+    /// `+1` for an edge running down the rows, `−1` for one running up.
+    dir: f32,
+}
+
+impl Edge {
+    /// The edge from `(x0, y0)` to `(x1, y1)` cut to the rows `0..fh`, or `None` where it
+    /// deposits nothing: a horizontal edge, one outside the rows, or one whose slope `f32`
+    /// cannot state.
+    fn cut(x0: f32, y0: f32, x1: f32, y1: f32, fh: f32) -> Option<Self> {
+        // Exact comparison: a horizontal edge deposits nothing by definition, and a
+        // nearly-horizontal one deposits its nearly-zero area correctly.
+        #[expect(clippy::float_cmp)]
+        if y0 == y1 {
+            return None;
+        }
+        let (dir, top_x, top_y, bot_x, bot_y) = if y0 < y1 {
+            (1.0_f32, x0, y0, x1, y1)
+        } else {
+            (-1.0, x1, y1, x0, y0)
+        };
+        // Clip vertically to the region; x interpolates along the clipped span.
+        let (top_x, top_y) = if top_y < 0.0 {
+            (
+                top_x + (bot_x - top_x) * (0.0 - top_y) / (bot_y - top_y),
+                0.0,
+            )
+        } else {
+            (top_x, top_y)
+        };
+        let (bot_x, bot_y) = if bot_y > fh {
+            (top_x + (bot_x - top_x) * (fh - top_y) / (bot_y - top_y), fh)
+        } else {
+            (bot_x, bot_y)
+        };
+        if bot_y <= top_y {
+            return None;
+        }
+        let dxdy = (bot_x - top_x) / (bot_y - top_y);
+        // **A slope this edge cannot state is a slab this edge cannot fill.** The numerator
+        // is bounded by twice the largest device coordinate the scene contract admits
+        // (`MAX_COORDINATE` on a point and on a transform coefficient, so `4e27`), and the
+        // denominator is positive by the test above — so a non-finite ratio means the slab
+        // is under `2.4e-11` of a pixel tall, and the exact area such an edge deposits is
+        // under `2.4e-11` where one coverage step is `1/255`. Depositing nothing is the
+        // right answer to eleven decimal places, and it is the only answer that keeps a NaN
+        // out of the accumulator: a NaN survives the prefix sum, and `abs().min(1.0)`
+        // returns **1.0** for it, so one such edge paints the rest of its row solid. The
+        // same test also catches a NaN arriving from a coordinate that is not finite, which
+        // `Device::render` refuses at the viewport before it can reach here.
+        if !dxdy.is_finite() {
+            return None;
+        }
+        Some(Self {
+            top_x,
+            top_y,
+            bot_y,
+            dxdy,
+            dir,
+        })
+    }
+
+    /// The edge's `x` at height `y`, by the one interpolation every user of it shares.
+    fn x_at(&self, y: f32) -> f32 {
+        self.top_x + (y - self.top_y) * self.dxdy
     }
 }
 
@@ -174,77 +339,20 @@ pub(crate) fn fill_mask(
 /// running sum equal to the full winding beyond the crossing.
 #[expect(clippy::arithmetic_side_effects, clippy::cast_possible_truncation)]
 #[expect(clippy::cast_sign_loss)]
-// Two endpoints plus the grid: the coordinate bundle is the function's whole input,
-// and a struct would only rename the eight numbers.
-#[expect(clippy::too_many_arguments)]
-fn accumulate_edge(
-    acc: &mut [f32],
-    w: usize,
-    fw: f32,
-    fh: f32,
-    x0: f32,
-    y0: f32,
-    x1: f32,
-    y1: f32,
-) {
-    // Exact comparison: a horizontal edge deposits nothing by definition, and a
-    // nearly-horizontal one deposits its nearly-zero area correctly.
-    #[expect(clippy::float_cmp)]
-    if y0 == y1 {
-        return;
-    }
-    let (dir, top_x, top_y, bot_x, bot_y) = if y0 < y1 {
-        (1.0_f32, x0, y0, x1, y1)
-    } else {
-        (-1.0, x1, y1, x0, y0)
-    };
-    // Clip vertically to the region; x interpolates along the clipped span.
-    let (top_x, top_y) = if top_y < 0.0 {
-        (
-            top_x + (bot_x - top_x) * (0.0 - top_y) / (bot_y - top_y),
-            0.0,
-        )
-    } else {
-        (top_x, top_y)
-    };
-    let (bot_x, bot_y) = if bot_y > fh {
-        (top_x + (bot_x - top_x) * (fh - top_y) / (bot_y - top_y), fh)
-    } else {
-        (bot_x, bot_y)
-    };
-    if bot_y <= top_y {
-        return;
-    }
-    let dxdy = (bot_x - top_x) / (bot_y - top_y);
-    // **A slope this edge cannot state is a slab this edge cannot fill.** The numerator
-    // is bounded by twice the largest device coordinate the scene contract admits
-    // (`MAX_COORDINATE` on a point and on a transform coefficient, so `4e27`), and the
-    // denominator is positive by the test above — so a non-finite ratio means the slab
-    // is under `2.4e-11` of a pixel tall, and the exact area such an edge deposits is
-    // under `2.4e-11` where one coverage step is `1/255`. Depositing nothing is the
-    // right answer to eleven decimal places, and it is the only answer that keeps a NaN
-    // out of the accumulator: a NaN survives the prefix sum, and `abs().min(1.0)`
-    // returns **1.0** for it, so one such edge paints the rest of its row solid. The
-    // same test also catches a NaN arriving from a coordinate that is not finite, which
-    // `Device::render` refuses at the viewport before it can reach here.
-    if !dxdy.is_finite() {
-        return;
-    }
-
-    let mut y = top_y.floor().max(0.0);
-    while y < bot_y {
+fn accumulate_edge(acc: &mut [f32], w: usize, fw: f32, edge: &Edge) {
+    let mut y = edge.top_y.floor().max(0.0);
+    while y < edge.bot_y {
         let row = y as usize;
         if row >= acc.len() / (w + 1) {
             break;
         }
-        let entry_y = top_y.max(y);
-        let exit_y = bot_y.min(y + 1.0);
-        let entry_x = top_x + (entry_y - top_y) * dxdy;
-        let exit_x = top_x + (exit_y - top_y) * dxdy;
+        let entry_y = edge.top_y.max(y);
+        let exit_y = edge.bot_y.min(y + 1.0);
+        let (entry_x, exit_x) = (edge.x_at(entry_y), edge.x_at(exit_y));
         deposit_slab(
             &mut acc[row * (w + 1)..(row + 1) * (w + 1)],
             fw,
-            dir,
+            edge.dir,
             entry_x,
             entry_y,
             exit_x,

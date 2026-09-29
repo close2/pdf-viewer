@@ -7,20 +7,39 @@
 //!
 //! Mesh shadings have no equivalent in either and are drawn as triangles by the caller.
 //!
-//! # `/Extend` is handled exactly as on the CPU
+//! # `/Extend`, and what Vello's ramp admits
 //!
 //! Where a shading does not extend it paints nothing beyond that end, and neither
-//! rasteriser's spread modes can say so. Both get a transparent stop at the very edge of
-//! the ramp, so that `Pad` repeats transparency. Keeping the two backends' workaround
-//! identical is deliberate: they are meant to agree pixel for pixel, and two different
-//! approximations of the same thing would not.
-
+//! rasteriser's spread modes can say so. The construction is `render-cpu`'s (ADR 1387): the
+//! ramp's stops are handed over at their own positions — ISO 32000-2 §8.7.4.5.3 places a
+//! colour by its projection onto the axis alone, so a stop moved along the ramp is a colour
+//! moved along the page — and a non-extended end is a hard stop to transparency, which `Pad`
+//! then repeats.
+//!
+//! Vello does not evaluate stops per pixel. It bakes them into a ramp of 512 texels
+//! (`vello_encoding`'s `make_ramp`), texel `i` holding the colour at `i / 511`, and the fine
+//! shader clamps the parameter under `Pad` and reads texel `round(t · 511)`. Two things follow:
+//!
+//! - **A hard stop at 0 holds.** Texel 0 takes the first of the stops at offset 0, which is
+//!   the transparent one, so the start is cut — half a texel inside the ramp, where every hard
+//!   stop of this ramp lands.
+//! - **A hard stop at 1 does not.** Texel 511 also takes the *first* stop at its offset, which
+//!   would be the end colour, and `Pad` would then paint it forever. So the end's pair is
+//!   placed [`END_NUDGE`] below 1: every texel before the last is still interpolated from the
+//!   ramp's own stops, and the last is transparent — the same half texel as the start.
+//!
+//! What no construction here can remove is that quantisation: on this backend a stop lands
+//! within half a texel, 1/1022 of the axis, of where the clause puts it. The CPU backend is the
+//! oracle and is exact; this one is compared with it at that bound.
 use pdf_render::{Color, Ramp, Shading, ShadingKind, TargetSpec, Transform};
 use vello::peniko;
 
-/// How wide the transparent transition at a non-extended end is, as a fraction of the
-/// ramp. Matches `render-cpu`, because the backends must agree.
-const CUTOFF: f32 = 0.0005;
+/// How far below 1 a non-extended end's hard stop is placed, as a fraction of the ramp.
+///
+/// Any offset strictly between texel 510's position (510/511) and 1 makes texel 511 the
+/// transparent one; one part in a million is far inside that interval for any ramp width
+/// Vello could choose, and far below a texel, so no interpolated texel moves.
+const END_NUDGE: f32 = 1e-6;
 
 /// Builds a brush for a shading, or `None` for kinds the caller must draw itself.
 ///
@@ -86,27 +105,22 @@ pub(crate) fn brush(
 }
 
 /// Builds the gradient stops for a ramp, honouring `/Extend`.
+///
+/// The ramp's stops keep their positions; a non-extended end adds a transparent stop at the
+/// end's own position — at 1 less [`END_NUDGE`] for the far end, for the reason the module
+/// comment gives.
 fn stops(ramp: &Ramp, extend: (bool, bool)) -> Vec<peniko::ColorStop> {
     let mut stops: Vec<peniko::ColorStop> = Vec::with_capacity(ramp.stops.len().saturating_add(2));
-
-    let (low, high) = match extend {
-        (true, true) => (0.0, 1.0),
-        (false, true) => (CUTOFF, 1.0),
-        (true, false) => (0.0, 1.0 - CUTOFF),
-        (false, false) => (CUTOFF, 1.0 - CUTOFF),
-    };
 
     if !extend.0 {
         stops.push(stop(0.0, transparent(ramp.colour_at(0.0))));
     }
+    let end = if extend.1 { 1.0 } else { 1.0 - END_NUDGE };
     for entry in ramp.stops.iter() {
-        stops.push(stop(
-            (low + entry.at * (high - low)).clamp(0.0, 1.0),
-            entry.colour,
-        ));
+        stops.push(stop(entry.at.clamp(0.0, end), entry.colour));
     }
     if !extend.1 {
-        stops.push(stop(1.0, transparent(ramp.colour_at(1.0))));
+        stops.push(stop(end, transparent(ramp.colour_at(1.0))));
     }
     stops
 }

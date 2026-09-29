@@ -302,10 +302,9 @@ I.5.3.3's `colr` box carries `METH`, `PREC`, `APPROX` and `EnumCS`, and Annex A.
 marker segment carries the component count and each component's bit depth. Two agents had
 declined those rules for exactly that reason, and correctly.
 
-**What it does not carry, and that is now settled.** §6.2.8.3 also asks that only the JPX
-baseline set of features be used, and that is defined in ISO/IEC 15444-**2**:2004 M.9.2.
-`doc/questions/A51` decides it: part 2 will not be bought, and the row stays `Unchecked` with its
-truthful reason rather than as a debt (`doc/adr/0928`).
+**What it does not carry.** §6.2.8.3 also asks that only the JPX baseline set of features be
+used, and that is defined in ISO/IEC 15444-**2** M.9.2. Part 2 was not bought (`doc/questions/A51`);
+its identical joint text is held instead, ITU-T T.801, entered below.
 
 **Two files beside it that look like later editions and are not.**
 `doc/ISO-IEC-15444-1-2016.pdf` and `doc/ISO-IEC-15444-1-2019.pdf` are the third and fourth
@@ -320,7 +319,42 @@ here. ISO 19005 permits a `METH` of 3 where the 2000 edition defines only 1 and 
 enumerated colour spaces 12 and 19 where its Table I-10 defines only 16 and 17, and gives `APPROX`
 a meaning where I.5.3.3 says the field shall be zero and readers shall ignore it. In all three the
 rule implemented is ISO 19005's, and each constant in `crates/pdf-archive/src/table/graphics.rs`
-says so above itself.
+says so above itself. All three are part 2's, and T.801 below defines them: Table M.22 the methods,
+Table M.25 the enumerated spaces, Table M.23 the approximation.
+
+## ITU-T T.801, the identical text of ISO/IEC 15444-2 — JPEG 2000's extensions
+
+ISO 19005-2 section 6.2.8.3 and ISO 19005-4 section 6.2.7.3 send the JPX baseline to ISO/IEC
+15444-2 M.9.2, and ISO 32000-2 §7.4.9 asks a processor to support its enumerated colour spaces. ITU
+publishes the same text as Recommendation T.801 free of charge. It was fetched at the owner's
+request on 2026-09-22 and is kept as `doc/T-REC-T.801-200208.pdf` — already inside the oracle's and
+the accessibility census's populations since then, so trap 43 is paid — and prepared with
+`python3 tools/spec-md.py doc/T-REC-T.801-200208.pdf --out doc/md/T.801.md` into the ignored
+`doc/md/` (334 pages, in the page's content order: the file has no structure tree). ADR 1383 is
+the reading and `doc/questions/A169` the owner's decision to read it.
+
+| text | fetched from | SHA-256 of the PDF |
+|---|---|---|
+| **ITU-T T.801 (08/2002)**, *Information technology – JPEG 2000 image coding system: Extensions* | ITU-T's free-of-charge catalogue, `https://www.itu.int/rec/T-REC-T.801` (the 08/2002 edition) | `644bc4c41a6fb499482e560c0c9ad8da9f82621ab1971ce922aa5dc0bede21db` |
+
+**Which edition, verified rather than assumed.** The title pages state ITU-T T.801 (08/2002),
+approved on 29 August 2002, copyright ITU 2003; the source note says an identical text is also
+published as ISO/IEC 15444-2, and every page's running head names ISO/IEC 15444-2:2003 (E). The
+title pages do not themselves say that amendments or corrigenda are integrated. ITU's catalogue
+page for T.801 does: it lists this edition with ISO/IEC 15444-2 Amendment 1 and Technical Corrigenda
+1 and 2 integrated, and lists after it Corrigendum 3 (01/2005), Amendment 2 (05/2005), Corrigendum
+4 (05/2006), Amendments 4 (06/2012) and 3 (03/2013), and new editions T.801 (06/2021) and
+(08/2023). ISO 19005-2's normative reference is ISO/IEC 15444-2:2004. **The revisit condition is
+the owner's (A169): the 2004 ISO edition, read only if the editions are ever found to differ on
+M.9.2's baseline set**; the later corrigenda, amendments and editions above are where such a
+difference would be found, and none of them has been read.
+
+**Free to obtain, not free to quote.** The notice on its fourth page reserves all rights and
+permits no reproduction by any means without ITU's prior written permission — the position T.4
+and T.6 take below. So T.801 is cited by clause, table and figure and paraphrased, in source and in
+the ledger alike, and nothing from it appears between quotation marks or after a `>`. The numbers
+the code carries from it — box types, marker codes, `EnumCS` values, `Rsiz` bits, the `IL` codes of
+Table M.29 — are the format itself rather than prose about it.
 
 ## ISO 15076-1:2010, the ICC profile format — a preview, and what it cannot answer
 
@@ -909,3 +943,27 @@ cannot be written without them. All 195 run-length codes were checked against th
 and, as evidence, against `hayro-ccitt`'s tables, and agree with both; `codes.rs`'s tests hold them
 to being prefix-free. T.4 Figures 10 and 11's coding examples are encoded as fixtures in
 `crates/pdf-ccitt/tests/coding.rs` (ADR 1349).
+
+## IETF RFCs 5639, 7027 and 8032, the two curves this tree computes itself
+
+The owner's answer `doc/questions/A170` has the tree compute brainpoolP512r1 and Ed448 itself
+(ADRs 1385 and 1386), so three RFCs supply **data** that is now in source, not only prose read:
+RFC 5639 section 3.7's six curve constants (`crates/pdf-signature/src/brainpool_p512.rs`), RFC 8032
+section 5.2's Table 2 constants (`crates/pdf-signature/src/ed448.rs`) and its section 7.4 and 7.5
+test vectors (`crates/pdf-signature/src/ed448/vectors.rs`), and RFC 7027 appendix A.3's
+key-agreement values (`brainpool_p512.rs`'s tests). RFC 5639 and RFC 8032 are in `doc/md/rfc/`.
+RFC 7027 is not: it was fetched on 2026-09-28 from `https://www.rfc-editor.org/rfc/rfc7027.txt`
+(SHA-256 `28aaaff85a4d52b426194839b222e314fa6476ec75d7fa70427724710696a1f5`) into a round's scratch
+directory, because `doc/md/` in a worktree is the owner's checkout.
+
+**Terms, read rather than assumed.** Each carries the IETF Trust's notice (BCP 78 and the Trust
+Legal Provisions). TLP 5.0 (fetched 2026-09-28 from the Trust's site as
+`Corrected-TLP-5.0-legal-provsions.pdf`, SHA-256
+`b5cbd993d1dae273d7b251db4efc397b4de13451b2156b94d5a901c83c0fb48a`) section 3.c.iii licenses anyone
+to copy and distribute unmodified portions of an RFC provided each is attributed to the IETF and
+names the RFC it came from, the legends being owed only past a fifth of a document's text; section
+8 applies that section to the IRTF stream (RFC 8032) and the Independent Submission stream (RFC
+5639) as to the IETF's own (RFC 7027), excluding only the Code Components licence of section 4. The
+values are unmodified but for joining the lines they were printed on, each file names its RFC, and
+none is near a fifth of its document. Prose from the three is paraphrased in source, never quoted,
+because the quotation gate reads quotation marks as ISO 32000-2's.

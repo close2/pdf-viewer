@@ -1,10 +1,10 @@
-# The four curves left, question 3, public-key handlers
+# Signature curves, question 3, public-key handlers
 
 Status: **question 2 is answered for every algorithm family the standard names.** Table 260's
 three — RSA under both of RFC 8017's paddings, DSA, and ECDSA — and the EdDSA row ISO/TS 32002
-section 5.1.2 adds beside them, all verify; every digest either table names is computed. What is
-left inside question 2 is **four curves out of ISO/TS 32002's eight**, each refused by package
-availability and each named at runtime by its own identifier. Question 3 is still a project.
+section 5.1.2 adds beside them, all verify; every digest either table names is computed, and so is
+every one of ISO/TS 32002's eight curves — two of them this tree's own under the owner's answer
+A170, until a reviewed crate covers them. Question 3 is still a project.
 Priority: 51
 Corpus: 5 documents (§7.6.5's public-key handlers, counted below). `/R` 5 left this file in the
 eight-hundred-and-eighty-seventh session — it is implemented. For the signature populations, **run
@@ -37,34 +37,28 @@ answered the second for RSA (ADR 0229), the four-hundred-and-seventy-ninth answe
 | | asks | needs | state |
 |---|---|---|---|
 | **1. Integrity** | has the document changed since it was signed? | the file and a hash function | **answered** |
-| **2. Authenticity** | does the signature verify under the signer's public key? | an X.509 certificate parser and RSA, DSA, ECDSA or EdDSA | **answered for every family**; four curves below |
+| **2. Authenticity** | does the signature verify under the signer's public key? | an X.509 certificate parser and RSA, DSA, ECDSA or EdDSA | **answered for every family and every ISO/TS 32002 curve** |
 | **3. Trust** | is the signer anyone to believe, and was the certificate revoked? | anchors a host names, a certification path, a network | **the path is built** (ADR 1039); the anchors and revocation are open |
 
 Question 1 is `Signature::integrity`, question 2 is `Signature::authenticity`.
 
-### What is left of question 2: four curves, and each is a package rather than a clause
+### Question 2's curves: all eight, two of them this tree's own
 
-**Everything here is *reported* at runtime by the object identifier the file states**, never
-skipped: `Authenticity::AlgorithmNotVerifiable`, `Authenticity::KeyNotVerifiable`,
+**What is outside the set is *reported* at runtime by the object identifier the file states**,
+never skipped: `Authenticity::AlgorithmNotVerifiable`, `Authenticity::KeyNotVerifiable`,
 `Authenticity::CurveNotVerifiable` and `Authenticity::UnknownDigest` each carry the number, printed
-as dotted decimal by `x509::dotted` rather than as a word, because this tree holds ISO 32000-2 and
-not the documents that assign those numbers.
+as dotted decimal by `x509::dotted` rather than as a word.
 
-ISO/TS 32002 section 5.1.3's Table 3 names six ECDSA curves and its Table 4 two EdDSA ones.
-`pdf_signature::ecdsa` computes P-256, P-384 and P-521; `pdf_signature::eddsa` computes Ed25519. The other
-four are refused, and **the refusal is a fact about crates.io rather than about the standard**
-(measured 2026-08-23, ADR 0532 — re-derive it before believing it):
-
-| curve | why not | what would change it |
-|---|---|---|
-| brainpoolP256r1 | `bp256` is 0.14.0-**rc.15**; its stable 0.6 is the old `digest` line | a 0.14.0 release |
-| brainpoolP384r1 | `bp384`, the same | a 0.14.0 release |
-| brainpoolP512r1 | **no crate on crates.io at all** | somebody publishing one |
-| Ed448 | `ed448-goldilocks` stable 0.9.0 has the field arithmetic and no signature scheme, on `rand_core` 0.6; 0.14 is `-pre.15` | a 0.14.0 release |
-
-A round taking any of these should take the *curve* rather than the crate that exists: the set is
-ISO/TS 32002 Table 3's and Table 4's, and `ecdsa::UnsupportedCurve` already names all three
-Brainpool ones by the identifier `const_oid` reads out of RFC 5639.
+ISO/TS 32002 section 5.1.3's Table 3 names six ECDSA curves and its Table 4 two EdDSA ones, and all
+eight compute. Six are reviewed packages (`p256`, `p384`, `p521`, `bp256`, `bp384`,
+`ed25519-dalek`; ADRs 0532, 1063). **brainpoolP512r1 and Ed448 are private modules of
+`pdf-signature`** under the owner's answer `doc/questions/A170` — `brainpool_p512.rs` (ADR 1385) and
+`ed448.rs` (ADR 1386), held to RFC 7027 appendix A.3's and RFC 8032 sections 7.4 and 7.5's vectors,
+reached by the `x509` fuzz target — and each is a stopgap whose exit A170 states: the day a stable,
+reviewed crate covers the curve, the swap is decided on `doc/stack.md`'s terms. `doc/stack.md`'s
+curve paragraph names where that crate would come from. A round taking the swap replaces one arm
+of `ecdsa::verify` or `eddsa::verify`, moves the vectors to that arm's tests, and deletes the
+module.
 
 **Two blockers this file used to carry are retired, and both were retired by reading rather than by
 a release.**
@@ -148,7 +142,7 @@ certificate are all read, and each is read *because* a step of RFC 5280 section 
 Nothing reads a field it does not act on, which is the same rule stated forwards.
 
 **And question 3 is now the *only* thing between this clause and `implemented`,** which it was not
-before: every `partial` in the §12.8.3 family names either trust or one of the four curves above.
+before: the §12.8.3 family's remaining `partial` rows name trust or §12.8.3.4.4's signature policy.
 
 ## Public-key handlers (§7.6.5) — 5 corpus documents, and none of them a reader's
 
@@ -186,9 +180,16 @@ bug report's attachments — PDFBOX-4421 is Apache's own public-key issue — an
 *device*, whose private key was never a reader's. §7.6.5.1 puts one `shall` on a reader — "scan
 the recipient list for which the content is encrypted and … attempt to find a match with a
 certificate that belongs to the user" — and for every one of these five the honest outcome of that
-scan is *no match*. Implementing the clause would turn five loud refusals into five loud refusals
-with a certificate store behind them. **So this stays where it is, and the count is now a fact
-rather than a guess.**
+scan, for a *reader*, is *no match*. For a *test host* it is not: four of the five are encrypted to
+`CN=testnutzer`, serial `5F609C62`, whose keystore `PDFBOX-4421-keystore.pfx` the PDFBox corpus
+publishes in `doc/corpora/pdfbox` beside `AESkeylength128.pdf` and `AESkeylength256.pdf`
+(byte-identical to `-0` and `-1`), and that directory's `AES128ExposedMeta.pdf` and
+`AES256ExposedMeta.pdf` are encrypted to `CN=test`, serial `60FFD550`, of `PDFBOX-5249.p12`.
+`doc/questions/A168` rules those four `doc/corpora/pdfbox` documents the build's end-to-end witness
+set and not A66's trigger — a published test key is no reader's certificate — and
+`crates/pdf-syntax/tests/public_key_witnesses.rs` holds each one's recipient to its keystore, the
+test the build extends into decryption. No document is known to be encrypted to a key a real reader
+holds. **So this stays where it is, and the count is a fact rather than a guess.**
 
 Two more documents state a `/Filter` that is neither `/Standard` nor a handler, and neither is
 this clause's — recorded here because this is where somebody will look for them:

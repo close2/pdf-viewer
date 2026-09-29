@@ -44,7 +44,9 @@ oracle — and it is one because it computes a path's coverage of a pixel as the
 §8.5.3.3's winding number over §10.7.4's half-open pixel square** rather than sampling it on a
 lattice, leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
 whose curves bend more tightly than its half-width — those curves as pieces, the stretches between
-as the stroker's outline (ADRs 1348, 1359) — and measures a path
+as the stroker's outline (ADRs 1348, 1359) — lifts a shape too small to show to one level as a whole
+shape, which is what §10.7.4 asks the lift of, so the sliver beside a shape that does show keeps its
+own level rather than being painted as ink (ADR 1374), and measures a path
 whose portions overlap as the set its fill rule declares inside rather than composite the portions
 with one another, which §11.6.2 forbids (ADR 1341) — `render-cpu` is also where a **non-isolated group the file
 composites under a mode other than Normal is drawn** instead of reported, by performing §11.4.4's
@@ -59,10 +61,15 @@ and dashes, so the one pixel §10.7.4 is departed on is a shape with no extent i
 over `test-scenes`' fixtures **and over real pages at a real window's resolution**, which is where
 they did not (ADR 0127) — and `render-raster` is the third, over the document renderer this project
 commissioned (`doc/RENDER_LIBRARY.md`), **what the window actually presents with**, held against the
-processor's raster over the whole corpus at the page's own scale and at four times it. The Vello
+processor's raster over the whole corpus at the page's own scale and at four times it, with a
+stroke's pieces at a bend tighter than its half-width cut to tile the stroke's set rather than
+overlap inside it (ADR 1375). The Vello
 backend **bands a target the device cannot draw in one pass**, because its working buffers are fixed
 constants with no knob and a page of small text at a laptop's resolution can exceed them. JBIG2 and
-JPEG 2000 in a confined worker, Group 3 and Group 4 fax there too through this tree's own ITU-T T.4
+JPEG 2000 in a confined worker — its colour specification chosen by §7.4.9's precedence rather
+than the codec's first box, every enumerated space of the JPX baseline that ITU-T T.801 M.9.2.4
+lists drawn as defined except the three whose defining texts are not held, which take the clause's
+device fallback rather than a refusal (ADR 1383) — Group 3 and Group 4 fax there too through this tree's own ITU-T T.4
 and T.6 decoder, which conceals the damaged rows §7.4.6's `/DamagedRowsBeforeError` tolerates as the
 clause states (ADR 1349), and Table 13's `/ColorTransform` read where the clause states it —
 the entry, the `APP14` segment that silences it, and the component count, ranked in the order
@@ -290,7 +297,9 @@ arrangement, §12.9's points, and the document's own departure from the window's
 after the first on a command line opens as a tab behind it once page one is on the screen — all of
 them through `viewer_host::open_chosen` and one at a time, and each under `Command::Open`, so every
 answer the reader gave reaches the second document as it did the first. A tab says §14.3.3's
-`/Title` where the document states one and otherwise the file's name. `quorra-confined` holds one
+`/Title` where the document states one and otherwise the file's name, and `quorra` sets a character
+its compiled-in faces lack from a face the machine offers rather than as a box (ADR 1382).
+`quorra-confined` holds one
 document, on ADR 1190's rule. **A window is the front document's**: one opened behind obeys its
 `/PageMode` when it first comes to the front, so a presentation running when a second document
 arrives keeps its full screen and a `UseThumbs` document opens its pages panel then; full screen
@@ -656,7 +665,8 @@ this tree lacks, a standard the project does not hold, or a clause that genuinel
 That is `A20`'s requirement and `doc/adr/0923`'s shape, and it is why a coverage line here excludes
 the obligations ISO 19005 places on a *processor* rather than on a file — a validator cannot pass
 or fail a document for those. Non-conformance is an answer rather than an error, so the exit status
-stays zero and the JSON carries the verdict.
+stays zero and the JSON carries the verdict. The JPX baseline its JPEG 2000 rule turns on is read
+from ITU-T T.801 M.9.2, the held text of ISO/IEC 15444-2, subclause by subclause (ADR 1383).
 
 Its own reading is compared against the veraPDF corpus clause by clause, and **the comparison is
 adjudicated rather than tolerated**: where the corpus and the clause disagree, the clause is read
@@ -1072,15 +1082,16 @@ key with `pdf_signature::x509` and verifies with `pdf_signature::pkcs1`, `pdf_si
 `pdf_signature::dsa`, `pdf_signature::ecdsa` or `pdf_signature::eddsa` — RFC 8017's RSASSA-PKCS1-v1_5 and
 RSASSA-PSS, the latter over the `RSASSA-PSS-params` the signature's own algorithm identifier
 carries; FIPS 186-4's DSA; ANSI X9.62's ECDSA over RFC 5753's `ECDSA-Sig-Value`; and RFC 8032's
-Ed25519, which signs the message rather than a digest of it. **That is all three of Table 260's
+Ed25519 and Ed448, which sign the message rather than a digest of it. **That is all three of Table 260's
 algorithm families and the fourth row ISO/TS 32002 section 5.1.2 adds beside them** (ADRs 0229,
 0314, 0322, 0532). The constructions, budgets, encodings and refusal names are this tree's; the
 modular arithmetic and the group law under them are RustCrypto's `crypto-bigint` and curve
-packages, by owner decision (ADR 0331). **What is still refused is a *curve* rather than a family,
-and each is named at runtime by the identifier the certificate states**: of ISO/TS 32002 Table 3's
-six, brainpoolP512r1 alone, which has no package of reviewed arithmetic at all (ADR 1063); and of
-its Table 4's two, Ed448, whose stable package carries the field arithmetic without the signature
-scheme. The sentences the program uses keep every
+packages, by owner decision (ADR 0331). **Every curve ISO/TS 32002's Tables 3 and 4 name is
+computed**, and two of them by the owner's exception to that decision (`doc/questions/A170`):
+brainpoolP512r1, which no package carries, is RFC 5639 section 3.7's constants over the reviewed
+frames the other Brainpool packages are built from (ADR 1385), and Ed448 is RFC 8032 section 5.2
+over `crypto-bigint` (ADR 1386) — private modules, advertised nowhere, held to their RFCs' vectors,
+and replaced by a package the day a stable, reviewed one covers the curve. The sentences the program uses keep every
 asymmetry: a mismatch is decisive, a match is the absence of one kind of evidence, and a
 certificate that arrived in the same file as the signature it verifies proves the two are
 consistent with each other and nothing about who made either. **Without an anchor nothing here says
@@ -1123,7 +1134,8 @@ about it, then what it encloses, which is what places a table cell whose only co
 page could not draw**, because the person who cannot see the page is the one for whom a count in
 the title bar is no answer. An untagged page says that it is one rather than being given an
 invented reading order, and its widget annotations cross as controls a client can press, named by
-Table 226's `/TU` and in §12.5.1's tab order (ADR 1369). **And a client may now *act* rather than only listen**: a check box says a
+Table 226's `/TU` and in §12.5.1's tab order (ADR 1369); a tagged page's widget its structure left
+out crosses the same way, after the structure's own nodes (ADR 1381). **And a client may now *act* rather than only listen**: a check box says a
 click may be asked of it and a person using a screen reader alone can tick one, an element says it
 may be scrolled to, and the page says a caret may be put in it — each carried out as a place, in the
 device pixels a pointer already works in, so the boundary gained no message and one definition of a

@@ -15,9 +15,15 @@
 //!
 //! # One place, keyed by file name
 //!
-//! `tests/corpus.rs`, `tests/oracle.rs` and `tests/raster_golden.rs` here, and `render-raster`'s
-//! `tests/corpus.rs` through a `#[path]`, all read this table and nothing else, so a password
-//! that stops opening its document stops every gate at once rather than one. The names are the
+//! `tests/corpus.rs`, `tests/oracle.rs`, `tests/raster_golden.rs` and `tests/save_round_trip.rs`
+//! here read this table and nothing else, and so, through a `#[path]`, do `render-raster`'s
+//! `tests/corpus.rs`, the five `pdf-transform` corpus walks (`pages_corpus`, `split_corpus`,
+//! `optimize_corpus`, `writer_corpus`, `merge_corpus`), `pdf-vfs`'s `read_corpus` and
+//! `write_corpus`, and `pdf-syntax`'s `tests/encryption.rs`, which opens every row with its
+//! password and refuses each without it. A password that stops opening its document stops every
+//! gate at once rather than one. A `#[path]` rather than a crate of its own because the table is
+//! one `const` and one lookup, and every reader is a test target that already has the file's
+//! only dependency, the standard library. The names are the
 //! pdf.js corpus's (`doc/pdf.js/test/pdfs/`); a gate walking another corpus asks for a name only
 //! where the file is that corpus's.
 

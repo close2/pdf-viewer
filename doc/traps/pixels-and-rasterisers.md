@@ -383,6 +383,13 @@ The hook's 557.87 against the set's 565.50 was attributed to a rim counted twice
 sampled with no rasteriser, read 557.83, so the whole gap was the centre line's flattening and the
 double count was real only on short tight bends (ADR 1375). One number separated the two.
 
+### 65. A more exact CPU lane is checked against the lanes promised to match it, on the real adapter
+
+Making raster's CPU lane cover a pixel by its set broke the compute lane's byte-for-byte promise on
+self-crossing stars — 25 pixels, 64 levels — and only on RADV, because the ADR 0090 hybrid reroute is
+on there and off on llvmpipe (ADR 1389). After a coverage change in one lane, run the lanes that
+promise to match it where the promise is actually exercised.
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

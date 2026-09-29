@@ -15,6 +15,7 @@
 
 use raster_scene::{LineCap, LineJoin, Point, Segment, Stroke};
 
+use crate::raster::flatten::Ends;
 use crate::raster::{Polyline, Rule, fill_mask, flatten, stroke_polylines};
 
 use super::{IDENTITY, cov, rect_path};
@@ -136,6 +137,7 @@ fn each_cap_deposits_the_area_table_53_gives_it() {
         let line = Polyline {
             points: vec![Point::new(X0, y), Point::new(X0 + LENGTH, y)],
             closed: false,
+            ends: Ends::default(),
         };
         let stroke = Stroke {
             width: WIDTH,
@@ -219,6 +221,7 @@ fn a_stroke_spanning_the_coordinate_range_is_not_drawn_as_nothing() {
             Point::new(LARGEST_DEVICE_COORDINATE, 4.0),
         ],
         closed: false,
+        ends: Ends::default(),
     };
     let expanded = stroke_polylines(&[line], hairline(), hairline().width);
     assert!(
@@ -248,6 +251,7 @@ fn a_segment_below_the_float_grid_produces_finite_geometry() {
     let line = Polyline {
         points: vec![Point::new(0.0, 4.0), Point::new(1e-30, 4.0)],
         closed: false,
+        ends: Ends::default(),
     };
     let expanded = stroke_polylines(&[line], hairline(), hairline().width);
     assert!(
@@ -263,4 +267,92 @@ fn a_segment_below_the_float_grid_produces_finite_geometry() {
         "a butt-capped stroke of a zero-length segment covers nothing: {:?}",
         mask.coverage
     );
+}
+
+/// A quarter circle of radius `r` about `(50, 50)`, from `(50 + r, 50)` to `(50, 50 + r)`,
+/// as the one cubic whose end tangents are the circle's own: `(0, 1)` leaving and `(−1, 0)`
+/// arriving, whatever the control distance, because each control point lies on its end's
+/// tangent line.
+fn quarter_arc(r: f32) -> Vec<Segment> {
+    let k = 0.552_284_8 * r;
+    vec![
+        Segment::MoveTo(Point::new(50.0 + r, 50.0)),
+        Segment::CubicTo {
+            c1: Point::new(50.0 + r, 50.0 + k),
+            c2: Point::new(50.0 + k, 50.0 + r),
+            to: Point::new(50.0, 50.0 + r),
+        },
+    ]
+}
+
+/// §8.4.3.3's butt cap, on a curve: "The stroke shall be squared off at the endpoint of
+/// the path. There shall be no projection beyond the end of the path." The path's
+/// direction at its endpoint is the curve's tangent, so the stroke ends on the line
+/// through the endpoint square to it — for the quarter arc, `x = 50` at its end and
+/// `y = 50` at its start, each point of the pieces on the stroke's side of it, and its
+/// corners the endpoint `± w/2` along that line (ADR 1389).
+///
+/// Measured at 1×, 2×, 4× and 8×, on a thin arc and on one bent more tightly than its
+/// half-width, whose set reaches past both lines on its inner side (the normals there
+/// cross the centre) — so of that one only the corners are asked. Squared to the last
+/// chord instead, the thin arc's end projects past its line and the corners move.
+#[test]
+fn a_butt_cap_on_a_curve_is_square_to_its_tangent() {
+    for (r, w) in [(20.0_f32, 4.0_f32), (3.0, 8.0)] {
+        for s in [1.0_f32, 2.0, 4.0, 8.0] {
+            let transform = crate::raster::DeviceTransform {
+                a: s,
+                d: s,
+                ..IDENTITY
+            };
+            let stroke = Stroke {
+                width: w,
+                adjust: false,
+                cap: LineCap::Butt,
+                join: LineJoin::Miter,
+                miter_limit: 10.0,
+            };
+            let pieces = stroke_polylines(&flatten(&quarter_arc(r), transform), stroke, w * s);
+            let points: Vec<Point> = pieces.iter().flat_map(|p| p.points.clone()).collect();
+            // In page units: how far any point of the stroke lies past each end's line.
+            let past_end = points
+                .iter()
+                .map(|p| 50.0 - p.x / s)
+                .fold(f32::MIN, f32::max);
+            let past_start = points
+                .iter()
+                .map(|p| 50.0 - p.y / s)
+                .fold(f32::MIN, f32::max);
+            // Only where the half-width is under the radius: past that the normals of the
+            // arc's inner side cross its centre, and §8.4.3.2's set itself reaches over
+            // both lines.
+            assert!(
+                r < w * 0.5 || (past_end < 1e-3 && past_start < 1e-3),
+                "radius {r} at {w} w, {s}x: the stroke projects {past_end} past its end and \
+                 {past_start} past its start"
+            );
+            // And the corners the clause places are points of the pieces: all four on the
+            // thin arc, the outer two on the tight one, whose inner corners lie inside
+            // the pieces of its bend and are cut away by the tiling (ADR 1375).
+            let hw = w * 0.5;
+            let corners = [
+                (50.0, 50.0 + r + hw),
+                (50.0 + r + hw, 50.0),
+                (50.0, 50.0 + r - hw),
+                (50.0 + r - hw, 50.0),
+            ];
+            let asked = if r < hw { 2 } else { 4 };
+            for corner in corners.into_iter().take(asked) {
+                let nearest = points
+                    .iter()
+                    .map(|p| (p.x / s - corner.0).hypot(p.y / s - corner.1))
+                    .fold(f32::MAX, f32::min);
+                assert!(
+                    nearest < 1e-3,
+                    "radius {r} at {w} w, {s}x: no piece has the corner {corner:?} \
+                     (nearest {nearest})"
+                );
+            }
+        }
+    }
 }

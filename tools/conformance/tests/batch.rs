@@ -19,6 +19,12 @@
 //! - `commit` stages by name the same population `close` refuses on, counts it against the index,
 //!   and commits the incident's own shape — a staged deletion beside new and modified files —
 //!   whole, leaving `scratchpad/` out.
+//! - `check` reads that same population for its findings about added files, so a path git would
+//!   print quoted is placed by its real directory: under `scratchpad/` it is no finding, and
+//!   anywhere else it is named as itself.
+//! - Every `cargo test … --test` line of `gates()` and of `doc/todo/02` names a file whose
+//!   `#[ignore]` attributes match the flag the line gives it, so no gate is green having run zero
+//!   tests (ADR 1392).
 
 #![expect(
     clippy::expect_used,
@@ -264,4 +270,185 @@ fn commit_refuses_an_empty_population_and_a_message_it_would_commit() {
         "commit committed its own message file: {}",
         text(&inside)
     );
+}
+
+/// `check`'s added-file findings read `population`, the listing `commit` stages from, so a path
+/// `git status --porcelain` would print quoted and escaped — a space and a non-ASCII character —
+/// is excluded by the directory it is really in, and one outside `scratchpad/` is named as itself.
+#[test]
+fn check_reads_the_population_commit_stages_so_a_quoted_path_is_placed_by_its_real_directory() {
+    let sandbox = Sandbox::new("quoted");
+    sandbox.write("scratchpad/r1/w/\u{5bf9} page one.pdf", "scratch\n");
+    sandbox.write("copies/\u{e9}t\u{e9} copy.bin", "a stray binary\n");
+    let checked = sandbox.batch(&["check"]);
+    let report = text(&checked);
+    let line = report
+        .lines()
+        .find(|line| line.starts_with("untracked, unexpected extension"))
+        .expect("check prints the unexpected-extension line");
+    assert!(
+        line.ends_with("1 file(s)"),
+        "the scratchpad path was counted, or the stray one missed: {report}"
+    );
+    assert!(
+        report.contains("    copies/\u{e9}t\u{e9} copy.bin"),
+        "the stray file is not named by its real path: {report}"
+    );
+    assert!(
+        !report.contains("scratchpad/"),
+        "a path under scratchpad/ was reported: {report}"
+    );
+}
+
+/// Where a package's integration test called `name` is, if the package is in one of the tree's
+/// three roots.
+fn test_file(package: &str, name: &str) -> Option<PathBuf> {
+    ["crates", "raster/crates", "tools"]
+        .iter()
+        .flat_map(|root| {
+            let tests = repository_root().join(root).join(package).join("tests");
+            [
+                tests.join(format!("{name}.rs")),
+                tests.join(name).join("main.rs"),
+            ]
+        })
+        .find(|path| path.is_file())
+}
+
+/// How many `#[test]` functions a file holds, ignored and not.
+///
+/// A test's attributes are the lines between the item before it — the last line that is a lone
+/// `}` — and its `fn`; one of them starting `#[ignore` makes it ignored. A doc comment that
+/// *mentions* `#[ignore]` starts with `///` and is not an attribute, and `#[cfg_attr(miri, ignore
+/// …)]` ignores a test under Miri alone, so neither counts.
+fn test_shape(text: &str) -> (usize, usize) {
+    let lines: Vec<&str> = text.lines().map(str::trim).collect();
+    let (mut ignored, mut run) = (0usize, 0usize);
+    let mut attributes_from = 0usize;
+    for (at, line) in lines.iter().enumerate() {
+        if *line == "}" {
+            attributes_from = at.saturating_add(1);
+            continue;
+        }
+        let is_fn =
+            line.starts_with("fn ") || line.starts_with("pub fn ") || line.starts_with("async fn ");
+        if !is_fn {
+            continue;
+        }
+        let attributes = lines.get(attributes_from..at).unwrap_or_default();
+        if attributes.iter().any(|line| line.starts_with("#[test]")) {
+            if attributes.iter().any(|line| line.starts_with("#[ignore")) {
+                ignored = ignored.saturating_add(1);
+            } else {
+                run = run.saturating_add(1);
+            }
+        }
+        attributes_from = at.saturating_add(1);
+    }
+    (ignored, run)
+}
+
+/// Every `cargo test … -p <package> --test <name> …` a gate list writes, with the loops of
+/// `tools/batch.sh`'s `gates()` expanded, as (where, package, name, whether `--ignored` is given).
+fn gate_commands() -> Vec<(String, String, String, bool)> {
+    let mut commands = Vec::new();
+    let mut read = |source: &str, text: &str| {
+        let mut looped: Vec<String> = Vec::new();
+        for (number, line) in text.lines().enumerate() {
+            if let Some(rest) = line.trim().strip_prefix("for t in ")
+                && let Some((names, _)) = rest.split_once(';')
+            {
+                looped = names.split_whitespace().map(str::to_owned).collect();
+                continue;
+            }
+            let mut from = 0;
+            while let Some(found) = line.get(from..).and_then(|rest| rest.find("cargo test")) {
+                let start = from.saturating_add(found);
+                let command: String = line
+                    .get(start..)
+                    .unwrap_or_default()
+                    .chars()
+                    .take_while(|character| !matches!(character, '`' | '#' | '|'))
+                    .collect();
+                from = start.saturating_add(command.len().max(1));
+                let words: Vec<&str> = command.split_whitespace().collect();
+                let after = |flag: &str| {
+                    words
+                        .iter()
+                        .position(|word| *word == flag)
+                        .and_then(|at| words.get(at.saturating_add(1)))
+                        .map(|word| word.trim_matches('"').to_owned())
+                };
+                let (Some(package), Some(name)) = (after("-p"), after("--test")) else {
+                    continue;
+                };
+                let ignored = words.contains(&"--ignored");
+                let names = if name.starts_with('$') {
+                    looped.clone()
+                } else {
+                    vec![name]
+                };
+                for name in names {
+                    commands.push((
+                        format!("{source}:{}", number.saturating_add(1)),
+                        package.clone(),
+                        name,
+                        ignored,
+                    ));
+                }
+            }
+        }
+    };
+    for source in ["tools/batch.sh", "doc/todo/02-every-round.md"] {
+        let text = std::fs::read_to_string(repository_root().join(source))
+            .expect("the gate lists are in the tree");
+        read(source, &text);
+    }
+    commands
+}
+
+/// A gate that runs no test is green while checking nothing: `--ignored` against a file with no
+/// ignored test, or no `--ignored` against a file whose every test is ignored, exits 0 having run
+/// zero. Every gate line in `tools/batch.sh`'s `gates()` and `doc/todo/02` names a test binary
+/// whose shape matches the flag it is given (ADR 1392).
+#[test]
+fn every_gate_line_runs_at_least_one_test_of_the_file_it_names() {
+    let commands = gate_commands();
+    assert!(
+        commands.len() > 20,
+        "the gate lists were not read: {commands:?}"
+    );
+    let mut wrong = Vec::new();
+    for (place, package, name, ignored) in &commands {
+        let Some(path) = test_file(package, name) else {
+            wrong.push(format!(
+                "{place}: -p {package} --test {name} names no test file"
+            ));
+            continue;
+        };
+        let text = std::fs::read_to_string(&path).expect("a test file is readable");
+        let (ignored_tests, run_tests) = test_shape(&text);
+        let selected = if *ignored { ignored_tests } else { run_tests };
+        if selected == 0 {
+            wrong.push(format!(
+                "{place}: -p {package} --test {name} {} runs zero tests ({ignored_tests} ignored, \
+                 {run_tests} not)",
+                if *ignored {
+                    "with --ignored"
+                } else {
+                    "without --ignored"
+                }
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// The shape reader's own calibration: an ignored test, a plain one, and the two spellings that
+/// are not an ignore.
+#[test]
+fn a_test_files_shape_counts_the_ignore_attribute_and_nothing_that_mentions_it() {
+    let text = "#[test]\n#[ignore = \"corpus\"]\nfn walk() {\n}\n\n/// Not `#[ignore]`d.\n#[test]\n\
+                #[cfg_attr(miri, ignore = \"files\")]\nfn unit() {\n    let x = 1;\n}\n";
+    assert_eq!(test_shape(text), (1, 1));
 }

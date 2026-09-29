@@ -2082,17 +2082,17 @@ fn verifies(
         Authenticity::KeyNotVerifiable { algorithm } => format!(
             "and the signer's certificate holds a public key of algorithm {algorithm}, which this \
              program does not verify: it verifies Table 260's three families — RSA under both of \
-             RFC 8017's paddings, DSA and ECDSA — and the Ed25519 half of the EdDSA row ISO/TS \
-             32002 adds to that table"
+             RFC 8017's paddings, DSA and ECDSA — and the EdDSA row ISO/TS 32002 adds to that \
+             table"
         ),
         Authenticity::CurveNotVerifiable { curve } => format!(
             "and the signer's certificate holds an elliptic-curve key on curve {curve}, which \
-             this program does not compute on: of the six curves ISO/TS 32002 Table 3 names it \
-             computes on P-256, P-384 and P-521"
+             this program does not compute on: it computes on the six curves ISO/TS 32002 \
+             Table 3 names, and this is none of them"
         ),
         Authenticity::AlgorithmNotVerifiable { algorithm } => format!(
             "and that signature states signature algorithm {algorithm}, which this program does \
-             not verify: it verifies RSASSA-PKCS1-v1_5, RSASSA-PSS, DSA, ECDSA and Ed25519"
+             not verify: it verifies RSASSA-PKCS1-v1_5, RSASSA-PSS, DSA, ECDSA and EdDSA"
         ),
         Authenticity::PssParametersNotVerifiable { statement } => format!(
             "and that signature states id-RSASSA-PSS with parameters this program cannot verify \

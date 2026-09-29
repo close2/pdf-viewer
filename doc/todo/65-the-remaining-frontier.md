@@ -72,25 +72,24 @@ permanent) or an owner decision to acquire a specification.
   it, whether §12.10.2's `/Bounds` neatline covers the point (ADR 1191). Turning a projected
   coordinate into a latitude needs the EPSG registry or an ISO 19162 string, and §12.10.3 names both
   as texts outside this standard.
-- §12.8.1, §12.8.3.1, §12.8.3.3, §12.8.3.3.1 — brainpoolP512r1 and Ed448 (ISO/TS 32002), named at
-  runtime by the certificate's own identifier, with no reviewed arithmetic package on the `digest`
-  line out of pre-release (ADR 1063). §12.8.3.1's row is where that measurement lives, with its date,
-  the packages a search turns up that are refused for reasons other than a version number, and
-  `cargo search bp512` as the whole of the re-check; the other three cite it rather than carrying a
-  copy of the date. **Trust is not among these rows' debts**: a host supplies RFC 5280 section
-  6.1.1's input (d) and `pdf_signature::verdict::Verdict` is where the third question's answer joins
-  the other two (ADR 1076).
 - §7.4.9 — thirteen corpus JPEG 2000 codestreams decode one level off the reference software, held by
   name so an upstream release closing it fails the build. The one sentence of this clause addressed
-  to a processor asks for *support* of the JPX baseline enumerated colour spaces, and "JPX baseline"
-  is defined by ISO/IEC 15444-2, which the owner decided not to buy (`doc/questions/A51`). Checking
-  the restriction on a file is not a reader's job and is not counted as debt (ADR 1184).
+  to a processor asks for *support* of the JPX baseline enumerated colour spaces, which ITU-T T.801
+  M.9.2.4 lists — the held identical text of ISO/IEC 15444-2 (`doc/questions/A169`, ADR 1383).
+  CMYK, sRGB, its grey, sYCC, ROMM-RGB and CIE Lab under D50 are drawn as defined; e-sRGB and
+  e-sYCC (PIMA 7667), CIE Jab (CIE Publication 131) and CIE Lab under another illuminant take
+  §7.4.9's device fallback, because those texts are not held. Checking the restriction on a file is not a reader's job and is
+  not counted as debt (ADR 1184); `pdf-archive` checks it for ISO 19005.
 - §12.8.3.4.4 — enforcing a signature policy's constraints. Everything the held texts define is read:
   ETSI EN 319 122-1 clause 5.2.9's attribute whole — which policy, its digest with the all-zero *not
   known* kept apart, the URL, the notice meant to be shown, the specification identifier — and clause
   5.2.10's stored copy checked against that digest. What is missing is the specification the policy's
   own syntax is written in, and the signature *names* it, so the block is per file and named at
   runtime rather than one text to acquire (ADR 1219).
+
+ISO/TS 32002's brainpoolP512r1 and Ed448 are not in this bucket: they are the tree's own under the
+owner's answer A170 (ADRs 1385 and 1386), so an upstream release is their *swap* condition rather
+than a blocker, and `doc/stack.md`'s curve paragraph names it.
 
 ### 3. Hard rendering / architecture — a real build across several rounds
 
@@ -158,12 +157,14 @@ a normal round extending the existing code.
 that seam after ADR 1020, with `EnvelopedData` and RSADP added there, its fuzz targets carried from
 the first commit, and the private key a host input (ADR 1134). **What starts the build:** a real
 trigger — a document whose recipient list could match a certificate the user holds, or a host asking
-to supply a private key — not the clause's own sake. **Four of the five corpus public-key documents
-could be opened**: `doc/corpora/pdfbox` holds them beside the keystores that decrypt them, their
-issuer and serial matching what each document's `EnvelopedData` names, so a finished handler would
-open them under a key a test host supplies. They are a witness for the build rather than a user's
-certificate; `doc/questions/Q168` asks whether they are the trigger, and §7.6.5's note has the
-evidence. Until the owner answers, the calibrated refusal is the state.
+to supply a private key — not the clause's own sake. **Four documents are the build's witness set,
+not its trigger** (`doc/questions/A168`): `doc/corpora/pdfbox`'s `AESkeylength128.pdf` and
+`AESkeylength256.pdf` decrypt with `PDFBOX-4421-keystore.pfx` (`CN=testnutzer`, serial `5F609C62`)
+and its `AES128ExposedMeta.pdf` and `AES256ExposedMeta.pdf` with `PDFBOX-5249.p12` (`CN=test`,
+serial `60FFD550`), both published beside them; the census's fifth, `3006236.pdf`, has no key
+anywhere. `crates/pdf-syntax/tests/public_key_witnesses.rs` holds each recipient to its keystore.
+No document is known to be encrypted to a key a real reader holds, so the calibrated refusal is the
+state and the build stays untriggered.
 
 - §7.6.5, §7.6.5.1 (`reported`), §7.6.5.2 (`reported`), §7.6.5.3 (`reported`) — the handler itself and
   its dictionary and algorithms, refused by name before Table 23 is read.

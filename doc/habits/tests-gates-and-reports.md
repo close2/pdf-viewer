@@ -392,3 +392,22 @@ answer, look for the answer where the corpus keeps it.
 The owner's uncommitted answer files and a `scratchpad/r<n>` template stood as four false pointer
 findings until each became a rung of its own with a reason (ADR 1379); plant a member that must stay
 a finding (`A999` with no `Q`) so the rung cannot swallow a real gap.
+
+## A drive is judged in every window, because hosts name the same gesture differently
+
+GTK reports a held move as `Moved`, winit as `Dragged`; a rule written for one message name passed one
+host and failed the other (ADR 1382's round). And never `pkill -f` a pattern that appears in your own
+command line — it killed a round's shell once; kill by `pgrep -x <binary>`'s pid.
+
+## When a change alters which documents a gate opens, that gate's walk runs in the same round
+
+The one password table gained a row every private copy had lacked, so `issue21579.pdf` joined every
+walk, and `save_round_trip` would have failed at the merge on it had the round not run the walk and
+examined the name first (round 1277). Read each name that joins or leaves a named list before editing
+the list.
+
+## A rasteriser workaround that reshapes a ramp gets a fixture with a hard stop on a whole device row
+
+A compression of the ramp's stops by 1/2000 was invisible at 1× on a centred axis and three or more
+rows off at 8× (ADR 1387); the fixture is the stripe page's shape, expected rows from the file in f64,
+at every scale.

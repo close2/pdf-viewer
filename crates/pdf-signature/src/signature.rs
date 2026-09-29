@@ -535,11 +535,10 @@ pub enum Authenticity {
     /// The certificate's public key is one this program does not act on, by the identifier it
     /// states.
     ///
-    /// `id-Ed448` is the standing example: ISO/TS 32002 Table 4 names the curve and
-    /// [`crate::eddsa`] says why no package on this tree's line computes it. So this is a gap in
-    /// this program rather than a defect in the file — which is why the algorithm is carried out
-    /// to a person by its number. A key `adbe.x509.rsa_sha1` may not carry at all arrives here
-    /// too, and that one is Table 260's "No" rather than a gap.
+    /// Every algorithm ISO/TS 32002 Tables 3 and 4 and Table 260 name is computed, so what arrives
+    /// here is an identifier outside them — carried out to a person by its number, because that is
+    /// the claim a reader can check. A key `adbe.x509.rsa_sha1` may not carry at all arrives here
+    /// too, and that one is Table 260's "No".
     KeyNotVerifiable {
         /// The algorithm's object identifier as dotted decimal, or its octets in hexadecimal
         /// where the encoding is not a well-formed identifier.
@@ -550,9 +549,7 @@ pub enum Authenticity {
     /// Separate from [`Self::KeyNotVerifiable`] because the identifier that matters is a *second*
     /// one: every certificate in this case states `1.2.840.10045.2.1` and they differ in their
     /// `namedCurve`, so reporting the key algorithm would tell a reader nothing.
-    /// ISO/TS 32002 Table 3's three Brainpool curves are what reach here today, and this program
-    /// lacking them is a gap rather than a defect in the file; a curve outside those two tables is
-    /// the file
+    /// Every curve ISO/TS 32002 Table 3 names is computed, so a curve that reaches here is the file
     /// leaving what the Technical Specification admits, and section 5.1.3's last sentence permits
     /// exactly this treatment: "PDF processors may ignore or handle in an implementation-dependent
     /// manner PDF documents which are signed with elliptic curves not listed in Table 3 or Table
@@ -717,12 +714,9 @@ pub enum Family {
     Dsa,
     /// "ECDSA Algorithm Support", on the curve ISO/TS 32002 Table 3 names ([`crate::ecdsa`]).
     Ecdsa(ecdsa::Curve),
-    /// The "`EdDSA` algorithm support" row ISO/TS 32002 section 5.1.2 adds ([`crate::eddsa`]).
-    ///
-    /// No curve beside it, because ISO/TS 32002 Table 4's two are one implemented and one refused
-    /// by number —
-    /// a verification that happened was Ed25519's.
-    EdDsa,
+    /// The "`EdDSA` algorithm support" row ISO/TS 32002 section 5.1.2 adds ([`crate::eddsa`]), on
+    /// the curve ISO/TS 32002 Table 4 names.
+    EdDsa(eddsa::Curve),
 }
 
 impl Family {
@@ -738,7 +732,9 @@ impl Family {
             Self::Ecdsa(ecdsa::Curve::P521) => "ECDSA (P-521)",
             Self::Ecdsa(ecdsa::Curve::BrainpoolP256r1) => "ECDSA (brainpoolP256r1)",
             Self::Ecdsa(ecdsa::Curve::BrainpoolP384r1) => "ECDSA (brainpoolP384r1)",
-            Self::EdDsa => "EdDSA (Ed25519)",
+            Self::Ecdsa(ecdsa::Curve::BrainpoolP512r1) => "ECDSA (brainpoolP512r1)",
+            Self::EdDsa(eddsa::Curve::Ed25519) => "EdDSA (Ed25519)",
+            Self::EdDsa(eddsa::Curve::Ed448) => "EdDSA (Ed448)",
         }
     }
 }
@@ -2472,10 +2468,12 @@ pub(crate) fn authenticity_of(cms: &SignedData<'_>, detached: Detached<'_>) -> A
                     .map(|verified| (verified, key.curve.bits())),
             )
         }
-        (SignatureAlgorithm::EdDsa, x509::PublicKey::Ed25519(key)) => {
+        // RFC 8419 section 2.4 makes the key's identifier and the signature's the same number, so
+        // a `SignerInfo` naming one curve over a key on the other is the mismatch arm below.
+        (SignatureAlgorithm::EdDsa(stated), x509::PublicKey::EdDsa(key)) if stated == key.curve => {
             // The digest is reported rather than used: ISO/TS 32002 Table 4 pairs Ed25519 with
-            // SHA512, which is what question 1's `message-digest` attribute was computed with,
-            // and RFC 8032's signature is over the message itself.
+            // SHA512 and Ed448 with SHAKE256, which is what question 1's `message-digest`
+            // attribute was computed with, and RFC 8032's signature is over the message itself.
             let Some(digest) = cms.digest else {
                 return Authenticity::UnknownDigest {
                     algorithm: name(cms.digest_algorithm),
@@ -2497,11 +2495,10 @@ pub(crate) fn authenticity_of(cms: &SignedData<'_>, detached: Detached<'_>) -> A
             };
             (
                 digest,
-                Family::EdDsa,
+                Family::EdDsa(key.curve),
                 eddsa::verify(key, cms.signature, &parts)
                     .map_err(Authenticity::RefusedEdDsa)
-                    // RFC 8032 section 5.1: `b` is 256 for Ed25519, so the key is 32 octets.
-                    .map(|verified| (verified, 256)),
+                    .map(|verified| (verified, key.curve.bits())),
             )
         }
         _ => {
@@ -2607,20 +2604,15 @@ fn pss_parameter_answer(problem: pss::ParameterProblem<'_>) -> Authenticity {
 /// keeps the key and not the identifier once it has recognised one. They are the same number.
 /// What a person is told about a `namedCurve` this program does not compute on.
 ///
-/// The number always, because it is what a reader can check; and ISO/TS 32002 Table 3's own spelling beside it
-/// where the curve is one of the three this program lacks rather than one the standard never
-/// admitted, because "brainpoolP256r1, refused" and "1.3.36.3.3.2.8.1.1.7, refused" are the same
-/// fact and only one of them can be looked up in ISO/TS 32002.
+/// The number, because it is what a reader can check: every curve ISO/TS 32002 Table 3 names is
+/// computed, so a curve that reaches here has no name in that table to print beside it.
 fn curve_name(curve: Option<&[u8]>) -> String {
     let Some(curve) = curve else {
         // ISO/TS 32002 section 5.1.3: "The implicitCurve and specifiedCurve options shall not be
         // used." There is no identifier to print because the file stated none.
         return "no namedCurve (ISO/TS 32002 5.1.3 requires one)".to_owned();
     };
-    let number = name(curve);
-    ecdsa::UnsupportedCurve::of(curve).map_or(number.clone(), |known| {
-        format!("{number} ({})", known.name())
-    })
+    name(curve)
 }
 
 fn key_algorithm_name(certificate: &x509::Certificate<'_>) -> String {
@@ -2633,7 +2625,7 @@ fn key_algorithm_name(certificate: &x509::Certificate<'_>) -> String {
         x509::PublicKey::Ec(_) | x509::PublicKey::EcCurveNotVerifiable { .. } => {
             name(const_oid::db::rfc5912::ID_EC_PUBLIC_KEY.as_bytes())
         }
-        x509::PublicKey::Ed25519(_) => name(eddsa::ID_ED25519.as_bytes()),
+        x509::PublicKey::EdDsa(key) => name(key.curve.oid().as_bytes()),
         x509::PublicKey::Unverifiable { algorithm } => name(algorithm),
     }
 }
@@ -5477,7 +5469,8 @@ mod tests {
         );
     }
 
-    /// **Table 260's third algorithm family, all the way through, on each of its three curves.**
+    /// **Table 260's third algorithm family, all the way through, on the NIST three and on
+    /// brainpoolP512r1.**
     ///
     /// The `ecdsa` module's own tests exercise the arithmetic on a key and a signature; this
     /// exercises everything between a signature dictionary and that call — the `SignerInfo`'s
@@ -5517,6 +5510,14 @@ mod tests {
                 ec::P521_SIGNATURE,
                 Digest::Sha512,
                 crate::ecdsa::Curve::P521,
+                const_oid::db::rfc5912::ECDSA_WITH_SHA_512,
+            ),
+            // The curve whose constants are this tree's own (ADR 1385), on the same path.
+            (
+                ec::BP512_CERTIFICATE,
+                ec::BP512_SIGNATURE,
+                Digest::Sha512,
+                crate::ecdsa::Curve::BrainpoolP512r1,
                 const_oid::db::rfc5912::ECDSA_WITH_SHA_512,
             ),
         ] {
@@ -5585,7 +5586,7 @@ mod tests {
             signature.authenticity(&FileBytes::from(file)),
             Authenticity::Verified {
                 digest: Digest::Sha512,
-                family: Family::EdDsa,
+                family: Family::EdDsa(crate::eddsa::Curve::Ed25519),
                 key_bits: 256,
                 over: Signed::TheDocumentsBytes,
             }
@@ -5594,11 +5595,172 @@ mod tests {
             signature.authenticity(&FileBytes::from(b"the signed byteS")),
             Authenticity::NotUnderThatKey {
                 digest: Digest::Sha512,
-                family: Family::EdDsa,
+                family: Family::EdDsa(crate::eddsa::Curve::Ed25519),
                 key_bits: 256,
                 over: Signed::TheDocumentsBytes,
             }
         );
+    }
+
+    /// **ISO/TS 32002 Table 4's second curve, all the way through**, on the arithmetic that is this
+    /// tree's own (ADR 1386): a `SignerInfo` with no signed attributes, so RFC 8032's `M` is the
+    /// byte range itself, and — RFC 8419 section 3.2 — `id-shake256` as its `digestAlgorithm`.
+    #[test]
+    fn an_ed448_signature_verifies_through_the_whole_path_a_document_takes() {
+        use crate::eddsa::{Curve, fixtures};
+        let certificate = crate::ecdsa::fixtures::hex(fixtures::ED448_CERTIFICATE);
+        let parsed = crate::x509::parse(&certificate).expect("a certificate");
+        let signature = curve_signature(self::fixtures::detached_curve(
+            &certificate,
+            parsed.issuer,
+            parsed.serial_number,
+            Digest::Shake256,
+            crate::eddsa::ID_ED448.as_bytes(),
+            &crate::ecdsa::fixtures::hex(fixtures::ED448_SIGNATURE),
+        ));
+        assert_eq!(
+            signature.authenticity(&FileBytes::from(b"the signed bytes")),
+            Authenticity::Verified {
+                digest: Digest::Shake256,
+                family: Family::EdDsa(Curve::Ed448),
+                key_bits: 456,
+                over: Signed::TheDocumentsBytes,
+            }
+        );
+        assert_eq!(
+            signature.authenticity(&FileBytes::from(b"the signed byteS")),
+            Authenticity::NotUnderThatKey {
+                digest: Digest::Shake256,
+                family: Family::EdDsa(Curve::Ed448),
+                key_bits: 456,
+                over: Signed::TheDocumentsBytes,
+            }
+        );
+        // RFC 8419 section 2.4: the signature's identifier is the key's. `id-Ed25519` over an
+        // Ed448 key is two claims that cannot both hold, and neither is chosen.
+        let crossed = curve_signature(self::fixtures::detached_curve(
+            &certificate,
+            parsed.issuer,
+            parsed.serial_number,
+            Digest::Shake256,
+            crate::eddsa::ID_ED25519.as_bytes(),
+            &crate::ecdsa::fixtures::hex(fixtures::ED448_SIGNATURE),
+        ));
+        assert!(matches!(
+            crossed.authenticity(&FileBytes::from(b"the signed bytes")),
+            Authenticity::KeyDoesNotMatchAlgorithm { .. }
+        ));
+    }
+
+    /// The two curves whose arithmetic is this tree's own, through a CMS value a second
+    /// implementation wrote **with signed attributes** — RFC 8419 section 3.1's preferred form and
+    /// RFC 5652 section 5.4's other input, so the signature is over the DER `signedAttrs` and the
+    /// document is reached through question 1's `message-digest`.
+    ///
+    /// Each was made once, detached, over `b"the signed bytes"`:
+    ///
+    /// ```sh
+    /// openssl cms -sign -binary -in msg.bin -signer cert.pem -inkey key.pem -md shake256 \
+    ///     -outform der -out ed448.p7          # -md sha512 for brainpoolP512r1
+    /// ```
+    ///
+    /// OpenSSL states `id-shake256` for the Ed448 value where RFC 8419 section 3.1 asks for
+    /// `id-shake256-len` — evidence about that implementation, and a value RFC 8702 section 3.1
+    /// admits at 64 octets, which is what [`Digest::Shake256`] computes.
+    #[test]
+    fn signed_attributes_over_the_two_curves_of_this_trees_own_verify() {
+        const ED448_CMS: &str = "\
+        308203af06092a864886f70d010702a08203a03082039c020101310d300b060960864801650304020c300b06\
+        092a864886f70d010701a08201a4308201a030820120a00302010202144b99d2b6ca489f6be3db3dc7555f21\
+        2c08b3e7ed300506032b65713020311e301c06035504030c157064662d766965776572206564343438207465\
+        7374301e170d3236303932383232303032315a170d3336303932353232303032315a3020311e301c06035504\
+        030c157064662d76696577657220656434343820746573743043300506032b6571033a008497a6a716b7c7d8\
+        bdeb1091ec6e7578598ebf9cd8ba5cf363c2ca212b6304024f223a3091aebd8c3bab77ddfff11c64a28e0c83\
+        24480e9e00a3533051301d0603551d0e04160414f9f056b240f995f8c0501e1df3e5852f73c9226b301f0603\
+        551d23041830168014f9f056b240f995f8c0501e1df3e5852f73c9226b300f0603551d130101ff0405300301\
+        01ff300506032b6571037300e3c7b7cb8e36db066261be3830121c624f800238e683844535e0441eef348941\
+        8245bca24ec6e645f3a0de8d0e965229f7437e012edb60840006efe2af7d3dbbcc6895e3ac883fea5b4c5ae3\
+        79f947ed609a9de5ce953a8afe9a7b9e1ea46672f27e813eb08d679c4a3c65a409be33173600318201d13082\
+        01cd02010130383020311e301c06035504030c157064662d766965776572206564343438207465737402144b\
+        99d2b6ca489f6be3db3dc7555f212c08b3e7ed300b060960864801650304020ca0820104301806092a864886\
+        f70d010903310b06092a864886f70d010701301c06092a864886f70d010905310f170d323630393238323230\
+        3032355a304f06092a864886f70d01090431420440017da80e80fdae44e84f9ac1d358ddac1d44a45acfd25a\
+        fbfa42d0718fd3cd99bc8a3fec0df2dfd0afc22acd99a7d2f76d732d0f7fc05bbf5d44a3d7393ff997307906\
+        092a864886f70d01090f316c306a300b060960864801650304012a300b0609608648016503040116300b0609\
+        608648016503040102300a06082a864886f70d0307300e06082a864886f70d030202020080300d06082a8648\
+        86f70d0302020140300706052b0e030207300d06082a864886f70d0302020128300506032b65710472c22450\
+        ddbe5782ae7439b8e5c27fb091bcf28408e9e9639f6b5eae077ff803e6df6338be039181e88abd59770c0fe1\
+        308afcd640e099d28200dcbdfb914192f4d22379929cd5e6581d8df7cce164c0cb3356f3c95bc7937d14f2af\
+        8004e835a6b172f19c2119ea7c55dae829c87cd14b2400";
+        const BP512_CMS: &str = "\
+        3082044406092a864886f70d010702a082043530820431020101310d300b0609608648016503040203300b06\
+        092a864886f70d010701a082021e3082021a3082017ea003020102021415a9c91c3d098038d2741f633d2f0e\
+        735a090f5a300a06082a8648ce3d0403043020311e301c06035504030c157064662d76696577657220627035\
+        31322074657374301e170d3236303932383232303335325a170d3336303932353232303335325a3020311e30\
+        1c06035504030c157064662d766965776572206270353132207465737430819b301406072a8648ce3d020106\
+        092b240303020801010d0381820004726eab70a8443062d788273f96684838b15004289b9cf8c4edbd81b80c\
+        f3dc920b3221c5757b68948fd19b5677ec11621f27490f2178a8b77909bd5d6b1a084f092b49028057e4c153\
+        be0a0b539c5fcfd19ded10c09aec1c7291c9362eabb240ed10bb570a30b6c1933d762d7b3a5e05a81d8cc7f6\
+        70677d8233ccc65bb4dfc5a3533051301d0603551d0e04160414ffa60b10ca438e9e75da37bd260e83c4a82f\
+        18af301f0603551d23041830168014ffa60b10ca438e9e75da37bd260e83c4a82f18af300f0603551d130101\
+        ff040530030101ff300a06082a8648ce3d0403040381890030818502410095dce7c799c19c63f7b4be9a4df1\
+        fdfb4e9c0ff01cd7363bfd94f136774072dcb1b4663d3c78857b50045b5ba46baabd3647a5dcb1fd5fb1a7be\
+        13f9fc1e6dc4024000efdc1303d76c262214346e63747bbd2ea5eac5b2e51a0f1414cfba436fd32f94ed15bd\
+        47b6359ff3bde280cccf820b138c73704508c3cfc89505a2693caea8318201ec308201e80201013038302031\
+        1e301c06035504030c157064662d7669657765722062703531322074657374021415a9c91c3d098038d2741f\
+        633d2f0e735a090f5a300b0609608648016503040203a0820104301806092a864886f70d010903310b06092a\
+        864886f70d010701301c06092a864886f70d010905310f170d3236303932383232303335325a304f06092a86\
+        4886f70d01090431420440dea339b10b3f0bf1c1a04ace6fd86110b4862c92c586a01ab7f2c99d370a3883e3\
+        86da0f5f477542be65a2b901788770e24ec021a16f5eead4e560c05fb78bae307906092a864886f70d01090f\
+        316c306a300b060960864801650304012a300b0609608648016503040116300b060960864801650304010230\
+        0a06082a864886f70d0307300e06082a864886f70d030202020080300d06082a864886f70d03020201403007\
+        06052b0e030207300d06082a864886f70d0302020128300a06082a8648ce3d0403040481873081840240712c\
+        32e28dd9c517f60701a0d3ae7f63426b25b859838a9cd12f38bba78923c189b62ef6c6bc9087957438c15ece\
+        27f60b7283f19b8494bd040eb98c3bb95b33024050183f692002e57ecc9e7d24db7ed96c3a2a4cb220659bd5\
+        b03b4fab1d681755fe8482401ba67b5b17963b52721699f9a27aee342f27551df9bfe5b60be84d3a";
+        for (value, digest, family, key_bits) in [
+            (
+                ED448_CMS,
+                Digest::Shake256,
+                Family::EdDsa(crate::eddsa::Curve::Ed448),
+                456,
+            ),
+            (
+                BP512_CMS,
+                Digest::Sha512,
+                Family::Ecdsa(crate::ecdsa::Curve::BrainpoolP512r1),
+                512,
+            ),
+        ] {
+            let signature = curve_signature(hex(value));
+            let file = FileBytes::from(b"the signed bytes");
+            assert_eq!(
+                signature.integrity(&file),
+                Integrity::Unchanged { digest },
+                "{}",
+                family.name()
+            );
+            assert_eq!(
+                signature.authenticity(&file),
+                Authenticity::Verified {
+                    digest,
+                    family,
+                    key_bits,
+                    over: Signed::SignedAttributes,
+                },
+                "{}",
+                family.name()
+            );
+            // The document changed: question 1 says so, and question 2 still verifies, because
+            // what the signer signed was the attributes — which is exactly why §12.8.1 asks both.
+            let changed = FileBytes::from(b"the signed byteS");
+            assert_eq!(
+                signature.integrity(&changed),
+                Integrity::Changed { digest },
+                "{}",
+                family.name()
+            );
+        }
     }
 
     /// RFC 5652's one DER region, planted and controlled, one rule at a time.
@@ -5691,17 +5853,26 @@ mod tests {
         }
     }
 
-    /// The curve ISO/TS 32002 Table 3 names and no package on this tree's line computes.
+    /// A curve outside ISO/TS 32002 Table 3, named by its own identifier.
     ///
     /// What a reader is owed is the *curve*, not the key algorithm: every certificate in this case
-    /// states `1.2.840.10045.2.1`, so a report naming that would say nothing about which of the
-    /// six the file used. The fixture is a real brainpoolP512r1 certificate carrying a real
-    /// signature, so what stops this is the curve rather than a value that was never there.
+    /// states `1.2.840.10045.2.1`, so a report naming that would say nothing about which curve the
+    /// file used. The fixture is the brainpoolP512r1 certificate with one octet of its
+    /// `namedCurve` moved — `…1.1.13` to `…1.1.14`, RFC 5639 section 4.1's brainpoolP512t1, the
+    /// twisted curve Table 3 does not list — so everything else about it is a real certificate
+    /// carrying a real signature, and what stops this is the curve. Section 5.1.3's last sentence
+    /// permits exactly this handling.
     #[test]
     fn a_curve_this_program_does_not_compute_on_is_named_by_its_own_identifier() {
         use crate::ecdsa::fixtures as ec;
         let file = b"the signed bytes";
-        let certificate = ec::hex(ec::BP512_CERTIFICATE);
+        let mut certificate = ec::hex(ec::BP512_CERTIFICATE);
+        let named = crate::ecdsa::Curve::BrainpoolP512r1.oid();
+        let at = certificate
+            .windows(named.as_bytes().len())
+            .position(|window| window == named.as_bytes())
+            .expect("the certificate states brainpoolP512r1");
+        certificate[at + named.as_bytes().len() - 1] = 0x0E;
         let parsed = crate::x509::parse(&certificate).expect("a certificate");
         let signature = curve_signature(fixtures::detached_curve(
             &certificate,
@@ -5714,12 +5885,12 @@ mod tests {
         assert_eq!(
             signature.authenticity(&FileBytes::from(file)),
             Authenticity::CurveNotVerifiable {
-                curve: "1.3.36.3.3.2.8.1.1.13 (brainpoolP512r1)".to_owned(),
+                curve: "1.3.36.3.3.2.8.1.1.14".to_owned(),
             }
         );
     }
 
-    /// The same path, on a curve this program *does* compute on since ADR 1063.
+    /// The same path, on a Brainpool curve a package computes (ADR 1063).
     ///
     /// The pair matters: the test above proves a refusal is by name, and this one proves the
     /// refusal is about that curve rather than about everything Brainpool. RFC 5639 section 3.4
