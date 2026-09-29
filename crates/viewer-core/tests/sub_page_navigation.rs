@@ -250,8 +250,8 @@ fn leaving_presentation_mode_puts_the_optional_content_back() {
 /// interactive PDF processor shall make the new page the current page and shall display it. Any
 /// page transitions specified by the Trans entry of the page dictionary shall be performed."
 ///
-/// Until the four-hundred-and-eighty-first session only §12.4.4.1's clock produced one, so a
-/// person stepping through a slide show by hand saw every effect the file asked for skipped.
+/// A turn by hand plays it as §12.4.4.1's clock does; otherwise a person stepping through a slide
+/// show by hand would see every effect the file asked for skipped.
 #[test]
 fn a_page_turned_by_hand_during_a_presentation_plays_its_transition() {
     let mut viewer = opened(false, PresentationMode::On);
@@ -274,8 +274,7 @@ fn a_page_turned_by_hand_during_a_presentation_plays_its_transition() {
     );
 }
 
-/// Table 165's `/Dur` (§12.4.4.2), which nothing read until the four-hundred-and-eighty-first
-/// session.
+/// Table 165's `/Dur` (§12.4.4.2).
 ///
 /// > The maximum number of seconds before the interactive PDF processor shall automatically
 /// > advance forward to the next navigation node. If this entry is not specified, no automatic

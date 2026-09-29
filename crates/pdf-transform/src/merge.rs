@@ -323,7 +323,7 @@ const FIRST_WINS: [&str; 4] = ["Lang", "ViewerPreferences", "PageLayout", "PageM
 ///
 /// `/AcroForm`, `/OCProperties`, `/Names`, `/Dests`, `/Outlines`, `/PageLabels`,
 /// `/OutputIntents`, `/StructTreeRoot` and `/MarkInfo` are **not** here: each has its own
-/// reconciliation, the last two in [`crate::structure`] since session 897. What is left is the
+/// reconciliation, the last two in [`crate::structure`] (ADR 0834). What is left is the
 /// document-level constructs whose merging is nobody's documented choice yet, plus `/Info`,
 /// whose reason is in the module comment.
 const NOT_CARRIED: [&str; 9] = [

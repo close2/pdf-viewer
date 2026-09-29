@@ -1,9 +1,8 @@
 //! How many §7.10.5 programs carry a comment, and what the old compiler did to each.
 //!
-//! The population behind ADR 0361. Until the five-hundred-and-twenty-sixth session
-//! `compile_postscript` split a type 4 stream on white space *before* looking for a PERCENT
-//! SIGN — which destroys the line §7.2.4 ends a comment at — and then skipped exactly one token
-//! after the sign. That has two outcomes and only one of them is visible:
+//! The population behind ADR 0361. A compiler that splits a type 4 stream on white space
+//! *before* looking for a PERCENT SIGN destroys the line §7.2.4 ends a comment at, and one that
+//! then skips exactly one token after the sign has two outcomes, only one of them visible:
 //!
 //! - **`refused`**: some word left in the comment is not an operator, so the function is refused
 //!   and the shading, tint transform or soft mask that named it is reported. Loud, and how the

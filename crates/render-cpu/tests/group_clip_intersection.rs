@@ -19,7 +19,7 @@
 //!
 //! `clip_intersection.rs` asserts the identity `S ∩ C = S` for a *mark* whose clip contains it
 //! (ADR 0355). This file asserts it for a **group's blit**, which is the composition ADR 0492
-//! took and which `doc/todo/11` item 4 carried for nineteen sessions with no small witness:
+//! took and which had no small witness before it:
 //! §11.4.4's NOTE 5 flattens a group away unless something is applied to it as a whole, so a
 //! probe written without a mask or a group alpha never reaches the blit that multiplies at all.
 //!

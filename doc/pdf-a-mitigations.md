@@ -853,33 +853,56 @@ ISO 19005-2 6.2.8.3, ISO 19005-4 6.2.7.3 · all six · today `not-built-yet`
   Narrowable declaratively per field, `fields = ["bit-depth"]`.
 
 #### `graphics/jpeg2000-uses-the-baseline-feature-set`
-ISO 19005-2 6.2.8.3, ISO 19005-4 6.2.7.3 · all six · **checked** against ITU-T T.801 M.9.2 (ADR
-1383) · today `not-built-yet`, refused by name
+ISO 19005-2 6.2.8.3, ISO 19005-4 6.2.7.3 · all six · **checked** against ITU-T T.801 M.9.2 (ADRs
+1383, 1399) · **built** as `preserve` for the stated-colour-space shape (ADR 1400); the other shape
+refused by name
 
 - **What the validator reports.** Each M.9.2 subclause a file can break, named in the finding: a
   first compositing layer with no colour specification from M.9.2.4's list as ISO 32000 extends it
   with enumerated CMYK — each stated specification named with whether the list holds it — or none
   at an `APPROX` of 3 or less; a codestream requiring a Table A.2 extension other than the
   restricted multiple component transformation (M.9.2.3); a layer registering more than the file's
-  first codestream (M.9.2.2); a fragment in another file or out of order (M.9.2.5, M.9.2.6); a JP2
-  Header box after a codestream or header box (M.9.2.7); a bare codestream or data that is not a
-  JPX file at all.
-- **Mitigation** — **re-express in the file's own domain where there is one, and refuse by name
-  where there is not**, which is ADR 1371's rule read against these shapes. Where the image
+  first codestream (M.9.2.2); a fragment in another file or out of order (M.9.2.5, M.9.2.6); a
+  fragment the first layer cross-references that is not wholly before its codestream's data
+  (M.9.2.6); a JP2 Header box after a codestream or header box, or a box of a type it holds found
+  again in the first layer's Compositing Layer Header or Codestream Header box (M.9.2.7); a bare
+  codestream or data that is not a JPX file at all.
+- **Mitigation, carried out** — **transcode where the dictionary states `ColorSpace`, refuse by name
+  where it does not**, which is ADR 1371's rule read against these shapes. Where the image
   dictionary states a `ColorSpace`, §7.4.9 has a reader ignore every colour specification in the
-  data, so the samples are already in the dictionary's domain and transcoding them to
-  `FlateDecode` keeps it — section 4.5's universal fallback above, with its two costs, and not
-  built. Where it states none, a specification off the list is what the samples mean: writing a
-  baseline code in its place relabels the picture, which is the choice this catalogue refuses
-  everywhere. A required extension is what decoding needs, and this tree's codec has none of them.
-  The structural shapes — box order, fragments, layers — are byte surgery on the wrapper whose
-  fragment offsets a rewrite would have to re-point, and are refused with the rest.
+  data, so the samples are already in the dictionary's domain: `preserve` decodes them at each
+  component's own depth and writes them again under `FlateDecode` in that same space — at the
+  depth itself where Table 87 can state it, otherwise in the widest's field with each `Decode`
+  pair widened — and every sentence of the subclause is about JPEG 2000 data, so the copy is
+  outside all of them. The two costs of section 4.5's universal fallback above stand and are the
+  reason it is the operator's answer: the file grows, and this tree's decoder's output is kept as
+  the picture. Refused by name within the shape: an opacity channel in the data (`SMaskInData`
+  non-zero, whose soft-mask image would be a new object), a component deeper than sixteen bits, a
+  decode that is not whole at the ordinary budget, a channel count the space does not have. Where
+  the dictionary states none, a specification off the list is what the samples mean: writing a
+  baseline code, or a `ColorSpace` beside a Flate copy, relabels the picture, which the catalogue
+  refuses everywhere.
 - **By target** — none; both parts state the rule.
-- **From a configuration** — `remedy = "preserve"`, `codec = "flate"`, once the transcoding exists,
-  and only for the `ColorSpace`-stated shape.
+- **From a configuration** — `remedy = "preserve"` at the site, no mechanism key; the shape
+  qualifier `stated-colour-space` names the answered half and `data-colour-space` the refused one.
+  `--remedy-sites` prints the sentence; the report lists each image with its depths and its size
+  under both filters. The same transcode would answer the three rows above for this shape; they are
+  not re-classed yet.
 - **Departure** — **B**. A non-baseline JPX file is still ISO/IEC 15444-2 and decodable by a
   reader that implements the extension; what the rule protects is the set every PDF reader is
   obliged to handle.
+
+#### `graphics/jpeg2000-device-colour-the-image-dictionary-states`
+#### `graphics/jpeg2000-device-colour-the-codestream-defines`
+ISO 19005-2 6.2.8.3, ISO 19005-4 6.2.7.3 · all six · **delegated** to the section 6.2.4.3 rows
+
+- **What the validator reports.** Neither row reports under its own identifier: the survey records
+  the device space an image uses by either route — its `ColorSpace` entry, or, where it states
+  none, the device space its JPEG 2000 data effectively defines (enumerated CMYK, or no
+  specification a processor is obliged to support, drawn by channel count as §7.4.9 says; ADR
+  1399) — and the six section 6.2.4.3 rows judge it with every other device colour.
+- **Mitigation** — theirs: an output intent, or a default colour space, as section 4.1 and the
+  section 6.2.4.3 rows answer them.
 
 #### `graphics/inline-image-interpolation-is-off`
 ISO 19005-2 6.2.8.1, ISO 19005-4 6.2.7.1 · all six · today `the-fence`

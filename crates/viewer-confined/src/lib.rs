@@ -6,12 +6,11 @@
 //! `doc/ui-boundary.md` says why it costs one protocol rather than two: the boundary is
 //! `Command`/`Event`, and the confined process owns document, interpretation and rasterisation.
 //!
-//! **What a page crosses as is a measurement rather than a tier**, since ADR 0607 and the
-//! seven-hundred-and-thirty-sixth session wired it in: [`Payload::Raster`] where the pixels are
-//! smaller, [`Payload::List`] where the marks are — which is almost every page, and which is what
-//! a host holding the graphics device needs, because a process holding one cannot be confined at
-//! all. It is still one protocol: `Rendered::{Raster, Presented}` was already a payload choice on
-//! this boundary, and this makes the choice a comparison of two byte counts.
+//! **What a page crosses as is a measurement rather than a tier** (ADR 0607): [`Payload::Raster`]
+//! where the pixels are smaller, [`Payload::List`] where the marks are — which is almost every
+//! page, and which is what a host holding the graphics device needs, because a process holding one
+//! cannot be confined at all. It is still one protocol: `Rendered::{Raster, Presented}` was already
+//! a payload choice on this boundary, and this makes the choice a comparison of two byte counts.
 //!
 //! **And a page on the marks arm is not drawn here at all**, since ADR 0640: the worker answers
 //! [`viewer_core::Rendered::Listed`], which says *the host took this request's own list* about
@@ -46,9 +45,8 @@
 //! pixels, which nothing in that vocabulary could say.
 //!
 //! Two messages therefore never cross, and both because the confined side answers them itself:
-//! [`viewer_core::Event::NeedsRender`] and [`viewer_core::Command::RenderReady`]. **Everything
-//! else crosses**, including all twenty-nine questions — the eleven a panel is made of since the
-//! three-hundred-and-eighty-sixth session (ADR 0223), and four more since: `Offset` and
+//! [`viewer_core::Event::NeedsRender`] and [`viewer_core::Command::RenderReady`]. **Everything else
+//! crosses**, including every question — the eleven a panel is made of (ADR 0223), `Offset` and
 //! `FieldSelection` (ADR 0225), `Fields` (ADR 0235) and `FreeTextAt` (ADR 0238). What is left of
 //! [`Uncarried`] is those two and three contents an *answer* can hold that this build cannot name;
 //! each is refused **by name**, which is the difference between a boundary that is incomplete and
@@ -96,10 +94,9 @@
 //!
 //! # What this is not, yet
 //!
-//! It is not on the flagship's launch path: `quorra`, `quorra-gtk` and `quorra-qt`
-//! still hold their viewer in process, so a transport cannot cost their first frame anything
-//! before the decision to spend it has been argued. **What uses it since the
-//! seven-hundred-and-seventy-fifth session is a window of its own** — `viewer-ui`'s
+//! It is not on the flagship's launch path: `quorra`, `quorra-gtk` and `quorra-qt` still hold their
+//! viewer in process, so a transport cannot cost their first frame anything before the decision to
+//! spend it has been argued. **What uses it is a window of its own** — `viewer-ui`'s
 //! `quorra-confined`, deliberately the smallest complete host on this boundary (ADR 0713).
 //! `doc/todo/34` holds what is left; ADR 0218 holds the argument.
 
@@ -470,15 +467,17 @@ pub struct Structured {
     /// The page's widget annotations no element reaches, as
     /// [`viewer_core::PageStructure::widgets`] states them (ADRs 1369, 1381).
     pub widgets: Vec<viewer_core::AccessibilityNode>,
+    /// Which of four answers `nodes` is, as [`viewer_core::PageStructure::tagging`] states it
+    /// (ADR 1393).
+    pub tagging: viewer_core::Tagging,
 }
 
 /// The answer to a [`Query`], owned.
 ///
 /// [`viewer_core::Answer`] borrows the viewer's own state, and there is no viewer on this side of
 /// the pipe — so what arrives is the same answer with its parts owned. **One variant per question
-/// [`viewer_core::Query`] states, since the three-hundred-and-eighty-sixth session**: the eleven
-/// that used to have none here were the eleven a panel is made of, and a host on this boundary
-/// therefore had no panels. ADR 0223.
+/// [`viewer_core::Query`] states**, the eleven a panel is made of among them, so a host on this
+/// boundary has panels. ADR 0223.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Reply {
     /// Nothing to answer with: no document is focused, or the question named a page that is not
@@ -572,9 +571,8 @@ pub enum Reply {
     Frame(Vec<Framed>),
     /// What the pages on the screen could not draw, one entry per page.
     ///
-    /// A list since the six-hundred-and-tenth session, for the reason [`Reply::Frame`] is one:
-    /// a column shows several pages and a status bar carrying the current page's sentences for
-    /// four of them would be silent about three.
+    /// A list, for the reason [`Reply::Frame`] is one: a column shows several pages and a status
+    /// bar carrying the current page's sentences for four of them would be silent about three.
     Reports(Vec<Reported>),
     /// What the pages on the screen could not be read as: the per-code counts, never a report.
     ///

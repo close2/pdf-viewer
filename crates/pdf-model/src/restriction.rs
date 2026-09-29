@@ -9,11 +9,11 @@
 //! *what does this document assert about this operation* — and it answers it with **reasons**
 //! rather than with a verdict.
 //!
-//! **A fifth joined them in the four-hundred-and-sixty-ninth session**: §12.5.3's Table 167 bit
-//! 10, `LockedContents`, which is addressed to a **named annotation** the way the fourth is
-//! addressed to a named field. It arrived here rather than at the point of the edit for this
-//! module's whole reason — a refusal that cannot become an *ask* is the thing `CLAUDE.md` says to
-//! avoid — and `crate::view::ViewState::set_free_text` therefore does not consult it.
+//! **A fifth is §12.5.3's Table 167 bit 10** (ADR 0304), `LockedContents`, which is addressed to a
+//! **named annotation** the way the fourth is addressed to a named field. It arrived here rather
+//! than at the point of the edit for this module's whole reason — a refusal that cannot become an
+//! *ask* is the thing `CLAUDE.md` says to avoid — and `crate::view::ViewState::set_free_text`
+//! therefore does not consult it.
 //!
 //! **And a sixth, which is the fourth's other half**: §12.8.2.4's `FieldMDP` transform names the
 //! same fields the signature field lock does — the standard has a writer copy one into the other
@@ -44,13 +44,12 @@
 //!
 //! # The policy is here too, and it is a value a host supplies
 //!
-//! Since the eight-hundred-and-seventy-second session the four levels are one type, [`Level`],
-//! and the one place they are applied is [`Level::verdict`] — a pure function from what the
-//! document asserts to what the caller does, answered as a [`Verdict`] the caller matches
-//! exhaustively. Nothing here refuses: `Refuse` is a value, and the caller that receives it is
-//! the one that declines. `viewer_core` supplies its level through `Command::Restrict` and
-//! `pdf_transform` through `--restrictions`, and neither decides anything at the point of the
-//! operation. ADR 0803.
+//! The four levels are one type, [`Level`] (ADR 0803), and the one place they are applied is
+//! [`Level::verdict`] — a pure function from what the document asserts to what the caller does,
+//! answered as a [`Verdict`] the caller matches exhaustively. Nothing here refuses: `Refuse` is a
+//! value, and the caller that receives it is the one that declines. `viewer_core` supplies its
+//! level through `Command::Restrict` and `pdf_transform` through `--restrictions`, and neither
+//! decides anything at the point of the operation. ADR 0803.
 //!
 //! # Every restriction that applies, not the first
 //!
@@ -111,10 +110,8 @@ pub enum Bit {
     FillInForm,
     /// 11 — "( Security handlers of revision 3 or greater ) Assemble the document (insert,
     /// rotate, or delete pages and create document outline items or thumbnail images), even if
-    /// bit 4 is clear". Consumed by [`Operation::Assemble`] since session 886, when
-    /// `pdf_transform`'s `split` became the first verb to take a document's pages into a new
-    /// document; the doc comment here said "**nothing consumes it**" and named that verb as the
-    /// one that would.
+    /// bit 4 is clear". Consumed by [`Operation::Assemble`], which `pdf_transform`'s `split` asks
+    /// when it takes a document's pages into a new document (ADR 0818).
     Assemble,
     /// 12 — "( Security handlers of revision 3 or greater ) Print the document to a
     /// representation from which a faithful digital copy of the PDF content could be generated,
@@ -188,14 +185,13 @@ impl Bit {
 /// One variant per verb this program has and that a clause names, which is deliberately not the
 /// whole of Table 22: an operation nothing here performs is an operation no restriction can bite
 /// on, and an enum arm for it would claim otherwise. The same discipline
-/// [`pdf_signature::signature::Right`] follows. The bits themselves are all named, in [`Bit`], so that
-/// the absence of an arm is legible as a decision about this program rather than a reading of
+/// [`pdf_signature::signature::Right`] follows. The bits themselves are all named, in [`Bit`], so
+/// that the absence of an arm is legible as a decision about this program rather than a reading of
 /// the table that stopped early.
 ///
 /// Some of them are the viewer's verbs and some are `pdf_transform`'s; [`Operation::Process`] is
 /// every face's, because every face processes a document before it does anything else with one.
-/// They were two enums in two crates until the eight-hundred-and-seventy-second session, and one
-/// module now reads every restriction source for every operation this tree performs (ADR 0803).
+/// One module reads every restriction source for every operation this tree performs (ADR 0803).
 ///
 /// **What is missing and why**, because the absences are decisions rather than gaps:
 ///
@@ -214,7 +210,8 @@ impl Bit {
 ///   and is not asked here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Operation {
-    /// Putting a value into a field the document already holds — `crate::view::ViewState::set_field`.
+    /// Putting a value into a field the document already holds —
+    /// `crate::view::ViewState::set_field`.
     ///
     /// §7.6.4.1's own words for it: "[f]illing in forms (that is, filling in existing interactive
     /// form fields) and signing the document".
@@ -516,8 +513,8 @@ pub fn asserted(
         }
         // §12.7.5.5's Table 236 `/P` next, and beside the entry above rather than beside the field
         // lock it shares a dictionary with: both state a permission over the whole document in the
-        // same three levels, and the `/P`'s own words put them in one regime — "[i]f MDP permission is
-        // already in effect … the number shall specify permissions less than or equal to the
+        // same three levels, and the `/P`'s own words put them in one regime — "[i]f MDP permission
+        // is already in effect … the number shall specify permissions less than or equal to the
         // permissions already in effect". Each refuses on its own, which is §12.8.6's composition
         // rule: a permission needs every handler that speaks to it (ADR 1156).
         if let Some(level) = pdf_signature::signature::field_lock_permissions(document)

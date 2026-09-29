@@ -1,9 +1,9 @@
 //! The `§` rule, held over the documents this project writes about itself.
 //!
 //! `doc/pdf-a-mitigations.md` states the rule in one sentence — a `§` is a clause of ISO 32000-2
-//! and nothing else, and another standard's section is written out in words — and until the
-//! one-thousand-and-ninety-sixth session it was held over Rust sources and the ledger's notes
-//! and nowhere else. The prose those are written beside is where this project reasons about
+//! and nothing else, and another standard's section is written out in words — and this holds it
+//! over the prose beside the Rust sources and the ledger's notes (ADR 1101). That prose is where
+//! this project reasons about
 //! *other* standards most: ISO 19005's parts, ISO 14289, the ETSI profiles, the ITU-T
 //! Recommendation behind DER. `conformance::documents` says which documents and why not the
 //! rest.

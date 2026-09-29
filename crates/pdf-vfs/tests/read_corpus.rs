@@ -1,13 +1,13 @@
 //! Every corpus on this disk, read through the whole of RFC 0003 section 4's layout.
 //!
-//! `doc/todo/58` §5 has owed this one since the core landed, and the nine-hundred-and-eleventh
-//! session is the argument for it: that round mounted the face by hand over four committed
-//! documents and found ten defects, of which **the three deepest were reads** — a page with two
-//! images that killed the confined worker, a listing that produced 1674 `EIO`s over an ordering
-//! defect in §14.7's structure carry, and a second listing that cost more than the first. Not one
-//! of the three could be seen by `tests/a_face.rs`, because not one of them is in the four
-//! documents it carries. The write side has had a 974-document walk since session 909
-//! (`tests/write_corpus.rs`); this is its counterpart, and it is deliberately the *same* shape.
+//! `doc/todo/58` §5 owes this one, and ADRs 0864 and 0865 are the argument for it: a face mounted
+//! by hand over four committed documents found ten defects, of which **the three deepest were
+//! reads** — a page with two images that killed the confined worker, a listing that produced 1674
+//! `EIO`s over an ordering defect in §14.7's structure carry, and a second listing that cost more
+//! than the first. Not one of the three could be seen by `tests/a_face.rs`, because not one of them
+//! is in the four documents it carries. The write side has a 974-document walk
+//! (`tests/write_corpus.rs`, ADR 0860); this is its counterpart, and it is deliberately the *same*
+//! shape.
 //!
 //! For every document of the population below, over one mount:
 //!
@@ -22,26 +22,25 @@
 //! # The cost floor is a count, and that is the whole of why it is a gate
 //!
 //! `doc/todo/58` §5 owed this crate a perf floor and said what its absence had cost: ADR 0886's
-//! hundredfold regression lived here for four sessions with this walk passing twice. A wall clock
-//! could not have caught it either, because a wall clock over a corpus on this machine is the
-//! worst signal available — two classes of core, an unpinned spread of 100 % to 400 %, and three
-//! recorded false failures (`doc/todo/02` §2, ADR 0884). So what is asserted is a **count**:
-//! `Vfs::questions` says how many questions this mount put to its worker and how many of them were
-//! about a subject it had already answered, and `Vfs::forgotten` says how many generated outputs
-//! the cache stopped holding — which is the only honest reason to ask twice. `repeated ≤ forgotten`,
-//! per document. Neither side of that can be moved by a neighbouring round's load. ADR 0894.
+//! hundredfold regression passed this walk twice. A wall clock could not have caught it either,
+//! because a wall clock over a corpus on this machine is the worst signal available — two classes
+//! of core, an unpinned spread of 100 % to 400 %, and three recorded false failures (`doc/todo/02`
+//! §2, ADR 0884). So what is asserted is a **count**: `Vfs::questions` says how many questions this
+//! mount put to its worker and how many of them were about a subject it had already answered, and
+//! `Vfs::forgotten` says how many generated outputs the cache stopped holding — which is the only
+//! honest reason to ask twice. `repeated ≤ forgotten`, per document. Neither side of that can be
+//! moved by a neighbouring round's load. ADR 0894.
 //!
 //! # The population is every corpus on the disk, and it is classified
 //!
-//! Until the nine-hundred-and-nineteenth session this walk was `doc/pdf.js`'s alone, and a second
-//! instrument — `tests/awkward_classes.rs`, session 917 — asked a *narrower* question over a
-//! *wider* population: does the confined worker survive at all, for a document of each class the
-//! pdf.js corpus under-populates. Two instruments each asking half a question are two things to
-//! keep in agreement, and `doc/todo/58` §4 said which way they merge — widen this one, and its
-//! byte comparison covers those classes too. So, since ADR 0878:
+//! This walk is also the survival sweep over the classes of document the pdf.js corpus
+//! under-populates — does the confined worker survive at all — because two instruments each
+//! asking half a question are two things to keep in agreement, and `doc/todo/58` §4 said which
+//! way they merge: widen this one, and its byte comparison covers those classes too. So (ADR
+//! 0878):
 //!
-//! - **every `doc/pdf.js` document is walked**, as before, which is what keeps the figures this
-//!   walk has printed since session 914 comparable with the sessions that wrote them down;
+//! - **every `doc/pdf.js` document is walked**, which keeps the figures this walk prints
+//!   comparable with the ones recorded before the widening (ADR 0871);
 //! - **every other corpus root on this disk** — the `doc/corpora` submodules and the
 //!   `corpus-cache` collections, whichever of them this machine has — is sampled at a fixed
 //!   stride, classified, and the first [`PER_CLASS`] documents of each class are walked beside
@@ -52,8 +51,8 @@
 //! - **and a widened document is read to a smaller depth**, which is [`Bounds`] and is the one
 //!   place the two halves of the population differ. Listings are whole for both — every name of
 //!   every directory against the layout's own — and what is bounded is the *reads*: a widened
-//!   document's first [`PAGES_SAMPLED`] pages. A second bound stood beside it for one round, on
-//!   the entries of a directory, and [`Bounds`] says why it is gone.
+//!   document's first [`PAGES_SAMPLED`] pages. There is no bound on the entries of a directory,
+//!   and [`Bounds`] says why.
 //!
 //! A class is not a diagnosis: a document is in as many of them as it satisfies, and *plain* is
 //! in the list because a sweep that meets only awkward documents cannot say whether what it found
@@ -68,7 +67,7 @@
 //! sees as a folder that stops answering — and `confined-transport`'s supervision words one as
 //! `killed by signal N`. Any sentence naming one fails this run wherever it appears, in an open, a
 //! listing, a read or a comparison; and each mount is asked one more question after its walk, so
-//! that session 902's recovery of a dead worker is measured rather than claimed.
+//! that the recovery of a dead worker (ADR 0846) is measured rather than claimed.
 //!
 //! # What each file is held to, and why that is not a second implementation
 //!
@@ -174,23 +173,23 @@ const PAGES_READ: usize = 16;
 
 /// How many pages of a *widened* document are read, `stat`ed and compared.
 ///
-/// **Two depths, one instrument**, and the second one is the cost session 917 gave as its reason
-/// for keeping two (ADR 0878). At sixteen pages the widened population is not a slower walk but a
+/// **Two depths, one instrument**, and the second one is the cost that argued for keeping two
+/// instruments (ADR 0878). At sixteen pages the widened population is not a slower walk but a
 /// different one: `tika-issue-tracker/batch1/PDFBOX/PDFBOX-186-0.pdf` was still generating after
 /// **25 minutes** on one document, in the worker and in this process alike, and the run's peak was
 /// 9.03 GiB of the 12 the bound allows. Neither side of that comparison can be interrupted —
 /// `Vfs` reaches no `Canceller` (`doc/todo/58` §4) and a thread computing an expectation cannot be
 /// stopped at all — so the bound has to be on what is *asked for*.
 ///
-/// Two, which is the width session 917's sweep used over the same roots for the same reason: what
+/// Two, which is the width ADR 0877's sweep used over the same roots for the same reason: what
 /// the widening is for is a class of document reaching the generators at all, and the second page
 /// is there because the first page of a document is the one every other test reads.
 const PAGES_SAMPLED: usize = 2;
 
 /// What a document of this root has read of it.
 ///
-/// **Two depths, one instrument.** `doc/pdf.js` is walked exactly as it was before the widening,
-/// which is what keeps the figures printed since session 914 comparable; every other root is
+/// **Two depths, one instrument.** `doc/pdf.js` is walked whole, which keeps the figures this
+/// walk prints comparable across the widening (ADR 0871); every other root is
 /// sampled, because the population that carries the awkward classes carries the pathological
 /// documents too, and a gate one document can hold for half an hour is not a gate (ADR 0878).
 ///
@@ -278,8 +277,8 @@ const PER_CLASS: usize = 6;
 
 /// The population: every `doc/pdf.js` document, and a class-balanced sample of every other root.
 ///
-/// `doc/pdf.js` whole, because the figures this walk has printed since session 914 are over it and
-/// a widening that moved them would make them incomparable; every other root sampled, because
+/// `doc/pdf.js` whole, because the figures this walk prints (ADR 0871) are over it and a widening
+/// that moved them would make them incomparable; every other root sampled, because
 /// that is where damaged, huge, JBIG2 and JPEG 2000 documents live and walking all of them is a
 /// day rather than a gate. A machine with no other corpus checked out walks exactly what it
 /// walked before, and the report says which roots it found.
@@ -574,17 +573,16 @@ struct Local {
     pageless: bool,
     /// Why the core would not open it at all.
     refused_open: Option<String>,
-    /// Whether the mount answered one more question after the walk (session 902's recovery).
+    /// Whether the mount answered one more question after the walk (ADR 0846's recovery).
     recovered: bool,
     /// What the mount asked its worker over this document's whole walk.
     ///
     /// **The cost floor, and it is a count rather than a clock.** `doc/todo/58` §5 named the
-    /// absence of one as the sharpest thing missing here after session 923: a hundredfold
-    /// regression lived in this crate for four sessions with two corpus walks and the whole gate
-    /// sequence green, because it was paid in *validating a name* and every instrument in front
-    /// of it counted bytes produced (trap 33, ADR 0886). A count does not care which class of
-    /// core the scheduler put this thread on, which is what makes it a gate on a machine three
-    /// rounds are running on (ADR 0884's problem, avoided rather than solved).
+    /// absence of one as the sharpest thing missing here: a hundredfold regression passed two
+    /// corpus walks and the whole gate sequence, because it was paid in *validating a name* and
+    /// every instrument in front of it counted bytes produced (trap 33, ADR 0886). A count does not
+    /// care which class of core the scheduler put this thread on, which is what makes it a gate on
+    /// a machine three rounds are running on (ADR 0884's problem, avoided rather than solved).
     questions: pdf_vfs::Questions,
     /// What that mount's cache stopped holding, which is the only honest explanation for a
     /// repeat: an entry evicted to make room, or one larger than the whole budget.
@@ -973,9 +971,8 @@ fn text(vfs: &Vfs, local: &mut Local, path: &Path, name: &str, count: usize, bou
     let mut joined: Vec<u8> = Vec::new();
     let mut whole_is_known = count <= bounds.pages;
     // `document.txt` is every page joined, so a document longer than the walk's depth has no
-    // expectation for it — and until session 919 this loop *still* interpreted every page of one,
-    // to throw the text away. Reading past the depth when nothing will be compared is what made a
-    // long document cost what a long document costs (ADR 0878).
+    // expectation for it, so this loop stops at the depth: reading past it when nothing will be
+    // compared makes a long document cost what a long document costs (ADR 0878).
     let read_to = if whole_is_known {
         count
     } else {
@@ -1319,11 +1316,11 @@ fn examine(chosen: &Chosen, tally: &Mutex<Tally>) {
         }
         Err(error) => local.refused_open = Some(error.to_string()),
     }
-    // Session 902's recovery, asked *after* the walk so that a death anywhere in it is followed
+    // ADR 0846's recovery, asked *after* the walk so that a death anywhere in it is followed
     // by a question the mount still has to answer. What is asked is that the answer is not a
     // corpse rather than that it is a page count: a locked document, an unopenable one and an
     // encryption this reader does not implement each answer `Err` here for ever and are right to
-    // (trap 11, and session 917 got this wrong the first time).
+    // (trap 11).
     local.recovered = vfs
         .pages()
         .err()

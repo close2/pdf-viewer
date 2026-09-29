@@ -200,3 +200,149 @@ fn a_tagged_page_whose_structure_names_every_widget_answers_no_list() {
     assert_eq!(page.nodes.len(), 2, "{:?}", page.nodes);
     assert!(page.widgets.is_empty(), "{:?}", page.widgets);
 }
+
+/// A `Form` element whose only content is its widget is named, not left empty (ADR 1394).
+///
+/// Table 355's `/T` is "a text string representing it in human-readable form", stated by the
+/// producer on the element itself, so it names the element first; where the element states none,
+/// §14.9.3's "[a]n alternative name may be specified for an interactive form field" — `/TU`, which
+/// "shall be used in place of the actual field name when an interactive PDF processor identifies
+/// the field in a user-interface" — and then §12.7.4.2's fully qualified name are the field's.
+#[test]
+fn a_form_element_with_no_text_is_named_by_its_title_then_its_field() {
+    // No `/T` on either element: the button by its `/TU`, the text field by its qualified name.
+    let page = answered(form(
+        "/StructTreeRoot 8 0 R /MarkInfo << /Marked true >>",
+        &[
+            "<< /Type /StructTreeRoot /K [9 0 R 10 0 R] /ParentTree << /Nums [0 9 0 R] >> >>",
+            TEXT_FIELD_ELEMENT,
+            "<< /Type /StructElem /S /Form /P 8 0 R /Pg 3 0 R /K << /Type /OBJR /Obj 4 0 R >> >>",
+        ],
+    ));
+    let named: Vec<(&str, bool)> = page
+        .nodes
+        .iter()
+        .map(|node| (node.name.as_str(), node.substituted))
+        .collect();
+    assert_eq!(
+        named,
+        [("name", false), ("Place the order", false)],
+        "/TU where the field states one, the qualified name where it does not; a name is not a \
+         substitution, so nothing below the element is withheld"
+    );
+
+    // The element's own `/T` is the producer naming the element, and it comes before the field's.
+    let page = answered(form(
+        "/StructTreeRoot 8 0 R /MarkInfo << /Marked true >>",
+        &[
+            "<< /Type /StructTreeRoot /K [9 0 R 10 0 R] /ParentTree << /Nums [0 9 0 R] >> >>",
+            "<< /Type /StructElem /S /Form /P 8 0 R /Pg 3 0 R /T (Your full name) \
+             /K << /Type /OBJR /Obj 5 0 R >> >>",
+            "<< /Type /StructElem /S /Form /P 8 0 R /Pg 3 0 R /T (Order button) \
+             /Alt (Send the order now) /K << /Type /OBJR /Obj 4 0 R >> >>",
+        ],
+    ));
+    let named: Vec<(&str, bool)> = page
+        .nodes
+        .iter()
+        .map(|node| (node.name.as_str(), node.substituted))
+        .collect();
+    assert_eq!(
+        named,
+        [("Your full name", false), ("Send the order now", true)],
+        "the element's /T before the field's names; §14.9.3's /Alt, a substitution, before /T"
+    );
+}
+
+/// A two-page document whose catalog states `catalog_extra` and whose structure tree holds one
+/// paragraph: page one's text, reached through its `/StructParents` (§14.7.5.4). Page two draws
+/// text of its own and nothing in the tree names it.
+fn two_pages(catalog_extra: &str) -> Vec<u8> {
+    let first = "/P << /MCID 0 >> BDC BT /F1 12 Tf 20 100 Td (Tagged words) Tj ET EMC";
+    let second = "BT /F1 12 Tf 20 100 Td (Words nobody tagged) Tj ET";
+    let catalog = format!("<< /Type /Catalog /Pages 2 0 R {catalog_extra} >>");
+    let first_stream = format!("<< /Length {} >>\nstream\n{first}\nendstream", first.len());
+    let second_stream = format!(
+        "<< /Length {} >>\nstream\n{second}\nendstream",
+        second.len()
+    );
+    assembled(&[
+        &catalog,
+        "<< /Type /Pages /Count 2 /Kids [3 0 R 4 0 R] >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 5 0 R \
+         /Resources << /Font << /F1 7 0 R >> >> /StructParents 0 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 6 0 R \
+         /Resources << /Font << /F1 7 0 R >> >> >>",
+        &first_stream,
+        &second_stream,
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        "<< /Type /StructTreeRoot /K 9 0 R /ParentTree << /Nums [0 [9 0 R]] >> >>",
+        "<< /Type /StructElem /S /P /P 8 0 R /Pg 3 0 R /K 0 >>",
+    ])
+}
+
+/// Each page of [`two_pages`], as the viewer answers it after turning to that page.
+fn both_pages(bytes: Vec<u8>) -> [PageStructure; 2] {
+    let mut viewer = Viewer::new(400, 400, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: bytes.into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    let mut asked = |index: usize| {
+        viewer
+            .handle(Command::GoTo(viewer_core::PageTarget::Index(index)))
+            .for_each(drop);
+        let Answer::Accessibility(pages) = viewer.query(Query::AccessibilityTree) else {
+            panic!("an open document answers the question");
+        };
+        pages
+            .into_iter()
+            .find(|page| page.page == index)
+            .unwrap_or_else(|| panic!("page {index} is on the screen"))
+    };
+    let first = asked(0);
+    [first, asked(1)]
+}
+
+/// A tagged document's page that its structure reaches nothing on is not answered as untagged
+/// (ADR 1393).
+///
+/// §14.7.2 locates the structure tree root through the catalog's `/StructTreeRoot`, so whether a
+/// document states a structure is one fact for all its pages;
+/// and §14.8.1's "[a] tagged PDF document shall contain a mark information dictionary" with
+/// `/Marked true` is the claim that makes an unreached page the producer's omission.
+#[test]
+fn a_tagged_documents_unreached_page_is_answered_as_that() {
+    let [first, second] = both_pages(two_pages(
+        "/StructTreeRoot 8 0 R /MarkInfo << /Marked true >>",
+    ));
+    assert_eq!(first.tagging, viewer_core::Tagging::Reached);
+    let said: Vec<(&str, &str)> = first
+        .nodes
+        .iter()
+        .map(|node| (node.role.as_str(), node.name.as_str()))
+        .collect();
+    assert_eq!(said, [("P", "Tagged words")]);
+    assert!(second.nodes.is_empty(), "{:?}", second.nodes);
+    assert_eq!(
+        second.tagging,
+        viewer_core::Tagging::Unreached { marked: true }
+    );
+
+    // The same structure without `/MarkInfo`: a structure, and no claim to be a tagged PDF.
+    let [_, second] = both_pages(two_pages("/StructTreeRoot 8 0 R"));
+    assert_eq!(
+        second.tagging,
+        viewer_core::Tagging::Unreached { marked: false }
+    );
+
+    // And with no structure tree at all, both pages are the untagged answer ADR 0214 states.
+    let [first, second] = both_pages(two_pages("/MarkInfo << /Marked true >>"));
+    assert_eq!(first.tagging, viewer_core::Tagging::Untagged);
+    assert_eq!(second.tagging, viewer_core::Tagging::Untagged);
+    assert!(first.nodes.is_empty() && second.nodes.is_empty());
+}

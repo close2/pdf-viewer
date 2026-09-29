@@ -100,8 +100,7 @@ impl Font {
     /// is a choice about a producer's convention. This one is not that choice. Two corpus
     /// documents show the difference — `issue4304.pdf` is 895 bytes named after it, a
     /// `/Times-Roman` whose `/Differences` maps 32 to `/.notdef`, drawing
-    /// *Words that should have spaces between them.* since the four-hundred-and-fifth session
-    /// fixed its advances and reading back `Wordsthatshouldhavespacesbetweenthem.` until this;
+    /// *Words that should have spaces between them.* and reading it back with its spaces;
     /// and `Type3WordSpacing.pdf`, whose Type 3 font names no glyph at code 32 at all and
     /// whose six lines are drawn with `Tw` from 50 down to 0.
     pub(super) fn text(&self, code: Code, out: &mut String) -> bool {
@@ -158,8 +157,8 @@ impl Font {
 pub(super) enum FontKey {
     /// A font dictionary, by the object it is.
     ///
-    /// The only kind, since the hundred-and-twenty-seventh session: keying by the resource
-    /// *name* conflated a page's `/F1` with a form `XObject`'s. Kept as an enum of one because
+    /// The only kind, because keying by the resource *name* conflates a page's `/F1` with a
+    /// form `XObject`'s (ADR 0115). Kept as an enum of one because
     /// the two routes to a font — `Tf`'s resource name and Table 57's `/Font`, which §8.4.1's
     /// NOTE 1 makes alternatives — arrive here differently and only this says they are the
     /// same thing when they name the same object.
@@ -547,8 +546,8 @@ fn standard_font_named(name: &str) -> Option<Object> {
 /// > processor; it shall be treated as a reference to the null object.
 ///
 /// The two send a reader to different clauses and to different producers, and the first
-/// sentence said of the second is false about the file. `evince-1360-1.pdf` is the witness the
-/// eight-hundred-and-fifty-fifth session's chunk produced: a cairo page whose `/Resources
+/// sentence said of the second is false about the file. `evince-1360-1.pdf` is the witness
+/// (ADR 0779): a cairo page whose `/Resources
 /// /Font` names six fonts by reference, none of whose objects survived the reduction the bug
 /// report shipped, reported six times as fonts the file does not name.
 #[derive(Debug, Clone, Copy)]
@@ -588,10 +587,9 @@ impl Interpreter<'_> {
     /// > reference instead of a resource name.
     ///
     /// So both text state parameters are set, exactly as `Tf` sets them, and the font is
-    /// cached by the object it *is* rather than by a name it has none of. That last point is
-    /// the whole reason this took twenty-four sessions: the font cache was keyed by resource
-    /// name, so there was nowhere to put a font that has none, and `extgstate.pdf` — whose
-    /// page says "I should be courier!" — was reported rather than drawn.
+    /// cached by the object it *is* rather than by a name it has none of: a cache keyed by
+    /// resource name has nowhere to put a font that has none, and `extgstate.pdf` — whose page
+    /// says "I should be courier!" — would be reported rather than drawn (ADR 0115).
     pub(super) fn apply_ext_gstate_font(&mut self, dict: &Dictionary, state: &mut GraphicsState) {
         let entry = self.document.get_key(dict, "Font");
         let Some(entry) = entry.as_array() else {
@@ -631,8 +629,8 @@ impl Interpreter<'_> {
         // is scoped to the resource dictionary that defines it, and §8.10.1 gives a form
         // `XObject` a `/Resources` of its own — so a page's `/F1` and a form's `/F1` are two
         // fonts as often as they are one, and a cache keyed by `F1` hands the second the
-        // first's glyphs with nothing reported. That is trap 1's archetype, and it is what this
-        // cache did for thirty-one sessions. `shading::Cache` had the same question and the
+        // first's glyphs with nothing reported. That is trap 1's archetype (ADR 0115).
+        // `shading::Cache` has the same question and the
         // same answer (see `resource_entry`, whose whole reason for existing is this one).
         // §9.6.2.2's fourteen are ASCII names, so a resource name that is not text cannot be one
         // of them and `as_str` returning `None` is that answer rather than a lost lookup.
@@ -760,8 +758,8 @@ impl Interpreter<'_> {
     /// §8.4.1's NOTE 1 gives most graphics state parameters two routes, and this is the one
     /// where the two do not name the same thing: `Tf` names a *resource*, and Table 57's
     /// `/Font` is "an indirect reference to a font dictionary" instead. A cache keyed only by
-    /// the resource name therefore had nowhere to put the second, which is why one corpus
-    /// document's `/ExtGState` font was reported rather than loaded for twenty-four sessions.
+    /// the resource name therefore has nowhere to put the second, and a document's
+    /// `/ExtGState` font would be reported rather than loaded.
     /// `key` is `None` for a resource dictionary that states its font *directly* rather than
     /// by reference. Such a font has no identity to key on and is therefore loaded afresh each
     /// time — correctness before speed, and the case is rare enough that no corpus document

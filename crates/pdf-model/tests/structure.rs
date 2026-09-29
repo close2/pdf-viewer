@@ -112,11 +112,10 @@ fn a_page_that_states_a_structural_parent_key_resolves_it() {
         "these documents' parent trees hold an entry for page one's key and this reader read \
          no elements from it: {missed:?}"
     );
-    // Each of these was one lower until session 560, and the document that joined is
-    // `issue17147.pdf`: its cross-reference stream cannot be decoded, so the table is rebuilt by
-    // scanning, and everything §7.5.7 packed into its object stream — the `/StructTreeRoot` among
-    // them — was invisible to a scan for `N G obj` headers until the rebuild learnt to read an
-    // object stream's own header (ADR 0395). The document is unchanged; what it says is reachable.
+    // `issue17147.pdf` is among these: its cross-reference stream cannot be decoded, so the table
+    // is rebuilt by scanning, and everything §7.5.7 packed into its object stream — the
+    // `/StructTreeRoot` among them — is reachable only because the rebuild reads an object
+    // stream's own header (ADR 0395); a scan for `N G obj` headers cannot see it.
     assert_eq!(roots, 90);
     assert_eq!(keyed, 77);
     // The one page that names no element is `bug1978317.pdf`, whose parent tree holds an
@@ -128,13 +127,11 @@ fn a_page_that_states_a_structural_parent_key_resolves_it() {
 
 /// The largest structure tree this project owns is walked whole, and says so.
 ///
-/// **This is the regression guard for a bound that lied for five sessions.** `Tree::walk` used
-/// to stop at 65 536 items and return the prefix as though it were the tree; session 416 read
-/// 71 371 items off it and recorded that as ISO 32000-2's size, and `doc/todo/49`'s item 5
-/// recorded the bound as wrong without knowing by how much. It is **129 389**, so a walk of that
-/// document was seeing a little over half of it — and `logical_order` walks the whole tree once
-/// per page, so §14.8.2.5's reading order for any page of the standard this project checks
-/// itself against was a truncated one.
+/// **This is the regression guard for a bound that lied** (ADR 0257). A walk that stops at
+/// 65 536 items and returns the prefix as though it were the tree reads 71 371 items off this
+/// document, whose tree is **129 389** — a little over half of it — and `logical_order` walks
+/// the whole tree once per page, so §14.8.2.5's reading order for any page of the standard this
+/// project checks itself against would be a truncated one.
 ///
 /// Two assertions, and the second is the one that would have caught it: the count, which is a
 /// fact about the file, and [`pdf_model::structure::Reading::truncated`], which is a fact about

@@ -15,8 +15,8 @@
 //! purest case: it has producers' files behind it, and
 //! [`a_producers_own_thread_is_walked_to_its_beads`] is what reads one.
 //!
-//! Found in the five-hundred-and-seventieth session by the census ADR 0403 asked for; ADR 0405
-//! has why an absence claim decays without anybody touching it.
+//! Found by the census ADR 0403 asked for; ADR 0405 has why an absence claim decays without
+//! anybody touching it.
 //!
 //! Both tests are ratchets on the *corpus* rather than on the code: if a pdf.js document with a
 //! real thread ever arrives, the first says so.
@@ -149,9 +149,8 @@ fn no_pdfjs_document_states_an_article() {
 ///
 /// `PDFBOX-3110-poems-beads.pdf` is two poems laid out as two article threads, which is exactly
 /// what §12.4.3 describes an article for — "a single logical flow of content", read in bead
-/// order rather than in page order. Until the five-hundred-and-seventieth session every
-/// assertion this tree made about §12.4.3 was against a file it had written itself, on the
-/// strength of a claim that the corpus held none.
+/// order rather than in page order. It is a producer's file, so this is the §12.4.3 assertion
+/// that does not rest on a file this tree wrote itself (ADR 0405).
 ///
 /// What it checks is the part a hand-built fixture cannot: that the ring closes. §12.4.3 makes
 /// `/N` and `/V` a doubly linked *circular* list — "the first bead's `/V` shall point to the

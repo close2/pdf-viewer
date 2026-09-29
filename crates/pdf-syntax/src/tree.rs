@@ -262,11 +262,10 @@ pub fn number_pairs(root: &Dictionary, resolve: &dyn Fn(&Object) -> Object) -> V
 /// keys may be used as long as it is self-consistent" — and what they *mean* is §7.9.2's
 /// question.
 ///
-/// **That clause was cited here for words ISO 32000-2 prints nowhere.** The sentence read
-/// `§7.9.6 sorts them "by unsigned character code"` until the seven-hundred-and-fiftieth
-/// session, and no instrument in this project was placed to say so: `spec-errata check`
-/// compares a quotation against text an erratum *struck*, and the conformance gate reads
-/// rustdoc blockquotes rather than a quotation inside a sentence of prose.
+/// **That clause is cited here without a quotation, because the words a paraphrase would put
+/// in its mouth are printed nowhere**: `spec-errata check` compares a quotation against text an
+/// erratum *struck*, and the conformance gate reads rustdoc blockquotes rather than a quotation
+/// inside a sentence of prose, so neither would catch an invented one.
 #[must_use]
 pub fn name_pairs(
     root: &Dictionary,

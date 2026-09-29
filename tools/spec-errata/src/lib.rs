@@ -6,7 +6,7 @@
 //! through `doc/md/` — a Markdown conversion of the PDFs under `doc/`, which the conformance gate
 //! verifies every rustdoc quotation and citation against. **The conversion ignored annotations.**
 //!
-//! The four-hundred-and-sixteenth session counted them, and what they are decides everything: in
+//! What they are decides everything (ADR 0252): in
 //! `ISO_32000-2_sponsored_EC3.pdf` the sponsored copy's Errata Collection 3 is *recorded as review
 //! markup and applied to nothing*. Each corrected passage carries a `StrikeOut` over the retired
 //! words, a `Caret` whose `/Contents` is the replacement, and a `/Subj` naming the issue — 360
@@ -178,9 +178,9 @@ pub struct Note {
     ///
     /// **The model is carried beside the state, because Table 174 states two of them and only one
     /// of them is a verdict.** `Marked`'s two values say whether a reviewer ticked the note off;
-    /// `Review`'s five say what they decided. The four-hundred-and-seventeenth session read five
-    /// errata reported as "Accepted, Unmarked" and had to open the file to find that the second
-    /// word was the *Marked* model's default rather than a second opinion — so each entry is
+    /// `Review`'s five say what they decided. An erratum reported as "Accepted, Unmarked" carries
+    /// the *Marked* model's default as its second word rather than a second opinion (ADR 0253) — so
+    /// each entry is
     /// `StateModel/State`, which Table 175 makes always available: `/StateModel` is "[r]equired
     /// if State is present".
     ///
@@ -225,7 +225,7 @@ pub const MIN_WORDS: usize = 4;
 /// other writes "inthe", and a comparison that keeps whitespace calls a passage absent that is
 /// there in full.
 ///
-/// Measured in the four-hundred-and-seventeenth session over all fourteen documents:
+/// Measured over all fourteen documents (ADR 0253):
 /// **79 struck passages found with whitespace kept, 151 with it removed.** One of the 72 the
 /// stricter comparison missed is §12.5.3's, which `ledger.toml` was quoting as live text.
 ///
@@ -233,7 +233,7 @@ pub const MIN_WORDS: usize = 4;
 /// characters, and two different sentences do not agree on twenty characters by having their
 /// spaces in different places. [`Landing::in_clause`] does the separating either way.
 ///
-/// # Case is folded, and the four-hundred-and-thirty-first session found what that was hiding
+/// # Case is folded, because a quotation lowers a letter
 ///
 /// A writer quoting the middle of a sentence lowers its first letter, because a quotation
 /// starting mid-sentence reads wrongly with a capital — and `CLAUDE.md`'s "quotation marks mean
@@ -241,23 +241,22 @@ pub const MIN_WORDS: usize = 4;
 /// case kept, `pdf-font`'s "these fonts, or their font metrics and suitable substitution fonts"
 /// did not match §9.6.2.2's "These fonts, or their font metrics and suitable substitution fonts,
 /// shall be available to the PDF processor", which Errata Collection 3 struck outright — nine
-/// words identical and one letter apart. The four-hundred-and-eighteenth session corrected that
-/// sentence in three files and this crate could not see the fourth.
+/// words identical and one letter apart, so a comparison with case kept cannot see it.
 ///
 /// **This is not a loosening of the verbatim gate**, which is `conformance::quote` and keeps its
 /// case: that one decides whether a quotation is the standard's own words, and a lowered letter
 /// there is a real difference a reader should see. This function only asks whether a quotation is
 /// *about* a struck passage, which is a lead for a person to follow rather than a verdict.
 ///
-/// # The square brackets, and the third time this comparison was half-blind
+/// # The square brackets
 ///
-/// It was `normalise` plus the two foldings above until the five-hundred-and-ninety-first
-/// session, and what that missed is `CLAUDE.md`'s **own** convention for the altered letter the
+/// `normalise` plus the two foldings above would miss `CLAUDE.md`'s **own** convention for the
+/// altered letter the
 /// paragraph above describes: a quotation starting mid-sentence is written `"[e]ncloses one or
 /// more PDF annotations"`, with the change inside square brackets, and a comparison that keeps
 /// the brackets calls that passage absent. §14.8.4.7.2's ledger row is the witness — it quoted a
-/// sentence Issue #437 struck out, in exactly that spelling, and this crate could not see it
-/// while [`applied`] could. So the fold is [`conformance::prose::folded`] now, which is the same
+/// sentence Issue #437 struck out, in exactly that spelling (ADR 0426). So the fold is
+/// [`conformance::prose::folded`], which is the same
 /// two foldings plus the brackets, the dash shapes and the fraction slash: one answer to *what
 /// two extractions of one sentence agree on*, shared with the sweep over this project's own
 /// Markdown rather than written twice.
@@ -357,19 +356,14 @@ pub fn read(path: &Path) -> Result<Vec<Note>, Error> {
 /// **They are four because only one of them is checked by anything**, and every round that
 /// swept one of the others found a stale quotation in it. `tools/conformance` verifies every
 /// [`Self::Blockquote`] against `doc/md/` and reads none of the rest: ADR 0249 measured the
-/// ledger's at 977 spans and decided against a gate, the four-hundred-and-eighteenth session
-/// found the third — a pair of quotation marks inside ordinary rustdoc prose, which
-/// `CLAUDE.md`'s "[q]uotation marks mean verbatim" binds exactly as hard and which the
-/// blockquote scanner walks straight past — and **the four-hundred-and-nineteenth found the
-/// fourth by walking into it**: a quotation inside an ordinary `//` comment in a function body.
+/// ledger's at 977 spans and decided against a gate; the third is a pair of quotation marks
+/// inside ordinary rustdoc prose, which `CLAUDE.md`'s "[q]uotation marks mean verbatim" binds
+/// exactly as hard and which the blockquote scanner walks straight past (ADR 0254); and the
+/// fourth is a quotation inside an ordinary `//` comment in a function body.
 ///
-/// That one was not missed but *excluded*, and the sentence excluding it is the finding. This
-/// function's own documentation used to read "a `\"` in a `//` comment is not making
-/// `CLAUDE.md`'s claim", which is a claim about `CLAUDE.md` that `CLAUDE.md` contradicts: it
-/// asks for the clause "in its doc comment, its module comment, **or the comment above the
-/// block**", and states "[q]uotation marks mean verbatim" of quotations rather than of doc
-/// comments. The first one read under the new rule was `content.rs`'s §7.8.3 fallback, quoting
-/// a bullet Errata Collection 3 struck out (ADR 0255).
+/// The fourth is in the population because `CLAUDE.md` asks for the clause "in its doc comment,
+/// its module comment, **or the comment above the block**", and states "[q]uotation marks mean
+/// verbatim" of quotations rather than of doc comments (ADR 0255).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Quoted {
     /// A rustdoc `> ` blockquote — the one population a gate verifies.
@@ -474,8 +468,8 @@ fn retired(notes: &[Note]) -> Vec<(&Note, String)> {
 
 /// Whether a quotation and a struck passage share text, whichever of the two is longer.
 ///
-/// **Containment has to run both ways and did not until the four-hundred-and-eighteenth
-/// session.** A rustdoc blockquote is usually a *whole* sentence and the struck passage is a
+/// **Containment has to run both ways** (ADR 0254). A rustdoc blockquote is usually a *whole*
+/// sentence and the struck passage is a
 /// clause of it, so `quotation ⊇ struck` is the case the first instrument was built for. A
 /// ledger note quotes the other way round — five words lifted out of a paragraph — and so does
 /// half of the prose, so a one-directional test sees none of them. `attachment.rs`'s
@@ -485,8 +479,8 @@ fn retired(notes: &[Note]) -> Vec<(&Note, String)> {
 /// The shorter side still has to be [`MIN_WORDS`] long, which is what keeps a four-word
 /// coincidence from being reported as a quotation of a paragraph.
 ///
-/// **And it is asked once per elided segment**, which the four-hundred-and-nineteenth session
-/// added after finding a quotation by hand that this test could not reach: `appearance.rs`'s
+/// **And it is asked once per elided segment** (ADR 0255), because a whole-quotation test cannot
+/// reach a quotation such as `appearance.rs`'s
 /// "retains no permanent value … it shall not use the V and DV entries" is two spans of a
 /// sentence Errata Collection 3 struck out, and neither the whole nor the passage contains the
 /// other because the `…` stands for eleven words in between. An elision is `CLAUDE.md`'s own
@@ -779,8 +773,8 @@ pub fn document_landings(notes: &[Note], directory: &Path) -> Result<Vec<Landing
 /// The measurement behind the argument: a passage in this list is one an erratum retired and
 /// `doc/md/` presents as the standard's current text. Answers the file it was found in.
 ///
-/// **One shape of false positive is known and cannot be removed from here**, found while
-/// reading the list in the four-hundred-and-eighteenth session: where the standard prints a
+/// **One shape of false positive is known and cannot be removed from here**: where the standard
+/// prints a
 /// sentence *twice* and the erratum deletes one copy, the surviving copy is the standard's
 /// current text and this reports it as retired. §7.5.4's "[e]ach cross-reference subsection
 /// shall contain entries for a contiguous range of object numbers" is the witness — the
@@ -871,10 +865,9 @@ impl Ground {
 ///
 /// **The question [`landings`] cannot ask.** `check` compares the quotations this tree has written
 /// against struck passages, so an erratum over text nobody has quoted is invisible to it — and a
-/// renumbering strikes a *heading*, which no quotation lands on. The five-hundred-and-fifty-fifth
-/// session found ISO/TS 32001 section 5.1.3 deleted by hand, the five-hundred-and-sixty-second found
-/// Issues #452 and #196 by filtering `emit`'s output for these four verbs by hand, and this is that
-/// filter as a command.
+/// renumbering strikes a *heading*, which no quotation lands on. Filtering `emit`'s output for
+/// these four verbs by hand is how Issues #452 and #196 were found, and this is that filter as a
+/// command.
 ///
 /// A number is only reported where it belongs to one of the standard's technical clauses, which is
 /// what keeps `PDF 1.7` and `ISO 32000-2` out of the list.
@@ -1233,8 +1226,7 @@ mod tests {
     fn two_extractions_disagree_about_where_the_spaces_are() {
         // §12.5.3's erratum, as the two extractions write it: the strikeout's text layer joins
         // "in the", the Markdown conversion does not, and the passage is the same passage. With
-        // the spaces kept this comparison answers `false` and the hazard goes unreported — which
-        // is what happened to `ledger.toml`'s §12.5.3 note for one session.
+        // the spaces kept this comparison answers `false` and the hazard goes unreported.
         let struck = "without regard to any other keys and values inthe annotation dictionary";
         let conversion = "shall render the appearance dictionary without regard to any other \
                           keys and values in the annotation dictionary and shall ignore";
@@ -1249,9 +1241,7 @@ mod tests {
     fn a_quotation_lowered_into_a_sentence_is_still_that_sentence() {
         // §9.6.2.2's struck sentence and `pdf-font`'s quotation of its middle, which lowers the
         // first letter because the quotation starts mid-sentence. Nine words identical and one
-        // letter apart: with case kept this answers `false` and the stale quotation is invisible,
-        // which is what happened for thirteen sessions after the four-hundred-and-eighteenth
-        // corrected the same sentence in three other files.
+        // letter apart: with case kept this answers `false` and the stale quotation is invisible.
         let struck = "These fonts, or their font metrics and suitable substitution fonts, \
                       shall be available to the PDF processor.";
         let quotation = "these fonts, or their font metrics and suitable substitution fonts";

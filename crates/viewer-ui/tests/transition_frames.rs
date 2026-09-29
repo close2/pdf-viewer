@@ -172,10 +172,9 @@ fn both_backends_draw_the_same_transition_frame() {
 
     // And the two agree everywhere, not only at the two samples: a frame of flat colours has no
     // antialiased edge for two rasterisers to distribute differently except at the line itself,
-    // which is one column of 240. **Measured at 0 in the three-hundred-and-ninety-third
-    // session** — the line falls at exactly 60.0 at this progress, so there is no partial pixel
-    // even there — and the bound is a column rather than zero because a fraction of a pixel is a
-    // rasteriser's business and not this clause's.
+    // which is one column of 240. **Measured at 0** (ADR 0230) — the line falls at exactly 60.0 at
+    // this progress, so there is no partial pixel even there — and the bound is a column rather
+    // than zero because a fraction of a pixel is a rasteriser's business and not this clause's.
     let differing = processor
         .data
         .chunks_exact(4)

@@ -78,8 +78,7 @@ pub(crate) fn about(document: &Document, trust: &crate::TrustPolicy) -> Vec<Stri
     // > read the document successfully and that the user may not be able to change or save the
     // > document.
     //
-    // The second half of that sentence is the loop below; this is the first, and it was owed for
-    // three hundred and sixty sessions because Annex I had no ledger row until ADR 0206. **No
+    // The second half of that sentence is the loop below; this is the first (ADR 0206). **No
     // corpus document reaches it**: the newest of the 974 states 2.0, which is what this program
     // is written against, so this note exists for the file that has not been written yet.
     if let Some(version) = document.version()
@@ -108,9 +107,7 @@ pub(crate) fn about(document: &Document, trust: &crate::TrustPolicy) -> Vec<Stri
         ));
     }
 
-    // §12.11.3's own threshold, which this note said nothing about until the
-    // six-hundred-and-twenty-sixth session because three places in this tree recorded that the
-    // clause states none:
+    // §12.11.3's own threshold, which the clause states:
     //
     // > In the situation where the penalty values are being used to evaluate the presentation of
     // > the base PDF document, and there exist no other alternates, if the penalty value exceeds
@@ -359,11 +356,9 @@ impl Standing {
 /// One sentence per restriction, in the order `pdf_model::restriction::asserted` found them,
 /// each ending in [`Standing`]'s clause.
 ///
-/// **A function of the restrictions rather than of the document**, since the
-/// eight-hundred-and-seventy-second session: the reading and the policy are both
-/// `pdf_model::restriction::decide`'s, and what reaches here is what the verdict carried. Since
-/// the eight-hundred-and-eighty-fifth the same list is worded for all three verdicts a window
-/// receives, which is what that session's comment here said it would need (ADR 0814).
+/// **A function of the restrictions rather than of the document** (ADR 0803): the reading and
+/// the policy are both `pdf_model::restriction::decide`'s, and what reaches here is what the
+/// verdict carried. The same list is worded for all three verdicts a window receives (ADR 0814).
 pub(crate) fn restricted(
     operation: pdf_model::restriction::Operation,
     restrictions: &[pdf_model::restriction::Restriction],
@@ -462,19 +457,17 @@ pub(crate) fn restricted(
 
 /// §12.8's signatures: what this program can honestly say about one, given what a host supplied.
 ///
-/// **A signature asks three questions** (§12.8.1, ADR 0215), and until the
-/// one-thousand-and-sixty-second session this program answered two of them for every document
-/// there was. It says who signed, why, whether the range they signed runs to the end of the file
-/// (§12.8.1), whether the bytes that range names still hash to the digest the signature records,
-/// and — since the three-hundred-and-ninety-second session — **whether the signature verifies
-/// under the public key in the certificate the file itself carries** (§12.8.3.3.1).
+/// **A signature asks three questions** (§12.8.1, ADR 0215). This program says who signed, why,
+/// whether the range they signed runs to the end of the file (§12.8.1), whether the bytes that
+/// range names still hash to the digest the signature records, and **whether the signature
+/// verifies under the public key in the certificate the file itself carries** (§12.8.3.3.1,
+/// ADR 0229).
 ///
 /// **The third is answered when, and only when, a host has named an anchor.** RFC 5280 section
 /// 6.1.1 makes the anchors input (d) and a matter of policy, ADR 1039 made them a host's to supply
 /// and this crate's to receive, and [`crate::Command::Trust`] is the receiving. With none — which
 /// is every host's default and what a host that says nothing gets — every sentence below is the
-/// one this program has printed since the three-hundred-and-seventy-seventh session, the closing
-/// paragraph included.
+/// one this program prints without an anchor (ADR 0215), the closing paragraph included.
 ///
 /// **And a verdict is never separable from where its anchors came from.** [`anchors_note`] is that
 /// sentence: a reader told that a signature is valid is owed *valid according to whom*, and only
@@ -1028,10 +1021,8 @@ fn about_one(
             // update appended after signing, which is how a signature stays meaningful while a
             // document goes on being used. But for `ETSI.CAdES.detached` and `ETSI.RFC3161` the
             // table says the range "shall cover the entire PDF file", so for those two the same
-            // tail is a file breaking a `shall`. `Signature::must_cover_whole_file` has drawn
-            // that distinction since it was written and nothing asked it until the
-            // two-hundred-and-seventy-eighth session — `doc/todo/01`'s fifth sweep, which asks
-            // what the model implements that no host calls. It is still not a verdict on the
+            // tail is a file breaking a `shall`. `Signature::must_cover_whole_file` draws that
+            // distinction and this is the caller that asks it. It is still not a verdict on the
             // signature: this program has no trust store and says what the file states.
             pdf_signature::signature::Coverage::Unsigned { tail } => {
                 if signature.must_cover_whole_file() {
@@ -1068,8 +1059,8 @@ fn about_one(
         // **Table 255's `/V` is the file saying which part of the validation matters**, and it is
         // the one sentence of that entry addressed to whoever validates: "[t]he value is 1 if the
         // Reference dictionary shall be considered critical to the validation of the signature"
-        // (§12.8.1). §12.8.2.2.2's and §12.8.2.3's second step is taken since the
-        // one-thousand-and-ninetieth session (ADR 1104) and `modifications` is where a reader is
+        // (§12.8.1). §12.8.2.2.2's and §12.8.2.3's second step is taken (ADR 1104) and
+        // `modifications` is where a reader is
         // told what it came to — so what this sentence says is that the file asked for that answer
         // to count, and where it does. The condition is the entry's own and nothing is added to it
         // (trap 11); `/V` absent is the table's default 0.
@@ -1137,22 +1128,20 @@ fn about_one(
             // responses inside it are what a *validator* would use, and using them is question
             // three.
             //
-            // **This comment named `issue17069.pdf` as "the corpus's one witness" and there are
-            // three in `doc/pdf.js`**, which the six-hundred-and-forty-first session found by giving the sentence
-            // a command: `issue6127.pdf` and `xfa_filled_imm1344e.pdf` carry the attribute too.
+            // **The witnesses are counted, not named here**: `issue17069.pdf`, `issue6127.pdf`
+            // and `xfa_filled_imm1344e.pdf` carry the attribute in `doc/pdf.js`, and
             // `examples/signature_algorithm_census` counts and names them, so the number is not
-            // written down here or in §12.8.3.3.2's ledger row again.
+            // written down here or in §12.8.3.3.2's ledger row.
             //
-            // **And "three" was a count of `doc/pdf.js`**, which is what the correction did not
-            // say and what the eight-hundred-and-thirtieth session widened: the same census over
+            // **And three is a count of `doc/pdf.js` alone** (ADR 0758): the same census over
             // every document this tree holds finds the attribute on hundreds of signature values
             // in hundreds of documents, nearly all of them in the crawl. Its presence is
             // therefore ordinary rather than rare, which changes nothing this code does — the
             // note fires on the attribute and not on a population — and everything about what a
             // round may conclude from the three names above.
             if cms.has_signed_attribute(pdf_signature::cms::ADBE_REVOCATION_INFO_ARCHIVAL) {
-                // **What is inside the attribute is read since the thousand-and-fifty-third
-                // session** (ADR 1067), because §12.8.3.3.2 prints the grammar rather than
+                // **What is inside the attribute is read** (ADR 1067), because §12.8.3.3.2 prints
+                // the grammar rather than
                 // pointing at a document this tree does not hold: `RevocationInfoArchival` with
                 // its `crl [0]` and `ocsp [1]` members. So the sentence now says how much material
                 // there is, and still says the one thing that has not changed — no certificate
@@ -1516,8 +1505,8 @@ fn permissions_stated(
 ) {
     // §12.8.2.2.1's parenthesis is a `shall` addressed to a processor that modifies: "(These
     // changes to the document shall also be prevented if the signature dictionary is referred
-    // from the DocMDP entry in the permissions dictionary.)" This program modifies since the
-    // hundred-and-thirty-fifth session, so it obeys it — an `Edit` that a level of `/P` does not
+    // from the DocMDP entry in the permissions dictionary.)" This program modifies, so it obeys
+    // it — an `Edit` that a level of `/P` does not
     // permit is refused with `Event::Refused` and its reason — and says so here as well, because
     // a field that will not take a value is otherwise a person typing into a document that
     // ignores them, and this is said before they start rather than after.
@@ -1572,8 +1561,7 @@ fn permissions_stated(
 /// # Why this is a report and not a verdict
 ///
 /// Both clauses state two steps in the same shape, and the first of each is the byte range digest
-/// that [`verdicts`] has recomputed since the three-hundred-and-seventy-seventh session. This is
-/// the second — §12.8.2.2.2's
+/// that [`verdicts`] recomputes (ADR 0215). This is the second — §12.8.2.2.2's
 ///
 /// > Next, it shall verify that any modifications that have been made to the document are
 /// > permitted by the transform parameters.
@@ -3068,9 +3056,8 @@ mod tests {
             "nothing in the crawl reaches the word: {said}"
         );
 
-        // **And with no anchor the report is the one this program has printed since the
-        // three-hundred-and-seventy-seventh session**, which is what makes the supply an input
-        // rather than a change of behaviour.
+        // **And with no anchor the report is the one this program prints without the supply**,
+        // which is what makes the supply an input rather than a change of behaviour.
         let quiet = about(&document, &crate::TrustPolicy::default()).join("\n");
         assert!(
             quiet.contains("no certificate store and makes no network request"),

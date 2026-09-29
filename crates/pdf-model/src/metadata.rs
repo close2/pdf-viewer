@@ -24,12 +24,6 @@
 //! discretion of the PDF processor how to use this data". So nothing here reconciles anything.
 //! What this answers with is the dictionary, said to be the dictionary; §12.2 is the one place
 //! the standard *ranks* the two, for the title alone, and `quorra.rs` obeys it there.
-//!
-//! **This paragraph said "reading it is an XML parser and therefore a dependency decision this
-//! tree has not taken" until the two-hundred-and-ninety-fourth session**, which took it. The
-//! sweep that found the sentence still standing is `doc/todo/01`'s fourth, run over the noun
-//! `XMP` in the same round that retired it — a correction leaves its neighbours lying even when
-//! the neighbour is one file away.
 
 use pdf_syntax::{Date, Dictionary, Document, Object};
 

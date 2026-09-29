@@ -22,10 +22,9 @@
 //! c) divide the 256 byte values into: a regular character inside `!`..`~`, the number sign, a
 //! character that is not regular, and a regular character above `~`.
 //!
-//! Until the six-hundred-and-seventeenth session §7.3.5's writing half was implemented once, for
-//! dictionary keys, and `pdf_model::variable_text` — which writes a font name into a content
-//! stream it constructs — could not reach it and wrote the name raw (ADR 0453). So the direction
-//! this file pins is the one that had no test at all.
+//! §7.3.5's writing half serves dictionary keys and `pdf_model::variable_text`, which writes a
+//! font name into a content stream it constructs (ADR 0453). This file pins that second
+//! direction.
 
 #![expect(
     clippy::panic,

@@ -3,8 +3,7 @@
 //!
 //! §10.7.4 says "[t]his ensures that no shape ever disappears", and `doc/todo/11` recorded two
 //! places where the CPU backend lost one anyway. Both were **that backend's alone** — the
-//! graphics device drew every one of them — and both were closed in the
-//! three-hundred-and-eighty-ninth session by ADR 0226:
+//! graphics device drew every one of them — and ADR 0226 closed both:
 //!
 //! 1. **A fill under an eighth of a device pixel thick vanished.** `tiny-skia` supersamples four
 //!    times per pixel row and takes each sub-row's sample at its centre, so a sliver *with* an
@@ -30,7 +29,7 @@
 //!   full mark would fight the anti-aliasing departure on ordinary thin shapes, and this section
 //!   is what says whether it does. It reads a step at the boundary if it ever starts to.
 //!
-//! **A fourth since the four-hundred-and-thirty-second, and it is the one ADR 0226 left open**: the
+//! **A fourth, and it is the one ADR 0226 left open**: the
 //! same sliver *turned*, as a fill and as a stroke, at seven angles and six thicknesses. A
 //! diagonal lies in no single row, so its answer is the ink over the whole raster against the
 //! band's own area — and that comparison is what found the defect ADR 0268 answers: `tiny-skia`'s
@@ -43,7 +42,7 @@
 //! hairline, so a 45° rule read 141.42 of its own 200 where the fill of the same outline reads
 //! 177.44.
 //!
-//! **A fifth and a sixth since the four-hundred-and-fifty-fifth**, and they are the marks whose
+//! **A fifth and a sixth**, and they are the marks whose
 //! area goes as the *square* of the width rather than with it: §8.4.3.3's two projecting caps, and
 //! §8.5.3.2's dot. A ladder of capped rules at two angles and a ladder of degenerate subpaths,
 //! each against the area Table 53 states for it. They are what found this instrument's two
@@ -52,8 +51,8 @@
 //! `doc/QUORRA_FEEDBACK.md` and were both answered at `87898c69`, so
 //! `tests/sub_pixel_coverage.rs` holds both backends to those rows now.
 //!
-//! **A seventh column since the five-hundred-and-eighty-fifth, and it is the one that decides
-//! rather than reports**: the dot ladder draws each width at *two placements*, on a device pixel's
+//! **A seventh column, and it is the one that decides rather than reports**: the dot ladder draws
+//! each width at *two placements*, on a device pixel's
 //! corner and on its centre. §10.7.4's own sentence about disappearance names placement, and the
 //! two rows are what say whether a mark was lost to an alpha the raster cannot hold or to an alpha
 //! it can, divided by where the grid fell. Before ADR 0420 they read 0.0000 and 0.0078 at 0.1 of a

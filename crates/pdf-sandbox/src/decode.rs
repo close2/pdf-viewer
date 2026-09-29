@@ -57,10 +57,10 @@ const MAX_PIXELS: u64 = 1 << 28;
 /// synthesised samples as `f32` beside them, two more buffers for the transform itself, and
 /// then an eight-bit interleaved copy.
 ///
-/// **This said "roughly five bytes per sample" and 2^27 until the three-hundred-and-ninety-sixth
-/// session, and the estimate was wrong by a factor of two in the direction that matters** — the
-/// bound exists to refuse cheaply *before* the address-space limit has to end the process the
-/// expensive way, and at 2^27 it admitted an image that ends it. Measured rather than estimated,
+/// **An estimate of roughly five bytes per sample and a bound of 2^27 is wrong by a factor of two
+/// in the direction that matters** (ADR 0233) — the bound exists to refuse cheaply *before* the
+/// address-space limit has to end the process the expensive way, and 2^27 admits an image that
+/// ends it. Measured rather than estimated,
 /// on codestreams built for the purpose and decoded through the same crate this worker uses:
 ///
 /// | codestream | samples | peak address space | inside [`crate::lockdown`]'s gigabyte |

@@ -4,8 +4,8 @@
 //! > to the device pixel grid, as might happen with other possible scan conversion rules.
 //!
 //! `pdf_render::collapsed` gives a subpath with *no* area the thinnest mark the device has (ADR
-//! 0154), and that is gated in `render-cpu`. What was measured and ungated until the
-//! three-hundred-and-eighty-ninth session is the case one step along: a shape that **has** an
+//! 0154), and that is gated in `render-cpu`. This file gates the case one step along (ADR
+//! 0226): a shape that **has** an
 //! area and is thinner than the rasteriser's coverage quantum. `tiny-skia` supersamples four
 //! times per pixel row and takes each sub-row's sample at its centre, so a sliver under an eighth
 //! of a pixel crossed no sample line and vanished — 0.05 and 0.1 user units of an 80-unit rule
@@ -13,9 +13,8 @@
 //! about the path, so one within half a pixel of the raster's edge lost the half of its smear
 //! that fell outside.
 //!
-//! **This file asserted nothing about the processor for that whole time, deliberately**: a gate
-//! on the behaviour above would have ratcheted a defect rather than a requirement. Since ADR 0226
-//! it asserts the same thing of both backends, which is what makes it a gate on the *clause*
+//! **A gate on the behaviour above would ratchet a defect rather than a requirement**, so this
+//! file asserts the same thing of both backends, which is what makes it a gate on the *clause*
 //! rather than on one library — and the number a backend is held to is the shape's own area, not
 //! the other backend's answer.
 //!
@@ -74,8 +73,8 @@ const TOLERANCE: f32 = 0.08;
 /// that knife edge the worst is 9.5%, at 0.05 of a pixel where an eight-bit raster has one level
 /// to spend.
 ///
-/// **The two thinnest rungs of that ladder were being flattered by a library bias, and the
-/// five-hundred-and-eighty-third session removed it** (ADR 0418). `tiny-skia` compiled the
+/// **The two thinnest rungs of that ladder are flattered by a library bias unless it is
+/// removed** (ADR 0418). `tiny-skia` compiled the
 /// low-precision raster pipeline for these draws, whose division by 255 rounds *up* twice per
 /// pixel, and the substitute of ADR 0268 carries a rule's given-up width in the paint's **alpha**
 /// — so the thinner the rule, the larger a share of its whole ink that upward bias was. It very
@@ -409,8 +408,7 @@ fn a_turned_sub_pixel_rule_carries_its_area_on_both_backends() {
 /// The last rung is five units wide — far above the quantum — and is the control: the construction
 /// must leave an ordinary stroke exactly where the stroker put it.
 ///
-/// **The round-cap rows gate both backends since the five-hundred-and-twelfth session**, which is
-/// the row this file had been holding against the processor only. The device used to draw no round
+/// **The round-cap rows gate both backends.** The device used to draw no round
 /// cap at all — the near cap was the *inward* half-disc wound against the body, cancelling the far
 /// one under the non-zero rule — and raster's `d594566` (taken at `87898c69`) builds the cap fan
 /// from the outward direction the stroker already has. Measured before flipping:
@@ -447,7 +445,7 @@ fn a_sub_pixel_rules_cap_carries_its_own_area() {
 /// [`a_dot_lands_in_one_pixel_at_every_width_and_every_placement`]'s, because down there the
 /// quantity a raster can be held to is a level rather than a fraction of the area.
 ///
-/// **Gates both backends since the five-hundred-and-twelfth session.** The device used to flatten
+/// **Gates both backends.** The device used to flatten
 /// a small circle into a polygon inscribed in it — the one-pixel dot read 0.5020 against `pi/4`,
 /// the inscribed *square* exactly — and raster's ADR 0044 (taken at `87898c69`) bounds a cubic's
 /// flattening by 1/32 of its own device extent, flooring a full turn at 16 chords, on §10.7.2's

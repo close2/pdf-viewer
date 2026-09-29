@@ -1,11 +1,10 @@
 //! The five answers that needed a handle of their own, and why each is the shape it is.
 //!
-//! **This module is the seven-hundred-and-ninth session's half of `doc/todo/30` item 5.** Eleven of
-//! [`viewer_core::Query`]'s variants reached no symbol at all; six of them fitted a shape this ABI
-//! already had — a panel's rows, a list of quadrilaterals, a string, a pair of numbers — and five
-//! did not. What is here is those five, and the argument for each shape sits on the type rather
-//! than in an ADR, because **a C entry point cannot change shape once a caller exists** and the
-//! reason has to be readable where the accessor is.
+//! **The queries whose answers fit no shape this ABI otherwise has** (`doc/todo/30` item 5,
+//! ADR 0576). Most of [`viewer_core::Query`]'s variants fit a panel's rows, a list of
+//! quadrilaterals, a string or a pair of numbers; five do not. What is here is those five, and the
+//! argument for each shape sits on the type rather than in an ADR, because **a C entry point cannot
+//! change shape once a caller exists** and the reason has to be readable where the accessor is.
 //!
 //! Everything here is **owned**, for [`crate::panels`]'s reason restated once: an
 //! [`viewer_core::Answer`] may borrow the viewer, a C caller holding that borrow while it calls
@@ -94,15 +93,13 @@ impl Matches {
 
 /// §12.3.4's thumbnail for one page, decoded.
 ///
-/// **One page's picture and nothing else, which is the whole design.** The
-/// seven-hundred-and-fourth session found `viewer-ui` building the entire list of miniatures the
-/// first time §12.3.4's panel was shown, and Table 29's `/PageMode /UseThumbs` opens that panel as
-/// the document opens — 121 ms of a 156 ms first present on a thousand-page document, which is
-/// `CLAUDE.md` section 2's forbidden thumbnail generation on the launch path reached by a road
-/// nobody had checked. [`viewer_core::Query::Thumbnail`] is shaped one page at a time so that a
-/// host can obey the rule, and **this ABI offers no other shape**: there is no
-/// `quorra_thumbnails_read`, deliberately, because a list-valued entry point is a loop a caller would
-/// not have to write.
+/// **One page's picture and nothing else, which is the whole design.** Building the entire list of
+/// miniatures the first time §12.3.4's panel is shown — and Table 29's `/PageMode /UseThumbs` opens
+/// that panel as the document opens — cost 121 ms of a 156 ms first present on a thousand-page
+/// document (ADR 0564), which is `CLAUDE.md` section 2's forbidden thumbnail generation on the
+/// launch path. [`viewer_core::Query::Thumbnail`] is shaped one page at a time so that a host can
+/// obey the rule, and **this ABI offers no other shape**: there is no `quorra_thumbnails_read`,
+/// deliberately, because a list-valued entry point is a loop a caller would not have to write.
 ///
 /// The pixels are copied into a buffer the caller owns, exactly as a frame is, for
 /// [`crate::abi`]'s reason: no pointer into this library's memory is handed out, so there is no
@@ -167,8 +164,7 @@ impl Miniature {
 /// **The one annotation subtype whose picture is not the page's.** The clause makes a popup "a
 /// window … for entry and editing" with "no appearance stream", so a host draws it as *chrome* in
 /// its platform's own window furniture — which is why this answers text, a rectangle and a colour
-/// rather than pixels, and why it is one of the two things the seven-hundred-and-fourth session
-/// named as reachable by no window but `viewer-ui`.
+/// rather than pixels (ADR 0613).
 ///
 /// A flat list with no page on it, which is the rule [`viewer_core::Query::Fields`] follows and
 /// ADR 0509 section 4 named: a quadrilateral already in the viewport's own device pixels needs no page,
@@ -550,11 +546,10 @@ impl Structure {
 
     /// How many lines of text the element's own content items drew.
     ///
-    /// **What a platform text interface is built on**, and the half of this answer that did not
-    /// cross until the seven-hundred-and-twenty-sixth session: `QUORRA_ELEMENT_NAME` is what the
-    /// element is *called* and this is what it *says*, with each character's place beside it, which
-    /// is what `org.a11y.atspi.Text`'s `GetCharacterExtents` and `GetOffsetAtPoint` need and what
-    /// no string can answer.
+    /// **What a platform text interface is built on**: `QUORRA_ELEMENT_NAME` is what the element is
+    /// *called* and this is what it *says*, with each character's place beside it, which is what
+    /// `org.a11y.atspi.Text`'s `GetCharacterExtents` and `GetOffsetAtPoint` need and what no string
+    /// can answer.
     ///
     /// Zero for an element stating §14.9.3's `/Alt` or §14.9.5's `/E` — the phrase substitutes for
     /// the whole element, which is what `quorra_structure_node`'s `substituted` also says — and for

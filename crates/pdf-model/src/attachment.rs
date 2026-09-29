@@ -27,10 +27,9 @@
 //! document as a whole through the `EmbeddedFiles` entry in the PDF file's name dictionary".
 //! [`attachments`] walks the second, which is a *list* a panel shows; [`of_annotation`] reads
 //! the first as §12.5.6.15's file attachment annotation states it, which is a file a person
-//! reaches by clicking the paperclip on the page. Until the four-hundred-and-sixtieth session
-//! nothing read the second route at all, so the corpus's one file attachment annotation — and
-//! the six in ISO 32000-2's own PDF — embedded files no part of this program could reach
-//! (ADR 0295).
+//! reaches by clicking the paperclip on the page. Without the second route the corpus's one file
+//! attachment annotation — and the six in ISO 32000-2's own PDF — would embed files no part of
+//! this program could reach (ADR 0295).
 //!
 //! # §14.13's associated files are the same specifications, reached from elsewhere
 //!
@@ -52,10 +51,9 @@
 //! **And an associated file has two forms rather than one.** §14.13.2: "[t]he file specification
 //! for an associated file represents either a file external to the PDF file or an embedded file
 //! stream … within the PDF file", with NOTE 1 recommending the second rather than requiring it.
-//! [`associated`] answers the recommended form and [`external_associated`] the other, which was
-//! read by nothing until the nine-hundred-and-thirty-ninth session — a specification with no `/EF`
-//! was skipped as "§7.11.1's refusal", and that refusal is about *following* a file rather than
-//! about naming one. ADR 0918.
+//! [`associated`] answers the recommended form and [`external_associated`] the other: a
+//! specification with no `/EF` is still read, because §7.11.1's refusal is about *following* a
+//! file rather than about naming one. ADR 0918.
 //!
 //! `witness_census --pdfjs AF` counts the documents that state one, and
 //! `associated_file_census` splits them by form; each site's own share is in that subclause's
@@ -89,19 +87,18 @@ pub struct Attachment {
     /// the name dictionary filed it under. So the tree's key is a name and not necessarily a file
     /// name, which is why [`Self::file_name`] is a separate answer.
     ///
-    /// **Both halves are prose and the second stopped being a quotation in the
-    /// seven-hundred-and-fiftieth session.** The NOTE prints *name string*, and Errata Collection
-    /// 3's Issue #214 (`/State` `Review` `Completed`) replaces that term with *string* wherever
-    /// ISO 32000-2:2020 states it — one `Text` note carrying the instruction and a handful of
-    /// illustrative strikes, five of them on §7.7.4's own Table 32. Nothing is struck at this
+    /// **Both halves are prose rather than quotation.** The NOTE prints *name string*, and Errata
+    /// Collection 3's Issue #214 (`/State` `Review` `Completed`) replaces that term with *string*
+    /// wherever ISO 32000-2:2020 states it — one `Text` note carrying the instruction and a handful
+    /// of illustrative strikes, five of them on §7.7.4's own Table 32. Nothing is struck at this
     /// clause, so `doc/md/` keeps the published wording and no sweep can reach a quotation of it;
     /// what the key *is* does not move under either printing.
     ///
-    /// The first half was a quotation — "shall map name strings to file specifications" — until
-    /// the four-hundred-and-eighteenth session. Errata Collection 3 replaces the two bullets it
-    /// came from outright (Issue #481, `/State` `Review` `Completed`), and the replacement says
-    /// the same thing about this tree while adding §7.11.2's `/RF` beside `/EF` as the second
-    /// place an embedded file stream may be specified. Nothing here changes: the tree is walked
+    /// The first half's source sentence — "shall map name strings to file specifications" — is one
+    /// Errata Collection 3 replaces outright, with the two bullets it came from (Issue #481,
+    /// `/State` `Review` `Completed`, ADR 0254), and the replacement says the same thing about
+    /// this tree while adding §7.11.2's `/RF` beside `/EF` as the second place an embedded file
+    /// stream may be specified. Nothing here changes: the tree is walked
     /// for its keys either way.
     pub name: String,
     /// Table 43's `/UF`, or `/F` where the file states no Unicode form.
@@ -121,8 +118,7 @@ pub struct Attachment {
     /// undone by the time this is read, leaving the media type.
     ///
     /// **Errata Collection 3 narrows what a producer may put here** (Issue #155, `/State`
-    /// `Review` `Completed`), and this comment quoted the retired half until the
-    /// four-hundred-and-eighteenth session: "the MIME media type names defined in Internet RFC
+    /// `Review` `Completed`, ADR 0254): "the MIME media type names defined in Internet RFC
     /// 2046, with the provision that characters not permitted in names" becomes a subset of
     /// RFC 2046 section 2 — the top-level type and its description separated by a solidus, with no
     /// `;`, `=`, `#`, parameters or sub-parameters. Every requirement in it is on the writer,
@@ -1280,8 +1276,7 @@ mod tests {
     }
     /// An attachment carries Table 43's `/Thumb` and its `/EP`, listed beside its name.
     ///
-    /// Both entries were unread until the eleven-hundred-and-forty-ninth session, and they are
-    /// one fixture because they sit on one dictionary and answer the same question: what a
+    /// They are one fixture because they sit on one dictionary and answer the same question: what a
     /// person's attachment list can say about a file this program will not open. The thumbnail
     /// is kept **undecoded** — `attachments` walks a name tree and inflating an image per entry
     /// would put a decode on a path that wanted names — and the payload is read only far enough

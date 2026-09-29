@@ -3,8 +3,8 @@
 //! The instrument behind `doc/todo/10`'s three bounds. Each of them is a number that refuses a
 //! document, and each was set before anybody had measured the quantity it names:
 //!
-//! - **`MAX_OPERATIONS`** says "operators" and counted lexer *tokens* until the
-//!   four-hundred-and-seventy-first session. This census prints both, per page, so the ratio
+//! - **`MAX_OPERATIONS`** says "operators" and counts operators rather than lexer *tokens*
+//!   (ADR 0306). This census prints both, per page, so the ratio
 //!   between them is a measurement rather than an estimate — and it is not a constant: it is
 //!   about 2 for text and about 7 for cubic Bézier artwork.
 //! - **`Limits::max_stream_len`** bounds one stream's decoded data. This prints the largest one
@@ -102,7 +102,7 @@ impl Tally {
     }
 }
 
-/// Which power-of-two-hundred-and-fifty-six decade a byte count lands in, capped.
+/// Which bucket a byte count lands in — one kibibyte, then each four times the last — capped.
 fn decade(bytes: u64) -> usize {
     let mut index = 0;
     let mut edge = 1024u64;

@@ -9,18 +9,16 @@
 //!
 //! # What this is, and who reads it
 //!
-//! `pdf-model` has read §14.7's structure tree since the seventy-eighth session and §14.9's
-//! `/Alt`, `/E`, `/Lang` and `/ActualText` since the sixtieth, and this file was the first
-//! consumer of either. What crosses is toolkit-free by construction — a role name, a string to
+//! `pdf-model` reads §14.7's structure tree and §14.9's `/Alt`, `/E`, `/Lang` and
+//! `/ActualText`, and this file is where either reaches a host. What crosses is toolkit-free by
+//! construction — a role name, a string to
 //! speak, a language tag and the quadrilaterals the element covers, in the same device pixels
 //! [`crate::Query::Selection`] answers in — so a host builds `AccessKit`'s nodes, AT-SPI's, or
 //! `NSAccessibility`'s from it without this crate naming any of them.
 //!
-//! **`viewer-accessibility` is that host since the three-hundred-and-seventy-sixth session**, and
-//! the sentence this comment used to carry — "until now nothing in this program handed a
-//! structure tree to anybody" — is what it retired. Two things this answer owes it are stated
-//! below and were both wrong until that round: the role is mapped through §14.7.3's `/RoleMap`,
-//! and an element's name is its own text rather than its subtree's. ADR 0214.
+//! **`viewer-accessibility` is that host.** Two things this answer owes it are stated below: the
+//! role is mapped through §14.7.3's `/RoleMap`, and an element's name is its own text rather than
+//! its subtree's. ADR 0214.
 //!
 //! # The order the nodes are in
 //!
@@ -34,10 +32,9 @@
 //! A structure tree spans the whole document; this answers for one page. An element is kept when
 //! it, or something below it, names a content item on the page being asked about — Table 355's
 //! `/Pg` and Table 358's, through §14.7.5.2's marked-content sequences and §14.7.5.3's object
-//! references. Everything else belongs to another page and is not answered with, which is what
-//! ADR 0134 said this did and what the three-hundred-and-seventy-sixth session found it did not:
-//! a thousand-page document handed a screen reader every element in the file, with text and
-//! quadrilaterals on none but one page's.
+//! references. Everything else belongs to another page and is not answered with (ADRs 0134 and
+//! 0214): otherwise a thousand-page document hands a screen reader every element in the file,
+//! with text and quadrilaterals on none but one page's.
 //!
 //! # How the page's elements are *found*, which is not the same question
 //!
@@ -164,6 +161,11 @@ pub struct AccessibilityNode {
     /// accessibility tree takes: text belongs to the node that carries it, and a container whose
     /// name repeated its children's would be read twice. Where the element states a substitution
     /// there is nothing to repeat, and [`Self::substituted`] says which of the two this is.
+    ///
+    /// **A `Form` element with no text of its own is named rather than left empty** (ADR 1394):
+    /// by Table 355's `/T`, the title the producer gave the element, else by the field its
+    /// widget annotation belongs to — Table 226's `/TU`, else §12.7.4.2's fully qualified name,
+    /// which is [`pdf_model::view::FieldName::shown`]'s order and §14.9.3's `shall`.
     pub name: String,
     /// Whether [`Self::name`] **replaces** what is below this element, or merely names it.
     ///
@@ -397,8 +399,8 @@ pub struct AccessibilityNode {
     ///
     /// §14.8.4.7.2's `Form` is the structure type this exists for. Table 368 makes it one that
     /// "[e]ncloses a PDF widget annotation and associated content, if any" — Errata Collection 3's
-    /// Issue #437, which strikes the *association* wording this comment quoted until the
-    /// five-hundred-and-ninetieth session — and requires one per widget: "[i]n a tagged PDF, Form
+    /// Issue #437, which strikes the *association* wording (ADR 0425) — and requires one per
+    /// widget: "[i]n a tagged PDF, Form
     /// shall be used for each PDF widget annotation that belongs to the real content of the
     /// document". So a `Form` is a *control*, and a host that announced it as a group would tell a
     /// person there is a box on the page without saying it is a check box, what it is called, or
@@ -673,6 +675,9 @@ pub(crate) struct Gathered {
     pub(crate) objects: Vec<ObjectId>,
     /// §14.9.3's `/Alt` or §14.9.5's `/E`, where the element itself states one.
     pub(crate) phrase: Option<String>,
+    /// Table 355's `/T` for a `Form` element, where it states one — a name for an element whose
+    /// content is a widget and so has no text of its own to be named by (ADR 1394).
+    pub(crate) title: Option<String>,
     /// §14.9.2's `/Lang`, where the element itself states one.
     pub(crate) language: Option<String>,
     /// Table 384's `/Scope` for a `TH`, stated or assumed.
@@ -1009,6 +1014,12 @@ fn walk(
                 let short = (kind == Some(StandardType::TableHeader))
                     .then(|| tree.header_short(document, &dict))
                     .flatten();
+                // Table 355's `/T`, read only where §14.8.4.7.2's `Form` makes the element's
+                // content a widget annotation, which is the one type whose own content items can
+                // leave it with nothing to be called (ADR 1394).
+                let title = (kind == Some(StandardType::Form))
+                    .then(|| text_entry(document, &dict, "T"))
+                    .flatten();
                 let continues_a_list =
                     list_entry(document, tree, &dict, kind.as_ref(), depth, index, lists);
                 // Inside a table the pruning stops, for the reason this function's own comment
@@ -1026,6 +1037,7 @@ fn walk(
                         on_page: false,
                         objects: Vec::new(),
                         phrase,
+                        title,
                         language: language.clone(),
                         header_scope,
                         cell,
@@ -1267,6 +1279,9 @@ pub(crate) struct Readback<'a> {
     pub(crate) languages: &'a BTreeMap<ObjectId, String>,
     /// §12.7's control for each widget annotation of a field with a widget on this page.
     pub(crate) controls: &'a BTreeMap<ObjectId, pdf_model::form::Control>,
+    /// The name §14.9.3 says a user interface shows for each such widget's field: Table 226's
+    /// `/TU`, else §12.7.4.2's fully qualified name.
+    pub(crate) fields: &'a BTreeMap<ObjectId, String>,
 }
 
 /// Turns a gathered element into what crosses the boundary.
@@ -1285,6 +1300,25 @@ pub(crate) fn finish(
         // The element's own content items, not its descendants': see `AccessibilityNode::name`.
         spoken(page.text, page.described, &own)
     });
+    // **A `Form` element whose own content is a widget alone has no text to be called by**, and
+    // the producer and the field each name it (ADR 1394). The element's `/T` first, because
+    // Table 355 makes it "a text string representing it in human-readable form" and it is stated
+    // on the element itself; then the field, because §14.9.3 makes `/TU` the name "used in place
+    // of the actual field name when an interactive PDF processor identifies the field in a
+    // user-interface", and a node on this bus is such a place.
+    let name = if name.trim().is_empty() && !substituted {
+        gathered
+            .title
+            .or_else(|| {
+                gathered
+                    .objects
+                    .iter()
+                    .find_map(|object| page.fields.get(object).cloned())
+            })
+            .unwrap_or(name)
+    } else {
+        name
+    };
     // Nothing to move a caret through where the element has said what to say instead of its
     // content: see `AccessibilityNode::lines`.
     let caret = if substituted { Vec::new() } else { lines(&own) };

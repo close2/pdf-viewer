@@ -955,23 +955,23 @@ const JPEG2000_DEVICE_COLOUR_IS_DELEGATED: &str = "delegated, and the delegation
      report those same failures under a clause number that adds nothing to them. What the \
      sentence adds beyond them is its second route, which is the row beside this one";
 
-/// Why the second half of the device-colour sentence is not checked.
+/// Why the second half of the device-colour sentence is delegated too.
 ///
-/// The reading is available: ITU-T T.801, the extensions part's identical text, is held (ADR
-/// 1383), and its T.801 Table M.25 defines CMY (11) and CMYK (12) as ink coverages for a printing
-/// device, where sRGB (16), its greyscale (17) and the other baseline codes name calibrated
-/// definitions. ISO 32000-2 §7.4.9's fallback makes a third route: an image whose data states no
-/// colour space a processor supports is drawn in `DeviceGray`, `DeviceRGB` or `DeviceCMYK` by its
-/// channel count. What is missing is the build: `crate::survey` records the `ColorSpace` of every
-/// image a content stream draws, and an image stating none is recorded as nothing, so the six
-/// section 6.2.4.3 rows never see the device space its codestream implies.
-const JPEG2000_DEVICE_COLOUR_IN_THE_CODESTREAM: &str = "not built: the reading is available and the \
-     survey does not reach it. ITU-T T.801, held since ADR 1383, defines enumerated CMY (11) and \
-     CMYK (12) as ink coverages for a printing device and the other baseline codes as calibrated \
-     spaces, and ISO 32000-2 §7.4.9 draws an image whose data states no supported colour space in \
-     the device space of its channel count. `crate::survey` records a drawn image's ColorSpace \
-     entry and records nothing for an image that states none, so the section 6.2.4.3 rows cannot \
-     judge the device space such a codestream implies until the survey records it";
+/// The second route is the colour space the JPEG 2000 data defines where the image states no
+/// `ColorSpace`, and *effectively* is read from two texts (ADR 1399): ITU-T T.801 Table M.25
+/// defines enumerated CMYK (12) as ink coverages for a printing device, and ISO 32000-2 §7.4.9
+/// draws data stating no colour space a processor is obliged to support in `DeviceGray`,
+/// `DeviceRGB` or `DeviceCMYK` by its channel count. `crate::survey` now records that device space
+/// for every such image a content stream draws, beside the entries it records, so the six
+/// section 6.2.4.3 rows judge it as they judge the first route — and a predicate here would report
+/// their failures again.
+const JPEG2000_DEVICE_COLOUR_IN_THE_CODESTREAM: &str = "delegated: an image that states no \
+     ColorSpace and whose JPEG 2000 data effectively defines a device space — enumerated CMYK, \
+     which ITU-T T.801 Table M.25 defines as device ink coverages, or no colour specification a \
+     processor is obliged to support, which ISO 32000-2 §7.4.9 draws in the device space of its \
+     channel count — is recorded by `crate::survey` as a use of that device space, and the six \
+     section 6.2.4.3 rows judge it. The survey's limits are theirs: an image on no page is not \
+     drawn and so not recorded, and a soft mask's image is not descended into";
 
 /// How deep into one cross-referenced object's own structure the walk below goes.
 ///
@@ -4051,7 +4051,12 @@ fn jpx_colour_is_baseline(colour: &ColourSpecification<'_>) -> bool {
 ///   it has one, and the JP2 Header box's otherwise, which is T.801 M.11.7's own default.
 /// - M.9.2.5 and M.9.2.6: every fragment a Fragment List box names is in this file and they are
 ///   listed in the order they occur in it.
-/// - M.9.2.7: the JP2 Header box precedes every codestream and every header or media box.
+/// - M.9.2.6's last requirement: every fragment a Cross-Reference box of the first layer's two
+///   header boxes names lies wholly before the first codestream's data — before its Contiguous
+///   Codestream box, or before the Media Data box holding its Fragment Table's first fragment.
+/// - M.9.2.7: the JP2 Header box precedes every codestream and every header or media box, and no
+///   box of a type the JP2 Header box holds is found within the first Compositing Layer Header
+///   box or the first Codestream Header box.
 ///
 /// And the subclauses' first and last sentences — JPEG 2000 used as ISO 32000 specifies it,
 /// created and read as the extensions part describes — are asked as far as this crate reads
@@ -4064,9 +4069,14 @@ fn jpx_colour_is_baseline(colour: &ColourSpecification<'_>) -> bool {
 /// M.9.2's `jpxb` compatibility code is a file's declaration that a baseline reader can open it,
 /// not a feature it uses, and a JP2 file — which §7.4.9 NOTE 5 calls a subset of the baseline —
 /// never states it; the subclauses bind the features used. M.9.2.8 and M.9.2.9's first sentence
-/// bind a reader. M.9.2.6's last requirement — that a cross-referenced fragment precede the
-/// codestream's own data — and M.9.2.7's second sentence, about which boxes of the JP2 Header
-/// box a layer's header may repeat, are not read (ADR 1383 names both).
+/// bind a reader.
+///
+/// Two readings are decisions (ADR 1399). M.9.2.7's second sentence is read by box *type*: the
+/// boxes the file's JP2 Header box holds are the ones its first layer's headers shall not hold
+/// again, whether directly, inside a Colour Group box, or through a Cross-Reference box naming
+/// that type. And M.9.2.6's cross-references are those of the first Codestream Header box and
+/// the first Compositing Layer Header box, the two M.11.6 and M.11.7 associate with the first
+/// layer; a fragment lies before the codestream only if all of it does.
 fn jpeg2000_uses_the_baseline_feature_set(exam: &Examination<'_>, findings: &mut Findings) {
     for_each_jpeg2000_reading(exam, |id, reading| {
         let headers = match reading {
@@ -4089,6 +4099,8 @@ fn jpeg2000_uses_the_baseline_feature_set(exam: &Examination<'_>, findings: &mut
         }
         jpx_compression_and_order(id, headers, findings);
         jpx_first_layer(id, headers, findings);
+        jpx_cross_references_precede_the_codestream(id, headers, findings);
+        jpx_first_layer_repeats_no_header_box(id, headers, findings);
         if let Some(codestream) = &headers.codestream {
             jpx_codestream_extensions(id, codestream, findings);
         }
@@ -4157,6 +4169,111 @@ fn jpx_compression_and_order(id: ObjectId, headers: &Headers<'_>, findings: &mut
              which ITU-T T.801 M.9.2.7 forbids",
         ),
         _ => {}
+    }
+}
+
+/// T.801 M.9.2.6's last requirement: the first layer's cross-referenced fragments lie before the
+/// data of the codestream that layer uses.
+///
+/// The codestream is the file's first (M.9.2.2), which M.11.6 numbers among Contiguous
+/// Codestream and Fragment Table boxes alike. Where it is a Contiguous Codestream box, its start
+/// is the bound; where it is a Fragment Table box, the bound is the start of the Media Data box
+/// holding that table's first fragment, or the fragment itself where no top-level Media Data box
+/// holds it. A fragment in another file is reported by the caller and not measured here.
+fn jpx_cross_references_precede_the_codestream(
+    id: ObjectId,
+    headers: &Headers<'_>,
+    findings: &mut Findings,
+) {
+    let Some(codestream) = headers
+        .top_level
+        .iter()
+        .position(|kind| kind == b"jp2c" || kind == b"ftbl")
+    else {
+        return;
+    };
+    let bound = if headers.top_level[codestream] == *b"jp2c" {
+        headers
+            .top_level_spans
+            .get(codestream)
+            .map(|span| span.start)
+    } else {
+        headers
+            .fragment_lists
+            .iter()
+            .find(|list| list.container == *b"ftbl" && list.box_index == codestream)
+            .and_then(|list| list.fragments.first())
+            .and_then(|first| usize::try_from(first.offset).ok())
+            .map(|offset| {
+                headers
+                    .top_level
+                    .iter()
+                    .zip(&headers.top_level_spans)
+                    .find(|(kind, span)| **kind == *b"mdat" && span.contains(&offset))
+                    .map_or(offset, |(_, span)| span.start)
+            })
+    };
+    let Some(bound) = bound.and_then(|bound| u64::try_from(bound).ok()) else {
+        return;
+    };
+    let first_of = |kind: &[u8; 4]| headers.top_level.iter().position(|each| each == kind);
+    let associated = [first_of(b"jpch"), first_of(b"jplh")];
+    let late = headers
+        .fragment_lists
+        .iter()
+        .filter(|list| list.container == *b"cref" && associated.contains(&Some(list.box_index)))
+        .flat_map(|list| &list.fragments)
+        .filter(|fragment| fragment.reference == 0)
+        .any(|fragment| fragment.offset.saturating_add(u64::from(fragment.length)) > bound);
+    if late {
+        findings.record(
+            jpeg2000_site(id),
+            "a Cross-Reference box the first compositing layer depends on names a fragment that              is not wholly before the data of the codestream that layer uses, where ITU-T T.801              M.9.2.6 requires every such fragment to come first",
+        );
+    }
+}
+
+/// T.801 M.9.2.7's second sentence: the first layer's header boxes hold no box of a type the JP2
+/// Header box holds.
+fn jpx_first_layer_repeats_no_header_box(
+    id: ObjectId,
+    headers: &Headers<'_>,
+    findings: &mut Findings,
+) {
+    let holders = [
+        (
+            "Compositing Layer Header",
+            headers.first_layer.as_ref().map(|layer| &layer.contents),
+        ),
+        (
+            "Codestream Header",
+            headers.first_codestream_header.as_ref(),
+        ),
+    ];
+    for (holder, contents) in holders {
+        let Some(contents) = contents else {
+            continue;
+        };
+        let mut repeated: Vec<String> = Vec::new();
+        for kind in headers
+            .jp2_header_contents
+            .iter()
+            .filter(|kind| contents.contains(kind))
+        {
+            let name = String::from_utf8_lossy(kind).into_owned();
+            if !repeated.contains(&name) {
+                repeated.push(name);
+            }
+        }
+        if !repeated.is_empty() {
+            findings.record(
+                jpeg2000_site(id),
+                format!(
+                    "the first {holder} box holds a box of a type the JP2 Header box also holds                      ({}), where ITU-T T.801 M.9.2.7 applies the JP2 Header box's own to the                      first codestream and keeps them out of the first compositing layer's header                      boxes",
+                    repeated.join(", ")
+                ),
+            );
+        }
     }
 }
 

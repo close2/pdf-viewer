@@ -1,8 +1,8 @@
 //! What `image::RasterCache`'s key claims, one test per thing it claims.
 //!
-//! ISO 32000-2 §8.9.5's image `XObject` is decoded at every `Do`, and a page that draws one
-//! thirty-six times decoded it thirty-six times until the five-hundred-and-thirty-ninth session
-//! (ADRs 0373, 0374). A cache of the decoded raster is the fix, and **a cache's key is a claim**:
+//! ISO 32000-2 §8.9.5's image `XObject` is decoded at every `Do`, so a page that draws one
+//! thirty-six times would decode it thirty-six times (ADRs 0373, 0374). A cache of the decoded
+//! raster is the answer, and **a cache's key is a claim**:
 //! it says that two `Do`s the key cannot tell apart would have produced the same samples.
 //!
 //! `image::decode_parts` reads five things, and this file is one test per input the claim has to

@@ -2,14 +2,13 @@
 //!
 //! # Why this is a type and not a `String`
 //!
-//! [`Command::Open`]'s password was an `Option<String>` until the six-hundred-and-ninety-fifth
-//! session, and [`Command`] derives [`Debug`]. Two of the three windowed hosts trace a command by
-//! writing `format!("{command:?}")` into their launch log, so what stood between a reader's
-//! password and a file on disk was the *field order* of a struct variant — `bytes` is declared
-//! before `password` and a `Vec<u8>`'s `Debug` is about five characters a byte, so the hosts' own
-//! 120-character truncation happened to cut the line before the secret. That is an accident, and
-//! an accident is not a security property: a variant reordered, a truncation widened or a document
-//! of twenty bytes would each have undone it silently.
+//! [`Command`] derives [`Debug`], and two of the three windowed hosts trace a command by writing
+//! `format!("{command:?}")` into their launch log. With [`Command::Open`]'s password an
+//! `Option<String>`, what would stand between a reader's password and a file on disk is the
+//! *field order* of a struct variant and the hosts' own 120-character truncation happening to cut
+//! the line before the secret. That is an accident, and an accident is not a security property: a
+//! variant reordered, a truncation widened or a document of twenty bytes would each undo it
+//! silently (ADR 0545).
 //!
 //! So the password is its own type, and the type is what carries the three obligations:
 //!

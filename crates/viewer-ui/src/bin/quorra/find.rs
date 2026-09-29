@@ -107,15 +107,14 @@ impl App {
                 );
             }
         }
-        // **Not on every step**, and the interval is measured rather than chosen. A redraw here
-        // is a whole window presented, and under `Xvfb` with lavapipe that is about 13 ms — so
+        // **Not on every step**, and the interval is measured rather than chosen. A redraw here is
+        // a whole window presented, and under `Xvfb` with lavapipe that is about 13 ms — so
         // repainting once per page made a 1023-page sweep **19.25 s** of presenting a bar whose
-        // text changes by one digit (ADR 0250). This was once every 16 *steps* until the
-        // four-hundred-and-twentieth session gave `viewer-core` a readback cache and a step
-        // stopped costing 5.7 ms: a repeated sweep of ISO 32000-2 is 7.27 ms of searching, and
-        // 64 presents of a progress count made it **0.51 s** in the window. A step count is a
-        // proxy for time that was calibrated against one step cost; the clock is the thing it was
-        // a proxy for, and it costs the same on a cold sweep and nothing on a warm one (ADR 0256).
+        // text changes by one digit (ADR 0250). A step count would be a proxy for time calibrated
+        // against one step cost, and `viewer-core`'s readback cache changes that cost: a repeated
+        // sweep of ISO 32000-2 is 7.27 ms of searching, and 64 presents of a progress count make it
+        // **0.51 s** in the window; the clock is the thing it was a proxy for, and it costs the
+        // same on a cold sweep and nothing on a warm one (ADR 0256).
         let due = self
             .searched_at
             .is_none_or(|last| last.elapsed() >= SEARCH_PROGRESS);

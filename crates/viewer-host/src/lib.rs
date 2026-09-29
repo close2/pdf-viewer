@@ -2,18 +2,16 @@
 //!
 //! # Why this crate exists, and what discovered it
 //!
-//! `crates/viewer-gtk` was written in the four-hundred-and-eighth session as eight modules, and
-//! four of them named no GTK type at all: the three panel answers turned into one row shape, a
-//! §12.7 field decided into the control it is, §12.7.6.4's file policy, and a launch timeline.
-//! They were kept toolkit-free deliberately — it is the only part of a native host a workspace
-//! test suite can see without a display — but nothing said whether that was a fact about GTK or a
-//! fact about *hosts*.
+//! What a native host decides without naming a toolkit type lives here: the three panel answers
+//! turned into one row shape, a §12.7 field decided into the control it is, §12.7.6.4's file
+//! policy, and a launch timeline (ADR 0244). Toolkit-free is deliberate — it is the only part of a
+//! native host a workspace test suite can see without a display — and it is a fact about *hosts*
+//! rather than about GTK.
 //!
-//! The four-hundred-and-tenth session answered it by writing the second host. `crates/viewer-qt`
-//! is Qt 6 through a C++ bridge: a different widget model, a different ownership model, a
-//! different language on the far side — and it wanted all four modules unchanged. So they are
-//! here, depended on by both hosts and by neither toolkit, and `viewer-gtk`'s public interface is
-//! now `Host` and `HostError` and nothing else.
+//! The second host is the evidence (ADR 0246). `crates/viewer-qt` is Qt 6 through a C++ bridge: a
+//! different widget model, a different ownership model, a different language on the far side — and
+//! it wants the same modules unchanged. So they are here, depended on by both hosts and by neither
+//! toolkit, and `viewer-gtk`'s public interface is `Host` and `HostError` and nothing else.
 //!
 //! **This is not [`viewer_core`]'s work and deliberately not in it.** That crate is a
 //! *vocabulary* — `Command` in, `Event` out, `Query` → `Answer` beside them — and a mapping from
@@ -86,20 +84,18 @@
 //!   draws, the two scopes it edits, and the question the *ask* level puts. The levels are one
 //!   clause's and the widget is a toolkit's; 48 menu entries written three times would be three
 //!   answers to every question about wording, order and what a tick means (ADR 1145).
-//! - [`policy`] — §12.7.6.4's import-data file, under the narrowest policy that still performs
-//!   the action, and §O.2.1's embedded file, which a URI may name and a person may not have.
-//!   `viewer_core`'s rule 2 is that the crate has no filesystem, so this is where that rule
-//!   reaches a person. **And [`IGNORE_RESTRICTIONS`] with [`refused`] beside it**, which is
-//!   `CLAUDE.md`'s "it shall always be possible to turn them off" as one word and one sentence:
-//!   all three windows wrote the sentence for themselves and two of them named a flag their own
-//!   argument parser rejected.
+//! - [`policy`] — §12.7.6.4's import-data file, under the narrowest policy that still performs the
+//!   action, and §O.2.1's embedded file, which a URI may name and a person may not have.
+//!   `viewer_core`'s rule 2 is that the crate has no filesystem, so this is where that rule reaches
+//!   a person. **And [`IGNORE_RESTRICTIONS`] with [`refused`] beside it**, which is `CLAUDE.md`'s
+//!   "it shall always be possible to turn them off" as one word and one sentence, so that no window
+//!   names a flag its own argument parser rejects (ADR 0604).
 //! - [`status`] — what the pages on the screen could not draw, worded for a status bar, the two
 //!   sentences a window says when there is no document to draw at all, and the three a window says
-//!   about a draw that is taking too long to wait for. One wording, three widgets:
-//!   `Query::Reports` answers per page since Table 29's arrangements were obeyed, and a note that
-//!   did not say which page it was about would be a note about one of four. The other two are
-//!   `Event::OpenFailed` and a document with no pages, which `viewer-ui` answered with
-//!   `std::process::exit(1)` until the seven-hundred-and-fourth session.
+//!   about a draw that is taking too long to wait for. One wording, three widgets: `Query::Reports`
+//!   answers per page since Table 29's arrangements were obeyed, and a note that did not say which
+//!   page it was about would be a note about one of four. The other two are `Event::OpenFailed` and
+//!   a document with no pages, which no window answers by leaving the process (ADR 0564).
 //! - [`popup`] — §12.5.6.14's window: the title bar's two texts, the body, and the upright box it
 //!   occupies. The clause gives a popup *no appearance stream*, so the window is furniture rather
 //!   than ink and a host draws it — which two of the three did not, until they were made to.

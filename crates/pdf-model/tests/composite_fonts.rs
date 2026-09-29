@@ -2,9 +2,9 @@
 //!
 //! # Why this file exists
 //!
-//! Until the twentieth session a Type 0 font worked only under `Identity-H` with an identity
-//! `/CIDToGIDMap`: an embedded `CMap` stream was refused (14 corpus fonts) and so was any
-//! other `/CIDToGIDMap` (41 more). §9.7 is two independent mappings — codes to CIDs
+//! A Type 0 font is not only `Identity-H` with an identity `/CIDToGIDMap`: 14 corpus fonts embed
+//! a `CMap` stream and 41 more state another `/CIDToGIDMap` (ADR 0029). §9.7 is two independent
+//! mappings — codes to CIDs
 //! (§9.7.6.2) and CIDs to glyph indices (§9.7.4.2) — and the Identity case is the one where
 //! both are the identity and neither has to be read.
 //!
@@ -47,7 +47,7 @@ use pdf_syntax::{Dictionary, Document, Object};
 ///
 /// `None` means that and nothing else: a document that is present but does not carry what a
 /// test is about is a panic, because a fixture that cannot exercise the rule is a test that
-/// passes by doing nothing — which the twelfth session shipped twice.
+/// passes by doing nothing.
 fn corpus_document(name: &str) -> Option<Document> {
     let path: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../doc/pdf.js/test/pdfs")
@@ -295,9 +295,8 @@ fn the_cid_widths_agree_with_the_font_programs_own_advances() {
 
 /// A predefined `CMap` is resolved from the data this binary carries, on a real document.
 ///
-/// **This test used to assert the opposite.** §9.7.5.2 makes these names *data* rather than an
-/// algorithm, the data was not in the tree, and the refusal was what there was to pin. It is in
-/// the tree since the hundred-and-fifty-sixth session, so the same fixture now pins the
+/// §9.7.5.2 makes these names *data* rather than an algorithm, and the data is in the tree
+/// (ADR 0140), so the fixture pins the
 /// mapping: `90ms_rksj_h_sample.pdf` shows Shift-JIS text through Microsoft Code Page 932, and
 /// what says the `CMap` was really consulted is that a *two-byte* code comes back — an
 /// unconsulted `CMap` would take the same bytes one at a time.
@@ -557,11 +556,9 @@ fn an_identity_h_fonts_partial_to_unicode_is_completed_by_the_program() {
     assert_eq!(text.trim(), "Honors Research Project");
 }
 
-/// The same clause on the pdf.js corpus, where it had been costing two documents in silence.
+/// The same clause on the pdf.js corpus, where missing it costs two documents in silence.
 ///
-/// `issue16553.pdf` is an Okular signature appearance in an `Identity-H` Noto subset; it sat on
-/// `text_extraction.rs`'s named list for 357 sessions as "partial for reasons nobody has
-/// diagnosed further".
+/// `issue16553.pdf` is an Okular signature appearance in an `Identity-H` Noto subset.
 #[test]
 fn an_identity_h_signature_appearance_reads_back_its_name() {
     let Some(document) = corpus_document("issue16553.pdf") else {
@@ -602,9 +599,8 @@ fn a_two_byte_code_is_not_read_as_a_character_when_nothing_names_it() {
 /// `CMap`."
 /// The sentence naming it is rewritten by Errata Collection 3's Issue #462 (`/State` `Review`
 /// `Completed`), which strikes the clause's pointer at Table 118 and inserts a table of the
-/// `/ToUnicode` stream's own entries; this comment quoted the struck half as a blockquote until
-/// the five-hundred-and-ninety-first session. The entry is the same under both readings, which is
-/// what this test holds.
+/// `/ToUnicode` stream's own entries. The entry is the same under both readings, which is what
+/// this test holds.
 ///
 /// `issue5010.pdf` is that shape and states the relationship the *other* way §9.7.5.4 a) allows
 /// it to be written — `/Adobe-Korea1-UCS2 usecmap` inside the file, with no `/UseCMap` in the

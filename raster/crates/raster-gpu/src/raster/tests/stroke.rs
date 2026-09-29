@@ -15,8 +15,7 @@
 
 use raster_scene::{LineCap, LineJoin, Point, Segment, Stroke};
 
-use crate::raster::flatten::Ends;
-use crate::raster::{Polyline, Rule, fill_mask, flatten, stroke_polylines};
+use crate::raster::{Polyline, Rule, fill_mask, flatten, flatten_stroke, stroke_polylines};
 
 use super::{IDENTITY, cov, rect_path};
 
@@ -35,7 +34,7 @@ fn butt_stroke_of_a_horizontal_line_is_a_rectangle() {
         join: LineJoin::Miter,
         miter_limit: 10.0,
     };
-    let stroked = stroke_polylines(&flatten(&line, IDENTITY), stroke, stroke.width);
+    let stroked = stroke_polylines(&flatten_stroke(&line, IDENTITY), stroke, stroke.width);
     let a = fill_mask(&stroked, Rule::NonZero, 0, 0, 10, 6);
     let b = fill_mask(
         &flatten(&rect_path(2.0, 2.0, 8.0, 4.0), IDENTITY),
@@ -62,7 +61,7 @@ fn square_caps_extend_by_half_the_width() {
         join: LineJoin::Miter,
         miter_limit: 10.0,
     };
-    let stroked = stroke_polylines(&flatten(&line, IDENTITY), stroke, stroke.width);
+    let stroked = stroke_polylines(&flatten_stroke(&line, IDENTITY), stroke, stroke.width);
     let a = fill_mask(&stroked, Rule::NonZero, 0, 0, 10, 6);
     let b = fill_mask(
         &flatten(&rect_path(1.0, 2.0, 9.0, 4.0), IDENTITY),
@@ -91,7 +90,7 @@ fn miter_join_fills_the_corner() {
         join: LineJoin::Miter,
         miter_limit: 10.0,
     };
-    let stroked = stroke_polylines(&flatten(&l_path, IDENTITY), stroke, stroke.width);
+    let stroked = stroke_polylines(&flatten_stroke(&l_path, IDENTITY), stroke, stroke.width);
     let mask = fill_mask(&stroked, Rule::NonZero, 0, 0, 11, 11);
     // The outer corner pixel (9 - epsilon region: x in 8..9, y in 1..2) is inside
     // the miter; with a bevel it would be half-covered at best.
@@ -137,7 +136,7 @@ fn each_cap_deposits_the_area_table_53_gives_it() {
         let line = Polyline {
             points: vec![Point::new(X0, y), Point::new(X0 + LENGTH, y)],
             closed: false,
-            ends: Ends::default(),
+            tangents: Vec::new(),
         };
         let stroke = Stroke {
             width: WIDTH,
@@ -221,7 +220,7 @@ fn a_stroke_spanning_the_coordinate_range_is_not_drawn_as_nothing() {
             Point::new(LARGEST_DEVICE_COORDINATE, 4.0),
         ],
         closed: false,
-        ends: Ends::default(),
+        tangents: Vec::new(),
     };
     let expanded = stroke_polylines(&[line], hairline(), hairline().width);
     assert!(
@@ -251,7 +250,7 @@ fn a_segment_below_the_float_grid_produces_finite_geometry() {
     let line = Polyline {
         points: vec![Point::new(0.0, 4.0), Point::new(1e-30, 4.0)],
         closed: false,
-        ends: Ends::default(),
+        tangents: Vec::new(),
     };
     let expanded = stroke_polylines(&[line], hairline(), hairline().width);
     assert!(
@@ -312,7 +311,8 @@ fn a_butt_cap_on_a_curve_is_square_to_its_tangent() {
                 join: LineJoin::Miter,
                 miter_limit: 10.0,
             };
-            let pieces = stroke_polylines(&flatten(&quarter_arc(r), transform), stroke, w * s);
+            let pieces =
+                stroke_polylines(&flatten_stroke(&quarter_arc(r), transform), stroke, w * s);
             let points: Vec<Point> = pieces.iter().flat_map(|p| p.points.clone()).collect();
             // In page units: how far any point of the stroke lies past each end's line.
             let past_end = points

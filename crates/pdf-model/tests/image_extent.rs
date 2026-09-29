@@ -11,11 +11,11 @@
 //! > error occurs if Length is too small, if an explicit EOD marker occurs too soon, or if the
 //! > decoded data does not contain 200 bytes.
 //!
-//! Until the five-hundred-and-twenty-first session the unpacker read a sample past the end of the
-//! data as **zero**, so an image whose stream stopped short was completed with samples nobody
-//! wrote: a `DeviceGray` picture gained black rows, and `178360.pdf`'s `/ImageMask` — 359 bytes
-//! of the 50 048 its grid needs — marked 99.3% of its area in the fill colour, which no reference
-//! renderer draws. What the file carries is drawn where it belongs; the rest of the grid is left
+//! An unpacker that read a sample past the end of the data as **zero** would complete an image
+//! whose stream stopped short with samples nobody wrote: a `DeviceGray` picture would gain black
+//! rows, and `178360.pdf`'s `/ImageMask` — 359 bytes of the 50 048 its grid needs — would mark
+//! 99.3% of its area in the fill colour, which no reference renderer draws. What the file
+//! carries is drawn where it belongs; the rest of the grid is left
 //! unpainted and `image::short_of_its_grid` says so beside the drawing.
 //!
 //! The fixtures come in pairs differing in exactly one thing, the number of bytes after

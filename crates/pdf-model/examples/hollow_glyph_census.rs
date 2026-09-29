@@ -11,7 +11,7 @@
 //!
 //! What it separates, because the two are different findings: a program in which *every* glyph
 //! is empty, and one in which some are (`issue14821.pdf` is the second kind, and §9.7.4.2's row
-//! has carried it since the two-hundred-and-forty-eighth session). The intersection this exists
+//! carries it). The intersection this exists
 //! for is the first kind under a stream.
 //!
 //! The `loca` is read here by hand rather than through `skrifa`, for the same reason
@@ -24,7 +24,7 @@
 //! cargo run --release -p pdf-model --example hollow_glyph_census -- --crawl   # CC-MAIN-2021-31
 //! ```
 //!
-//! **The three scopes are the six-hundred-and-eighty-sixth session's.** ADR 0350's claim was
+//! **The three scopes are ADR 0523's.** ADR 0350's claim was
 //! measured over `doc/pdf.js` alone, before `CC-MAIN-2021-31` was on this disk, and a negative
 //! decays when the population grows (ADR 0490). The control run is stated beside the crawl run
 //! rather than merged with it, because one number over both would hide which of the two moved.

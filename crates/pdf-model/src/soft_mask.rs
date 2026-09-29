@@ -577,17 +577,16 @@ fn backdrop(document: &Document, mask: &Dictionary, space: Option<&ColourSpace>)
 ///
 /// **The device branch** — "For device colour spaces, convert the colour to `DeviceGray` by
 /// implementation-defined means and use the resulting gray value as the luminosity, with no
-/// compensation for gamma or other colour calibration" — is carried out exactly, and since the
-/// three-hundred-and-eightieth session in the space the group names rather than in the device's:
+/// compensation for gamma or other colour calibration" — is carried out exactly, in the space
+/// the group names rather than in the device's (ADR 0217):
 ///
 /// - **`DeviceRGB`** is the space EXAMPLE 2's `Y = 0.30 R + 0.59 G + 0.11 B` is written for,
 ///   and `pdf_render::SoftMask::value` computes it on the rendered pixel.
 /// - **`DeviceCMYK` and `DeviceGray`** send a colour to grey by §10.4.2.3 without passing
 ///   through RGB, so the group's elements are painted in the ink that clause weighs instead
-///   of in colour — [`ink_scale`], and `crate::colour`'s `Compositing::Luminosity`. Since the
-///   three-hundred-and-eighty-third session that reaches an image's samples and a shading's
-///   ramp as well as an operator's colour, and the `min` waits for the compositing the way
-///   §11.5.3 states (ADR 0220).
+///   of in colour — [`ink_scale`], and `crate::colour`'s `Compositing::Luminosity`. That
+///   reaches an image's samples and a shading's ramp as well as an operator's colour, and the
+///   `min` waits for the compositing the way §11.5.3 states (ADR 0220).
 ///
 /// **The colorimetric branch** — "For CIE-based spaces, convert to the CIE 1931 XYZ space and
 /// use the Y component as the luminosity" — is taken for a space of **one** component since

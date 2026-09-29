@@ -25,8 +25,8 @@
 //!    annotation and associated content, if any", so the count says how many of them a screen
 //!    reader could be told the control of instead of a generic group.
 //!
-//! Two more, added in the eight-hundred-and-forty-first session, and each prices one of the two
-//! questions `doc/todo/31` had left open about §14.8.3.3:
+//! Two more, and each prices one of the two questions `doc/todo/31` asks about §14.8.3.3 (ADR
+//! 0768):
 //!
 //! 7. of the elements no route places, how many **enclose an element that one does**. §14.8.5.4.5
 //!    derives a container's content rectangle from what it contains — "the height of the content

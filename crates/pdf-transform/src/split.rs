@@ -47,10 +47,10 @@
 //! The catalog is synthesised. It carries `/Pages`, and the entries whose absence would change
 //! what the pages *look like*: `/Version`, `/Lang`, `/ViewerPreferences`, `/PageLayout`,
 //! `/PageMode`, §8.11's `/OCProperties`, §12.7.3's `/AcroForm`, §14.11.5's
-//! `/OutputIntents` and — since session 897, through [`crate::structure`] — §14.7's
+//! `/OutputIntents` and — through [`crate::structure`] (ADR 0834) — §14.7's
 //! `/StructTreeRoot` and `/MarkInfo`.
 //!
-//! Since session 910 it also carries RFC 0002 section 6.1's three document-level constructs, and
+//! It also carries RFC 0002 section 6.1's three document-level constructs (ADR 0862), and
 //! [`carry_navigation`] holds the derivation of each: §12.3.3's outline pruned to the items that
 //! reach the piece, §12.4.2's labels recomputed one entry per page, and §12.3.2.4's named
 //! destinations subsetted to the ones that resolve inside it. Everything else the source catalog
@@ -186,8 +186,8 @@ const CARRIED: [&str; 8] = [
 /// whatever is left over is deliberate: a construct nobody thought about is then a construct
 /// nobody is told about, and this array is where the thinking is recorded.
 ///
-/// `/Outlines`, `/Names`, `/Dests` and `/PageLabels` **left this list in session 910** and are
-/// carried by [`carry_navigation`], which is where the three clauses that decide them are read.
+/// `/Outlines`, `/Names`, `/Dests` and `/PageLabels` are not on this list: they are carried by
+/// [`carry_navigation`] (ADR 0862), which is where the three clauses that decide them are read.
 const NOT_CARRIED: [&str; 8] = [
     "Metadata",
     "Threads",

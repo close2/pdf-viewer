@@ -4,11 +4,11 @@
 //! > Size , Range , and BitsPerSample ; see 7.3.8.2, "Stream extent".
 //!
 //! A Type 0 function's stream is one of the objects §7.3.8.2 means by "many objects from whose
-//! attributes a length can be inferred", and the arithmetic is stated rather than implied. Until
-//! the five-hundred-and-twenty-first session the sample reader answered **0** for every sample
-//! past the end of the data, so a stream holding half its samples produced a function whose
-//! second half was a value nobody wrote — decoded through `/Decode` and interpolated into the
-//! samples beside it. A tint transform or a shading built on one of those does not draw part of
+//! attributes a length can be inferred", and the arithmetic is stated rather than implied. A
+//! sample reader that answered **0** for every sample past the end of the data would make a
+//! stream holding half its samples a function whose second half is a value nobody wrote —
+//! decoded through `/Decode` and interpolated into the samples beside it. A tint transform or
+//! a shading built on one of those does not draw part of
 //! what the producer asked for; it draws something else, which is the substitutive half of trap
 //! 5's test.
 //!

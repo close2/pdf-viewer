@@ -1,8 +1,8 @@
 //! §7.10.4's stitching function: the k the clause does not bound, and the nesting it does not
 //! forbid.
 //!
-//! Two defects, one clause, both found in the four-hundred-and-twenty-fifth session's `SafeDocs`
-//! sample and both in `Function::parse`'s bounds rather than in its arithmetic.
+//! Two defects, one clause, both found in a `SafeDocs` sample (ADR 0261) and both in
+//! `Function::parse`'s bounds rather than in its arithmetic.
 //!
 //! # The k that is not a component count
 //!

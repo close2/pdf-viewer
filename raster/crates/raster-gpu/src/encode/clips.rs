@@ -209,6 +209,11 @@ impl Encoder<'_> {
         let Some(leaf) = resolved.residues.clone() else {
             return Ok(None);
         };
+        // Which chains hold a region is decided by the first tile that asks, so every
+        // queued mark asks before this one does: a residue-clipped mark may be waiting in
+        // the queue for its commit (ADR 1395). A commit reaches here with the queue
+        // already emptied, so this is a no-op there.
+        self.drain_queue()?;
         let key = leaf.clip.0;
         if let Verdict::Region(region) = self.residue.verdict(key) {
             let span = self.clock.start();

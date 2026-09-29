@@ -38,11 +38,11 @@ fn outline_items(level: &[pdf_model::outline::Item]) -> usize {
 /// What `viewer_core::Viewer::announce_page` does the moment a document opens, and again on
 /// every page turn: §12.3.3's innermost item covering the page being shown.
 ///
-/// It is on this path and this example did not measure it — which is how `Pages::indices`, a walk
-/// of every node of the page tree, came to be on the launch path of a claim that says there is no
-/// full page-tree walk on it (session 925, ADR 0890).
+/// It is on this path, and measuring it is what keeps `Pages::indices`, a walk of every node of
+/// the page tree, off the launch path of a claim that says there is no full page-tree walk on it
+/// (ADR 0890).
 ///
-/// The three lines are the A and the B of that session's change in one binary: the walk, what a
+/// The three lines are the A and the B of ADR 0890's change in one binary: the walk, what a
 /// page turn costs with it done again per turn, and what it costs against a map the viewer now
 /// keeps.
 fn announce_page_cost(

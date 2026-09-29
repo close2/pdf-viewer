@@ -2,10 +2,10 @@
 //!
 //! The population behind ADR 0371. ISO 32000-2 §7.10.5.1 gives a type 4 program three types —
 //! "Expressions involving only integers, real numbers, and boolean values" — and this tree's
-//! evaluator held one, `f32`, until the five-hundred-and-thirty-sixth session. Annex B's operand
-//! columns are what that cost: `eq` and `ne` are typed `any 1 any 2` and so must answer *across*
-//! the types, and with a boolean stored as `1.0` this evaluator answered `true 1 eq` with true.
-//! `not`, `and`, `or` and `xor` are typed `bool | int` and only one of each pair was reachable.
+//! evaluator holds all three. Annex B's operand columns are what one type, `f32`, would cost:
+//! `eq` and `ne` are typed `any 1 any 2` and so must answer *across* the types, and with a
+//! boolean stored as `1.0` an evaluator answers `true 1 eq` with true; `not`, `and`, `or` and
+//! `xor` are typed `bool | int` and only one of each pair would be reachable.
 //!
 //! None of that can be priced from the clause. What it costs is a fact about the files that
 //! exist, and this program is what counts it. It answers three questions and keeps them apart:

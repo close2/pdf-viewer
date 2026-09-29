@@ -7,10 +7,9 @@
 //! why. The second half is what a corpus can rank. A refusal no document ever reaches is a
 //! sentence nobody will read; a refusal several documents reach is one a user meets.
 //!
-//! **This example exists because those counts were being written without a command.** The
-//! six-hundred-and-twenty-sixth session pinned the click path for three of the five and recorded
-//! the population in a comment — "of the 974 corpus documents exactly one states a `/S /Launch`
-//! action" — with nothing in the tree that could produce the number again. `CLAUDE.md`'s rule is
+//! **This example exists because those counts need a command.** A population recorded in a
+//! comment — "of the 974 corpus documents exactly one states a `/S /Launch` action" — is a number
+//! nothing in the tree can produce again. `CLAUDE.md`'s rule is
 //! that a fact which can be counted is not written down; what is written down is the command, and
 //! for this population there was none. `doc/todo/01` states the same rule for a ledger note.
 //!
@@ -162,9 +161,9 @@ struct Counts {
     /// §12.6.4.15 Table 219's `/Trans` style, by Table 164's `/S` name, with the documents that
     /// state a transition *action* asking for it.
     ///
-    /// A transition action's `/Trans` is the same Table 164 dictionary a page's own `/Trans`
-    /// holds, so the verdict above (`performed`) is one fact and *which effect* the action names
-    /// is another — and the latter is what §12.6.4.15's row rests a witness on. `presentation_census`
+    /// A transition action's `/Trans` is the same Table 164 dictionary a page's own `/Trans` holds,
+    /// so the verdict above (`performed`) is one fact and *which effect* the action names is
+    /// another — and the latter is what §12.6.4.15's row rests a witness on. `presentation_census`
     /// asks the same of a *page's* `/Trans`; this asks it of the action, so a name Table 164 does
     /// not define — the crawl's `/Blend` — is counted where a producer wrote one.
     styles: BTreeMap<String, BTreeSet<String>>,

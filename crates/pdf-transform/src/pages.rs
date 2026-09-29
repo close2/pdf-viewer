@@ -14,7 +14,7 @@
 //!
 //! The engine underneath is one, and that is the point: [`merge::write`] takes a list of
 //! [`Placement`]s and writes a document, and the two verbs differ only in how they build the
-//! list. Every document-level reconciliation session 888 derived — §8.11's optional content,
+//! list. Every document-level reconciliation ADR 0821 derived — §8.11's optional content,
 //! §12.7's form, §7.9.6's name trees, §12.3.3's outline, §12.4.2's labels, §14.11.5's output
 //! intents, §12.8.1's signatures — therefore applies to a page *leaving* exactly as it applies
 //! to a page arriving, with no second construction to keep in step.
@@ -95,7 +95,7 @@
 //! labels they had — the clause numbers by *position* ("the indices shall be fixed, running
 //! consecutively through the document starting from 0 for the first page"), so a deletion moves
 //! every later index and no range of the source's tree survives it. §12.7's fields, §8.11's
-//! groups and §7.9.6's trees each cross by session 888's reconciliation.
+//! groups and §7.9.6's trees each cross by ADR 0821's reconciliation.
 //!
 //! ## `--move from:to` and the reorder
 //!
@@ -138,7 +138,7 @@
 //!
 //! # §14.7's structure tree
 //!
-//! **Carried, since session 897** (ADR 0834), by the one reading in [`crate::structure`] that
+//! **Carried** (ADR 0834), by the one reading in [`crate::structure`] that
 //! `split`, `merge` and this verb share. §14.7.1 is why it has to be both halves or neither:
 //!
 //! > A PDF document's logical structure shall be stored separately from its visible content,
@@ -146,9 +146,7 @@
 //!
 //! So the elements whose content is on a page the output holds are kept together with the
 //! ancestors that hold them, §14.7.5.4's parent tree is rebuilt with the output's **own** keys,
-//! and Table 31's `/StructParents` on each carried page is restated to match. This paragraph
-//! said the opposite until session 900 read it: it was written when no verb carried a tree, and
-//! it stayed three rounds after one did.
+//! and Table 31's `/StructParents` on each carried page is restated to match.
 //! # Determinism
 //!
 //! The output is a function of the source and the plan: RFC 0002 section 9's first layer, with

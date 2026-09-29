@@ -1511,10 +1511,10 @@ fn a_pattern_in_an_annotation_appearance_is_placed_in_the_appearances_own_space(
 /// > This subset is comprised of the following PostScript language features: … Comments
 ///
 /// The two arms are written out separately in `test-scenes` and differ in nothing else, so
-/// anything but an identical raster is the compiler reading a comment as code. It did until the
-/// five-hundred-and-twenty-sixth session, and both shapes are in the commented arm: a prose
-/// comment, which was refused outright, and one quoting a formula (`% dup 3 mul`), whose words
-/// were compiled into the program with nothing reported.
+/// anything but an identical raster is the compiler reading a comment as code (ADR 0361). Both
+/// shapes are in the commented arm: a prose comment, which a compiler that reads it refuses
+/// outright, and one quoting a formula (`% dup 3 mul`), whose words such a compiler builds into
+/// the program with nothing reported.
 ///
 /// The ink is asserted as well as the equality, because two arms that both refused to draw
 /// would also be identical — which is exactly what the old code did to the loud shape.
@@ -1553,9 +1553,9 @@ fn a_type_4_program_paints_the_same_page_with_and_without_its_comments() {
 /// The project owner's `doc/corpora-own/type4_pi.pdf`, which is what found the defect.
 ///
 /// A §7.10.5 program that computes π by the first two terms of the BBP series and paints its
-/// digits as rectangles, hand-written with a comment above every step. Before the
-/// five-hundred-and-twenty-sixth session the whole shading was refused — `% BBP Math for Pi …`
-/// left `Math` looking like an operator — so the page came out blank with one report.
+/// digits as rectangles, hand-written with a comment above every step. A compiler that reads a
+/// comment as code refuses the whole shading — `% BBP Math for Pi …` leaves `Math` looking like
+/// an operator — so the page comes out blank with one report (ADR 0361).
 ///
 /// The rectangles the program tests are its own comments' (`% Rect 10,25 85,95` is x ∈ [10, 25],
 /// y ∈ [85, 95] on a 0–100 square that `/Matrix` scales onto the 400-point page), and together

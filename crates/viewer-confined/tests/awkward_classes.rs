@@ -6,11 +6,11 @@
 //! confined worker and holds every file it produces against its generator. It is the wrong
 //! instrument for this one thing: the program a person looks at pages with is a **different**
 //! confined program. The two share `pdf-sandbox`'s `Profile::Interpreter` and
-//! `confined-transport`'s supervision, so a system call one of them is killed for is one the
-//! other is killed for — and session 914 found exactly that, `pdf_font::substitute` walking
-//! `/usr/share/fonts` under a filter whose action is a kill, in a worker of each. What differs is
-//! the *consequence*: a mount loses one generated file, and the viewer loses the whole page a
-//! person was reading (ADR 0870).
+//! `confined-transport`'s supervision, so a system call one of them is killed for is one the other
+//! is killed for — `pdf_font::substitute` walking `/usr/share/fonts` under a filter whose action is
+//! a kill, in a worker of each, is the example (ADR 0870). What differs is the *consequence*: a
+//! mount loses one generated file, and the viewer loses the whole page a person was reading
+//! (ADR 0870).
 //!
 //! So this asks the narrow question of the other worker: **does `pdf-view-worker` survive**, over
 //! a population drawn from every corpus on this disk rather than from the four committed
@@ -209,11 +209,11 @@ fn sweep_one(chosen: &Chosen) -> Swept {
         }
     }
 
-    // What the *document* says about itself, which is not part of opening it and has not been
-    // since the one-thousand-and-twenty-seventh session: §12.8's answer digests the signed part of
-    // the file and `CLAUDE.md` principle 2 keeps that off a launch, so a host asks once the reader
-    // has their page. This sweep counts what a person would be shown, so it asks too — and it is
-    // the one place here where a filter that refused the signed bytes would show up. ADR 1044.
+    // What the *document* says about itself, which is not part of opening it: §12.8's answer
+    // digests the signed part of the file and `CLAUDE.md` principle 2 keeps that off a launch, so a
+    // host asks once the reader has their page. This sweep counts what a person would be shown, so
+    // it asks too — and it is the one place here where a filter that refused the signed bytes would
+    // show up. ADR 1044.
     match confined.handle(&Command::Report) {
         Ok(events) => {
             swept.notes.extend(notes_in(&events));

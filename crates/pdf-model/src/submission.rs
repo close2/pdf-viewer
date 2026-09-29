@@ -1117,9 +1117,9 @@ impl Carried {
 /// shall appear, where page 0 is the first page" — which is the page *index*, not §7.7.3.3's
 /// label and not the object number.
 ///
-/// **The annotations a person added in this session are here too**, and that follows from the
-/// save above rather than from a preference: Table 246 has the update performed "just before the
-/// submission takes place", so by the time this FDF names the document, the document contains
+/// **The annotations a person added in this viewing session are here too**, and that follows from
+/// the save above rather than from a preference: Table 246 has the update performed "just before
+/// the submission takes place", so by the time this FDF names the document, the document contains
 /// them. Leaving them out would submit a marked-up file beside an FDF that says it is unmarked.
 fn annotations(document: &Document, view: &ViewState, owed: &mut Vec<String>) -> Vec<Object> {
     let pages = crate::page::Pages::new(document);

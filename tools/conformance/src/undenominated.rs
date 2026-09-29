@@ -230,7 +230,7 @@ pub struct Corpus {
 /// Every population a claim about "the corpus" could be about.
 ///
 /// Read off the disk rather than written down, for [`crate::parts::Membership`]'s reason: a
-/// sweep whose right-hand side is a constant measures the session that wrote it (ADR 0397).
+/// sweep whose right-hand side is a constant measures the round that wrote it (ADR 0397).
 #[derive(Debug, Clone, Default)]
 pub struct Populations {
     /// Each corpus, in path order.

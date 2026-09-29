@@ -318,7 +318,7 @@ fn a_truncated_deflated_part_reports_its_damage_with_what_it_kept() {
 ///
 /// The witness is a crawled architectural drawing whose second inline image is 1024×716 in
 /// `/DeviceRGB`: 2 199 552 bytes of samples that spell ` EI ` 817 411 bytes in, so 63% of the
-/// picture was lost and the remaining 1.4 MB was tokenised as content operators (session 619).
+/// picture was lost and the remaining 1.4 MB was tokenised as content operators (ADR 0454).
 ///
 /// This fixture is that shape in miniature: an image two windows long whose samples spell an
 /// `EI` in the first one. Getting it wrong draws a short image *and* executes the rest as

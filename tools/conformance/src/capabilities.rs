@@ -6,11 +6,10 @@
 //! A ledger note that explains a debt by what the program *is* rather than by what the standard
 //! leaves open — "this crate has no events", "a window with scrolling and zoom, which this
 //! program does not have" — decays at the pace of the whole program, and nothing fires when the
-//! capability arrives. §12.6.3's row kept its sentence for forty-one sessions after
-//! `Command::Pointer` landed; §12.3.2.1's for sixty-nine after scrolling and zoom entered the
-//! vocabulary (ADRs 0122, 0162). The sweep has run as a grep since the hundred-and-twenty-second
-//! session; this is the same instrument as a program, per `doc/todo/01`'s binding rule that a
-//! sweep round commits one before running any (ADR 0319 records what a description costs).
+//! capability arrives. §12.6.3's row kept its sentence long after `Command::Pointer` landed;
+//! §12.3.2.1's long after scrolling and zoom entered the vocabulary (ADRs 0122, 0162). This is
+//! the by-hand grep as a program, per `doc/todo/01`'s binding rule that a sweep round commits one
+//! before running any (ADR 0319 records what a description costs).
 //!
 //! # What a program can settle that the grep could not
 //!

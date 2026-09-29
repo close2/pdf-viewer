@@ -98,11 +98,10 @@ fn fill_substitute_table(
     // **The two routes differ in what the substitute is addressed *by*, and the name-keyed one
     // is the shorter of the two.** An `sfnt` substitute is reached by character, so a glyph name
     // has to go through the Adobe Glyph List first; a bare CFF keys its glyphs by name already,
-    // which is the same name §9.6.5.2's encoding produced. Since the hundred-and-forty-eighth
-    // session the second route is the one every compiled-in Foxit face takes, and it is why
-    // `Symbol` and `ZapfDingbats` work at all: their glyph names — `a9`, `universal` — are in no
-    // Unicode mapping worth trusting, and going through one is how a dingbat became a Latin
-    // letter.
+    // which is the same name §9.6.5.2's encoding produced. The second route is the one every
+    // compiled-in Foxit face takes (ADR 0133), and it is why `Symbol` and `ZapfDingbats` work at
+    // all: their glyph names — `a9`, `universal` — are in no Unicode mapping worth trusting, and
+    // going through one turns a dingbat into a Latin letter.
     let mut table: CodeTable = [None; 256];
     if program == Program::BareCff {
         let keyed = match CodeToGlyph::read(data).map_err(|e| FontError::Malformed {
@@ -167,10 +166,10 @@ fn substituted_character(names: &GlyphNames, code: usize) -> Option<char> {
 /// Latin character set and nothing else. So a document that names `Times-Roman` (or
 /// `TimesNewRomanPSMT`, which folds to it) and then states an `/Encoding` whose `/Differences`
 /// name `afii10017` and its neighbours — the Adobe Glyph List's names for Cyrillic — asked for
-/// characters that face has never had. Every one of those codes reached no glyph, and because
-/// the *Latin* codes of the same font drew, the "this font drew nothing" report never fired:
-/// the page lost its Russian in silence. The four-hundred-and-thirty-fourth session found this
-/// as the largest population in a 65 944-document web survey, and ADR 0270 has the numbers.
+/// characters that face has never had. Every one of those codes would reach no glyph, and
+/// because the *Latin* codes of the same font draw, the "this font drew nothing" report would
+/// never fire: the page would lose its Russian in silence. It is the largest population in a
+/// 65 944-document web survey, and ADR 0270 has the numbers.
 ///
 /// # The rule, and why it compares tables rather than characters
 ///
@@ -321,8 +320,7 @@ pub(crate) fn substitute_face(
 /// `OverlappingGlyphClipping.pdf` does with `/Times-Bold` and `/Helvetica`, and the fourteen it
 /// names do not disagree with each other about direction. A stand-in set that answered one with
 /// an `sfnt` and another with a CFF would manufacture a disagreement the fourteen do not have,
-/// in the one place the clause makes direction visible — which is what this tree did until the
-/// five-hundred-and-sixty-first session (ADR 0396).
+/// in the one place the clause makes direction visible (ADR 0396).
 ///
 /// # Which direction, and why measured rather than assumed
 ///

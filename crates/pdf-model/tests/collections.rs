@@ -126,8 +126,8 @@ fn no_pdfjs_document_is_a_portable_collection() {
 
     assert!(collections.is_empty(), "documents with a /Collection");
     assert!(related_files.is_empty(), "specifications with a /RF");
-    // 22 since the thousand-and-twenty-third session, and the one that left is not a file that
-    // went away: `encrypted-attachment.pdf` states no §7.6.6 Table 25 `/AuthEvent`, so the default
+    // 22, and the one missing is not a file that went away:
+    // `encrypted-attachment.pdf` states no §7.6.6 Table 25 `/AuthEvent`, so the default
     // of `DocOpen` wants a key before the document is open and this walk never opens it. Its twin
     // `auth-event-ef-open.pdf` states `/AuthEvent /EFOpen`, opens, and keeps its key here. ADR 1040.
     assert_eq!(keys, 22, "embedded files across the corpus");
@@ -145,8 +145,8 @@ fn no_pdfjs_document_is_a_portable_collection() {
 ///
 /// `digitally_signed_3D_Portfolio.pdf` is what §12.3.5 is for and what this family had never been
 /// shown: a `/Collection` with a schema, a `/Folders` tree, and the embedded files filed under it.
-/// Until the five-hundred-and-seventieth session five places in this tree said no corpus document
-/// stated one, on a count taken over pdf.js alone (ADR 0405).
+/// A claim that no corpus document states one would rest on a count taken over pdf.js alone
+/// (ADR 0405).
 ///
 /// **What it checks is the entry a hand-built fixture is weakest on**: §12.3.5.2's folder
 /// identifiers inside `/EmbeddedFiles` keys. `folder_of` splits a key into a folder number and a

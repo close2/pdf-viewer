@@ -354,10 +354,10 @@ impl Interpreter<'_> {
         // relies on that — the whole algorithm is about making the box cover `/Rect`, and
         // an appearance drawing outside its own box would spill across the page.
         //
-        // **A construction is not a form XObject and may have no box at all**, since the
-        // three-hundred-and-fourteenth session: four subtypes state their geometry "in default
-        // user space" rather than inside a box, and a file whose `/Rect` does not contain what
-        // its own `/L` or `/QuadPoints` states was having those marks clipped away in silence.
+        // **A construction is not a form XObject and may have no box at all**: four subtypes
+        // state their geometry "in default user space" rather than inside a box, and a file whose
+        // `/Rect` does not contain what its own `/L` or `/QuadPoints` states would otherwise have
+        // those marks clipped away in silence.
         // `crate::appearance::Constructed::bounded` is the reading; ADR 0193 is the argument.
         //
         // §14.11.2.1's clip is not part of that exception either, and it is not a `Clip` here:
@@ -395,8 +395,6 @@ impl Interpreter<'_> {
         // what its names are looked up in. An empty dictionary instead loses every named font
         // and image the appearance draws with.
         //
-        // **This comment used to quote a sentence that is no longer in the standard**, and the
-        // four-hundred-and-nineteenth session found it while reading this clause for `Do`.
         // Errata Collection 3 Issue #128 strikes §7.8.3's bullet — "All resources that are
         // referenced from those forms and fonts shall be inherited from the resource dictionary
         // of the page on which they are used" — and replaces it with NOTE 3, which is
@@ -405,8 +403,8 @@ impl Interpreter<'_> {
         // glyph descriptions or annotation appearance streams used on a page. Those earlier
         // versions state that resources that were referenced from those content streams can be
         // inherited from the resource dictionary of the page on which they are used." The
-        // behaviour is unchanged and is now a *choice* about malformed and pre-2.0 files rather
-        // than a `shall` — and NOTE 3 is the wider of the two, since it names an annotation
+        // inheritance is therefore a *choice* about malformed and pre-2.0 files rather than a
+        // `shall` — and NOTE 3 is the wider of the two, since it names an annotation
         // appearance stream where the struck bullet named only forms and Type 3 fonts, which is
         // exactly the case this line is. ADR 0255.
         let resources = match &appearance.content {

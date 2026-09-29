@@ -483,8 +483,8 @@ fn a_document_that_is_not_a_pdf_is_refused_by_name() {
 #[test]
 fn an_encrypted_document_asks_for_a_password_and_opens_with_it() {
     // ISO 32000-2 §7.6.4.1: a processor tries the empty user password and then prompts. The
-    // prompt is what this program has owed since the twenty-second session, and it is an event
-    // rather than a failure — a document that wants a password is not one we cannot read.
+    // prompt is an event rather than a failure — a document that wants a password is not one we
+    // cannot read.
     let Some(bytes) = corpus_bytes("issue6010_1.pdf") else {
         eprintln!("skipped: doc/pdf.js is not checked out");
         return;
@@ -575,8 +575,8 @@ fn the_page_geometry_maps_the_page_onto_the_screen() {
 /// count grows and then never again, so a test that reads one channel and discards the other is
 /// asserting about the file's layout rather than about the program.
 ///
-/// **This test did read one channel, and the eight-hundred-and-fifty-eighth session moved the
-/// moment under it** (ADR 0782). `Pages::new` now asks whether the page tree reaches a page at all
+/// **Reading one channel would miss the moment moving** (ADR 0782). `Pages::new` asks whether the
+/// page tree reaches a page at all
 /// before believing Table 30's `/Count`, and this fixture's page dictionary *is* the object inside
 /// the damaged stream — so the loss becomes known while the document is opening, the `Open`
 /// event carries the sentence, and the page that is interpreted a moment later carries nothing,
@@ -653,7 +653,7 @@ fn a_page_whose_codes_no_method_can_name_answers_with_a_count_and_not_a_report()
 
     // Before a page is interpreted there is no answer, which is not the same as an answer of
     // zero: a host must not be able to tell a person that nothing was lost off a page nobody
-    // has read. An **empty list** says it since the six-hundred-and-tenth session — the same
+    // has read. An **empty list** says it — the same
     // distinction `Answer::Frame` draws between a host that holds no pixels and one that holds a
     // page's — and `Answer::None` is what a viewer with no document open says.
     assert!(matches!(viewer.query(Query::Readback), Answer::None));
@@ -1157,8 +1157,8 @@ fn a_click_on_a_link_shows_the_page_it_names() {
         viewer.query(Query::LinkAt((5.0, 5.0))),
         Answer::Link(false)
     ));
-    // The same point mirrored about the middle of the page, which is where a click landed for
-    // the seventy-five sessions this mapping had the y axis upside down. Nothing is there.
+    // The same point mirrored about the middle of the page, which is where a click would land
+    // with the y axis upside down (ADR 0118). Nothing is there.
     let mirrored = (on_link.0, 1000.0 - on_link.1);
     assert!(
         matches!(viewer.query(Query::LinkAt(mirrored)), Answer::Link(false)),
@@ -1271,8 +1271,8 @@ fn a_uri_is_handed_over_rather_than_opened() {
 /// What the focused document says about *itself*, asked for the way every host asks for it.
 ///
 /// `Command::Report`, which is the one thing that produces `viewer_core::notes::about`'s eight
-/// clauses. It is not part of opening the document and has not been since the
-/// one-thousand-and-twenty-seventh session: §12.8's answer reads and digests the signed part of
+/// clauses. It is not part of opening the document: §12.8's answer reads and digests the signed
+/// part of
 /// the file, `CLAUDE.md` principle 2 keeps off the launch path "[a]nything not needed to show
 /// page one", and `crates/viewer-ui/tests/launch_path.rs` bands what that is worth. ADR 1044.
 fn said_about_the_document(viewer: &mut Viewer) -> Vec<String> {
@@ -1313,10 +1313,9 @@ fn a_document_says_what_it_carries_when_it_is_asked() {
         })
         .flatten()
         .collect();
-    // **The open says none of it, and that is the half this test gained in the
-    // one-thousand-and-twenty-seventh session.** Opening a signed document used to read and
-    // digest the signed part of the file before page one existed; now `Command::Report` is what
-    // asks. A regression that put the work back would pass the assertion below and fail here.
+    // **The open says none of it** (ADR 1044). Reading and digesting the signed part of the file
+    // is not work page one needs; `Command::Report` is what asks. A regression that put the work
+    // back on the open would pass the assertion below and fail here.
     assert!(
         !opening
             .iter()
@@ -1392,10 +1391,10 @@ fn what_a_signature_covers_is_said_when_the_document_is_asked_and_not_when_it_op
 #[test]
 fn a_file_the_document_associates_but_does_not_carry_is_named_when_it_opens() {
     // §14.13.2's other form. "[T]he file specification for an associated file represents either a
-    // file external to the PDF file or an embedded file stream … within the PDF file", and until
-    // the nine-hundred-and-thirty-ninth session this reader read one of the two: a specification
-    // with no `/EF` was skipped, so the relationship a producer asserted about a file outside the
-    // document reached nobody. Following such a file stays refused — principle 3 gives the
+    // file external to the PDF file or an embedded file stream … within the PDF file", and this
+    // reader reads both (ADR 0918): skipping a specification with no `/EF` would mean the
+    // relationship a producer asserted about a file outside the document reached nobody.
+    // Following such a file stays refused — principle 3 gives the
     // renderer no filesystem — and *naming* it never needed one.
     //
     // The witness is built because neither population holds one: `associated_file_census` counts
@@ -1512,11 +1511,9 @@ fn a_click_on_an_action_this_program_will_not_perform_says_which_and_why() {
     // test that came near was `a_next_chain_is_flattened_in_execution_order`, which reaches
     // `Launch`'s refusal and splits the sentence off at the colon.
     //
-    // **Three were covered here in the six-hundred-and-twenty-sixth session and two were left
-    // behind**, still citing the test that cannot reach them, which is why a fourth joins the
-    // table below. `refused`'s arms are the population: every name it
-    // answers either has a row that owes this assertion or an `out-of-scope` one that owes
-    // nothing, and those two were the remainder.
+    // **Every one is covered here rather than cited to a test that cannot reach it.**
+    // `refused`'s arms are the population: every name it answers either has a row that owes this
+    // assertion or an `out-of-scope` one that owes nothing.
     //
     // The witness is built rather than borrowed, and the population is a command rather than a
     // sentence — `cargo run --release -p pdf-model --example refused_action_census`, which walks
@@ -1582,7 +1579,8 @@ fn a_click_on_an_action_this_program_will_not_perform_says_which_and_why() {
 
     for (action, sentence) in [
         // A launch naming nothing is declined by Table 207's own "it shall do nothing"; one naming
-        // a file asks for it, and `tests/launch_actions.rs` holds that half (ADRs 1368, 1358).
+        // a file asks for it, and `crates/viewer-host/tests/launch_documents.rs` holds that half
+        // (ADRs 1368, 1358).
         (
             "<< /S /Launch >>",
             "Launch: Table 207 names no target at all, so §12.6.4.6 says to do nothing",
@@ -2036,7 +2034,7 @@ fn the_tab_key_walks_the_pages_annotations() {
     // And where it is on the screen, which is what a host draws a ring from. Device pixels of
     // the viewport, like every other shape this crate answers with — a host that computed them
     // from a `/Rect` itself would be re-deriving the origin, the magnification and the y flip,
-    // which is the arithmetic ADR 0118 found wrong for seventy-five sessions.
+    // which is the arithmetic ADR 0118 is about.
     let Answer::Focus { quad, .. } = viewer.query(Query::Focus) else {
         panic!("something is focused, and it has a /Rect");
     };
@@ -2490,10 +2488,7 @@ fn a_point_inside_a_value_names_the_byte_it_is_nearest() {
 /// > more visible pages.
 ///
 /// This window shows one page at a time, so "one or more visible pages" is the page it is
-/// showing — the same derivation §12.6.3's `/PV` and `/PO` took in the two-hundred-and-fourth
-/// session. The ledger's reason for leaving it unapplied was "which pages are visible is a
-/// question about a window this crate does not have", and a window arrived in the
-/// hundred-and-thirty-second session.
+/// showing — the same derivation §12.6.3's `/PV` and `/PO` take (ADR 0164).
 ///
 /// `visibility_expressions.pdf` is the only corpus document that states the entry, on a scan of
 /// every uncompressed `/ListMode` in all 974. It states `VisiblePages`, and its one page reaches
@@ -2648,11 +2643,11 @@ fn two_groups_one_locked() -> Vec<u8> {
 /// > - The down appearance shall be used when the mouse button is pressed or held down within the
 /// >   annotation's active area.
 ///
-/// `pdf_model` has answered that for every subtype since the hundred-and-thirty-eighth session,
-/// including §12.5.6.19's `/H` highlighting mode whose default is `I` — and until the
-/// two-hundred-and-fifty-third this crate took the annotation under the pointer from
-/// `link::at`, which returns a `/Subtype /Link` and nothing else. So the one entry that is a
-/// *widget's* could not be reached by any host, and neither could a rollover on anything else.
+/// `pdf_model` answers that for every subtype, including §12.5.6.19's `/H` highlighting mode
+/// whose default is `I` (ADR 0123) — and this crate takes the annotation under the pointer from
+/// `annotation_at` rather than `link::at`, which returns a `/Subtype /Link` and nothing else, so
+/// that the one entry that is a *widget's* can be reached by a host, and so can a rollover on
+/// anything else (ADR 0177).
 ///
 /// The observable is the display list: an appearance that changed is a page interpreted again.
 #[test]
@@ -3190,11 +3185,11 @@ fn a_page_states_its_whole_form_as_controls_a_host_can_build() {
 /// > unreadable form, such as asterisks or bullet characters.
 ///
 /// **The corpus has exactly one of these** — `issue19389.pdf`, 1 widget over 974 documents, which
-/// `examples/field_flag_census` counts — and until the four-hundred-and-eleventh session nothing
-/// on this boundary said that its value was the echo rather than the characters. What that cost is
-/// ADR 0247: `viewer-ui` obeyed ADR 0201's read-the-value-back rule and therefore sent the bullets
-/// as the field's next value on every keystroke. The two answers that carry a value both carry the
-/// flag now, and this asserts them against each other on the one document that has one.
+/// `examples/field_flag_census` counts — so this boundary says that its value is the echo rather
+/// than the characters. Without that, a host obeying ADR 0201's read-the-value-back rule sends the
+/// bullets as the field's next value on every keystroke (ADR 0247). The two answers that carry a
+/// value both carry the flag, and this asserts them against each other on the one document that
+/// has one.
 #[test]
 fn a_password_fields_value_says_that_it_is_not_the_fields_characters() {
     let Some(bytes) = corpus_bytes("issue19389.pdf") else {
@@ -3467,11 +3462,9 @@ fn named(fields: &[viewer_core::FormField]) -> Vec<&str> {
 /// > processor identifies the field in a user-interface. This alternative name, if provided,
 /// > shall be specified using the TU entry of the field dictionary.
 ///
-/// A `shall` addressed to a processor with a user interface, and this became one in the
-/// hundred-and-thirty-second session. The ledger's row said `/TU` "names a field in a user
-/// interface this program does not have" — and what made the clause unreachable was not the
-/// window but the *answer*: one string cannot carry both a field's identity and its label, so a
-/// host had nothing to obey the clause with. ADR 0167.
+/// A `shall` addressed to a processor with a user interface, which this is. What makes the clause
+/// reachable is the *answer*: one string cannot carry both a field's identity and its label, so a
+/// host would have nothing to obey the clause with. ADR 0167.
 ///
 /// `issue17492.pdf`'s first widget is §12.5.6.19's merged dictionary — field and annotation in
 /// one — stating `/T (firstName)` and a `/TU` in UTF-16BE, which is also §7.9.2.2's other
@@ -3649,8 +3642,7 @@ fn a_search_finds_every_occurrence_and_hands_back_its_shapes() {
 ///
 /// `Pages::get` is a walk from the root, and on ISO 32000-2's thousandth page it is milliseconds.
 /// A host asks for the geometry on every frame and hit-tests a link on every pointer move, so a
-/// walk inside either is milliseconds *per mouse move* — which is what this program did on a
-/// large document until the hundred-and-forty-first session (ADR 0124).
+/// walk inside either is milliseconds *per mouse move* on a large document (ADR 0124).
 ///
 /// Stated as a ratio against a walk this test performs itself, for the reason
 /// `an_outline_resolves_against_the_page_tree_once` gives: the absolute number is the machine's
@@ -3706,9 +3698,8 @@ fn a_query_about_the_page_on_the_screen_costs_less_than_finding_it() {
 
 #[test]
 fn a_tagged_page_answers_with_its_structure_and_an_untagged_one_says_so() {
-    // §14.7's structure tree, reaching a consumer for the first time. `pdf-model` has read it
-    // since the seventy-eighth session and §14.9's entries since the sixtieth; until the
-    // hundred-and-forty-ninth nothing in this program handed either to anybody.
+    // §14.7's structure tree and §14.9's entries, as `pdf-model` reads them, reaching a consumer
+    // (ADR 0134).
     let (mut viewer, events) = opened(800, 1000);
     let request = request(&events).clone();
     serve(&mut viewer, &request);
@@ -4064,9 +4055,8 @@ fn with_a_role_map() -> Vec<u8> {
 /// > A structure type shall always be mapped to its corresponding name in the role map, if there
 /// > is one, even if the original name is one of the standard types.
 ///
-/// **A `shall` this answer did not obey until the three-hundred-and-seventy-sixth session**, on
-/// an argument that was about a different mapping: `pdf-model` has followed the role map since
-/// the seventy-eighth and this query read the raw `/S` past it. ADR 0214.
+/// **A `shall` this answer obeys**: `pdf-model` follows the role map, and this query reads the
+/// mapped type rather than the raw `/S` past it. ADR 0214.
 #[test]
 fn a_structure_type_crosses_role_mapped_and_speaking_only_for_itself() {
     let mut viewer = Viewer::new(400, 300, 1.0);
@@ -5221,16 +5211,14 @@ fn a_page_stating_a_duration_advances_when_it_is_told_the_time() {
 ///
 /// So the jump composes Table 149's `/FitR`, which states the same thing about a window:
 /// "[d]isplay the page … with its contents magnified just enough to fit the rectangle specified
-/// by the coordinates left, bottom, right, and top entirely within the window". The ledger's
-/// reason for leaving this undone was "`viewer-ui` fits whole pages", which stopped being true in
-/// the hundred-and-thirty-second session and stopped being true of destinations in the
-/// two-hundred-and-first (ADR 0162).
+/// by the coordinates left, bottom, right, and top entirely within the window". Destinations
+/// already take all of Table 149's forms (ADR 0162).
 ///
 /// **No corpus document states a thread *action*** — four state a thread, all outside pdf.js, and none
 /// of them states a `/Thread` action to reach it — so the fixture is built from the clause, and the
 /// assertion is the magnification a 100-unit-wide bead earns in an 800-pixel window rather than a
-/// page number nothing distinguishes. This comment said "no corpus document states an article" until
-/// the five-hundred-and-seventieth session, on a count taken over pdf.js alone; ADR 0405.
+/// page number nothing distinguishes. The count of documents stating a thread is over every
+/// corpus this tree holds, not pdf.js alone (ADR 0405).
 #[test]
 fn a_thread_action_shows_the_bead_and_not_merely_its_page() {
     let mut viewer = Viewer::new(800, 1000, 1.0);
@@ -5453,9 +5441,8 @@ fn a_transition_drawn_at_a_chosen_quantity_says_the_quantity_is_ours() {
 
 /// A style this reader *does* draw, asked for in a direction Table 164 does not give it.
 ///
-/// The same trap 5 obligation one step in from the test above, and until the
-/// seven-hundred-and-twentieth session this page arrived as a cut with nothing said: the report
-/// was keyed on the style, which is `Wipe` and is shaped, while the frame was refused for the
+/// The same trap 5 obligation one step in from the test above: a report keyed on the style,
+/// which is `Wipe` and is shaped, would say nothing while the frame is refused for the
 /// direction. Table 164 gives `Wipe` the four quarter turns and reserves 315 to `Glitter`, so a
 /// `Wipe` at 315 is a direction the table does not send that effect in — and `viewer_core::
 /// transition` shapes no frame for it, which is what makes the sentence owed.
@@ -5622,7 +5609,7 @@ fn an_outline_item_goes_to_the_page_its_destination_names() {
 /// §12.3.3's other half: an item whose `/A` is a URI hands the URI over.
 ///
 /// The sentence is one sentence — "jump to a destination **or trigger an action** associated
-/// with the item" — and until the hundred-and-sixty-eighth session only the jump happened. Seven
+/// with the item" — and the action happens, not only the jump (ADR 0144). Seven
 /// corpus outline items over three documents carry a `/URI` action; this is one of them, and
 /// what it proves is that the action path a *link* takes is the one an outline item takes.
 #[test]
@@ -5709,8 +5696,8 @@ fn page_objects(document: &pdf_syntax::Document) -> Vec<pdf_syntax::ObjectId> {
 /// §7.11.4: an embedded file's bytes come out of the document, decoded.
 ///
 /// The clause is the one part of §7.11 that needs no filesystem — "the bytes are inside the
-/// document" — and until the hundred-and-sixty-ninth session this crate listed them and could
-/// not hand one over. What the *host* does with them is rule 2's business and not this test's.
+/// document" — and this crate hands one over rather than only listing them (ADR 0145). What the
+/// *host* does with them is rule 2's business and not this test's.
 ///
 /// The check is against the file's own content rather than against a length: an extraction that
 /// handed back the still-deflated stream would be the right number of nothing.
@@ -5921,10 +5908,9 @@ fn with_an_associated_file() -> Vec<u8> {
 ///
 /// That sentence is a writer's; what makes it a reader's is §12.5.1, which says what activating an
 /// annotation does with what belongs to it — "it exhibits its associated object" — under a *such
-/// as* that gives examples rather than a closed list. Until the thousand-and-fifty-first session
-/// `attachment::associated` had never been handed an annotation by anything but its own tests, so
-/// a document whose only route to a payload was an annotation's `/AF` carried a file no host could
-/// reach: the shape §14.13.3's catalog array was in before `attachment::attachments` reached it.
+/// as* that gives examples rather than a closed list. So `attachment::associated` is handed the
+/// annotation (ADR 1065): otherwise a document whose only route to a payload is an annotation's
+/// `/AF` carries a file no host can reach.
 ///
 /// A click somewhere else on the page is the control, because a file that crossed because the
 /// document carries it rather than because the annotation was activated would pass the first half
@@ -5992,8 +5978,8 @@ fn a_click_on_an_annotation_produces_the_files_it_associates() {
 /// anything.
 ///
 /// The entry names *panels* — `UseOutlines` shows the document outline, `UseOC` the optional
-/// content group panel, `UseAttachments` the attachments panel — so until the sidebar of
-/// sessions 166 and 167 existed there was nothing for a host to do with it. This checks the
+/// content group panel, `UseAttachments` the attachments panel (ADRs 0142 and 0143). This checks
+/// the
 /// answer rather than the panel, because the panel is `viewer-ui`'s and the query is the
 /// boundary.
 #[test]
@@ -6046,8 +6032,7 @@ fn the_catalog_says_which_panel_a_host_should_open() {
     assert!(matches!(empty.query(Query::Opening), Answer::None));
 }
 
-/// §14.3.3's `/Info` reaches a host, and since the two-hundred-and-ninety-fourth so does
-/// §14.3.2's XMP.
+/// §14.3.3's `/Info` reaches a host, and so does §14.3.2's XMP (ADR 0186).
 ///
 /// The second half is the point. Table 349's every text entry carries a NOTE naming an XMP
 /// counterpart and §12.2's `/DisplayDocTitle` names `dc:title` outright, so a host titling a
@@ -6115,11 +6100,9 @@ fn a_document_hands_over_what_it_says_about_itself() {
 
 /// §12.6.3: the pointer raises Table 197's events, which is the half this crate could not do.
 ///
-/// The clause's data and its execution have been here since the seventy-seventh session —
-/// `action::for_annotation` reads the table and `ViewState::perform_all` performs it — and the
-/// row said `partial` because "[n]othing raises an event: entering, pressing and focusing are a
-/// window's business and this crate has no events". `Command::Pointer` arrived in the
-/// hundred-and-thirty-second session and nobody re-read the row for forty-one.
+/// The clause's data and its execution are the model's — `action::for_annotation` reads the
+/// table and `ViewState::perform_all` performs it — and `Command::Pointer` is what raises the
+/// events (ADR 0117).
 ///
 /// The fixture is a widget whose `/AA` switches an optional content group: `/E` on, `/X` off,
 /// `/D` on again. That makes the *page* the assertion — a layer's state decides what is drawn —
@@ -6198,11 +6181,10 @@ fn the_pointer_raises_table_197s_events() {
 /// > - An X (exit) event may not occur without a preceding E event.
 /// > - A U (up) event may not occur without preceding E and D events.
 ///
-/// Both halves below were wrong before the thousand-and-sixty-fifth session, and each was wrong
-/// because Table 197's own sentence was read as the whole condition. A cursor dragged into an
-/// annotation raised `/E` with the button held down, and a release inside an annotation raised
-/// `/U` whether or not that annotation had ever seen a press — a document could therefore act on
-/// a click it never received.
+/// Both halves below go wrong when Table 197's own sentence is read as the whole condition
+/// (ADR 1079): a cursor dragged into an annotation would raise `/E` with the button held down,
+/// and a release inside an annotation would raise `/U` whether or not that annotation had ever
+/// seen a press — a document could then act on a click it never received.
 ///
 /// The fourth constraint needs no test of its own: `over` is the topmost annotation under the
 /// cursor rather than a set, so entering one nested in another changes it, and the `/X` the
@@ -6544,10 +6526,8 @@ fn geometry_in(destination: &str, width: u32, height: u32) -> viewer_core::PageG
 /// > - The location of the document window on that page
 /// > - The magnification (zoom) factor
 ///
-/// The page has always been computed. The other two need a window, and the reason the ledger
-/// gave for not applying them — "properties of a window with scrolling and zoom, which this
-/// program does not have" — stopped being true in the hundred-and-thirty-second session and
-/// went on being written down for sixty-nine more. ADR 0162.
+/// The page is computed from the file. The other two need a window with scrolling and zoom,
+/// which this program has. ADR 0162.
 ///
 /// The fixture is a 600×800 page in a 300×400 viewport, so a fit is 0.5 and every number below
 /// is checkable by hand.
@@ -6722,8 +6702,8 @@ fn uris(events: &[Event]) -> Vec<String> {
 ///
 /// and of `/PC`, that it shall be executed before the page's own `/C`. So a turn is: the
 /// leaving page's annotations, then the leaving page; then the
-/// arriving page, then its annotations. Four of Table 197's ten events and both of Table 198's,
-/// none of which anything raised until the two-hundred-and-fourth session. ADR 0164.
+/// arriving page, then its annotations. Four of Table 197's ten events and both of Table 198's.
+/// ADR 0164.
 ///
 /// `/PV` and `/PI` land beside `/PO` and `/PC` because §12.6.3 says what separates them —
 /// "[t]he PV and PI entries allow a distinction between pages that are open and pages that are
@@ -7561,9 +7541,7 @@ fn collection_of(bytes: Vec<u8>) -> pdf_model::collection::Initial {
 /// Table 153's `/D` states three fallbacks as `shall`s and the entry's presence as the fourth
 /// case, and every one of them is decided against the `/EmbeddedFiles` name tree rather than
 /// against the collection dictionary — which is why `Collection::initial_document` takes the
-/// document, and why no panel holding Table 153 could work it out. It was implemented in the
-/// three-hundred-and-fifty-second session and reachable from no host until the
-/// three-hundred-and-ninety-fourth.
+/// document, and why no panel holding Table 153 could work it out (ADR 0202).
 #[test]
 fn a_collections_initial_document_reaches_a_host() {
     use pdf_model::collection::Initial;
@@ -8767,10 +8745,10 @@ fn a_link_is_hit_where_the_column_has_moved_the_page_to() {
 /// **A drag that crosses a page boundary selects both pages' text**, which is what Table 29's
 /// continuous arrangements made an ordinary gesture rather than an exotic one.
 ///
-/// Until the six-hundred-and-ninth session a selection was a range of *one* page's readback and a
-/// drag that reached the page below stopped at the boundary: the sweep selected the first page's
-/// half of a paragraph and nothing after it, silently. Both ends of a selection name their own
-/// page now — §12.4.2 still gives no document-wide offset and this does not invent one — so the
+/// A range of *one* page's readback would stop a drag that reached the page below at the
+/// boundary, selecting the first page's half of a paragraph and nothing after it, silently. Both
+/// ends of a selection name their own page — §12.4.2 gives no document-wide offset and this does
+/// not invent one — so the
 /// first page contributes its tail, any page between contributes the whole of itself, and the
 /// last contributes its head.
 ///

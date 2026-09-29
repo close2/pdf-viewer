@@ -2,8 +2,7 @@
 //!
 //! # The shape it exists for
 //!
-//! This crate's three existing questions all miss one kind of erratum, and the
-//! eight-hundred-and-fifteenth session found it by reading:
+//! This crate's three other questions all miss one kind of erratum (ADR 0746):
 //!
 //! - [`crate::landings`] — `check` — compares *quotations this tree has written* against struck
 //!   passages. Nothing quotes a table's caption, and the struck text here is two words, under
@@ -22,12 +21,11 @@
 //! **The amended designations are written bare, and that is the convention rather than a
 //! typographical preference.** What the erratum states is a strike over a *designation*, so the
 //! designation is what a sentence about it names; writing either of them as a table would cite
-//! a caption no reader can find, which is the paragraph below and, since the
-//! eight-hundred-and-thirty-second session, a gate.
+//! a caption no reader can find, which is the paragraph below and a gate (ADR 0760).
 //!
 //! **A renumbering is a class of erratum rather than a one-off**, which is the whole argument for
 //! a command: the next caption strike would have been invisible in exactly the same way, and the
-//! cost of finding it would have been another session's reading.
+//! cost of finding it would have been another round's reading.
 //!
 //! # The predicate, and the two things that ground it
 //!
@@ -76,10 +74,8 @@
 //! three-part answer `doc/errata-read.md` records for a clause number an erratum moves, with its
 //! third part working for a table at last.
 //!
-//! **That sentence was a claim about an instrument and it was false when it was written**: the
-//! gate refused a *number*, and a designation no `u16` can hold — which both of these are — was
-//! not checked at all. It is true since the eight-hundred-and-thirty-second session, and this
-//! module's own first paragraph was one of the five places in the tree that broke it.
+//! **That sentence is a claim about an instrument**, and it holds because the gate checks a
+//! designation no `u16` can hold — which both of these are — as well as a number (ADR 0760).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

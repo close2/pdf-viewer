@@ -1372,9 +1372,8 @@ pub unsafe extern "C" fn quorra_outline_object(
 // ---------------------------------------------------------------------------------------------
 // The pointer, the selection and §12.5.1's focus.
 //
-// Everything a person *does* to a page, which the four-hundred-and-eleventh session left out
-// because a C host had not asked for it yet. Each is a symbol, and a symbol added later costs a
-// compiled caller nothing — which is the property the shape was chosen for.
+// Everything a person *does* to a page (ADR 0346). Each is a symbol, and a symbol added later costs
+// a compiled caller nothing — which is the property the shape was chosen for.
 // ---------------------------------------------------------------------------------------------
 
 /// §12.5.5: the pointer moved, or a button went down or up, at a point in the viewport.
@@ -3625,8 +3624,8 @@ pub unsafe extern "C" fn quorra_delegate(
     Status::Ok.code()
 }
 
-// ---------------------------------------------------------------------------------------------
-// The event accessors the four-hundred-and-eleventh session left out.
+// --------------------------------------------------------------------------------------------- The
+// event accessors beyond the first ABI's (ADR 0346).
 // ---------------------------------------------------------------------------------------------
 
 /// Which document the event at `index` is about.

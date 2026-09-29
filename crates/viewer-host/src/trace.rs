@@ -80,13 +80,12 @@ impl Topic {
 
 /// Every topic at once, which is what a bare `--trace` asks for.
 ///
-/// **Derived from [`Topic::ALL`] rather than written down, and it was written down until the
-/// seven-hundred-and-thirty-first session.** The literal said `0b1111` while the enumeration had
-/// five topics, so `--trace` and `--trace=all` silently asked for four of them and
-/// [`Topic::Pointer`] — added one round earlier, and the *only* instrument for a thing that cannot
-/// be photographed — printed nothing unless a person named it. A constant that has to be edited
-/// when an enumeration grows is a constant that will not be, which is `doc/todo/02` §7's own
-/// "a count that improves is not a picture" one file over.
+/// **Derived from [`Topic::ALL`] rather than written down.** A literal left at `0b1111` while the
+/// enumeration grows makes `--trace` and `--trace=all` silently ask for fewer topics than there
+/// are, and [`Topic::Pointer`] — the *only* instrument for a thing that cannot be photographed —
+/// would print nothing unless a person named it. A constant that has to be edited when an
+/// enumeration grows is a constant that will not be, which is `doc/todo/02` §7's own "a count that
+/// improves is not a picture" one file over.
 fn every_topic() -> u8 {
     let mut topics = 0;
     let mut at = 0;
@@ -198,10 +197,10 @@ mod tests {
 
     /// A bare `--trace` asks for every topic there is, including the one added last.
     ///
-    /// **Run against the defect before it was believed** (trap 13): with the literal `0b1111` this
-    /// file carried until the seven-hundred-and-thirty-first session, this test fails on
-    /// [`Topic::Pointer`] and on [`Topic::Access`] and passes on the other four — which is exactly
-    /// what a person typing `--trace` saw, and exactly what nothing said.
+    /// **Run against the defect before it was believed** (trap 13): with a literal `0b1111` in
+    /// place of the derivation, this test fails on [`Topic::Pointer`] and on [`Topic::Access`] and
+    /// passes on the other four — which is exactly what a person typing `--trace` would see, and
+    /// exactly what nothing would say.
     #[test]
     fn a_bare_trace_asks_for_every_topic() {
         let asked = parse_topics("").expect("the empty list names no unknown topic");

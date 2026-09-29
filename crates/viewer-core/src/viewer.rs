@@ -152,8 +152,7 @@ pub struct Viewer {
     /// The whole of the policy `CLAUDE.md`'s "a document's restrictions are the reader's to set"
     /// asks for: one value, held here rather than deduced anywhere, set by
     /// [`Command::Restrict`] and asked **once per operation** in [`Self::standing`] — one level
-    /// per operation since the one-thousand-one-hundred-and-forty-seventh session, every one of
-    /// them `Off` until a host says otherwise. ADR 0212, ADR 1144.
+    /// per operation, every one of them `Off` until a host says otherwise. ADR 0212, ADR 1144.
     ///
     /// **The window's levels, which one document may depart from.** `Open::restrictions` is that
     /// departure and [`crate::RestrictionPolicy::under`] is where the two meet; this value is what
@@ -379,8 +378,8 @@ impl Viewer {
             // panel models those 988 rows go into, the clone is 2% of what a host does with it.
             Query::Outline => Answer::Outline(open.outline.clone()),
             Query::Layers => Answer::Layers(layers(open)),
-            // The log's view rather than the file's, since the eight-hundred-and-eighty-fifth
-            // session: a file attached this sitting is in the list before anything is saved, and
+            // The log's view rather than the file's (ADR 0814): a file attached this sitting is
+            // in the list before anything is saved, and
             // one detached is out of it. `ViewState::attachments` says which home the list is.
             Query::Attachments => Answer::Attachments(attachments_in_view(open)),
             // Read here rather than held on `Open`: see `Query::Articles`. Two of the 974 corpus
@@ -1060,13 +1059,13 @@ impl Viewer {
     /// link whose only appearance stream is `/N` would otherwise re-interpret the page — 2 000 M
     /// instructions — for a picture that cannot differ.
     ///
-    /// **Which annotation the pointer is on is `annotation_at`'s answer and not `link_at`'s**,
-    /// since the two-hundred-and-fifty-third session. §12.5.5 is written about an annotation —
-    /// "[a]n annotation may define as many as three separate appearances" — and §12.5.6.19's
-    /// `/H` is an entry of a *widget*; taking the region from the link one meant that neither
-    /// reached anything but a link, and `pdf_model` had implemented both for every annotation
-    /// (ADR 0123). `over` is also the region §12.6.3's events already use, so this is one
-    /// question asked once rather than two answers that disagreed.
+    /// **Which annotation the pointer is on is `annotation_at`'s answer and not `link_at`'s**
+    /// (ADR 0177). §12.5.5 is written about an annotation — "[a]n annotation may define as many
+    /// as three separate appearances" — and §12.5.6.19's `/H` is an entry of a *widget*; taking
+    /// the region from the link one would mean that neither reached anything but a link, where
+    /// `pdf_model` implements both for every annotation (ADR 0123). `over` is also the region
+    /// §12.6.3's events already use, so this is one question asked once rather than two answers
+    /// that could disagree.
     ///
     /// It is `annotation_at` for a second reason, which is a clause rather than a tidy-up: that
     /// function filters by `annotation::interacts`, and §12.5.3's `ReadOnly` says an annotation
@@ -1111,8 +1110,8 @@ impl Viewer {
         // What a *click* activates is the link one, and only that: §12.5.6.5's activation region
         // is a link's, and `open.pressed` below decides whether a release follows one.
         let under = point.and_then(|(page, (x, y))| interact::link_at(open, page, x, y));
-        // §12.6.3's events belong to *any* annotation, and so — since the two-hundred-and-fifty-
-        // third session — does §12.5.5's appearance. Asked once per pointer message, which is
+        // §12.6.3's events belong to *any* annotation, and so does §12.5.5's appearance (ADR
+        // 0177). Asked once per pointer message, which is
         // what a `/Rect` test over a page's annotation array costs: the same shape
         // `Query::FieldAt` already pays at pointer speed.
         // **`point` is already in default user space**, which is what §12.5.2 states an
@@ -1284,10 +1283,10 @@ impl Viewer {
                 // `action::for_annotation` would return the same list again — so routing a link
                 // through both would perform its actions twice.
                 //
-                // **Raised before the link question is asked, since the three-hundred-and-twelfth
-                // session**, and that is a clause rather than a tidy-up: this arm used to return
-                // early whenever the release did not activate a link — so a click on a stamp, a
-                // widget or a markup annotation raised nothing at all.
+                // **Raised before the link question is asked** (ADR 0191), and that is a clause
+                // rather than a tidy-up: returning early whenever the release did not activate a
+                // link would mean a click on a stamp, a widget or a markup annotation raised
+                // nothing at all.
                 //
                 // **Table 197's sentence is not the whole condition**, and §12.6.3's third
                 // constraint is the rest of it: "[a] U (up) event may not occur without preceding
@@ -2312,10 +2311,9 @@ impl Viewer {
     /// what [`crate::Event::Refused`] carries the operation for.
     ///
     /// **The policy is `pdf_model::restriction::decide`'s, asked here once and matched
-    /// exhaustively**, and since the eight-hundred-and-eighty-fifth session all four of its
-    /// verdicts have an arm of their own — the two this used to fold into a refusal are
-    /// [`Event::Asking`] and [`Event::Warned`], and the notes are worded for each (ADR 0803, ADR
-    /// 0814).
+    /// exhaustively**, and all four of its verdicts have an arm of their own — two of them are
+    /// [`Event::Asking`] and [`Event::Warned`] rather than a refusal, and the notes are worded
+    /// for each (ADR 0803, ADR 0814).
     fn standing(
         &self,
         id: DocumentId,
@@ -2513,9 +2511,9 @@ impl Viewer {
     ///
     /// **This is the whole cost of a search step.** `interpret` is the expensive half of this
     /// program — 5.4 ms a page over ISO 32000-2's 1023, of which §7.7.3.2's page tree is 19% and
-    /// the content stream 81% — and until the four-hundred-and-twentieth session every step paid
-    /// it, including for a page a search had read a moment before. `crate::readback` is the
-    /// bound that made keeping it acceptable; a **repeated** full-document sweep of ISO 32000-2
+    /// the content stream 81% — and without this every step would pay it, including for a page
+    /// a search had read a moment before. `crate::readback` is the bound that makes keeping it
+    /// acceptable (ADR 0256); a **repeated** full-document sweep of ISO 32000-2
     /// is 5.45 s without this and 7.27 ms with it, medians of seven runs of
     /// `viewer-core/examples/find_cost`, and the *first* sweep is unchanged.
     ///
@@ -2652,9 +2650,9 @@ impl Viewer {
     /// The focused annotation's `/Rect` on the screen, for a host that draws a focus ring.
     ///
     /// The same mapping [`Self::device_quads`] uses and deliberately not a second copy of it in a
-    /// host: the origin, the magnification and the y flip are exactly the arithmetic that was
-    /// wrong for seventy-five sessions (ADR 0118), and a ring drawn from a host's own guess at it
-    /// would be that defect again one crate over.
+    /// host: the origin, the magnification and the y flip are exactly the arithmetic that is easy
+    /// to get wrong (ADR 0118), and a ring drawn from a host's own guess at it would be that
+    /// defect again one crate over.
     fn focus_quad(&self, open: &Open) -> Option<(ObjectId, [f32; 8])> {
         let object = open.focus?;
         // Which page of the arrangement the focused annotation is on: the current one under
@@ -2788,9 +2786,9 @@ impl Viewer {
     /// A rectangle in default user space, as the quadrilateral a host draws over the page.
     ///
     /// **One copy of this arithmetic and deliberately not one per caller**: the origin, the
-    /// magnification and the y flip are exactly what was wrong for seventy-five sessions (ADR
-    /// 0118), and a second opinion about them in a host — or in a second method here — would be
-    /// that defect again. `[x0, y0, x1, y1]`, normalised, in; clockwise from the top-left as it
+    /// magnification and the y flip are exactly what is easy to get wrong (ADR 0118), and a second
+    /// opinion about them in a host — or in a second method here — would be that defect again.
+    /// `[x0, y0, x1, y1]`, normalised, in; clockwise from the top-left as it
     /// appears on the screen, out — for a page §7.7.3.3 does not turn, where the corner that is
     /// lowest and leftmost in the document is also the one at the bottom left of the screen.
     fn device_quad(&self, open: &Open, page: usize, rect: [f32; 4]) -> Option<[f32; 8]> {
@@ -2813,11 +2811,11 @@ impl Viewer {
     /// [`Self::user_space`] backwards — that function undoes the second and then the first — and
     /// writing it as anything else is how the two halves come to disagree.
     ///
-    /// **The page transform was missing here until the three-hundred-and-seventy-first session**,
-    /// so `Query::Focus`'s ring and `Query::Popups`' windows were placed as though every page were
-    /// unrotated with its crop box at the origin. Both are true of every corpus document that has
-    /// a widget — none of the 974 states a rotated page with one — which is why no gate saw it and
-    /// why this is arithmetic rather than a picture (ADR 0211).
+    /// **The page transform is applied here**, or `Query::Focus`'s ring and `Query::Popups`'
+    /// windows would be placed as though every page were unrotated with its crop box at the
+    /// origin. Both are true of every corpus document that has a widget — none of the 974 states
+    /// a rotated page with one — which is why no gate would see it and why this is arithmetic
+    /// rather than a picture (ADR 0211).
     fn device_point(&self, open: &Open, page: usize, at: (f32, f32)) -> Option<(f32, f32)> {
         let object = open.placed_page(page)?;
         let (x, y) = pdf_model::content::page_space_at(object, at.0, at.1);
@@ -3001,28 +2999,43 @@ impl Viewer {
     /// §14.7.5.4's structural parent tree keyed by *that page's* `/StructParents`, and two pages'
     /// answers share their ancestors — so they are answered side by side and joining them is the
     /// platform's question rather than this crate's.
+    ///
+    /// Each page also says which of [`crate::Tagging`]'s four answers its list is (ADR 1393): the
+    /// document's `/StructTreeRoot` and `/MarkInfo` are read once for the screen, because §14.7.1
+    /// and §14.7.2 put both at the catalog and they are the same for every page on it.
     fn accessibility(&self, open: &Open) -> Vec<PageStructure> {
+        let structured = pdf_model::structure::Tree::of(&open.document).is_some();
+        let marked = structured && pdf_model::structure::MarkInfo::read(&open.document).marked;
         open.on_screen
             .iter()
             .map(|on_screen| {
-                let (nodes, widgets) = match self.structure(open, on_screen) {
+                let (nodes, widgets, tagging) = match self.structure(open, on_screen) {
                     Some((nodes, named)) => {
                         let widgets = self.unreached_widgets(open, on_screen, &named);
-                        (nodes, widgets)
+                        let tagging = if !structured {
+                            crate::Tagging::Untagged
+                        } else if nodes.is_empty() {
+                            crate::Tagging::Unreached { marked }
+                        } else {
+                            crate::Tagging::Reached
+                        };
+                        (nodes, widgets, tagging)
                     }
                     // A page not yet interpreted has no elements to answer, and on a tagged page
                     // which widgets they reach is unknown until it has; an untagged page's
                     // widgets are reached by nothing whatever the interpreter says.
-                    None if pdf_model::structure::Tree::of(&open.document).is_none() => (
+                    None if !structured => (
                         Vec::new(),
                         self.unreached_widgets(open, on_screen, &BTreeSet::new()),
+                        crate::Tagging::Untagged,
                     ),
-                    None => (Vec::new(), Vec::new()),
+                    None => (Vec::new(), Vec::new(), crate::Tagging::Unread),
                 };
                 PageStructure {
                     page: on_screen.page,
                     nodes,
                     widgets,
+                    tagging,
                 }
             })
             .collect()
@@ -3151,6 +3164,7 @@ impl Viewer {
             places: &referenced.places,
             languages: &referenced.languages,
             controls: &referenced.controls,
+            fields: &referenced.fields,
         };
         let nodes = gathered
             .into_iter()
@@ -4215,9 +4229,8 @@ fn content_bounds(list: &DisplayList) -> Option<Rect> {
 /// in [`Answer::Fields`].
 ///
 /// **Keyed by the annotation means answering for the annotation**, which is what
-/// [`this_widgets_control`] is for and what this function did not do for a hundred and thirty
-/// sessions: the control it stored under each of a radio set's widgets was the *field's*, so every
-/// button of the set said it was selected.
+/// [`this_widgets_control`] is for: storing the *field's* control under each of a radio set's
+/// widgets would make every button of the set say it was selected.
 ///
 /// Takes the page the arrangement is already holding rather than an index into the page tree:
 /// under a column this is asked once per page on the screen, and `Pages::get` is the walk ADR
@@ -4226,24 +4239,27 @@ fn referenced_objects(open: &Open, shown: &pdf_model::Page) -> Referenced {
     let places = pdf_model::structure::annotation_rectangles(&open.document, &shown.dict);
     let languages = pdf_model::structure::annotation_languages(&open.document, &shown.dict);
     let mut controls = BTreeMap::new();
+    let mut fields = BTreeMap::new();
     for field in pdf_model::form::fields(&open.document, shown, &open.view) {
         for widget in &field.widgets {
             controls.insert(
                 widget.annotation,
                 this_widgets_control(&field.control, widget),
             );
+            fields.insert(widget.annotation, field.name.shown().to_owned());
         }
     }
     Referenced {
         places,
         languages,
         controls,
+        fields,
     }
 }
 
-/// The three readings [`referenced_objects`] answers with, keyed by the annotation each is about.
+/// The four readings [`referenced_objects`] answers with, keyed by the annotation each is about.
 ///
-/// A value rather than a tuple because they are three different facts about one page and a caller
+/// A value rather than a tuple because they are four different facts about one page and a caller
 /// reading `.1` would have to remember which; `Default` is the answer for a page whose structure
 /// tree names no object at all, which is nearly every page.
 #[derive(Default)]
@@ -4254,6 +4270,8 @@ struct Referenced {
     languages: BTreeMap<ObjectId, String>,
     /// §12.7's control for each widget annotation of a field with a widget on this page.
     controls: BTreeMap<ObjectId, pdf_model::form::Control>,
+    /// The name §14.9.3 says a user interface shows for each such widget's field (ADR 1394).
+    fields: BTreeMap<ObjectId, String>,
 }
 
 /// The field's control with §12.7.5.2's on state replaced by **this widget's**.
@@ -4265,9 +4283,9 @@ struct Referenced {
 /// comment: "[`Control::CheckBox`] carries the same fact for the field as a whole; this is the
 /// per-widget answer a radio set needs."
 ///
-/// What that cost until the seven-hundred-and-thirty-fifth session was a clause, measured on a
-/// real AT-SPI bus: a screen reader was told **every** button of a set is selected as soon as one
-/// of them was. ISO 32000-2 §12.7.5.2.4:
+/// Without it a clause is broken, and it was measured on a real AT-SPI bus (ADR 0630): a screen
+/// reader is told **every** button of a set is selected as soon as one of them is. ISO 32000-2
+/// §12.7.5.2.4:
 ///
 /// > Like check boxes, individual radio buttons have two states, on and off.
 ///
@@ -4659,9 +4677,8 @@ fn is_widget(document: &pdf_syntax::Document, annotation: ObjectId) -> bool {
 /// > more visible pages.
 ///
 /// This window shows one page at a time, so "one or more visible pages" is the page it is
-/// showing — the same derivation §12.6.3's `/PV` and `/PO` took in the two-hundred-and-fourth
-/// session, and the same one this row's stale reason denied for eighty-six: "which pages are
-/// visible is a question about a window this crate does not have". `pdf_model` supplies the half
+/// showing — the same derivation §12.6.3's `/PV` and `/PO` take (ADR 0164). `pdf_model` supplies
+/// the half
 /// that is about the file, `groups_referenced_by`, and this supplies the half that is about the
 /// window. One corpus document states the entry (`visibility_expressions.pdf`, on a scan of every
 /// uncompressed `/ListMode` in all 974), and it states `VisiblePages`.
@@ -4900,9 +4917,8 @@ fn attachment_preview(open: &Open, name: &str) -> Option<pdf_model::thumbnail::T
 /// as* is examples rather than a closed list, and an associated file is an associated object in
 /// the plainest sense the standard has.
 ///
-/// The entry had no caller anywhere in this tree until the thousand-and-fifty-first session, which
-/// is the shape §14.13.3's catalog `/AF` was in before `attachment::attachments` reached it: a
-/// reading that exists, a row that calls it implemented, and a payload no host can extract.
+/// This is the entry's caller (ADR 1065). Without one it is in the shape of a reading that
+/// exists, a row that calls it implemented, and a payload no host can extract.
 ///
 /// One payload named both ways is one file, deduplicated by the stream's identity exactly as
 /// `attachment::attachments` does it — a producer that writes a `/FS` and repeats it in `/AF` has

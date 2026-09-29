@@ -139,10 +139,9 @@ const MAX_CHILDREN: usize = 65_536;
 
 /// Most items one [`Tree::walk`] returns, over the whole tree rather than one `/K`.
 ///
-/// **This used to be [`MAX_CHILDREN`], and it cut the largest document this project owns to
-/// little over half without saying so** — ISO 32000-2's structure tree is **129 389** items and
-/// a walk stopped at 71 371 of them, which is where session 416's count came from and which
-/// `doc/todo/49`'s item 5 recorded as the wrong bound. A bound that truncates a *valid* file is
+/// **Not [`MAX_CHILDREN`], which would cut the largest document this project owns to little over
+/// half without saying so** — ISO 32000-2's structure tree is **129 389** items and a walk bounded
+/// that way stops at 71 371 of them (ADR 0257). A bound that truncates a *valid* file is
 /// measuring this project's patience rather than the file's malice, so it is set from the
 /// largest real tree in reach with room above it, and [`Reading::truncated`] says when it is
 /// reached at all.
@@ -249,11 +248,8 @@ pub enum Child {
 /// The parent tree above answers "which element does this marked-content sequence belong
 /// to", which is what drawing a page needs. This answers the other direction — what the
 /// document *says it is* — which is what a reading-order consumer, an accessibility tree or
-/// a navigation panel needs. **This used to end "the data is this crate's and the consumer is
-/// not: nothing in this program yet hands a structure tree to anybody", and it had been false for
-/// two hundred and twenty-seven sessions before the three-hundred-and-seventy-sixth wrote the
-/// second consumer.** `viewer_core::Query::AccessibilityTree` has answered with this since the
-/// hundred-and-forty-ninth (ADR 0134), and `viewer-accessibility` puts the answer on AT-SPI
+/// a navigation panel needs. `viewer_core::Query::AccessibilityTree` answers with this
+/// (ADR 0134), and `viewer-accessibility` puts the answer on AT-SPI
 /// through AccessKit (ADR 0214) — so [`Tree::role`]'s §14.7.3 mapping and [`StandardType`] are
 /// read by a program a person uses rather than by tests alone.
 #[derive(Debug, Clone)]
@@ -596,9 +592,8 @@ impl Tree {
     /// including — so `CLAUDE.md`'s closed authoring exclusion says this tree does not have to
     /// produce such a tagging. It says nothing at all about *reading* one, and a requirement a
     /// file breaks is answered by a report rather than left to a validator, which is where
-    /// §7.3.7's row and §14.8.6.2's arrived (ADRs 0784 and 0785). The reason this clause was
-    /// declined in the five-hundred-and-fortieth was the exclusion, and the exclusion turns out
-    /// not to reach it; ADR 0786 is where that is argued.
+    /// §7.3.7's row and §14.8.6.2's arrived (ADRs 0784 and 0785). The authoring exclusion does
+    /// not reach this clause; ADR 0786 is where that is argued.
     ///
     /// # What the condition is, and what it deliberately is not
     ///
@@ -1077,16 +1072,15 @@ impl Tree {
     /// origin stand between the two, and [`crate::content::page_space_at`] is the map. A caller
     /// that took these numbers for pixels would place a rotated page's figures off the page.
     ///
-    /// Not inheritable, which is why this asks [`Self::attribute`]: a paragraph inside a figure
-    /// has its own extent and the figure's rectangle is not a statement about it. **Table 379 is
-    /// not the only table that states the entry**, and this comment named it alone until the
-    /// eight-hundred-and-eleventh round: §14.8.5.3's priority is applied over every PDF-native
-    /// owner, so §14.8.5.8's Table 385 answers here too, for an attribute object owned by
-    /// `Artifact` — the same rectangle, described in the same words, around content §14.8.2.2
+    /// Not inheritable, which is why this asks [`Self::attribute`]: a paragraph inside a figure has
+    /// its own extent and the figure's rectangle is not a statement about it. **Table 379 is not
+    /// the only table that states the entry**: §14.8.5.3's priority is applied over every
+    /// PDF-native owner, so §14.8.5.8's Table 385 answers here too, for an attribute object owned
+    /// by `Artifact` — the same rectangle, described in the same words, around content §14.8.2.2
     /// calls an artifact rather than the document's own. Table 379's cell says *not inheritable*
-    /// outright; Table 385's says it only under Errata Collection 3's Issue #346, whose caret
-    /// puts the same two words into it, so the choice made here now rests on the cell of
-    /// whichever owner the document wrote rather than on one of the two.
+    /// outright; Table 385's says it only under Errata Collection 3's Issue #346, whose caret puts
+    /// the same two words into it, so the choice made here now rests on the cell of whichever owner
+    /// the document wrote rather than on one of the two.
     ///
     /// `None` for an element stating none, and for a value that is not four finite numbers —
     /// which no corpus document states.
@@ -1561,21 +1555,19 @@ impl Tree {
     /// is a form `XObject` — so all are asked, and a form's resources are followed for the
     /// `XObject`s drawn inside it.
     ///
-    /// **The fourth is a form's own `/StructParents`, and it was missing until the
-    /// six-hundred-and-sixty-first session.** §14.7.5.2 gives a form two ways into the structure
-    /// and this route asked only about the first: a form that is a content item *in its entirety*
+    /// **The fourth is a form's own `/StructParents`.** §14.7.5.2 gives a form two ways into the
+    /// structure: a form that is a content item *in its entirety*
     /// carries `/StructParent`, and a form whose stream "may contain one or more marked-content
     /// sequences that are associated with structure elements" carries `/StructParents` instead —
     /// which Table 359 says in so many words, quoted under [`Self::stream_owners`].
-    /// An element reached only that way was pruned as belonging to another page, so a figure
-    /// tagged inside a form reached no screen reader at all. [`Self::stream_owners`] is the
-    /// lookup; ADR 0488.
+    /// An element reached only that way would otherwise be pruned as belonging to another page, so
+    /// a figure tagged inside a form would reach no screen reader at all. [`Self::stream_owners`]
+    /// is the lookup; ADR 0488.
     ///
-    /// **The fifth is an annotation's appearance streams, missing the same way until the
-    /// seven-hundred-and-eighty-second.** §12.5.5 makes an appearance stream a form `XObject`,
-    /// so Table 359's words already covered it — but the `XObject` walk below starts from the
-    /// page's *resources*, and an `/AP` entry is not a resource. [`Self::appearance_owners`] is
-    /// the walk; ADR 0719.
+    /// **The fifth is an annotation's appearance streams.** §12.5.5 makes an appearance stream a
+    /// form `XObject`, so Table 359's words already covered it — but the `XObject` walk below
+    /// starts from the page's *resources*, and an `/AP` entry is not a resource.
+    /// [`Self::appearance_owners`] is the walk; ADR 0719.
     ///
     /// # Why a generous answer costs nothing, and why `None` is not an empty one
     ///
@@ -2214,11 +2206,11 @@ impl Tree {
     ///
     /// The visited set holds [`ObjectId`]s and not dictionaries, which is what makes a large
     /// tree walkable at all: a `Vec<Dictionary>` searched linearly is quadratic in the number
-    /// of elements *and* compares whole dictionaries at each step. Measured on ISO 32000-2 in
-    /// the four-hundred-and-twenty-first session: **16.8 s** for the 44 651 elements the old
-    /// bound let it reach, against **151 ms** for all 78 468 with the set. `logical_order`
-    /// walks the whole tree once per page, so that was 16.8 s of every §14.8.2.5 question
-    /// asked of the document this project checks itself against.
+    /// of elements *and* compares whole dictionaries at each step. Measured on ISO 32000-2
+    /// (ADR 0257): **16.8 s** for 44 651 elements searched linearly, against **151 ms** for all
+    /// 78 468 with the set. `logical_order` walks the whole tree once per page, so the linear
+    /// search would cost 16.8 s of every §14.8.2.5 question asked of the document this project
+    /// checks itself against.
     ///
     /// An element reached other than through a reference has no identity to remember and is
     /// always descended into. That loses nothing: a dictionary written inline in its parent's
@@ -3223,12 +3215,9 @@ pub enum StandardType {
     Link,
     /// `Annot`: "[e]ncloses one or more PDF annotations and associated content, if any".
     ///
-    /// **The word was *association* here until the four-hundred-and-thirty-seventh session**,
-    /// which is what Table 368 said before Errata Collection 3 Issue #437 rewrote this row and
-    /// `Form`'s: the annotation is what the element is for and the content is the
-    /// optional part, which is the reverse of what an association reads as. §14.8.4.7.2's
-    /// ledger row was corrected for this exact word in the four-hundred-and-eighteenth and
-    /// these two doc comments one directory away were not.
+    /// Errata Collection 3 Issue #437 rewrites this row and `Form`'s away from *association*: the
+    /// annotation is what the element is for and the content is the optional part, which is the
+    /// reverse of what an association reads as (ADR 0273).
     Annotation,
     /// `Form`: "[e]ncloses a PDF widget annotation and associated content, if any" (§12.7).
     Form,
@@ -4124,7 +4113,7 @@ pub const STANDARD_NAMESPACE_2_0: &str = "http://iso.org/pdf2/ssn";
 /// "`MathML` is the only domain-specific namespace defined in PDF 2.0", and the clause exempts
 /// it from role mapping — a namespace named here "[does] not require a `RoleMapNS` entry".
 ///
-/// **Without a version, since the four-hundred-and-eighteenth session.** `doc/md/` says
+/// **Without a version** (ADR 0254). `doc/md/` says
 /// "`MathML` 3.0" throughout the clause and Errata Collection 3 takes the version out of every
 /// one of them (Issue #72, `/State` `Review` `Completed`), because the normative reference it
 /// pointed at is itself replaced — §2's "Mathematical Markup Language (`MathML`) Version 3.0"
@@ -4180,13 +4169,12 @@ impl Namespace {
 
     /// Whether this is one of §14.8.6.1's two standard structure namespaces.
     ///
-    /// **This had no caller for a hundred and fifteen sessions**, which `doc/todo/01`'s fifth
-    /// sweep found on the round it became a program, and the reason recorded here was that
-    /// §14.8.6.2's "all structure elements shall be in at least one of the standard structure
+    /// It might look like a validator's question, on the reading that §14.8.6.2's "all structure
+    /// elements shall be in at least one of the standard structure
     /// namespaces or in a namespace identified in 14.8.6.3" is addressed to a *document*, so
     /// asking it is validating a file rather than drawing one.
     ///
-    /// That reason was half right and it hid a reader's question behind a writer's. Whether a
+    /// That reading is half right and it hides a reader's question behind a writer's. Whether a
     /// document *conforms* is indeed not asked here; which vocabulary a type name belongs to is,
     /// every time [`Tree::standard_role`] is called, and §14.8.4's forty-one names mean what
     /// they mean **because of** the namespace they are defined in. So this is what tells a
@@ -6074,9 +6062,8 @@ mod tests {
     /// ISO 32000-2 §14.8.4.7.4's Table 369, whole: two assemblies, seven types, all inline.
     ///
     /// One test rather than seven because the table's own claim is a single one — every ruby
-    /// and warichu type is `Inline` — and because the ledger carried these seven split across
-    /// two rows until the four-hundred-and-thirty-seventh session, four of them under a number
-    /// Errata Collection 3 had given to §14.8.4.7.3's link element.
+    /// and warichu type is `Inline` — in one ledger row, since Errata Collection 3 gives the number
+    /// of a second one to §14.8.4.7.3's link element (ADR 0273).
     #[test]
     fn every_ruby_and_warichu_type_is_inline() {
         use super::{Category, StandardType};

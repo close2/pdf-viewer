@@ -8,7 +8,7 @@
 //! oracle's population it calls `ambiguous`, no reference agrees with any other closely enough for
 //! anybody to be called wrong, so *nothing holds our pixels there*: an interpreter regression on
 //! such a page is invisible unless it moves enough ink for the sweep's one-level alarm, and ADR
-//! 0945 records a page drawn in the wrong place at the right weight for hundreds of sessions
+//! 0945 records a page drawn in the wrong place at the right weight and unnoticed
 //! (`doc/reviews/984-direction-and-boundaries.md` Finding 4, ADR 1005 §4).
 //!
 //! This gate compares this program with **itself**. That is a change detector and not a

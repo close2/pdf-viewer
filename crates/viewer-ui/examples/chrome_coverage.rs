@@ -1,11 +1,10 @@
 //! How much of what a document says about *itself* this program's own font can set.
 //!
-//! `doc/todo/27` named a silence: [`viewer_ui::chrome::Chrome::text`] used to draw nothing for a
-//! character §9.6.2.2's Helvetica cannot set and [`viewer_ui::chrome::Chrome::width`] gave it no
-//! advance, so a panel row whose text is Japanese was an empty row. It is a box now (ADR 0195),
-//! and this counts them — over §12.3.3's outline titles, §8.11.4.3's layer names, §7.11.4's file
-//! names, §14.3.3's `/Info` values and §14.3.2's XMP properties, all of which were unmeasured
-//! before the three-hundred-and-sixteenth session.
+//! `doc/todo/27` named a silence: a character §9.6.2.2's Helvetica cannot set, drawn as nothing
+//! with no advance, makes a panel row whose text is Japanese an empty row.
+//! [`viewer_ui::chrome::Chrome::text`] draws a box for one (ADR 0195), and this counts them — over
+//! §12.3.3's outline titles, §8.11.4.3's layer names, §7.11.4's file names, §14.3.3's `/Info`
+//! values and §14.3.2's XMP properties.
 //!
 //! This is that measurement, over whatever documents are named on the command line (the corpus,
 //! usually). It opens each one through `viewer-core` and asks the four queries the sidebar asks,

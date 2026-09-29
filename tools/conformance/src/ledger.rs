@@ -34,12 +34,11 @@ use crate::toml_subset::{self, Value};
 /// The clauses of the standard's body the ledger covers: conformance through document
 /// interchange.
 ///
-/// **This was `TECHNICAL_CLAUSES: 7..=14` until the nine-hundred-and-seventy-third session**,
-/// and clause 6 is what it gained. Clause 6 states eleven `shall`s and every one of them is
+/// **Clause 6 is in it** because it states eleven `shall`s and every one of them is
 /// addressed to a PDF file or to a PDF processor — §6.3.2.2's three obligations on a processor
 /// that renders a page are the ranking `CLAUDE.md`'s *what done means* is written around, and
-/// this tree cited that subclause forty-seven times across five crates while the ledger had no
-/// row for it at all. ADR 0984.
+/// this tree cites that subclause across five crates, so the ledger carries a row for it.
+/// ADR 0984.
 ///
 /// The list is a checked claim rather than a constant: [`check`] reads every clause of the
 /// standard and reports one that states a `shall` and appears in neither this list nor
@@ -68,11 +67,11 @@ pub const EXCLUDED_CLAUSES: [(u16, &str); 1] = [(
 
 /// The standard's normative annexes, which the ledger covers for the same reason.
 ///
-/// **This constant did not exist until the three-hundred-and-sixtieth session**, and the
-/// eight letters in it were outside every instrument this project has: not citable, not
-/// checkable and not recorded. `CLAUDE.md`'s scope section names clauses because that is how
+/// Without it the eight letters in it would be outside every instrument this project has: not
+/// citable, not checkable and not recorded. `CLAUDE.md`'s scope section names clauses because
+/// that is how
 /// the standard's *body* is organised, and its closed exclusion list says nothing about an
-/// annex — so the annexes were in scope all along and nothing was looking at them. Annexes
+/// annex — so the annexes are in scope. Annexes
 /// A, B, C, G, H, J, M, N and P are informative and stay out: they state no requirement.
 /// ADR 0206.
 pub const NORMATIVE_ANNEXES: [char; 8] = ['D', 'E', 'F', 'I', 'K', 'L', 'O', 'Q'];
@@ -147,20 +146,15 @@ pub enum Status {
     /// The requirement has no meaning for this device. Not the same as excluded: nothing is
     /// owed, because nothing applies.
     ///
-    /// **The wording was "describes a marking device rather than a screen" until the
-    /// three-hundred-and-seventy-fifth session**, and ISO 32000-2 does not contain that
-    /// phrase: §8.3.2.2's term is a "raster output device *such as a display or a
-    /// printer*", which is why §10.5's transfer function spent three hundred and
-    /// fifty-seven sessions in this status wrongly (ADR 0204). A status whose *definition*
-    /// names a device the standard does not is a status that invites the mistake.
+    /// **The definition names no device**, because ISO 32000-2 does not draw that line:
+    /// §8.3.2.2's term is a "raster output device *such as a display or a printer*", which is
+    /// why §10.5's transfer function is not in this status (ADR 0204). A status whose
+    /// *definition* names a device the standard does not is a status that invites the mistake.
     Inapplicable,
     /// The requirement addresses a generator of the *content* this program does not generate.
     ///
-    /// **The wording was "we do not create files" until the five-hundred-and-tenth session and
-    /// "this program writes only §7.5.6's updates" until the eight-hundred-and-eighty-sixth**,
-    /// each time because the exclusion behind it had moved and this enum had not. The first
-    /// correction followed `CLAUDE.md`'s amendment for §7.5.6's incremental update; the second
-    /// follows RFC 0002 §11.1's, ratified 2026-09-03 (ADR 0816), which admits a whole-file
+    /// It follows `CLAUDE.md`'s authoring exclusion as amended for §7.5.6's incremental update
+    /// and by RFC 0002 §11.1, ratified 2026-09-03 (ADR 0816), which admits a whole-file
     /// serializer — `pdf_syntax::serialize` — for deriving a new document from documents that
     /// exist.
     ///
@@ -173,8 +167,8 @@ pub enum Status {
     /// second kind, and both stop being `writer-side` the day a writer emits them.
     ///
     /// `ledger.toml`'s header carries whichever sentence is here, because this enum is where
-    /// the generated header's vocabulary lives; the generator once held a sentence a session
-    /// had corrected in the file and stamped it back (ADR 0345).
+    /// the generated header's vocabulary lives, and a second copy in the generator would stamp
+    /// a corrected sentence back (ADR 0345).
     WriterSide,
     /// Covered by principle 5's closed exclusion list, which the row must name.
     OutOfScope,
@@ -274,11 +268,8 @@ pub enum Exclusion {
     /// XFA, on Annex K's own permission: "a PDF processor may choose to not implement this
     /// feature" (§K.1).
     ///
-    /// **This doc comment said "deprecated by ISO 32000-2 itself and specified outside it"
-    /// until the five-hundred-and-tenth session**, the exact wording `CLAUDE.md` amended after
-    /// the three-hundred-and-sixtieth found Annex K normative and *inside* the standard —
-    /// §K's own row quotes the correction, and this copy one directory from the ledger was
-    /// never swept with it (ADR 0345).
+    /// Annex K is normative and *inside* the standard (ADR 0206), so the exclusion rests on the
+    /// permission the annex grants rather than on where it was printed (ADR 0345).
     Xfa,
     /// JavaScript and script-driven form behaviour. Field *appearance* is not excluded.
     Script,

@@ -8,12 +8,12 @@
 //! experiment that shapes the interface**, and `viewer-ffi` last — *"do not freeze a C ABI until
 //! two Rust consumers have shaken the API out"*. This is the second of those two consumers.
 //!
-//! Its product is therefore not an application but an answer: **what a toolkit unlike GTK4 asks
-//! of the boundary.** The four-hundred-and-eighth session's headline was that a whole native host
-//! added no new message; this crate tests that against a different widget model
-//! (`QAbstractItemModel` against `GtkTreeListModel`), a different ownership model (C++ owns the
-//! host; in GTK the Rust side owns the widgets) and a different language on the far side. ADR
-//! 0246 is the comparison, and the short answer is that the vocabulary needed nothing again.
+//! Its product is therefore not an application but an answer: **what a toolkit unlike GTK4 asks of
+//! the boundary.** A whole native host added no new message (ADR 0244); this crate tests that
+//! against a different widget model (`QAbstractItemModel` against `GtkTreeListModel`), a different
+//! ownership model (C++ owns the host; in GTK the Rust side owns the widgets) and a different
+//! language on the far side. ADR 0246 is the comparison, and the short answer is that the
+//! vocabulary needed nothing again.
 //!
 //! # Tier 1, and Qt Widgets offers no other either
 //!

@@ -11,17 +11,15 @@
 //! the decision.
 //!
 //! **Table 260 names three algorithm families, ISO/TS 32002 section 5.1.2 adds a fourth row, and
-//! this tree verifies all four**: DSA is [`crate::dsa`] since the four-hundred-and-seventy-ninth
-//! session, ECDSA [`crate::ecdsa`] and `EdDSA` [`crate::eddsa`] since the six-hundred-and-eighty-ninth
-//! (ADR 0532). What is still refused is a *curve* rather than a family, and every refusal is
-//! reported by the identifier the file states rather than skipped
+//! this tree verifies all four**: DSA is [`crate::dsa`] (ADR 0314), ECDSA [`crate::ecdsa`] and
+//! `EdDSA` [`crate::eddsa`] (ADR 0532). What is still refused is a *curve* rather than a family,
+//! and every refusal is reported by the identifier the file states rather than skipped
 //! ([`crate::signature::Authenticity`]).
 //!
 //! **`id-RSASSA-PSS` is not this construction and is deliberately not treated as it.** It shares
 //! RFC 8017's `pkcs-1` arc and states a different padding, so a reader that matched the arc would
-//! verify the wrong thing. It is [`crate::pss`], since the four-hundred-and-eighty-seventh
-//! session (ADR 0322); the one thing the two schemes share is [`rsavp1`], because RFC 8017
-//! itself invokes that primitive by name from both.
+//! verify the wrong thing. It is [`crate::pss`] (ADR 0322); the one thing the two schemes share is
+//! [`rsavp1`], because RFC 8017 itself invokes that primitive by name from both.
 //!
 //! # What is verified, and by which construction
 //!
@@ -46,10 +44,10 @@
 //! The *scheme* — encode-and-compare, the budgets, the refusal names — stays here: ADR 0229
 //! declined the `rsa` crate because a whole-scheme dependency parses keys and signatures with a
 //! strict DER stack this corpus contradicts, and that reasoning stands (ADR 0331 re-measured it).
-//! The *arithmetic* under it is `RustCrypto`'s `crypto-bigint` since the four-hundred-and-ninety-
-//! sixth session, by the project owner's decision: [`crate::bigint`] is the seam, and ADR 0331
-//! has the argument. ADR 0229's observation survives the port — **there is no secret** in a
-//! verification, every number came out of the file, and nothing here needs constant time.
+//! The *arithmetic* under it is `RustCrypto`'s `crypto-bigint`, by the project owner's decision:
+//! [`crate::bigint`] is the seam, and ADR 0331 has the argument. ADR 0229's observation survives
+//! the port — **there is no secret** in a verification, every number came out of the file, and
+//! nothing here needs constant time.
 //!
 //! # The budgets, and what each costs
 //!

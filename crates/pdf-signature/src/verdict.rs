@@ -1,8 +1,7 @@
 //! The one type in this program that can say *valid*, and the proof it cannot be made without.
 //!
 //! ISO 32000-2 §12.8.1 divides a signature into three questions — has the document changed, does
-//! the signature verify, is the signer anyone to believe — and this project has answered the first
-//! two since the three-hundred-and-seventy-seventh and three-hundred-and-ninety-second sessions
+//! the signature verify, is the signer anyone to believe — and this project answers the first two
 //! (ADR 0215, ADR 0229). The third needs an anchor, RFC 5280 section 6.1.1 makes an anchor input
 //! (d), and ADR 1039 made it a host's to supply. [`crate::trust::Supply`] is the supplying; this is
 //! what a host may be told once it has supplied.

@@ -105,8 +105,8 @@ impl Name {
     /// erratum that says so in Table 2 itself), so rule b) lets this writer put either out as
     /// itself — and rule b) equally lets it write the hexadecimal code, which is what it does. The
     /// cost is two bytes in a name almost no document has; what it buys is that a name this program
-    /// writes is read the same way by a reader that takes Table 2's ten delimiters unconditionally,
-    /// which is how this tree itself read them until the eight-hundred-and-nineteenth session.
+    /// writes is read the same way by a reader that takes Table 2's ten delimiters
+    /// unconditionally.
     ///
     /// **What comes back is therefore always ASCII**, which is what lets a content stream this
     /// program builds be a `String` while the name inside it is bytes.

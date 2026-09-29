@@ -304,14 +304,13 @@ mod tests {
 
     /// The word this window's refusal names has to be a word this program takes.
     ///
-    /// **Written against the defect rather than for the feature.** `Host::react` answered
-    /// `viewer_core::Event::Refused` with a sentence naming `--ignore-restrictions` from this
-    /// host's first session, and `arguments` answered that same word with *"is not an option this
-    /// program has"* and exit 1 — so `CLAUDE.md`'s "it shall always be possible to turn them off"
-    /// was true in one host of three while all three said it was true. The constant is what ties
-    /// the sentence and the parser together; this asserts the parser's end of it and
-    /// `viewer-host`'s `the_refusal_names_the_word_that_turns_the_restrictions_off` the other.
-    /// ADR 0604.
+    /// **Written against the defect rather than for the feature.** `Host::react` answers
+    /// `viewer_core::Event::Refused` with a sentence naming `--ignore-restrictions`, and an
+    /// `arguments` that answered that same word with *"is not an option this program has"* and exit
+    /// 1 would make `CLAUDE.md`'s "it shall always be possible to turn them off" false while the
+    /// sentence says it is true. The constant is what ties the sentence and the parser together;
+    /// this asserts the parser's end of it and `viewer-host`'s
+    /// `the_refusal_names_the_word_that_turns_the_restrictions_off` the other. ADR 0604.
     #[test]
     fn the_word_the_refusal_names_turns_the_restrictions_off() {
         use pdf_model::restriction::Operation;

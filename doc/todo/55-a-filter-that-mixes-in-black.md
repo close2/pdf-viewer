@@ -6,7 +6,7 @@ Priority: 50 — blocked on a dependency, and it is the *shipped* rasteriser, so
 Corpus: no page names it, and none can — see "Why no gate here can see it" below.
 Clauses: §8.9.6.2's interpolation `shall` is where the standard states the rule; §8.9.6.3,
 §8.9.6.4, §11.6.5.2 and §7.4.9's opacity channel are the other populations it reaches.
-Code: `crates/raster-gpu/src/shaders/image.wgsl` (`fs_main`), reached through
+Code: `raster/crates/raster-gpu/src/shaders/image.wgsl` (`fs_main`), reached through
 `crates/render-raster/src/scene.rs`'s `Self::image`. This side's instrument is
 `crates/render-raster/examples/filtered_edge_colour.rs`.
 

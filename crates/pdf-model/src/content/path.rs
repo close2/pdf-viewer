@@ -113,9 +113,8 @@ impl Interpreter<'_> {
             }
             // §8.7.2 makes a pattern a colour for `SCN` exactly as for `scn`, so a stroke
             // whose colour is a *tiling* pattern is the cell replayed across the stroked
-            // outline. It was reported rather than drawn until the eight-hundred-and-second
-            // session, on the reason ADR 0028 gives; [`Tiled`] says why that reason does not
-            // reach the construction used here.
+            // outline (ADR 0735); [`Tiled`] says why ADR 0028's reason against expanding a
+            // stroke here does not reach the construction used.
             if let (Some(_), Some(PatternPaint::Tiling(tiling))) =
                 (stroke, state.stroke_pattern.clone())
             {

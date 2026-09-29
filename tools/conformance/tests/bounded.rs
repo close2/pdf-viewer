@@ -11,12 +11,12 @@
 //!
 //! # What it guards
 //!
-//! Until the eight-hundred-and-eightieth round the sampler walked the process table with an inner
-//! loop over every process for every node of the tree — quadratic, and 6 s a sample over a tree
-//! of 8 000 processes — with no guard against visiting a pid twice and no bound on how long the
-//! `ps` underneath it might take under exactly the memory pressure the ceiling exists to prevent.
-//! Round 874 watched one sample hang for minutes and killed it by pid. **A bound that is not
-//! being measured is a bound that is not there**, which is `doc/traps/instruments-and-reports.md`'s
+//! A sampler that walks the process table with an inner loop over every process for every node of
+//! the tree is quadratic — 6 s a sample over a tree of 8 000 processes — and one with no guard
+//! against visiting a pid twice and no bound on how long the `ps` underneath it might take can hang
+//! under exactly the memory pressure the ceiling exists to prevent (ADR 0807). **A bound that
+//! is not being measured is a bound that is not there**, which is
+//! `doc/traps/instruments-and-reports.md`'s
 //! trap 18 read from the other side: there the limit destroyed the channel that reports it; here
 //! the channel that measures the limit could stop, and nothing said so.
 //!

@@ -2,8 +2,7 @@
 //!
 //! Not a conformance question, and it lives here because this is the crate whose gate already
 //! runs against the repository's own files rather than against a PDF. What it guards is a
-//! failure that has reached `main` twice in one session and is invisible from inside the
-//! worktree that causes it.
+//! failure that has reached `main` and is invisible from inside the worktree that causes it.
 //!
 //! A round works in a `git worktree`, where `doc/arlington-pdf-model`, `doc/pdf.js` and the four
 //! `doc/corpora/*` directories are empty — a submodule's content belongs to the checkout that

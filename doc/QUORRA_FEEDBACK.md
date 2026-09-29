@@ -5740,3 +5740,11 @@ the byte at 1×–8× (ADR 1389).
 **Section 55 is closed.** A ramp's hard step is compared against its own offset, carried beside the
 table, and only rounded within the segment it falls in: `issue10572.pdf`'s stripe shape reads no
 wrong row at 1×, 2×, 4× or 8×, and the page leaves the 4× differing set on the GPU lane (ADR 1389).
+
+**The price is paid down (ADR 1397).** Over the forty corpus pages where the set's question cost
+most, one frame of each, the question's own instructions fell from 4 637 M to 1 524 M against the
+arm that never asks it: a hairline's cap is no longer read as nested inside its body, the sweep sorts its
+boxes as integers, and a stroke whose pieces tile by construction is not asked at all. A join where
+a curve meets another segment is now square to the curve's tangent, as Table 54 builds it from the
+two segments' own strokes. The largest price left is ADR 1375's tiling of tight bends, which the
+exact fill no longer needs within its bounds.

@@ -18,9 +18,9 @@
 //! cannot miss a witness:
 //!
 //! - **Table 75's `/ExtGState`**, counted exactly: a Type 2 pattern that states one, with the keys
-//!   it states. `doc/conformance/ledger.toml`'s §8.7.4.1 row has claimed since the
-//!   six-hundred-and-sixteenth session that no corpus document writes one; the crawl had never
-//!   been asked.
+//!   it states, over the crawl as well as the curated corpora, so that
+//!   `doc/conformance/ledger.toml`'s §8.7.4.1 claim that no corpus document writes one is asked of
+//!   both.
 //! - **§8.6.5.9's black point.** Compensation only ever moves a *CIE-based* conversion, so a
 //!   pattern whose shading paints in a device space cannot see the parameter change however the
 //!   state moves. The condition is therefore a Type 2 pattern whose shading's `/ColorSpace` is
@@ -30,17 +30,16 @@
 //! - **§11.4.7's compositing target.** A shading pattern's colours are resolved into whatever the
 //!   run is compositing in. §11.6.7 makes the pattern's definition a *non-isolated* group, and
 //!   §11.7.2 gives a non-isolated group "their colour space from the nearest ancestor isolated
-//!   parent group" — which is the group the mark is in, not the one the `scn` is in. The two
-//!   differ only where a page composites somewhere other than the device's components, so the
-//!   condition is a Type 2 pattern plus a group attributes dictionary whose `/CS` has four
-//!   components.
-//! - **§10.5's transfer function**, added in the six-hundred-and-sixtieth session with the rebuild
-//!   at the mark. §11.7.5.2 puts the function at "the last (topmost) elementary graphics object
-//!   enclosing that point", so a page that moves it between the `scn` and the mark paints
-//!   different colours before and after that change. Whether a page *does* move it is a fact
-//!   about a content stream and this census reads objects, so the condition is the
-//!   over-approximation those objects can answer: a Type 2 pattern plus a Table 57 `/TR` or `/TR2`
-//!   stating a real function — neither `/Identity` nor `/Default`, which state none.
+//!   parent group" — which is the group the mark is in, not the one the `scn` is in. The two differ
+//!   only where a page composites somewhere other than the device's components, so the condition is
+//!   a Type 2 pattern plus a group attributes dictionary whose `/CS` has four components.
+//! - **§10.5's transfer function**, for the rebuild at the mark (ADR 0487). §11.7.5.2 puts the
+//!   function at "the last (topmost) elementary graphics object enclosing that point", so a page
+//!   that moves it between the `scn` and the mark paints different colours before and after that
+//!   change. Whether a page *does* move it is a fact about a content stream and this census reads
+//!   objects, so the condition is the over-approximation those objects can answer: a Type 2 pattern
+//!   plus a Table 57 `/TR` or `/TR2` stating a real function — neither `/Identity` nor `/Default`,
+//!   which state none.
 //!
 //! The last line names every document any condition matched, one per line, so that
 //! `examples/raster_digest` can be run over exactly those and trap 11's rule — look at what a

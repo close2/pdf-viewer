@@ -336,9 +336,8 @@ impl ZoomKind {
 /// The pixel layout of a raster this ABI hands over.
 ///
 /// **One variant, and the reason it is a number at all is ADR 0247's first amendment.**
-/// `pdf_render::RasterFormat` stopped being `#[non_exhaustive]` in the four-hundred-and-eleventh
-/// session precisely so that a second layout would fail to compile in every consumer — and this
-/// crate is the consumer that could not have failed. [`Self::of`] is exhaustive over that enum,
+/// `pdf_render::RasterFormat` is not `#[non_exhaustive]`, precisely so that a second layout fails
+/// to compile in every consumer — this crate included. [`Self::of`] is exhaustive over that enum,
 /// so a second layout stops the build *here*, where a person has to decide what number C gets for
 /// it, rather than reaching a caller that would blit it as RGBA.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1120,8 +1119,8 @@ impl TextKind {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// The enumerations the seven-hundred-and-ninth session added with the other half of the queries.
+// --------------------------------------------------------------------------------------------- The
+// enumerations of the other half of the queries (ADR 0576).
 //
 // Every one of them is *answered with* rather than taken, except `PreferenceKey`, `ShortfallKind`
 // and the four `which` selectors, which are taken and refuse a number they do not define. The
@@ -1968,7 +1967,7 @@ mod tests {
         assert_eq!(PixelFormat::of(pdf_render::RasterFormat::Rgba8).code(), 0);
     }
 
-    /// The enumerations added in the five-hundred-and-eleventh round round-trip too.
+    /// The enumerations of ADR 0346 round-trip too.
     ///
     /// The same property `the_argument_enumerations_answer_to_their_own_numbers` asserts, extended
     /// to the ones that arrived with the pointer, the form and the two panels: a number is the ABI,

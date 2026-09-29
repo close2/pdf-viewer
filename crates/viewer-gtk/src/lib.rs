@@ -26,11 +26,11 @@
 //! box, and chrome drawn in the colour the desktop chose rather than one this project picked.
 //!
 //! So the product of this crate is **what the boundary turns out to be missing**, and the honest
-//! answer is written down in ADR 0244. The largest of them, hit on the first
-//! run: a page drawn *without* its widget appearances. A native control placed over a widget's
-//! rectangle sat on top of the appearance stream this program drew for the same widget, so a
-//! person saw the field twice — **closed in the four-hundred-and-ninth session** by
-//! [`viewer_core::Command::Delegate`], which this host sends on every open (ADR 0245).
+//! answer is written down in ADR 0244. The largest of them, hit on the first run: a page drawn
+//! *without* its widget appearances. A native control placed over a widget's rectangle sat on top
+//! of the appearance stream this program drew for the same widget, so a person saw the field twice
+//! — **closed** by [`viewer_core::Command::Delegate`], which this host sends on every open
+//! (ADR 0245).
 //!
 //! # Tier 1, and GTK4 offers no other
 //!

@@ -566,9 +566,8 @@ fn library(text: &str) -> Vec<u8> {
 /// §12.7.2 obliges the file to keep its appearance "consistent with the object's current value
 /// as a field", and the file kept it — the stream matches the `/V` the file states. What breaks
 /// the promise is the import, and at that point drawing the stored stream would show a value the
-/// field no longer has. This regenerated only under `/NeedAppearances` until the
-/// hundred-and-thirty-fifth session, so an imported value went unseen on every document that
-/// states an appearance and not that flag.
+/// field no longer has. Regenerating only under `/NeedAppearances` would leave an imported value
+/// unseen on every document that states an appearance and not that flag (ADR 0120).
 #[test]
 fn a_replaced_value_is_drawn_even_where_the_file_stores_an_appearance() {
     let document = Document::open(form_with_appearance()).expect("the fixture is a valid PDF");
@@ -1151,9 +1150,9 @@ fn a_save_beyond_the_granted_usage_rights_withdraws_the_signature() {
 /// answers for two different operations**, which is what makes this a test of the clause rather
 /// than of a flag: level 2 is where filling in and annotating part company.
 ///
-/// **What changed in the three-hundred-and-seventy-third session** is who acts on it. Until then
-/// `ViewState::set_field` refused by returning zero widgets, which is a number three other things
-/// also produce; now `restriction::asserted` says *which clause* and *which level*, and the host
+/// **What matters is who acts on it.** A refusal by returning zero widgets from
+/// `ViewState::set_field` would be a number three other things also produce;
+/// `restriction::asserted` says *which clause* and *which level*, and the host
 /// holding the reader's policy decides. `CLAUDE.md` makes that policy the reader's, with four
 /// levels, and two of them have to describe the operation to a person before it happens — which a
 /// count of widgets cannot. ADR 0212.
@@ -1219,8 +1218,8 @@ fn a_certified_document_states_which_operation_its_author_forbade() {
 /// FDF states that pathname as: "a file specification (7.11, "File specifications") identifying
 /// the selected file". §7.11.1's dictionary form is therefore a value this import legitimately
 /// delivers, and §12.7.4.3 has to lay out the name it gives — Table 43's `/UF` before its `/F`.
-/// Until the one-thousand-and-fifty-sixth session it laid out nothing and said nothing, which is
-/// trap 5's silence: a file *was* selected and the page showed an empty box.
+/// Laying out nothing and saying nothing would be trap 5's silence: a file *was* selected and the
+/// page would show an empty box (ADR 1070).
 #[test]
 fn a_file_select_control_draws_the_name_of_the_specification_imported_into_it() {
     let form = String::from_utf8(form()).expect("the fixture is ASCII");

@@ -2,7 +2,7 @@
 //!
 //! The unit tests beside `action.rs` and `view.rs` check the *reading* — what Table 217's
 //! `/State` array means, how §12.7.4.2's names are built, that a `/Next` cycle terminates.
-//! What they cannot check is the claim this session actually makes: that performing an action
+//! What they cannot check is the claim that matters here: that performing an action
 //! changes the display list the next render produces. That needs a page with marks on it, an
 //! interpretation before and one after, and a comparison of the two.
 //!
@@ -203,7 +203,7 @@ fn a_show_action_clears_the_flag_the_file_set() {
 /// `interpret` and `interpret_with` at the opening state are the same interpretation.
 ///
 /// The one property that keeps every existing caller — both gates, every other test, the
-/// viewer's first frame — meaning what it meant before this session.
+/// viewer's first frame — meaning what it means with no action performed.
 #[test]
 fn the_opening_state_draws_what_the_file_states() {
     let doc = document(&[
@@ -291,11 +291,7 @@ fn an_annotations_trigger_events_perform_their_actions() {
 /// §12.6.3's one precedence rule: Table 176's `/A` beats Table 197's `/AA /U`.
 ///
 /// The annotation below is a link, so 176 is the table that gives it an `/A`; Table 191 states
-/// the same entry for a widget, and there is no `/A` common to all annotations. (**This line
-/// said "Table 166's" from the three-hundred-and-eighty-seventh session to the
-/// four-hundred-and-thirteenth**, and 166 was itself a correction of 197 — a wrong number
-/// replaced by another wrong number, which is what `doc/todo/01`'s ninth sweep costs when a run
-/// with a 5:1 noise ratio is read to the end without the table beside it.)
+/// the same entry for a widget, and there is no `/A` common to all annotations.
 ///
 /// > For backward compatibility, the A entry in an annotation dictionary, if present, takes
 /// > precedence over this entry
@@ -479,9 +475,9 @@ fn an_embedded_go_to_opens_the_document_inside_this_one() {
 
 /// What the corpus states for §12.6.3's page-scoped events, counted rather than assumed.
 ///
-/// Trap 11's discipline for a feature rather than for a report: the six events were implemented
-/// in the two-hundred-and-fourth session (ADR 0164) and the population they reach is a fact worth
-/// having beside them. Table 197's `/PO`, `/PC`, `/PV` and `/PI` on an annotation, Table 198's
+/// Trap 11's discipline for a feature rather than for a report: the six events are implemented
+/// (ADR 0164) and the population they reach is a fact worth having beside them. Table 197's
+/// `/PO`, `/PC`, `/PV` and `/PI` on an annotation, Table 198's
 /// `/O` and `/C` on a page.
 ///
 /// Ratcheted at the numbers the run below prints, in both directions: a corpus that stops

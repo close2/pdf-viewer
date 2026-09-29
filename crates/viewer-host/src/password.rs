@@ -8,12 +8,10 @@
 //! > password. Correctly supplying either password ( owner or user password) should enable the
 //! > user to gain access to the document.
 //!
-//! **`should`, and `interactive`.** Both native hosts carried the comment *"§7.6.4.1: 'the
-//! interactive PDF processor shall … prompt the user for a password'"* — a sentence with quotation
-//! marks round it that the standard does not contain, upgrading a recommendation to a requirement
-//! and adding four words. Corrected in the six-hundred-and-ninety-fifth session. The clause states
-//! no number of attempts, states nothing about what a prompt looks like, and — see [`ATTEMPTS`] —
-//! leaves both here as documented choices.
+//! **`should`, and `interactive`.** §7.6.4.1 recommends a prompt for a password, addressed to an
+//! interactive processor; it does not require one (ADR 0545). The clause states no number of
+//! attempts, states nothing about what a prompt looks like, and — see [`ATTEMPTS`] — leaves both
+//! here as documented choices.
 //!
 //! The standard also says what a processor with nobody to ask is, and it is not a processor that
 //! gives up. §7.6.4.1's NOTE 2:
@@ -76,11 +74,9 @@ pub const CANCELLED: &str = "the document is encrypted and no password was given
 
 /// What a host puts above its entry box, in the two parts every one of them draws separately.
 ///
-/// **One format string for three hosts.** Each of them built this sentence for itself before the
-/// six-hundred-and-ninety-fifth session — `viewer-gtk` from the file name, `viewer-qt` from a
-/// `QStringLiteral` that named no file at all, `viewer-ui` from a `eprint!` — so a person could
-/// tell which build they had picked up by reading the question. The clause number is in it
-/// deliberately: this program says which sentence it is obeying wherever it has room to.
+/// **One format string for three hosts** (ADR 0545), so a person cannot tell which build they
+/// picked up by reading the question. The clause number is in it deliberately: this program says
+/// which sentence it is obeying wherever it has room to.
 ///
 /// Two strings rather than one because the hosts draw them differently and none of them may make
 /// that up: a `gtk4::Label` apiece, one `QLabel` with both, and two lines of the card in two

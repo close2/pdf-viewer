@@ -57,7 +57,7 @@ is four costs with two owners:
 
 | the cost | whose | where it stands |
 |---|---|---|
-| raster's encode of a page seen for the first time, on the lane a page turn takes | quorra's | asked, with the measurement: `doc/QUORRA_FEEDBACK.md` §52 ask 1 |
+| raster's encode of a page seen for the first time, on the lane a page turn takes | raster's, in `raster/` | asked in `doc/QUORRA_FEEDBACK.md` section 52, ask 1. A clipped mark and a stroke are made off the walk's thread (ADR 1395); what keeps a text page's turn serial is the drains a repeated glyph and a rectangle force, none of them past the fan-out's floor |
 | an image restaged for every placement it is drawn at | quorra's | asked, with the byte counts: `doc/QUORRA_FEEDBACK.md` §52 ask 2 |
 | a mesh shading rasterised into device pixels on every view change | this tree's | the **paint** is divided across the pool (ADR 1259); `PatchMesh::tessellate` is still serial and is what remains |
 | a photograph decoded on the way into a page turn | this tree's | **taken** (ADR 1271): the decoder is asked for the raster this tree used to widen its components into, and the walk that looks for a `DNL` marker reads the codestream a word at a time rather than a byte. What is left of that stage is `zune-jpeg`'s own Huffman and IDCT, which is most of it and is nobody's to divide — `doc/stack.md`'s crate is single-threaded by construction. A page of *several* photographs decodes them beside each other (ADR 1321) |

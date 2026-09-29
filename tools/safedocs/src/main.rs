@@ -101,9 +101,9 @@ fn run() -> Result<(), Refused> {
         }
         "survey" => {
             // `--dir` is what makes this more than a `SafeDocs` command: the three corpora
-            // added as submodules in the four-hundred-and-twenty-second session are directories
+            // added as submodules (ADR 0258) are directories
             // of PDFs like any other, and the survey is the one report this tree has that is
-            // not a ratchet. See `doc/adr/0258`.
+            // not a ratchet.
             let roots = text("--dir").map_or_else(
                 || Cache::at(cache_root(text("--cache"))).documents(),
                 |named| {
@@ -297,8 +297,8 @@ fn survey_documents(documents: &[PathBuf]) {
          (measurement, not a gate; doc/todo/21)"
     );
     // Every one of them, not a top ten: at this population's size the ranked list *is* the
-    // measurement — the four-hundred-and-thirty-fourth session had to open the documents
-    // behind it — and one line apiece is nothing beside the per-document lines below.
+    // measurement — a reader opens the documents behind it (ADR 0270) — and one line
+    // apiece is nothing beside the per-document lines below.
     let mut worst: Vec<(&str, usize)> = verdicts
         .iter()
         .filter(|verdict| verdict.codes_without_a_glyph > 0)

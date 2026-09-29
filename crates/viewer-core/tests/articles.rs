@@ -5,8 +5,8 @@
 //! > Interactive PDF processors may provide navigation facilities to allow the user to follow a
 //! > thread from one bead to the next.
 //!
-//! `pdf_model::article` has read the structure since the two-hundred-and-fifty-fifth session and
-//! §12.6.4.7's thread *action* has followed it since; what this crate owes is the other way in —
+//! `pdf_model::article` reads the structure and §12.6.4.7's thread *action* follows it; what this
+//! crate owes is the other way in —
 //! a person choosing a thread from a list, which is what [`Query::Articles`] and
 //! [`Command::Activate`] are.
 //!

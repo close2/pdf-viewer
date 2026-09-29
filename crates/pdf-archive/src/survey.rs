@@ -2002,6 +2002,17 @@ impl Walk<'_> {
             self.survey.transparent.insert(context.page);
         }
         self.image_space(&stream.dict, &place, context, "an image XObject");
+        if stream.dict.get("ColorSpace").is_none()
+            && let Some(family) = jpeg2000_device_family(self.document, stream)
+        {
+            self.push_colour(
+                (family, Route::Direct),
+                place,
+                context,
+                "a JPEG 2000 image's own data",
+                None,
+            );
+        }
     }
 
     /// One image dictionary's `/ColorSpace`, recorded where it names a device space.
@@ -2939,6 +2950,77 @@ pub(crate) fn device_uses(
     let mut found = Vec::new();
     collect_uses(document, space, resources, Route::Direct, 0, &mut found);
     found
+}
+
+/// The device colour space a `JPXDecode` image that states no `/ColorSpace` effectively uses,
+/// where it uses one: ISO 19005-2 section 6.2.8.3 and ISO 19005-4 section 6.2.7.3's second route
+/// to the device colour requirements (ADR 1399).
+///
+/// The colour specification read is the one those subclauses have a conforming reader use: the
+/// only one, or the one marked best at an `APPROX` of 1 — and where the data marks none or
+/// several of them, the first, which ISO/IEC 15444-1:2000 I.5.3.3 has a JP2 reader use and whose
+/// ambiguity the one-best row reports. It is a device space in two cases:
+///
+/// - **Enumerated CMYK (12)**, which ITU-T T.801 Table M.25 defines as ink coverages for a
+///   printing device rather than as a calibrated space, and which §7.4.9 admits by name.
+/// - **No specification a processor is obliged to support**: none at all, a method other than
+///   the enumerated and the two ICC ones, or an enumerated space off T.801 M.9.2.4's list and not
+///   CMYK. §7.4.9's last sentence then decides: "If no supported colour space is found, the
+///   colour space used shall be DeviceGray , DeviceRGB , or DeviceCMYK , depending on the whether
+///   the number of ordinary channels in the JPEG 2000 data is 1, 3, or 4."
+///
+/// A stencil mask has no colour space, and data that is not JPEG 2000 is reported by its own rows.
+#[expect(
+    clippy::doc_markdown,
+    reason = "the comment quotes §7.4.9 verbatim, and a quotation is not marked up"
+)]
+fn jpeg2000_device_family(document: &Document, stream: &Stream) -> Option<DeviceFamily> {
+    /// T.801 M.9.2.4's enumerated spaces, which a processor is obliged to support.
+    const OBLIGED: [u32; 8] = [14, 16, 17, 18, 19, 20, 21, 24];
+    /// ISO 32000-2 §7.4.9's enumerated CMYK.
+    const CMYK: u32 = 12;
+    if document.get_key(&stream.dict, "ImageMask") == Object::Boolean(true) {
+        return None;
+    }
+    let image = document.image_stream(stream)?;
+    if image.codec.as_deref() != Some(b"JPXDecode".as_slice()) {
+        return None;
+    }
+    let headers = pdf_model::jpeg2000::Headers::parse(&image.data).ok()?;
+    let stated = headers
+        .first_layer
+        .as_ref()
+        .map(|layer| layer.colour.as_slice())
+        .filter(|colour| !colour.is_empty())
+        .unwrap_or(&headers.colour);
+    let best: Vec<_> = stated
+        .iter()
+        .filter(|colour| colour.approximation == 1)
+        .collect();
+    let selected = match best.as_slice() {
+        [only] => Some(*only),
+        _ => stated.first(),
+    };
+    let supported = selected.is_some_and(|colour| match colour.enumerated {
+        Some(space) => space == CMYK || OBLIGED.contains(&space),
+        None => matches!(
+            colour.method,
+            pdf_model::jpeg2000::ColourSpecification::RESTRICTED_ICC
+                | pdf_model::jpeg2000::ColourSpecification::ANY_ICC
+        ),
+    });
+    if selected.and_then(|colour| colour.enumerated) == Some(CMYK) {
+        return Some(DeviceFamily::Cmyk);
+    }
+    if supported {
+        return None;
+    }
+    match headers.colour_channels()? {
+        1 => Some(DeviceFamily::Gray),
+        3 => Some(DeviceFamily::Rgb),
+        4 => Some(DeviceFamily::Cmyk),
+        _ => None,
+    }
 }
 
 /// One colour space object's contribution to [`device_uses`].

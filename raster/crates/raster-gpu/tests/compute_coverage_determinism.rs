@@ -3,7 +3,7 @@
 //! coverage bytes — against the CPU, between two runs on one adapter, and between two
 //! adapters?**
 //!
-//! `raster/fill.rs` is the library's byte-identity provider today: coverage is rasterised
+//! `src/raster/fill.rs` is the library's byte-identity provider today: coverage is rasterised
 //! on the host precisely so that every adapter composites the same bytes (its module doc,
 //! ADR 0006/0008). A device-side lane can only keep that property if the shader's
 //! arithmetic is reproducible. The known hazards, named before the port was written:
@@ -53,7 +53,7 @@ const W: usize = 64;
 const H: usize = 64;
 
 // ---------------------------------------------------------------------------
-// The CPU mirror of `raster/fill.rs`, edge-list form (subpath closing is done by the
+// The CPU mirror of `src/raster/fill.rs`, edge-list form (subpath closing is done by the
 // caller so the shader can consume a flat `vec4` list).
 // ---------------------------------------------------------------------------
 

@@ -296,9 +296,8 @@ fn a_view_rectangle_is_measured_from_the_top_left_corner_of_the_page() {
 /// of the fragment still runs: §O.2's rule is that the parameters are executed in order, not that
 /// one of them can cancel the others.
 ///
-/// **This test used to be about `highlight`**, which `Parameter::unhonoured` reported by name
-/// until the five-hundred-and-twenty-second session carried it out (ADR 0357). What it is about is
-/// the *channel*, so it now uses a parameter this annex does not define at all — `pagemode` is
+/// **What this test is about is the *channel***, so it uses a parameter this annex does not
+/// define at all — `pagemode` is
 /// another reader's, and a URI that mixes the two has still said something about this document.
 #[test]
 fn a_parameter_this_program_cannot_read_is_named_and_the_others_still_run() {
@@ -318,8 +317,7 @@ fn a_parameter_this_program_cannot_read_is_named_and_the_others_still_run() {
     );
 }
 
-/// Table Annex O.4's `highlight` in §O.2.2, reported by name until the five-hundred-and-twenty-second
-/// session and carried out since it (ADR 0357):
+/// Table Annex O.4's `highlight` in §O.2.2, carried out (ADR 0357):
 ///
 /// > Open the document with the specified rectangle highlighted. Each argument shall be an integer
 /// > or floating point value representing the rectangle measured from the top left corner of the
@@ -399,8 +397,7 @@ fn a_highlighted_rectangle_belongs_to_the_page_it_was_named_on() {
     );
 }
 
-/// Table Annex O.4's `fdf` in §O.2.2, reported by name until the five-hundred-and-twenty-second
-/// session (ADR 0357):
+/// Table Annex O.4's `fdf` in §O.2.2 (ADR 0357):
 ///
 /// > Open the document and then import the data from the specified FDF or XFDF file. The URI shall
 /// > be either a relative or absolute URI to an FDF or XFDF file.
@@ -477,8 +474,8 @@ fn value_of(viewer: &Viewer, field: &str) -> String {
 /// Annex O's `fdf` names "an FDF or XFDF file", and both are asked for.
 ///
 /// Table Annex O.4: "[t]he URI shall be either a relative or absolute URI to an FDF or XFDF file."
-/// ISO 19444-1's XFDF is read by `pdf_model::xfdf` since the one-thousand-and-ninety-fourth
-/// session (ADR 1108), so the annex's two formats are the two this program has — and which one a
+/// ISO 19444-1's XFDF is read by `pdf_model::xfdf` (ADR 1108), so the annex's two formats are the
+/// two this program has — and which one a
 /// name states is `pdf_model::action::data_format`'s answer, read once for this clause and for
 /// §12.7.6.4's action.
 #[test]

@@ -48,11 +48,11 @@
 //! as `ViewState::save` builds one, and the document is read, never changed. The edit is
 //! Table 22's bit 4 — see [`crate::Operation::Modify`]. ADR 0802.
 //!
-//! **The objects themselves are built by `pdf_model::attachment::filing` since the
-//! eight-hundred-and-eighty-fifth session**, because the viewer's edit log writes the same three
-//! and the same tree, and the crate graph runs this crate → `viewer-core` (ADR 0800), so the one
-//! writer both can reach lives beside the reader in `pdf-model`. What stays here is the verb: the
-//! object numbers, the refusals, the output and the report. ADR 0814.
+//! **The objects themselves are built by `pdf_model::attachment::filing`**, because the viewer's
+//! edit log writes the same three and the same tree, and the crate graph runs this crate →
+//! `viewer-core` (ADR 0800), so the one writer both can reach lives beside the reader in
+//! `pdf-model`. What stays here is the verb: the object numbers, the refusals, the output and the
+//! report. ADR 0814.
 //!
 //! # The third home, written: `--to-page`
 //!
@@ -518,9 +518,8 @@ fn remove(
     // The same sentence `update::delete_page` says about a page, said about an embedded file,
     // because it is the same clause and the same surprise. RFC 0003 section 5.3 asks for it
     // exactly here — "[a]nyone deleting an attachment *to remove its content* needs a rewrite …
-    // this RFC only insists the refusal/behaviour be stated where the user deletes" — and the
-    // nine-hundred-and-ninth session found it said on one of the two verbs only, by writing the
-    // face whose only channel for it is a log line.
+    // this RFC only insists the refusal/behaviour be stated where the user deletes" — so both
+    // verbs say it, including to a face whose only channel for it is a log line (ADR 0861).
     report.warnings.push(Warning {
         source: at,
         page: None,

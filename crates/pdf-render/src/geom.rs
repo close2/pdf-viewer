@@ -290,11 +290,6 @@ impl Transform {
     ///
     /// An off-diagonal that is *exactly* zero is the property being asked about: a small one
     /// shears, and a caller relying on this needs the strict answer.
-    ///
-    /// **The doc comment here used to be the second half of [`Self::max_stretch`]'s**, spliced
-    /// into the middle of this one and leaving that function's last sentence stranded above its
-    /// own signature. Found in the three-hundred-and-eighty-ninth session by a round that needed
-    /// to read it.
     #[must_use]
     pub fn preserves_axes(self) -> bool {
         (self.b == 0.0 && self.c == 0.0) || (self.a == 0.0 && self.d == 0.0)
@@ -408,8 +403,8 @@ pub struct Path {
     /// A glyph outline is shared through an `Arc` and asked for its bounds once per strip the
     /// rasteriser cuts the page into, and walking forty control points each time was **17.6%
     /// of a dense page's rasterisation** — 541 300 calls over twenty renders of ISO 32000-2's
-    /// page 101, measured with `callgrind_annotate --tree=caller` in session 163. The walk
-    /// happens once now and every later call maps this rectangle.
+    /// page 101, measured with `callgrind_annotate --tree=caller`. The walk happens once and
+    /// every later call maps this rectangle.
     hull: std::sync::OnceLock<Option<Rect>>,
     /// Whether any subpath encloses no area, built on first use.
     ///

@@ -32,7 +32,7 @@
 //!
 //! # Where the witness came from
 //!
-//! `doc/corpora/format-corpus`, added in the four-hundred-and-seventieth session:
+//! `doc/corpora/format-corpus` (ADR 0305):
 //! `pdf-handbuilt-test-corpus/T02-02_005_page-tree-no-kids.pdf`, one of 89 files carrying a
 //! single deliberate structural defect apiece and all drawing the same *Hello PDF-world!*. It
 //! rendered blank while the survey called it complete; it now draws the same ink as the intact

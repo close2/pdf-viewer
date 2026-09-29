@@ -7,9 +7,8 @@
 //! whether black point compensation happens at all to the processor wherever `/UseBlackPtComp` is
 //! absent or `Default`. `colour::cie_to_srgb` reads the entry and deliberately applies none of it.
 //!
-//! That decision's doc comment named *two* corpus pages as the only ones raising a black point, and
-//! the four-hundred-and-sixty-first session measured eleven in the same two documents. This is the
-//! command that counts them, so that no number has to be written down again.
+//! This is the command that counts the corpus pages raising a black point (ADR 0296), so that no
+//! number has to be written down.
 //!
 //! Every object the cross-reference table lists is scanned, rather than every space a page reaches:
 //! a `/BlackPoint` inside an `/Indexed` base or a `/DeviceN` alternate is the same statement as one

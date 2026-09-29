@@ -88,15 +88,14 @@ const NOT_COMPARABLE: usize = 3;
 /// coded. Both halves of that sentence were wrong in the decoder, and each hid the other:
 ///
 /// 1. **The term was absent entirely.** `hayro-jpeg2000` 0.4.0's `Coefficient::get` returned the
-///    truncated magnitude. The two-hundredth session measured the symptom — on `S2.pdf` object
-///    17, two of every three differing samples moved toward the image's own mean and the standard
-///    deviation fell from 0.2499 to 0.2399 — and named this as a *hypothesis*, because the
-///    finding did not depend on it. It was right. Upstream `9cce046b` adds the term.
+///    truncated magnitude. ADR 0161 measured the symptom — on `S2.pdf` object 17, two of every
+///    three differing samples moved toward the image's own mean and the standard deviation fell
+///    from 0.2499 to 0.2399. Upstream `9cce046b` adds the term.
 /// 2. **It was then skipped where `Mb − Nb` is zero**, which is a coefficient that was *fully*
 ///    decoded — and `2^0 = 1`, so the term is `r` itself rather than nothing, because the
 ///    quantisation interval of width Δ still surrounds the value. Invisible on coarsely
 ///    quantised images, where most coefficients are truncated and (1) dominates; the whole error
-///    on finely quantised ones. Found in the three-hundred-and-eleventh session by bisecting on
+///    on finely quantised ones. Found by bisecting on
 ///    resolution — `issue5475.pdf` object 8 has `numresolutions=2`, so decoding at `-r 1` stops
 ///    at the LL sub-band with no 9/7 synthesis at all, and the disagreement was still there —
 ///    then confirmed by the residual being symmetric and confined to fractional parts in

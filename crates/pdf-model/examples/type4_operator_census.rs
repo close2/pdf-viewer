@@ -1,5 +1,5 @@
 //! Which of Table 42's operators the corpora's §7.10.5 programs actually reach, and what the
-//! two defects of the five-hundred-and-thirty-fourth session cost where they were reached.
+//! two defects ADR 0369 names cost where they were reached.
 //!
 //! The population behind ADR 0369. Two arms of `apply_operator` were wrong against the
 //! semantics ISO 32000-2 §7.10.5.2 defers to the PostScript Language Reference — `round` took a

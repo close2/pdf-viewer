@@ -184,9 +184,7 @@ pub struct Stroke {
     /// field directly: [`Self::device_width`] is where that rule and §10.7.5's live, so
     /// that no two of this workspace's rasterisers can answer it differently. **All three
     /// of them call it** — `render_cpu::convert`, `render_gpu::scene` and
-    /// `render_raster::stroke` — and this sentence counted two until the
-    /// seven-hundred-and-ninety-seventh session, which is ADR 0697's shape: a rule met by
-    /// every backend, under a sentence that had not noticed the third arrive.
+    /// `render_raster::stroke` (ADR 0697).
     pub width: f32,
     /// Whether ISO 32000-2 §10.7.5's automatic stroke adjustment is enabled (`/SA`).
     ///
@@ -230,14 +228,11 @@ impl Stroke {
     /// # Why this is a function here rather than each backend's own hairline
     ///
     /// `tiny-skia` treats a width of `0.0` as a hairline and gets §8.4.3.2 right for free;
-    /// Vello has no such mode and drew **nothing at all** for a zero-width stroke until the
-    /// nineteenth session, on every page of every document since the backend existed. A
+    /// Vello has no such mode and draws **nothing at all** for a zero-width stroke (ADR 0028). A
     /// backend-specific convention that one backend happens to share with PDF is not a
-    /// reading of the clause, and the cross-backend comparison could not see the difference
-    /// because no scene stroked a zero width. One device pixel expressed back in the path's
-    /// own space is a width every rasteriser can draw, and it is the same width for each of
-    /// them — three of them now, and this sentence said "both" until the
-    /// seven-hundred-and-ninety-seventh session.
+    /// reading of the clause, and the cross-backend comparison cannot see the difference unless
+    /// a scene strokes a zero width. One device pixel expressed back in the path's own space is
+    /// a width every rasteriser can draw, and it is the same width for all three of them.
     ///
     /// The minimum is stated in device pixels and applied in path space, so it is divided by
     /// the stretch it will be multiplied by. Where the transform scales the two axes
@@ -264,11 +259,9 @@ impl Stroke {
     /// So `-0.1 w` is decided twice over and neither step is a choice: `content.rs` clips it to
     /// zero because the first sentence requires clipping, and this function substitutes one
     /// device pixel because §8.4.3.2 requires that of zero — at *painting* time, into a value
-    /// the graphics state never sees, because the third sentence requires that too. This
-    /// comment claimed the opposite until the six-hundred-and-fifty-first session, calling the
-    /// clamp a documented choice among three readings; the sentence above was quoted in
-    /// `content.rs` all along, for the miter limit, which the same list names one parameter
-    /// later.
+    /// the graphics state never sees, because the third sentence requires that too (ADR 0480).
+    /// The same sentence is quoted in `content.rs` for the miter limit, which the same list
+    /// names one parameter later.
     ///
     /// It also decides *against* the references. `poppler` and `ghostscript` stroke a negative
     /// width at its magnitude, which is the unclipped value the first sentence forbids, and
@@ -708,9 +701,7 @@ pub enum SampleAlpha {
 ///
 /// Always straight-alpha RGBA8, whatever the document's colour space and bit depth were:
 /// converting once when the image is decoded means no rasteriser needs to know about
-/// PDF colour spaces, which is the same reason [`Color`] is already resolved. (The count in
-/// this sentence was one short of the workspace's until the seven-hundred-and-ninety-seventh
-/// session.)
+/// PDF colour spaces, which is the same reason [`Color`] is already resolved.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Image {
     /// Width in samples.
@@ -1564,11 +1555,9 @@ mod resampling {
     /// An image with no samples answers `None` rather than panicking inside `f32::clamp`.
     ///
     /// `Image::reduction` clamps a ratio into `1.0 ..= width`, and `f32::clamp` panics when
-    /// its minimum exceeds its maximum — which a zero-width image makes it do. Until session
-    /// 391 the reduction was computed *before* `is_consistent`, so the only thing standing
-    /// between a public method and that panic was that two of its three callers happened to
-    /// ask the question first; `render-raster`'s did not. The order is now the other way
-    /// round and this is the guard on it.
+    /// its minimum exceeds its maximum — which a zero-width image makes it do. So the reduction
+    /// is computed *after* `is_consistent`, rather than relying on each caller to ask the
+    /// question first, and this is the guard on that order (ADR 0228).
     #[test]
     fn an_image_with_no_samples_is_not_reduced_and_does_not_panic() {
         for (width, height) in [(0u32, 0u32), (0, 8), (8, 0)] {

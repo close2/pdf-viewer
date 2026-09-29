@@ -1908,8 +1908,8 @@ pub(super) const WRITER_EMITS: &[&str] = &[
     // ISO 19005-2 section 6.1.3, ISO 19005-4 section 5.1: §14.4's pair of identifiers, which
     // `pdf_syntax::serialize` writes into the trailer of every file it creates — the source's
     // own permanent identifier where it had one, and a digest of the bytes written for the
-    // changing half. Found unanswered by `super::census` in session 954, and answered by
-    // reading the serializer rather than by building anything.
+    // changing half — answered by reading the serializer rather than by building anything (ADR
+    // 0955).
     "file-structure/file-identifier",
     // ISO 19005-2 section 6.1.13's object-count limit, and the one row of that subclause with a
     // remedy — `doc/pdf-a-mitigations.md` section 13.3. The serializer writes the objects the
@@ -2072,6 +2072,23 @@ pub(super) const SHAPES: &[(&str, &[Shape])] = &[
             },
         ],
     ),
+    // ISO 19005-2 section 6.2.8.3, ISO 19005-4 section 6.2.7.3. §7.4.9 has a stated `/ColorSpace`
+    // decide what a JPEG 2000 image's samples mean, so a Flate copy in that space keeps them;
+    // where the dictionary states none, the data's specification is what they mean and a copy
+    // would need a space this converter chose (ADR 1400).
+    (
+        "graphics/jpeg2000-uses-the-baseline-feature-set",
+        &[
+            Shape {
+                name: "stated-colour-space",
+                answered: true,
+            },
+            Shape {
+                name: "data-colour-space",
+                answered: false,
+            },
+        ],
+    ),
     // ISO 19005-2 section 6.4.2, ISO 19005-4 section 6.4.2.
     (
         "forms/no-xfa-key",
@@ -2203,7 +2220,7 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         Because::NotThisTarget(THREE_DIMENSIONAL_FORMAT),
     ),
     // ISO 19005-2 section 6.1.8 and ISO 19005-4 section 6.1.7. A row of this table rather
-    // than a branch of [`decide`] since session 954: a refusal `census` cannot see is a
+    // than a branch of [`decide`] (ADR 0954): a refusal `census` cannot see is a
     // refusal that counts as a gap, and this one is an argument rather than a gap.
     (
         "file-structure/bound-names-are-valid-utf8",
@@ -2738,10 +2755,9 @@ const ICC_SPACE_PROFILE_NOT_REPLACED: &str = "an ICCBased colour space in this f
 
 /// Why a PDF/A output intent that names no destination profile is left where it is.
 ///
-/// **One of the three rows that shared a sentence until the ninth-hundred-and-sixty-sixth
-/// session**, when the third of them was built: `graphics/one-destination-profile-per-output-
-/// intents-array` is now a row of [`REMEDIES`], so what the other two are waiting on is no longer
-/// what that sentence said.
+/// **One of two rows waiting on the same thing**; the third that once shared their sentence,
+/// `graphics/one-destination-profile-per-output-intents-array`, is a row of [`REMEDIES`] (ADR
+/// 0973).
 const PDFA_OUTPUT_INTENT_NOT_COMPLETED: &str = "an entry of this file's OutputIntents array is \
      identified as a PDF/A output intent and states no valid destination profile stream, which \
      ISO 19005 section 6.2.3 requires of it. Two routes exist and both are decisions: giving the \
@@ -2802,29 +2818,29 @@ const JPEG2000_SAMPLES_NOT_RE_ENCODED: &str = "doc/pdf-a-conversion-limits.md se
      channel-count case is cheaper and is unbuilt too: a cdef box declaring the second channel \
      as opacity leaves one colour channel without a sample being touched";
 
-/// Why JPEG 2000 data outside the JPX baseline is not brought into it.
+/// Why JPEG 2000 data outside the JPX baseline is not brought into it without a configuration.
 ///
 /// ADR 1383 reads each shape against ITU-T T.801 M.9.2 and ADR 1371's rule that a codec's output
 /// is the image's samples. Where the dictionary states a `ColorSpace`, the data's colour
 /// specifications are ones §7.4.9 has a reader ignore, and the samples are already in the
-/// dictionary's domain: transcoding them keeps that domain and is the universal remedy
-/// `doc/pdf-a-conversion-limits.md` section 4.10 names, not built. Where it states none, a
+/// dictionary's domain: `preserve` transcodes them to `FlateDecode` (ADR 1400), which an operator
+/// asks for because it costs size and keeps this tree's decoder's output. Where it states none, a
 /// specification off M.9.2.4's list is what the samples mean, and any baseline space written in
-/// its place relabels them. A required extension is what decoding them needs, which this tree's
-/// codec does not provide. So every shape waits on a re-encode.
+/// its place relabels them.
 const JPEG2000_BASELINE_NOT_REACHED: &str = "ITU-T T.801 M.9.2 defines the JPX baseline and \
-     each way out of it is the samples' own: a colour specification off M.9.2.4's list is what the \
-     samples mean where the image dictionary states no ColorSpace, so writing a baseline one in its \
-     place relabels the picture; a codestream extension M.9.2.3 leaves out is what decoding needs; \
-     and where the dictionary does state a ColorSpace the samples are already in its domain, so the \
-     remedy that keeps them is transcoding to FlateDecode (doc/pdf-a-conversion-limits.md section \
-     4.10), which is not built";
+     each way out of it is the samples' own. Where the image dictionary states a ColorSpace the \
+     samples are already in its domain, and `remedy = \"preserve\"` at this site transcodes them \
+     to FlateDecode in that space (doc/adr/1400) — at a cost in size, and with this program's \
+     decoder's output kept as the picture, which is why it is the operator's answer rather than \
+     the default. Where the dictionary states none, a colour specification off M.9.2.4's list is \
+     what the samples mean, so writing a baseline one in its place, or a ColorSpace beside a Flate \
+     copy, relabels the picture";
 
 /// Why an `ICCBased` space duplicating the output intent's profile is not collapsed.
 ///
-/// **Re-examined in the nine-hundred-and-seventy-first session against the machinery that had
-/// arrived since**, because `Rewrite::SpotColorantEntry` was the first rewrite to reach an object
-/// that is a colour space array and the question was whether it settled the siting half. It does
+/// **Examined against `Rewrite::SpotColorantEntry`** (ADR 0982), the first rewrite to reach an
+/// object that is a colour space array, because the question is whether it settles the siting
+/// half. It does
 /// not, and the reason is worth stating once: that rewrite is sited from the object its finding
 /// *names*, and these findings name the content stream that **used** the space rather than the
 /// array that states it. The second half is now stronger rather than weaker, because §8.6.5.7
@@ -2883,9 +2899,8 @@ const LANGUAGE_IDENTIFIER_NOT_REMOVED: &str = "a Lang entry here is not a langua
 
 /// Why character data outside a simple value is left where it is.
 ///
-/// The requirement arrived in session 958 and the census ratchet caught this the same day — a
-/// requirement `pdf-archive` learns to check is a requirement this verb owes an answer to, which
-/// is the ratchet's whole purpose.
+/// The census ratchet catches this (ADR 0956) — a requirement `pdf-archive` learns to check is a
+/// requirement this verb owes an answer to, which is the ratchet's whole purpose.
 const XMP_STRAY_CHARACTER_DATA_NOT_REMOVED: &str = "this packet writes non-white character data \
      somewhere the XMP standard's serialisation admits none — that standard allows white space \
      anywhere the RDF syntax does and confines everything else to the element content of a leaf \
@@ -2899,8 +2914,8 @@ const XMP_STRAY_CHARACTER_DATA_NOT_REMOVED: &str = "this packet writes non-white
 
 /// Why a structure field no value type describes is left where it is.
 ///
-/// The requirement arrived in session 1079, and the census ratchet caught it the same day —
-/// `XMP_STRAY_CHARACTER_DATA_NOT_REMOVED`'s shape exactly, and for the same reason.
+/// The census ratchet catches this (ADR 1093) — `XMP_STRAY_CHARACTER_DATA_NOT_REMOVED`'s shape
+/// exactly, and for the same reason.
 const UNDESCRIBED_STRUCTURE_FIELD_NOT_REMOVED: &str = "this packet states a structure field for a \
      property of an extension schema value type that describes no such field, so the packet \
      contradicts its own description. There are two repairs and this converter can make neither \

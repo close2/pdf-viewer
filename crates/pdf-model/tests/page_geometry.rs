@@ -6,8 +6,8 @@
 //! is a blunt instrument: it says the page is the wrong size and nothing about which entry
 //! made it so. This file states each rule on its own.
 //!
-//! **`/UserUnit` is the one that had never been read**, and the twenty-ninth session found
-//! that all three of the oracle's geometry disagreements were it. Two documents carried
+//! **`/UserUnit` is the one a reader easily never reads**, and all three of the oracle's
+//! geometry disagreements were it (ADR 0038). Two documents carried
 //! `/UserUnit 3` and came out a third of the size two references produced; the third,
 //! recorded in `oracle.rs` as "the reverse case … has not been looked into", writes
 //! `/MediaBox [0 0 8.5 11]` with `/UserUnit 72` — a page stated in **inches**.
@@ -526,10 +526,9 @@ fn a_media_box_that_is_not_a_rectangle_is_reported_as_the_different_mistake_it_i
 /// So the array passes every test a rectangle reader can apply, and the requirement it fails is
 /// Table 31's — that this rectangle "shall define the boundaries of the physical medium on which
 /// the page shall be displayed or printed". A medium of zero extent bounds nothing, and a page
-/// measured against one has no area for a mark to land in: before the five-hundred-and-seventy-fifth
-/// session `TargetSpec::for_page` refused it as degenerate and the whole document was **unviewable**,
-/// which is a worse outcome than any wrong pixel and the one outcome the substitution exists to
-/// avoid.
+/// measured against one has no area for a mark to land in. Refusing it as degenerate in
+/// `TargetSpec::for_page` would make the whole document **unviewable**, which is a worse outcome
+/// than any wrong pixel and the one outcome the substitution exists to avoid (ADR 0410).
 ///
 /// Both axes are pinned, because a producer can flatten a page in one: `[0 0 0 0]` is the corpus
 /// witness (`boundingBox_invalid.pdf`, whose first page is captioned *Empty `/MediaBox`*) and

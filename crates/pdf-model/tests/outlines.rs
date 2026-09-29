@@ -189,8 +189,8 @@ fn a_stated_count_agrees_with_the_count_the_clause_defines() {
 /// The property is algorithmic and the test is a ratio, so it says the same thing on any
 /// machine: `Pages::index_of` is a search that cannot skip a subtree, and an outline that asks
 /// it once per item is quadratic in the document. ISO 32000-2's own outline is 988 items over
-/// 1023 pages, which cost **344 ms on every page turn** until the hundred-and-forty-first
-/// session — a third of a second of arrow key, on the largest document anyone had opened.
+/// 1023 pages, which cost **344 ms on every page turn** asked the quadratic way — a third of a
+/// second of arrow key, on the largest document anyone had opened (ADR 0124).
 ///
 /// The bound is ten searches for 988 destinations. A version that walked per item would need
 /// nearly a thousand and fails this by two orders of magnitude; the fixed one uses one walk to

@@ -54,9 +54,9 @@ impl Limits {
         max_array_len: 1 << 20,
         max_dict_len: 1 << 16,
         max_string_len: 1 << 26,
-        // **One gibibyte.** Two gibibytes until the four-hundred-and-seventy-first session,
-        // where it contradicted the ceiling the confined worker runs under, and the new figure
-        // is bounded from both sides rather than chosen:
+        // **One gibibyte**, rather than two, which would contradict the ceiling the confined
+        // worker runs under (ADR 0306); the figure is bounded from both sides rather than
+        // chosen:
         //
         // - **From above by the ceiling.** `pdf_sandbox`'s `INTERPRETER_ADDRESS_SPACE_LIMIT` is
         //   4 GiB, of which `MAX_PIXELS` x 4 bytes = 1 GiB is the raster's. Decoding costs

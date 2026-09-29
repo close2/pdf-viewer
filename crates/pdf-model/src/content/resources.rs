@@ -17,11 +17,11 @@
 //! and the same clause says what the bytes are not: "Ordinarily, the bytes making up the name are
 //! never treated as text to be presented to a human user or to an application external to a PDF
 //! processor." A producer that writes `/Contr#F4le` states a name whose sixth byte is 0xF4, which
-//! is not valid UTF-8 on its own. Converting such a name to a `String` before the lookup — which
-//! this module's callers did until the six-hundred-and-third session — replaces that byte with
+//! is not valid UTF-8 on its own. Converting such a name to a `String` before the lookup replaces
+//! that byte with
 //! U+FFFD, so the probe's bytes are not the key's bytes and a resource the file *does* define
 //! cannot be found. ADR 0438: the witness draws a full-page scan in `poppler`, `mupdf` and
-//! `ghostscript` and drew a blank sheet here, reported as a resource nobody defined.
+//! `ghostscript`, and a blank sheet reported as a resource nobody defined under that conversion.
 //!
 //! Text is still what a *report* wants, and that conversion belongs at the report rather than at
 //! the lookup — [`Interpreter::note_missing_resource`] is where it happens, once.

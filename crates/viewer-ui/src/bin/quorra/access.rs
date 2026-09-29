@@ -21,13 +21,12 @@ impl App {
     /// screen reader that is probably not there. What it costs after the first frame is one
     /// comparison per frame, because the structure of a page does not change when it is scrolled.
     ///
-    /// **It cost 2.0 ms on average and 3.9 at worst on every page turn, and the three-hundred-
-    /// and-ninety-first session found out where** (ADR 0228). Not §14.7's tree: `Query::
-    /// AccessibilityTree` is 0.13 to 0.25 ms on this document and the whole of [`App::speak`]
-    /// — both queries, the tree built and the bridge given it — is 0.17 to 0.33. It was
-    /// [`App::place_window`], at **1.8 to 3.2 ms**, which is two synchronous X11 round trips for
-    /// a window position that **does not change when a page turns**. So it is asked where it can
-    /// change — when the bridge comes up, when the window moves, and when it is resized — and
+    /// **Asking it on every page turn cost 2.0 ms on average and 3.9 at worst** (ADR 0228). Not
+    /// §14.7's tree: `Query:: AccessibilityTree` is 0.13 to 0.25 ms on this document and the whole
+    /// of [`App::speak`] — both queries, the tree built and the bridge given it — is 0.17 to 0.33.
+    /// It is [`App::place_window`], at **1.8 to 3.2 ms**, which is two synchronous X11 round trips
+    /// for a window position that **does not change when a page turns**. So it is asked where it
+    /// can change — when the bridge comes up, when the window moves, and when it is resized — and
     /// the page turn is left with the query that is actually about the page.
     pub(crate) fn attend(&mut self) {
         if self.accessibility.is_none() {
@@ -217,25 +216,23 @@ impl App {
 
     /// Hands §14.7's structure for every page on the screen to the platform's accessibility API.
     ///
-    /// **The fifth of the five things `doc/ui-boundary.md` lists as blocked on the
-    /// `viewer-core` boundary, and the last.** `Query::AccessibilityTree` has answered since the
-    /// hundred-and-forty-ninth session and nothing asked; this asks. What crosses is
-    /// `viewer-accessibility`'s business — §14.8.4's types onto AccessKit's roles, and AT-SPI
-    /// underneath that — and what is this host's is the three things only a host knows: what the
-    /// window is called, which pages are showing, and what each of them could not draw.
+    /// **The fifth of the five things `doc/ui-boundary.md` lists as blocked on the `viewer-core`
+    /// boundary, and the last.** `Query::AccessibilityTree` answers (ADR 0134); this asks. What
+    /// crosses is `viewer-accessibility`'s business — §14.8.4's types onto AccessKit's roles, and
+    /// AT-SPI underneath that — and what is this host's is the three things only a host knows: what
+    /// the window is called, which pages are showing, and what each of them could not draw.
     ///
-    /// **One entry per page Table 29's arrangement is showing**, since the six-hundred-and-tenth
-    /// session. Under a column this host used to publish the current page's tree while the window
-    /// showed four, which told a screen reader the document was one page long — the sharpest form
-    /// of trap 5, because the person it misleads is the one for whom the picture is no answer.
+    /// **One entry per page Table 29's arrangement is showing.** Under a column, the current page's
+    /// tree alone while the window shows four would tell a screen reader the document was one page
+    /// long — the sharpest form of trap 5, because the person it misleads is the one for whom the
+    /// picture is no answer.
     ///
-    /// **What to ask, and in what order, is [`viewer_accessibility::Reading`]'s since the
-    /// seven-hundred-and-thirty-first session** (ADR 0623). This function used to hold the six
-    /// queries and the assembly, and the moment `viewer-gtk` and `viewer-qt` published too that
-    /// would have been three copies of one decision — which is `viewer_host`'s founding sentence
-    /// applied to a crate that is not `viewer_host` only because nothing may depend on
-    /// `accesskit_unix` by accident. What is left here is the three things a *host* knows: what
-    /// the window is called, how large the viewport is, and what the document is called.
+    /// **What to ask, and in what order, is [`viewer_accessibility::Reading`]'s** (ADR 0623): the
+    /// six queries and the assembly are one decision for three hosts that publish — which is
+    /// `viewer_host`'s founding sentence applied to a crate that is not `viewer_host` only because
+    /// nothing may depend on `accesskit_unix` by accident. What is left here is the three things a
+    /// *host* knows: what the window is called, how large the viewport is, and what the document is
+    /// called.
     ///
     /// Does nothing until [`App::accessibility`] exists, which is after the first present.
     fn speak(&mut self) {

@@ -7,7 +7,7 @@
 //!    program the build produced** (`CARGO_BIN_EXE_quorra-transform`, so a stale binary in another
 //!    directory cannot be what is measured — trap 16), timed by the wall clock and held above
 //!    [`PAGES_PER_SECOND_FLOOR`]. The number measured is printed, because a floor is only a
-//!    floor: the eight-hundred-and-sixty-eighth session's baseline is in ADR 0801 and the
+//!    floor: the baseline is in ADR 0801 and the
 //!    module comment of `src/render.rs`, not here (`CLAUDE.md`'s "a fact that can be counted is
 //!    not written down").
 //! 2. **The pixels are the oracle's.** One of the two hundred pages, re-rendered independently

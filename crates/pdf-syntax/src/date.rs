@@ -40,15 +40,13 @@
 //!
 //! # Errata Collection 3 has struck out the last two sentences of that quotation
 //!
-//! **And nothing in this tree could see it until the four-hundred-and-sixteenth session**, which
-//! is the point of the finding rather than a detail of it. The sponsored copy records EC3 as
+//! **And nothing in the text this tree quotes against shows it.** The sponsored copy records EC3 as
 //! *annotations* — a `StrikeOut` over the retired words, a `Caret` carrying the replacement — and
-//! the Markdown conversion the conformance gate checks quotations against dropped every
+//! the Markdown conversion the conformance gate checks quotations against drops every
 //! annotation in all fourteen documents. So the body text above is the unamended 2020 text, the
 //! gate verifies it happily, and the standard says something else. `tools/spec-errata` is what
-//! reads the annotations back; ADR 0252 is the argument, and `doc/todo/48` carries the other 150
-//! passages it found — 37 when this line was written, because the checker's comparison could not
-//! see a passage the two extractions space differently (ADR 0253).
+//! reads the annotations back; ADR 0252 is the argument, and `doc/todo/48` carries the other
+//! passages it finds (ADR 0253).
 //!
 //! Issue #251, on page 133, `/State` `Completed` — Table 174's "[t]he change has been completed":
 //!

@@ -6,9 +6,8 @@
 //!
 //! Two populations `doc/todo/48` named and nothing read. The first is every Markdown document
 //! this project wrote — `doc/*.md`, `doc/todo/`, `doc/history/` and the ADRs. The second is
-//! **the conformance ledger's own notes**, ADR 0249's population, which had been swept by hand
-//! since the four-hundred-and-twelfth session and by no committed program at all: a hand sweep
-//! is a sweep whose rule is retyped each time, and the rule is where the findings are.
+//! **the conformance ledger's own notes**, ADR 0249's population. A hand sweep is a sweep whose
+//! rule is retyped each time, and the rule is where the findings are.
 //! [`conformance::prose`] says what a quotation is here, why this is a sweep rather than a
 //! gate, and what the discriminator is; this binary is the invocation and the report.
 //!

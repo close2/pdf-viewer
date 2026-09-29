@@ -123,13 +123,15 @@ pub const DENSE_TEXT: Archetype = Archetype {
 /// composite covers — ADR 0020's depth pricing showing its work on eight sibling groups,
 /// at ADR 0038's one texture per plan.
 ///
-/// **600 tiles, 3 542 360 coverage texels, and both halves of ADR 0049 on one page.**
+/// **600 tiles, 3 555 182 coverage texels, and both halves of ADR 0049 on one page.**
 /// Every one of the 600 curve-clipped commands meets its clip and rasterises a tile of
-/// about 5 900 texels; of the 185 chains, **66 keep a region** — cut around three or four
+/// about 5 900 texels; of the 185 chains, **67 keep a region** — cut around three or four
 /// marks in one line, it costs less than the tiles it serves — and the rest are refused
-/// one and rasterise per tile, **384** times, which is the wrapped runs whose box is the
-/// width of the page's grid. 66 + 384 = 450 rasterisations where the page has 600 clipped
-/// commands, and that difference is what ADR 0049 buys.
+/// one and rasterise per tile, **380** times, which is the wrapped runs whose box is the
+/// width of the page's grid. 67 + 380 = 447 rasterisations where the page has 600 clipped
+/// commands, and that difference is what ADR 0049 buys. The strokes' tiles are the boxes of
+/// their expansions, whose pieces end square to each curve's tangent wherever two of its
+/// cubics meet (ADR 1397), and which marks share a region follows from those boxes.
 pub const ARTWORK: Archetype = Archetype {
     name: "artwork",
     commands: 900,
@@ -141,7 +143,7 @@ pub const ARTWORK: Archetype = Archetype {
     clipped: 600,
     groups: 8,
     blended_groups: 4,
-    recorded: Some(row(684, 0, 300, 300, 1, 600, 3, 66, 384, 3_542_360)),
+    recorded: Some(row(684, 0, 300, 300, 1, 600, 3, 67, 380, 3_555_182)),
     ..BLANK
 };
 
@@ -226,8 +228,9 @@ pub const GIANT: Archetype = Archetype {
 /// fills, whose three-pixel tiles the atlas takes. Otherwise the counters cannot tell
 /// this page from giant, and that is worth saying rather than hiding: what differs is the
 /// *segments* behind the numbers — 62 400 against giant's 12 000, for a ninth of the tile
-/// area — and `Counters` has no field for it. Its **245 coverage texels** are those six
-/// strokes' expansions and nothing else.
+/// area — and `Counters` has no field for it. Its **252 coverage texels** are those six
+/// strokes' expansions and nothing else, each piece ending square to its curve's tangent
+/// where two cubics meet (ADR 1397).
 pub const DRAWING: Archetype = Archetype {
     name: "drawing",
     commands: 1_200,
@@ -235,7 +238,7 @@ pub const DRAWING: Archetype = Archetype {
     segments: 52,
     side: 3.0,
     strokes: 6,
-    recorded: Some(row(1_200, 0, 1_200, 1_194, 0, 6, 0, 0, 0, 245)),
+    recorded: Some(row(1_200, 0, 1_200, 1_194, 0, 6, 0, 0, 0, 252)),
     ..BLANK
 };
 

@@ -72,8 +72,7 @@ fn a_four_component_page_composites_in_ink_and_converts_once() {
 
     // Nothing but paper: no ink at all is the cube's first corner, and the medium under it
     // is white as well, so this pixel says only that the page was drawn. Page y 420, the band
-    // between the two rows of marks — it was page y 250 until the four-hundred-and-forty-first
-    // session put the `Hue` pair there.
+    // between the two rows of marks, because the `Hue` pair sits at page y 250 (ADR 0277).
     assert_close("paper", pixel(&raster, 450, 422), [255, 255, 255, 255]);
 
     // Half of registration black over paper. Per component the pixel holds ½ of each of the

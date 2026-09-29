@@ -2,8 +2,8 @@
 //!
 //! Table 227 gives every field three flags, and Tables 229, 231 and 233 give each field type its
 //! own — twenty in all, and most of them bind a program that *fills* a field rather than one that
-//! draws it. This tree became such a program in the hundred-and-thirty-fifth session, so the
-//! question "which of them does any real document set" stopped being idle: a flag no file states
+//! draws it. This tree is such a program (ADR 0120), so the question "which of them does any
+//! real document set" is not idle: a flag no file states
 //! is a clause with no witness, and one with a witness is work.
 //!
 //! It counts two things beside the flags, because both are read off the same walk of the field
@@ -37,11 +37,10 @@ use pdf_syntax::{Dictionary, Document};
 /// One flag: the bit number Table 227, 229, 231 or 233 gives it, its name, and the field types
 /// it applies to (`""` for all of them).
 ///
-/// **The type is a filter and not a label, since the five-hundred-and-eleventh session.** It read
-/// as prose beside the count until then, and one row is two flags: bit 26 is `RadiosInUnison` on a
-/// `Btn` and `RichText` on a `Tx`, and a census that counted them together could not answer the
-/// question `doc/todo/30` asks — does any document set `RadiosInUnison`? Table 226's `/FT` is
-/// inheritable, so it is walked exactly as `/Ff` is.
+/// **The type is a filter and not a label**, because one row is two flags: bit 26 is
+/// `RadiosInUnison` on a `Btn` and `RichText` on a `Tx`, and a census that counted them together
+/// could not answer the question `doc/todo/30` asks — does any document set `RadiosInUnison`? Table
+/// 226's `/FT` is inheritable, so it is walked exactly as `/Ff` is.
 struct Flag {
     bit: u32,
     name: &'static str,

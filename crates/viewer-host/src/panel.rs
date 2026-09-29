@@ -397,15 +397,13 @@ pub fn attachment_rows(attachments: &[Attachment]) -> Vec<PanelRow> {
             // Table 43's `/UF` is the file's own name and the tree's key need not be one, so the
             // file name is what a person is shown and the key is what the command carries.
             //
-            // The middle of that sentence was a quotation of §7.11.4.1 — "shall map name strings
-            // to file specifications" — until the four-hundred-and-twenty-ninth session. Errata
-            // Collection 3 replaces the two bullets it came from outright (Issue #481, `/State`
-            // `Review` `Completed`), and the replacement drops the sentence: an `/EmbeddedFiles`
-            // association "is not required unless stated otherwise". What the key is stays what
-            // §7.7.4 makes it, a string in a name tree, which is why nothing here moves — *name
-            // string* being the term Issue #214 takes out of that clause.
-            // `pdf_model::attachment` carries the same correction, made one round after the
-            // erratum was read and three before this copy of it was found (ADR 0254).
+            // The middle of that sentence is prose rather than a quotation of §7.11.4.1, because
+            // Errata Collection 3 replaces the two bullets it would come from outright (Issue #481,
+            // `/State` `Review` `Completed`), and the replacement drops the sentence: an
+            // `/EmbeddedFiles` association "is not required unless stated otherwise". What the key
+            // is stays what §7.7.4 makes it, a string in a name tree, which is why nothing here
+            // moves — *name string* being the term Issue #214 takes out of that clause.
+            // `pdf_model::attachment` carries the same correction (ADR 0254).
             label: attachment
                 .file_name
                 .clone()
@@ -449,9 +447,9 @@ fn detail_of(attachment: &Attachment) -> Option<String> {
 /// > the document as a portable collection.
 ///
 /// That sentence is a `shall` addressed to a *viewer*, and it is why this function exists at all:
-/// [`viewer_core::Query::Collection`] has carried Table 153 whole since the
-/// three-hundred-and-fifty-second session and no native host asked it, so two of the three windows
-/// showed a collection as a flat list of its files — the arrangement the document states, dropped.
+/// [`viewer_core::Query::Collection`] carries Table 153 whole (ADR 0202), and a window that did not
+/// ask it would show a collection as a flat list of its files — the arrangement the document
+/// states, dropped.
 ///
 /// **It is the files tab rather than a seventh panel.** A collection is how a document says its
 /// embedded files are arranged, not a second population of them, so the tab a person already looks
@@ -490,8 +488,8 @@ fn detail_of(attachment: &Attachment) -> Option<String> {
 ///   in the structure that admits a file no folder claims — so this is a documented choice for a
 ///   malformed file, made to keep the `shall` above rather than to invent an arrangement.
 ///
-/// Both cases lost the file entirely until the seven-hundred-and-seventy-second session (ADR
-/// 0711), which is a panel drawing less than the document embeds.
+/// Dropping the file in either case would be a panel drawing less than the document embeds
+/// (ADR 0711).
 ///
 /// # The columns
 ///

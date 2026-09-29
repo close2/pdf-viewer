@@ -144,8 +144,7 @@ pub fn read(document: &Document, page: &Dictionary) -> Option<Result<Thumbnail, 
 /// The entry sends the reader to the same clause a page's does — "(See 12.3.4, "Thumbnail
 /// images")" — so the miniature of an attached file is decoded under §12.3.4's subtraction rule
 /// exactly as a miniature of a page is, and [`decode`] is that sentence once for both carriers.
-/// The two entries are different tables and were different readers: this one did not exist until
-/// the eleven-hundred-and-forty-ninth session, and the one `/Thumb` read outside a page's was
+/// The two entries are different tables: the other `/Thumb` read outside a page's is
 /// [`crate::collection`]'s, which is **Table 159's** folder flag and not an image at all.
 ///
 /// 11 file specifications state one across the corpora on this disk — five in one Acrobat

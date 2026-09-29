@@ -2,8 +2,8 @@
 //!
 //! # The shape it exists for
 //!
-//! `tools/conformance`'s gate checks that a cited table **exists** and prints its title — the
-//! eighty-second session added that after finding three ISO 32000-1 numbers in the ledger — and a
+//! `tools/conformance`'s gate checks that a cited table **exists** and prints its title
+//! (ADR 0072) — and a
 //! number that exists and names the wrong table reads exactly like a right one. Every other sweep
 //! in `doc/todo/01` reads what a row *claims*; this one reads a *number*, against the entries the
 //! standard's own table states.
@@ -11,13 +11,12 @@
 //! Its findings arrive in **blocks**: a wrong table number does not come alone, it comes as a run
 //! of consecutive rows or one `enum`'s doc comments, written in one sitting against the older
 //! standard. The first run corrected eighteen citations across two blocks of §12.5.6 and §14.8.5;
-//! the five-hundred-and-thirty-seventh's found seven, six of them in `pdf-model` and five of those
-//! in one `enum`.
+//! a later one found seven, six of them in `pdf-model` and five of those in one `enum`.
 //!
 //! # What is a claim about a table, and what is only a key in the same sentence
 //!
-//! Reading every key in every sentence that names a table was 545 hits to nothing in the
-//! five-hundred-and-thirty-seventh, because a sentence naming a table usually goes on to name the
+//! Reading every key in every sentence that names a table gives hundreds of hits to nothing,
+//! because a sentence naming a table usually goes on to name the
 //! dictionary the table describes. So a key counts only where the sentence **attributes** it: the
 //! possessive (`Table 191's /H`), one of [`ATTRIBUTIONS`]' verbs (`Table 124 defines /FontFile2`),
 //! or an apposition (`Table 385, with a /Subtype`), and then only within [`WINDOW`] words and
@@ -60,8 +59,7 @@
 //!   the key, which is what a reader needs to tell this from a defect in one line.
 //! - **A rule a table states *about* a key it does not state.** "Table 177 makes the file's own
 //!   `/AP` decisive over its `/DA`" is §12.5.6.6's own sentence, in the `/DA` row, about an entry
-//!   Table 166 states — and the five-hundred-and-twenty-fifth session read one of these as a
-//!   defect and corrected it *into* this form.
+//!   Table 166 states — and reading one of these as a defect corrects it *into* this form.
 //! - **A round's own record.** `doc/todo/01` and the ADRs quote every number they retired.
 //! - **A denial whose negation is about something else.** "Table 31 makes a page stating no
 //!   `/Contents` an empty page" denies the *page* an entry rather than the table. Half of the
@@ -674,8 +672,8 @@ Table 22 -User access permissions
         );
     }
 
-    /// A verb attributes as a possessive does — the form `pdf-font`'s comment used for the
-    /// four-hundred-and-eighty-ninth's `/FontFile2` defect.
+    /// A verb attributes as a possessive does — the form `pdf-font`'s comment uses for its
+    /// `/FontFile2` citation.
     #[test]
     fn a_verb_attributes_too() {
         assert_eq!(
@@ -724,9 +722,8 @@ Table 22 -User access permissions
         assert_eq!(tables.judge(&denied(166, "AP")), Verdict::Denied);
     }
 
-    /// The answer a suspect needs, and the sentence a correction is written from: the
-    /// five-hundred-and-twenty-fifth's finding was `/AP` under Table 177, and `/AP` is Table
-    /// 166's.
+    /// The answer a suspect needs, and the sentence a correction is written from: `/AP` cited
+    /// under Table 177 is Table 166's.
     #[test]
     fn a_suspect_carries_the_table_that_does_state_the_key() {
         let tables = Tables::read(CONVERSION);

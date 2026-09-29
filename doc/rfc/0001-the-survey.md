@@ -227,7 +227,7 @@ incremental-update save (§7.5.6) — the one form of writing currently permitte
 signature integrity *and* authenticity verification (all Table 260 algorithm families);
 embedded-file extraction; six sidebar panels; three windows plus a confined host; a C
 ABI; and `tools/pdf-retrieve`, JSON over outline/text/annotations. What does not exist:
-any whole-file writer, any raster/extract CLI, print in any form, OCR, redaction,
+any whole-file writer, any rasterising or extracting CLI, print in any form, OCR, redaction,
 compression, page surgery, KIO/FUSE, night mode, tabs.
 
 Two current restrictions matter for grading, and the owner has said not to let them

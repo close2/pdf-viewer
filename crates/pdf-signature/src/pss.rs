@@ -4,9 +4,8 @@
 //! Support | Up to 1024-bit (PDF 1.3) Up to 2048-bit (PDF 1.5) Up to 4096-bit (PDF 1.5)" — and
 //! RFC 8017 defines two signature schemes over that one key type: RSASSA-PKCS1-v1_5, which is
 //! [`crate::pkcs1`], and RSASSA-PSS, which is this module. Six of the 811 signatures in the
-//! `SafeDocs` population state `id-RSASSA-PSS` — twice ECDSA's share, and until the
-//! four-hundred-and-eighty-seventh session the commonest thing this program declined (ADR 0322;
-//! the census is `examples/signature_algorithm_census.rs` and is meant to be re-run, not quoted).
+//! `SafeDocs` population state `id-RSASSA-PSS` — twice ECDSA's share (ADR 0322; the census is
+//! `examples/signature_algorithm_census.rs` and is meant to be re-run, not quoted).
 //!
 //! # Two schemes, two modules, deliberately
 //!

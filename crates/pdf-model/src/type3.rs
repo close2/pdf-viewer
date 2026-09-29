@@ -38,10 +38,10 @@
 //!   encoding does not name reaches no glyph, and a name absent from `/CharProcs` paints
 //!   nothing — neither is an error, and both still advance the text position.
 //!
-//! The glyph names are *procedure* names and mean nothing outside the font. That is why a
-//! Type 3 font can never be substituted, and why doing so was a defect the eighth session
-//! removed: `french_diacritics.pdf` names its procedures `/a192`, `/a199`, `/a224`, which
-//! are also `ZapfDingbats` glyph names, so a substitute drew dingbats and reported nothing.
+//! The glyph names are *procedure* names and mean nothing outside the font. That is why a Type 3
+//! font can never be substituted: `french_diacritics.pdf` names its procedures `/a192`, `/a199`,
+//! `/a224`, which are also `ZapfDingbats` glyph names, so a substitute would draw dingbats and
+//! report nothing.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -456,13 +456,12 @@ impl Type3Font {
         if self.to_unicode.append(code, out) {
             return true;
         }
-        // §9.10.2's **second** method, which applies here and which this module refused for
-        // three hundred sessions: "[i]f the font is a simple font and the glyph selection
-        // algorithm (see 9.6.5, "Character encoding") uses a glyph name, that name can be looked
-        // up in the Adobe Glyph List … to obtain the corresponding Unicode value". A Type 3 font
-        // is a simple font, and §9.6.4's own step b) is a name: "[g]et the glyph name from the
-        // Encoding entry"; §9.6.5.3 makes `/Differences` "the complete character encoding for
-        // this font". So a name *is* used, and where it is a name the Adobe Glyph List knows,
+        // §9.10.2's **second** method, which applies here: "[i]f the font is a simple font and the
+        // glyph selection algorithm (see 9.6.5, "Character encoding") uses a glyph name, that name
+        // can be looked up in the Adobe Glyph List … to obtain the corresponding Unicode value". A
+        // Type 3 font is a simple font, and §9.6.4's own step b) is a name: "[g]et the glyph name
+        // from the Encoding entry"; §9.6.5.3 makes `/Differences` "the complete character encoding
+        // for this font". So a name *is* used, and where it is a name the Adobe Glyph List knows,
         // the clause says what it means.
         //
         // What the field comment beside `to_unicode` used to say — that a Type 3 glyph name
@@ -534,9 +533,9 @@ impl Type3Font {
     /// `issue918.pdf` is 193 words of it.
     ///
     /// **The bound is what keeps this from being the fallback-that-fills-the-page this project
-    /// forbids.** 0x21 to 0x7E is the range in which a byte and a Unicode code point mean the
-    /// same character under every encoding §9.6.5 states — `Standard`, `WinAnsi`, `MacRoman`
-    /// and `PDFDoc` agree there and differ everywhere else — so a code outside it is one this declines
+    /// forbids.** 0x21 to 0x7E is the range in which a byte and a Unicode code point mean the same
+    /// character under every encoding §9.6.5 states — `Standard`, `WinAnsi`, `MacRoman` and
+    /// `PDFDoc` agree there and differ everywhere else — so a code outside it is one this declines
     /// rather than guesses at. Space is excluded because a readback of whitespace is what
     /// `Interpretation` uses to tell a missing mark from a blank one.
     fn text_from_the_code(code: u32, out: &mut String) -> bool {
@@ -580,8 +579,8 @@ impl Type3Font {
 ///   dictionary, so the glyph names with no description are a list rather than a number.
 ///
 /// `Document::get` is asked first and has to have answered null, which is the identity condition
-/// ADR 0784 section 3 states: the prefix is taken for an object the file's own reference names and that
-/// nothing readable in the file bears.
+/// ADR 0784 section 3 states: the prefix is taken for an object the file's own reference names and
+/// that nothing readable in the file bears.
 ///
 /// Returns `None` where Table 110's entry is genuinely absent — no entry, a direct value that is
 /// not a dictionary, a reference to an object that resolves to something else, or one this file

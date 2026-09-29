@@ -178,12 +178,12 @@ pub(crate) enum Swapchain {
 
 /// [`Swapchain`]'s decision, with the device's own words where it left any.
 ///
-/// **`Validation` is the one that changed in the six-hundred-and-twenty-eighth session.** It used
-/// to be `swapchain validation failed`, four words that name no cause and suggest no action —
-/// and by construction there *is* a cause to name: raster reaches this state by asking wgpu for a
-/// texture and being refused, and the refusal that reaches a surface which has been configured
-/// once is very nearly always a *re*configure that failed. `wgpu::Surface::configure` returns `()`, so
-/// the only account of it is what the device told the handler, which is why `said` is here.
+/// **`Validation` names its cause**, where `swapchain validation failed` would be four words that
+/// name no cause and suggest no action — and by construction there *is* a cause to name: raster
+/// reaches this state by asking wgpu for a texture and being refused, and the refusal that reaches
+/// a surface which has been configured once is very nearly always a *re*configure that failed.
+/// `wgpu::Surface::configure` returns `()`, so the only account of it is what the device told the
+/// handler, which is why `said` is here.
 pub(crate) fn swapchain(
     reason: raster_gpu::SurfaceProblem,
     said: Option<&render_raster::Uncaptured>,
@@ -215,9 +215,8 @@ pub(crate) fn swapchain(
 /// How this window's pixels reach it: with a graphics device, or without one.
 ///
 /// **Never both, and that is the point.** A process holding [`Surface::Processor`] has created no
-/// `wgpu::Instance`, selected no adapter and made no device, so a driver that faults while it
-/// loads cannot reach it. Before the three-hundred-and-eighty-fourth session there was one
-/// variant and `--cpu` chose only which rasteriser drew into it (ADR 0221).
+/// `wgpu::Instance`, selected no adapter and made no device, so a driver that faults while it loads
+/// cannot reach it (ADR 0221).
 ///
 /// **Both variants are now the same arrangement over two rasterisers** (ADR 0461): a thread that
 /// draws pages, a store of finished pictures on this thread, and a present on the clock's tick.
@@ -519,8 +518,7 @@ impl App {
             );
         }
         // A page drawn by the slower of two backends is a fact about this build worth saying out
-        // loud, and saying it is what would have made the hundred-and-forty-second session's
-        // report a sentence rather than a mystery.
+        // loud: said, it makes a report a sentence rather than a mystery (ADR 0125).
         if let Some(problem) = &landed.fell_back {
             println!(
                 "note: the graphics device {problem}, so the page was drawn on the processor \
@@ -721,12 +719,12 @@ impl App {
         let edge = self.inset() as f32;
         let pages = self.arrangement(edge, width, height);
         let Some(first) = pages.first() else {
-            // **A window with no page is a window that can still have something on it**, and until
-            // the six-hundred-and-ninety-fifth session this line was a `?` that ended the frame.
-            // §7.6.4.1's card is drawn over a document that has not authenticated: there is no
-            // page behind it because the document is not open, which is the whole reason the card
-            // is there. 687's lesson one round on — a piece of chrome added is a piece of chrome
-            // to check on *both* surfaces — and this is the third path it has to reach.
+            // **A window with no page is a window that can still have something on it**, so this
+            // does not end the frame. §7.6.4.1's card is drawn over a document that has not
+            // authenticated: there is no page behind it because the document is not open, which is
+            // the whole reason the card is there (ADR 0545). A piece of chrome added is a piece of
+            // chrome to check on *both* surfaces (ADR 0526), and this is the third path it has to
+            // reach.
             let chrome = Overlays::of(self, edge, width, height);
             stages.host = began.elapsed();
             return self.without_a_page(&chrome, (width, height), stages);
@@ -1302,8 +1300,7 @@ impl App {
             // was *asked for* — which is a fact about this command line — and the second ends in
             // the backend that was actually chosen, because raster's adapter description carries
             // it: `llvmpipe (LLVM 22.1.8, 256 bits) (Cpu, Vulkan)`. A person diagnosing a driver
-            // crash needs both, and before the three-hundred-and-eighty-fourth session there was
-            // no way to ask for the first at all.
+            // crash needs both (ADR 0221).
             self.trace.say(
                 Topic::Launch,
                 format_args!("backend asked for: {}", self.backend_description()),
@@ -1373,11 +1370,10 @@ impl App {
 
     /// What to say — and what to do — when the graphics device will not come up.
     ///
-    /// **This was `.expect("presenter creation")` until the three-hundred-and-eighty-fourth
-    /// session**, which is `CLAUDE.md` principle 1's rule about panics in the one place a person
-    /// most needs a sentence: a device that will not come up is a fact about the machine, not a
-    /// defect in this program, and the shape to use is `Confinement::shortfall`'s — name the
-    /// stage, name what was seen, name what to try.
+    /// **Not an `.expect`**, by `CLAUDE.md` principle 1's rule about panics, in the one place a
+    /// person most needs a sentence (ADR 0221): a device that will not come up is a fact about the
+    /// machine, not a defect in this program, and the shape to use is `Confinement::shortfall`'s —
+    /// name the stage, name what was seen, name what to try.
     ///
     /// The two outcomes are deliberately different. A backend a **person** named is honoured or
     /// refused, because "this machine has no DX12 adapter" is an answer to the question they
@@ -1498,12 +1494,10 @@ impl App {
 
     /// Draws the frame the window asked for, and tells the core what became of it.
     ///
-    /// **The frame's number is the frame's, since the three-hundred-and-ninetieth session.**
-    /// This used to start a timer, present, close the launch timeline, publish the accessibility
-    /// tree, and *then* read the timer — so `present -> presented in T` was the frame plus the
-    /// bridge plus the timeline's own printing. ADR 0227 called that a measurement
-    /// defect rather than a design choice, which is exactly what it was: on a page turn the tree
-    /// is rebuilt and published, and that work was being attributed to the graphics device.
+    /// **The frame's number is the frame's** (ADR 0227). The timer is read before the launch
+    /// timeline closes and the accessibility tree is published, so `present -> presented in T` is
+    /// not the frame plus the bridge plus the timeline's own printing: on a page turn the tree is
+    /// rebuilt and published, and that work is not the graphics device's.
     pub(crate) fn redraw_requested(&mut self) {
         // **The clock's gate, and it is on every frame rather than only on the ones that follow
         // a reprojection** (`doc/todo/36`). A redraw that arrives before the surface has

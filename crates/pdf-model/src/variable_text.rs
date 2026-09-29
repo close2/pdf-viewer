@@ -36,9 +36,8 @@
 //!
 //! # Where it is not implemented, it says so
 //!
-//! **This section said a `/DA` naming a font `/DR` does not define was refused by name, and had
-//! been false since the hundred-and-twenty-third session**, when ADR 0112 gave that case a
-//! stand-in and a report — a free text annotation's text *is* its appearance, so refusing drew a
+//! **A `/DA` naming a font `/DR` does not define gets a stand-in and a report** (ADR 0112),
+//! not a refusal — a free text annotation's text *is* its appearance, so refusing would draw a
 //! blank page. [`substituted_font`] and [`Resolution`] are what actually happens, and the
 //! asymmetry between a font the document named and one this module inferred is stated there.
 //!
@@ -702,14 +701,13 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         // the rest is drawn, because there the shortfall is the document's own choice; here it
         // is ours, and the only honest thing an invention can do is decline.
         //
-        // **What it declines with names both halves**, since the two-hundred-and-eighty-third
-        // session. `FontNotInResources` alone said the document had not defined the name — true,
-        // and by itself misleading twice over: since the two-hundred-and-fifty-eighth a `/Helv`
-        // *is* drawn from the binary, so the undefined name is no longer what stops the value;
+        // **What it declines with names both halves.** `FontNotInResources` alone would say the
+        // document had not defined the name — true, and by itself misleading twice over: a
+        // `/Helv` *is* drawn from the binary, so the undefined name is not what stops the value;
         // and `bug1865341.pdf`'s value is *Załącznik*, whose `ł` and `ą` are in Liberation Sans
         // and in neither §9.6.5.2 encoding a simple font may use. The reason is the **encoding**
-        // rather than the face, and a report that does not say so sends the next session looking
-        // in the wrong place. `doc/todo/22` holds what closing it would take.
+        // rather than the face, and a report that does not say so sends a reader looking in the
+        // wrong place. `doc/todo/22` holds what closing it would take.
         return Err(Owed::InventedFontFellShort {
             name: font_name,
             characters: runs.missing,

@@ -49,14 +49,12 @@ fn whole(width: u32, height: u32) -> Point {
 impl App {
     /// Enters or leaves §12.4.4's presentation: the window, the clock, and the mode the core keeps.
     ///
-    /// **Three things now, where ADR 0135 had one and ADR 0316 had two.** That first session
-    /// decided `viewer-core` had no presentation *state* — "is a presentation running" was
-    /// answered by whether something was driving the clock — and ADR 0316 amended it on §12.4.4.2,
-    /// which conditions a state machine on the mode itself: NOTE 3 respects the navigation nodes
-    /// "only when in presentation mode", and a person stepping through a slide show by hand drives
-    /// no clock at all. So the key sends `Command::Present` as well, and what the core does with
-    /// it is the nodes, the groups NOTE 2 asks to be saved, and the `/Trans` of a page turned to
-    /// by hand.
+    /// **Three things, on ADR 0316's amendment of ADR 0135.** Whether something is driving the
+    /// clock does not answer "is a presentation running", because §12.4.4.2 conditions a state
+    /// machine on the mode itself: NOTE 3 respects the navigation nodes "only when in presentation
+    /// mode", and a person stepping through a slide show by hand drives no clock at all. So the key
+    /// sends `Command::Present` as well, and what the core does with it is the nodes, the groups
+    /// NOTE 2 asks to be saved, and the `/Trans` of a page turned to by hand.
     ///
     /// **And the third is the window** (ADR 0470). This doc comment used to say full screen was
     /// "deliberately still not part of it" because "§12.4.4.1 … says nothing about a window", and

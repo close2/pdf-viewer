@@ -16,17 +16,15 @@
 //! attachment annotation, §7.11.4's embedded files and §14.13's associated ones, §12.6.4.4's
 //! embedded go-to, and §12.7.6.4's import-data action.
 //!
-//! **That list said something stronger and false until the eight-hundred-and-fifty-third
-//! session** — "[e]very refusal in this tree that names a file — §7.3.8's external stream data,
-//! §8.10.4's reference `XObject`, §12.6.4.6's launch action, §12.6.4.4's embedded go-to" — and
-//! three of its four members name no file at all. §7.3.8's external stream data is a bare
+//! **Three refusals that look like file references name no file at all**, and are not on that
+//! list. §7.3.8's external stream data is a bare
 //! [`pdf_syntax::StreamRefusal::External`], decided in a crate that cannot depend on this one;
 //! §12.6.4.6's launch is a fixed sentence, "Launch: running an application, which the sandbox
 //! withholds", as `GoToR`'s and `Thread`'s are; and §8.10.4's reference `XObject` reads nothing —
 //! nothing in `crates/`, `tools/` or `fuzz/` names `/Ref`, which is §8.10.4.1's own provision for
 //! a processor that draws the proxy instead ([`crate::content`], and
-//! `pdf-model/tests/reference_xobjects.rs` holds it). What would make the retired sentence true is
-//! a refusal carrying an owned string rather than a `&'static str`; that is a change to
+//! `pdf-model/tests/reference_xobjects.rs` holds it). What would make them name a file is a
+//! refusal carrying an owned string rather than a `&'static str`; that is a change to
 //! [`crate::action`]'s boundary and not to this module, and it is not owed by any clause.
 //!
 //! # What this module is not
@@ -159,10 +157,8 @@ impl EncryptedPayload {
 /// the one thing every caller asks. `/Thumb` is [`crate::thumbnail::of_file_spec`]'s, for the
 /// same reason and with the same shape: an image is decoded when somebody wants to look at it.
 ///
-/// **That sentence named `/Thumb` and `/EP` among the entries other modules read, and neither was
-/// read anywhere** until the eleven-hundred-and-forty-ninth session — the one `/Thumb` reader
-/// outside a page's was Table 159's collection flag, which is a boolean. `/EP` is now
-/// [`Self::payload`].
+/// `/EP` is [`Self::payload`]. Table 159's collection flag is also named `/Thumb`, and it is a
+/// boolean.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FileSpec {
     /// Table 43's `/FS`.

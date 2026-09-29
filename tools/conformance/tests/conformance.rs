@@ -28,16 +28,16 @@ use conformance::quote;
 /// How many subclauses nobody has read against this code.
 ///
 /// **This number may only fall.** It is the project's honest count of unasked questions, and
-/// it starts at nearly all of them: the ledger was generated in the ninth session with every
-/// row `unreviewed` except clause 13's, which principle 5 excludes by name, and the clauses
-/// the source already cited, which were filled in the same session.
+/// it started at nearly all of them: the ledger was generated with every row `unreviewed`
+/// except clause 13's, which principle 5 excludes by name, and the clauses the source already
+/// cited (ADR 0016).
 ///
 /// Lowering it means reading a clause family against the code and recording what is there —
 /// 20 to 60 minutes for a family, and the only instrument in this tree that can find a
 /// requirement nobody has thought about. Neither gate that renders a page can: a corpus
 /// ranks what documents ask for, and a demand curve cannot rank a requirement no file
 /// exercises.
-/// **Zero since the fifty-sixth session**, which is what it was written to reach: every one of
+/// **Zero**, which is what it was written to reach (ADR 0061): every one of
 /// the standard's 823 technical subclauses has been read against this code and carries a status
 /// and a note. The ratchet stays because the ledger grows — a row added by a future edition of
 /// the standard, or by `bin/ledger` finding a subclause this file lacks, arrives `unreviewed`
@@ -46,8 +46,8 @@ const UNREVIEWED_CEILING: usize = 0;
 
 /// How many `implemented` rows name a whole test *file* rather than a test.
 ///
-/// **This number may only fall**, and it exists because of two rows found wrong in two
-/// sessions in exactly the same way. §8.7.3.1's said "`/BBox` clips the cell" and §8.7.2's said
+/// **This number may only fall**, and it exists because of two rows found wrong in exactly the
+/// same way. §8.7.3.1's said "`/BBox` clips the cell" and §8.7.2's said
 /// the pattern base "is what `base` holds while a form is being run"; both were written from
 /// the clause, both were true of no code, and neither could have been caught here — a row that
 /// names `tests/tiling.rs` names a file that passes whatever it contains.
@@ -57,13 +57,13 @@ const UNREVIEWED_CEILING: usize = 0;
 /// *covers* the clause, so this is a count rather than a rule; what it does is keep the
 /// population where a false claim can hide from growing, and say how large it is.
 ///
-/// **58 to 0 over four sessions, and not one of the four merely renamed anything.** §7.10's ten
+/// **It reached 0 without one row merely renamed.** §7.10's ten
 /// rows all named `tests/shadings.rs` and the sampled-function row was wrong twice over — "all
 /// five of Table 39's sample widths" where the table lists **eight**, and a `/Order` read
 /// nowhere at all (ADR 0098). §7.5's nine found §7.5.6's "most recent copy" rule not reaching a
 /// deletion, so the reader resurrected objects their file had removed (ADR 0100). Clause 8's
-/// seventeen found the `DeviceCMYK` silence still recorded in four places three sessions after
-/// `CLAUDE.md` disproved it, and three rows with no test that could fail — §8.7.4.5.2 among
+/// seventeen found the `DeviceCMYK` silence still recorded in four places after `CLAUDE.md`
+/// disproved it, and three rows with no test that could fail — §8.7.4.5.2 among
 /// them, `implemented` while `shadings.rs`'s fourteen tests contained not one `/ShadingType 1`
 /// (ADR 0101). The last twenty-three closed it (ADR 0102).
 ///
@@ -80,12 +80,10 @@ const FILE_ONLY_EVIDENCE_CEILING: usize = 0;
 /// count above filters on [`Status::Implemented`], so 222 rows, a third of the ledger, were
 /// outside it. Twenty-three of them named a file.
 ///
-/// **The shape is the one round 851 was bitten by**, which is why this is a ratchet rather than a
-/// reading list: §8.7.4.5.7's backwards fold-over rule sat under a row whose evidence was
-/// `tests/shadings.rs`, a file that passes whatever it contains — and a file holding no type 6 or
-/// type 7 fixture at all. (**This paragraph named §8.6.6 and `tests/colour_paths.rs` until the
-/// eight-hundred-and-fifty-fourth session**, which is one row of the population wearing another's
-/// defect: §8.6.6 was on the list, but the fold-over is the mesh clause's.) A row naming
+/// **The shape is why this is a ratchet rather than a reading list** (ADR 0778): §8.7.4.5.7's
+/// backwards fold-over rule sat under a row whose evidence was `tests/shadings.rs`, a file that
+/// passes whatever it contains — and a file holding no type 6 or type 7 fixture at all. A row
+/// naming
 /// `file.rs::a_test` is a claim something would fail if it stopped being true; a row naming
 /// `file.rs` is a claim nothing checks, and neither status is exempt from that.
 ///
@@ -96,9 +94,8 @@ const FILE_ONLY_EVIDENCE_CEILING: usize = 0;
 /// **The weakest shape on the list is a row whose file is a *gate*'s**, and the §8.10.4
 /// reference-`XObject` family was three such rows: `tests/corpus.rs` passes for every document in
 /// a corpus that holds not one reference `XObject`, so it could not have failed for anything the
-/// clause says. A fixture pair replaced it in the eight-hundred-and-fifty-third session, and the
-/// reading that produced it found two false sentences about `crate::file_spec`'s callers — which
-/// is what a reading list is for.
+/// clause says. A fixture pair replaced it, and the reading that produced it found two false
+/// sentences about `crate::file_spec`'s callers — which is what a reading list is for.
 ///
 /// **And the list's second entry is a test that passes for the wrong reason**, which no count can
 /// see and only the plant that calibrates a named test can: §7.6's evidence became
@@ -107,7 +104,7 @@ const FILE_ONLY_EVIDENCE_CEILING: usize = 0;
 /// accepted outright with the test green. Naming a test is where a row's claim gets read; the
 /// ratchet is what makes somebody read it.
 ///
-/// **23 to 0 over three sessions, and the last five were the aggregates.** §8.6.6, §11.7.5, §14.9
+/// **At 0, and the last five were the aggregates.** §8.6.6, §11.7.5, §14.9
 /// and §7.7 are rows *over a family*, and a family's evidence is one named test per child that
 /// states requirements — which is a shape a rename cannot produce and is why they were left until
 /// last. The reading that produced them found what a whole-file row hides: `/Pattern`'s underlying
@@ -129,10 +126,9 @@ const PARTIAL_FILE_ONLY_EVIDENCE_CEILING: usize = 0;
 /// front of the sign, the way the several hundred `` `doc/todo/NN` §N `` citations beside them
 /// already do.
 ///
-/// It starts where the nine-hundred-and-seventy-seventh session found it, which is nearly all
-/// `doc/oracle-and-corpus.md` §3a in `pdf-model`'s oracle — one document, cited by its section
-/// alone, a hundred lines below the last mention of its name. A ceiling rather than zero
-/// because the sites are in three crates this round did not own, and a ratchet rather than a
+/// Nearly all of it is `doc/oracle-and-corpus.md` §3a in `pdf-model`'s oracle — one document,
+/// cited by its section alone, a hundred lines below the last mention of its name (ADR 0987). A
+/// ceiling rather than zero because the sites are in three crates, and a ratchet rather than a
 /// count because the cheapest moment to name the document is the round that writes the comment.
 const UNNAMED_SECTION_CEILING: usize = 46;
 
@@ -150,7 +146,7 @@ const UNNAMED_SECTION_CEILING: usize = 46;
 /// gate pass is exactly the rubber stamp the ledger exists to prevent — this project's own
 /// habit says a clause-family review costs 20 to 60 minutes and produces findings, which is
 /// not something to do thirty-six of against the clock.
-/// Empty since the thirty-fourth session, and worth keeping as a ratchet rather than
+/// Empty (ADR 0043), and worth keeping as a ratchet rather than
 /// deleting: a clause the code cites and nobody has read is the cheapest debt this project
 /// can accrue, and an empty list fails loudly the moment one appears.
 const REVIEW_OWED: &[&str] = &[];
@@ -168,9 +164,8 @@ fn every_citation_names_a_clause_that_exists() {
 
     let mut wrong = String::new();
     let mut citations = 0usize;
-    // The sections of this project's own documents, which are not citations of the standard and
-    // were counted as citations of it until the nine-hundred-and-seventy-seventh session. Per
-    // document, and separately the ones no line names a document for.
+    // The sections of this project's own documents, which are not citations of the standard
+    // (ADR 0987). Per document, and separately the ones no line names a document for.
     let mut sections: BTreeMap<String, usize> = BTreeMap::new();
     let mut resolved = 0usize;
     let mut unattributed = 0usize;
@@ -226,9 +221,9 @@ fn every_citation_names_a_clause_that_exists() {
     }
 
     // The inventory is printed before the verdict, and for two reasons. It is what the citation
-    // count below has to be read against — the count fell by this population's size in the
-    // nine-hundred-and-seventy-seventh session, which is a reclassification rather than a tree
-    // that stopped citing the standard — and a gate failing on one line should still say what it
+    // count below has to be read against — a section moved into this population leaves the
+    // citation count as a reclassification rather than a tree that stopped citing the standard
+    // (ADR 0987) — and a gate failing on one line should still say what it
     // read on all the others.
     let total: usize = sections
         .values()
@@ -347,8 +342,9 @@ fn every_quotation_is_the_standards_own_words() {
 
 /// Every `Table N` a comment names is a table the standard has, and its title is printed.
 ///
-/// The clause half of a citation has been checked since the ninth session; the table half
-/// was not, and one was already wrong. Four comments, two tests and a written report said
+/// The clause half of a citation is checked by the test above; the table half is checked here,
+/// because a table number can be wrong beside a right clause. Four comments, two tests and a
+/// written report once said
 /// "§9.3.6 Table 106" for the text rendering modes, which are Table 104 — Table 106 is the
 /// text-*positioning* operators, two subclauses away. The clause existed, the table existed,
 /// and the pair was wrong.
@@ -371,11 +367,10 @@ fn every_quotation_is_the_standards_own_words() {
 ///
 /// # And the tables this does not check are named, rather than silently dropped
 ///
-/// A table another standard captions is not one of these, and until the
-/// eight-hundred-and-thirty-second session it was: `ISO/TS 32002 Table 3` is where the
-/// supported ECDSA curves are, ISO 32000-2's Table 3 is the escape sequences in literal
-/// strings, and twenty-one such references resolved against the wrong document while this
-/// listing printed the wrong document's titles beside them. `ForeignTable` is the rule and it
+/// A table another standard captions is not one of these (ADR 0760): `ISO/TS 32002 Table 3` is
+/// where the supported ECDSA curves are, ISO 32000-2's Table 3 is the escape sequences in literal
+/// strings, and a reference to the first resolved against the second would print the wrong
+/// document's title beside it. `ForeignTable` is the rule and it
 /// is `read_citations`'s own — the failure is `ForeignCitation`'s, one level down.
 ///
 /// They are *printed* rather than reported: naming another standard before its table is
@@ -389,7 +384,7 @@ fn every_table_reference_names_a_table_the_standard_has() {
 
     let mut wrong = String::new();
     // Which files cite each table, so the listing below can be read as a *pairing* rather than
-    // as an inventory. The title alone would have caught session 944's error in one glance —
+    // as an inventory. The title alone catches a mismatched pair in one glance —
     // "Table 128 — Entries in a Type 1 halftone dictionary" cited by a module about embedded
     // font programs — but only for a reader who already suspected that module. Printing the
     // citer beside the title is what makes the mismatch legible without adding the stronger
@@ -451,12 +446,11 @@ fn every_table_reference_names_a_table_the_standard_has() {
 /// Every `Table <designation>` a comment names is a table the standard captions, whether or
 /// not a `u16` can hold the designation.
 ///
-/// The test above is the same question over the *numbered* population, and for six hundred
-/// sessions that was the whole of it: `read_tables` took the digits after `Table ` and stopped,
-/// so `Table Annex O.3`, `Table D.2` and `Table 125a` were no reference to anything and nothing
-/// could be wrong about them. The eight-hundred-and-twentieth session built the wider
-/// population for `spec-errata renumbered` and named this gap in the same breath — a
-/// designation that is not a number was still unchecked, and the tree cites forty-odd of them.
+/// The test above is the same question over the *numbered* population: `read_tables` takes the
+/// digits after `Table ` and stops, so `Table Annex O.3`, `Table D.2` and `Table 125a` would be
+/// no reference to anything and nothing could be wrong about them. The wider population is the
+/// one `spec-errata renumbered` reads (ADR 0746), and the tree cites forty-odd designations that
+/// are not numbers.
 ///
 /// The assertion is the weaker true one for the same reason the numbered test gives: that the
 /// designation names a table the standard has. What is printed is the designations no `u16` can
@@ -648,13 +642,13 @@ fn by_clause(ledger: &Ledger) -> String {
 /// The ledger's own prose names clauses and tables the standard has.
 ///
 /// The notes are the densest writing about ISO 32000-2 in this project — one per subclause,
-/// most of them naming other clauses and numbered tables — and until the eighty-second session
-/// nothing read a word of them: the citation scan reads Rust sources and the ledger is TOML.
-/// The first run found **three wrong table numbers**, each of them ISO 32000-1's number for a
+/// most of them naming other clauses and numbered tables — and the citation scan reads Rust
+/// sources while the ledger is TOML, so this reads the notes. Its first run found **three wrong
+/// table numbers** (ADR 0072), each of them ISO 32000-1's number for a
 /// table ISO 32000-2 renumbered: the namespace dictionary called Table 358, the attribute
 /// object dictionary called Table 363, and an object reference's `/Obj` called Table 362. All
 /// three read exactly like correct writing, which is the same shape as the `§9.3.6 Table 106`
-/// the thirteenth session found in the code.
+/// the table test above describes in the code.
 ///
 /// The clause half is a stricter check than the table half for the same reason it is in the
 /// code: a wrong clause number names nothing, while a wrong table number names another table.
@@ -673,9 +667,9 @@ fn the_ledgers_own_prose_names_clauses_and_tables_that_exist() {
         let Some(note) = &row.note else { continue };
         let scan = conformance::citation::scan_prose(note);
         // A note cites this project's own documents as freely as the code does — `doc/todo/10`
-        // §3's residue, `doc/todo/02` §2's line — and every one of those was counted as a
-        // citation of a clause until the nine-hundred-and-seventy-seventh session. They are
-        // counted here rather than reported, for `citation::ProjectSection`'s reason.
+        // §3's residue, `doc/todo/02` §2's line — and none of those is a citation of a clause
+        // (ADR 0987). They are counted here rather than reported, for `citation::ProjectSection`'s
+        // reason.
         sections = sections.saturating_add(scan.sections.len());
         for citation in &scan.citations {
             citations = citations.saturating_add(1);
@@ -737,10 +731,10 @@ fn the_ledgers_own_prose_names_clauses_and_tables_that_exist() {
          and {sections} sections of this project's own documents:",
         tables.len()
     );
-    // The *titles*, for the reason the tree's own table references are printed with theirs (the
-    // twentieth session): a table number that names nothing is a defect this can catch, and a
-    // table number that names the *wrong* table reads exactly like a right one. The
-    // hundred-and-fifth session found §12.5.6.23's row calling the redaction table "Table 193",
+    // The *titles*, for the reason the tree's own table references are printed with theirs: a
+    // table number that names nothing is a defect this can catch, and a table number that names
+    // the *wrong* table reads exactly like a right one. §12.5.6.23's row once called the
+    // redaction table "Table 193",
     // which is the watermark annotation's — a number carried over from ISO 32000-1, checked and
     // present and about something else entirely.
     for (number, titles) in &tables {
@@ -757,8 +751,8 @@ fn the_ledgers_own_prose_names_clauses_and_tables_that_exist() {
 /// [`conformance::ledger::NORMATIVE_ANNEXES`] and
 /// [`conformance::ledger::INFORMATIVE_ANNEXES`] are seventeen letters written by hand, and
 /// `ledger::check` reports a letter that is in *neither* — so the lists cannot lose an annex.
-/// What nothing asked until the one-thousand-and-tenth session is whether a letter is in the
-/// **right** one, and the standard states that itself: `Annex D (normative) Character sets and
+/// What this asks is whether a letter is in the **right** one (ADR 1029), and the standard
+/// states that itself: `Annex D (normative) Character sets and
 /// encodings`, `Annex B (informative) Operators in Type 4 Functions`. A transposition would move
 /// an annex's requirements out of the ledger's scope in silence, which is the same defect as
 /// `SOURCE_ROOTS`' one directory further out — a classification kept beside the document that

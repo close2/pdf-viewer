@@ -144,9 +144,7 @@ impl PatternInitial {
     /// `/ExtGState` cannot state one for its own colours by either of §10.5's two routes. All three
     /// are silent for the same reason and none of them is reported;
     /// `Interpreter::note_black_generation` is what reports the entries that are skipped and
-    /// could have marked, which is `/BG` and `/UCR`. **This sentence named a
-    /// `note_pattern_ext_gstate` that is in no crate of this tree** until the
-    /// six-hundred-and-seventy-seventh session found it while adding `/HT` to the list above.
+    /// could have marked, which is `/BG` and `/UCR`.
     fn augmented(self, document: &pdf_syntax::Document, dict: &Dictionary) -> Self {
         let Some(state) = document.get_key(dict, "ExtGState").as_dict().cloned() else {
             return self;
@@ -218,11 +216,10 @@ impl PatternInitial {
 //   at all: `/OP`, `/op` and `/OPM`, on §8.6.7's own permission.
 // - **`/TR`, `/TR2` and `/HT`**, which are none of those: §11.7.5.3's NOTE takes the transfer
 //   function out of the group evaluation entirely, so one stated here says nothing about the
-//   pattern's own colours. **This list put `/HT` in the bullet above until the
-//   six-hundred-and-seventy-seventh session**, under "§10.6, inapplicable on the standard's own
-//   condition" — and the condition covers a halftone *screen*, not the `TransferFunction` §10.5's
-//   second bullet reads out of a halftone dictionary (ADR 0505). It is skipped here for the
-//   transfer function's reason rather than the screen's, and skipping it is still right.
+//   pattern's own colours. `/HT` is here rather than in the bullet above because §10.6's
+//   condition covers a halftone *screen*, not the `TransferFunction` §10.5's second bullet reads
+//   out of a halftone dictionary (ADR 0505): it is skipped for the transfer function's reason
+//   rather than the screen's.
 //   See `PatternInitial`.
 impl Interpreter<'_> {
     /// Records Table 57's black generation and undercolour removal where a *pattern dictionary*
@@ -318,10 +315,9 @@ pub(super) struct ShadingDefinition {
     resources: Dictionary,
     /// §8.7.2's pattern matrix composed with the parent content stream's default space.
     ///
-    /// A property of the definition for the same reason as the three `initial` carries: §8.7.2 maps it to
-    /// "the default coordinate system of the pattern's parent content stream", which is
-    /// §11.6.7's first named parameter and which [`Interpreter::base`] has scoped since the
-    /// fifty-second session.
+    /// A property of the definition for the same reason as the three `initial` carries: §8.7.2 maps
+    /// it to "the default coordinate system of the pattern's parent content stream", which is
+    /// §11.6.7's first named parameter and which [`Interpreter::base`] scopes.
     transform: Transform,
     /// §11.6.7's black point compensation, rendering intent and smoothness.
     initial: PatternInitial,
@@ -424,16 +420,15 @@ pub(super) struct Tiling {
 ///
 /// # Why a stroke does not name a path here
 ///
-/// The obvious construction for the stroking case is the outline as a path, tiled the way a
-/// fill's path is; that is what [`Interpreter::tile`] refused to do until the
-/// eight-hundred-and-second session, on the reason ADR 0028 gives — no crate that builds a
-/// display list expands a stroke, all three backends do it themselves, and computing an
-/// outline here would be a fourth expander in the one crate whose whole point is that it has
-/// none. That reason is about *one* construction. The region a stroke covers is equally the
-/// alpha of a group whose single element is that stroke (§11.5.2), and a soft mask is
-/// already a command list every backend rasterises with the machinery it has — so the shape
-/// travels as a `Command::Stroke` and each backend expands it with its own expander, exactly
-/// once, exactly as it expands the strokes it already draws. ADR 0735.
+/// The obvious construction for the stroking case is the outline as a path, tiled the way a fill's
+/// path is; [`Interpreter::tile`] does not do that, on the reason ADR 0028 gives — no crate that
+/// builds a display list expands a stroke, all three backends do it themselves, and computing an
+/// outline here would be a fourth expander in the one crate whose whole point is that it has none.
+/// That reason is about *one* construction. The region a stroke covers is equally the alpha of a
+/// group whose single element is that stroke (§11.5.2), and a soft mask is already a command list
+/// every backend rasterises with the machinery it has — so the shape travels as a `Command::Stroke`
+/// and each backend expands it with its own expander, exactly once, exactly as it expands the
+/// strokes it already draws. ADR 0735.
 #[derive(Debug, Clone, Copy)]
 pub(super) enum Tiled<'a> {
     /// §8.5.3.3's fill: the region is the path's interior under this rule.
@@ -651,8 +646,7 @@ impl Interpreter<'_> {
             cell.stroke_pattern = None;
             self.uncoloured = true;
         }
-        // §8.7.2's last sentence about nesting, which this reader did not apply until the
-        // five-hundred-and-ninety-fifth session:
+        // §8.7.2's last sentence about nesting (ADR 0430):
         //
         // > A pattern can be used within another pattern
         //
@@ -735,10 +729,10 @@ impl Interpreter<'_> {
     /// object opacity ( qi )". So the tiling is evaluated to one shape first, and two cells'
     /// contributions to one device pixel are two portions of that shape.
     ///
-    /// The fix is therefore neither a buffer nor a clip: it is to notice that the cell's two
-    /// copies of the rule are **one mark of the tiling**, keep one of them, and draw it whole.
-    /// [`pdf_render::repeated_subpaths`] carries the conditions under which that paints the same set
-    /// of points, and refuses where it would not.
+    /// The fix is therefore neither a buffer nor a clip: it is to notice that the cell's two copies
+    /// of the rule are **one mark of the tiling**, keep one of them, and draw it whole.
+    /// [`pdf_render::repeated_subpaths`] carries the conditions under which that paints the same
+    /// set of points, and refuses where it would not.
     fn plan_repeated_marks(
         &self,
         mark: usize,
@@ -891,20 +885,17 @@ impl Interpreter<'_> {
     /// `PDFIUM-1497-2.pdf` did to its own frame and title block when this was tried, and a
     /// page of sixty such fills would cost eleven seconds where the count cost two.
     ///
-    /// **What those two are cut of was measured in the eight-hundred-and-ninety-first session,
-    /// and it is less than this comment used to imply** (ADR 0828). Both arms in one sitting,
-    /// `examples/open_one` at scale 1: `PDFIUM-1497-2.pdf` draws a **byte-identical** raster
-    /// with the bound lifted, for 1.87 s against 10.53 and 0.19 GiB against 0.93; `2760154.pdf`
-    /// is 0.33 s and 0.02 GiB against 2.08 s and 0.42, and its whole tiling is worth a mean of
-    /// 1.087 of 255 — 33.583 of ink against 34.670, the pale wash behind its title. Eighty-one
-    /// and ninety-four per cent of that gap is *rasterisation* rather than this list, so a
-    /// display-list paint carrying a cell and its lattice for a backend to replicate as
-    /// geometry would buy the memory and a fifth of the shorter gap. This comment sent the
-    /// reader to a note that does not say so: §8.7.3.1's NOTE 2 is about `/XStep` and `/YStep`
-    /// differing from the `/BBox`, and the sentence about a cell "evaluated once and then
-    /// replicated" is §11.6.7's NOTE 1, which says it of the *opaque* imaging model (ADR 0827).
-    /// `doc/todo/49` carries the closed item and `doc/checks/fixed-documents.toml` the two
-    /// pages.
+    /// **What those two are cut of is measured, and it is small** (ADR 0828). Both arms in one
+    /// sitting, `examples/open_one` at scale 1: `PDFIUM-1497-2.pdf` draws a **byte-identical**
+    /// raster with the bound lifted, for 1.87 s against 10.53 and 0.19 GiB against 0.93;
+    /// `2760154.pdf` is 0.33 s and 0.02 GiB against 2.08 s and 0.42, and its whole tiling is worth
+    /// a mean of 1.087 of 255 — 33.583 of ink against 34.670, the pale wash behind its title.
+    /// Eighty-one and ninety-four per cent of that gap is *rasterisation* rather than this list, so
+    /// a display-list paint carrying a cell and its lattice for a backend to replicate as geometry
+    /// would buy the memory and a fifth of the shorter gap. The sentence about a cell "evaluated
+    /// once and then replicated" is §11.6.7's NOTE 1, which says it of the *opaque* imaging model;
+    /// §8.7.3.1's NOTE 2 is about `/XStep` and `/YStep` differing from the `/BBox` (ADR 0827).
+    /// `doc/todo/49` carries the closed item and `doc/checks/fixed-documents.toml` the two pages.
     const MAX_TILE_COPIES: usize = 65_536;
 
     /// Most edge tests one page may spend on `reach.rs`, proving which sites a fill can reach.
@@ -945,13 +936,11 @@ impl Interpreter<'_> {
     /// that finished its tiling before reaches the bound now, and a cell that copies four
     /// million commands stops at the same place a cell that ran four million operators did.
     ///
-    /// **Three things bound the site count since ADR 0810, and none of them is a count of
-    /// sites.** Until the eight-hundred-and-eighty-second session a constant, `MAX_TILES`,
-    /// capped the sites at 4096 whatever the cell held, and what kept it after ADR 0430 made a
-    /// site a copy was the one case a charge per copy cannot see: a cell that drew *nothing*
-    /// copies nothing, so its loop ran the trip count `/XStep` and `/YStep` state — 3.6 × 10¹¹
-    /// of them for a thousandth of a unit over a 600-unit fill, about four days at 0.89 µs a
-    /// trip (ADR 0271). But a cell with no marks replicated any number of times is no marks:
+    /// **Three things bound the site count, and none of them is a count of sites** (ADR 0810).
+    /// A charge per copy cannot see one case: a cell that draws *nothing* copies nothing, so a
+    /// loop over it would run the trip count `/XStep` and `/YStep` state — 3.6 × 10¹¹ of them for
+    /// a thousandth of a unit over a 600-unit fill, about four days at 0.89 µs a trip (ADR
+    /// 0271). But a cell with no marks replicated any number of times is no marks:
     /// §8.7.3.1's replication has nothing to replicate, so the loop is not entered at all. Every
     /// other cell costs at least one command a site, charged to the page's budget above and to
     /// [`Self::MAX_TILE_COPIES`], the tiling's own — the same cost bounded twice, once for the
@@ -1238,9 +1227,9 @@ impl Interpreter<'_> {
         // avoids artifacts due to multiple marking of pixels along the boundaries between
         // adjacent tiles."
         //
-        // Until the hundred-and-seventeenth session each cell inherited them instead, so an
-        // `0.5 ca` under a pattern was applied per tile rather than to the pattern, and the
-        // graphics state's soft mask reached nothing at all.
+        // Were each cell to inherit them instead, an `0.5 ca` under a pattern would be applied
+        // per tile rather than to the pattern, and the graphics state's soft mask would reach
+        // nothing at all (ADR 0107).
         let mark = self.list.command_count();
 
         // §11.6.4.4 puts the two alpha constants on different operators — `ca` on a fill and
@@ -1254,9 +1243,8 @@ impl Interpreter<'_> {
         // The one interpretation the whole tiling gets, at the first site the span reaches.
         // §8.7.3.1's cell "shall be replicated at fixed horizontal and vertical intervals", and
         // a replica is this cell's commands displaced: see [`pdf_render::Cell`] for what makes
-        // the two the same picture, and ADR 0430 for what it saves. Until the
-        // five-hundred-and-ninety-fifth session the content stream was run once per site, which
-        // is what made a bomb inside a cell cost its decode four thousand times over.
+        // the two the same picture, and ADR 0430 for what it saves: a content stream run once
+        // per site would make a bomb inside a cell cost its decode four thousand times over.
         let at = pdf_render::Mark::of(&self.list);
         let offset = Transform::translate(
             tiling.step.0 * as_f32(first_column),
@@ -2049,10 +2037,8 @@ impl Interpreter<'_> {
     /// [`GraphicsState::solid_fill`].
     ///
     /// §11.6.4.4's constant alpha is applied here, and reaching every colour a shading carries is
-    /// the only way to apply it to one (`Shading::with_alpha`). Until the fifteenth session this
-    /// was dropped: `alphatrans.pdf` states `Gradient: .5` on the page and draws its gradient
-    /// over three other objects, and we painted it opaque while three references showed what was
-    /// behind it.
+    /// the only way to apply it to one (`Shading::with_alpha`): `alphatrans.pdf` states
+    /// `Gradient: .5` on the page and draws its gradient over three other objects (ADR 0024).
     ///
     /// Called **once per mark**: a rebuild costs a build, so asking twice for one command would
     /// pay twice.
@@ -2121,11 +2107,10 @@ impl Interpreter<'_> {
         // `/XStep` and `/YStep` — nothing stands in place of the marks the damage took.
         // See [`Interpreter::content_stream`].
         //
-        // A cell whose stream cannot be decoded at all is **reported**, which it was not before
-        // the five-hundred-and-ninety-fifth session: the refusal was dropped here and the page
-        // came back complete with the pattern silently unpainted. A form says
-        // `undecodable form /Fx` in the same circumstance and always has, and this is the same
-        // sentence for the other of §7.8.2's five.
+        // A cell whose stream cannot be decoded at all is **reported**, never dropped with the
+        // page coming back complete and the pattern silently unpainted. A form says
+        // `undecodable form /Fx` in the same circumstance, and this is the same sentence for
+        // the other of §7.8.2's five.
         let Some(content) =
             self.content_stream(stream, &format!("a tiling pattern /{name} (§8.7.3.1)"))
         else {
@@ -2357,8 +2342,7 @@ fn bounds_of(path: &Path, transform: Transform) -> Option<(f32, f32, f32, f32)> 
 /// Which tiles of a pattern the given bounds in pattern space touch, by column and by row.
 ///
 /// Where the cell itself is matters, which is [`span`]'s subject. Table 74 makes `/BBox`
-/// required, and a pattern that states none is tiled as though its cell began at the origin —
-/// which is what this did for every pattern until the two-hundred-and-eighteenth session.
+/// required, and a pattern that states none is tiled as though its cell began at the origin.
 fn spans(tiling: &Tiling, bounds: (f32, f32, f32, f32)) -> ((i32, i32), (i32, i32)) {
     let cell = tiling
         .bbox
@@ -2401,11 +2385,11 @@ fn extent(first: i32, last: i32) -> usize {
 /// `cell + k × step`, so it is wanted when `cell_low + k × step <= high` and
 /// `cell_high + k × step >= low`.
 ///
-/// **This took `cell_low` and `cell_high` from the two-hundred-and-eighteenth session and did
-/// not before**, which was invisible for as long as it was because Table 74's `/BBox` is nearly
-/// always at the pattern's origin: the ±1 of slack `floor` and `ceil` give covers a cell within
-/// one step of it. `issue13561_reduced.pdf` states `/BBox [35.4 396.6 287.4 588]` against a
-/// `/YStep` of 191.4 — two steps out — and every tile landed two rows below the page.
+/// **Measuring from the origin instead is nearly invisible**, because Table 74's `/BBox` is
+/// nearly always at the pattern's origin: the ±1 of slack `floor` and `ceil` give covers a cell
+/// within one step of it. `issue13561_reduced.pdf` states `/BBox [35.4 396.6 287.4 588]` against
+/// a `/YStep` of 191.4 — two steps out — which lands every tile two rows below the page from
+/// the origin (ADR 0169).
 fn span(low: f32, high: f32, step: f32, cell_low: f32, cell_high: f32) -> (i32, i32) {
     /// Bounds the index range so a huge path or a tiny step cannot overflow.
     const LIMIT: f32 = 1e6;

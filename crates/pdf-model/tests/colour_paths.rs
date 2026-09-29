@@ -186,10 +186,9 @@ fn a_cmyk_colour_is_the_same_however_it_is_drawn() {
 ///
 /// `cmykjpeg.pdf` is the corpus witness. Its image carries the Adobe APP14 marker with
 /// transform 0, no `/Decode`, and ordinary CMYK samples; read as inverted, its sky comes out
-/// black, which is what this reader drew until the hundred-and-seventy-eighth session while
-/// all four references drew a photograph. The oracle could not fail on it — the references
-/// disagree among themselves about `DeviceCMYK` (ADR 0048) so the verdict is `ambiguous`
-/// either way — and it was the ambiguous ranking that named it.
+/// black while all four references draw a photograph (ADR 0149). The oracle cannot fail on it
+/// — the references disagree among themselves about `DeviceCMYK` (ADR 0048) so the verdict is
+/// `ambiguous` either way — and it was the ambiguous ranking that named it.
 ///
 /// The sample asserted on is the codestream's first, read out of the file by two decoders
 /// that are not ours: `(122, 55, 14, 1)`, which `ImageMagick` and PIL both report as the
@@ -596,9 +595,9 @@ fn a_default_space_outranks_the_output_intent() {
 /// > image XObject, inline image, or shading dictionary. Regardless of how the colour space is
 /// > specified, it shall be subject to remapping as described below.
 ///
-/// `[/DeviceRGB]` is a device colour space selected, and until the nine-hundred-and-eightieth
-/// session the array arms of `ColourSpace::parse` answered the device space directly while the
-/// name arms asked for the default — two routes to one space, which is trap 6's shape.
+/// `[/DeviceRGB]` is a device colour space selected, so the array arms of `ColourSpace::parse`
+/// ask for the default exactly as the name arms do — two routes to one space answering
+/// differently is trap 6's shape (ADR 1001).
 #[test]
 fn a_default_space_reaches_the_array_form_of_a_device_space() {
     let objects = "5 0 obj\n[/CalRGB << /WhitePoint [0.9505 1.0 1.089] /Gamma [1 1 1] \
@@ -633,12 +632,12 @@ fn a_default_space_reaches_the_array_form_of_a_device_space() {
 /// The same rule as [`a_cmyk_colour_is_the_same_however_it_is_drawn`], one source further up:
 /// §14.11.5's `/DestOutputProfile` is what this tree takes a document's `DeviceCMYK` to mean
 /// where no `/DefaultCMYK` says otherwise, and a meaning is a property of the *space*, not of
-/// the operator that named it. Until the nine-hundred-and-eightieth session the intent was
-/// consulted by `g`, `rg` and `k` alone — `Interpreter::device_space` — while `cs` reached the
-/// same space through `ColourSpace::parse`, which asked §8.6.5.6's default and stopped. So on
-/// a document carrying an output intent, `1 0 0 0 k` was the intent's cyan and
-/// `/DeviceCMYK cs 1 0 0 0 scn` was the assumed press's, 173 levels apart in green, on the
-/// same page, for the same four numbers. Trap 6, with an operator on one side of it.
+/// the operator that named it (ADR 1001). An intent consulted by `g`, `rg` and `k` alone —
+/// `Interpreter::device_space` — while `cs` reached the same space through a
+/// `ColourSpace::parse` that asked §8.6.5.6's default and stopped would make `1 0 0 0 k` the
+/// intent's cyan and `/DeviceCMYK cs 1 0 0 0 scn` the assumed press's, 173 levels apart in
+/// green, on the same page, for the same four numbers. Trap 6, with an operator on one side of
+/// it.
 ///
 /// Four routes: the operator, the family name, a resource name that resolves to the family,
 /// and a `Separation` whose alternate is the family — the last because §8.6.5.6 applies a
@@ -705,10 +704,10 @@ fn an_output_intent_reaches_a_device_colour_however_it_is_set() {
 /// `/ColorSpace` (§8.9.5.1, Table 87), an inline image's abbreviated one (§8.9.7), a shading's
 /// (§8.7.4.3, Table 77) — whether stated inline or by reference, which `shading::Cache` parses
 /// once — and the vertex colours of a mesh, which `mesh.rs` reads in the shading's space
-/// (§8.7.4.5.5). Every one of them parsed with no intent until session 987, so on a page
-/// carrying one they drew through the assumed press beside a fill drawn through the intent —
-/// the defect the previous test names, at the sites that test could not see, because it names
-/// no image, no inline image and no shading (ADR 1008).
+/// (§8.7.4.5.5). Every one of them parses with the intent; parsed without it, on a page
+/// carrying one they would draw through the assumed press beside a fill drawn through the
+/// intent — the defect the previous test names, at the sites that test cannot see, because it
+/// names no image, no inline image and no shading (ADR 1008).
 ///
 /// Each route is asserted against the operator's colour by name, so that a route falling back
 /// to the assumed press fails on its own line rather than on a statistic. [`green_cyan_profile`]
@@ -801,10 +800,9 @@ fn an_output_intent_reaches_an_image_an_inline_image_a_shading_and_a_mesh() {
 ///
 /// ISO 32000-2 §8.6.5.5, and the whole of what this test is about: the profile is the
 /// document's statement of what its numbers mean, so the same four numbers must produce the
-/// same colour whether they arrive as an `scn` operand or as an image sample. Until the
-/// twenty-fifth session they did not — `image.rs` reduced an `ICCBased` space to a device
-/// space by its `/N` and unpacked it as one, so the profile applied to fills and not to
-/// images.
+/// same colour whether they arrive as an `scn` operand or as an image sample (ADR 0034). An
+/// `image.rs` that reduced an `ICCBased` space to a device space by its `/N` and unpacked it as
+/// one would apply the profile to fills and not to images.
 ///
 /// It is the same defect this whole file exists to catch, one level up: three `DeviceCMYK`
 /// conversions once disagreed, and when that was fixed the shape survived where an *image*
@@ -907,16 +905,13 @@ fn a_default_colour_space_replaces_an_images_device_space() {
 ///
 /// This is the failure mode the project's third principle exists to prevent, in its purest
 /// form: the page renders, it is simply not the page the document describes, and nothing
-/// anywhere says so. Before this was reported, a page whose content stream used a filter
-/// this reader did not implement drew nothing and returned `unsupported: []` —
-/// indistinguishable from a page the producer meant to leave empty.
+/// anywhere says so. Unreported, a page whose content stream uses a filter this reader cannot
+/// decode draws nothing and returns `unsupported: []` — indistinguishable from a page the
+/// producer meant to leave empty.
 ///
-/// **The filter this test names had to change in the twenty-seventh session, and the reason
-/// is worth keeping.** It was `/LZWDecode`, chosen deliberately real rather than invented,
-/// with a note saying that implementing the filter should make the test fail and that would
-/// be the moment to revisit it. That moment came: with `LZWDecode` written, **there is no
-/// standard filter left that this reader does not implement**, so no name can stand in for
-/// "a filter we do not have". What is left is a filter that is real, is implemented, and is
+/// **Why the filter is `/JPXDecode`.** **There is no standard filter left that this reader does
+/// not implement** (ADR 0036), so no name can stand in for "a filter we do not have". What is
+/// left is a filter that is real, is implemented, and is
 /// *not a content stream codec*: `/JPXDecode` produces an image raster, and `filter.rs`
 /// deliberately answers `None` for the image codecs so that a stream expecting bytes is
 /// visibly unsupported rather than silently empty.
@@ -982,9 +977,8 @@ fn special_separation(colourant: &str) -> String {
 /// ISO 32000-2 §8.6.6.4: "The special colourant name None shall not produce any visible
 /// output. Painting operations in a Separation space with this colourant name shall have no
 /// effect on the current page." The fixture paints a green background and then covers it
-/// entirely with a `/None` fill; the background is what must survive. Before the nineteenth
-/// session the colourant name was not read at all, so the tint transform ran and the page
-/// came out red.
+/// entirely with a `/None` fill; the background is what must survive. A reader that does not
+/// read the colourant name runs the tint transform and the page comes out red (ADR 0028).
 #[test]
 fn the_none_colourant_marks_nothing() {
     let colour = centre_colour(pdf_with(

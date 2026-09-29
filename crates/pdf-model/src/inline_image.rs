@@ -43,33 +43,29 @@
 //! The order matters: it puts the three answers the file states, implies or delimits ahead of
 //! the one that reads the data looking for something that might not be a token at all.
 //!
-//! **Answer 3 arrived in the six-hundred-and-thirty-third session and answer 4 was the whole
-//! of the filtered case before it.** `7926872.pdf` states `/W 1200 /H 1790 /CS /RGB /BPC 8 /F
-//! /FlateDecode` and no `/L`, and the first `EI` token stands 24 822 bytes into 2.9 MB of
-//! Flate: 477 217 samples of 6 444 000 were drawn and 1.4 MB of the photograph was tokenised
-//! as operators. ADR 0466. `doc/traps/parsers-and-streams.md`'s trap 5 states the rule it is an
-//! instance of — ask first whether the standard states the thing's *extent*.
+//! **Answer 4 alone is not enough for a filtered image.** `7926872.pdf` states `/W 1200 /H 1790 /CS
+//! /RGB /BPC 8 /F /FlateDecode` and no `/L`, and the first `EI` token stands 24 822 bytes into 2.9
+//! MB of Flate: searching for it draws 477 217 samples of 6 444 000 and tokenises 1.4 MB of the
+//! photograph as operators. ADR 0466. `doc/traps/parsers-and-streams.md`'s trap 5 states the rule
+//! it is an instance of — ask first whether the standard states the thing's *extent*.
 //!
 //! **And the order only holds if the first three can be checked**, which is why [`scan`] is
 //! told whether its bytes are all there are. Each derived end is verified against the `EI` it
 //! predicts, and a page's `/Contents` arrives through a window — so an end the window cannot
 //! reach is a request for more bytes ([`InlineImageError::Truncated`]) rather than a failed
-//! check that lets the search run. Until the six-hundred-and-nineteenth session it let the
-//! search run, and the claim above about the search was false for every unfiltered image larger
-//! than a window.
+//! check that lets the search run — which would make the claim above about the search false
+//! for every unfiltered image larger than a window (ADR 0454).
 //!
-//! **Answer 3 reaches every filter §8.9.7 admits, and it arrived in three pieces.** The
-//! six-hundred-and-thirty-third session ran the first filter and asked where it stopped, which
-//! answers `FlateDecode` and `LZWDecode` — the two with a resumable decoder here; the
-//! six-hundred-and-thirty-first read §7.4.2's GREATER-THAN SIGN and §7.4.3's (7Eh)(3Eh) straight
-//! out of the data, which needs no decoder at all and answers `ASCII85Decode` and
-//! `ASCIIHexDecode`; and the six-hundred-and-thirty-fifth walked the framing of the remaining
-//! three — §7.4.5's run headers, §7.4.8's ISO/IEC 10918-1 marker segments and §7.4.6 Table 11's
-//! end-of-block bit pattern. **Which filter is asked is Table 5's answer rather than a
-//! preference**: "[m]ultiple filters shall be specified in the order in which they are to be
-//! applied", so the bytes after `ID` are the *first* stage's input, `/F [/A85 /Fl]` is answered
-//! by the base-85 marker and `/F /FlateDecode` by the decoder. `pdf_syntax::Delimiting` is the
-//! five shapes the seven filters this clause admits divide into. ADRs 0464, 0466, 0467.
+//! **Answer 3 reaches every filter §8.9.7 admits, in three pieces.** Running the first filter and
+//! asking where it stopped answers `FlateDecode` and `LZWDecode` — the two with a resumable decoder
+//! here; reading §7.4.2's GREATER-THAN SIGN and §7.4.3's (7Eh)(3Eh) straight out of the data needs
+//! no decoder at all and answers `ASCII85Decode` and `ASCIIHexDecode`; and walking the framing
+//! answers the remaining three — §7.4.5's run headers, §7.4.8's ISO/IEC 10918-1 marker segments and
+//! §7.4.6 Table 11's end-of-block bit pattern. **Which filter is asked is Table 5's answer rather
+//! than a preference**: "[m]ultiple filters shall be specified in the order in which they are to be
+//! applied", so the bytes after `ID` are the *first* stage's input, `/F [/A85 /Fl]` is answered by
+//! the base-85 marker and `/F /FlateDecode` by the decoder. `pdf_syntax::Delimiting` is the five
+//! shapes the seven filters this clause admits divide into. ADRs 0464, 0466, 0467.
 //!
 //! **What still falls to answer 4 is now a statement about the standard rather than about this
 //! tree**: `CCITTFaxDecode` under Table 11's `/EndOfBlock false`, where the clause itself puts
@@ -301,13 +297,11 @@ fn read_dictionary(
 /// paragraph. `doc/md/` carries the base text rather than the caret (ADR 0252), so the sentence
 /// is the annotation's own words and is quoted here without a blockquote for that reason.
 ///
-/// **This comment called that a silence and a choice for six hundred sessions, and the choice
-/// was the standard's rule all along.** It was found by running `spec-errata emit` over §8.9.7
-/// before writing here, which is `doc/errata-read.md`'s rule rather than luck: `check` compares
-/// quotations this tree has *written*, and no quotation of an inserted sentence can exist before
-/// somebody writes it. The argument below is kept, because the evidence in it is what says the
-/// erratum is right about real files — and because it is how this tree reached the same answer
-/// without it.
+/// **It is the standard's rule rather than a silence and a choice.** `spec-errata emit` over
+/// §8.9.7 is what shows it, which is `doc/errata-read.md`'s rule: `check` compares quotations
+/// this tree has *written*, and no quotation of an inserted sentence can exist before somebody
+/// writes it. The argument below is kept, because the evidence in it is what says the erratum is
+/// right about real files.
 ///
 /// It was decided by the one file that tests it, and by that file's *bytes* rather than by
 /// its comments. `issue14256.pdf` is a `SafeDocs` conformance document whose eight inline
@@ -376,12 +370,10 @@ fn expand_names(document: &Document, dict: &mut Dictionary, resources: &Dictiona
             // Any other name does refer to the subdictionary — which is the whole reason this
             // function needs the resources at all.
             //
-            // **This comment quoted the unamended NOTE until the four-hundred-and-nineteenth
-            // session**, whose sweep of a fourth population of quotation reached `//` comments
-            // for the first time (ADR 0255). The amendment costs no code: the expanded name is
-            // parsed by `ColourSpace::parse`, which asks `/DefaultGray`, `/DefaultRGB` and
-            // `/DefaultCMYK` before it answers with a device space — so the half the erratum
-            // adds was already true here, and only the sentence was out of date.
+            // The quotation is the amended NOTE (ADR 0255), and the amendment costs no code: the
+            // expanded name is parsed by `ColourSpace::parse`, which asks `/DefaultGray`,
+            // `/DefaultRGB` and `/DefaultCMYK` before it answers with a device space — so the half
+            // the erratum adds holds here without a line of its own.
             Object::Name(name) => match expand_device_space(&name) {
                 Some(device) => Object::Name(device),
                 // Probed with the operand's own bytes: §7.3.5 makes two names one object only

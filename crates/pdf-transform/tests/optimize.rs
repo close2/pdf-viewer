@@ -394,9 +394,8 @@ fn qpdf_reads_back_what_this_writer_wrote() {
 /// a file — `pdf_model::Pages` finds what Table 31 describes, which is right for a *reader*. So
 /// nothing about the file defeated anybody; a **writer** declined, because rewriting a
 /// reconstruction would state a structure no producer wrote. RFC 0002 section 4.4 draws exactly
-/// that line — "2 means the *file* defeated us, 4 means *we* declined" — and the status was 2
-/// for the whole of this verb's first two sessions while the refusal's own message and the
-/// round's own record both called it a refusal by name (ADR 0852).
+/// that line — "2 means the *file* defeated us, 4 means *we* declined" — so the status is 4, as
+/// the refusal's own message says (ADR 0852).
 ///
 /// **A hand-written document rather than a corpus one, and trap 4 is why that is said out
 /// loud**: what is under test is which status a *classification* carries, not how a parser reads

@@ -23,11 +23,11 @@
 //! keyboard, a GPU and the two decisions a host owns — which files a document may name, and what
 //! to do when it asks for a password.
 //!
-//! And, since the hundred-and-sixty-sixth session, **chrome**: `viewer_ui::chrome` draws a
-//! sidebar of this program's own — §12.3.3's outline, §8.11.4.3's layers with their switches,
-//! and §7.11.4's embedded files — because winit is a window and an event loop and there is no
-//! toolkit here to ask for a tree view. A native host would use its platform's, from the same
-//! three queries; what is host-specific is the drawing, not the data.
+//! And **chrome** (ADR 0142): `viewer_ui::chrome` draws a sidebar of this program's own — §12.3.3's
+//! outline, §8.11.4.3's layers with their switches, and §7.11.4's embedded files — because winit is
+//! a window and an event loop and there is no toolkit here to ask for a tree view. A native host
+//! would use its platform's, from the same three queries; what is host-specific is the drawing, not
+//! the data.
 //!
 //! Tier 2 means the pixels never cross the boundary: `viewer-core` hands over a display list and
 //! a target, this draws it onto the surface with `render-raster`, and answers `Rendered::Presented`.
@@ -133,18 +133,16 @@ use crate::timing::{FrameLog, Launch};
 ///
 /// Both licences covering the compiled-in standard 14 fonts require a *binary* distribution to
 /// reproduce their notices "in the documentation and/or other materials provided with the
-/// distribution", and until the hundred-and-forty-eighth session this program had nowhere to put
-/// them. `include_str!` rather than a path, for the same reason the fonts themselves are
-/// `include_bytes!`d: a notice that can go missing between the binary and the file system is not
-/// carried by the binary.
+/// distribution" (ADR 0133). `include_str!` rather than a path, for the same reason the fonts
+/// themselves are `include_bytes!`d: a notice that can go missing between the binary and the file
+/// system is not carried by the binary.
 ///
 /// `--licenses` is accepted too. The project spells it the other way and a person typing the
 /// other spelling wants the same thing.
 ///
-/// **The text moved to [`viewer_host::NOTICE`] in the six-hundred-and-eighty-seventh session** and
-/// this is the same constant under this binary's own name. The obligation is every host's — the
-/// two native ones ship the same font programs — and it now has a key in all three
-/// ([`viewer_host::WindowAct::Notices`], ADR 0526).
+/// **The text is [`viewer_host::NOTICE`]** and this is the same constant under this binary's own
+/// name. The obligation is every host's — the two native ones ship the same font programs — and it
+/// has a key in all three ([`viewer_host::WindowAct::Notices`], ADR 0526).
 const NOTICE: &str = viewer_host::NOTICE;
 
 /// The document this program opens first.
@@ -336,19 +334,18 @@ fn main() {
         move || open_document(&path, opens_at, fragment.as_deref(), policies)
     });
 
-    // **And the graphics instance on a second thread**, since the two-hundred-and-eighty-eighth:
-    // a `wgpu::Instance` is the driver loader, it needs no window either, and raster measured it
-    // at roughly 80% of what bringing a device up blocks for (their ADR 0014, answering
-    // `doc/QUORRA_FEEDBACK.md` section 8.2). Its own thread rather than the document's, and the
-    // difference is not style: the device *needs* the instance and does not need the document, so
-    // the instance is joined before the presenter is built and the document after it — one thread
-    // for both would make the first join wait for the second's work.
+    // **And the graphics instance on a second thread** (ADR 0185): a `wgpu::Instance` is the driver
+    // loader, it needs no window either, and raster measured it at roughly 80% of what bringing a
+    // device up blocks for (their ADR 0014, answering `doc/QUORRA_FEEDBACK.md` section 8.2). Its
+    // own thread rather than the document's, and the difference is not style: the device *needs*
+    // the instance and does not need the document, so the instance is joined before the presenter
+    // is built and the document after it — one thread for both would make the first join wait for
+    // the second's work.
     //
-    // **Not under `--cpu`, and that is the whole of the flag's new meaning.** Creating the
-    // instance *is* loading the driver, so a run that will not draw on the device must not make
-    // one: the thread is not spawned, `resumed` builds no presenter, and nothing in the process
-    // opens an ICD. Before the three-hundred-and-eighty-fourth session this line ran regardless
-    // and a driver that faulted while loading took `--cpu` down with it (ADR 0221).
+    // **Not under `--cpu`, and that is the whole of the flag's meaning.** Creating the instance
+    // *is* loading the driver, so a run that will not draw on the device must not make one: the
+    // thread is not spawned, `resumed` builds no presenter, and nothing in the process opens an
+    // ICD, so a driver that faults while loading cannot take `--cpu` down with it (ADR 0221).
     let instancing = spawn_instancing(processor, backend);
 
     let chrome = match Chrome::new() {

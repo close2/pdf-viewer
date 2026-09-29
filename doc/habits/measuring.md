@@ -620,3 +620,10 @@ corner pixel's exact coverage is 0.885 of a level, so the pieces were right and 
 fixed-point converter truncates — ADR 0476's accepted gap — while the real defect sat in the next
 column (ADR 1374). And a floor is measured step by step: switching the walk's scaffolding off one
 stage at a time is what showed no cheaper exact detector exists (ADR 1373).
+
+## 54. A fan-out's floor is judged by timing its jobs by kind, not by counting segments
+
+After the stroke constructions a stroke's segment cost 25 times a glyph's, so a 4096-segment floor
+silently kept whole pages on the walk's thread; the per-job probe on one pinned core gave the weight
+(ADR 1395). And the scaffolding an older ADR built to make a construction exact is measured as its own
+"off" arm — ADR 1375's tiling was the largest cost left in raster's fill (ADR 1397).

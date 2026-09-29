@@ -1,9 +1,8 @@
 //! The surface-path smoke test: a real window, real presents, and pixels a person
 //! (or `xwd`) can look at.
 //!
-//! Section 10.4 of the brief is blunt about why this class of test exists: "no gate we have
-//! turns a page and every defect of three consecutive sessions lived there" — the
-//! window path is where untested claims go to die. This example creates a window,
+//! Section 10.4 of the brief is blunt about why this class of test exists: no gate turns a
+//! page, so the window path is where untested claims go to die. This example creates a window,
 //! renders a known scene through `Target::Surface` for a fixed number of frames, and
 //! exits 0 only if every present succeeded.
 //!

@@ -93,11 +93,10 @@
 //!
 //! # The turned rule, and why it needs no scan converter of its own
 //!
-//! Everything above is stated for an axis-aligned rectangle, and until the
-//! four-hundred-and-thirty-second session a sub-pixel *stroke* that was not one kept
-//! `tiny-skia`'s hairline. Measuring what that hairline draws — `sub_pixel_marks`'s fourth
-//! section, a 200-unit band at seven angles — says it is not a placement approximation but a
-//! systematic deficit, and §10.7.4 names the direction it goes in:
+//! Everything above is stated for an axis-aligned rectangle, and a sub-pixel *stroke* that is not
+//! one does not keep `tiny-skia`'s hairline (ADR 0268). Measuring what that hairline draws —
+//! `sub_pixel_marks`'s fourth section, a 200-unit band at seven angles — says it is not a placement
+//! approximation but a systematic deficit, and §10.7.4 names the direction it goes in:
 //!
 //! > The area covered by painted pixels shall always be at least as large as the area of the
 //! > original shape.
@@ -370,7 +369,7 @@ pub fn expressible_coverage(coverage: f32) -> f32 {
 /// level of the raster — the width at which ISO 32000-2 §10.7.4's substitution starts being owed.
 ///
 /// [`substitute_width`] is one device pixel across whichever way the mark runs; this is one
-/// *level* across it, which is one two-hundred-and-fifty-fifth of that. A band of device width
+/// *level* across it, which is 1/255 of that. A band of device width
 /// `w` puts at most `w` of coverage into any pixel it crosses, so below this width there is no
 /// pixel the raster can state the mark in at all, and §10.7.4's own purpose bites:
 ///

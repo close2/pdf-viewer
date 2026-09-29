@@ -304,8 +304,8 @@ fn interpret_form(named: &str, defined: &str) -> Interpreted {
     }
 }
 
-/// The sixth vocabulary, and the one the five-hundred-and-… no: the one 604's sweep costed here
-/// rather than fixing, because its module writes the name as well as reading it (ADR 0439).
+/// The sixth vocabulary, and the one ADR 0439's sweep costed rather than fixed, because its
+/// module writes the name as well as reading it.
 ///
 /// The read half: a `/DA` naming a font whose name carries a byte outside UTF-8 reaches the font
 /// `/DR` defines, rather than the stand-in a folded name used to find.

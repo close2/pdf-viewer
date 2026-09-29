@@ -115,11 +115,10 @@ fn a_constant_mask_interpolates_between_the_object_and_the_backdrop() {
 
 /// The same average, at **every** value a mask can take, and it is exact at all 256.
 ///
-/// This is the discriminating form of the test above, and the reason it exists is that the
-/// test above used to allow one level of slack — "quantised to the eight bits a mask value
-/// holds", which sounded like arithmetic and was a hypothesis. It hid a departure of up to
-/// two levels for five hundred sessions, on a page the oracle had listed the whole time
-/// (`CONTRADICTED_MASK_QUANTISATION`, ADR 0418). The eight-bit mask was never the cause:
+/// This is the discriminating form of the test above: one level of slack, justified as
+/// quantisation to the eight bits a mask value holds, sounds like arithmetic and is a
+/// hypothesis, and it hides a departure of up to two levels on a page the oracle lists
+/// (`CONTRADICTED_MASK_QUANTISATION`, ADR 0418). The eight-bit mask is not the cause:
 /// `tiny-skia` compiles two raster pipelines and picked the low-precision one, whose
 /// `div255(v) = (v + 255) >> 8` is an upper bound on `v ÷ 255` rather than its rounding, twice
 /// per pixel and both times in the same direction.

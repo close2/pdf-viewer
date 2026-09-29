@@ -32,26 +32,21 @@
 //! # The unit square
 //!
 //! Every coordinate below lies in [0, 1] on both axes, with y running up as PDF's does.
-//! [`crate::appearance`] maps that square onto the largest square that fits inside the
-//! annotation's `/Rect`, centred — a choice too, and the reason for it is that these shapes
-//! carry their meaning in their proportions: a pilcrow stretched to a 400×20 rectangle is not a
-//! pilcrow. **§12.5.6.4's seven no longer reach that arithmetic**, since the
-//! six-hundred-and-fortieth session: a text annotation is attached to a point and holds a fixed
-//! size on the screen, so `crate::annotation`'s `anchored_icon` states its square outright and
-//! `/Rect` supplies only the corner it hangs from. The other three clauses' icons are still
-//! inscribed in the rectangle their annotation states.
+//! [`crate::appearance`] maps that square onto the largest square that fits inside the annotation's
+//! `/Rect`, centred — a choice too, and the reason for it is that these shapes carry their meaning
+//! in their proportions: a pilcrow stretched to a 400×20 rectangle is not a pilcrow. **§12.5.6.4's
+//! seven do not reach that arithmetic** (ADR 0471): a text annotation is attached to a point and
+//! holds a fixed size on the screen, so `crate::annotation`'s `anchored_icon` states its square
+//! outright and `/Rect` supplies only the corner it hangs from. The other three clauses' icons are
+//! still inscribed in the rectangle their annotation states.
 //!
-//! **And §12.5.6.4's own answer to the same question is applied since the two-hundred-and-
-//! twentieth session:**
+//! **And §12.5.6.4's own answer to the same question is applied:**
 //!
 //! > Text annotations shall not scale and rotate with the page; they shall behave as if the
 //! > NoZoom and NoRotate annotation flags (see "Table 167 -Annotation flags") were always set.
 //!
-//! This comment said that needed "the `NoZoom` flag §12.5.3 does not apply" — true when written
-//! and false from the two-hundred-and-seventeenth (ADR 0168), which is `doc/todo/01`'s first
-//! sweep finding a stale blocker in *code* rather than in the ledger. The square below is still
-//! what the icon is drawn in; what changed is that it is now the same size on the screen at every
-//! magnification.
+//! §12.5.3's `NoZoom` flag is applied (ADR 0168). The square below is what the icon is drawn in,
+//! and it is the same size on the screen at every magnification.
 //!
 //! A figure is filled or stroked, never both. A filled figure may lay overlapping subpaths on
 //! top of each other and rely on §8.5.3.3.2's nonzero winding rule to union them, which is what
@@ -121,12 +116,12 @@ pub(crate) const DEFAULT_TEXT_NAME: &[u8] = b"Note";
 /// > PDF writers should include this entry and PDF readers should provide predefined icon
 /// > appearances for at least the following standard names: Graph , PushPin , Paperclip , Tag
 ///
-/// `doc/todo/26` weighed that verb for a hundred and nineteen sessions and its condition was
-/// "worth doing for the one corpus document only if the artwork can be argued from the clause's
-/// own descriptions". **It can, and that is the whole difference from `Stamp`**: a push pin, a
-/// paperclip, a tag and a graph are *objects*, and the clause names them. A name that names a
-/// thing is a great deal more than the standard gives §12.5.6.4's seven, where `NewParagraph`
-/// and `Insert` had to be invented out of a typographer's convention.
+/// `doc/todo/26` weighed that verb, and its condition was "worth doing for the one corpus document
+/// only if the artwork can be argued from the clause's own descriptions". **It can, and that is the
+/// whole difference from `Stamp`**: a push pin, a paperclip, a tag and a graph are *objects*, and
+/// the clause names them. A name that names a thing is a great deal more than the standard gives
+/// §12.5.6.4's seven, where `NewParagraph` and `Insert` had to be invented out of a typographer's
+/// convention.
 pub(crate) fn file_attachment(name: &[u8]) -> Option<&'static [Figure]> {
     match name {
         b"PushPin" => Some(&PUSH_PIN),

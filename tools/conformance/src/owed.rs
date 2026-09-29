@@ -9,21 +9,19 @@
 //! The sixth sweep's arithmetic cannot either, because it asks whether every child is settled and
 //! a family carrying this error usually disqualifies itself with it.
 //!
-//! Its first run, in the four-hundred-and-thirty-seventh session, moved two statuses. §9.3 had
-//! been `partial` since the thirteenth session on a sentence false from the seventy-second —
-//! **365 sessions**, the longest stale claim `doc/todo/01` had recorded at the time — and
-//! §11.3.7.1 since the fifteenth.
+//! Its first run moved two statuses (ADR 0273): §9.3 and §11.3.7.1 were each `partial` on a
+//! sentence long since false.
 //!
 //! # Why the hand-runs' number said nothing
 //!
 //! Nine runs printed 16, 24, 5, 15, 19, 10, 8, 9 and 19 hits over rounds that moved almost no
-//! rows, because each session wrote the debt vocabulary that morning: "writer-side", "may be
+//! rows, because each run wrote the debt vocabulary afresh: "writer-side", "may be
 //! ignored", "is not read", "counted, not parsed", "aggregate of the two below". A level that
 //! cannot be compared with the one before it says nothing at all — ADR 0360's argument for the
 //! caller sweep, and ADR 0388's for the seventh.
 //!
-//! **And widening the word list is not the answer**, which the four-hundred-and-thirty-seventh's
-//! own run established: it makes the count smaller and leaves §9.3.1's inverse — a row that names
+//! **And widening the word list is not the answer** (ADR 0273): it makes the count smaller and
+//! leaves §9.3.1's inverse — a row that names
 //! a debt and is *wrong* about it, and is therefore invisible to any instrument that only asks
 //! whether a debt is named — exactly where it was.
 //!
@@ -41,7 +39,8 @@
 //! A note that names a debt names a *thing*: an entry nothing reads, a function nobody wrote, a
 //! type this tree has no equivalent of. That thing has a name, and the name is absent from
 //! `crates/`, `tools/` and `fuzz/` — which is a count rather than a guess, and moves with the
-//! ledger and the tree instead of with the session. So the reading list is every `partial` row
+//! ledger and the tree instead of with whoever wrote the list. So the reading list is every
+//! `partial` row
 //! **none of whose own vocabulary the tree lacks**: a row all of whose named things this tree
 //! already has, sitting above a status that says something is missing.
 //!

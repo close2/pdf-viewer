@@ -9,8 +9,7 @@
 //!
 //! Ignoring what cannot be drawn would produce a page that looks plausible and is wrong, which
 //! is the single most dangerous failure mode for a viewer — and it would make the comparison
-//! harness report a pass on a page missing half its content. (This said "[t]ext and images are
-//! not yet drawn" until the two-hundred-and-twenty-first session, having been true of the sixth.)
+//! harness report a pass on a page missing half its content.
 //!
 //! So [`Interpretation`] carries a list of what it could not draw. A caller can render the
 //! partial page *and* know it is partial: the viewer can say so, and the harness can
@@ -87,10 +86,9 @@ pub use report::{
 /// > operators was 28.
 ///
 /// Annex C is informative, so neither sentence binds; what they settle is that 256 is nine
-/// times the standard's own figure. **One document of the 65 944 crawled ones surveyed in the
-/// four-hundred-and-thirty-third session reaches this bound and it wants 337** — twelve times
-/// that figure — which is why the four-hundred-and-thirty-fifth left the number alone rather
-/// than moving it to admit one file. ADR 0271, `tests/hostile_budgets.rs`.
+/// times the standard's own figure. **One document of the 65 944 crawled ones reaches this
+/// bound and it wants 337** — twelve times that figure — which is why the number stays rather
+/// than moving to admit one file. ADR 0271, `tests/hostile_budgets.rs`.
 const MAX_STATE_DEPTH: usize = 256;
 
 /// Most operators executed for one page.
@@ -115,13 +113,12 @@ const MAX_STATE_DEPTH: usize = 256;
 /// text and about 7 for cubic Béziers. So correcting the unit hands back forty pages of a
 /// million and refuses the eight that really are programs of that length.
 ///
-/// **It is a bound on slowness rather than on exhaustion, and the four-hundred-and-thirty-fifth
-/// session opened the documents that reach it to find that out.** All 31 of 65 944 that did
-/// *terminate* when it was lifted a hundredfold — they are maps, plans and charts rather than
-/// bombs. The bound stays at four million for the reason a raised one would not help: **a count
-/// is not a cost.** One `sh` can paint the whole page, so no number here bounds the time, and
-/// what actually bounds it is the confined worker's cancel — a kill, at 0.83–1.97 ms (ADR
-/// 0241). ADRs 0271 and 0306.
+/// **It is a bound on slowness rather than on exhaustion.** All 31 of 65 944 documents that reach
+/// it *terminate* when it was lifted a hundredfold — they are maps, plans and charts rather than
+/// bombs. The bound stays at four million for the reason a raised one would not help: **a count is
+/// not a cost.** One `sh` can paint the whole page, so no number here bounds the time, and what
+/// actually bounds it is the confined worker's cancel — a kill, at 0.83–1.97 ms (ADR 0241). ADRs
+/// 0271 and 0306.
 const MAX_OPERATIONS: usize = 4_000_000;
 
 /// Most operands one operator may take before the rest are refused.
@@ -139,7 +136,7 @@ const MAX_OPERANDS: usize = 8192;
 /// tiling cell may fill with another pattern, a soft mask's group may set another mask, and
 /// any of them may reach any other. Each is one more frame of [`Interpreter::run`] on the
 /// thread drawing the page, and a thread has a fixed stack — so this is a bound on **stack**,
-/// asked in `run` itself since the eight-hundred-and-seventy-fourth session, and a nested
+/// asked in `run` itself (ADR 0793), and a nested
 /// stream of any kind counts one against it. The name keeps the word the reports and the
 /// surveys have counted by since the bound existed; what it bounds is §7.8.2's whole list.
 ///
@@ -158,35 +155,32 @@ const MAX_OPERANDS: usize = 8192;
 /// whole argument for the value: it is what the smallest stack that runs this code affords,
 /// with a margin.
 ///
-/// **Sixteen was not that.** It was written as a cycle guard and argued from a population:
-/// every document of the `SafeDocs` crawl's 65 944 and the Tika Mozilla tracker's 6835 that
-/// reached it was a form drawing itself, because each still reached the bound lifted to 256
-/// (ADR 0271, the eight-hundred-and-fifty-seventh session). The eight-hundred-and-seventy-first
-/// found two finite nestings among sixteen GHOSTSCRIPT-tracker witnesses — pdftk's stamps at
-/// 17–32 forms deep and Aspose.Pdf's at 33–64, both drawn blank at sixteen — and the
-/// eight-hundred-and-seventy-fourth found that the experiment behind the rest had measured the
-/// instrument: a tiling cell was run at a fixed depth of *one below the bound*, so a cell
-/// holding two levels of forms reported the bound at sixteen, at 256 and at any value, and
-/// **twenty-five of the twenty-seven witnesses draw whole at 64 reporting nothing**. ISO
-/// 32000-2 forbids neither a deep nesting nor a cycle: §C.2's Table C.1 lists
-/// `XObject`s in its *Nested objects* row and says only that "PDF processors may implement
-/// recursive algorithms which may cause issues for excessively nested constructs", and
-/// §9.6.4 (Errata Collection 3, Issue #111) makes a glyph description that "refers to itself
-/// directly or indirectly" implementation-dependent. So a cycle and a deep nesting are the
-/// same thing to this bound — a chain of frames — and what tells them apart is only that a
-/// cycle reaches any bound at all. A cycle guard by *identity* was considered and declined,
-/// because a stream inside itself is not always infinite: what a form invokes depends on
-/// the state it inherits — the font in force, a fill that is a pattern whose cell draws the
-/// same form in a flat colour — so a re-entry refused by name would refuse finite files, and
-/// a report firing on it would fire on a condition no clause states. ADR 0793.
+/// **Sixteen was not that.** It was written as a cycle guard and argued from a population: every
+/// document of the `SafeDocs` crawl's 65 944 and the Tika Mozilla tracker's 6835 that reached it
+/// was a form drawing itself, because each still reached the bound lifted to 256 (ADR 0271).
+/// Sixteen GHOSTSCRIPT-tracker witnesses hold two finite nestings — pdftk's stamps at 17–32 forms
+/// deep and Aspose.Pdf's at 33–64, both drawn blank at sixteen — and the experiment behind the rest
+/// had measured the instrument (ADR 0793): a tiling cell was run at a fixed depth of *one below the
+/// bound*, so a cell holding two levels of forms reported the bound at sixteen, at 256 and at any
+/// value, and **twenty-five of the twenty-seven witnesses draw whole at 64 reporting nothing**. ISO
+/// 32000-2 forbids neither a deep nesting nor a cycle: §C.2's Table C.1 lists `XObject`s in its
+/// *Nested objects* row and says only that "PDF processors may implement recursive algorithms which
+/// may cause issues for excessively nested constructs", and §9.6.4 (Errata Collection 3, Issue
+/// #111) makes a glyph description that "refers to itself directly or indirectly"
+/// implementation-dependent. So a cycle and a deep nesting are the same thing to this bound — a
+/// chain of frames — and what tells them apart is only that a cycle reaches any bound at all. A
+/// cycle guard by *identity* was considered and declined, because a stream inside itself is not
+/// always infinite: what a form invokes depends on the state it inherits — the font in force, a
+/// fill that is a pattern whose cell draws the same form in a flat colour — so a re-entry refused
+/// by name would refuse finite files, and a report firing on it would fire on a condition no clause
+/// states. ADR 0793.
 ///
-/// **And before that session the bound did not hold at all**, which the measuring example
-/// found on its first run: a tiling cell was run at a fixed depth of one below the bound, so
-/// a pattern whose cell fills with itself, a form filling with a pattern whose cell draws the
-/// form, or a `d0` glyph doing the same through a pattern, recursed until the stack aborted
-/// the process — three seven-object files, each a `fatal runtime error: stack overflow`.
-/// `tests/hostile_budgets.rs` holds all three. One counter in one place is the fix, and the
-/// reason the check is in `run` rather than at each call site.
+/// **The check is in `run` rather than at each call site** because a bound asked per call site
+/// misses a route: a tiling cell run at a fixed depth of one below the bound lets a pattern
+/// whose cell fills with itself, a form filling with a pattern whose cell draws the form, or a
+/// `d0` glyph doing the same through a pattern, recurse until the stack aborts the process —
+/// three seven-object files, each a `fatal runtime error: stack overflow`, all three held by
+/// `tests/hostile_budgets.rs`. One counter in one place bounds every route (ADR 0793).
 const MAX_FORM_DEPTH: usize = 64;
 
 /// Deepest nesting of soft-mask groups.
@@ -412,11 +406,10 @@ impl GraphicsState {
     /// > UseBlackPtComp shall be treated as OFF .
     ///
     /// So it is asked here, where an object's colour is converted, rather than performed as an
-    /// assignment when either parameter is set. **The difference is two orderings, and both
-    /// were wrong until the six-hundred-and-seventh session**, when the two parameters shared
-    /// one field: a `ri` naming any other intent used to reset an explicit `/UseBlackPtComp
-    /// OFF` back to compensating, and a `/UseBlackPtComp ON` set *after* an absolute intent
-    /// used to compensate although the intent still in force says it shall not.
+    /// assignment when either parameter is set. **The difference is two orderings**, and one
+    /// shared field gets both wrong: a `ri` naming any other intent would reset an explicit
+    /// `/UseBlackPtComp OFF` back to compensating, and a `/UseBlackPtComp ON` set *after* an
+    /// absolute intent would compensate although the intent still in force says it shall not.
     fn rendering(&self) -> Rendering {
         self.rendering_under(self.intent)
     }
@@ -2124,12 +2117,10 @@ fn complete(
     // and only where the count of glyphs drawn through it is zero, which is what keeps a space
     // and a deliberate `.notdef` from being news; see `Interpreter::glyph_coverage`.
     //
-    // **The second of those two was narrower than this sentence until the
-    // six-hundred-and-eighty-fifth session** (ADR 0520), and a report is only as wide as the
-    // count it fires on (trap 11): `Coverage::empty` was raised only for a code §9.10.2 could
-    // also *name*, which is a question about the reader, so a font whose codes reached no glyph
-    // *and* no character drew a blank page with nothing to report it. `text.rs` divides that
-    // branch on the glyph now.
+    // A report is only as wide as the count it fires on (trap 11): `Coverage::empty` is raised
+    // for a code that reached no glyph whether or not §9.10.2 could also *name* it, because a
+    // font whose codes reach no glyph *and* no character otherwise draws a blank page with
+    // nothing to report it. `text.rs` divides that branch on the glyph (ADR 0520).
     for (name, coverage) in std::mem::take(&mut interpreter.glyph_coverage) {
         // The one kind of empty outline with a known reason: a glyph the program's repair could
         // not supply (ADR 0808). Said whether or not the font drew anything else, because a
@@ -2373,12 +2364,11 @@ pub fn displayed_size(page: &Page) -> Size {
 /// a pixel. Returns `None` for a page whose transform is degenerate, which a zero-sized crop box
 /// would produce.
 ///
-/// **The display list's space is not the raster's**, and this doc comment said it was for
-/// seventy-five sessions. PDF's y axis points up and a raster's points down, and the flip
-/// between them belongs to [`pdf_render::TargetSpec::for_page`] rather than to the page — see
-/// [`base_transform`]. A caller holding a pixel position therefore subtracts it from the page's
-/// height *in the same units* before calling this, which is what `viewer-core` does; one that
-/// did not was mirroring every click about the middle of the page. ADR 0118.
+/// **The display list's space is not the raster's.** PDF's y axis points up and a raster's points
+/// down, and the flip between them belongs to [`pdf_render::TargetSpec::for_page`] rather than to
+/// the page — see [`base_transform`]. A caller holding a pixel position therefore subtracts it from
+/// the page's height *in the same units* before calling this, which is what `viewer-core` does; one
+/// that did not was mirroring every click about the middle of the page. ADR 0118.
 #[must_use]
 pub fn user_space_at(page: &Page, x: f32, y: f32) -> Option<(f32, f32)> {
     let point = base_transform(page).invert()?.apply(Point::new(x, y));
@@ -2418,12 +2408,9 @@ pub fn page_space_at(page: &Page, x: f32, y: f32) -> (f32, f32) {
 /// height: the rotation takes `(x, y)` to `(y, -x)`, and adding `H'` — the rotated page's own
 /// height, which is the unrotated *width* — gives `(y, W - x)`.
 ///
-/// Getting the sign wrong is invisible to everything except a picture, which is how it
-/// survived from the first page tree until the twelfth session: 90 and 270 were exchanged, so
-/// every rotated page in the corpus came out turned by 180° from what four other renderers
-/// draw. Six pages were contradicted by it — five of `hello_world_rotated.pdf`, filed under
-/// substituted fonts because they carry one — and a page that is upside down is one that
-/// still has the right ink in the right *quantity*, so no metric in this tree could see it.
+/// Getting the sign wrong is invisible to everything except a picture: with 90 and 270
+/// exchanged every rotated page comes out turned by 180°, and a page that is upside down still
+/// has the right ink in the right *quantity*, so no metric in this tree can see it.
 /// `rotation_turns_the_page_clockwise_as_displayed` pins all four angles.
 /// The map from a page's default user space to the display list's own coordinates.
 ///
@@ -2575,11 +2562,8 @@ struct Interpreter<'a> {
     /// A page names the same font on every `Tf`, and parsing a font program is expensive,
     /// so this is what keeps text rendering from being dominated by font loading.
     ///
-    /// **This comment said "keyed by resource name" for six hundred and forty rounds after that
-    /// stopped being true**, which is the shape `doc/habits.md`'s ledger section is about one
-    /// directory over: the hundred-and-twenty-seventh session moved the key to the object's
-    /// identity precisely because a name conflated a page's `/F1` with a form's, and the line
-    /// describing it did not move. See [`FontKey`].
+    /// Keyed by the font's object identity rather than its resource name, because a name
+    /// conflates a page's `/F1` with a form's (ADR 0115). See [`FontKey`].
     ///
     /// It holds a *failure* as well as a font, which [`Self::across`] deliberately does not.
     fonts: BTreeMap<FontKey, Option<Font>>,
@@ -2917,7 +2901,7 @@ struct Interpreter<'a> {
     /// device's components and reported instead — narrowing the page's own condition until it
     /// stopped firing is the failure this flag exists to avoid.
     ///
-    /// **"On the page itself" is the whole of the four-hundred-and-fortieth session's finding.**
+    /// **"On the page itself" is the whole of the condition.**
     /// A *soft mask's* group is not painted onto the page: §11.5.3 composites it against its own
     /// backdrop and takes one luminosity from the result, which becomes an alpha. So a space
     /// declared inside one says nothing about the space the page composites in, and
@@ -3031,10 +3015,9 @@ struct Interpreter<'a> {
     ledger: Option<&'a std::cell::RefCell<Ledger>>,
     /// Why the four components §11.4.7 names cannot be sampled into a press, if they cannot.
     ///
-    /// [`PagePress::Beyond`]'s reason, carried into the report. Since the
-    /// four-hundred-and-thirty-sixth session a press a *document* names is drawn rather than
-    /// reported (ADR 0272), so what is left here is a four-component space that is not an ICC
-    /// profile, and a page naming more distinct presses than [`crate::colour::MAX_PRESSES`].
+    /// [`PagePress::Beyond`]'s reason, carried into the report. A press a *document* names is drawn
+    /// rather than reported (ADR 0272), so what is left here is a four-component space that is not
+    /// an ICC profile, and a page naming more distinct presses than [`crate::colour::MAX_PRESSES`].
     blending_beyond: Option<transparency::BeyondPress>,
     /// The distinct presses this interpretation has named, and the budget it spends on them.
     ///
@@ -3056,11 +3039,7 @@ struct Interpreter<'a> {
 
 /// Applies the `d` dash operator.
 ///
-/// **This comment said "only the 'solid line' case is honoured for now" until the
-/// two-hundred-and-twenty-first session**, describing the code of the ninth and not the code
-/// below it: the tenth read the array (ADR 0018), and until it did, not one dashed line in 974
-/// documents was dashed. That is the handover's archetype — "[t]he archetype is the `d`
-/// operator" — and its own doc comment was still the sentence from before the fix.
+/// The whole dash array and phase are read, as §8.4.3.6 states them (ADR 0018).
 fn set_dash(operands: &[Object], stroke: &mut Stroke) {
     // `[ 2 1 ] 0 d` arrives as five operands, the two brackets among them as nulls, because
     // the content lexer does not rebuild arrays. Splitting on them gives what is before the
@@ -3320,16 +3299,14 @@ mod tests {
     ///
     /// Clockwise *as displayed*, and this space is y-up, so the check is written in terms of
     /// where a corner ends up rather than in terms of a matrix — a matrix can be transcribed
-    /// wrongly and still look like the right kind of thing, which is exactly what happened
-    /// here for eleven sessions.
+    /// wrongly and still look like the right kind of thing.
     ///
     /// The user-space point checked is the page's **top-left** corner, `(0, H)`. Turn a sheet
     /// of paper 90° clockwise and its top-left corner becomes the *top-right* one, which in
     /// this y-up space with the rotated page `H` wide and `W` tall is `(H, W)`. Turn it 270°
     /// clockwise and the same corner becomes the bottom-left, `(0, 0)`.
     ///
-    /// This test was confirmed to fail with the 90 and 270 matrices exchanged, which is how
-    /// they stood until the twelfth session.
+    /// This test was confirmed to fail with the 90 and 270 matrices exchanged.
     #[test]
     fn rotation_turns_the_page_clockwise_as_displayed() {
         let (width, height) = (400.0_f32, 200.0_f32);

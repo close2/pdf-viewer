@@ -32,7 +32,7 @@
 //!
 //! **It was built, refused, and built again**, and this example now prints all three stages:
 //! ADR 0137's touch ratio, ADR 0138's refusal, and ADR 0139's constrained split with the wall
-//! clock beside it. The last two columns are the ones a session should read — how many strips
+//! clock beside it. The last two columns are the ones a reader should read — how many strips
 //! the page's own geometry grants, and what the render then takes.
 #![expect(
     clippy::expect_used,

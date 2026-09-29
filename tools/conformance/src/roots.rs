@@ -2,19 +2,18 @@
 //!
 //! # The defect this closes
 //!
-//! Until the one-thousand-and-tenth session the scan read a hand-written list:
+//! A scan that reads a hand-written list:
 //!
 //! ```text
 //! pub const SOURCE_ROOTS: [&str; 3] = ["crates", "tools", "fuzz"];
 //! ```
 //!
 //! beside a workspace manifest whose members are a *glob* — `["crates/*", "tools/*",
-//! "raster/crates/*"]`. A list and a glob are two populations, and only one of them grew when
-//! `raster/` was folded into this workspace on 2026-09-06: **1,884 clause citations in 243 of
-//! that sub-project's 283 Rust files sat outside the citation and quotation gate for the
-//! following four months, producing no findings because nothing read them.** Session 1004 found
-//! it (ADR 1024 §4) and could only report it from `tools/round.sh`, because this crate was
-//! another round's; the derivation here is the fix, and
+//! "raster/crates/*"]` — holds two populations, and only one of them grew when `raster/` was
+//! folded into this workspace on 2026-09-06: **1,884 clause citations in 243 of that
+//! sub-project's 283 Rust files sat outside the citation and quotation gate, producing no
+//! findings because nothing read them** (ADR 1024 section 4). The derivation here is the fix
+//! (ADR 1029), and
 //! `tests/conformance.rs::every_workspace_member_is_scanned` is what keeps it one.
 //!
 //! It is trap 25 with the population on the *instrument's* side rather than the tree's: an

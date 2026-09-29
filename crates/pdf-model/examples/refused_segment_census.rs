@@ -10,8 +10,8 @@
 //! operands are numbers. `issue6342.pdf` is the whole of the difference — the one curated first
 //! page the token census names, whose form `XObject` the file itself titles a form with errors —
 //! and every `c` it writes after the error has operands the lexer splits into keywords,
-//! so not one of them ever reaches a path. The token count is an upper bound on this one and the
-//! six-hundred-and-ninety-sixth session's figures should be read as one (ADR 0563).
+//! so not one of them ever reaches a path. The token count is an upper bound on this one and
+//! should be read as one (ADR 0563).
 //!
 //! So this census counts what the display list actually loses: `Unsupported::UndefinedCurrentPoint`
 //! over one first page per document, beside the number of paths that page paints, so that a zero

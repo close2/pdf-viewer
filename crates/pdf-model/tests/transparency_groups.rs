@@ -505,8 +505,8 @@ fn a_group_resets_the_alpha_constants_and_the_blend_mode_for_its_elements() {
 /// > transparency purposes.
 ///
 /// The second half is the one an implementation drops, because `/S` is the only entry that
-/// distinguishes the two and no corpus document writes another subtype — **re-derived in the
-/// six-hundred-and-eighty-second session and it held**, zero over the curated 1251 and zero over
+/// distinguishes the two and no corpus document writes another subtype — **measured** (ADR
+/// 0490), zero over the curated 1251 and zero over
 /// the `SafeDocs` crawl's 65 944 (`examples/absence_audit --crawl`), with a hand-built
 /// `/Group << /S /Softness >>` put through the same block first so that the zero was a
 /// measurement. A negative on a population sixty-eight times the size is why this test is the
@@ -610,10 +610,9 @@ fn a_knockout_group_paints_only_its_topmost_element() {
     );
     // §11.3.6's weighted average of two opaque byte colours at α = 0.5 is 127.5 in *both*
     // moving channels — `0.5 · 0 + 0.5 · 255` for the red and `0.5 · 255 + 0.5 · 0` for the
-    // blue — so they round alike. This read `[127, 0, 128]` until the
-    // five-hundred-and-eighty-third session, and the asymmetry was `tiny-skia`'s
-    // low-precision pipeline rather than the clause (ADR 0418): identical arithmetic in two
-    // channels cannot land a level apart.
+    // blue — so they round alike. `[127, 0, 128]` would be `tiny-skia`'s low-precision
+    // pipeline rather than the clause (ADR 0418): identical arithmetic in two channels cannot
+    // land a level apart.
     assert_eq!(
         pixel(&ordinary, 40, 50),
         [128, 0, 128, 255],
@@ -1497,9 +1496,9 @@ fn a_non_isolated_group_reports_only_where_the_backdrop_cannot_be_stated() {
 ///   alpha value of αs = 0.0 or αb = 0.0 results in no blend mode effect", so `C = 0.5`. At
 ///   the `Do`: Multiply gives `0.25`, Screen gives `0.75`.
 ///
-/// The two columns are what §11.4.8 makes of the same page, and until the
-/// one-thousand-and-ninety-third session the non-isolated group was drawn as the isolated one
-/// and reported: the left column read the right one. That is what the inequality below pins.
+/// The two columns are what §11.4.8 makes of the same page (ADR 1107); a non-isolated group
+/// drawn as the isolated one would make the left column read the right one. That is what the
+/// inequality below pins.
 ///
 /// # And a group nothing inside blends, which must read the same either way
 ///
@@ -1754,8 +1753,8 @@ fn a_non_isolated_group_inside_another_keeps_the_backdrop_alpha_it_composites_on
     );
     assert_eq!(pixel(&backdrop, 70, 60), [255, 127, 127, 255]);
 
-    // And §11.4.5's transparent initial backdrop, which is what this tree drew until the
-    // four-hundredth session and reported by name while it did.
+    // And §11.4.5's transparent initial backdrop, the wrong construction for this group
+    // (ADR 0237).
     let flattened_wrongly = interpret(nested_fixture(
         "/Group << /S /Transparency /I true >>",
         content,
@@ -1853,9 +1852,9 @@ const NESTED: &str = "/GS gs 0 0 0 1 k 0 0 60 60 re f 1 1 0 0 k 40 40 60 60 re f
 ///
 /// and §11.7.2 repeats it — "[n]on-isolated groups shall inherit their colour space from the
 /// nearest ancestor isolated parent group". So the six cases below are one clause read in one
-/// direction, and until the four-hundred-and-fifteenth session this tree reported the declared
-/// entry: a non-isolated `/DeviceCMYK` group was named on a page that composites in RGB, and a
-/// page group of `/DeviceCMYK` — which decides every mark on the page — was not named at all.
+/// direction (ADR 0251). Reporting the declared entry instead would name a non-isolated
+/// `/DeviceCMYK` group on a page that composites in RGB, and would not name a page group of
+/// `/DeviceCMYK` — which decides every mark on the page — at all.
 #[test]
 fn the_blending_space_is_the_one_in_force_rather_than_the_one_declared() {
     let probe = |page_group: &str, form_group: &str, resources: &str, page: &str| {
@@ -1901,9 +1900,9 @@ fn the_blending_space_is_the_one_in_force_rather_than_the_one_declared() {
         "a non-isolated group's own /CS is not the space anything composites in: {inherited}"
     );
 
-    // The same group with `/I true`, which is the first bullet's condition — and since the
-    // four-hundred-and-ninety-second session such a group is *drawn* in the space it names
-    // rather than reported for it: its elements are interpreted twice, once per half of the
+    // The same group with `/I true`, which is the first bullet's condition — and such a group is
+    // *drawn* in the space it names rather than reported for it: its elements are interpreted
+    // twice, once per half of the
     // four components, and the pair resolves at its `Do` (ADR 0327;
     // `a_group_that_introduces_a_press_composites_in_it` holds the pixels).
     let isolated = reported("", &group("/I true /CS /DeviceCMYK"));
@@ -1959,8 +1958,7 @@ fn the_blending_space_is_the_one_in_force_rather_than_the_one_declared() {
     // An isolated group *replaces* the inherited space, which the first bullet says outright:
     // its elements are converted to the group's space, not to the page's. An RGB group inside
     // a `/DeviceCMYK` page is drawn in the device's three components and converted into the
-    // page's ink at its `Do` since session 1039 (ADR 1056), so the page keeps its space and
-    // nothing departs.
+    // page's ink at its `Do` (ADR 1056), so the page keeps its space and nothing departs.
     let replaced = reported(page_cmyk, &group("/I true /CS /DeviceRGB"));
     assert!(
         !replaced.contains("blending colour space"),
@@ -3119,11 +3117,10 @@ fn mask_group_fixture(mask: &str, page: &str) -> Vec<u8> {
 ///
 /// which §11.6.5.1 then uses as the mask's alpha. So a `/CS` declared inside one is answered by
 /// §11.5.3's own derivation (ADR 0220) and says nothing about the space §11.4.7 gives the page.
-/// Until the four-hundred-and-fortieth session it said everything: `build_soft_mask` cleared the
-/// space in force for the mask's content and left the flag that records a *change* of space set,
-/// so this page was drawn on the device's three components and reported for a conversion nobody
-/// had asked for. **77 of the 85 web documents reported for §11.6.6, and all three of the
-/// corpus's, were exactly this fixture** (ADR 0276).
+/// A `build_soft_mask` that cleared the space in force for the mask's content and left the flag
+/// that records a *change* of space set would draw this page on the device's three components
+/// and report a conversion nobody had asked for. **77 of the 85 web documents reported for
+/// §11.6.6, and all three of the corpus's, were exactly this fixture** (ADR 0276).
 ///
 /// The measurement is §11.3.4's, per component: an opaque `0 0 0 0 k` under a half-opaque
 /// `1 1 1 1 k` is 0.5 of each of the four inks, and the assumed press's conversion out of the
@@ -3373,7 +3370,7 @@ fn a_knockout_group_under_a_mode_of_its_own_is_composited_as_one_object() {
 }
 
 /// §11.4.6 drawn against a backdrop that is not transparent — the construction ADR 0307
-/// priced and this session built (ADR 0327).
+/// priced and ADR 0327 built.
 ///
 /// # The arithmetic, from two clauses
 ///
@@ -3393,9 +3390,9 @@ fn a_knockout_group_under_a_mode_of_its_own_is_composited_as_one_object() {
 ///
 /// The overlap pixel is the whole of both clauses at once: red requires the blend to have
 /// seen the *page* (transparency would leave magenta) **and** the knockout to have
-/// discarded element 1 (compositing over it would give `cyan × magenta = blue`). Before
-/// this session the group was drawn as an isolated ordinary group and reported twice; that
-/// picture has blue in the overlap, as far from red as two channels can be.
+/// discarded element 1 (compositing over it would give `cyan × magenta = blue`). Drawn as an
+/// isolated ordinary group, the picture has blue in the overlap, as far from red as two
+/// channels can be.
 #[test]
 fn a_knockout_groups_elements_blend_against_the_pages_own_backdrop() {
     let drawn = interpret(fixture(
@@ -3450,8 +3447,7 @@ fn a_knockout_groups_elements_blend_against_the_pages_own_backdrop() {
 /// composited with its backdrop". Its elements are paper and registration black at `ca ½`
 /// over it — per §11.3.4 the covered pixels hold half of each ink, and the conversion out
 /// is the assumed cube's mean, **(76.0, 66.1, 63.9)** of 255. Converting each colour first
-/// and compositing on the device gives 127.5, ADR 0251's 51-of-255 gap — which is exactly
-/// what this page drew, and reported, before this session.
+/// and compositing on the device gives 127.5, ADR 0251's 51-of-255 gap.
 ///
 /// The interpreter runs the group's content twice, once per half of the four components,
 /// and the readback is kept from the first run alone.
@@ -3539,9 +3535,8 @@ fn a_group_that_introduces_a_press_composites_in_it() {
 /// The nearest ancestor of a pattern *painted inside* this group is this group, so its colours
 /// belong in the group's four components — whichever content stream the `scn` stood in.
 ///
-/// **The six-hundred-and-fifty-fifth session answered this by refusing the press** and the
-/// six-hundred-and-sixtieth answers it by building: a shading pattern carries its whole
-/// definition now, so the mark inside the group rebuilds its colours in the group's own
+/// **It is answered by building** (ADR 0487): a shading pattern carries its whole
+/// definition, so the mark inside the group rebuilds its colours in the group's own
 /// compositing and the pair is built like any other. The two arms below are the same page with
 /// the `scn` outside the form and inside it, and they agree — which is the claim, since §11.6.7
 /// puts the pattern's *definition* in the parent content stream and its *painting* in the group

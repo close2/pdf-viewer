@@ -6,8 +6,8 @@
 //! a copy with `/Style` taken out, and count the fonts where the two disagree.
 //!
 //! That is trap 8's method — measure a rule by breaking it deliberately — applied to a hint
-//! rather than to a requirement, and it is only possible because §12.3.4's thumbnails needed
-//! `Dictionary::remove` two sessions ago.
+//! rather than to a requirement, and it is possible because §12.3.4's thumbnails needed
+//! `Dictionary::remove`.
 
 use std::path::{Path, PathBuf};
 

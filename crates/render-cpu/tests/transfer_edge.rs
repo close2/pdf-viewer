@@ -28,8 +28,8 @@
 //! `pdf-model`'s `examples/transfer_function_census` counts the population that can move at
 //! **one** document — `issue6931_reduced.pdf`, a fully opaque image with no translucent mark over
 //! it — so the edge case has no corpus witness at all and this stands in for one (trap 8, trap
-//! 13). Session 1118 planted it measuring the *divergence*; session 1148 built
-//! `pdf_render::resolve_transfers` and it measures the clause instead, in one place.
+//! 13). It measures the clause, which `pdf_render::resolve_transfers` carries out in one place
+//! (ADR 1125).
 //! `render-raster/tests/transfer_edge.rs` is its other half: the same three numbers on the other
 //! backend, and that the two agree (`CLAUDE.md` principle 2).
 
@@ -173,8 +173,8 @@ fn the_interior_pixel_is_the_transfer_of_the_object() {
 /// the object's shape there is nonzero, so the point is inside it and takes its function. Before
 /// `pdf_render::resolve_transfers` this tree composited the already-transferred colour and drew
 /// `blend(transfer(object), backdrop)` instead: 0.875 against the clause's 0.375 at a half-covered
-/// edge under an inverting transfer, which is the half-unit gap sessions 1118 and 1137 measured
-/// and this asserts is gone.
+/// edge under an inverting transfer, which is the half-unit gap ADR 1125 measures and this
+/// asserts is gone.
 #[test]
 fn the_edge_pixel_takes_the_clause_value() {
     let raw = render(&scene(false));

@@ -2,11 +2,11 @@
 //!
 //! **This is the instrument ADR 0509 asked for and ADR 0576 built**, and the defect it exists
 //! against is one this crate actually had: `Query::Find`, `Query::Opening`, `Query::Preferences`
-//! and eight more reached **no symbol at all**, for as long as three hundred sessions in one case,
-//! and nothing anywhere said so. The ABI's own protection is `QUORRA_EVENT_KIND_COUNT`, which is the
-//! right shape for a message that *arrives* — a caller checks the number at startup and refuses —
-//! and no shape at all for a *question*: a `Query` added after the last sweep leaves a C caller
-//! with no symbol and no signal, which is exactly how eleven accumulated.
+//! and eight more reached **no symbol at all**, and nothing anywhere said so. The ABI's own
+//! protection is `QUORRA_EVENT_KIND_COUNT`, which is the right shape for a message that *arrives* —
+//! a caller checks the number at startup and refuses — and no shape at all for a *question*: a
+//! `Query` added after the last sweep leaves a C caller with no symbol and no signal, which is
+//! exactly how eleven accumulated.
 //!
 //! What replaces it is the mechanism the rest of this crate uses one directory over. Every other
 //! host on this boundary is protected by `viewer-core`'s enums being exhaustive — *"a new `Event`
@@ -115,7 +115,7 @@ fn entry_points(query: &Query<'_>) -> &'static [&'static str] {
             "quorra_structure_node",
             "quorra_structure_text",
             // §14.7's per-character offsets and boxes, which AT-SPI's `Text` interface is built on
-            // and which this answer carried nowhere until the seven-hundred-and-twenty-sixth.
+            // (ADR 0613).
             "quorra_structure_lines",
             "quorra_structure_line",
             "quorra_structure_character",

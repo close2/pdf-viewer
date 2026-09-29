@@ -12,7 +12,7 @@
 //! and does not embed it is drawn from the compiled-in Latin faces, because the worker cannot walk
 //! `/usr/share/fonts` and is *killed* rather than told no for trying. Four documents in the first
 //! sixty of `doc/pdf.js` are in that population and each of them is a whole page lost, not a
-//! glyph. That is the measurement session 914 traded away, and this takes it again.
+//! glyph. That is the measurement ADR 0870 traded away, and this takes it again.
 //!
 //! Three renders of page one, at 150 dpi, through `pdf_vfs::Vfs`:
 //!

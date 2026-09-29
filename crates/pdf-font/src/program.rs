@@ -48,9 +48,8 @@ impl From<substitute::Format> for Program {
     /// Liberation faces, or a bare **CFF** from the compiled-in Foxit ones — while [`Program`]
     /// also names a bare Type 1 program, which only an *embedded* `/FontFile` can be.
     ///
-    /// This comment said "bare Type 1" for the Foxit faces, which are `Format::BareCff` and
-    /// always were; the four-hundred-and-fifth session corrected it while reading this path
-    /// for `program_widths`, where the same confusion had a cost rather than a spelling.
+    /// The Foxit faces are `Format::BareCff`, not bare Type 1 — a distinction that has a cost in
+    /// `program_widths` rather than only a spelling.
     fn from(format: substitute::Format) -> Self {
         match format {
             substitute::Format::Sfnt => Self::Sfnt,
@@ -199,11 +198,10 @@ pub(crate) fn embedded_program(
         // the same exception, for the same clause: [`stated_extent`] adds this program's three
         // sections up, and a decode that reaches their sum is not a prefix of anything.
         let decoded_data = whole_program(document, &stream.dict, &decoded, "FontFile", name)?;
-        // **The signature decides here too, and this door did not ask it.** This module's own
-        // first paragraph says the reader is chosen "by the bytes' own signature rather than by
-        // the key's spelling", and `/FontFile3` above asks; `/FontFile` assumed Type 1 from the
-        // key alone until the five-hundred-and-fourteenth session, which is the rule stated in
-        // one place and applied in two of three.
+        // **The signature decides here too.** This module's own first paragraph says the reader
+        // is chosen "by the bytes' own signature rather than by the key's spelling", and
+        // `/FontFile3` above asks; `/FontFile` asks as well rather than assuming Type 1 from the
+        // key alone, so the rule is applied at all three doors.
         //
         // `issue5751.pdf` is the witness the oracle supplied: a `CIDFontType0` whose descriptor
         // writes `/FontFile`, whose stream states only `/Length`, and whose first bytes are
@@ -393,17 +391,15 @@ fn no_program(decoded: &[u8]) -> bool {
 /// not be its own, which is the paragraph above's case arriving by another road.
 ///
 /// **Table 125 is asked on this damage too, and it is asked to *report* rather than to decide.**
-/// This paragraph used to say there was "no shortfall against Table 125's extent" on a check-value
-/// failure, and that is a claim about a file rather than about the damage: the clause states an
-/// embedded program's extent independently of the filter that carried it, so on a stream whose
-/// check value disagrees it is a **second statement about the same bytes** and it can agree or
-/// disagree with the first. [`extent_corroboration`] asks it and puts the answer in the refusal,
-/// which is what the thousand-and-second session had to find by hand on `bug1050040.pdf`: Table
-/// 125 states **59212** where the filter delivered **59211**, and the font's own per-table
-/// `checkSum` fields place that missing byte inside `glyf`. Three independent statements of one
-/// missing byte, of which this code was printing one. `issue13316_reduced.pdf` is the other
-/// answer and is worth as much: its `/Length1` is its decoded length to the byte, so the extent
-/// corroborates nothing there and the check value stands alone.
+/// Whether the extent falls short is a claim about a file rather than about the damage: the clause
+/// states an embedded program's extent independently of the filter that carried it, so on a stream
+/// whose check value disagrees it is a **second statement about the same bytes** and it can agree
+/// or disagree with the first. [`extent_corroboration`] asks it and puts the answer in the refusal,
+/// which is what `bug1050040.pdf` needs (ADR 1027): Table 125 states **59212** where the filter
+/// delivered **59211**, and the font's own per-table `checkSum` fields place that missing byte
+/// inside `glyf` — three independent statements of one missing byte. `issue13316_reduced.pdf` is
+/// the other answer and is worth as much: its `/Length1` is its decoded length to the byte, so the
+/// extent corroborates nothing there and the check value stands alone.
 ///
 /// **The refusal is the same either way, deliberately.** A corroborating extent does not make the
 /// refusal stronger and an agreeing one does not weaken it — RFC 1950's compliance clause decides
@@ -496,8 +492,8 @@ fn whole_program(
 ///   it, which the check value alone cannot: `bug1050040.pdf` states 59212 where the filter
 ///   delivers 59211, so a byte is missing rather than altered. (Where the font program is an sfnt
 ///   a third statement exists — its per-table `checkSum` fields — and on that file it puts the
-///   missing byte inside `glyf`. Reading it is a session's work rather than a refusal's, so this
-///   prints the two the document states and names the third nowhere.)
+///   missing byte inside `glyf`. Reading it is more work than a refusal owes, so this prints the
+///   two the document states and names the third nowhere.)
 /// - **The extents agree.** Table 125 has been asked and has nothing to add, which is worth
 ///   saying rather than omitting: `issue13316_reduced.pdf` decodes to 168 808 bytes under a
 ///   `/Length1` of 168 808, and a reader who is not told so cannot tell that case from the one
@@ -605,13 +601,6 @@ fn extracted_cff(program: Program, data: &[u8]) -> Option<Vec<u8>> {
 /// A CFF file starts with a header whose first two bytes are its major and minor version,
 /// conventionally 1 and 0. An sfnt file starts with a recognisable tag instead — `0x00010000`,
 /// `OTTO`, `true` or `ttcf` — so a leading `01 00` that is none of those is CFF.
-///
-/// **This paragraph was filed above [`extracted_cff`] rather than here**, welded onto that
-/// function's own comment by the edit that inserted it, so this function had no documentation and
-/// that one had two first sentences. `doc/todo/00`'s *A group's diagnosis can migrate to the group
-/// above it* is the same failure one directory over: Rust attaches a doc comment to whatever item
-/// follows, and nothing is malformed, so no gate sees it. Restored in the
-/// nine-hundred-and-forty-third session.
 fn is_bare_cff(data: &[u8]) -> bool {
     match data.get(..4) {
         // The four sfnt container signatures.
@@ -911,11 +900,11 @@ mod font_file_signature {
     /// > in the font file, as described for each type of font dictionary that can include this
     /// > entry.
     ///
-    /// So `head` may be absent, and with it the em square every sfnt reader asks for. This tree
-    /// refused two crawled documents with "units per em is zero" for exactly that (session 619):
-    /// a Minion Pro subset under a `/Subtype /Type1` font dictionary, carrying `BASE`, `CFF `,
-    /// `GPOS`, `GSUB`, `OS/2` and `cmap` and nothing else. The `CFF ` table is a whole font
-    /// program with its own `FontMatrix`, so it is read as the bare CFF it is.
+    /// So `head` may be absent, and with it the em square every sfnt reader asks for. Two crawled
+    /// documents are exactly that (ADR 0454): a Minion Pro subset under a `/Subtype /Type1` font
+    /// dictionary, carrying `BASE`, `CFF `, `GPOS`, `GSUB`, `OS/2` and `cmap` and nothing else. The
+    /// `CFF ` table is a whole font program with its own `FontMatrix`, so it is read as the bare
+    /// CFF it is.
     #[test]
     fn an_opentype_program_with_no_head_is_read_as_the_cff_it_carries() {
         let cff: &[u8] = include_bytes!("../../../data/standard-fonts/FoxitSerif.pfb");
@@ -979,10 +968,9 @@ mod font_file_signature {
     /// that produced that many bytes has produced every byte of the program. What stopped short
     /// is RFC 1951's final block, which is the filter's framing and not the font's.
     ///
-    /// `0669424.pdf` of the `SafeDocs` crawl is the witness (session 625): three `/FontFile2`
+    /// `0669424.pdf` of the `SafeDocs` crawl is the witness (ADR 0459): three `/FontFile2`
     /// streams, each decoding to exactly its `/Length1` and each ending without a final block,
-    /// and 941 text operations refused for it while `poppler`, `mupdf` and `ghostscript` drew
-    /// the page.
+    /// 941 text operations on one page.
     #[test]
     fn a_font_program_that_reaches_its_stated_length_survives_a_truncated_filter() {
         let cff: &[u8] = include_bytes!("../../../data/standard-fonts/FoxitSerif.pfb");
@@ -1101,8 +1089,7 @@ mod font_file_signature {
     ///
     /// The corroboration this pins is `bug1050040.pdf`'s: §9.9's Table 125 states 59212 where the
     /// filter delivers 59211, so the document says the damage a second time and says *how much* of
-    /// it, which a checksum over the whole stream never can. The thousand-and-second session found
-    /// that by hand after the refusal had stood for a hundred sessions printing only the checksum.
+    /// it, which a checksum over the whole stream never can (ADR 1027).
     ///
     /// The fixture states a `/Length1` one past what arrives, which is the corpus witness's own
     /// difference, and asserts the direction as well as the numbers — a report that said "over"

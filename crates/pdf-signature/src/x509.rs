@@ -1137,8 +1137,8 @@ pub(crate) mod fixtures {
 
     /// A self-signed P-256 certificate, for the one `/SubFilter` that may not carry such a key.
     ///
-    /// RFC 5480's `id-ecPublicKey`. This program verifies that family through CMS since the
-    /// six-hundred-and-eighty-ninth session ([`crate::ecdsa`]), and Table 260's `adbe.x509.rsa_sha1`
+    /// RFC 5480's `id-ecPublicKey`. This program verifies that family through CMS
+    /// ([`crate::ecdsa`], ADR 0532), and Table 260's `adbe.x509.rsa_sha1`
     /// column still says **No** to it — so this fixture is what carries that "No" into a test.
     /// [`crate::ecdsa::fixtures`] holds the certificates that are meant to verify.
     pub(crate) const EC_CERTIFICATE: &str = "\

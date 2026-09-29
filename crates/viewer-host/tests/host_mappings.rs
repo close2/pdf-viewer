@@ -144,10 +144,8 @@ fn an_attachment_row_carries_the_key_the_extraction_names_and_shows_the_file_nam
     // strings, and a host that used one for both would be wrong on some document. The NOTE is
     // prose here rather than a quotation for Issue #214's reason, which
     // `pdf_model::attachment::Attachment::name` carries.
-    //
-    // The first half was a quotation until the four-hundred-and-twenty-ninth session, of a
-    // sentence Errata Collection 3 struck out with the two bullets around it (Issue #481). The
-    // NOTE quoted here is what survives, and it is the half this test rests on.
+    // Errata Collection 3 strikes the sentence before the NOTE, with the two bullets around it
+    // (Issue #481); the NOTE is what survives, and it is the half this test rests on.
     let Some(bytes) = corpus_bytes("attachment.pdf") else {
         eprintln!("skipped: doc/pdf.js is not checked out");
         return;
@@ -363,10 +361,9 @@ fn table_233_bit_19_decides_whether_a_control_takes_typed_characters() {
 /// Table 234's `/TI` reaches the control a host builds, and it is not the selection.
 ///
 /// "(Optional; PDF 1.5) For scrollable list boxes, the top index (index in the Opt array) of the
-/// first option visible in the list." `pdf-model` has read the entry since the
-/// three-hundred-and-ninety-eighth session and the page's own appearance obeys it (ADR 0407); the
-/// mapping a host builds its list from dropped it, so the control started at row 0 over a picture
-/// that started somewhere else.
+/// first option visible in the list." `pdf-model` reads the entry and the page's own appearance
+/// obeys it (ADR 0407); a mapping a host builds its list from that dropped it would start the
+/// control at row 0 over a picture that started somewhere else.
 #[test]
 fn table_234s_top_index_says_where_a_hosts_list_starts() {
     let list = Control::Choice(ChoiceControl {
@@ -474,11 +471,11 @@ fn the_import_policy_admits_a_neighbour_and_refuses_everything_else() {
 /// > If no base URI is specified, such partial URIs shall be interpreted relative to the location
 /// > of the document itself.
 ///
-/// `pdf_model::action` applies the `/Base` a document states and leaves a partial reference
-/// partial when it states none, because the location of the document is a fact about this machine
-/// and `viewer_core` rule 2 keeps paths out of the core. A host has the path, so the `shall` is
-/// carried out here — and so is the refusal beside it, which was four windows' own `println!`
-/// until this test's session (ADR 1079).
+/// `pdf_model::action` applies the `/Base` a document states and leaves a partial reference partial
+/// when it states none, because the location of the document is a fact about this machine and
+/// `viewer_core` rule 2 keeps paths out of the core. A host has the path, so the `shall` is carried
+/// out here — and so is the refusal beside it, one sentence rather than four windows' own
+/// `println!` (ADR 1079).
 #[test]
 fn a_partial_uri_resolves_against_the_documents_own_location() {
     let document = Path::new("/documents/report.pdf");
@@ -637,11 +634,11 @@ fn a_scheme_this_machine_will_not_start_a_handler_for_is_refused_at_every_level(
 /// > that is not from a trusted source, a PDF processor may choose to prompt the user or even
 /// > prevent opening of the file.
 ///
-/// The clause offers two answers and this project takes the second, because none of the three
-/// hosts has a dialogue to prompt with — so the rule that has to hold is that the *provenance*
-/// decides and nothing else does. A click still writes the file; a URI's fragment does not, and
-/// says so. Without this the four-hundred-and-seventy-fifth session's `ef` would have made
-/// `quorra report.pdf#ef=x` write a file to disk with nobody having pressed anything.
+/// The clause offers two answers and this project takes the second, because none of the three hosts
+/// has a dialogue to prompt with — so the rule that has to hold is that the *provenance* decides
+/// and nothing else does. A click still writes the file; a URI's fragment does not, and says so.
+/// Without this Annex O's `ef` would make `quorra report.pdf#ef=x` write a file to disk with nobody
+/// having pressed anything (ADR 0310).
 #[test]
 fn a_uris_embedded_file_is_not_written_and_a_persons_is() {
     assert_eq!(may_write_extracted(Extraction::Asked), Ok(()));
@@ -954,10 +951,10 @@ fn collection_and_files(
 /// > If this dictionary is present in a PDF document, the interactive PDF processor shall present
 /// > the document as a portable collection.
 ///
-/// The `shall` is addressed to a viewer. `viewer_core::Query::Collection` has carried Table 153
-/// whole since the three-hundred-and-fifty-second session and neither native host asked it, so
-/// both drew a collection as `attachment_rows`' flat list — which this test asserts alongside the
-/// new shape, because the difference between the two *is* the defect that was closed.
+/// The `shall` is addressed to a viewer. `viewer_core::Query::Collection` carries Table 153 whole
+/// (ADR 0202), and a host that did not ask it would draw a collection as `attachment_rows`' flat
+/// list — which this test asserts alongside the collection's shape, because the difference between
+/// the two *is* the defect it guards.
 #[test]
 fn a_collection_becomes_a_folder_tree_with_the_schemas_columns() {
     let (collection, initial, order, files) =
@@ -1510,10 +1507,9 @@ fn a_name_the_clause_restricts_is_said_out_loud_and_a_valid_one_is_not() {
 
 /// §12.3.5.2: every embedded file is on the screen, however oddly its key is written.
 ///
-/// Two sentences of the clause say so, and this panel obeyed neither until the
-/// seven-hundred-and-seventy-second session — a file whose key named a folder the document did not
-/// state, and every file of a collection with no `/Folders` at all, were dropped from the list
-/// rather than placed. A panel drawing fewer files than the document embeds is the shape trap 5
+/// Two sentences of the clause say so (ADR 0711): a file whose key names a folder the document does
+/// not state, and every file of a collection with no `/Folders` at all, are placed rather than
+/// dropped from the list. A panel drawing fewer files than the document embeds is the shape trap 5
 /// exists for: it looks exactly like a document that embeds fewer files.
 #[test]
 fn every_embedded_file_is_shown_whatever_its_key_names() {
@@ -1551,10 +1547,10 @@ fn every_embedded_file_is_shown_whatever_its_key_names() {
 
 /// **§12.8.1's third question is answered by a host, and by nobody who did not ask.**
 ///
-/// The two halves of `viewer_host::trust_anchors`, and the first is the one ADR 1039 decided:
-/// with no directory named, the policy is empty and every signature in every document answers
-/// `Trust::NoAnchorSupplied` — which is what this program has said since the
-/// three-hundred-and-seventy-seventh session and what nobody typing nothing may change.
+/// The two halves of `viewer_host::trust_anchors`, and the first is the one ADR 1039 decided: with
+/// no directory named, the policy is empty and every signature in every document answers
+/// `Trust::NoAnchorSupplied` — which is what this program says with no anchors (ADR 0215) and what
+/// nobody typing nothing may change.
 ///
 /// The second is the reading itself, over a directory laid out here: one DER certificate, one PEM
 /// file holding two, one file that is neither, and one subdirectory. What must come back is three

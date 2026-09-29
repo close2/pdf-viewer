@@ -906,6 +906,15 @@ pub enum Rewrite {
     /// reader draws what a reader of an archive, which holds no other file, would have drawn. What
     /// goes is the pointer, and the report names the file and page it named (`doc/adr/1285`).
     ReferenceXObjectProxied,
+    /// Every JPEG 2000 image the baseline requirement named, where its dictionary states its own
+    /// colour space, is decoded to its samples and written again under `FlateDecode`.
+    ///
+    /// ISO 19005-2 section 6.2.8.3 and ISO 19005-4 section 6.2.7.3 bind JPEG 2000 data, and
+    /// §7.4.9 has a stated `/ColorSpace` decide what the samples mean — so the copy keeps that
+    /// space, each component's depth and every integer, and what changes is the encoding. The
+    /// costs are the file's size and the decoder's output kept as the picture, which the report
+    /// names image by image (`doc/adr/1400`).
+    Jpeg2000TranscodedToFlate,
     /// Every composite font naming a `CMap` the base standard does not predefine names a stream
     /// holding Adobe's published program for it instead.
     ///
@@ -1235,6 +1244,11 @@ impl Rewrite {
                  draws the proxy ISO 32000-2 \u{a7}8.10.4.1 has a processor draw when the \
                  imported page is not available"
             }
+            Self::Jpeg2000TranscodedToFlate => {
+                "a JPEG 2000 image outside the JPX baseline that states its own ColorSpace is \
+                 decoded to its samples and written again under FlateDecode in that space, each \
+                 integer kept at its own depth"
+            }
         }
     }
 
@@ -1311,6 +1325,7 @@ impl Rewrite {
             Self::PreservedAsAttachment => "preserved-as-attachment",
             Self::HiddenAnnotationShown => "hidden-annotation-shown",
             Self::ReferenceXObjectProxied => "reference-xobject-proxied",
+            Self::Jpeg2000TranscodedToFlate => "jpeg2000-transcoded-to-flate",
             Self::ShippedCMapEmbedded => "shipped-cmap-embedded",
             Self::WriteModeAgreed => "write-mode-agreed",
         }
@@ -1364,6 +1379,7 @@ pub(super) fn convert(
         forbidden_annotations: prepared.forbidden_annotations.as_ref().ok(),
         hidden_annotations: prepared.hidden_annotations.as_ref().ok(),
         reference_xobjects: prepared.reference_xobjects.as_ref().ok(),
+        transcodes: prepared.transcodes.as_ref().ok(),
         shipped_cmaps: prepared.shipped_cmaps.as_ref().ok(),
         extra_appearance_states: prepared.extra_appearance_states.as_ref().ok(),
         automatic_states: prepared.automatic_states.as_ref().ok(),
@@ -2193,6 +2209,8 @@ struct Rewriter<'a> {
     hidden_annotations: Option<&'a HiddenAnnotations>,
     /// The reference `XObject`s whose `Ref` entry a `preserve` removes (`doc/adr/1285`).
     reference_xobjects: Option<&'a super::in_place::ReferenceXObjects>,
+    /// The JPEG 2000 images a `preserve` transcodes, keyed by the image (`doc/adr/1400`).
+    transcodes: Option<&'a super::transcode::Transcodes>,
     /// The `CMap` streams a `preserve` embeds, keyed by the font naming each (`doc/adr/1286`).
     shipped_cmaps: Option<&'a super::cmaps::ShippedCMaps>,
     /// The annotations whose `/AP` is reduced to `/N`, where any are.
@@ -4215,6 +4233,16 @@ impl Rewriter<'_> {
         // The JPEG 2000 data itself, with the colour specification boxes the part directs a
         // processor to ignore taken out: the bytes and the `/Length` change together, so it is a
         // whole stream for the same reason the font program above is.
+        // ADR 1400: the whole image, written again under `FlateDecode` in the colour space its
+        // dictionary states. Before the colour box reduction, which edits the data this replaces.
+        if self.wants(Rewrite::Jpeg2000TranscodedToFlate)
+            && let Some(transcoded) = self
+                .transcodes
+                .and_then(|transcodes| transcodes.at.get(&id))
+        {
+            count(applied, Rewrite::Jpeg2000TranscodedToFlate);
+            return Rewritten::Changed(transcoded.clone());
+        }
         if self.wants(Rewrite::Jpeg2000ColourSpecifications)
             && let Some(reduced) = self
                 .specifications

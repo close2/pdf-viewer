@@ -7,10 +7,9 @@
 //! composite font §9.10.2 is the glyph selection algorithm. The clause's first method is the
 //! producer's `/ToUnicode` and its third is the collection's own `registry-ordering-UCS2` table,
 //! and the methods are ranked *per code*: a `/ToUnicode` that omits a code has "fail[ed] to
-//! produce a Unicode value" for that code and the third method is next. Until session 981 the
-//! drawing route took the `/ToUnicode` for every code the moment it was non-empty and never asked
-//! the collection about the ones it left out, while the readback route asked both — two routes
-//! over one clause, disagreeing about what the file said.
+//! produce a Unicode value" for that code and the third method is next. A drawing route that took
+//! the `/ToUnicode` for every code the moment it was non-empty, while the readback route asked
+//! both, would be two routes over one clause, disagreeing about what the file said.
 //!
 //! This counts the population that could show the difference, which is a property of the files
 //! and the same on every machine: a `Type0` font whose descendant embeds no program, whose

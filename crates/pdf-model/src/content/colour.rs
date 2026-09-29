@@ -437,10 +437,9 @@ impl Interpreter<'_> {
     /// The ranking — §8.6.5.6's default, then §14.11.5's output intent, then the device space
     /// itself — is `ColourSpace::device_family`'s, and it is the same function `cs` reaches
     /// through `ColourSpace::parse_with_output_intent`, so an operator that sets a device space
-    /// and a colour together and one that names the space first cannot be two conversions.
-    /// Until the nine-hundred-and-eightieth session the intent was consulted here alone, so
-    /// `1 0 0 0 k` and `/DeviceCMYK cs 1 0 0 0 scn` were two colours on a page with an
-    /// output intent (ADR 1001).
+    /// and a colour together and one that names the space first cannot be two conversions:
+    /// `1 0 0 0 k` and `/DeviceCMYK cs 1 0 0 0 scn` are one colour on a page with an output
+    /// intent (ADR 1001).
     pub(super) fn device_space(&self, name: &str, resources: &Dictionary) -> ColourSpace {
         let named = Object::Name(Name::new(name.as_bytes().to_vec()));
         ColourSpace::parse_under(
@@ -602,12 +601,11 @@ pub(super) fn convert(
 /// > then when processing a page that has an associated (page-level) output intent, that
 /// > page-level output intent shall be used.
 ///
-/// This tree does choose to respect them — that is what this function is — so the `shall` binds
-/// it, and until session 888 only the catalog was read. No corpus document states a page-level
-/// array (a scan of all 974 found none), so nothing this project measures changed when the
-/// second home was added; what changed is that a document *can* now say per page what its
-/// device colours mean, which is the construction `pdf_transform::merge` writes when two
-/// sources' catalog intents disagree.
+/// This tree does choose to respect them — that is what this function is — so the `shall` binds it,
+/// and both homes are read (ADR 0821). No corpus document states a page-level array (a scan of all
+/// 974 found none); what the second home gives is that a document *can* say per page what its
+/// device colours mean, which is the construction `pdf_transform::merge` writes when two sources'
+/// catalog intents disagree.
 pub(super) fn output_intent_space(
     document: &Document,
     page: Option<&Dictionary>,

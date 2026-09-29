@@ -7,14 +7,11 @@
 //! fast as a 5-page one, which `CLAUDE.md` principle 2 requires — eagerly walking a page
 //! tree of thousands of nodes is the most common reason viewers feel slow to start.
 //!
-//! **This paragraph said "and decoded streams are cached", and that was not true of
-//! ordinary streams**; the four-hundred-and-twenty-fourth session counted the calls and
-//! found [`Document::decoded_stream_data`] running 12 717 times over one sweep of ISO
-//! 32000-2 and 11 975 times over the *second* sweep of the same document, which is a filter
-//! chain re-run rather than a cache read. It is true again as of the
-//! four-hundred-and-eighty-second, which measured what those re-runs cost and gave them a
-//! byte budget: [`DECODED_BUDGET`] and [`Document::decoded_streams`] are the shape, ADR 0317
-//! the argument.
+//! **Decoded streams are cached under a byte budget**: without one,
+//! [`Document::decoded_stream_data`] runs 12 717 times over one sweep of ISO 32000-2 and 11 975
+//! times over the *second* sweep of the same document, which is a filter chain re-run rather
+//! than a cache read (ADR 0260). [`DECODED_BUDGET`] and [`Document::decoded_streams`] are the
+//! shape, ADR 0317 the argument.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, OnceLock, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -93,15 +90,15 @@ pub const RECOVERY_DECODE_BUDGET: usize = 64 * 1024 * 1024;
 ///
 /// # Shareable between threads
 ///
-/// The five caches below are memoisation behind `RwLock`, which makes a `&Document` usable
-/// from several threads at once. They were `RefCell` until the four-hundred-and-twenty-fourth
-/// session, which measured what the change costs and what it buys, because a lock on the
-/// hottest path in the program is not free by assumption: `get` is asked **829 times a page**
-/// on ISO 32000-2 and answers 92.7% of them from the cache. Single-threaded, the whole swap
-/// is **2 208 807 721 → 2 209 269 060** instructions through `examples/callgrind_interpret`
-/// — 0.021% — and 78 464 732 → 78 357 201 through `examples/callgrind_open`; a cold
-/// document-wide sweep of ISO 32000-2 stays inside its own spread, 5.69 s against 5.78 s over
-/// seven interleaved samples apiece with ranges of 0.30 and 0.36 s.
+/// The five caches below are memoisation behind `RwLock`, which makes a `&Document` usable from
+/// several threads at once. ADR 0260 measured what that costs and what it buys, because a lock on
+/// the hottest path in the program is not free by assumption: `get` is asked **829 times a page**
+/// on ISO 32000-2 and answers 92.7% of them from the cache. Single-threaded, the whole swap against
+/// `RefCell` is **2 208 807 721 → 2 209 269 060** instructions through
+/// `examples/callgrind_interpret` — 0.021% — and 78 464 732 → 78 357 201 through
+/// `examples/callgrind_open`; a cold document-wide sweep of ISO 32000-2 stays inside its own
+/// spread, 5.69 s against 5.78 s over seven interleaved samples apiece with ranges of 0.30 and 0.36
+/// s.
 ///
 /// What that makes possible is a *host's* to use rather than this crate's:
 /// `pdf-model/examples/parallel_sweep` reads all 1023 pages on 24 threads through one
@@ -964,8 +961,8 @@ impl Document {
     /// section's own header declared an entry this reader never read
     /// ([`crate::xref::XrefTable::declared_and_unread`]). It does **not** run for a number the
     /// file did not mention at all, or mentioned as **free**: that names nothing, because
-    /// §7.5.6 makes a deletion the most recent statement about an object and ADR 0100 is the
-    /// session that stopped this reader resurrecting objects its own file had deleted.
+    /// §7.5.6 makes a deletion the most recent statement about an object, and this reader does
+    /// not resurrect objects its own file deleted (ADR 0100).
     /// Scanning for a header there would undo exactly that. The caller's two questions —
     /// [`crate::xref::XrefTable::location`] first, then `declared_and_unread` — are what keep
     /// the three cases apart.
@@ -2184,7 +2181,7 @@ impl Document {
     ///   [`Self::stream_source`]'s.
     ///
     /// [`EncodedExtent::Unknown`] covers a filter whose end this crate does not locate, which
-    /// after the six-hundred-and-thirty-fifth session is `JBIG2Decode`, `JPXDecode` and `Crypt`
+    /// is `JBIG2Decode`, `JPXDecode` and `Crypt` (ADR 0467)
     /// — and §8.9.7 forbids all three of those to an inline image. What each of the three answers
     /// means is that type's own documentation, and how each filter is asked is
     /// [`crate::Delimiting`]'s.
@@ -3329,12 +3326,12 @@ mod tests {
 
     /// Table 255 makes `/Type` optional, so a signature that omits it is still one.
     ///
-    /// `issue17069.pdf` is that document — encrypted, `/ByteRange`, `/Contents`, no `/Type` —
-    /// and until the three-hundred-and-seventy-seventh session its 33 680-byte signature value
-    /// went through the cipher and came back empty. What identifies one without a `/Type` is
-    /// the pair Table 255 requires of every signature carrying a byte range digest, and a
-    /// dictionary holding only one of them is not exempted: an annotation's `/Contents` is an
-    /// ordinary encrypted text string and staying out of the cipher would leave it unreadable.
+    /// `issue17069.pdf` is that document — encrypted, `/ByteRange`, `/Contents`, no `/Type` — and
+    /// through the cipher its 33 680-byte signature value comes back empty (ADR 0215). What
+    /// identifies one without a `/Type` is the pair Table 255 requires of every signature carrying
+    /// a byte range digest, and a dictionary holding only one of them is not exempted: an
+    /// annotation's `/Contents` is an ordinary encrypted text string and staying out of the cipher
+    /// would leave it unreadable.
     #[test]
     fn a_signature_dictionary_with_no_type_is_recognised_by_its_byte_range() {
         let mut signature = Dictionary::new();

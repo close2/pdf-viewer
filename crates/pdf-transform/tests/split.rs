@@ -276,8 +276,8 @@ fn the_cuts_are_where_the_grammar_and_the_flag_say_they_are() {
 /// The document-level constructs a piece does not carry are named in a warning, never dropped
 /// in silence — trap 5, and RFC 0002 section 6.1's "not silently".
 ///
-/// `/Outlines`, `/Names`, `/Dests` and `/PageLabels` **left this list in session 910** and have
-/// their own tests below; what stays here is what `split` still leaves behind.
+/// `/Outlines`, `/Names`, `/Dests` and `/PageLabels` are not on this list and have their own tests
+/// below (ADR 0862); what stays here is what `split` still leaves behind.
 #[test]
 fn what_a_piece_does_not_carry_is_named() {
     let bytes = std::fs::read(committed("PDF20_AN001-BPC.pdf")).expect("a committed document");

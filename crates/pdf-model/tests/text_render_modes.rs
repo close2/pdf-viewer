@@ -2,28 +2,25 @@
 //!
 //! # Why this file exists
 //!
-//! Table 104's eight modes are three operations — fill, stroke, add to the clipping path —
-//! and for four sessions this tree implemented one of them. Mode 1 and mode 2 were drawn as
-//! a plain fill in the *non-stroking* colour, so a page that outlines its display type came
-//! out solid; modes 4 to 7 built no clip at all, so a rectangle painted afterwards to show
-//! through the letters covered its whole area — `text_clip_cff_cid.pdf` drew a solid blue
-//! bar where four renderers show the word "ABC123". Both were reported rather than silent,
-//! which is the only reason they were schedulable.
+//! Table 104's eight modes are three operations — fill, stroke, add to the clipping path — and
+//! a reader that implements only the first gets two families wrong (ADR 0022). Mode 1 and mode
+//! 2 drawn as a plain fill in the *non-stroking* colour turn a page that outlines its display
+//! type solid; modes 4 to 7 with no clip let a rectangle painted afterwards to show through the
+//! letters cover its whole area — `text_clip_cff_cid.pdf` becomes a solid blue bar where four
+//! renderers show the word "ABC123".
 //!
 //! These assert against the *display list* rather than against pixels, because every rule
 //! here is about which commands exist, in what order, with which paint and which clip — and
 //! a rasterised page answers those only through what it happens to cover. The oracle covers
 //! the other direction.
 //!
-//! # The machine dependency that used to be here
+//! # Why the helper panics rather than skipping
 //!
 //! A glyph outline has to come from somewhere, and the standard 14 fonts are not embedded in any
-//! file. Until the hundred-and-forty-eighth session `pdf-font`'s `substitute` found one installed
-//! on *this machine*, so a machine with no fonts at all would produce no outlines and every
-//! assertion below would pass vacuously — which is why the helper panics rather than skipping: a
-//! missing corpus is a skip, but a fixture that cannot exercise what the test is about is a
-//! failure. The twelfth session shipped two tests that quietly checked nothing for exactly this
-//! reason.
+//! file. A face found installed on *this machine* would make a machine with no fonts at all
+//! produce no outlines, and every assertion below would pass vacuously — which is why the helper
+//! panics rather than skipping: a missing corpus is a skip, but a fixture that cannot exercise
+//! what the test is about is a failure.
 //!
 //! §9.6.2.2's fourteen are compiled in now (`pdf_font::standard`, ADR 0133), so the dependency is
 //! gone and the panic cannot fire for the reason it was written for. It stays, because what it
@@ -115,8 +112,7 @@ fn interpret(content: &str) -> pdf_model::Interpretation {
 /// a separate probe in mode 0, whose answer is never nothing, is what decides whether a
 /// substitute was found.
 ///
-/// **The failure message used to end "install a font or run this where one exists".** Since the
-/// hundred-and-forty-eighth session §9.6.2.2's fourteen are compiled into the binary, so
+/// §9.6.2.2's fourteen are compiled into the binary (ADR 0133), so
 /// `/Helvetica` resolves on a machine with no fonts at all and this probe cannot fail for that
 /// reason. It stays because it is still the thing that would make every assertion below vacuous,
 /// and a probe that can no longer fail for the reason it was written for is a probe that will
@@ -395,7 +391,7 @@ fn a_glyph_is_stroked_with_a_width_stated_in_user_space() {
 /// Mode 7 adds the glyphs to the clipping path and paints nothing.
 ///
 /// The rectangle after `ET` is the whole point: it is what the producer expects to see only
-/// through the letters, and it is what we drew over the whole page for four sessions.
+/// through the letters, and a reader that builds no clip draws it over the whole page.
 #[test]
 fn mode_7_clips_what_follows_and_paints_nothing() {
     let drawn = page("BT /F1 48 Tf 10 10 Td 7 Tr (A) Tj ET 0 0 100 100 re f");
@@ -568,8 +564,8 @@ fn no_defined_rendering_mode_reports_anything() {
 /// replacement rather than the space.
 ///
 /// The property list is inline, which is the form real documents use and the form the content
-/// lexer could not assemble until the fifty-fifth session: a content stream yields tokens, so a
-/// dictionary written inside one has to be put back together.
+/// lexer has to assemble (ADR 0060): a content stream yields tokens, so a dictionary written
+/// inside one has to be put back together.
 #[test]
 fn actual_text_replaces_what_a_sequence_reads_back() {
     let page = page(

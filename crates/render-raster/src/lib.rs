@@ -46,12 +46,11 @@ pub use uncaptured::{Uncaptured, UncapturedErrors};
 pub enum QuorraRasterError {
     /// raster's device said no: bringing it up, or a resource upload (named inside).
     ///
-    /// **The prefix is gone, and it was wrong.** This read `resource upload refused: {0}` until
-    /// the three-hundred-and-eighty-fourth session, which is true of three of `DeviceError`'s
-    /// seven variants and false of the four that are about *construction* — so a machine with no
-    /// adapter for the backend it was given reported "resource upload refused: surface creation
-    /// failed", which is two claims and one of them invented. Every variant already names what
-    /// happened, so there is nothing for a prefix to add.
+    /// **No prefix.** A prefix such as `resource upload refused` is true of three of
+    /// `DeviceError`'s seven variants and false of the four that are about *construction*, so a
+    /// machine with no adapter for the backend it was given would report two claims and one of
+    /// them invented. Every variant already names what happened, so there is nothing for a
+    /// prefix to add.
     #[error("{0}")]
     Device(#[from] raster_gpu::DeviceError),
     /// raster refused the frame (budget, limits, or a dangling resource id).
@@ -504,14 +503,11 @@ impl QuorraRasterizer {
     /// depend on which of the two it is.
     ///
     /// `cost` is filled as the call goes, so that a frame that refuses still reports what it
-    /// uploaded and settled — **and it is filled at all only since the
-    /// five-hundred-and-sixty-seventh session**, which is why a period-two atlas repack lived
-    /// on this path unseen through every corpus run this tree has made. [`FrameCost`] existed,
-    /// [`FrameCost::uploads`] is documented as the number that says whether the caches are
-    /// working at all, and only [`Self::rasterize_frame`] filled it: the one path every gate in
-    /// this tree takes was the one path with no instrument on it, and the defect was found by
-    /// the library on the other side of the boundary instead
-    /// (`render-lib/doc/notes-atlas-budget.md` section 5). ADR 0402.
+    /// uploaded and settled. [`FrameCost::uploads`] is documented as the number that says
+    /// whether the caches are working at all, and this is the one path every gate in this tree
+    /// takes, so a path here with no instrument on it would hide a defect such as a period-two
+    /// atlas repack from every corpus run (`render-lib/doc/notes-atlas-budget.md` section 5).
+    /// ADR 0402.
     ///
     /// # Errors
     ///

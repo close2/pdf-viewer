@@ -6,11 +6,10 @@
 //! page of documented choices, and the three hosts should be seen to agree about it in the same
 //! kind of code.
 //!
-//! **And since the six-hundred-and-eighty-seventh session that agreement is a value rather than a
-//! resemblance** (ADR 0526). This module used to carry a table of its own — `Qt::Key` to
-//! [`viewer_core::Command`] — beside two others that disagreed with it about the arrow keys, about
-//! `f` and about Escape. What is left is a *translation*: a `Qt::Key` becomes a
-//! [`viewer_host::Key`] and [`viewer_host::meaning`] says what it means.
+//! **That agreement is a value rather than a resemblance** (ADR 0526): a table per host would
+//! disagree with the others about the arrow keys, about `f` and about Escape. What is here is a
+//! *translation*: a `Qt::Key` becomes a [`viewer_host::Key`] and [`viewer_host::meaning`] says what
+//! it means.
 //!
 //! The cost of that choice is the table below: `Qt::Key` constants written out by hand, because a
 //! C++ enumerator is not a Rust one and `cxx` carries no enumeration this crate wants to own. Every

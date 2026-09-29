@@ -133,8 +133,8 @@ fn a_rectangle_of_no_width_marks_the_page_too() {
 
 /// The mark carries the ink a zero-width stroke down the same line carries, and not its pixels.
 ///
-/// **This was an assertion of byte-identity until the three-hundred-and-sixty-eighth session,
-/// and it is an ink test now because the identity was broken on purpose.** What the two
+/// **It is an ink test rather than one of byte-identity, because the identity is broken on
+/// purpose (ADR 0208).** What the two
 /// constructions still share is the *width*, which is the thing that must not drift: §8.4.3.2's
 /// answer for a line and §10.7.4's for a flat fill are one device pixel, stated once in
 /// `pdf_render::thinnest_line`, so each lays down one pixel of ink per device pixel of length.
@@ -247,8 +247,8 @@ fn a_mark_inside_an_even_odd_fill_does_not_cut_a_hole_in_it() {
 /// 0.1 → 0, 0.2 → 19.8 of 16, 0.5 → 39.8 of 40 — a *device*-dependent disappearance rather than
 /// a geometric one, and a rule of its own rather than an extension of this one.
 ///
-/// It is `pdf_render::sub_pixel`'s since the three-hundred-and-eighty-ninth session, and the
-/// whole ladder is now within one level of 255 of the area (ADR 0226): 0.05 → 0.0510 of a row,
+/// It is `pdf_render::sub_pixel`'s, and the whole ladder is now within one level of 255 of the
+/// area (ADR 0226): 0.05 → 0.0510 of a row,
 /// 0.1 → 0.1020, 0.2 → 0.2000, 0.5 → 0.5020, where an eight-bit raster's own steps are 1/255
 /// apart and there is nowhere finer to put them. This sliver's own answer moves from 39.8 to
 /// **40.157** of its 40, which is 128 of 255 per column where the area asks for 127.5. The

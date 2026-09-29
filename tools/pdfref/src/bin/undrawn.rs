@@ -5,10 +5,9 @@
 //! cargo run --release -p pdfref --bin undrawn -- oracle.log
 //! ```
 //!
-//! `doc/todo/00` step 7, which had been a paragraph since the two-hundred-and-sixty-fifth session
-//! and was rebuilt by hand at least fifteen times. [`pdfref::undrawn`] says what the sweep
-//! asks, what its three corrections are, why the greyscale recipe is part of the measurement, and
-//! what the rebuild in the nine-hundred-and-seventy-fourth session found: a page from a labelled
+//! `doc/todo/00` step 7, which as a paragraph was rebuilt by hand at least fifteen times.
+//! [`pdfref::undrawn`] says what the sweep asks, what its three corrections are, why the greyscale
+//! recipe is part of the measurement, and what one rebuild found (ADR 0985): a page from a labelled
 //! corpus is *printed* with its label in the name and *written* with the label as a directory, so
 //! a loop written from the recipe skipped 63 of 838 pages and said nothing.
 //!

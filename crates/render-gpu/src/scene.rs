@@ -273,8 +273,8 @@ fn knock_out(
 /// The width is [`Stroke::device_width`]'s rather than the field's, which is not a
 /// refinement here but the whole of ISO 32000-2 §8.4.3.2 on this backend: `kurbo` expands
 /// a zero-width stroke into an empty outline, so a `0 w` line — the standard's "thinnest
-/// line that can be rendered at device resolution" — drew nothing at all until the
-/// nineteenth session. §10.7.5's stroke adjustment arrives through the same call.
+/// line that can be rendered at device resolution" — would draw nothing at all (ADR 0028).
+/// §10.7.5's stroke adjustment arrives through the same call.
 ///
 /// As in `render-cpu`, the miter limit is always set explicitly: `kurbo`'s default is
 /// `4.0` where PDF's initial value is `10.0`.
@@ -317,8 +317,8 @@ fn stroke(s: &Stroke, to_device: Transform) -> kurbo::Stroke {
 /// quotation above is `doc/md/`'s, which is what the quotation gate reads.
 ///
 /// So `[0 6] 0 d 1 J S` is a dotted line, and `kurbo` expands a dash of no length into an
-/// empty outline — the `0 w` hairline defect of the nineteenth session in a second place, a
-/// rasteriser convention standing in for a clause nobody had written down.
+/// empty outline — the `0 w` hairline question of `stroke` in a second place, a rasteriser
+/// convention standing in for a clause.
 ///
 /// Returns `None` — leaving the caller to hand Vello the pattern as usual — unless it holds a
 /// zero-length dash whose cap would show. Where it does, the path is dashed here with the

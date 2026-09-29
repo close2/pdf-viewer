@@ -29,7 +29,7 @@
 //!
 //! That is also what makes the run's numbers mean anything. The hand-runs recorded 25 of 83, 64
 //! of 83, 72 of 83, 27 of 80, 66 of 80, 43 of 80, 61 of 80, 57 of 80 and 47 of 80 over rounds
-//! that moved almost no `inapplicable` rows, because each session wrote its own stop-list — a
+//! that moved almost no `inapplicable` rows, because each run wrote its own stop-list — a
 //! level that cannot be compared with the one before it says nothing at all, which is ADR 0360's
 //! argument for the caller sweep arriving one sweep later.
 //!

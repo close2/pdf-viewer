@@ -217,12 +217,10 @@ impl Typing {
 impl App {
     /// Puts what is selected on the page into this program's clipboard.
     ///
-    /// **The first consumer [`Query::LogicalSelection`] has ever had.** `doc/todo/01`'s fifth
-    /// sweep — "the model implements this, who calls it?" — found in the four-hundred-and-
-    /// thirteenth session that the query had answered since the three-hundred-and-eighty-eighth
-    /// and that no host of the four asked it, while §14.8.2.5's ledger row read `implemented` on
-    /// the strength of the query alone. A clause reaches a person through a program or it does
-    /// not reach one.
+    /// **A consumer of [`Query::LogicalSelection`]**, because a query no host asks does not make
+    /// §14.8.2.5's ledger row `implemented` on its own — `doc/todo/01`'s fifth sweep, "the model
+    /// implements this, who calls it?" (ADR 0249). A clause reaches a person through a program or
+    /// it does not reach one.
     ///
     /// ISO 32000-2 §14.8.2.5 defines the two orders and this host chooses between them:
     ///
@@ -239,10 +237,10 @@ impl App {
     /// that means here: the order it could give, named out loud, rather than a silent
     /// rearrangement.
     ///
-    /// **The choice between the two orders left this file in the six-hundred-and-eighty-third
-    /// session** (ADR 0519). It is the same decision in all three windowed hosts and the third
-    /// copy is where two of them stop agreeing, so it is `viewer_host::copying` now — and what
-    /// stays here is the two questions and the platform, which is what a host actually owns.
+    /// **The choice between the two orders is `viewer_host::copying`'s** (ADR 0519): it is the same
+    /// decision in all three windowed hosts, and a copy per host is where two of them stop
+    /// agreeing. What stays here is the two questions and the platform, which is what a host
+    /// actually owns.
     ///
     /// **And the text now leaves the program.** `viewer_ui::clipboard` is this host's end of the
     /// session's clipboard, connected on this line and no earlier; the in-process string is kept
@@ -251,11 +249,10 @@ impl App {
     /// refuses is reported rather than swallowed, and the copy still happened *inside* the
     /// program, which is the honest thing to say about it.
     pub(crate) fn copy_selection(&mut self) {
-        // **A command rather than two questions**, since the one-thousand-one-hundred-and-forty-
-        // seventh session: §7.6.4.2's bit 5 restricts taking text out of the document and a
-        // readback can be neither refused, asked about nor warned of, so the gesture is
-        // `Command::Copy` and both orders arrive together on `Event::Copied` (ADR 1144). What
-        // stays here is the platform and the sentence, which is what a host actually owns.
+        // **A command rather than two questions**: §7.6.4.2's bit 5 restricts taking text out of
+        // the document and a readback can be neither refused, asked about nor warned of, so the
+        // gesture is `Command::Copy` and both orders arrive together on `Event::Copied` (ADR 1144).
+        // What stays here is the platform and the sentence, which is what a host actually owns.
         if !matches!(self.viewer.query(Query::Selection), Answer::Selected(_)) {
             println!("note: nothing on the page is selected to copy");
             return;
@@ -281,11 +278,10 @@ impl App {
 
     /// Starts or stops typing, at a point of the page's own viewport.
     ///
-    /// **The point is the caller's since the five-hundred-and-ninetieth session**, because a
-    /// pointer is no longer the only thing that clicks: an assistive technology asking
-    /// `org.a11y.atspi.Action` for a click names a *node*, and [`App::click_page`] turns that into
-    /// the same three steps a mouse takes. Reading `self.cursor` here would have aimed the
-    /// keyboard wherever the mouse happened to be resting.
+    /// **The point is the caller's** (ADR 0425), because a pointer is not the only thing that
+    /// clicks: an assistive technology asking `org.a11y.atspi.Action` for a click names a *node*,
+    /// and [`App::click_page`] turns that into the same three steps a mouse takes. Reading
+    /// `self.cursor` here would aim the keyboard wherever the mouse happened to be resting.
     ///
     /// A press inside a field somebody can type into aims the keyboard at it; a press anywhere
     /// else puts the keyboard back on the page. §12.7.5.1's four field types are not equal here —
@@ -303,13 +299,12 @@ impl App {
             return;
         }
         self.typing = match self.viewer.query(Query::FieldAt(at)) {
-            // Table 231 bit 14, refused rather than mishandled — and it was mishandled until the
-            // four-hundred-and-eleventh session, which is what ADR 0247's third amendment made
-            // visible. This host reads a field's value back after every keystroke (ADR 0201) and a
-            // password field answers with bullets, so what it sent as the next value was those
-            // bullets with a character appended. Refusing is trap 5: `viewer-gtk` and `viewer-qt`
-            // type into a `GtkPasswordEntry` and a `QLineEdit` in `Password` echo mode, which are
-            // the platform's own secure controls, and this host draws its own page and has none.
+            // Table 231 bit 14, refused rather than mishandled (ADR 0247's third amendment). This
+            // host reads a field's value back after every keystroke (ADR 0201) and a password field
+            // answers with bullets, so what it would send as the next value is those bullets with a
+            // character appended. Refusing is trap 5: `viewer-gtk` and `viewer-qt` type into a
+            // `GtkPasswordEntry` and a `QLineEdit` in `Password` echo mode, which are the
+            // platform's own secure controls, and this host draws its own page and has none.
             Answer::Field {
                 name,
                 value: Some(shown),
@@ -345,12 +340,10 @@ impl App {
             } => {
                 println!("note: typing into the field {}", name.shown());
                 // **The caret goes where the click went**, which is `Query::Offset` — the inverse
-                // of `Query::Caret`, and the piece `doc/todo/33` said was missing until the
-                // three-hundred-and-eighty-eighth session. The point names the field and is also
-                // the point measured, because a press is one place; a drag then asks the same
-                // question with the pointer's place instead. The end of the value is what a field
-                // whose layout could not answer falls back to, which is where the caret used to
-                // start every time.
+                // of `Query::Caret` (ADR 0225). The point names the field and is also the point
+                // measured, because a press is one place; a drag then asks the same question with
+                // the pointer's place instead. The end of the value is what a field whose layout
+                // could not answer falls back to.
                 let caret = match self.viewer.query(Query::Offset { at, point: at }) {
                     Answer::Offset(offset) => offset,
                     _ => value.text.len(),
@@ -686,11 +679,10 @@ impl App {
     /// refuses the edit, and a host that sent it anyway would be a program that looks broken
     /// rather than one that obeys the document.
     ///
-    /// **The rule itself is [`viewer_host::form::clicked`] since the seven-hundred-and-thirty-fifth
-    /// session**, and the seventy lines it replaces here were the third copy of it: `viewer-gtk`
-    /// and `viewer-qt` each decided §12.7.5.2 for themselves from their own toolkit's button, and
-    /// only this one asked Table 227 first. The match is exhaustive in all three windows, which is
-    /// what makes a case added to [`viewer_host::Clicked`] a compile error in three places.
+    /// **The rule itself is [`viewer_host::form::clicked`]**, one copy for three windows, so that
+    /// each asks Table 227 before deciding §12.7.5.2 rather than reading its own toolkit's button
+    /// (ADR 0630). The match is exhaustive in all three windows, which is what makes a case added
+    /// to [`viewer_host::Clicked`] a compile error in three places.
     ///
     /// [`viewer_host::form::clicked`]: viewer_host::clicked
     /// [`viewer_host::Clicked`]: viewer_host::Clicked

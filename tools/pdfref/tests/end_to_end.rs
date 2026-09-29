@@ -237,12 +237,12 @@ fn a_corrupt_pdf_is_reported_as_a_renderer_failure() {
 /// And a renderer that writes an **empty** file has produced no output, with its own reason.
 ///
 /// `mutool draw` creates its `-o` file before it decides it cannot draw the page, so a document
-/// it refuses leaves a zero-byte PNG behind. Until the seven-hundred-and-seventh session that
-/// passed the harness's `exists()` test, reached the PNG decoder, and came back as
+/// it refuses leaves a zero-byte PNG behind. An `exists()` test alone would pass it on to the PNG
+/// decoder, and it would come back as
 /// [`pdfref::HarnessError::Png`] — a variant `cache` deliberately does not remember, since a PNG
-/// this harness cannot read is not a property of the document. So six corpus pages re-ran
-/// `mutool` on every run and the gate printed the *decoder's* sentence where the renderer's own
-/// was sitting in the log beside it (ADR 0574).
+/// this harness cannot read is not a property of the document. So those pages would re-run
+/// `mutool` on every run and the gate would print the *decoder's* sentence where the renderer's
+/// own sits in the log beside it (ADR 0574).
 ///
 /// Two assertions, and each is one half of that. The variant is `RendererFailed`, which is what
 /// makes the failure remembered; and the detail carries the renderer's **first** line, which is

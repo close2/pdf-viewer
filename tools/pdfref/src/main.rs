@@ -6,10 +6,7 @@
 //!
 //! # Why this maps the references against each other and not against us
 //!
-//! **This paragraph said "[o]ur own renderer needs a parser, which does not exist yet" until the
-//! three-hundred-and-eighty-seventh session**, which was true when the tool was written and false
-//! from the round that opened a document. What is still true is the division of labour, and it is
-//! deliberate rather than left over: comparing *us* against the references is
+//! **The division of labour is deliberate:** comparing *us* against the references is
 //! `pdf-model`'s oracle gate (ADR 0011), which votes and ratchets; this program votes on nothing
 //! and answers the prior question — where the references disagree with **each other**.
 //!

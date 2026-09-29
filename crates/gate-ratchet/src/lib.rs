@@ -8,11 +8,9 @@
 //! # The defect it exists for
 //!
 //! A ceiling far above its population is not a ratchet. It is a gate that cannot fire, and it
-//! looks exactly like one that can. Twice in one run of sessions a bound was found sitting well
-//! clear of what it bounds: `MAX_INCOMPLETE` at 91 against a population of 61, and `MAX_PAGELESS`
-//! at 6 against 5 — thirty documents' worth of silent regression admitted by the first. Neither
-//! was hidden. Both gates print their population on every run; neither printed its bound, so the
-//! two numbers never appeared on one line and putting them there was nobody's job.
+//! looks exactly like one that can: a bound of 91 against a population of 61 admits thirty
+//! documents' worth of silent regression. A gate that prints its population on every run and
+//! not its bound never puts the two numbers on one line, so this crate does.
 //!
 //! The second half of that is why this is a crate rather than a note. The check was then done by
 //! hand over one file's remaining four bounds, and a check done by hand is done once. Every call

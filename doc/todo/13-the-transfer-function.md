@@ -50,7 +50,7 @@ zero this tree has produced twice. It takes the SafeDocs crawl too — `find
 corpus-cache/safedocs -name '*.pdf' -print0 | xargs -0 -n 2000 <the binary>` — in under a minute
 Clauses: §10.5, §8.4.5 (Table 57's `/TR`, `/TR2` and `/HT`), §10.6.5, §11.7.5.2
 Code: `crates/pdf-model/src/content.rs` (where `/ExtGState` is read),
-`crates/pdf-model/src/function.rs` (the functions already parse and evaluate)
+`crates/pdf-colour/src/function.rs` (the functions already parse and evaluate)
 
 ## The witness
 

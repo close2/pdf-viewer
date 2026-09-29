@@ -17,15 +17,14 @@
 //! the only size signal GTK4 gives application code without subclassing a widget, and subclassing
 //! is a larger thing to take on than one signal is worth.
 //!
-//! **This sentence used to end "and `#![forbid(unsafe_code)]` is what makes subclassing the wrong
-//! answer here", and that half was false** — checked in the seven-hundred-and-thirty-first session
-//! by writing the subclass rather than by reading the attribute (ADR 0623). `#[glib::object_subclass]`
-//! expands to `unsafe impl` and `unsafe` blocks, but the `unsafe_code` lint does not fire on a
-//! proc-macro's expansion, so a `GObject` implementing `gtk4::Accessible` compiles in this crate
-//! today with the `forbid` untouched. The reason not to subclass is a judgement about cost, which
-//! is a different kind of claim from a compiler-enforced impossibility — and stating the second
-//! where only the first is true is how a floor gets written down that nobody re-checks (trap 17,
-//! and ADR 0508's rule paying a third time).
+//! **`#![forbid(unsafe_code)]` is not what rules subclassing out** — checked by writing the
+//! subclass rather than by reading the attribute (ADR 0623). `#[glib::object_subclass]` expands to
+//! `unsafe impl` and `unsafe` blocks, but the `unsafe_code` lint does not fire on a proc-macro's
+//! expansion, so a `GObject` implementing `gtk4::Accessible` compiles in this crate today with the
+//! `forbid` untouched. The reason not to subclass is a judgement about cost, which is a different
+//! kind of claim from a compiler-enforced impossibility — and stating the second where only the
+//! first is true is how a floor gets written down that nobody re-checks (trap 17, and ADR 0508's
+//! rule paying a third time).
 
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
@@ -1373,9 +1372,9 @@ impl Host {
         // `/NewWindow true` is a *second* document rather than this one reopened, so it
         // gets a tab of its own before anything else is said about it (ADR 1263).
         let behind = self.opened_beside(document, queue);
-        // Trap 5: a page tree with no leaves is a *correctly read* document with nothing
-        // to show, and a blank window is what a broken file looks like too. Said in all
-        // three hosts since the seven-hundred-and-fourth session; it was said in none.
+        // Trap 5: a page tree with no leaves is a *correctly read* document with nothing to show,
+        // and a blank window is what a broken file looks like too. Said in all three hosts
+        // (ADR 0564).
         if pages == 0 {
             self.say(&viewer_host::no_pages(&named(&self.showing.path)));
         }
@@ -1470,11 +1469,10 @@ impl Host {
                 section,
                 ..
             } => self.turned(index, label.as_deref(), of, section.as_deref()),
-            // **Handed to the drawing thread rather than drawn here** (ADR 0668). Until the
-            // seven-hundred-and-fifty-fourth session this arm called `rasterize` on the toolkit's
-            // own thread, so a page written to draw for 27.6 s took the window with it — no
-            // repaint, no key, and no thread from which `pdf_render::Interrupt` could be raised.
-            // What comes back arrives in `take_the_drawn`.
+            // **Handed to the drawing thread rather than drawn here** (ADR 0668): `rasterize` on
+            // the toolkit's own thread would let a page written to draw for 27.6 s take the window
+            // with it — no repaint, no key, and no thread from which `pdf_render::Interrupt` could
+            // be raised. What comes back arrives in `take_the_drawn`.
             Event::NeedsRender(request) => self.drawing.ask(request),
             // §12.6.4.8: resolved against this document's own location where the action left it
             // partial, then opened, declined or put to the person by the one policy three windows
@@ -1526,14 +1524,12 @@ impl Host {
             } => self.searched(found, remaining, wrapped),
             Event::Reported { page, notes, .. } => self.reported(page, &notes),
             // `CLAUDE.md`: a document's restrictions are the reader's to set, and it shall always
-            // be possible to turn them off. The sentence is `viewer_host::refused` rather than
-            // this host's own because it names the word the argument parser takes, and this host
-            // wrote its own copy of it for sessions while taking no such word (ADR 0604).
+            // be possible to turn them off. The sentence is `viewer_host::refused` rather than this
+            // host's own because it names the word the argument parser takes (ADR 0604).
             Event::Refused { notes, .. } => self.say(&viewer_host::refused(&notes)),
-            // The other two of `CLAUDE.md`'s four levels, since the eight-hundred-and-eighty-fifth
-            // session (ADR 0814). *Warn* is a sentence after an edit that went ahead. *Ask* is
-            // the question this window puts, in the modal shape §7.6.4.1's password already had
-            // (ADR 1145).
+            // The other two of `CLAUDE.md`'s four levels (ADR 0814). *Warn* is a sentence after an
+            // edit that went ahead. *Ask* is the question this window puts, in the modal shape
+            // §7.6.4.1's password already had (ADR 1145).
             Event::Warned { notes, .. } => self.say(&viewer_host::warned(&notes)),
             // §7.6.4.2's bit 3 granted. The dialogue is opened *after* the grant and from outside
             // this borrow, because `GtkPrintOperation::run` turns the main loop and every
@@ -1850,10 +1846,10 @@ impl Host {
 
     /// What the controls' minimum sizes say about the magnification, said once per placement.
     ///
-    /// **ADR 0245 left this as a third decision and it needed no message.** The count is what ADR
-    /// 0244 and ADR 0246 measured by hand on the two toolkits; the magnification beside it is
+    /// **ADR 0245 left this as a third decision and it needed no message.** The count is what
+    /// ADR 0244 and ADR 0246 measured by hand on the two toolkits; the magnification beside it is
     /// `viewer_host::ControlFit`'s arithmetic over the same numbers, and pressing `w` sends it as
-    /// `Zoom::Scale`, which the vocabulary has had since the hundred-and-thirty-first session.
+    /// `Zoom::Scale`, which the vocabulary has (ADR 0116).
     fn report_fit(&mut self, fit: &ControlFit) {
         let (placed, wider, taller, widest, tallest) = fit.counts();
         if placed == 0 {
@@ -2528,10 +2524,10 @@ impl Host {
     /// of it is where two of them would stop agreeing. What is this host's is the two questions
     /// and the toolkit.
     fn copy_selection(&mut self) {
-        // **A command rather than two questions**, since the one-thousand-one-hundred-and-forty-
-        // seventh session: §7.6.4.2's bit 5 restricts taking text out of the document, and a
-        // readback can be neither refused, asked about nor warned of. The two answers arrive
-        // together on `Event::Copied` and the choice between them is unchanged (ADR 1144).
+        // **A command rather than two questions**: §7.6.4.2's bit 5 restricts taking text out of
+        // the document, and a readback can be neither refused, asked about nor warned of. The two
+        // answers arrive together on `Event::Copied` and the choice between them is unchanged
+        // (ADR 1144).
         if !matches!(self.viewer.query(Query::Selection), Answer::Selected(_)) {
             self.say("nothing on the page is selected to copy");
             return;
@@ -3698,12 +3694,11 @@ impl Host {
 
     /// The third-party notices this binary is obliged to carry, in a window of their own.
     ///
-    /// **A licence obligation with a surface, and this host had neither half of it until the
-    /// six-hundred-and-eighty-seventh session**: `pdf-font` compiles the standard 14 font programs
-    /// into every binary in this tree, both of their licences require a binary distribution to
-    /// reproduce their notices, and `quorra-gtk` reproduced them nowhere at all. The text is
-    /// [`viewer_host::NOTICE`], shared with the other two hosts because a notice that differs
-    /// between two binaries of one program is two claims about one obligation.
+    /// **A licence obligation with a surface**: `pdf-font` compiles the standard 14 font programs
+    /// into every binary in this tree, and both of their licences require a binary distribution to
+    /// reproduce their notices. The text is [`viewer_host::NOTICE`], shared with the other two
+    /// hosts because a notice that differs between two binaries of one program is two claims about
+    /// one obligation.
     ///
     /// Set in a monospace font and **not re-wrapped**: a BSD licence's paragraphs and a font
     /// list's columns are laid out by the file's own line breaks, and re-flowing text this program
@@ -4156,14 +4151,13 @@ pub(crate) fn with(me: &Weak<RefCell<Host>>, what: impl FnOnce(&mut Host)) {
 /// what the answer now states; `ShownValue::obscured` is the statement, and a control kind that
 /// stopped agreeing with it would have been a silent bug in exactly the place this one was found.
 ///
-/// **§12.7.5.2's two toggling kinds arrived here in the seven-hundred-and-thirty-fifth session**
-/// (ADR 0630), and their absence was a defect this host had shipped since ADR 0244 and `viewer-qt`
-/// never had: a `GtkCheckButton`'s state was set when the control was *built* and never again. So
-/// a value the field acquired any other way — an undo, an imported §12.7.8 data set, a click an
-/// assistive technology asked for, or the other button of a radio set going on — left the picture
-/// saying one thing and `/V` another. §12.7.5.2.4 is what makes the last of those a clause rather
-/// than an untidiness: with `RadiosInUnison` clear, "at most one radio button in a field shall be
-/// set at a time", and two of this host's buttons showed a tick together.
+/// **§12.7.5.2's two toggling kinds** (ADR 0630): a `GtkCheckButton`'s state follows the field, not
+/// only the moment the control was *built*. Otherwise a value the field acquired any other way — an
+/// undo, an imported §12.7.8 data set, a click an assistive technology asked for, or the other
+/// button of a radio set going on — would leave the picture saying one thing and `/V` another.
+/// §12.7.5.2.4 is what makes the last of those a clause rather than an untidiness: with
+/// `RadiosInUnison` clear, "at most one radio button in a field shall be set at a time", and two
+/// buttons would show a tick together.
 fn write_back(placed: &Placed, field: &FormField, widget: &viewer_core::FormWidget) {
     if let Some(button) = placed.widget.downcast_ref::<gtk4::CheckButton>() {
         // The same expression `controls::toggle` builds the button with, re-derived from what
@@ -4358,14 +4352,13 @@ fn logical(device: f64, scale: f64) -> i32 {
 /// `pdf_render::medium` has both readings. The colour is taken from there rather than restated
 /// here so that all three hosts and all three rasterisers say one thing.
 ///
-/// **Why a native host does not simply take the toolkit's window background, which is what this
-/// crate did until the six-hundred-and-eleventh session.** It sounds like the native answer and
-/// it is not one: GTK's default background under Adwaita is within a few levels of white, so a
-/// continuous column drew white paper on almost-white ground and the gap between two pages was
-/// as good as invisible — measured on the screen, not assumed. The toolkit has no notion of
-/// "the surface a document is laid on", so there is no platform value to inherit; picking one is
-/// the application's job either way, and picking the same one in all three hosts is
-/// `doc/todo/30`'s standing decision that the hosts stay level.
+/// **Why a native host does not simply take the toolkit's window background.** It sounds like the
+/// native answer and it is not one: GTK's default background under Adwaita is within a few levels
+/// of white, so a continuous column drew white paper on almost-white ground and the gap between two
+/// pages was as good as invisible — measured on the screen, not assumed. The toolkit has no notion
+/// of "the surface a document is laid on", so there is no platform value to inherit; picking one is
+/// the application's job either way, and picking the same one in all three hosts is `doc/todo/30`'s
+/// standing decision that the hosts stay level.
 ///
 /// A failure to load the rule is reported and nothing else: a window whose ground is the
 /// toolkit's default still shows every page, so refusing to open would be a worse answer than

@@ -11,12 +11,12 @@
 //! not toolkit code (ADR 0246 decision 3), and a C host is a native host.
 
 //! **Three answers, two handles, and the split is a fact about the ABI rather than about the
-//! panels.** [`Outline`] shipped in the four-hundred-and-eleventh session with three accessors of
-//! its own, and a C entry point cannot change shape; §8.11.4.3's layers and §7.11.4's files arrived
-//! later and want a fourth thing the outline never needed — *what acting on the row does*, which
-//! for those two is a switch and an extraction rather than an activation. So they cross as
-//! [`Panel`], with the row's action named, and the outline keeps the functions a caller already
-//! compiled against. Both are `viewer_host::PanelRow` underneath, flattened the same way.
+//! panels.** [`Outline`] has three accessors of its own from the first ABI (ADR 0247), and a C
+//! entry point cannot change shape; §8.11.4.3's layers and §7.11.4's files want a fourth thing the
+//! outline never needed — *what acting on the row does*, which for those two is a switch and an
+//! extraction rather than an activation. So they cross as [`Panel`], with the row's action named,
+//! and the outline keeps the functions a caller already compiled against. Both are
+//! `viewer_host::PanelRow` underneath, flattened the same way.
 
 use viewer_host::{PanelRow, RowAction, attachment_rows, layer_rows, outline_rows};
 
@@ -169,12 +169,11 @@ impl Panel {
 
     /// Flattens rows `viewer_host::panel` built.
     ///
-    /// **Public since the seven-hundred-and-ninth session, and that is the finding rather than a
-    /// convenience.** §12.4.3's article threads and §14.3.3's properties reached no symbol at all
-    /// until that round, and neither needed a shape of its own: `viewer_host::article_rows` and
+    /// **Public, and that is the finding rather than a convenience** (ADR 0576). §12.4.3's article
+    /// threads and §14.3.3's properties need no shape of their own: `viewer_host::article_rows` and
     /// `viewer_host::property_rows` already produce exactly this, because the two native hosts
-    /// wanted them as rows and a C caller is a native host (ADR 0246 decision 3). Two of the
-    /// eleven queries that round added cost one `pub` between them.
+    /// wanted them as rows and a C caller is a native host (ADR 0246 decision 3). Two queries cost
+    /// one `pub` between them.
     #[must_use]
     pub fn of_rows(rows: &[PanelRow]) -> Self {
         let mut out = Vec::new();

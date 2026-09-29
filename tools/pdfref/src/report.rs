@@ -140,8 +140,8 @@ pub fn side_by_side(panels: &[&Raster]) -> Result<Raster, HarnessError> {
 /// listing shows ours at the smaller size beside a reference at the larger one, and reads
 /// exactly like this tree rounding a page down.
 ///
-/// **It is not.** Two corpus pages were diagnosed as "our raster is one pixel smaller" for four
-/// hundred sessions on that reading, and both are wrong: `TargetSpec::for_page` rounds a page
+/// **It is not.** Two corpus pages diagnosed as "our raster is one pixel smaller" on that
+/// reading are both wrong: `TargetSpec::for_page` rounds a page
 /// *up*, so our own render of `colorkeymask.pdf` is 596 x 842 and of `issue21346.pdf` is
 /// 179 x 179 — `poppler`'s and `mupdf`'s sizes — while `ghostscript` truncates and sets the
 /// common size. The only place our page size can be read is a render of our own
@@ -259,11 +259,10 @@ pub fn summarise(case: &str, triangulation: &Triangulation) -> String {
     // Printed even on success: our own numbers are only interpretable next to how much
     // the references differ from each other.
     //
-    // All **four** of `Tolerance::accepts`' measures, since the four-hundred-and-seventh
-    // session. This line printed three and left out the differing fraction, which is the same
+    // All **four** of `Tolerance::accepts`' measures. Leaving out the differing fraction is the
     // omission ADR 0242 found in `oracle.rs`'s per-page line and has the same consequence one
-    // step earlier: these are the numbers a fixed bound is *derived* from, and the one bound
-    // whose derivation nothing could check was the one nothing printed.
+    // step earlier: these are the numbers a fixed bound is *derived* from, and a bound whose
+    // measure nothing prints is a bound whose derivation nothing can check.
     let _ = writeln!(out, "  references vs each other:");
     for (left, right, comparison) in &triangulation.between_references {
         let _ = writeln!(

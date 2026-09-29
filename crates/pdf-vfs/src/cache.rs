@@ -137,8 +137,8 @@ struct Held {
     /// had already answered; every such repeat is preceded by the entry for it leaving this
     /// cache, either evicted to make room or refused for being larger than the whole budget. A
     /// repeat with no forgetting behind it is work done to answer a question rather than to
-    /// produce bytes, which is `doc/traps/instruments-and-reports.md`'s trap 33 and is what ADR
-    /// 0886 found after it had cost a hundredfold for four sessions.
+    /// produce bytes, which is `doc/traps/instruments-and-reports.md`'s trap 33 and what ADR 0886
+    /// found costing a hundredfold.
     ///
     /// [`Cache::retain`]'s drops are deliberately **not** counted: those belong to a generation
     /// the document no longer has, and a question about a generation that is gone is a new

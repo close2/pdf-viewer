@@ -77,36 +77,49 @@ impl<'a> Encoder<'a> {
     /// The rectangle a path-lane job rasterises over — clip ∩ target — or `None` when
     /// this mark may not leave the walk's thread.
     ///
-    /// Two conditions, and each is a lane that has not been taught the seam rather than
-    /// a limit of it:
+    /// One condition: **[`Coverage::Gpu`]** asks [`Encoder::take_gpu_lane`] a second
+    /// question about the *flattened* triangle count, so a job that skipped the flattening
+    /// would be choosing its lane on one reading and drawing on another — the hazard ADR
+    /// 0029 names.
     ///
-    /// - **a residue clip** multiplies into the tile out of a cache the walk builds and
-    ///   decides about as it goes (`super::super::residue`), which is shared mutable
-    ///   state a fan-out would have to freeze first;
-    /// - **[`Coverage::Gpu`]** asks [`Encoder::take_gpu_lane`] a second question about
-    ///   the *flattened* triangle count, so a job that skipped the flattening would be
-    ///   choosing its lane on one reading and drawing on another — the hazard ADR 0029
-    ///   names.
+    /// **A residue clip leaves the thread too** (ADR 1395). Its product is read out of a
+    /// cache the walk decides about in encounter order (`super::super::residue`), so the
+    /// job makes only the mark's coverage and the commit multiplies the clip in
+    /// ([`Draw::under`](super::Draw::under)); [`Encoder::residue_intersection`] drains the
+    /// queue before any other caller reads that cache, so every decision in it is taken in
+    /// the order a one-threaded walk takes it. Such a tile is sized by the chain's
+    /// [`mark_bounds`](ResolvedClip::mark_bounds), which is what
+    /// [`Encoder::visible_tile`] sizes it by in place.
     ///
     /// Folding the clip and the target together here is exact: `f32::max` is associative
     /// and returns its non-NaN operand, so `max(max(x0, clip), 0)` is
     /// `max(x0, max(clip, 0))` for every input, which is what makes this the same bound
     /// [`Encoder::coverage_tile`] computes in place.
     pub(in crate::encode) fn deferrable_bounds(&self, resolved: &ResolvedClip) -> Option<[f32; 4]> {
-        (resolved.residues.is_none() && self.coverage == Coverage::Cpu)
-            .then(|| self.visible_rect(resolved))
+        (self.coverage == Coverage::Cpu).then(|| {
+            if resolved.residues.is_some() {
+                self.folded(resolved.mark_bounds())
+            } else {
+                self.visible_rect(resolved)
+            }
+        })
     }
 
     /// Clip ∩ target as a job's rectangle — the folded bound `deferrable_bounds`
     /// documents, shared with the compute lane's route (ADR 0080).
+    pub(in crate::encode) fn visible_rect(&self, resolved: &ResolvedClip) -> [f32; 4] {
+        self.folded(resolved.rect)
+    }
+
+    /// `clip` ∩ target, as `[left, top, right, bottom]`.
     #[expect(clippy::cast_precision_loss)] // a viewport extent, far inside f32's exact
     // integer range
-    pub(in crate::encode) fn visible_rect(&self, resolved: &ResolvedClip) -> [f32; 4] {
+    fn folded(&self, clip: Rect) -> [f32; 4] {
         [
-            resolved.rect.min.x.max(0.0),
-            resolved.rect.min.y.max(0.0),
-            resolved.rect.max.x.min(self.viewport.width as f32),
-            resolved.rect.max.y.min(self.viewport.height as f32),
+            clip.min.x.max(0.0),
+            clip.min.y.max(0.0),
+            clip.max.x.min(self.viewport.width as f32),
+            clip.max.y.min(self.viewport.height as f32),
         ]
     }
 
@@ -271,8 +284,14 @@ impl<'a> Encoder<'a> {
         tile: Option<crate::raster::CoverageMask>,
         draw: &Draw,
     ) -> Result<(), RenderError> {
-        let Some(tile) = tile else { return Ok(()) };
+        let Some(mut tile) = tile else { return Ok(()) };
         self.charge_tile(tile.width, tile.height)?;
+        // The clip meets the mark here, as it does in `Encoder::coverage_tile`, and after
+        // the same charge: the walk would have charged, rasterised and multiplied, and the
+        // rasterising is the only step that moved (ADR 1395).
+        if let Some(resolved) = &draw.residue {
+            self.multiply_residue(&mut tile, resolved)?;
+        }
         let dest = Point::new(tile.left as f32, tile.top as f32);
         self.push_scratch_quad(&tile, dest, draw.color, draw.clip, draw.style, draw.mask)
     }

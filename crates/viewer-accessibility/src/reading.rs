@@ -80,6 +80,8 @@ struct PageReading {
     nodes: Vec<viewer_core::AccessibilityNode>,
     /// Its widget annotations no element reaches (ADRs 1369, 1381).
     widgets: Vec<viewer_core::AccessibilityNode>,
+    /// Which of four answers `nodes` is (ADR 1393).
+    tagging: viewer_core::Tagging,
     /// What the page could not draw.
     reports: Vec<String>,
     /// §9.10.2's count of codes nothing could name.
@@ -163,6 +165,7 @@ impl Reading {
                     .map_or_else(pdf_model::content::Shortfall::default, |(_, count)| *count),
                 nodes: structure.nodes,
                 widgets: structure.widgets,
+                tagging: structure.tagging,
             })
             .collect();
         Self {
@@ -229,6 +232,7 @@ impl Reading {
                 bounds: page.bounds,
                 nodes: &page.nodes,
                 widgets: &page.widgets,
+                tagging: page.tagging,
                 reports: &page.reports,
                 readback: page.readback,
             })
@@ -268,11 +272,10 @@ fn place(viewer: &Viewer, page: usize, viewport: (f32, f32)) -> [f32; 4] {
 ///
 /// **[`Showing`] is not enough on its own, and this is the other half of the same decision.** That
 /// comparison asks whether the *page* changed; an edit changes neither the page nor the viewport,
-/// so a check box a person ticked went on being announced as unticked until the
-/// five-hundred-and-ninetieth session — and after ADR 0425 that included one an assistive
-/// technology had clicked itself. `viewer-ui` has forgotten what it published on these commands
-/// ever since; it is here rather than there because the two native hosts publish now too, and the
-/// third copy of a rule is where two hosts stop agreeing about it (ADR 0623).
+/// so without this a check box a person ticked — or one an assistive technology clicked itself —
+/// would go on being announced as unticked (ADR 0425). It is here rather than in a host because
+/// three hosts publish, and the third copy of a rule is where two hosts stop agreeing about it
+/// (ADR 0623).
 ///
 /// `Event::Dirty` looked like the condition and is not: it fires when the flag *changes*, so only
 /// the first edit of a session raises it.

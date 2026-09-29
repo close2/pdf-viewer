@@ -125,12 +125,10 @@ fn a_page_is_drawn_or_refused_and_never_silently_blank() {
 
     assert_eq!(refused, 0, "every one of these pages can be drawn in bands");
 
-    // **Page 6 stopped being the witness in the hundred-and-forty-seventh session, and it is
-    // worth saying why rather than quietly dropping the assertion.** This test used to require
-    // `banded > 0` here, on the grounds that a render coming back both unrefused and unbanded
-    // meant something had changed underneath it. Something did: `DisplayList::add_clip` began
-    // handing back an existing identifier for an identical region, and page 6's 303 clips —
-    // one region, stated 303 times — became one. It no longer overflows Vello's buffers at
+    // **Page 6 is not the banding witness, and it is worth saying why rather than leaving the
+    // assertion out silently.** `DisplayList::add_clip` hands back an existing identifier for
+    // an identical region, so page 6's 303 clips — one region, stated 303 times — are one. It
+    // does not overflow Vello's buffers at
     // 1.9008, or at 5.0 (measured). The banding is still correct and still needed, because the
     // constants it works around are fixed and another document can still exceed them; what is
     // gone is a *real page* that does. `a_scene_too_large_for_one_pass_is_banded` below is the

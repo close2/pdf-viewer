@@ -16,15 +16,14 @@
 //! `digestAlgorithm`, and the algorithm of the public key in the certificate that `SignerInfo`
 //! names.
 //!
-//! **Two more populations are counted here since the six-hundred-and-forty-first session**, and
-//! for `CLAUDE.md`'s reason rather than for a new question: §12.8.5's ledger row said "[n]o corpus
-//! document carries a document timestamp" and §12.8.3.3.2's named its one revocation-information
-//! witness by file name, and neither number had a command behind it. Both are one read on data
+//! **Two more populations are counted here**, for `CLAUDE.md`'s reason rather than for a new
+//! question: §12.8.5's ledger row and §12.8.3.3.2's each state a count of witnesses, and a count
+//! needs a command behind it. Both are one read on data
 //! this walk already has — `/Type /DocTimeStamp`, and `adbe-revocationInfoArchival` among the
 //! signer's signed attributes — and each witness is printed by path so that a row can name one
 //! without a round having to remember which.
 //!
-//! **Three more since the thousand-and-fifty-third session**, and for ADR 1067's reason: §12.8.4's
+//! **Three more**, for ADR 1067's reason: §12.8.4's
 //! document security store is the whole supply a revocation check has, because no host here has a
 //! network — so how many documents carry one, how much of what they carry reads as an RFC 5280 or
 //! RFC 6960 structure, and what section 6.1.3 (a)(3) then answers are the three facts that say how
@@ -1182,9 +1181,8 @@ fn count_revocation(
 ///
 /// **The same arrangement `count_revocation` uses and the same caveat** (trap 8): the anchor is a
 /// self-signed certificate the *token* carries, so this is a file vouching for its own authority.
-/// What it measures is which of ADR 1071's four steps the crawl's real tokens actually reach once
-/// step 4 is no longer refused for want of anybody to end a path at — which until the
-/// one-thousand-and-sixty-second session was every one of them, by name.
+/// What it measures is which of ADR 1071's four steps the crawl's real tokens actually reach when
+/// step 4 has somebody to end a path at (ADR 1076).
 fn count_established(timestamp: &Signature, bytes: &pdf_syntax::FileBytes, counts: &mut Counts) {
     let at = CENSUS_INSTANT;
     let Ok(cms) = timestamp.signed_data() else {

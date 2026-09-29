@@ -13,9 +13,9 @@
 //! # What this crate will and will not do
 //!
 //! **The constraint is that a large download must be impossible *by accident*, and it is not that
-//! a large download is impossible.** The project owner stated it from a mobile connection and
-//! then, in the same session, that a fibre connection with no limit is the usual case and a big
-//! download is then perfectly fine. So this crate is built to make the size *known and asked
+//! a large download is impossible.** The project owner's usual connection has no limit, and a
+//! big download is then perfectly fine; on a metered one it is not. So this crate is built to
+//! make the size *known and asked
 //! for*, never to decide for the person:
 //!
 //! - **The archive is addressed a member at a time, never as an object.** [`plan()`] resolves a

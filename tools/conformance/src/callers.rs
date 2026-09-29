@@ -3,10 +3,9 @@
 //! # The shape it exists for
 //!
 //! The other sweeps ask what a ledger row *claims*. This one asks the question from the other
-//! end, and the two-hundred-and-fifty-third and -fourth sessions found two clauses neither of the
-//! others could see: §12.5.6.19's `/H` was `implemented`, argued in an ADR and tested with pixels,
-//! while `viewer-core` took the pressed annotation from `link_at`, so no host could press a widget
-//! for a hundred and fifteen sessions; §8.11.4.3's `/ListMode` was read into
+//! end, and it sees what they cannot: §12.5.6.19's `/H` was `implemented`, argued in an ADR and
+//! tested with pixels, while `viewer-core` took the pressed annotation from `link_at`, so no host
+//! could press a widget; §8.11.4.3's `/ListMode` was read into
 //! `OptionalContent::list_mode` and asked by nothing, with a layer panel on the screen. **A
 //! capability can reach the crate that implements a clause and never reach a program**, because
 //! the code and its callers do not cite each other any more than two clauses do. It has produced
@@ -15,15 +14,11 @@
 //!
 //! # Why it is a program now, and it is the only sweep whose *number* is the finding
 //!
-//! Every run of it has been a script written for that session, and the counts have therefore
-//! never been comparable: the four-hundred-and-eighth recorded 246 `pub fn`s and 85 unnamed where
-//! the four-hundred-and-fifth's script said 246 and 86 over the same crates at the same commit,
-//! and the five-hundred-and-seventeenth printed 101 and 82 against the five-hundred-and-tenth's 92
-//! and 77 with the population unchanged at 286. **What this sweep produces is a delta** — the
-//! four-hundred-and-eighth's finding was that a whole new host program took *zero* names off the
-//! list, and the four-hundred-and-thirteenth's that four more took exactly one — and a delta
-//! cannot be read off two different instruments. The population is derived here, once, so that the
-//! next run's number means something beside this one's.
+//! A script written afresh for each run gives counts that are not comparable — two by-hand runs
+//! over the same crates at the same commit disagreed by one — and **what this sweep produces is a
+//! delta**: that a whole new host program took *zero* names off the list (ADR 0244), or that four
+//! more took exactly one. A delta cannot be read off two different instruments. The population is
+//! derived here, once, so that the next run's number means something beside this one's.
 //!
 //! # What a program settles that the grep could not
 //!
@@ -37,9 +32,8 @@
 //!   its unnamed names into "functions `pdf-model` calls itself", "functions only a test or an
 //!   example reaches" and "functions nothing names at all"; [`Reach`] is that sorting, and the
 //!   report prints the rungs in the order they are worth reading.
-//! - **A tool is a consumer, and this sweep could not see one for 176 sessions.** `logical_text`
-//!   read as unnamed from the two-hundred-and-fifty-third run onward while `tools/pdf-retrieve`
-//!   had asked it since the four-hundred-and-twenty-first. [`crate::roots::source_roots`] is the
+//! - **A tool is a consumer.** `logical_text` is asked by `tools/pdf-retrieve` and by no crate,
+//!   and a sweep over crates alone reads it as unnamed. [`crate::roots::source_roots`] is the
 //!   population here, so `tools/` and `fuzz/` are asked with the crates.
 //!
 //! # The noise, printed rather than filtered
@@ -49,11 +43,10 @@
 //!   answers for this one. That is the loose direction on purpose: a name reported as *unnamed* is
 //!   then genuinely absent from every file that could call it, which is the half a reading acts on.
 //! - **A name reached through a wrapper reads as unnamed.** `document_part::first_page` is reached
-//!   by every `GoToDp` through `DocumentPartJump::page_in`, and the four-hundred-and-second
-//!   recorded that this sweep cannot see it.
-//! - **An example is not a host**, which is the right default and cost the three-hundred-and-
-//!   eighty-sixth a false positive on `Collection::all_folders`. It is a rung here rather than a
-//!   silence.
+//!   by every `GoToDp` through `DocumentPartJump::page_in`, and this sweep cannot see it.
+//! - **An example is not a host**, which is the right default and gives a false positive on a
+//!   function only an example calls, as `Collection::all_folders` once was. It is a rung here
+//!   rather than a silence.
 //!
 //! # Why it is not a gate
 //!
@@ -389,8 +382,8 @@ fn identifiers(lines: &[&str]) -> HashSet<String> {
 ///
 /// A unit test lives *inside* `src/` in this tree, so a sweep that read a file whole would report
 /// a function as used by the crate that only tests it: `all_folders` is named twice in
-/// `collection.rs` and both are its own unit tests, which is exactly the shape the
-/// three-hundred-and-eighty-sixth met from the other side when an example read as no caller. The
+/// `collection.rs` and both are its own unit tests, which is the shape of an example reading as
+/// no caller met from the other side. The
 /// split is brace counting from the attribute, which is a heuristic and is stated as one — an
 /// unbalanced brace inside a string literal would move the boundary rather than lose a line.
 fn split_tests(text: &str) -> (Vec<&str>, Vec<&str>) {
@@ -585,8 +578,8 @@ mod tests {
         );
     }
 
-    /// A tool is a consumer, and this sweep could not see one for 176 sessions: `logical_text`
-    /// read as unnamed while `tools/pdf-retrieve` had asked it for eight rounds.
+    /// A tool is a consumer: `logical_text` is asked by `tools/pdf-retrieve` and by no crate, and
+    /// must not read as unnamed.
     #[test]
     fn a_tool_is_a_rung_of_its_own() {
         let sources = vec![

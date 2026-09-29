@@ -69,7 +69,7 @@ pub(crate) struct Open {
     /// A [`OnceCell`] rather than a field of [`Self::around`], because a document with no
     /// outline never needs it at all — and because the walk is exactly the "full page-tree walk"
     /// `CLAUDE.md` principle 2 says is not on the launch path, so what remains of it there is
-    /// something to be able to point at (session 925, ADR 0890).
+    /// something to be able to point at (ADR 0890).
     pub(crate) page_indices: OnceCell<BTreeMap<ObjectId, usize>>,
     /// How many pages, counting §12.7.8.3.3's imported template pages after the document's own.
     pub(crate) page_count: usize,
@@ -127,9 +127,7 @@ pub(crate) struct Open {
     /// Every page Table 29's arrangement puts in the viewport, in page order.
     ///
     /// **One entry rather than a cache of them, and the bound is the view's rather than
-    /// invented.** This was a single interpretation for four hundred sessions, with a comment
-    /// saying a cache "would also need a bound and an eviction rule, and both should be written
-    /// after somebody measures what a display list costs to hold". `/PageLayout` supplies both
+    /// invented.** A cache would need a bound and an eviction rule, and `/PageLayout` supplies both
     /// without anybody choosing a number: what is kept is exactly what is on the screen, and what
     /// is evicted is what has scrolled off it. `crate::layout::MOST` is the only figure, and it
     /// bounds the *arrangement* rather than a cache.
@@ -202,10 +200,8 @@ pub(crate) struct Open {
     /// moves through every annotation the page has, because §12.5.1 says "the annotations on a
     /// page" without qualification.
     ///
-    /// **And it moves by keyboard as well since the two-hundred-and-ninety-seventh session.**
-    /// This comment said "this program has no key that moves between fields, so focus moves by
-    /// pointer alone"; `Command::Focused` is that key's message and `pdf_model::tab_order` is
-    /// Table 31's `/Tabs`, all five values.
+    /// **And it moves by keyboard as well**: `Command::Focused` is that key's message and
+    /// `pdf_model::tab_order` is Table 31's `/Tabs`, all five values.
     pub(crate) focus: Option<ObjectId>,
     /// §12.7.6.4's import, waiting for the host to supply the file.
     pub(crate) importing: Option<ImportData>,
@@ -282,11 +278,11 @@ pub(crate) struct Open {
     pub(crate) saved_at: usize,
     /// What is selected: two [`Spot`]s, each a page and an offset into that page's readback.
     ///
-    /// **The page is here since Table 29's continuous layouts were obeyed**, and it is on *both*
-    /// ends since the session after the one that found a drag stopping at a row boundary. Until
-    /// an arrangement could show several pages the page a selection belonged to was always the
-    /// current one — so a page turn ended a selection and that was the whole rule. A scroll that
-    /// crosses a row boundary changes the current page without a person having done anything to
+    /// **The page is here because Table 29's continuous layouts show several pages**, and it is on
+    /// *both* ends because a drag may cross a row boundary. With one page on the screen the page a
+    /// selection belongs to is always the current one, so a page turn could end a selection; but
+    /// a scroll that crosses a row boundary changes the current page without a person having done
+    /// anything to
     /// what they had selected, so the rule is the honest one: a selection lives while the pages
     /// it covers are on the screen.
     pub(crate) selection: Option<Chosen>,
@@ -415,22 +411,21 @@ pub(crate) struct Spot {
 /// selection dragged backwards is a selection, and which end moves is the difference between
 /// extending it and starting again.
 ///
-/// **Both ends name a page since the six-hundred-and-ninth session**, and that is the whole of
-/// what a selection crossing a page boundary needed in this crate. A range used to be into *one*
-/// page's readback, and that half was right: the standard offers no offset a selection could be a
-/// range of. ISO 32000-2 §9.4.1 says of the text matrix, the text line matrix and the text
+/// **Both ends name a page**, and that is the whole of what a selection crossing a page boundary
+/// needs in this crate. Each offset is into *one* page's readback, because the standard offers no
+/// offset a selection could be a range of. ISO 32000-2 §9.4.1 says of the text matrix, the text
+/// line matrix and the text
 /// rendering matrix that they
 ///
 /// > may be specified only within a text object and shall not persist from one text object to the
 /// > next
 ///
 /// so text has no continuous position even between two text objects of *one* page, let alone
-/// across pages, and §12.4.2's page indices are the only sequence there is. **What was wrong was
-/// the conclusion**: this is a pair of `(page, offset)` rather than one number, and a pair
-/// composes across a boundary where a number could not exist. Table 29's continuous arrangements
-/// put several pages on the screen at once, so a drag from one to the next is an ordinary gesture
-/// rather than an exotic one, and refusing it left the second page's half of a paragraph
-/// unselectable.
+/// across pages, and §12.4.2's page indices are the only sequence there is. So this is a pair of
+/// `(page, offset)` rather than one number, and a pair composes across a boundary where a number
+/// could not exist. Table 29's continuous arrangements put several pages on the screen at once,
+/// so a drag from one to the next is an ordinary gesture rather than an exotic one, and refusing
+/// it would leave the second page's half of a paragraph unselectable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Chosen {
     /// Where the drag anchored.
@@ -617,8 +612,8 @@ pub(crate) enum Done {
         /// part of the selection: `Page::id` and Table 182's `/QuadPoints`, one entry per run of
         /// a line.
         ///
-        /// **A list because a selection crosses page boundaries** (the six-hundred-and-ninth
-        /// session), and the standard rather than convenience is what makes it a list. ISO 32000-2
+        /// **A list because a selection crosses page boundaries**, and the standard rather than
+        /// convenience is what makes it a list. ISO 32000-2
         /// §12.5.2:
         ///
         /// > A given annotation dictionary shall be referenced from the Annots array of only one
@@ -1335,10 +1330,9 @@ impl Open {
 
     /// Whether anything a person did is unsaved.
     ///
-    /// **The cursor's distance from the last save, not its distance from zero.** This asked
-    /// `cursor > 0` until the five-hundred-and-twenty-fifth session, so a document went on
-    /// saying it had unsaved work for as long as it stayed open after being saved —
-    /// `Event::Dirty` never came back false and `viewer-ui`'s title kept its mark. The model
+    /// **The cursor's distance from the last save, not its distance from zero**: asking
+    /// `cursor > 0` would leave a document saying it had unsaved work for as long as it stayed
+    /// open after being saved. The model
     /// holds the other half of the answer in `ViewState::additions` and `ViewState::edits`,
     /// which is what `doc/todo/01`'s fifth sweep found no caller for: the question a host asks
     /// is *what is unwritten*, and a log's length is what was **done**.
@@ -2270,8 +2264,7 @@ mod tests {
     /// magnifications where an `f32` product would land on the wrong side of an integer —
     /// A4's 595.276 is not representable, and 40× of it is where the two used to part —
     /// because everything this crate places over a frame (the focus ring, selection quads,
-    /// the scroll clamp) is positioned from the first and drawn over the second. ADR 0118 is
-    /// the session that cost.
+    /// the scroll clamp) is positioned from the first and drawn over the second. ADR 0118.
     #[test]
     fn the_page_extent_agrees_with_the_target_a_frame_is_drawn_at() {
         let a4 = Size {

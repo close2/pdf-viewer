@@ -7,9 +7,8 @@
 //! A collection is not one: it is a container of several, sharing their tables and introduced
 //! by a `ttcf` header rather than by a table directory. **A file embedding one is malformed**,
 //! and two of the pdf.js corpus's first pages do it — `issue9262_reduced.pdf` and
-//! `issue13193.pdf`. Until the hundred-and-fifty-seventh session this tree refused them with
-//! `Invalid sfnt version 0x74746366`, which is `ttcf` spelled in hexadecimal and is exactly the
-//! right report for a reader that has decided to do nothing.
+//! `issue13193.pdf`. A reader that decided to do nothing would refuse them with `Invalid sfnt
+//! version 0x74746366`, which is `ttcf` spelled in hexadecimal (ADR 0141).
 //!
 //! # Which font of the collection, and why that is a derivation rather than a choice
 //!

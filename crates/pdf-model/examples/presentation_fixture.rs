@@ -1,14 +1,13 @@
 //! Writes the slide show no *curated* corpus document is: four pages, a `/Dur`, three `/Trans`
 //! and a `/PresSteps`.
 //!
-//! **This is a fixture, not a writer.** `CLAUDE.md` excludes authoring a document from nothing
-//! and nothing here claims otherwise: it is the same hand-built construction every test in this
-//! tree makes in a string literal, moved to a file because §12.4.4 is the one clause whose
-//! subject a *person watching the window* has to see. `presentation_census` is the reason it
-//! exists — over the 964 openable corpus documents and the 14 in `doc/`, not one page states a
-//! `/Trans`, a `/Dur` or a `/PresSteps`, so there is nothing to open and press `p` on. **That is
-//! still true of the curated corpora and false of the crawl**, re-derived in the
-//! six-hundred-and-sixty-third session: 276 documents of `CC-MAIN-2021-31` state a `/Trans`, 86 a
+//! **This is a fixture, not a writer.** `CLAUDE.md` excludes authoring a document from nothing and
+//! nothing here claims otherwise: it is the same hand-built construction every test in this tree
+//! makes in a string literal, moved to a file because §12.4.4 is the one clause whose subject a
+//! *person watching the window* has to see. `presentation_census` is the reason it exists — over
+//! the 964 openable corpus documents and the 14 in `doc/`, not one page states a `/Trans`, a `/Dur`
+//! or a `/PresSteps`, so there is nothing to open and press `p` on. **That is true of the curated
+//! corpora and false of the crawl**: 276 documents of `CC-MAIN-2021-31` state a `/Trans`, 86 a
 //! `/Dur` and one — `7680405.pdf` — a `/PresSteps` with Table 165's nodes under it. The fixture
 //! keeps its job, because a fixture is a page whose *pixels* an assertion knows in advance and a
 //! crawled slide show is not; what the crawl adds is a file to press `p` on that somebody else
@@ -18,11 +17,11 @@
 //! mid-transition can be read as pixels rather than described with adjectives — and so that a
 //! page drawn upside down is visible at a glance, which is a defect the round that wrote this had.
 //!
-//! **The last slide is §12.4.4.2's**, added in the four-hundred-and-eighty-first session (ADR
-//! 0316): its two squares are optional content, and its `/PresSteps` chain turns them on one at a
-//! time, so pressing `p` and then an arrow key is a slide show stepping *within* a page. It states
-//! no `/Dur` of its own — Table 165's per-node timing is what advances it — and its second node
-//! states one, so a presentation left alone finishes the page by itself.
+//! **The last slide is §12.4.4.2's** (ADR 0316): its two squares are optional content, and its
+//! `/PresSteps` chain turns them on one at a time, so pressing `p` and then an arrow key is a slide
+//! show stepping *within* a page. It states no `/Dur` of its own — Table 165's per-node timing is
+//! what advances it — and its second node states one, so a presentation left alone finishes the
+//! page by itself.
 //!
 //! **And since ADR 0470 it can write the window as well as the slides.** `--opens-full-screen`
 //! adds Table 29's `/PageMode /FullScreen` — "how the document shall be displayed when opened" —

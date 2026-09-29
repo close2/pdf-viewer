@@ -180,14 +180,14 @@ pub enum Command {
     /// chosen as the default because the sentence before it is "[t]hey are low priority" and the
     /// one after it is "this program is the reader's" (ADR 1144).
     ///
-    /// **One level per operation since the one-thousand-one-hundred-and-forty-seventh session**,
-    /// which is a variant's shape changed rather than a message added — `doc/ui-boundary.md`'s own
-    /// preference, and the mechanism that makes every consumer fail to compile. A person who will
-    /// be asked before a copy leaves the program is not thereby a person who wants to be asked
-    /// before every keystroke into a form field, and one level for all five operations could not
-    /// say so. [`RestrictionPolicy::uniform`] is the one value this used to carry.
+    /// **One level per operation** (ADR 1144), which is a variant's shape rather than a message
+    /// added — `doc/ui-boundary.md`'s own preference, and the mechanism that makes every consumer
+    /// fail to compile. A person who will be asked before a copy leaves the program is not thereby
+    /// a person who wants to be asked before every keystroke into a form field, and one level for
+    /// all five operations could not say so. [`RestrictionPolicy::uniform`] is that one level for
+    /// all of them.
     ///
-    /// **And one *scope* per policy since the one-thousand-one-hundred-and-fifty-fifth**, which is
+    /// **And one *scope* per policy**, which is
     /// the same mechanism a second time and for the same kind of reason. The paragraph above is
     /// about the window and stays true of [`RestrictionScope::Window`]; what it could not say is
     /// *for this document, ask before copying*, because a level set to catch one suspicious file
@@ -260,8 +260,8 @@ pub enum Command {
     ///
     /// **[`pdf_signature::trust::Supply::none`] is the default and nothing changes for a host that
     /// never sends this**: every signature answers [`pdf_signature::trust::Trust::NoAnchorSupplied`]
-    /// and every sentence [`crate::notes`] prints about the third question is the one it has
-    /// printed since the three-hundred-and-seventy-seventh session.
+    /// and every sentence [`crate::notes`] prints about the third question is the one it prints
+    /// with no anchor supplied (ADR 0215).
     ///
     /// Applies to every open document and to every one opened afterwards, until it is sent again,
     /// which is [`Self::Restrict`]'s rule and for [`Self::Restrict`]'s reason: it is a fact about
@@ -479,17 +479,11 @@ pub enum Command {
     /// holds twice extracts the first, because the clause makes a name tree's keys unique and a
     /// file that broke that has not said which it meant.
     ///
-    /// **The middle of that first sentence was a quotation, and it was wrong twice over.** Until
-    /// the seven-hundred-and-fiftieth session it put *the tree shall map name strings to file
-    /// specifications* inside quotation marks: the clause opened the sentence with *the
-    /// associated name tree*, so the quoted words are not ISO 32000-2's, and the sentence itself
-    /// was struck out with the two bullets around it by Errata Collection 3 (Issue #481, `/State`
-    /// `Review` `Completed`). `pdf_model::attachment` was corrected for that erratum in the
-    /// four-hundred-and-eighteenth session and `viewer_host::panel` in the
-    /// four-hundred-and-twenty-ninth; **this third copy outlived both because the paraphrase hid
-    /// it** — `spec-errata check` matches a quotation against the struck text, and one that
-    /// misquotes matches nothing. Nothing about the command moves: what the key is stays what
-    /// §7.7.4's name tree makes it.
+    /// **The middle of that first sentence is a paraphrase, not a quotation.** The sentence of
+    /// §7.11.4.1 it rests on was struck out with the two bullets around it by Errata Collection 3
+    /// (Issue #481, `/State` `Review` `Completed`), and a paraphrase inside quotation marks would
+    /// hide from `spec-errata check`, which matches a quotation against the struck text. Nothing
+    /// about the command moves: what the key is stays what §7.7.4's name tree makes it.
     ///
     /// A file §12.5.6.15's annotation attaches is *not* named here and needs no command at all:
     /// it has no key in any tree, and a click on the annotation is what extracts it — the same
@@ -691,8 +685,8 @@ pub enum PointerAction {
 /// One change a person made.
 ///
 /// Six variants, and they are the two halves of `CLAUDE.md`'s amended exclusion: a value put into
-/// something the document already holds, and an object added to it — an annotation, or since the
-/// eight-hundred-and-eighty-fifth session §7.11.4's embedded file. All are a log beside an
+/// something the document already holds, and an object added to it — an annotation, or
+/// §7.11.4's embedded file (ADR 0814). All are a log beside an
 /// immutable document, and all leave through §7.5.6's incremental update.
 ///
 /// **Two of them are one subtype's**, which is what §12.5.6.6 costs and nothing else here did:
@@ -712,13 +706,11 @@ pub enum Edit {
     /// [`pdf_model::view::Entered::Cleared`] clears the field, which is what a person deleting the
     /// contents of one does and is a different state from never having touched it.
     ///
-    /// **The value used to be `Option<String>`, and §12.7.5.4's list box is what changed it** in
-    /// the four-hundred-and-twelfth session. Table 233 bit 22 — "(PDF 1.4) If set, more than one of
-    /// the field's option items may be selected simultaneously" — lets a choice field hold several
-    /// items at once, and one string could not say which several. Three hosts built a list box over
-    /// [`crate::Query::Fields`] and all three asked their toolkit for single selection *because of
-    /// this variant*; the shape ADRs 0166, 0167 and 0247 established is that the variant changes
-    /// and every consumer fails to compile until it says what it does. ADR 0248.
+    /// **The value is a list because of §12.7.5.4's list box.** Table 233 bit 22 — "(PDF 1.4) If
+    /// set, more than one of the field's option items may be selected simultaneously" — lets a
+    /// choice field hold several items at once, and one string could not say which several. The
+    /// shape ADRs 0166, 0167 and 0247 established is that the variant changes and every consumer
+    /// fails to compile until it says what it does. ADR 0248.
     SetField {
         /// §12.7.4.2's fully qualified name.
         field: String,
@@ -922,10 +914,9 @@ pub enum AttachHome {
 /// What this reader does with the restrictions a document asserts over it.
 ///
 /// The project owner's statement, in `CLAUDE.md`, names four levels: `off`, `on`, *ask before the
-/// operation*, and *warn before the operation*. **All four are here since the
-/// eight-hundred-and-eighty-fifth session**, and the two that arrived last did so on the
-/// condition the two-hundred-and-twelfth set: not as variants nothing produces and nothing
-/// answers, but with the event a window receives and the command that answers it —
+/// operation*, and *warn before the operation*. **All four are here** (ADR 0814), and not as
+/// variants nothing produces and nothing answers, but with the event a window receives and the
+/// command that answers it —
 /// [`crate::Event::Asking`] answered by [`Command::Answer`], and [`crate::Event::Warned`] after
 /// an edit that went ahead — which is the shape [`crate::Event::PasswordRequired`] already had.
 ///
@@ -933,15 +924,15 @@ pub enum AttachHome {
 /// of this crate failed to compile until it said what it does about the two events, which is the
 /// whole reason `doc/ui-boundary.md` keeps these enums exhaustive (ADR 0212, ADR 0814).
 ///
-/// **The four levels themselves live in `pdf_model::restriction::Level` since the
-/// eight-hundred-and-seventy-second session**, mapped by [`RestrictionLevel::level`], and this
+/// **The four levels themselves live in `pdf_model::restriction::Level`**, mapped by
+/// [`RestrictionLevel::level`], and this
 /// type exists so that a host names the level in this crate's vocabulary rather than in
 /// `pdf-model`'s. `Viewer::standing` asks `pdf_model::restriction::decide` once per edit and
 /// matches its verdict exhaustively. ADR 0803.
 ///
-/// **Which level a person is at is the host's to supply and never asked here**, and since the
-/// one-thousand-one-hundred-and-forty-seventh session the host supplies one *per operation*
-/// ([`RestrictionPolicy`]) rather than one for all of them.
+/// **Which level a person is at is the host's to supply and never asked here**, and the host
+/// supplies one *per operation* ([`RestrictionPolicy`]) rather than one for all of them (ADR
+/// 1144).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RestrictionLevel {
     /// Obey what the document asserts: the operation is refused and the reason is said, as
@@ -1475,10 +1466,8 @@ pub enum Rendered {
 /// Relative and absolute in one enum because they are one question — "which page next" — and a
 /// host that had to turn a key press into an index would be doing the clamping itself.
 ///
-/// **There is deliberately no `Destination` variant.** One was added in the
-/// hundred-and-sixty-sixth session for the outline panel and removed in the hundred-and-sixty-
-/// eighth, when §12.3.3's other half was read properly: the clause asks a click to "jump to a
-/// destination **or** trigger an action", so what a panel row sends is
+/// **There is deliberately no `Destination` variant** (ADR 0144): §12.3.3 asks a click to "jump
+/// to a destination **or** trigger an action", so what a panel row sends is
 /// [`Command::Activate`] — the item's object, from which this crate reads `/Dest` *and* `/A`.
 /// A variant carrying only the jump would have been a path nobody takes, and `CLAUDE.md` forbids
 /// shipping one.

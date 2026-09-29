@@ -41,7 +41,8 @@
 //! ratchets**, saying so — a list held to equality over a subset would report every document
 //! the filter excluded as fixed. `PDFVIEWER_RASTER_SCALE`, `PDFVIEWER_RASTER_COVERAGE` and
 //! `PDFVIEWER_RASTER_GLYPH_QUANTUM` are the other three knobs, each documented at the function
-//! that reads it, and each turning the ratchets off for the same reason. Debug builds are ~15×
+//! that reads it, and each turning the ratchets off for the same reason; `PDFVIEWER_RASTER_TIMES`
+//! writes each page's two clocks to a file and turns nothing off. Debug builds are ~15×
 //! slower here; the numbers below are release numbers and the run says which it took.
 
 #![expect(
@@ -50,6 +51,7 @@
               output is the point of the run"
 )]
 
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -135,10 +137,10 @@ fn scale() -> f32 {
 /// depends on the scale, so a frame at 100× re-uses what a frame at 1× built, and `viewer-ui`
 /// switches to it past `GPU_COVERAGE_MAGNIFICATION`; and `surface::lane_for` takes `compute` —
 /// the device-side port of the CPU scanline — for **any moved view on a real adapter** (ADR
-/// 0700), so a drag or zoom step is drawn by a lane this gate could not name until session 843.
-/// Which means the lane a person sees the most motion through had been judged by fixtures alone
-/// — trap 12b's exact shape, one lane over — while this gate, the only instrument in the tree
-/// that puts a backend beside the oracle at the corpus's scale, could not run it.
+/// 0700), so a drag or zoom step is drawn by a lane this gate has to be able to name: otherwise
+/// the lane a person sees the most motion through is judged by fixtures alone — trap 12b's exact
+/// shape, one lane over — while this gate, the only instrument in the tree that puts a backend
+/// beside the oracle at the corpus's scale, cannot run it.
 ///
 /// Overriding it **skips the ratchets**, for the scale knob's reason and one more: the lanes
 /// deliberately do not draw identical pixels (raster's ADR 0016 states the sampled lane's bound
@@ -296,8 +298,8 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// ever taken one off. What a departure here is **not** is a statement about the adapter: this
 /// stage never reaches a device, so a name here is unmoved by a texture ceiling, a byte budget
 /// or a driver. And because the stage is scale-free, this one array is what both scales are held
-/// to — the hazard that the five-hundred-and-twelfth session met, a second copy of these names
-/// living in the 4× list and going stale while nobody ran that lane, cannot recur.
+/// to — so a second copy of these names living in the 4× list and going stale while nobody runs
+/// that lane cannot happen.
 const REFUSED_BEFORE_THE_SCENE: [&str; 4] = [
     "bug1721218_reduced.pdf",
     "issue16742.pdf",
@@ -309,10 +311,12 @@ const REFUSED_BEFORE_THE_SCENE: [&str; 4] = [
 ///
 /// The second of the two stages. A refusal here is raised inside raster at render time, against
 /// a capability or a budget the adapter states: a page that translated into a scene, went to
-/// the device, and could not be drawn there. `issue1905.pdf` stood here for being 1.4% over
-/// the frame's scene-byte budget at 1× (`doc/QUORRA_FEEDBACK.md` section 40); it is under it now
-/// and agrees with the oracle, and at 4× it is still refused, over the coverage sheet's texture
-/// ceiling, in [`REFUSED_BY_THE_DEVICE_AT_FOUR`].
+/// the device, and could not be drawn there. `issue1905.pdf` is not here: its 29 large fills
+/// wind more than two values, so ADR 1389's `Encoder::compute_takes` sends them to the scratch
+/// lane, which charges a tile's area and not the compute lane's accumulator of four bytes a pixel
+/// besides — 252594693 scene-derived bytes against the budget of 268435456, where the compute lane
+/// asked 527497181 (`doc/QUORRA_FEEDBACK.md` section 40). At 4× it is refused, over the coverage
+/// sheet's texture ceiling, in [`REFUSED_BY_THE_DEVICE_AT_FOUR`].
 ///
 /// **What a departure from this list means.** A name arriving is a page a person could open at
 /// 100% and not see: it is raster's to move, or this adapter's, and the round that finds one
@@ -331,8 +335,8 @@ const REFUSED_BEFORE_THE_SCENE: [&str; 4] = [
 /// cycle is doing what a budget is for — and what would take the name off is `doc/todo/49`'s
 /// standing item, a bound on the interpreter's *work* rather than on its count.
 ///
-/// **`issue19517.pdf` joined in the one-thousand-and-seventieth session, and nothing about the
-/// page or the adapter changed: [`PIXEL_BUDGET`] did.** The page is 12608x16806 and this adapter
+/// **`issue19517.pdf` is here because of [`PIXEL_BUDGET`], not because of the page or the
+/// adapter.** The page is 12608x16806 and this adapter
 /// states 16384 pixels per side, so the frame is refused with *target 12608x16806 exceeds this
 /// adapter's limit of 16384 pixels per side* — a capability, like `issue1905.pdf`'s sheet ceiling
 /// and unlike the cycle's budget. It is this list's own sentence exactly: a page a person could
@@ -371,8 +375,8 @@ const REFUSED_BY_THE_DEVICE: [&str; 2] =
 /// in page space and [`PIXEL_BUDGET`]'s raise admitted the second page. The two bullets below are
 /// what left and what stayed:
 ///
-/// - **`22060_A1_01_Plans.pdf` left this list in the five-hundred-and-thirty-ninth session, and
-///   what took it off was neither a larger budget nor a tighter allocation.** It held 522 014 748
+/// - **`22060_A1_01_Plans.pdf` left this list, and what took it off was neither a larger budget
+///   nor a tighter allocation (ADR 0374).** It held 522 014 748
 ///   resident *resource* bytes with the next upload taking it to 548 104 348 against the
 ///   536 870 912 `max_resource_bytes` default — because its page drew **72 sampled images that
 ///   were 8 distinct rasters**, one allocation per `Do`, `image::decode_parts` having run at every
@@ -396,28 +400,23 @@ const REFUSED_BY_THE_DEVICE: [&str; 2] =
 ///   this list last moved on: the refusal now names the sheet it met rather than only the
 ///   adapter's wall (raster's ADR 0057 decision 2), which is that ADR's other half.
 ///
-///   **`bug1703683_page2_reduced.pdf` was here for the same reason and left in the
-///   five-hundred-and-seventy-sixth session, by a run.** raster's ADR 0057 sizes a clipped mark's
+///   **`bug1703683_page2_reduced.pdf` was here for the same reason and left by a run (ADR
+///   0411).** raster's ADR 0057 sizes a clipped mark's
 ///   coverage tile by its chain's own bounding box instead of by the open clip rectangle, and its
 ///   section 1 measures this page asking 1 008 561 911 texels where its 141 chains admit 2 297 897. That
 ///   landed on their `cafadeb`, which `cad50156` carries; at 4× on this lane the page now **agrees
-///   with the CPU oracle**. Two rounds were *told* the name could come off before one could watch
-///   it come off — the five-hundred-and-sixty-seventh ran the gate against `eada81ec` and left it
-///   on, which ADR 0402 decision 3 argues was right — and that is `CLAUDE.md` principle 5 one
-///   boundary over: a report from another implementation is evidence about *that* implementation,
-///   and a ratchet held by name exists so that a name comes off by a run rather than by a message.
-///   The message was accurate this time, which is not the same thing as its having been sufficient.
+///   with the CPU oracle**. A name told it may come off stays on until a run shows it (ADR 0402
+///   decision 3), and that is `CLAUDE.md` principle 5 one boundary over: a report from another
+///   implementation is evidence about *that* implementation, and a ratchet held by name exists so
+///   that a name comes off by a run rather than by a message.
 ///
-/// **This array used to hold [`REFUSED_BEFORE_THE_SCENE`]'s two names as well, and that is the
-/// flattening the split undoes.** Both stages in one list meant a name leaving it could be a
-/// device that grew a capability or a translation that grew a construction, and the ratchet
-/// could not say which; it also meant this tree's own refusals were written down **twice**, once
-/// per scale, which went wrong exactly the way a second copy does — `issue18032.pdf` was added
-/// at the scale-1 list in the four-hundred-and-ninety-second session and arrived here in the
-/// five-hundred-and-twelfth, not because anything changed but because no round in between ran
-/// the 4× lane. Those two names are one scale-free array now and this one holds only what the
-/// device refuses. (`bug1721218_reduced.pdf` meets the sheet ceiling too; it is refused before
-/// it can reach it, which is why it is not also named here.)
+/// **[`REFUSED_BEFORE_THE_SCENE`]'s names are not here, and that is what the split is for.**
+/// Both stages in one list would mean a name leaving it could be a device that grew a capability
+/// or a translation that grew a construction, and the ratchet could not say which; it would also
+/// write this tree's own refusals down **twice**, once per scale, and a second copy goes stale
+/// while no round runs the 4× lane. Those names are one scale-free array and this one holds only
+/// what the device refuses. (`bug1721218_reduced.pdf` meets the sheet ceiling too; it is refused
+/// before it can reach it, which is why it is not also named here.)
 ///
 /// **What a departure from this list means.** A name arriving is a hole that only opens under
 /// magnification — a page a person can open and not zoom into — and it is raster's or this
@@ -428,12 +427,12 @@ const REFUSED_BY_THE_DEVICE: [&str; 2] =
 /// — so the sheet a frame commits is a property of the lane, and a lane's refusals are its own.
 ///
 /// `ContentStreamCycleType3insideType3.pdf` is here for [`REFUSED_BY_THE_DEVICE`]'s reason and
-/// with the same message, measured on this lane in the eight-hundred-and-seventy-fourth session:
-/// the scene-byte budget is scale-free, and four million commands are over it at any scale.
+/// with the same message, measured on this lane (ADR 0793): the scene-byte budget is scale-free,
+/// and four million commands are over it at any scale.
 ///
-/// **Two joined in the one-thousand-and-seventieth session for [`PIXEL_BUDGET`]'s raise and not
-/// for anything the device did**, and they are the two pages this scale's *budget* used to refuse
-/// before the device could answer. `issue12810.pdf` is 6912x10368 here and prices at *609086160
+/// **Two are here because of [`PIXEL_BUDGET`]'s raise and not for anything the device did**, and
+/// they are the two pages this scale's *budget* would otherwise refuse before the device could
+/// answer. `issue12810.pdf` is 6912x10368 here and prices at *609086160
 /// scene-derived bytes, over the stated budget of 268435456*. `issue9418.pdf` is 111 476 736
 /// pixels here and meets the sheet: *a 4541x2842 tile would not fit a sheet at 13841x13561
 /// holding 122 tiles and 143672336 texels* — a capability, and the same ceiling `issue1905.pdf`
@@ -476,7 +475,7 @@ fn refused_pages(by_the_device: &[&'static str]) -> Vec<&'static str> {
 ///
 /// **Every name here is already read against the standard, one gate over.** `pdf-model`'s
 /// `tests/oracle.rs` walks the same corpus and reached exactly these documents by exactly these
-/// routes, and ADR 0410 named its buckets in the five-hundred-and-seventy-fifth session; the
+/// routes, and ADR 0410 names its buckets; the
 /// reading lives there and is not copied here, because two documents stating one fact is how the
 /// two drift. (`pdf-model`'s own `tests/corpus.rs` bounds the same two populations, above
 /// `MAX_UNREADABLE_ENCRYPTION` and `MAX_PAGELESS`, and reads each document one at a time.) The
@@ -651,7 +650,7 @@ enum Outcome {
 /// over six causes cannot move without a round guessing which of them moved, and one of the six
 /// is a hole in the correctness oracle itself, which `CLAUDE.md` principle 2 makes the backend
 /// that draws what the device refuses. The oracle gate next door named its own `not comparable`
-/// bucket for this reason in the five-hundred-and-seventy-ninth session (ADR 0414); this is the
+/// bucket for this reason (ADR 0414); this is the
 /// same reading one gate over, and [`NOT_COMPARABLE`] holds the result by name.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 enum NotComparable {
@@ -729,6 +728,7 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
     let mut worst: Vec<(f64, String)> = Vec::new();
     let (mut cpu_total, mut gpu_total) = (Duration::ZERO, Duration::ZERO);
     let mut ratios: Vec<f64> = Vec::new();
+    let mut times = page_times();
 
     for path in &files {
         let name = path.file_name().map_or_else(
@@ -754,6 +754,16 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
         if !matches!(verdict, Outcome::Refused(_)) {
             cpu_total = cpu_total.saturating_add(cpu_took);
             gpu_total = gpu_total.saturating_add(gpu_took);
+            if let Some(times) = times.as_mut() {
+                // A file that cannot be written loses the column, not the run: the survey above
+                // it is the gate, and this is a side output for comparing two builds page by page.
+                let _ = writeln!(
+                    times,
+                    "{name}\t{:.3}\t{:.3}",
+                    cpu_took.as_secs_f64() * 1e3,
+                    gpu_took.as_secs_f64() * 1e3
+                );
+            }
             if cpu_took > Duration::from_millis(1) {
                 // Below a millisecond the clock is measuring itself; a ratio taken there is
                 // noise with a decimal point.
@@ -804,6 +814,19 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
         &differing,
         &incomparable,
     );
+}
+
+/// Where each timed page's two clocks go, one `name, oracle ms, raster ms` line per page, when
+/// `PDFVIEWER_RASTER_TIMES` names a file.
+///
+/// A total and a median say how much a change costs and not where: comparing two builds page by
+/// page is what finds the pages a construction moved, which are the ones worth profiling (ADR
+/// 1397). The ratchets are unaffected, since this only writes what the run already measured.
+fn page_times() -> Option<std::io::BufWriter<std::fs::File>> {
+    let path = std::env::var_os("PDFVIEWER_RASTER_TIMES")?;
+    std::fs::File::create(path)
+        .ok()
+        .map(std::io::BufWriter::new)
 }
 
 /// Holds the run to whichever lists it is the measurement for.
@@ -918,10 +941,9 @@ impl Settings {
 /// list held over the *other* lane would report the two lanes' stated difference (raster's ADR
 /// 0016) as a change in this backend.
 ///
-/// **One knob has a ratchet of its own since the four-hundred-and-seventy-eighth session**:
-/// the same corpus at [`MAGNIFIED`] on the default lane holds [`REFUSED_BY_THE_DEVICE_AT_FOUR`]
-/// beside [`REFUSED_BEFORE_THE_SCENE`]. Its doc
-/// comment is the argument for why that list can be held now and could not be before.
+/// **One knob has a ratchet of its own** (ADR 0313): the same corpus at [`MAGNIFIED`] on the
+/// default lane holds [`REFUSED_BY_THE_DEVICE_AT_FOUR`] beside [`REFUSED_BEFORE_THE_SCENE`]. Its
+/// doc comment is the argument for why that list can be held.
 fn ratchets(documents: usize, settings: Settings, filtered: bool) -> Ratchets {
     let Settings {
         scale,

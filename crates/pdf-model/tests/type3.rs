@@ -164,8 +164,8 @@ fn image_transforms(interpretation: &pdf_model::Interpretation) -> Vec<pdf_rende
 
 /// A glyph description is run, and run once per character shown.
 ///
-/// §9.6.4 step c): "Invoke the glyph description." Before the tenth session a Type 3 font was
-/// refused outright and the page reported `Text`, so this is the whole feature's floor.
+/// §9.6.4 step c): "Invoke the glyph description." A reader that refuses a Type 3 font outright
+/// reports `Text` for the page, so this is the whole feature's floor (ADR 0018).
 #[test]
 fn each_shown_code_runs_its_glyph_description() {
     let interpretation = Fixture::default().interpret();
@@ -268,11 +268,10 @@ fn a_d1_description_takes_its_colour_from_the_page_and_a_d0_one_does_not() {
 ///   `d1` `square` glyph whose description is `72 w 0 0 750 750 re B` — a fill *and* a
 ///   stroke — and Figure 62 draws the border in the second colour.
 ///
-/// **This test asserted the opposite until the five-hundred-and-fifty-eighth session**, when
-/// `Type3Test.pdf` in `doc/corpora/pdf-differences` put the case in front of four renderers
+/// `Type3Test.pdf` in `doc/corpora/pdf-differences` puts the case in front of four renderers
 /// and the PDF Association's own statement of the correct appearance. `poppler` and
-/// `ghostscript` collapse the two colours as this tree did; `mupdf` and the corpus's
-/// reference image do not. ADR 0393.
+/// `ghostscript` collapse the two colours; `mupdf` and the corpus's reference image do not.
+/// ADR 0393.
 #[test]
 fn an_uncoloured_glyph_strokes_in_the_stroking_colour_it_inherited() {
     let interpretation = Fixture {
@@ -460,9 +459,9 @@ fn a_glyph_that_shows_itself_reaches_a_bound_and_stops() {
 /// > Glyph List for New Fonts to obtain the corresponding Unicode value.
 ///
 /// A Type 3 font is a simple font and §9.6.4's step b) is a name — "[g]et the glyph name from
-/// the Encoding entry" — so the method applies, and this module refused it for three hundred
-/// sessions on the argument that the name "names a procedure". It names a procedure *and* a
-/// character, and a producer calling one `/colon` has said which.
+/// the Encoding entry" — so the method applies, whatever the argument that the name "names a
+/// procedure". It names a procedure *and* a character, and a producer calling one `/colon` has
+/// said which.
 #[test]
 fn a_glyph_name_the_adobe_glyph_list_knows_is_what_the_code_means() {
     let named = Fixture {
@@ -608,9 +607,8 @@ fn a_glyph_description_finds_the_resources_its_own_stream_names() {
 /// objects") subject to additional restrictions described in this clause.*
 ///
 /// Table 50's own categories include inline images, which is the case worth a test rather than
-/// an assertion: §9.6.4's ledger row said a glyph description whose marks are an inline image
-/// "draws nothing yet and reports" from the tenth session until the seven-hundred-and-sixtieth,
-/// while `pdf_model::inline_image` landed in the eleventh (ADR 0019). The description declares
+/// an assertion: a glyph description whose marks are an inline image is drawn through
+/// `pdf_model::inline_image` (ADR 0019). The description declares
 /// `d0`, so §8.6.8's restriction — the one NOTE 2's last clause defers to — does not apply and
 /// the image is the glyph.
 ///
@@ -706,8 +704,8 @@ fn a_d1_glyph_description_drops_an_image_and_keeps_an_image_mask() {
 /// > predefined encodings MacRomanEncoding , MacExpertEncoding , or WinAnsiEncoding ) or an
 /// > encoding dictionary.
 ///
-/// Until the nine-hundred-and-twenty-sixth session this reader took the first form as no encoding
-/// at all and refused the whole font, which cost every glyph on a page.
+/// Taking the first form as no encoding at all and refusing the whole font would cost every glyph
+/// on a page (ADR 0892).
 #[test]
 fn a_named_encoding_maps_codes_to_glyph_names_out_of_annex_d() {
     let interpretation = Fixture {

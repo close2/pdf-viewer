@@ -46,10 +46,10 @@ pub const FORMULA_NOT_DECODED: &str = "formula-not-decoded";
 /// Ordered by component rather than by text, so `§8.9` precedes `§8.10`, and every numbered
 /// clause precedes every annex, which is the order the standard prints them in.
 ///
-/// **The annexes were outside this type until the three-hundred-and-sixtieth session**, and
-/// eight of them are normative. A number nothing can parse is a number nothing can cite,
-/// check or record — so Annex O's fragment identifiers, Annex Q's transparency method and
-/// Annex D's encodings were invisible to every instrument this project has. ADR 0206.
+/// **The annexes are inside this type** because eight of them are normative. A number nothing
+/// can parse is a number nothing can cite, check or record — so outside it Annex O's fragment
+/// identifiers, Annex Q's transparency method and Annex D's encodings would be invisible to
+/// every instrument this project has. ADR 0206.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ClauseNumber {
     /// The annex letter, for a number the standard writes as `K.2`; `None` for `8.9.6.2`.
@@ -392,8 +392,8 @@ impl ClauseIndex {
 
     /// The title of a clause, taken from its **last** occurrence.
     ///
-    /// **This took the first occurrence until the four-hundred-and-thirty-seventh session**, and
-    /// the difference is one clause. Exactly one number of the standard's 1017 headings occurs
+    /// **The last occurrence, not the first** (ADR 0273), and the difference is one clause.
+    /// Exactly one number of the standard's 1017 headings occurs
     /// twice — `14.8.4.7.3`, whose two titles are *Ruby and warichu elements* in the body and
     /// *Link elements* in the corrigendum — because Errata Collection 3 Issue #133 inserts a new
     /// subclause under that number and renumbers the ruby one to `14.8.4.7.4` ("EDITOR NOTE:
@@ -424,9 +424,8 @@ impl ClauseIndex {
     ///
     /// Unlike a clause, an annex is not always a container: Annex L is one normative table
     /// with no numbered subclause under it, so excluding the letter's own heading the way
-    /// `subclauses_of` excludes `§8`'s would leave a normative annex with no row at all —
-    /// which is the state this whole population was in until the three-hundred-and-sixtieth
-    /// session.
+    /// `subclauses_of` excludes `§8`'s would leave a normative annex with no row at all
+    /// (ADR 0206).
     #[must_use]
     pub fn numbers_of_annex(&self, annex: char) -> Vec<ClauseNumber> {
         self.numbers(|number| number.annex() == Some(annex))
@@ -622,8 +621,7 @@ mod tests {
         assert!("k.1".parse::<ClauseNumber>().is_err());
     }
 
-    /// Eight of the standard's annexes are normative, and until the
-    /// three-hundred-and-sixtieth session this type could not hold one of their numbers.
+    /// Eight of the standard's annexes are normative, so this type holds their numbers.
     #[test]
     fn an_annex_number_carries_its_letter() {
         assert_eq!(number("K.2").annex(), Some('K'));

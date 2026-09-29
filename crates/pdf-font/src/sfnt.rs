@@ -22,8 +22,8 @@ use std::collections::BTreeMap;
 ///
 /// A truncated program does not fail in a way that names itself. `skrifa` reads the directory,
 /// finds a record pointing past the end, and reports the *table* as missing — so two corpus
-/// documents were refused for eighty sessions with "units per em is zero", which is what
-/// `metrics()` answers when it cannot find `head`. Both are simply short:
+/// documents would be refused with "units per em is zero", which is what `metrics()` answers
+/// when it cannot find `head`. Both are simply short:
 /// `bug1050040.pdf` holds 45 240 bytes of a program whose directory describes 59 210, and
 /// `issue11651.pdf` holds 512 bytes of a ten-table font. §9.9 Table 124 requires the program to
 /// "include these tables: \"glyf\", \"head\", \"hhea\", \"hmtx\", \"loca\", and \"maxp\"", and every
@@ -98,8 +98,8 @@ pub(crate) fn truncation(data: &[u8]) -> Option<(String, u64)> {
 /// - `loca` holds `numGlyphs + 1` entries, so its length is `2 × (n + 1)` or `4 × (n + 1)` —
 ///   244 here, which is the long form for 60 glyphs and twice the short form's 122.
 ///
-/// Both agree, and only one format satisfies either. So this is the same shape as the
-/// twenty-seventh session's LZW finding: **a file that states one fact twice can check
+/// Both agree, and only one format satisfies either. So this is the same shape as the LZW
+/// finding of ADR 0036: **a file that states one fact twice can check
 /// itself**, and no other implementation's behaviour is involved.
 ///
 /// Returns `None` when the field is already 0 or 1, when the tables it needs are absent or
@@ -431,7 +431,7 @@ pub fn repaired_font_program(data: &[u8]) -> Cow<'_, [u8]> {
 /// follows from its contour count, instruction length and flag stream, and a composite's from its
 /// component loop. So the file states each glyph's extent twice — once in `loca`, once in the
 /// entry — and only one of the two readings is self-consistent. The same shape as
-/// [`repaired_loca_format`] and as the twenty-seventh session's LZW finding, one table over.
+/// [`repaired_loca_format`] and as ADR 0036's LZW finding, one table over.
 ///
 /// Glyph ids do not move, so a composite's references to other glyphs stay valid, and every other
 /// table is copied through unchanged.

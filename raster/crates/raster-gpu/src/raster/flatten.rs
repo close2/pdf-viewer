@@ -88,25 +88,30 @@ impl DeviceTransform {
 pub(crate) struct Polyline {
     pub points: Vec<Point>,
     pub closed: bool,
-    /// The directions the source path leaves its first point and arrives at its last,
-    /// where a curve decides them; `None` at an end a straight segment decides, whose
-    /// chord is its own direction. Only a stroke's caps read it (ADR 1389).
-    pub ends: Ends,
+    /// The source path's own directions at the points where a curve begins or ends, in
+    /// the order of `points`; empty for a subpath of straight segments, whose chords are
+    /// their own directions. Only the stroker reads them (ADR 1389, ADR 1397).
+    pub tangents: Vec<Tangent>,
 }
 
-/// The source path's own direction at each end of a subpath (ISO 32000-2 §8.4.3.3).
+/// The source path's own direction at one point of a subpath where a curve begins or ends
+/// (ISO 32000-2 §8.4.3.3, §8.4.3.4).
 ///
-/// §8.4.3.3 squares a butt cap off "at the endpoint of the path", and the path at its
-/// end runs along its curve's tangent there — the Bézier's derivative at `t = 1`, and
-/// at `t = 0` for the start. Flattening keeps the points and loses that direction: the
-/// last chord of a quarter arc is turned from the arc's end tangent by half its angle.
-/// So the direction is taken from the control points before they are dropped.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub(crate) struct Ends {
-    /// The direction leaving the first point, not normalised.
-    pub start: Option<Point>,
-    /// The direction arriving at the last point, not normalised.
-    pub end: Option<Point>,
+/// §8.4.3.3 squares a butt cap off "at the endpoint of the path", and §8.4.3.4 draws a
+/// join "at the corners of paths", where "consecutive segments of a path connect at an
+/// angle": both are shaped by the direction the path runs at that point, which at a curve's
+/// end is its tangent — the Bézier's derivative at `t = 1` arriving, and at `t = 0`
+/// leaving. Flattening keeps the points and loses that direction: the last chord of a
+/// quarter arc is turned from the arc's end tangent by half its angle. So the direction is
+/// taken from the control points before they are dropped.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Tangent {
+    /// The index into the subpath's `points`.
+    pub at: usize,
+    /// The direction a curve arrives at the point along, not normalised.
+    pub arriving: Option<Point>,
+    /// The direction a curve leaves the point along, not normalised.
+    pub leaving: Option<Point>,
 }
 
 impl Polyline {
@@ -116,8 +121,24 @@ impl Polyline {
         Self {
             points,
             closed: true,
-            ends: Ends::default(),
+            tangents: Vec::new(),
         }
+    }
+}
+
+/// Record a curve's direction at point `at`, beside whatever the curve before it recorded
+/// there: one curve arrives where the next leaves.
+fn record(tangents: &mut Vec<Tangent>, at: usize, arriving: Option<Point>, leaving: Option<Point>) {
+    match tangents.last_mut() {
+        Some(last) if last.at == at => {
+            last.arriving = last.arriving.or(arriving);
+            last.leaving = leaving.or(last.leaving);
+        }
+        _ => tangents.push(Tangent {
+            at,
+            arriving,
+            leaving,
+        }),
     }
 }
 
@@ -139,42 +160,46 @@ fn first_direction(candidates: [Point; 3]) -> Option<Point> {
 /// distance, so testing the controls bounds the curve. Subdivision at t = 1/2 is
 /// exact f32 arithmetic (halving), keeping flattening deterministic everywhere.
 pub(crate) fn flatten(segments: &[Segment], transform: DeviceTransform) -> Vec<Polyline> {
+    flatten_keeping(segments, transform, false)
+}
+
+/// [`flatten`], keeping each curve's direction where it begins and ends ([`Tangent`]) for
+/// the stroker: its caps and joins are square to those directions (ADR 1389, ADR 1397).
+///
+/// A fill never reads them, and keeping them is an allocation per curved subpath, which a
+/// page of glyphs pays in every outline it rasterises — ISO 32000-2's page 101 drew 7% dearer
+/// in instructions with every flattening keeping them (ADR 1397) — so only a stroke asks.
+pub(crate) fn flatten_stroke(segments: &[Segment], transform: DeviceTransform) -> Vec<Polyline> {
+    flatten_keeping(segments, transform, true)
+}
+
+/// [`flatten`], keeping the curves' [`Tangent`]s where `keep` asks for them.
+fn flatten_keeping(segments: &[Segment], transform: DeviceTransform, keep: bool) -> Vec<Polyline> {
     let mut subpaths = Vec::new();
     let mut current: Vec<Point> = Vec::new();
-    // The ends' directions: `moved` is whether any segment has left the first point yet,
-    // which is what decides the start; the end is re-decided by every segment that moves.
-    let mut ends = Ends::default();
-    let mut moved = false;
-    let mut push_current = |current: &mut Vec<Point>, ends: &mut Ends, closed: bool| {
+    let mut tangents: Vec<Tangent> = Vec::new();
+    let mut push_current = |current: &mut Vec<Point>, tangents: &mut Vec<Tangent>, closed| {
         if current.len() > 1 {
             subpaths.push(Polyline {
                 points: std::mem::take(current),
                 closed,
-                ends: *ends,
+                tangents: std::mem::take(tangents),
             });
         } else {
             current.clear();
+            tangents.clear();
         }
-        *ends = Ends::default();
     };
     for segment in segments {
         match *segment {
             Segment::MoveTo(p) => {
-                push_current(&mut current, &mut ends, false);
-                moved = false;
+                push_current(&mut current, &mut tangents, false);
                 current.push(transform.apply(p));
             }
+            // A line is its own chord, which the stroker already has: it records nothing.
             Segment::LineTo(p) => {
-                if let Some(&from) = current.last() {
-                    let to = transform.apply(p);
-                    // A line that goes nowhere decides no direction; one that moves is its
-                    // own chord, which the stroker already has.
-                    #[expect(clippy::float_cmp)] // exact: a zero-length segment
-                    if to.x != from.x || to.y != from.y {
-                        moved = true;
-                        ends.end = None;
-                    }
-                    current.push(to);
+                if !current.is_empty() {
+                    current.push(transform.apply(p));
                 }
             }
             Segment::CubicTo { c1, c2, to } => {
@@ -184,14 +209,14 @@ pub(crate) fn flatten(segments: &[Segment], transform: DeviceTransform) -> Vec<P
                         transform.apply(c2),
                         transform.apply(to),
                     );
-                    let leaving = first_direction([c1, c2, to].map(|q| difference(from, q)));
-                    let arriving = first_direction([c2, c1, from].map(|q| difference(q, to)));
+                    // A cubic whose points all coincide goes nowhere and decides nothing.
+                    let leaving = keep
+                        .then(|| first_direction([c1, c2, to].map(|q| difference(from, q))))
+                        .flatten();
+                    #[expect(clippy::arithmetic_side_effects)] // `current` is not empty
+                    let start = current.len() - 1;
                     if leaving.is_some() {
-                        if !moved {
-                            ends.start = leaving;
-                        }
-                        moved = true;
-                        ends.end = arriving;
+                        record(&mut tangents, start, None, leaving);
                     }
                     // Measured once for the whole cubic and carried down the
                     // subdivision, not recomputed per half: the bound is "within a
@@ -202,16 +227,73 @@ pub(crate) fn flatten(segments: &[Segment], transform: DeviceTransform) -> Vec<P
                     // must not inherit the border's extent.
                     let tolerance = cubic_tolerance(from, c1, c2, to);
                     flatten_cubic(from, c1, c2, to, tolerance, 0, &mut current);
+                    if leaving.is_some() {
+                        let arriving = first_direction([c2, c1, from].map(|q| difference(q, to)));
+                        #[expect(clippy::arithmetic_side_effects)] // `current` is not empty
+                        let end = current.len() - 1;
+                        record(&mut tangents, end, arriving, None);
+                    }
                 }
             }
-            Segment::Close => {
-                push_current(&mut current, &mut ends, true);
-                moved = false;
-            }
+            Segment::Close => push_current(&mut current, &mut tangents, true),
         }
     }
-    push_current(&mut current, &mut ends, false);
+    push_current(&mut current, &mut tangents, false);
     subpaths
+}
+
+/// Whether a closed polyline's `points` are convex and go round once: every turn the same
+/// way (or straight on), and each coordinate changing direction at most twice round the
+/// loop — which a five-pointed star, turning one way throughout but going round twice,
+/// fails. Such a polygon crosses itself nowhere, which both the fill's question and the
+/// stroker's rest on (ADR 1389, ADR 1397).
+#[expect(clippy::arithmetic_side_effects)] // indices below the length
+#[expect(clippy::float_cmp)] // signs are exactly `−1`, `0` or `+1`
+pub(crate) fn convex(points: &[Point]) -> bool {
+    let n = points.len();
+    let steps = (0..n).filter_map(|i| {
+        let (p, q) = (points[i], points[(i + 1) % n]);
+        let d = (q.x - p.x, q.y - p.y);
+        (d.0 != 0.0 || d.1 != 0.0).then_some(d)
+    });
+    let (mut first, mut previous) = (None, None::<(f32, f32)>);
+    let (mut turn, mut flips) = (0.0_f32, [0_usize; 2]);
+    let (mut sign_x, mut sign_y) = (0.0_f32, 0.0_f32);
+    let mut look = |d: (f32, f32), turn: &mut f32, flips: &mut [usize; 2]| -> bool {
+        if let Some(p) = previous {
+            let cross = p.0 * d.1 - p.1 * d.0;
+            if cross != 0.0 {
+                if *turn != 0.0 && cross.signum() != *turn {
+                    return false;
+                }
+                *turn = cross.signum();
+            }
+        }
+        for (axis, (value, sign)) in [(d.0, &mut sign_x), (d.1, &mut sign_y)]
+            .into_iter()
+            .enumerate()
+        {
+            if value != 0.0 {
+                if *sign != 0.0 && value.signum() != *sign {
+                    flips[axis] += 1;
+                }
+                *sign = value.signum();
+            }
+        }
+        previous = Some(d);
+        true
+    };
+    for d in steps {
+        first.get_or_insert(d);
+        if !look(d, &mut turn, &mut flips) {
+            return false;
+        }
+    }
+    // Round the corner back to the start, so the last turn and flips are counted too.
+    match first {
+        Some(d) => look(d, &mut turn, &mut flips) && flips[0] <= 2 && flips[1] <= 2,
+        None => true,
+    }
 }
 
 /// `to − from`.

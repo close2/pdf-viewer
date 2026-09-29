@@ -1,6 +1,6 @@
 //! How many pages number two content streams' marked-content sequences from zero, and collide.
 //!
-//! The instrument behind ADR 0488, and the measurement session 658 could not make.
+//! The instrument behind ADR 0488.
 //!
 //! ISO 32000-2 §14.7.5.2 makes a `/MCID` "an integer marked-content identifier that uniquely
 //! identifies the marked-content sequence **within its content stream**", and §14.7.5.2 permits a
@@ -75,7 +75,8 @@ struct Finding {
     identifiers_colliding: usize,
     /// Structure elements whose `/K` states a Table 357 `/MCR` with a `/Stm`.
     references_naming_a_stream: usize,
-    /// Form `XObject`s reachable from a page's resources that state a `/StructParents` of their own.
+    /// Form `XObject`s reachable from a page's resources that state a `/StructParents` of their
+    /// own.
     forms_with_struct_parents: usize,
 }
 

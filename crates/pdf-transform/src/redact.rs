@@ -4419,7 +4419,7 @@ fn row_stride(layout: ImageLayout) -> Option<usize> {
 /// at `n = precision` and written at `n = bits` keeps its value when the pair's far end becomes
 /// `D min + (D max − D min) × (2^bits − 1) ÷ (2^precision − 1)` — which is the pair itself where
 /// the two depths agree.
-fn widened_decode(pairs: &[(f32, f32)], precision: u8, bits: usize) -> Vec<f32> {
+pub(crate) fn widened_decode(pairs: &[(f32, f32)], precision: u8, bits: usize) -> Vec<f32> {
     let highest = |depth: u32| f64::from(1u32.checked_shl(depth).unwrap_or(0).saturating_sub(1));
     let from = highest(u32::from(precision)).max(1.0);
     let to = highest(u32::try_from(bits).unwrap_or(8));

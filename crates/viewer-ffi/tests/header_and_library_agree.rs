@@ -216,17 +216,13 @@ fn the_event_kinds(expected: &mut BTreeMap<String, i64>) {
         ("QUORRA_EVENT_EXTRACTED", EventKind::Extracted),
         ("QUORRA_EVENT_REFUSED", EventKind::Refused),
         ("QUORRA_EVENT_REPORTED", EventKind::Reported),
-        // **This row did not exist until the five-hundred-and-eleventh session, and neither did
-        // the `#define`.** `Event::Searched` moved `QUORRA_EVENT_KIND_COUNT` from 15 to 16 in the
-        // four-hundred-and-fourteenth and no constant was added for the kind itself, so a C caller
-        // switching on kinds had to write `15` by hand — and this test could not see it, because
-        // it compares the constants the header *has* against the ones it is told to expect and
-        // nobody told it to expect this one. The lesson is the map's rather than the header's: a
-        // table of expectations is only as complete as the person who wrote it.
+        // **Every event kind has a `#define` and a row here** (ADR 0346): without the constant a C
+        // caller switching on kinds writes the number by hand, and this test cannot see a missing
+        // one, because it compares the constants the header *has* against the ones it is told to
+        // expect. A table of expectations is only as complete as the person who wrote it.
         ("QUORRA_EVENT_SEARCHED", EventKind::Searched),
-        // The eight-hundred-and-eighty-fifth session's three, and the row above is why they are
-        // written here in the same commit as the `#define`: `CLAUDE.md`'s *ask* and *warn*
-        // levels, and §7.11.4's list moving (ADR 0814).
+        // `CLAUDE.md`'s *ask* and *warn* levels, and §7.11.4's list moving, each written here in
+        // the same commit as its `#define` for the row above's reason (ADR 0814).
         ("QUORRA_EVENT_ASKING", EventKind::Asking),
         ("QUORRA_EVENT_WARNED", EventKind::Warned),
         (
@@ -275,8 +271,7 @@ fn the_argument_enumerations(expected: &mut BTreeMap<String, i64>) {
     ] {
         expected.insert(name.to_owned(), kind as i64);
     }
-    // The enumerations the five-hundred-and-eleventh session added, each read off its own
-    // discriminant rather than written twice.
+    // The enumerations of ADR 0346, each read off its own discriminant rather than written twice.
     for (name, kind) in [
         ("QUORRA_POINTER_MOVED", PointerKind::Moved),
         ("QUORRA_POINTER_PRESSED", PointerKind::Pressed),
@@ -301,23 +296,22 @@ fn the_argument_enumerations(expected: &mut BTreeMap<String, i64>) {
     for (name, kind) in [
         ("QUORRA_RESTRICT_ON", RestrictKind::On),
         ("QUORRA_RESTRICT_OFF", RestrictKind::Off),
-        // `CLAUDE.md`'s other two levels, since the eight-hundred-and-eighty-fifth session: each
-        // arrived with the event and the entry point that answer it (ADR 0814).
+        // `CLAUDE.md`'s other two levels, each with the event and the entry point that answer it
+        // (ADR 0814).
         ("QUORRA_RESTRICT_ASK", RestrictKind::Ask),
         ("QUORRA_RESTRICT_WARN", RestrictKind::Warn),
     ] {
         expected.insert(name.to_owned(), kind as i64);
     }
-    // And the one value in that space that is *not* a level, since the one-thousand-one-hundred-
-    // and-fifty-fifth session: the absence of one, taken by the document-scoped entry point alone
-    // (ADR 1145). Written here in the same commit as the `#define`, for the reason the
-    // `QUORRA_EVENT_SEARCHED` row above records.
+    // And the one value in that space that is *not* a level: the absence of one, taken by the
+    // document-scoped entry point alone (ADR 1145). Written here in the same commit as the
+    // `#define`, for the reason the `QUORRA_EVENT_SEARCHED` row above records.
     expected.insert(
         "QUORRA_RESTRICT_INHERIT".to_owned(),
         i64::from(viewer_ffi::abi::QUORRA_RESTRICT_INHERIT),
     );
-    // Which operation a level is being set for, since the one-thousand-one-hundred-and-forty-
-    // seventh session: `CLAUDE.md`'s four levels, one restriction at a time (ADR 1144).
+    // Which operation a level is being set for: `CLAUDE.md`'s four levels, one restriction at a
+    // time (ADR 1144).
     for (name, kind) in [
         ("QUORRA_RESTRICTED_COPY", viewer_ffi::RestrictedKind::Copy),
         (
@@ -553,12 +547,11 @@ fn the_field_flags(expected: &mut BTreeMap<String, i64>) {
 
 /// The constants the other half of the queries brought with it (ADR 0576).
 ///
-/// Eleven `Query` variants reached no symbol at all until the seven-hundred-and-ninth session, and
-/// what came with them is sixteen small enumerations. Every one is read off its own discriminant
-/// here rather than written twice — except the two flag words, which are literals for
-/// [`the_field_flags`]'s reason: a bit that moved would be a caller acting on the wrong flag, and
-/// a loop over `1 << n` would agree with whatever the source said rather than with what was
-/// published.
+/// Every `Query` variant reaches a symbol (ADR 0576), and sixteen small enumerations come with
+/// them. Every one is read off its own discriminant here rather than written twice — except the two
+/// flag words, which are literals for [`the_field_flags`]'s reason: a bit that moved would be a
+/// caller acting on the wrong flag, and a loop over `1 << n` would agree with whatever the source
+/// said rather than with what was published.
 #[expect(
     clippy::too_many_lines,
     reason = "one block per enumeration, and the count is the ABI's. Splitting it would put half \

@@ -145,12 +145,12 @@ impl Interpreter<'_> {
     ///
     /// # c) is a question about what the output is for, and a host answers it
     ///
-    /// The amended c)'s "the PDF is being printed" is a fact about the operation under way and
-    /// not about the file, so it arrives the way every such fact arrives here — as an input a host or an
-    /// operation supplies, [`crate::optional_content::Purpose`], reached through the view state
-    /// (ADR 1173). `Purpose::View` and `Purpose::Export` both fail c)'s condition and fall to
-    /// d), which is the clause's own arrangement: c) opens "Otherwise if the PDF is being
-    /// printed", and an export is not a printing.
+    /// The amended c)'s "the PDF is being printed" is a fact about the operation under way and not
+    /// about the file, so it arrives the way every such fact arrives here — as an input a host or
+    /// an operation supplies, [`crate::optional_content::Purpose`], reached through the view state
+    /// (ADR 1173). `Purpose::View` and `Purpose::Export` both fail c)'s condition and fall to d),
+    /// which is the clause's own arrangement: c) opens "Otherwise if the PDF is being printed", and
+    /// an export is not a printing.
     ///
     /// Two things c) does **not** say, both of which its retired predecessor did and this
     /// function therefore must not: it does not re-examine the selected alternate's own `/OC`
@@ -169,13 +169,12 @@ impl Interpreter<'_> {
     /// with no `/OC` is not shown — and the settlement costs nothing, because e) draws the base
     /// image where d) selects nothing at all.
     ///
-    /// The rewrite was declined once, in the four-hundred-and-seventeenth session, on the ground
-    /// that the amended a) "reads as terminal and would leave the amended d) unreachable". It is
-    /// terminal, and d) is unreachable **for a hidden base image** — which is the amendment
-    /// rather than a contradiction in it: a) and b) between them dispose of every base image that
-    /// states an `/OC`, so c) and d) begin at "Otherwise" and are reached by a base image that
-    /// states none. Read that way the five steps are total, disjoint and reachable, which the
-    /// 2020 four were not.
+    /// The amended a) reads as terminal and would seem to leave the amended d) unreachable (ADR
+    /// 0253). It is terminal, and d) is unreachable **for a hidden base image** — which is the
+    /// amendment rather than a contradiction in it: a) and b) between them dispose of every base
+    /// image that states an `/OC`, so c) and d) begin at "Otherwise" and are reached by a base
+    /// image that states none. Read that way the five steps are total, disjoint and reachable,
+    /// which the 2020 four were not.
     ///
     /// No corpus document carries an `/Alternates` entry at all — measured over all 964 openable
     /// ones — so every rule here rests on the clause and on the tests beside it.
@@ -300,8 +299,8 @@ impl Interpreter<'_> {
         }
         // `/Mask` makes part of the image transparent, either through an explicit mask — a
         // second image naming the areas to leave unpainted (§8.9.6.3) — or through a
-        // colour-key range array (§8.9.6.4). Both are applied as of the fourteenth session;
-        // what remains reportable is the cases they refuse, and `image::unapplied_mask` is
+        // colour-key range array (§8.9.6.4). Both are applied (ADR 0023); what remains
+        // reportable is the cases they refuse, and `image::unapplied_mask` is
         // asked rather than the dictionary so that a report cannot outlive the gap.
         //
         // Not to be confused with §8.9.6.2, *stencil* masking, which is this image's own
@@ -443,16 +442,16 @@ impl Interpreter<'_> {
     /// samples are opaque and the rest are not, which is exactly the areas the clause names —
     /// and the pattern paints the image's unit square through it.
     ///
-    /// `issue13372.pdf` is the corpus witness, a CCITT stencil over an axial shading pattern,
-    /// and this reader drew **nothing** for it and said nothing either: `image::decode` was
-    /// handed `state.fill`, which a pattern leaves at its initial black with zero alpha.
+    /// `issue13372.pdf` is the corpus witness, a CCITT stencil over an axial shading pattern:
+    /// `image::decode` handed `state.fill`, which a pattern leaves at its initial black with zero
+    /// alpha, draws **nothing** and says nothing.
     ///
-    /// **A tiling pattern goes the same way since the two-hundred-and-eighteenth session**, and
-    /// what makes that possible is that the mask is on the *state* rather than on a command:
-    /// `Interpreter::tile` already ends by putting the state's soft mask on the group it builds
-    /// out of the cells, because §11.6.7 asks for the cells to composite once. So the stencil is
-    /// handed to it as that mask and the unit square is the path whose cells are drawn — the
-    /// same two halves, recomposed at the only other place in this file that can hold them.
+    /// **A tiling pattern goes the same way** (ADR 0169), and what makes that possible is that the
+    /// mask is on the *state* rather than on a command: `Interpreter::tile` already ends by putting
+    /// the state's soft mask on the group it builds out of the cells, because §11.6.7 asks for the
+    /// cells to composite once. So the stencil is handed to it as that mask and the unit square is
+    /// the path whose cells are drawn — the same two halves, recomposed at the only other place in
+    /// this file that can hold them.
     ///
     /// **Under a graphics-state soft mask the two masks are one product** (ADR 1334). §11.6.5
     /// puts the state's mask on every mark and §11.6.4.3 lets only "[e]ither form of mask in the

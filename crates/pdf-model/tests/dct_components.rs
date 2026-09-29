@@ -269,9 +269,9 @@ fn first_sample(bytes: Vec<u8>) -> Result<(u8, u8, u8), String> {
 
 /// Adobe's transform 0 is "No transformation" and says nothing about the component count.
 ///
-/// This is the defect a 4000-document sample found in the four-hundred-and-thirtieth session:
-/// the marker was read as the component count, so a three-channel frame was asked for four
-/// channels and the whole image was reported `malformed` instead of drawn.
+/// This is the defect a 4000-document sample found (ADR 0266): read as the component count, the
+/// marker asks a three-channel frame for four channels and the whole image is reported
+/// `malformed` instead of drawn.
 #[test]
 fn a_three_component_frame_marked_transform_zero_is_three_components() {
     let sample = first_sample(pdf_with_image(
@@ -332,14 +332,13 @@ fn the_same_frame_without_an_app14_marker_decodes_identically() {
 /// resolution: "the unit square of user space, bounded by user coordinates (0, 0) and (1, 1),
 /// corresponds to the boundary of the image in image space".
 ///
-/// This tree refused the image outright until the five-hundred-and-fifth session, where
-/// `pdfCabinetOfHorrors/veraPDFHiResChangedHeight.pdf` — a valid file with one digit of its
-/// `/Height` altered on purpose — lost a whole photograph over one row in 1227.
+/// Refusing the image outright costs `pdfCabinetOfHorrors/veraPDFHiResChangedHeight.pdf` — a
+/// valid file with one digit of its `/Height` altered on purpose — a whole photograph over one
+/// row in 1227 (ADR 0340).
 ///
 /// **The contradiction is still reported**, and both halves are asserted here because either one
 /// alone would be a different decision: drawn and silent is what a page showing one red sample
-/// where 200×100 were described would be, and reported without drawing is what this session
-/// found.
+/// where 200×100 were described would be, and reported without drawing is the refusal.
 #[test]
 fn a_dictionary_that_contradicts_the_frames_dimensions_does_not_cost_the_image() {
     let (drawn, reported) = interpret_one(pdf_with_image(
@@ -449,7 +448,7 @@ fn a_frame_stating_no_samples_is_refused_rather_than_drawn_empty() {
 /// 256-entry table onto entries 0 and 1, so a scan whose samples sit near 250 draws in the two
 /// *darkest* colours the palette states. The witness is a crawled Hewlett-Packard scan whose
 /// palette is a grey ramp: this tree drew it as a solid black page at ink 253.8 of 255 where
-/// `poppler`, `mupdf` and `ghostscript` agree on 8.9 to 9.2 (session 613).
+/// `poppler`, `mupdf` and `ghostscript` agree on 8.9 to 9.2 (ADR 0448).
 ///
 /// The fixture's sample is 128, so the defect and the fix name different entries of the table:
 /// 128 ÷ 255 rounds to index 1, which is red here, and the index itself is 128, which is not.
@@ -493,7 +492,7 @@ fn an_indexed_space_over_a_jpeg_reads_the_sample_as_an_index() {
 /// **The witness is a crawled schoolbook page**: a 543×372 `/DCTDecode` photograph under
 /// `[/Lab << /WhitePoint [.964203 1 .824905] /Range [-128 127 -128 127] >>]`, drawn as a solid
 /// black rectangle with nothing reported, at **+32.097** of 255 where `pdftoppm`, `mutool` and
-/// `gs` agree within 1.8 (session 631, ADR 0464).
+/// `gs` agree within 1.8 (ADR 0464).
 #[test]
 fn a_lab_space_over_a_jpeg_maps_the_sample_onto_the_spaces_own_range() {
     let space = "[/Lab << /WhitePoint [0.9505 1.0 1.089] >>]";
@@ -524,7 +523,7 @@ fn a_lab_space_over_a_jpeg_maps_the_sample_onto_the_spaces_own_range() {
 /// argument written beside it. `zune-jpeg`'s `DecoderOptions` carries an unrelated default of
 /// 16384 in each axis, and it was reached first: a crawled full-page scan 28341 rows tall came
 /// back as `Image height 28341 greater than height limit 16384` and the page was blank where
-/// `pdftoppm`, `mutool` and `gs` agree on 84.2 of 255 (session 619).
+/// `pdftoppm`, `mutool` and `gs` agree on 84.2 of 255 (ADR 0454).
 ///
 /// 20000 rows is above that default and far below the budget, so the two answers differ and this
 /// test can only pass for the right reason. Eight columns wide keeps the fixture at 2500 blocks.
@@ -647,8 +646,8 @@ fn first_pixel(bytes: Vec<u8>) -> Result<[u8; 4], String> {
 /// Every coefficient of this frame is zero, so its one component is 128 after JPEG's level
 /// shift, and a range containing 128 is a range containing every sample the image has.
 ///
-/// It was refused by name until the eight-hundred-and-ninety-fourth session, on the clause's
-/// NOTE 2 about lossy coding — which warns and does not exclude (ADR 0832).
+/// The clause's NOTE 2 about lossy coding warns and does not exclude, so it is not refused
+/// (ADR 0832).
 #[test]
 fn a_colour_key_over_a_jpeg_hides_the_samples_it_names() {
     let pixel = first_pixel(pdf_with_image_entries(

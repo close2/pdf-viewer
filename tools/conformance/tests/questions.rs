@@ -350,7 +350,7 @@ fn parse_header(entry: &Entry, lines: [&str; 3]) -> Result<Header, String> {
 /// Whether question `target` comes after answer `number` — both digit strings, checked where
 /// the header and the file name were parsed. A function rather than an expression in the test so
 /// that `rustfmt`'s layout of the two parses and clippy's line budget for the test agree, which
-/// as one expression they did not (session 995).
+/// as one expression they did not.
 fn comes_after(target: &str, number: &str) -> bool {
     target
         .parse::<u32>()

@@ -409,9 +409,8 @@ pub(crate) struct App {
     /// that a card dismissed twice answers once.
     pub(crate) asked: Option<Pending>,
     /// Why there is no document, where there is none — `Event::OpenFailed`, or a page tree with no
-    /// leaves. **Two `std::process::exit(1)` calls until the seven-hundred-and-fourth session**,
-    /// which is `viewer_host::keys`' Escape-quits finding again: this host left the process where
-    /// the other two said the sentence and stayed up.
+    /// leaves. **Held rather than a `std::process::exit(1)`**, so that this host says the sentence
+    /// and stays up as the other two do (ADR 0564).
     pub(crate) refused: viewer_ui::chrome::Refusal,
     /// Whether this window has ever put chrome up over no page at all.
     ///
@@ -481,10 +480,10 @@ pub(crate) struct App {
     pub(crate) information: pdf_model::metadata::Information,
     /// §14.3.2's metadata stream, read — `None` where the catalog names none.
     ///
-    /// **Was `metadata_stream: bool` until the two-hundred-and-ninety-fourth session**, when
-    /// `pdf_model::xmp` gave `viewer-core` something to answer with. The three states matter to a
-    /// host and only to a host: a document that states no metadata and one whose metadata this
-    /// program could not read get two different sentences in the properties tab.
+    /// **Three states rather than a `bool`**, because `pdf_model::xmp` gives `viewer-core`
+    /// something to answer with (ADR 0186). The three states matter to a host and only to a host: a
+    /// document that states no metadata and one whose metadata this program could not read get two
+    /// different sentences in the properties tab.
     pub(crate) metadata: Option<Result<pdf_model::xmp::Xmp, pdf_model::xmp::XmpError>>,
     /// The field a person is typing into: the point on the page that named it, and where in its
     /// value the next character goes.
@@ -1044,12 +1043,12 @@ impl App {
     /// document title taken from the `dc:title` entry of the XMP metadata stream … If false, the
     /// title bar should instead display the name of the PDF file containing the document."
     ///
-    /// **The clause is obeyed as written since the two-hundred-and-ninety-fourth session.** It
-    /// names `dc:title` and nothing else, and `pdf_model::xmp` reads it, so that is what a
-    /// document asking for its title gets. §14.3.3's `/Info /Title` is the *fallback* now rather
-    /// than the substitution: it is used where the document states no metadata stream, where the
-    /// stream states no `dc:title`, or where the stream could not be read — and the last of those
-    /// three is printed, because it is the only one where this program failed at something.
+    /// **The clause is obeyed as written** (ADR 0186). It names `dc:title` and nothing else, and
+    /// `pdf_model::xmp` reads it, so that is what a document asking for its title gets. §14.3.3's
+    /// `/Info /Title` is the *fallback* rather than the substitution: it is used where the document
+    /// states no metadata stream, where the stream states no `dc:title`, or where the stream could
+    /// not be read — and the last of those three is printed, because it is the only one where this
+    /// program failed at something.
     ///
     /// Table 349's NOTE 1 is why the fallback is a reading rather than a guess: "[t]he `dc:title`
     /// entry in the document's metadata stream **can be used to represent** the document's
@@ -1195,20 +1194,16 @@ impl App {
 
     /// Table 29: opens the window and the panel the document asks for.
     ///
-    /// §7.7.2's `/PageMode` is "how the document shall be displayed when opened", and until the
-    /// hundred-and-seventieth session this program had no panel for any of its answers to name.
-    /// Four of the six were obeyed from the two-hundred-and-sixty-sixth, when §12.3.4's panel
-    /// arrived; **`FullScreen` is the fifth and is obeyed since ADR 0470** — the note this used to
-    /// print, that full screen "is chrome this program does not have", was true for four hundred
-    /// sessions and is now the window `p` opens. `UseNone` asks for nothing and is the sixth.
+    /// §7.7.2's `/PageMode` is "how the document shall be displayed when opened". Four of the six
+    /// answers name a panel this program has; **`FullScreen` is the fifth** and is the window `p`
+    /// opens (ADR 0470). `UseNone` asks for nothing and is the sixth.
     ///
     /// **`/PageLayout` is obeyed here as it stands**, and this host asks the viewer for nothing.
     ///
-    /// The six-hundred-and-sixth session left this asking the viewer *back* for `SinglePage`,
-    /// because a tier-2 surface drew exactly one `Arc<DisplayList>` per frame. It draws the
-    /// arrangement now (ADR 0442), so what is left is the value `l` cycles **from** — the core
-    /// read the catalog for itself when the document opened, and a host that started its cycle at
-    /// `SinglePage` would move the first press onto what the document already asked for.
+    /// A tier-2 surface draws the whole arrangement (ADR 0442), so what this is for is the value
+    /// `l` cycles **from** — the core read the catalog for itself when the document opened, and a
+    /// host that started its cycle at `SinglePage` would move the first press onto what the
+    /// document already asked for.
     ///
     /// `in_front` false takes the layout, which is the tab's own, and leaves the rest to
     /// `catalog_due` (ADR 1303).

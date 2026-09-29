@@ -26,7 +26,7 @@
 //! — no display list can hold the address, because the pin holds it. That is a proof
 //! rather than a policy, so [`ResourceCaches::evict_settled`] releases those first
 //! and unconditionally, before it asks the device what it is holding. It matters most
-//! for what this cache started keeping in the four-hundred-and-sixty-second session:
+//! for the reduced rasters this cache keeps:
 //! a reduced raster is keyed by its *source* image's identity, so its pin is a whole
 //! scanned page's samples — 37 MB where the device entry it guards is 9 — and a host
 //! that turned the page would otherwise hold that until the device's own budget, which

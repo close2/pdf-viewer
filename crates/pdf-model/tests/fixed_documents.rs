@@ -3,8 +3,8 @@
 //! **Why this exists is a merge, not a document.** The corpus, oracle and raster gates walk
 //! `doc/pdf.js`; a fix found by ranking the `SafeDocs` crawl is measured once, by the round that
 //! makes it, in a tree that does not yet contain its neighbours' work. Two branches that touch
-//! no common line can then defeat each other with every gate green — which is what session 623
-//! found, and what cost three sessions to attribute (ADR 0458). `doc/todo/03` states the rule
+//! no common line can then defeat each other with every gate green (ADR 0458). `doc/todo/03`
+//! states the rule
 //! this discharges: **a round that fixes a document no gate covers records the check, not just
 //! the result, and the merge round re-runs those checks.**
 //!

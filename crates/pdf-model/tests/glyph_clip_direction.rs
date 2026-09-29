@@ -18,7 +18,7 @@
 //! as one set of Type 1 fonts, and a document may draw two of them into one path. A processor
 //! whose stand-ins for two of the fourteen disagree about direction therefore manufactures a
 //! hole no set of fourteen Type 1 programs would produce. `OverlappingGlyphClipping.pdf` in
-//! `doc/corpora/pdf-differences` is the page that showed it (session 558); ADR 0396 is the fix.
+//! `doc/corpora/pdf-differences` is the page that showed it; ADR 0396 is the fix.
 //!
 //! # Why it is asserted by construction rather than on that page
 //!

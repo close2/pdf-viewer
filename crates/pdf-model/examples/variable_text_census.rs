@@ -9,8 +9,7 @@
 //!   (ADR 0216). Where the two disagree the baseline moves, and this counts the widgets that
 //!   would move — not the font dictionaries a page draws with, which
 //!   `examples/font_metric_census` already counts and which are a different population.
-//! - **§12.7.5.4's list box**, whose options are drawn since the five-hundred-and-seventy-first
-//!   (ADR 0407) and whose *selection* is reported, because that is the only part of the control
+//! - **§12.7.5.4's list box**, whose options are drawn (ADR 0407) and whose *selection* is reported, because that is the only part of the control
 //!   the clause states no appearance for. The counts here were taken while the whole control was
 //!   refused, and they are what said the refusal cost no untouched page: every list box in the
 //!   corpus states an `/AP` and none is in a `/NeedAppearances` document, so the population that
@@ -337,7 +336,7 @@ fn main() {
 /// Which population a run is over, as the three named scopes or as whatever was on the line.
 ///
 /// The same selector `long_mitre_census`, `hollow_glyph_census` and `border_precedence_census`
-/// took in the six-hundred-and-eighty-sixth session (ADR 0523), for ADR 0490's reason: this
+/// take (ADR 0523), for ADR 0490's reason: this
 /// census's §12.7.5.4 figures were taken before `CC-MAIN-2021-31` was on this disk, and a
 /// negative decays when the population grows. A named path still works and still means itself.
 fn roots(arguments: &[String]) -> Vec<std::path::PathBuf> {
@@ -790,9 +789,8 @@ fn inherited(document: &Document, widget: &Dictionary, key: &str) -> Option<Vec<
 /// Counts one object's `/DA` font if it is composite, and whether it writes vertically.
 ///
 /// **The population `doc/todo/22`'s last edge is about.** §12.7.4.3 lays a value out in the font
-/// its `/DA` names, and until the five-hundred-and-second session a Type 0 one was refused by
-/// name because a code cannot be produced from a character without inverting §9.7.6.2's
-/// codespace ranges. The count says how much of the corpus that reached, then and now.
+/// its `/DA` names, and a Type 0 one needs §9.7.6.2's codespace ranges inverted to produce a
+/// code from a character (ADR 0337). The count says how much of the corpus that reaches.
 ///
 /// The writing mode is asked of `pdf_font` rather than of the `/Encoding` name, because the
 /// program's own reading is what decides the refusal: a stream `CMap` states `/WMode` in its
@@ -858,9 +856,8 @@ fn font_of(appearance: &[u8]) -> Option<pdf_syntax::Name> {
 ///
 /// Rules b) and c) between them: a byte goes out as itself only when it is a regular character
 /// (§7.2.3) inside `!`..`~` and is not the number sign. A name for which this is true of every
-/// byte is one a writer with no escaping at all happens to get right, which is what this program
-/// was until the six-hundred-and-seventeenth session — so it is the line the population is split
-/// on.
+/// byte is one a writer with no escaping at all happens to get right (ADR 0453) — so it is the
+/// line the population is split on.
 ///
 /// Spelled here rather than asked of `pdf_syntax::Name::escaped`, because a census taken with the
 /// instrument under test is not independent of it (trap 8).

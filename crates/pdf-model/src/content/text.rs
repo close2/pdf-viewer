@@ -307,12 +307,12 @@ pub(super) struct Coverage {
 /// a space is *meant* to have no outline; a code §9.10.2 could not name says nothing either
 /// way, and taking the second for the first is a wrong answer that reports nothing.
 ///
-/// **They were the same state until the four-hundred-and-seventy-sixth session**, because the
-/// test in front of the tally was `self.text[start..].chars().all(char::is_whitespace)` and an
-/// empty slice satisfies that vacuously — so a font that named none of its codes was read as a
-/// page of spaces. It was blind twice over: inside §14.8.2.5.3's reversal the readback is
-/// collected per code and appended after the string, so *every* code's slice was empty there.
-/// Asking the font what it said, rather than asking the buffer what arrived, answers both.
+/// **They are separate states because a test on the buffer cannot tell them apart** (ADR
+/// 0311): `self.text[start..].chars().all(char::is_whitespace)` is satisfied vacuously by an
+/// empty slice, so a font that named none of its codes would read as a page of spaces, and
+/// inside §14.8.2.5.3's reversal the readback is collected per code and appended after the
+/// string, so *every* code's slice is empty there. Asking the font what it said, rather than
+/// asking the buffer what arrived, answers both.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Readback {
     /// Text, at least one character of which is not whitespace.
@@ -343,8 +343,7 @@ impl Readback {
     /// to determine what the character code represents", which is not evidence in either
     /// direction and must not be read as either.
     ///
-    /// **It is a question about the reader and not about the picture**, which is the
-    /// distinction the caller lost until the six-hundred-and-eighty-fifth session (ADR 0520).
+    /// **It is a question about the reader and not about the picture** (ADR 0520).
     /// Whether the *program* answered a code is decided by the glyph the code reached, and
     /// needs no character: a route that ends at no glyph at all ended without an answer
     /// whatever §9.10.2 could or could not say about the code. So this decides which readback
@@ -379,8 +378,8 @@ impl Interpreter<'_> {
     /// Adds one show string's worth of coverage to a font's tally.
     ///
     /// Per *string* rather than per glyph, which is not a style choice: the map is keyed by the
-    /// resource name and a lookup per glyph cost **2%** of interpretation on the specification's
-    /// own page, measured by `callgrind_interpret` in the session that added it. The font cannot
+    /// resource name and a lookup per glyph costs **2%** of interpretation on the specification's
+    /// own page, measured by `callgrind_interpret`. The font cannot
     /// change inside a show string — only `Tf` changes it — so the counts are accumulated in
     /// three integers and applied once.
     fn tally_glyph(&mut self, name: &str, counted: Coverage) {
@@ -649,8 +648,7 @@ impl Interpreter<'_> {
                             // matched before trusting it).
                             //
                             // Everything else divides on the *glyph* rather than on the
-                            // reading, and that is the six-hundred-and-eighty-fifth session's
-                            // correction (ADR 0520). §9.6.5.4 and §9.7.4.2 state the routes
+                            // reading (ADR 0520). §9.6.5.4 and §9.7.4.2 state the routes
                             // from a code to a glyph, and this asks which of two things
                             // happened at the end of one. A code that reached a glyph the
                             // program contains has been answered: what that glyph draws is the
@@ -727,8 +725,7 @@ impl Interpreter<'_> {
                             }
                         } else {
                             // Neither a mark made nor a mark missed, for one of two reasons,
-                            // and the code could not tell them apart until the
-                            // four-hundred-and-seventy-sixth session.
+                            // which [`Readback`] tells apart (ADR 0311).
                             //
                             // A code that reads back as a **space** is *meant* to have no
                             // outline, and the arm above says what that cost when it was
@@ -1093,12 +1090,10 @@ impl Interpreter<'_> {
     /// # A glyph stroked in a tiling pattern is tiled
     ///
     /// §8.7.2's "All patterns shall be treated as colours" makes a glyph's stroke colour no
-    /// different from a path's. It was *reported* on this route from the six-hundred-and-thirtieth
-    /// session — before that a `Tr 1` glyph whose `SCN` named a tiling pattern was outlined in
-    /// whatever solid colour was last set and nothing said so, the silent fallback principle 3
-    /// forbids — and it is drawn from the eight-hundred-and-second, by the same
-    /// [`Interpreter::tile`] the fill route takes and over the same outline this function has
-    /// already moved into user space. ADR 0735.
+    /// different from a path's, so a `Tr 1` glyph whose `SCN` names a tiling pattern is never
+    /// outlined in whatever solid colour was last set — the silent fallback principle 3 forbids —
+    /// but drawn by the same [`Interpreter::tile`] the fill route takes and over the same outline
+    /// this function has already moved into user space. ADR 0735.
     ///
     /// Answers whether a tiling cell the glyph was stroked through composites by its own marks.
     fn stroke_glyph(
@@ -1180,8 +1175,8 @@ impl Interpreter<'_> {
         // initial value, and would say nothing: with opaque glyphs and the Normal blend mode
         // the two models produce identical pixels.
         //
-        // The clause states the construction exactly, and it is the one §11.4.6 built in the
-        // seventy-first session: "the behaviour shall be equivalent to treating the entire
+        // The clause states the construction exactly, and it is the one §11.4.6's knockout
+        // group already has: "the behaviour shall be equivalent to treating the entire
         // text object as if it were a non-isolated knockout transparency group … where each
         // glyph is an individual element in that group's transparency stack", after which
         // "the group results shall be composited with the backdrop, using the Normal blend

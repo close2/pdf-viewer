@@ -19,14 +19,11 @@
 //! what throughput there is to be had comes from rayon across pages, which are independent (RFC
 //! 0002 section 12).
 //!
-//! **One font cache, shared by every page.** The first landing gave each rayon job its own
-//! `FontCache` through `map_init`, on the argument that the cache's mutex had never been
-//! contended from two threads. That was the wrong unit as well as the wrong argument:
+//! **One font cache, shared by every page**, rather than one per rayon job through `map_init`:
 //! `map_init` runs its constructor once per *split* of the iterator rather than once per thread,
-//! and a split is what a steal makes, so the number of caches grew with the stealing rather
-//! than with the pool — and every one of them parsed the document's fonts again. Measured in the
-//! eight-hundred-and-sixty-eighth session (ADR 0801), pages 1–200 of ISO 32000-2 at 150 dpi,
-//! the `gates` profile, one sitting:
+//! and a split is what a steal makes, so the number of caches grows with the stealing rather
+//! than with the pool — and every one of them parses the document's fonts again. Measured by
+//! ADR 0801, pages 1–200 of ISO 32000-2 at 150 dpi, the `gates` profile, one sitting:
 //!
 //! | threads | one cache per job | one cache shared |
 //! |---|---|---|

@@ -2,10 +2,10 @@
 //!
 //! Written for one question, in `doc/todo/25`: the entry states a placement — the annotation's
 //! rectangle transformed by Table 194's `/Matrix` and translated by `/H` and `/V` percentages of
-//! the media — and until the nine-hundred-and-forty-second session this reader placed a watermark
-//! on `/Rect` like any other annotation. Whether a corpus page can *rank* that placement, or
-//! whether the fixture for it has to be hand-built, is a question about a population rather than
-//! about the clause, and `CLAUDE.md` says the population is counted rather than assumed.
+//! the media — rather than `/Rect` alone, as for any other annotation (ADR 0934). Whether a corpus
+//! page can *rank* that placement, or whether the fixture for it has to be hand-built, is a
+//! question about a population rather than about the clause, and `CLAUDE.md` says the population is
+//! counted rather than assumed.
 //!
 //! What is counted, and why each number is here:
 //!

@@ -3,7 +3,7 @@
 //!
 //! Everything that needs a real swapchain — detaching, presenting under an affine,
 //! attaching back, and `Target::Surface` refusing by name in between — is
-//! `examples/present_thread.rs`, which runs under `Xvfb` in CI and reads the window's
+//! `examples/present_thread/`, which runs under `Xvfb` in CI and reads the window's
 //! pixels back with `xwd`. This file is the half that a headless test suite can carry,
 //! and the split is deliberate: nothing here opens a display, so the corpus gate, the
 //! oracle and every golden in this tree stay as unaware of the presenter as they are of

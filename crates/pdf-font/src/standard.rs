@@ -20,10 +20,9 @@
 //! moved. That is a *better* justification than the one it replaced, because it does not depend
 //! on a sentence about what a processor happens to have.
 //!
-//! [`crate::standard_metrics`] is the "font metrics" half and has been here since the thirtieth
-//! session. This is the other half — the programs themselves — and until the
-//! hundred-and-forty-eighth session this tree did not have it, so a "suitable substitution font"
-//! meant whatever happened to be installed. That made a rendered page a property of the machine.
+//! [`crate::standard_metrics`] is the "font metrics" half. This is the other half — the programs
+//! themselves (ADR 0133) — so a "suitable substitution font" is not whatever happens to be
+//! installed, which would make a rendered page a property of the machine.
 //!
 //! # Why these fourteen and nothing else
 //!
@@ -37,16 +36,15 @@
 //! machine's own fonts keep serving everything else, where their broader coverage is worth more
 //! than reproducibility.
 //!
-//! **And "first" is not "only", which the four-hundred-and-thirty-fourth session had to find in a
-//! 65 944-document survey.** Ten of these fourteen are bare CFF programs whose charsets hold the
-//! standard Latin character set and nothing else, so a document naming one of the fourteen and
-//! then stating an `/Encoding` whose `/Differences` name Cyrillic or Greek asked for characters
-//! the compiled-in face has never had — and lost them in silence, because the Latin codes of the
-//! same font drew and the "this font drew nothing" report never fired.
-//! `pdf_font::substitute_face` is the answer and it keeps this module's trade intact: the
-//! compiled-in face is replaced only by one of the same family whose code table over the codes
-//! the document declares is a **strict superset**, so a page that this set can draw is still
-//! drawn from the binary and identically on every machine. ADR 0270.
+//! **And "first" is not "only"**, which a 65 944-document survey shows (ADR 0270). Ten of these
+//! fourteen are bare CFF programs whose charsets hold the standard Latin character set and nothing
+//! else, so a document naming one of the fourteen and then stating an `/Encoding` whose
+//! `/Differences` name Cyrillic or Greek asks for characters the compiled-in face has never had —
+//! and would lose them in silence, because the Latin codes of the same font draw and the "this font
+//! drew nothing" report would never fire. `pdf_font::substitute_face` is the answer and it keeps
+//! this module's trade intact: the compiled-in face is replaced only by one of the same family
+//! whose code table over the codes the document declares is a **strict superset**, so a page that
+//! this set can draw is still drawn from the binary and identically on every machine. ADR 0270.
 //!
 //! # What is here, and what it costs
 //!
@@ -504,11 +502,10 @@ mod tests {
     /// calls the fourteen one set of Type 1 fonts, so the set standing in for them may not
     /// disagree with itself.
     ///
-    /// Ten of these faces are Foxit's bare CFF and four are Liberation Sans `sfnt`s, and the
-    /// two formats carry **opposite** conventions — measured, in the
-    /// five-hundred-and-sixty-first session, at −0.186 against +0.165 for a capital `B` in the
-    /// em square. [`crate::substituted::wound_counter_clockwise`] is what makes this pass, so
-    /// deleting it fails here rather than on a page nobody looks at.
+    /// Ten of these faces are Foxit's bare CFF and four are Liberation Sans `sfnt`s, and the two
+    /// formats carry **opposite** conventions — measured at −0.186 against +0.165 for a capital `B`
+    /// in the em square (ADR 0396). [`crate::substituted::wound_counter_clockwise`] is what makes
+    /// this pass, so deleting it fails here rather than on a page nobody looks at.
     #[test]
     fn every_compiled_in_face_winds_its_contours_the_same_way() {
         // A letter every one of the fourteen draws, including the two symbolic faces, whose

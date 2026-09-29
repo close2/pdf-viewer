@@ -29,8 +29,8 @@
 //!
 //! # The invariant is also an instrument to point at the references, and that is decisive
 //!
-//! The bullet above is an argument about *why* their agreement is not evidence. The
-//! five-hundred-and-forty-sixth session turned it into a measurement, by asking each
+//! The bullet above is an argument about *why* their agreement is not evidence. It is also a
+//! measurement (ADR 0381), made by asking each
 //! reference renderer the question this test asks us — no renderer is compared with another,
 //! each is only compared **with itself** over the family, so principle 5 is untouched:
 //!
@@ -92,9 +92,8 @@ const KNOWN_DOCUMENTS: usize = 97;
 /// records as contradicted, so it is exactly the kind of page the invariant is for. It is
 /// the same drawing on the same `[0 0 399 400]` page through one `/JBIG2Decode` image
 /// `XObject`, and admitting it is self-checking: were it some *other* picture, the grouping
-/// below would report two images instead of one and fail. Found in the
-/// five-hundred-and-forty-sixth session, whose evidence for the identity is that our render
-/// of it and our render of `bitmap-halftone-composite.pdf` differ in zero pixels.
+/// below would report two images instead of one and fail. The evidence for the identity is that
+/// our render of it and our render of `bitmap-halftone-composite.pdf` differ in zero pixels.
 const FAMILY_MEMBERS_NAMED_OTHERWISE: [&str; 1] = ["issue20439.pdf"];
 
 /// The documents, or `None` when the submodule is not checked out.

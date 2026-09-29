@@ -17,8 +17,8 @@
 //!   half-width: 413.99 and 565.50. The counting is `numpy` over the path's own control points,
 //!   and no renderer enters it.
 //!
-//! The tolerance is the construction's own, stated in ADR 1348: its chords and arcs lie within a
-//! sixty-fourth and a two-hundred-and-fifty-sixth of a pixel of the set's boundary, and the
+//! The tolerance is the construction's own, stated in ADR 1348: its chords and arcs lie within
+//! 1/64 and 1/256 of a pixel of the set's boundary, and the
 //! library's supersampled converter it is measured by states a boundary pixel's coverage in
 //! sixteenths — under a unit of ink over the disk's rim of a hundred and sixty boundary pixels,
 //! where the ring the stroker drew for it was three hundred and fourteen short.

@@ -318,14 +318,14 @@ const SUMMARY_ROWS: [(&str, StageOf); 11] = [
     // row rather than left for a reader to subtract, because an unnamed remainder is where a cost
     // hides — and on this machine it is a sixth of the frame.
     //
-    // **This comment used to name what was in it — "acquiring the swapchain texture, presenting
-    // it, and reading the timestamp queries back" — and session 552 measured those three and they
-    // are not it.** `render_raster::QuorraWindowRenderer::last_phases` now carries raster's own
-    // `target acquire` and `present` spans across the boundary, and on the project owner's adapter
-    // the pair is under a twentieth of a millisecond on a frame whose remainder is over a hundred.
-    // What is left is host time inside `Device::render` that raster measures and discards — it
-    // times its own submit-and-wait and then reports the adapter's timestamp instead — plus the
-    // wgpu command recording, which nothing times at all. `doc/QUORRA_FEEDBACK.md` section 29.
+    // **Not acquiring the swapchain texture, presenting it, or reading the timestamp queries back:
+    // those three are measured and they are not it** (ADR 0387).
+    // `render_raster::QuorraWindowRenderer::last_phases` carries raster's own `target acquire` and
+    // `present` spans across the boundary, and on the project owner's adapter the pair is under a
+    // twentieth of a millisecond on a frame whose remainder is over a hundred. What is left is host
+    // time inside `Device::render` that raster measures and discards — it times its own
+    // submit-and-wait and then reports the adapter's timestamp instead — plus the wgpu command
+    // recording, which nothing times at all. `doc/QUORRA_FEEDBACK.md` section 29.
     //
     // **A bound rather than a duration**, and the summary says so: where `execute` came from the
     // adapter's timestamp queries this subtracts a device clock from a host one, so the

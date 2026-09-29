@@ -15,14 +15,10 @@ use crate::{Decoded, SandboxError};
 /// Greeting bytes, changed whenever this format changes incompatibly.
 ///
 /// A parent and a worker from different builds must not talk to each other, and the
-/// cheapest place to find that out is the first thing either says. `02` since the
-/// three-hundred-and-fifteenth session, when the greeting gained the byte that says whether
-/// the system-call filter is in force — a worker from the build before it would answer a
-/// question this one asks with silence, which is exactly what the magic is for. `03` since
-/// the four-hundred-and-eighty-sixth, when a raster response gained the codestream's own
-/// stated grid beside the raster's — a parent from the build before would read those eight
-/// bytes as sample data. `04` since the six-hundred-and-twenty-fourth, when the greeting
-/// gained [`BUILD`].
+/// cheapest place to find that out is the first thing either says. The version counts the
+/// changes a peer from another build would misread: the greeting's byte saying whether the
+/// system-call filter is in force (ADR 0194), a raster response's codestream grid beside the
+/// raster's (ADR 0321), and the greeting's [`BUILD`] (ADR 0458).
 const MAGIC: &[u8; 8] = b"PDFSBX04";
 
 /// This build's identity, from `build.rs`: sixteen lowercase hex digits.
@@ -31,9 +27,7 @@ const MAGIC: &[u8; 8] = b"PDFSBX04";
 /// they are the same build**, and the second is the question that was costing pages. A worker
 /// built from an older tree answers every request this one asks, correctly for *its* decoders
 /// — and a decoder's refusal from an older binary is word for word a decoder's refusal from
-/// this one, so it reaches the page as the file's defect. It took the merge of session 621's
-/// `hayro-jbig2` bound three sessions to be believed, and the thing that was wrong was never
-/// the tree (ADR 0458).
+/// this one, so it reaches the page as the file's defect (ADR 0458).
 ///
 /// Both ends of the pipe are this crate, so this constant is the same on both by
 /// construction — unless the two binaries were built from different sources or different
@@ -172,8 +166,7 @@ pub struct CcittParameters {
     /// other statement of it. `pdf_model::ccitt_rows` is that derivation; this field is never
     /// zero.
     ///
-    /// It is **not** [`Self::height`], and the two travelled as one number until the
-    /// five-hundred-and-ninety-ninth session: with `/EndOfBlock` false and a `/Rows` below
+    /// It is **not** [`Self::height`]: with `/EndOfBlock` false and a `/Rows` below
     /// `/Height` the clause bounds the decode short of the image on purpose, and a worker told
     /// one number cannot both stop where the filter stops and fill the grid the image states.
     pub rows: u32,

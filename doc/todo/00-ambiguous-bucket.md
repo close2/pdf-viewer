@@ -933,7 +933,8 @@ the first assertion red and the program row back to 4.
 stood at the hundred-and-twenty-seventh session's **91** against a counted **61** — thirty
 documents of slack, a third of the headline, while every other ratchet in the file sits on its
 count or one above. The slack is invisible by construction: the run prints the population and the
-constant does not, so nobody had put the two side by side. It is the counted figure now.
+constant does not, so nobody had put the two side by side. It is a list of the documents by name
+now, each with the clause its report rests on, so a swap fails the gate as well (ADR 1401).
 
 **Re-run after the fix, and the statement is the sharp one**: over the **835** pages that remain
 `ambiguous`, every row is **byte-identical** to the before-run — the same numbers, the same labels

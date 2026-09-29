@@ -411,3 +411,18 @@ the list.
 A compression of the ramp's stops by 1/2000 was invisible at 1× on a centred axis and three or more
 rows off at 8× (ADR 1387); the fixture is the stripe page's shape, expected rows from the file in f64,
 at every scale.
+
+## A population a round has just read member by member becomes a named population in that round
+
+The corpus gate's 61 incomplete documents sat behind `MAX_INCOMPLETE = 61`; read one by one, they are
+`INCOMPLETE: [&str; 61]` grouped by deciding mechanism with the clause beside each group, and a swap of
+one document for another now fails by name (ADR 1401).
+
+## A new reading that changes what an older fixture means changes that fixture's assertion in the same pass
+
+M.9.2.7 read by type turned round 1273's Colour-Group fixture into a finding; the assertion was
+changed and the ADR names it, rather than weakening the new check to keep the old test green (ADR 1399).
+And a script's rendering is judged in each toolkit separately: GTK drew a CJK label and Qt drew boxes on
+the same machine because eleven fonts share the family name "Droid Sans" (round 1278) — `fc-list
+:lang=<script>` before blaming the program. A fork's helper script gets a name of its own; a shared one
+was overwritten mid-run and silently dropped two forks' batches (round 1283).

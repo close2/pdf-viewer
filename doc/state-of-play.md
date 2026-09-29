@@ -63,7 +63,13 @@ they did not (ADR 0127) — and `render-raster` is the third, over the document 
 commissioned (`doc/RENDER_LIBRARY.md`), **what the window actually presents with**, held against the
 processor's raster over the whole corpus at the page's own scale and at four times it, with a
 stroke's pieces at a bend tighter than its half-width cut to tile the stroke's set rather than
-overlap inside it (ADR 1375). The Vello
+overlap inside it (ADR 1375), a pixel a fill winds two ways through covered by the set its rule
+declares, a butt cap squared to its curve's end tangent, and a ramp's coincident stops carried as
+exact bounds so that each step falls at its own parameter (ADR 1389), and a join where a curve meets
+another segment built on the curve's tangent there (ADR 1397). **A shading end
+`/Extend` leaves off stops at that end's own position** — a hard transparent stop in every
+backend rather than a fade squeezed inside the ramp, which had moved every other stop of it along
+the axis, and within half a texel of Vello's fixed ramp (ADR 1387). The Vello
 backend **bands a target the device cannot draw in one pass**, because its working buffers are fixed
 constants with no knob and a page of small text at a laptop's resolution can exceed them. JBIG2 and
 JPEG 2000 in a confined worker — its colour specification chosen by §7.4.9's precedence rather
@@ -666,7 +672,9 @@ That is `A20`'s requirement and `doc/adr/0923`'s shape, and it is why a coverage
 the obligations ISO 19005 places on a *processor* rather than on a file — a validator cannot pass
 or fail a document for those. Non-conformance is an answer rather than an error, so the exit status
 stays zero and the JSON carries the verdict. The JPX baseline its JPEG 2000 rule turns on is read
-from ITU-T T.801 M.9.2, the held text of ISO/IEC 15444-2, subclause by subclause (ADR 1383).
+from ITU-T T.801 M.9.2, the held text of ISO/IEC 15444-2, subclause by subclause (ADRs 1383,
+1399), and a non-baseline image that states its own colour space is transcoded to `FlateDecode` in
+that space on an operator's `preserve` (ADR 1400).
 
 Its own reading is compared against the veraPDF corpus clause by clause, and **the comparison is
 adjudicated rather than tolerated**: where the corpus and the clause disagree, the clause is read
@@ -1135,7 +1143,10 @@ page could not draw**, because the person who cannot see the page is the one for
 the title bar is no answer. An untagged page says that it is one rather than being given an
 invented reading order, and its widget annotations cross as controls a client can press, named by
 Table 226's `/TU` and in §12.5.1's tab order (ADR 1369); a tagged page's widget its structure left
-out crosses the same way, after the structure's own nodes (ADR 1381). **And a client may now *act* rather than only listen**: a check box says a
+out crosses the same way, after the structure's own nodes (ADR 1381). A tagged document's page its
+structure reaches nothing on says that instead of the untagged sentence, and names the producer's
+omission where the catalog claims §14.8.1's tagged PDF (ADR 1393); a `Form` element with no text of
+its own is named by its `/T`, else its field's `/TU` or §12.7.4.2 name (ADR 1394). **And a client may now *act* rather than only listen**: a check box says a
 click may be asked of it and a person using a screen reader alone can tick one, an element says it
 may be scrolled to, and the page says a caret may be put in it — each carried out as a place, in the
 device pixels a pointer already works in, so the boundary gained no message and one definition of a

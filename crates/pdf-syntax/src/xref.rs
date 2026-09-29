@@ -452,8 +452,8 @@ pub(crate) fn walk_revisions(file: &FileBytes, limits: Limits, mut each: impl Fn
 
 /// Reconstructs a cross-reference table by scanning the file for objects.
 ///
-/// The other half of [`read`], and a public one since the hundred-and-seventh session because
-/// there is a second reason to reach it: a cross-reference table that *parses* is not thereby a
+/// The other half of [`read`], and a public one (ADR 0097) because there is a second reason to
+/// reach it: a cross-reference table that *parses* is not thereby a
 /// table that *works*. §7.5.5 makes the trailer's `/Root` "the catalog dictionary for the PDF
 /// document", so a table leading to no catalog has been disproved by the file itself, whatever it
 /// parsed as — and [`crate::Document::open`] rebuilds and tries again rather than refusing. Two
@@ -1179,14 +1179,13 @@ fn big_endian(bytes: &[u8]) -> u64 {
 /// one", and of the first field specifically, "[i]f the first element is zero, the type field
 /// shall not be present, and shall default to Type 1".
 ///
-/// **"If there is one" is the condition, and the type 1 entry's byte offset has none.** Table
-/// 18 as printed gives it "Default value: 0", and Errata Collection 3's Issue #500 strikes that
-/// sentence — an offset of zero is the file's header, and a default that puts every uncompressed
-/// object there is a wrong answer dressed as one. Until the nine-hundred-and-eighty-third session
-/// this function implemented the struck text: an absent second field read as zero for every
-/// entry type, so a `/W` of `[1 0 1]` located every type 1 object at the start of the file. An
-/// entry whose location the layout cannot state is refused, and with it the section: the `/W`
-/// is the section's, so no record under it can say where anything is (ADR 1004).
+/// **"If there is one" is the condition, and the type 1 entry's byte offset has none.** Table 18 as
+/// printed gives it "Default value: 0", and Errata Collection 3's Issue #500 strikes that sentence
+/// — an offset of zero is the file's header, and a default that puts every uncompressed object
+/// there is a wrong answer dressed as one: read as zero, a `/W` of `[1 0 1]` would locate every
+/// type 1 object at the start of the file. An entry whose location the layout cannot state is
+/// refused, and with it the section: the `/W` is the section's, so no record under it can say where
+/// anything is (ADR 1004).
 ///
 /// **A type 2 entry's index is the one field read as zero without a sentence to stand on, and
 /// that is a choice with witnesses rather than a reading.** Table 18 states no default for
@@ -1473,11 +1472,10 @@ fn find_catalog_by_scan(input: &[u8], limits: Limits, table: &XrefTable) -> Opti
 /// the opposite of the layered table's rule, and correct here for the same reason: in an
 /// incrementally-updated file the later copy is the newer one.
 ///
-/// Public since the hundred-and-seventy-seventh session, for the second caller described in
-/// [`rebuild`]: [`crate::Document`] asks for it when *one* entry of an otherwise working table
-/// is disproved by the object at its offset, which is a repair of one number rather than of a
-/// file. It carries no trailer — [`rebuild`] is what adds one — because a caller that already
-/// has a trailer must keep it.
+/// Public for the second caller described in [`rebuild`] (ADR 0148): [`crate::Document`] asks for
+/// it when *one* entry of an otherwise working table is disproved by the object at its offset,
+/// which is a repair of one number rather than of a file. It carries no trailer — [`rebuild`] is
+/// what adds one — because a caller that already has a trailer must keep it.
 #[must_use]
 pub fn scan_for_objects(input: &[u8], limits: Limits) -> XrefTable {
     let mut table = XrefTable::default();

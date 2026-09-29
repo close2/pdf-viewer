@@ -40,7 +40,7 @@ use std::sync::Arc;
 /// MB, which is the same order as the "below 10 MB is definitely ok" the project owner gave, and
 /// a document larger than every one of them degrades to eviction rather than to unbounded growth.
 ///
-/// What it buys, measured in the four-hundred-and-twentieth session with
+/// What it buys, measured for ADR 0256 with
 /// `viewer-core/examples/find_cost`, medians of seven runs: a **repeated** full-document search
 /// of ISO 32000-2 falls from **5.45 s to 7.27 ms**, and the first one is 5.51 s against 5.61 s —
 /// unchanged, inside a spread of 0.16 s and 0.32 s respectively.

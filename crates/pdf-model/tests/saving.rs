@@ -50,7 +50,7 @@ fn entry(document: &Document, id: ObjectId, key: &str) -> Object {
 fn a_text_widget_with_no_appearance_stream_is_given_one() {
     // §7.3.8.1 makes every stream an indirect object, so a widget that had no `/AP` needs an
     // object *added* rather than replaced — which is the half of §7.5.6's "changed, replaced, or
-    // deleted" this writer did not do until the hundred-and-forty-fifth session.
+    // deleted" (ADR 0130).
     let Some(document) = saved("160F-2019.pdf", "X.minus1", "Ada Lovelace") else {
         eprintln!("skipped: doc/pdf.js is not checked out");
         return;
@@ -722,9 +722,9 @@ fn choosing_an_option_of_a_text_field_applies_to_nothing() {
 /// the log is empty and the value read back is the one object 4 states — because the difference
 /// between the two designs is invisible until a document is written.
 ///
-/// **Written in the four-hundred-and-twenty-ninth session**, when `doc/todo/01`'s fifth sweep was
-/// run over `tools/` and `fuzz/` for the first time and found this the one `pub fn` in `pdf-model`
-/// that nothing in the tree names at all — no host, no tool, no fuzz target and no test.
+/// `doc/todo/01`'s fifth sweep, run over `tools/` and `fuzz/`, found this the one `pub fn` in
+/// `pdf-model` that nothing in the tree named at all — no host, no tool, no fuzz target and no
+/// test (ADR 0265).
 #[test]
 fn forgetting_an_edit_restores_the_documents_own_value_without_logging_one() {
     let objects = "1 0 obj << /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >> \

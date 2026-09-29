@@ -48,18 +48,14 @@ mod panels;
 /// A host and a worker from different builds must not talk to each other, and the cheapest
 /// place to find that out is the first thing either says.
 ///
-/// **`03` → `04` in the seven-hundred-and-thirty-sixth session**, because a frame now carries a
-/// payload discriminant and, on one arm of it, a display list. ADR 0626 deliberately left it
-/// where it was when the codec was built: nothing crossed in a frame then, and bumping it would
-/// have refused a worker that spoke the same protocol. It moves once, here, where something new
-/// genuinely crosses.
-///
-/// **`04` → `05` in the eight-hundred-and-fifth session**, and the reason is worth stating because
-/// the bytes alone would not have demanded it: a command, a question and an answer were added, each
-/// taking the *next* discriminant, so nothing that crossed before means anything different now.
-/// What an older worker cannot do is answer the new question — and a host would discover that at
-/// the worst moment there is, in the middle of putting a reader back after a death, as a refusal of
-/// something the reader never asked for. The greeting is the cheap place to find it out instead.
+/// It moves where something new genuinely crosses, and only there: a frame's payload discriminant
+/// and the display list on one arm of it moved it, where the codec alone did not, because nothing
+/// crossed in a frame then (ADR 0626). It also moves when a command, a question and an answer are
+/// added even though each takes the *next* discriminant and nothing that crossed before changes
+/// meaning, for a reason the bytes alone would not demand: an older worker cannot answer the new
+/// question — and a host would discover that at the worst moment there is, in the middle of putting
+/// a reader back after a death, as a refusal of something the reader never asked for. The greeting
+/// is the cheap place to find it out instead.
 pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF05";
 
 /// Length of the worker's greeting: the magic, the Landlock level, the address-space limit, and
@@ -1003,37 +999,34 @@ mod command_kind {
     pub(super) const FIND: u8 = 22;
     pub(super) const PRESENT: u8 = 23;
     pub(super) const LAYOUT: u8 = 24;
-    // Where the reader is looking, said absolutely, since the eight-hundred-and-fifth session:
-    // what a host hands back after starting another worker. ADR 0737.
+    // Where the reader is looking, said absolutely: what a host hands back after starting another
+    // worker. ADR 0737.
     pub(super) const VIEW: u8 = 25;
-    // The person's answer to `Event::Asking`, since the eight-hundred-and-eighty-fifth: the
-    // *ask* level's second half, which a confined host has to be able to supply. ADR 0814.
+    // The person's answer to `Event::Asking`: the *ask* level's second half, which a confined host
+    // has to be able to supply. ADR 0814.
     pub(super) const ANSWER: u8 = 26;
-    // What the document says about itself, asked for once the reader has their page, since the
-    // one-thousand-and-twenty-seventh: `notes::about` left the open path so that a signed
-    // document's digest stopped being part of a launch. ADR 1044.
+    // What the document says about itself, asked for once the reader has their page:
+    // `notes::about` is off the open path so that a signed document's digest is not part of a
+    // launch. ADR 1044.
     pub(super) const REPORT: u8 = 27;
-    // §12.8.1's third question, since the one-thousand-and-sixty-second: whom the reader believes.
-    // A confined worker holds the document and therefore reads its signatures, so RFC 5280 section
-    // 6.1.1's inputs (d) and (b) have to cross to reach the party that validates a path. The
-    // certificates cross as DER, which is what they are on a host's disk (ADR 1076).
+    // §12.8.1's third question: whom the reader believes. A confined worker holds the document and
+    // therefore reads its signatures, so RFC 5280 section 6.1.1's inputs (d) and (b) have to cross
+    // to reach the party that validates a path. The certificates cross as DER, which is what they
+    // are on a host's disk (ADR 1076).
     pub(super) const TRUST: u8 = 28;
-    // §8.10.4's target documents, since the one-thousand-and-eighty-seventh: which files a
-    // reference XObject may import a page from. The bytes cross for the reason the certificates
-    // above do, turned round — the party that reads a file off a disk is outside the confinement
-    // and the party that *parses* a PDF is inside it, which is where every other document is
-    // parsed (ADR 1101).
+    // §8.10.4's target documents: which files a reference XObject may import a page from. The bytes
+    // cross for the reason the certificates above do, turned round — the party that reads a file
+    // off a disk is outside the confinement and the party that *parses* a PDF is inside it, which
+    // is where every other document is parsed (ADR 1101).
     pub(super) const REFERENCE_FILES: u8 = 29;
-    // §8.11.4.4's two usage categories about the reader, since the one-thousand-and-ninety-second:
-    // who is reading, and in what language. Three lists of names and a language tag cross, for the
-    // reason every host-supplied policy value does — the confined worker holds the document and
-    // therefore decides which of its layers are drawn, and only the host was told who is reading
-    // (ADR 1106).
+    // §8.11.4.4's two usage categories about the reader: who is reading, and in what language.
+    // Three lists of names and a language tag cross, for the reason every host-supplied policy
+    // value does — the confined worker holds the document and therefore decides which of its layers
+    // are drawn, and only the host was told who is reading (ADR 1106).
     pub(super) const AUDIENCE: u8 = 30;
-    // §7.6.4.2's bit 5 asked as an operation, since the one-thousand-one-hundred-and-forty-seventh:
-    // a person pressed copy. It crosses because the confined worker holds the document and
-    // therefore the policy, exactly as `RESTRICT` does — and because a query could not be asked,
-    // held or refused (ADR 1144).
+    // §7.6.4.2's bit 5 asked as an operation: a person pressed copy. It crosses because the
+    // confined worker holds the document and therefore the policy, exactly as `RESTRICT` does — and
+    // because a query could not be asked, held or refused (ADR 1144).
     pub(super) const COPY: u8 = 31;
     // Table 166's `/M`: what the host's clock says, for the annotations a save writes. It crosses
     // for the reason every other host-supplied policy value does — the confined worker holds the
@@ -2000,10 +1993,39 @@ fn decode_viewing(reader: &mut Reader<'_>) -> Result<viewer_core::Viewing, Proto
     })
 }
 
+/// Which of four answers a page's structure list is, as one byte (ADR 1393).
+///
+/// Its own field on the wire rather than read off the list's length, because an empty list is
+/// three different sentences on the other side and the length says only that it is empty.
+fn tagging_code(tagging: viewer_core::Tagging) -> u8 {
+    match tagging {
+        viewer_core::Tagging::Untagged => 0,
+        viewer_core::Tagging::Unread => 1,
+        viewer_core::Tagging::Unreached { marked: false } => 2,
+        viewer_core::Tagging::Unreached { marked: true } => 3,
+        viewer_core::Tagging::Reached => 4,
+    }
+}
+
+/// [`tagging_code`]'s inverse, refusing a byte it does not write.
+fn tagging_of(code: u8) -> Result<viewer_core::Tagging, ProtocolError> {
+    match code {
+        0 => Ok(viewer_core::Tagging::Untagged),
+        1 => Ok(viewer_core::Tagging::Unread),
+        2 => Ok(viewer_core::Tagging::Unreached { marked: false }),
+        3 => Ok(viewer_core::Tagging::Unreached { marked: true }),
+        4 => Ok(viewer_core::Tagging::Reached),
+        value => Err(ProtocolError::Unrecognised {
+            what: "which of four answers a page's structure is",
+            value: u32::from(value),
+        }),
+    }
+}
+
 fn encode_edit(writer: &mut Writer, edit: &Edit) {
     match edit {
-        // §12.7.5.4's three shapes, carried since the four-hundred-and-twelfth session: this was
-        // one optional string until Table 233 bit 22's list box needed several. ADR 0248.
+        // §12.7.5.4's three shapes: a value is cleared, a string, or several chosen indices,
+        // because Table 233 bit 22's list box chooses several. ADR 0248.
         Edit::SetField { field, value } => {
             writer.u8(0).str(field);
             match value {
@@ -2034,7 +2056,7 @@ fn encode_edit(writer: &mut Writer, edit: &Edit) {
                 .f32(colour[1])
                 .f32(colour[2]);
         }
-        // §12.5.6.6, carried since the four-hundred-and-first session. ADR 0238.
+        // §12.5.6.6's free text annotation. ADR 0238.
         Edit::FreeText { from, to, colour } => {
             writer
                 .u8(2)
@@ -2047,9 +2069,9 @@ fn encode_edit(writer: &mut Writer, edit: &Edit) {
         Edit::SetFreeText { annotation, text } => {
             writer.u8(3).object(*annotation).str(text);
         }
-        // §7.11.4's file crosses whole, since the eight-hundred-and-eighty-fifth session. The
-        // bytes ship rather than a descriptor: a confined worker has no filesystem to open one
-        // through, and `doc/todo/38` records what a descriptor route would need. ADR 0814.
+        // §7.11.4's file crosses whole. The bytes ship rather than a descriptor: a confined worker
+        // has no filesystem to open one through, and `doc/todo/38` records what a descriptor route
+        // would need. ADR 0814.
         Edit::Attach {
             bytes,
             name,
@@ -2236,8 +2258,7 @@ mod event_kind {
     pub(super) const REFUSED: u8 = 13;
     pub(super) const REPORTED: u8 = 14;
     pub(super) const SEARCHED: u8 = 15;
-    // The *ask* and *warn* levels' events, and the attachment list moving, since the
-    // eight-hundred-and-eighty-fifth session. ADR 0814.
+    // The *ask* and *warn* levels' events, and the attachment list moving. ADR 0814.
     pub(super) const ASKING: u8 = 16;
     pub(super) const WARNED: u8 = 17;
     pub(super) const ATTACHMENTS_CHANGED: u8 = 18;
@@ -2848,8 +2869,7 @@ mod query_kind {
     pub(super) const FOCUS: u8 = 12;
     pub(super) const FRAME: u8 = 13;
     pub(super) const REPORTS: u8 = 14;
-    // The eleven a panel is made of, carried since the three-hundred-and-eighty-sixth session.
-    // Each answers with a `pdf-model` type, which is why they were second: `protocol::panels` is
+    // The eleven a panel is made of. Each answers with a `pdf-model` type: `protocol::panels` is
     // the encoding of those types and ADR 0223 is the argument.
     pub(super) const OUTLINE: u8 = 15;
     pub(super) const LAYERS: u8 = 16;
@@ -2862,25 +2882,22 @@ mod query_kind {
     pub(super) const PREFERENCES: u8 = 23;
     pub(super) const POPUPS: u8 = 24;
     pub(super) const ACCESSIBILITY_TREE: u8 = 25;
-    // The caret's inverse and the shapes over a selected range of a field's value, carried since
-    // the three-hundred-and-eighty-eighth session. ADR 0225.
+    // The caret's inverse and the shapes over a selected range of a field's value. ADR 0225.
     pub(super) const OFFSET: u8 = 26;
     pub(super) const FIELD_SELECTION: u8 = 27;
-    // §12.7's form fields, carried since the three-hundred-and-ninety-eighth session: the sixth of
-    // ADR 0235's six chrome populations and the last to cross.
+    // §12.7's form fields: the sixth of ADR 0235's six chrome populations.
     pub(super) const FIELDS: u8 = 28;
-    // §12.5.6.6's annotation at a point, carried since the four-hundred-and-first session: the way
-    // in to typing on the one markup subtype whose text is the annotation. ADR 0238.
+    // §12.5.6.6's annotation at a point: the way in to typing on the one markup subtype whose text
+    // is the annotation. ADR 0238.
     pub(super) const FREE_TEXT_AT: u8 = 29;
-    // Annex O's highlighted rectangle, carried since the five-hundred-and-twenty-second session:
-    // the fragment identifier's own shape, which no host can derive because no host sees the
-    // fragment. ADR 0357.
+    // Annex O's highlighted rectangle: the fragment identifier's own shape, which no host can
+    // derive because no host sees the fragment. ADR 0357.
     pub(super) const HIGHLIGHT: u8 = 30;
-    // What the page's codes cost the readback, carried since the five-hundred-and-eighty-seventh
-    // session: §9.10.2's own "there is no way", counted rather than reported. ADR 0422.
+    // What the page's codes cost the readback: §9.10.2's own "there is no way", counted rather than
+    // reported. ADR 0422.
     pub(super) const READBACK: u8 = 31;
-    // Where the reader is looking, since the eight-hundred-and-fifth session: the question a host
-    // holds per frame so that a worker's death costs the reader nothing but the wait. ADR 0737.
+    // Where the reader is looking: the question a host holds per frame so that a worker's death
+    // costs the reader nothing but the wait. ADR 0737.
     pub(super) const VIEW: u8 = 32;
     // One page of a print operation, at the printer's resolution. It crosses because the worker
     // holds the document and therefore the interpretation; the window process holds the printer
@@ -2896,11 +2913,10 @@ mod query_kind {
 
 /// Encodes one question.
 ///
-/// **Every question crosses**, which is the three-hundred-and-eighty-sixth session's change and
-/// the reason this function no longer returns [`Uncarried`] for anything. It still returns a
-/// `Result` because the answers do — see [`encode_answer`], where a collection value outside
-/// Table 47 and an `#[non_exhaustive]` metadata failure are the two refusals left in this module
-/// besides the render round trip.
+/// **Every question crosses** (ADR 0223), so this function returns [`Uncarried`] for nothing. It
+/// still returns a `Result` because the answers do — see [`encode_answer`], where a collection
+/// value outside Table 47 and an `#[non_exhaustive]` metadata failure are the two refusals left in
+/// this module besides the render round trip.
 #[expect(
     clippy::unnecessary_wraps,
     reason = "the symmetry with `encode_command` and `encode_answer` is the shape a caller reads, \
@@ -3257,25 +3273,23 @@ mod answer_kind {
     pub(super) const PREFERENCES: u8 = 24;
     pub(super) const POPUPS: u8 = 25;
     pub(super) const ACCESSIBILITY: u8 = 26;
-    // The caret's inverse and a field selection's shapes, since the three-hundred-and-eighty-eighth
-    // session. ADR 0225.
+    // The caret's inverse and a field selection's shapes. ADR 0225.
     pub(super) const OFFSET: u8 = 27;
     pub(super) const FIELD_SELECTION: u8 = 28;
     // §12.7's form fields, the twelfth answer a panel — or a native form — is made of. ADR 0235.
     pub(super) const FIELDS: u8 = 29;
-    // §12.5.6.6's annotation and its `/Contents`, since the four-hundred-and-first. ADR 0238.
+    // §12.5.6.6's annotation and its `/Contents`. ADR 0238.
     pub(super) const FREE_TEXT: u8 = 30;
-    // Annex O's highlighted rectangles, since the five-hundred-and-twenty-second. ADR 0357.
+    // Annex O's highlighted rectangles. ADR 0357.
     pub(super) const HIGHLIGHTED: u8 = 31;
-    // The per-code counts, since the five-hundred-and-eighty-seventh session (ADR 0422); a
-    // fourth joined them in the eight-hundred-and-thirty-seventh (ADR 0764).
+    // The per-code counts (ADR 0422), four of them (ADR 0764).
     pub(super) const READBACK: u8 = 32;
-    // Where the reader is looking, since the eight-hundred-and-fifth session. ADR 0737.
+    // Where the reader is looking. ADR 0737.
     pub(super) const VIEW: u8 = 33;
     // One page of a print operation, as marks and a target — `query_kind::PRINT_PAGE`'s answer.
     pub(super) const PRINT_PAGE: u8 = 34;
-    // §12.9's formatted measurement, since the one-thousand-one-hundred-and-seventy-seventh
-    // session: strings Table 267's arrays produced and §12.10's reading beside them (ADR 1191).
+    // §12.9's formatted measurement: strings Table 267's arrays produced and §12.10's reading
+    // beside them (ADR 1191).
     pub(super) const MEASURED: u8 = 35;
 }
 
@@ -3290,8 +3304,7 @@ mod answer_kind {
 ///
 /// [`Uncarried`] in three places, and each names what it refused: a raster in a pixel layout this
 /// build cannot spell, a §7.11.6 collection value outside Table 47's three kinds, and a metadata
-/// failure `pdf_model::xmp` added after this build. The eleven panel answers that used to be here
-/// cross since the three-hundred-and-eighty-sixth session.
+/// failure `pdf_model::xmp` added after this build. The eleven panel answers all cross (ADR 0223).
 #[expect(
     clippy::too_many_lines,
     reason = "one arm per variant of a `viewer-core` enum, and the count is that enum's. Splitting it would put half the vocabulary in another function and lose the property the whole module rests on: the compiler naming the variant nobody handled"
@@ -3511,6 +3524,7 @@ pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8
                 writer.usize(page.page);
                 panels::encode_accessibility(&mut writer, &page.nodes);
                 panels::encode_accessibility(&mut writer, &page.widgets);
+                writer.u8(tagging_code(page.tagging));
             }
         }
         Answer::Outline(outline) => {
@@ -4095,6 +4109,7 @@ pub(crate) fn decode_answer_reusing(
                 page: reader.usize("a structure tree's page")?,
                 nodes: panels::decode_accessibility(reader)?,
                 widgets: panels::decode_accessibility(reader)?,
+                tagging: tagging_of(reader.u8("which of four answers a page's structure is")?)?,
             })
         })?),
         value => {
@@ -4224,23 +4239,22 @@ mod tests {
                 RestrictionLevel::On,
             ))),
             // The other two of `CLAUDE.md`'s four levels, and the answer that makes the third
-            // one a level, since the eight-hundred-and-eighty-fifth session (ADR 0814).
+            // one a level (ADR 0814).
             Command::Restrict(RestrictionScope::Window(RestrictionPolicy::uniform(
                 RestrictionLevel::Ask,
             ))),
-            // And a level per operation, since the one-thousand-one-hundred-and-forty-seventh:
-            // six bytes rather than one, and a policy that is *not* uniform is what catches a
-            // wire that lost the order they go in (ADR 1144).
+            // And a level per operation: six bytes rather than one, and a policy that is *not*
+            // uniform is what catches a wire that lost the order they go in (ADR 1144).
             Command::Restrict(RestrictionScope::Window(
                 RestrictionPolicy::default()
                     .with(Operation::Extract, RestrictionLevel::Ask)
                     .with(Operation::Annotate, RestrictionLevel::On)
                     .with(Operation::Assemble, RestrictionLevel::Warn),
             )),
-            // And a *scope* per policy, since the one-thousand-one-hundred-and-fifty-fifth: a
-            // document that departs from the window in one operation and in none, because the
-            // absence of a departure is a fifth byte value and a wire that lost it would turn
-            // *this document follows the window* into a level nobody chose (ADR 1145).
+            // And a *scope* per policy: a document that departs from the window in one operation
+            // and in none, because the absence of a departure is a fifth byte value and a wire that
+            // lost it would turn *this document follows the window* into a level nobody chose
+            // (ADR 1145).
             Command::Restrict(RestrictionScope::Document(
                 RestrictionOverride::NONE.with(Operation::Extract, Some(RestrictionLevel::Ask)),
             )),
@@ -4297,9 +4311,9 @@ mod tests {
                 field: "A.NOM".to_owned(),
                 value: Entered::Cleared,
             }),
-            // §12.7.5.4's list box, since the four-hundred-and-twelfth: Table 233 bit 22 permits
-            // several items at once, and all three of `Entered`'s shapes cross so that a confined
-            // host has no less than an unconfined one (ADR 0248).
+            // §12.7.5.4's list box: Table 233 bit 22 permits several items at once, and all three
+            // of `Entered`'s shapes cross so that a confined host has no less than an unconfined
+            // one (ADR 0248).
             Command::Edit(Edit::SetField {
                 field: "A.NOM".to_owned(),
                 value: Entered::Chosen(Vec::new()),
@@ -4312,8 +4326,7 @@ mod tests {
                 kind: Markup::Squiggly,
                 colour: [1.0, 0.5, 0.0],
             }),
-            // §12.5.6.6's two, since the four-hundred-and-first session: a rectangle a person
-            // drew, and what they typed in it.
+            // §12.5.6.6's two: a rectangle a person drew, and what they typed in it (ADR 0238).
             Command::Edit(Edit::FreeText {
                 from: (12.0, 34.0),
                 to: (56.0, 78.0),
@@ -4323,8 +4336,8 @@ mod tests {
                 annotation: ObjectId::new(19, 0),
                 text: "Reviewed".to_owned(),
             }),
-            // §7.11.4's file in both of §7.11.4.1's homes, and out again, since the
-            // eight-hundred-and-eighty-fifth session: the bytes cross whole (ADR 0814).
+            // §7.11.4's file in both of §7.11.4.1's homes, and out again: the bytes cross whole
+            // (ADR 0814).
             Command::Edit(Edit::Attach {
                 bytes: b"a,b,c\n".to_vec().into(),
                 name: "data.csv".to_owned(),
@@ -4348,14 +4361,14 @@ mod tests {
                 name: "attachment.txt".to_owned(),
             },
             Command::Save,
-            // What the document says about itself, asked for rather than done by the open, since
-            // the one-thousand-and-twenty-seventh session (ADR 1044).
+            // What the document says about itself, asked for rather than done by the open
+            // (ADR 1044).
             Command::Report,
             Command::Select(Selection::All),
             Command::Select(Selection::None),
-            // Annex O's `search` and a find bar's *next*, since the four-hundred-and-fourteenth:
-            // all three steps and both directions, because a confined host has to be able to
-            // drive a search exactly as an unconfined one does (ADR 0250).
+            // Annex O's `search` and a find bar's *next*: all three steps and both directions,
+            // because a confined host has to be able to drive a search exactly as an unconfined one
+            // does (ADR 0250).
             Command::Find(Find::Start {
                 needle: "transparency group".to_owned(),
                 direction: FindDirection::Forward,
@@ -4571,11 +4584,11 @@ mod tests {
 
     /// §7.6.4.1's password crosses whole, which the comparison above can no longer see.
     ///
-    /// `Command`'s `Debug` compares every field of every variant, and since the
-    /// six-hundred-and-ninety-fifth session a `viewer_core::Secret` prints how many characters it
-    /// holds and not which — the property that keeps it out of a launch log. That is exactly the
-    /// property that would let a transport corrupt a password into another of the same length with
-    /// the test above still green, so the one field the general check went blind to gets its own.
+    /// `Command`'s `Debug` compares every field of every variant, and a `viewer_core::Secret`
+    /// prints how many characters it holds and not which (ADR 0545) — the property that keeps it
+    /// out of a launch log. That is exactly the property that would let a transport corrupt a
+    /// password into another of the same length with the test above still green, so the one field
+    /// the general check went blind to gets its own.
     #[test]
     fn a_password_crosses_the_transport_unchanged() {
         let command = Command::Open {
@@ -4736,8 +4749,7 @@ mod tests {
                 operation: Operation::Annotate,
                 notes: vec!["this document's author certified it".to_owned()],
             },
-            // The *ask* and *warn* levels' events and the list moving, since the
-            // eight-hundred-and-eighty-fifth session (ADR 0814).
+            // The *ask* and *warn* levels' events and the list moving (ADR 0814).
             Event::Asking {
                 document,
                 operation: Operation::Modify,
@@ -4843,11 +4855,10 @@ mod tests {
 
     /// Every question `viewer-core` states, encoded and read back.
     ///
-    /// **The list used to have two halves** — what crossed and what was refused by name — and the
-    /// second half is empty since the three-hundred-and-eighty-sixth session. All of them are
-    /// here, written out rather than generated, so that a question added to `viewer-core` makes
-    /// `encode_query`'s match fail to compile and somebody then notices there is no round trip
-    /// for it.
+    /// **Every one crosses** (ADR 0223), so there is no list of questions refused by name. All of
+    /// them are here, written out rather than generated, so that a question added to `viewer-core`
+    /// makes `encode_query`'s match fail to compile and somebody then notices there is no round
+    /// trip for it.
     #[test]
     fn every_query_is_carried() {
         let carried = [
@@ -5766,11 +5777,21 @@ mod tests {
                 page: 3,
                 nodes: nodes.clone(),
                 widgets: Vec::new(),
+                tagging: viewer_core::Tagging::Reached,
             },
             viewer_core::PageStructure {
                 page: 4,
                 nodes: Vec::new(),
                 widgets: nodes.clone(),
+                tagging: viewer_core::Tagging::Untagged,
+            },
+            // ADR 1393: a tagged document's page its structure reaches nothing on is empty too,
+            // and has to arrive as that rather than as the untagged page above.
+            viewer_core::PageStructure {
+                page: 5,
+                nodes: Vec::new(),
+                widgets: Vec::new(),
+                tagging: viewer_core::Tagging::Unreached { marked: true },
             },
         ];
         let Reply::Accessibility(read) = round_trip(&Answer::Accessibility(pages.clone())) else {
@@ -5781,6 +5802,7 @@ mod tests {
             assert_eq!(read.page, ours.page);
             assert_eq!(read.nodes, ours.nodes);
             assert_eq!(read.widgets, ours.widgets);
+            assert_eq!(read.tagging, ours.tagging);
         }
 
         // §12.7, and one of every control §12.7.5 defines: a host on this boundary builds the
@@ -6180,11 +6202,11 @@ mod tests {
 
     /// **A target is the one length on this boundary with no bytes behind it.**
     ///
-    /// The seven-hundred-and-nineteenth session's finding in a new place: a raster's dimensions
-    /// are checked against samples the sender had to write, so a claim costs the sender what it
-    /// costs the reader — and a render target is eight bytes that become however many pixels the
-    /// *host* asks its allocator for. The last of these four frames names a terabyte of pixels
-    /// in a message the assertion below holds to a couple of hundred bytes.
+    /// ADR 0597's rule in a new place: a raster's dimensions are checked against samples the sender
+    /// had to write, so a claim costs the sender what it costs the reader — and a render target is
+    /// eight bytes that become however many pixels the *host* asks its allocator for. The last of
+    /// these four frames names a terabyte of pixels in a message the assertion below holds to a
+    /// couple of hundred bytes.
     #[test]
     fn a_target_no_render_request_could_have_asked_for_is_refused() {
         for (width, height, why) in [

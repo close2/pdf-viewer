@@ -1,9 +1,8 @@
 //! How many embedded font programs decode to no bytes at all, and what each one is.
 //!
-//! Written for one question, off `doc/todo/00` step 7's ink sweep in the
-//! nine-hundred-and-forty-third session: `bug866395.pdf` draws no ink where four reference
-//! renderers draw a line of text, and its `/FontFile3` is a ten-byte `FlateDecode` stream that
-//! decodes, whole and undamaged, to **zero bytes**.
+//! Written for one question, off `doc/todo/00` step 7's ink sweep (ADR 0940): `bug866395.pdf` draws
+//! no ink where four reference renderers draw a line of text, and its `/FontFile3` is a ten-byte
+//! `FlateDecode` stream that decodes, whole and undamaged, to **zero bytes**.
 //!
 //! ISO 32000-2 §9.8.1's Table 120 makes `/FontFile3`
 //!

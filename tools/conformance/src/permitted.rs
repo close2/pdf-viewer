@@ -5,8 +5,8 @@
 //! `ledger.toml`'s own header defines `partial` as "some [normative requirements] are
 //! [executed]; the note says which are not". A clause entry the standard offers with *may* or
 //! *can* is not a normative requirement on a reader, so a row `partial` for one says a
-//! requirement is unexecuted where the standard states none. The nine-hundred-and-twenty-eighth
-//! session found four instances in one band of five rows — §12.11.5's `/RH`, §14.9.2's and
+//! requirement is unexecuted where the standard states none. Four instances stood in one band of
+//! five rows — §12.11.5's `/RH`, §14.9.2's and
 //! §14.9.2.2's Table 122 `/Lang`, §14.7.4.2's `/Schema` — and ADR 0896 records both the shape
 //! and the reason no sweep in `doc/todo/01` can print it: **every one of them reads a row that
 //! owes something and asks whether the owed thing exists in the tree.** This one is a row that
@@ -38,7 +38,7 @@
 //!
 //! # The half that reads a table entry, and why the sentence scan alone is not enough
 //!
-//! **Calibrated against session 928's own four rows, the sentence scan finds one of them** — and
+//! **Calibrated against ADR 0896's four rows, the sentence scan finds one of them** — and
 //! that is a fact about the shape rather than about the scan. Three of the four notes quote the
 //! standard for the half of the clause they *implement*: §14.9.2.2 quotes the `shall` about a
 //! language identifier's grammar, which it executes, while its debt is Table 122's `/Lang`, which
@@ -61,8 +61,8 @@
 //!
 //! # The second column, and it is ADR 0897's instrument
 //!
-//! A flagged row is a **reading list entry and never a verdict**, and the nine-hundred-and-
-//! twenty-eighth session is the proof: §14.7.4.2 was `partial` for a permission and stayed
+//! A flagged row is a **reading list entry and never a verdict**, and ADR 0897 is the proof:
+//! §14.7.4.2 was `partial` for a permission and stayed
 //! `partial`, because the clause's real `shall` sat in the prose *after* Table 356 and the row
 //! had never named it. A modal scan over that row alone gets the answer backwards.
 //!

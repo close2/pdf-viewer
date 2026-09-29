@@ -129,12 +129,10 @@ impl App {
                 *x += edge;
             }
         }
-        // The number every part of `doc/todo/13` turned on: the frame the compositor refused was
-        // 63 quads, and a present cost 1.9 ms a quad before it. Kept in the tree so that a
-        // selection's cost stays visible rather than being rediscovered. On stdout with every
-        // other trace line since the three-hundred-and-ninetieth: it was the one on stderr, and
-        // PowerShell wrapped each of its lines in six of its own in the trace that raised
-        // ADR 0227.
+        // The number every part of `doc/todo/13` turned on: the frame the compositor refused was 63
+        // quads, and a present cost 1.9 ms a quad before it. Kept in the tree so that a selection's
+        // cost stays visible rather than being rediscovered. On stdout with every other trace line,
+        // because PowerShell wraps each stderr line in six of its own (ADR 0227).
         self.trace.say(
             Topic::Selection,
             format_args!("SELECTION quads {}", quads.len()),

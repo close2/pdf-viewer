@@ -493,11 +493,9 @@ fn a_password_fields_typed_value_is_not_written_into_the_file() {
 #[test]
 fn the_default_appearance_strings_colour_is_the_texts_colour() {
     // **Asserted as a difference between two colours rather than as a pixel count.** The count
-    // is a property of the substitute face, and this test used to require more than ten
-    // strongly-red pixels — which "Hi" at 12 points gives with some faces and not others. It
-    // stopped being true in the hundred-and-forty-eighth session, when the standard 14 became
-    // compiled-in and `/Helvetica` began resolving to Liberation Sans on every machine rather
-    // than to whatever was installed: nine pixels, and the clause still honoured.
+    // is a property of the substitute face — "Hi" at 12 points in Liberation Sans, which
+    // `/Helvetica` resolves to on every machine (ADR 0133), gives nine strongly-red pixels, and
+    // another face gives another number, while the clause is honoured either way.
     let field = |colour: &str| {
         let (reports, raster) = draw(pdf_with(
             "",
@@ -553,8 +551,8 @@ fn the_default_appearance_strings_colour_is_the_texts_colour() {
 /// name in the Font entry of the default resource dictionary" — and states no recovery for a
 /// document that breaks it. What it *does* state is that the value goes on the page, so the
 /// field is drawn in a stand-in and the report names the font the `/DR` lacked: two true
-/// statements where the refusal that stood until the hundred-and-twenty-third session made one
-/// false page. Six corpus documents write such a `/DA`, five of them naming `/Helv`.
+/// statements where a refusal would make one false page (ADR 0112). Six corpus documents write
+/// such a `/DA`, five of them naming `/Helv`.
 #[test]
 fn a_font_the_default_resources_lack_is_stood_in_for_and_named() {
     let (reports, raster) = draw(pdf_with(
@@ -644,11 +642,10 @@ fn a_no_break_space_is_drawn_as_a_space() {
 /// is reported and the rest is drawn, because there the shortfall is the document's own choice.
 ///
 /// **Which of the two outcomes this machine gets is a property of this machine**, and that is
-/// why the assertion is the equivalence rather than the blank. Until the
-/// four-hundred-and-thirty-fourth session a stand-in was always one of §9.6.2.2's compiled-in
-/// faces, none of which has Arabic, so the refusal was the only outcome and this test asserted
-/// it. Since ADR 0270 a substituted face is chosen by whether it covers the characters the
-/// encoding names — here an invented `/Differences` naming four Arabic glyphs — so a machine
+/// why the assertion is the equivalence rather than the blank. None of §9.6.2.2's compiled-in
+/// faces has Arabic, and since ADR 0270 a substituted face is chosen by whether it covers the
+/// characters the encoding names — here an invented `/Differences` naming four Arabic glyphs —
+/// so a machine
 /// with an Arabic face draws the value in full and a machine without one still declines. What
 /// holds on both, and is what the test is for, is that the two go together: ink exactly when
 /// nothing was owed for a missing code.
@@ -743,9 +740,9 @@ fn a_check_box_shows_its_caption_only_when_it_is_on() {
 /// > The value of the V key shall also be the value of the AS key. If they are not equal, then the
 /// > value of the AS key shall be used instead of the V key to determine which appearance to use.
 ///
-/// **A `shall` this tree obeyed only backwards until the three-hundred-and-ninety-eighth
-/// session.** The file's `/AS` decided, always — so a reader that changed `/V` left `/AS` behind
-/// and the widget went on drawing the state it was saved in. The sentence binds both entries
+/// **A `shall` that binds both directions.** If the file's `/AS` always decided, a reader that
+/// changed `/V` would leave `/AS` behind and the widget would go on drawing the state it was
+/// saved in. The sentence binds both entries
 /// together, and the processor that changes one is the one that has to carry the other; ADR 0235
 /// records the reading.
 ///
@@ -1480,9 +1477,9 @@ fn prefix_shown(value: &str, shown: &str) -> usize {
 /// > multiple-line fields) to accommodate more text than fits within its annotation rectangle.
 /// > Once the field is full, no further text shall be accepted for interactive form filling
 ///
-/// Two sentences and only the second binds a reader — a `shall` about *accepting* text, which
-/// became this tree's to obey in the hundred-and-thirty-fifth session, when `set_field` made it
-/// a program a person fills a field with. The same value goes into the same box twice and the
+/// Two sentences and only the second binds a reader — a `shall` about *accepting* text, which is
+/// this tree's to obey because `set_field` makes it a program a person fills a field with
+/// (ADR 0120). The same value goes into the same box twice and the
 /// fixtures differ in one flag, so this is a test of the clause rather than of a layout: with
 /// the bit clear the value is taken whole and the box clips it, with the bit set the value is
 /// cut where the box ends and the characters past that were never accepted.

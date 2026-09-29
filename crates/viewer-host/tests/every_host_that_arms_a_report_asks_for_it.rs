@@ -1,12 +1,12 @@
 //! Every host that arms the document's report also asks for it.
 //!
 //! **A report deferred into never being produced is a silent regression**, and this is the sweep
-//! that stops it. `viewer_core::notes::about` left the open path in the one-thousand-and-twenty-
-//! seventh session (ADR 1044) because §12.8's answer digests the signed part of the file and
-//! `CLAUDE.md` principle 2 keeps such work off a launch. What replaced it is a host asking —
-//! `viewer_host::report::Due::opened` when a document opens, `Due::after_a_frame` once the reader
-//! has their page — and a host that armed the first and forgot the second would go quiet about
-//! every signature in every file, with nothing failing.
+//! that stops it. `viewer_core::notes::about` is off the open path (ADR 1044) because §12.8's
+//! answer digests the signed part of the file and `CLAUDE.md` principle 2 keeps such work off a
+//! launch. What stands in its place is a host asking — `viewer_host::report::Due::opened` when a
+//! document opens, `Due::after_a_frame` once the reader has their page — and a host that armed the
+//! first and forgot the second would go quiet about every signature in every file, with nothing
+//! failing.
 //!
 //! **The population is derived rather than written down** (trap 25): it is whichever crates of
 //! this workspace call the first of those two, read off the tree. A host added later joins the

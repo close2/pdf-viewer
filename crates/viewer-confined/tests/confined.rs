@@ -425,13 +425,13 @@ fn the_confined_viewer_reports_a_confinement_it_actually_has() {
 
 /// A panel's worth of a document, asked across the boundary and asked here, on real content.
 ///
-/// **The property the three-hundred-and-eighty-sixth session added, checked where it matters.**
-/// `protocol`'s unit tests populate every field of every type and round trip it in memory; this
-/// one takes what a *document* actually says, sends it through a pipe and a process that cannot
-/// open a file, and compares it with what the same document says in this process. Three files
-/// rather than one, because no single committed document has an outline, a layer order, an
-/// attachment list, a thumbnail, a metadata packet and a structure tree at once — and an
-/// encoding is only exercised by an answer that is not empty.
+/// **Every panel answer crosses (ADR 0223), checked where it matters.** `protocol`'s unit tests
+/// populate every field of every type and round trip it in memory; this one takes what a *document*
+/// actually says, sends it through a pipe and a process that cannot open a file, and compares it
+/// with what the same document says in this process. Three files rather than one, because no single
+/// committed document has an outline, a layer order, an attachment list, a thumbnail, a metadata
+/// packet and a structure tree at once — and an encoding is only exercised by an answer that is not
+/// empty.
 #[test]
 #[expect(
     clippy::too_many_lines,
@@ -743,10 +743,9 @@ fn an_attachment_is_listed_here_and_checked_against_what_the_worker_extracted() 
 /// §12.7's form, read across the boundary and filled in through it.
 ///
 /// **The twelfth answer, and the one that decides whether a confined host can be a form at all.**
-/// The eleven panel answers crossed in the three-hundred-and-eighty-sixth session; a form field
-/// did not, so a host on this side could place a native tree, a native popover and a native
-/// attachment list and then had to take its text fields, its check boxes and its combo boxes as
-/// pixels off the raster. ADR 0235.
+/// Without it a host on this side could place a native tree, a native popover and a native
+/// attachment list and then would have to take its text fields, its check boxes and its combo boxes
+/// as pixels off the raster. ADR 0235.
 ///
 /// Two properties, and they are separate. **The description crosses unchanged** — every control,
 /// every flag, every option and every quadrilateral, compared against the same document read in
@@ -2113,12 +2112,12 @@ fn a_page_drawn_from_a_decoded_list_is_the_page_that_was_sent() {
 
 /// What ADR 0607 predicted, re-derived here rather than quoted.
 ///
-/// The seven-hundred-and-twenty-fourth session priced a list by walking it and summing what an
-/// encoder *must* write; this is the encoder, so the price is now a measurement. Printed rather
-/// than asserted against a constant — a byte count is a property of this build's format and
-/// pinning it would fail on every change to the format for no reason anybody could act on. What
-/// *is* asserted is the direction the whole decision rests on: the committed note's list is a
-/// small fraction of its raster at a window's scale.
+/// ADR 0607 priced a list by walking it and summing what an encoder *must* write; this is the
+/// encoder, so the price is a measurement. Printed rather than asserted against a constant — a byte
+/// count is a property of this build's format and pinning it would fail on every change to the
+/// format for no reason anybody could act on. What *is* asserted is the direction the whole
+/// decision rests on: the committed note's list is a small fraction of its raster at a window's
+/// scale.
 #[test]
 #[expect(
     clippy::cast_precision_loss,

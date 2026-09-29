@@ -8,12 +8,11 @@
 //! > 7.2, "Lexical conventions" ) but shall be unrelated to the page's logical content or
 //! > organisation.
 //!
-//! That sentence is what this module is built on, and it is Table 31's rather than §7.8.2's —
-//! which `doc/todo/14` had wrong for nine sessions and the quotation gate caught here. Because
-//! a part may only end where a token ends, several parts *chain into one reader* rather than
-//! being concatenated into one buffer — and because the interpreter reads a content stream
-//! once, forwards, and never seeks back, the buffer it reads through need not be larger than
-//! the largest token it must hold.
+//! That sentence is what this module is built on, and it is Table 31's rather than §7.8.2's.
+//! Because a part may only end where a token ends, several parts *chain into one reader* rather
+//! than being concatenated into one buffer — and because the interpreter reads a content stream
+//! once, forwards, and never seeks back, the buffer it reads through need not be larger than the
+//! largest token it must hold.
 //!
 //! # Why a window rather than the whole thing
 //!
@@ -1175,12 +1174,9 @@ pub(super) fn token_to_object(token: Token<'_>) -> Object {
 /// The content lexer yields tokens and not objects, so a dictionary written inside a content
 /// stream — which only `BDC` and the inline-image operators use — has to be put together here.
 ///
-/// Array values were read as far as their brackets and discarded until the eighty-third
-/// session, on the reasoning that "no property list entry this tree reads is an array". That
-/// stopped being true the moment §14.8.2.2's artifacts were read: Table 363's `/BBox` and
-/// `/Attached` are both arrays, and both came back empty from a parser that was recognising
-/// the brackets without reading between them — which is this project's own trap 8 in
-/// `doc/HANDOVER.md`, met from the inside.
+/// Array values are read, not only their brackets: §14.8.2.2's artifacts carry Table 363's
+/// `/BBox` and `/Attached`, both arrays, and a parser that recognised the brackets without
+/// reading between them would hand both back empty — trap 8, met from the inside (ADR 0073).
 ///
 /// An unterminated dictionary ends with the stream, which is what a truncated content stream
 /// leaves behind; the entries read before it are still the ones the file stated.
@@ -1346,10 +1342,10 @@ mod tests {
 
     /// The other side of the line: a salvage whose tail is not an operator stands.
     ///
-    /// `--5` and `.-1` are not on either side of it since the nine-hundred-and-ninetieth
-    /// session: the lexer reads nothing off the front of either and hands them over as the
-    /// keywords §7.2.3 makes them, with no salvage to ask about (ADR 1011). They are here so
-    /// that the reader's answer for them is pinned too — the keyword, and no number beside it.
+    /// `--5` and `.-1` are not on either side of it: the lexer reads nothing off the front of
+    /// either and hands them over as the keywords §7.2.3 makes them, with no salvage to ask about
+    /// (ADR 1011). They are here so that the reader's answer for them is pinned too — the keyword,
+    /// and no number beside it.
     #[test]
     fn a_digit_run_with_a_unit_or_a_second_point_is_still_salvaged() {
         assert_eq!(tokens(b"12pt"), vec![Token::Integer(12)]);

@@ -66,7 +66,7 @@ Priority: 23
 Corpus: 0 documents
 Clauses: §11.3.5.3, §11.3.7.2, §11.4.4, §11.4.6, §11.5.3, §11.6.4.3, §11.6.4.4, §11.6.6, §11.7.5.3,
 §8.6.5.5, §8.6.5.6, §8.6.5.7, §11.7.2, §14.11.5
-Code: `crates/pdf-model/src/content/transparency.rs`, `crates/pdf-model/src/colour.rs`,
+Code: `crates/pdf-model/src/content/transparency.rs`, `crates/pdf-colour/src/colour.rs`,
 `crates/pdf-render/src/blending.rs`, `crates/pdf-render/src/display_list.rs`,
 `crates/render-cpu/src/lib.rs`
 

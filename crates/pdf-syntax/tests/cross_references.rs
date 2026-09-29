@@ -512,10 +512,9 @@ fn a_cross_reference_streams_own_dictionary_is_the_trailer() {
 ///
 /// `/Root` alone does not discriminate — a reader that scans for `/Type /Catalog` finds it without
 /// reading a trailer at all — so the first half asks for `/Info`, which nothing but the trailer
-/// names, and the second asks the question that decides whether the file is readable. Before the
-/// eight-hundred-and-fifty-seventh session both witnesses in
-/// `doc/checks/fixed-documents.toml` opened as though they were not encrypted, and every string
-/// and stream in them came back as ciphertext with nothing reported (ADR 0781).
+/// names, and the second asks the question that decides whether the file is readable: opened as
+/// though they were not encrypted, both witnesses in `doc/checks/fixed-documents.toml` return
+/// every string and stream as ciphertext with nothing reported (ADR 0781).
 #[test]
 fn a_rebuild_takes_its_trailer_from_the_cross_reference_stream() {
     for addressed in [true, false] {

@@ -3,15 +3,12 @@
 //!
 //! **This module knows nothing about signatures.** It is the integer arithmetic two of them need:
 //! [`crate::pkcs1`]'s `s^e mod n` (RFC 8017 section 5.2.2) and [`crate::dsa`]'s `g^u1 y^u2 mod p mod q`
-//! (FIPS 186-4 section 4.7). It lived inside `pkcs1` until the four-hundred-and-seventy-ninth
-//! session and moved out when a second caller arrived (ADR 0314).
+//! (FIPS 186-4 section 4.7). It is a module of its own because it has two callers (ADR 0314).
 //!
 //! # The arithmetic is a dependency's, and that is a decision
 //!
-//! Until the four-hundred-and-ninety-sixth session this module *was* the arithmetic: a fixed-size
-//! limb array, Montgomery multiplication and square-and-multiply, written in tree on ADR 0229's
-//! argument that a verification has no secret to leak. The project owner decided otherwise after
-//! reading ADR 0314, and ADR 0331 carries the reasoning: `RustCrypto`'s `crypto-bigint` is the
+//! This module is a seam over the arithmetic rather than the arithmetic itself, by the project
+//! owner's decision, and ADR 0331 carries the reasoning: `RustCrypto`'s `crypto-bigint` is the
 //! reviewed implementation of exactly these operations, it sits on the same supplier line as every
 //! cipher and digest this tree already takes, and what review buys a *verifier* is not
 //! side-channel resistance but a second set of eyes on carry propagation — the one class of defect

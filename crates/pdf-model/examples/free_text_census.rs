@@ -15,9 +15,8 @@
 //!   and is not — its own row ends "this flag does not restrict changes to the annotation's
 //!   contents". Bit 7 `ReadOnly` is "do not allow the annotation to interact with the user". A
 //!   count of each says which of the three a corpus document would actually exercise.
-//! - **How many state Table 177's `/CL`**, the callout line — drawn since the
-//!   four-hundred-and-ninety-fourth session (ADR 0329), with this count (0 of 73) as the reason
-//!   its fixtures are hand-built pairs rather than corpus pages.
+//! - **How many state Table 177's `/CL`**, the callout line — drawn (ADR 0329), with this count (0
+//!   of 73) as the reason its fixtures are hand-built pairs rather than corpus pages.
 //! - **What each says about its border**, which is a fifth question and the one trap 11 asks.
 //!   §12.5.4's "[i]f neither the Border nor the BS entry is present, the border shall be drawn as
 //!   a solid line with a width of 1 point" is a `shall` that fires on a file which said nothing,

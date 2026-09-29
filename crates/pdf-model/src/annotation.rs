@@ -26,8 +26,8 @@
 //! stored one.
 //!
 //! §12.5.5 states the opposite in one sentence — the appearance's group "shall be composited
-//! ... using the values of the BM, ca and CA entries in the annotation dictionary" — and this
-//! tree followed that reading until the twenty-first session. Two statements against one for
+//! ... using the values of the BM, ca and CA entries in the annotation dictionary" (ADR 0030).
+//! Two statements against one for
 //! the opacities, and the two explain themselves: the entries are what an appearance is
 //! *regenerated* from, and a stream that carries its own `/ExtGState` would otherwise have the
 //! same opacity applied twice. `highlight.pdf` is exactly that file: `/CA 0.8` on the
@@ -288,13 +288,8 @@ pub(crate) enum Mark {
 /// Table 176's and Table 191's `/H`: what a press does to an annotation.
 ///
 /// Table 176 says the same of a link, with four modes rather than five and the same default.
-/// (**The second number said 192 until the four-hundred-and-thirteenth session**, which is the
-/// `/MK` appearance characteristics dictionary and states no `/H` at all; the widget
-/// annotation's own entry is Table 191's. It is the third place in this tree to carry that
-/// exact pair — §12.5.6.19's ledger row was corrected in the three-hundred-and-eighty-seventh
-/// and `highlight`'s doc comment below in the four-hundred-and-second — and two more of them
-/// were inside `highlight`'s own body, which the round that corrected the comment above it did
-/// not read. Five places, one entry, three rounds: `doc/todo/01`'s ninth sweep's own subject.)
+/// The widget annotation's own entry is Table 191's, not Table 192's: 192 is the `/MK`
+/// appearance characteristics dictionary and states no `/H` at all.
 /// ISO 32000-2 §12.5.6.19, of a widget:
 ///
 /// > The annotation's highlighting mode , the visual effect that shall be used when the mouse
@@ -302,8 +297,8 @@ pub(crate) enum Mark {
 /// > Invert the colours used to display the contents of the annotation rectangle. O (Outline)
 /// > Stroke the colours used to display the annotation border.
 ///
-/// A clause that describes a *moment*, and one this program could not reach until it grew a
-/// pointer in the hundred-and-thirty-second session (ADR 0122).
+/// A clause that describes a *moment*, which this program reaches through its pointer
+/// (ADR 0122).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Highlight {
     /// `N`: nothing extra is drawn.
@@ -322,10 +317,7 @@ pub(crate) enum Highlight {
 /// appearance.** The two clauses genuinely disagree for an annotation that states a `/D` and no
 /// `/H`: §12.5.5 says the down appearance "shall be used when the mouse button is pressed", and
 /// Table 191 gives `/H` the default `I` and says "[a] highlighting mode other than P shall
-/// override any down appearance". (**This comment said "Table 192" until the
-/// four-hundred-and-second session**, which is the number §12.5.6.19's ledger row was corrected
-/// for fifteen rounds earlier and this file was not: 192 is the `/MK` appearance characteristics
-/// dictionary, and `/H` is the widget annotation's own entry. `doc/todo/01`'s ninth sweep.) Taking the default flatly makes the *file's own artwork*
+/// override any down appearance". Taking the default flatly makes the *file's own artwork*
 /// unshowable — 95 of the corpus's page-one annotations state a `/D` and no `/H`, so 95 pieces
 /// of artwork would exist for a moment that could never display them. Taking a stated `/D` as
 /// the writer having said `P` leaves every stated entry meaning something, and loses only a
@@ -340,11 +332,8 @@ pub(crate) fn highlight(document: &Document, annotation: &Dictionary, has_down: 
     // belongs to the entry rather than to annotations in general — so a subtype whose clause
     // states no `/H` has no highlighting mode to default, and a press on it draws no mark.
     //
-    // Reachable only from the two-hundred-and-fifty-third session, and that is the whole reason
-    // it was not caught: `viewer-core` took the pressed annotation from the *link* one, so the
-    // default could only ever land on a subtype that does define the entry. Widening the region
-    // to every annotation is what made a `Square` invert under the cursor, in a test written for
-    // a different flag.
+    // A pressed annotation may be any annotation, not only a link (ADR 0177), so without this a
+    // `Square` would invert under the cursor.
     let subtype = document.get_key(annotation, "Subtype");
     let subtype = subtype.as_name().map(Name::as_bytes);
     if !matches!(subtype, Some(b"Link" | b"Widget")) {
@@ -454,9 +443,7 @@ pub(crate) fn no_zoom_in_force(
 /// > NoZoom and NoRotate annotation flags (see "Table 167 -Annotation flags") were always set.
 ///
 /// A `shall` about the *subtype* rather than about the file's `/F`, so it is applied to an
-/// annotation that sets neither flag and cannot be cleared by one that clears them. Unreachable
-/// until the two-hundred-and-seventeenth session gave the two flags a meaning, and `icon.rs`'s
-/// module comment carried the blocker in prose the whole time.
+/// annotation that sets neither flag and cannot be cleared by one that clears them (ADR 0168).
 ///
 /// §12.5.6.10, of the four text markup subtypes and of nothing else:
 ///
@@ -541,20 +528,20 @@ const ICON_SIZE: f32 = 20.0;
 ///
 /// # Why this is not conditioned on the rectangle
 ///
-/// **It was, for the two hundred and seventy-five sessions between the two-hundred-and-sixty-fifth
-/// and the six-hundred-and-fortieth**, which drew the icon on the largest square inside `/Rect`
-/// wherever `/Rect` had an area and reached this square only where it had none. The derivation
-/// above never needed that condition: none of the three sentences mentions the rectangle's size,
+/// Conditioning it — the largest square inside `/Rect` wherever `/Rect` has an area, and this
+/// square only where it has none — is what ADR 0471 retired. The derivation above never needs
+/// that condition: none of the three sentences mentions the rectangle's size,
 /// and Table 166 does not give `/Rect` one either — it is "defining the location of the annotation
 /// on the page in default user space units".
 ///
 /// What supplies a size instead is §12.5.5's algorithm, which maps the coordinate system of the
 /// appearance form dictionary "to the annotation's rectangle in default user space" by scaling its
 /// transformed `/BBox` onto `/Rect`'s corners — and an annotation with no appearance stream has no
-/// such box to map, which is why this function is reached from the branch where
-/// [`Normal::Absent`] was answered and from nowhere else. `1407194.pdf`'s note states `/Rect [0 542 400 792]` with no `/AP`, and a 250-unit icon
-/// covered the top-left quarter of a book cover: −6.304 of 255 against three references agreeing
-/// within 0.6, every one of them drawing a small note at the corner.
+/// such box to map, which is why this function is reached from the branch where [`Normal::Absent`]
+/// was answered and from nowhere else. `1407194.pdf`'s note states `/Rect [0 542 400 792]` with no
+/// `/AP`, and a 250-unit icon would cover the top-left quarter of a book cover: −6.304 of 255
+/// against three references agreeing within 0.6, every one of them drawing a small note at the
+/// corner.
 ///
 /// §12.5.6.15's file attachment and §12.5.6.16's sound are deliberately not here: neither clause
 /// states either sentence, so neither annotation is attached to a point and neither is held at a
@@ -592,9 +579,7 @@ fn anchored_icon(subtype: &[u8], rect: [f32; 4]) -> Option<[f32; 4]> {
 /// but [`Appearance::Normal`] is the cursor being on this annotation — which is the condition
 /// this clause states in prose and that one states in a table.
 ///
-/// **Unreachable before the two-hundred-and-fifty-third session**, and not because of this
-/// clause: `viewer-core` took the annotation under the pointer from the *link* one, so no
-/// annotation that was not a link ever left [`Appearance::Normal`].
+/// The annotation under the pointer may be any annotation, not only a link (ADR 0177).
 /// Whether §12.5.3's flags let this annotation reach the output being produced.
 ///
 /// **Table 167 states two different answers and the output decides which**, so this function
@@ -1059,8 +1044,8 @@ fn decided(
     }
 
     // Table 166 makes `/Subtype` required, and a report that begins with an empty name reads as
-    // a colon with nothing before it — which `issue7446.pdf` produced for four sessions.
-    // Naming the absence is the whole of the fix: no subtype means no subtype clause, and a
+    // a colon with nothing before it — which `issue7446.pdf` would produce. Naming the absence
+    // is the whole of the rule: no subtype means no subtype clause, and a
     // clause is what every construction in `crate::appearance` reads.
     let name = if subtype.is_empty() {
         "an annotation with no /Subtype".to_owned()
@@ -1122,9 +1107,8 @@ fn decided(
             let Some(rect) = stated_rect else {
                 return Decision::Unsupported(format!("{name}: no usable /Rect"));
             };
-            // **A `/Rect` covering no area stops only the constructions `/Rect` places**, and
-            // this line dropped every one of them until the eight-hundred-and-ninetieth session.
-            // The rule below — an annotation covering no area cannot show anything — is
+            // **A `/Rect` covering no area stops only the constructions `/Rect` places.** The rule
+            // below — an annotation covering no area cannot show anything — is
             // §12.5.5's arithmetic, which scales a *stored* stream's transformed `/BBox` onto
             // `/Rect`; a construction goes through none of it. Six subtypes state their marks
             // "in default user space" instead, and
@@ -1134,8 +1118,8 @@ fn decided(
             // all is that same file one step further. `sumatrapdf-LINK-1618-0.pdf` states
             // thirteen of them on page one — six `Underline`, two `Squiggly`, two `Highlight`, a
             // `StrikeOut`, a `Line` and a `PolyLine`, each with its quadrilaterals, endpoints or
-            // vertices whole and its `/Rect` written as a point — and every one was dropped
-            // here, drawn nowhere and **reported nowhere**, which is trap 5's own shape. ADR
+            // vertices whole and its `/Rect` written as a point — and dropping them here would
+            // draw them nowhere and **report them nowhere**, which is trap 5's own shape. ADR
             // 0825.
             let rect = match anchored_icon(&subtype, rect) {
                 Some(square) => square,
@@ -1149,12 +1133,12 @@ fn decided(
         Normal::StateNotDefined => return Decision::Nothing,
     };
 
-    // §12.5.5's algorithm maps the appearance's transformed bounding box onto `/Rect`, and the
-    // two are the same kind of thing: a box in a coordinate space. **A missing operand makes
-    // the map the identity, whichever operand it is.** The hundred-and-twenty-fifth session
-    // established that in one direction — no `/BBox`, so §12.7.4.3's default box, which is
-    // `/Rect`'s dimensions at the origin (ADR 0113) — and this is the same rule the other way:
-    // no `/Rect`, so the appearance's own box, mapped through its `/Matrix`, is where it goes.
+    // §12.5.5's algorithm maps the appearance's transformed bounding box onto `/Rect`, and the two
+    // are the same kind of thing: a box in a coordinate space. **A missing operand makes the map
+    // the identity, whichever operand it is.** No `/BBox` means §12.7.4.3's
+    // default box, which is `/Rect`'s dimensions at the origin (ADR 0113); this is the same rule
+    // the other way: no `/Rect`, so the appearance's own box, mapped through its `/Matrix`, is
+    // where it goes.
     //
     // `issue14438.pdf` is the witness, and what it settles is which entry to *name*: four of its
     // ink annotations state no `/Rect` at all and appearance streams whose `/BBox` is
@@ -1172,8 +1156,8 @@ fn decided(
     // constructed, and §12.5.5's algorithm is why: it scales the appearance's transformed
     // `/BBox` onto `/Rect`, and a scale onto no extent leaves no mark whatever the stream draws.
     //
-    // **Table 166's excuse is narrower than this condition and is not what supplies it**, which
-    // this comment claimed until the seven-hundred-and-thirty-fourth session. The `/AP` row frees
+    // **Table 166's excuse is narrower than this condition and is not what supplies it.** The
+    // `/AP` row frees
     // a writer for "[a]nnotations where the value of the Rect key consists of an array where the
     // value at index 1 is equal to the value at index 3 and the value at index 2 is equal to the
     // value at index 4" — a *point*, and its own NOTE says that bullet "was changed from 'or' to
@@ -1400,7 +1384,7 @@ fn appearance_damage(
 /// Table 166's `/BM`, which applies to a stored appearance as much as to a constructed one.
 ///
 /// **The one annotation entry that is not like `/CA` and `/ca`**, and the reason is worth the
-/// paragraph because this tree read it the other way for four hundred sessions. Table 166 states
+/// paragraph because the other reading is easy to take. Table 166 states
 /// each of the two opacities as the value "[w]hen regenerating the annotation's appearance
 /// stream" and adds outright that it "shall not be used if the annotation has an appearance
 /// stream". §12.5.2 states `/BM` with no such condition:
@@ -1469,10 +1453,10 @@ enum Normal {
 /// shows its normal one — which is also what §12.5.3's *printing* path asks for, since "this
 /// appearance is also used for printing the annotation".
 ///
-/// **`view.value` is the second half of the choice, since the three-hundred-and-ninety-eighth
-/// session.** §12.7.5.2.3 requires `/V` and `/AS` to agree, and a viewer that changes the first is
-/// what has to carry the second: see `crate::appearance::appearance_state`, which answers `None`
-/// for everything but a check box or radio button whose value this reader replaced.
+/// **`view.value` is the second half of the choice** (ADR 0235). §12.7.5.2.3 requires `/V` and
+/// `/AS` to agree, and a viewer that changes the first is what has to carry the second: see
+/// `crate::appearance::appearance_state`, which answers `None` for everything but a check box or
+/// radio button whose value this reader replaced.
 fn stored_appearance(
     document: &Document,
     annotation: &Dictionary,

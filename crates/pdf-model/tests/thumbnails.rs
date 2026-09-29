@@ -157,8 +157,8 @@ fn every_thumbnail_decodes_and_is_compared_with_the_page_it_stands_for() {
     //    of the page as it was, and shows tables our render's page no longer has.
     //  - `issue19326.pdf` — a 1x1 thumbnail, which states one average colour and cannot agree
     //    with anything.
-    //  - `issue19517.pdf` — the other 1x1 thumbnail, comparable since session 486 made its page
-    //    draw (the reduced-resolution JPEG 2000 decode, ADR 0321), and looked at then: the
+    //  - `issue19517.pdf` — the other 1x1 thumbnail, comparable because its page draws (the
+    //    reduced-resolution JPEG 2000 decode, ADR 0321), and looked at: the
     //    miniature is the page's own orange (254,39,0) and our render's top pixel matches it at
     //    (255,40,0). What disagrees is the instrument — our render at the thumbnail's scale is
     //    one pixel wide and 1.33 tall, so its second row is two-thirds white canvas — which is

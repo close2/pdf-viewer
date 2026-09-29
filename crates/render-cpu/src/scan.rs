@@ -28,8 +28,8 @@
 //! A path that leaves the range therefore produces coverage the arithmetic does not define,
 //! and on the right geometry it walks `AlphaRuns`' run buffer past its end and unwraps a
 //! `None`. That is a **panic in a dependency reachable from a document**, and under
-//! `[profile.release]`'s `panic = "abort"` it is the whole process: the four-hundred-and-
-//! thirty-third session met it on two of 65 944 crawled documents (ADR 0269).
+//! `[profile.release]`'s `panic = "abort"` it is the whole process: two of 65 944 crawled
+//! documents reach it (ADR 0269).
 //!
 //! # What is done about it, and why it is not a refusal
 //!

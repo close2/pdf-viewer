@@ -48,12 +48,11 @@ pub const RESTARTS: usize = 3;
 pub struct Reopen {
     /// The view the last frame arrived for — where the reader was looking.
     ///
-    /// **The whole view since the eight-hundred-and-fifth session, and it used to be the page
-    /// alone** (ADR 0737). The reason it was the page was that nothing on this boundary asked the
-    /// viewer for a magnification or an offset, so a host could only replay the relative commands
-    /// it had sent and would have been guessing; [`viewer_core::Query::View`] is that question,
-    /// and [`viewer_core::Command::View`] is what a host sends the answer back as. What a host
-    /// restores it now restores exactly, and there is no sentence left to owe the reader.
+    /// **The whole view, not the page alone** (ADR 0737). Without a question for a magnification
+    /// and an offset a host could only replay the relative commands it had sent, and would be
+    /// guessing; [`viewer_core::Query::View`] is that question, and [`viewer_core::Command::View`]
+    /// is what a host sends the answer back as. What a host restores it restores exactly, and there
+    /// is no sentence to owe the reader.
     pub view: Viewing,
     /// Which start this is, counting from one.
     pub attempt: usize,

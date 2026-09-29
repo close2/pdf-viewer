@@ -25,7 +25,7 @@
 //! cargo run --release -p pdf-model --example long_mitre_census -- <file.pdf>...
 //! ```
 //!
-//! **The three scopes are the six-hundred-and-eighty-sixth session's**, and they are what makes
+//! **The three scopes (ADR 0523) are what makes**
 //! the two declined shapes measurable at all: ADR 0398 recorded them as having "no witness" over
 //! a population of 1441 first pages, before `CC-MAIN-2021-31` was on this disk, and a negative
 //! decays when the population grows (ADR 0490). The control run is stated beside the crawl run

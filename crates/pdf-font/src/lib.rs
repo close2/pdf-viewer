@@ -19,9 +19,8 @@
 //! under the Identity encoding or an embedded `CMap` (§9.7.5.3) — which between them cover
 //! the overwhelming majority of modern documents. A font this crate cannot load returns an
 //! error naming why, so the caller reports the text as undrawn rather than silently omitting
-//! it. Table 116's predefined `CMap`s are carried as data (see [`predefined`]) rather than
-//! refused, which is where this paragraph said the gap was for hundreds of sessions after the
-//! hundred-and-fifty-sixth closed it.
+//! it. Table 116's predefined `CMap`s are carried as data (see [`predefined`], ADR 0140) rather
+//! than refused.
 
 #![forbid(unsafe_code)]
 

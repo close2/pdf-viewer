@@ -17,7 +17,7 @@
 //! whose cover photograph and header are `/JPXDecode` CMYK images under `/ColorSpace [/ICCBased …]`
 //! with `/Decode [1 0 1 0 1 0 1 0]`, drawn as their own complements — a green background as
 //! dark purple, a black header as beige — silently, at +77.113 of 255 against three references
-//! agreeing within 0.75 (session 636, ADR 0468). It is somebody else's crawled web page and is
+//! agreeing within 0.75 (ADR 0468). It is somebody else's crawled web page and is
 //! not in this repository, so the fixture here is generated, the same rule `jpx_channels.rs`
 //! and `dct_components.rs` follow.
 //!

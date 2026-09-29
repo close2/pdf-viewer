@@ -18,8 +18,8 @@
 //! cargo run --release -p viewer-core --example accessibility_cost -- file.pdf [page] [repeats] [column]
 //! ```
 //!
-//! **The fourth argument is Table 29's arrangement**, and it is the question the six-hundred-and-
-//! tenth session added: `column` puts `OneColumn` at half magnification, so several pages are on
+//! **The fourth argument is Table 29's arrangement**: `column` puts `OneColumn` at half
+//! magnification, so several pages are on
 //! the screen and the answer is several pages'. A screen reader asks this question of the screen
 //! rather than of a page, so what a column costs is what a person waits through — and the run
 //! prints how many pages it was answering for beside the time.
@@ -122,7 +122,7 @@ struct Measured {
     lined: (usize, usize),
     /// How many pages Table 29's arrangement was showing when the question was asked.
     ///
-    /// The denominator of everything else here since the six-hundred-and-tenth session: the
+    /// The denominator of everything else here: the
     /// question answers for the screen rather than for a page, so a column's cost is several
     /// pages' and this is how many.
     pages: usize,

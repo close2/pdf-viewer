@@ -17,12 +17,11 @@
 //! cargo run --release -p pdf-model --example absence_audit -- --crawl   # CC-MAIN-2021-31
 //! ```
 //!
-//! **`--crawl` is the six-hundred-and-seventy-first session's**, and it is here for the reason
-//! ADR 0493 put it on `witness_census`: an instrument has a population too, and a claim can only
-//! decay as far as its instrument can reach. This one's was `doc/pdf.js`, `doc/corpora` and this
-//! project's fixtures, hard-coded, while the crawl sat on the same disk. Run it *with* the
-//! control run rather than instead of one — a negative measured before the crawl arrived is
-//! usually right about its own population, which is exactly why nothing in the tree could see it
+//! **`--crawl` is here for the reason ADR 0493 put it on `witness_census`**: an instrument has a
+//! population too, and a claim can only decay as far as its instrument can reach, and `doc/pdf.js`,
+//! `doc/corpora` and this project's fixtures alone leave out the crawl on the same disk. Run it
+//! *with* the control run rather than instead of one — a negative measured before the crawl arrived
+//! is usually right about its own population, which is exactly why nothing in the tree could see it
 //! (ADR 0490).
 
 #![expect(
@@ -61,9 +60,8 @@ enum Scope {
     /// The two cached corpora neither of the three above reaches: `corpus-cache/openpreserve`
     /// and `corpus-cache/tika-issue-tracker`.
     ///
-    /// Added in the one-thousand-and-eighty-seventh session, because §8.10.4's row carried the
-    /// phrase "67 195 of the 67 460 PDFs on this disk" — a population with a stated remainder
-    /// nothing had ever walked, which is a claim of absence with a hole in it by construction.
+    /// Without it, a population such as "67 195 of the 67 460 PDFs on this disk" has a stated
+    /// remainder nothing walks, which is a claim of absence with a hole in it by construction.
     Cached,
 }
 
@@ -720,10 +718,10 @@ fn visit(document: &Document, object: &Object, depth: usize, into: &mut Sighting
 
     // §12.3.2.2's integer first element, asked of the two keys that hold a destination in a
     // dictionary: Table 176's `/Dest` on a link, Table 151's on an outline item, and Table 202's
-    // `/D` on a go-to action. Only the explicit array and §12.3.2.4's dictionary form are asked here — a
-    // *named* destination is asked once per document at its definition, in `measure`, because
-    // resolving one costs a name-tree walk and a document states each name once and links to it
-    // many times.
+    // `/D` on a go-to action. Only the explicit array and §12.3.2.4's dictionary form are asked
+    // here — a *named* destination is asked once per document at its definition, in `measure`,
+    // because resolving one costs a name-tree walk and a document states each name once and links
+    // to it many times.
     //
     // `/D` is a key several unrelated tables use — Table 168's down appearance is the loudest —
     // and nothing filters them, because `Destination::read` is the filter: it yields `Some` only
@@ -1215,8 +1213,8 @@ fn measure(path: &Path) -> Answers {
     // never needed and the five do. A hand-built witness stating all seven constructs was run
     // through this example before the numbers were believed (`doc/habits.md`'s planted-witness
     // rule), and a first version that asked only the top-level dictionaries scored it **zero for
-    // a thread action** — the action was written inline inside the annotation's `/AA`, which is
-    // the six-hundred-and-forty-eighth session's finding exactly. A resource dictionary's
+    // a thread action** — the action was written inline inside the annotation's `/AA`. A
+    // resource dictionary's
     // `/ExtGState` was invisible for the same reason, being one level under `/Resources`.
     let mut sightings = Sightings::default();
     for number in document.xref().object_numbers() {

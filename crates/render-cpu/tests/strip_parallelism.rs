@@ -15,13 +15,12 @@
 //! planner exists to deliver: over a suite of scenes and a range of divisions **the bytes are
 //! equal**.
 //!
-//! **And the suite is where its limit is, which two sessions of work now stand on.** The
-//! three-hundred-and-eighty-first drew a *real* page in one strip on purpose — a confined process
-//! may not ask how many cores it has — and `doc/PDF20_AN001-BPC.pdf` page 1 differed by one pixel
-//! between one strip and every number above one, while these six scenes passed. The
-//! three-hundred-and-eighty-second found why (a strip's offset was folded into the page transform
-//! before a mark's was composed with it, ADR 0219), fixed it, and put the assertion where it
-//! belongs: `pdf-model/tests/strip_parallelism.rs`, on pages interpreted from documents, because
+//! **And the suite is where its limit is.** A *real* page drawn in one strip — which a confined
+//! process does, because it may not ask how many cores it has — is where a strip's offset folded
+//! into the page transform before a mark's is composed with it shows (ADR 0219):
+//! `doc/PDF20_AN001-BPC.pdf` page 1 differs by one pixel between one strip and every number above
+//! one while these six scenes pass. So the assertion lives in
+//! `pdf-model/tests/strip_parallelism.rs`, on pages interpreted from documents, because
 //! only there is there a mark whose device position lands within an `ulp` of a supersample row.
 //! **That file is the gate now and this one is its unit-sized companion**; equality here is still
 //! required, and what it can see is scenes.

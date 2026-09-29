@@ -488,9 +488,8 @@ pub(crate) mod fixtures {
 
     /// A self-signed brainpoolP256r1 certificate.
     ///
-    /// Made in the six-hundred-and-eighty-ninth session as the witness of a refusal; since ADR
-    /// 1063 the same pair is the witness of a verification, with nothing about it changed — which
-    /// is the one property a fixture that outlives a decision should have.
+    /// The witness of a verification (ADR 1063), made unchanged from the witness of a refusal
+    /// (ADR 0532) — the one property a fixture that outlives a decision should have.
     pub(crate) const BP256_CERTIFICATE: &str = "\
         308201963082013ca0030201020214562e870e03edd9391fba57a2f8dce46a73\
         16eb9b300a06082a8648ce3d0403023020311e301c06035504030c157064662d\

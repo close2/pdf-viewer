@@ -130,7 +130,7 @@ pub struct Cache {
     /// does not reach here at all — that applies to a space stated as a **name**, which has no
     /// object identity and is not put in this table.
     ///
-    /// Keyed by the output intent's identity as well since session 987, because the space a
+    /// Keyed by the output intent's identity as well, because the space a
     /// `/DeviceCMYK` reference parses to depends on §14.11.5's intent (ADR 1008). One
     /// interpretation has one intent, so the second half of the key never varies within a
     /// cache's life; it is there so that the table is exact by construction rather than by
@@ -172,9 +172,8 @@ struct Built {
 /// A built shading, and what a bound this program set cost it.
 ///
 /// The pair exists because [`Cache::build`]'s two callers are inside the interpreter, which is
-/// the only place that can raise a report — and returning a bare [`Shading`] let the one bound
-/// in this family stop a mesh in silence from the day it was written until the
-/// nine-hundred-and-forty-fifth session.
+/// the only place that can raise a report — and returning a bare [`Shading`] would let the one
+/// bound in this family stop a mesh in silence.
 #[derive(Debug, Clone)]
 pub struct Shaded {
     /// The shading to paint.
@@ -372,10 +371,9 @@ fn kind_of(
             detail: "no /ShadingType".to_owned(),
         })?;
 
-    // Table 77's `/ColorSpace`, under §8.6.5.6's defaults and §14.11.5's output intent — the
-    // second of which reached a shading only in session 987, so that a `/DeviceCMYK` shading
-    // on a page with an intent was the assumed press's colours beside a fill that was the
-    // intent's (ADR 1008). The intent travels in `colouring.into` with the target and the
+    // Table 77's `/ColorSpace`, under §8.6.5.6's defaults and §14.11.5's output intent, so that
+    // a `/DeviceCMYK` shading on a page with an intent is the intent's colours, as a fill beside
+    // it is (ADR 1008). The intent travels in `colouring.into` with the target and the
     // black point, which is how every route that converts after the interpreter gets it.
     let space = if let Some(space) = space {
         space

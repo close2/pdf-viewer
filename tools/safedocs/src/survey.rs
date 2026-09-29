@@ -62,8 +62,8 @@ pub struct Verdict {
     /// Codes shown on page one that reached a glyph the font program describes as empty,
     /// while the page reported nothing.
     ///
-    /// Separated from the count above in the four-hundred-and-thirty-fourth session, because
-    /// only one of the two is a mark the reader loses. ADR 0270.
+    /// Separate from the count above, because only one of the two is a mark the reader loses.
+    /// ADR 0270.
     pub codes_reaching_a_blank_glyph: usize,
 }
 

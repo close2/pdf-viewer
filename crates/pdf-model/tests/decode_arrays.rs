@@ -1,9 +1,9 @@
 //! What an image sample *means*: ISO 32000-2 §8.9.5.2's `/Decode` array.
 //!
 //! The clause is a linear map — `D min + x × (D max − D min) ÷ (2^n − 1)` — plus Table 88,
-//! which says what the pair is when the dictionary states none. Until the twenty-fifth
-//! session this tree implemented one point of that map: a first element above 0.5 reversed
-//! the samples, and every other array was silently ignored inside a `partial` ledger row.
+//! which says what the pair is when the dictionary states none. The whole map is implemented
+//! (ADR 0034); a reader that implemented one point of it — a first element above 0.5 reversing
+//! the samples — would ignore every other array in silence.
 //!
 //! # Why the fixtures are synthetic, when the corpus has 974 documents
 //!
@@ -154,9 +154,8 @@ fn grey_ramp(dict_extra: &str) -> pdf_render::Raster {
 /// > shall be mapped linearly between D min and D max
 ///
 /// `[0.2 0.8]` compresses the ramp into the middle three fifths of the range: 0 → 0.2,
-/// 64 → 0.35, 128 → 0.50, 255 → 0.8. Before the twenty-fifth session this array was read
-/// only for the sign of its first element, so every one of these four cells came out as the
-/// raw sample and nothing said so.
+/// 64 → 0.35, 128 → 0.50, 255 → 0.8. A reader that took only the sign of its first element
+/// would draw every one of these four cells as the raw sample and say nothing.
 #[test]
 fn a_general_decode_array_maps_the_samples_linearly_between_its_two_values() {
     let raster = grey_ramp("/Decode [0.2 0.8]");

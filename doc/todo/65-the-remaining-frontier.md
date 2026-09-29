@@ -78,8 +78,10 @@ permanent) or an owner decision to acquire a specification.
   M.9.2.4 lists — the held identical text of ISO/IEC 15444-2 (`doc/questions/A169`, ADR 1383).
   CMYK, sRGB, its grey, sYCC, ROMM-RGB and CIE Lab under D50 are drawn as defined; e-sRGB and
   e-sYCC (PIMA 7667), CIE Jab (CIE Publication 131) and CIE Lab under another illuminant take
-  §7.4.9's device fallback, because those texts are not held. Checking the restriction on a file is not a reader's job and is
-  not counted as debt (ADR 1184); `pdf-archive` checks it for ISO 19005.
+  §7.4.9's device fallback, because those texts are not held — the first two are sold (IS&T, ANSI),
+  and a non-D50 Lab wants the illuminant's white point, which T.801 codes after ITU-T T.4 Annex E,
+  free and not yet read. Checking the restriction on a file is not a reader's job and is not
+  counted as debt (ADR 1184); `pdf-archive` checks all of M.9.2 for ISO 19005 (ADRs 1383, 1399).
 - §12.8.3.4.4 — enforcing a signature policy's constraints. Everything the held texts define is read:
   ETSI EN 319 122-1 clause 5.2.9's attribute whole — which policy, its digest with the all-zero *not
   known* kept apart, the URL, the notice meant to be shown, the specification identifier — and clause
@@ -166,8 +168,8 @@ anywhere. `crates/pdf-syntax/tests/public_key_witnesses.rs` holds each recipient
 No document is known to be encrypted to a key a real reader holds, so the calibrated refusal is the
 state and the build stays untriggered.
 
-- §7.6.5, §7.6.5.1 (`reported`), §7.6.5.2 (`reported`), §7.6.5.3 (`reported`) — the handler itself and
-  its dictionary and algorithms, refused by name before Table 23 is read.
+- §7.6.5, §7.6.5.1, §7.6.5.2, §7.6.5.3 — all four `reported`: the handler itself and its dictionary
+  and algorithms, refused by name before Table 23 is read.
 - §7.6.6 — Table 27 and nothing else: its entries are the public-key handler's and reach nothing
   while §7.6.5 refuses the handler. Table 25's `/AuthEvent` is read and load-bearing.
 

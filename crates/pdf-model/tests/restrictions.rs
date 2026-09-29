@@ -36,7 +36,7 @@ fn corpus_bytes(name: &str) -> Option<Vec<u8>> {
 /// — so this file's author permitted a person to fill the form in and not to comment on it. It
 /// carries an `/AcroForm`, so both operations are ones a reader could actually attempt here.
 ///
-/// **Measured over the whole corpus in the three-hundred-and-seventy-third session**, by running
+/// **Measured over the whole corpus** (ADR 0212), by running
 /// `asserted` over every one of them: 26 of the 974 documents carry an `/Encrypt`, 19 open (the
 /// other 7 want a password nobody has), 4 of those open as the *owner* — and **6 withhold one of
 /// these two operations**: annotating is withheld by all six and filling in by four.

@@ -7,8 +7,8 @@
 //!
 //! # Why a platform without a filter still gets a worker
 //!
-//! Decided by the project owner in the three-hundred-and-fifteenth session, and it is a
-//! narrowing of principle 3 rather than an abandonment of it. The crate's own documentation
+//! Decided by the project owner (ADR 0194), and it is a narrowing of principle 3 rather than an
+//! abandonment of it. The crate's own documentation
 //! lists three reasons the boundary exists, and only the first two are about the isolation
 //! being *enforced by the kernel*:
 //!
@@ -35,10 +35,9 @@
 /// found by running that work under `strace` and reading what appeared. So there are two, each
 /// named for a program in this workspace, and adding a third means measuring a third.
 ///
-/// **The difference between them used to be exactly two things, and this line said so for
-/// dozens of sessions after it stopped being true.** Threads and address space were the whole of
-/// it in ADR 0218; ADR 0812 then added `recvmsg` and `pread64`, which are neither, and ADR 0888
-/// added the one argument-narrowed rule in the crate. What they have in common is the honest
+/// **The difference between them is more than threads and address space** (ADR 0218): ADR 0812
+/// adds `recvmsg` and `pread64`, which are neither, and ADR 0888 the one argument-narrowed rule
+/// in the crate. What they have in common is the honest
 /// heading and is why the profile is not a set of options: every one of them follows from the
 /// second profile being handed **a descriptor** and being asked to draw a page with it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

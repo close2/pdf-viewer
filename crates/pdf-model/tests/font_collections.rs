@@ -2,9 +2,9 @@
 //!
 //! Table 124 makes `/FontFile2` "a TrueType font program"; a collection is a *container* of
 //! several, introduced by a `ttcf` header rather than by a table directory, so a file embedding
-//! one is malformed. Two of the pdf.js corpus's first pages do it, and until the
-//! hundred-and-fifty-seventh session both drew no text at all and said `Invalid sfnt version
-//! 0x74746366` — which is `ttcf` in hexadecimal.
+//! one is malformed. Two of the pdf.js corpus's first pages do it, and a reader that expects a
+//! table directory draws no text on either and says `Invalid sfnt version 0x74746366` — which is
+//! `ttcf` in hexadecimal (ADR 0141).
 //!
 //! `pdf_font::collection` chooses the face the descriptor's own `/FontName` names and copies it
 //! out as a standalone `sfnt`. **The tests are against the real documents**, which is trap 4's

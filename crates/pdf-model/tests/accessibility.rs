@@ -492,8 +492,8 @@ fn a_reversed_chars_sequence_is_read_back_forwards() {
 /// A code §9.10.2 cannot name is counted the same inside the tag and outside it.
 ///
 /// The pair is the point rather than either half. `Interpretation::codes_without_a_character`
-/// asks what the *font* said about a code; the branch that decides it asked what the readback
-/// *buffer* held until the four-hundred-and-seventy-sixth session — and inside §14.8.2.5.3's
+/// asks what the *font* said about a code, not what the readback *buffer* holds (ADR 0311) —
+/// and inside §14.8.2.5.3's
 /// reversal no code's text ever reaches that buffer while the string is being shown, because the
 /// clause makes the whole string arrive backwards after it. So a buffer-reading rule answers
 /// "nothing" for every code here, whether the font named it or not, and both of these would count
@@ -755,8 +755,8 @@ fn an_af_tagged_section_associates_a_file_with_what_it_draws() {
 ///
 /// Issue #374 puts "a dictionary with an MCAF entry defining" in front of §14.13.5's sentence
 /// about the property list, so a file conforming to the amended clause writes `/MCAF` where this
-/// tree read `/AF` — and read nothing, silently, until the four-hundred-and-seventeenth session
-/// (ADR 0253). The tag stays `AF`; only the key inside the named resource moves.
+/// tree would otherwise read `/AF` — and read nothing, silently (ADR 0253). The tag stays `AF`;
+/// only the key inside the named resource moves.
 #[test]
 fn an_af_tagged_section_reads_the_property_lists_mcaf_key() {
     let drawn = interpret(

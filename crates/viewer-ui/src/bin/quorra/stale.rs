@@ -25,13 +25,12 @@
 //!
 //! # The base is the last rendering's own texture, and that is ADR 0391
 //!
-//! **There is no readback here any more, and there is no capture to lose.** Until the
-//! five-hundred-and-fifty-sixth session a reprojection resampled an `Arc<[u8]>` this host had read
-//! back off the window — 2.7 to 6.6 ms of a refresh that is 8.333 on the owner's display, plus an
-//! 8 192 000-byte re-upload behind it — and it could fail outright, because reading the window
-//! back meant replaying an encode that a glyph-atlas repack had destroyed (ADR 0384 section 6, ADR
-//! 0385). What the window now shows is a texture the device rendered the page into and never gave
-//! up, so:
+//! **There is no readback here, and there is no capture to lose.** Resampling an `Arc<[u8]>` read
+//! back off the window costs 2.7 to 6.6 ms of a refresh that is 8.333 on the owner's display, plus
+//! an 8 192 000-byte re-upload behind it — and it can fail outright, because reading the window
+//! back means replaying an encode that a glyph-atlas repack has destroyed (ADR 0384 section 6,
+//! ADR 0385, ADR 0391). What the window shows is a texture the device rendered the page into and
+//! never gave up, so:
 //!
 //! - **the base cannot be lost.** A repack throws tile placements away; it does not touch pixels
 //!   already drawn. The two refusals the owner saw twice in twenty-four presents are gone with the
@@ -125,10 +124,9 @@
 //! # What a revealed edge shows, and what now shows there instead
 //!
 //! A scroll or a zoom out moves pixels off the region the old rendering covered. The base is a
-//! picture of the *window*, so what it does not cover it has nothing to say about, and until the
-//! six-hundred-and-eighth session the window put its own background there — never page white,
-//! which would assert that the page is blank there, which is the plausible-looking lie principle
-//! 1 is about (ADR 0378).
+//! picture of the *window*, so what it does not cover it has nothing to say about. Page white there
+//! would assert that the page is blank there, which is the plausible-looking lie principle 1 is
+//! about (ADR 0378).
 //!
 //! **The second layer is a picture of the *page*, and that is what fills it** (ADR 0443). A
 //! [`Proxies`] entry is a whole page drawn once into a raster whose longer side is
@@ -143,8 +141,8 @@
 //! at all**, because nothing about the outgoing page's pixels is true of the incoming one at any
 //! placement. A page whose proxy is retained has pixels there where the base has none, so
 //! [`Plan::Approximate`] carries a [`Source`] saying *which* layer filled the picture — rule 3
-//! grew that distinction in the same session, because "approximated from the last frame" and
-//! "approximated from a low-resolution page" are different amounts of wrong.
+//! draws that distinction because "approximated from the last frame" and "approximated from a
+//! low-resolution page" are different amounts of wrong.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -154,12 +152,11 @@ use viewer_core::DocumentId;
 
 /// What a picture is a picture **of**, which is not the same question as which commands drew it.
 ///
-/// **The identity a page's picture is kept under, and the decision the six-hundred-and-eighth
-/// session said was owed** (`doc/todo/37`, ADR 0457). A retained page used to be keyed by the
-/// `Arc<DisplayList>` it was drawn from, and `viewer_core` holds one interpretation per page of
-/// the arrangement rather than a cache of them — so a page turn dropped the outgoing page's
-/// interpretation, coming back produced a new `Arc` over the same commands, and the picture held
-/// for it could never be found again. Every `SinglePage` page turn showed nothing.
+/// **The identity a page's picture is kept under** (`doc/todo/37`, ADR 0457). Not the
+/// `Arc<DisplayList>` it was drawn from: `viewer_core` holds one interpretation per page of the
+/// arrangement rather than a cache of them, so a page turn drops the outgoing page's
+/// interpretation, coming back produces a new `Arc` over the same commands, and a picture keyed by
+/// the old one could never be found again.
 ///
 /// The `Arc` answers *which interpretation*, and that is the right question for the base: the
 /// sharp layer is a picture of one arrangement at one placement and [`depicts`] must be exact
@@ -1227,14 +1224,13 @@ fn disagreement(first: Transform, then: Transform, over: &TargetSpec) -> f32 {
 ///
 /// # Why an exact comparison was wrong, which is arithmetic rather than arrangement
 ///
-/// ADR 0442 compared the compositions with `==`, on the argument that a threshold would be a
-/// number nobody measured a purpose for. On a real continuous column that refused ordinary
-/// **scrolls**: every page moves by the same distance and the composition still goes through
+/// ADR 0442 compared the compositions with `==`, on the argument that a threshold would be a number
+/// nobody measured a purpose for. On a real continuous column that refused ordinary **scrolls**:
+/// every page moves by the same distance and the composition still goes through
 /// `Transform::invert`, whose division by the determinant is not exact in `f32`, so two placements
-/// that print identically to three decimals are not equal. The six-hundred-and-eighth session's
-/// trace has the pair — `(1.000 0.000 0.000 1.000 0.000 -371.000)` refused against
-/// `(1.000 0.000 0.000 1.000 0.000 -371.000)` — and the cost was the sharp layer refused for most
-/// view changes in a continuous layout.
+/// that print identically to three decimals are not equal. A measured trace has the pair — `(1.000
+/// 0.000 0.000 1.000 0.000 -371.000)` refused against `(1.000 0.000 0.000 1.000 0.000 -371.000)` —
+/// and the cost of `==` is the sharp layer refused for most view changes in a continuous layout.
 ///
 /// # What the residual measures, and why this is not a tolerance fitted to it
 ///
@@ -1677,13 +1673,12 @@ impl Stale {
             crate::trace::Topic::Frames,
             format_args!("no reprojection ({}): {why}", why.kind()),
         );
-        // **Rule 4's sample is spent by the refusal it makes, and this is ADR 0384's defect found
-        // in a new place** (ADR 0461). [`Self::resampling`] held the *last* resample for the rest
-        // of the run, so one sample taken while the machine was busy refused every view change
-        // after it — and refusing is exactly what stops another sample being taken. A run measured
-        // in the six-hundred-and-twenty-seventh session shows it: a stand-in of 348.7 ms under a
-        // load average of 56, and every page turn for the remaining five seconds refused against
-        // that number while frames of 45 ms went by.
+        // **Rule 4's sample is spent by the refusal it makes** (ADR 0461). Holding the *last*
+        // resample for the rest of the run would let one sample taken while the machine was busy
+        // refuse every view change after it — and refusing is exactly what stops another sample
+        // being taken. ADR 0461's measured run shows it: a stand-in of 348.7 ms under a load
+        // average of 56, and every page turn for the remaining five seconds refused against that
+        // number while frames of 45 ms went by.
         //
         // "Unmeasured permits" answered the *first* sample and nothing after it. So a refusal
         // gives up its own reason: the next view change permits, measures, and decides on a number
@@ -2057,8 +2052,8 @@ mod tests {
     ///
     /// This is the case ADR 0442's exact comparison got wrong and [`AGREEMENT`] answers: on a
     /// continuous column every page moves by the same distance, and the compositions still differ
-    /// in the last bits of an `f32` because each goes through an inverse. The session before this
-    /// one has the trace — two placements printed identically to three decimals and refused.
+    /// in the last bits of an `f32` because each goes through an inverse. A measured trace has it —
+    /// two placements printed identically to three decimals and refused.
     ///
     /// It is also the **measurement**, printed rather than asserted at a number: the two
     /// populations either side of the bound, over a range of scrolls and of magnifications, on a
@@ -3174,9 +3169,8 @@ mod tests {
     }
 
     /// **The `SinglePage` page turn, which is what ADR 0457 is for.** A page left and returned to
-    /// is interpreted again and arrives as a different `Arc` over the same commands; the picture
-    /// retained for it was found by that address until this session, so every such turn showed
-    /// nothing at all and printed `another page — nothing to show`.
+    /// is interpreted again and arrives as a different `Arc` over the same commands, so a picture
+    /// found by that address would show nothing at all and print `another page — nothing to show`.
     ///
     /// Both halves are asserted here because the second is what makes the first safe: the same
     /// page under changed **ink** is a different picture and must not be found.

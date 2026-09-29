@@ -283,45 +283,55 @@ this round made before it made the measurement (ADR 1260):
   font loading as though every page paid it. On ISO 32000-2's page 101 that is 12.45 ms against
   **1.37**, in the stage the question was about.
 
-The figures, on the 890M through RADV, into a 1 600 × 1 000 window, minimum of five rounds each on
-a device of its own, load average 2.7 — milliseconds, and the share is of one 120 Hz refresh
-(8.333 ms). `budget` excludes the readback, which this example pays and a window does not:
+**The figures, taken on 2026-09-29** on the machine `doc/checks/launch-path.toml` names (Ryzen AI 9
+HX 370, the 890M through RADV, Linux 7.1), into a 1 600 × 1 000 window, minimum of five rounds each on
+a device of its own, pinned to the performance cores, load average 1.4–2.7 — milliseconds, and the
+share is of one 120 Hz refresh (8.333 ms). `budget` excludes the readback, which this example pays
+and a window does not. `warm` is 3% to 11% of the refresh on every page and is left out:
 
 | page | row | budget | interp | scene | encode | transfer | elsewhere | execute |
 |---|---|---|---|---|---|---|---|---|
-| ISO 32000-2 p101, text, 3 007 commands | turn | 9.25 (111%) | 1.37 | 0.44 | **6.38** | 0.22 | 0.52 | 0.32 |
-| | warm | 0.35 (4%) | — | — | 0.00 | 0.02 | 0.25 | 0.08 |
-| | step | 1.47 (18%) | — | — | 0.22 | 0.11 | 1.03 | 0.11 |
-| `personwithdog.pdf` p1, patch meshes | turn | 10.75 (129%) | 3.69 | 2.73 | 1.48 | 0.55 | 1.95 | 0.35 |
-| | warm | 0.86 (10%) | — | — | 0.00 | 0.04 | 0.61 | 0.21 |
-| | step | 11.18 (134%) | — | **3.98** | 4.21 | 0.54 | 2.06 | 0.39 |
-| `issue12841_reduced.pdf` p1, one photograph | turn | 131.58 (1579%) | **78.68** | 0.01 | 0.01 | **51.49** | 1.20 | 0.19 |
-| | warm | 0.24 (3%) | — | — | 0.00 | 0.00 | 0.15 | 0.08 |
-| | step | 11.14 (134%) | — | 0.00 | 0.01 | **8.23** | 2.72 | 0.18 |
+| ISO 32000-2 p101, text, 3 007 commands | turn | 10.19 (122%) | 1.38 | 0.43 | **7.39** | 0.20 | 0.47 | 0.32 |
+| | step | 1.38 (17%) | — | — | 0.22 | 0.11 | 0.94 | 0.11 |
+| `personwithdog.pdf` p1, patch meshes | turn | 10.08 (121%) | 3.73 | 2.94 | 1.17 | 0.43 | 1.62 | 0.19 |
+| | step | 11.33 (136%) | — | **4.58** | 4.56 | 0.44 | 1.50 | 0.26 |
+| `issue12841_reduced.pdf` p1, one photograph | turn | 126.21 (1515%) | **71.95** | 0.01 | 0.01 | **52.91** | 1.19 | 0.13 |
+| | step | 15.40 (185%) | — | 0.00 | 0.01 | **12.59** | 2.62 | 0.18 |
+| `22060_A1_01_Plans.pdf` p1, 72 placed images | turn | 129.78 (1557%) | **97.11** | 0.16 | 3.59 | **25.40** | 3.17 | 0.34 |
+| | step | 48.35 (580%) | — | — | 5.22 | **41.62** | 1.16 | 0.34 |
+| `images.pdf` p1 | turn | 147.09 (1765%) | **132.87** | 0.04 | 0.85 | 11.93 | 0.88 | 0.53 |
+| | step | 22.48 (270%) | — | — | 2.50 | **18.66** | 0.56 | 0.76 |
+| `issue14415.pdf` p1, strokes, 959 commands | turn | 18.93 (227%) | 2.40 | 0.57 | **14.19** | 0.93 | 0.72 | 0.12 |
+| | step | 22.20 (266%) | — | — | **20.81** | 0.19 | 1.06 | 0.14 |
+| `issue19802.pdf` p1, 1 032 commands | turn | 7.23 (87%) | 0.47 | 0.20 | **5.59** | 0.17 | 0.49 | 0.30 |
+| | step | 1.21 (15%) | — | — | 0.08 | 0.15 | 0.84 | 0.13 |
+| `ContentStreamNoCycleType3insideType3.pdf`, stroked Type 3 in a tiling | turn | 16.92 (203%) | 0.40 | 0.16 | **15.58** | 0.25 | 0.43 | 0.10 |
+| | step | 54.28 (651%) | — | — | **53.60** | 0.06 | 0.40 | 0.21 |
 
 **A repaint of what is on the screen always fits**; **a page turn onto a page whose outlines the
-device has not seen fits on none of the three** — the expensive end of that gesture, where
+device has not seen fits on one of the eight** — the expensive end of that gesture, where
 `launch_path`'s `turn_ms` inside one already-drawn document is the cheap end; and
-**`execute` — the device's own passes — is 1% to 5% of every row**, which is ADR 0387's 0.07% on
-one page found again across three classes. A frame that misses the refresh is a host thread, every
-time.
+**`execute` — the device's own passes — is a few per cent of every row**, which is ADR 0387's 0.07%
+on one page found again across every class. A frame that misses the refresh is a host thread,
+every time.
 
-**And one of those rows moved in the same session.** The mesh page's zoom step spent 8.22 ms in
-this crate's scene walk; `MeshRaster`'s rows are now divided across rayon's pool and it spends
-3.98. The division is byte-identical by construction — a mesh is point-sampled, so a band is not a
-boundary in the arithmetic the way ADR 0138's strips were — and it is held to that by a calibrated
-test. ADR 1259 has the A/B and the floor's derivation.
+**Where each page's turn goes is a different stage, and each has its ADR.** On text and on stroked
+artwork it is raster's `encode`: ADR 1375's tiling of a tight bend and ADR 1389's fill set are the
+cost (ADR 1395 has the per-commit table), and ADR 1395 takes a clipped mark and a stroke off the
+walk's thread, where a text page's glyphs are still drawn in drains too small for the fan-out's
+floor. On the mesh page the scene walk divides `MeshRaster`'s rows across rayon's pool — byte-
+identical by construction, since a mesh is point-sampled, and held to that by a calibrated test
+(ADR 1259). On a photograph `interp` is the codec's own Huffman and IDCT: the decoder is asked for
+the four-byte raster directly and the `DNL` walk reads a word at a time (ADR 1271, which also says
+why the conditional walk that looks obvious is a refusal ISO/IEC 10918-1 does not permit), and the
+`transfer` is the upload of what it decoded.
 
-**And the photograph's row moved afterwards, which is why the table above is one sitting's and not
-a standing claim.** Its `interp` was two of this tree's own passes over the codestream's bytes on
-top of the decode: the components widened into a four-byte raster after `zune-jpeg` had already
-widened them once, and a byte-at-a-time walk looking for the `DNL` marker that defines a frame
-header's number of lines. The decoder is now asked for the raster directly — it holds the same
-conversion writing four lanes instead of three — and the walk reads a word at a time, with nothing
-drawn differently on any of `raster_golden`'s pages. What is left of that stage is the codec's own
-Huffman and IDCT. ADR 1271 has the three-arm instruction count, the wall-clock A/B and the reason
-the conditional walk that looks obvious is a refusal ISO/IEC 10918-1 does not permit; run
-`tools/state.sh frame` for where the row stands.
+**The launch gate on the same day** (`PDFVIEWER_LAUNCH_CLOCKS=1`, calibration 0.702 ms): all 42
+banded figures judged and inside their bands. Cold graphics bring-up 31.7 ms; first page 39.5,
+46.6, 43.1, 62.7 and 34.7 ms over `launch-path.toml`'s five rows in order; page turn 4.4, 5.1 and
+5.7 ms. **The raster corpus gate**, pdf.js page one, readback included: 3.9–4.1 s through raster
+at 1× (median page 1.34–1.39× the CPU backend) and 19.1–19.6 s at 4× (median 2.2–2.35×), 959 agree
+and 2 differ at 1×, 958 and 0 at 4×; `PDFVIEWER_RASTER_SCALE` sets the scale.
 
 **And a page of several photographs decodes them beside each other.** A pool task reads the
 content stream ahead of the interpreter and starts each image's decode; the `Do` that draws it

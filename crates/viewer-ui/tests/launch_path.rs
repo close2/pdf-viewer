@@ -5,12 +5,11 @@
 //! Principle 2 says "[p]erf gates run in CI: cold open, time-to-first-page, page-turn latency,
 //! memory high-water. A regression fails the build", and makes cold graphics bring-up "its own
 //! gate, separate from time-to-first-page, so that a regression in the driver, the adapter
-//! selection or the shader set is legible as itself rather than as a slower page". Nothing in
-//! this tree printed any of those five figures on demand: `doc/performance.md` records launch
-//! timelines a round took by hand, `examples/open_cost`, `examples/bring_up` and
-//! `examples/first_frame` are the instruments a person points at one document, and no gate ran
-//! any of them. Fifty sessions of conformance and robustness work happened underneath a sentence
-//! about a gate that did not exist (round 921's `Q24`).
+//! selection or the shader set is legible as itself rather than as a slower page". Nothing in this
+//! tree printed any of those five figures on demand: `doc/performance.md` records launch timelines
+//! a round took by hand, `examples/open_cost`, `examples/bring_up` and `examples/first_frame` are
+//! the instruments a person points at one document, and no gate ran any of them
+//! (`doc/questions/Q24`).
 //!
 //! This is the gate. It is deliberately **not** a benchmark suite: it measures the launch path of
 //! the program this crate contains, in the shape `quorra.rs`'s `main` runs it, and holds each
@@ -183,9 +182,9 @@ const VIEWPORT: (u32, u32) = (1600, 1000);
 
 /// How many pages a page-turn sample turns.
 ///
-/// Five, because five arrow keys is what every by-hand launch measurement in
-/// `doc/performance.md` has used since the two-hundred-and-ninety-second session, and a figure
-/// comparable with the ones already written down is worth more than a rounder number.
+/// Five, because five arrow keys is what every by-hand launch measurement in `doc/performance.md`
+/// uses, and a figure comparable with the ones already written down is worth more than a rounder
+/// number.
 const TURNS: usize = 5;
 
 /// How many fresh processes each figure is the minimum of.
@@ -1000,11 +999,10 @@ struct Check {
     calibration_ms: Option<Band>,
     /// The band the *first pass* of that same work must land in, where the file states one.
     ///
-    /// **`None` is the file saying nothing, and then nothing is judged on it** — which is where
-    /// this stands since session 931 added the measurement: the quantity is the one every figure
-    /// is made of (see [`calibration_pass`]), the band for it has to be derived on a quiet
-    /// machine, and that round had none. The code is here so that deriving it is an edit to the
-    /// check file rather than to this harness. ADR 0903, `doc/questions/Q29`.
+    /// **`None` is the file saying nothing, and then nothing is judged on it**: the quantity is the
+    /// one every figure is made of (see [`calibration_pass`]), and the band for it has to be
+    /// derived on a quiet machine. The code is here so that deriving it is an edit to the check
+    /// file rather than to this harness. ADR 0903, `doc/questions/Q29`.
     calibration_first_ms: Option<Band>,
     /// The band on a cold graphics bring-up, which principle 2 makes a gate of its own.
     bring_up_ms: Option<Band>,

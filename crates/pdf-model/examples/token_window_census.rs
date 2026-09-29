@@ -14,14 +14,9 @@
 //! - **And what the *filtered* answer is worth.** §7.3.8.2 makes a filtered extent derivable —
 //!   "most filters are defined so that the data shall be self-limiting" — so for every filtered
 //!   image with no `/L` this asks the first filter of the chain where its own end-of-data
-//!   stands and compares that with where the scan stopped, **per filter**. **This was written in
-//!   the six-hundred-and-thirty-third session to size a defect before fixing it**, when the
-//!   scan's answer for those images was a forward search for `EI` and an end past its answer
-//!   meant a byte pair inside the encoded data had ended the image early; the
-//!   six-hundred-and-thirty-fifth split it by filter, which is what showed that
-//!   `CCITTFaxDecode` decides half the population and that one `DCTDecode` image in the crawl
-//!   was ending early. Since ADRs 0464, 0466 and 0467 the scan derives every filter's end, so a
-//!   disagreement here is now a *regression* — but the predicate stays this file's own reading
+//!   stands and compares that with where the scan stopped, **per filter** — which is what shows
+//!   that `CCITTFaxDecode` decides half the population. The scan derives every filter's end
+//!   (ADRs 0464, 0466 and 0467), so a disagreement here is a *regression* — but the predicate stays this file's own reading
 //!   of the clauses rather than a call into the code under test, which is trap 8's rule and the
 //!   only thing that makes the comparison worth running.
 //!
@@ -125,9 +120,8 @@ struct Tally {
 
 /// What §7.3.8.2's end-of-data says about one filter's images, against where the scan stopped.
 ///
-/// **Per filter rather than in one heap**, because the question the six-hundred-and-thirty-fifth
-/// session was sent after is which *filters* still have their end guessed at, and a total over
-/// six of them answers it for none.
+/// **Per filter rather than in one heap**, because the question is which *filters* have their
+/// end guessed at, and a total over six of them answers it for none (ADR 0467).
 #[derive(Debug, Default, Clone)]
 struct Verdicts {
     /// Filtered images with no `/L` whose chain starts with this filter.
@@ -432,8 +426,7 @@ fn first_filter(document: &Document, stream: &pdf_syntax::Stream) -> String {
 ///
 /// Trap 8's rule: a census whose predicate is the thing being checked measures nothing. The scan
 /// asks `Document::filtered_extent` and this asks the clauses again, so the two can disagree —
-/// which is the entire point of running it, and is what the six-hundred-and-thirty-third session
-/// measured `FlateDecode` with before it changed anything.
+/// which is the entire point of running it (ADR 0466).
 ///
 /// - a marker the alphabet cannot contain: §7.4.2's `>` and §7.4.3's `~>`.
 /// - a decoder's consumed input: §7.4.4's `FlateDecode` and `LZWDecode`.

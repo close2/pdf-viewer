@@ -44,18 +44,15 @@
 //! [`Collection::initial_document`] returns those three cases as three values rather than as an
 //! `Option`, because they are three different instructions.
 //!
-//! # What the ledger said about navigators, and what §12.3.6 says
+//! # What a navigator is, as §12.3.6 says
 //!
-//! This row read, for thirty-odd sessions, that a navigator is "a collection's own presentation,
-//! supplied as SWF" and that widening `CLAUDE.md`'s exclusion list "should start here". ISO
-//! 32000-2's §12.3.6 contains no media format at all: a navigator dictionary holds `/Layout`,
+//! A navigator is not a media format and not an exclusion. ISO 32000-2's §12.3.6 contains no
+//! media format at all: a navigator dictionary holds `/Layout`,
 //! one or more of seven **named layouts** — `D`, `T`, `H`, `FilmStrip`, `FreeForm`, `Linear`,
 //! `Tree` — and the clause describes each in prose. The SWF navigator was an Adobe extension
-//! that this standard replaced, and the exclusion argument that rested on it was about a
-//! document nobody in this project had read. It is a reader's question, and it is here.
+//! that this standard replaced. It is a reader's question, and it is here.
 //!
-//! **One corpus document states a `/Collection`**, and this line read "[n]o corpus document" until the
-//! five-hundred-and-seventieth session, because the count had only ever been taken over pdf.js:
+//! **One corpus document states a `/Collection`**, outside pdf.js's corpus:
 //! `doc/corpora/format-corpus/pdfCabinetOfHorrors/digitally_signed_3D_Portfolio.pdf` states one with eight
 //! schema fields and a `/Folders` tree — which is the one entry here a hand-built fixture was the only
 //! witness for. ADR 0405.

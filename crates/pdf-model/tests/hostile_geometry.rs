@@ -3,9 +3,9 @@
 //! §10.7 leaves scan conversion to the device and bounds no coordinate, and §7.3.3 hands the
 //! range of a number to the implementation — Annex C, which it points at for the figures, is
 //! informative and states none for a coordinate. So a conforming file may state a path of any
-//! size and a damaged one certainly does. Two of the 65 944 crawled documents the
-//! four-hundred-and-thirty-third session surveyed state fills reaching 10²⁵ device units on a
-//! 368 × 542 page, and both **aborted the process**: `tiny-skia`'s anti-aliased blitter works
+//! size and a damaged one certainly does. Two of the 65 944 crawled documents state fills
+//! reaching 10²⁵ device units on a 368 × 542 page, and both **aborted the process** unguarded
+//! (ADR 0269): `tiny-skia`'s anti-aliased blitter works
 //! in supersampled 16.16 fixed point, walks its run buffer past the end when a path leaves
 //! that range, and unwraps a `None`. Under `[profile.release]`'s `panic = "abort"` that is the
 //! whole program rather than one page.
@@ -76,7 +76,7 @@ fn drawn(document: &Document) -> usize {
 
 /// The shape both witnesses state: a triangle with one corner on the page and one at 10⁷.
 ///
-/// Before the four-hundred-and-thirty-third session this aborted the process. It is asserted
+/// Unguarded, this aborts the process (ADR 0269). It is asserted
 /// to *draw* rather than merely to return, because a guard that dropped the command would
 /// pass a test that only asked for survival — and `CLAUDE.md`'s trap 5 is that unsupported
 /// input must stay loud, not that it may quietly vanish.

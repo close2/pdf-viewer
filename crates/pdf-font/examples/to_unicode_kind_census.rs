@@ -8,9 +8,9 @@
 //! and Table 119 (Type 0), Table 109 (Type 1), Table 110 (Type 3) and Table 117 all type it
 //! `stream`. A value of any other kind is therefore a `shall` the file broke, and this crate's
 //! reader answers it the only way it can — [`pdf_font`]'s `read_to_unicode` asks for a stream and
-//! takes nothing from a name. What that cost until session 1008 was a *report*: a composite font
-//! refused for §9.7.5.2 said "it states no `/ToUnicode`", which is a claim about the file and is
-//! false of every document this census names.
+//! takes nothing from a name. What that costs is a *report*: a composite font refused for §9.7.5.2
+//! does not say "it states no `/ToUnicode`", which would be a claim about the file false of every
+//! document this census names (ADR 1027).
 //!
 //! ```sh
 //! cargo run --release -p pdf-font --example to_unicode_kind_census -- doc/pdf.js doc/corpora

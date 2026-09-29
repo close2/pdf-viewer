@@ -17,7 +17,7 @@
 
 use raster_scene::Point;
 
-use super::super::flatten::{Polyline, polyline_bounds};
+use super::super::flatten::{Polyline, convex, polyline_bounds};
 
 /// Box comparisons per unit of the fill's own work — an edge, or a pixel of its region —
 /// past which the sweep stops: nothing about the fill is then vouched for, and it keeps its
@@ -37,8 +37,8 @@ const MAX_GROUP: usize = 8;
 struct Shape {
     /// `+1` or `−1` by the sign of its area, `0` for a subpath that bounds none.
     orientation: f32,
-    /// A point strictly inside it, where it has an inside.
-    inside: Point,
+    /// A point strictly inside it, where it has an inside, in `f64`: see [`shape_of`].
+    inside: (f64, f64),
 }
 
 /// What a fill's sweep found, and the nesting it has asked about since.
@@ -61,7 +61,7 @@ pub(super) struct Topology<'a> {
 struct Sweep {
     edges: Vec<Swept>,
     boxes: Vec<Box2>,
-    order: Vec<usize>,
+    order: Vec<u64>,
     active: Vec<usize>,
 }
 
@@ -88,9 +88,12 @@ pub(super) type Box2 = [f32; 4];
 fn meeting_pairs(
     boxes: &[Box2],
     budget: usize,
-    (order, active): (&mut Vec<usize>, &mut Vec<usize>),
+    (order, active): (&mut Vec<u64>, &mut Vec<usize>),
     mut visit: impl FnMut(usize, usize) -> bool,
 ) -> bool {
+    if u32::try_from(boxes.len()).is_err() {
+        return false;
+    }
     let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
     for b in boxes {
         for axis in 0..2 {
@@ -103,12 +106,22 @@ fn meeting_pairs(
     } else {
         (1, 0)
     };
+    // Each box's key and index packed into one integer, sorted as integers: the sweep's
+    // order, without a comparison that looks each box up (ADR 1397). The answer does not
+    // depend on how boxes with one start are ordered among themselves — every pair that
+    // meets is visited whichever comes first, and the comparisons are counted the same.
     order.clear();
-    order.extend(0..boxes.len());
-    order.sort_unstable_by(|&a, &b| boxes[a][along].total_cmp(&boxes[b][along]));
+    order.extend(
+        boxes
+            .iter()
+            .zip(0_u64..)
+            .map(|(b, index)| (u64::from(ordered_bits(b[along])) << 32) | index),
+    );
+    order.sort_unstable();
     active.clear();
     let mut tests = 0_usize;
-    for &k in order.iter() {
+    #[expect(clippy::cast_possible_truncation)] // the low half is an index below `u32::MAX`
+    for k in order.iter().map(|&entry| entry as u32 as usize) {
         let bk = boxes[k];
         active.retain(|&m| boxes[m][along + 2] >= bk[along]);
         tests += active.len();
@@ -124,6 +137,17 @@ fn meeting_pairs(
         active.push(k);
     }
     true
+}
+
+/// `x`'s bits, mapped so that unsigned order is [`f32::total_cmp`]'s: a negative number's
+/// bits all turned over, a positive one's sign bit set.
+fn ordered_bits(x: f32) -> u32 {
+    let bits = x.to_bits();
+    if bits & 0x8000_0000 == 0 {
+        bits | 0x8000_0000
+    } else {
+        !bits
+    }
 }
 
 /// Subpaths [`plainly_two_values`] looks at before leaving the question to the sweep.
@@ -149,7 +173,7 @@ pub(super) fn plainly_two_values(subpaths: &[Polyline], region: Box2) -> bool {
         let Some(slot) = boxes.get_mut(count) else {
             return false;
         };
-        if !convex(polyline) {
+        if !convex(&polyline.points) {
             return false;
         }
         let sign = orientation(polyline);
@@ -169,59 +193,6 @@ pub(super) fn plainly_two_values(subpaths: &[Polyline], region: Box2) -> bool {
             .skip(i.saturating_add(1))
             .all(|b| a[2] < b[0] || b[2] < a[0] || a[3] < b[1] || b[3] < a[1])
     })
-}
-
-/// Whether a closed polyline is convex and goes round once: every turn the same way (or
-/// straight on), and each coordinate changing direction at most twice round the loop —
-/// which a five-pointed star, turning one way throughout but going round twice, fails.
-#[expect(clippy::arithmetic_side_effects)] // indices below the length
-#[expect(clippy::float_cmp)] // signs are exactly `−1`, `0` or `+1`
-fn convex(polyline: &Polyline) -> bool {
-    let points = &polyline.points;
-    let n = points.len();
-    let steps = (0..n).filter_map(|i| {
-        let (p, q) = (points[i], points[(i + 1) % n]);
-        let d = (q.x - p.x, q.y - p.y);
-        (d.0 != 0.0 || d.1 != 0.0).then_some(d)
-    });
-    let (mut first, mut previous) = (None, None::<(f32, f32)>);
-    let (mut turn, mut flips) = (0.0_f32, [0_usize; 2]);
-    let (mut sign_x, mut sign_y) = (0.0_f32, 0.0_f32);
-    let mut look = |d: (f32, f32), turn: &mut f32, flips: &mut [usize; 2]| -> bool {
-        if let Some(p) = previous {
-            let cross = p.0 * d.1 - p.1 * d.0;
-            if cross != 0.0 {
-                if *turn != 0.0 && cross.signum() != *turn {
-                    return false;
-                }
-                *turn = cross.signum();
-            }
-        }
-        for (axis, (value, sign)) in [(d.0, &mut sign_x), (d.1, &mut sign_y)]
-            .into_iter()
-            .enumerate()
-        {
-            if value != 0.0 {
-                if *sign != 0.0 && value.signum() != *sign {
-                    flips[axis] += 1;
-                }
-                *sign = value.signum();
-            }
-        }
-        previous = Some(d);
-        true
-    };
-    for d in steps {
-        first.get_or_insert(d);
-        if !look(d, &mut turn, &mut flips) {
-            return false;
-        }
-    }
-    // Round the corner back to the start, so the last turn and flips are counted too.
-    match first {
-        Some(d) => look(d, &mut turn, &mut flips) && flips[0] <= 2 && flips[1] <= 2,
-        None => true,
-    }
 }
 
 impl<'a> Topology<'a> {
@@ -477,6 +448,16 @@ fn orientation(polyline: &Polyline) -> f32 {
 /// A subpath's orientation, by the sign of its area, and a point strictly inside it: a
 /// short step inward from the middle of its longest edge. `None` for a subpath of fewer
 /// than three points.
+///
+/// **The point is stated in `f64`, because the step is smaller than an `f32` can resolve
+/// where the shape is small and far from the origin.** A hairline's round cap at a page
+/// coordinate of a thousand has a longest edge of `0.06` pixels, so the step is `6e-5` —
+/// half the `f32` spacing there, `1.2e-4` — and a point rounded to `f32` lands on the edge
+/// it steps from, which the stroke's own body shares: the body is then read as holding the
+/// cap, the fill as nesting two same-wound subpaths, and every such stroke is walked pixel by
+/// pixel for an answer the integral already had (ADR 1397). The vertices are `f32`s, so
+/// their `f64` images, the midpoint and the ray test below are exact or within one `f64`
+/// rounding of it.
 #[expect(clippy::arithmetic_side_effects)]
 fn shape_of(polyline: &Polyline) -> Option<Shape> {
     let n = polyline.points.len();
@@ -484,11 +465,11 @@ fn shape_of(polyline: &Polyline) -> Option<Shape> {
         return None;
     }
     let mut twice = 0.0_f64;
-    let (mut longest, mut at) = (0.0_f32, 0);
+    let (mut longest, mut at) = (0.0_f64, 0);
     for i in 0..n {
         let (p, q) = (polyline.points[i], polyline.points[(i + 1) % n]);
         twice += f64::from(p.x) * f64::from(q.y) - f64::from(q.x) * f64::from(p.y);
-        let length = (q.x - p.x).hypot(q.y - p.y);
+        let length = (f64::from(q.x) - f64::from(p.x)).hypot(f64::from(q.y) - f64::from(p.y));
         if length > longest {
             (longest, at) = (length, i);
         }
@@ -501,11 +482,15 @@ fn shape_of(polyline: &Polyline) -> Option<Shape> {
         0.0
     };
     let (p, q) = (polyline.points[at], polyline.points[(at + 1) % n]);
+    let (p, q) = (
+        (f64::from(p.x), f64::from(p.y)),
+        (f64::from(q.x), f64::from(q.y)),
+    );
     // The inside is on the left of every edge of a positively oriented subpath (in these
     // coordinates, `(−dy, dx)`), and on the right of a negative one.
-    let step = orientation * longest * 1.0e-3;
-    let (dx, dy) = ((q.x - p.x) / longest, (q.y - p.y) / longest);
-    let inside = Point::new(0.5 * (p.x + q.x) - dy * step, 0.5 * (p.y + q.y) + dx * step);
+    let step = f64::from(orientation) * longest * 1.0e-3;
+    let (dx, dy) = ((q.0 - p.0) / longest, (q.1 - p.1) / longest);
+    let inside = (0.5 * (p.0 + q.0) - dy * step, 0.5 * (p.1 + q.1) + dx * step);
     Some(Shape {
         orientation,
         inside,
@@ -516,16 +501,19 @@ fn shape_of(polyline: &Polyline) -> Option<Shape> {
 /// crossings (§8.5.3.3.3's count, which for a subpath that does not cross itself is also
 /// §8.5.3.3.2's answer).
 #[expect(clippy::arithmetic_side_effects)]
-fn contains(polyline: &Polyline, point: Point) -> bool {
-    let n = polyline.points.len();
+fn contains(polyline: &Polyline, (px, py): (f64, f64)) -> bool {
+    let count = polyline.points.len();
     let mut inside = false;
-    for i in 0..n {
-        let (p, q) = (polyline.points[i], polyline.points[(i + 1) % n]);
-        if (p.y > point.y) != (q.y > point.y) {
-            let x = p.x + (point.y - p.y) * (q.x - p.x) / (q.y - p.y);
-            if x > point.x {
-                inside = !inside;
-            }
+    for i in 0..count {
+        let (from, to) = (polyline.points[i], polyline.points[(i + 1) % count]);
+        let (x0, y0, x1, y1) = (
+            f64::from(from.x),
+            f64::from(from.y),
+            f64::from(to.x),
+            f64::from(to.y),
+        );
+        if (y0 > py) != (y1 > py) && x0 + (py - y0) * (x1 - x0) / (y1 - y0) > px {
+            inside = !inside;
         }
     }
     inside

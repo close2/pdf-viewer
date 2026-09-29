@@ -65,9 +65,8 @@
 //!
 //! # What a client may ask a node to do
 //!
-//! A tree that only *says* things invites nothing, and this one declared no [`Action`] at all
-//! until the five-hundred-and-ninetieth session. Three are declared now, each on the condition
-//! that makes it answerable rather than on the role that suggests it:
+//! A tree that only *says* things invites nothing (ADR 0425). Three [`Action`]s are declared, each
+//! on the condition that makes it answerable rather than on the role that suggests it:
 //!
 //! | action | on | because |
 //! |---|---|---|
@@ -89,6 +88,11 @@
 //! words — not silence, and **not** an invented structure over the text layer: reading order is
 //! precisely what §14.7 exists to state, and a reader that guessed one would be presenting a
 //! guess in the place a person is entitled to expect the author's answer.
+//!
+//! **A tagged document's page with no elements says something else** (ADR 1393): the document
+//! states a structure (§14.7.2) and none of it reaches this page, and where its `/MarkInfo` claims
+//! a tagged PDF (§14.8.1) the sentence says the producer left the page's content out. The untagged
+//! sentence is kept for the document that states none, because only of that one is it true.
 //!
 //! **Its fields are published all the same** (ADR 1369), after that sentence and as siblings of
 //! it: each widget annotation as the control its §12.7.5 field type is, named by Table 226's
@@ -278,6 +282,10 @@ pub struct PageView<'a> {
     /// Published after the sentence saying the page is untagged, and on a tagged page after the
     /// structure's own elements, whose `Form` elements already carry every widget they name.
     pub widgets: &'a [AccessibilityNode],
+    /// Which of four answers [`Self::nodes`] is, as `viewer_core::PageStructure::tagging` states
+    /// it: an empty list is a different sentence on a document that states no structure, on one
+    /// whose structure reaches nothing here, and on a page not read yet (ADR 1393).
+    pub tagging: viewer_core::Tagging,
     /// What this page could not draw, as `viewer_core::Query::Reports` answers.
     pub reports: &'a [String],
     /// What this page could not be *read* as, as `viewer_core::Query::Readback` answers.
@@ -532,7 +540,7 @@ fn elements(view: &PageView, band: Band, out: &mut Vec<(NodeId, Node)>) -> Vec<N
     }
 
     if view.nodes.is_empty() {
-        untagged(view, band, out, &mut roots);
+        unstructured(view, band, out, &mut roots);
     } else if !view.widgets.is_empty() {
         // **A tagged page's widgets that no element names come after its elements** (ADR 1381).
         // Table 368 asks the producer for a `Form` element per widget of the real content; where
@@ -555,19 +563,18 @@ fn widget_nodes(view: &PageView, band: Band, out: &mut Vec<(NodeId, Node)>) -> V
     elements(&widgets, band.widgets(), out)
 }
 
-/// What an untagged page publishes in place of §14.7's elements: one sentence saying so, and its
+/// What a page with no elements publishes in place of §14.7's: one sentence saying why, and its
 /// widget annotations (ADR 1369).
-fn untagged(view: &PageView, band: Band, out: &mut Vec<(NodeId, Node)>, roots: &mut Vec<NodeId>) {
-    // §14.7 leaves a producer free to say nothing about its own structure, and this is what
-    // "nothing" sounds like. A statement about the *document*, not about this reader.
+fn unstructured(
+    view: &PageView,
+    band: Band,
+    out: &mut Vec<(NodeId, Node)>,
+    roots: &mut Vec<NodeId>,
+) {
     let id = band.element(0);
-    let mut untagged = Node::new(Role::Label);
-    say(
-        &mut untagged,
-        "this document states no logical structure (ISO 32000-2 §14.7), so this reader can \
-         offer no reading order for the page's text",
-    );
-    out.push((id, untagged));
+    let mut sentence = Node::new(Role::Label);
+    say(&mut sentence, silence(view.tagging));
+    out.push((id, sentence));
     roots.push(id);
     // **Its fields are not text, and they are published** (ADR 1369). A widget is content a
     // person acts on, and §12.5.1's click is one definition for the mouse and for this bus
@@ -577,6 +584,42 @@ fn untagged(view: &PageView, band: Band, out: &mut Vec<(NodeId, Node)>, roots: &
     // sentence above or a tagged page's elements.
     if !view.widgets.is_empty() {
         roots.extend(widget_nodes(view, band, out));
+    }
+}
+
+/// Why a page publishes no element, in this program's words — a statement about the *document*.
+///
+/// **Three different silences, and saying the first for all of them was a false sentence about a
+/// tagged file** (ADR 1393). §14.7 leaves a producer free to state no structure, and that is the
+/// first. A document whose catalog states a `/StructTreeRoot` has stated one (§14.7.2), and where
+/// none of it reaches this page the person is owed that instead; where the catalog's `/MarkInfo`
+/// also claims a tagged PDF (§14.8.1), §14.8.2.2.1 makes its structure encompass all real content,
+/// so what this page holds beyond decoration is content the producer left out — a defect of the
+/// file a person should hear as one. The third is this reader's own: a page not interpreted yet.
+fn silence(tagging: viewer_core::Tagging) -> &'static str {
+    match tagging {
+        viewer_core::Tagging::Unreached { marked: true } => {
+            "this document declares itself tagged (ISO 32000-2 §14.8.1), yet its logical \
+             structure reaches none of this page's content, so this reader can offer no reading \
+             order for the page's text; whatever on this page is not decoration, the document's \
+             producer left out of its structure"
+        }
+        // `Reached` publishes its elements rather than a sentence, so it arrives here only with an
+        // empty list, which `viewer_core` does not answer; what is true of it is that the document
+        // states a structure.
+        viewer_core::Tagging::Unreached { marked: false } | viewer_core::Tagging::Reached => {
+            "this document states a logical structure (ISO 32000-2 §14.7), and none of it \
+             reaches this page's content, so this reader can offer no reading order for the \
+             page's text"
+        }
+        viewer_core::Tagging::Unread => {
+            "this page has not been read yet, so what the document's logical structure says of \
+             it is not known yet"
+        }
+        viewer_core::Tagging::Untagged => {
+            "this document states no logical structure (ISO 32000-2 §14.7), so this reader can \
+             offer no reading order for the page's text"
+        }
     }
 }
 
@@ -1091,12 +1134,11 @@ fn readback_note(shortfall: pdf_model::content::Shortfall) -> String {
 
 /// Where a magnifier is pointed at this element.
 ///
-/// **The decision is `viewer_core::places`' and not this crate's**, which is what changed in the
-/// eight-hundred-and-forty-first session: the order — what the page drew inside the element, then
-/// what the document says about it, then what it encloses — is §14.8.3.3's content rectangle
-/// assembled out of the clauses that state it, and it was written here and again in the census that
-/// prices it. What is left in this file is the loss AccessKit's own type asks for, which is this
-/// function.
+/// **The decision is `viewer_core::places`' and not this crate's** (ADR 0768): the order — what the
+/// page drew inside the element, then what the document says about it, then what it encloses — is
+/// §14.8.3.3's content rectangle assembled out of the clauses that state it, and one copy serves
+/// this crate and the census that prices it. What is left in this file is the loss AccessKit's own
+/// type asks for, which is this function.
 ///
 /// `None` where the element has no place at all: an untagged region, an element whose sequences
 /// marked nothing and that encloses nothing placed, or one reached only through §14.7.5.3's object

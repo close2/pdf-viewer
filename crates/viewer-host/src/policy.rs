@@ -22,15 +22,13 @@
 //! `viewer_core::Event::PasswordRequired` is where that arrives and each host's own window is
 //! what puts the platform's secure entry in front of it.
 //!
-//! **And the fourth, which was three string literals until the seven-hundred-and-twenty-first
-//! session** — how much of what a *document* asserts over its reader this program obeys.
-//! `viewer_core::Command::Restrict` is the value and `CLAUDE.md` states the rule it exists for:
-//! a document's restrictions "are the reader's to set" and "**it shall always be possible to turn
+//! **And the fourth** — how much of what a *document* asserts over its reader this program obeys.
+//! `viewer_core::Command::Restrict` is the value and `CLAUDE.md` states the rule it exists for: a
+//! document's restrictions "are the reader's to set" and "**it shall always be possible to turn
 //! them off**". [`IGNORE_RESTRICTIONS`] is the word that turns them off and [`refused`] is the
-//! sentence that names it, and they are one unit here for the reason ADR 0604 records: they were
-//! apart, and two of the three windows said the word without taking it. [`RESTRICTIONS`] is the
-//! rest of that vocabulary: all four levels, one operation at a time, since the owner lifted
-//! `doc/todo/38`'s no-interface deferral (ADR 1144).
+//! sentence that names it, and they are one unit here for the reason ADR 0604 records: apart, a
+//! window can say the word without taking it. [`RESTRICTIONS`] is the rest of that vocabulary: all
+//! four levels, one operation at a time (ADR 1144).
 //!
 //! **And a fifth, which used to be four words inside `pdf_model::action::refused`** — whether a
 //! submit-form action's request leaves this machine. §12.7.6.2's `shall` is to "transmit the
@@ -52,15 +50,14 @@
 //! says must be able to become a question: [`link`] carries the level out and [`answered`] takes
 //! the person's word back (ADR 1155).
 //!
-//! **And a seventh, which ADR 1039 named in the one-thousand-and-twenty-second session and left
-//! unbuilt for forty rounds** — §12.8.1's third question, *is the signer anyone to believe*. RFC
-//! 5280 section 6.1.1 makes the trust anchors input (d) of nine and says whose choice they are:
-//! "The selection of a trust anchor is a matter of policy: it could be the top CA in a
+//! **And a seventh, which ADR 1039 named** — §12.8.1's third question, *is the signer anyone to
+//! believe*. RFC 5280 section 6.1.1 makes the trust anchors input (d) of nine and says whose choice
+//! they are: "The selection of a trust anchor is a matter of policy: it could be the top CA in a
 //! hierarchical PKI, the CA that issued the verifier's own certificate(s), or any other CA in a
-//! network PKI." `pdf-signature` holds no root, reads no file and asks no clock; this module is
-//! the party with all three. [`trust_anchors`] is where the question is asked, and it answers
-//! *nobody* unless a person said otherwise — which is ADR 1039's decision unchanged rather than a
-//! default chosen here. ADR 1076.
+//! network PKI." `pdf-signature` holds no root, reads no file and asks no clock; this module is the
+//! party with all three. [`trust_anchors`] is where the question is asked, and it answers *nobody*
+//! unless a person said otherwise — which is ADR 1039's decision unchanged rather than a default
+//! chosen here. ADR 1076.
 //!
 //! **And a ninth** — §8.11.4.4's `User` and `Language` usage categories, which ask who is reading
 //! and in what language. Table 100 says what a document may assert about its audience and the
@@ -102,10 +99,10 @@ pub const IGNORE_RESTRICTIONS: &str = "--ignore-restrictions";
 /// a time.
 ///
 /// **The user interface `doc/todo/38` said this program owed, in the one form every host already
-/// has.** A command line is not a menu and this file said so for five hundred sessions; what it is
-/// is the channel a person can reach today, in all three windows and the C ABI's caller alike, and
-/// the levels behind it are the ones a menu will set when there is one. `--restrictions=off` is
-/// still the whole policy at one level, which is what [`IGNORE_RESTRICTIONS`] says in one word.
+/// has.** A command line is not a menu; what it is is the channel a person can reach today, in all
+/// three windows and the C ABI's caller alike, and the levels behind it are the ones a menu will
+/// set when there is one. `--restrictions=off` is still the whole policy at one level, which is
+/// what [`IGNORE_RESTRICTIONS`] says in one word.
 pub const RESTRICTIONS: &str = "--restrictions=";
 
 /// Reads [`RESTRICTIONS`]'s list onto a policy, or says what is wrong with it.
@@ -248,11 +245,10 @@ pub fn warned(notes: &[String]) -> String {
 /// everywhere else — `pdf-transform` makes the same choice for a pipe with `Refusal::Unanswered`
 /// and `pdf-fuse` for a mount.
 ///
-/// **The three windows put the question since the one-thousand-one-hundred-and-fifty-fifth
-/// session** ([`crate::restriction::asked`], ADR 1145). What still says this is `quorra-confined`,
-/// which performs none of the operations a document restricts — no edit, no copy gesture, no level
-/// of its own — so the event cannot reach it; the arm and this sentence are what keep that from
-/// being a silence if one ever does.
+/// **The three windows put the question** ([`crate::restriction::asked`], ADR 1145). What still
+/// says this is `quorra-confined`, which performs none of the operations a document restricts — no
+/// edit, no copy gesture, no level of its own — so the event cannot reach it; the arm and this
+/// sentence are what keep that from being a silence if one ever does.
 #[must_use]
 pub fn unanswerable(notes: &[String]) -> String {
     format!(

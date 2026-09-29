@@ -21,8 +21,8 @@
 //! # Two copies of one construction, and the second is not a duplicate
 //!
 //! `doc/corpora/pdf-differences/Inline-Image-Abbreviations/InlineAbbreviations.pdf` is the PDF
-//! Association's own copy of the same file, and the eight-hundred-and-thirty-sixth session added
-//! the second test below rather than treating it as one already gated. **The two differ in
+//! Association's own copy of the same file, and the second test below exists rather than
+//! treating it as one already gated (ADR 0763). **The two differ in
 //! seventeen bytes and every one of them is a `/L` or a `/Length`**: the corpus copy states 1276
 //! and 201 where `doc/pdf.js`'s states 1240 and 197, and those are not two spellings of one
 //! number — 1276 is where `EI` actually is.

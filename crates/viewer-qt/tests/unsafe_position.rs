@@ -106,7 +106,7 @@ fn the_crate_contains_exactly_one_hand_written_unsafe_and_it_is_the_bridges_own(
                 .unwrap_or_default();
             // The file and the token, not the line number: what is being fixed is *where* and
             // *what*, and a test that also pinned the line would fail on every paragraph added
-            // above it, which teaches a later session to loosen the assertion rather than read it.
+            // above it, which teaches a later change to loosen the assertion rather than read it.
             let _ = number;
             format!("{named}: {line}")
         })
@@ -137,7 +137,7 @@ fn the_exemption_is_one_line_and_it_is_the_bridge() {
         "and lifts the denial exactly once"
     );
     // And the one lift is attached to the bridge rather than to the crate, to a function, or to
-    // anything a later session might add beside it. Read over the *code* lines, because the
+    // anything a later change might add beside it. Read over the *code* lines, because the
     // documentation above quotes the attribute and a text search would find the quotation first.
     let code_lines: Vec<String> = lib.lines().map(code_only).collect();
     let Some(at) = code_lines
@@ -157,23 +157,20 @@ fn the_exemption_is_one_line_and_it_is_the_bridge() {
 
 /// And no crate the workspace does not name gained the permission alongside it.
 ///
-/// `doc/todo/30`'s rule is about the tree rather than about one crate, so the check that matters
-/// is the one that would notice a third exemption appearing somewhere else. This test said
-/// `viewer-ffi` "will be the second when it arrives, and this test is where that has to be
-/// written down"; it arrived in the four-hundred-and-eleventh session (ADR 0247) and
-/// `pdf-vfs-ffi` in the nine-hundred-and-thirteenth (ADR 0868), so the list has **three** names
-/// on it, each with a test of its own on where its `unsafe` sits — this file,
+/// `doc/todo/30`'s rule is about the tree rather than about one crate, so the check that matters is
+/// the one that would notice another exemption appearing somewhere else. The list has **three**
+/// names on it — this crate, `viewer-ffi` (ADR 0247) and `pdf-vfs-ffi` (ADR 0868) — each with a
+/// test of its own on where its `unsafe` sits — this file,
 /// `crates/viewer-ffi/tests/unsafe_position.rs`, which additionally asserts that every crate
 /// touching PDF bytes still *forbids* the permission, and
 /// `crates/pdf-vfs-ffi/tests/unsafe_position.rs`.
 ///
-/// **A third name arrived in the nine-hundred-and-thirteenth session, and this is where it was
-/// argued for.** `pdf-vfs-ffi` is RFC 0003's C ABI over `pdf-vfs` — the boundary a KIO worker
-/// forwards over, because RFC 0003 section 7 records that KF6 admits no Rust worker and
+/// **Why `pdf-vfs-ffi` is the third name.** It is RFC 0003's C ABI over `pdf-vfs` — the boundary a
+/// KIO worker forwards over, because RFC 0003 section 7 records that KF6 admits no Rust worker and
 /// `KIO::WorkerBase` is a C++ class. It is the *same* reason the first name is on the list: a C
-/// caller cannot be handed a `Result` or an owned `Vec`, so something has to hold raw pointers,
-/// and `doc/todo/30`'s rule is that the something is one module with a test on where its `unsafe`
-/// sits. `crates/pdf-vfs-ffi/tests/unsafe_position.rs` is that test, and ADR 0868 is the record.
+/// caller cannot be handed a `Result` or an owned `Vec`, so something has to hold raw pointers, and
+/// `doc/todo/30`'s rule is that the something is one module with a test on where its `unsafe` sits.
+/// `crates/pdf-vfs-ffi/tests/unsafe_position.rs` is that test, and ADR 0868 is the record.
 ///
 /// The rule this list enforces is unchanged and is worth restating rather than assuming: **no
 /// crate that touches PDF bytes lifts the denial**, and none of these three does — `pdf-vfs-ffi`

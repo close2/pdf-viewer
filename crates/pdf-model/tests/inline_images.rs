@@ -378,8 +378,8 @@ fn a_length_that_does_not_predict_the_terminator_falls_back_to_the_search() {
 /// draws a fifth of the image, and hands the rest of the encoded bytes back to the lexer as
 /// operators. **The witness is a crawled document rather than an invention**: a 2951×178
 /// photograph under `/F [/A85 /Fl]` whose first `EI` token stands 69 598 bytes into 1.29 MB of
-/// base-85, which drew as a blank sheet where three references agree on 43.6 of 255 (session
-/// 631, ADR 0464).
+/// base-85, which drew as a blank sheet where three references agree on 43.6 of 255
+/// (ADR 0464).
 #[test]
 fn a_base85_end_of_data_marker_ends_the_data() {
     let content = b"BI /W 8 /H 1 /BPC 8 /CS /G /F /A85 ID 87cU EI RD]j~> EI Q";

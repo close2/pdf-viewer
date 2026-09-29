@@ -7,10 +7,10 @@
 //! > used when writing horizontally and vertically. In such cases, the horizontal and vertical
 //! > variants of a CMap specify different CIDs for a given character code.
 //!
-//! So a vertical `CMap` selects *different glyphs*, not only different metrics — §9.2.4's `/W2`
-//! and `/DW2` are the metrics half and [`crate::metrics::Vertical`] has had them since the
-//! thirty-sixth session. A document that has chosen those CIDs and embedded its font is drawn
-//! correctly by that alone, because the CID reaches the producer's own glyph.
+//! So a vertical `CMap` selects *different glyphs*, not only different metrics — §9.2.4's `/W2` and
+//! `/DW2` are the metrics half and [`crate::metrics::Vertical`] has them (ADR 0045). A document
+//! that has chosen those CIDs and embedded its font is drawn correctly by that alone, because the
+//! CID reaches the producer's own glyph.
 //!
 //! # Why a *substituted* font loses the shapes and this is what puts them back
 //!
@@ -59,10 +59,9 @@
 //! shape the substitute had. Calling that a drawing fault would take a page off the oracle's
 //! judged set to say something about a face rather than about the file.
 //!
-//! **It is counted, though, and that is the eight-hundred-and-thirty-seventh session's** (ADR
-//! 0764). "Counted rather than reported" was the decision ADR 0763 recorded and nothing counted
-//! it: a face with no vertical form and a face with no glyph at all were one silence, and only
-//! the second had a number. [`Form::Unsupplied`] is the first of the two, and
+//! **It is counted, though** (ADR 0764). "Counted rather than reported" is the decision ADR 0763
+//! records, and a face with no vertical form and a face with no glyph at all are two silences
+//! with a number each. [`Form::Unsupplied`] is the first of the two, and
 //! `pdf_model::content::Shortfall::without_a_vertical_form` is where it arrives. The two
 //! populations are disjoint by construction — this question is asked of a glyph the face
 //! *reached*, and a character it has no glyph for never gets here.

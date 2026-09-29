@@ -9,8 +9,8 @@
 //!
 //! "In the document" is the whole of the difference: answering it means reading pages that are not
 //! on the screen, and reading a page means interpreting it. On ISO 32000-2's own 1023 pages a full
-//! sweep is **5.84 s** and the readback of all of them is 2.66 MB (measured in the
-//! four-hundred-and-fourteenth session, `--profile gates`), so this cannot be a [`crate::Query`]:
+//! sweep is **5.84 s** and the readback of all of them is 2.66 MB (measured for ADR 0250,
+//! `--profile gates`), so this cannot be a [`crate::Query`]:
 //! `Viewer::query` takes `&self`, is asked at pointer speed, and would pay that again on every
 //! keystroke.
 //!
@@ -26,10 +26,9 @@
 //!
 //! # The readback is kept, under a bound, and this module still knows nothing about that
 //!
-//! ADR 0250 declined to keep it — "a readback cache with a byte budget and an invalidation rule
-//! for every view-state change that alters what a page draws" — and the four-hundred-and-twentieth
-//! session built exactly that, because the byte budget it was missing turned out to be a number:
-//! the whole of ISO 32000-2 reads back as 2.66 MB. `crate::readback` is the cache,
+//! A readback cache with a byte budget and an invalidation rule for every view-state change that
+//! alters what a page draws is what this keeps, because the byte budget is a number: the whole
+//! of ISO 32000-2 reads back as 2.66 MB. `crate::readback` is the cache,
 //! `crate::open::Open::stale` is the invalidation rule, and a **repeated** full-document sweep
 //! fell from 5.45 s to 7.27 ms while the first one did not move (ADR 0256).
 //!

@@ -1,10 +1,9 @@
 //! ISO 32000-2 §14.7's logical structure, handed to a platform accessibility API.
 //!
-//! `viewer_core::Query::AccessibilityTree` has answered with §14.7's elements, §14.9's spoken
-//! form of each and the quadrilaterals they cover since the hundred-and-forty-ninth session
-//! (ADR 0134), and nothing consumed it. This crate is the consumer: it maps §14.8.4's forty-one
-//! standard structure types onto `accesskit::Role`, builds the tree an assistive technology
-//! reads, and — on Linux — puts it on AT-SPI through `accesskit_unix`.
+//! `viewer_core::Query::AccessibilityTree` answers with §14.7's elements, §14.9's spoken form of
+//! each and the quadrilaterals they cover (ADR 0134). This crate is the consumer: it maps §14.8.4's
+//! forty-one standard structure types onto `accesskit::Role`, builds the tree an assistive
+//! technology reads, and — on Linux — puts it on AT-SPI through `accesskit_unix`.
 //!
 //! # Why it is a crate of its own
 //!
@@ -21,14 +20,14 @@
 //! tested everywhere. [`Bridge`] is the platform half, and it is Linux's — what the other two
 //! platforms do instead is *named* by [`Bridge::shortfall`] rather than silently absent.
 //!
-//! # And a third part, since the seven-hundred-and-thirty-first session
+//! # And a third part: what a host asks
 //!
 //! [`reading`] is *what a host asks the viewer* in order to have something to publish, and it is
-//! here because all three of this project's windows now publish — `viewer-ui` through winit,
+//! here because all three of this project's windows publish — `viewer-ui` through winit,
 //! `viewer-gtk` and `viewer-qt` through their own event loops — and the alternative was three
-//! copies of six queries. It names no toolkit and no adapter, so it is the same plain data
-//! [`role`] and [`tree`] are. ADR 0623 argues why a native host drives this crate directly
-//! rather than publishing through ATK or `QAccessible`.
+//! copies of six queries. It names no toolkit and no adapter, so it is the same plain data [`role`]
+//! and [`tree`] are. ADR 0623 argues why a native host drives this crate directly rather than
+//! publishing through ATK or `QAccessible`.
 
 #![forbid(unsafe_code)]
 

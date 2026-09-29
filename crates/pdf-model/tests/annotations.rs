@@ -302,8 +302,7 @@ fn an_annotation_with_no_rectangle_is_placed_by_its_appearances_box() {
 /// that could not have changed the picture. What draws nothing here is §12.5.5's own arithmetic:
 /// the box is scaled onto the rectangle, and a scale onto no extent leaves no mark.
 ///
-/// **Table 166's `/AP` bullet is not the reason, and this comment said it was** until the
-/// seven-hundred-and-thirty-fourth session. The bullet frees a *writer* from supplying an
+/// **Table 166's `/AP` bullet is not the reason.** The bullet frees a *writer* from supplying an
 /// appearance only where both of `/Rect`'s pairs are equal — a point — which this fixture's
 /// `[0 0 0 0]` happens to be and which `annotation::is_empty` is wider than.
 #[test]
@@ -478,8 +477,8 @@ fn an_appearance_state_is_selected_by_as() {
 
 /// A `Stamp`'s appearance is reported rather than invented, and the other two are drawn.
 ///
-/// All three clauses say a reader "**should** provide predefined icon appearances", and the
-/// two-hundred-and-sixty-sixth session split them on what the *names* are. §12.5.6.15's `Graph`,
+/// All three clauses say a reader "**should** provide predefined icon appearances", and they
+/// split on what the *names* are. §12.5.6.15's `Graph`,
 /// `PushPin`, `Paperclip` and `Tag` and §12.5.6.16's `Speaker` and `Mic` name **objects**, which
 /// is more than §12.5.6.4's mandatory seven give — `NewParagraph` and `Insert` had to be invented
 /// out of a typographer's convention — so the artwork is argued from the clause's own word.
@@ -488,9 +487,9 @@ fn an_appearance_state_is_selected_by_as() {
 /// reader would see a word this program picked in a face this program picked. A recommendation is
 /// not a licence to invent a different kind of thing from the one the name names.
 ///
-/// §12.5.6.4's text annotation left this list in the hundred-and-twentieth session and the word
-/// that moved it is *shall*. §12.5.6.10's four text markups left it in the thirty-fourth, for a
-/// different reason worth the distinction: that clause states the *mark* — "shall appear as
+/// §12.5.6.4's text annotation is not on this list, and the word that keeps it off is *shall*
+/// (ADR 0109). §12.5.6.10's four text markups are not on it either, for a different reason worth
+/// the distinction (ADR 0043): that clause states the *mark* — "shall appear as
 /// highlights, underlines, strikeouts … or jagged ('squiggly') underlines" — its region and its
 /// orientation, and leaves only a thickness.
 #[test]
@@ -545,8 +544,7 @@ fn a_stamps_appearance_is_reported_and_the_other_two_icons_are_drawn() {
 /// edits" and states no artwork for the caret, so there is nothing to derive — the same
 /// position §12.5.6.12's stamp is in and for the same reason.
 ///
-/// **The second half of the assertion is the one worth having, and the ledger row was wrong
-/// about it until the five-hundred-and-eighty-ninth session.** Table 183 does state a symbol,
+/// **The second half of the assertion is the one worth having.** Table 183 does state a symbol,
 /// by name and by character: "P A new paragraph symbol (¶) shall be associated with the
 /// caret" — a `shall` and a code point, which is more than §12.5.6.4's seven icons get. What keeps the
 /// refusal whole is trap 5's additive-or-substitutive test, read off `/RD`'s own sentence in the
@@ -577,12 +575,10 @@ fn a_caret_is_reported_whether_or_not_it_asks_for_a_paragraph_symbol() {
             !caret.is_complete(),
             "{entries}: and its absence is reported"
         );
-        // **And the report says why in this clause's own terms**, which it did not until the
-        // six-hundred-and-twenty-second session: a caret fell to `construct`'s catch-all and a
-        // person was told "its clause states no geometry" about a table that states four numbers
-        // of it, in the order `appearance::insets` reads for §12.5.6.8 and §12.5.6.6. The
-        // behaviour was right and the sentence was not, and only the sentence reaches a reader —
-        // which is why this test now asserts one. ADR 0457.
+        // **And the report says why in this clause's own terms**: falling to `construct`'s
+        // catch-all would tell a person "its clause states no geometry" about a table that states
+        // four numbers of it, in the order `appearance::insets` reads for §12.5.6.8 and §12.5.6.6.
+        // Only the sentence reaches a reader, which is why this test asserts one. ADR 0457.
         let said = format!("{:?}", caret.unsupported);
         assert!(
             said.contains("no artwork for the caret itself")
@@ -772,8 +768,8 @@ fn table_166_s_colour_is_the_icon_s_background() {
 /// that stretched it onto the rectangle would reach both vertical edges. What must happen
 /// instead is that the marks span the height and sit in the middle of the width.
 ///
-/// **§12.5.6.15's file attachment and not §12.5.6.4's text annotation**, which this test used
-/// until the six-hundred-and-fortieth session and which is now the wrong subtype to ask: a text
+/// **§12.5.6.15's file attachment and not §12.5.6.4's text annotation**, which is the wrong
+/// subtype to ask (ADR 0471): a text
 /// annotation is "attached to a point" and holds a size fixed on the screen, so its icon does not
 /// take a size from `/Rect` at all. Table 187 asks for a paperclip and a push pin with a
 /// **should** and states no geometry, so inscribing them is this tree's choice — which is what
@@ -882,9 +878,9 @@ fn an_unknown_subtype_still_draws_its_normal_appearance() {
 
 /// The same subtype with **no** appearance dictionary draws nothing and is not a gap.
 ///
-/// The other half of the sentence the test above asserts, and it was reported as unsupported
-/// until the seven-hundred-and-thirty-fourth session — with the detail "its clause states no
-/// geometry", asserted of a subtype that has no clause. Table 167's `Invisible` row says what a
+/// The other half of the sentence the test above asserts; reporting it as unsupported, with the
+/// detail "its clause states no geometry", would assert that of a subtype that has no clause.
+/// Table 167's `Invisible` row says what a
 /// reader owes here and says it with a condition: "If clear, render such an unknown annotation
 /// using an appearance stream specified by its appearance dictionary, if any". There is none, so
 /// the requirement is met by drawing nothing, and a report would name a shortfall that is not
@@ -893,8 +889,7 @@ fn an_unknown_subtype_still_draws_its_normal_appearance() {
 ///
 /// **A standard subtype this program does not construct is the control**, because it must keep
 /// its report: `Movie` is Table 171's, and what refuses it is `CLAUDE.md`'s clause 13 exclusion
-/// rather than a silence — §13.4's Table 306 states a poster image, which is why the sentence
-/// this used to call it by was corrected in the nine-hundred-and-thirty-third session. A page
+/// rather than a silence — §13.4's Table 306 states a poster image (ADR 0906). A page
 /// that silently loses it is exactly what trap 5 exists to prevent. An annotation with no
 /// `/Subtype` at all keeps its own report too, for Table 166's reason — the entry is required —
 /// and `issue7446.pdf` is the corpus witness for that one.
@@ -1025,11 +1020,10 @@ fn every_annotation_type_table_171_defines_is_answered_by_its_own_clause() {
 /// > If AP is not present, the screen annotation shall not have a default visual appearance and
 /// > shall not be printed.
 ///
-/// So the absence is the clause's own answer and there is no shortfall to name. Until the
-/// nine-hundred-and-thirtieth session `crate::appearance::construct`'s catch-all reported "its
-/// clause states no geometry" here, which is a claim about a clause that states one — trap 11,
-/// and the correction §12.5.6.11's caret and §12.5.6.23's redaction each took out of the same
-/// arm. ADR 0901.
+/// So the absence is the clause's own answer and there is no shortfall to name. Reporting "its
+/// clause states no geometry" here would be a claim about a clause that states one — trap 11,
+/// and the correction §12.5.6.11's caret and §12.5.6.23's redaction each took out of
+/// `crate::appearance::construct`'s catch-all. ADR 0901.
 ///
 /// **Both halves are asserted because only the pair discriminates**: an implementation that
 /// dropped every `Screen` annotation outright would pass the first assertion alone, and the
@@ -1307,8 +1301,8 @@ fn a_fixed_print_is_measured_from_the_media_boxs_own_corner() {
 /// own rectangle already is, and a sign error in any of them moves it.
 ///
 /// **Calibrated, and the result is worth stating rather than hiding.** Planting the defect this
-/// replaces — `annotation::fixed_print` answering `None`, which is what this tree did until the
-/// nine-hundred-and-forty-second session — fails the three tests above and leaves *this* one
+/// replaces — `annotation::fixed_print` answering `None` (ADR 0934) — fails the three tests above
+/// and leaves *this* one
 /// green. That is the witness's own property: its producer wrote the two rectangles equal, so no
 /// picture of this page can rank an implementation of the clause. What this test guards is the
 /// other direction, which is the one a real file can lose — an implementation that moves a mark
@@ -1727,9 +1721,9 @@ fn a_link_border_is_drawn_inside_its_rectangle_in_its_own_colour() {
 /// The three widths below are the three regimes, and the middle one is the boundary rather than a
 /// round number: 40 is exactly the rectangle's height.
 ///
-/// **Each of the last two drew the wrong picture until the seven-hundred-and-fifty-sixth
-/// session** — a band as wide as the rectangle minus the width where the region is the whole
-/// rectangle, and, past both dimensions, nothing at all. `bug1552113.pdf` is the corpus's own
+/// **Each of the last two is where a naive inset draws the wrong picture** — a band as wide as
+/// the rectangle minus the width where the region is the whole rectangle, and, past both
+/// dimensions, nothing at all. `bug1552113.pdf` is the corpus's own
 /// witness, and its content stream says "this text should be visible" under an annotation whose
 /// `/Border` is 112 units on a 20-unit-tall rectangle (ADR 0674).
 #[test]
@@ -1842,14 +1836,13 @@ fn a_widget_stating_no_appearance_characteristics_draws_nothing_and_reports_noth
 /// the frame is on the page and the text is named as missing. Suppressing either would lose
 /// information — the same pairing `/NeedAppearances` and `/Matte` already use.
 ///
-/// **What makes the value underivable here is the absence of a `/DA`, not §12.7.4.3.** This
-/// comment said "§12.7.4.3's variable text is not [derivable]" until the
-/// three-hundred-and-eighty-seventh session, and it had been false since the twenty-third:
-/// `appearance::field_text` lays a text field's `/V` out. The fixture states no `/DA` anywhere up
+/// **What makes the value underivable here is the absence of a `/DA`, not §12.7.4.3**:
+/// `appearance::field_text` lays a text field's `/V` out (ADR 0032). The fixture states no `/DA`
+/// anywhere up
 /// its chain, which is `variable_text::Owed::NoFont` — one of the eight cases that still report —
 /// and the clause named in the report is §12.7.4.3 because that is the clause requiring the entry:
 /// "[a]t a minimum, the string shall include a Tf (text font) operator along with its two
-/// operands". §12.5.6.19's ledger row carried the same misreading for the same reasons.
+/// operands".
 #[test]
 fn a_widget_draws_its_background_and_reports_its_field_value() {
     let interpretation = interpret(pdf_with(
@@ -1982,8 +1975,8 @@ fn an_ink_annotations_path_is_drawn_and_outranks_its_ink_list() {
 /// Table 166 of `/CA`: it "shall not be used if the annotation has an appearance stream ... in
 /// that case, the appearance stream shall specify any transparency". §12.5.2 lists it among the
 /// keys a reader "shall ignore" when an appearance dictionary is present. §12.5.5 says the
-/// opposite in one sentence, and that is the reading this tree followed until the twenty-first
-/// session; `highlight.pdf` shows why the other two win — it writes `/CA 0.8` *and* `ca 0.8`
+/// opposite in one sentence (ADR 0030); `highlight.pdf` shows why the other two win — it writes
+/// `/CA 0.8` *and* `ca 0.8`
 /// inside its stream, so applying both would darken the highlight the producer specified.
 ///
 /// **No corpus document can tell the two readings apart**, which was measured: every one of the
@@ -2431,9 +2424,8 @@ fn with_down_appearance(bytes: Vec<u8>) -> Vec<u8> {
 /// The fixture states a horizontal `/L` from (20, 50) to (80, 50) with `/LL 20`. Traversing
 /// left to right in this y-up space, clockwise is *downwards* — the same quarter turn
 /// §7.7.3.3's `/Rotate` takes — so the line proper is at y = 30 and nothing is drawn along
-/// y = 50 except the two leaders at its ends. Drawing `/L` itself —
-/// which is what this tree did until the eighty-fifth session, by refusing — would paint the
-/// middle of y = 50 and leave y = 30 blank, so the two assertions are the two readings.
+/// y = 50 except the two leaders at its ends. Drawing `/L` itself would paint the middle of
+/// y = 50 and leave y = 30 blank, so the two assertions are the two readings (ADR 0075).
 #[test]
 fn a_line_annotations_leader_lines_put_the_line_where_the_clause_says() {
     let raster = render(pdf_with(
@@ -2511,14 +2503,13 @@ fn a_leader_line_has_an_offset_before_it_and_an_extension_beyond_it() {
 /// An entry that states no *size* must not erase the shape the clause does state.
 ///
 /// ISO 32000-2 §12.5.6.7 makes `/L` required and `/LE` optional with a default of
-/// `[/None /None]`, and Table 179 gives its ten endings names and not one dimension. Both halves
-/// of that were once a refusal and each was removed by the same argument, six rounds apart: the
-/// line is drawn whatever its ends ask for (session 116), and since the
-/// three-hundred-and-fourteenth the ends are drawn too, at a size taken from the only length the
-/// annotation supplies — §12.5.4's border width (ADR 0192).
+/// `[/None /None]`, and Table 179 gives its ten endings names and not one dimension. Neither
+/// half is a refusal, by one argument: the line is drawn whatever its ends ask for (ADR 0106),
+/// and the ends are drawn too, at a size taken from the only length the annotation supplies —
+/// §12.5.4's border width (ADR 0192).
 ///
-/// `/Cap` was the third of these and is drawn since the five-hundred-and-seventy-fourth
-/// session; what is asserted below is that an *empty* one owes nothing, because Table 178
+/// `/Cap` is the third of these and is drawn (ADR 0409); what is asserted below is that an
+/// *empty* one owes nothing, because Table 178
 /// replicates "the text specified by the Contents or RC entries" and this fixture states neither.
 #[test]
 fn a_line_ending_is_drawn_and_an_empty_caption_owes_nothing() {
@@ -2647,9 +2638,9 @@ fn a_press_inverts_a_widget_whose_highlighting_mode_says_to() {
 
     // **And the default belongs to the entry, not to annotations in general.** Two tables
     // define `/H` — Table 176's link and Table 192's widget — so a subtype whose clause states
-    // no such entry has no mode to default and a press draws no mark on it. Unreachable until
-    // the two-hundred-and-fifty-third session took the pressed annotation from the whole page
-    // rather than from its links, which is exactly when a latent default becomes a wrong pixel.
+    // no such entry has no mode to default and a press draws no mark on it. The pressed
+    // annotation is taken from the whole page rather than from its links (ADR 0177), which is
+    // exactly where a latent default becomes a wrong pixel.
     let square = "<< /Type /Annot /Subtype /Square /Rect [10 10 90 90] /F 4 \
                   /AP << /N 6 0 R >> >>";
     assert_eq!(
@@ -3038,10 +3029,8 @@ fn each_of_table_179_s_line_endings_draws_its_own_shape() {
 /// the sentence and the assertions are the same list; `/None` is stated rather than asserted, and
 /// honestly so — `draw_ending` returns before it looks at a colour, so that one arm cannot fail.
 ///
-/// **And this test could not see the arrowheads at all until the same session.** `draw_ending`
-/// decided their fill for itself, three arms below the one that asks `Ending::filled`, so removing
-/// `RClosedArrow` from `filled` left every assertion here passing. Calibrated per trap 13 after
-/// the two expressions became one: with that arm removed the run fails on `/RClosedArrow` by name.
+/// **The arrowheads' fill is `Ending::filled`'s alone**, so this test sees them: calibrated per
+/// trap 13, with that arm removed the run fails on `/RClosedArrow` by name.
 #[test]
 fn only_the_five_endings_table_179_fills_use_the_interior_colour() {
     let ending = |name: &str, interior: &str| {
@@ -3537,9 +3526,7 @@ fn table_192s_three_icons_are_chosen_by_what_the_pointer_is_doing() {
 /// rectangle", and §12.5.4's own sentence binds it exactly as it binds the four rectangular
 /// styles: "If present, the border shall be drawn completely inside the annotation rectangle."
 /// A stroke straddles its path, so a path *on* the bottom edge puts half the ink below `/Rect`
-/// — which is what this crate drew until the four-hundred-and-fifty-eighth session, on a
-/// comment that described where a stroke sits relative to its path and mistook that for where
-/// the path goes.
+/// — a description of where a stroke sits relative to its path is not where the path goes.
 ///
 /// **What the reader saw was a thin line rather than ink outside the rectangle**, and that is
 /// worth stating because it is why nothing noticed: `Constructed::bounded` clips a link's

@@ -3,9 +3,9 @@
 //! §11.5.3 composites a luminosity mask's group in the space its `/CS` names and converts the
 //! result to a luminosity there; this tree composited in device RGB and named the difference
 //! by name, on the group's `/CS` alone. **What a group actually paints decides whether that
-//! difference exists at all**, and this counts that rather than the declaration — which is how
-//! the three-hundred-and-eightieth session found that every departure the corpus carries is in
-//! the *backdrop* rather than in the artwork (ADR 0217).
+//! difference exists at all**, and this counts that rather than the declaration — which is what
+//! shows that every departure the corpus carries is in the *backdrop* rather than in the artwork
+//! (ADR 0217).
 //!
 //! Walks every page's `/Resources /ExtGState`, and every form `XObject`'s, for a `/SMask`
 //! whose `/S` is `/Luminosity`, then reads the group's own content stream for the colour
@@ -15,7 +15,7 @@
 //! cargo run --release -p pdf-model --example luminosity_mask_census -- doc/pdf.js/test/pdfs/*.pdf
 //! ```
 //!
-//! # The blend mode inside such a group, counted since the six-hundred-and-sixty-seventh session
+//! # The blend mode inside such a group
 //!
 //! §11.5.3 leaves one residue that changes a pixel, and
 //! [`crate::content::transparency::note_blended_luminosity`] — `content/transparency.rs` — is
@@ -24,15 +24,14 @@
 //! average this tree paints such a group in. §11.5.3's ledger row called that "a report with no
 //! corpus member" and §11.3.5.2's said "with no corpus document stating one", and neither
 //! sentence named a population or a command. This counts it, so the claim is a run rather than a
-//! memory (`doc/todo/01`'s rule from the six-hundred-and-forty-first session).
+//! memory (`doc/todo/01`'s rule).
 //!
-//! **What the walk can see, stated rather than assumed** (the six-hundred-and-forty-eighth's
-//! rule): every `/ExtGState` reachable from the group's own resources and from the resources of
-//! the form `XObject`s inside it, to [`MAX_DEPTH`], with `/BM` read as a name or as §11.6.3's
-//! array. It does **not** check that a `gs` names that state or that a mark follows it, so its
-//! count is an upper bound on the documents the report can reach — which is the safe direction
-//! for re-deriving a negative, and it is why a hit is confirmed by interpreting the page rather
-//! than by believing this line.
+//! **What the walk can see, stated rather than assumed**: every `/ExtGState` reachable from the
+//! group's own resources and from the resources of the form `XObject`s inside it, to [`MAX_DEPTH`],
+//! with `/BM` read as a name or as §11.6.3's array. It does **not** check that a `gs` names that
+//! state or that a mark follows it, so its count is an upper bound on the documents the report can
+//! reach — which is the safe direction for re-deriving a negative, and it is why a hit is confirmed
+//! by interpreting the page rather than by believing this line.
 
 #![expect(
     clippy::print_stdout,

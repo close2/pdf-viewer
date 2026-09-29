@@ -1,9 +1,9 @@
 //! How many documents state §12.4.4's presentation, and which of Table 164's styles they ask for.
 //!
-//! The three-hundred-and-ninety-third session's round drew the frames of a transition, and the
-//! first question a round that draws something owes is which files it is drawing *for*. ADR 0135
-//! recorded "not one page of the corpus's 964 openable documents states a `/Trans` or a `/Dur`",
-//! measured in the seventieth session over raw bytes; this asks the page tree instead, so that a
+//! This tree draws the frames of a transition, and the first question a round that draws
+//! something owes is which files it is drawing *for*. ADR 0135 recorded "not one page of the
+//! corpus's 964 openable documents states a `/Trans` or a `/Dur`", measured over raw bytes; this
+//! asks the page tree instead, so that a
 //! `/Trans` inside an object stream — which a byte grep cannot see — is counted where one exists.
 //!
 //! Three populations, because they are three different claims: a page stating `/Trans` (something
@@ -14,11 +14,10 @@
 //! cargo run --release -p pdf-model --example presentation_census -- doc/pdf.js/test/pdfs/*.pdf
 //! ```
 //!
-//! **Run it over the crawl as well, because the answer differs there and did so unread for
-//! sixty-two sessions.** The curated corpora state no presentation at all and the whole of
-//! `CC-MAIN-2021-31` states 276 of them, which is what a negative measured before a population
-//! grew looks like from the far side. A command line does not hold 65 944 paths, so the run is
-//! chunked and the chunk totals added:
+//! **Run it over the crawl as well, because the answer differs there.** The curated corpora state
+//! no presentation at all and the whole of `CC-MAIN-2021-31` states 276 of them, which is what a
+//! negative measured before a population grew looks like from the far side. A command line does not
+//! hold 65 944 paths, so the run is chunked and the chunk totals added:
 //!
 //! ```sh
 //! find corpus-cache/safedocs/cc-main-2021-31 -name '*.pdf' \

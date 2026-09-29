@@ -4,8 +4,8 @@
 //! cargo run --release -p conformance --bin owed
 //! ```
 //!
-//! `doc/todo/01`'s fourteenth sweep — the last of the four descriptions whose *level* moved with
-//! the session rather than with the tree — and the twelfth of the fifteen to be a program.
+//! `doc/todo/01`'s fourteenth sweep — a description whose *level* moved with whoever ran it
+//! rather than with the tree, as a program.
 //! [`conformance::owed`] says why a debt vocabulary written from memory cannot be compared across
 //! runs, and why the discriminator here is the seventh sweep's with the sign reversed: a term the
 //! tree **lacks** is a `partial` row saying what is owed in a word.

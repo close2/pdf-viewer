@@ -151,11 +151,11 @@ pub(super) fn any_command(commands: &[Command], wanted: &dyn Fn(&Command) -> boo
 /// Whether a command asks to be blended with what is under it, rather than painted over it.
 ///
 /// A [`Command::Shaped`] blends as its object does: the shape half is drawn Normal by
-/// construction ([`stated_shape`]), and the object is what §11.3.3 composites. **Until the
-/// nine-hundred-and-eighty-eighth session a `Shaped` fell to the arm below**, so a knockout
-/// group drawn on transparency with a stated element was reported as "non-isolated, and an
-/// element blends with the backdrop it excludes" whenever Table 145 said `/I false` — a
-/// report about a blend mode that nothing carried (ADR 1009).
+/// construction ([`stated_shape`]), and the object is what §11.3.3 composites. **A `Shaped`
+/// does not fall to the arm below**, because there a knockout group drawn on transparency with
+/// a stated element would be reported as "non-isolated, and an element blends with the
+/// backdrop it excludes" whenever Table 145 says `/I false` — a report about a blend mode that
+/// nothing carries (ADR 1009).
 pub(super) fn command_blends(command: &Command) -> bool {
     match command {
         Command::Fill { blend, .. }
@@ -233,8 +233,7 @@ pub(super) fn command_composites(command: &Command) -> bool {
 /// §11.6.6's inheritance tests the entry's presence itself rather than reading it off this.
 ///
 /// **A one-component space is named here and is not reported where it is drawn**: `DeviceGray`
-/// since the eight-hundred-and-sixty-fifth session (ADR 0790), and `CalGray` and a
-/// one-component profile since the eight-hundred-and-seventy-first (ADR 0792) — what
+/// (ADR 0790), and `CalGray` and a one-component profile (ADR 0792) — what
 /// [`Interpreter::group_own_space`] and [`page_own_space`] draw. Each stays a
 /// [`Departure`] so that a group *inside* it introducing a different space is still a change
 /// of space.
@@ -1525,11 +1524,11 @@ fn states_a_shape(commands: &[Command]) -> bool {
 ///   under the image's transform, filled — the same path and the same coverage every
 ///   backend draws the image itself through.
 ///
-/// `None` where this renderer cannot state the shape, which is where the report stands: a paint
-/// of a kind this crate does not know. A stencil under an `/SMask` of its own is not among them —
-/// its producer keeps the stencil apart from the opacity on every route (ADRs 1218, 1279). **An image drawn outside this run used to be a third**, because
-/// the kind was a record the interpreter wrote as it drew; a raster carries its own now,
-/// wherever it came from (ADR 1022).
+/// `None` where this renderer cannot state the shape, which is where the report stands: a paint of
+/// a kind this crate does not know. A stencil under an `/SMask` of its own is not among them — its
+/// producer keeps the stencil apart from the opacity on every route (ADRs 1218, 1279). **An image
+/// drawn outside this run used to be a third**, because the kind was a record the interpreter wrote
+/// as it drew; a raster carries its own now, wherever it came from (ADR 1022).
 ///
 /// A [`Command::Shaped`] answers with the shape it already carries: an inner knockout group's
 /// elements arrive stated. A soft mask the interpreter built out of a stencil is kept rather
@@ -1778,13 +1777,12 @@ fn stated_elements(
 
 /// Whether two interpretations of one content stream drew the same structure.
 ///
-/// The guard [`pdf_render::DisplayList::geometry_digest`] provides for §11.4.7's page pair, asked of a
-/// *group's* pair: the two lists differ only in what each colour resolved to, so their
-/// variants, nesting, clips, paths and blend modes must agree — the halves are resolved per
-/// pixel, and a command in one and not the other would be converted against a shape that
-/// never drew it. Soft masks are compared by *presence* rather than identity, because the
-/// second run registers its own copies of the same masks and the identifiers differ by
-/// construction.
+/// The guard [`pdf_render::DisplayList::geometry_digest`] provides for §11.4.7's page pair, asked
+/// of a *group's* pair: the two lists differ only in what each colour resolved to, so their
+/// variants, nesting, clips, paths and blend modes must agree — the halves are resolved per pixel,
+/// and a command in one and not the other would be converted against a shape that never drew it.
+/// Soft masks are compared by *presence* rather than identity, because the second run registers its
+/// own copies of the same masks and the identifiers differ by construction.
 fn paired(first: &[Command], second: &[Command]) -> bool {
     first.len() == second.len()
         && first.iter().zip(second).all(|(left, right)| {
@@ -1930,12 +1928,10 @@ pub(super) struct ImplicitKnockout {
 /// an element whose shape is its coverage is drawn bare and the rest state it
 /// ([`knockout_elements`]).
 ///
-/// **Until the nine-hundred-and-seventy-ninth session the second and third constructions did
-/// not exist here and the first refused a masked element**, though [`knockout_elements`]
-/// had stated a masked element's shape since ADR 0234 for a form's group: a capability that
-/// arrived and announced nothing to the two callers beside it. The cost was every `B` under
-/// a blend mode drawn flat, its stroke composited over its own fill — the double border
-/// §11.7.4.4's NOTE 2 exists to prevent.
+/// **All three constructions are here, and the first states a masked element's shape**, as
+/// [`knockout_elements`] does for a form's group (ADR 0234): without them every `B` under a
+/// blend mode is drawn flat, its stroke composited over its own fill — the double border
+/// §11.7.4.4's NOTE 2 exists to prevent (ADR 1000).
 pub(super) fn implicit_knockout_group(
     commands: &[Command],
     seen: AlphaSourcesSeen,
@@ -2751,16 +2747,14 @@ impl<'a> Interpreter<'a> {
     /// reaching this function is isolated and the clause says what such a group's is: "[a]n
     /// isolated knockout group composites the element with a transparent backdrop." ADR 1103.
     ///
-    /// # The condition that came off, and why the uncoloured one did not go with it
+    /// # Why a shading pattern is no condition here, and the uncoloured cell is
     ///
-    /// The six-hundred-and-fifty-fifth session added a fifth condition — a group a *shading
-    /// pattern* was carried into over the `Do` — for the same reason as the uncoloured cell:
-    /// §11.6.7 makes the pattern's definition a non-isolated group, §11.7.2 gives such a group
-    /// the space of "the nearest ancestor isolated parent group", and this tree resolved the
-    /// pattern's colours where the `scn` stood instead. ADR 0483 wrote that it would come off
-    /// when §10.5's rebuild landed, and it has: `Interpreter::shading_paint` builds a shading
-    /// pattern's colours at the mark, in whatever this run is compositing into, so a pattern
-    /// painted inside a press is resolved in that press's half like every other colour there.
+    /// A group a *shading pattern* is carried into over the `Do` is not a condition: §11.6.7 makes
+    /// the pattern's definition a non-isolated group, §11.7.2 gives such a group the space of "the
+    /// nearest ancestor isolated parent group", and `Interpreter::shading_paint` builds a shading
+    /// pattern's colours at the mark (ADR 0483), in whatever this run is compositing into, so a
+    /// pattern painted inside a press is resolved in that press's half like every other colour
+    /// there.
     ///
     /// **[`Interpreter::uncoloured`] stays, and the difference is which way the colour travels.**
     /// §8.6.8's uncoloured cell takes its colour from the `scn` *outside* — "the pattern's
@@ -3007,11 +3001,8 @@ impl<'a> Interpreter<'a> {
     /// [`crate::colour::InkScale::Double`] and nothing else: a `DeviceGray` group's channel
     /// *is* its one component in additive form, so every blend mode is exact there.
     ///
-    /// **This is a silence the three-hundred-and-eightieth session left behind**, and finding
-    /// it is why a removed report is worth re-deriving rather than deleting. Until ADR 0217
-    /// every `DeviceCMYK` mask group was reported for being composited in device RGB, which
-    /// covered this case without naming it; that sentence now fires only for `Lab`, and this
-    /// one says the part of it that is still true.
+    /// ADR 0217's report of a mask group composited in device RGB fires only for `Lab`; this
+    /// one says the part of it that is still true of a `DeviceCMYK` mask group.
     fn note_blended_luminosity(&mut self, compositing: &Compositing, commands: &[Command]) {
         if *compositing != Compositing::Luminosity(InkScale::Double)
             || !any_command(commands, &|command| command_blends(command))
@@ -3242,24 +3233,22 @@ impl<'a> Interpreter<'a> {
 
         let mark = self.list.command_count();
         self.soft_mask_depth = self.soft_mask_depth.saturating_add(1);
-        // §8.6.8's restriction does **not** reach in here, and until the
-        // two-hundred-and-thirty-seventh session it did. The clause applies "[i]n any glyph
-        // description that uses the d1 operator … and to all other content streams invoked
-        // from within the same glyph description", and it says why in the sentence before:
-        // "when defining graphical figures whose colours shall be specified separately each
-        // time they are used". A soft mask is not such a figure. It carries no colour to the
-        // page at all — §11.6.5.2 turns the group's result into a luminosity and uses it as
-        // *alpha* — so NOTE 1's own reason for exempting a stencil applies verbatim: it "does
-        // not specify colours; instead, it designates places where the current colour is
-        // painted". Worse, the restriction is actively destructive here: a `/Luminosity`
-        // mask's values *are* the group's colours, so ignoring `rg` inside it changes the
-        // mask, and ignoring the group's images leaves a mask of zero that erases the very
-        // marks the glyph exists to make.
+        // §8.6.8's restriction does **not** reach in here (ADR 0173). The clause applies "[i]n any
+        // glyph description that uses the d1 operator … and to all other content streams invoked
+        // from within the same glyph description", and it says why in the sentence before: "when
+        // defining graphical figures whose colours shall be specified separately each time they are
+        // used". A soft mask is not such a figure. It carries no colour to the page at all —
+        // §11.6.5.2 turns the group's result into a luminosity and uses it as *alpha* — so NOTE 1's
+        // own reason for exempting a stencil applies verbatim: it "does not specify colours;
+        // instead, it designates places where the current colour is painted". Worse, the
+        // restriction is actively destructive here: a `/Luminosity` mask's values *are* the group's
+        // colours, so ignoring `rg` inside it changes the mask, and ignoring the group's images
+        // leaves a mask of zero that erases the very marks the glyph exists to make.
         //
         // `issue19634.pdf` is the witness — a Skia blur test whose red text is a Type 3 font
         // whose glyph procedure is `d1`, a `gs` naming a `/Luminosity` mask, and one `re f`.
         // The mask group draws a blurred greyscale image; with the flag leaking in, the image
-        // was skipped by §8.6.8's image rule, the mask came out zero and the text vanished.
+        // is skipped by §8.6.8's image rule, the mask comes out zero and the text vanishes.
         // Ink 2.87 against `mupdf`'s 7.63 and `hayro`'s 8.11 (ADR 0173).
         let saved_uncoloured = std::mem::replace(&mut self.uncoloured, false);
         // §11.6.5.1 makes the group's `/CS` "the colour space in which the compositing
@@ -3278,16 +3267,15 @@ impl<'a> Interpreter<'a> {
         // compositing the clause asks for, and the one thing that is not — a blend function,
         // which is not affine — is `note_blended_luminosity`'s report and not this one.
         let saved_blending = self.blending.take();
-        // **And so does the flag that records one**, which it did not until the
-        // four-hundred-and-fortieth session. [`Interpreter::blending_changed`] answers exactly
-        // one question — whether the *page* may be composited in the space §11.4.7 gives it —
-        // and the line above makes every group inside a mask compare its space against `None`,
-        // so a mask group holding an isolated `/DeviceCMYK` group set the flag on a page that
+        // **And so does the flag that records one.** [`Interpreter::blending_changed`] answers
+        // exactly one question — whether the *page* may be composited in the space §11.4.7 gives it
+        // — and the line above makes every group inside a mask compare its space against `None`, so
+        // a mask group holding an isolated `/DeviceCMYK` group set the flag on a page that
         // composites in `/DeviceCMYK` and departs from nothing. **77 of the 85 web documents
-        // reported for §11.6.6 and all three of the corpus's were that**, measured by asking
-        // each change its `soft_mask_depth` (ADR 0276). A mask's group is not painted onto the
-        // page at all — §11.5.3 turns its result into one luminosity — so no space inside it
-        // is a space the page composites in.
+        // reported for §11.6.6 and all three of the corpus's were that**, measured by asking each
+        // change its `soft_mask_depth` (ADR 0276). A mask's group is not painted onto the page at
+        // all — §11.5.3 turns its result into one luminosity — so no space inside it is a space the
+        // page composites in.
         let saved_change = std::mem::replace(&mut self.blending_changed, false);
         // And so does §11.4.6, for the reason the `None` below it states: the mask's group is
         // not an element of the knockout group the `gs` appears in — an `/SMask` is named by an
@@ -3311,8 +3299,7 @@ impl<'a> Interpreter<'a> {
         // point. Saving the flag across the run said the same thing one indirection later, and
         // said it only about the report.
         //
-        // And pattern space, which is the one this list did **not** save until the
-        // six-hundred-and-twenty-first session. §8.7.2 states where a pattern's matrix lands:
+        // And pattern space (ADR 0456). §8.7.2 states where a pattern's matrix lands:
         //
         // > Similarly, if a pattern is used within a form XObject (see 8.10, "Form XObjects"
         // > ), the pattern matrix maps pattern space to the form's default user space (that
@@ -3953,9 +3940,9 @@ impl<'a> Interpreter<'a> {
             return;
         };
         // The compositing condition exempts a space whose conversion has an inverse, and a
-        // one-component space has none — see [`Departure::loses_chroma`]. Until the
-        // eight-hundred-and-sixty-fifth session the exemption was applied to every space,
-        // which is trap 11's shape: a condition derived for four components inherited by one.
+        // one-component space has none — see [`Departure::loses_chroma`]. Applying the
+        // exemption to every space would be trap 11's shape: a condition derived for four
+        // components inherited by one (ADR 0790).
         if !departure.loses_chroma() && !any_command(self.list.commands(), &command_composites) {
             return;
         }
@@ -3995,10 +3982,9 @@ impl<'a> Interpreter<'a> {
     /// rasters does not carry, and each named rather than folded into the other. Both want a
     /// **second colour space** — one the document names, one a group introduces.
     ///
-    /// **A fourth was here until the four-hundred-and-forty-first session and it was not a
-    /// second colour space at all**: §11.3.5.3's rule for the black component under Table 135's
-    /// four modes, which this reported as "a blend function neither raster has". It is drawn
-    /// rather than reported since ADR 0277, and nothing was written for it — the clause splits
+    /// **§11.3.5.3's rule for the black component under Table 135's four modes is not a
+    /// condition, because it is not a second colour space at all**: it is drawn rather than
+    /// reported (ADR 0277), and nothing was written for it — the clause splits
     /// a subtractive space's four components along the same line the two rasters already are,
     /// its chromatic bullet is what [`crate::colour::Plane::Chromatic`] holds, and the rule it
     /// gives the black component is what its own four functions return on the neutral colour
@@ -4011,13 +3997,12 @@ impl<'a> Interpreter<'a> {
     /// first, then what a group inside did to it — and either of them is the same answer on
     /// every run.
     ///
-    /// **A third came off in session 1055, and it was never a second colour space either**
-    /// (ADR 1069): §11.7.5.3's black generation, which this refused for. Table 57's `/BG` and
-    /// `/UCR` are §10.4.2.4's parameters, and §10.4.2.1 puts §10.4.2's whole branch below
-    /// §10.3's, where this tree's conversion into a press is — so the functions have no step
-    /// of it to act on, and falling back to the device did not evaluate them either. It only
-    /// cost the page the space §11.4.7 requires. [`Interpreter::note_black_generation_departure`] is
-    /// the departure that is left.
+    /// **§11.7.5.3's black generation is not a condition either, since it is not a second colour
+    /// space** (ADR 1069). Table 57's `/BG` and `/UCR` are §10.4.2.4's parameters, and §10.4.2.1
+    /// puts §10.4.2's whole branch below §10.3's, where this tree's conversion into a press is — so
+    /// the functions have no step of it to act on, and falling back to the device did not evaluate
+    /// them either. It only cost the page the space §11.4.7 requires.
+    /// [`Interpreter::note_black_generation_departure`] is the departure that is left.
     pub(super) fn blending_undrawable(&self) -> Option<BeyondPress> {
         if let Some(beyond) = self.blending_beyond {
             return Some(beyond);
@@ -4568,9 +4553,9 @@ impl<'a> Interpreter<'a> {
         // substituting §11.4.5's (ADR 0237), and `isolated_drawn` is false. What is left
         // here is the population that construction refuses: a knockout group and an element
         // of one — plus a *mask* group, which is evaluated into a raster built on
-        // transparency whatever it declares. A blend mode at the `Do` left this population
-        // in the one-thousand-and-ninety-third session (ADR 1107): the group's own colour is
-        // computed there rather than substituted for.
+        // transparency whatever it declares. A blend mode at the `Do` is not in this
+        // population (ADR 1107): the group's own colour is computed there rather than
+        // substituted for.
         if !isolated_by_clause
             && isolated_drawn
             && any_command(commands, &|command| command_blends(command))
@@ -4587,7 +4572,7 @@ impl<'a> Interpreter<'a> {
         // Normal it overwrites either way, so the two models differ only where a later
         // element that composites covers an earlier one — which is the condition below,
         // and the same shape as §9.3.8's for a text object.
-        // Since the seventy-first session the display list can carry the rule itself, for
+        // The display list can carry the rule itself, for
         // the groups whose elements have a shape a rasteriser can draw — see
         // [`knockout_shape_is_coverage`] — and since ADR 0234 for those whose shape it can
         // *state*, see [`stated_shape`]. `knockout_drawn` answers both. What is left here
@@ -4630,8 +4615,8 @@ mod tests {
     //!
     //! Every expected level below is computed from §11.4.6's two stages and §11.3.3's
     //! formula on the page's own numbers, never read off a renderer; and each pixel test
-    //! also draws the same parts *flat*, which is what the callers did before this
-    //! session, so that the number discriminates (trap 13).
+    //! also draws the same parts *flat*, the construction ADR 1000 replaced, so that the
+    //! number discriminates (trap 13).
 
     #![expect(
         clippy::arithmetic_side_effects,
@@ -4738,8 +4723,7 @@ mod tests {
     }
 
     /// §11.6.4.3's soft mask is opacity, so a masked part's shape is stated beside it and
-    /// the group is still drawn on transparency — the case the wrapper this session
-    /// deleted refused while `knockout_elements` could state it.
+    /// the group is still drawn on transparency, as `knockout_elements` states it (ADR 1000).
     #[test]
     fn a_masked_pair_states_its_shapes_on_transparency() {
         let mask = Some(SoftMaskId::new(0));

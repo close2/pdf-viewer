@@ -2,11 +2,10 @@
 //!
 //! # The window §12.4.4 has never had
 //!
-//! `viewer-core` has driven a slide show since the hundred-and-fiftieth session and drawn its
-//! transitions since the three-hundred-and-ninety-third, and since the four-hundred-and-eighty-first
-//! it keeps §12.4.4.2's presentation *mode* because that clause conditions a state machine on it
-//! (ADR 0316). What none of the three hosts had was the window: a presentation played inside a
-//! sidebar, a tool bar and a status line, which is a slide show nobody would show anybody.
+//! `viewer-core` drives a slide show (ADR 0135), draws its transitions (ADR 0230) and keeps
+//! §12.4.4.2's presentation *mode* because that clause conditions a state machine on it (ADR 0316).
+//! What is a host's is the window: a presentation played inside a sidebar, a tool bar and a status
+//! line is a slide show nobody would show anybody.
 //!
 //! **The standard states the window, and it states it outside §12.4.4.** §7.7.2's Table 29 gives
 //! `/PageMode` as "[a] name object specifying how the document shall be displayed when opened",

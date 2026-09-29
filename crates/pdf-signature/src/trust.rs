@@ -157,8 +157,7 @@ impl<'a> TrustAnchor<'a> {
 /// The set of trust anchors a host supplies, and the default is empty.
 ///
 /// Empty is not a failure and not a refusal: it is this program saying nobody has told it whom to
-/// believe, which is what [`Trust::NoAnchorSupplied`] reports and what every signed document this
-/// program opens has said in words since the three-hundred-and-seventy-seventh session.
+/// believe, which is what [`Trust::NoAnchorSupplied`] reports, in words (ADR 0215).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TrustAnchors<'a> {
     anchors: Vec<TrustAnchor<'a>>,

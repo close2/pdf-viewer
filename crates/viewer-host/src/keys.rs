@@ -2,13 +2,12 @@
 //!
 //! # Why the decision is here and not in a host
 //!
-//! Three windowed hosts, three key tables, and until the six-hundred-and-eighty-seventh session
-//! they disagreed: `f` opened the find bar in `viewer-gtk` and armed §12.5.6.6's free-text drag in
-//! `viewer-ui`; the Up and Down keys scrolled the view in one host and turned the page in two;
-//! Escape cleared the selection in the two native hosts and **quit the program** in the third. The
-//! four-consumer rule `doc/todo/30` is written under — a feature lands on the boundary and every
-//! host adopts it — is a rule about *features*, and it had no purchase at all on the thing a person
-//! actually touches.
+//! Three windowed hosts with three key tables disagree (ADR 0526): `f` opening the find bar in one
+//! and arming §12.5.6.6's free-text drag in another; the Up and Down keys scrolling the view in one
+//! host and turning the page in two; Escape clearing the selection in two and **quitting the
+//! program** in the third. The four-consumer rule `doc/todo/30` is written under — a feature lands
+//! on the boundary and every host adopts it — is a rule about *features*, and it had no purchase at
+//! all on the thing a person actually touches.
 //!
 //! The argument for putting the table here is [`crate::presentation`]'s and [`crate::clock`]'s
 //! verbatim (ADRs 0470, 0473): **which sentence a window is obeying is shared, and

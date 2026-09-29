@@ -484,8 +484,8 @@ pub enum DataFormat {
 ///
 /// **This is the one action of Table 201's twenty that names another document and needs no
 /// filesystem to reach it.** A `GoToR` names a file on a disk; a `GoToE` names a file that is
-/// *inside the one already open* — §7.11.4's embedded file streams, read since the eighty-sixth
-/// session (ADR 0076) — so the whole of the path is bytes this program already holds.
+/// *inside the one already open* — §7.11.4's embedded file streams, which this tree reads
+/// (ADR 0076) — so the whole of the path is bytes this program already holds.
 ///
 /// The destination is deliberately unresolved. §12.3.2's `/D` here is a destination "in the
 /// target", and a named one is looked up in the *target's* `/Dests`, so resolving it against the

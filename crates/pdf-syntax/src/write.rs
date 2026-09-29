@@ -19,12 +19,9 @@
 //! here decides how a document should be laid out, only how to say "this object now reads like
 //! this".
 //!
-//! **This section named a third thing for ninety-two sessions, and the third thing was wrong.**
-//! It said the exclusion covered "linearisation, object-stream packing, and everything else
-//! whose requirements fall on a generator", quoting a sentence `CLAUDE.md` stopped containing
-//! on 2026-09-03 (RFC 0002 section 11.1, ADR 0816) — while [`crate::serialize`], in this crate,
-//! had been generating ISO 32000-2 §7.5.7's object streams since the nine-hundredth session.
-//! ADR 0989.
+//! **The exclusion does not cover object-stream packing**: [`crate::serialize`], in this crate,
+//! generates ISO 32000-2 §7.5.7's object streams, and `CLAUDE.md`'s exclusion was redrawn on
+//! 2026-09-03 (RFC 0002 section 11.1, ADR 0816). ADR 0989.
 //!
 //! # The two halves
 //!
@@ -173,16 +170,15 @@ impl std::fmt::Write for HexSink<'_> {
 /// instead", which is why an integral value is written without a fractional part — that is what
 /// every producer does and what the type in a dictionary usually is.
 ///
-/// **The fractional case wrote six decimal places until the eight-hundred-and-eighty-sixth
-/// session, and six is not enough.** Annex C's Table C.1 says that "[m]odern computers often
-/// represent and process real numbers using IEEE Standard for Floating-Point Arithmetic (IEEE
-/// 754) single or double precision", and this reader parses one into an `f64`; rounding it to
-/// six places on the way out changes the number. Nothing noticed while the only writer was
-/// §7.5.6's update, because a form field's `/Rect` survives the rounding — but a serializer
-/// rewrites every dictionary of every object it carries, and a Type 3 font's `/FontMatrix`, a
-/// shading's `/Coords` and a function's `/C0` do not. **Seven corpus documents drew differently
-/// after `split` because of it**, all of them off by one antialiasing level on a glyph's edge,
-/// which is what six places does to `0.0009765625`.
+/// **The fractional case does not write six decimal places, because six is not enough.** Annex C's
+/// Table C.1 says that "[m]odern computers often represent and process real numbers using IEEE
+/// Standard for Floating-Point Arithmetic (IEEE 754) single or double precision", and this reader
+/// parses one into an `f64`; rounding it to six places on the way out changes the number. A form
+/// field's `/Rect` survives the rounding, but a serializer rewrites every dictionary of every
+/// object it carries, and a Type 3 font's `/FontMatrix`, a shading's `/Coords` and a function's
+/// `/C0` do not. **Seven corpus documents draw differently after `split` under six places** (ADR
+/// 0818), all of them off by one antialiasing level on a glyph's edge, which is what six places
+/// does to `0.0009765625`.
 ///
 /// What is written instead is the **shortest decimal that reads back as the same double**,
 /// which is what Rust's `Display` for `f64` produces and which never uses an exponent — so the

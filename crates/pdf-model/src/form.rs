@@ -101,8 +101,7 @@ pub struct FormField {
     /// `/Annots` order is painting order, so a host stacking controls may follow it. §12.5.5 is
     /// where ISO 32000-2 says so — an annotation's group "shall be composited with a backdrop
     /// consisting of the page content along with any previously painted annotations" — and the
-    /// array is the only order the standard gives those annotations. (This cited a sentence
-    /// §12.5.2 does not contain until the four-hundred-and-ninth session; see ADR 0245.)
+    /// array is the only order the standard gives those annotations (ADR 0245).
     pub widgets: Vec<Widget>,
 }
 
@@ -167,8 +166,8 @@ pub enum Control {
     ///
     /// **The sentence that said so outright is gone**: Errata Collection 3 strikes "Because
     /// this type of retains no permanent value, it shall not use the V and DV entries in the
-    /// field dictionary" with no replacement (Issue #386, `/State` `Review` `Completed`), and
-    /// this comment quoted it until the four-hundred-and-eighteenth session. What survives is
+    /// field dictionary" with no replacement (Issue #386, `/State` `Review` `Completed`;
+    /// ADR 0254). What survives is
     /// the definition above, which is the reason the struck sentence gave for itself.
     PushButton,
     /// §12.7.5.2.3: a control that "toggles between two states, on and off".
@@ -974,11 +973,9 @@ mod tests {
     /// > specified for a given field, their values are taken from those of its parent in the
     /// > field hierarchy.
     ///
-    /// **Nothing in this tree asserted it until the six-hundred-and-thirty-seventh session**, and
-    /// both rows that claimed it cited `variable_text.rs::quadding_moves_the_line_within_its_box`
-    /// — a §12.7.4.3 test whose widget is one merged dictionary, so the `/Parent` chain it walks
-    /// is empty and the rule above is exercised zero times. That is `doc/todo/01`'s third shape: a
-    /// row whose evidence does not reach its claim.
+    /// `variable_text.rs::quadding_moves_the_line_within_its_box` does not assert it: that
+    /// §12.7.4.3 test's widget is one merged dictionary, so the `/Parent` chain it walks is empty
+    /// and the rule above is exercised zero times.
     ///
     /// The fixture states `/FT`, `/Ff` and `/V` **only** on the ancestor, two links up so that a
     /// walk which stopped at the immediate parent would fail as well, and reads all three back

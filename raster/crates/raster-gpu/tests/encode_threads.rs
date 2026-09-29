@@ -12,8 +12,9 @@
 //! frame, at several thread counts including one far above what the divided work needs.
 //! The fixtures are chosen so that a *missing* one of the encoder's drain points would
 //! move a pixel: marks overlap, so draw order is visible; a rectangle, a stroke, a
-//! blended fill, a curve-clipped fill and a group sit between runs of fills, so a queue
-//! that survived one of them would reorder the page.
+//! blended fill, a curve-clipped fill, a curve-clipped stroke and a group sit between runs
+//! of fills, so a queue that survived one of them would reorder the page. The two clipped
+//! marks are queued too, and their residue is multiplied in at the commit (ADR 1395).
 //!
 //! **One drain point is not among them, and this file cannot reach it.** Every op
 //! `busy_page` pushes follows a `plan_child` that has drained already, so
@@ -110,8 +111,8 @@ fn at(index: u32) -> Affine {
 
 /// A page whose marks **overlap** and whose runs of fills are interrupted by every other
 /// kind of command the walk has: a rectangle instance, a stroke, a blended fill (which
-/// becomes an implicit one-element group), a real group, and a curve-clipped fill (which
-/// takes the residue path the fan-out declines).
+/// becomes an implicit one-element group), a real group, and a curve-clipped fill and
+/// stroke (whose tiles the fan-out makes and the commit multiplies the residue into).
 ///
 /// The overlap is what makes draw order visible in the pixels: every mark is drawn at
 /// 0.85 alpha, so a pair composited in the wrong sequence is a different colour, not the
@@ -231,7 +232,7 @@ fn busy_command(
                 None,
             )
             .unwrap(),
-        // A clipped fill: the residue path, which stays on the walk's thread.
+        // A clipped fill: the residue path, whose product the commit takes.
         9 => builder
             .fill(
                 shapes.large,
@@ -241,6 +242,25 @@ fn busy_command(
                 Some(clip),
                 BlendMode::Normal,
                 Compose::SrcOver,
+                None,
+            )
+            .unwrap(),
+        // A clipped stroke: the residue path for an expansion, which is the one that
+        // costs (ADR 1395).
+        1 => builder
+            .stroke(
+                shapes.large,
+                at(index),
+                Stroke {
+                    width: 3.0,
+                    adjust: false,
+                    cap: LineCap::Butt,
+                    join: LineJoin::Round,
+                    miter_limit: 4.0,
+                },
+                ink(shade),
+                Some(clip),
+                BlendMode::Normal,
                 None,
             )
             .unwrap(),
@@ -406,5 +426,88 @@ fn a_blank_scene_draws_the_same_nothing_at_every_thread_count() {
         let (divided, also) = draw(threads, blank);
         assert_eq!(counters, also);
         assert!(divided == alone, "a blank page moved at {threads} threads");
+    }
+}
+
+/// A run of curve-clipped fills and strokes, heavy enough that the fan-out takes it: every
+/// tile is made off the walk's thread and meets its clip at the commit (ADR 1395).
+///
+/// The clip is a curve centred at (60, 60) whose boundary lies between 48 and 60 pixels
+/// from its centre; the marks are a curve centred at (110, 110) whose boundary lies between
+/// 32 and 40 from its own. So (90, 90) — 28 from the marks' centre, 42 from the clip's — is
+/// inside both, and (110, 110) — the marks' centre, 71 from the clip's — is inside the
+/// marks and outside the clip, where §8.5.4 leaves nothing of them. It is inside the clip's
+/// control-hull box, which sizes the tile (ADR 0057), so only the residue's product can
+/// leave it empty.
+fn clipped_run(device: &mut Device) -> Scene {
+    let mark = device.upload_outline(&blob(24, 40.0)).unwrap();
+    let region = device.upload_outline(&blob(24, 60.0)).unwrap();
+    let mut builder = SceneBuilder::new();
+    let clip = builder
+        .clip(
+            region,
+            Affine::translate(60.0, 60.0),
+            FillRule::NonZero,
+            None,
+        )
+        .unwrap();
+    for index in 0..300_u32 {
+        let shade = f32::from((index % 7) as u16) / 7.0;
+        if index % 2 == 0 {
+            builder
+                .fill(
+                    mark,
+                    Affine::translate(110.0, 110.0),
+                    FillRule::NonZero,
+                    ink(shade),
+                    Some(clip),
+                    BlendMode::Normal,
+                    Compose::SrcOver,
+                    None,
+                )
+                .unwrap();
+        } else {
+            builder
+                .stroke(
+                    mark,
+                    Affine::translate(110.0, 110.0),
+                    Stroke {
+                        width: 3.0,
+                        adjust: false,
+                        cap: LineCap::Butt,
+                        join: LineJoin::Round,
+                        miter_limit: 4.0,
+                    },
+                    ink(shade),
+                    Some(clip),
+                    BlendMode::Normal,
+                    None,
+                )
+                .unwrap();
+        }
+    }
+    builder.finish()
+}
+
+/// The residue a queued mark carries is multiplied in: what lies outside the clip is left
+/// transparent and what lies inside is drawn, at every thread count, on the same bytes as
+/// the one-threaded frame.
+#[test]
+fn a_clipped_run_meets_its_clip_at_every_thread_count() {
+    let alpha = |pixels: &[u8], x: u32, y: u32| pixels[((y * SIDE + x) * 4 + 3) as usize];
+    let (alone, counters) = draw(1, clipped_run);
+    assert!(alpha(&alone, 90, 90) > 0, "inside the clip and the marks");
+    assert_eq!(
+        alpha(&alone, 110, 110),
+        0,
+        "outside the clip, inside its box"
+    );
+    for threads in COUNTS.into_iter().skip(1) {
+        let (divided, also) = draw(threads, clipped_run);
+        assert_eq!(counters, also, "the counters moved at {threads} threads");
+        assert!(
+            divided == alone,
+            "the clipped run drawn on {threads} threads is not the run drawn on one"
+        );
     }
 }

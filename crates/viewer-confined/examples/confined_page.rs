@@ -162,10 +162,9 @@ fn main() {
     };
 
     // **Both arms of ADR 0607's choice, and which one this page took.** The list arm is the
-    // measurement the seven-hundred-and-thirty-sixth session wired in: what crossed, and what a
-    // raster of the same target would have been. The host draws the list itself, which is what
-    // the second timing below is — a cost this side of the boundary did not use to pay and which
-    // belongs in the same run as the saving it buys.
+    // measurement: what crossed, and what a raster of the same target would have been. The host
+    // draws the list itself, which is what the second timing below is — a cost this side of the
+    // boundary pays and which belongs in the same run as the saving it buys.
     //
     // **Since ADR 0640 that draw is the only one there is.** The worker used to do it too and
     // throw the pixels away; the line above is what fell when it stopped.

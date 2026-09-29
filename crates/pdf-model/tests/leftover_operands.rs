@@ -165,9 +165,9 @@ fn an_operator_with_too_few_operands_is_unchanged() {
 }
 
 /// And the page says so. "[A]ll of the operands needed by an operator shall immediately
-/// precede that operator" is a count as well as a position, and an operator short of it was
-/// refused in silence until the thousand-and-forty-second session — a `cm` short of a number
-/// would have left every later mark under the previous matrix and said nothing.
+/// precede that operator" is a count as well as a position, and an operator short of it is
+/// reported — a `cm` short of a number refused in silence would leave every later mark under
+/// the previous matrix and say nothing.
 #[test]
 fn an_operator_short_of_operands_is_reported() {
     let interpretation = interpretation("10 10 100 re f");

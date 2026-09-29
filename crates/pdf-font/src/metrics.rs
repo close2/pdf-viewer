@@ -283,14 +283,12 @@ const MIN_STRETCH: f32 = 0.5;
 /// between the two statements. `wanted` is handed the glyph as well as the code so that the
 /// second can decline `.notdef` without this function deciding what that means.
 ///
-/// **Ten of the fourteen compiled-in standard faces are bare CFF programs, and until the
-/// four-hundred-and-fifth session this function could not read one**: it went through
-/// `skrifa`'s `FontRef`, which parses an sfnt container and refuses a bare CFF, so every
-/// serif, fixed-pitch and symbolic standard-14 substitution answered nothing here and every
-/// unanswered code fell to `/MissingWidth`'s default of 0 (Table 120). `issue4304.pdf` is
-/// what that cost — `/Differences [32 /.notdef …]` over a non-embedded `/Times-Roman`, so
-/// §9.2.4's horizontal displacement for the code the page uses as a space came from nowhere
-/// and the page drew *Wordsthatshouldhavespacesbetweenthem.*
+/// **Ten of the fourteen compiled-in standard faces are bare CFF programs, and this function
+/// reads them**: `skrifa`'s `FontRef` parses an sfnt container and refuses a bare CFF, and an
+/// unanswered code would fall to `/MissingWidth`'s default of 0 (Table 120). `issue4304.pdf`
+/// is what that costs — `/Differences [32 /.notdef …]` over a non-embedded `/Times-Roman`, so
+/// §9.2.4's horizontal displacement for the code the page uses as a space would come from
+/// nowhere and the page would draw *Wordsthatshouldhavespacesbetweenthem.*
 fn program_widths(
     font: SimpleMetrics<'_>,
     wanted: impl Fn(u32, u16) -> bool,
@@ -478,10 +476,8 @@ pub(crate) fn composite_widths(document: &Document, descendant: &Dictionary) -> 
 ///
 /// §9.8.3's Table 120 names `/MissingWidth` for exactly that, on the *font descriptor* this
 /// function is handed, and gives it a default; see [`DEFAULT_WIDTH`], which is the whole
-/// subject. (**This sentence said "§9.6.2's Table 109" until the four-hundred-and-thirteenth
-/// session**, and Table 109 is the Type 1 font dictionary — `/Widths`, `/FirstChar`,
-/// `/LastChar` and no `/MissingWidth` anywhere in it. `doc/todo/01`'s ninth sweep, and the
-/// code below had the right answer all along: it reads the entry off `descriptor`.)
+/// subject. It is not §9.6.2's Table 109, the Type 1 font dictionary — `/Widths`,
+/// `/FirstChar`, `/LastChar` and no `/MissingWidth` anywhere in it.
 /// Whether the descriptor's `/Flags` sets the bit `mask` names.
 ///
 /// ISO 32000-2 §9.8.2:
@@ -950,18 +946,16 @@ mod flag_tests {
 
 /// The third source of a simple font's advances: the program this processor actually draws.
 ///
-/// ISO 32000-2 Table 109 lets a standard-14 dictionary omit `/Widths` altogether, so a
-/// processor that means to draw the page has to supply the advances itself — and the metrics
-/// and the substitution face are the two things it can supply them from. (This paragraph rested
-/// on §9.6.2.1's closing `shall` and on §9.6.2.2's "their font metrics and suitable substitution
-/// fonts" until the four-hundred-and-eighteenth session; Errata Collection 3 struck both, and
-/// [`crate::standard`] carries the reading that replaces them.) Adobe's published metrics name
-/// only the standard character set, so a `/Differences` reaching any other glyph — `.notdef` is the
-/// one every Type 1 program is required to have (§9.6.5.2) — is answered by the program.
+/// ISO 32000-2 Table 109 lets a standard-14 dictionary omit `/Widths` altogether, so a processor
+/// that means to draw the page has to supply the advances itself — and the metrics and the
+/// substitution face are the two things it can supply them from. Errata Collection 3 strikes
+/// §9.6.2.1's closing `shall` and §9.6.2.2's sentence on these fonts' metrics, and
+/// [`crate::standard`] carries the reading that replaces them (ADR 0254). Adobe's published metrics
+/// name only the standard character set, so a `/Differences` reaching any other glyph — `.notdef`
+/// is the one every Type 1 program is required to have (§9.6.5.2) — is answered by the program.
 ///
-/// `issue4304.pdf` is the corpus's witness and the oracle held it by name for a hundred and
-/// eighty sessions under the wrong diagnosis; these state the rule, which is what survives
-/// that file being deleted.
+/// `issue4304.pdf` is the corpus's witness; these state the rule, which is what survives that
+/// file being deleted.
 #[cfg(test)]
 mod substituted_width_tests {
     use crate::fixture::font_dictionary;

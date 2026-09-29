@@ -5,13 +5,11 @@
 //! `lzw` salvage. A stream stopped by [`pdf_syntax::Limits::max_stream_len`] has a great deal
 //! more to give and this reader declined to take it, which is a refusal and has to say so.
 //!
-//! **One code path served both until the four-hundred-and-seventy-first session**, and the
-//! mechanism is worth stating because nothing about it looks like a bug: `io::Take` yields
-//! end-of-file at its limit, and `read_to_end` reports end-of-file as `Ok`. So a decompression
-//! bomb came back as a complete decode of its own first two gibibytes, with nothing reported —
-//! `doc/HANDOVER.md` trap 5's rule broken by the one guard in `filter.rs` that had a plausible
-//! excuse. `ASCII85Decode` and `RunLengthDecode` already refused properly, which is what made
-//! the inconsistency findable at all. ADR 0306.
+//! **The two are separate code paths**, and the mechanism is worth stating because nothing
+//! about one shared path looks like a bug: `io::Take` yields end-of-file at its limit, and
+//! `read_to_end` reports end-of-file as `Ok`. So a decompression bomb would come back as a
+//! complete decode of its own first two gibibytes, with nothing reported — trap 5's rule broken
+//! by a guard with a plausible excuse. ADR 0306.
 //!
 //! Every fixture is generated and none is larger than a few hundred bytes: the bound under test
 //! is a parameter, so a test may set it to eight rather than build two gibibytes to reach it.

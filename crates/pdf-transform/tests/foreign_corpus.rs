@@ -13,13 +13,12 @@
 //! and their object-stream membership mostly as they were. `optimize` is the verb whose whole
 //! *point* is that the bytes are different: every object is renumbered, §7.5.7 packs what it
 //! permits into object streams, §7.5.8's cross-reference stream replaces the table, and §7.4's
-//! encoding of every stream may be rewritten. So it is the output with the most to get wrong in
-//! a way this tree's own reader would agree with — session 900's own walk found a recompressed
-//! image whose `/DecodeParms` had been rebuilt in the *source's* numbering while every raster
-//! stayed bit-identical — and it is the first thing this project writes that an older reader may
-//! decline outright, because §7.5.7 and §7.5.8 are 1.5 constructs. A reader that cannot read an
-//! object stream at all is that reader's limitation and is reported as one; a reader that reads
-//! them and draws a different page is ours.
+//! encoding of every stream may be rewritten. So it is the output with the most to get wrong in a
+//! way this tree's own reader would agree with — a recompressed image whose `/DecodeParms` is
+//! rebuilt in the *source's* numbering leaves every raster bit-identical (ADR 0843) — and it is the
+//! first thing this project writes that an older reader may decline outright, because §7.5.7 and
+//! §7.5.8 are 1.5 constructs. A reader that cannot read an object stream at all is that reader's
+//! limitation and is reported as one; a reader that reads them and draws a different page is ours.
 //!
 //! # The comparison is foreign-to-foreign, and that is the whole design
 //!
@@ -64,14 +63,13 @@
 //! timeout already got. `doc/todo/02` §2's rule about a gate that spawns another program is the
 //! same rule.
 //!
-//! **And a `§14.7 fault` moved between two runs of one unchanged tree**, which ADR 0852 said could
-//! not happen: it recorded that the *identical* rows move by one or two and that "only the rows
-//! that cannot move — the faults, the differences and the warnings — carry a verdict". Measured in
-//! the nine-hundred-and-thirty-ninth session, with three rounds' gates on the machine at once: the
-//! `bookmarks` lane failed on `bug1997343.pdf` because [`parent_tree_shape`] made 90 members of the
-//! source's parent-tree entry and 79 of ours, and the same command on the same bytes ninety seconds
-//! later made the lane state **no fault at all** and one more identical page. Nothing here is
-//! seeded and nothing here is timed, so the moving quantity is what `mutool show` *printed* — a
+//! **And a `§14.7 fault` can move between two runs of one unchanged tree**, although ADR 0852
+//! records that only the *identical* rows move by one or two and that the faults, the differences
+//! and the warnings carry a verdict. With three rounds' gates on the machine at once the
+//! `bookmarks` lane has failed on `bug1997343.pdf` because [`parent_tree_shape`] made 90 members of
+//! the source's parent-tree entry and 79 of ours, and the same command on the same bytes ninety
+//! seconds later made the lane state **no fault at all** and one more identical page. Nothing here
+//! is seeded and nothing here is timed, so the moving quantity is what `mutool show` *printed* — a
 //! short answer under load reads as a short array, and [`array_shape`] cannot tell that from a
 //! shorter tree.
 //!

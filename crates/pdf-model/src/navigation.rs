@@ -30,8 +30,7 @@
 //! So a navigation node is a pair of §12.6 actions — one to go forward, one to go back — and
 //! walking a page's states is `crate::view::ViewState` performing them. §8.11's groups are
 //! read in full, §12.6.4.13's action sets them, and this is the list that says in what order.
-//! That is why the ledger's row for this subclause has called it "the one presentation row
-//! whose missing piece is a control rather than a renderer" since the fifty-fourth session.
+//! That is why this subclause's missing piece was a control rather than a renderer.
 //!
 //! # What is deliberately not here
 //!
@@ -41,8 +40,7 @@
 //! a presentation is read here and a caller with a clock drives all three of these from the
 //! values.
 //!
-//! **A caller does drive all three, since the hundred-and-fiftieth session, the
-//! three-hundred-and-ninety-third and the four-hundred-and-eighty-first.** `viewer_core::viewer`
+//! **A caller does drive all three.** `viewer_core::viewer`
 //! advances a `/Dur` on `Command::Tick` (ADR 0135); `viewer_core::transition` shapes the frames of
 //! a `/Trans` at a fraction of the way through, which `viewer-ui` draws (ADR 0230) — seven of
 //! Table 164's twelve styles, with four of the other five reported by name and the fifth, `R`,
@@ -190,9 +188,8 @@ pub struct Transition {
 /// The transition a presentation plays when it arrives at this page, if the page states one.
 ///
 /// `None` for a page with no `/Trans`, which is every page of every *curated* corpus document —
-/// 1133 of them, re-derived in the six-hundred-and-sixty-third session with
-/// `examples/presentation_census`. **The crawl says otherwise and this comment said "every page
-/// of every corpus document" until that round**: 276 of the 65 703 documents of
+/// 1133 of them, counted by `examples/presentation_census`. **The crawl says otherwise**: 276 of
+/// the 65 703 documents of
 /// `CC-MAIN-2021-31` that open state a `/Trans` on one of their first hundred pages. A negative
 /// carries its population inside it, and this one's grew.
 #[must_use]

@@ -1,7 +1,7 @@
 //! DSA signature verification: Table 260's second algorithm family.
 //!
 //! ISO 32000-2's Table 260 gives a PDF signature three algorithm families, and this is the one
-//! between the two the four-hundred-and-seventy-ninth session found on either side of it:
+//! between the other two (ADR 0314):
 //!
 //! | | `adbe.pkcs7.detached`, `ETSI.CAdES.detached` or `ETSI.RFC3161` | `adbe.pkcs7.sha1` | `adbe.x509.rsa_sha1` |
 //! |---|---|---|---|
@@ -48,11 +48,10 @@
 //!
 //! Every number this module computes with is in the file: `p`, `q` and `g` are the certificate's
 //! own `Dss-Parms`. An elliptic-curve verification instead needs the domain parameters of a curve
-//! the certificate only *names*, and those are in no document this tree holds — which was ADR
-//! 0314's argument for stopping there. **It stopped deciding anything when the owner accepted
-//! reviewed arithmetic as a dependency** (ADR 0331): reviewed constants in a curve package stand
-//! on the same footing, and [`crate::ecdsa`] is that family since the six-hundred-and-eighty-ninth
-//! session (ADR 0532). The contrast is still worth stating, because it is why *this* module needs
+//! the certificate only *names*, and those are in no document this tree holds. Reviewed
+//! constants in a curve package stand on the same footing as the reviewed arithmetic the owner
+//! accepted as a dependency (ADR 0331), and [`crate::ecdsa`] is that family (ADR 0532). The
+//! contrast is still worth stating, because it is why *this* module needs
 //! no dependency at all.
 
 use crate::bigint::{Integer, MAX_BITS, Modulus, modpow, significant_bits};

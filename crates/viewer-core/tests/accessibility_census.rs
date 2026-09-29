@@ -8,12 +8,11 @@
 //!
 //! # The first count, and why it is first
 //!
-//! **Pages that answer at all.** Until the four-hundred-and-ninetieth session every page but the
-//! first hundred of a large tagged document answered [`Query::AccessibilityTree`] with an empty
-//! list, which is exactly the answer an *untagged* page gives — so a screen reader was told a
-//! thousand-page tagged document says nothing about itself, and no count, report or gate could
-//! see it (ADR 0325). That defect is fixed and two residues of it are recorded in `doc/todo/31`
-//! without a number beside either. This is the number.
+//! **Pages that answer at all.** A page of a tagged document answering
+//! [`Query::AccessibilityTree`] with an empty list gives exactly the answer an *untagged* page
+//! gives — so a screen reader would be told a thousand-page tagged document says nothing about
+//! itself, and no other count, report or gate can see it (ADR 0325). Two residues of that defect
+//! are recorded in `doc/todo/31` without a number beside either. This is the number.
 //!
 //! An empty answer is therefore classified rather than counted, and §14.7.5.4's structural parent
 //! tree is what classifies it:
@@ -56,15 +55,14 @@
 //! (ADR 1369); and on a tagged page, the widgets its structure left out, never one an element
 //! already offers (ADR 1381).
 //!
-//! # The census counts reports now, and it did not (ADR 0573)
+//! # The census counts reports as well as elements (ADR 0573)
 //!
-//! Until the seven-hundred-and-seventh session every count here was a count of *elements* and
-//! none was a count of what this program **refused**, so a refused image was loud in
-//! [`pdf_model::Unsupported`] and silent in this output. That is not a cosmetic gap: §14.8.3.3
-//! derives an element's rectangle from what its marked content drew, so a refused image drew
-//! nothing and the elements it held lost the only place they had — nine of `issue5481.pdf`'s,
-//! deterministically, whenever `pdf-sandbox-worker` was absent, while the census counted the loss
-//! and named no cause (ADR 0557, `doc/traps/instruments-and-reports.md` trap 16).
+//! A census that counts only *elements* and not what this program **refused** leaves a refused
+//! image loud in [`pdf_model::Unsupported`] and silent in this output. That is not a cosmetic
+//! gap: §14.8.3.3 derives an element's rectangle from what its marked content drew, so a refused
+//! image draws nothing and the elements it holds lose the only place they have — nine of
+//! `issue5481.pdf`'s, deterministically, whenever `pdf-sandbox-worker` is absent, with the loss
+//! counted and no cause named (ADR 0557, `doc/traps/instruments-and-reports.md` trap 16).
 //!
 //! So `placeless` is now printed beside two things: how many elements enclose content this
 //! program refused, and — per page, with the page's own report sentence — how many elements have
@@ -83,9 +81,8 @@
 //! # What is asserted
 //!
 //! ADR 0323's rule is that an instrument's numbers enter a gate only after they have held across
-//! rounds. **They have, and this is a gate since the five-hundred-and-ninetieth session**: every
-//! count was unchanged from the five-hundred-and-seventh to the five-hundred-and-fifty-ninth, which
-//! added a caret to every one of them without moving a single count (ADR 0394), so [`ratchet`] now
+//! rounds. **They have, and this is a gate** (ADR 0425): every count held across the rounds that
+//! added a caret to every one of them without moving a single count (ADR 0394), so [`ratchet`]
 //! puts a floor under each capability and a ceiling over each defect class. Three things were
 //! asserted before it and are decisions rather than counts: no input panics (principle 1), no
 //! untagged page is answered with structure it does not state (ADR 0214), and no line's characters
@@ -108,7 +105,9 @@ use pdf_model::Pages;
 use pdf_model::structure::{Child, MarkInfo, Tree};
 use pdf_syntax::{Document, Limits, SyntaxError};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
-use viewer_core::{AccessibilityNode, Answer, Command, DocumentId, PageTarget, Query, Viewer};
+use viewer_core::{
+    AccessibilityNode, Answer, Command, DocumentId, PageTarget, Query, Tagging, Viewer,
+};
 
 /// The document handle every open uses; one viewer per document, so one identity suffices.
 const DOCUMENT: DocumentId = DocumentId(1);
@@ -195,8 +194,8 @@ struct Census {
     derived: usize,
     /// Elements placed by **what they enclose**, and by nothing of their own.
     ///
-    /// §14.8.5.4.5's third derivation and the one added in the eight-hundred-and-forty-first
-    /// session: a container's content rectangle comes from the elements inside it — "the sum of the
+    /// §14.8.5.4.5's third derivation (ADR 0768): a container's content rectangle comes from the
+    /// elements inside it — "the sum of the
     /// heights of all BLSEs it contains" for a block-level element — so a `TD` whose only content
     /// is a widget annotation, or a `Div` around a `Figure` that states a `/BBox`, has a place
     /// although nothing it holds directly marked the page. Counted apart from the two above for
@@ -334,6 +333,26 @@ struct Census {
     /// A widget published beside the elements that an element also names, which would state a
     /// field twice — once as §14.7.5.3's `Form` and once in the list.
     widgets_twice: Vec<(String, String)>,
+    /// Tagged pages whose structure reaches none of their content, and how many of those are in
+    /// documents whose `/MarkInfo` claims §14.8.1's tagged PDF.
+    ///
+    /// ADR 1393's capability: such a page says that the document states a structure and this page
+    /// is not in it, rather than ADR 0214's sentence about a document that states none.
+    unreached_pages: usize,
+    unreached_marked: usize,
+    /// A page answered as the wrong one of `viewer_core::Tagging`'s four: an untagged document's
+    /// page as anything but untagged, a tagged document's as untagged, or a list that disagrees
+    /// with the answer beside it (ADR 1393's decision, broken).
+    mistagged: Vec<(String, String)>,
+    /// Pages of a tagged document answered before they were read, which the sweep turns to and
+    /// so should not see: printed, because the class would mean the census measured nothing there.
+    unread: Vec<(String, String)>,
+    /// `Form` elements naming a widget, and those of them crossing with no name at all.
+    ///
+    /// ADR 1394's capability: Table 355's `/T`, then §14.9.3's `/TU`, then §12.7.4.2's name name
+    /// an element whose content is a widget alone. An empty one is a control announced as nothing.
+    forms: usize,
+    forms_unnamed: Vec<(String, String)>,
     /// A document whose examination panicked, which principle 1 forbids.
     panicked: Vec<(String, String)>,
 }
@@ -401,7 +420,67 @@ impl Census {
             .saturating_add(from.tagged_unreached_widgets);
         self.widgets_twice.extend(from.widgets_twice);
         self.tagged_unreached.extend(from.tagged_unreached);
+        self.unreached_pages = self.unreached_pages.saturating_add(from.unreached_pages);
+        self.unreached_marked = self.unreached_marked.saturating_add(from.unreached_marked);
+        self.mistagged.extend(from.mistagged);
+        self.unread.extend(from.unread);
+        self.forms = self.forms.saturating_add(from.forms);
+        self.forms_unnamed.extend(from.forms_unnamed);
         self.panicked.extend(from.panicked);
+    }
+
+    /// Classifies one page's `viewer_core::Tagging` against the file and the list beside it.
+    fn tagging(&mut self, taggings: &[Tagging], structured: bool, empty: bool, where_: &str) {
+        let [tagging] = taggings else {
+            self.mistagged.push((
+                where_.to_owned(),
+                format!("{} entries for one page", taggings.len()),
+            ));
+            return;
+        };
+        let agrees = match tagging {
+            Tagging::Untagged => !structured,
+            Tagging::Reached => structured && !empty,
+            Tagging::Unreached { .. } | Tagging::Unread => structured && empty,
+        };
+        if !agrees {
+            self.mistagged.push((
+                where_.to_owned(),
+                format!(
+                    "{tagging:?} on a document {} a /StructTreeRoot, with {} list",
+                    if structured { "stating" } else { "without" },
+                    if empty { "an empty" } else { "a non-empty" }
+                ),
+            ));
+        }
+        match tagging {
+            Tagging::Unreached { marked } => {
+                self.unreached_pages = self.unreached_pages.saturating_add(1);
+                if *marked {
+                    self.unreached_marked = self.unreached_marked.saturating_add(1);
+                }
+            }
+            Tagging::Unread => self
+                .unread
+                .push((where_.to_owned(), "answered before it was read".to_owned())),
+            Tagging::Untagged | Tagging::Reached => {}
+        }
+    }
+
+    /// Counts the page's `Form` elements naming a widget, and records any crossing unnamed.
+    fn named_forms(&mut self, nodes: &[AccessibilityNode], where_: &str) {
+        for node in nodes
+            .iter()
+            .filter(|node| node.role == "Form" && node.control.is_some())
+        {
+            self.forms = self.forms.saturating_add(1);
+            if node.name.trim().is_empty() {
+                self.forms_unnamed.push((
+                    where_.to_owned(),
+                    format!("a Form element for {:?} with no name", node.annotation),
+                ));
+            }
+        }
     }
 
     /// Adds one table cell, and what §14.8.5.4.5's row and column adjustment did to its place.
@@ -742,12 +821,14 @@ fn sweep(
         // 29's default, so there is one entry and it is this page — and taking it by *name*
         // rather than by position is what makes a page answered under another page's number read
         // as the silence it would be, instead of passing as this page's tree.
+        let mut taggings: Vec<Tagging> = Vec::new();
         let (nodes, published): (Vec<AccessibilityNode>, Vec<AccessibilityNode>) = shown
             .into_iter()
             .filter(|structure| structure.page == index)
             .fold(
                 (Vec::new(), Vec::new()),
                 |(mut nodes, mut widgets), structure| {
+                    taggings.push(structure.tagging);
                     nodes.extend(structure.nodes);
                     widgets.extend(structure.widgets);
                     (nodes, widgets)
@@ -755,6 +836,8 @@ fn sweep(
             );
         let widgets = published.len();
         let where_ = format!("{name} p{}", index.saturating_add(1));
+        census.tagging(&taggings, tree.is_some(), nodes.is_empty(), &where_);
+        census.named_forms(&nodes, &where_);
         let Some(tree) = tree else {
             census.untagged_pages = census.untagged_pages.saturating_add(1);
             if widgets > 0 {
@@ -1045,11 +1128,37 @@ fn report(census: &Census, files: usize, seconds: f64) {
         "a tagged page publishing widgets its structure left out",
         &census.tagged_unreached,
     );
+    report_tagging(census);
+    print_witnesses("panicked", &census.panicked);
+}
+
+/// The last lines of [`report`]: ADR 1381's widgets published twice, which of ADR 1393's four
+/// answers the empty pages were, and whether every `Form` element naming a widget crossed with a
+/// name (ADR 1394).
+fn report_tagging(census: &Census) {
     print_witnesses(
         "a widget published both as an element and in the list",
         &census.widgets_twice,
     );
-    print_witnesses("panicked", &census.panicked);
+    println!(
+        "tagged pages whose structure reaches none of their content: {} ({} in documents \
+         claiming /MarkInfo /Marked true)",
+        census.unreached_pages, census.unreached_marked
+    );
+    print_witnesses(
+        "a page answered as the wrong one of Tagging's four",
+        &census.mistagged,
+    );
+    print_witnesses("a tagged page answered before it was read", &census.unread);
+    println!(
+        "Form elements naming a widget: {} ({} with no name)",
+        census.forms,
+        census.forms_unnamed.len()
+    );
+    print_witnesses(
+        "a Form element naming a widget crossing with no name",
+        &census.forms_unnamed,
+    );
 }
 
 /// Fails the gate if this build cannot reach the sandboxed image decoder.
@@ -1153,6 +1262,20 @@ fn what_a_screen_reader_is_told_about_every_document() {
         "a widget was published both as an element and in the list: {:?}",
         census.widgets_twice
     );
+    // ADR 1393's decision, asserted rather than counted: an empty list is three sentences, and a
+    // tagged document's page answered as untagged would say the false one.
+    assert!(
+        census.mistagged.is_empty(),
+        "a page was answered as the wrong one of Tagging's four: {:?}",
+        census.mistagged
+    );
+    // ADR 1394's decision: a `Form` element whose content is a widget is a control, and a control
+    // announced by no name is one a person cannot tell from its neighbours.
+    assert!(
+        census.forms_unnamed.is_empty(),
+        "a Form element naming a widget crossed with no name: {:?}",
+        census.forms_unnamed
+    );
     // `TextLine`'s own invariant, over the whole population rather than over an example: the
     // characters' byte counts sum to the line's text. Every platform text interface indexes one
     // by the other, so a line that broke it would misplace a caret rather than fail.
@@ -1200,140 +1323,55 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
         .filter(|name| !specifications.iter().any(|present| present == *name))
         .collect();
     if absent.is_empty() {
-        // 109 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
-        // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
-        // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
-        // does (ADR 1075: the bound sits beside the population it admits; trap 43).
-        // 112 until the merge of sessions 1227-1232: `XFDF_Spec_3.0.pdf`, the XFDF 3.0 text
-        // held for `doc/questions/A97`, joined the population the way every `doc/*.pdf` does
-        // (ADR 1075: the bound sits beside the population it admits; trap 43).
+        // Every floor below counts the whole population, `RATCHETED_SPECIFICATIONS` included, so
+        // a tagged text that joins `doc/` raises it the way every `doc/*.pdf` does (ADR 1075: the
+        // bound sits beside the population it admits; trap 43). The two header floors count a
+        // cell once rather than once per page it is reached from (ADR 1151).
         gate_ratchet::floor(
             "documents with structure, whole population",
             census.with_structure,
             113,
         );
-        // 2_463 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
-        // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
-        // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
-        // does (ADR 1075: the bound sits beside the population it admits; trap 43).
-        // 2509 until the merge of sessions 1227-1232: `XFDF_Spec_3.0.pdf`, the XFDF 3.0 text
-        // held for `doc/questions/A97`, joined the population the way every `doc/*.pdf` does
-        // (ADR 1075: the bound sits beside the population it admits; trap 43).
         gate_ratchet::floor(
             "pages that answer at all, whole population",
             census.answered_pages,
             2654,
         );
-        // 227_618 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
-        // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
-        // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
-        // does (ADR 1075: the bound sits beside the population it admits; trap 43).
-        // 228_725 until the merge of sessions 1227-1232: `XFDF_Spec_3.0.pdf`, the XFDF 3.0 text
-        // held for `doc/questions/A97`, joined the population the way every `doc/*.pdf` does
-        // (ADR 1075: the bound sits beside the population it admits; trap 43).
         gate_ratchet::floor("elements reached, whole population", census.nodes, 248_085);
-        // 665 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
-        // specification fetched for reading by round 1075, joined the population the way
-        // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
-        // direction this floor exists to admit.
         gate_ratchet::floor(
             "§14.9.3's /Alt carried, whole population",
             census.substituted,
             670,
         );
-        // 12_141 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
-        // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
-        // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
-        // does (ADR 1075: the bound sits beside the population it admits; trap 43).
-        // 12_202 until the merge of sessions 1227-1232: `XFDF_Spec_3.0.pdf`, the XFDF 3.0 text
-        // held for `doc/questions/A97`, joined the population the way every `doc/*.pdf` does
-        // (ADR 1075: the bound sits beside the population it admits; trap 43).
         gate_ratchet::floor("elements placed, whole population", census.placed, 14_026);
-        // 191_815 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
-        // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
-        // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
-        // does (ADR 1075: the bound sits beside the population it admits; trap 43).
-        // 192_882 until the merge of sessions 1227-1232: `XFDF_Spec_3.0.pdf`, the XFDF 3.0 text
-        // held for `doc/questions/A97`, joined the population the way every `doc/*.pdf` does
-        // (ADR 1075: the bound sits beside the population it admits; trap 43).
         gate_ratchet::floor(
             "elements placed by their own marks, whole population",
             census.derived,
             211_328,
         );
-        // 23183 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
-        // specification fetched for reading by round 1098, joined the population the way every
-        // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
-        // 36388 until session 1154: 12 510 of these were `ISO-19444-1-2019-preview.pdf`'s cells
-        // counted once per page, and the document answers 695 where it answered 13 205 (ADR 1151).
-        // 23_878 until the merge of sessions 1227-1232: `XFDF_Spec_3.0.pdf`, the XFDF 3.0 text
-        // held for `doc/questions/A97`, joined the population the way every `doc/*.pdf` does
-        // (ADR 1075: the bound sits beside the population it admits; trap 43).
         gate_ratchet::floor(
             "cells with headers, whole population",
             census.header_cells,
             23_988,
         );
-        // 33931 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
-        // specification fetched for reading by round 1098, joined the population the way every
-        // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
-        // 47725 until session 1154, the associations of the cells the floor above lost, and
-        // from the same cause (ADR 1151).
-        // 34_657 until the merge of sessions 1227-1232: `XFDF_Spec_3.0.pdf`, the XFDF 3.0 text
-        // held for `doc/questions/A97`, joined the population the way every `doc/*.pdf` does
-        // (ADR 1075: the bound sits beside the population it admits; trap 43).
         gate_ratchet::floor(
             "header associations, whole population",
             census.header_associations,
             34_767,
         );
         gate_ratchet::floor("§12.7.5's controls, whole population", census.controls, 272);
-        // 11_258 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
-        // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
-        // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
-        // does (ADR 1075: the bound sits beside the population it admits; trap 43).
-        // 11_295 until the merge of sessions 1227-1232: `XFDF_Spec_3.0.pdf`, the XFDF 3.0 text
-        // held for `doc/questions/A97`, joined the population the way every `doc/*.pdf` does
-        // (ADR 1075: the bound sits beside the population it admits; trap 43).
         gate_ratchet::floor(
             "elements that are annotations, whole population",
             census.annotations,
             13_031,
         );
-        // 113_098 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
-        // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
-        // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
-        // does (ADR 1075: the bound sits beside the population it admits; trap 43).
-        // 113_809 until the merge of sessions 1227-1232: `XFDF_Spec_3.0.pdf`, the XFDF 3.0 text
-        // held for `doc/questions/A97`, joined the population the way every `doc/*.pdf` does
-        // (ADR 1075: the bound sits beside the population it admits; trap 43).
         gate_ratchet::floor(
             "elements a caret reaches, whole population",
             census.with_lines,
             121_194,
         );
-        // 199_568 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
-        // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
-        // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
-        // does (ADR 1075: the bound sits beside the population it admits; trap 43).
-        // 201_290 until the merge of sessions 1227-1232: `XFDF_Spec_3.0.pdf`, the XFDF 3.0 text
-        // held for `doc/questions/A97`, joined the population the way every `doc/*.pdf` does
-        // (ADR 1075: the bound sits beside the population it admits; trap 43).
         gate_ratchet::floor("lines, whole population", census.lines, 209_705);
-        // 5_354_660 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
-        // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
-        // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
-        // does (ADR 1075: the bound sits beside the population it admits; trap 43).
-        // 5_420_256 until the merge of sessions 1227-1232: `XFDF_Spec_3.0.pdf`, the XFDF 3.0 text
-        // held for `doc/questions/A97`, joined the population the way every `doc/*.pdf` does
-        // (ADR 1075: the bound sits beside the population it admits; trap 43).
         gate_ratchet::floor("characters, whole population", census.characters, 5_681_047);
-        // 887 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
-        // specification fetched for reading by round 1098, joined the population the way every
-        // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
-        // 888 until the merge of sessions 1227-1232: `XFDF_Spec_3.0.pdf`, the XFDF 3.0 text
-        // held for `doc/questions/A97`, joined the population the way every `doc/*.pdf` does
-        // (ADR 1075: the bound sits beside the population it admits; trap 43).
         gate_ratchet::floor(
             "untagged pages answering honestly, whole population",
             census.untagged_honest,
@@ -1360,6 +1398,17 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
             "a tagged page's unreached widgets published, whole population",
             census.tagged_unreached_widgets,
             120,
+        );
+        // ADR 1393's two counts, new with it, over the whole population.
+        gate_ratchet::floor(
+            "tagged pages whose structure reaches none of their content, whole population",
+            census.unreached_pages,
+            63,
+        );
+        gate_ratchet::floor(
+            "of those, in documents claiming /Marked true, whole population",
+            census.unreached_marked,
+            15,
         );
     } else {
         println!(
@@ -1413,8 +1462,8 @@ const RATCHETED_SPECIFICATIONS: &[&str] = &[
 /// disagree: §14.7.5.4's parent tree names two elements for page 1 and §14.7.2's `/K` reaches
 /// neither, because the only element it reaches is childless. ADR 0325's second case runs the whole-tree walk for exactly this disagreement
 /// and it answers nothing, because the root names nothing. Held here rather than counted for
-/// `NO_PARENT_KEY_SILENT`'s reason, and this page was in *that* list until session 1154 read the
-/// parent tree's array and the census could say which of the two silences it is (ADR 1151).
+/// `NO_PARENT_KEY_SILENT`'s reason, and it is here rather than in *that* list because the census
+/// reads the parent tree's array and can say which of the two silences it is (ADR 1151).
 const NAMED_BUT_SILENT: &[&str] = &["bug1365930.pdf p1"];
 
 /// Every page whose answer is cut at [`ANSWER_BOUND`], by name.
@@ -1434,12 +1483,12 @@ const AT_BOUND: &[&str] = &["bug1978317.pdf p1"];
 /// absent from a run is not a failure — the specifications under `doc/` are gitignored and a fresh
 /// clone has none of them. A page *not* in this list is, and has to be argued for.
 const NO_PARENT_KEY_SILENT: &[&str] = &[
-    // `T-REC-X.690-202102.pdf` page 8 (round 1075's fetched specification, a corpus document since
-    // the merge of sessions 1074-1079): a tagged document whose page 8 states no /StructParents
+    // `T-REC-X.690-202102.pdf` page 8 (a fetched specification under `doc/`, so a corpus
+    // document, trap 43): a tagged document whose page 8 states no /StructParents
     // and none of whose 3115 elements is on that page — the honest empty answer, the ICC.1 shape.
     "T-REC-X.690-202102.pdf p8",
-    // `ISO-CD-18619-2013.pdf` page 7 (round 1208's fetched draft, ADR 1253, a corpus document
-    // since the merge of sessions 1207-1212): the same shape — a tagged document whose page 7
+    // `ISO-CD-18619-2013.pdf` page 7 (a fetched draft under `doc/`, ADR 1253, so a corpus
+    // document): the same shape — a tagged document whose page 7
     // states no /StructParents and none of whose 461 elements is on that page (trap 43).
     "ISO-CD-18619-2013.pdf p7",
     "bug1755507.pdf p1",
@@ -1531,6 +1580,22 @@ fn widget_floors(tracked_census: &Census) {
         tracked_census.tagged_unreached_widgets,
         82,
     );
+    // ADR 1393's two counts, new with it: a tagged document's page its structure reaches nothing
+    // on says so instead of calling the document untagged. No existing floor moved: the honest
+    // untagged count reads documents with no `/StructTreeRoot`, which this does not touch.
+    gate_ratchet::floor(
+        "tagged pages whose structure reaches none of their content",
+        tracked_census.unreached_pages,
+        44,
+    );
+    gate_ratchet::floor(
+        "of those, in documents claiming /Marked true",
+        tracked_census.unreached_marked,
+        3,
+    );
+    // ADR 1394's population: every one of these is named now, and every one crossed with an empty
+    // name before it (272 of 272), which `forms_unnamed` holds at zero.
+    gate_ratchet::floor("Form elements naming a widget", tracked_census.forms, 272);
 }
 
 /// The ratchet, which is what ADR 0323 called this instrument's verdict shape.
@@ -1545,9 +1610,9 @@ fn widget_floors(tracked_census: &Census) {
 /// # Why now, and not in the round that built the census
 ///
 /// ADR 0323's rule: an instrument's counts enter a gate only once they have held across rounds.
-/// They have — every one of them was unchanged from the five-hundred-and-seventh session to the
-/// five-hundred-and-fifty-ninth, which added the caret without moving anything else — and this is
-/// `doc/todo/05`'s third instrument being closed rather than a new promise.
+/// They have — every one of them held across the rounds that added the caret without moving
+/// anything else (ADR 0425) — and this is `doc/todo/05`'s third instrument being closed rather
+/// than a new promise.
 ///
 /// # Which way each number moves
 ///
@@ -1608,11 +1673,10 @@ fn ratchet(
         tracked_census.answered_pages,
         132,
     );
-    // 4060 until session 1154. The one element is `pr20043.pdf`'s `Annot`, whose `/K` is an
-    // object reference to an annotation the page's own `/Annots` does not list: reached only by
-    // the whole-tree fallback that document took while §14.7.5.4's array went unread, placeless
-    // because `annotation_rectangles` holds the page's annotations and not that one, and outside
-    // the page's subtree now that the parent tree is read (ADR 1151).
+    // `pr20043.pdf`'s `Annot`, whose `/K` is an object reference to an annotation the page's own
+    // `/Annots` does not list, is not counted: it is placeless because `annotation_rectangles`
+    // holds the page's annotations and not that one, and outside the page's subtree because
+    // §14.7.5.4's parent tree is read (ADR 1151).
     gate_ratchet::floor("elements reached", tracked_census.nodes, 4059);
     gate_ratchet::floor("§14.9.3's /Alt carried", tracked_census.substituted, 21);
     gate_ratchet::floor("elements placed", tracked_census.placed, 437);
@@ -1636,13 +1700,12 @@ fn ratchet(
     gate_ratchet::floor("elements a caret reaches", tracked_census.with_lines, 1382);
     gate_ratchet::floor("lines", tracked_census.lines, 2482);
     gate_ratchet::floor("characters", tracked_census.characters, 31_433);
-    // 877 until the session that read §7.6.6's `/AuthEvent` against Table 25, whose next sentence
-    // is "if authorization fails, the event shall fail". `encrypted-attachment.pdf` states no
-    // `/AuthEvent`, so Table 25's default `DocOpen` requires the key before the document opens and
-    // its one page is now locked rather than drawn. A screen reader is told nothing about it
-    // because the file will not open without a password, which is the file's answer and not a
-    // regression in this program — the same change moved `corpus.rs`'s `LOCKED`,
-    // `collections.rs`, `oracle.rs`, `save_round_trip.rs` and `raster_golden.tsv` (ADR 1040).
+    // §7.6.6's `/AuthEvent` is read against Table 25, whose next sentence is "if authorization
+    // fails, the event shall fail". `encrypted-attachment.pdf` states no `/AuthEvent`, so Table
+    // 25's default `DocOpen` requires the key before the document opens and its one page is
+    // locked rather than drawn. A screen reader is told nothing about it because the file will
+    // not open without a password, which is the file's answer and not a regression in this
+    // program (ADR 1040).
     gate_ratchet::floor(
         "untagged pages answering honestly",
         tracked_census.untagged_honest,

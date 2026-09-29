@@ -61,8 +61,8 @@ pub(crate) mod reduce;
 mod stroke;
 
 pub(crate) use fill::{CoverageMask, Rule, fill_mask, fill_mask_settled, winds_two_values};
-pub(crate) use flatten::{DeviceTransform, Polyline, flatten, polyline_bounds};
-pub(crate) use stroke::{resolve_width, stroke_polylines};
+pub(crate) use flatten::{DeviceTransform, Polyline, flatten, flatten_stroke, polyline_bounds};
+pub(crate) use stroke::{resolve_width, stroke_pieces, stroke_polylines};
 
 #[cfg(test)]
 mod tests;

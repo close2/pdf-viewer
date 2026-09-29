@@ -48,7 +48,7 @@
 //! **Cargo will hand you a stale binary here if you let it.** Adding a *new module file* to
 //! `pdf-render` left the release-profile fingerprint of every crate above it unaware of the file,
 //! so a `cargo build --release` after editing it recompiled nothing and this example printed the
-//! previous revision's hashes — twice, in the session that wrote it. `touch` the changed crates'
+//! previous revision's hashes. `touch` the changed crates'
 //! `src/lib.rs` before believing either arm.
 
 #![expect(

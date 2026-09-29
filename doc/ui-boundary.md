@@ -90,7 +90,10 @@ and the C ABI gained two entry points — `quorra_reported_pages` and `quorra_re
 `PageStructure` also carries `widgets`: the page's widget annotations no element reaches — every one
 on an untagged page, and on a tagged page those its structure left out — answered beside the element
 list rather than in it, and crossing the confined wire as a second list. No message was added (ADRs
-1369, 1381).
+1369, 1381). And it carries `tagging`, which of `viewer_core::Tagging`'s four answers an empty or
+full list is — a document with no structure, a page not read yet, a structure that reaches nothing
+on the page, or one that does — crossing the confined wire as one byte after the two lists; no
+message was added (ADR 1393).
 **And the six-hundred-and-thirty-eighth added nothing at all**, which is the second time that has
 been the whole answer and the strongest form of this section's claim: §12.4.4's presentation got the
 full-screen *window* it had never had, in all three hosts, and every channel it needed was already

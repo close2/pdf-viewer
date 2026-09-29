@@ -117,133 +117,19 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
         "an `unsafe` of a form this crate does not use: {blocks:?}"
     );
     assert_eq!(lift, 1, "the module lifts `unsafe_op_in_unsafe_fn` once");
-    // 114 exported entry points, of which 104 take a pointer and are therefore `unsafe fn`, plus
-    // the two `unsafe fn` helpers they share. The numbers are here so that a function added
-    // without a line in `include/quorra.h` fails a test rather than becoming a symbol nobody
-    // has declared — `header_and_library_agree.rs` is the other half of that. Four arrived in the
-    // four-hundred-and-fourteenth session, for Annex O's `search`: three verbs and one accessor.
-    // **Sixty-eight arrived in the five-hundred-and-eleventh**, which is `doc/todo/30`'s whole
-    // remaining list — the pointer and the selection, §12.7's form and the four edits, save and
-    // extract with a byte accessor apiece, the layer and attachment panels, §12.4.4's clock and
-    // transitions, and the three policy values. Not one of them moved `QUORRA_EVENT_KIND_COUNT`,
-    // because a `Command` and a `Query` are symbols and only an `Event` is a number. **The
-    // hundred-and-twelfth arrived in the five-hundred-and-twenty-second**, for Annex O's
-    // `highlight`: a question the annex asks and no host can answer for itself, and a symbol
-    // again rather than a number (ADR 0357). **Two more came with Table 29's `/PageLayout`**:
-    // `quorra_layout`, which is the arrangement a reader chose, and `quorra_frame_count`, which is
-    // the one thing a C caller could not have deduced — a C consumer cannot fail to compile, so
-    // an arrangement putting a second page on the screen has to be something it can *ask* about.
-    // **And two in the six-hundred-and-tenth**, which is that same sentence about a *report*:
-    // `quorra_reported_pages` counts the pages the arrangement has anything to say about and
-    // `quorra_reported_page` says which page an entry is, because a status bar under a column that
-    // named no page would be attributing one page's refusals to whichever page a reader is
-    // looking at. Both existing report entry points also gained the entry index, so a caller
-    // written against the old shape fails to compile rather than reading page one's sentences
-    // for four pages. **And one in the six-hundred-and-eighty-third**, which is the first
-    // `Query` a C caller could not reach at all rather than a shape that moved:
-    // `quorra_selection_copy_text` answers with §14.8.2.5's logical content order where the
-    // document's structure tree gives one, which is what a caller needs in order to put a
-    // selection on a clipboard this ABI knows nothing about (ADR 0519).
-    // **And fifty-two in the seven-hundred-and-ninth**, which is the rest of that same sentence:
-    // eleven `Query` variants reached no symbol at all and now every one does (ADR 0576). The
-    // shapes are handles, keyed accessors and out-parameters and **not one struct passed by
-    // value**, which is why `QUORRA_ABI_VERSION` did not move for the largest addition this ABI has
-    // had. Six of the fifty-two take no pointer and are therefore not `unsafe` — the three
-    // `_count`/`_name` pairs that let a caller print a number this build does not define.
-    // **And three in the seven-hundred-and-twenty-sixth**, which `doc/todo/30` had priced at "two
-    // accessors": §14.7's per-character offsets and boxes — `AccessibilityNode::lines`, which is
-    // what AT-SPI's `Text` interface is built on and the one part of the accessibility answer a C
-    // caller could not reach. Three rather than two because this ABI asks a *count* before an
-    // indexed accessor, and a line has two counts: how many lines an element drew, and how many
-    // character codes a line holds. No struct crossed by value, so `QUORRA_ABI_VERSION` did not move.
-    // **And two in the eight-hundred-and-fifth**, which are one question in both directions:
-    // `quorra_view` says where the reader is looking and `quorra_set_view` puts them back there,
-    // because the commands that make a view are relative and clamped and no caller can invert
-    // them (ADR 0737). A struct *did* cross by value this time — `quorra_viewing` — and
-    // `QUORRA_ABI_VERSION` still did not move, for the reason a new entry point does not move it:
-    // a caller compiled before it existed passes nothing of that shape.
-    // **And three in the eight-hundred-and-eighty-fifth**, which are one feature and its policy:
-    // `quorra_attach` and `quorra_detach` put §7.11.4's file into one of §7.11.4.1's two homes or take
-    // one out, and `quorra_answer` is the second half of `QUORRA_RESTRICT_ASK` — a level is not a
-    // level until something can answer its question (ADR 0814). Three event kinds came with them,
-    // so `QUORRA_EVENT_KIND_COUNT` moved 16 → 19; `QUORRA_ABI_VERSION` did not, for the standing
-    // reason that a caller compiled before an entry point existed calls nothing of that shape.
-    // **And three in the thousand-and-seventy-sixth**, which are one clause and its consequence:
-    // §12.5.6.2 makes a reply a comment inside the window it answers rather than a window of its
-    // own, so `quorra_popup_reply_count`, `quorra_popup_reply_object` and `quorra_popup_reply_text`
-    // are where a C caller reaches text that used to arrive as a second window (ADR 1090). No
-    // event kind came with them, so `QUORRA_EVENT_KIND_COUNT` stayed 19, and `QUORRA_ABI_VERSION`
-    // did not move for the standing reason.
-    // **And one in the thousand-and-eighty-seventh**: `quorra_reference_files` hands over
-    // §8.10.4's target documents, which is the input that decides which of the clause's two
-    // processor classes this library is (ADR 1101). No event kind came with it, so
-    // `QUORRA_EVENT_KIND_COUNT` stayed 19, and `QUORRA_ABI_VERSION` did not move for the standing
-    // reason.
-    // **And one in the thousand-and-ninety-second**: `quorra_audience` answers §8.11.4.4's two
-    // usage categories about the reader — who they are, and in what language — which decide
-    // whether a layer is drawn and which no document may assert about the person reading it
-    // (ADR 1106). No event kind came with it, so `QUORRA_EVENT_KIND_COUNT` stayed 19, and
-    // `QUORRA_ABI_VERSION` did not move for the standing reason.
-    // **And three in the thousand-one-hundred-and-forty-seventh**: `quorra_restrict_operation`
-    // sets one operation's level of `CLAUDE.md`'s four, `quorra_copy` is §7.6.4.2 bit 5 asked as
-    // an operation rather than read as a readback, and `quorra_event_copied` hands over what it
-    // granted (ADR 1144). One event kind came with them, so `QUORRA_EVENT_KIND_COUNT` moved
-    // 20 → 21; `QUORRA_ABI_VERSION` did not, for the standing reason — no struct crosses by value
-    // and an entry point *added* is one an old caller never calls.
-    // **And one in the thousand-one-hundred-and-fifty-fifth**:
-    // `quorra_restrict_document_operation` sets one operation's level for the open document alone,
-    // which a window-wide policy cannot say — a level set to catch one file catches every file
-    // opened afterwards (ADR 1145). No event kind came with it, so `QUORRA_EVENT_KIND_COUNT`
-    // stayed 21, and `QUORRA_ABI_VERSION` did not move for the standing reason. It takes one
-    // number that is not a level — `QUORRA_RESTRICT_INHERIT`, the absence of one — and that is a
-    // constant rather than an entry point.
-    // **And four in the thousand-one-hundred-and-sixty-fifth**: `quorra_collection_ordered` and
-    // `quorra_collection_order_key` hand over Table 153's `/Sort` applied, which is a `shall`
-    // about the order a collection's items stand in and the one entry of that table a caller
-    // could not compute for itself; `quorra_collection_layouts` and `quorra_collection_layout`
-    // hand over Table 160's `/Layout` list, because §12.3.6 asks a processor for the first layout
-    // *it* can draw and this library is not that processor (ADR 1168). A third number joins `QUORRA_RESTRICTED_*`,
-    // `QUORRA_RESTRICTED_PROCESS`, for §12.11.6's processing (ADR 1167) — a constant rather than
-    // an entry point, and one an old caller never passes, so `QUORRA_ABI_VERSION` stays where it
-    // is for the standing reason.
-    // **And six for printing**: `quorra_print` and `quorra_print_finish` are the two ends of
-    // §8.11.4.5's print operation, which that clause makes a duration rather than an instant;
-    // `quorra_print_page` and `quorra_print_page_copy` are C's two-call idiom over a page drawn
-    // for paper, because `Query::PrintPage` answers with a display list and a display list is not
-    // a thing to put in a header; and `quorra_printed_reports` and `quorra_printed_report` are
-    // trap 5's channel for a page that goes to the printer with something missing. A seventh
-    // event kind number, `QUORRA_EVENT_PRINTING`, joins them, so `QUORRA_EVENT_KIND_COUNT` moves
-    // to 22 and `QUORRA_ABI_VERSION` does not move for the standing reason (ADR 1180).
-    // **And one for measuring**: `quorra_measure` is §12.9's whole answer over a traced path,
-    // with a `part` selector rather than seven symbols — six quantities and a sentence over one
-    // path, and seven entry points would be six chances to be handed a string from a different
-    // reading of it. The `QUORRA_MEASURE_*` numbers join it as constants, which an old caller
-    // never passes, so `QUORRA_ABI_VERSION` stays where it is (ADR 1191).
-    // **And two more for printing**: `quorra_print_placed` states §12.5.6.22's matrix B — what
-    // the page is scaled by onto the media — which `quorra_print` cannot, because a changed
-    // signature is a call an old caller has already compiled and no diagnostic would catch;
-    // and `quorra_event_printing` is the grant's two facts, one of which is Table 22 bit 12's
-    // answer. A fourth `QUORRA_RESTRICTED_*` number joins them,
-    // `QUORRA_RESTRICTED_PRINT_QUALITY`, which an old caller never passes — so
-    // `QUORRA_ABI_VERSION` stays where it is for the standing reason (ADRs 1203, 1204).
-    // **And one more for §10.8.3**: `quorra_separations` says whether this reader has asked for
-    // the separation simulation, which the clause conditions on a request no file makes and
-    // §10.8.1 leaves "up to the processing software". It takes no struct by value, so
-    // `QUORRA_ABI_VERSION` stays where it is for the standing reason (ADR 1228).
-    // **And two for §12.3.5's last residues**: `quorra_collection_whole_window` is Table 158's
-    // `/Direction` `N`, the one entry of the collection split dictionary addressed to a processor
-    // rather than describing a bar, and therefore the one a caller cannot derive (ADR 1252); and
-    // `quorra_attachment_preview_read` is §12.3.6's picture of an attachment, which is that
-    // file's own first page's §12.3.4 `/Thumb` and comes back as the handle
-    // `quorra_thumbnail_read` already produces, so `info`, `copy` and `free` are not repeated
-    // (ADR 1251). Neither takes a struct by value, so `QUORRA_ABI_VERSION` stays where it is for
-    // the standing reason.
-    // **And one for Table 203's and Table 204's `/NewWindow`**: `quorra_beside` holds a name out
-    // for a document an action would open beside the one showing, which is a fact about the
-    // caller — whether it has a second place to put one — and about no file. It takes no struct
-    // by value, so `QUORRA_ABI_VERSION` stays where it is for the standing reason (ADR 1263).
-    // **And one for the same entry on the question**: `quorra_event_needs_file_beside` is
-    // `Event::NeedsFile`'s `beside`, a getter in the shape of `quorra_event_dirty` (ADR 1335).
+    // One `#[unsafe(no_mangle)]` per exported entry point, and one `unsafe fn` per entry point
+    // that takes a pointer plus the two helpers they share. The numbers are here so that a
+    // function added without a line in `include/quorra.h` fails a test rather than becoming a
+    // symbol nobody has declared — `header_and_library_agree.rs` is the other half of that. An
+    // entry point added moves these two numbers and nothing else: a `Command` and a `Query` are
+    // symbols, and only an `Event` kind moves `QUORRA_EVENT_KIND_COUNT`. `QUORRA_ABI_VERSION`
+    // stays where it is, because a caller compiled before an entry point existed calls nothing of
+    // that shape — which holds for a struct crossing by value through a new entry point too
+    // (ADR 0737). An entry point that takes no pointer is not `unsafe`: the `_count`/`_name`
+    // pairs that let a caller print a number this build does not define are the example
+    // (ADR 0576). Which entry points serve which clause is each one's ADR — 0357, 0519, 0576,
+    // 0737, 0814, 1090, 1101, 1106, 1144, 1145, 1167, 1168, 1180, 1191, 1203, 1204, 1228, 1251,
+    // 1252, 1263 and 1335.
     assert_eq!(no_mangle, 206, "one `#[unsafe(no_mangle)]` per entry point");
     assert_eq!(signatures, 192, "190 `unsafe` entry points and two helpers");
 }

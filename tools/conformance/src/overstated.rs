@@ -3,13 +3,14 @@
 //!
 //! # The shape it exists for
 //!
-//! `doc/todo/01`'s fifth failure shape is a family head gone stale, and every instance recorded
-//! before the six-hundred-and-forty-first session had the parent **understating** — `partial`
+//! `doc/todo/01`'s fifth failure shape is a family head gone stale, and its commoner direction
+//! has the parent **understating** — `partial`
 //! above children that are all settled, a gap named that its own subclause rows had closed. The
 //! sixth sweep is the arithmetic for that direction and `--bin counts` the arithmetic for the
 //! cardinals in its prose.
 //!
-//! §12.11 was the other direction. Its row said "Table 276's handlers" among the things read
+//! §12.11 was the other direction (ADR 0475). Its row said "Table 276's handlers" among the
+//! things read
 //! while §12.11.1's said `/RH` "is unread" and §12.11.5's said "the `/RH` entry is read by
 //! nobody", and nothing under `crates/` quoted `"RH"`. **No sweep could print it**, and the
 //! reason is structural rather than an oversight: an overstating parent names a thing the tree
@@ -34,8 +35,8 @@
 //! The denial vocabulary is [`crate::unread::CLAIMS`] unchanged — the same words the second
 //! sweep greps the tree with, so the two sweeps cannot disagree about what a denial is. What is
 //! new is the assertion side, [`ASSERTIONS`], and the one idiom that looks like an assertion and
-//! is not: this ledger writes "**Read and kept** in the five-hundred-and-sixty-fifth", which
-//! says a *round read the row* and claims nothing whatever about the tree ([`NOT_ASSERTIONS`]).
+//! is not: this ledger writes "**Read and kept**" beside the round that read it, which says a
+//! *round read the row* and claims nothing whatever about the tree ([`NOT_ASSERTIONS`]).
 //!
 //! # Stance is a property of a clause rather than of a sentence
 //!
@@ -89,7 +90,7 @@
 //! - **A correction narrating its own retired wording**, marked [`Finding::history`] on
 //!   [`crate::capabilities::HISTORY`], which is the oldest false positive in `doc/todo/01` and
 //!   is marked rather than dropped in every sweep that has it. §12.11's corrected row is exactly
-//!   this: it quotes the sentence the six-hundred-and-forty-first session removed.
+//!   this: it quotes the sentence its correction removed.
 //!
 //! # Why it is not a gate
 //!
@@ -115,7 +116,7 @@ pub const ASSERTIONS: [&str; 5] = ["read", "reads", "consulted", "honoured", "ob
 
 /// The idiom that looks like an assertion and claims nothing about the tree.
 ///
-/// "**Read and kept** in the five-hundred-and-sixty-fifth" says a round read *the row*, which is
+/// "**Read and kept**", beside the round that read it, says a round read *the row*, which is
 /// this ledger's way of recording that a claim was checked and survived. Two of the first run's
 /// hits were this sentence and nothing else.
 pub const NOT_ASSERTIONS: [&str; 3] = ["read and kept", "re-read", "read off the blame list"];
@@ -626,7 +627,7 @@ mod tests {
         assert!(!terms_in(split[0]).contains(&Term::Table(408)));
     }
 
-    /// "Read and kept in the five-hundred-and-sixty-fifth" is a round reading the row.
+    /// "Read and kept", beside a round's name, is a round reading the row.
     #[test]
     fn a_round_reading_the_row_is_not_the_tree_reading_the_entry() {
         assert!(is_an_assertion("Table 119's entries are read"));

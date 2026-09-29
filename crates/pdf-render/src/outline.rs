@@ -5,8 +5,8 @@
 //! [`Command::device_bounds`] already bounds a stroke, and does it in one line: the path's
 //! memoised hull, expanded in every direction by `width × miter_limit`. That is the right
 //! shape for the question it is asked — *may this command mark this strip?* — which the
-//! rasteriser puts to every command once per strip, and which session 163 measured at 17.6%
-//! of a dense page's render before the hull was memoised. A bound that walked the path again
+//! rasteriser puts to every command once per strip, and which costs 17.6% of a dense page's
+//! render when the hull is not memoised. A bound that walked the path again
 //! would put that cost back.
 //!
 //! It is the wrong shape for a different question: *does this command mark outside this
@@ -395,9 +395,8 @@ mod tests {
     ///
     /// A *maximum*, not a length. A miter's tip sits where the two outer offset lines cross, which
     /// for a right angle is the stroke's own outer corner; only a join that nearly doubles back
-    /// reaches the cap. This bound was the cap alone until the two-hundred-and-fifth session,
-    /// which made it useless as a containment test and cost `bug1863910.pdf` 22% of its ink
-    /// (ADR 0165).
+    /// reaches the cap. The cap alone would be useless as a containment test and costs
+    /// `bug1863910.pdf` 22% of its ink (ADR 0165).
     #[test]
     fn a_mitre_reaches_as_far_as_its_angle_and_no_further_than_the_limit() {
         let corner = path(&[

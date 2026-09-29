@@ -2,18 +2,18 @@
 //!
 //! ISO 32000-2 §7.10.5.1 lists what a type 4 function's stream may contain, and "Comments" is
 //! one of the five entries — so the same program, commented and bare, is one function with two
-//! spellings and must paint one picture. Until the five-hundred-and-twenty-sixth session it did
-//! not: the compiler split the whole stream on white space *before* looking for a PERCENT SIGN,
-//! which destroys the line a comment ends at, and then skipped exactly one token after the sign.
+//! spellings and must paint one picture (ADR 0361). A compiler that split the whole stream on
+//! white space *before* looking for a PERCENT SIGN would destroy the line a comment ends at, and
+//! skipping exactly one token after the sign then fails in two shapes.
 //!
-//! That leaves two failure shapes and the pair carries both on purpose:
+//! The pair carries both on purpose:
 //!
 //! - **Loud.** Where the word after the sign is prose, the word after *that* is not an operator
-//!   and the whole function is refused — which is how the defect was found, on the project
-//!   owner's `doc/corpora-own/type4_pi.pdf` and its `% BBP Math for Pi …` first line.
+//!   and the whole function is refused — as on the project owner's
+//!   `doc/corpora-own/type4_pi.pdf` and its `% BBP Math for Pi …` first line.
 //! - **Silent.** Where a comment quotes the code it documents — `% dup 3 mul`, which is how
-//!   people comment arithmetic — every word after the first is a valid token, so the old rule
-//!   compiled them into the program and the function computed something the file never said.
+//!   people comment arithmetic — every word after the first is a valid token, so that rule
+//!   compiles them into the program and the function computes something the file never said.
 //!   Nothing reported, and a shading is exactly the place where a wrong number is still a
 //!   plausible picture.
 //!

@@ -11,8 +11,8 @@
 //! - **which payload the page crosses as**, by ADR 0607's own per-page rule, with the refusal
 //!   named where it is one of the two deferred producers;
 //! - **what the codec costs in time**, both ways, beside the transport's own measured rate — and
-//!   since the seven-hundred-and-thirty-sixth session, the *choice* timed separately from the
-//!   exact encoding, because the frame path makes the choice and never pays for the rest.
+//!   the *choice* timed separately from the exact encoding, because the frame path makes the choice
+//!   and never pays for the rest.
 //!
 //! Every list is decoded and compared against the one that was encoded, so a run that prints a
 //! number has also checked that the number is of a faithful round trip.

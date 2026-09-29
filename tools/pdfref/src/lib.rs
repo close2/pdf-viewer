@@ -119,12 +119,12 @@ impl Tolerance {
     /// pixel bounds above have a structural similarity of 0.9971 at worst and 0.9999 at
     /// the median. 0.99 sits just under that floor.
     ///
-    /// # Both halves re-run in the four-hundred-and-seventh session
+    /// # Both halves re-run
     ///
     /// `pdfref`'s own `end_to_end` test prints the first sentence's numbers on every run, and
     /// today's renderers give **0.0016 to 0.0352** and **0.4062 to 1.0625** — the worst tile
     /// exactly as written, the mean's upper end 0.035 where the sentence says 0.047, which is
-    /// four hundred sessions of `poppler` and `ghostscript` releases and not a correction.
+    /// later `poppler` and `ghostscript` releases and not a correction.
     ///
     /// The 51-document sample is gone and cannot be re-run, but the whole corpus can be, and
     /// `oracle.rs`'s `the_fixed_bounds_against_the_references_own_spread` does it. Over the
@@ -154,7 +154,7 @@ impl Tolerance {
     /// # `max_differing_fraction` is the one bound here set *below* the spread it was
     /// measured on, and the sentence above is why
     ///
-    /// Re-run on its own population in the four-hundred-and-seventh session — the 14
+    /// Re-run on its own population — the 14
     /// specification PDFs' first pages, **42 reference pairs** — the worst tile reproduces to
     /// the digit: median 18.42, p90 **26.72**, max **28.17**, against a bound of 40. The
     /// differing fraction on those same pairs is median **3.11%**, p90 **4.99%**, max
@@ -201,7 +201,7 @@ impl Tolerance {
     ///
     /// # The two jobs were separated and priced, and the price is why they stay one number
     ///
-    /// The eight-hundred-and-forty-fourth session took the narrower move ADR 0243 left open —
+    /// ADR 0771 took the narrower move ADR 0243 left open —
     /// **keep 5% for consensus, floor our own judgement higher** — and the two things ADR 0243
     /// says must be true first were both supplied. The rule is that ADR's own: the 99th
     /// percentile of the reference-against-reference distribution, which is where this class's
@@ -308,15 +308,14 @@ impl Tolerance {
     /// strength of this: loosening a gate to make contradictions disappear is the move this
     /// project forbids itself.
     ///
-    /// **Which two, and the `ldd` that said three.** This paragraph read "`ldd` on this machine
-    /// puts the same `libfreetype.so.6` under `pdftoppm`, `mutool` and `gs`" for four hundred
-    /// sessions, and `ldd` reports a transitive closure: `gs` was reaching `FreeType` through
-    /// `libfontconfig`. `objdump -p`, which is what a binary *asks for*, says `libpoppler.so`
+    /// **Which two, and why not three.** `ldd` reports a transitive closure, and through it `gs`
+    /// reaches `FreeType` by way of `libfontconfig`. `objdump -p`, which is what a binary *asks
+    /// for*, says `libpoppler.so`
     /// and `libmupdf.so` both name `libfreetype.so.6` while `libgs.so.10` names none and
     /// defines 194 `FT_*` symbols of a statically linked copy of its own. So the sharing pair is
     /// `poppler` + `mupdf`, and `ghostscript` against either is two separate copies —
-    /// `crate::Reference::independence` records it and the eight-hundred-and-forty-fourth
-    /// session measured what it is worth (below). It is the same algorithm either way, which is
+    /// `crate::Reference::independence` records it and ADR 0771 measured what it is worth
+    /// (below). It is the same algorithm either way, which is
     /// why that population is a weak independence and not a fourth rasteriser.
     ///
     /// # The measurement this asked for, taken a different way
@@ -346,8 +345,7 @@ impl Tolerance {
     /// much as the reference beside it. ADR 0771; `doc/todo/12` says why that does not move the
     /// number.
     ///
-    /// # The four-hundred-and-seventh session took that measurement and it is still not that
-    /// renderer
+    /// # That measurement, and it is still not that renderer
     ///
     /// `hayro` is independent of all three C references and does not grid-fit, so a
     /// `hayro`-against-`poppler` pair is one hinting renderer against one that is not, with
@@ -624,8 +622,8 @@ pub fn consensus_abstentions(
 
 /// One maximal set of references that all agree with one another, and what it says about us.
 ///
-/// A page can carry more than one of these, and that fact was invisible until the
-/// seven-hundred-and-twenty-seventh session: agreement is not transitive, so with three
+/// A page can carry more than one of these (ADR 0616): agreement is not transitive, so with
+/// three
 /// references `a` agreeing with `b` and `b` with `c` while `a` and `c` differ leaves **two**
 /// maximal agreeing pairs — `{a, b}` and `{b, c}` — neither of which contains the other and
 /// neither of which is a majority in any sense the other is not. [`Triangulation::consensuses`]
@@ -633,8 +631,8 @@ pub fn consensus_abstentions(
 ///
 /// **The verdict is the one they all reach** (ADR 0617). Where they reach different ones the
 /// page is [`Outcome::Ambiguous`]; where they concur it is what the first of them concludes,
-/// which is what [`decide`] took unconditionally until the seven-hundred-and-twenty-ninth
-/// session and which was the enumeration order's choice on the pages where they did not.
+/// and taking the first unconditionally would make the enumeration order the verdict on the
+/// pages where they do not.
 ///
 /// ADR 0616 has the finding and the measurement, ADR 0617 the rule.
 #[derive(Debug, Clone, PartialEq)]
@@ -737,7 +735,7 @@ impl Triangulation {
     /// references form each set is the whole of what such a page is about.
     ///
     /// The first element is the set at the head of [`Self::consensuses`], so a caller printing
-    /// them prints the one every earlier session's verdict rested on first. ADR 0617.
+    /// them prints first the one a single-consensus verdict would have rested on. ADR 0617.
     #[must_use]
     pub fn divided(&self) -> Option<(&Consensus, &Consensus)> {
         let first = self.consensuses.first()?;
@@ -863,10 +861,9 @@ pub fn triangulate_with(
 /// otherwise tell what a verdict meant.
 ///
 /// The third return is **every** maximal agreeing set rather than one. Agreement is not
-/// transitive, so a page can carry two maximal sets neither of which contains the other; before
-/// the seven-hundred-and-twenty-seventh session the second was discarded without being counted,
-/// and on a page where the two reach different conclusions about us the verdict was the
-/// enumeration's rather than the page's (ADR 0616).
+/// transitive, so a page can carry two maximal sets neither of which contains the other, and
+/// discarding the second would make the verdict the enumeration's rather than the page's on a
+/// page where the two reach different conclusions about us (ADR 0616).
 ///
 /// **A verdict is now the one every maximal consensus reaches**, and a page whose sets divide is
 /// [`Outcome::Ambiguous`] — the module documentation has the argument and ADR 0617 the

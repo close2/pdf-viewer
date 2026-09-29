@@ -376,11 +376,9 @@ fn node_with(document: &Document, node: ObjectId, kids: Vec<Object>, count: i64)
 
 /// §7.7.3.2's `/Count` as the document states it for a node, or the leaves under it counted.
 ///
-/// **The second half of that sentence used to be a claim the body did not make**, and the
-/// nine-hundred-and-ninth session's write-side corpus walk is what found it: the entry was read
-/// and `unwrap_or_default()`ed, so a node that states no `/Count` counted as **zero** and an
-/// insertion under it wrote `/Count 1` over a node that now held two pages. Table 30 makes the
-/// entry required —
+/// **The second half of that sentence is what the body does** (ADR 0860): a node that states no
+/// `/Count` is not counted as **zero**, because an insertion under it would write `/Count 1` over
+/// a node that now held two pages. Table 30 makes the entry required —
 ///
 /// > ( Required ) The number of leaf nodes (page objects) that are descendants of this node
 /// > within the page tree.
@@ -455,10 +453,9 @@ fn leaves_under(document: &Document, node: ObjectId, visited: &mut usize, depth:
 /// not reach, and an update that edits its chain writes a perfectly correct `/Kids` into a tree
 /// nobody enters. `pdf_model::Pages` reads such a file by scanning §7.7.3.2's own declarations
 /// instead — a recovery that has no *positions* in it, only object numbers — so an insertion
-/// "before page 1" lands after page 1, which is what `issue9418.pdf` did, and a splice into an
-/// orphan node changes nothing at all, which is what `issue21436.pdf` did. Both were found by
-/// the nine-hundred-and-ninth session's write-side corpus walk, and both are trap 5: an input
-/// this verb cannot honestly serve is refused by name rather than served wrongly.
+/// "before page 1" lands after page 1, which is `issue9418.pdf`, and a splice into an orphan node
+/// changes nothing at all, which is `issue21436.pdf` (ADR 0860). Both are trap 5: an input this
+/// verb cannot honestly serve is refused by name rather than served wrongly.
 fn the_catalog_reaches(
     catalog: &Dictionary,
     chain: &[ObjectId],
@@ -798,8 +795,8 @@ fn insert_pages(
 
 /// The catalog entries an in-place insertion leaves behind, each named where a source has one.
 ///
-/// A rewrite reconciles these because it is building a catalog (`merge`'s construction, session
-/// 888's clause-by-clause derivation). An update is not building one, so what the incoming
+/// A rewrite reconciles these because it is building a catalog (`merge`'s construction, ADR
+/// 0821's clause-by-clause derivation). An update is not building one, so what the incoming
 /// document says about its pages at the document level does not come with them — and trap 5's
 /// rule is that this is said out loud rather than discovered.
 const NOT_CARRIED: [(&str, &str); 5] = [

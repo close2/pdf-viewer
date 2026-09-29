@@ -1,9 +1,9 @@
 //! What [`pdf_render::Image::area_averaged`] costs, against the serial shape it replaced.
 //!
 //! The reduction is paid per *source sample*, not per output cell, so it is invisible in any
-//! count of a page's commands: session 390 measured a 388-command page of the project owner's
-//! own document translating into a GPU scene sixteen times slower than a 3675-command page of
-//! text, and the whole of the difference was one photograph being averaged down (ADR 0228).
+//! count of a page's commands: a 388-command page of the project owner's own document translated
+//! into a GPU scene sixteen times slower than a 3675-command page of text, and the whole of the
+//! difference was one photograph being averaged down (ADR 0228).
 //!
 //! Two changes came out of that, and this is the instrument that says what each is worth:
 //! the column bands computed once per image rather than once per output cell, and the output
@@ -127,8 +127,8 @@ fn average_block(image: &Image, x0: u32, y0: u32, x1: u32, y1: u32) -> [u8; 4] {
     out
 }
 
-/// The shape `Image::area_averaged` had until session 391: one walk, `Bands::at` asked once
-/// per output cell. Kept here rather than left in the library's history because a ratio
+/// The shape `Image::area_averaged` had before ADR 0228: one walk, `Bands::at` asked once per
+/// output cell. Kept here rather than left in the library's history because a ratio
 /// nobody can re-derive is a ratio that rots.
 fn serial(image: &Image, factor: u32) -> Arc<[u8]> {
     let width = image.width.div_ceil(factor);
@@ -242,7 +242,7 @@ fn main() {
         .and_then(|argument| argument.parse().ok())
         .unwrap_or(40);
     // The first four straddle the parallel floor; the last four are the shapes the owner's own
-    // `NorthAmerican.30MB.pdf` puts on a page, taken from session 391's trace of it.
+    // `NorthAmerican.30MB.pdf` puts on a page, taken from ADR 0228's trace of it.
     run("small", &make(64, 64, true), 3, runs * 20);
     run("small", &make(128, 128, true), 3, runs * 10);
     run("small", &make(256, 256, true), 3, runs * 5);

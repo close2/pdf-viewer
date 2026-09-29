@@ -4,21 +4,20 @@
 //!
 //! Two clauses describing one mechanism is the commonest shape in `doc/todo/01`, and correcting
 //! one leaves the other lying. §8.9.6.1 still said a graphics-state soft mask was "reported
-//! rather than applied on 28 corpus documents" fourteen sessions after §11.6.4.3 retired that
-//! exact sentence; §12.5.6.22's `/FixedPrint` was still explained by the refusal ADR 0168
+//! rather than applied on 28 corpus documents" after §11.6.4.3 retired that exact sentence;
+//! §12.5.6.22's `/FixedPrint` was still explained by the refusal ADR 0168
 //! dismantled; four rows and four source comments went on saying this program reads no `XMP`
-//! after the round that gave it one, three of the six written *by* that round. The sweep has run
-//! as a grep since the two-hundred-and-sixteenth session and `doc/adr/` joined its targets in the
-//! four-hundred-and-twenty-ninth (ADR 0265). This is the same instrument as a program, per
+//! after the round that gave it one, three of the six written *by* that round. The sweep is a
+//! grep whose targets include `doc/adr/` (ADR 0265), written as a program per
 //! `doc/todo/01`'s binding rule that a sweep round commits one before running any.
 //!
 //! # What it reads
 //!
 //! The ledger's notes, every `//` comment under [`crate::roots::source_roots`], and every Markdown
 //! document under `doc/` that this project wrote except [`NOT_SWEPT`]. The last is wider than
-//! the by-hand runs' `doc/adr/` on the evidence of the five-hundred-and-first, whose second
-//! finding was `doc/todo/README.md`'s index line for an item closed one wave earlier: **an index
-//! row decays at its item's pace, not its own**, and nothing was looking at it.
+//! the by-hand runs' `doc/adr/` because `doc/todo/README.md`'s index line for an item closed one
+//! wave earlier was a finding (ADR 0336): **an index row decays at its item's pace, not its
+//! own**.
 //!
 //! # Why it takes its nouns from the caller
 //!
@@ -158,8 +157,7 @@ impl Found {
 /// of every noun in front of the reader with nothing to do about any of it. Everything else
 /// under `doc/` that this project wrote is in: the ADRs, because a claim a later round
 /// disproves is amended in the ADR that made it (ADR 0265), and `doc/todo/` and the standing
-/// documents, because an index row decays at its item's pace rather than its own — which is
-/// where the five-hundred-and-first run's second finding was.
+/// documents, because an index row decays at its item's pace rather than its own (ADR 0336).
 pub const NOT_SWEPT: &str = "doc/history";
 
 /// Runs the sweep over the ledger's notes, the tree's comments and this project's prose.
@@ -392,8 +390,8 @@ mod tests {
         assert!(!first.both_shapes());
     }
 
-    /// A comment and an ADR paragraph are searched as well as the ledger — `doc/adr/` joined
-    /// this sweep's targets in the four-hundred-and-twenty-ninth (ADR 0265).
+    /// A comment and an ADR paragraph are searched as well as the ledger — `doc/adr/` is among
+    /// this sweep's targets (ADR 0265).
     #[test]
     fn comments_and_adrs_are_swept_beside_the_ledger() {
         let sources = vec![file(

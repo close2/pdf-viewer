@@ -1,12 +1,11 @@
 //! One display list, drawn twice, must hand raster the same resource identifiers both times.
 //!
-//! This is the invariant `crate::cache` exists for, and until the five-hundred-and-sixty-seventh
-//! session nothing asserted it. What broke it was strokes: §8.4.3.2 makes an *anisotropically*
-//! placed stroke's outline something this crate expands with `kurbo::stroke` rather than something
-//! raster widens itself, and computed geometry was uploaded as a transient — released after the
-//! frame and re-uploaded, with a new identifier, on the next one. raster keys every glyph-lane
-//! tile on that identifier, so a still page made every key foreign every frame and its atlas
-//! repacked at period two, for ever (`render-lib/doc/notes-atlas-budget.md` section 5, ADR 0402).
+//! This is the invariant `crate::cache` exists for. Strokes are where it is at risk: §8.4.3.2
+//! makes an *anisotropically* placed stroke's outline something this crate expands with
+//! `kurbo::stroke` rather than something raster widens itself, and computed geometry uploaded as
+//! a transient — released after the frame and re-uploaded, with a new identifier, on the next
+//! one — would make every glyph-lane tile key foreign every frame, so a still page's atlas would
+//! repack at period two, for ever (`render-lib/doc/notes-atlas-budget.md` section 5, ADR 0402).
 //!
 //! **The observable is [`render_raster::FrameCost::uploads`], not a duration.** A timing would
 //! have to be a threshold, and a threshold on a machine with a graphics driver is a flake; a page

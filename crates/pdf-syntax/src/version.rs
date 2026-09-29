@@ -15,9 +15,8 @@
 //! **Why a reader wants it at all**: Annex I is normative, and it asks for a warning rather than
 //! a behaviour — "[i]f a PDF processor opens a PDF file with a version number newer than the
 //! version that it supports … it should warn the user that it is unlikely to be able to read the
-//! document successfully". The number was located and thrown away here for three hundred and
-//! sixty sessions: `xref::read` searches for `%PDF-` to fix the byte offsets and reads no digits.
-//! ADR 0206 is where that was found; the annex had no ledger row before it.
+//! document successfully". `xref::read` searches for `%PDF-` to fix the byte offsets and reads
+//! no digits, so the number is read here (ADR 0206).
 
 use std::fmt;
 

@@ -182,14 +182,12 @@ fn the_form_of_a_document_is_the_kind_its_own_last_section_uses() {
 /// requirement is that the reference becomes null *and is counted*, never that it is quietly
 /// carried into a file naming an object number nothing defines.
 ///
-/// **What the null then looks like in the file changed in session 900, and §7.3.7 is why.** This
-/// test asserted that `/Absent null ` appeared in the bytes; the entry is now dropped instead,
-/// because "[a] dictionary entry whose value is null … shall be treated the same as if the entry
-/// does not exist" and `crate::parser` already drops a direct null on the way *in* for that same
-/// sentence. Writing one out therefore made this program's writer and its reader disagree about
-/// what the file said — invisibly by the clause, and visibly in bytes on a second pass, which is
-/// what `optimize`'s idempotence gate measures. The count is unchanged and is what carries the
-/// fact.
+/// **The null is dropped from the file, and §7.3.7 is why** (ADR 0842): "[a] dictionary entry whose
+/// value is null … shall be treated the same as if the entry does not exist", and `crate::parser`
+/// already drops a direct null on the way *in* for that same sentence. Writing one out would make
+/// this program's writer and its reader disagree about what the file said — invisibly by the
+/// clause, and visibly in bytes on a second pass, which is what `optimize`'s idempotence gate
+/// measures. The count is unchanged and is what carries the fact.
 #[test]
 fn a_reference_the_assembly_does_not_hold_is_written_as_null_and_counted() {
     let source = open(file_of(

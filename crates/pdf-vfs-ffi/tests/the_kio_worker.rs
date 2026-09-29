@@ -9,7 +9,7 @@
 //!
 //! # What it does not establish, said plainly
 //!
-//! It is not Dolphin and it never sees a session. It says nothing about how a listing is
+//! It is not Dolphin and it never sees a desktop session. It says nothing about how a listing is
 //! rendered, nothing about the `archiveMimetype` association that makes a click on a PDF enter it
 //! as a folder, and nothing about a person's experience of any of it. Those need a KDE session;
 //! this needs a `QCoreApplication`.

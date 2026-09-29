@@ -4,8 +4,7 @@
 //! being in two halves. What the *bus* does with the result needs a session bus, so it is not
 //! here: `src/bridge.rs`'s own tests hold the half of it that can be asked without one — that a
 //! build with no adapter names its shortfall rather than doing nothing — and nothing in this tree
-//! drives a real bus. (This sentence named a `tests/atspi.rs` that has never existed, found by
-//! `doc/todo/01`'s eighth sweep on the round it became a program.)
+//! drives a real bus.
 
 #![expect(
     clippy::panic,
@@ -70,6 +69,13 @@ fn view<'a>(nodes: &'a [AccessibilityNode], reports: &'a [String]) -> PageView<'
         bounds: [0.0, 0.0, 800.0, 1000.0],
         nodes,
         widgets: &[],
+        // What `viewer_core` answers for such a list on a document that states no structure, and
+        // on one whose structure reaches the list's elements.
+        tagging: if nodes.is_empty() {
+            viewer_core::Tagging::Untagged
+        } else {
+            viewer_core::Tagging::Reached
+        },
         reports,
         readback: pdf_model::content::Shortfall::default(),
     }
@@ -327,14 +333,13 @@ fn a_figure_that_drew_no_text_is_placed_by_its_stated_bounds() {
 /// layout this program has already carried out. `doc/PDF20_AN001-BPC.pdf` states
 /// `[-32768 -32768 32767 32767]` for a figure, which is the shape of that claim going wrong.
 ///
-/// The third is the element that has **both** kinds of mark, and this test asserted the text won
-/// until the eight-hundred-and-forty-first session (ADR 0768). §14.8.5.4.5 states the derivation
-/// for that element too — "[f]or an ILSE that contains a mixture of elements, the height of the
-/// content rectangle shall be determined by … finding the extreme top and bottom for all elements"
-/// — so a figure whose only text is its caption is not placed on the caption. Over the pdf.js
-/// corpus, `doc/corpora/` and `doc/` — 1245 documents, 153 of them tagged — 3032 elements enclose
-/// marks reaching outside their text, 1885 of them by more than a tenth of the area
-/// (`pdf-model --example element_bounds_census`).
+/// The third is the element that has **both** kinds of mark, and the text does not win (ADR 0768).
+/// §14.8.5.4.5 states the derivation for that element too — "[f]or an ILSE that contains a mixture
+/// of elements, the height of the content rectangle shall be determined by … finding the extreme
+/// top and bottom for all elements" — so a figure whose only text is its caption is not placed on
+/// the caption. Over the pdf.js corpus, `doc/corpora/` and `doc/` — 1245 documents, 153 of them
+/// tagged — 3032 elements enclose marks reaching outside their text, 1885 of them by more than a
+/// tenth of the area (`pdf-model --example element_bounds_census`).
 #[test]
 fn an_element_with_no_text_and_no_stated_bounds_is_placed_by_what_it_drew() {
     let mut figure = element(None, "Figure", "a chart of sales");
@@ -385,9 +390,8 @@ fn an_element_with_no_text_and_no_stated_bounds_is_placed_by_what_it_drew() {
 /// §14.8.5.4.5 derives a container's content rectangle from the elements it contains — "the sum of
 /// the heights of all BLSEs it contains" — so an element whose own sequences marked nothing is
 /// placed by what it encloses, however that was placed. The witness this is modelled on is
-/// `annotation-text-widget.pdf`, where ten container nodes reported no extents at all until the
-/// eight-hundred-and-forty-first session and now report the union of their widgets' rectangles,
-/// read back off a real AT-SPI bus (ADR 0768).
+/// `annotation-text-widget.pdf`, where ten container nodes report the union of their widgets'
+/// rectangles, read back off a real AT-SPI bus (ADR 0768).
 #[test]
 fn a_container_whose_content_marked_nothing_is_placed_by_what_it_encloses() {
     let row = element(None, "TR", "");
@@ -1062,6 +1066,67 @@ fn an_untagged_page_beside_a_tagged_one_still_says_it_is_untagged() {
     assert!(
         said.contains("states no logical structure"),
         "the untagged page says so in this program's own words: {said:?}"
+    );
+}
+
+/// A tagged document's page that its structure reaches nothing on does not say the document is
+/// untagged (ADR 1393).
+///
+/// ISO 32000-2 §14.7.2 puts the structure tree root in the catalog — "[a]t the root of the
+/// hierarchy shall be a dictionary object called the structure tree root" — so a document that
+/// states one has stated a logical structure, whatever it says of one page; and §14.8.1's "[a]
+/// tagged PDF document shall contain a mark information dictionary" with `/Marked true` is the
+/// further claim the sentence names as the producer's. Three silences, three sentences, and the
+/// widgets are published after each of them.
+#[test]
+fn a_tagged_pages_empty_structure_is_not_called_untagged() {
+    let widgets = [widget("go", Control::PushButton, 12)];
+    let said = |tagging: viewer_core::Tagging| {
+        let update = built(PageView {
+            widgets: &widgets,
+            tagging,
+            ..view(&[], &[])
+        });
+        let page = node(&update, NodeId(2));
+        assert_eq!(
+            page.children(),
+            [NodeId(16), NodeId(100_016)],
+            "the sentence, then the widget, whatever the sentence says"
+        );
+        node(&update, NodeId(16))
+            .value()
+            .unwrap_or_default()
+            .to_owned()
+    };
+
+    let marked = said(viewer_core::Tagging::Unreached { marked: true });
+    assert!(!marked.contains("states no logical structure"), "{marked}");
+    assert!(marked.contains("declares itself tagged"), "{marked}");
+    assert!(marked.contains("§14.8.1"), "{marked}");
+    assert!(marked.contains("producer left out"), "{marked}");
+
+    let unmarked = said(viewer_core::Tagging::Unreached { marked: false });
+    assert!(
+        !unmarked.contains("states no logical structure"),
+        "{unmarked}"
+    );
+    assert!(
+        unmarked.contains("states a logical structure"),
+        "{unmarked}"
+    );
+    assert!(
+        !unmarked.contains("tagged"),
+        "a document without /MarkInfo /Marked true has not claimed §14.8.1: {unmarked}"
+    );
+
+    let unread = said(viewer_core::Tagging::Unread);
+    assert!(!unread.contains("states no logical structure"), "{unread}");
+    assert!(unread.contains("not been read yet"), "{unread}");
+
+    let untagged = said(viewer_core::Tagging::Untagged);
+    assert!(
+        untagged.contains("states no logical structure"),
+        "{untagged}"
     );
 }
 

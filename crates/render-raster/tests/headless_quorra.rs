@@ -132,15 +132,11 @@ fn cpu_and_quorra_agree_on_knockout_groups() {
 
 /// §11.4.6's element whose shape is stated apart from its alpha, **drawn**.
 ///
-/// This test read `quorra_refuses_a_knockout_element_that_states_its_shape` until the
-/// four-hundred-and-fifty-sixth session. `raster_scene::Compose` offers source-over and
-/// coverage-modulated source, and the second is precisely the assumption this element exists
-/// to contradict: it reads the shape off the coverage. Writing `(1 − shape) × backdrop +
-/// object` needs Porter-Duff Destination-Out and Plus, and the pair arrived at `89d7dd77`
-/// refused in the one position this tree emits it from — inside a knockout group — with a
-/// group carrying no compositing operator at all. raster's ADRs 0032 and 0033 lifted both
-/// (`doc/QUORRA_FEEDBACK.md` section 14.2 is the ask they answer), and this backend now
-/// states the two stages.
+/// Coverage-modulated source is precisely the assumption this element exists to contradict: it
+/// reads the shape off the coverage. Writing `(1 − shape) × backdrop + object` needs
+/// Porter-Duff Destination-Out and Plus inside a knockout group, which raster's ADRs 0032 and
+/// 0033 provide (`doc/QUORRA_FEEDBACK.md` section 14.2 is the ask they answer), and this
+/// backend states the two stages (ADR 0291).
 ///
 /// # The pixel, not the tolerance
 ///
@@ -257,9 +253,8 @@ fn quorra_states_what_it_will_not_stage() {
 /// §11.4.4's non-isolated group, drawn — the two backends agree on the *other* initial
 /// backdrop.
 ///
-/// This test read `quorra_refuses_a_non_isolated_group` until the
-/// four-hundred-and-thirty-eighth session. `GroupSpec` gained Table 145's `/I` (raster's
-/// ADR 0019, `doc/QUORRA_NON_ISOLATED_GROUPS.md`), so the group's buffer can begin as a copy
+/// `GroupSpec` carries Table 145's `/I` (raster's ADR 0019,
+/// `doc/QUORRA_NON_ISOLATED_GROUPS.md`; ADR 0274), so the group's buffer can begin as a copy
 /// of what is under it and the composite back is the interpolation ADR 0237 derived —
 /// `result = (1 − w) × B + w × E(B)`. Two independent transcriptions of the clause, one per
 /// backend, and this scene is where they meet: the element blends `Multiply` against a green
@@ -271,7 +266,7 @@ fn quorra_states_what_it_will_not_stage() {
 /// # The pixel, not the tolerance
 ///
 /// A tolerance says the two backends agree; it does not say they agree on the *clause*, and
-/// two backends substituting §11.4.5's transparent backdrop agreed for four hundred sessions.
+/// two backends that both substitute §11.4.5's transparent backdrop agree with each other.
 /// So the colour inside the group is asserted against the arithmetic. Opaque green page,
 /// opaque blue element under `Multiply`, group alpha ½:
 ///
@@ -480,11 +475,9 @@ fn a_non_isolated_group_composited_with(blend: pdf_render::BlendMode) -> pdf_ren
 /// > the context-dependent backdrop.
 ///
 /// §11.3.4 applies the compositing formula per component, so four components are three plus
-/// one and the page is drawn twice with a different three loaded. This test read
-/// `quorra_refuses_a_page_in_a_four_component_blending_space` until the
-/// four-hundred-and-thirty-ninth session: `doc/QUORRA_FEEDBACK.md` section 17 asked whether
-/// two `Target::Readback` renders against one device were possible, the answer at `89d7dd77`
-/// was that they always had been, and this backend now makes them.
+/// one and the page is drawn twice with a different three loaded: two `Target::Readback`
+/// renders against one device, which `doc/QUORRA_FEEDBACK.md` section 17 confirmed are possible
+/// (ADR 0275).
 ///
 /// # The pixels, not the tolerance
 ///
@@ -785,11 +778,11 @@ fn cpu_and_quorra_agree_on_a_device_evaluated_function_shading() {
 /// The witness page whose program the device used to refuse, drawn on both paths.
 ///
 /// `doc/corpora-own/pi_seven_segment.pdf` computes π by the BBP series and draws its first four
-/// digits on a seven-segment display, and until session 572 the `div` in that series reached the
-/// `truncate` that turns the sum into digits — so raster's `Agreement::Unbounded` refused it and
-/// the page was drawn from the grid, one processor evaluation per device pixel. Every operand of
-/// every one of those operators is a *literal*: the series is a constant, and
-/// `pdf_model::function::fold_constants` now computes it once at compile time. ADR 0406.
+/// digits on a seven-segment display. The `div` in that series reaches the `truncate` that turns
+/// the sum into digits, which raster's `Agreement::Unbounded` refuses, so evaluated at run time
+/// the page would be drawn from the grid, one processor evaluation per device pixel. Every
+/// operand of every one of those operators is a *literal*: the series is a constant, and
+/// `pdf_model::function::fold_constants` computes it once at compile time. ADR 0406.
 ///
 /// **What this asserts is the pair, because either half alone would be worth little.** That the
 /// device takes the program is the whole performance claim; that the two rasters agree is what

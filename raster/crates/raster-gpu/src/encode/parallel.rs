@@ -93,6 +93,7 @@ use crate::atlas::{AtlasEntry, GlyphKey};
 use crate::raster::{self, CoverageMask, DeviceTransform, Rule};
 
 use super::DrawStyle;
+use super::clips::ResolvedClip;
 
 mod commit;
 
@@ -117,7 +118,8 @@ pub(super) fn in_flight_limit(frame_budget_bytes: u64) -> u64 {
     frame_budget_bytes.saturating_div(IN_FLIGHT_BUDGET_SHARE)
 }
 
-/// The queued segment count below which a frame rasterises on the walk's thread.
+/// The queued weight below which a frame rasterises on the walk's thread, in a filled
+/// outline's segments ([`weight_of`]).
 ///
 /// A weight rather than a job count, because six 40 000-segment fills are more work
 /// than six thousand triangles and the fan-out should take the first. The measurement
@@ -208,6 +210,15 @@ pub(super) struct Draw {
     clip: Rect,
     style: DrawStyle,
     mask: Option<u32>,
+    /// The chain whose residue the commit multiplies into the tile, where the mark's clip
+    /// has a non-rectangular link (ADR 1395).
+    ///
+    /// Carried to the commit rather than applied in [`rasterise`], because the residue is
+    /// read out of a cache the frame decides about in encounter order
+    /// (`super::residue`): the fan-out makes the mark's coverage, which is a pure function
+    /// of its geometry, and the commit multiplies the clip in, in the order the walk would
+    /// have.
+    residue: Option<ResolvedClip>,
 }
 
 impl Draw {
@@ -217,6 +228,16 @@ impl Draw {
             clip,
             style,
             mask,
+            residue: None,
+        }
+    }
+
+    /// This draw under `resolved`, whose residue the commit multiplies in when the chain
+    /// has one; a chain of rectangles alone leaves the draw as it was.
+    pub(super) fn under(self, resolved: &ResolvedClip) -> Self {
+        Self {
+            residue: resolved.residues.is_some().then(|| resolved.clone()),
+            ..self
         }
     }
 }
@@ -251,7 +272,7 @@ impl<'a> Job<'a> {
                 None => Place::Atlas { key, origin },
             },
             draw,
-            weight: weight_of(segments, resident_already),
+            weight: weight_of(segments, resident_already, false),
             held: held_by(tile_bound, resident_already),
             outline: None,
         }
@@ -275,7 +296,7 @@ impl<'a> Job<'a> {
             extent: Extent::Visible { rect },
             place: Place::Sheet,
             draw,
-            weight: weight_of(segments, false),
+            weight: weight_of(segments, false, stroke.is_some()),
             held: held_by(tile_bound, false),
             outline: None,
         }
@@ -314,13 +335,36 @@ impl<'a> Job<'a> {
     }
 }
 
-/// A job's share of the fan-out, in the units [`partition`] balances.
+/// What one segment of a stroke weighs, in a filled outline's segments.
+///
+/// **A stroke's segment is not a fill's.** The stroke is expanded into a piece per segment
+/// and a join per vertex, the pieces at a tight bend are tiled (ADR 1375), and the fill of
+/// that expansion asks whether it winds more than two values (ADR 1389) — so the same count
+/// of outline segments is many times the work. Measured over the pdf.js corpus's first
+/// pages at 1×, every job timed on one pinned performance core (ADR 1395): 189 083 glyph
+/// fills averaged 0.139 µs per segment and 56 621 strokes 3.456, a ratio of 24.9. Counted
+/// as one each, a page of strokes weighed a twenty-fifth of its work, stayed under
+/// [`PARALLEL_FLOOR_SEGMENTS`] in every drain and drew on the walk's thread alone: 35 ms
+/// of a 40 ms page turn on `issue14415.pdf`, 14 ms with this weight.
+///
+/// Rounded down, so the floor is reached no earlier than the measured costs say it should
+/// be. The number moves only where a job runs on which thread, never what it makes: the
+/// fan-out's bytes are the one-threaded frame's (`tests/encode_threads.rs`).
+const STROKE_SEGMENT_WEIGHT: u64 = 24;
+
+/// A job's share of the fan-out, in the units [`partition`] balances: a filled outline's
+/// segments, with a stroke's counted at [`STROKE_SEGMENT_WEIGHT`].
 ///
 /// Segments rather than tile area, because the tile does not exist until the job has run
 /// and a partition computed from the geometry would need the geometry. A resident tile
 /// rasterises nothing and weighs nothing.
-fn weight_of(segments: &[Segment], resident: bool) -> u64 {
-    if resident { 0 } else { segments.len() as u64 }
+fn weight_of(segments: &[Segment], resident: bool, stroked: bool) -> u64 {
+    let segments = segments.len() as u64;
+    match (resident, stroked) {
+        (true, _) => 0,
+        (false, false) => segments,
+        (false, true) => segments.saturating_mul(STROKE_SEGMENT_WEIGHT),
+    }
 }
 
 /// The host memory one queued job can hold: its tile's upper bound, or none at all for a
@@ -344,14 +388,23 @@ pub(super) fn rasterise(job: &Job<'_>) -> Rasterised {
     if matches!(job.place, Place::Resident { .. }) {
         return None;
     }
-    let flattened = raster::flatten(job.segments, job.transform);
-    let polylines = match job.stroke {
-        Some(stroke) => raster::stroke_polylines(
-            &flattened,
-            stroke,
-            raster::resolve_width(stroke, job.transform),
-        ),
-        None => flattened,
+    let flattened = match job.stroke {
+        Some(_) => raster::flatten_stroke(job.segments, job.transform),
+        None => raster::flatten(job.segments, job.transform),
+    };
+    // A stroke whose pieces tile its set by construction winds two values and keeps its
+    // integral (ADR 1397); a fill of an outline known to, likewise — that question is asked
+    // on the worker, once per outline, not on the walk (ADR 1389).
+    let (polylines, tiles) = match job.stroke {
+        Some(stroke) => {
+            let stroked = raster::stroke_pieces(
+                &flattened,
+                stroke,
+                raster::resolve_width(stroke, job.transform),
+            );
+            (stroked.pieces, stroked.tiles)
+        }
+        None => (flattened, false),
     };
     let (x0, y0, x1, y1) = raster::polyline_bounds(&polylines)?;
     let (vx0, vy0, vx1, vy1) = match job.extent {
@@ -373,12 +426,11 @@ pub(super) fn rasterise(job: &Job<'_>) -> Rasterised {
     if width == 0 || height == 0 {
         return None;
     }
-    // A fill of an outline known to wind two neighbouring values keeps its integral;
-    // the question is asked on the worker, once per outline, not on the walk.
-    let settled = job.stroke.is_none()
-        && job
-            .outline
-            .is_some_and(|o| o.winds_two_values_as(&polylines));
+    let settled = tiles
+        || (job.stroke.is_none()
+            && job
+                .outline
+                .is_some_and(|o| o.winds_two_values_as(&polylines)));
     Some(raster::fill_mask_settled(
         &polylines,
         job.rule,
@@ -474,8 +526,8 @@ fn run(jobs: &[Job<'_>], out: &mut [Rasterised]) {
 #[cfg(test)]
 mod tests {
     use super::{
-        Draw, IN_FLIGHT_BUDGET_SHARE, Job, PARALLEL_FLOOR_SEGMENTS, fan_out, in_flight_limit,
-        partition,
+        Draw, IN_FLIGHT_BUDGET_SHARE, Job, PARALLEL_FLOOR_SEGMENTS, STROKE_SEGMENT_WEIGHT, fan_out,
+        in_flight_limit, partition,
     };
     use crate::atlas::{GlyphKey, PhaseKey};
     use crate::encode::DrawStyle;
@@ -551,6 +603,57 @@ mod tests {
             vec![3, 2],
             "the first share ends at the heavy job, the second takes what is left"
         );
+    }
+
+    /// **A stroke weighs what it costs** (ADR 1395): a stroke's outline counts each of its
+    /// segments [`STROKE_SEGMENT_WEIGHT`] times, so a run of strokes reaches the floor at
+    /// the work a run of fills reaches it at — and a fill of the same outline still counts
+    /// it once.
+    #[test]
+    fn a_stroke_weighs_its_segments_at_their_measured_cost() {
+        let outline = segments(200);
+        let draw = || {
+            Draw::new(
+                Color::new(0.0, 0.0, 0.0, 1.0),
+                Rect::new(Point::new(0.0, 0.0), Point::new(1.0, 1.0)),
+                DrawStyle::Over,
+                None,
+            )
+        };
+        let identity = DeviceTransform {
+            a: 1.0,
+            b: 0.0,
+            c: 0.0,
+            d: 1.0,
+            e: 0.0,
+            f: 0.0,
+        };
+        let sheet = |stroke| {
+            Job::sheet(
+                &outline,
+                identity,
+                stroke,
+                Rule::NonZero,
+                [0.0, 0.0, 1.0, 1.0],
+                1,
+                draw(),
+            )
+        };
+        let stroke = raster_scene::Stroke {
+            width: 1.0,
+            adjust: false,
+            cap: raster_scene::LineCap::Butt,
+            join: raster_scene::LineJoin::Miter,
+            miter_limit: 10.0,
+        };
+        assert_eq!(sheet(None).weight(), 200);
+        assert_eq!(sheet(Some(stroke)).weight(), 200 * STROKE_SEGMENT_WEIGHT);
+        assert_eq!(
+            fan_out(sheet(Some(stroke)).weight(), 24),
+            24,
+            "two hundred stroked segments are past the floor that four thousand filled ones reach"
+        );
+        assert_eq!(fan_out(sheet(None).weight(), 24), 1);
     }
 
     /// **The queue is a batching granularity and never a capacity.** A frame's in-flight

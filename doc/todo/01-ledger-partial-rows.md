@@ -195,8 +195,17 @@ depends on nothing but `thiserror`.
   submodule, the owner's revisit notes, a round's scratch) — and
   an owner's `A` file whose `Q` is here — an answer lands through the owner's own commit, so a
   worktree can hold the question and cite the answer before it does, and `tests/questions.rs` owns
-  that directory (ADR 1379). The oldest false positive is a correction quoting the pointer it retired, and it is marked rather
-  than dropped. Read the sentence before believing a hit.
+  that directory (ADR 1379). Before a pointer is called absent it is read from the root of the
+  sub-project it is written in (`raster/` has a `CLAUDE.md` of its own, so its `crates/…` is
+  `raster/crates/…`) and from beside the file it is written in (a `fill.rs` under `src/raster/` named
+  from `src/compute.rs` as its module path);
+  and a pointer that still reaches nothing inside a **record** — `doc/adr/`, `doc/reviews/`, and the
+  dated correspondence with the render library and with `hayro`'s tracker, `doc/QUORRA_*`,
+  `doc/HAYRO_*`, `doc/quorra-*` — is **historical**, its own rung: a record is never rewritten, so
+  its pointer is its date rather than a defect (ADR 1403). What is absent outside a record is real
+  breakage and is fixed where it is written — the new path where the file moved, the ADR that
+  retired it where it is gone. The oldest false positive is a correction quoting the pointer it
+  retired, and it is marked rather than dropped. Read the sentence before believing a hit.
 - **One asks whether the table a sentence cites states the key it gives it**: `cargo run --release
   -p conformance --bin tables`, seconds, over `ledger.toml`, the source roots and every Markdown
   document under `doc/` bar `doc/history/` — the ninth sweep as a program (ADR 0380). It counts a
@@ -1085,7 +1094,7 @@ the condition these exist for. Over `ledger.toml` and over `crates/`:
   definition is the worst place for it**: §10.5 spent three hundred and fifty-seven sessions
   `inapplicable` partly because the word the status was explained with named a device the standard
   does not have.
-- **The eighth sweep**, below, which is new and which found the `doc/todo/20` this file had been
+- **The eighth sweep**, below, which is new and which found the todo 20 (retired by ADR 0169) this file had been
   carrying as owed.
 
 **And one of the phrase's six places was a defect rather than a comment.** `content.rs` explained
@@ -1170,11 +1179,11 @@ ledger's notes and out of every `//` comment in `crates/`, and glob for each one
 
 **Its first run, in the three-hundred-and-seventy-fifth, produced seven and every one was dead.**
 
-- **§8.9.6.1's `doc/todo/20`**, which this file has carried under "what is still owed" since the
+- **§8.9.6.1's todo 20 (retired by ADR 0169)**, which this file has carried under "what is still owed" since the
   three-hundred-and-sixtieth session as *a dangling reference whose sentence might still be real*.
   It was not: the sentence said §8.9.6.2 "refuses a stencil painted with a *tiling* pattern", and
   ADR 0169 implemented exactly that in the two-hundred-and-eighteenth session and deleted
-  `doc/todo/20` in the same commit — while §8.9.6.2's own row has said so ever since. **The file
+  todo 20 (retired by ADR 0169) in the same commit — while §8.9.6.2's own row has said so ever since. **The file
   it named was deleted by the session that made the sentence false**, which is what makes this
   sweep cheaper than reading the row: the pointer and the claim died together, and only one of
   them is greppable without knowing anything about the clause.
@@ -1259,7 +1268,7 @@ since the last run. Over `ledger.toml` and over `crates/`:
 - **`inapplicable` (sweep 7)**: 25 of 83 rows name vocabulary the source names, and none was
   wrong. Annex Q's five are worth recording as the strongest kind of `inapplicable` there is —
   each carries the annex's own NOTE saying "this method is not required by this document".
-- **Citations (sweep 8)**: clean. Two hits, both §8.9.6.1 quoting the `doc/todo/20` its own
+- **Citations (sweep 8)**: clean. Two hits, both §8.9.6.1 quoting the todo 20 (retired by ADR 0169) its own
   correction retired, which is this sweep's known false positive.
 
 **And the first sweep's ledger hit is the longest-lived stale claim this file has recorded: 364
@@ -1414,7 +1423,7 @@ spec-driven track exists at all.
 - ~~**Annex I.2's version number**~~ — closed in the three-hundred-and-sixty-first session, the
   round after the sweep that found it (ADR 0207). It was worth one line here for exactly one round:
   a `should` nobody had read, two lines from a parser already standing on the number.
-- ~~**A dangling `doc/todo/20`**~~ — closed in the three-hundred-and-seventy-fifth by the eighth
+- ~~**A dangling todo 20 (retired by ADR 0169)**~~ — closed in the three-hundred-and-seventy-fifth by the eighth
   sweep. It was in §8.9.6.**1**'s note rather than §8.9.6.2's, which is part of why nobody found it
   by reading the clause it was about: the refusal had been implemented sixteen sessions before this
   entry was written and a hundred and fifty-seven before it was corrected (ADR 0169), and
@@ -1489,7 +1498,7 @@ last run. Over `ledger.toml` and over `crates/`:
   round's work.
 - **`inapplicable` (sweep 7)**: 64 of 83 rows name vocabulary the source names, on a looser
   stop-list than the three-hundred-and-eighty-seventh's 25 of 83. None was wrong.
-- **Citations (sweep 8)**: clean. Two hits, both §8.9.6.1 quoting the `doc/todo/20` its own
+- **Citations (sweep 8)**: clean. Two hits, both §8.9.6.1 quoting the todo 20 (retired by ADR 0169) its own
   correction retired, which is this sweep's known false positive. **The first run of it had a
   parser bug worth recording**: `examples/foo` lives under `crates/<crate>/examples/`, so a glob
   anchored at the repository root reported 32 live paths as dead. An instrument that says a
@@ -1571,7 +1580,7 @@ free text created and typed into (401). Over `ledger.toml` and over `crates/`:
   reads as unnamed and is reached by every `GoToDp`, through `DocumentPartJump::page_in` — a host
   calling the *wrapper* is a shape this sweep cannot see and is worth knowing it cannot.
 - **`inapplicable` (sweep 7)**: 30 of 83 rows name vocabulary the source names, none of them wrong.
-- **Citations (sweep 8)**: one hit over files, §8.9.6.1 quoting the `doc/todo/20` its own correction
+- **Citations (sweep 8)**: one hit over files, §8.9.6.1 quoting the todo 20 (retired by ADR 0169) its own correction
   retired, which is this sweep's known false positive. **But the shape generalises past files, which
   this file has said since the sweep was built, and running it over *sections* paid**: six comments
   in `crates/` cite "`doc/HANDOVER.md`'s section 0", and the three-hundred-and-ninety-fifth moved
@@ -1926,7 +1935,7 @@ the interpreter (428). Over `ledger.toml`, over `crates/`, and — for the first
 - **`inapplicable` (sweep 7)**: 71 of 83 rows name vocabulary the source names, on the same loose
   stop-list as the four-hundred-and-thirteenth's 72, and none was wrong.
 - **Citations (sweep 8)**: 4 hits, **0 defects and a new false-positive shape**. §8.9.6.1's
-  `doc/todo/20` and §12.7's and `viewer-gtk/src/controls.rs`'s `doc/todo/37` are the known shape, a
+  todo 20 (retired by ADR 0169) and §12.7's and `viewer-gtk/src/controls.rs`'s `doc/todo/37` are the known shape, a
   correction quoting the pointer it retired. The fourth is
   `tools/spec-errata/src/main.rs`'s `doc/errata.md`, and it is **a redirection target rather than a
   citation** — the file is what `emit >` writes and `.gitignore` names it for the same licence
@@ -2103,7 +2112,7 @@ honoured (436). Over `ledger.toml`, `crates/`, `tools/` and `fuzz/`:
   kept. Clean, for the eighth run running.
 - **`inapplicable` (sweep 7)**: 71 of 82 rows name vocabulary the source names, on the same loose
   stop-list as the four-hundred-and-twenty-ninth's, and none was wrong.
-- **Citations (sweep 8)**: 4 hits, 0 defects — §8.9.6.1's `doc/todo/20`, §12.7's and
+- **Citations (sweep 8)**: 4 hits, 0 defects — §8.9.6.1's todo 20 (retired by ADR 0169), §12.7's and
   `viewer-gtk/src/controls.rs`'s `doc/todo/37`, all three corrections quoting the pointer they
   retired, and `spec-errata`'s `doc/errata.md`, which is a redirection target rather than a citation.
 - **Table numbers (sweep 9)**: 409 headings parsed, 82 suspects, **one defect**, and it is below.
@@ -2542,7 +2551,7 @@ Five rounds since the last full sweep, three of which were pure motion — `cont
 - **Arithmetic (sweep 6)**: two hits, §7.9.2 and §O, read and kept before. Clean.
 - **`inapplicable` (sweep 7)**: 70 of 80 rows name vocabulary the source names, none wrong.
 - **Citations (sweep 8)**: 3 hits, all three the known false positive — a correction quoting the
-  `doc/todo/20` or `doc/todo/37` it retired.
+  todo 20 (retired by ADR 0169) or `doc/todo/37` it retired.
 - **Table numbers (sweep 9)**: 409 headings parsed, ~1000 citations checked, 105 suspects —
   most of them this run's own parser truncating a table the conversion splits across header
   rows — and **ten defects, a block**: "Table 99's `/Configs`" in §8.11.1 and §8.11.4 (`/Configs`
@@ -2629,7 +2638,7 @@ press (492), two performance rounds (493, 495) and `/CL`'s callout (494). Over `
 - **Arithmetic (sweep 6)**: two hits, §7.9.2 and §O, read and kept before. Clean.
 - **`inapplicable` (sweep 7)**: 27 of 80 rows name vocabulary the source names, none wrong.
 - **Citations (sweep 8)**: 4 hits, all the known correction-quoting-its-pointer shape
-  (`doc/todo/20` twice, `doc/todo/37` twice).
+  (todo 20 (retired by ADR 0169) twice, `doc/todo/37` twice).
 - **Table numbers (sweep 9)**: 1159 citations checked, 90 suspects, **0 defects** — the first
   fully clean run this sweep has had over ledger and source together. Every suspect read down to
   a correction quoting the retired number (188/189/190/191/172), prose naming a nearby key, a
@@ -2721,7 +2730,7 @@ the map's two answers (507), the damaged prefix (508) and the rest of the wave. 
   checked with `git diff` over the ledger's status lines, which is the cheap way to carry a
   clean read forward.
 - **Citations (sweep 8)**: 3 hits, all the known correction-quoting-its-pointer shape
-  (`doc/todo/20`, `doc/todo/37` twice).
+  (todo 20 (retired by ADR 0169), `doc/todo/37` twice).
 - **Table numbers (sweep 9)**: 1024 citations checked, 61 suspects — most of them the
   session-local parser's own stop-list eating `/Name`, `/Type` and `/Style` and the known
   split-header tables — and **one defect**: `spec_annotation_census.rs` said "Table 353's
@@ -2833,7 +2842,7 @@ under `doc/` this project wrote bar `doc/history/`:
 - **Arithmetic (6)**: two hits, §7.9.2 and §O, read and kept before. Clean.
 - **`inapplicable` (7)**: 43 of 80 rows name source vocabulary under a session-local stop-list; none
   wrong, and no row in the population changed since the five-hundred-and-tenth's read.
-- **Citations (8)**: 5 hits and **1 defect**. §8.9.6.1's `doc/todo/20`, §12.7's and
+- **Citations (8)**: 5 hits and **1 defect**. §8.9.6.1's todo 20 (retired by ADR 0169), §12.7's and
   `viewer-gtk/src/controls.rs`'s `doc/todo/37` are the known correction-quoting-its-pointer shape;
   **`crates/viewer-ffi/src/form.rs`'s `doc/todo/37` is a plain citation, written in the
   five-hundred-and-eleventh to a file the four-hundred-and-ninth deleted**. The audit it names is
@@ -2940,7 +2949,7 @@ sweep — every Markdown document under `doc/` this project wrote bar `doc/histo
   none wrong, and **no row in the population changed since the five-hundred-and-seventeenth's
   read** — checked with `git diff` over the ledger's status lines, which is the cheap way to carry
   a clean read forward.
-- **Citations (8)**: 6 mentions of 3 dead paths, **0 defects** — `doc/todo/20` twice, `doc/todo/37`
+- **Citations (8)**: 6 mentions of 3 dead paths, **0 defects** — todo 20 (retired by ADR 0169) twice, `doc/todo/37`
   three times and `spec-errata`'s `doc/errata.md` redirection target, all of them the known
   correction-quoting-its-own-pointer shape, `viewer-ffi/src/form.rs` included since the
   five-hundred-and-seventeenth turned its plain citation into one.

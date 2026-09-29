@@ -289,6 +289,11 @@ on-failure = "stop"
 remedy = "preserve"        # built: keep the proxy the containing form already draws (ISO 32000-2
                            # 8.10.4.1); the Ref entry goes and the report names the file (ADR 1285)
 
+[site."graphics/jpeg2000-uses-the-baseline-feature-set"]
+remedy = "preserve"        # built where the image states its own ColorSpace: the samples are
+                           # written again under FlateDecode in that space (ADR 1400); an image
+                           # whose colour comes from its data keeps the refusal
+
 [site."graphics/jpeg2000-bit-depth"]
 remedy = "preserve"
 codec = "flate"

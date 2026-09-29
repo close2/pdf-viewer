@@ -628,8 +628,7 @@ mod tests {
     /// whole Miri run and takes the 209 tests that had passed with it. Miri is here for aliasing
     /// and undefined behaviour in the parsers (`doc/verify.md`, ADR 0450); a test whose subject is
     /// the *file system* has nothing for it to check, and skipping it costs that coverage nothing.
-    /// Found on `main` in the nine-hundred-and-thirty-seventh session, where it had failed CI's
-    /// nightly job since these tests were written and no local gate could see it.
+    /// Only CI's nightly job runs Miri, so no local gate sees a test that lacks the attribute.
     fn scratch(name: &str) -> std::path::PathBuf {
         let directory =
             std::env::temp_dir().join(format!("pdf-syntax-file-{}-{name}", std::process::id()));

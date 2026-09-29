@@ -6,11 +6,9 @@
 //! states the rule the check rests on in one sentence: a `§` is a clause of ISO 32000-2 and
 //! nothing else, so another standard's section is written out in words. [`crate::scan_tree`]
 //! holds that rule over every Rust source and `tests/conformance.rs` holds it over the ledger's
-//! notes — **and until the one-thousand-and-ninety-sixth session nothing held it over the prose
-//! those two are written beside.** The merge of sessions 1086–1091 found sixty-nine sites of
-//! `ISO 19005-2 §6.3.3`-shaped text in `doc/*.md` alone, every one of them a section number
-//! checked against the wrong standard's clause list, and most of them landing on a clause ISO
-//! 32000-2 has.
+//! notes — **and this holds it over the prose those two are written beside** (ADR 1101), where
+//! `ISO 19005-2 §6.3.3`-shaped text is a section number checked against the wrong standard's
+//! clause list, and most often lands on a clause ISO 32000-2 has.
 //!
 //! It is trap 25 with the population on the instrument's side: a checker whose denominator is
 //! "the Rust sources" reports cleanly over the part of the project it was told about.

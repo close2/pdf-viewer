@@ -27,13 +27,11 @@
 //!
 //! # What the clause asks for and this program does not do
 //!
-//! §12.11.6 says that when requirements cannot be met "then the processing of the document
-//! shall not continue", against a penalty computed as §12.11.3 describes. **This paragraph said
-//! that §12.11.3 states no threshold, from the day it was written until the
-//! six-hundred-and-twenty-sixth session, and it states one** — the
-//! clause's last paragraph, quoted verbatim under [`penalty_total`]. So the computation is a
-//! comparison the clause *does* complete, and this program performs it: the total is a fact
-//! about the document, said out loud beside the requirements it is a total of.
+//! §12.11.6 says that when requirements cannot be met "then the processing of the document shall
+//! not continue", against a penalty computed as §12.11.3 describes. **§12.11.3 states a threshold**
+//! — the clause's last paragraph, quoted verbatim under [`penalty_total`]. So the computation is a
+//! comparison the clause *does* complete, and this program performs it: the total is a fact about
+//! the document, said out loud beside the requirements it is a total of.
 //!
 //! What is done about it is the *reader's*, which is `CLAUDE.md` principle 3's shape for a
 //! restriction a document asserts over its reader: this crate computes and reports, and
@@ -54,12 +52,6 @@ use pdf_syntax::{Dictionary, Document, Object};
 ///
 /// Table 275 defines twenty-five types and a document states the ones it uses; an array longer
 /// than this is a file making a reader work rather than a document asking for something.
-///
-/// **This sentence said twenty-four until the six-hundred-and-forty-first session**, which is the
-/// number both ledger rows carried until the three-hundred-and-seventy-fifth counted the table.
-/// The rows were corrected and the comment beside the `match` was not, which is `doc/todo/01`'s
-/// tenth sweep failing in the direction it is weakest in: a cardinal retired in the ledger goes on
-/// living in the source, where no gate reads it.
 const MAX_REQUIREMENTS: usize = 256;
 
 /// One entry of §12.11's `/Requirements` array. Table 273.
@@ -239,24 +231,18 @@ impl Kind {
     ///
     /// **A claim about this tree rather than about the standard**, which is why every arm names
     /// its reason and why the answer is a sentence rather than a boolean. It decays exactly as a
-    /// ledger row does: a session that builds a layer panel has to come back and change
-    /// `OCInteract`. **It has decayed four times** — three arms in the two-hundred-and-twenty-first
-    /// session, nine more in the three-hundred-and-seventy-fifth, `Transitions` in the
-    /// six-hundred-and-twenty-eighth and the three signature arms in the
-    /// six-hundred-and-forty-first — so the warning is a record of what happens rather than a
-    /// caution that works. Each of the last two was found by reading this method against the tree
-    /// rather than against §12.11.2's ledger row, which had been corrected without it.
+    /// ledger row does: a change that builds a capability an arm names has to come back and change
+    /// that arm, and nothing fires when it does. So this method is read against the tree, not
+    /// against §12.11.2's ledger row.
     ///
     /// `None` means met. The three shapes of "not met" are all here on purpose — a feature this
     /// project *excludes* (`CLAUDE.md` principle 5), a feature that is a viewer's rather than a
     /// renderer's and is not built, and a feature nobody has written yet.
     ///
-    /// **A reason names what is missing, never a clause as unread.** Every one of the nine arms
-    /// corrected in the three-hundred-and-seventy-fifth session was of that second shape — "§12.8
-    /// is unread", "§12.10 is unread", "§14.12 is unread" — and a clause this tree reads is
-    /// exactly what a later session makes false without noticing. Table 275's own wording is the
-    /// discipline: several of its types say "in addition to the requirements of" another, so a
-    /// reason has to name the *increment* rather than the whole.
+    /// **A reason names what is missing, never a clause as unread** — "§12.8 is unread" is a claim
+    /// a later change makes false without noticing. Table 275's own wording is the discipline:
+    /// several of its types say "in addition to the requirements of" another, so a reason has to
+    /// name the *increment* rather than the whole.
     #[must_use]
     pub fn unmet(&self) -> Option<&'static str> {
         Some(match self {
@@ -271,35 +257,24 @@ impl Kind {
             // and the one value refused is `/R` 5, which Table 21 itself calls "Shall not be
             // used". A parameter set outside that does not exist to be asked about.
             //
-            // **Met since the sessions named, and this arm said otherwise for between forty and
-            // eighty-six of them.** The doc comment above anticipated exactly that — "a session
-            // that builds a layer panel has to come back and change `OCInteract`" — and nothing
-            // fires when one does, which is `doc/todo/01`'s sweeps pointed at the source rather
-            // than at the ledger (the two-hundred-and-twenty-first session).
-            //
             // `OCInteract`: `Query::Layers` answers with §8.11.4.3's list and `Command::SetGroup`
             // switches one unless Table 99's `/Locked` forbids it, drawn in `viewer_ui::chrome`
-            // since the hundred-and-sixty-seventh session. `AcroFormInteract`:
-            // `ViewState::set_field` since the hundred-and-thirty-fifth, saved by §7.5.6's
-            // incremental update since the hundred-and-thirty-sixth. `Attachment`:
-            // `Command::Extract` writes an embedded file's decoded bytes with Table 45's
-            // checksum checked against them, and the sidebar lists them, since the
-            // hundred-and-sixty-seventh (ADR 0145).
+            // (ADR 0143). `AcroFormInteract`: `ViewState::set_field` (ADR 0120), saved by §7.5.6's
+            // incremental update (ADR 0121). `Attachment`: `Command::Extract` writes an embedded
+            // file's decoded bytes with Table 45's checksum checked against them, and the sidebar
+            // lists them (ADR 0145).
             //
             // **The claim is about the program this crate is part of and not about the crate**,
             // which is what makes it decay: the capability is two crates away in every one of
             // these three cases, and no compiler notices when it arrives.
             //
-            // **`Collection` joined them in the three-hundred-and-seventy-fifth**, on the same
-            // sweep and for the same reason — ADR 0202's collection view is two crates away.
+            // **`Collection` is met for the same reason** — ADR 0202's collection view is two
+            // crates away.
             // Table 275 asks for two things and both are here: "displaying the embedded files
             // referenced from the document's collection dictionary (12.3.5, "Collections") along
             // with any associated metadata", which is `Query::Collection` and the columns
             // `viewer_ui::chrome` builds from Table 153's `/Schema` and each file's Table 46
-            // collection item dictionary — both numbers were wrong until the
-            // four-hundred-and-thirteenth session, 43 being the file specification dictionary
-            // and 44 the additional entries in an embedded file stream, which is
-            // `doc/todo/01`'s ninth sweep finding two in one sentence; and "that the user can extract or otherwise view the
+            // collection item dictionary; and "that the user can extract or otherwise view the
             // contents of each item in the collection", which is `Command::Extract` — a
             // collection's items *are* the `/EmbeddedFiles` tree's entries, which is the key that
             // command takes.
@@ -328,11 +303,9 @@ impl Kind {
             | Self::Collection
             | Self::Transitions
             | Self::SeparationSimulation => return None,
-            // **Eight reasons below were false or expired when the three-hundred-and-seventy-fifth
-            // session read them against the code, between six and about a hundred and eighty
-            // sessions after each stopped being true.** Every one named a clause as *unread* that
-            // this tree reads, which is the cheapest of `doc/todo/01`'s shapes to check and the
-            // one nothing fires on. What each says now is the part that is genuinely missing.
+            // **Each reason below says the part that is genuinely missing**, never a clause as
+            // *unread*: that is the cheapest of `doc/todo/01`'s shapes to check and the one
+            // nothing fires on.
             Self::Markup => {
                 // Table 275 asks for "the creation, modification and deletion of markup
                 // annotations". `Edit::Markup` creates one and writes its appearance (ADR 0196);
@@ -365,17 +338,12 @@ impl Kind {
                 "no document part panel: a GoToDp action navigates §14.12's parts, and the DPart \
                  hierarchy is not displayed"
             }
-            // **Three types, three reasons, since the six-hundred-and-forty-first session.**
-            // They shared one arm reading "no signature validation or signing: §12.8 is read and
-            // reported, and verifying a signature needs a certificate store", and that sentence
-            // broke both halves of this method's own discipline. It named the *whole* where Table
-            // 275 words two of the three as increments — "[i]n addition to the validation
+            // **Three types, three reasons.** One arm for all three would name the *whole* where
+            // Table 275 words two of the three as increments — "[i]n addition to the validation
             // requirements of DigSigValidation" and "[i]n addition to the requirements of DigSig
-            // and DigSigValidation" — and it had decayed: a signature *is* verified here, under
-            // the key in the certificate the file itself carries, since the
-            // three-hundred-and-ninety-second session (ADR 0229), which is what
-            // `Authenticity::Verified` says. This arm's fourth decay and the same shape as
-            // `Transitions`' third — a capability two crates deep arriving with nothing to fire.
+            // and DigSigValidation" — and a signature *is* verified here, under the key in the
+            // certificate the file itself carries (ADR 0229), which is what
+            // `Authenticity::Verified` says.
             Self::DigSigValidation => {
                 // "the validation of digital signatures (both document and certifying) that have
                 // been applied to the PDF including the handling of supplied revocation
@@ -741,9 +709,8 @@ mod tests {
     ///
     /// `Navigation` and `AcroFormInteract` are met — links, outlines and the three actions the
     /// clause names, and a field a person can type into and save — and the other two are not,
-    /// for two different reasons the strings say. **The second of those moved in the
-    /// two-hundred-and-twenty-first session**: the arm had said "nothing edits the value" since
-    /// before `ViewState::set_field` existed, and this test had asserted the stale answer.
+    /// for two different reasons the strings say. `AcroFormInteract` is met because
+    /// `ViewState::set_field` edits the value (ADR 0120).
     #[test]
     fn the_requirements_this_program_cannot_meet_are_named() {
         let doc = document(
@@ -825,8 +792,7 @@ mod tests {
     /// `CollectionEditing` is *not* met, and the pair is what this test is for: Table 275 words
     /// the second as "[i]n addition to the requirements of the Collection value", so the two
     /// answers must differ and the second's reason must name the increment rather than repeat
-    /// the first. It said "no collection view" until the three-hundred-and-seventy-fifth session,
-    /// forty-odd after the view arrived.
+    /// the first, and a collection view exists (ADR 0202).
     #[test]
     fn a_collection_is_met_and_editing_one_is_not() {
         let doc = document(
@@ -846,14 +812,11 @@ mod tests {
 
     /// Table 275's three signature types state three increments, so they give three reasons.
     ///
-    /// `DigSigValidation`, `DigSig` and `DigSigMDP` shared one arm until the
-    /// six-hundred-and-forty-first session, and Table 275 words the second and third as strict
-    /// additions to the first — "[i]n addition to the validation requirements of
-    /// `DigSigValidation`" and "[i]n addition to the requirements of `DigSig` and
-    /// `DigSigValidation`".
-    /// A single sentence for three types cannot name three increments, which is what the doc
-    /// comment on [`Kind::unmet`] asks of a reason; and the sentence it gave had also expired,
-    /// since a signature's value *is* verified here (ADR 0229). This is the pair test
+    /// Table 275 words `DigSig` and `DigSigMDP` as strict additions to `DigSigValidation` — "[i]n
+    /// addition to the validation requirements of `DigSigValidation`" and "[i]n addition to the
+    /// requirements of `DigSig` and `DigSigValidation`". A single sentence for three types cannot
+    /// name three increments, which is what the doc comment on [`Kind::unmet`] asks of a reason;
+    /// and a signature's value *is* verified here (ADR 0229). This is the pair test
     /// [`a_collection_is_met_and_editing_one_is_not`] is, over a triple.
     #[test]
     fn the_three_signature_requirements_name_three_different_increments() {
@@ -886,9 +849,8 @@ mod tests {
                 .is_some_and(|r| r.contains("§12.8.2.2.2's comparison")),
             "DigSigMDP's increment is §12.8.2.2.2's analysis: {reasons:?}"
         );
-        // The sentence that had gone stale, and the reason it had: this program *does* verify a
-        // signature value under the certificate the file carries, so no reason here may say it
-        // does not.
+        // This program *does* verify a signature value under the certificate the file carries,
+        // so no reason here may say it does not.
         for reason in &reasons {
             assert!(
                 !reason.contains("no signature validation"),
@@ -899,13 +861,11 @@ mod tests {
 
     /// No reason says a clause is unread, because that is the claim that decays.
     ///
-    /// Nine of these strings were wrong in the three-hundred-and-seventy-fifth session and every
-    /// one was of this shape: `DigSig` said "§12.8 is unread" with §12.8 read since the
-    /// ninety-eighth, `Geospatial2D` said "§12.10 is unread" with every dictionary of it read,
-    /// `DPartInteract` said "§14.12 is unread" with `GoToDp` navigating parts. A reason that
-    /// names a *clause* as absent is a claim about the tree that no compiler and no gate watches;
-    /// a reason that names the missing *capability* stays true until that capability arrives.
-    /// This is the gate `doc/todo/01`'s fifth sweep had to be run by hand to be.
+    /// "§12.8 is unread" would be false with §12.8 read, "§12.10 is unread" false with every
+    /// dictionary of it read, "§14.12 is unread" false with `GoToDp` navigating parts. A reason
+    /// that names a *clause* as absent is a claim about the tree that no compiler and no gate
+    /// watches; a reason that names the missing *capability* stays true until that capability
+    /// arrives.
     #[test]
     fn no_reason_claims_a_clause_is_unread() {
         for kind in [

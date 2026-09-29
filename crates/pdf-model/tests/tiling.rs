@@ -275,10 +275,9 @@ fn an_uncoloured_cell_that_sets_a_colour_is_ignored() {
 /// > operator shall be ignored:
 ///
 /// followed by a table whose members are `TR`, `TR2`, `BG`, `BG2`, `UCR`, `UCR2`, `HT` and
-/// `UseBlackPtComp`. §10.5's transfer function arrived in the three-hundred-and-fifty-eighth
-/// session and its `/ExtGState` reader was not put behind that flag, so an uncoloured cell could
-/// decide a colour §8.6.8 reserves for whoever uses the pattern — found in the
-/// three-hundred-and-seventy-fifth by a sweep of the phrase the same clause's comment used.
+/// `UseBlackPtComp`. §10.5's transfer function (ADR 0204) is read by the `/ExtGState` reader
+/// behind that flag; outside it, an uncoloured cell could decide a colour §8.6.8 reserves for
+/// whoever uses the pattern.
 ///
 /// The fixture's function is `{ pop 0 }`: every component to zero, which would paint the cell
 /// black. `scn` supplies blue, and blue is what must come out.
@@ -365,17 +364,16 @@ fn the_pattern_matrix_moves_the_tiling() {
 /// Every site a fill states is painted, however many that is, while the budget affords them.
 ///
 /// §8.7.3.1 asks the processor to "paint the cell on the current page as many times as necessary
-/// to fill an area". Until the eight-hundred-and-eighty-second session a constant, `MAX_TILES`,
-/// capped that at 4096 sites whatever the cell held — so this fixture, a unit cell at a unit
-/// step over a 100-unit fill, which [`span`](../src/content/pattern.rs)'s floor and ceil make 102
-/// columns by 102 rows, painted its lowest forty rows and reported the rest (ADR 0477, on
-/// `7803372.pdf` of the crawl, two hatched table columns this tree left white). ADR 0810 retired
-/// the constant: the sites are copies charged to `MAX_OPERATIONS` and to the tiling's own
-/// `MAX_TILE_COPIES` (ADR 0430, ADR 0810), an empty cell loops nothing, a site the fill cannot
-/// reach is not copied, and the count a file states is bounded by the commands it costs rather than
-/// by a number of its own. So the whole square carries the pattern and nothing is reported — the top row that
-/// used to be the control for "past the budget" is now the control for "the budget was not the
-/// question". `hostile_budgets.rs` holds the case that *does* reach the budget.
+/// to fill an area". This fixture is a unit cell at a unit step over a 100-unit fill, which
+/// [`span`](../src/content/pattern.rs)'s floor and ceil make 102 columns by 102 rows — past a
+/// fixed cap of 4096 sites, which would paint the lowest forty rows and report the rest (ADR
+/// 0477, on `7803372.pdf` of the crawl, two hatched table columns left white). The sites are
+/// copies charged to `MAX_OPERATIONS` and to the tiling's own `MAX_TILE_COPIES` (ADR 0430, ADR
+/// 0810), an empty cell loops nothing, a site the fill cannot reach is not copied, and the count
+/// a file states is bounded by the commands it costs rather than by a number of its own. So the
+/// whole square carries the pattern and nothing is reported — the top row is the control for
+/// "the budget was not the question". `hostile_budgets.rs` holds the case that *does* reach the
+/// budget.
 #[test]
 fn every_site_the_fill_states_is_painted() {
     let unit = dotted_cell(1, "1 0 0 rg")
@@ -576,10 +574,9 @@ fn quartered_cell() -> String {
 /// > the CS or cs operator just like other colour spaces, and a particular pattern shall be
 /// > installed as the current colour with the SCN or scn operator
 ///
-/// It was reported rather than drawn until the eight-hundred-and-second session, on ADR 0028's
-/// reason — the outline is the backends' to compute — which reaches the construction that tiles
-/// an outline *as a path* and not the one used here, where the outline is a soft mask each
-/// backend derives with the expander it already has (ADR 0735).
+/// ADR 0028's reason for reporting it — the outline is the backends' to compute — reaches the
+/// construction that tiles an outline *as a path* and not the one used here, where the outline
+/// is a soft mask each backend derives with the expander it already has (ADR 0735).
 ///
 /// The fixture is a diagonal rule, chosen so that the three pixels below each fail for a
 /// different reason. The stroke runs from (10, 10) to (90, 90) at width 10, so its mark is a
@@ -625,11 +622,10 @@ fn a_stroke_whose_colour_is_a_tiling_pattern_is_tiled_along_its_outline() {
 /// A glyph *stroked* in a tiling pattern is tiled too, ISO 32000-2 §9.3.6's modes 1, 2, 5 and 6.
 ///
 /// §8.7.2 makes a stroking pattern a colour, and a glyph's outline is stroked by the same
-/// parameters a path's is. **`path.rs` reported this and `text.rs` did not**, which is what
-/// §8.7.3's ledger row hid for as long as it named one corpus document on the path route and
-/// read as though the gap were covered everywhere: a `Tr 1` glyph was outlined in whatever solid
-/// colour was last set, silently (session 630). Both routes tile since ADR 0735, and this test
-/// is what fails if only one of them does.
+/// parameters a path's is. **`path.rs` and `text.rs` are two routes to one question**, and a
+/// ledger row naming one corpus document on the path route can hide the other: a `Tr 1` glyph
+/// outlined in whatever solid colour was last set, silently. Both routes tile (ADR 0735), and
+/// this test is what fails if only one of them does.
 #[test]
 fn a_glyph_stroked_in_a_tiling_pattern_is_tiled() {
     // `1 Tr` is stroke-only, so nothing but the stroking colour decides what this glyph gets,
@@ -930,8 +926,7 @@ fn each_site_is_the_cells_marks_displaced_by_the_lattice() {
 /// in an array". A gradient anchored to the page instead of to the cell makes the tiles differ
 /// from one another, which is not an array of identical copies. `issue8565.pdf` is the corpus
 /// document that states one — a page-sized cell whose fill is a radial shading pattern under a
-/// luminosity mask — and it drew a flat colour until the five-hundred-and-ninety-fifth session
-/// noticed the anchoring while checking something else.
+/// luminosity mask — and anchored to the page it draws a flat colour (ADR 0430).
 ///
 /// Asserted by putting the gradient's own space beside the marks it paints: the inner pattern
 /// states no `/Matrix`, so its space *is* the cell's, and a gradient anchored to the cell has
@@ -1073,9 +1068,9 @@ fn a_rule_spanning_its_whole_cell_deposits_the_ink_its_geometry_states() {
 ///
 /// §8.7.3.1 places the pattern cell where its own content stream draws it and replicates that at
 /// multiples of `/XStep` and `/YStep`. So the offsets needed to cover a path are measured from
-/// the cell's own extent — and until the two-hundred-and-eighteenth session they were measured
-/// from the pattern space's origin, which is the same answer for every pattern whose `/BBox` is
-/// within one step of it and a wrong one for the rest.
+/// the cell's own extent (ADR 0169) — measured from the pattern space's origin they would be the
+/// same answer for every pattern whose `/BBox` is within one step of it and a wrong one for the
+/// rest.
 ///
 /// This cell sits at `[60 60 80 80]` with a step of 20, which is three steps out. The mark must
 /// still land on the path, and on the same lattice as a cell drawn at the origin — because that
@@ -1148,7 +1143,7 @@ fn a_rule_stated_at_both_cell_edges_weighs_one_rule() {
 /// its step states. This one measures `issue16038.pdf` itself, because that page is the corpus's
 /// closed form for a whole figure: two squares, each `B`, filled with an uncoloured pattern of
 /// rules and stroked at the same 0.3985. Nothing else is on it, so the area it asks for is
-/// arithmetic — and until the eight-hundred-and-sixth session the arithmetic was wrong.
+/// arithmetic, and ADR 0738 states it.
 ///
 /// # The area, term by term
 ///
@@ -1163,9 +1158,8 @@ fn a_rule_stated_at_both_cell_edges_weighs_one_rule() {
 /// 20 × 28.3468 × 0.3985  +  2 × 4 × 28.3468 × 0.3985  −  20 × 0.3985²  =  313.117
 /// ```
 ///
-/// `AMBIGUOUS_TILING_CELL_CLIP` carried the first two terms without the third — 316.29 — from the
-/// three-hundred-and-seventy-fourth session to the eight-hundred-and-sixth, and every percentage
-/// in that note was against it. ADR 0738.
+/// The first two terms without the third — 316.29 — count a corner twice; every percentage
+/// against that figure is off by it. ADR 0738.
 ///
 /// # What it discriminates, at which scale, and what it does not
 ///

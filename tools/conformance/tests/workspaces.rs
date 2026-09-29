@@ -18,9 +18,8 @@
 //! §2 already knew this for compiling: the sequence carried a
 //! `cargo check --manifest-path fuzz/Cargo.toml --bins` line, added after fourteen rounds in which
 //! the targets did not compile against the tree they fuzz — a `clippy` line since ADR 0742, for
-//! the reason the next section gives. The formatting line above it never got
-//! the same treatment, and the eight-hundred-and-seventh round found two rustfmt diffs sitting in
-//! `fuzz/fuzz_targets/` that every round since had reported `cargo fmt --all --check` clean over.
+//! the reason the next section gives. The formatting line needs the same treatment: `cargo fmt
+//! --all --check` reports clean over rustfmt diffs sitting in `fuzz/fuzz_targets/` (ADR 0739).
 //!
 //! The general shape is the one this project cares most about: **an instrument that reports
 //! success without having done its job.** A formatting gate blind to files in the tree is not a
@@ -31,8 +30,8 @@
 //!
 //! ADR 0739 stopped at compiling, deliberately and in writing: a `cargo check` line answers *do
 //! the targets still build*, and putting `fuzz/` under the tree's lint levels was a larger
-//! decision because that crate took no `[lints] workspace = true` at all. The
-//! eight-hundred-and-tenth session took it (ADR 0742), and closing the hole took two properties
+//! decision because that crate took no `[lints] workspace = true` at all. ADR 0742 took it,
+//! and closing the hole took two properties
 //! rather than one, because a lint level travels by a different road from a command:
 //!
 //! - **The command.** `cargo clippy --workspace` stops at the workspace boundary exactly as
@@ -428,10 +427,9 @@ fn every_workspace_in_the_tree_is_formatted_compiled_and_linted_by_the_sequence(
 /// whose members are a glob — `["crates/*", "tools/*", "raster/crates/*"]`. A list and a glob are
 /// two populations and only one of them grew when `raster/` was folded into this workspace on
 /// 2026-09-06, so **1,884 clause citations in 243 of that sub-project's 283 Rust files sat
-/// outside the citation and quotation gate for the four months that followed**, producing no
-/// findings because nothing read them. Session 1004 found it (ADR 1024 §4) and could only say so
-/// from `tools/round.sh`, because this crate was another round's; session 1010 derived the roots
-/// (`conformance::roots`) and moved the check here, where the thing it is about lives.
+/// outside the citation and quotation gate**, producing no findings because nothing read them
+/// (ADR 1024 section 4). So the roots are derived (`conformance::roots`, ADR 1029) and the check
+/// lives here, where the thing it is about lives.
 ///
 /// # Why the two sides are derived differently, and why that is the point
 ///

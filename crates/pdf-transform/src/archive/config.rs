@@ -838,9 +838,13 @@ const PRESERVABLE_XFA: [&str; 1] = ["forms/no-xfa-key"];
 /// - ISO 19005-2 section 6.2.9.2 and ISO 19005-4 section 6.2.8.2: the form stays and its `Ref`
 ///   goes, which is §8.10.4.1's proxy — what a processor draws "when the referenced content is not
 ///   available", and an archive is that case (`doc/adr/1285`).
-const PRESERVABLE_IN_PLACE: [&str; 2] = [
+/// - ISO 19005-2 section 6.2.8.3 and ISO 19005-4 section 6.2.7.3's JPX baseline: an image that
+///   states its own colour space keeps its samples in that space under `FlateDecode`, which no
+///   sentence about JPEG 2000 data binds (`doc/adr/1400`).
+const PRESERVABLE_IN_PLACE: [&str; 3] = [
     "annotations/printable-and-visible",
     "graphics/no-reference-xobjects",
+    "graphics/jpeg2000-uses-the-baseline-feature-set",
 ];
 
 /// What a `preserve` that moves nothing does at one site, where it is built there.
@@ -865,6 +869,14 @@ fn in_place_preservation(requirement: &str) -> Option<&'static str> {
              off the base standard's list and describes the font's own character collection; a \
              name no published program has keeps the refusal, and the report names each CMap \
              embedded (doc/adr/1286)",
+        ),
+        "graphics/jpeg2000-uses-the-baseline-feature-set" => Some(
+            "preserve — a JPEG 2000 image outside the JPX baseline whose dictionary states its \
+             own ColorSpace is decoded to its samples and written again under FlateDecode in that \
+             space, each component at its own depth; the file grows, often by a great deal, and \
+             this program's decoder's output becomes the archive's copy of the picture. An image \
+             whose colour comes from its data keeps the refusal, and the report names each image \
+             with its size before and after (doc/adr/1400)",
         ),
         "graphics/no-reference-xobjects" => Some(
             "preserve — the form XObject stays and its Ref entry goes, so every reader draws the \

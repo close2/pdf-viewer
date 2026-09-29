@@ -52,11 +52,11 @@ const MAX_FUNCTIONS: usize = 4096;
 
 /// How deep §7.10.4's stitching functions nest, on the way in and on the way out.
 ///
-/// Nesting is legal — a subfunction may itself be a stitching function — and the standard
-/// bounds it nowhere, so a `/Functions` array naming its own object recurses for ever. That
-/// is not hypothetical: a 720-byte document doing it overflowed the stack of every program
-/// in this tree until the four-hundred-and-twenty-fifth session, and
-/// `tests/hostile_functions.rs` is the regression test `CLAUDE.md` requires of a crasher.
+/// Nesting is legal — a subfunction may itself be a stitching function — and the standard bounds it
+/// nowhere, so a `/Functions` array naming its own object recurses for ever. That is not
+/// hypothetical: a 720-byte document doing it overflows the stack of a reader with no bound (ADR
+/// 0261), and `tests/hostile_functions.rs` is the regression test `CLAUDE.md` requires of a
+/// crasher.
 ///
 /// One constant for the build and for [`Function::breakpoints`]' walk, so that the two
 /// cannot disagree about how deep a chain can be.
@@ -969,15 +969,13 @@ fn narrow(value: f64) -> f32 {
 /// > This subset is comprised of the following PostScript language features: … Expressions
 /// > involving only integers, real numbers, and boolean values
 ///
-/// **This stack held `f32` until the five-hundred-and-thirty-sixth session**, and Annex B's own
-/// operand columns are what that costs. §B.3 types `eq` and `ne` as `any 1 any 2 … bool` — every
+/// **This stack holds typed values rather than `f32`**, because Annex B's own operand columns
+/// need it. §B.3 types `eq` and `ne` as `any 1 any 2 … bool` — every
 /// object, so a boolean *is* an operand there and the operator has to decide equality across the
 /// types — while it types `gt`, `ge`, `lt` and `le` as `num 1 num 2`, `and`, `or`, `xor` and
 /// `not` as `bool | int`, and `bitshift` as `int 1 shift`. A stack of numbers cannot tell those
-/// apart: with a boolean stored as `1.0`, `true 1 eq` answered *true*, which is a colour decided
-/// by a type confusion. The raster team found that in their own device-side evaluator by running
-/// this tree's corpus against it and reported that ours had the same shape
-/// (`doc/QUORRA_FUNCTION_PAINT_BUILT.md` section 5); ADR 0371 is this side's.
+/// apart: with a boolean stored as `1.0`, `true 1 eq` answers *true*, which is a colour decided
+/// by a type confusion (`doc/QUORRA_FUNCTION_PAINT_BUILT.md` section 5; ADR 0371).
 ///
 /// # Where a type is not what the operator asks for
 ///
@@ -1000,13 +998,13 @@ fn narrow(value: f64) -> f32 {
 /// real number shall not be present when an integer is expected" — and a file that does it
 /// anyway is a file this viewer still has to draw.
 ///
-/// **One operand class is outside this policy altogether, and was inside it for forty-one
-/// sessions.** `ge`, `gt`, `lt` and `le` are typed `num 1 num 2` by §B.3 *and* by §7.10.5.2's
-/// normative deferral, so a boolean under one of them has no reading that loses least — it has no
-/// reading. A program in which one provably reaches such an operand is refused at parse time and
-/// its caller reports it; [`ordering_reaches_a_boolean`] is the whole argument, and ADR 0412 is
-/// the correction. The conversion above still answers where that walk could not decide, because
-/// an evaluator cannot raise §7.10.5's error at a device pixel.
+/// **One operand class is outside this policy altogether.** `ge`, `gt`, `lt` and `le` are typed
+/// `num 1 num 2` by §B.3 *and* by §7.10.5.2's normative deferral, so a boolean under one of them
+/// has no reading that loses least — it has no reading. A program in which one provably reaches
+/// such an operand is refused at parse time and its caller reports it;
+/// [`ordering_reaches_a_boolean`] is the whole argument, and ADR 0412 the decision. The conversion
+/// above still answers where that walk could not decide, because an evaluator cannot raise
+/// §7.10.5's error at a device pixel.
 ///
 /// The alternative — answering the zero of the operator's result type, so that `true 0 gt` were
 /// `false` rather than `1 > 0` — was considered and declined for two reasons. It puts a second
@@ -1299,8 +1297,8 @@ fn device_step(instruction: &Instruction) -> Option<ProgramStep> {
 ///
 /// This is done *before* the program is split on white space, and that order is the whole fix:
 /// splitting first destroys the line boundary the clause defines a comment by, and every
-/// approximation available afterwards is wrong. Skipping one token after the PERCENT SIGN —
-/// what this code did until the five-hundred-and-twenty-sixth session — refuses a program
+/// approximation available afterwards is wrong (ADR 0361). Skipping one token after the PERCENT
+/// SIGN refuses a program
 /// loudly when the word after the sign is not an operator (`% BBP Math for Pi` compiled `Math`)
 /// and, worse, *silently compiles the rest of the comment's words as instructions* when they
 /// happen to be numbers or operator names.
@@ -2108,9 +2106,8 @@ fn set_jump(out: &mut [Instruction], at: usize, target: usize) -> Result<(), Fun
 /// obvious meaning. And an integer too large for an `i32` becomes a real, which is what §7.3.3's
 /// own sentence about the limits of the machine leaves a processor to do.
 ///
-/// **A third edge was not a choice and was not read, until the eight-hundredth session.**
-/// `f32::from_str` also accepts `inf`, `infinity` and `NaN`, and until then `{ inf }` compiled to
-/// a pushed infinity: §7.3.3 has no such form, Table 42 has no operator of any of those names, so
+/// **A third edge is not a choice** (ADR 0733). `f32::from_str` also accepts `inf`, `infinity`
+/// and `NaN`, and §7.3.3 has no such form, Table 42 has no operator of any of those names, so
 /// the token is neither a literal nor an operator and the function is malformed. Requiring a
 /// decimal digit is §7.3.3's own test — both of its forms are "one or more decimal digits" — and
 /// it sends such a token to the operator match below, which refuses it and says so. It is the
@@ -2281,13 +2278,13 @@ fn evaluate_postscript(program: &[Instruction], stack: &mut Vec<Value>) {
 ///
 /// # What a typed stack decides, and what it left alone
 ///
-/// The stack holds [`Value`]s rather than `f32`s since the five-hundred-and-thirty-sixth session,
-/// which is what makes Annex B's operand and result columns implementable rather than decorative:
-/// `not` is one's complement on an integer and negation on a boolean, `and`, `or` and `xor`
-/// answer in the type they were given, `cvi` and `cvr` are conversions rather than a truncation
-/// and a no-op, and `eq` answers §B.3's `any 1 any 2` *across* the three types instead of
-/// comparing a boolean as though it were the number 1. [`Value`] states the whole of what happens
-/// where an operand's type is not the one its line asks for, and ADR 0371 is the argument.
+/// The stack holds [`Value`]s rather than `f32`s, which is what makes Annex B's operand and result
+/// columns implementable rather than decorative: `not` is one's complement on an integer and
+/// negation on a boolean, `and`, `or` and `xor` answer in the type they were given, `cvi` and `cvr`
+/// are conversions rather than a truncation and a no-op, and `eq` answers §B.3's `any 1 any 2`
+/// *across* the three types instead of comparing a boolean as though it were the number 1.
+/// [`Value`] states the whole of what happens where an operand's type is not the one its line asks
+/// for, and ADR 0371 is the argument.
 ///
 /// What it left alone is worth as much: `and`, `or` and `xor` still agree with the arithmetic
 /// they had, because over `{0, 1}` the bitwise operation is the logical one — the typing changes
@@ -2508,8 +2505,8 @@ fn apply_operator(operator: Operator, stack: &mut Vec<Value>) {
         // is a function of the *value* rather than of a width nobody stated: `-4 -1 bitshift` is
         // `-2` under it whatever the register is. It is a choice and not a reading, and the
         // instrument that says what it costs is `examples/type4_operator_census`, which counts
-        // the programs in the corpora that reach `bitshift` at all — none of 7 360, at the
-        // five-hundred-and-thirty-sixth session's run.
+        // the programs in the corpora that reach `bitshift` at all — none of 7 360 when ADR 0371
+        // ran it.
         //
         // A shift wider than the register is where that principle used to leak, and the last
         // line is what closes it: shifting right by more bits than an integer has leaves the
@@ -2535,10 +2532,8 @@ fn apply_operator(operator: Operator, stack: &mut Vec<Value>) {
         // §B.3: "Perform logical | bitwise not" — two operators wearing one name, like `and`
         // above, except that here the two *disagree*. Logical `not` of true is false; the one's
         // complement of the integer `1` is `-2`, and of `63` is `-64`. Which is meant depends on
-        // the operand's type, and until the five-hundred-and-thirty-sixth session a compiled
-        // literal had none, so this evaluator could implement only the logical one and `63 not`
-        // answered `0`. It answers `-64` now, off the type §7.3.2 and §7.3.3 give the literal
-        // `63` in the file itself.
+        // the operand's type, which a compiled literal carries (ADR 0371): `63 not` answers
+        // `-64`, off the type §7.3.2 and §7.3.3 give the literal `63` in the file itself.
         //
         // A real reaching here is the error §7.3.3 names — a real number present where an
         // integer is expected — and [`Value`]'s policy truncates it rather than refusing, so
@@ -2548,14 +2543,12 @@ fn apply_operator(operator: Operator, stack: &mut Vec<Value>) {
             other => Value::Integer(!other.integer()),
         }),
         // §B.3 gives `eq` one line — "Test equal" — and no tolerance, and types it `any 1 any 2`
-        // rather than `num 1 num 2`. Both halves of that were wrong here in turn. The tolerance
-        // was `f32::EPSILON` until the five-hundred-and-thirty-fourth session, which is not a
-        // conservative reading of the deferral but a different operator: `f32::EPSILON` is the
-        // gap between 1.0 and its successor, so near zero it made millions of distinct values
-        // equal — every value under 1.2e-7 equalled every other, and equalled zero — while at
-        // any magnitude above about 8.4 million it is smaller than one unit in the last place
-        // and the comparison was exact anyway. It was loosest exactly where a type 4 program
-        // tests a boundary.
+        // rather than `num 1 num 2`, so the comparison is exact (ADR 0369). A tolerance of
+        // `f32::EPSILON` is not a conservative reading of the deferral but a different operator:
+        // it is the gap between 1.0 and its successor, so near zero it makes millions of
+        // distinct values equal — every value under 1.2e-7 equals every other, and zero — while
+        // above about 8.4 million it is smaller than one unit in the last place. It is loosest
+        // exactly where a type 4 program tests a boundary.
         //
         // **And `any 1 any 2` is the half this round takes.** An operator defined on every
         // object has to answer across the types rather than through them, so a boolean is never
@@ -2582,9 +2575,9 @@ fn apply_operator(operator: Operator, stack: &mut Vec<Value>) {
         // ([`ordering_reaches_a_boolean`]); what is left here is every program the walk could not
         // decide, and there [`Value`]'s conversion policy still stands — `true 0 gt` compares 1
         // with 0 — because an evaluator has no way to raise §7.10.5's error at a device pixel.
-        // The five-hundred-and-thirty-sixth session's reading, that this was a choice rather than
-        // a departure, is what ADR 0412 corrected; the question came from the raster team's ADR
-        // 0053 section 3.2 by way of `doc/QUORRA_FUNCTION_PAINT_BUILT.md` section 3.
+        // That this is a departure rather than a choice is ADR 0412's reading; the question came
+        // from the raster team's ADR 0053 section 3.2 by way of
+        // `doc/QUORRA_FUNCTION_PAINT_BUILT.md` section 3.
         Operator::Ge => binary(stack, |a, b| Value::Boolean(a.as_f64() >= b.as_f64())),
         Operator::Gt => binary(stack, |a, b| Value::Boolean(a.as_f64() > b.as_f64())),
         Operator::Le => binary(stack, |a, b| Value::Boolean(a.as_f64() <= b.as_f64())),
@@ -2713,10 +2706,9 @@ const MAX_STACK: usize = 1000;
 /// by different rules, and a type 4 program's inputs cross zero as a matter of course
 /// (§7.10.5.3's own example has a `/Domain` of `[-1.0 1.0 -1.0 1.0]`).
 ///
-/// **This was `f32::round` until the five-hundred-and-thirty-fourth session**, which rounds half
-/// away from zero, so every negative tie went the wrong way — `-6.5` to `-7` where the greater is
-/// `-6`. The raster team found it reading this file to build a device-side evaluator and reported
-/// it in `doc/QUORRA_FUNCTION_PAINT_ANSWER.md` section 6; ADR 0369 is this side's. Their
+/// **This is not `f32::round`**, which rounds half away from zero, so every negative tie would go
+/// the wrong way — `-6.5` to `-7` where the greater is `-6`
+/// (`doc/QUORRA_FUNCTION_PAINT_ANSWER.md` section 6; ADR 0369). Their
 /// observation that WGSL's `round` is half to *even* belongs beside this one, because it agrees
 /// with the greater at `-6.5` and disagrees at `2.5`: a generated shader is not this function.
 ///
@@ -2865,9 +2857,8 @@ mod tests {
 
     /// `round`'s tie goes to the greater integer, in both half-planes and at zero.
     ///
-    /// Until the five-hundred-and-thirty-fourth session this was `f32::round`, which is half
-    /// away from zero, so every value in the first row answered one lower. ADR 0369, and
-    /// `doc/QUORRA_FUNCTION_PAINT_ANSWER.md` section 6, which found it.
+    /// `f32::round` is half away from zero, so under it every value in the first row answers one
+    /// lower. ADR 0369, and `doc/QUORRA_FUNCTION_PAINT_ANSWER.md` section 6.
     #[test]
     fn round_takes_a_tie_to_the_greater_integer() {
         assert_eq!(calculator("{ -6.5 round }", &[]), vec![-6.0]);
@@ -2886,9 +2877,9 @@ mod tests {
 
     /// §B.3's `eq` is a relation, not a proximity: it holds for equal values and nothing else.
     ///
-    /// The `f32::EPSILON` tolerance that stood here until the five-hundred-and-thirty-fourth
-    /// session is what the first two of these measure — it made every value under 1.2e-7 equal
-    /// to zero and to every other, which is where a type 4 program tests a boundary.
+    /// The first two of these measure an `f32::EPSILON` tolerance (ADR 0369) — it would make every
+    /// value under 1.2e-7 equal to zero and to every other, which is where a type 4 program tests
+    /// a boundary.
     #[test]
     fn equality_is_exact_rather_than_approximate() {
         assert_eq!(calculator("{ 0 1e-8 eq }", &[]), vec![0.0]);
@@ -2976,11 +2967,8 @@ mod tests {
     /// The clause makes `not` two operators sharing a name — `bool 1 | int 1 … bool 2 | int 2` —
     /// and unlike `and`, `or` and `xor` the two disagree on `{0, 1}`: the one's complement of the
     /// integer `1` is `-2` and of `63` is `-64`, where the logical operator answers false and
-    /// false. **Until the five-hundred-and-thirty-sixth session this evaluator could implement
-    /// only one of them**, because `Instruction::Push` carried an `f32` and a literal `63` and a
-    /// `true` were the same value by the time it ran; the test that stood here pinned `63 not`
-    /// at `0` and said so. It is `-64` now, and nothing had to be inferred to get there: §7.3.2
-    /// and §7.3.3 give the token `63` its type in the file itself.
+    /// false. `63 not` is `-64`, and nothing has to be inferred to get there: §7.3.2 and §7.3.3
+    /// give the token `63` its type in the file itself (ADR 0371).
     ///
     /// A real reaching `not` is §7.3.3's error — a real where an integer is expected — and
     /// [`Value`]'s policy truncates rather than refusing, which is the last line.
@@ -3182,8 +3170,8 @@ mod tests {
     /// shall follow PDF conventions rather than PostScript language conventions" — and both of
     /// §7.3.3's forms are one or more decimal digits. Table 42 lists the operators, and none of
     /// them is called `inf`, `infinity` or `NaN`. A token that is neither is therefore a refusal,
-    /// and until the eight-hundredth session `{ inf }` compiled to a pushed infinity that left
-    /// through the arithmetic as a `NaN` in a colour component.
+    /// where a pushed infinity would leave through the arithmetic as a `NaN` in a colour
+    /// component (ADR 0733).
     #[test]
     fn a_token_spelling_infinity_is_no_more_a_number_than_an_operator() {
         for source in ["{ inf }", "{ infinity }", "{ -inf }", "{ NaN }", "{ nan }"] {
@@ -3304,11 +3292,10 @@ mod tests {
 
     /// §7.10.5.1 admits comments, and §7.2.4 ends one at the end of its line.
     ///
-    /// The words inside a comment are not tokens of the program, whatever they spell. Until
-    /// the five-hundred-and-twenty-sixth session the compiler split the whole stream on white
-    /// space first and then skipped a single token after each PERCENT SIGN, which made the
-    /// first of these refuse the program and the second and third compile a program the file
-    /// does not contain.
+    /// The words inside a comment are not tokens of the program, whatever they spell (ADR 0361).
+    /// A compiler that split the whole stream on white space first and then skipped a single
+    /// token after each PERCENT SIGN would refuse the first of these and compile the second and
+    /// third into a program the file does not contain.
     #[test]
     fn a_comment_runs_to_the_end_of_its_line() {
         // The project owner's own file, whose first line is exactly this shape: the word
@@ -3462,8 +3449,8 @@ mod tests {
     ///
     /// > Valid values shall be 1 , 2 , 4 , 8 , 12 , 16 , 24 , and 32 .
     ///
-    /// **Eight**, and the ledger's row said five for several sessions — which is the shape a row
-    /// naming a whole test *file* as its evidence lets through, and why this test exists. Each
+    /// **Eight** — a count a row naming a whole test *file* as its evidence can misstate, which is
+    /// why this test exists. Each
     /// width is checked at both ends of a two-sample table, because the sample-to-output map is
     /// `Interpolate(sample, 0, 2^BitsPerSample − 1, …)` and a width read wrongly moves the
     /// divisor rather than the samples: the endpoints are exactly where that shows.

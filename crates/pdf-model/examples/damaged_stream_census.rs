@@ -14,16 +14,15 @@
 //!   a whole decode, so a partial ICC profile, font program or image reached the code that reads
 //!   it with nothing said. `/Contents` is the route this round made loud; the rest is the number
 //!   that says what is still owed.
-//! - **Which consumer reads each damaged stream**, added in the five-hundred-and-twenty-first
-//!   session, because `doc/todo/03` §9 left the remaining 96% owed *per consumer*: whether a
-//!   prefix of a thing is a smaller thing of the same kind is a question about what the thing is,
-//!   and the answer differs for a form `XObject`, an image, a profile and a function. A count per
-//!   role is what says which of those arguments is worth a round.
-//! - **How many of them the program says anything about**, added in the five-hundred-and-twenty-fourth
-//!   session: every page of every document holding a damaged stream is interpreted, and the reports
-//!   that name damage are counted. It is the only line here that measures *this tree* rather than
-//!   the files — which is why it is printed beside the population and never instead of it — and it
-//!   is the before-and-after ADR 0359 is judged on.
+//! - **Which consumer reads each damaged stream**, because `doc/todo/03` §9 left the remaining 96%
+//!   owed *per consumer*: whether a prefix of a thing is a smaller thing of the same kind is a
+//!   question about what the thing is, and the answer differs for a form `XObject`, an image, a
+//!   profile and a function. A count per role is what says which of those arguments is worth a
+//!   round.
+//! - **How many of them the program says anything about**: every page of every document holding a
+//!   damaged stream is interpreted, and the reports that name damage are counted. It is the only
+//!   line here that measures *this tree* rather than the files — which is why it is printed beside
+//!   the population and never instead of it — and it is the before-and-after ADR 0359 is judged on.
 //! - **How many streams are shorter than the file's own arithmetic says they are**, damaged or
 //!   not. ISO 32000-2 §7.3.8.2 makes the extent of a stream inferable from the object's own
 //!   attributes — "streams are used to represent many objects from whose attributes a length can
@@ -193,9 +192,8 @@ impl Role {
     ///
     /// `named` is what [`who_names_what`] found: the roles a *referring* dictionary states, which
     /// is the only statement there is for a stream whose own dictionary carries nothing but Table
-    /// 5's entries. A page's `/Contents` is the oldest member of that set and the rest were the
-    /// five-hundred-and-thirty-first session's, which split `unclassified` because `doc/todo/03`
-    /// section 11 said the largest silent bucket was not one thing.
+    /// 5's entries. A page's `/Contents` is one member of that set; the rest split `unclassified`,
+    /// because the largest silent bucket is not one thing (ADR 0366).
     fn of(document: &Document, stream: &Stream, number: u32, named: &BTreeMap<u32, Self>) -> Self {
         let dict = &stream.dict;
         let name_is = |key: &str, value: &[u8]| {
@@ -481,11 +479,11 @@ fn collect(root: &Path, into: &mut Vec<PathBuf>) {
 
 /// What each stream is, according to the dictionary that names it.
 ///
-/// **The split `doc/todo/03` section 11 asked for.** A stream whose own dictionary carries nothing but
-/// Table 5's entries — a page's `/Contents`, a Type 3 glyph description, an `Indexed` lookup
-/// table — can only be classified by the entry some other object names it under, and the
-/// standard makes that entry a statement of the role. So this walks every object in the file
-/// once and records, for each key the standard gives a stream role to, the number it points at.
+/// **The split `doc/todo/03` section 11 asked for.** A stream whose own dictionary carries nothing
+/// but Table 5's entries — a page's `/Contents`, a Type 3 glyph description, an `Indexed` lookup
+/// table — can only be classified by the entry some other object names it under, and the standard
+/// makes that entry a statement of the role. So this walks every object in the file once and
+/// records, for each key the standard gives a stream role to, the number it points at.
 ///
 /// Where two dictionaries name one stream the first wins, which is a real ambiguity rather than
 /// an implementation choice — a form drawn both as a `/Do` and as an appearance is both — and it

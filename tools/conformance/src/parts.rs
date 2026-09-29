@@ -13,7 +13,7 @@
 //! So the population this sweep walks is *mostly correct sentences*, and what it can offer is an
 //! ordering rather than a verdict.
 //!
-//! The seven-hundred-and-sixty-seventh session found the shape by hand. §8.9.6.2's `shall` —
+//! The shape, as it was found by hand (ADR 0186): §8.9.6.2's `shall` —
 //! interpolation during stencil masking smooths the mask's edges and does not interpolate the
 //! painted colour — was answered in two ledger rows by naming the raster, correctly, and then
 //! written down as **"both backends"** when there are three, with the third departing by 131 of
@@ -31,7 +31,7 @@
 //! - **The answer** is [`Membership`], read off the workspace's own files — the member directories
 //!   under `crates/` and `tools/`, each package's `src/bin/`, and `.gitmodules`. Not a number in
 //!   this module: `CLAUDE.md`'s rule is that a fact which can be counted is not written down, and a
-//!   sweep whose right-hand side is a constant measures the session that wrote it (ADR 0397).
+//!   sweep whose right-hand side is a constant measures the round that wrote it (ADR 0397).
 //!
 //! # The three rungs, and which to read first
 //!

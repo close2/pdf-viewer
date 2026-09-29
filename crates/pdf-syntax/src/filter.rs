@@ -54,10 +54,9 @@ pub enum FilterRefusal {
     ///
     /// **Kept apart from [`Self::Corrupt`] because the two are opposite statements about the
     /// same bytes**: a corrupt stream gave everything it had, and this one had more to give.
-    /// Until the four-hundred-and-seventy-first session `flate` and `lzw` answered a bomb with
-    /// the prefix they had inflated and no report at all — `io::Take` returns `Ok` at its
-    /// limit, so a stream clamped at two gibibytes was indistinguishable from a complete
-    /// decode. Trap 5: unsupported input stays loud.
+    /// `io::Take` returns `Ok` at its limit, so without this variant a stream clamped at two
+    /// gibibytes would be indistinguishable from a complete decode (ADR 0306). Trap 5:
+    /// unsupported input stays loud.
     TooLarge {
         /// The bound, in bytes.
         limit: usize,
@@ -2683,9 +2682,8 @@ fn ascii_hex(data: &[u8]) -> Arc<[u8]> {
 ///
 /// **The whole stream is refused, and [`Ascii85`] — the same clause through a window — keeps
 /// the groups in front of the character instead. That is not a drift between two readings; it
-/// is ADR 0343's own distinction arriving by route rather than by consumer**, and the
-/// seven-hundred-and-fourteenth session had it the other way round for an afternoon until a
-/// fuzzed corpus document said so. `PDFBOX-3148-2-fuzzed.pdf` states its **cross-reference
+/// is ADR 0343's own distinction arriving by route rather than by consumer** (ADR 0587).
+/// `PDFBOX-3148-2-fuzzed.pdf` states its **cross-reference
 /// stream** as `/Filter [/ASCII85Decode]` with a byte outside `!`..=`u` eight bytes in: refusing
 /// it sends [`crate::Parser`] to its header scan and the file's page is found, while handing
 /// back the eight bytes as a decode makes them a cross-reference *section* with almost every
@@ -3055,8 +3053,8 @@ mod tests {
     ///
     /// **The witness is a whole page**: a crawled 1216×1753 bilevel scan whose run-length data
     /// decodes to exactly the 266 456 bytes its dictionary describes and then carries one more
-    /// run header with no bytes after it. This tree drew nothing and `poppler`, `mupdf` and
-    /// `ghostscript` each drew the scan (session 613).
+    /// run header with no bytes after it; `poppler`, `mupdf` and `ghostscript` each draw the
+    /// scan (ADR 0448).
     #[test]
     fn run_length_keeps_what_it_decoded_when_the_data_ends_inside_a_run() {
         for tail in [
@@ -3401,8 +3399,7 @@ mod tests {
     /// took 50 minutes 45 seconds** of the `nightly` job's one-hour ceiling on 2026-08-20
     /// (run 32411230902, `filter::tests::an_lzw_bomb… ok` at 20:50:43 against 19:59:58 for the
     /// test before it), and the job was cancelled four minutes into the next test with 57 of
-    /// this crate's 92 still unrun. That is the whole of the discrepancy the
-    /// six-hundred-and-fourteenth session left open and twice mis-attributed to `sccache`.
+    /// this crate's 92 still unrun.
     ///
     /// Nothing was bought for those fifty minutes. This module is under
     /// `#![forbid(unsafe_code)]`; what the test asserts is a *bound* — that the window never

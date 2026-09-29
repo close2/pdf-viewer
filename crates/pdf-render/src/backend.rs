@@ -8,15 +8,14 @@ use crate::geom::Transform;
 
 /// Pixel layout of a [`Raster`].
 ///
-/// **Deliberately not `#[non_exhaustive]`, and it was until the four-hundred-and-eleventh
-/// session.** A [`Raster`] is what `viewer-core` hands a host inside `Rendered::Raster` and
-/// `Answer::Frame`, so this enum is part of that crate's vocabulary whichever crate declares it —
-/// and `doc/ui-boundary.md` states the rule for that vocabulary in one sentence: *"a new `Event`
-/// should fail to compile in every consumer"*. `#[non_exhaustive]` bought the opposite. It forced
-/// a catch-all arm on `viewer-gtk`, on `viewer-qt`, on `viewer-ui`'s software path and on
-/// `viewer-confined`'s wire format, each of which had to refuse an unknown layout at *runtime* —
-/// the best a Rust consumer can do, and no help at all to a C consumer, which cannot fail to
-/// compile in anybody.
+/// **Deliberately not `#[non_exhaustive]`** (ADR 0247). A [`Raster`] is what `viewer-core` hands a
+/// host inside `Rendered::Raster` and `Answer::Frame`, so this enum is part of that crate's
+/// vocabulary whichever crate declares it — and `doc/ui-boundary.md` states the rule for that
+/// vocabulary in one sentence: *"a new `Event` should fail to compile in every consumer"*.
+/// `#[non_exhaustive]` buys the opposite. It forces a catch-all arm on `viewer-gtk`, on
+/// `viewer-qt`, on `viewer-ui`'s software path and on `viewer-confined`'s wire format, each of
+/// which would have to refuse an unknown layout at *runtime* — the best a Rust consumer can do, and
+/// no help at all to a C consumer, which cannot fail to compile in anybody.
 ///
 /// What it costs is stated rather than hidden: adding a second pixel layout here is a breaking
 /// change for every consumer of `pdf-render`, and that is the intended price. A raster's bytes
@@ -127,9 +126,9 @@ impl TargetSpec {
             // ISO 32000-2 states none of this — §10.7 leaves scan conversion to the device
             // and says nothing about a page whose size is not a whole number of pixels — so
             // it is a documented choice. What it is not is invisible: `issue3694_reduced.pdf`
-            // is 272.595 x 56.122, and until the sixty-first session its content sat one row
-            // below where all four reference renderers put it, *including the one whose
-            // raster is the same size as ours*. See ADR 0064.
+            // is 272.595 x 56.122, and under another choice its content sits one row below
+            // where all four reference renderers put it, *including the one whose raster is the
+            // same size as ours*. See ADR 0064.
             transform: Transform::scale(scale, -scale)
                 .then(Transform::translate(0.0, height_as_f32(exact_height))),
         })

@@ -2,9 +2,9 @@
 //!
 //! `CLAUDE.md` principle 3: "Memory safety is not enough. Explicit memory and time budgets
 //! guard against decompression bombs, xref cycles, and pathological content — Rust does not
-//! prevent resource exhaustion." The four bounds in `content.rs` are that guard, and until the
-//! four-hundred-and-thirty-fifth session **nobody had opened the documents they stop**: the
-//! survey of 65 944 crawled documents reported 84 refusals over 83 of them and no more.
+//! prevent resource exhaustion." The four bounds in `content.rs` are that guard, and **the
+//! documents they stop have been opened** (ADR 0271): the survey of 65 944 crawled documents
+//! reported 84 refusals over 83 of them.
 //!
 //! Two of the fixtures below are about a bound on *bytes* rather than on a count —
 //! `Limits::max_stream_len`, and the total of a page's `/Contents` parts, which had no bound at
@@ -176,7 +176,7 @@ fn commands(document: &Document) -> usize {
 ///
 /// **The web's one witness wants 337** — `0546285.pdf`, archive `0546` of `cc-main-2021-31`,
 /// the only document of 65 944 to reach this bound — which is 12 times Table C.1's figure and
-/// is why the four-hundred-and-thirty-fifth session left the bound at 256. ADR 0271.
+/// is why the bound stays at 256. ADR 0271.
 #[test]
 fn nesting_the_graphics_state_past_the_bound_is_refused_by_name() {
     let mut content = String::new();
@@ -220,10 +220,10 @@ fn nesting_the_graphics_state_inside_the_bound_still_draws() {
 /// cannot, because unbounded recursion exhausts the *stack* and Rust's guard page turns that
 /// into an abort rather than into a report.
 ///
-/// **The crawl's four are cycles; the bound is no longer argued from that.** The
-/// eight-hundred-and-seventy-first session found two finite nestings deeper than sixteen among
-/// the GHOSTSCRIPT tracker's sixteen witnesses, and ADR 0793 made the bound what it always was
-/// in fact — a bound on the stack, at 64, counting every one of §7.8.2's kinds. The tests
+/// **The crawl's four are cycles; the bound is not argued from that.** The GHOSTSCRIPT
+/// tracker's sixteen witnesses hold two finite nestings deeper than sixteen, and ADR 0793 makes
+/// the bound what it is in fact — a bound on the stack, at 64, counting every one of §7.8.2's
+/// kinds. The tests
 /// below this one are that decision's: a cycle through a tiling cell, which the old bound
 /// never saw, and a chain the witnesses' depth, which it refused.
 #[test]
@@ -524,9 +524,9 @@ fn contents_parts_inside_the_bound_are_one_stream() {
 
 /// **A `/Mask` that names an image mask carrying a mask of its own is refused, not followed.**
 ///
-/// Found by the `page` fuzz target in the five-hundred-and-sixty-fourth session, and it is not a
-/// budget: `decode_parts` → `apply_explicit_mask` → `decode` → `decode_parts` had **no bound at
-/// all**, so a stencil naming itself overflowed the stack. §C.2's *Nested objects* row above
+/// Found by the `page` fuzz target, and it is not a budget: `decode_parts` →
+/// `apply_explicit_mask` → `decode` → `decode_parts` with **no bound at all** lets a stencil
+/// naming itself overflow the stack. §C.2's *Nested objects* row above
 /// anticipates exactly this — "PDF processors may implement recursive algorithms which may cause
 /// issues for excessively nested constructs" — but the bound here needs no constant, because
 /// Table 87 gives an image mask no `/Mask` and there is no depth beyond one to allow. ADR 0399.
@@ -586,13 +586,10 @@ fn a_soft_mask_carrying_an_explicit_mask_is_refused_by_name() {
 
 /// A tiling pattern whose cell fills with the pattern itself is refused by name.
 ///
-/// **Until ADR 0793 this was a stack overflow.** A cell was run at a fixed depth of one below
-/// `MAX_FORM_DEPTH` — a number chosen when patterns were first drawn so that a cell could hold
-/// one form — which meant a pattern reached from a pattern started counting again from there:
-/// nothing bounded the nesting of cells at all, and this seven-object file recursed until the
-/// guard page aborted the process (`fatal runtime error: stack overflow`, under
-/// `tools/bounded.sh`, on the eight-hundred-and-seventy-fourth session's first probe). The
-/// counter lives in `Interpreter::run` now, where every kind of nested stream passes.
+/// **The counter lives in `Interpreter::run`, where every kind of nested stream passes** (ADR
+/// 0793). A cell run at a fixed depth, so that a pattern reached from a pattern starts counting
+/// again from there, bounds the nesting of cells not at all, and this seven-object file then
+/// recurses until the guard page aborts the process (`fatal runtime error: stack overflow`).
 #[test]
 fn a_tiling_pattern_whose_cell_fills_with_itself_is_refused_by_name() {
     let pattern = "5 0 obj\n<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 612 792] \

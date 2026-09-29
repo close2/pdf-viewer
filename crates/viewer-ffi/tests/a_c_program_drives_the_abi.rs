@@ -214,10 +214,10 @@ fn what_it_printed(said: &str) {
         "after the search: page 3 of 5",
         "after the turn: page 4 of 5, drawn in ",
         "frame: page 4, 708x1000, format 0, 2832000 byte(s)",
-        // What the five-hundred-and-eleventh session added, each line read off the library. The
-        // two counted enumerations, the name it gives a number it does not define, and the refusal
-        // an enumeration this ABI *takes* answers with are the whole of what C has in place of a
-        // build failure — so they are asserted rather than printed.
+        // ADR 0346's enumerations, each line read off the library. The two counted enumerations,
+        // the name it gives a number it does not define, and the refusal an enumeration this ABI
+        // *takes* answers with are the whole of what C has in place of a build failure — so they
+        // are asserted rather than printed.
         "control kinds 8 (header 8), row kinds 4 (header 4), unknown is unknown",
         "an undefined pointer action: the message at that index is not of the kind this accessor \
          reads",
@@ -244,11 +244,10 @@ fn what_it_printed(said: &str) {
         "ticking ticked with the state Yes",
         "after the edit: 1 widget(s) on",
         "dirty after the edit: 1",
-        // **The C program saves between the two**, so the undo takes back an edit the file
-        // already holds and the document is unsaved again. This read 0 until the
-        // five-hundred-and-twenty-fifth session, when `Open::dirty` stopped meaning "the log is
-        // not empty" and started meaning "the cursor is not where the last save left it" — the
-        // old answer was the same for a document saved and one never saved at all.
+        // **The C program saves between the two**, so the undo takes back an edit the file already
+        // holds and the document is unsaved again: `Open::dirty` means "the cursor is not where the
+        // last save left it", not "the log is not empty", which would answer the same for a
+        // document saved and one never saved at all.
         "dirty after the undo: 1",
         "ok",
     ] {

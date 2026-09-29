@@ -589,9 +589,9 @@ fn a_confined_generator_cannot_stat_a_descriptor_it_holds() {
 
 /// A substituted font is looked for on the machine, and a confined generator has no machine.
 ///
-/// **The nine-hundred-and-fourteenth session's corpus walk found this on its first sixty
-/// documents, and every probe in this file passed while it was broken** — which is the same
-/// sentence the two-images test above carries, one layer further in. Four of those sixty name a
+/// **ADR 0870's corpus walk found this in its first sixty documents, with every probe in this file
+/// passing** — the same sentence the two-images test above carries, one layer further in. Four
+/// of those sixty name a
 /// CJK or Arabic face without embedding it; `pdf_font::substitute` then walks
 /// `/usr/share/fonts` to stand in for it, and `read_dir` is `openat`, which is off the
 /// allow-list. A filter whose action is `SECCOMP_RET_KILL_PROCESS` does not return the `Err`

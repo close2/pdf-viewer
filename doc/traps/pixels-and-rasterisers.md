@@ -390,6 +390,21 @@ self-crossing stars — 25 pixels, 64 levels — and only on RADV, because the A
 on there and off on llvmpipe (ADR 1389). After a coverage change in one lane, run the lanes that
 promise to match it where the promise is actually exercised.
 
+### 66. Byte-equality across thread counts is held by the corpus, not by fixtures
+
+Every fixture agreed at one and twenty-four encode threads; hashing every corpus page at both found
+13 that did not, through the atlas room probe in `prospect_for`, which sends one tile to the hybrid on
+one thread and to the scratch lane on many, and the two lanes are not pixel-identical on those pages
+as the comment assumed (round 1279). The hash over the corpus is the instrument; a claim about
+threads made from fixtures is a claim about the fixtures.
+
+### 67. An inside point stepped by a fraction of a small shape does not move in `f32`
+
+`topology::shape_of` stepped its inside point 6e-5 into the shape, below the float spacing at
+x ≈ 1000, so a hairline's round cap was read as nested inside its body and 29 042 pixel walks a
+frame answered a question already decided (ADR 1397). The point and the ray test are `f64` now;
+walks per frame on that page fell to 480.
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

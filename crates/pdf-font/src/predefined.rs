@@ -12,9 +12,8 @@
 //! > online sources.
 //!
 //! So this is the same shape as [`crate::standard`]: a requirement whose answer is *data*, met
-//! by carrying the data rather than by guessing. Until the hundred-and-fifty-sixth session a
-//! font naming one of these was refused and reported — thirteen corpus documents — which was
-//! honest and was not the clause.
+//! by carrying the data rather than by guessing (ADR 0140). Refusing a font naming one of these
+//! — thirteen corpus documents — would be honest and would not be the clause.
 //!
 //! # What is here
 //!

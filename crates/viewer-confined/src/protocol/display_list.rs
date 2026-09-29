@@ -3326,10 +3326,10 @@ mod tests {
     /// A number no arithmetic produced is carried across rather than refused, and the codec's own
     /// equality is what that costs.
     ///
-    /// **The seven-hundred-and-thirty-second session's fuzz target found this at 750 executions**,
-    /// as `one message decoded two ways` — which it was not. `DisplayList`'s `PartialEq` is
-    /// ultimately `f32`'s and `f32`'s is not reflexive, so a list holding NaN is equal to nothing
-    /// including itself, and an `assert_eq!` over two perfect decodes fails.
+    /// **The fuzz target finds this at 750 executions** (ADR 0626), as `one message decoded two
+    /// ways` — which it is not. `DisplayList`'s `PartialEq` is ultimately `f32`'s and `f32`'s is
+    /// not reflexive, so a list holding NaN is equal to nothing including itself, and an
+    /// `assert_eq!` over two perfect decodes fails.
     ///
     /// **The decoder does not refuse one, deliberately** (ADR 0626 section 7): the whole premise
     /// of this boundary is that the confined path draws the page the in-process path draws, so a

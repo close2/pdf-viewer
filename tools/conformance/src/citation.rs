@@ -25,9 +25,8 @@
 //! - [`ForeignCitation`] — another standard's, which is a finding. `RFC 3986 §5.2` reads
 //!   correctly and lands on a clause ISO 32000-2 has.
 //! - [`ProjectSection`] — one of this project's own documents', which is not a finding but is
-//!   not a clause either. `` `doc/todo/02` §2 `` is how this tree has cited itself for hundreds
-//!   of sessions, and every one of those read as a clause citation until the
-//!   nine-hundred-and-seventy-seventh session.
+//!   not a clause either. `` `doc/todo/02` §2 `` is how this tree cites itself, and read as a
+//!   clause citation it would land on a clause that exists (ADR 0987).
 //!
 //! # How a quotation finds its clause
 //!
@@ -80,8 +79,8 @@ pub struct Quotation {
     /// The *other* document it is attributed to, where the nearest attribution before it names
     /// one rather than a clause of the standard.
     ///
-    /// **A blockquote is not always the standard's words, and until the one-thousand-and-tenth
-    /// session this scanner could not say otherwise.** [`prose`](crate::prose)'s own comment
+    /// **A blockquote is not always the standard's words** (ADR 1029). [`prose`](crate::prose)'s
+    /// own comment
     /// about the ledger states the problem exactly — a note "quotes the standard constantly and
     /// also quotes this project's own past conclusions, and it has no blockquote syntax to tell
     /// the two apart" — and a Rust doc comment has the same two kinds with the same syntax. What
@@ -95,8 +94,8 @@ pub struct Quotation {
     /// standard attributes to the standard even if it also names a document.** A quotation can
     /// only land here by an attributing sentence that cites no clause at all.
     ///
-    /// It arrived with `raster/`, whose 283 files entered the scan in that session and which
-    /// blockquotes the brief, the caller's issue list, PLRM3 and its own notes throughout.
+    /// `raster/` is the population that needs it: it blockquotes the brief, the caller's issue
+    /// list, PLRM3 and its own notes throughout.
     pub document: Option<String>,
 }
 
@@ -106,8 +105,8 @@ pub struct Quotation {
 /// every one of them checkable — and the failure this catches is not a typo but a *readable*
 /// citation of something else. `RFC 3986 §5.2` reads correctly to a person and checks as ISO
 /// 32000-2's §5.2, which exists, so it passes in silence while pointing at another document
-/// entirely. The first one arrived in the eightieth session with §12.6.4.8's URI resolution, and
-/// one of its four spellings landed on a real clause.
+/// entirely: of the four spellings §12.6.4.8's URI resolution brought (ADR 0070), one landed on a
+/// real clause.
 ///
 /// **This is another *standard's* section**, and it is a finding. A section of one of this
 /// project's own documents is [`ProjectSection`], which is not: the two are separated because a
@@ -125,9 +124,8 @@ pub struct ForeignCitation {
 ///
 /// **This tree writes `§` for its own documents' sections, and the scanner could not see it.**
 /// `` `doc/todo/02` §2 ``, `doc/oracle-and-corpus.md §3d` and `doc/PLAN.md` §5a are how the
-/// project has cited itself for hundreds of sessions; every one of them read as an ISO 32000-2
-/// citation until the nine-hundred-and-seventy-seventh session, and passed
-/// `every_citation_names_a_clause_that_exists` by landing on a clause that exists.
+/// project cites itself; read as ISO 32000-2 citations, every one of them would pass
+/// `every_citation_names_a_clause_that_exists` by landing on a clause that exists (ADR 0987).
 /// [`ForeignCitation`]'s failure, with our own documents in the place of another standard —
 /// except that where `RFC 3986 §5.2` is a *mistake* to report, these are correct writing to
 /// classify.
@@ -211,9 +209,9 @@ pub struct ForeignTable {
 
 /// A reference to one of the standard's numbered tables.
 ///
-/// Table numbers are the half of a citation nothing checked until the thirteenth session,
-/// and one was already wrong: `§9.3.6 Table 106` had been copied into four comments, two
-/// tests and a written report, and Table 106 is the text-*positioning* operators. A clause
+/// Table numbers are the half of a citation a clause check cannot reach: `§9.3.6 Table 106` was
+/// once copied into four comments, two tests and a written report, and Table 106 is the
+/// text-*positioning* operators (ADR 0022). A clause
 /// number that names nothing is caught by the parser; a table number that names the wrong
 /// table looks exactly like a right one.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -228,8 +226,8 @@ pub struct TableReference {
 
 /// A reference to one of the standard's tables by whatever its caption designates it.
 ///
-/// **A table number is not always a number**, and until the eight-hundred-and-twentieth session
-/// nothing here could say so: [`TableReference`] parses the digits after `Table ` and stops, so
+/// **A table number is not always a number** (ADR 0746): [`TableReference`] parses the digits
+/// after `Table ` and stops, so
 /// `Table Annex O.3`, `Table D.2` and `Table 125a` are read as no reference at all. The standard
 /// captions tables four ways — a bare integer, an integer with a letter (`Table 125a`), an
 /// annex's letter and number (`Table D.2`), and the two in Annex O, which are captioned
@@ -243,11 +241,9 @@ pub struct TableReference {
 /// instrument is `spec-errata renumbered`, for an erratum that renumbers a table by striking
 /// its caption.
 ///
-/// **Both populations are ISO 32000-2's**, and neither was until the
-/// eight-hundred-and-thirty-second session: a reference [`ForeignTable`] claims is in neither,
-/// because it belongs to a document this tree has no conversion of and cannot check a number
-/// against. That is the one thing about `Scan::tables` that has changed since it was written,
-/// and it changed because the alternative is a gate that answers about the wrong standard.
+/// **Both populations are ISO 32000-2's** (ADR 0760): a reference [`ForeignTable`] claims is in
+/// neither, because it belongs to a document this tree has no conversion of and cannot check a
+/// number against, and the alternative is a gate that answers about the wrong standard.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableDesignation {
     /// The designation as the standard's caption writes it: `104`, `125a`, `D.2`, `Annex O.3`.
@@ -413,10 +409,10 @@ fn nearest_document(documents: Vec<String>) -> Option<String> {
 /// Reads the citations and table references in plain prose, outside any source file.
 ///
 /// The conformance ledger's notes are the reason this exists. They are the densest prose about
-/// the standard this project has — 823 rows, most of them naming clauses and tables — and until
-/// the eighty-second session **nothing checked a word of it**: [`scan`] reads Rust sources, and
-/// the ledger is TOML. Three table numbers in it were wrong on the first run, all three by
-/// naming ISO 32000-1's number for a table ISO 32000-2 renumbered.
+/// the standard this project has — 823 rows, most of them naming clauses and tables — and
+/// [`scan`] reads Rust sources while the ledger is TOML. Three table numbers in it were wrong on
+/// the first run, all three by naming ISO 32000-1's number for a table ISO 32000-2 renumbered
+/// (ADR 0072).
 ///
 /// Quotations are deliberately not read. A ledger note quotes the standard constantly and also
 /// quotes this project's own past conclusions, and it has no blockquote syntax to tell the two
@@ -457,17 +453,13 @@ fn read_citations(line: &str, line_number: usize, scan: &mut Scan) {
         // citation — "every `§` in this file is an ISO 32000-2 number" is a sentence about the
         // convention, and there is no number after it to read.
         //
-        // Until the nine-hundred-and-seventy-seventh session nothing outside `tools/conformance`
-        // had written that sentence, and this crate is the one the scan does not read. Then four
-        // `pdf-archive` module headers said it in one round — a file whose clause numbers resolve
-        // in two editions of the standard has to say which edition it means — and each was
-        // reported as a citation the checker could not read. Correct writing about the convention
-        // is not a malformed citation.
+        // `pdf-archive`'s module headers say it — a file whose clause numbers resolve in two
+        // editions of the standard has to say which edition it means — and correct writing about
+        // the convention is not a malformed citation (ADR 0987).
         //
         // A string literal holding nothing but the sign is the same sentence in code rather than
         // in prose: `case.citation.contains("§")` asks whether a citation names *any* source, and
-        // the sign there is data. `raster/` writes it that way, which is how a finding of this
-        // shape arrived the day that directory first entered the scan.
+        // the sign there is data, and `raster/` writes it that way.
         let before = line.get(..position).unwrap_or_default();
         let quoting = ['`', '"'];
         if after.starts_with(quoting) && before.ends_with(quoting) {
@@ -580,8 +572,8 @@ enum Named {
 /// sentence that merely mentions another standard puts a word between the two — `ISO/TS 32002
 /// amends Table 21` reads *amends* here and is ISO 32000-2's table, correctly.
 ///
-/// What the rule had to learn in the nine-hundred-and-seventy-seventh session is that a name is
-/// often *wrapped* rather than bare, and that wrapping is not distance: this tree writes
+/// A name is often *wrapped* rather than bare, and wrapping is not distance (ADR 0987): this tree
+/// writes
 /// `` `doc/todo/02` §2 `` with backticks round the path, and the word in front of the sign was
 /// therefore `` `doc/todo/02` `` and matched nothing. So a wrapper is removed — a backtick, a
 /// quotation mark or an emphasis marker at either end, and an *opening* bracket — and everything
@@ -605,11 +597,9 @@ fn another_document(before: &str) -> Option<Named> {
     // A document of this project's own, named in one word: a path under `doc/`, or a Markdown
     // file name with or without one.
     //
-    // **The upper-case stem this arm used to require was a test of how the author spelled the
-    // name**, twice over. `doc/` is not upper case, which the three-hundred-and-ninety-first
-    // session found and fixed by dropping the directory; `oracle-and-corpus` is not upper case
-    // either, and eleven citations of that document's sections were still being checked against
-    // ISO 32000-2's clauses when this was written. A file name is a file name in any case.
+    // **The case of the stem is not asked**: an upper-case test is a test of how the author
+    // spelled the name, and `doc/` and `oracle-and-corpus` are both lower case. A file name is a
+    // file name in any case.
     let leaf = number.rsplit('/').next().unwrap_or(number);
     let under_doc = number.split('/').next() == Some("doc") && number.contains('/');
     if leaf
@@ -634,28 +624,25 @@ fn another_document(before: &str) -> Option<Named> {
         return Some(Named::Standard(number.to_owned()));
     }
 
-    // **A number has to have a digit in it and an acronym a letter**, and neither test said so
-    // until the eight-hundred-and-thirty-second session: the character sets are permissive
+    // **A number has to have a digit in it and an acronym a letter** (ADR 0760): the character
+    // sets are permissive
     // because `ISO/IEC` needs the solidus and `32000-2` the hyphen, and `all` over a permissive
     // set is satisfied by a string made of nothing else. So `///` passed as an acronym — every
     // character is a solidus — and `-` passed as a number, which made the two words in front of
-    // a wrapped doc comment's `Table` into a document called `/// -`. It was latent on the `§`
-    // side for the whole of that arm's life and needed a bare number before the sign to show;
-    // the `Table` caller reached it on the first run, twice.
+    // a wrapped doc comment's `Table` into a document called `/// -`.
     // **A standard cited with its year is that standard**, and the colon that joins the two is
     // part of the number: `ISO 32000-1:2008 §7.3.4.3` names the 2008 edition, whose clause
-    // numbering is not this standard's. Until the nine-hundred-and-eighty-third session the
-    // colon failed the digits-and-hyphens test, the word was no document, and the `§` after it
-    // was checked against ISO 32000-2 — where it resolved, because both editions number their
-    // clauses alike enough for a citation of the older one to land on a clause of the newer.
-    // Three sites in `pdf-archive` did exactly that (ADR 0997 section 2, ADR 1004).
+    // numbering is not this standard's. A colon failing the digits-and-hyphens test would make
+    // the word no document and check the `§` after it against ISO 32000-2 — where it resolves,
+    // because both editions number their clauses alike enough for a citation of the older one to
+    // land on a clause of the newer (ADR 0997 section 2, ADR 1004).
     if !is_number(number) {
         return None;
     }
-    // **A designation can carry more than one number**, which this arm could not read until the
-    // one-thousand-and-ninety-sixth session: `ETSI EN 319 142-1 §6.3` puts `319` where the
-    // acronym has to be, so the whole word pair failed the test and the `§` was checked against
-    // ISO 32000-2. The numbers are therefore collected before the acronym is asked for, up to
+    // **A designation can carry more than one number**: `ETSI EN 319 142-1 §6.3` puts `319`
+    // where the acronym has to be, so asking for the acronym first would fail the word pair and
+    // check the `§` against ISO 32000-2. The numbers are therefore collected before the acronym is
+    // asked for, up to
     // [`NUMBERS_IN_A_DESIGNATION`] of them, which is what the longest designation this project
     // cites — `ETSI EN 319 122-1` — needs.
     let mut numbers = vec![number];
@@ -1164,8 +1151,8 @@ mod tests {
     /// **A standard cited with its year is that standard, and the colon is part of its number.**
     ///
     /// `ISO 32000-1:2008 §7.3.4.3` names the 2008 edition, whose §7.3.4.3 is not this standard's
-    /// to check; until the nine-hundred-and-eighty-third session the colon defeated the number
-    /// test and the citation passed as ours by landing on a clause that exists. This standard's
+    /// to check, and read as ours the citation would pass by landing on a clause that exists
+    /// (ADR 1004). This standard's
     /// own year is the exemption, in both spellings, because naming the document every `§`
     /// already means is not a finding. Both halves are asserted, per trap 13.
     #[test]
@@ -1198,8 +1185,8 @@ mod tests {
     ///
     /// `X.690 §10.1` and `ETSI EN 319 142-1 §6.3` are the two shapes the acronym-and-one-number
     /// rule could not read: the first has no acronym in front of a number at all, and the second
-    /// puts `319` where the acronym has to be. Both landed on ISO 32000-2, which has a §10.1 and
-    /// a §6.3, until the one-thousand-and-ninety-sixth session. This tree writes both documents'
+    /// puts `319` where the acronym has to be. Both would land on ISO 32000-2, which has a §10.1
+    /// and a §6.3. This tree writes both documents'
     /// clauses in words today, so the plant is the only calibration there is (trap 13).
     #[test]
     fn a_recommendation_and_a_two_number_designation_are_other_documents() {
@@ -1339,10 +1326,9 @@ mod tests {
     /// The spelling this tree writes several hundred times, and the one the scanner could not
     /// see: a backticked path, with the backticks between the name and the sign.
     ///
-    /// Every one of these read as a clause citation until the nine-hundred-and-seventy-seventh
-    /// session — and `doc/todo/03` §9, `doc/todo/02` §7 and `doc/todo/11` §6 landed on clauses
-    /// 9, 7 and 6, which are in the ledger's population, so the citation fed the coverage
-    /// instrument as well as passing the gate.
+    /// Read as clause citations, `doc/todo/03` §9, `doc/todo/02` §7 and `doc/todo/11` §6 land on
+    /// clauses 9, 7 and 6, which are in the ledger's population, so the citation would feed the
+    /// coverage instrument as well as passing the gate (ADR 0987).
     #[test]
     fn a_backticked_project_document_before_a_section_is_that_documents_section() {
         let source = format!(
@@ -1433,10 +1419,9 @@ mod tests {
     /// A code span holding nothing but the sign names the character, and a sentence about the
     /// convention is not a malformed citation.
     ///
-    /// Four `pdf-archive` module headers wrote "every `§` in this file is an ISO 32000-2 number"
-    /// in the nine-hundred-and-seventy-seventh session, because their clause numbers resolve in
-    /// two editions of the standard and the header has to say which one it means. Each was
-    /// reported as a citation this checker could not read.
+    /// `pdf-archive`'s module headers write "every `§` in this file is an ISO 32000-2 number",
+    /// because their clause numbers resolve in two editions of the standard and the header has to
+    /// say which one it means.
     #[test]
     fn a_code_span_holding_the_sign_is_the_character_and_not_a_citation() {
         let source = format!(

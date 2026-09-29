@@ -85,12 +85,24 @@ fn jp2(colours: &[Vec<u8>], extra: &[u8]) -> Vec<u8> {
 
 /// A one-page document whose object 4 is an image `XObject` over `data`.
 fn document(data: &[u8]) -> Document {
+    document_drawing(data, false)
+}
+
+/// The same, and where `drawn` the page's content stream draws the image.
+fn document_drawing(data: &[u8], drawn: bool) -> Document {
     let mut body: Vec<u8> = Vec::new();
     body.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
     body.extend_from_slice(b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
-    body.extend_from_slice(
-        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 4 1] >>\nendobj\n",
-    );
+    if drawn {
+        body.extend_from_slice(
+            b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 4 1] /Resources << /XObject \
+              << /Im0 4 0 R >> >> /Contents 5 0 R >>\nendobj\n",
+        );
+    } else {
+        body.extend_from_slice(
+            b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 4 1] >>\nendobj\n",
+        );
+    }
     body.extend_from_slice(
         format!(
             "4 0 obj\n<< /Type /XObject /Subtype /Image /Width 4 /Height 1 /Filter /JPXDecode \
@@ -101,6 +113,11 @@ fn document(data: &[u8]) -> Document {
     );
     body.extend_from_slice(data);
     body.extend_from_slice(b"\nendstream\nendobj\n");
+    if drawn {
+        body.extend_from_slice(
+            b"5 0 obj\n<< /Length 22 >>\nstream\n4 0 0 1 0 0 cm /Im0 Do\nendstream\nendobj\n",
+        );
+    }
 
     let mut out: Vec<u8> = b"%PDF-1.7\n".to_vec();
     let mut offsets = Vec::new();
@@ -305,7 +322,9 @@ fn a_first_layer_of_two_codestreams_is_not_baseline() {
 }
 
 /// The first layer's own Colour Group box is its colour, T.801 M.11.7: a baseline one there
-/// answers M.9.2.4 whatever the JP2 Header box states.
+/// answers M.9.2.4 whatever the JP2 Header box states. Where the JP2 Header box states a colour
+/// specification too, the layer's header holds a box of a type the JP2 Header box holds, which is
+/// M.9.2.7's second sentence and the only finding (ADR 1399).
 #[test]
 fn the_first_layer_s_colour_group_is_what_is_judged() {
     let group = boxed(*b"cgrp", &boxed(*b"colr", &colour(1, 0, 16)));
@@ -314,5 +333,138 @@ fn the_first_layer_s_colour_group_is_what_is_judged() {
     data.extend(boxed(*b"jp2h", &header(&[colour(1, 0, 3)])));
     data.extend(boxed(*b"jplh", &group));
     data.extend(boxed(*b"jp2c", THREE));
-    assert_eq!(found(BASELINE, &data), Vec::<String>::new());
+    let findings = found(BASELINE, &data);
+    assert!(
+        findings.len() == 1 && findings[0].contains("M.9.2.7") && findings[0].contains("colr"),
+        "{findings:?}"
+    );
+
+    let mut alone = boxed(*b"jP  ", &[0x0d, 0x0a, 0x87, 0x0a]);
+    alone.extend(boxed(*b"ftyp", b"jpx \0\0\0\0jpx jp2 "));
+    alone.extend(boxed(*b"jp2h", &header(&[])));
+    alone.extend(boxed(*b"jplh", &group));
+    alone.extend(boxed(*b"jp2c", THREE));
+    assert_eq!(found(BASELINE, &alone), Vec::<String>::new());
+}
+
+/// M.9.2.7's second sentence: the first Codestream Header box restates the image header the JP2
+/// Header box already holds. A box of a type the JP2 Header box does not hold is not a repetition.
+#[test]
+fn a_first_codestream_header_repeating_the_jp2_header_is_not_baseline() {
+    let mut data = boxed(*b"jP  ", &[0x0d, 0x0a, 0x87, 0x0a]);
+    data.extend(boxed(*b"ftyp", b"jpx \0\0\0\0jpx jp2 "));
+    data.extend(boxed(*b"jp2h", &header(&[colour(1, 0, 16)])));
+    data.extend(boxed(
+        *b"jpch",
+        &boxed(*b"ihdr", &[0, 0, 0, 1, 0, 0, 0, 4, 0, 3, 7, 7, 0, 0]),
+    ));
+    data.extend(boxed(*b"jp2c", THREE));
+    let findings = found(BASELINE, &data);
+    assert!(
+        findings.len() == 1
+            && findings[0].contains("Codestream Header")
+            && findings[0].contains("ihdr"),
+        "{findings:?}"
+    );
+
+    let mut resolution = boxed(*b"jP  ", &[0x0d, 0x0a, 0x87, 0x0a]);
+    resolution.extend(boxed(*b"ftyp", b"jpx \0\0\0\0jpx jp2 "));
+    resolution.extend(boxed(*b"jp2h", &header(&[colour(1, 0, 16)])));
+    resolution.extend(boxed(*b"jplh", &boxed(*b"res ", &[])));
+    resolution.extend(boxed(*b"jp2c", THREE));
+    assert_eq!(found(BASELINE, &resolution), Vec::<String>::new());
+}
+
+/// A first Compositing Layer Header box whose Cross-Reference box names one fragment, laid out
+/// with `before` boxes ahead of the codestream and `after` boxes behind it, the fragment being
+/// the payload of the box `target` among them.
+///
+/// The Cross-Reference box's length does not depend on the offset it states, so the file is
+/// built once to find where the target lies and again with that offset written in.
+fn cross_referenced(before: &[Vec<u8>], after: &[Vec<u8>], target: [u8; 4]) -> Vec<u8> {
+    let build = |offset: u64| {
+        let mut list = 1u16.to_be_bytes().to_vec();
+        list.extend_from_slice(&offset.to_be_bytes());
+        list.extend_from_slice(&4u32.to_be_bytes());
+        list.extend_from_slice(&0u16.to_be_bytes());
+        let mut reference = b"lbl ".to_vec();
+        reference.extend(boxed(*b"flst", &list));
+        let mut data = boxed(*b"jP  ", &[0x0d, 0x0a, 0x87, 0x0a]);
+        data.extend(boxed(*b"ftyp", b"jpx \0\0\0\0jpx jp2 "));
+        data.extend(boxed(*b"jp2h", &header(&[colour(1, 0, 16)])));
+        data.extend(boxed(*b"jplh", &boxed(*b"cref", &reference)));
+        for each in before {
+            data.extend_from_slice(each);
+        }
+        data.extend(boxed(*b"jp2c", THREE));
+        for each in after {
+            data.extend_from_slice(each);
+        }
+        data
+    };
+    let placed = build(0);
+    let at = placed
+        .windows(4)
+        .position(|window| window == target)
+        .expect("the target box is in the file")
+        + 4;
+    build(u64::try_from(at).expect("the fixtures are small"))
+}
+
+/// M.9.2.6's last requirement: a fragment the first layer cross-references lies before the data
+/// of its codestream.
+#[test]
+fn a_cross_referenced_fragment_after_the_codestream_is_not_baseline() {
+    let label = boxed(*b"xml ", b"text");
+    let late = cross_referenced(&[], std::slice::from_ref(&label), *b"xml ");
+    let findings = found(BASELINE, &late);
+    assert!(
+        findings.len() == 1 && findings[0].contains("M.9.2.6"),
+        "{findings:?}"
+    );
+
+    let early = cross_referenced(std::slice::from_ref(&label), &[], *b"xml ");
+    assert_eq!(found(BASELINE, &early), Vec::<String>::new());
+}
+
+/// The device colour requirements ISO 19005-2 section 6.2.4.3 reports for a drawn image over
+/// `data`, which states no `ColorSpace`, in a file with no output intent.
+fn device_findings(data: &[u8]) -> Vec<&'static str> {
+    let report = check(&document_drawing(data, true), Target::Two(Level::B));
+    [
+        "graphics/device-gray-needs-a-default-or-an-output-intent",
+        "graphics/device-rgb-needs-a-default-or-an-rgb-output-intent",
+        "graphics/device-cmyk-needs-a-default-or-a-cmyk-output-intent",
+    ]
+    .into_iter()
+    .filter(|id| report.failures().any(|judgement| judgement.id == *id))
+    .collect()
+}
+
+/// ISO 19005-2 section 6.2.8.3's second route to the device colour requirements: data stating no
+/// colour specification is drawn in the device space of its channel count, and enumerated CMYK
+/// is a device space by T.801 Table M.25; sRGB and an off-list code beside a listed one are not
+/// (ADR 1399).
+#[test]
+fn the_device_space_the_data_defines_is_judged() {
+    assert_eq!(
+        device_findings(THREE),
+        vec!["graphics/device-rgb-needs-a-default-or-an-rgb-output-intent"]
+    );
+    assert_eq!(
+        device_findings(&jp2(&[colour(1, 0, 12)], &[])),
+        vec!["graphics/device-cmyk-needs-a-default-or-a-cmyk-output-intent"]
+    );
+    assert_eq!(
+        device_findings(&jp2(&[colour(1, 0, 3)], &[])),
+        vec!["graphics/device-rgb-needs-a-default-or-an-rgb-output-intent"]
+    );
+    assert_eq!(
+        device_findings(&jp2(&[colour(1, 0, 16)], &[])),
+        Vec::<&str>::new()
+    );
+    assert_eq!(
+        device_findings(&jp2(&[colour(1, 1, 16), colour(1, 0, 12)], &[])),
+        Vec::<&str>::new()
+    );
 }

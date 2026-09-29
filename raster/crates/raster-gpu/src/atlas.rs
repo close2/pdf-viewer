@@ -137,7 +137,7 @@ impl GlyphPlacement {
                 // rasterised at phase 0 and seated at `floor(e)`, where the placement
                 // asked for `floor(e) + 1`. It is the one input the quantum is not a
                 // bound for, so it must be added to the origin instead of discarded
-                // (ADR 0073; found by `examples/lane_placement.rs`).
+                // (ADR 0073; found by `examples/lane_placement/`).
                 let mut nx = (fx * fq).round() as u16;
                 let mut ny = (fy * fq).round() as u16;
                 if nx == q {

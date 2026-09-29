@@ -1,14 +1,12 @@
 //! §12.7's form, flattened so that a C caller can build real controls over the page.
 //!
-//! **The sixth chrome population, and the last one to reach this ABI.** `viewer_core::Query::Fields`
-//! answers with every field that has a widget on the page being shown — §12.7.5's four types, the
-//! flags of Tables 227, 229, 231 and 233 that decide what kind of control it is, Table 234's items
-//! and selection, Table 232's `/MaxLen`, and the appearance-state name §12.7.5.2.3 makes a check
-//! box's value (ADR 0235). Until this module a C caller could only take a form as pixels off the
-//! raster, which is exactly the thing ADR 0235's audit of the six chrome populations found and the
-//! two Rust hosts fixed. (This sentence cited `doc/todo/37`, which the four-hundred-and-ninth
-//! session deleted when `Command::Delegate` closed the last item in it — the eighth sweep's own
-//! shape, and the pointer was written a hundred sessions after the file went.)
+//! **The sixth chrome population, and the last one to reach this ABI.**
+//! `viewer_core::Query::Fields` answers with every field that has a widget on the page being shown
+//! — §12.7.5's four types, the flags of Tables 227, 229, 231 and 233 that decide what kind of
+//! control it is, Table 234's items and selection, Table 232's `/MaxLen`, and the appearance-state
+//! name §12.7.5.2.3 makes a check box's value (ADR 0235). Without this module a C caller could only
+//! take a form as pixels off the raster, which is exactly the thing ADR 0235's audit of the six
+//! chrome populations found.
 //!
 //! Three decisions, each because C takes something away that Rust gave.
 //!

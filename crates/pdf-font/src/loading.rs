@@ -146,10 +146,8 @@ pub(crate) enum CodeMapping {
     /// What a code *means* is not held here, because the font already holds it:
     /// [`LoadedFont::to_unicode`] is §9.10.2's first method and [`LoadedFont::collection`] its
     /// third, and [`LoadedFont::substituted_character`] asks them in the clause's order for
-    /// each code. This variant carried a copy of one of the two until session 981, chosen once
-    /// at load — the `/ToUnicode` whenever it stated anything at all — so a code the producer's
-    /// table omitted never reached the collection's, while the readback beside it did (ADR
-    /// 1002).
+    /// each code. This variant holds no copy of either, so a code the producer's table omits
+    /// still reaches the collection's, exactly as it does for the readback beside it (ADR 1002).
     Substituted {
         /// Codes to CIDs, used for the code boundaries, for `/W`'s widths, and for §9.10.2's
         /// step (a) on the way to the collection's table.
@@ -665,12 +663,12 @@ fn class_faces(
 ///
 /// # Shareable between threads, and *outliving* one page
 ///
-/// The four memos below were `RefCell` and `OnceCell` until the seven-hundred-and-seventieth
-/// session, which is what confined a loaded font to the interpretation that loaded it: a
-/// `Rc<LoadedFont>` cannot cross a thread, and `viewer_core`'s per-document state does cross
-/// one — ADR 0182 opens the document on a thread of its own and moves the whole viewer back, so
-/// anything held beside the document has to be `Send`. That is the only reason these are locks;
-/// nothing in this crate uses more than one thread.
+/// The four memos below are locks rather than `RefCell` and `OnceCell` so that a loaded font
+/// outlives the interpretation that loaded it (ADR 0710): a `Rc<LoadedFont>` cannot cross a thread,
+/// and `viewer_core`'s per-document state does cross one — ADR 0182 opens the document on a thread
+/// of its own and moves the whole viewer back, so anything held beside the document has to be
+/// `Send`. That is the only reason these are locks; nothing in this crate uses more than one
+/// thread.
 ///
 /// **It is not free and the price was measured rather than assumed.** `examples/callgrind_pages`
 /// and `examples/callgrind_interpret`, one sitting, two arms from one tree: **+0.468%** on fifty
@@ -888,10 +886,9 @@ impl LoadedFont {
     /// `Review` `Completed`; see [`crate::standard`] for what moved and ADR 0253 for why
     /// `doc/md/` cannot show it).
     ///
-    /// Since the hundred-and-forty-eighth session that availability is a fact about the binary
-    /// rather than about the machine ([`crate::standard`], ADR 0133), which is what makes this
-    /// worth having: an interface drawn in one of the fourteen looks the same on a machine with
-    /// no fonts installed at all.
+    /// That availability is a fact about the binary rather than about the machine
+    /// ([`crate::standard`], ADR 0133), which is what makes this worth having: an interface drawn
+    /// in one of the fourteen looks the same on a machine with no fonts installed at all.
     ///
     /// **The route is the ordinary one, deliberately.** A `/Type1` dictionary naming
     /// `base_font` is assembled here and handed to [`Self::load`] against
@@ -1176,10 +1173,9 @@ impl LoadedFont {
                 // the same thing from the other side: with the program absent, "CIDs shall not
                 // participate in glyph selection", and a `/CIDToGIDMap` "shall be ignored, since
                 // it is not meaningful to refer to glyph indices in an external font program".
-                // §9.10.2's first method, then its third. The third became reachable in the
-                // hundred-and-fifty-sixth session, when this binary started carrying the
-                // collections' own tables; before it, a CJK font without a `/ToUnicode` was
-                // refused whatever its `/CIDSystemInfo` said.
+                // §9.10.2's first method, then its third. The third is reachable because this
+                // binary carries the collections' own tables (ADR 0140), so a CJK font without a
+                // `/ToUnicode` is substituted through its `/CIDSystemInfo`.
                 //
                 // **And where the CMap is one of the two identity ones, §9.7.5.2 has already
                 // forbidden the file rather than left the reader a choice**: "The Identity-H and
@@ -1652,7 +1648,7 @@ impl LoadedFont {
     /// It cannot invent text where a font does not name its glyphs: a `post` table of version
     /// 3.0 holds no names at all, and a name outside the Adobe Glyph List answers `None`. That
     /// is what keeps it from being the fallback-that-fills-the-page this project forbids —
-    /// measured over the pdf.js corpus rather than assumed, in the sixty-fourth session.
+    /// measured over the pdf.js corpus rather than assumed (ADR 0067).
     ///
     /// **Two statements the program makes, in that order.** The `post` table names the glyph,
     /// which the Adobe Glyph List turns into a character — the same step §9.10.2's own second
@@ -1662,11 +1658,8 @@ impl LoadedFont {
     /// `issue15910.pdf` needs the second, because its `post` is version 2.0 with every name an
     /// empty string — a table that satisfies the format and states nothing.
     ///
-    /// **A composite font reaches this too, and it did not until the four-hundred-and-twenty-third
-    /// session.** This function used to refuse one outright, on the note that "a composite one
-    /// selects by CID through a `CMap`, and §9.10.2's third method is the route the clause states
-    /// for those" — which reads the clause's third method as though it applied to every composite
-    /// font. It does not, and the clause says so in its own first line:
+    /// **A composite font reaches this too** (ADR 0259). §9.10.2's third method does not apply
+    /// to every composite font, and the clause says so in its own first line:
     ///
     /// > If the font is a composite font that uses one of the predefined CMaps listed in
     /// > "Table 116 -Predefined CJK CMap names" (except Identity -H and Identity -V ) or whose
@@ -1676,15 +1669,15 @@ impl LoadedFont {
     ///
     /// An `Identity-H` font whose descendant is `Adobe-Identity` is excluded by name from the
     /// third method and cannot use the second, so a `/ToUnicode` that answers nothing leaves
-    /// *every* method failed — which is the precondition of the permission quoted above, and the
-    /// refusal declined it. Three documents in `doc/corpora/pdfbox` are that shape and all three
-    /// read back short or blank while reporting nothing: `PDFBOX-4322-Empty-ToUnicode-reduced.pdf`
-    /// (a `/ToUnicode` that is a copy of the `Identity-H` CID `CMap`, so it holds no `bfchar` or
-    /// `bfrange` at all and §9.10.3 requires those), `PDFBOX-5838-0024320-reduced.pdf` (a
-    /// `/ToUnicode` covering 8 of its 15 codes, reading `H Reeach Pec` for
-    /// `Honors Research Project`) and `sample_fonts_solidconvertor.pdf` (two fonts whose
-    /// `/ToUnicode` is the *name* `/Identity-H`, two whole lines of the page read back as
-    /// nothing).
+    /// *every* method failed — which is the precondition of the permission quoted above, and a
+    /// refusal would decline it. Three documents in `doc/corpora/pdfbox` are that shape, and a
+    /// refusal reads all three back short or blank while reporting nothing:
+    /// `PDFBOX-4322-Empty-ToUnicode-reduced.pdf` (a `/ToUnicode` that is a copy of the `Identity-H`
+    /// CID `CMap`, so it holds no `bfchar` or `bfrange` at all and §9.10.3 requires those),
+    /// `PDFBOX-5838-0024320-reduced.pdf` (a `/ToUnicode` covering 8 of its 15 codes, reading
+    /// `H Reeach Pec` for `Honors Research Project`) and `sample_fonts_solidconvertor.pdf` (two
+    /// fonts whose `/ToUnicode` is the *name* `/Identity-H`, two whole lines of the page read back
+    /// as nothing).
     ///
     /// The route is the same data in the same order, one step longer: the `CMap` gives a CID,
     /// §9.7.4.2's `/CIDToGIDMap` gives the glyph, and the program then names it. Nothing here is
@@ -2110,8 +2103,7 @@ impl LoadedFont {
     /// which is why this is not only about extracted text: §9.7.4.2 says that with the program
     /// absent "CIDs shall not participate in glyph selection", so the substitute's glyph is
     /// reached *through* the character, and a mapping the bound discarded is a glyph the page
-    /// does not draw. (This said *three* while the substituted variant held a copy of one of
-    /// the two; it holds none since session 981.)
+    /// does not draw. The substituted variant holds a copy of neither (ADR 1002).
     #[must_use]
     pub fn to_unicode_truncated(&self) -> Option<&'static str> {
         self.to_unicode.truncated().or_else(|| {
@@ -2437,9 +2429,9 @@ impl LoadedFont {
     /// and answers `None` here, because the producer's statement is not to be second-guessed by
     /// a table that outranks nothing — and the collection is asked, through §9.10.2's step (a),
     /// only where the producer's table says nothing at all. That is the same order and the same
-    /// two tables as [`Self::text`]'s first two branches, which is the point: until session 981
-    /// this route took one table for the whole font and the readback took both per code, and
-    /// a page could name a character it did not draw (ADR 1002).
+    /// two tables as [`Self::text`]'s first two branches, which is the point: a route that took
+    /// one table for the whole font while the readback took both per code would let a page name
+    /// a character it did not draw (ADR 1002).
     ///
     /// One character rather than a string because this is what *substitution* needs: a
     /// substitute face is addressed by character, so a code standing for a cluster has no glyph
@@ -2554,11 +2546,9 @@ impl LoadedFont {
     /// "this font lacks that character" and "this font cannot be addressed by character" are not
     /// the same statement.
     ///
-    /// **This answered `false` for every composite font until the five-hundred-and-second
-    /// session**, on the true observation that a `CMap`'s codespace ranges decide a code's length
-    /// (§9.7.6.2) and the false conclusion that nothing could invert them.
-    /// [`crate::cmap::CMap::each_addressable_code`] does, and the one case left is a `CMap`
-    /// stating more codes than that walk will visit.
+    /// **A composite font answers too** (ADR 0337): a `CMap`'s codespace ranges decide a code's
+    /// length (§9.7.6.2), and [`crate::cmap::CMap::each_addressable_code`] inverts them, and the
+    /// one case left is a `CMap` stating more codes than that walk will visit.
     #[must_use]
     pub fn addresses_characters(&self) -> bool {
         self.addressable_codes().is_some()
@@ -2791,8 +2781,7 @@ const MAX_TO_UNICODE_DEPTH: u32 = 4;
 /// §9.10.3 names the one dictionary entry that means anything here, and it is `/UseCMap`, which
 /// "may be used if the `CMap` is based on another `ToUnicode` `CMap`".
 ///
-/// **The sentence that names it has been rewritten, and this comment quoted the retired half of
-/// it as a blockquote until the five-hundred-and-ninety-first session.** Errata Collection 3's
+/// **The sentence that names it has been rewritten** (ADR 0426). Errata Collection 3's
 /// Issue #462 (`/State` `Review` `Completed`) strikes everything in front of the entry's name —
 /// the clause used to introduce it as the only pertinent entry of a `CMap` stream dictionary and
 /// point at Table 118 for the rest — and inserts a table of the `/ToUnicode` stream's own entries
@@ -3028,7 +3017,7 @@ mod tests {
     ///
     /// [`MAX_ADDRESSABLE_CODES`] is a number in a source file, and what makes it the right number
     /// is that the population it has to admit fits inside it. That population is §9.7.5.2's
-    /// registered `CMap`s — 239 files, compiled in since the hundred-and-fifty-sixth session — and
+    /// registered `CMap`s — 239 files, compiled in (ADR 0140) — and
     /// this walks all of them rather than asserting anything about their contents. A round that
     /// adds a `CMap` to the binary and pushes one past the limit hears about it here instead of
     /// in a field that silently reports the wrong reason.
@@ -3071,12 +3060,9 @@ mod tests {
     /// is the AFM's number and not something a substitute face happened to have — so it is the
     /// published metrics that answered rather than the substitute program's own advances.
     /// [`LoadedFont::advance`] states them in ems, which is why these are thousandths of one.
-    /// (This sentence quoted §9.6.2.2's "these fonts, or their font metrics and suitable
-    /// substitution fonts" until the four-hundred-and-thirty-first session; Errata Collection 3
-    /// struck the whole sentence — Issue #47 and #48, `/State` `Review` `Completed` — and
-    /// [`crate::standard`] carries the reading that replaces it. `tools/spec-errata` could not
-    /// see this one because the quotation lowers the sentence's first letter and the comparison
-    /// kept case; it folds case now, and found it.)
+    /// Errata Collection 3 strikes §9.6.2.2's sentence on these fonts and their metrics — Issue
+    /// #47 and #48, `/State` `Review` `Completed` — and [`crate::standard`] carries the reading
+    /// that replaces it (ADR 0267).
     /// Every code a Latin label uses has an outline with segments in it, because a font that
     /// maps a code and draws nothing is the silent failure trap 1 is about. And the whole of it
     /// runs against [`Document::empty`], which is the point: there is no file here.
@@ -3253,9 +3239,8 @@ mod tests {
     /// **And for a composite font the string is checked as well as the code**, because there the
     /// two are different claims: the code has a length, and a decoder splits the bytes by
     /// §9.7.6.2's codespace ranges rather than by what the writer intended. So each code's own
-    /// bytes go back through [`LoadedFont::decode`] and must come out as that one code. This
-    /// half of the test was `code_for(…).is_none()` — the refusal composite fonts got until the
-    /// five-hundred-and-second session — and the corpus fonts it skipped are now its subject.
+    /// bytes go back through [`LoadedFont::decode`] and must come out as that one code, over
+    /// every corpus composite font (ADR 0337).
     #[test]
     fn a_code_for_a_character_means_that_character() {
         let mut checked = 0usize;
@@ -3449,13 +3434,13 @@ mod tests {
     /// that index. Every subset font in the corpus has far fewer glyphs than codes, so a
     /// fall-through would show up here as a glyph where there should be none.
     ///
-    /// **The assertion moved from `outline` to `glyph_index` in the two-hundred-and-eighty-seventh
-    /// session**, when §9.6.5.2's last sentence was implemented: an uncovered code may now draw
-    /// the program's own `.notdef`, so the property that catches the fall-through is the one
-    /// about the *table* — which is also the answer all three of this project's missing-glyph
-    /// instruments read. The second assertion is what keeps that from becoming a hole: every
-    /// outline an uncovered code produces must be the **same** outline, because there is one
-    /// `.notdef` per program and a fall-through would produce a different glyph per code.
+    /// **The assertion is on `glyph_index` rather than `outline`**, because §9.6.5.2's last
+    /// sentence lets an uncovered code draw the program's own `.notdef`, so the property that
+    /// catches the fall-through is the one about the *table* — which is also the answer all three
+    /// of this project's missing-glyph instruments read. The second assertion is what keeps that
+    /// from becoming a hole: every outline an uncovered code produces must be the **same** outline,
+    /// because there is one `.notdef` per program and a fall-through would produce a different
+    /// glyph per code.
     #[test]
     fn an_uncovered_code_has_no_glyph_rather_than_a_guessed_one() {
         let mut fonts_with_gaps = 0usize;
@@ -3899,7 +3884,7 @@ mod substituted_composite_tests {
     /// あ covers い and う. Where the machine has no such face the load refuses and the test says
     /// so rather than passing.
     ///
-    /// **Calibrated both ways** (session 981): with `substituted_character` reading the
+    /// **Calibrated both ways** (ADR 1002): with `substituted_character` reading the
     /// `/ToUnicode` alone — the route before ADR 1002 — the second and third codes reach no
     /// glyph and the first assertion fails; with the collection alone, the first code draws あ
     /// and the equality fails.

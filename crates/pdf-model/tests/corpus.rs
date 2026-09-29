@@ -96,16 +96,12 @@ const LOCKED: [&str; 1] = ["encrypted-attachment.pdf"];
 
 /// Documents whose encryption this reader does not implement.
 ///
-/// **One, and it was two until the eight-hundred-and-eighty-seventh session.** The one that
-/// left is `issue21579.pdf`, `/R 5` — and this note called that "the one row in this gate that
-/// is a *decision* rather than work owed", on the reading that Table 21's "Shall not be used.
-/// This value was used by a deprecated proprietary Adobe extension" left the standard stating
-/// no algorithm. **The decision was wrong in the way `CLAUDE.md` warns a claim about the
-/// specification decays**: that sentence binds a *writer* choosing a value to store, §7.6.4.1
+/// **`/R 5` is not among them.** Table 21's "Shall not be used. This value was used by a
+/// deprecated proprietary Adobe extension" binds a *writer* choosing a value to store, §7.6.4.1
 /// states a requirement about revision 5 rather than a silence, and the extension Table 21
-/// points at is a document with an algorithm in it. ADR 0820 has the argument and says which
-/// of its steps rest on evidence. 33 of the 41 `/R 5` documents across the 90 535 in
-/// `doc/pdf.js`, `doc/corpora/` and `corpus-cache/` now open.
+/// points at is a document with an algorithm in it, so `issue21579.pdf` opens. ADR 0820 has the
+/// argument and says which of its steps rest on evidence. 33 of the 41 `/R 5` documents across
+/// the 90 535 in `doc/pdf.js`, `doc/corpora/` and `corpus-cache/` open.
 ///
 /// What is left is `PDFBOX-4352-0.pdf`, a damaged file whose trailer names an `/Encrypt` that
 /// does not resolve to a dictionary at all; `poppler` cannot read its cross-reference table
@@ -114,8 +110,8 @@ const LOCKED: [&str; 1] = ["encrypted-attachment.pdf"];
 ///
 /// # What is beyond us in it is not §7.6 at all
 ///
-/// Read in the thousand-and-fifty-eighth session, because "encrypted beyond us" had never been
-/// opened and the paragraph above describes the *file* rather than the clause. The file is 1481
+/// The paragraph above describes the *file* rather than the clause, so the file was opened. It is
+/// 1481
 /// bytes and every object is visible: `6 0 obj` reads `E< /CF 7 0 R /Filter /Standard …`, where
 /// §7.3.7 puts `<<`, so the object does not parse and §7.3.10 makes `/Encrypt 6 0 R` the null
 /// object — "[a]n indirect reference to an undefined object shall not be considered an error by
@@ -135,7 +131,7 @@ const LOCKED: [&str; 1] = ["encrypted-attachment.pdf"];
 /// either — that reading keeps the entries readable *before* the damage, and here the damage is
 /// the `<<`, so there are none.
 ///
-/// **What the four references do, measured the same session**: `poppler` 26.08 reads the `E` as
+/// **What the four references do**: `poppler` 26.08 reads the `E` as
 /// a keyword and the `<` as a hex string and refuses the catalogue; `ghostscript` 10.07 refuses
 /// the cross-reference table; `hayro` refuses the file. `mupdf` 1.28 repairs the
 /// cross-reference table, reports "syntax error in object (6 0 R)", **ignores the entry** and
@@ -145,24 +141,22 @@ const LOCKED: [&str; 1] = ["encrypted-attachment.pdf"];
 /// this entry from the trailer dictionary" lets a processor consider the document unencrypted,
 /// and the entry is present.
 ///
-/// **Named rather than counted since the thousand-and-sixty-seventh session** (ADR 1081), and on
-/// a population of one the difference is the whole of it: a ceiling of one holds just as well when
+/// **Named rather than counted** (ADR 1081), and on a population of one the difference is the
+/// whole of it: a ceiling of one holds just as well when
 /// the one document is a *different* document, and this reader declining a second file's
 /// encryption while learning the first is exactly the swap a count cannot see.
 const UNREADABLE_ENCRYPTION: [&str; 1] = [
     // Not a revision, a crypt filter method, a public-key handler or an AES variant: `6 0 obj`
     // reads `E<` where §7.3.7 puts `<<`, so §7.3.10 makes `/Encrypt 6 0 R` the null object and
     // no clause says how to read a dictionary whose opening token is gone. The paragraphs above
-    // are the thousand-and-fifty-eighth session's reading of it, with the control that opens the
-    // file when the byte is restored.
+    // are the reading of it, with the control that opens the file when the byte is restored.
     "PDFBOX-4352-0.pdf",
 ];
 
 /// Documents that open but whose first page cannot be reached.
 ///
-/// Eleven, and it was nineteen until the twenty-second session: the eight that were
-/// "encrypted, which is unimplemented" now decrypt (ADR 0031), and what is left is eleven
-/// files whose page tree cannot be recovered.
+/// A document encrypted under a method this reader implements decrypts (ADR 0031), so what is
+/// here is files whose page tree cannot be recovered.
 ///
 /// # Two of the eleven are not damaged, and this entry said they were
 ///
@@ -194,8 +188,8 @@ const UNREADABLE_ENCRYPTION: [&str; 1] = [
 ///
 /// # What the other nine are, from the trackers they are named after
 ///
-/// Looked up in the fifty-ninth session, because a file's own issue says why it exists better
-/// than any measurement of it:
+/// Looked up in their trackers, because a file's own issue says why it exists better than any
+/// measurement of it:
 ///
 /// - **`Brotli-Prototype-FileA.pdf` is not broken at all.** It is a prototype of the
 ///   `/BrotliDecode` filter the PDF Association is standardising (pdf.js issue #20290), so its
@@ -213,33 +207,32 @@ const UNREADABLE_ENCRYPTION: [&str; 1] = [
 ///   `poppler-85140-0.pdf` and `REDHAT-1531897-0.pdf` are fuzzer and bug-tracker crashers from
 ///   other projects, kept as regression fixtures rather than as renderable documents.
 ///   `bug1020226.pdf` is not even a PDF defect: the Mozilla bug is a null-dereference in
-///   Firefox's *worker* shutdown that a pdf.js promise exposed. **`poppler-742-0-fuzzed.pdf`
-///   was a fourth until the eight-hundred-and-sixtieth session** and is now drawn and reported:
-///   its page object's `/TrimBox` runs into the stream after it, and §7.3.7's entries whole
+///   Firefox's *worker* shutdown that a pdf.js promise exposed. **`poppler-742-0-fuzzed.pdf` is
+///   not among them** — it is drawn and reported: its page object's `/TrimBox` runs into the
+///   stream after it, and §7.3.7's entries whole
 ///   before that damage are a subset of the producer's own, taken on the `/Type /Page` inside
 ///   them (ADR 0784). No reference draws it, which is agreement about the *object* and not
 ///   about the page — the seven entries are in the file and all four readers can see them.
 ///
-/// **11 to 5 in the hundred-and-seventh session**, from two recovery rules and no new feature.
+/// **Two recovery rules keep documents off this list** (ADR 0097).
 /// §7.5.5 makes the trailer's `/Root` "[t]he catalog dictionary for the PDF file", so a
 /// cross-reference table that leads to no catalog has been disproved by the file itself — and
 /// `Document::open` now rebuilds by scanning and tries again, which `xref::read` did not because
 /// it scans only when the table is *absent, unreadable or empty*. Table 31 makes `/Type`
 /// required of a page object and says it "shall be Page", so a document whose page *tree* yields
 /// nothing can still be asked which of its objects say they are pages, with §7.7.3.4's
-/// inheritance applied up each one's own `/Parent`. Six documents reach page one that did not:
+/// inheritance applied up each one's own `/Parent`. Documents reached that way —
 /// `issue18986.pdf` (which then **agrees with the reference consensus**), `issue9418.pdf`,
-/// `operator_list_cycle.pdf`, `issue19484_1.pdf`, `issue19484_2.pdf` and
-/// `poppler-395-0-fuzzed.pdf`. Five of the six report something, which is why `MAX_INCOMPLETE`
-/// rises with this: they are new *pages*, not new failures.
+/// `operator_list_cycle.pdf` among them — are new *pages*, not new failures, where they report
+/// something.
 ///
-/// # 5 to 6 in the four-hundred-and-seventieth, and it is a page this tree should never have had
+/// # A page this tree should never have had
 ///
-/// `poppler-937-0-fuzzed.pdf` joins them, and the direction is the honest one rather than a
+/// `poppler-937-0-fuzzed.pdf` is here, and the direction is the honest one rather than a
 /// regression. Its `/Pages` node states `/Type /Pages` and a `/Kids` whose `[` was fuzzed into a
 /// NUL — which §7.2.3 makes white space — so the entry resolves to a bare dictionary rather than
-/// to Table 30's required array. This tree used to read a node with no usable `/Kids` as a
-/// **leaf** and draw it: a page with no `/Contents`, blank, and silent about all of it. §7.7.3.2
+/// to Table 30's required array. Reading a node with no usable `/Kids` as a **leaf** would draw
+/// a page with no `/Contents`, blank, and silent about all of it. §7.7.3.2
 /// and §7.7.3.3 settle it in the file's own words, and `page.rs`'s `declares_a_node` is that
 /// reading (ADR 0305); nothing in the file declares `/Type /Page` either, so the recovery scan
 /// finds nothing and the document has no first page.
@@ -248,18 +241,15 @@ const UNREADABLE_ENCRYPTION: [&str; 1] = [
 /// direction of inference and not the reason: `poppler` prints *Kids object (page 1) is wrong
 /// type (dictionary)* and writes one 1×1 pixel, `mutool` refuses with *invalid page number: -1*,
 /// and `ghostscript` says *Requested `FirstPage` is greater than the number of pages in the file:
-/// 0*. The blank page that used to be counted here was this reader's invention.
+/// 0*. A blank page for it would be this reader's invention.
 ///
-/// # 6 to 5 in the thousand-and-fifty-fourth session, and nothing was fixed in it
+/// # A bound with no slack
 ///
-/// `poppler-742-0-fuzzed.pdf` left this population when §7.3.7's entries-whole reading gave it a
-/// page (ADR 0784, and the list above says so), and the bound stayed where the arrival before it
-/// had put it — so one document's worth of regression could arrive here and the gate would not
-/// speak. That is [`MAX_INCOMPLETE`]'s slack in the same file, an order of magnitude smaller and
-/// found the same way: the run prints the population and the constant does not, so putting the
-/// two side by side is nobody's job until somebody does it. It is the counted figure now.
+/// A bound left above the population lets that many documents' worth of regression arrive here
+/// before the gate speaks; the run prints the population and a constant does not, so the two
+/// are kept equal (ADR 1075).
 ///
-/// # The five, opened one by one in the thousand-and-fifty-eighth session
+/// # The five, opened one by one
 ///
 /// Nobody had asked of this population the question it is *for*: is the page tree genuinely
 /// absent, or is it a tree this reader fails to walk that somebody else walks? Each was put to
@@ -313,9 +303,8 @@ const UNREADABLE_ENCRYPTION: [&str; 1] = [
 ///   is loudness, and the file is not silent: the rebuild note says one of its object streams
 ///   could not be read, and the gate now says which clause the page tree stopped at.
 ///
-/// **Named rather than counted since the thousand-and-sixty-seventh session** (ADR 1081). The five
-/// were opened one by one in the thousand-and-fifty-eighth and the paragraphs above are what each
-/// answer was; a count of five could not have said that one of them had been replaced by a sixth
+/// **Named rather than counted** (ADR 1081). The paragraphs above are what opening each of the
+/// five answered; a count of five could not say that one of them had been replaced by a sixth
 /// file failing for a sixth reason, which is the direction this population moves in when it moves
 /// at all. [`why_no_page_one`] is what the run prints beside each name, so the clause a file
 /// stopped at is on the output rather than only here.
@@ -348,14 +337,11 @@ const PAGELESS: [&str; 5] = [
 /// **Not a defect count** — it is the honest-reporting requirement working, which is why the
 /// bound is a ratchet rather than a zero.
 ///
-/// # The composition is printed by the run, and used not to be
+/// # The composition is printed by the run
 ///
-/// This comment carried the breakdown as a hand-kept table for most of the gate's life, and it
-/// drifted every time: it said one figure while its own rows summed to a second and the ratchet
-/// below stated a third, all in one file. The table had been *corrected* twice before, each time
-/// with the sentence "recomputed every session because a number nothing recomputes is a number
-/// that drifts" written beside it — which is the shape `CLAUDE.md`'s rule about derived facts is
-/// written against, met by a promise instead of by an instrument.
+/// A breakdown kept by hand in this comment drifts — one figure in the text, a second summed from
+/// its rows and a third in the ratchet below — which is the shape `CLAUDE.md`'s rule about
+/// derived facts is written against, met by a promise instead of by an instrument.
 ///
 /// [`whose_defect`] is the instrument, and [`print_the_composition`] is what the run prints:
 /// every report placed under a mechanism and a class, the classes summing to the population, and
@@ -768,7 +754,136 @@ const PAGELESS: [&str; 5] = [
 /// group's result is the backdrop in the chromatic raster and is then painted under Multiply,
 /// which the clause's last paragraph asks for and which painting the object directly did not
 /// do.
-const MAX_INCOMPLETE: usize = 61;
+///
+/// # Named, and each name read against its clause
+///
+/// **Held by name rather than by count** (ADR 1401, which amends ADR 1081's consequence that left
+/// this one a count). The composition above prints the partition, and printing is not asserting:
+/// a document that stops reporting while another starts, or one that moves from the file's column
+/// to this reader's, leaves the count where it was and the gate green. `gate_ratchet::population`
+/// fails on either direction and names the file, so every entry below is a document somebody has
+/// opened, and a change to the list is a change with its reason beside the name.
+///
+/// The groups follow [`whose_defect`]'s partition — the mechanism that decides each document is
+/// the most-owed one it carries — and the sentence beside a group is the clause it rests on. Of the
+/// sixty-one, one is this reader's (`freetext_no_appearance.pdf`, `doc/todo/22` and ADR 0348's
+/// list: an Arabic glyph source, joining forms and right-to-left order, together or not at all);
+/// seven are no route the standard states; fifty-three are the file's.
+const INCOMPLETE: [&str; 61] = [
+    // ── The file's: §9.7.5.2, "[t]he Identity-H and Identity-V CMaps shall not be used with a
+    // non-embedded font". Every one is a `CIDFontType2` naming a system face (Arial, Calibri,
+    // Times New Roman …) whose CIDs are that face's glyph indices, which §9.7.4.2 says are "not
+    // meaningful to refer to … in an external font program", and none states a `/ToUnicode`
+    // with a mapping in it to reach a substitute by character instead (ADR 0433).
+    "issue15441.pdf",
+    "issue6127.pdf",
+    "issue15443.pdf",
+    "issue15594_reduced.pdf",
+    "issue15977_reduced.pdf",
+    "issue7835.pdf",
+    "issue20453.pdf",
+    "issue4722.pdf",
+    // Its `/ToUnicode` is Adobe's Identity-H CMap itself — `begincidrange` lines, which §9.10.3
+    // does not admit into a `/ToUnicode` CMap — so it maps no code to a character.
+    "issue5801.pdf",
+    "issue11242_reduced.pdf",
+    "issue11578_reduced.pdf",
+    // `/ToUnicode /Identity-H`, a name where §9.10.1 requires a stream.
+    "issue11915.pdf",
+    "issue12418_reduced.pdf",
+    "bug1365930.pdf",
+    "issue19550.pdf",
+    "issue19695.pdf",
+    "issue13916.pdf",
+    "ThuluthFeatures.pdf",
+    // ── The file's: §7.8.2 and §7.2.3 — a token that is neither an operand nor an operator the
+    // standard defines, or an operator given fewer operands than its table states. Every
+    // operator ISO 32000-2 defines is implemented, so each of these is the file's bytes.
+    // A form whose stream was mangled on purpose (pdf.js's "Form XObject with errors"): `12.9f`,
+    // `c02` and their neighbours are numbers run into operators.
+    "issue6342.pdf",
+    // A form ending `Q W`, a clip with no path (§8.5.4); its image's JPEG frame also contradicts
+    // the dictionary (§7.4.8).
+    "issue6413.pdf",
+    "issue17554.pdf",
+    "operator-in-TJ-array.pdf",
+    "poppler-90-0-fuzzed.pdf",
+    // `ETBT` is one token under §7.2.3, since nothing delimits the two keywords.
+    "sci-notation.pdf",
+    "issue9252.pdf",
+    "issue2391-1.pdf",
+    "issue5039.pdf",
+    "issue19484_1.pdf",
+    "issue19484_2.pdf",
+    "bug1953099.pdf",
+    // `BT` then `Q` and the stream ends: a special graphics state operator inside a text object,
+    // which §9.4.1 does not admit, and no `ET`.
+    "issue14165.pdf",
+    // ── The file's: Table 31's required, inheritable `/MediaBox` is nowhere in the ancestry, or
+    // encloses no area (§7.7.3.4, §7.9.5).
+    "issue15590.pdf",
+    "boundingBox_invalid.pdf",
+    // And §7.7.3.4 again for its `/F1`: the one `/Resources` the page inherits is empty.
+    "issue9105_other.pdf",
+    // ── The file's: a resource name §7.8.3's current resource dictionary does not define.
+    // A tiling pattern's own `/Resources` omits the page's `/R41`; §7.8.3 inherits only into a
+    // form or Type 3 font that states no `/Resources`, and this pattern states one.
+    "issue6541.pdf",
+    // `/Meta6` resolves to a dictionary stored in an object stream, which §7.5.7 forbids a
+    // stream to be, so it is not the form Table 93 describes.
+    "issue8702.pdf",
+    // The page states its own `/Resources` with no `/Font`; §7.7.3.4 stops the search at the
+    // first `/Resources` found and uses it "in its entirety", so the parent's `/F1` is not it.
+    "issue5954.pdf",
+    // ── The file's: an embedded font program whose filter reports damage (§7.4.1, ADR 0836).
+    "issue11651.pdf",
+    "bug1050040.pdf",
+    "issue13316_reduced.pdf",
+    // `/DescendantFonts [ null ]` (§9.7.6.1).
+    "issue12823.pdf",
+    // ── The file's: an image the dictionary and the data do not agree on.
+    // A 1×1 JPEG frame under a 200×100 dictionary (§7.4.8).
+    "xobject-image.pdf",
+    // `/Mask` is a one-bit `DeviceGray` image with no `/ImageMask`, which §8.9.6.3 does not admit.
+    "issue6621.pdf",
+    // `/DCTDecode` over the four bytes `1234`.
+    "issue18042.pdf",
+    // `/Width /Height`, a name where Table 87 requires an integer.
+    "issue4575.pdf",
+    "jbig2_file_header.pdf",
+    // ── The file's: an annotation its own clause cannot draw.
+    // No `/Subtype` (Table 166).
+    "issue7446.pdf",
+    // The check box's on appearance has no `/BBox`, which Table 93 requires and §12.5.5 needs.
+    "checkbox-bad-appearance.pdf",
+    "checkbox_no_appearance.pdf",
+    // `/NeedAppearances true` and a `/DA` naming `/F1` in a form with no `/DR` (§12.7.4.3).
+    "issue19389.pdf",
+    // The same `/DR` fault, and a `/Contents` whose flate data will not inflate.
+    "poppler-395-0-fuzzed.pdf",
+    // ── The file's: `/Contents` parts under `/JBIG2Decode`, which §7.4.7 defines as decoding
+    // monochrome image data, not a content stream.
+    "bomb_giant.pdf",
+    // A page object that stops part-way, read as far as §7.3.7 states it (ADR 0784).
+    "poppler-742-0-fuzzed.pdf",
+    // ── Neither one: a font whose program has no outline for any code the page shows (ADR 0270).
+    // A `TrueType` program whose glyphs are empty; `silent_fonts.rs` is its argument.
+    "issue17333.pdf",
+    // Composite glyphs that recurse, shown in render mode 7, so the clip they add is empty.
+    "recursiveCompositGlyf.pdf",
+    // Symbolic and Nonsymbolic both set; §9.8.2 says to read the Symbolic flag, §9.6.5.4 then
+    // ignores `/Encoding`, and the (3, 0) subtable reaches an empty glyph (`oracle.rs` has it).
+    "issue20232.pdf",
+    // `HiddenHorzOCR`, an OCR layer's font whose program carries no outlines, shown in mode 0.
+    "issue12963.pdf",
+    // ── Neither one: a bound this program set. All three are forms or glyphs that invoke
+    // themselves, so what the file states is unbounded and `MAX_FORM_DEPTH` is where it stops.
+    "operator_list_cycle.pdf",
+    "issue19800.pdf",
+    "ContentStreamCycleType3insideType3.pdf",
+    // ── This reader's: `doc/todo/22`.
+    "freetext_no_appearance.pdf",
+];
 
 /// How long one document may take before it counts as a failure.
 ///
@@ -813,8 +928,8 @@ struct Tally {
     /// Every code shown on a page one that reached a glyph its font program describes as
     /// **empty**, on the same silent pages.
     ///
-    /// The other half of the branch above, separated in the four-hundred-and-thirty-fourth
-    /// session because only one of the two is a mark the reader loses: a glyph the program
+    /// The other half of the branch above, separated because only one of the two is a mark the
+    /// reader loses: a glyph the program
     /// contains and draws as nothing is a space, however its `/ToUnicode` reads it back.
     /// ADR 0270.
     codes_reaching_a_blank_glyph: Vec<(String, usize)>,
@@ -872,7 +987,7 @@ struct Tally {
 /// Whose defect a report names, which is the question `incomplete` was never asked.
 ///
 /// The count that heads this gate's summary is a *population*, and for most of this file's life
-/// its composition lived in the doc comment above [`MAX_INCOMPLETE`] as a hand-kept table. By the
+/// its composition lived in the doc comment above [`INCOMPLETE`] as a hand-kept table. By the
 /// time it was deleted it stated one figure in its opening sentence, a second in the sum of its
 /// own rows and a third in the ratchet below it, and none of the three was what the gate printed
 /// — which is exactly what `CLAUDE.md`'s rule about derived facts predicts. So the composition is
@@ -1906,10 +2021,10 @@ fn the_corpus_opens_interprets_and_rasterises() {
         tally.unopenable.len(),
         MAX_UNOPENABLE,
     );
-    // Three of the five are held by **name** rather than by count, because each already knew its
-    // members: a ceiling says ten and ten again when one document has left and another arrived,
-    // and both halves of that swap are findings (ADR 1081). The count still prints, beside the
-    // length of the list, so the table above and below these three is one table.
+    // Four of the five are held by **name** rather than by count: a ceiling says ten and ten again
+    // when one document has left and another arrived, and both halves of that swap are findings
+    // (ADRs 1081 and 1401). The count still prints, beside the length of the list, so the table
+    // these lines print is one table. The fifth has no members to name.
     gate_ratchet::population(
         "documents that need a password",
         tally.locked.iter().cloned(),
@@ -1925,10 +2040,10 @@ fn the_corpus_opens_interprets_and_rasterises() {
         tally.pageless.iter().map(|(name, _)| name.clone()),
         &PAGELESS,
     );
-    gate_ratchet::ceiling(
+    gate_ratchet::population(
         "documents that draw incompletely",
-        tally.incomplete.len(),
-        MAX_INCOMPLETE,
+        tally.incomplete.iter().map(|(name, _)| name.clone()),
+        &INCOMPLETE,
     );
     assert!(
         tally.open_subpaths.is_empty(),

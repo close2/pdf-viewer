@@ -984,13 +984,12 @@ fn premultiply(data: &mut [u8]) {
 /// no-op; with a transparent one they are exact inverses except for the rounding of a channel
 /// that is about to be divided by its own alpha again.
 ///
-/// **This function used to be applied to Vello's output directly, on the belief that Vello
-/// wrote premultiplied alpha, and that was wrong.** It went unnoticed for fifteen sessions
-/// because the background was opaque and every pixel came back with an alpha of 255, where
-/// the conversion is the identity. The first render onto transparency showed it: a pixel half
-/// covered by a 50% grey came back `[128, 0, 0, 128]` from `tiny-skia` and `[255, 0, 0, 128]`
-/// from here, the colour divided by its own coverage. `vello_hands_back_straight_alpha` pins
-/// it.
+/// **It is not applied to Vello's output directly, because Vello writes straight alpha, not
+/// premultiplied.** Over an opaque background the difference cannot show — every pixel comes
+/// back with an alpha of 255, where the conversion is the identity — but onto transparency a
+/// pixel half covered by a 50% grey is `[128, 0, 0, 128]` from `tiny-skia` and would be
+/// `[255, 0, 0, 128]` here, the colour divided by its own coverage.
+/// `vello_hands_back_straight_alpha` pins it.
 fn demultiply(data: &mut [u8]) {
     for pixel in data.chunks_exact_mut(4) {
         let alpha = pixel[3];

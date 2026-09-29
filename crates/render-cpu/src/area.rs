@@ -1381,8 +1381,8 @@ impl RowScratch {
     /// polyline monotone in `y`. Two strands keep their left-to-right order between the heights
     /// where one begins, ends or crosses the other, whatever vertices either passes through, so
     /// those are the only cuts, and within a sub-strip each strand is where the rule's answer
-    /// changes or it is not. A stroke's outline is flattened at a two-hundred-and-fifty-sixth of a
-    /// pixel, so a row of it holds several vertices per strand; cutting at each of them is what
+    /// changes or it is not. A stroke's outline is flattened at 1/256 of a pixel, so a row of it
+    /// holds several vertices per strand; cutting at each of them is what
     /// made the walk cost what ADR 1347 measured, and not cutting there changes no answer.
     ///
     /// The sub-strips are taken downwards, so the strands spanning one are a window over the

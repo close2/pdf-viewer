@@ -35,6 +35,7 @@
 //! | [`fill_set`](fill_set) | §8.5.3.3 with §10.7.4 — the inside set's area where a path's own portions overlap, on a 1× to 8× ladder (ADR 1389) |
 //! | [`stroke`](stroke) | §8.4.3 — caps, joins, and the expansion's arithmetic at the ends of the coordinate range |
 //! | [`stroke_set`](stroke_set) | §8.4.3.2 — the stroke as one set of points whichever way its path runs, on a 1× to 8× ladder (ADR 1361) |
+//! | [`curve_join`](curve_join) | §8.4.3.4 — a join where a curve meets a line, shaped by the curve's tangent, and the strokes whose pieces tile their set (ADR 1397) |
 //!
 //! What stays here is what more than one of them builds: the identity transform every case
 //! rasterises under, the coverage probe, and the rectangle path. Everything used by exactly
@@ -50,6 +51,7 @@
 //! this directory's benefit alone.
 #![allow(clippy::arithmetic_side_effects)] // test indices are tiny and literal
 
+mod curve_join;
 mod fill;
 mod fill_set;
 mod flatten;

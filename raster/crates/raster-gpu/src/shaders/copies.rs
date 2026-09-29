@@ -32,13 +32,12 @@
 //! not about the text. Only a stated promise is guarded, because only a stated promise
 //! is a thing a reader is entitled to rely on.
 //!
-//! **Why this is a unit test and not `tests/shader_copies.rs`.** It was one, with an
-//! `include_str!` list of its own, and that list silently fell one shader behind
-//! `super`'s: `function_lane.wgsl` (ADR 0053) defines a sixth `soft_mask_value` and
-//! makes the promise, and the gate went on comparing five and asserting there were
-//! five. An integration test cannot reach a private module, so the choice was between
-//! publishing the list and moving the gate to where the list already is. ADR 0059 took
-//! the second.
+//! **Why this is a unit test and not an integration test.** An integration test cannot
+//! reach a private module, so it has to carry an `include_str!` list of its own, and a
+//! second list can fall one shader behind `super`'s — `function_lane.wgsl` (ADR 0053)
+//! defines a sixth `soft_mask_value` and makes the promise — while the gate goes on
+//! comparing the shaders it names and passing. Reading [`ALL`] here is the one list there
+//! is (ADR 0059).
 
 use super::ALL;
 use super::wgsl::function_text;

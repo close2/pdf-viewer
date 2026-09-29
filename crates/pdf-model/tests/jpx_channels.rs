@@ -20,8 +20,8 @@
 //! **The witness is a crawled document rather than an invention**: a magazine page whose two
 //! `/JPXDecode` photographs are bare four-component codestreams under `/ColorSpace /DeviceCMYK`,
 //! both refused for "the colour space takes 4 components but the codestream has 3" and both
-//! missing from the page, at −8.329 of 255 against three agreeing references (session 631,
-//! ADR 0464). It is somebody else's crawled web page and is not in this repository, so the
+//! missing from the page, at −8.329 of 255 against three agreeing references (ADR 0464). It
+//! is somebody else's crawled web page and is not in this repository, so the
 //! fixture here is generated — the same rule `dct_components.rs` follows.
 //!
 //! The two tests after the first are the negative twins, and they are what keeps the rule from

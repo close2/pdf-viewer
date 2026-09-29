@@ -213,10 +213,10 @@ fn every_form_the_clause_prints_still_draws() {
 /// interpreter a `5` and an `f`, the fill operator runs, and the square appears. One that
 /// respects §7.2.3's boundary paints nothing.
 ///
-/// **This tree paints nothing and says so.** Until the nine-hundred-and-eighty-third session it
-/// painted nothing and said nothing — the run was salvaged to the number 5 and the letters were
-/// dropped — because the same leniency reads `12pt` as 12 in the streams that need it, and ADR
-/// 0303 had scoped its correction to digit-less runs for that reason. What separates the two is
+/// **This tree paints nothing and says so** (ADR 1004). Salvaging the run to the number 5 and
+/// dropping the letters would paint nothing and say nothing, and the leniency that does it is the
+/// one that reads `12pt` as 12 in the streams that need it, which is why ADR 0303 scoped its
+/// correction to digit-less runs. What separates the two is
 /// what the dropped tail *is*: `f` is §8.2 Table 50's fill and `pt` is nobody's operator, so the
 /// first run swallowed an action and the second appended a spelling. The content reader asks
 /// exactly that question and hands the interpreter `5f` as the keyword it lexically is, which
@@ -247,7 +247,7 @@ fn a_digit_run_that_swallows_an_operator_paints_nothing() {
 /// spelling and not an action, and the leniency ADR 0303 kept stands: the size is read as 12,
 /// the text draws, and nothing is reported. Asserted beside the test above because a rule that
 /// reported both would be the clause read without its cost, and one that reported neither is
-/// what this file recorded as a residue for four hundred sessions.
+/// what a residue in this file would otherwise record.
 #[test]
 fn a_digit_run_with_a_unit_suffix_is_still_read_as_its_number() {
     let with_unit = interpretation("BT /F0 12pt Tf 10 10 Td (Hi) Tj ET");
@@ -274,10 +274,8 @@ fn a_digit_run_with_a_unit_suffix_is_still_read_as_its_number() {
 ///
 /// `--12` and `.-12` each hold digits, and neither is read: §7.3.3 admits one optional sign
 /// before the digits, so the grammar reads nothing of `--12` before the second sign and nothing
-/// of `.-12` before the sign after the point. Until the nine-hundred-and-ninetieth session the
-/// first was −12 — on a comment that named Acrobat and pdf.js as the reason — and the second
-/// was 0, the zero ADR 0303 took out of `.` surviving one condition below it. Both are now the
-/// keyword `.` already is, and the pair below is the calibration for each: the conforming
+/// of `.-12` before the sign after the point. Neither is −12 nor 0: both are the keyword `.`
+/// already is, and the pair below is the calibration for each: the conforming
 /// spelling draws in silence, and the run that spells nothing is reported by name, with the
 /// `Tf` it starved reported for the show it cost (ADR 1011).
 #[test]

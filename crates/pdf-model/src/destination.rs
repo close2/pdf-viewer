@@ -15,10 +15,7 @@
 //! exactly as the document states them and this crate stops there — a viewport is not something
 //! a model of a file can invent. `viewer_core::Open::apply_view` is where they are applied, and
 //! it is the one place that has both a window and a display list to measure a `/FitB` against.
-//!
-//! This module said for sixty-nine sessions that they were "properties of a window this program
-//! does not have"; the program acquired scrolling and zoom in the hundred-and-thirty-second
-//! session and the sentence stayed. ADR 0162.
+//! ADR 0162.
 //!
 //! # Three spellings of one thing
 //!
@@ -210,13 +207,11 @@ impl Destination {
             // destination … or a dictionary with a D entry whose value is such an array and may
             // optionally contain an SD entry as defined in "Table 201 -Action types"".
             //
-            // **The `/SD` half of that sentence became reachable through an erratum**, which is
-            // why it went unread until the five-hundred-and-ninety-fifth session: Errata
-            // Collection 3 repointed the reference from Table 201 — a list of action *types*,
-            // where nothing is defined at all — to Tables 202–204, where §12.6.4.2's `/SD` is.
-            // With the reference broken there was nothing for this arm to read; with it
-            // repaired the entry is the same entry a go-to action states, so it is read by the
-            // same rule and in the same order.
+            // **The `/SD` half of that sentence is reachable through an erratum**:
+            // Errata Collection 3 repointed the reference from Table 201 — a list of action
+            // *types*, where nothing is defined at all — to Tables 202–204, where §12.6.4.2's `/SD`
+            // is. With the reference repaired the entry is the same entry a go-to action states, so
+            // it is read by the same rule and in the same order.
             Object::Dictionary(dict) => Self::preferring_structure(document, &dict, depth),
             Object::Name(name) => Self::named(document, &Key::Name(name.as_bytes()), depth),
             Object::String(bytes) => Self::named(document, &Key::String(&bytes), depth),
@@ -377,12 +372,12 @@ impl Destination {
     /// The same answer, and the reason to want it is arithmetic: `index_of` cannot skip a
     /// subtree, so resolving *many* destinations one at a time is a tree walk apiece. §12.3.3's
     /// outline is the caller that showed it — 988 items over 1023 pages, 344 ms of every page
-    /// turn until the hundred-and-forty-first session.
+    /// turn when each item was resolved alone (ADR 0124).
     ///
     /// **It takes no [`Pages`], and that is the point rather than a tidy-up.** A prepared index
     /// is the whole of what this needs — the page tree was asked once to build it — so a caller
-    /// holding one asks nothing of the tree, and `viewer_core`'s page turn stopped constructing
-    /// a [`Pages`] per turn when this parameter went (session 925).
+    /// holding one asks nothing of the tree, and `viewer_core`'s page turn constructs no
+    /// [`Pages`] per turn (ADR 0890).
     #[must_use]
     pub fn page_index_with(
         &self,

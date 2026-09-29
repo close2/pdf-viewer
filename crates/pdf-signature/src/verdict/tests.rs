@@ -105,8 +105,7 @@ fn a_signature_under_somebody_elses_anchor_is_not_valid() {
     );
 }
 
-/// **And with no anchor it is this program's own answer, unchanged since the three-hundred-and-
-/// seventy-seventh session.**
+/// **And with no anchor it is this program's own answer** (ADR 0215).
 ///
 /// ADR 1039's decision is what this asserts is still true: an empty set is the default, the
 /// reservation says so by name, and nothing about a host existing changes what a host that supplies

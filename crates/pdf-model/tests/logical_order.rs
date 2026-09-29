@@ -187,7 +187,7 @@ fn the_two_orders_of_a_tagged_page_mostly_coincide() {
          {tagged_pages_needing_none} of {with_items} pages needed none"
     );
 
-    // 89 documents until session 560, where `issue17147.pdf` joined the population: its
+    // `issue17147.pdf` is in the population: its
     // cross-reference stream is unreadable, so it is rebuilt by scanning, and its
     // `/StructTreeRoot` is one of the nine objects §7.5.7 packs into an object stream that a
     // scan for `N G obj` headers cannot see. Nothing about the document changed (ADR 0395).

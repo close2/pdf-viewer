@@ -204,9 +204,8 @@ fn sampled_shader<'a>(
 /// result is drawn as an image confined to the shape. So the *colour* is `pdf-render`'s, identically on both
 /// backends, and the *edge* is `tiny-skia`'s, antialiased as every other fill's is.
 ///
-/// Until the forty-third session this subdivided each triangle until its corner colours
-/// agreed to within 1/512 and filled the piece flat, then grew every piece by 0.8 pixels to
-/// close the seams that left. `MeshRaster` has why that is gone.
+/// A triangle is not subdivided into flat pieces grown to close their seams; `MeshRaster` says
+/// why (ADR 0051).
 #[expect(
     clippy::too_many_arguments,
     reason = "these are the parameters `fill_path` itself takes, threaded through one \

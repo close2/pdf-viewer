@@ -101,9 +101,9 @@ use crate::{HarnessError, Reference, digest, png_io};
 /// Changed whenever a stored entry's *meaning* changes, so old entries cannot be read as new
 /// ones. Part of every key, so a bump invalidates the whole cache without deleting anything.
 ///
-/// **`-2` since the eight-hundred-and-forty-second session**, when an entry stopped being a
-/// picture and became a picture *and what the renderer said while producing it*. The bump is
-/// what a bump is for and the alternative was rejected deliberately: treating an entry with no
+/// **`-2`, because an entry is a picture and what the renderer said while producing it**
+/// (ADR 0769). The bump is what a bump is for and the alternative was rejected deliberately:
+/// treating an entry with no
 /// stored log as a miss would leave old entries readable as new ones by a second, ad-hoc route,
 /// and would make "no log stored" and "the renderer said nothing" the same thing on disk — which
 /// is exactly the distinction [`crate::Testimony`] rests on. It costs one re-render of every

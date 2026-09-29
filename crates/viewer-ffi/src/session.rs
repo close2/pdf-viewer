@@ -976,8 +976,8 @@ impl Session {
             .ok_or(Status::OutOfRange)
     }
 
-    // ---------------------------------------------------------------------------------------
-    // The other half of the queries — `doc/todo/30` item 5, the seven-hundred-and-ninth session.
+    // --------------------------------------------------------------------------------------- The
+    // other half of the queries — `doc/todo/30` item 5, ADR 0576.
     //
     // Eleven `Query` variants reached no symbol at all. Every one of them is below, and
     // `tests/every_query_reaches_the_abi.rs` is what keeps that true: a variant added to
@@ -1149,8 +1149,7 @@ impl Session {
     /// **A page at a time, and separate from [`Self::thumbnail`] on purpose.** A caller drawing a
     /// page list needs a name per row and a picture only for the rows it is showing; folding the
     /// two into one call would make listing a thousand pages decode a thousand images, which is
-    /// exactly the launch-path defect the seven-hundred-and-fourth session found in the host that
-    /// drew its own rows.
+    /// exactly the launch-path defect ADR 0564 names.
     ///
     /// # Errors
     ///

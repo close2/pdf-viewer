@@ -25,8 +25,8 @@
 //! no CLI that prints an annotation or a field value, so the question goes through poppler-glib
 //! (`tests/save_round_trip/poppler_witness.py`), whose annotation area was **measured** before it
 //! was compared: the `/Rect` translated by the crop box's own origin, y still upward, with the
-//! page's `/Rotate` then applied — each case pinned against a hand-built fixture in session 499,
-//! and [`poppler_area`] is that measurement as arithmetic.
+//! page's `/Rotate` then applied — each case pinned against a hand-built fixture (ADR 0334), and
+//! [`poppler_area`] is that measurement as arithmetic.
 //!
 //! # The refusal census, and the two `Restrict` levels
 //!
@@ -74,11 +74,9 @@
 //! cargo test --profile gates -p pdf-model --test save_round_trip -- --ignored --nocapture
 //! ```
 //!
-//! # The ratchet, since the nine-hundred-and-ninetieth session
+//! # The ratchet
 //!
-//! The census counts held from the four-hundred-and-ninety-ninth session to the
-//! nine-hundred-and-ninetieth with one movement — a document with no reachable page one gained
-//! one and is now refused for its rebuilt table — so [`ratchet`] holds them the way the oracle
+//! The census counts are stable (ADR 1011), so [`ratchet`] holds them the way the oracle
 //! holds its lists: every capability count has a floor, and every refusal, exclusion and policy
 //! population is a **set of names** checked in both directions, because a name that leaves is a
 //! document this tree began to save or a reference began to read and is examined rather than
@@ -153,7 +151,7 @@ const REFERENCE_BUDGET: Duration = Duration::from_secs(30);
 /// - `saslprep-r6.pdf`: the password is one §7.6.4.3.3's `SASLprep` *changes* (U+00AA
 ///   normalises to `a`, U+00AD maps to nothing), and neither reference implements the
 ///   preprocessing — both refuse the stated password and both accept its normalised form,
-///   measured in session 499. The normalised form is the same key, so handing it over asks
+///   measured by ADR 0334. The normalised form is the same key, so handing it over asks
 ///   the reference the same question in the spelling it understands.
 const REFERENCE_PASSWORDS: &[(&str, &str)] = &[
     ("pr6531_2.pdf", "asdfasdf"),
@@ -1113,9 +1111,8 @@ const NOTHING_TO_SAVE_ON: &[&str] = &[
 /// was rebuilt by scanning, and `scan-bad.pdf`, which states no `startxref`. A name that leaves
 /// this list is a document the writer began to chain to and is examined, not enjoyed.
 ///
-/// **`encrypted-attachment.pdf` left it in the thousand-and-twenty-third session and was
-/// examined**: it is not opened at all any more, for §7.6.6 Table 25's reason, so it is in
-/// [`REFUSED_OPEN`] above and no save is attempted on it. ADR 1040.
+/// **`encrypted-attachment.pdf` is not on it**: it is not opened at all, for §7.6.6 Table 25's
+/// reason, so it is in [`REFUSED_OPEN`] above and no save is attempted on it. ADR 1040.
 const SAVE_REFUSED_ON: &[&str] = &[
     "GHOSTSCRIPT-698804-1-fuzzed.pdf",
     "PDFBOX-3148-2-fuzzed.pdf",

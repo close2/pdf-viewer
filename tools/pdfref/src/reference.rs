@@ -82,10 +82,9 @@ impl Reference {
     /// in `oracle.rs`'s `CONTRADICTED_SHARED_JBIG2_DECODER` and the groups beside it — rather
     /// than here.
     ///
-    /// **This paragraph said "they share `jbig2dec`, and only that" and it was wrong**, which
-    /// the five-hundred-and-eighteenth session found by asking the question the sentence
-    /// answers. `ldd` prints the transitive closure; `objdump -p | grep NEEDED` prints what a
-    /// binary actually asks for, and it is a different list:
+    /// **They share more than `jbig2dec`.** `ldd` prints the transitive closure;
+    /// `objdump -p | grep NEEDED` prints what a binary actually asks for, and it is a different
+    /// list:
     ///
     /// ```text
     ///                     poppler   mupdf   ghostscript
@@ -114,8 +113,8 @@ impl Reference {
     ///
     /// # And all three of them are `FreeType`, though not all three link it
     ///
-    /// Found with one `ldd` in the fortieth session and corrected with one `objdump` in the
-    /// five-hundred-and-eighteenth. `pdftoppm` and `mutool` link `libfreetype.so.6`; **`gs`
+    /// Read with `objdump` rather than `ldd`. `pdftoppm` and `mutool` link `libfreetype.so.6`;
+    /// **`gs`
     /// does not** — `libgs.so.10` names no `FreeType` in its `NEEDED` list, *defines* 194 `FT_*`
     /// symbols of its own and leaves none undefined, so it carries a statically linked copy
     /// and the `ldd` line was reaching it through `libfontconfig`. It is not the same copy
@@ -369,13 +368,11 @@ impl Reference {
         let _ = std::fs::remove_file(&output_path);
         let mut command = self.build_command(pdf, page, dpi, work_dir, &output_path, password);
 
-        // **Both streams, into one log.** `stdout` went to `null` until the
-        // seven-hundred-and-seventh session, which threw away the only sentence Ghostscript
+        // **Both streams, into one log.** `stdout` carries the only sentence Ghostscript
         // writes about *why* it stopped: on a file with no §7.5.2 header it prints `Error:
         // /undefined in obj` and its operand stack to **stdout** and only `Unrecoverable error,
-        // exit code 1` to stderr, so the gate's line named the consequence and discarded the
-        // cause. `Reference::version` has known which stream `gs` speaks on since it was written;
-        // nothing had joined that to this. No renderer here writes its image to stdout — all
+        // exit code 1` to stderr, so a log of stderr alone names the consequence and discards the
+        // cause. No renderer here writes its image to stdout — all
         // three are given an output path — and a healthy `gs` run writes zero bytes there,
         // measured, so this costs nothing on the pages that work. ADR 0574.
         //
@@ -405,18 +402,17 @@ impl Reference {
         // alone. The status is still reported when it is non-zero, because that is the
         // more informative failure.
         //
-        // **An empty file is not an image**, and until the seven-hundred-and-seventh session
-        // this condition was `exists()` alone. `mutool draw` creates its `-o` file before it
-        // decides it cannot draw the page, so a document whose page tree it cannot recover
-        // left a *zero-byte* PNG behind — which passed this test, reached the decoder, and
-        // came back as `HarnessError::Png` saying "unexpected end of file". Two things
-        // followed, and both are trap 3's shape one step further in: the gate printed the
-        // *harness's* diagnosis where the renderer's own was sitting in the log beside it
-        // ("argument error: invalid page number: -1", after `format error: malformed page
-        // tree`), and `cache::write_entry` declines to remember a `Png` error — correctly,
-        // since a PNG this harness cannot read is not a property of the document — so those
-        // pages re-ran `mutool` on every run for ever. A renderer that produced no bytes has
-        // produced no output, which is what this now says. ADR 0574.
+        // **An empty file is not an image**, so `exists()` alone is not the condition. `mutool
+        // draw` creates its `-o` file before it decides it cannot draw the page, so a document
+        // whose page tree it cannot recover leaves a *zero-byte* PNG behind — which would pass an
+        // existence test, reach the decoder, and come back as `HarnessError::Png` saying
+        // "unexpected end of file". Two things would follow, and both are trap 3's shape one step
+        // further in: the gate would print the *harness's* diagnosis where the renderer's own
+        // sits in the log beside it ("argument error: invalid page number: -1", after `format
+        // error: malformed page tree`), and `cache::write_entry` declines to remember a `Png`
+        // error — correctly, since a PNG this harness cannot read is not a property of the
+        // document — so those pages would re-run `mutool` on every run for ever. A renderer that
+        // produced no bytes has produced no output, which is what this says. ADR 0574.
         let empty = std::fs::metadata(&output_path).is_ok_and(|file| file.len() == 0);
         if !output_path.exists() || empty {
             return Err(HarnessError::RendererFailed {
@@ -473,8 +469,8 @@ impl Reference {
     /// # The vocabulary, per program, and where each entry was read
     ///
     /// Derived from every log the oracle's corpus produces — its `<name>.log` files, which
-    /// [`crate::cache`] has stored beside the rasters since the eight-hundred-and-forty-second
-    /// session — rather than from the three programs' source, which is a claim with no gate on it
+    /// [`crate::cache`] stores beside the rasters (ADR 0769) — rather than from the three programs'
+    /// source, which is a claim with no gate on it
     /// (trap 9's last bullet).
     ///
     /// | program | sentence | what it is |
@@ -785,8 +781,8 @@ impl Reference {
 ///
 /// [`Reference::render_within`] writes them to `<name>.log` beside the image, and
 /// [`crate::cache`] stores and restores that file with the picture, so this is available on a
-/// cache hit and a miss alike — which it was not until the eight-hundred-and-forty-second
-/// session, and which is why the rule below can be part of a verdict at all (ADR 0769).
+/// cache hit and a miss alike, which is why the rule below can be part of a verdict at all
+/// (ADR 0769).
 ///
 /// **Silence is a reading, not an absence.** A renderer that printed nothing said nothing, and
 /// [`Self::is_silent`] is true for that as it is for a log that could not be read. The two are

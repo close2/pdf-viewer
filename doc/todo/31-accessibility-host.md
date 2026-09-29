@@ -355,8 +355,17 @@ both named for the binary, one carrying the toolkit's widgets and one carrying �
   is published the same way, after the structure's own nodes** (ADR 1381): Table 368's `Form`
   `shall` binds the producer, and an omitted field is still §12.5.1's to click. `tools/state.sh
   accessibility` counts both populations, and a widget published both as an element and in the list
-  is a defect class held at zero. **What it leaves**: a tagged page whose structure reaches nothing
-  on it still says the untagged sentence, because `PageView` does not know the document is tagged.
+  is a defect class held at zero.
+- **An empty page is one of three silences, and each says its own sentence** (ADR 1393):
+  `PageStructure::tagging` answers `viewer_core::Tagging` — the document states no
+  `/StructTreeRoot` (§14.7.2), the page is not read yet, or the document states a structure that
+  reaches none of this page's content, where a catalog claiming §14.8.1's `/Marked true` adds that
+  the producer left the page out. It crosses the confined wire as one byte. The census holds a page
+  answered as the wrong one of the four at zero and counts the unreached pages.
+- **A `Form` element whose content is its widget alone is named** (ADR 1394): Table 355's `/T` on
+  the element, else the field's §14.9.3 name (`/TU`, else §12.7.4.2's); `/Alt` stays a
+  substitution ahead of both. All 272 corpus `Form` elements crossed with an empty name before it,
+  and the census holds that class at zero.
 - **macOS and Windows have no bridge**, and `Bridge::shortfall` says so in the program's first
   lines rather than exposing nothing quietly — in all three windows since the
   seven-hundred-and-thirty-first, because the sentence is the crate's rather than a host's. AccessKit has adapters for both; nothing in this

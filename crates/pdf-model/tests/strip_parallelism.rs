@@ -2,8 +2,8 @@
 //!
 //! `render-cpu` has this property as a test already — `render-cpu/tests/strip_parallelism.rs`,
 //! ADR 0139 — and that one draws the six `test-scenes` fixtures at every division and demands
-//! the bytes be equal. It passed for two hundred and twenty-six sessions while the property was
-//! false, because a fixture is a dozen shapes at round coordinates and the departure needs a
+//! the bytes be equal. It passes while the property is false, because a fixture is a dozen
+//! shapes at round coordinates and the departure needs a
 //! mark whose device position lands within an `ulp` of a supersample row. Trap 12b: a suite of
 //! small scenes tests small scenes.
 //!

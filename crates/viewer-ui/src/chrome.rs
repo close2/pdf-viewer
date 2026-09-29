@@ -19,15 +19,13 @@
 //!
 //! # What it is drawn with
 //!
-//! A [`pdf_render::DisplayList`] and [`pdf_font::LoadedFont::standard`], which means the panel
-//! goes to whichever backend drew the page and looks the same on a machine with no fonts
-//! installed. That is not a trick: Table 109 lets a document name one of §9.6.2.2's fourteen
-//! and say nothing else about it, so a processor has to have them to draw a page at all, and
-//! since the hundred-and-forty-eighth session they are available as bytes in the binary
-//! (ADR 0133) — so an interface drawn in Helvetica is drawn in the same Helvetica everywhere.
-//! (This paragraph quoted §9.6.2.2's "shall be available to the PDF processor" until the
-//! four-hundred-and-eighteenth session; Errata Collection 3 struck that sentence outright, and
-//! [`pdf_font::standard`] carries the reading that replaces it.)
+//! A [`pdf_render::DisplayList`] and [`pdf_font::LoadedFont::standard`], which means the panel goes
+//! to whichever backend drew the page and looks the same on a machine with no fonts installed. That
+//! is not a trick: Table 109 lets a document name one of §9.6.2.2's fourteen and say nothing else
+//! about it, so a processor has to have them to draw a page at all, and they are available as bytes
+//! in the binary (ADR 0133) — so an interface drawn in Helvetica is drawn in the same Helvetica
+//! everywhere. Errata Collection 3 strikes the sentence of §9.6.2.2 that would otherwise be quoted
+//! here, and [`pdf_font::standard`] carries the reading that replaces it (ADR 0254).
 //!
 //! **And it is addressed by character, not by character code.** A document's text selects glyphs
 //! through §9.6.5's encoding, which is 256 codes wide; a panel's text has no codes at all, so it
@@ -55,11 +53,10 @@ use viewer_core::Layer;
 /// How wide the panel is, in logical pixels.
 ///
 /// A choice, and the only rule behind it is that an outline's titles are sentences: §12.3.3's
-/// `/Title` is "the text that shall be displayed on the screen for this item", and documents
-/// write whole clause headings there. Narrower than this and the specification's own outline is
-/// all ellipsis; wider and the page it is beside stops being the thing on the screen. It grew
-/// from 260 in the hundred-and-seventy-third session, when a fourth tab arrived and the strip
-/// stopped fitting.
+/// `/Title` is "the text that shall be displayed on the screen for this item", and documents write
+/// whole clause headings there. Narrower than this and the specification's own outline is all
+/// ellipsis; wider and the page it is beside stops being the thing on the screen. The strip of tabs
+/// has to fit in it too.
 const PANEL_WIDTH: f32 = 300.0;
 
 /// How tall one row is, as a multiple of the text size.
@@ -327,14 +324,13 @@ impl Chrome {
         if let Some(code) = face.code_for(character) {
             return (Set::Glyph(code), face.advance(code));
         }
-        // **The face knows more characters than any encoding of it can name**, and until the
-        // four-hundred-and-ninety-first session this line was not here, so it did not matter that
-        // it did. A code is one byte (§9.7.1: "each byte of a string to be shown selects one
-        // glyph"), so the route above reaches the 149 characters §9.6.5.2's `StandardEncoding`
-        // names and stops — while the compiled-in Helvetica is Liberation Sans, whose `cmap`
-        // states 668, Greek and Cyrillic among them. A panel's text has no character *codes* at
-        // all, so asking the face by character is not a way round the encoding: there is no
-        // encoding in the question. `pdf-model --example interface_font_census` is the
+        // **The face knows more characters than any encoding of it can name**, and this line is
+        // what makes that matter. A code is one byte (§9.7.1: "each byte of a string to be shown
+        // selects one glyph"), so the route above reaches the 149 characters §9.6.5.2's
+        // `StandardEncoding` names and stops — while the compiled-in Helvetica is Liberation Sans,
+        // whose `cmap` states 668, Greek and Cyrillic among them. A panel's text has no character
+        // *codes* at all, so asking the face by character is not a way round the encoding: there is
+        // no encoding in the question. `pdf-model --example interface_font_census` is the
         // measurement and ADR 0326 the argument.
         if let Some(glyph) = face.character_glyph(character) {
             return (Set::Character(character), glyph.advance);
@@ -429,10 +425,8 @@ impl Chrome {
 
     /// How many of a string's characters this face has no glyph for at all.
     ///
-    /// **This asked how many it states no *code* for until the four-hundred-and-ninety-first
-    /// session**, which was the same question only for as long as a code was the sole way to
-    /// reach a glyph. It is the count of boxes either way — [`Self::set`] decides — and what
-    /// changed is that a character the `cmap` states now draws instead of counting.
+    /// **The count of boxes**, which [`Self::set`] decides: a character the `cmap` states draws
+    /// instead of counting, so this is not the count of characters with no *code* (ADR 0326).
     ///
     /// [`Self::text`] draws a box for one, which says *that* something is missing and cannot say
     /// how much; this is what lets a caller say how many — which is what §12.5.6.14's popup does
@@ -791,12 +785,9 @@ impl Row {
 
 /// Which of the sidebar's lists it is showing.
 ///
-/// **`viewer_host::Tab`'s, since the seven-hundred-and-fourth session, and this crate no longer
-/// has one of its own.** Six panels drawn here against three in the two native hosts was
-/// `doc/todo/30`'s item 4 and the plainest instance of the level-hosts debt; what makes it stay
-/// closed is that the list is now one value all three read, exactly as `viewer_host::keys` is one
-/// key table (ADR 0526). The tier-2 host lost a private type doing it, which is what distinguishes
-/// this from a fourth copy.
+/// **`viewer_host::Tab`'s, and this crate has none of its own.** The list of panels is one value
+/// all three hosts read, exactly as `viewer_host::keys` is one key table (ADR 0526), so the hosts
+/// cannot draw different panels (ADR 0564).
 pub use viewer_host::Tab;
 
 /// One [`viewer_host::PanelRow`] as this panel draws one.
@@ -2079,12 +2070,11 @@ const NOTICE_MARGIN: f32 = 24.0;
 
 /// The `/NOTICE` this binary carries, shown over the page.
 ///
-/// **This is a licence obligation with a surface.** Both licences covering the compiled-in
-/// standard 14 fonts require a *binary* distribution to reproduce their notices "in the
-/// documentation and/or other materials provided with the distribution"; `--licences` has
-/// printed them since the hundred-and-forty-eighth session, and a command-line flag is a poor
-/// answer for a person who is looking at a window. This is the other half, and it is the About
-/// panel the project owner asked for.
+/// **This is a licence obligation with a surface.** Both licences covering the compiled-in standard
+/// 14 fonts require a *binary* distribution to reproduce their notices "in the documentation and/or
+/// other materials provided with the distribution"; `--licences` prints them (ADR 0133), and a
+/// command-line flag is a poor answer for a person who is looking at a window. This is the other
+/// half, and it is the About panel the project owner asked for.
 ///
 /// Set in Courier and **not re-wrapped**: the file's own line breaks are what keep a BSD
 /// licence's paragraphs and a font list's columns readable, and re-flowing text a licence
@@ -2555,11 +2545,10 @@ const POPUP_PAPER: Color = Color {
 ///   stops being an inference about who is addressed and becomes what the clause says.
 ///
 /// **A character this interface's own font has no glyph for is counted and said out loud.**
-/// [`Chrome::text`] draws a box for one (ADR 0195), which says *that* something is there and
-/// cannot say how much: six of the corpus's seven open popups are in Chinese, and a window of
-/// boxes with no count is this program showing a note it cannot read without saying so. Trap 5,
-/// in an interface. (This sentence said `Chrome::text` "skips one silently" for the
-/// hundred-and-seventy-five sessions after that stopped being true.)
+/// [`Chrome::text`] draws a box for one (ADR 0195), which says *that* something is there and cannot
+/// say how much: six of the corpus's seven open popups are in Chinese, and a window of boxes with
+/// no count is this program showing a note it cannot read without saying so. Trap 5, in an
+/// interface.
 pub fn popup_windows(
     chrome: &Chrome,
     windows: &[viewer_core::PopupWindow],
@@ -2568,8 +2557,8 @@ pub fn popup_windows(
     scale: f32,
 ) -> Option<DisplayList> {
     // **What each window says and where it goes is `viewer_host::popup`'s**, shared with the two
-    // native hosts since the seven-hundred-and-twenty-sixth session, so that one clause is read
-    // once for three programs. This host draws what that answers; the other two place widgets.
+    // native hosts (ADR 0613), so that one clause is read once for three programs. This host draws
+    // what that answers; the other two place widgets.
     let placed = viewer_host::popup::windows(windows);
     if placed.is_empty() {
         return None;
@@ -3077,13 +3066,11 @@ const PASSWORD_ECHO: char = '\u{2022}';
 /// §7.6.4.1's prompt, drawn by the host that has no toolkit to ask for one.
 ///
 /// **The counterpart of `viewer-gtk`'s `gtk4::PasswordEntry` and `viewer-qt`'s `QLineEdit` with
-/// `QLineEdit::Password`**, and it exists because until the six-hundred-and-ninety-fifth session
-/// this host answered an encrypted document on `stderr`, read `stdin`, and called
-/// `std::process::exit(1)` when there was no terminal — so a window opened from a desktop launcher
-/// could not open an encrypted document at all. ISO 32000-2 §7.6.4.1's NOTE 2 describes the
-/// processor that genuinely cannot ask ("non-interactive PDF readers that do not have a person
-/// running them such as printing off-line or on a server"), and a window on a screen is not one of
-/// them whatever it was launched from.
+/// `QLineEdit::Password`**, and it exists because a prompt on `stderr` that reads `stdin` needs a
+/// terminal — so a window opened from a desktop launcher could not open an encrypted document at
+/// all (ADR 0545). ISO 32000-2 §7.6.4.1's NOTE 2 describes the processor that genuinely cannot ask
+/// ("non-interactive PDF readers that do not have a person running them such as printing off-line
+/// or on a server"), and a window on a screen is not one of them whatever it was launched from.
 ///
 /// What is *not* here is the attempt policy: how many times to ask, what to say when the attempts
 /// are used up, and that an empty entry is a decline rather than the default user password are all
@@ -3723,13 +3710,13 @@ fn dimmed(wide: f32, tall: f32) -> DisplayList {
 
 /// The sentence a window says when there is no document to draw, and it stays on the screen.
 ///
-/// **This replaced two `std::process::exit(1)` calls in the seven-hundred-and-fourth session**, and
-/// the argument is ADR 0545's one round on: a window that leaves the process has told a person who
-/// launched it from a desktop nothing at all, and `viewer_core::Event::OpenFailed` and a document
-/// with no pages are exactly the two cases where the *reason* is the only thing this program has to
-/// offer. The two native hosts printed their own line into a status bar and stayed up throughout,
-/// which is what "all three hosts stay level" means here; the wording is
-/// [`viewer_host::cannot_open`] and [`viewer_host::no_pages`] so that the three say one thing.
+/// **The window stays up rather than calling `std::process::exit(1)`**, on ADR 0545's argument: a
+/// window that leaves the process has told a person who launched it from a desktop nothing at all,
+/// and `viewer_core::Event::OpenFailed` and a document with no pages are exactly the two cases
+/// where the *reason* is the only thing this program has to offer. The two native hosts print their
+/// own line into a status bar and stay up too, which is what "all three hosts stay level" means
+/// here (ADR 0564); the wording is [`viewer_host::cannot_open`] and [`viewer_host::no_pages`] so
+/// that the three say one thing.
 ///
 /// No keyboard, no buttons, and nothing to dismiss: there is no page behind it to get back to. It
 /// is drawn over `pdf_render::SURROUND` by the `quorra` binary's `App::without_a_page`, the path

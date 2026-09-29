@@ -521,12 +521,9 @@ impl<'a> Lexer<'a> {
                             }
                             // §7.3.4.2 states the truncation itself — "[h]igh-order overflow
                             // shall be ignored" — so the low byte is the clause's answer and
-                            // not a convention. This comment said the opposite, and cited
-                            // other implementations for a rule the standard prints; the
-                            // four-hundred-and-seventeenth session found it while reading
-                            // Errata Collection 3's Issue #494, which retitles the escape
-                            // "[b]yte with value ddd in octal" and confirms the same reading
-                            // from the other side.
+                            // not a convention. Errata Collection 3's Issue #494 retitles
+                            // the escape "[b]yte with value ddd in octal" and confirms the
+                            // same reading from the other side (ADR 0253).
                             out.push(u8::try_from(value & 0xff).unwrap_or(0));
                         }
                         // Any other escaped character stands for itself.
@@ -704,8 +701,7 @@ impl<'a> Lexer<'a> {
         // Reading it is therefore the §7.3.10 answer one clause family along: a producer's
         // spelling of a number is not a question about what the number is, and refusing would
         // lose a mark to a requirement no sentence places on us. It is a *departure* all the
-        // same, and one nothing here said until the eight-hundredth session — the two
-        // blockquotes above are about digits, and the line under them quietly accepted an
+        // same (ADR 0733) — the two blockquotes above are about digits, and this line accepts an
         // exponent. `pdf-model/examples/numeric_form_census` counts the population it decides;
         // `sci-notation.pdf` is the pdf.js corpus's only witness, one run in 964 documents.
         //
@@ -729,9 +725,8 @@ impl<'a> Lexer<'a> {
         let Some((value, read)) = salvage_number(raw) else {
             // A digit is present — the condition above saw to that — but the grammar reads
             // nothing before it: `.-1`, `--5`, `-x1`. That is the same run as `.` with a digit
-            // further along, and it takes the same answer, the keyword §7.2.3 makes it. It was
-            // `Integer(0)` until the nine-hundred-and-ninetieth session — the zero ADR 0303
-            // took out of the digit-less run, surviving one condition below it (ADR 1011).
+            // further along, and it takes the same answer, the keyword §7.2.3 makes it, rather
+            // than the zero ADR 0303 took out of the digit-less run (ADR 1011).
             return Token::Keyword(raw);
         };
         self.salvage = Some(Salvage {
@@ -915,37 +910,31 @@ fn fixed_format_number(raw: &[u8]) -> Option<(Fixed, usize)> {
 ///   operator; where it does name one, `pdf-model`'s content reader hands the interpreter the
 ///   whole run as the keyword it is (ADR 1004). That is the leniency ADR 0303 kept, and it is
 ///   the only one there is.
-/// - **A run the grammar reads nothing of is a keyword**, not a number. `--5` was read as −5
-///   until the nine-hundred-and-ninetieth session, on a comment saying that "both Acrobat and
-///   pdf.js read it as −5" — a reference implementation named as the *reason* for a behaviour,
-///   which is the direction of inference `CLAUDE.md` principle 5 forbids outright — and `.-1`
-///   was `0`, the zero ADR 0303 took out of the run holding no digit, surviving one condition
-///   below it. Neither value is one the run spells: the grammar's prefix of both is empty, and a
-///   value invented for an empty prefix is the plausible fallback trap 5 forbids, for a run the
-///   file may have meant as anything. Both now take the answer `.` and `-` already take — the
-///   keyword §7.2.3 makes them, which the parser refuses where an object was expected and the
-///   interpreter reports as an operator it does not know, dropping the operands before it
-///   (ADR 0302's rule) — and the report is what a damaged stream is owed.
+/// - **A run the grammar reads nothing of is a keyword**, not a number: `--5` is not −5 and
+///   `.-1` is not `0`. What another reader makes of them is no reason for a behaviour
+///   (`CLAUDE.md` principle 5), and neither value is one the run spells: the grammar's prefix
+///   of both is empty, and a value invented for an empty prefix is the plausible fallback trap
+///   5 forbids, for a run the file may have meant as anything. Both take the answer `.` and `-`
+///   take — the keyword §7.2.3 makes them, which the parser refuses where an object was
+///   expected and the interpreter reports as an operator it does not know, dropping the
+///   operands before it (ADR 0302's rule) — and the report is what a damaged stream is owed.
 ///
 /// **The population, counted before the choice was believed** (ADR 1011): over every page
 /// content stream of `doc/pdf.js`'s 974 documents and `doc/corpora/`'s 275, the repeated-sign
 /// shape occurs six times in four documents and the empty-prefix shape 264 times in eleven —
 /// every one of them in `format-corpus`'s deliberately damaged govdocs set, in a stream whose
 /// surrounding bytes are already garbage, and not once in a file a producer wrote. No file on
-/// this disk writes `--5` by "prepending a minus to an already-negative value", which is what
-/// the old comment said producers do.
-// **Kept out of line on a measurement, not a hunch.** The nine-hundred-and-ninetieth session
-// rewrote this function without its `String`, which made it small enough for the compiler to
-// inline into `read_number` — and that reshaped the register allocation of the path every
-// *well-formed* number takes, by a few instructions per token. On `Document::open`, which
-// lexes every cross-reference entry and trailer, the launch gate's `open_kinstructions` rose
-// from 26 748.8 to 26 773.8 thousand on `Well-Tagged-PDF-WTPDF-1.0.pdf` (band top 26 760) and
-// from 185 357.6 to 185 492.1 thousand on `ISO_32000-2_sponsored_EC3.pdf` (band top 185 424):
-// 0.04% each, in a figure with no clock in it, run alone, and gone with HEAD's lexer swapped
-// in. With this attribute both figures are back inside their bands. What it costs is one call
-// on the *malformed* path only — a run the grammar cannot read whole, which no conforming file
-// holds — so the trade is a few instructions on the salvage against a few on every number.
-// (ADR 1011 §4, and the merge that measured it.)
+/// this disk writes `--5` by prepending a minus to an already-negative value.
+// **Kept out of line on a measurement, not a hunch.** Without its `String` this function is small
+// enough for the compiler to inline into `read_number` — and that reshapes the register allocation
+// of the path every *well-formed* number takes, by a few instructions per token. On
+// `Document::open`, which lexes every cross-reference entry and trailer, the launch gate's
+// `open_kinstructions` rises from 26 748.8 to 26 773.8 thousand on `Well-Tagged-PDF-WTPDF-1.0.pdf`
+// (band top 26 760) and from 185 357.6 to 185 492.1 thousand on `ISO_32000-2_sponsored_EC3.pdf`
+// (band top 185 424): 0.04% each, in a figure with no clock in it, run alone (ADR 1011 section 4).
+// With this attribute both figures are inside their bands. What it costs is one call on the
+// *malformed* path only — a run the grammar cannot read whole, which no conforming file holds — so
+// the trade is a few instructions on the salvage against a few on every number.
 #[inline(never)]
 fn salvage_number(text: &[u8]) -> Option<(f64, usize)> {
     let mut read = usize::from(matches!(text.first(), Some(b'-' | b'+')));
@@ -987,9 +976,9 @@ fn salvage_number(text: &[u8]) -> Option<(f64, usize)> {
 /// informative and states no figure: its Table C.1 says only that reals are "often" IEEE 754
 /// single or double, which is the representation this bound is of.
 ///
-/// **It returned zero until the eight-hundredth session, and zero is the worst value
-/// available.** It is the smallest magnitude where the largest was written, it inverts the
-/// ordering of every comparison the number then takes part in, and — unlike a refusal — it
+/// **It does not return zero, and zero is the worst value available** (ADR 0733). It is the
+/// smallest magnitude where the largest was written, it inverts the ordering of every comparison
+/// the number then takes part in, and — unlike a refusal — it
 /// *draws*: a coordinate at the origin, a font size of nought, a width of nothing, in place of
 /// a mark the producer put off the sheet. That is the plausible fallback trap 5 forbids and
 /// the same shape ADR 0303 took out of the run holding no digit at all, surviving one
@@ -1070,10 +1059,8 @@ mod tests {
     /// further.** The clause's forms are one optional sign, decimal digits and at most one
     /// PERIOD; the salvage is that grammar off the front of the run, which is the one leniency
     /// [`super::salvage_number`] states and the choice it argues. Nothing here is derived from
-    /// what another reader does with these runs — this test's doc comment said "other viewers
-    /// accept them, so we must" from the lexer's first commit until the nine-hundred-and-
-    /// ninetieth session, which is `CLAUDE.md` principle 5's forbidden direction of inference
-    /// written down as a test's reason (ADR 1011).
+    /// what another reader does with these runs, which would be `CLAUDE.md` principle 5's
+    /// forbidden direction of inference (ADR 1011).
     #[test]
     fn malformed_numbers_salvage_a_leading_value() {
         assert_eq!(tokens(b"1.2.3"), vec![Token::Real(1.2)]);
@@ -1086,13 +1073,12 @@ mod tests {
 
     /// **A run the grammar reads nothing of is the keyword it lexically is, digit or no digit.**
     ///
-    /// `--5` was −5 and `.-1` was 0 until the nine-hundred-and-ninetieth session, and neither is
-    /// a value the run spells: the grammar's prefix of both is empty, exactly as it is for `.`
-    /// and `-`, which ADR 0303 made keywords. A second sign before the first digit is not a
-    /// sign the clause's "optionally preceded by a sign" admits, so a value read past it is an
-    /// invention — and an invented value that draws is the fallback trap 5 forbids. The parser
-    /// refuses the keyword where an object was expected and the interpreter reports it as an
-    /// operator it does not know (ADR 1011).
+    /// `--5` is not −5 and `.-1` is not 0, because neither is a value the run spells: the grammar's
+    /// prefix of both is empty, exactly as it is for `.` and `-`, which ADR 0303 made keywords. A
+    /// second sign before the first digit is not a sign the clause's "optionally preceded by a
+    /// sign" admits, so a value read past it is an invention — and an invented value that draws is
+    /// the fallback trap 5 forbids. The parser refuses the keyword where an object was expected and
+    /// the interpreter reports it as an operator it does not know (ADR 1011).
     #[test]
     fn a_run_the_grammar_reads_nothing_of_is_a_keyword() {
         for run in [
@@ -1566,8 +1552,7 @@ mod tests {
         );
     }
 
-    /// §7.3.4.2's end-of-line rule, which nothing here asked for until the
-    /// seven-hundred-and-seventy-first session.
+    /// §7.3.4.2's end-of-line rule.
     ///
     /// The clause makes an unescaped end-of-line marker *one byte*, 0Ah, whichever of the three
     /// forms it was written in — so the four cases that matter are a bare CARRIAGE RETURN, a

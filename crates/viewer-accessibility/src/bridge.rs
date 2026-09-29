@@ -14,10 +14,9 @@
 //!
 //! # What a client may ask for, and who carries it out
 //!
-//! Until the five-hundred-and-ninetieth session the tree declared no [`accesskit::Action`] on any
-//! node, so a conforming client requested none and anything that arrived anyway was printed by
-//! name. Three are declared now — [`accesskit::Action::ScrollIntoView`] on an element that has a
-//! place, [`accesskit::Action::Click`] on one whose content is an annotation, and
+//! A conforming client requests only the [`accesskit::Action`]s a node declares (ADR 0425). Three
+//! are declared — [`accesskit::Action::ScrollIntoView`] on an element that has a place,
+//! [`accesskit::Action::Click`] on one whose content is an annotation, and
 //! [`accesskit::Action::SetTextSelection`] on the page — and each resolves to an [`Act`], which is
 //! a *place* in the viewport's device pixels and nothing else.
 //!
@@ -89,10 +88,8 @@ pub enum Act {
 
 /// What an assistive technology asked this program to do.
 ///
-/// **This used to be a name to print and nothing else**, because the tree declared no actions at
-/// all and a conforming client therefore requested none. Since the five-hundred-and-ninetieth
-/// session three are declared and [`Self::means`] says what each one is in this program's terms;
-/// an action that is *not* declared can still arrive — `Component.ScrollTo` and
+/// **Three actions are declared** (ADR 0425) and [`Self::means`] says what each one is in this
+/// program's terms; an action that is *not* declared can still arrive — `Component.ScrollTo` and
 /// `Text.SetCaretOffset` are offered by the adapter on the strength of the node's bounds and its
 /// text runs rather than of a declaration — and one this crate cannot place answers `None` and is
 /// still printed by name, which is the half of trap 5 that has not changed.

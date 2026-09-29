@@ -6,8 +6,8 @@
 //! whose doc comment carries the diagnosis — the measurements, the clause, and why the page is
 //! where it is. Those notes are what a round reads before deciding whether a page is our defect,
 //! and **nothing verified them against the decisions taken after they were written**. The
-//! six-hundred-and-sixty-second session found the consequence: ADR 0476 made this tree's edge
-//! coverage exact, and three sessions later `CONTRADICTED_TIGHT_CONSENSUS` still said ours was
+//! consequence: ADR 0476 made this tree's edge coverage exact, and afterwards
+//! `CONTRADICTED_TIGHT_CONSENSUS` still said ours was
 //! the quarter-quantised form. The correction had reached `doc/traps/`, §10.7.4's ledger row and
 //! `doc/todo/11` item 7 — everywhere except the group it was about (ADR 0489). That is a third
 //! way a note can be wrong, after its name and its reading: *a sentence that was true when
@@ -804,7 +804,7 @@ mod tests {
         assert_eq!(page_list_name("const SCALE: f32 = 1.0;"), None);
     }
 
-    /// The six-hundred-and-sixty-second session's own case, which is what trap 13 asks for: a
+    /// ADR 0489's own case, which is what trap 13 asks for: a
     /// note citing ADR 0474 where ADR 0489 names the same document is the shape, and the same
     /// note citing 0489 is not.
     #[test]

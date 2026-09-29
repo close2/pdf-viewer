@@ -193,9 +193,8 @@ fn a_predictor_the_clause_does_not_define_is_refused() {
 /// row below is built so that the three positions answer *up*, *up-left* and *left* in turn,
 /// and no simpler filter reproduces it.
 ///
-/// It is here because until the seven-hundred-and-fifty-second session type 4 had no test at
-/// all: the other four are covered by `each_png_row_carries_its_own_filter_type`, which stops
-/// at Average.
+/// It is here because the other four are covered by
+/// `each_png_row_carries_its_own_filter_type`, which stops at Average.
 #[test]
 fn the_paeth_filter_chooses_between_its_three_neighbours() {
     let data: Vec<u8> = vec![
@@ -221,8 +220,7 @@ fn the_paeth_filter_chooses_between_its_three_neighbours() {
 /// undefined tag with no row is this.
 ///
 /// Pinned because it is a behaviour that is easy to lose while tidying: it survives only as
-/// long as the tag is examined where the bytes are, and the seven-hundred-and-fifty-second
-/// session moved that examination (ADR 0667).
+/// long as the tag is examined where the bytes are (ADR 0667).
 #[test]
 fn a_trailing_type_byte_with_no_row_keeps_what_decoded() {
     // Three columns, so a row is a tag plus three bytes; the `9` is a fourth chunk of one.

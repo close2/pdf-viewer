@@ -963,6 +963,13 @@ opposite shape (ADR 1392). `tools/conformance/tests/batch.rs` now matches every 
 against the file's own `#[ignore]` attributes, and `gates()` fails any line whose summary shows no
 test passed. A green line is read for what it ran, not for its exit status.
 
+### 68. A sweep that excuses a line for a phrase hides the history beside the phrase
+
+The comment-history sweep's first version excused any line holding a legitimate use of "session",
+which also excused the history sentence on the same line, and paired backticks across a joined line,
+which swallowed "session 625" between two code spans (ADR 1403). Remove the excused phrase and read
+what is left; pair code spans per line.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

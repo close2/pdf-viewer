@@ -32,14 +32,13 @@
 //! cargo run --release -p pdf-model --example press_census -- corpus-cache/safedocs/*/0000/*.pdf
 //! ```
 //!
-//! **And it is the reading `tools/safedocs survey` cannot give**, which is why the
-//! five-hundred-and-eighty-first session came back to it (ADR 0416): this census shares nothing
-//! between documents, so its answer is a function of the files and two runs agree, where a survey
-//! shared `colour::MAX_PRESSES` between the documents it was judging and reported a different set
-//! of them every run. **The survey agrees between runs since ADR 0417 made that budget the
-//! interpretation's**, and this census keeps its own reason for existing: it reads a **page**
-//! group and a survey reads whatever the page draws, so the two answer different questions about
-//! the same population rather than one checking the other.
+//! **And it is the reading `tools/safedocs survey` cannot give** (ADR 0416): this census shares
+//! nothing between documents, so its answer is a function of the files and two runs agree, where a
+//! survey shared `colour::MAX_PRESSES` between the documents it was judging and reported a
+//! different set of them every run. **The survey agrees between runs since ADR 0417 made that
+//! budget the interpretation's**, and this census keeps its own reason for existing: it reads a
+//! **page** group and a survey reads whatever the page draws, so the two answer different questions
+//! about the same population rather than one checking the other.
 
 #![expect(
     clippy::print_stdout,
@@ -240,9 +239,8 @@ fn main() {
     let mut lines: Vec<String> = Vec::new();
     // The identities `pdf_model::colour`'s press table is keyed by, so that this census answers
     // the question the table's bound raises: how many *distinct* presses does this population
-    // name, against the `MAX_PRESSES` one process holds. Added in the five-hundred-and-eighty-first
-    // session, when a survey of 287 press-naming crawled documents was found reporting a
-    // different set of them on every run for want of it. ADR 0416.
+    // name, against the `MAX_PRESSES` one process holds — without it a survey of 287
+    // press-naming crawled documents reports a different set of them on every run. ADR 0416.
     let mut presses: BTreeSet<u128> = BTreeSet::new();
     let mut gaps: Vec<(String, f32, f32, f32)> = Vec::new();
     let sampling = std::env::args().any(|argument| argument == "--sample");

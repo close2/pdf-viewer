@@ -616,18 +616,23 @@ impl<'a> Encoder<'a> {
         }
         if let Some(rect) = self.deferrable_bounds(resolved) {
             let bound = self.tile_bound(fill.bounds, resolved);
-            return self.enqueue(
-                Job::sheet(
-                    &stored.segments,
-                    fill.to_device,
-                    None,
-                    fill.rule,
-                    rect,
-                    bound,
-                    Draw::new(fill.color, resolved.rect, fill.style, fill.mask),
-                )
-                .of_outline(stored),
+            let job = Job::sheet(
+                &stored.segments,
+                fill.to_device,
+                None,
+                fill.rule,
+                rect,
+                bound,
+                Draw::new(fill.color, resolved.rect, fill.style, fill.mask).under(resolved),
             );
+            // A residue-clipped fill asks the two-values question of its own tile, as the
+            // walk's `coverage_tile` does, so that moving it off the thread moves no pixel
+            // (ADR 1395); an unclipped one takes the outline's answer (ADR 1389).
+            return self.enqueue(if resolved.residues.is_some() {
+                job
+            } else {
+                job.of_outline(stored)
+            });
         }
         let span = self.clock.start();
         let polylines = raster::flatten(&stored.segments, fill.to_device);

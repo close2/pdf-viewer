@@ -370,28 +370,21 @@ fn pdfjs_corpus() -> Vec<PathBuf> {
 /// oracle's lists are: a document that starts failing fails the gate even if another was fixed
 /// the same day, and one that is fixed must be deleted rather than left to rot.
 ///
-/// # What the 46 are, classified in the sixty-third session
+/// # What the entries are
 ///
 /// The instrument that sorts them is one number per document — how many of the glyphs that
 /// marked the page produced a character in the readback — and it separates two quite different
 /// failures that both show up here as a low score.
 ///
-/// **Thirty-one draw glyphs and name none of them**, and that is the limit this project has
-/// recorded since the eighth session rather than a defect: `Interpretation::glyphs` exists
-/// precisely because a font with no `/ToUnicode`, no AGL-known glyph names and no `cmap` a
-/// reader can invert draws perfectly good letters that nothing can name. `issue918.pdf` is the
-/// archetype and was the largest entry on the list — 1327 glyphs, 193 reference words, and a
-/// readback of nothing but the spaces the placement pass inferred. Its Type 3 fonts name their
-/// glyphs `/a45`, `/a66`, `/a97` …, which is the character code in decimal and is not a name
-/// §9.10.2 can resolve; the file states no `/ToUnicode` at all. `simpletype3font.pdf`,
-/// `complex_ttf_font.pdf`, `issue1350.pdf` and `issue19802.pdf` are the same shape.
-///
-/// **`issue918.pdf` reads back 186 of those 193 words now, and the sentence above went on
-/// saying otherwise long after it stopped being true** — which is worth leaving visible rather
-/// than editing away: §9.10.2's closing permission, the code itself where it is a printable
-/// ASCII byte, answers `/a65` for `A` and every other Latin letter dvips numbered that way, and
-/// it landed in the three-hundred-and-twenty-eighth session. What it cannot answer is a code
-/// *outside* 0x21–0x7E, which is where the seven that are left live: `Václav`'s `á` is one
+/// **Some draw glyphs and name none of them**, and that is a limit rather than a defect:
+/// `Interpretation::glyphs` exists precisely because a font with no `/ToUnicode`, no AGL-known
+/// glyph names and no `cmap` a reader can invert draws perfectly good letters that nothing can
+/// name. `complex_ttf_font.pdf` and `issue19802.pdf` are that shape. `issue918.pdf` is the
+/// neighbouring case: its Type 3 fonts name their glyphs `/a45`, `/a66`, `/a97` …, the character
+/// code in decimal, and the file states no `/ToUnicode` at all. §9.10.2's closing permission, the
+/// code itself where it is a printable ASCII byte, answers `/a65` for `A` and every other Latin
+/// letter dvips numbered that way, so it reads back 186 of 193 words. What that cannot answer is
+/// a code *outside* 0x21–0x7E, which is where the seven that are left live: `Václav`'s `á` is one
 /// glyph at an OT1 code, and `signifier`'s `fi` is another. `pdftotext` answers those with
 /// U+001C and U+001E, which are not characters either, so the two readers fail the same
 /// question differently rather than one of them being right.
@@ -406,83 +399,53 @@ fn pdfjs_corpus() -> Vec<PathBuf> {
 /// about which glyph was drawn — which is what this test is for — and a fix belongs to whoever
 /// builds selection.
 ///
-/// **`issue8697.pdf` was described here as "a question about a clause" and it was a defect.**
-/// The entry said the file draws `Ωηατ Οπερατινγ Σψστεµσ ∆ο` where `pdftotext` reads
-/// `What Operating Systems Do`, that this is a Symbol font whose glyphs are Greek and whose
-/// codes are Latin, and that "both readbacks are defensible" because §9.10.2 names what was
-/// drawn. Every sentence of that is true about the readback and none of it asked why the Greek
-/// was on the page: the font is `/SegoeUISymbol`, a sans-serif face whose *name* ends in the
-/// word, and both `/Encoding /WinAnsiEncoding` and Table 121's Nonsymbolic flag say so.
-/// §9.6.5.4 makes that a `shall` — the code-to-glyph-name table is the Latin one — and the
-/// standard-14 `Symbol` was being substituted off the name alone. ADR 0158; the readback is
-/// 100% now. **A gate entry that reasons about its own half of the pipeline can be right in
-/// every sentence and still be describing a defect one stage upstream.**
+/// **A gate entry that reasons about its own half of the pipeline can be right in every sentence
+/// and still be describing a defect one stage upstream.** `issue8697.pdf` drew
+/// `Ωηατ Οπερατινγ Σψστεµσ ∆ο` where `pdftotext` reads `What Operating Systems Do`: the font is
+/// `/SegoeUISymbol`, a sans-serif face whose *name* ends in the word, and both
+/// `/Encoding /WinAnsiEncoding` and Table 121's Nonsymbolic flag say so. §9.6.5.4 makes the
+/// code-to-glyph-name table the Latin one, and substituting the standard-14 `Symbol` off the name
+/// alone is the defect. ADR 0158; it reads back whole.
 ///
-/// The remaining three are partial for reasons nobody has diagnosed further: `issue13211.pdf`,
-/// `issue16553.pdf` and `bug1392647.pdf`. **All of them agree with the reference consensus on
-/// pixels**, measured in the sixty-sixth session with one filtered oracle run, so every one of
-/// them draws a picture two independent renderers accept and fails only at naming what it drew.
-/// (`issue16538.pdf` was a fourth until §9.7.5.2's `CMap`s landed; see below.)
+/// **Two are partial for reasons not yet diagnosed**: `issue13211.pdf` and `bug1392647.pdf`.
+/// **Both agree with the reference consensus on pixels** (one filtered oracle run), so each draws
+/// a picture two independent renderers accept and fails only at naming what it drew. **An entry
+/// parked as undiagnosed is not the same as an entry that cannot be diagnosed**: `Identity-H`
+/// composite fonts whose `/ToUnicode` answers for some codes or none are exactly the shape
+/// §9.10.2 excludes from its third method by name, and `pdf_font::LoadedFont::text_from_program`
+/// carries the permission the clause grants when every method has failed — found through
+/// `doc/corpora/pdfbox`'s frozen extraction, a second population rather than a second look. And
+/// **a text-extraction shortfall nobody can diagnose may be a font nobody has looked up**: a font
+/// cache keyed by the resource name `/C2_0` or `/F1` rather than by the font's identity lets a
+/// form `XObject`'s font answer the page's question (ADR 0115). Both are worth checking before
+/// spending effort on §9.10.2 for what is left; none of it is a drawing defect.
 ///
-/// **`issue16553.pdf` was one of that three for three hundred and fifty-seven sessions, and it
-/// was diagnosed by a corpus this tree had never seen.** It and `javauninstall-7r.pdf` left this
-/// list in the four-hundred-and-twenty-third session, and neither was worked on: the gate below
-/// — `doc/corpora/pdfbox`'s frozen extraction — found `PDFBOX-5838-0024320-reduced.pdf` reading
-/// `H Reeach Pec` for `Honors Research Project`, and the clause that fixed that one fixed these
-/// two the same afternoon. All three are `Identity-H` composite fonts whose `/ToUnicode` answers
-/// for some codes or none, and §9.10.2 excludes exactly that shape from its third method by
-/// name, so every method had failed and the permission the clause grants was being declined.
-/// `pdf_font::LoadedFont::text_from_program` carries the reading. **An entry parked as
-/// undiagnosed is not the same as an entry that cannot be diagnosed**, and what moved this one
-/// was a second population rather than a second look.
-///
-/// **Two left this list in the hundred-and-twenty-seventh session and neither was diagnosed
-/// here**: `issue19182.pdf` and `issue19971.pdf` were reading a font the font *cache* had
-/// handed them, keyed by the resource name `/C2_0` or `/F1` rather than by the font's identity,
-/// so a form `XObject`'s font was answering the page's question. The first now reports the
-/// predefined `CMap` it actually names and leaves this gate's population; the second rose above
-/// the floor. **A text-extraction shortfall nobody could diagnose was a font nobody had
-/// looked up** — worth remembering before spending a session on §9.10.2 for the three left. The whole of what is left
-/// on this list is §9.10.2, and none of it is a drawing defect — which is worth knowing before
-/// spending a session on any of them, and is the cheapest thing to check about an entry here.
-///
-/// The method that found the two real defects is still the one to use: print our readback beside
-/// the reference's and read the file where they part. It found `operator-in-TJ-array.pdf` and
-/// `issue15910.pdf` in the two sessions after this gate landed.
-///
-/// # Three left in the sixty-fourth session, and the route is §9.10.2's own permission
-///
-/// `bug894572.pdf`, `issue1350.pdf` and `issue15910.pdf` are gone because a simple font's
-/// glyph is now named by the *program* where the clause's three methods all fail — the `post`
-/// table's name through the Adobe Glyph List, or the Unicode `cmap` subtable inverted. See
-/// `pdf_font::LoadedFont::text_from_program`. The corpus went 96.5% to **97.8%** and no
-/// document moved the other way, which is the measurement that says this is not the
+/// The method that finds real defects here is to print our readback beside the reference's and
+/// read the file where they part. A simple font's glyph is named by the *program* where the
+/// clause's three methods all fail — the `post` table's name through the Adobe Glyph List, or
+/// the Unicode `cmap` subtable inverted (`pdf_font::LoadedFont::text_from_program`) — and that
+/// moved no document the other way, which is the measurement that says this is not the
 /// fallback-that-fills-the-page.
 ///
-/// # One joined in the seventy-second session, and it is the denominator moving
+/// # A denominator entry
 ///
-/// `issue17069.pdf` reads back 10 of the 12 words `pdftotext` finds, missing `rmX` and `teO`
-/// — and it is *new to this list without its readback changing at all*. It reported §9.3.8's
-/// text knockout until that clause was implemented, and only pages we draw completely are
-/// gated. A gate's numerator moves when its denominator does, and only one of those is news.
-/// # Six left in the hundred-and-fifty-sixth session, and the list heard in the hundred-and-sixty-sixth
+/// `issue17069.pdf` reads back 10 of the 12 words `pdftotext` finds, missing `rmX` and `teO`.
+/// It is here because §9.3.8's text knockout is implemented and only pages we draw completely
+/// are gated. A gate's numerator moves when its denominator does, and only one of those is news.
 ///
-/// `arial_unicode_en_cidfont.pdf`, `issue13147.pdf`, `issue16538.pdf`, `issue2884_reduced.pdf`,
-/// `issue7696.pdf` and `vertical.pdf` all read back **100%** of `pdftotext`'s words once
-/// §9.7.5.2's predefined `CMap`s and §9.10.2's third method arrived (ADR 0140). Six is the
-/// number that session's own handover entry records — and the constant below still had all six
-/// in it, so **this gate has been failing since, and two sessions of "everything re-verified"
-/// did not notice**. The lesson is the ratchet's, not the clause's: an entry that becomes a
-/// success fails the build in a message that reads like a regression, and a session that reads
-/// only the summary line will believe the summary. `doc/HANDOVER.md`'s own "36 below the floor"
-/// was right about the *measurement* and wrong about the list the whole time.
-/// # One joined in the two-hundred-and-eighty-fourth, and **the reference is the one that is wrong**
+/// # A ratchet entry that becomes a success fails the build
+///
+/// An entry that starts reading back **100%** — as §9.7.5.2's predefined `CMap`s and §9.10.2's
+/// third method made several do (ADR 0140) — fails the build in a message that reads like a
+/// regression, and a reader of only the summary line will believe the summary. The list is the
+/// thing to read, not the count below the floor.
+///
+/// # An entry where **the reference is the one that is wrong**
 ///
 /// `bug1865341.pdf` is a free text annotation whose value is *Załącznik* and whose `/DA` names a
 /// font `/DR` does not define. `pdftotext` reads back **`Zacznik`** — poppler draws it that way
 /// too, with both diacritics silently dropped, which the side-by-side in ADR 0184 shows. This
-/// tree draws and reads back all nine characters, so the comparison scores **0 of 1 words** and
-/// the ratchet fires on an improvement for the second time in this file's history.
+/// tree draws and reads back all nine characters, so the comparison scores **0 of 1 words**.
 ///
 /// The clause settles it rather than the vote: §9.6.5.1's `/Differences` is how a glyph the base
 /// encoding has no code for is named, the value's `ą` is `aogonek` in the Adobe Glyph List, and
@@ -490,15 +453,11 @@ fn pdfjs_corpus() -> Vec<PathBuf> {
 /// be the numerator, and this is the one entry on this list whose readback is *better* than
 /// `pdftotext`'s rather than worse.
 ///
-/// # One left in the four-hundred-and-sixty-third, and three of the four *below* this list were read
+/// # The band between the floor and 100%
 ///
-/// `issue5010.pdf` is gone: its `/ToUnicode` states five mappings for codes its page never shows
-/// and `/Adobe-Korea1-UCS2 usecmap` for the rest, which §9.10.3 permits — "`UseCMap` , which may be
-/// used if the `CMap` is based on another `ToUnicode` `CMap`" — and which nothing here followed, so the
-/// page read back the empty string. ADR 0298.
-///
-/// That round also listed, for the first time, every document scoring under 100% rather than
-/// under the floor, because the band between them had never been named. It is **four documents
+/// A `/ToUnicode` whose `usecmap` names another `ToUnicode` `CMap` is followed, which §9.10.3
+/// permits — "`UseCMap` , which may be used if the `CMap` is based on another `ToUnicode` `CMap`"
+/// (ADR 0298). The documents scoring under 100% rather than under the floor are **four documents
 /// and seventeen words**, and none of the four is a wrong glyph:
 ///
 /// - `bug1997343.pdf` (8): four are §14.9.4's `/ActualText` — a structure element saying `LaTeX`
@@ -567,8 +526,7 @@ fn require_the_sandbox() {
 
 /// The text we draw agrees with an independent extractor, over the whole pdf.js corpus.
 ///
-/// 974 documents against the 14 the test above uses, which is the extension the handover has
-/// named as an opportunity since the thirty-first session. It is `#[ignore]`d for the same
+/// 974 documents against the 14 the test above uses (ADR 0040). It is `#[ignore]`d for the same
 /// reason `corpus.rs` and `oracle.rs` are: it needs a submodule and it runs an external program
 /// per document.
 ///
@@ -799,13 +757,13 @@ fn score_against(ours: &str, reference: &str) -> Score {
 /// Named rather than counted and checked in both directions, exactly as [`TEXT_BELOW_FLOOR`] is:
 /// a document that starts failing fails the gate even if another was fixed the same day.
 ///
-/// # What the four are, read in the four-hundred-and-twenty-third session
+/// # What the four are (ADR 0259)
 ///
-/// The first run named five. **One of them was a defect and it is fixed** —
-/// `PDFBOX-5838-0024320-reduced.pdf` read back `H Reeach Pec` where `PDFBox` reads
-/// `Honors Research Project`, because §9.10.2 excludes an `Identity-H` composite font from its
-/// third method *by name* and the permission it grants where every method fails was being
-/// declined; see `pdf_font::LoadedFont::text_from_program`. The four below are differences
+/// **A defect this population found is not among them** —
+/// `PDFBOX-5838-0024320-reduced.pdf` reads back `Honors Research Project` as `PDFBox` does,
+/// because §9.10.2 excludes an `Identity-H` composite font from its third method *by name* and
+/// the permission it grants where every method fails is taken; see
+/// `pdf_font::LoadedFont::text_from_program`. The four below are differences
 /// rather than defects, and the reading is recorded here because a difference from another
 /// implementation is a question and never a target (`CLAUDE.md`, principle 5).
 ///
@@ -828,8 +786,8 @@ fn score_against(ours: &str, reference: &str) -> Score {
 ///   bidirectional algorithm applied to a run it identified as Arabic, which is layout analysis
 ///   and not extraction.
 /// - **§14.8.2.5.3 is the tag that would settle it and neither file writes one.** `/ReversedChars`
-///   is how a file says a show string holds its characters backwards, and this tree has obeyed it
-///   since the eighty-third session — grepped for in both documents' bytes and absent from both.
+///   is how a file says a show string holds its characters backwards, and this tree obeys it
+///   (ADR 0073) — grepped for in both documents' bytes and absent from both.
 ///   A file that has not used the mechanism the standard provides has not stated the order.
 /// - **Presentation form against base letter** is `fold`'s Latin argument in another script: a
 ///   `/ToUnicode` naming U+FEE3 says what the glyph *is* and one naming U+0645 says what it
@@ -1113,19 +1071,17 @@ const VERTICAL_CENTRE_BOUND: f64 = 0.5;
 
 /// The judged documents with a word out of bounds, and the ratchet's whole population.
 ///
-/// **This is the instrument's first ratchet, and ADR 0323's rule is what let it be one**: the
-/// figures held from the four-hundred-and-ninety-eighth session to the five-hundred-and-eighty-
-/// sixth — 98.26% of matched words in bounds both times, 486 of 508 documents fully in bounds
-/// against 485 of 507, the one document's difference being a document that entered the judged
-/// set rather than a word that moved. A number that survived eighty-eight rounds of unrelated
-/// work is a number a round can be held to; ADR 0421.
+/// **This is the instrument's first ratchet, and ADR 0323's rule is what lets it be one**: the
+/// figures held across a long run of unrelated work — 98.26% of matched words in bounds, the one
+/// document's difference being a document that entered the judged set rather than a word that
+/// moved — and a number that survives that is a number a round can be held to; ADR 0421.
 ///
 /// Checked in **both** directions, exactly as [`TEXT_BELOW_FLOOR`] is: a document arriving here
 /// fails the gate, and a document that leaves must be deleted from this list so that it cannot
 /// come back. The gate prints every name with its fraction, its worst deltas and which of the
 /// two bounds its words fail; [`SELECTION_DETAIL_IS_ASKED_FOR`] prints the words themselves.
 ///
-/// # The tail read as a population, in the seven-hundred-and-ninety-first session (ADR 0726)
+/// # The tail read as a population (ADR 0726)
 ///
 /// Every document here was read against its own content stream and the clause that governs it.
 /// Seven mechanisms, each named with the bound its words fail in the gate's own words — and
@@ -1232,8 +1188,7 @@ const SELECTION_BELOW_FLOOR: [&str; 9] = [
 /// Trap 11's arithmetic as a ratchet rather than as a printed line: every refusal above takes a
 /// document off the judged set, so a change that made poppler refuse more documents — or made
 /// this tree read fewer words — would shrink the denominator and leave the verdict above looking
-/// unmoved. 508 in the five-hundred-and-eighty-sixth session, 507 in the four-hundred-and-ninety-
-/// eighth; it may rise, and a rise is written down here.
+/// unmoved. It may rise, and a rise is written down here.
 ///
 /// **It fell once, by argument rather than by attrition**, when [`placed_by_this_processor`]
 /// arrived: five documents' every unique match was a field value §12.7.4.3 tells each processor

@@ -14,8 +14,8 @@
 //! second tree and cannot be a comparison of two compilers:
 //!
 //! - `fresh` (the default) builds a font cache per page and drops it, which is exactly what
-//!   [`pdf_model::interpret`] and `interpret_with` do — what every caller did before the
-//!   seven-hundred-and-seventieth session, and what the oracle and the corpus gates still do.
+//!   [`pdf_model::interpret`] and `interpret_with` do, and what the oracle and the corpus gates
+//!   do (ADR 0710).
 //! - `kept` passes one cache for the whole run, which is what `viewer_core`'s `Open` holds
 //!   beside its document.
 //!

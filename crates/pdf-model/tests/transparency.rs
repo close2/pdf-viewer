@@ -4,10 +4,10 @@
 //!
 //! `ca` and `CA` have been implemented since the first graphics state and nothing isolated
 //! them: they reached the page through the corpus and the oracle, which is coverage of a
-//! kind and cannot say *which* of the two a wrong page swapped. Reading §11.6.4 as a family
-//! in the fourteenth session — for §11.6.4.3, which decides the precedence between an image's
-//! `/SMask` and its `/Mask` — is what found the gap, and it is the ledger's usual yield: not
-//! a defect, but a rule everybody believes with nothing pinning it.
+//! kind and cannot say *which* of the two a wrong page swapped. Reading §11.6.4 as a family —
+//! for §11.6.4.3, which decides the precedence between an image's `/SMask` and its `/Mask` —
+//! is what found the gap (ADR 0023), and it is the ledger's usual yield: not a defect, but a
+//! rule everybody believes with nothing pinning it.
 //!
 //! The clause the tests below quote is short and the whole of it is here. `/AIS`, which
 //! decides whether the two constants are shape or opacity values, and the sentence that gives
@@ -111,10 +111,9 @@ fn the_two_alpha_constants_reach_stroking_and_non_stroking_paint_separately() {
 /// §11.6.4.4's constant reaches a shading too, which is the one paint it can be dropped from.
 ///
 /// A shading replaces the current colour rather than tinting it, so the natural implementation
-/// returns the shading and loses the alpha with the colour it did not use. That is what this
-/// tree did until the fifteenth session, and `alphatrans.pdf` — a page that states
-/// `Gradient: .5` on itself — was contradicted by all three references for it, its gradient
-/// painted opaque over the three objects it should have shown through.
+/// returns the shading and loses the alpha with the colour it did not use (ADR 0024), and on
+/// `alphatrans.pdf` — a page that states `Gradient: .5` on itself — all three references
+/// contradict it, its gradient painted opaque over the three objects it should show through.
 ///
 /// `sh` is the shorter of the two ways to get a shading onto the page and the same paint
 /// reaches a shading *pattern*; §11.6.7 puts them under one sentence, since a shading pattern
@@ -194,7 +193,7 @@ fn a_blend_mode_array_takes_the_first_name_this_reader_knows() {
 /// > fold-over).
 ///
 /// `B` is one object; a display list holding a `Fill` and a `Stroke` composites the band they
-/// share twice. Since the seventy-second session the pair becomes one knockout group
+/// share twice. The pair becomes one knockout group
 /// (§11.4.6), which is the clause's own construction for "not composited with one another" —
 /// and the *condition* is what is pinned here, because building a group for every `B` in
 /// every document would cost a buffer per path for a difference almost none of them can show:

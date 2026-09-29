@@ -17,9 +17,9 @@
 //! A class is a property a document has, not a diagnosis and not a slot: a document is in as many
 //! as it satisfies, so an encrypted, damaged, thousand-page scan is three rows of the matrix. The
 //! control class is in the list because a sweep that meets only awkward documents cannot say
-//! whether what it found is the class or the sweep — session 917 removed one guard and watched the
-//! *control* class die more often than the encrypted one, which is what ADR 0876's
-//! misattribution looks like at corpus scale.
+//! whether what it found is the class or the sweep — with one guard removed the *control* class
+//! dies more often than the encrypted one, which is what ADR 0876's misattribution looks like at
+//! corpus scale (ADR 0877).
 //!
 //! # What it does not do
 //!
@@ -42,7 +42,7 @@ pub const PDFJS: &str = "pdf.js";
 /// A class of document that is awkward in a way worth sweeping on its own.
 ///
 /// The vocabulary is `safedocs::survey::Outcome`'s, which already names five of these for the
-/// corpus survey, plus the three session 917 added: a document too large to be swept cheaply, and
+/// corpus survey, plus three more (ADR 0877): a document too large to be swept cheaply, and
 /// the two image codecs that are decoded by a separate program.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Class {
@@ -136,7 +136,7 @@ pub struct Contribution {
 pub struct Choice {
     /// Roots taken whole rather than sampled, by the name [`roots`] reports them under.
     ///
-    /// A sweep whose figures are compared across sessions names the root those figures were over
+    /// A sweep whose figures are compared across runs names the root those figures were over
     /// here, so that widening the population does not silently move them.
     pub whole: Vec<String>,
     /// How many documents are classified from each root that is *not* taken whole.

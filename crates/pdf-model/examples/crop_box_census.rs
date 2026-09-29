@@ -8,10 +8,10 @@
 //! > the page contents.
 //!
 //! `pdf_model::interpret` deliberately keeps the marks a content stream made outside that box —
-//! nothing in the display list is dropped — and until the six-hundred-and-twelfth session
-//! nothing put the clip back. A **page-sized** raster hid it: the target is the crop box's own
-//! extent, so the raster's own edge did the cutting. A **window** is larger than its page, so
-//! those marks drew over the ground beside the page and over the neighbouring page of a column.
+//! nothing in the display list is dropped — so the clip has to be put back. A **page-sized**
+//! raster hides the need: the target is the crop box's own extent, so the raster's own edge does
+//! the cutting. A **window** is larger than its page, so without the clip those marks draw over
+//! the ground beside the page and over the neighbouring page of a column.
 //!
 //! # Two questions, and the second is the one that costs anybody anything
 //!

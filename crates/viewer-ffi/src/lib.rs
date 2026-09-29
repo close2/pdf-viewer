@@ -89,21 +89,18 @@
 //! boundary's most expensive kind of change. `quorra_abi_version` is what a caller checks before
 //! believing either of them.
 //!
-//! **And a change to a variant's *shape* that this ABI does not expose costs it nothing at all**,
-//! which the four-hundred-and-twelfth session is the first round to demonstrate rather than
-//! predict. `viewer_core::Edit::SetField`'s value stopped being one string and became
-//! [`viewer_core::Entered`], so that §12.7.5.4's list box can say which of Table 234's options are
-//! selected (ADR 0248) — and every Rust consumer failed to compile while this crate did not,
-//! because `Command::Edit` is one of the verbs `doc/todo/30` records as still absent from the 39
-//! entry points. `QUORRA_EVENT_KIND_COUNT` was **15** before and after, which is the number a C
-//! caller's `quorra_abi_check` compares and the reason it is a *number* rather than a promise: a
-//! round that had moved it would have had the caller say so at startup.
+//! **And a change to a variant's *shape* that this ABI does not expose costs it nothing at all.**
+//! `viewer_core::Edit::SetField`'s value is a [`viewer_core::Entered`] rather than one string, so
+//! that §12.7.5.4's list box can say which of Table 234's options are selected (ADR 0248) — a
+//! change every Rust consumer had to compile against and this crate did not, because its entry
+//! points did not expose that shape. `QUORRA_EVENT_KIND_COUNT` is the number a C caller's
+//! `quorra_abi_check` compares, and the reason it is a *number* rather than a promise: a change
+//! that moves it has the caller say so at startup.
 //!
-//! **The four-hundred-and-fourteenth moved it, to 16**, which is the other half of the same
-//! demonstration: `viewer_core::Event::Searched` is a new *kind*, so an old caller's
-//! `quorra_abi_check` refuses at startup rather than dropping a message it has no arm for. Three
-//! entry points came with it — `quorra_find_start`, `quorra_find_continue`, `quorra_find_stop` — and one
-//! accessor, `quorra_event_searched` (ADR 0250).
+//! **A new event *kind* moves it**, which is the other half: `viewer_core::Event::Searched` is one,
+//! so an old caller's `quorra_abi_check` refuses at startup rather than dropping a message it has
+//! no arm for. Three entry points came with it — `quorra_find_start`, `quorra_find_continue`,
+//! `quorra_find_stop` — and one accessor, `quorra_event_searched` (ADR 0250).
 //!
 //! # Errors, because a C caller cannot see a `Result`
 //!

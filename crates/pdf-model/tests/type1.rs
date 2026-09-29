@@ -2,8 +2,8 @@
 //!
 //! # What this can check that the corpus gate cannot
 //!
-//! The corpus gate asks whether a page reports anything, and for nineteen sessions the
-//! answer for these documents was *no* while they were being drawn in the wrong typeface.
+//! The corpus gate asks whether a page reports anything, and for these documents the answer
+//! can be *no* while they are drawn in the wrong typeface.
 //! An unreadable embedded program falls through to substitution, and substitution only
 //! speaks when the face it found can address none of the codes the document declares — so a
 //! page set in an embedded Type 1 font drew in some installed face, plausibly, in silence.

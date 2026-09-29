@@ -13,8 +13,8 @@
 //!    be **bit-identical**: every pass here is lossless, so RFC 0002 section 9's tolerance for
 //!    a lossy optimise never applies and there is nothing to tolerate.
 //! 3. **`optimize` is idempotent** — "its own output, optimized again, is byte-identical". This
-//!    is the property gate session 888 could not take because the verb did not exist, and it is
-//!    the one instrument that can see a pass whose result depends on anything but its input.
+//!    is the property gate ADR 0821 named, and it is the one instrument that can see a pass
+//!    whose result depends on anything but its input.
 //!
 //! **The content comparison here is of *decoded* bytes, and that is what makes this walk's
 //! question different from `split_corpus.rs`'s.** That walk compares `/Contents` encoded,

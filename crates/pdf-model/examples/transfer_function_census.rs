@@ -1,34 +1,32 @@
 //! How many documents state §10.5's transfer function, how many state a real one, and how many
 //! paint a **shading** under it.
 //!
-//! Table 57's `/TR` and `/TR2` were on this tree's "describes a marking device" list until the
-//! three-hundred-and-fifty-seventh session, when `issue6931_reduced.pdf` turned out to decide what
-//! a *screen* shows with one. `doc/todo/13` said the number a round taking the clause owes first is
+//! Table 57's `/TR` and `/TR2` decide what a *screen* shows — `issue6931_reduced.pdf` is the
+//! witness (ADR 0204). `doc/todo/13` said the number a round taking the clause owes first is
 //! how many of the corpus state one at all, and how many state anything but `/Identity` — because
 //! that decides whether it is one page or a population.
 //!
-//! The third figure is the six-hundred-and-fiftieth session's, which made §10.5 reach a shading's
-//! colours: it is the population that round could move. A document counts when a page states a
-//! transfer function that is not `/Identity` or `/Default` **and** that page's display list holds a
-//! `Paint::Shading` — an over-approximation of "a shading painted *under* one", since nothing here
-//! knows which graphics state was in force at which mark, and a tight one because the first
-//! condition is already rare.
+//! The third figure is the population §10.5 reaching a shading's colours moves. A document counts
+//! when a page states a transfer function that is not `/Identity` or `/Default` **and** that page's
+//! display list holds a `Paint::Shading` — an over-approximation of "a shading painted *under*
+//! one", since nothing here knows which graphics state was in force at which mark, and a tight one
+//! because the first condition is already rare.
 //!
 //! Walks every page's `/Resources /ExtGState` and every form `XObject`'s, since §8.4.5's parameters
 //! are set wherever a `gs` operator can name one.
 //!
-//! **The fourth figure is §10.5's *other* source**, added in the six-hundred-and-seventy-seventh
-//! session: Table 57's `/HT`, whose halftone dictionary may carry a `TransferFunction` that "shall
-//! override the corresponding one specified by the current transfer function parameter in the
-//! graphics state". It is counted **twice, by two different instruments**, because a count over a
-//! corpus is a claim about a *walk* as much as about the world: once by the resource walk above,
-//! which sees an `/HT` written inline in an `/ExtGState` a page or a form reaches, and once by a
-//! scan of every object the cross-reference table names, which sees an `/ExtGState` a pattern or an
-//! annotation appearance reaches and this walk does not. Where the two disagree, the walk is the
-//! one that is wrong.
+//! **The fourth figure is §10.5's *other* source** (ADR 0505): Table 57's `/HT`, whose halftone
+//! dictionary may carry a `TransferFunction` that "shall override the corresponding one specified
+//! by the current transfer function parameter in the graphics state". It is counted **twice, by two
+//! different instruments**, because a count over a corpus is a claim about a *walk* as much as
+//! about the world: once by the resource walk above, which sees an `/HT` written inline in an
+//! `/ExtGState` a page or a form reaches, and once by a scan of every object the cross-reference
+//! table names, which sees an `/ExtGState` a pattern or an annotation appearance reaches and this
+//! walk does not. Where the two disagree, the walk is the one that is wrong.
 //!
 //! ```sh
-//! cargo run --release -p pdf-model --example transfer_function_census -- doc/pdf.js/test/pdfs/*.pdf
+//! cargo run --release -p pdf-model --example transfer_function_census --
+//! doc/pdf.js/test/pdfs/*.pdf
 //! ```
 //!
 //! Documents are walked in parallel, one to a thread, because a `Document` is not `Sync` and this

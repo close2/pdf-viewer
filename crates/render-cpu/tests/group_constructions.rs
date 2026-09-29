@@ -1,5 +1,5 @@
-//! The two group constructions the four-hundred-and-ninety-second session taught the
-//! oracle, each against the clause's own arithmetic (ADR 0327).
+//! The two group constructions ADR 0327 gives the oracle, each against the clause's own
+//! arithmetic.
 //!
 //! `CLAUDE.md` keeps `render-cpu` as the correctness oracle, and neither construction is
 //! drawn by the other two backends — both refuse each by name, and the refusals are tested

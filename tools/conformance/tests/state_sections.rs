@@ -14,9 +14,8 @@
 //! records for the *two copies* this document used to have of its own sequence, which drifted by
 //! two tests and one whole gate before anybody compared them.
 //!
-//! The nine-hundred-and-ninetieth session measured the two by hand and found them equal — and
-//! then made them unequal, deliberately, by giving the save round-trip a `state.sh` section
-//! before its §2 line existed (ADR 1011). So the check is one-directional where it fails and
+//! The two may be unequal deliberately: a `state.sh` section can exist before its §2 line does
+//! (ADR 1011). So the check is one-directional where it fails and
 //! two-directional where it prints: a §2 line the script does not run **fails**, because the
 //! document's claim about the script is false; a script section §2 does not list is **printed**,
 //! because an instrument may honestly run ahead of the sequence while its numbers are watched.

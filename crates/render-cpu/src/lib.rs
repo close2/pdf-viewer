@@ -59,7 +59,7 @@ use pdf_render::{
 /// form is `(223, 99, 80)`; the lowp pipeline gives `(223, 100, 81)` and the highp pipeline gives
 /// the closed form. Swept over all 256 mask values the highp pipeline reproduces the closed form
 /// **exactly at every one of them** and the lowp pipeline departs by up to two levels. The
-/// eight-bit mask is not the cause and was blamed for it for five hundred sessions; ADR 0418.
+/// eight-bit mask is not the cause; ADR 0418.
 ///
 /// # What it costs, because a correctness fix still has to be priced
 ///
@@ -847,8 +847,8 @@ impl CpuRasterizer {
 
             // A command whose extent misses this surface marks nothing, and saying so here is
             // what makes a strip cost what its own rows cost: without it every strip would
-            // build every command's path and compile every command's pipeline, which session
-            // 154 measured at 19% of a dense page's rasterisation. A row of margin, for the
+            // build every command's path and compile every command's pipeline, which ADR 0137
+            // measured at 19% of a dense page's rasterisation. A row of margin, for the
             // same reason `Band::covering` takes one — the extent comes from control points
             // and the mask from the path.
             if misses_surface(command, surface) {
@@ -4343,9 +4343,9 @@ impl Band {
 /// # Why the page's transform travels and a strip's does not
 ///
 /// A strip is a run of the page's rows, and the obvious way to hand one to a rasteriser is to
-/// give it a target whose transform has been shifted up by the rows above it. That is what
-/// this backend did from ADR 0139 until session 382, and **it made the picture depend on how
-/// the page was divided**: `Transform::then` folds the shift into the page transform's `f`, so
+/// give it a target whose transform has been shifted up by the rows above it, and **that makes
+/// the picture depend on how the page was divided** (ADR 0219): `Transform::then` folds the
+/// shift into the page transform's `f`, so
 /// a mark's own translation is then added to a number of a different magnitude and the sum
 /// rounds elsewhere. One `ulp` of the composed matrix is one supersample of a glyph's edge,
 /// which `tiny-skia` quantises to 16 of 255 — the pixel ADR 0219 was written for.
@@ -5004,13 +5004,12 @@ fn note_mask_consumers(
 /// ADR 0139 exists to establish and `strip_parallelism.rs` asserts: a machine with four cores and
 /// one with thirty-two draw the same bytes but for a handful in a million.
 ///
-/// **"Very nearly" is a correction sessions 381 and 382 made together**, and both halves are worth
-/// carrying. The 381st found the claim false — `doc/PDF20_AN001-BPC.pdf` page 1 differed by one
-/// pixel between one strip and every division above one — by drawing a page in one strip on
-/// purpose, which a confined process must because it may not ask how many cores it has (ADR 0218).
-/// The 382nd found the cause not to be the one written down: a strip's offset was folded into the
-/// page transform *before* a mark's own transform was composed with it, so the sum rounded at
-/// another magnitude. It is applied last now, and that page is exact — see [`ToDevice`].
+/// **"Very nearly" is measured, and both halves are worth carrying.** A confined process draws a
+/// page in one strip, because it may not ask how many cores it has (ADR 0218), so one strip and
+/// every division above one have to agree — `doc/PDF20_AN001-BPC.pdf` page 1 is the witness. A
+/// strip's offset is applied *after* a mark's own transform is composed with the page's, because
+/// folding it in first makes the sum round at another magnitude (ADR 0219), and that page is exact
+/// — see [`ToDevice`].
 ///
 /// What survives is a dependency's. `tiny-skia` maps a point as `y·sy + ty`, and shifting `ty` by
 /// a whole number of rows moves the sum into another binade; ADR 0219 measures what is left —
@@ -5247,17 +5246,15 @@ struct MaskCache {
 /// per render of one 612×792 page, peaking at 12.31 MB against this 32 MB** — 10.85 MB of clip
 /// masks, 1.45 MB of soft masks, and three clip × soft-mask products alive at the peak.
 ///
-/// **That figure said 27.9 MB and a margin of 13% until the three-hundred-and-ninety-ninth
-/// session, which measured it again and found 12.31.** The 27.9 was taken in the
-/// hundred-and-thirteenth and was true then; ADR 0132 arrived in the hundred-and-forty-seventh
-/// and made [`DisplayList::add_clip`] return an existing identifier for an identical region,
-/// which is a change to how many masks this cache is asked for. **A margin recorded as thin is
-/// a claim that decays like any other**, and the reason to re-take it rather than inherit it is
+/// The figure is ADR 0236's measurement. It is smaller than the page's mask count suggests
+/// because ADR 0132 makes [`DisplayList::add_clip`] return an existing identifier for an
+/// identical region, which is a change to how many masks this cache is asked for. **A margin
+/// is a claim that decays like any other**, and the reason to re-take it rather than inherit it is
 /// [`doc/todo/40`](../../../doc/todo/40-mask-chain-crop.md), whose stated blocker was that this
 /// page had no room for its intermediate clips. It has 19.7 MB of room, and they cost 9.4.
 ///
 /// The number is not lowered on that evidence, because nothing has been measured to be paying
-/// for it; it is recorded so that a session which finds a document evicting knows what the
+/// for it; it is recorded so that a round which finds a document evicting knows what the
 /// margin was.
 ///
 /// [`DisplayList::add_clip`]: pdf_render::DisplayList::add_clip
@@ -5811,8 +5808,8 @@ impl MaskCache {
     /// child's band would then be the prefix's contribution, and a chain could be one crop plus
     /// one `intersect_path` instead of a fill plus depth-minus-one intersects.
     ///
-    /// **Three things about that were re-derived in the three-hundred-and-ninety-ninth session
-    /// and all three moved**, which is why the item is still open and why it is
+    /// **Three things about that were re-derived (ADR 0236) and all three moved**, which is why
+    /// the item is still open and why it is
     /// [`doc/todo/40`](../../../doc/todo/40-mask-chain-crop.md) rather than a line here:
     ///
     /// - **It is worth about 17% of the page and not "most of `MaskCache::get`'s 24.3%".**
@@ -5830,8 +5827,8 @@ impl MaskCache {
     ///   the oracle. Taking the item means either building intermediates in the child's band or
     ///   proving the difference away.
     ///
-    /// **A fourth thing was measured in the seven-hundred-and-forty-seventh, and it is why the
-    /// `retain_mut` below is here rather than any of the three above** (ADR 0656). The exactness
+    /// **A fourth thing is measured, and it is why the `retain_mut` below is here rather than any
+    /// of the three above** (ADR 0656). The exactness
     /// question has a *price*, and it is nearly the whole item: restricted to the prefixes a
     /// parent shares a band with — the ones reusable byte for byte, which is half the corpus's
     /// worst page's nodes — the proposal saves **5.6%** of that page's scanned mask rows where

@@ -80,24 +80,22 @@ impl CidToGlyph {
 /// > to font numbers and CIDs.
 ///
 /// Of the predefined names, Table 116's two Identity `CMap`s are built here and the rest are
-/// *data* — the registered `CMap` files — which this binary has carried since the
-/// hundred-and-fifty-sixth session (see [`crate::predefined`]). A name it does not carry is
+/// *data* — the registered `CMap` files — which this binary carries (see [`crate::predefined`],
+/// ADR 0140). A name it does not carry is
 /// still refused and reported rather than approximated: guessing at a `CMap` maps codes to the
 /// wrong glyphs, which is plausible-looking wrong text and the worst kind of rendering error.
 ///
-/// Vertical writing is *drawn*, and this comment said it was refused for eighty-five sessions
-/// after it stopped being. §9.7.5.1 makes the mode a property of the `CMap` and it decides the
+/// Vertical writing is *drawn*. §9.7.5.1 makes the mode a property of the `CMap` and it decides the
 /// metrics:
 ///
 /// > A `CMap` shall specify the writing mode … for any `CIDFont` with which the `CMap` is
 /// > combined. The writing mode determines which metrics shall be used when glyphs are painted
 /// > from that font.
 ///
-/// §9.2.4 and §9.7.4.3 give those metrics as `/W2` and `/DW2`, which `Vertical::read` has read
-/// since the thirty-sixth session — `vertical.pdf` sets two columns down the right edge of its
-/// page, where before that it came out as one overlapping line across the top, reporting
-/// nothing. What is refused here is a *predefined* `CMap`, horizontal or vertical alike, and
-/// the only reason a name ending in `V` is refused is the data the paragraph above names.
+/// §9.2.4 and §9.7.4.3 give those metrics as `/W2` and `/DW2`, which `Vertical::read` reads (ADR
+/// 0045) — `vertical.pdf` sets two columns down the right edge of its page. What is refused here is
+/// a *predefined* `CMap`, horizontal or vertical alike, and the only reason a name ending in `V` is
+/// refused is the data the paragraph above names.
 ///
 /// Public because a caller that edits a show string has to split it into codes exactly as a
 /// reader does — §9.7.6.2's codespace ranges decide how many bytes each code takes — and this is
@@ -529,14 +527,12 @@ pub(crate) fn collection_gap(
 ///   *which* name the producer wrote is the whole of what it was trying to say.
 /// - **A stream that produced no mapping.** [`crate::loading::read_to_unicode`] answers empty for
 ///   a stream that does not decode and for a `CMap` that states nothing, and neither of those is
-///   an absent entry either. **This bullet said "not because a corpus document reaches it" and the
-///   golden corrected it in the same session**: `issue5801.pdf`, another of ADR 0433's eleven, has
+///   an absent entry either. A corpus document reaches it: `issue5801.pdf`, another of ADR 0433's
+///   eleven, has
 ///   a `/ToUnicode` that is a stream — and the stream is a copy of the *`Identity-H` CID* `CMap`,
 ///   all `begincidrange` and not one `beginbfchar`, so there is nothing for a `/ToUnicode` reader
 ///   to find in it. `examples/to_unicode_kind_census` counts **55 such streams over 27 documents**
-///   against the sixteen names over ten, so the commoner of the two shapes is the one that was
-///   almost written off. Trap 11 from both ends at once: a report that fires on a condition it
-///   does not name, and a comment that asserted a population nobody had counted.
+///   against the sixteen names over ten, so this is the commoner of the two shapes (trap 11).
 fn to_unicode_gap(document: &Document, font: &Dictionary) -> String {
     let object = document.get_key(font, "ToUnicode");
     let kind = match &object {
@@ -666,7 +662,7 @@ mod tests {
     /// `issue11915.pdf` is the witness and it states `/ToUnicode /Identity-H` on all five of its
     /// Type 0 dictionaries. §9.10.1 requires that entry's "value shall be a stream object" and
     /// Table 119 types it a stream, so what the file states is not a `CMap` — but it is also not
-    /// *nothing*, which is what the refusal said for a hundred sessions. The name is printed with
+    /// *nothing*. The name is printed with
     /// its spelling because which name the producer wrote is the whole of what it meant.
     ///
     /// The second row is the control and it is the one that makes this a test of the condition

@@ -8,13 +8,12 @@
 //! > If the current render intent of an object is AbsColorimetric then the value of
 //! > UseBlackPtComp shall be treated as OFF .
 //!
-//! **The subject of that sentence is an object rather than a parameter**, and until the
-//! six-hundred-and-seventh session this tree read it as a parameter: the intent and
-//! `/UseBlackPtComp` shared one field of the graphics state, so whichever operator ran last won.
-//! Two orderings came out wrong and each has a test below. The third route came out wrong in a
-//! different way — an image's `/Intent` was read by nobody, and the state's intent reached no
-//! image sample, shading ramp or mesh vertex either, because `crate::image`, `crate::shading` and
-//! `crate::mesh` each passed a literal "compensate" to the conversion.
+//! **The subject of that sentence is an object rather than a parameter.** Read as a parameter,
+//! the intent and `/UseBlackPtComp` would share one field of the graphics state, so whichever
+//! operator ran last would win; two orderings come out wrong that way and each has a test below.
+//! The third route goes wrong differently — an image's `/Intent` read by nobody, and the state's
+//! intent reaching no image sample, shading ramp or mesh vertex, if `crate::image`,
+//! `crate::shading` and `crate::mesh` each passed a literal "compensate" to the conversion.
 //!
 //! Every fixture is an `ICCBased` space, because that is the only family black point compensation
 //! moves: `ColourSpace::to_rgb_at` applies it in its `Icc` arm and nowhere else. The profile is
@@ -376,9 +375,9 @@ fn the_profile_distinguishes_compensating_from_not() {
 /// > an image mask (see 8.6.5.8, "Rendering intents"). This value is ignored if ImageMask is true
 /// > . Default value: the current rendering intent in the graphics state.
 ///
-/// The entry was read by nothing in this tree until the six-hundred-and-seventh session, and
-/// neither was the graphics state's intent on this route: `crate::image` converted every sample
-/// with compensation on whatever any of §8.6.5.8's three routes said.
+/// The entry is read, and so is the graphics state's intent on this route: a `crate::image` that
+/// converted every sample with compensation on would ignore whatever any of §8.6.5.8's three
+/// routes said.
 #[test]
 fn an_images_own_intent_turns_black_point_compensation_off() {
     let absolute = centre_colour(pdf_with(
@@ -482,7 +481,7 @@ fn an_ext_gstate_intent_replaces_the_one_in_force() {
 ///
 /// A shading is exactly that "earlier": `crate::shading` samples the colour function into a ramp
 /// at build time, so the parameters have to travel with the build rather than be read at the
-/// paint. They did not until the six-hundred-and-seventh session.
+/// paint.
 #[test]
 fn a_shadings_ramp_honours_the_rendering_intent() {
     let shading = "/Shading << /Sh0 << /ShadingType 2 /ColorSpace [/ICCBased 5 0 R] \
@@ -562,9 +561,8 @@ fn a_shading_patterns_colours_are_resolved_where_its_content_stream_began() {
 /// > parameters that affect the sh operator, such as the current transformation matrix, black
 /// > point compensation and rendering intent, shall be used.
 ///
-/// The entry was read by nothing in this tree until the six-hundred-and-fifty-fifth session, on a
-/// ledger claim — "no corpus document writes one" — that had been measured over `doc/pdf.js` and
-/// never over the crawl, where 42 documents do. Both of the two names the sentence gives are
+/// A claim that no corpus document writes one holds over `doc/pdf.js` and not over the crawl,
+/// where 42 documents do (ADR 0483). Both of the two names the sentence gives are
 /// tested, because they reach the same parameter by §8.6.5.9's override and a fixture proving one
 /// proves nothing about the other.
 #[test]
@@ -607,8 +605,8 @@ fn a_patterns_own_ext_gstate_augments_that_state() {
 ///
 /// A shading pattern's colours are built again where it is painted, because §11.7.5.2 puts the
 /// transfer function at the topmost object enclosing a point and §11.7.2 puts the compositing
-/// space at the mark's group. The trap the six-hundred-and-fifty-fifth session left written down
-/// is that such a rebuild trades one departure for another if it reads the *state* for the black
+/// space at the mark's group. The trap (ADR 0483) is that such a rebuild trades one departure
+/// for another if it reads the *state* for the black
 /// point, the intent and the smoothness — which §11.6.7 has already fixed at the beginning of the
 /// content stream, augmented by Table 75's `/ExtGState`.
 ///
@@ -640,15 +638,13 @@ fn a_rebuilt_patterns_black_point_is_still_its_definitions() {
 // ---------------------------------------------------------------------------------------------
 // Which of a profile's transforms the intent selects (ADR 1032).
 //
-// Everything above asks what an intent does to §8.6.5.9's black point, which was the only thing
-// an intent could do in this tree until session 1014: `Perceptual` and `Saturation` were read,
-// kept apart from `RelativeColorimetric`, carried the length of `crate::colour`, and acted on
-// nothing. What makes them act is ISO 32000-2 §10.3.1 — "[c]onversion from a CIE-based source
-// colour to a CIE-based destination colour shall be performed based on ISO 15076-1:2010
-// (ICC.1:2010)" — read beside §8.6.5.8's own sentence about where the four names came from.
-// Every test below fails against the code before that change, which drew all four names through
-// `A2B1`; `an_intent_with_no_table_of_its_own_falls_back` and the absolute one are the two that
-// pin what did **not** move.
+// Everything above asks what an intent does to §8.6.5.9's black point. What makes `Perceptual`
+// and `Saturation` act on the colour itself is ISO 32000-2 §10.3.1 — "[c]onversion from a
+// CIE-based source colour to a CIE-based destination colour shall be performed based on ISO
+// 15076-1:2010 (ICC.1:2010)" — read beside §8.6.5.8's own sentence about where the four names
+// came from. Every test below fails against code that draws all four names through `A2B1`;
+// `an_intent_with_no_table_of_its_own_falls_back` and the absolute one pin the two cases where
+// that table is the right one.
 
 /// Whichever channel dominates the colour at the centre: which of the three tables answered.
 ///
@@ -731,7 +727,7 @@ fn a_perceptual_intent_selects_the_profiles_perceptual_transform() {
 /// **§8.6.5.8, Table 57's `/RI`**: the second route selects the transform as well.
 ///
 /// Table 69: "[c]olours shall be represented in a manner that preserves or emphasizes
-/// saturation" — the profile's `A2B2`, which nothing in this tree read before session 1014.
+/// saturation" — the profile's `A2B2`.
 #[test]
 fn a_saturation_intent_selects_the_profiles_saturation_transform() {
     let saturation = centre_colour(pdf_with(

@@ -140,12 +140,12 @@ impl Interpreter<'_> {
         let operations = self.operations;
         // ISO 32000-2 §11.6.7 gives a shading pattern's definition "the graphics state that was in
         // effect at the beginning of the content stream in which the shading pattern is set to be
-        // the current colour", so a *nested* stream is a new beginning and the parameters it
-        // starts with are the ones any pattern it selects inherits. Saved and restored around the
-        // run rather than assigned, because a content stream is a scope: what a pattern named
-        // after the `Do` inherits is what this stream's caller inherited. The companion of
-        // `Interpreter::base`, which the same four sites have swapped for the same sentence since
-        // the fifty-second session. See [`super::pattern::PatternInitial`].
+        // the current colour", so a *nested* stream is a new beginning and the parameters it starts
+        // with are the ones any pattern it selects inherits. Saved and restored around the run
+        // rather than assigned, because a content stream is a scope: what a pattern named after the
+        // `Do` inherits is what this stream's caller inherited. The companion of
+        // `Interpreter::base`, which the same four sites swap for the same sentence. See
+        // [`super::pattern::PatternInitial`].
         let outer = std::mem::replace(
             &mut self.pattern_initial,
             super::pattern::PatternInitial::of(initial),
@@ -322,8 +322,7 @@ impl Interpreter<'_> {
                 // needs the reader again. §14.6.2: "[i]f all of the values in a property list
                 // dictionary are direct objects, the dictionary may be written inline in the
                 // content stream as a direct object" — the form real documents use for
-                // §14.9.4's `/ActualText`, and the form that reached the operator dispatch one
-                // token at a time until the fifty-fifth session.
+                // §14.9.4's `/ActualText` (ADR 0060).
                 Some(pdf_syntax::Token::DictOpen) => Step::Dictionary,
                 Some(other) => {
                     if matches!(other, pdf_syntax::Token::ArrayOpen) {
@@ -496,9 +495,8 @@ impl Interpreter<'_> {
                         // requires to happen at painting time and never to be stored back
                         // into the graphics state — which is why it is in
                         // `Stroke::device_width` and only the clipped value is kept here.
-                        // `content.rs`'s `miter_limit` has quoted that same sentence since the
-                        // twenty-fourth session, for the parameter the list names third; the
-                        // one it names second sat here calling itself undecided.
+                        // `content.rs`'s `miter_limit` quotes that same sentence for the
+                        // parameter the list names third.
                         state.stroke.width = width.max(0.0);
                     }
                 }
@@ -1108,10 +1106,9 @@ impl Interpreter<'_> {
                         // the operation that selects it, so a description that strokes
                         // strokes in the stroking colour.
                         //
-                        // **This branch collapsed the two into one until the
-                        // five-hundred-and-fifty-eighth session**, on Table 111's singular
-                        // "[i]ts colour shall be determined by the graphics state in effect
-                        // each time this glyph is painted by a text-showing operator". The
+                        // **The two are not one**, whatever Table 111's singular "[i]ts
+                        // colour shall be determined by the graphics state in effect each time
+                        // this glyph is painted by a text-showing operator" suggests. The
                         // clause refutes that reading three times over. §9.6.4 NOTE 2 is
                         // plural — "it is unnecessary and undesirable to initialise the
                         // current colour parameters because the text-showing operators are
@@ -1122,8 +1119,8 @@ impl Interpreter<'_> {
                         // `RG` before each `Tj` for a `d1` `square` glyph whose body is
                         // `72 w 0 0 750 750 re B`, which the collapsed reading makes dead
                         // syntax. `Type3Test.pdf` in `pdf-differences` is the corpus witness
-                        // and ADR 0393 has the argument; the image-mask sentence the old
-                        // comment leaned on is §8.9.6.2's rule about a *stencil*, which
+                        // and ADR 0393 has the argument; the image-mask sentence that seems to
+                        // say otherwise is §8.9.6.2's rule about a *stencil*, which
                         // paints with the non-stroking colour because that is what an image
                         // mask does, not because a `d1` glyph has one colour.
                         self.uncoloured = true;
@@ -1415,8 +1412,7 @@ pub(super) fn narrow(value: f64) -> f32 {
 /// > objects.
 ///
 /// So the operand travels to `resources.rs` as a [`Name`]: a `String` built with
-/// `from_utf8_lossy` on the way — which is what this returned until the
-/// six-hundred-and-third session — turns every byte outside UTF-8 into U+FFFD and makes the
+/// `from_utf8_lossy` on the way turns every byte outside UTF-8 into U+FFFD and makes the
 /// resource it names unfindable (ADR 0438). A *tag* is compared against one of the standard's
 /// own ASCII names and may be read as bytes here too, which is what `== b"OC"` is.
 pub(super) fn name_at(operands: &[Object], index: usize) -> Option<Name> {

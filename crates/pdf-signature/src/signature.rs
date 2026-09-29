@@ -612,15 +612,11 @@ pub enum Authenticity {
     /// therefore an identifier outside both documents, and it is carried so that *which* one a file
     /// used is a question a person can answer.
     ///
-    /// **This sentence went on to say that three of the corpus's signatures reach here, each
-    /// stating `1.2.840.113549.1.1.5` — a *signature* algorithm — where a digest algorithm
-    /// belongs, and no signature does.** That was this reader's own defect rather than any file's:
-    /// `digestAlgorithm` is a `SignerInfo`'s third member and reading by shape found the issuer's
-    /// `SEQUENCE` instead, which `cms`'s `the_signers_own_sequence_is_not_mistaken_for_its_digest_algorithm`
-    /// has pinned since the three-hundred-and-seventy-seventh session — so the observation was
-    /// already false when it was written down two hundred sessions later. Re-derived in the
-    /// six-hundred-and-forty-first with `examples/signature_algorithm_census`: every one of the
-    /// corpus's ten signature values verifies, and none reaches this variant.
+    /// **No signature in the corpus reaches here.** `digestAlgorithm` is a `SignerInfo`'s third
+    /// member, and reading it by shape would find the issuer's `SEQUENCE` instead, which `cms`'s
+    /// `the_signers_own_sequence_is_not_mistaken_for_its_digest_algorithm` pins (ADR 0215).
+    /// `examples/signature_algorithm_census` shows every one of the corpus's ten signature values
+    /// verifying, and none reaching this variant.
     UnknownDigest {
         /// The digest algorithm's object identifier as dotted decimal.
         algorithm: String,
@@ -1598,8 +1594,7 @@ impl Signature {
 
     /// **Does this signature verify under the key in the certificate the file carries?**
     ///
-    /// The second of §12.8.1's three questions, and the one this program gained in the
-    /// three-hundred-and-ninety-second session. What it does, in order:
+    /// The second of §12.8.1's three questions (ADR 0229). What it does, in order:
     ///
     /// 1. finds the signer's certificate — by RFC 5652's `issuerAndSerialNumber` or its
     ///    `subjectKeyIdentifier`, among the certificates the CMS object carries, or in Table 255's
@@ -1617,13 +1612,11 @@ impl Signature {
     ///    RFC 5480's `namedCurve` states ([`crate::ecdsa`]), or RFC 8032's over the message itself
     ///    ([`crate::eddsa`]).
     ///
-    /// **Step 5 listed the first three alone until the seven-hundred-and-fifth session**, four
-    /// rounds after ADR 0532 added the last two — while the module comment twelve lines above it
-    /// said "for all four" and named both modules. Nothing about a `/SubFilter` narrows any of
-    /// this: the pair matched below is the `signatureAlgorithm` and the certificate's key, so a
-    /// §12.8.3.4 `PAdES` signature reaches the same five arms as an `adbe.pkcs7.detached` one,
-    /// which is what ISO/TS 32002 sections 5.1.2 and 5.1.3 require by naming
-    /// `ETSI.CAdES.detached` in the applicability sentence of each of their curve tables.
+    /// **Step 5 names all five families** (ADR 0532 added the last two). Nothing about a
+    /// `/SubFilter` narrows any of this: the pair matched below is the `signatureAlgorithm` and the
+    /// certificate's key, so a §12.8.3.4 `PAdES` signature reaches the same five arms as an
+    /// `adbe.pkcs7.detached` one, which is what ISO/TS 32002 sections 5.1.2 and 5.1.3 require by
+    /// naming `ETSI.CAdES.detached` in the applicability sentence of each of their curve tables.
     ///
     /// Read [`Authenticity`] before reading a result. [`Authenticity::Verified`] is not "valid":
     /// the certificate it verified against arrived in the same file as the signature.
@@ -3847,12 +3840,9 @@ fn changes(document: &Document, dict: &Dictionary) -> Option<[i64; 3]> {
 /// them that validated it. What this type does with them is nothing: it decodes each stream and
 /// names what it could not, and [`crate::revocation`] is what reads the material itself.
 ///
-/// **This used to be four counts**, on the argument that "a certificate here would be read to
-/// validate a certification path, which is question 3, and reading the bytes is the smallest part
-/// of that". The path validation arrived in the thousand-and-twenty-second session
-/// ([`crate::trust`], ADR 1039) and the revocation step in the thousand-and-fifty-third (ADR 1067),
-/// so the smallest part is now the part that was missing. The counts are still available, as
-/// lengths.
+/// **These are the values rather than counts**, because the certification path is validated
+/// ([`crate::trust`], ADR 1039) and revocation read (ADR 1067) from them. The counts are still
+/// available, as lengths.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SecurityStore {
     /// `/Certs`, each entry's decoded stream — "one DER-encoded X.509 certificate".
@@ -5333,11 +5323,9 @@ mod tests {
     ///
     /// The clause states it outright — "[t]he certificate chain of the signer shall be stored in
     /// the Cert entry" — and this `/SubFilter`'s `/Contents` is a PKCS #1 signature with no CMS
-    /// object in it at all, so the route every other signature format takes finds nothing. Until
-    /// the one-thousand-and-sixty-second session that is what happened: `Signature::trust` looked
-    /// for a `SignedData`, failed, and answered `NoPathToAnyAnchor` with nothing examined, which
-    /// reads as *this file carries too few certificates* about a file carrying exactly the one the
-    /// clause asks for.
+    /// object in it at all, so the route every other signature format takes finds nothing (ADR
+    /// 1076). Answering `NoPathToAnyAnchor` with nothing examined would read as *this file
+    /// carries too few certificates* about a file carrying exactly the one the clause asks for.
     ///
     /// The certificate here is self-signed, so supplying it is supplying the root of a one-long
     /// chain — which is what the negative beside it calibrates: a different root reaches nothing.
@@ -6014,8 +6002,8 @@ mod tests {
 
     /// A DSA signature over an RSA key is two claims by one producer that disagree.
     ///
-    /// Neither is believed and neither is guessed at: before the four-hundred-and-seventy-ninth
-    /// session there was one family and the question could not arise, and with two it can.
+    /// Neither is believed and neither is guessed at: with two families the question can arise
+    /// (ADR 0314).
     #[test]
     fn a_signature_algorithm_and_a_key_from_different_families_are_both_reported() {
         let file = b"the signed bytes";

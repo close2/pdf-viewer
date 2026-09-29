@@ -146,10 +146,10 @@ impl Default for Conforming {
 ///
 /// **A document that declares a resource its content stream never names does not exercise the
 /// requirement it was written for.** ISO 19005 section 6.2.2's last sentence exempts a named
-/// resource nothing references, which the validator could not see until session 1001 gave
-/// `Examination` a reachability answer (ADR 1021 §7) — and twelve fixtures here then stopped
-/// failing the requirement each was about, because their page drew nothing at all. Rather than a
-/// line in each, the builder draws what the fixture declares: a fixture that states `contents`
+/// resource nothing references, which the validator sees through `Examination`'s reachability
+/// answer (ADR 1021 section 7) — so a fixture whose page drew nothing at all would not fail the
+/// requirement it is about. Rather than a line in each, the builder draws what the fixture
+/// declares: a fixture that states `contents`
 /// itself is untouched, and one that states only `resources` gets the operators §8.2's Table 50
 /// gives for selecting each kind.
 ///
@@ -1189,15 +1189,13 @@ fn a_form_xobjects_opi_and_postscript_passthrough_are_removed() {
 
 #[test]
 fn a_postscript_xobject_no_page_invokes_is_exempt_rather_than_dropped() {
-    // ISO 19005-2 section 6.2.9.3 forbids a PostScript XObject, and session 947 built the
-    // removal. **This test asserted that removal until session 1001 made section 6.2.2's
-    // exemption readable**, and the exemption answers first: a named resource no content stream
-    // references is not judged, and a PostScript XObject is the one kind no viewer ever draws:
-    // ISO 32000-1:2008, 8.8.2 — the edition part 2 delegates to, and the only one that has them
-    // at all, since ISO 32000-2 8.8.1 names two kinds of XObject and not this — says its
-    // fragments "shall have no effect either when viewing the document on-screen or when
-    // printing it to a non-PostScript device". So no page invokes one and the entry is always
-    // exempt.
+    // ISO 19005-2 section 6.2.9.3 forbids a PostScript XObject, and the converter can remove one
+    // (ADR 0947). **Section 6.2.2's exemption answers first** (ADR 1021): a named resource no
+    // content stream references is not judged, and a PostScript XObject is the one kind no viewer
+    // ever draws: ISO 32000-1:2008, 8.8.2 — the edition part 2 delegates to, and the only one that
+    // has them at all, since ISO 32000-2 8.8.1 names two kinds of XObject and not this — says its
+    // fragments "shall have no effect either when viewing the document on-screen or when printing
+    // it to a non-PostScript device". So no page invokes one and the entry is always exempt.
     //
     // The drawn case is `a_conversion_that_would_break_what_the_source_met_writes_nothing` two
     // hundred lines down, and it **refuses**: the object has to go, the `Do` that names it may
@@ -3404,7 +3402,7 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
 }
 
 // ---------------------------------------------------------------------------------------------
-// `doc/pdf-a-mitigations.md` section 13.3's *owed, not optional*, session 962's four.
+// `doc/pdf-a-mitigations.md` section 13.3's *owed, not optional*, ADR 0965's four.
 // ---------------------------------------------------------------------------------------------
 
 #[test]
@@ -3531,9 +3529,8 @@ fn stated_encoding(bytes: &[u8]) -> Option<String> {
 #[test]
 fn a_symbolic_truetype_font_no_mark_shows_is_exempt_rather_than_rewritten() {
     // ISO 19005-2 section 6.2.11.6 and ISO 19005-4 section 6.2.10.6 forbid a symbolic TrueType
-    // font from stating an `/Encoding`, and session 962 built the removal for it. **This test
-    // asserted that removal until session 1001 made the exemption readable, and the exemption
-    // answers first**: section 6.2.2's last sentence withdraws a requirement from a named
+    // font from stating an `/Encoding`, and the converter can remove one (ADR 0965). **The
+    // exemption answers first**: section 6.2.2's last sentence withdraws a requirement from a named
     // resource no content stream references, and `reach::exemption_narrows` keeps only section
     // 5.1 and the file-structure subclauses out of that — so a font dictionary nothing shows
     // is not judged against the font rules at all, and there is no failure for the converter
@@ -6084,7 +6081,7 @@ fn a_metadata_property_this_target_rejects_is_kept_on_a_page_appended_to_the_doc
     );
     let output = output.expect("the preservation converts");
 
-    // **Proved on the copy rather than promised** (session 971's rule): the output is re-opened
+    // **Proved on the copy rather than promised** (ADR 0982's rule): the output is re-opened
     // and every page this conversion said it appended is read back off it.
     let pages = page_contents(&output);
     assert_eq!(
@@ -9911,5 +9908,181 @@ fn an_automatic_optional_content_state_goes_only_with_authorisation() {
     assert!(
         !String::from_utf8_lossy(&output).contains("/Event /View"),
         "the usage application dictionary the /AS held is not in the output"
+    );
+}
+
+/// A 4×1 three-component eight-bit codestream, `opj_compress`'s, from
+/// `crates/pdf-archive/tests/jpx_baseline.rs`.
+const THREE_COMPONENT_CODESTREAM: &[u8] = &[
+    0xff, 0x4f, 0xff, 0x51, 0x00, 0x2f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x07, 0x01, 0x01, 0x07, 0x01, 0x01,
+    0x07, 0x01, 0x01, 0xff, 0x52, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x04, 0x04, 0x00,
+    0x01, 0xff, 0x5c, 0x00, 0x04, 0x40, 0x40, 0xff, 0x90, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x24, 0x00, 0x01, 0xff, 0x93, 0xc7, 0xd4, 0x0a, 0x0f, 0xf8, 0xe5, 0xba, 0x7f, 0xc7, 0xd4, 0x06,
+    0x0d, 0xef, 0xbf, 0xdf, 0x80, 0x28, 0x0f, 0xf2, 0xb6, 0xc8, 0xf3, 0xff, 0xd9,
+];
+
+/// A JP2 file around [`THREE_COMPONENT_CODESTREAM`] whose one colour specification is
+/// enumerated YCbCr(2), code 3 — off ITU-T T.801 M.9.2.4's list, so the data is not JPX
+/// baseline and nothing else about it is wrong.
+fn a_jpx_off_the_baseline() -> Vec<u8> {
+    fn boxed(kind: [u8; 4], payload: &[u8]) -> Vec<u8> {
+        let mut out = u32::try_from(payload.len().saturating_add(8))
+            .expect("the fixture is small")
+            .to_be_bytes()
+            .to_vec();
+        out.extend_from_slice(&kind);
+        out.extend_from_slice(payload);
+        out
+    }
+    let mut header = boxed(*b"ihdr", &[0, 0, 0, 1, 0, 0, 0, 4, 0, 3, 7, 7, 0, 0]);
+    header.extend(boxed(*b"colr", &[1, 0, 0, 0, 0, 0, 3]));
+    let mut out = boxed(*b"jP  ", &[0x0d, 0x0a, 0x87, 0x0a]);
+    out.extend(boxed(*b"ftyp", b"jp2 \0\0\0\0jp2 "));
+    out.extend(boxed(*b"jp2h", &header));
+    out.extend(boxed(*b"jp2c", THREE_COMPONENT_CODESTREAM));
+    out
+}
+
+/// A part 2 page drawing one `JPXDecode` image over [`a_jpx_off_the_baseline`], its dictionary
+/// stating `colour_space` where one is given.
+fn a_page_with_a_jpx_image(colour_space: Option<&str>) -> Vec<u8> {
+    let data = a_jpx_off_the_baseline();
+    Conforming {
+        resources: "/XObject << /Im 6 0 R >>".to_owned(),
+        binary_objects: vec![stream(
+            &format!(
+                "/Type /XObject /Subtype /Image /Width 4 /Height 1 {} /Filter /JPXDecode \
+                 /Length {}",
+                colour_space.map_or(String::new(), |space| format!("/ColorSpace {space}")),
+                data.len()
+            ),
+            &data,
+        )],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+#[test]
+fn keep_everything_transcodes_a_jpx_image_outside_the_baseline_to_flate_and_it_validates() {
+    // ISO 19005-2 section 6.2.8.3 restricts JPEG 2000 data to the JPX baseline; §7.4.9 has a
+    // stated ColorSpace decide what the samples mean. So a Flate copy in that space keeps them,
+    // and no sentence about JPEG 2000 data binds it (ADR 1400).
+    let calibrated = "[/CalRGB << /WhitePoint [0.9505 1 1.089] >>]";
+    let source = a_page_with_a_jpx_image(Some(calibrated));
+    let target = Target::Two(Level::B);
+    let row = "graphics/jpeg2000-uses-the-baseline-feature-set";
+    let failed: Vec<&str> = holds(&source, target)
+        .failures()
+        .map(|failed| failed.id)
+        .collect();
+    assert_eq!(
+        failed,
+        vec![row],
+        "the fixture fails the baseline rule alone"
+    );
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert!(
+        output.is_none(),
+        "with no configuration the site is refused"
+    );
+    assert!(matches!(decision(&report, row), Decision::Refused(_)));
+
+    let plan = plan_from(&keep_everything(), target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    let answered = decision(&report, row);
+    let Decision::Configured { rewrite, .. } = answered else {
+        panic!("the profile's preserve answers the site: {answered:?}");
+    };
+    assert_eq!(rewrite, Rewrite::Jpeg2000TranscodedToFlate);
+    let output = output.expect("the image is transcoded and the file is written");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let rows = &conversion(&report).transcoded_images;
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0].depths, vec![8, 8, 8]);
+    assert_eq!(rows[0].bits, 8);
+
+    // The samples a reader decodes from the copy are the decoder's samples of the source, in the
+    // same colour space.
+    let before = Document::open_with_limits(source, Limits::DEFAULT).expect("the source opens");
+    let after = Document::open_with_limits(output, Limits::DEFAULT).expect("the output opens");
+    let image_of = |held: &Document| {
+        let pages = pdf_model::Pages::new(held);
+        let page = pages.get(0).expect("the one page");
+        let resources = held.get_key(&page.dict, "Resources");
+        let xobjects = resources
+            .as_dict()
+            .map(|dict| held.get_key(dict, "XObject"))
+            .expect("the page's resources");
+        let id = xobjects
+            .as_dict()
+            .and_then(|dict| dict.get("Im"))
+            .and_then(pdf_syntax::Object::as_reference)
+            .expect("the image is still a resource");
+        let pdf_syntax::Object::Stream(image) = held.get(id) else {
+            panic!("the image is a stream");
+        };
+        image
+    };
+    let source_image = image_of(&before);
+    let decoded = pdf_model::image::jpx_samples(
+        &before,
+        &source_image.dict,
+        &pdf_syntax::object::Dictionary::new(),
+        (&source_image.data, pdf_model::image::ORDINARY_JPX_SAMPLES),
+    )
+    .expect("the source decodes");
+    let copy = image_of(&after);
+    assert_eq!(
+        after.get_key(&copy.dict, "Filter"),
+        pdf_syntax::Object::Name(pdf_syntax::object::Name::new(&b"FlateDecode"[..]))
+    );
+    assert_eq!(
+        after.get_key(&copy.dict, "ColorSpace"),
+        before.get_key(&source_image.dict, "ColorSpace"),
+        "the colour space is the dictionary's own"
+    );
+    assert_eq!(
+        after.decoded_stream_data(&copy).as_deref(),
+        Some(decoded.colour.as_slice())
+    );
+}
+
+#[test]
+fn a_jpx_image_whose_colour_comes_from_its_data_keeps_the_refusal() {
+    // With no ColorSpace, §7.4.9 has a reader take the colour space from the data, and a Flate
+    // copy would need one this converter chose (ADR 1400).
+    let source = a_page_with_a_jpx_image(None);
+    let target = Target::Two(Level::B);
+    let plan = plan_from(&keep_everything(), target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert!(output.is_none());
+    let Decision::Refused(because) =
+        decision(&report, "graphics/jpeg2000-uses-the-baseline-feature-set")
+    else {
+        panic!("the data's own colour space keeps the refusal");
+    };
+    assert!(
+        because
+            .sentence()
+            .contains("take the colour space from the JPEG 2000"),
+        "{}",
+        because.sentence()
+    );
+}
+
+#[test]
+fn the_listing_names_the_jpx_transcode() {
+    let sites = pdf_transform::archive::sites(Target::Two(Level::B));
+    let site = sites
+        .iter()
+        .find(|site| site.requirement == "graphics/jpeg2000-uses-the-baseline-feature-set")
+        .expect("the baseline rule is a site");
+    assert!(
+        site.preserves_in_place
+            .is_some_and(|sentence| sentence.contains("FlateDecode")),
+        "{site:?}"
     );
 }

@@ -12,9 +12,9 @@
 //! the two gates ask what documents need, and neither can notice that a rule everyone
 //! believes is implemented has nothing pinning it.
 //!
-//! Explicit masking (§8.9.6.3) and colour key masking (§8.9.6.4) landed in the fourteenth
-//! session (ADR 0023) and their tests are below, beside the stencil ones the file started
-//! with — which is the right arrangement for a family whose three mechanisms share one
+//! Explicit masking (§8.9.6.3) and colour key masking (§8.9.6.4) are ADR 0023's, and their
+//! tests are below, beside the stencil ones — which is the right arrangement for a family whose
+//! three mechanisms share one
 //! clause and, in two cases, one dictionary key. §11.6.4.3's precedence between an image's
 //! `/SMask` and its `/Mask` is tested here too, because the only place it can be seen is an
 //! image that carries both.
@@ -452,7 +452,7 @@ const BLUE: [u8; 3] = [0, 0, 255];
 /// The fixture masks pure red out of a four-by-two image whose other cells are green and
 /// blue, so a reader that applied the ranges to one component, or to the wrong one, paints a
 /// cell this test demands is gone. `colorkeymask.pdf` is the same shape at page scale: three
-/// bands, the red one masked, and we drew all three until the fourteenth session.
+/// bands, the red one masked, and a reader that ignores the range draws all three.
 #[test]
 fn colour_key_masking_removes_the_samples_inside_the_range() {
     let raster = render(page_with_image(
@@ -824,11 +824,11 @@ fn an_explicit_mask_paints_the_base_image_only_where_it_marks() {
 ///
 /// The mixed-raster shape real scans are written in: a colour layer a few hundred samples
 /// across under a full-page bilevel stencil, whose refinement is tens of millions of samples.
-/// Until session 615 one number decided both "is combining eagerly worth it" and "can this be
-/// built at all", and a stencil can never take the other route — Table 87 forbids an
-/// `/ImageMask` a colour space of its own, and the device-scale route needs `DeviceGray`. So the
-/// pair was refused, which draws the base image *unmasked*: for this
-/// construction, a solid black page. Five documents of the crawl's 7000 were that (ADR 0451).
+/// "Is combining eagerly worth it" and "can this be built at all" are two questions, and a
+/// stencil can never take the other route — Table 87 forbids an `/ImageMask` a colour space of
+/// its own, and the device-scale route needs `DeviceGray`. Answering both with one number
+/// refuses the pair, which draws the base image *unmasked*: for this construction, a solid
+/// black page. Five documents of the crawl's 7000 are that shape (ADR 0451).
 ///
 /// The fixture is the smallest pair past the preference: 8192 × 2049 is 16 785 408 samples,
 /// 8 192 above it, against a 1 × 1 image. What is asserted is the picture and the silence —
@@ -931,9 +931,8 @@ fn a_soft_mask_overrides_an_explicit_mask() {
 /// Table 143 makes a mask's `/Width` and `/Height` "independent of" the parent's, with "[b]oth
 /// images … mapped to the unit square in user space … regardless of whether the samples
 /// coincide individually" — the same sentence §8.9.6.3 writes for an explicit mask, so the
-/// same answer: combine on the finer grid. Until the fifteenth session a mask of any other
-/// size was refused and reported instead, which drew `smaskdim.pdf`'s two bullets as squares
-/// and `issue16263.pdf`'s overlines as black bars.
+/// same answer: combine on the finer grid (ADR 0024). Refusing a mask of any other size draws
+/// `smaskdim.pdf`'s two bullets as squares and `issue16263.pdf`'s overlines as black bars.
 ///
 /// The mask's cells are 0 and 255 rather than intermediate values, because what this fixture
 /// tests is *which* mask sample reaches which part of the page; the opacity between them is

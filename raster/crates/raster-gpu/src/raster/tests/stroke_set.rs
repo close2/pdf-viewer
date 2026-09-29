@@ -22,16 +22,18 @@
 use raster_scene::{LineCap, LineJoin, Point, Segment, Stroke};
 
 use crate::raster::flatten::FLATTEN_TOLERANCE;
-use crate::raster::{CoverageMask, DeviceTransform, Rule, fill_mask, flatten, stroke_polylines};
+use crate::raster::{
+    CoverageMask, DeviceTransform, Rule, fill_mask, flatten_stroke, stroke_polylines,
+};
 
 /// The rungs of the ladder: the caller's `ink_ladder` scales.
-const RUNGS: [f32; 4] = [1.0, 2.0, 4.0, 8.0];
+pub(super) const RUNGS: [f32; 4] = [1.0, 2.0, 4.0, 8.0];
 
 /// A sixteenth of a pixel, in coverage bytes: the CPU oracle's converter quantum (ADR 1348),
 /// and the most two drawings of one set may differ by at a pixel.
 const SIXTEENTH: u8 = 16;
 
-fn scaled(s: f32) -> DeviceTransform {
+pub(super) fn scaled(s: f32) -> DeviceTransform {
     DeviceTransform {
         a: s,
         b: 0.0,
@@ -42,7 +44,7 @@ fn scaled(s: f32) -> DeviceTransform {
     }
 }
 
-fn stroke(width: f32, cap: LineCap, join: LineJoin, miter_limit: f32) -> Stroke {
+pub(super) fn stroke(width: f32, cap: LineCap, join: LineJoin, miter_limit: f32) -> Stroke {
     Stroke {
         width,
         adjust: false,
@@ -54,9 +56,9 @@ fn stroke(width: f32, cap: LineCap, join: LineJoin, miter_limit: f32) -> Stroke 
 
 /// The mask of `path` stroked on a 100 × 100 unit page at scale `s`.
 #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // 800 at most
-fn mask(path: &[Segment], stroke: Stroke, s: f32) -> CoverageMask {
+pub(super) fn mask(path: &[Segment], stroke: Stroke, s: f32) -> CoverageMask {
     let size = (100.0 * s) as u32;
-    let pieces = stroke_polylines(&flatten(path, scaled(s)), stroke, stroke.width * s);
+    let pieces = stroke_polylines(&flatten_stroke(path, scaled(s)), stroke, stroke.width * s);
     fill_mask(&pieces, Rule::NonZero, 0, 0, size, size)
 }
 
@@ -72,7 +74,7 @@ fn ink(mask: &CoverageMask, s: f32) -> f32 {
 
 /// A path run the other way: each subpath's segments in reverse order and each one
 /// reversed, the subpaths themselves in their own order.
-fn reversed(path: &[Segment]) -> Vec<Segment> {
+pub(super) fn reversed(path: &[Segment]) -> Vec<Segment> {
     let mut out = Vec::new();
     let mut start = 0;
     while start < path.len() {
@@ -149,7 +151,7 @@ fn both_ways(path: &[Segment], stroke: Stroke, what: &str) -> Vec<Rung> {
         .collect()
 }
 
-fn line_path(points: &[(f32, f32)], closed: bool) -> Vec<Segment> {
+pub(super) fn line_path(points: &[(f32, f32)], closed: bool) -> Vec<Segment> {
     let mut path = vec![Segment::MoveTo(Point::new(points[0].0, points[0].1))];
     path.extend(
         points[1..]
@@ -476,7 +478,8 @@ fn the_pieces_of_a_thin_stroke_tile_its_set() {
     const N: usize = 64;
     let check = |path: &[Segment], stroke: Stroke, want: f64, what: &str| {
         for drawn in [path.to_vec(), reversed(path)] {
-            let pieces = stroke_polylines(&flatten(&drawn, scaled(1.0)), stroke, stroke.width);
+            let pieces =
+                stroke_polylines(&flatten_stroke(&drawn, scaled(1.0)), stroke, stroke.width);
             let areas: Vec<f64> = pieces.iter().map(signed_area).collect();
             let negative = areas.iter().filter(|a| **a < -1e-9).count();
             let positive = areas.iter().filter(|a| **a > 1e-9).count();
@@ -605,7 +608,7 @@ fn the_pieces_of_a_tight_bend_tile_its_set() {
     for (join, want) in [(LineJoin::Miter, 44.0), (LineJoin::Bevel, 36.0)] {
         for drawn in [tight_ell(), reversed(&tight_ell())] {
             let pieces = stroke_polylines(
-                &flatten(&drawn, scaled(1.0)),
+                &flatten_stroke(&drawn, scaled(1.0)),
                 stroke(8.0, LineCap::Butt, join, 10.0),
                 8.0,
             );

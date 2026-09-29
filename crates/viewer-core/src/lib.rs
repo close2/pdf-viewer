@@ -120,7 +120,7 @@ pub use event::{Event, Extraction, Found, RenderRequest};
 pub use pdf_model::view::Entered;
 pub use query::{
     Answer, FormField, FormWidget, FrameView, Layer, PageGeometry, PageReadback, PageReports,
-    PageStructure, PopupWindow, PrintPage, Query, Selected,
+    PageStructure, PopupWindow, PrintPage, Query, Selected, Tagging,
 };
 pub use readback::ReadbackCache;
 pub use secret::Secret;

@@ -327,7 +327,7 @@ unconstrained design proposed afterwards.
    §5.3's output intent is exactly such a future data resource, and the rule already answers how
    it must be carried: as bytes in read-only data, parsed on first use, never at launch.
 6. **A C dependency touching untrusted bytes is confined** (principle 3), and `doc/stack.md`
-   argues every dependency. The ICC engine in `crates/pdf-model/src/icc.rs` was written rather
+   argues every dependency. The ICC engine in `crates/pdf-colour/src/icc.rs` was written rather
    than taken from `lcms` for exactly that reason (ADR 0009); nothing below proposes reversing it.
 7. **A document's restrictions are the reader's to set**, with four levels (principle 3,
    `doc/todo/38`). Already implemented once for the transform suite in
@@ -498,7 +498,7 @@ exact form of the condition per part; the mechanism it names is ISO 32000-2 §14
 RFC read in full.)
 
 **What the tree already has is more than a converter needs and exactly what a validator needs.**
-`crates/pdf-model/src/icc.rs` is this project's own ICC engine — written rather
+`crates/pdf-colour/src/icc.rs` is this project's own ICC engine — written rather
 than taken from `lcms`, because `#![forbid(unsafe_code)]` and the C-dependency rule both argue
 against a C library parsing bytes off a page (ADR 0009). It implements `A2B0`/`A2B1` in `mft1`,
 `mft2` and `mAB `, the matrix/curve form, and since ADR 0796 the `B2A0`/`B2A1` direction as well.

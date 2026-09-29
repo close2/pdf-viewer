@@ -1,11 +1,10 @@
 //! Stamps this crate with an identity of the tree it was built from.
 //!
 //! The parent and the worker are two processes running two copies of this crate, and the
-//! greeting in `protocol.rs` has always proved they speak the same *wire format*. It could
-//! not prove they were the same *build*, and that turned out to be the difference that
-//! matters: a worker whose decoders are older answers every request perfectly well, with
-//! older answers, and a decoder's refusal from last week's binary is word for word a
-//! decoder's refusal from this one's. ADR 0458 has the session that cost.
+//! greeting in `protocol.rs` proves they speak the same *wire format*. It cannot prove they are
+//! the same *build*, and that is the difference that matters: a worker whose decoders are older
+//! answers every request perfectly well, with older answers, and a decoder's refusal from last
+//! week's binary is word for word a decoder's refusal from this one's. ADR 0458.
 //!
 //! So the greeting carries this number too. It is a hash of what decides the worker's
 //! answers, as far as a build script can see it:

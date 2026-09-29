@@ -473,10 +473,9 @@ mod tests {
 
     /// `--trace` with no list means every topic, and "every" is the enum's own answer.
     ///
-    /// [`EVERY_TOPIC`] is a hand-written bit pattern beside a list a session may extend, and the
-    /// four-hundred-and-twentieth extended it: `search` is the eighth, and a mask left at `0x7f`
-    /// would have made a bare `--trace` silently the seven it used to be. The gate is arithmetic
-    /// rather than a number written twice.
+    /// [`EVERY_TOPIC`] is a hand-written bit pattern beside a list a change may extend, and a mask
+    /// left behind when the list grows would make a bare `--trace` silently ask for fewer topics
+    /// than there are. The gate is arithmetic rather than a number written twice.
     #[test]
     fn a_bare_trace_asks_for_every_topic_there_is() {
         let every = Topic::ALL

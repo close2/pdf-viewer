@@ -142,6 +142,20 @@ impl Encoder<'_> {
         let mut tile = raster::fill_mask(polylines, rule, left, top, width, height);
         self.clock.geometry(span);
 
+        self.multiply_residue(&mut tile, resolved)?;
+        Ok(Some(tile))
+    }
+
+    /// Multiply the residue of `resolved`'s chain into a mark's coverage tile, or leave
+    /// the tile as it is where the chain is rectangles alone.
+    ///
+    /// The one site a mark meets its residue, for the walk's own tiles and for the ones
+    /// the fan-out made ([`Encoder::drain_queue`], ADR 1395).
+    pub(super) fn multiply_residue(
+        &mut self,
+        tile: &mut raster::CoverageMask,
+        resolved: &ResolvedClip,
+    ) -> Result<(), RenderError> {
         // The clip meets the mark here, and **this one still multiplies** — deliberately,
         // and not for the reason the chain intersects (ADR 0030). §8.5.4 asks for an
         // intersection of the object's shape with the clipping path, and *neither* `min`
@@ -153,7 +167,9 @@ impl Encoder<'_> {
         // Measured, and it is the reason this is a choice rather than a conclusion:
         // moving this site to `min` as well moves no page of the caller's corpus, in
         // either direction, and no page's printed numbers.
-        if let Some(clip) = self.residue_intersection(resolved, left, top, width, height)? {
+        if let Some(clip) =
+            self.residue_intersection(resolved, tile.left, tile.top, tile.width, tile.height)?
+        {
             // **Its own span, which is ADR 0023's amendment of 2026-08-17.** One multiply
             // and one divide per pixel of the tile, and what it computes is the mark's
             // coverage: geometry by the phase's own definition. Until that date it sat
@@ -161,10 +177,10 @@ impl Encoder<'_> {
             // arithmetic as `recording` — the remainder — and the subdivision said
             // something untrue about the only page shape that has a residue at all.
             let span = self.clock.start();
-            residue_product(&mut tile, &clip);
+            residue_product(tile, &clip);
             self.clock.geometry(span);
         }
-        Ok(Some(tile))
+        Ok(())
     }
 
     /// The tile a shape with these device bounds occupies: shape ∩ clip ∩ target,

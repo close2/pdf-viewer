@@ -10,10 +10,9 @@
 //! That is the `/EndOfBlock` row, whose default the same row states as true. So `/Rows` binds the
 //! filter in exactly one case — `/EndOfBlock` false — and in that case it may legitimately
 //! stop the decode short of the image, whose extent is the dictionary's `/Height`
-//! (§8.9.5.1) and nothing in Table 11. Until the five-hundred-and-ninety-ninth session
-//! [`pdf_sandbox`]'s pipe carried **one** number for both jobs, so the short raster came back
-//! short and `pdf_model::image` refused the whole picture for being the size the clause asked
-//! for.
+//! (§8.9.5.1) and nothing in Table 11. [`pdf_sandbox`]'s pipe carries the two numbers apart
+//! (ADR 0434): with **one** number for both jobs, the short raster would come back short and
+//! `pdf_model::image` would refuse the whole picture for being the size the clause asked for.
 //!
 //! **The fixtures are hand-built and come in a pair differing in one entry's value**, which is
 //! trap 8's construction: the corpus contains no `/EndOfBlock false` with a short `/Rows` — a fax
@@ -333,9 +332,8 @@ const FOUR_LINES_OF_SIXTEEN: [u8; 7] = [0xB1, 0x6E, 0xC5, 0xBB, 0x16, 0xEC, 0x5B
 /// all. §8.9.5.1's `/Width` then says how many of each line's samples are the image, and since
 /// both numbers round to the same number of bytes per line, not one sample moves.
 ///
-/// This tree refused the pair outright until the six-hundred-and-nineteenth session, on two
-/// crawled scans whose `/Columns` were 872 against a `/Width` of 869 and 896 against 892 —
-/// both of them exactly this arithmetic.
+/// The witnesses are two crawled scans whose `/Columns` are 872 against a `/Width` of 869 and
+/// 896 against 892 — both of them exactly this arithmetic (ADR 0454).
 #[test]
 fn columns_may_be_the_width_rounded_up_to_a_byte_boundary() {
     let (raster, said) = interpret(page_with_ccitt_image_of_width(

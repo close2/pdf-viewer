@@ -24,12 +24,19 @@
 //!   end points. Where a curve bends more tightly than the half-width the cuts would
 //!   cross; there the pieces that meet the bend are re-cut into a tiling instead
 //!   ([`disjoint`](mod@disjoint), ADR 1375).
+//!
+//! A piece's ends, its caps and its joins are square to the path's own direction at each
+//! point, which where a curve begins or ends is its tangent rather than its last chord
+//! ([`centre`](mod@centre), ADR 1389, ADR 1397).
 
 use raster_scene::{LineCap, LineJoin, Point, Stroke};
 
-use super::flatten::{DeviceTransform, Polyline};
+use super::flatten::{DeviceTransform, Polyline, convex};
 
+mod centre;
 mod disjoint;
+
+use centre::{Centre, InnerCut, Side, Turned, inner_cut, turns};
 
 /// The device width a stroke resolves to under a placement (ADR 0085).
 ///
@@ -65,152 +72,142 @@ pub(crate) fn resolve_width(stroke: Stroke, t: DeviceTransform) -> f32 {
 /// §10.7.5's adjustment applied at encode); dashing is already applied and degenerate
 /// subpaths pre-split upstream (section 4.5 of the brief); consecutive coincident points are
 /// skipped here so flattening artefacts cannot produce zero-length pieces.
-#[expect(clippy::arithmetic_side_effects)]
 pub(crate) fn stroke_polylines(
     polylines: &[Polyline],
     stroke: Stroke,
     device_width: f32,
 ) -> Vec<Polyline> {
+    stroke_pieces(polylines, stroke, device_width).pieces
+}
+
+/// A stroke's pieces, and whether they tile its set by construction.
+pub(crate) struct Stroked {
+    /// The closed polygons, all wound one way.
+    pub pieces: Vec<Polyline>,
+    /// Whether no point is inside two pieces, so that the fill winds every point `0` or one
+    /// value and its integral is the set's area in every pixel: the stroke is one subpath,
+    /// and either one straight segment — its body and its two caps, which share their
+    /// corners to the bit — or closed and convex with every corner cut, whose pieces are the
+    /// convex ring's decomposition into a strip per edge and a sector per corner (ADR 1397).
+    /// `false` says only that the stroker cannot vouch for it.
+    pub tiles: bool,
+}
+
+/// [`stroke_polylines`], saying besides whether the pieces tile the set ([`Stroked::tiles`]).
+pub(crate) fn stroke_pieces(polylines: &[Polyline], stroke: Stroke, device_width: f32) -> Stroked {
     let hw = device_width * 0.5;
-    let mut out = Vec::new();
+    let mut pieces = Vec::new();
+    let (mut subpaths, mut tiles) = (0_usize, true);
     for polyline in polylines {
-        // Dedupe coincident neighbours (and the closing wrap, when closed).
-        let mut pts: Vec<Point> = Vec::with_capacity(polyline.points.len());
-        for &p in &polyline.points {
-            #[expect(clippy::float_cmp)] // exact: a zero-length piece, not a near one
-            if pts.last().is_none_or(|q| q.x != p.x || q.y != p.y) {
-                pts.push(p);
+        let Some(centre) = Centre::of(polyline) else {
+            continue;
+        };
+        subpaths = subpaths.saturating_add(1);
+        tiles &= stroke_subpath(&centre, stroke, hw, &mut pieces);
+    }
+    Stroked {
+        pieces,
+        tiles: tiles && subpaths == 1,
+    }
+}
+
+/// One subpath's pieces, appended to `out`; `true` where they tile its set by construction
+/// ([`Stroked::tiles`]).
+#[expect(clippy::arithmetic_side_effects)] // indices below the point count, at least two
+fn stroke_subpath(centre: &Centre, stroke: Stroke, hw: f32, out: &mut Vec<Polyline>) -> bool {
+    let pts = &centre.points;
+    let n = pts.len();
+    let segment_count = centre.segments();
+    // Each segment's piece as the cuts and joins see it: its ends and the directions they
+    // are square to, the curve's tangent where the chord can carry it (ADR 1397).
+    let turned: Vec<Turned> = centre.turned_ends(hw);
+    let sides: Vec<Side> = (0..segment_count)
+        .map(|i| {
+            let (from, to) = centre.segment(i);
+            let chord = direction(from, to);
+            Side {
+                from,
+                to,
+                start: turned[i].start.unwrap_or(chord),
+                end: turned[i].end.unwrap_or(chord),
             }
-        }
-        #[expect(clippy::float_cmp)]
-        if polyline.closed
-            && pts.len() > 1
-            && pts[0].x == pts[pts.len() - 1].x
-            && pts[0].y == pts[pts.len() - 1].y
-        {
-            pts.pop();
-        }
-        if pts.len() < 2 {
-            continue; // a lone point: degenerate, pre-split upstream (§8.5.3.2)
-        }
-
-        let segment_count = if polyline.closed {
-            pts.len()
-        } else {
-            pts.len() - 1
+        })
+        .collect();
+    let meeting = |j: usize| centre.meeting(j);
+    // Each vertex's inner cut, computed once so that the two pieces meeting there share its
+    // point to the bit (ADR 1361); and which vertices turn without one, a bend tighter than
+    // the half-width (ADR 1375).
+    let mut tight = vec![false; n];
+    let cuts: Vec<Option<InnerCut>> = (0..n)
+        .map(|j| {
+            let (before, after) = meeting(j)?;
+            let cut = inner_cut(sides[before], sides[after], hw);
+            tight[j] = cut.is_none() && turns(sides[before].end, sides[after].start);
+            cut
+        })
+        .collect();
+    // The pieces, and beside each whether it meets a tight bend.
+    let (mut pieces, mut at_a_tight_bend) = (Vec::new(), Vec::new());
+    // One piece per segment, less those another segment's piece already holds.
+    let held = held_by_a_neighbour(pts, centre.closed, segment_count);
+    let left_normal = |d: Point| Point::new(-d.y * hw, d.x * hw);
+    for i in (0..segment_count).filter(|&i| !held[i]) {
+        let (from, to) = (i, (i + 1) % n);
+        let ends = PieceEnds {
+            start: cuts[from],
+            end: cuts[to],
+            start_normal: turned[i].start.map(left_normal),
+            end_normal: turned[i].end.map(left_normal),
         };
-        // Each vertex's inner cut, computed once so that the two pieces meeting there
-        // share its point to the bit (ADR 1361); and which vertices turn without one,
-        // a bend tighter than the half-width (ADR 1375).
-        let mut tight = vec![false; pts.len()];
-        let cuts: Vec<Option<InnerCut>> = (0..pts.len())
-            .map(|j| {
-                let joined = polyline.closed || (j > 0 && j + 1 < pts.len());
-                if !joined {
-                    return None;
-                }
-                let (prev, next) = (
-                    pts[(j + pts.len() - 1) % pts.len()],
-                    pts[(j + 1) % pts.len()],
-                );
-                let cut = inner_cut(prev, pts[j], next, hw);
-                tight[j] = cut.is_none() && turns(prev, pts[j], next);
-                cut
-            })
-            .collect();
-        // The pieces, and beside each whether it meets a tight bend.
-        let (mut pieces, mut at_a_tight_bend) = (Vec::new(), Vec::new());
-        // One piece per segment, less those another segment's piece already holds.
-        let held = held_by_a_neighbour(&pts, polyline.closed, segment_count);
-        // The end of the piece and the cap are both squared off to the path's own
-        // direction at each open end (§8.4.3.3; ADR 1389).
-        let last = pts.len() - 1;
-        let (start_dir, end_dir) = open_ends(polyline, &pts, hw);
-        let left_normal = |d: Point| Point::new(-d.y * hw, d.x * hw);
-        for i in (0..segment_count).filter(|&i| !held[i]) {
-            let (from, to) = (i, (i + 1) % pts.len());
-            let ends = PieceEnds {
-                start: cuts[from],
-                end: cuts[to],
-                start_normal: start_dir.filter(|_| i == 0).map(left_normal),
-                end_normal: end_dir.filter(|_| i + 1 == segment_count).map(left_normal),
-            };
-            pieces.push(segment_piece(pts[from], pts[to], hw, ends));
-            at_a_tight_bend.push(tight[from] || tight[to]);
-        }
-        // Joins at interior vertices (all vertices when closed).
-        let join_count = if polyline.closed {
-            pts.len()
-        } else {
-            pts.len().saturating_sub(2)
+        pieces.push(segment_piece(pts[from], pts[to], hw, ends));
+        at_a_tight_bend.push(tight[from] || tight[to]);
+    }
+    // A join at every corner, between the directions the two pieces end square to.
+    for j in 0..n {
+        let Some((before, after)) = meeting(j) else {
+            continue;
         };
-        for j in 0..join_count {
-            let prev = pts[j];
-            let v = pts[(j + 1) % pts.len()];
-            let next = pts[(j + 2) % pts.len()];
-            join_at(
-                &mut pieces,
-                prev,
-                v,
-                next,
-                hw,
-                stroke.join,
-                stroke.miter_limit,
-            );
-            at_a_tight_bend.resize(pieces.len(), tight[(j + 1) % pts.len()]);
-        }
-        // Caps at open ends.
-        if !polyline.closed {
-            let first_dir = start_dir.unwrap_or_else(|| direction(pts[0], pts[1]));
-            let last_dir = end_dir.unwrap_or_else(|| direction(pts[last - 1], pts[last]));
-            cap_at(
-                &mut pieces,
-                pts[0],
-                Point::new(-first_dir.x, -first_dir.y),
-                hw,
-                stroke.cap,
-            );
-            cap_at(&mut pieces, pts[last], last_dir, hw, stroke.cap);
-            at_a_tight_bend.resize(pieces.len(), false);
-        }
-        // Where the path bends more tightly than the half-width the pieces overlap in a
-        // star whose points are the rim, and the fill would count each overlap twice
-        // there; the tiling holds the same set with every point covered once.
-        if at_a_tight_bend.contains(&true) {
-            out.extend(disjoint::disjoint(pieces, &at_a_tight_bend));
-        } else {
-            out.extend(pieces);
-        }
+        join_at(
+            &mut pieces,
+            pts[j],
+            (sides[before].end, sides[after].start),
+            hw,
+            stroke.join,
+            stroke.miter_limit,
+        );
+        at_a_tight_bend.resize(pieces.len(), tight[j]);
     }
-    out
-}
-
-/// The path's own direction at each open end of `polyline`, whose deduplicated points are
-/// `pts`, where a curve decides it and the end chord can carry it ([`carried`]); `None` at
-/// an end the chord already runs along, and at both ends of a closed subpath.
-#[expect(clippy::arithmetic_side_effects)] // `pts` has at least two points here
-fn open_ends(polyline: &Polyline, pts: &[Point], hw: f32) -> (Option<Point>, Option<Point>) {
-    if polyline.closed {
-        return (None, None);
+    // Caps at open ends, square to the path's own direction there (§8.4.3.3; ADR 1389).
+    if !centre.closed {
+        let (first, last) = (sides[0], sides[segment_count - 1]);
+        cap_at(
+            &mut pieces,
+            pts[0],
+            Point::new(-first.start.x, -first.start.y),
+            hw,
+            stroke.cap,
+        );
+        cap_at(&mut pieces, pts[n - 1], last.end, hw, stroke.cap);
+        at_a_tight_bend.resize(pieces.len(), false);
     }
-    let last = pts.len() - 1;
-    (
-        polyline
-            .ends
-            .start
-            .and_then(|t| carried(t, pts[0], pts[1], hw)),
-        polyline
-            .ends
-            .end
-            .and_then(|t| carried(t, pts[last - 1], pts[last], hw)),
-    )
-}
-
-/// Whether the path changes direction at `v` at all, other than straight back: a vertex
-/// [`inner_cut`] declines for that reason is not a tight bend.
-fn turns(prev: Point, v: Point, next: Point) -> bool {
-    let (d1, d2) = (direction(prev, v), direction(v, next));
-    d1.x * d2.y - d1.y * d2.x != 0.0
+    let tiles = if centre.closed {
+        !held.contains(&true)
+            && !tight.contains(&true)
+            && (0..n)
+                .all(|j| cuts[j].is_some() || !turns(sides[(j + n - 1) % n].end, sides[j].start))
+            && convex(pts)
+    } else {
+        segment_count == 1
+    };
+    // Where the path bends more tightly than the half-width the pieces overlap in a star
+    // whose points are the rim, and the fill would count each overlap twice there; the
+    // tiling holds the same set with every point covered once.
+    if at_a_tight_bend.contains(&true) {
+        out.extend(disjoint::disjoint(pieces, &at_a_tight_bend));
+    } else {
+        out.extend(pieces);
+    }
+    tiles
 }
 
 /// The unit vector from `a` to `b`, or the zero vector when there is no direction to
@@ -312,57 +309,9 @@ fn held_by_a_neighbour(pts: &[Point], closed: bool, segment_count: usize) -> Vec
     held
 }
 
-/// Where the two inner offset lines of a vertex meet, and on which side of the stroke
-/// that is (`left`: the side of the left normal [`normal`] gives).
-#[derive(Debug, Clone, Copy)]
-struct InnerCut {
-    point: Point,
-    left: bool,
-}
-
-/// The inner cut at `v`, or `None` where the two pieces meeting there must overlap
-/// instead (ADR 1361).
-///
-/// Two segment rectangles meeting at an angle overlap on the inner side of the turn,
-/// in the kite between `v` and the point where their inner edges cross. Under
-/// [`fill`](super::fill)'s accumulation an overlap costs nothing inside the stroke,
-/// where the winding is clamped, but in a pixel on the stroke's rim it is **counted
-/// twice**: the pixel integrates `+a` and `+b` and reads `a + b`, not the area of their
-/// union. On a thin curve every pixel is on the rim, so nearly every overlap is counted
-/// in full (0.7 units of ink on a one-unit ring of 64 sides). Cutting both rectangles along the line from `v` to that crossing makes
-/// them meet edge to edge instead, and the part each loses is inside the other, so
-/// the union — §8.4.3.2's set — is unchanged.
-///
-/// The crossing lies `t = hw · tan(θ / 2)` back along each segment from `v`, where `θ`
-/// is the turn. It is only a corner of both pieces while `t` is at most half of each
-/// segment: past that, the cuts at a segment's two ends could meet, and a curve that
-/// bends more tightly than the half-width is exactly where they do. Such a vertex is
-/// left uncut, and the pieces that meet it are tiled by [`disjoint`](mod@disjoint)
-/// instead (ADR 1375).
-fn inner_cut(prev: Point, v: Point, next: Point, hw: f32) -> Option<InnerCut> {
-    let d1 = direction(prev, v);
-    let d2 = direction(v, next);
-    let cross = d1.x * d2.y - d1.y * d2.x;
-    let dot = d1.x * d2.x + d1.y * d2.y;
-    // `tan(θ / 2) = sin θ / (1 + cos θ)`; a reversal has no crossing at all.
-    let t = hw * cross.abs() / (1.0 + dot);
-    let reach = 0.5 * distance(prev, v).min(distance(v, next));
-    if cross == 0.0 || !t.is_finite() || t > reach {
-        return None;
-    }
-    // The inner side is the side the path turns towards: the left normal's side when
-    // `cross > 0`, which is [`join_at`]'s gap on the other side.
-    let left = cross > 0.0;
-    let side = if left { hw } else { -hw };
-    Some(InnerCut {
-        point: Point::new(v.x - d1.y * side - d1.x * t, v.y + d1.x * side - d1.y * t),
-        left,
-    })
-}
-
 /// How a segment's piece ends at each of its two points: an inner cut where a join
-/// has one, and at an open end of the path, the normal of the path's own direction
-/// there where it is not the chord's.
+/// has one, and the normal of the path's own direction there where a curve decides it
+/// and it is not the chord's.
 #[derive(Debug, Clone, Copy)]
 struct PieceEnds {
     start: Option<InnerCut>,
@@ -375,9 +324,10 @@ struct PieceEnds {
 /// half-width, across the segment's own length), with the inner corner at either end
 /// replaced by that vertex's [`InnerCut`] where it has one.
 ///
-/// At an open end of a curve the end is squared off to the curve's own direction rather
-/// than to the chord ([`carried`], ADR 1389): the rectangle becomes the quadrilateral
-/// whose end edge is the cap's line, and the piece still meets the cap edge to edge.
+/// Where a curve begins or ends the end is squared off to the curve's own direction rather
+/// than to the chord ([`Centre::turned_ends`], ADR 1389, ADR 1397): the rectangle becomes
+/// the quadrilateral whose end edge is the cap's or the join's line, and the piece still
+/// meets the cap or the join edge to edge.
 ///
 /// The points are visited in the rectangle's own order — left side forward, right side
 /// back — so a cut piece is wound as every other piece is. At a cut end the vertex
@@ -412,43 +362,23 @@ fn segment_piece(a: Point, b: Point, hw: f32, ends: PieceEnds) -> Polyline {
     Polyline::polygon(points)
 }
 
-/// The unit direction `tangent` gives an open end of the path whose end chord runs from
-/// `a` to `b`, or `None` where that chord cannot carry it and the end stays square to the
-/// chord.
-///
-/// §8.4.3.3's butt cap: "The stroke shall be squared off at the endpoint of the path.
-/// There shall be no projection beyond the end of the path." The path's direction at its
-/// endpoint is the curve's tangent, so the line the stroke ends on is square to that —
-/// and square to the last chord it is turned by half the chord's angle, one corner past
-/// the end and the other short of it. Turning the piece's end edge by that angle keeps
-/// the piece a simple quadrilateral while its far corners stay ahead of the turned ones,
-/// which is `hw · tan θ ≤ |ab|`: a chord shorter than that (a curve bent more tightly
-/// than the half-width, at a coarse flattening) keeps the chord's square end, and so
-/// does a tangent pointing back along the chord (`cos θ ≤ 0`, a cusp at the end).
-fn carried(tangent: Point, a: Point, b: Point, hw: f32) -> Option<Point> {
-    let u = direction(Point::new(0.0, 0.0), tangent);
-    let d = direction(a, b);
-    let (cos, sin) = (u.x * d.x + u.y * d.y, (u.x * d.y - u.y * d.x).abs());
-    (cos > 0.0 && hw * sin <= distance(a, b) * cos).then_some(u)
-}
-
 /// The left normal of `a → b`, scaled to the half-width.
 fn normal(a: Point, b: Point, hw: f32) -> Point {
     let d = direction(a, b);
     Point::new(-d.y * hw, d.x * hw)
 }
 
+/// The join at `v` (§8.4.3.4) between a piece arriving along the unit direction `d1` and
+/// one leaving along `d2` — each the direction that piece's end is square to, a curve's
+/// tangent where it has one (ADR 1397) — filling the gap on the outer side of the turn.
 fn join_at(
     out: &mut Vec<Polyline>,
-    prev: Point,
     v: Point,
-    next: Point,
+    (d1, d2): (Point, Point),
     hw: f32,
     join: LineJoin,
     miter_limit: f32,
 ) {
-    let d1 = direction(prev, v);
-    let d2 = direction(v, next);
     let cross = d1.x * d2.y - d1.y * d2.x;
     if cross == 0.0 {
         // Straight on, the pieces already meet edge to edge. Turned straight back, a

@@ -1,13 +1,12 @@
 //! The window's pixels, written by the processor, with no graphics device anywhere.
 //!
-//! **This exists so that `--cpu` can mean what it says.** Until the
-//! three-hundred-and-eighty-fourth session the flag chose which rasteriser drew the page and
-//! nothing else: the presenter still created a `wgpu::Instance`, still selected an adapter and
-//! still made a device, and the processor's raster was handed *back* to that device as one image
-//! because a working surface was the only path pixels took to the screen. A driver that faults
-//! while it is being loaded therefore took the process down under `--cpu` exactly as it did
-//! without it, which is what the project owner hit on a Windows machine with Intel graphics
-//! (`doc/QUORRA_FEEDBACK.md` section 12, and ADR 0221 for this half of it).
+//! **This exists so that `--cpu` can mean what it says.** A flag that chose only the rasteriser
+//! would still create a `wgpu::Instance`, select an adapter and make a device, and hand the
+//! processor's raster *back* to that device as one image, because a working surface would be the
+//! only path pixels took to the screen. A driver that faults while it is being loaded would then
+//! take the process down under `--cpu` exactly as without it, which is what the project owner hit
+//! on a Windows machine with Intel graphics (`doc/QUORRA_FEEDBACK.md` section 12, and ADR 0221 for
+//! this half of it).
 //!
 //! So there are two ways a frame reaches the window, and this is the second. It is deliberately
 //! the smaller of the two in every way — one full-window buffer, one source-over per overlay, one
@@ -286,9 +285,9 @@ pub fn was_interrupted(problem: &SoftwareError) -> bool {
 
 /// A window with no page on it at all, in [`pdf_render::SURROUND`].
 ///
-/// **The window before any document is open, which since the six-hundred-and-ninety-fifth session
-/// is a window that still has something on it**: §7.6.4.1's card is drawn over an encrypted
-/// document that has not authenticated, and there is no page behind it to compose onto.
+/// **The window before any document is open, which is a window that still has something on it**
+/// (ADR 0545): §7.6.4.1's card is drawn over an encrypted document that has not authenticated, and
+/// there is no page behind it to compose onto.
 ///
 /// The colour is [`Medium::WINDOW`]'s ground rather than a value chosen here, which is
 /// [`compose_pages`]'s own reading applied to the degenerate case: §11.4.7's 𝑊 is *the page's*

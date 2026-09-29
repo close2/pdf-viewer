@@ -328,6 +328,11 @@ pub struct FragmentList {
     /// `ftbl` where the list assembles a codestream (M.11.3), `cref` where it assembles a
     /// shared header or metadata box (M.11.4).
     pub container: [u8; 4],
+    /// The index in [`Headers::top_level`] of the top-level box the list was read from: the
+    /// Fragment Table box itself, or the Codestream Header or Compositing Layer Header box whose
+    /// Cross-Reference box holds it. M.11.6 and M.11.7 number both kinds of header box by their
+    /// order in the file, which is how T.801 M.9.2.6 tells the first layer's from the rest.
+    pub box_index: usize,
     /// The fragments, in the order the list states them.
     pub fragments: Vec<Fragment>,
 }
@@ -341,6 +346,11 @@ pub struct FirstLayer<'a> {
     /// The `CDN`*ᵢ* of its Codestream Registration box, M.11.7.7, or `None` where it has none —
     /// in which case the same subclause makes the layer one codestream.
     pub codestreams: Option<Vec<u16>>,
+    /// The type of every box found within it, in file order: its own boxes, the boxes of its
+    /// Colour Group box, and for a Cross-Reference box the `Rtyp` it names — M.11.7 treats a
+    /// cross-referenced box as stored in the header box itself, and T.801 M.9.2.7's second
+    /// sentence asks which boxes are found there.
+    pub contents: Vec<[u8; 4]>,
 }
 
 /// One description in the `cdef` box, ISO/IEC 15444-1:2000 I.5.3.6.
@@ -464,6 +474,19 @@ pub struct Headers<'a> {
     pub file_type: Option<FileType>,
     /// The type of every top-level box, in file order.
     pub top_level: Vec<[u8; 4]>,
+    /// Where each box of [`Self::top_level`] lies in the data, first byte of its header to one
+    /// past its last byte, in the same order — the positions T.801 M.9.2.6 compares a fragment's
+    /// offset against.
+    pub top_level_spans: Vec<std::ops::Range<usize>>,
+    /// The type of every box within the JP2 Header box, in file order.
+    pub jp2_header_contents: Vec<[u8; 4]>,
+    /// The type of every box found within the first Codestream Header box, read as
+    /// [`FirstLayer::contents`] is, or `None` where the file states none.
+    ///
+    /// M.11.6 applies Codestream Header box *i* to codestream *i*, and M.9.2.2 makes the first
+    /// layer's one codestream the file's first, so this is the box T.801 M.9.2.7 calls the
+    /// Codestream Header box associated with the first compositing layer.
+    pub first_codestream_header: Option<Vec<[u8; 4]>>,
     /// Every Fragment List box of a top-level Fragment Table box, and of a Cross-Reference box
     /// inside a top-level Codestream Header or Compositing Layer Header box.
     pub fragment_lists: Vec<FragmentList>,
@@ -492,6 +515,9 @@ impl<'a> Headers<'a> {
             codestream: None,
             file_type: None,
             top_level: Vec::new(),
+            top_level_spans: Vec::new(),
+            jp2_header_contents: Vec::new(),
+            first_codestream_header: None,
             fragment_lists: Vec::new(),
             first_layer: None,
         };
@@ -515,7 +541,9 @@ impl<'a> Headers<'a> {
 
         let mut next = Some(first);
         while let Some(found) = next {
+            let index = headers.top_level.len();
             headers.top_level.push(found.kind);
+            headers.top_level_spans.push(found.start..found.end);
             match found.kind {
                 JP2_HEADER => headers.read_jp2_header(found.payload, found.payload_at)?,
                 CODESTREAM if headers.codestream.is_none() => {
@@ -524,10 +552,17 @@ impl<'a> Headers<'a> {
                 FILE_TYPE if headers.file_type.is_none() => {
                     headers.file_type = Some(parse_file_type(found.payload)?);
                 }
-                FRAGMENT_TABLE => headers.read_fragment_lists(found.kind, found.payload)?,
-                CODESTREAM_HEADER => headers.read_cross_references(found.payload)?,
+                FRAGMENT_TABLE => {
+                    headers.read_fragment_lists(found.kind, index, found.payload)?;
+                }
+                CODESTREAM_HEADER => {
+                    headers.read_cross_references(index, found.payload)?;
+                    if headers.first_codestream_header.is_none() {
+                        headers.first_codestream_header = Some(contents_of(found.payload)?);
+                    }
+                }
                 LAYER_HEADER => {
-                    headers.read_cross_references(found.payload)?;
+                    headers.read_cross_references(index, found.payload)?;
                     if headers.first_layer.is_none() {
                         headers.first_layer =
                             Some(parse_first_layer(found.payload, found.payload_at)?);
@@ -574,6 +609,7 @@ impl<'a> Headers<'a> {
     fn read_fragment_lists(
         &mut self,
         container: [u8; 4],
+        box_index: usize,
         payload: &[u8],
     ) -> Result<(), HeaderError> {
         let mut at = 0usize;
@@ -581,6 +617,7 @@ impl<'a> Headers<'a> {
             if found.kind == FRAGMENT_LIST {
                 self.fragment_lists.push(FragmentList {
                     container,
+                    box_index,
                     fragments: parse_fragments(found.payload)?,
                 });
             }
@@ -593,14 +630,18 @@ impl<'a> Headers<'a> {
     ///
     /// A Cross-Reference box is `Rtyp` followed by a Fragment List box, so it is read by
     /// stepping over the four-byte field.
-    fn read_cross_references(&mut self, payload: &[u8]) -> Result<(), HeaderError> {
+    fn read_cross_references(
+        &mut self,
+        box_index: usize,
+        payload: &[u8],
+    ) -> Result<(), HeaderError> {
         /// `Rtyp`, the referenced box type, T.801 Table M.18.
         const REFERENCED_TYPE: usize = 4;
         let mut at = 0usize;
         while let Some(found) = next_box(payload, at)? {
             if found.kind == CROSS_REFERENCE {
                 let list = found.payload.get(REFERENCED_TYPE..).unwrap_or_default();
-                self.read_fragment_lists(CROSS_REFERENCE, list)?;
+                self.read_fragment_lists(CROSS_REFERENCE, box_index, list)?;
             }
             at = found.end;
         }
@@ -615,6 +656,7 @@ impl<'a> Headers<'a> {
     fn read_jp2_header(&mut self, payload: &'a [u8], base: usize) -> Result<(), HeaderError> {
         let mut at = 0usize;
         while let Some(found) = next_box(payload, at)? {
+            self.jp2_header_contents.push(found.kind);
             match found.kind {
                 IMAGE_HEADER if self.image.is_none() => {
                     self.image = Some(parse_image_header(found.payload)?);
@@ -933,6 +975,7 @@ fn parse_first_layer(payload: &[u8], base: usize) -> Result<FirstLayer<'_>, Head
     let mut layer = FirstLayer {
         colour: Vec::new(),
         codestreams: None,
+        contents: contents_of(payload)?,
     };
     let mut at = 0usize;
     while let Some(found) = next_box(payload, at)? {
@@ -965,6 +1008,41 @@ fn parse_first_layer(payload: &[u8], base: usize) -> Result<FirstLayer<'_>, Head
         at = found.end;
     }
     Ok(layer)
+}
+
+/// The type of every box found within a Codestream Header or Compositing Layer Header box.
+///
+/// Its own boxes in file order, each Colour Group box followed by the boxes it holds (M.11.7.1),
+/// and a Cross-Reference box as the `Rtyp` it names, because M.11.6 and M.11.7 both treat the box
+/// a cross-reference points to as though the header box held it. Two levels and no more: M.11.7.1 names nothing a Colour Group box holds but Colour
+/// Specification boxes, and M.11.4 forbids a Cross-Reference box pointing at another.
+fn contents_of(payload: &[u8]) -> Result<Vec<[u8; 4]>, HeaderError> {
+    let mut contents = Vec::new();
+    let mut at = 0usize;
+    while let Some(found) = next_box(payload, at)? {
+        match found.kind {
+            CROSS_REFERENCE => {
+                if let Some(named) = found
+                    .payload
+                    .get(..4)
+                    .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+                {
+                    contents.push(named);
+                }
+            }
+            COLOUR_GROUP => {
+                contents.push(found.kind);
+                let mut inner = 0usize;
+                while let Some(held) = next_box(found.payload, inner)? {
+                    contents.push(held.kind);
+                    inner = held.end;
+                }
+            }
+            kind => contents.push(kind),
+        }
+        at = found.end;
+    }
+    Ok(contents)
 }
 
 /// The `cdef` box's array of channel descriptions, I.5.3.6 Table I-19.
@@ -1500,6 +1578,47 @@ mod tests {
         let first = headers.first_layer.expect("a jplh box was stated");
         assert_eq!(first.colour[0].enumerated, Some(3));
         assert_eq!(first.codestreams, Some(vec![0, 2]));
+    }
+
+    /// What the JP2 Header box and the first header boxes hold, and where each top-level box
+    /// lies, T.801 M.9.2.6 and M.9.2.7.
+    #[test]
+    fn header_contents_and_box_spans_are_read() {
+        let mut reference = COLOUR_GROUP.to_vec();
+        let mut list = 1u16.to_be_bytes().to_vec();
+        list.extend_from_slice(&0u64.to_be_bytes());
+        list.extend_from_slice(&8u32.to_be_bytes());
+        list.extend_from_slice(&0u16.to_be_bytes());
+        reference.extend_from_slice(&boxed(FRAGMENT_LIST, &list));
+        let mut codestream_header = boxed(BITS_PER_COMPONENT, &[7, 7, 7]);
+        codestream_header.extend_from_slice(&boxed(CROSS_REFERENCE, &reference));
+        let layer = boxed(
+            COLOUR_GROUP,
+            &boxed(COLOUR_SPECIFICATION, &enumerated_colour(1, 16)),
+        );
+        let mut data = jp2(&boxed(IMAGE_HEADER, &image_header(3, 7)), &[7, 7, 7]);
+        data.extend_from_slice(&boxed(CODESTREAM_HEADER, &codestream_header));
+        data.extend_from_slice(&boxed(LAYER_HEADER, &layer));
+
+        let headers = Headers::parse(&data).expect("the file is well formed");
+        assert_eq!(headers.jp2_header_contents, vec![IMAGE_HEADER]);
+        assert_eq!(
+            headers.first_codestream_header,
+            Some(vec![BITS_PER_COMPONENT, COLOUR_GROUP])
+        );
+        assert_eq!(
+            headers.first_layer.expect("a jplh box was stated").contents,
+            vec![COLOUR_GROUP, COLOUR_SPECIFICATION]
+        );
+        assert_eq!(headers.top_level_spans.len(), headers.top_level.len());
+        assert_eq!(headers.top_level_spans[0].start, 0);
+        assert_eq!(
+            headers.top_level_spans.last().map(|span| span.end),
+            Some(data.len())
+        );
+        let list = &headers.fragment_lists[0];
+        assert_eq!(list.container, CROSS_REFERENCE);
+        assert_eq!(headers.top_level[list.box_index], CODESTREAM_HEADER);
     }
 
     /// Every `colr` box but the kept one becomes a Free box, and nothing moves.

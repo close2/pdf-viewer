@@ -10,10 +10,9 @@
 //! > use the proxy in place of the imported content if the latter is unavailable.
 //!
 //! `CLAUDE.md` principle 3 gives the renderer no filesystem, so with no target document in hand
-//! this reader draws the proxy — which is the second sentence, "if the latter is unavailable", and
-//! was the whole of what this tree did until the one-thousand-and-eighty-seventh session. What
-//! changed is that a host can now put the file in front of it (`pdf_model::reference`, ADR 1101),
-//! and then the *first* half of that sentence binds: the referenced page is drawn.
+//! this reader draws the proxy — which is the second sentence, "if the latter is unavailable". A
+//! host can put the file in front of it (`pdf_model::reference`, ADR 1101), and then the *first*
+//! half of that sentence binds: the referenced page is drawn.
 //!
 //! So this file holds both halves, against one pair of documents, differing in what is supplied
 //! and in nothing else. The half that draws the proxy is the older claim and is a claim about an
@@ -28,8 +27,8 @@
 //! entry from Table 355's array on a `/TOCI` structure element — and finds **no witness anywhere
 //! on this disk**: none in the curated population, none in the `SafeDocs` `CC-MAIN-2021-31`
 //! crawl, and none in `corpus-cache/openpreserve` and `corpus-cache/tika-issue-tracker`, which
-//! that example had no scope for until this session and now has (§8.10.4's ledger row carries the
-//! counts). The second half of the census is empty by construction rather than by measurement:
+//! that example reaches (§8.10.4's ledger row carries the counts). The second half of the census
+//! is empty by construction rather than by measurement:
 //! no document states a `/Ref`, so no `/Ref` states an `/ID`, so no target file named by one can
 //! be on this disk to be matched. The block was calibrated by pointing it at `/Group`, which
 //! names documents in the same corpora, so the zero is a measurement and not a blind spot.

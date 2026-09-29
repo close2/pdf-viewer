@@ -2,10 +2,9 @@
 //!
 //! # The shape it exists for
 //!
-//! The five-hundred-and-ninetieth session found the §14.8.4.7.2 ledger row naming Errata
-//! Collection 3's Issue #437 — recorded there since the four-hundred-and-eighteenth — and then
-//! quoting the sentence that erratum struck out, two sentences later, while four places in
-//! `crates/` quoted the same struck sentence as current text. Its lesson is the whole of this
+//! The §14.8.4.7.2 ledger row once named Errata Collection 3's Issue #437 and then quoted the
+//! sentence that erratum struck out, two sentences later, while four places in `crates/`
+//! quoted the same struck sentence as current text (ADR 0425). Its lesson is the whole of this
 //! module: **a row that records an erratum is not a row that has applied it.**
 //!
 //! Nothing in this tree looked for that. [`crate::landings`] — `check` — asks whether a
@@ -825,7 +824,7 @@ mod tests {
     }
 
     /// **The defect this sweep was built for**, planted: the §14.8.4.7.2 row as it stood before
-    /// the five-hundred-and-ninetieth session — naming Issue #437 and then quoting the sentence
+    /// its correction (ADR 0425) — naming Issue #437 and then quoting the sentence
     /// #437 struck out, in `CLAUDE.md`'s own `[e]` spelling of an altered first letter.
     ///
     /// The row records the erratum three sentences above the stale quotation, which is what makes
@@ -877,8 +876,8 @@ mod tests {
     }
 
     /// A correction written from the *replacement* side is the other half of the same shape, and
-    /// [`HISTORY`] could not see it until the six-hundred-and-fifth session: every hit in the
-    /// read-first list that lived under `crates/` was writing of this kind.
+    /// [`HISTORY`] marks it too (ADR 0440): writing of this kind is what a read-first hit under
+    /// `crates/` usually is.
     #[test]
     fn a_correction_written_from_the_replacement_side_is_marked() {
         let quotation = "\"[e]ither an association between content enclosed by the Form \

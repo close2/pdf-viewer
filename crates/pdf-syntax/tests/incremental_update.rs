@@ -438,7 +438,7 @@ fn a_string_written_into_an_encrypted_document_comes_back_out_of_it() {
 ///
 /// `encrypted-attachment.pdf` is the same shape and is *not* the fixture, for two reasons now:
 /// its cross-reference table has to be rebuilt by scanning, so it fails one refusal earlier, and
-/// since the thousand-and-twenty-third session it does not open at all — it states no
+/// it does not open at all (ADR 1040) — it states no
 /// `/AuthEvent`, and Table 25's default of `DocOpen` wants the key before the document is open.
 #[test]
 fn a_stream_this_reader_holds_no_key_for_is_refused_rather_than_emptied() {

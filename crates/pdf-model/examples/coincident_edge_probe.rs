@@ -17,8 +17,8 @@
 //!
 //! This turns that prose into a number. Each rung is one 40 × 40 page holding one black fill of
 //! `[10 10 30 30.504]`, so a single device row holds the shape's lower edge at coverage 0.504, and
-//! the rungs differ only in **how the same rectangle is stated a second time**: not at all, as a
-//! `W n` clip, as a form `XObject`'s `/BBox`, as a transparency group's, and each of those again with
+//! the rungs differ only in **how the same rectangle is stated a second time**: not at all, as a `W
+//! n` clip, as a form `XObject`'s `/BBox`, as a transparency group's, and each of those again with
 //! a luminosity soft mask in force whose `/BC` is white — a mask worth 1.0 at every pixel of the
 //! page, which cannot change what any pixel should be and does change which composition the mark
 //! goes through.
@@ -26,8 +26,8 @@
 //! Every rung should read the same coverage, because every rung states the same geometry. The one
 //! that does not is the composition still owed, and it is the eighth: §11.4.4's NOTE 5 flattens a
 //! group away unless a soft mask is in force, so a group's raster only *reaches* the blit that
-//! multiplies when there is a mask beside it. That is why the residual had no small witness for
-//! nineteen sessions and why `issue7891_bc1.pdf` page 1 is one now.
+//! multiplies when there is a mask beside it. That is why a small witness is rare and why
+//! `issue7891_bc1.pdf` page 1 is one.
 //!
 //! # The second table, and why the operator is an axis of its own
 //!

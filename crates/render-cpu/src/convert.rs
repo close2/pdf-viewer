@@ -174,8 +174,8 @@ pub(crate) fn blend_mode(mode: BlendMode) -> tiny_skia::BlendMode {
 /// answer §8.4.3.2 by itself — a width of `0.0` selects hairline stroking, which is one
 /// device pixel — and at every scale the two answers coincide, which is what
 /// `render-cpu/tests/stroke_width.rs` pins. Vello has no hairline mode at all, so
-/// relying on the rasteriser's convention was the reason a zero-width stroke was
-/// invisible on the GPU for fifteen sessions.
+/// relying on the rasteriser's convention would make a zero-width stroke invisible on
+/// the GPU.
 ///
 /// One semantic still needs naming: `tiny-skia`'s default miter limit is `4.0` while
 /// PDF's initial value is `10.0`, so the limit is always set explicitly from the PDF

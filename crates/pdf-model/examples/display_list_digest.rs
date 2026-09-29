@@ -19,12 +19,11 @@
 //! why it could not simply become the gate — unspecified across releases, which a committed file
 //! cannot afford; the gate uses SHA-256.
 //!
-//! **The reports are here because a change can move only them**, and for a long time this digest
-//! could not see that. The nine-hundred-and-thirty-sixth session read a dimension one unit short
-//! and made this reader accuse a file of a §7.4.8 disagreement that was its own; the image decoded
-//! on the codestream's grid either way, so every command was identical and the only thing that
-//! moved was a sentence. A digest that cannot see what the program *said* is a digest of half the
-//! artefact (ADR 0912).
+//! **The reports are here because a change can move only them**: a dimension read one unit short
+//! can make this reader accuse a file of a §7.4.8 disagreement that is its own while the image
+//! decodes on the codestream's grid either way, so every command is identical and the only thing
+//! that moves is a sentence. A digest that cannot see what the program *said* is a digest of half
+//! the artefact (ADR 0912).
 //!
 //! ```sh
 //! cargo run --release -p pdf-model --example display_list_digest -- doc/pdf.js/test/pdfs/*.pdf

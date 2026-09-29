@@ -22,11 +22,10 @@ impl Interpreter<'_> {
     /// > dictionaries"). The associated value shall be a stream whose Type entry, if present,
     /// > is XObject .
     ///
-    /// **Both were silent until the four-hundred-and-nineteenth session**, which is trap 5's
-    /// shape: a missing *font* has said "no /Font resource named /F1" since the interpreter
-    /// had fonts, and `sh` has said "/Sh0 is not in /Shading", so a page that names an
-    /// undefined `XObject` was the one resource category out of the three whose absence
-    /// looked exactly like a page the producer meant to leave sparse. §7.8.3 makes the file
+    /// **Both are reported**, against trap 5's shape: a missing *font* says "no /Font resource
+    /// named /F1" and `sh` says "/Sh0 is not in /Shading", and a silent undefined `XObject` would
+    /// be the one resource category out of the three whose absence looks exactly like a page the
+    /// producer meant to leave sparse (ADR 0255). §7.8.3 makes the file
     /// wrong rather than this reader — "[a] content stream's named resources shall be defined
     /// by a resource dictionary, which shall enumerate the named resources needed by the
     /// operators in the content stream" — and this tree's rule for a malformed file is to draw
@@ -190,12 +189,11 @@ impl Interpreter<'_> {
         // fixture the corpus cannot (trap 8).
         //
         // **The fallback is on the entry's absence and not on a name's**: a form that states a
-        // `/Resources` has stated which names it uses, so a name that dictionary omits is
-        // reported by `draw_xobject` above rather than looked up a second time here. That is
-        // the same choice `font` makes for `Tf`, which matters because the alternative is what
-        // session 127 had to undo: a page's `/Fm0` and a form's `/Fm0` are two objects as often
-        // as they are one, and reaching past the dictionary that names them is how a reader
-        // draws the wrong one and says nothing (ADR 0255).
+        // `/Resources` has stated which names it uses, so a name that dictionary omits is reported
+        // by `draw_xobject` above rather than looked up a second time here. That is the same choice
+        // `font` makes for `Tf` (ADR 0115), which matters because a page's `/Fm0` and a form's
+        // `/Fm0` are two objects as often as they are one, and reaching past the dictionary that
+        // names them is how a reader draws the wrong one and says nothing (ADR 0255).
         let form_resources = self
             .document
             .get_key(&stream.dict, "Resources")

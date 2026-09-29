@@ -244,7 +244,7 @@ fn is_thread(document: &Document, dict: &Dictionary) -> bool {
 /// Table 197's ten events belong to *any* annotation dictionary, and `action::for_annotation`
 /// applies the one precedence rule the table states — "[f]or backward compatibility, the `A`
 /// entry in an annotation dictionary, if present, takes precedence over" `/AA /U`. What is here
-/// is the other half, the one this crate could not supply until session 132 gave it a pointer:
+/// is the other half, the one this crate supplies because it has the pointer (ADR 0117):
 /// **something has to raise the event**.
 ///
 /// No position is handed on, and the clause is why: §12.6.4.8's `/IsMap` "applies only to
@@ -312,8 +312,7 @@ pub(crate) fn navigate(open: &mut Open, actions: &[Action]) -> Outcome {
     perform(open, actions, None, None, None, "this navigation node")
 }
 
-/// Table 198's two page-scoped events, which nothing raised until the two-hundred-and-fourth
-/// session.
+/// Table 198's two page-scoped events (ADR 0164).
 ///
 /// `/O` "when the page is opened" and `/C` "when the page is closed" — the same page turn
 /// §12.6.3's `/PO` and `/PC` are about, one level up. Read from the page's *own* dictionary:
@@ -466,9 +465,8 @@ fn perform(
                 // applies to the two documents in a thousand that would pay for it at launch.
                 let articles = pdf_model::article::Articles::read(&open.document);
                 let bead = thread.bead_in(&articles);
-                // **Table 163's `/R` is where the window goes**, and until the
-                // two-hundred-and-fifty-fifth session this jumped to the bead's *page* and
-                // stopped there. The entry is "[a] rectangle specifying the location of this
+                // **Table 163's `/R` is where the window goes**, not merely the bead's *page*.
+                // The entry is "[a] rectangle specifying the location of this
                 // bead on the page in default user space", which is the same kind of statement
                 // Table 149's `/FitR` makes — "[d]isplay the page … with its contents magnified
                 // just enough to fit the rectangle specified by the coordinates left, bottom,
@@ -477,11 +475,8 @@ fn perform(
                 // what makes this the point of an article at all: the beads "are connected in
                 // sequence" so that a reader "can follow a thread from one bead to the next".
                 //
-                // The ledger's reason for leaving it was "`viewer-ui` fits whole pages", which
-                // stopped being true in the hundred-and-thirty-second session and stopped being
-                // true of *destinations* in the two-hundred-and-first (ADR 0162), where
-                // `Open::apply_view` learned all eight of Table 149's forms. This composes one
-                // of them rather than adding a ninth.
+                // `Open::apply_view` carries out all eight of Table 149's forms (ADR 0162), and
+                // this composes one of them rather than adding a ninth.
                 if let Some(bead) = bead
                     && let Some(rect) = bead.rect
                     && jump.view.is_none()

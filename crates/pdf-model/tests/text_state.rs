@@ -3,9 +3,8 @@
 //! # Why this file exists
 //!
 //! §9.3.6, the rendering mode, has `tests/text_render_modes.rs` to itself. This covers the
-//! rest of the family, which was read against the code in the thirteenth session and had
-//! never been tested at all — the arithmetic reached the page through `tests/type3.rs` and
-//! the corpus, neither of which isolates one parameter.
+//! rest of the family, whose arithmetic otherwise reaches the page only through
+//! `tests/type3.rs` and the corpus, neither of which isolates one parameter.
 //!
 //! Reading it produced one defect, and it is the shape this project keeps finding: a rule
 //! stated about *how a code is encoded* implemented as a rule about the code's value.
@@ -229,8 +228,8 @@ fn word_spacing_does_not_reach_a_two_byte_code_32() {
 ///
 /// `issue4304.pdf` is the corpus witness and is named after the defect: 895 bytes of
 /// `/Times-Roman` with `/Differences [32 /.notdef …]`, drawing *Words that should have spaces
-/// between them.* — the advances since the four-hundred-and-fifth session — and reading back
-/// `Wordsthatshouldhavespacesbetweenthem.` until this rule. **Neither text gate can see it**:
+/// between them.* — in its advances — and reading back `Wordsthatshouldhavespacesbetweenthem.`
+/// without this rule. **Neither text gate can see it**:
 /// both strip whitespace from the comparison, deliberately, so the readback itself is the only
 /// instrument there is.
 #[test]
@@ -336,21 +335,19 @@ fn text_rise_is_not_scaled_by_the_font_size() {
 /// graphics state stack", and §7.8.2 gained the pointer to it in the same collection: "[s]ee
 /// 9.4.1, 'General' for additional information that must be managed as part of the graphics
 /// state stack when q and Q operators occur within text objects". Found by running
-/// `spec-errata emit` over clause 9 before writing, which is what `doc/todo/02` §4 asks for; the
-/// row for §9.4.1 had said the opposite in as many words for hundreds of sessions. ADR 0421.
+/// `spec-errata emit` over clause 9 before writing, which is what `doc/todo/02` §4 asks for.
+/// ADR 0421.
 ///
 /// **A pair differing only in the rule**, which is trap 8's construction and is what this needs.
-/// The reason it needs it changed in the six-hundred-and-ninety-sixth session and is worth
-/// stating in the corrected form: this doc comment read that 13 of the 974 corpus documents put
-/// a `q` or a `Q` inside a text object and not one of them moved `Tm` between the two, and
-/// `examples/operator_shape_census` finds that the second half is **false**. Documents do move
-/// `Tm` inside such a pair — `NegativeFontSize.pdf` four times over on its first page — and one
+/// 13 of the 974 corpus documents put a `q` or a `Q` inside a text object, and
+/// `examples/operator_shape_census` finds documents that move `Tm` inside such a pair —
+/// `NegativeFontSize.pdf` four times over on its first page — and one
 /// crawled first page even shows a glyph from the restored matrix. What no *well-formed* file
 /// does is the last of those: every page whose restore reaches a mark is a damaged content
 /// stream, because a producer that closes a save inside a text object positions afresh
 /// immediately afterwards, and Table 106 makes a `Tm` replace what the `Q` put back. So a
-/// synthetic pair is still what discriminates, on a sharper claim than the one it was built
-/// under. ADR 0548. Both streams below show three glyphs; they differ by one `q` … `Q`.
+/// synthetic pair is what discriminates. ADR 0548. Both streams below show three glyphs; they
+/// differ by one `q` … `Q`.
 #[test]
 fn q_and_q_save_the_text_matrices_inside_a_text_object() {
     // Without the save: the `Td` inside moves the line, and the third glyph follows the second
@@ -388,8 +385,8 @@ fn q_and_q_save_the_text_matrices_inside_a_text_object() {
 /// and whose caret says `Td`. It costs no arithmetic, which is why nothing here changes: `TD`
 /// sets the leading to the negation of its own `ty`, and with `ty` already `-Tl` that leaves the
 /// leading where it was. What it costs is a reader, and this tree had implemented the amended
-/// form all along. Found by `spec-errata emit` in the six-hundred-and-ninety-sixth session
-/// (ADR 0548); `spec-errata check` cannot see it, because a one-word strike is below the four
+/// form. Found by `spec-errata emit` (ADR 0548); `spec-errata check` cannot see it, because a
+/// one-word strike is below the four
 /// that sweep compares.
 #[test]
 fn leading_moves_the_next_line_downwards() {
@@ -415,9 +412,8 @@ fn leading_moves_the_next_line_downwards() {
 /// text object of its own could not show: the `TL` set before the first `BT` is still in force
 /// inside the *second* one, and the `TL` set inside a `q` is not.
 ///
-/// **This is the sentence §9.3's row rested its `implemented` on from the
-/// four-hundred-and-thirty-seventh session**, and nothing had asserted it: the family's tests
-/// each set a parameter inside the text object that uses it.
+/// **This is the sentence §9.3's row rests its `implemented` on**, and the family's other tests
+/// each set a parameter inside the text object that uses it, so none of them asserts it.
 #[test]
 fn a_text_state_operator_outside_a_text_object_is_retained_and_saved() {
     let across =
@@ -468,8 +464,7 @@ fn zero_sized_text_neither_marks_nor_clips() {
 /// It draws the glyph upside down and advances leftwards, both of which fall out of the
 /// arithmetic. What does not fall out is the extracted text: the word-break threshold is a
 /// fraction of the font size, and a negative threshold is below every gap there is, so every
-/// glyph looked like the start of a new word until the thirteenth session took its
-/// magnitude.
+/// glyph would look like the start of a new word; the threshold takes the size's magnitude.
 #[test]
 fn a_negative_font_size_draws_and_reads_normally() {
     let document = Document::open(fixture("BT /F1 -10 Tf 0 50 Td (AB) Tj ET")).expect("valid PDF");
@@ -530,8 +525,8 @@ fn draws_knockout(content: &str) -> bool {
 ///
 /// `Tk`'s initial value is true, and the clause defines that as treating the text object "as
 /// if it were a non-isolated knockout transparency group", so that "later glyphs shall
-/// overwrite ('knock out') earlier ones in the area of overlap". Since the seventy-second
-/// session the display list can say exactly that (§11.4.6), so the object becomes one
+/// overwrite ('knock out') earlier ones in the area of overlap". The display list can say
+/// exactly that (§11.4.6), so the object becomes one
 /// `Command::Group` — but only where the two models differ, which needs *both* of the
 /// clause's conditions: the paint composites, and two glyphs overlap.
 ///
@@ -571,8 +566,7 @@ fn text_knockout_becomes_a_group_only_where_the_two_models_differ() {
 ///
 /// The clause makes the implicit group **non-isolated**, and this renderer composites a group's
 /// elements onto transparency; §11.4.4's NOTE 3 makes those the same computation only where every
-/// element blends Normal. Until the nine-hundred-and-seventy-ninth session a blending glyph was
-/// therefore drawn flat and reported. ADR 1000 built the two constructions the clause admits:
+/// element blends Normal. ADR 1000 builds the two constructions the clause admits:
 /// where the mode is affine in the source — `Multiply` is — it moves from the glyphs to the
 /// group's `Do` and the glyphs are drawn Normal on transparency, which is equal pixel for pixel
 /// (`blend_at_the_do`'s derivation); otherwise the group is built on §11.4.6's own backdrop,

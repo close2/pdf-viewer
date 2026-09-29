@@ -18,8 +18,8 @@
 //! exactly — the assertion fails, and what it should provoke is a *relaxation* of
 //! `Path::oblique_spans`, not a repair here.
 //!
-//! **A third question was missing until session 382, and the answer to it retired a claim this
-//! project made about itself.** The three probes above cut a shape at a row and ask whether the
+//! **A third question, and its answer bounds what this project may claim about itself.** The
+//! three probes above cut a shape at a row and ask whether the
 //! pieces join; none of them asks whether drawing the *same* shape under the *same* matrix into
 //! a surface whose first row is elsewhere gives the same pixels. It does not — `tiny-skia` maps
 //! a point as `y·sy + ty` in `f32`, and subtracting a whole number of rows from `ty` changes

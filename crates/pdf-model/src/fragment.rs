@@ -250,8 +250,7 @@ pub enum Parameter {
     /// follow a URI to the wrong place. So the reading stops here and the remainder is kept whole
     /// in [`Fragment::after_embedded_file`], to be parsed again against the document those bytes
     /// turn out to be — which is `viewer_core` and its host's business rather than
-    /// [`Self::unhonoured`]'s, and the difference between the two is what this variant was refused
-    /// for until the four-hundred-and-seventy-fifth session.
+    /// [`Self::unhonoured`]'s (ADR 0310).
     EmbeddedFile(Vec<u8>),
     /// Table Annex O.4's `zoom` — a percentage, and optionally where to put the page. §O.2.2.
     ///
@@ -357,15 +356,12 @@ impl Parameter {
     ///
     /// `None` means it is carried out. **A claim about this tree rather than about the standard**,
     /// in the shape [`crate::requirements::Kind::unmet`] already uses: a sentence rather than a
-    /// boolean, one reason per arm, and it decays — which it has now done for all four of the
-    /// parameters that were ever on this list. `Search` came off
-    /// this list in the four-hundred-and-fourteenth session, where it had read "this program has no
-    /// document-wide search" and `viewer_core::Command::Find` is one; `EmbeddedFile` came off it in
-    /// the four-hundred-and-seventy-fifth, where it had read "opening an embedded file is the
-    /// host's decision, and every parameter after this one applies to that file rather than to this
-    /// document" — two claims in one coat, and only the second was ever a blocker. Table Annex O.3
-    /// in §O.2.1 makes this parameter the annex's one `shall` on a *processor* that has nothing to
-    /// do with where the window points:
+    /// boolean, one reason per arm, and it decays. `Search` is carried out because
+    /// `viewer_core::Command::Find` is a document-wide search (ADR 0250). `EmbeddedFile` is carried
+    /// out because the parameters after it apply to the embedded file rather than to this document,
+    /// which is a division of work rather than a blocker. Table Annex O.3 in §O.2.1 makes this
+    /// parameter the annex's one `shall` on a *processor* that has nothing to do with where the
+    /// window points:
     ///
     /// > When used as part of a PDF open parameter, the PDF processor shall open the embedded file
     /// > contained within the EmbeddedFiles name tree identified by name .
@@ -374,16 +370,14 @@ impl Parameter {
     /// reach a host, which is precisely what "the host's decision" describes rather than what
     /// stands in its way. ADR 0310.
     ///
-    /// **The last two came off in the five-hundred-and-twenty-second, and every one of the eleven
-    /// is carried out**, which is what this function now answers and why it has no arm left that
-    /// names a reason. `Highlight` had read that the annex's rectangle "is a shape of its own, and
-    /// no host has asked for one to draw": the shape is `viewer_core::Query::Highlight` and the
-    /// annex is what asks for it, on the same argument ADR 0316 took for §12.4.4.2 — a clause may
-    /// ask for a message where a host cannot see what the question is about, and no host sees this
-    /// URI's fragment. `Fdf` had read that "fetching a URI is the host's, and no host supplies one
-    /// yet", of which the first half is a description of the division rather than a blocker and the
-    /// second stopped being true when `Event::NeedsFile` reached three hosts: §12.7.6.4's file
-    /// arrives that way already, and `fdf` names one for the same purpose.
+    /// **Every one of the eleven is carried out**, which is what this function answers and why it
+    /// has no arm left that names a reason (ADR 0357). `Highlight`'s rectangle is
+    /// `viewer_core::Query::Highlight`, and the annex is what asks for it, on the same argument ADR
+    /// 0316 took for §12.4.4.2 — a clause may ask for a message where a host cannot see what the
+    /// question is about, and no host sees this URI's fragment. `Fdf`'s file is fetched by the
+    /// host, which is a description of the division rather than a blocker: `Event::NeedsFile`
+    /// reaches three hosts, §12.7.6.4's file arrives that
+    /// way already, and `fdf` names one for the same purpose.
     ///
     /// **The shape stays although nothing uses it**, and that is the point rather than an
     /// oversight: the answer decays in both directions, so a parameter this program stops being
@@ -950,13 +944,11 @@ mod tests {
 
     /// All eleven are carried out, and this is where a host learns that it has nothing to report.
     ///
-    /// **Four have moved sides**, which is what [`Parameter::unhonoured`]'s own comment says it is
-    /// for: `search` in the four-hundred-and-fourteenth session, when
-    /// `viewer_core::Command::Find` became a document-wide search; `ef` in the
-    /// four-hundred-and-seventy-fifth, when its refusal turned out to be about the parameters
-    /// *after* it rather than about itself (ADR 0310); and `highlight` and `fdf` in the
-    /// five-hundred-and-twenty-second, the first because the annex is what asks for the shape a
-    /// host draws and the second because `viewer_core::Event::NeedsFile` reached three hosts
+    /// The four that could look blocked are each carried out for the reason
+    /// [`Parameter::unhonoured`] states: `search` because `viewer_core::Command::Find` is a
+    /// document-wide search (ADR 0250); `ef` because its remainder is about the parameters *after*
+    /// it rather than about itself (ADR 0310); `highlight` because the annex is what asks for the
+    /// shape a host draws, and `fdf` because `viewer_core::Event::NeedsFile` reaches three hosts
     /// (ADR 0357).
     #[test]
     fn every_parameter_the_annex_defines_is_carried_out() {

@@ -590,6 +590,13 @@ pub struct Conversion {
     /// another file, and nothing in the output says it was there, so each row names the file and
     /// the page (`doc/adr/1285`).
     pub proxied_references: Vec<super::ProxiedReference>,
+    /// Every JPEG 2000 image this conversion transcoded to `FlateDecode`.
+    ///
+    /// ISO 19005-2 section 6.2.8.3, answered with `preserve` where the image states its own
+    /// colour space: the samples are this program's decoder's output from here on and the stream
+    /// grows, so each row names the image, its depths and its size under both filters
+    /// (`doc/adr/1400`).
+    pub transcoded_images: Vec<super::TranscodedImage>,
     /// Every `CMap` this conversion embedded from Adobe's published programs.
     ///
     /// ISO 19005-2 section 6.2.11.3.3, answered with `preserve`: the mapping is the one the name
@@ -773,6 +780,15 @@ impl Conversion {
                     self.proxied_references
                         .iter()
                         .map(super::ProxiedReference::to_json)
+                        .collect(),
+                ),
+            ),
+            (
+                "transcoded_jpeg2000_images".to_owned(),
+                Value::Array(
+                    self.transcoded_images
+                        .iter()
+                        .map(super::TranscodedImage::to_json)
                         .collect(),
                 ),
             ),
@@ -1232,6 +1248,27 @@ impl Conversion {
                         .file
                         .as_deref()
                         .unwrap_or("a file it did not name readably")
+                );
+            }
+        }
+        if !self.transcoded_images.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {} JPEG 2000 image(s) decoded and written again under FlateDecode in the \
+                 colour space each states, this program's decoder's output kept as the picture:",
+                self.transcoded_images.len()
+            );
+            for image in &self.transcoded_images {
+                let _ = writeln!(
+                    out,
+                    "      object {} {}, depths {:?} written at {} bits, {} bytes before and {} \
+                     after",
+                    image.at.number,
+                    image.at.generation,
+                    image.depths,
+                    image.bits,
+                    image.before,
+                    image.after
                 );
             }
         }

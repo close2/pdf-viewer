@@ -21,10 +21,8 @@
 //! unsigned attributes — with the contents of `message-digest` (RFC 5652's
 //! `id-messageDigest`), which is the digest of the signed content.
 //!
-//! **This paragraph used to end "[e]verything else in RFC 5652 is deliberately not read: the
-//! certificates are X.509 and a trust decision, and the signature value itself needs the signer's
-//! public key", and the three-hundred-and-ninety-second session made both halves obsolete.** The
-//! certificates are handed over as values for [`crate::x509`] to read, and the signer's signature
+//! **The certificates and the signature value are both read** (ADR 0229). The certificates are
+//! handed over as values for [`crate::x509`] to read, and the signer's signature
 //! algorithm, signature value and identifier are read here so that
 //! [`crate::signature::Signature::authenticity`] can verify one. What is still not read is
 //! anything a *trust* decision would need: no `crls`, no certification path, no validity dates.
@@ -441,15 +439,11 @@ impl Digest {
     ///   three that have one — a second party's reading of the same registry is compared against
     ///   ours. Agreement raises confidence that the registry was read correctly, which is all
     ///   principle 5 ever lets another implementation do.
-    /// - **SHAKE256 gained its second reading in the six-hundred-and-eighty-ninth session**, and
-    ///   this bullet said it had none for a hundred and thirty-four sessions. The reason was true
-    ///   and narrow — `shake` 0.1 publishes no identifier, where `sha3` does — and it stopped
-    ///   deciding anything the moment `const-oid`'s `db` feature came into this crate for the
-    ///   elliptic-curve family (ADR 0532): `const_oid::db::fips202::ID_SHAKE_256` is a second
-    ///   party's reading of the same registry, at zero new packages, and the test below compares
-    ///   all ten against it. **A silence about a second reading decays the way any claim about a
-    ///   document does** — this one outlived its reason because nobody re-asked where else the
-    ///   number might already be in the tree.
+    /// - **SHAKE256 has its second reading from `const-oid`'s `db` feature**, which came into
+    ///   this crate for the elliptic-curve family (ADR 0532): `shake` 0.1 publishes no
+    ///   identifier, where `sha3` does, and `const_oid::db::fips202::ID_SHAKE_256` is a second
+    ///   party's reading of the same registry, at zero new packages; the test below compares all
+    ///   ten against it.
     #[must_use]
     pub fn oid(self) -> &'static [u8] {
         match self {
@@ -713,8 +707,7 @@ pub struct SignedData<'a> {
     /// §12.8.3.3.1: "[a]t minimum the CMS object shall include the signer's X.509 signing
     /// certificate. This certificate shall be used to verify the signature value in Contents ."
     /// So an empty list is a file failing that requirement, and [`crate::x509::read`] is what
-    /// turns one of these into a key. **This was a `usize` until the three-hundred-and-ninety-
-    /// second session**, which was every fact a program that could not verify a signature had.
+    /// turns one of these into a key (ADR 0229).
     pub certificates: Vec<Value<'a>>,
     /// How many `SignerInfo`s the `signerInfos SET OF` holds.
     pub signers: usize,
@@ -1279,8 +1272,8 @@ fn read_attributes<'a>(
 /// six digests — so *that* corpus can rank none of them, and `tests/signatures.rs` confirms the
 /// reading on the two it has over all ten of its signature dictionaries.
 ///
-/// **The sentence above is a claim about a population and the population was one submodule, which
-/// is the whole of what the eight-hundred-and-twenty-fifth session found (ADR 0754).** Run
+/// **The sentence above is a claim about a population, and that population is one submodule
+/// (ADR 0754).** Run
 /// `examples/signature_algorithm_census` over every document the tree holds instead, which is the
 /// invocation `doc/todo/51` states, and all six formats have witnesses — `ETSI.RFC3161` and
 /// `adbe.x509.rsa_sha1` among them, found in the crawl rather than in the submodule corpora. **No fixture here
@@ -2384,10 +2377,10 @@ pub(crate) mod fixtures {
     /// the messageImprint field within the `TimeStampToken` shall be a hash of the bytes of the
     /// document indicated by the `ByteRange`".
     ///
-    /// **All five mandatory members, since the thousand-and-fifty-seventh session.** The first
-    /// three were what [`super::SignedData::timestamp_imprint`] reads, and a fixture stopping
-    /// there was not a `TSTInfo` at all — so [`crate::timestamp::tst_info`] would have had nothing
-    /// hand-built to refuse or accept. `genTime` is 2026-01-01T00:00:00Z, inside every fixture
+    /// **All five mandatory members** (ADR 1071). The first three are what
+    /// [`super::SignedData::timestamp_imprint`] reads, and a fixture stopping there would not be
+    /// a `TSTInfo` at all — so [`crate::timestamp::tst_info`] would have nothing hand-built to
+    /// refuse or accept. `genTime` is 2026-01-01T00:00:00Z, inside every fixture
     /// certificate's validity period.
     pub(crate) fn timestamp_token(digest: &[u8]) -> Vec<u8> {
         let info = tagged(
@@ -2632,9 +2625,8 @@ mod tests {
     /// That is all it is: agreement raises confidence that the registry was read correctly, which
     /// is the only thing principle 5 lets another implementation do.
     ///
-    /// **Nine of the ten now carry a second reading, and six of them gained one in the
-    /// six-hundred-and-eighty-ninth session**, when `const_oid`'s database came into this crate
-    /// for the elliptic-curve family and turned out to hold these too at no cost (ADR 0532). The
+    /// **Nine of the ten carry a second reading**, from `const_oid`'s database, which came into
+    /// this crate for the elliptic-curve family and holds these too at no cost (ADR 0532). The
     /// three `sha3` rows keep a *third* reading below, which is the package that computes them.
     /// RIPEMD-160 is the exception and stays one: no package in this graph publishes its
     /// identifier — `TeleTrusT`'s arc is nobody's registry here — so `1.3.36.3.2.1` stands on the

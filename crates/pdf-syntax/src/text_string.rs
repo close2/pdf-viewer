@@ -109,10 +109,9 @@ pub fn encode_text_string(text: &str) -> Vec<u8> {
 /// were on a page's path; it is on a person's keystroke.
 ///
 /// **Also §7.6.4.3.2 step (a)'s conversion**, which wants a *password* in `PDFDocEncoding` and is
-/// the same operation on a string of the same order of length. `crypt.rs` derived a partial
-/// version of this from the ranges where the encoding and Unicode agree for a hundred and
-/// twenty-nine sessions, and refused every password outside them; this is the whole table, in
-/// the crate that already held it.
+/// the same operation on a string of the same order of length. It is the whole table, not the
+/// ranges where the encoding and Unicode agree by inspection, so no password is refused for
+/// falling outside them.
 pub(crate) fn pdf_doc_encoded(text: &str) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(text.len());
     for character in text.chars() {
@@ -353,8 +352,7 @@ mod tests {
     /// **The sentence that said so is struck** — Errata Collection 3 rewrites the example so
     /// that the byte is written as the octal escape `\213` rather than as a character the
     /// printed page could not show, and strikes the prose around it (Issue #96, `/State`
-    /// `Review` `Completed`). The fact is untouched and the quotation was retired text until
-    /// the four-hundred-and-nineteenth session.
+    /// `Review` `Completed`). The fact is untouched (ADR 0255).
     #[test]
     fn a_string_with_no_prefix_is_pdfdocencoded() {
         assert_eq!(text_string(b"text\x8b"), "text‰");

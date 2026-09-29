@@ -566,11 +566,10 @@ impl Retrieval {
             // **Only in content order**, and the reason is the one stated above `section`:
             // `interpretation.artifacts` are ranges of the *raw* readback, so subtracting them
             // from a string that has been rearranged cuts it in places that mean nothing there.
-            // It did exactly that until the eight-hundred-and-ninety-sixth session — one page of
-            // ISO 19005-2 came back with the first 62 characters of its first paragraph missing,
-            // which is the width of the running head this flag had removed from a different
-            // string — and the loss was silent, which is what makes it worth a comment as long
-            // as this one.
+            // Done the other way, one page of ISO 19005-2 comes back with the first 62 characters
+            // of its first paragraph missing, which is the width of the running head this flag
+            // removes from a different string — and the loss is silent, which is what makes it
+            // worth a comment as long as this one.
             //
             // Nothing is owed in the other direction: §14.8.2.5.1 NOTE 3 says "[a]rtifacts not
             // contained within an Artifact structure element are not considered part of the

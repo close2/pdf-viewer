@@ -6,8 +6,7 @@
 //! one asks the question that sweep said it could not: **a figure a note is missing.** Its own
 //! closing sentence is the specification for this one — *`--bin quoted` checks a figure a note
 //! quotes; it cannot ask for one that is missing* — and five rounds recorded the same debt in
-//! the same words: *nothing links a group's note to which bound the gate fails its pages on*
-//! (sessions 489, 668, 672, 675 and 680).
+//! the same words: *nothing links a group's note to which bound the gate fails its pages on*.
 //!
 //! What that debt costs is stated in `doc/adr/0497`'s sixth criterion, and it is the reason a
 //! contradicted page is allowed to stand at all: **a mechanism explained is not a number
@@ -42,7 +41,7 @@
 //! 1. **[`Rung::Elsewhere`] — the note names measures, and none of them is one its pages fail.**
 //!    The sharpest shape and the one the criterion was written for: a note arguing about a mean
 //!    over a page that fails on the differing fraction is explaining a number nobody is holding
-//!    it to. `CONTRADICTED_GLYPH_EDGES` stood on that exact sentence for three hundred sessions
+//!    it to. `CONTRADICTED_GLYPH_EDGES` stood on that exact sentence
 //!    — *"\[e\]ach fails **only** on mean absolute difference"* — where all 21 of its pages failed
 //!    on the differing fraction and nothing else (ADR 0242).
 //! 2. **[`Rung::Silent`] — the note names no measure at all.** The diagnosis is prose, and the

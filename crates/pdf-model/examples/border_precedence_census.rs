@@ -17,17 +17,17 @@
 //! appearance the whole job and a border this crate never constructs cannot be misplaced by it.
 //!
 //! ```sh
-//! cargo run --release -p pdf-model --example border_precedence_census              # curated
-//! cargo run --release -p pdf-model --example border_precedence_census -- --pdfjs
-//! cargo run --release -p pdf-model --example border_precedence_census -- --crawl   # CC-MAIN-2021-31
-//! cargo run --release -p pdf-model --example border_precedence_census -- <file.pdf>...
+//! cargo run --release -p pdf-model --example border_precedence_census              # curated cargo
+//! run --release -p pdf-model --example border_precedence_census -- --pdfjs cargo run --release -p
+//! pdf-model --example border_precedence_census -- --crawl   # CC-MAIN-2021-31 cargo run --release
+//! -p pdf-model --example border_precedence_census -- <file.pdf>...
 //! ```
 //!
-//! **The three scopes are the six-hundred-and-eighty-sixth session's**, and they are here for the
-//! reason ADR 0490 gives: this row's negatives were measured over "the 964 openable documents"
-//! before `CC-MAIN-2021-31` was on the disk, and a negative decays when the population grows. Run
-//! the control beside the crawl rather than instead of it — the old sentence is usually right
-//! about its own population, which is exactly why nothing in the tree could see it.
+//! **The three scopes are here for the reason ADR 0490 gives**: this row's negatives were measured
+//! over "the 964 openable documents" before `CC-MAIN-2021-31` was on the disk, and a negative
+//! decays when the population grows. Run the control beside the crawl rather than instead of it —
+//! the old sentence is usually right about its own population, which is exactly why nothing in the
+//! tree could see it.
 //!
 //! **What is counted alongside each total is the *subtype*.** §12.5.4 states which subtypes'
 //! `/BS` is a border at all — "[s]uch dictionaries may also be used to specify the width and dash

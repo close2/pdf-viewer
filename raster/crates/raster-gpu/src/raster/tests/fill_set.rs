@@ -326,3 +326,33 @@ fn subpaths_apart_or_nested_are_their_set_under_both_rules() {
         );
     }
 }
+
+/// **A hairline far from the origin is asked about in `f64`**: a `0.12`-wide segment with
+/// round caps at a page coordinate of a thousand — a hatch line of `issue12810.pdf`, where
+/// 28 553 strokes of this shape were walked pixel by pixel — is its body and two caps, which
+/// neither cross nor nest, so the fill winds two values. The cap's inside point is stepped a
+/// thousandth of its longest edge, `6e-5`, from that edge, below the `f32` spacing there;
+/// rounded to `f32` it lands on the edge the body shares, and the body was read as holding
+/// the cap (ADR 1397).
+#[test]
+fn a_hairline_far_from_the_origin_winds_two_values() {
+    use raster_scene::{LineCap, LineJoin, Stroke};
+    let hatch = [
+        Segment::MoveTo(Point::new(1024.86, 606.0)),
+        Segment::LineTo(Point::new(1028.4, 602.46)),
+    ];
+    let hairline = Stroke {
+        width: 0.12,
+        adjust: false,
+        cap: LineCap::Round,
+        join: LineJoin::Round,
+        miter_limit: 10.0,
+    };
+    let pieces = crate::raster::stroke_polylines(
+        &crate::raster::flatten_stroke(&hatch, super::IDENTITY),
+        hairline,
+        hairline.width,
+    );
+    assert_eq!(pieces.len(), 3, "the body and two caps");
+    assert_eq!(crate::raster::winds_two_values(&pieces), Some(true));
+}

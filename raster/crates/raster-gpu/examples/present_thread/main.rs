@@ -2,8 +2,8 @@
 //! presented from another, and the pixels read back to show where the affine put them.
 //!
 //! This is the surface path's second smoke test and it exists for the reason section 10.4 of
-//! the brief gives for the first one — "no gate we have turns a page and every defect of
-//! three consecutive sessions lived there". A `Presenter` that compiles and is `Send` is
+//! the brief gives for the first one: no gate turns a page, so the window path is where a
+//! defect goes unseen. A `Presenter` that compiles and is `Send` is
 //! not evidence of anything; a window whose pixels are where a non-identity affine says
 //! they are, produced while a `&mut Device` was busy on another thread, is.
 //!

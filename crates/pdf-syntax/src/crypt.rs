@@ -47,13 +47,12 @@
 //! Table 20's `/V` 5 entry sends it to §7.6.3.3's Algorithm 1.A with a 256-bit key, which is
 //! what this module already ran for revision 6.
 //!
-//! **The supplement has been read since the eight-hundred-and-ninety-second session**, and
-//! the round that implemented revision 5 had to take it from a reading of §7.6.4.3.3 instead.
-//! Every step of Algorithm 3.2a agrees with what that reading produced — the three sections
+//! **The supplement is read** (ADR 0829), and every step of Algorithm 3.2a agrees with what a
+//! reading of §7.6.4.3.3 produces — the three sections
 //! of `/O` and `/U`, both validations, both key unwraps, the `/Perms` block — and so does the
 //! one step ADR 0820 singled out as resting on a reading alone and as disagreeing with pdf.js
 //! and Apache `PDFBox`: the password preparation [`utf8_password`] does. It rests on the
-//! extension's own sentence now. ADR 0829.
+//! extension's own sentence.
 //!
 //! ADR 0820 records which steps rest on a normative sentence and which on evidence.
 //!
@@ -66,10 +65,8 @@
 //!   no such handler here.
 //! - **A revision 4 password containing a character `PDFDocEncoding` has no code for**, which
 //!   §7.6.4.3.2 step (a) requires the password to be converted to. That is the encoding's own
-//!   limit rather than this crate's: there are no bytes to hash. Until the
-//!   hundred-and-fifty-second session the refusal was far wider — this crate converted only the
-//!   codes where the encoding and Unicode agree by inspection — and it now uses the whole of
-//!   Annex D Table D.3, which [`crate::text_string`] has held since the ninety-second session.
+//!   limit rather than this crate's: there are no bytes to hash. Every other character is
+//!   converted through the whole of Annex D Table D.3, which [`crate::text_string`] holds.
 
 use std::collections::BTreeMap;
 
@@ -933,8 +930,7 @@ fn file_key_from(intermediate: &[u8], wrapped: &[u8]) -> Option<Vec<u8>> {
 /// owner key." and replaces it with a two-case definition of a string `K0` — the input password,
 /// `K` and the user key for the owner, the input password and `K` otherwise — with `K1` then 64
 /// repetitions of `K0` (Issue #325, `/State` `Review` `Accepted`). The concatenation this
-/// function builds is unchanged; the quotation above it was struck text until the
-/// four-hundred-and-nineteenth session.
+/// function builds is unchanged (ADR 0255).
 fn hash_2b(password: &[u8], salt: &[u8], extra: &[u8]) -> Vec<u8> {
     // "Take the SHA-256 hash of the original input to the algorithm and name the resulting
     // 32 bytes, K." That first hash is the whole of revision 5's, which is why it is a
@@ -1326,11 +1322,9 @@ fn pad_password(password: &str) -> SyntaxResult<[u8; 32]> {
 /// > by first converting the string to PDFDocEncoding .
 ///
 /// The clause counts in *bytes* of `PDFDocEncoding`, so a password has to be converted before it
-/// can be padded — and until the hundred-and-fifty-second session this crate could only convert
-/// the part of the encoding that agrees with Unicode by inspection, refusing everything else. It
-/// held the whole of Annex D Table D.3 the entire time, in [`crate::text_string`], for
+/// can be padded, through the whole of Annex D Table D.3 that [`crate::text_string`] holds for
 /// §7.9.2.2's text strings; the two conversions are one operation on strings of the same order
-/// of length, and there is now one of them.
+/// of length, and there is one of them.
 ///
 /// A character Table D.3 has no code for is still refused by name, and that is the clause rather
 /// than a shortfall: `PDFDocEncoding` cannot represent it, so there are no bytes to hash and no
@@ -1886,10 +1880,9 @@ mod tests {
 
     /// The whole of Annex D Table D.3, and the refusal that is the encoding's own limit.
     ///
-    /// **This test asserted the opposite of its third line for a hundred and twenty-nine
-    /// sessions**: §7.6.4.3.2 step (a)'s conversion was derived from the ranges where
-    /// `PDFDocEncoding` and Unicode agree by inspection, so every password containing anything
-    /// else was refused — while `crate::text_string` held the table the whole time.
+    /// §7.6.4.3.2 step (a)'s conversion is the whole table `crate::text_string` holds, not the
+    /// ranges where `PDFDocEncoding` and Unicode agree by inspection, so a password containing
+    /// anything else is converted rather than refused.
     #[test]
     fn a_password_is_converted_by_the_table_rather_than_by_the_ranges_that_agree() {
         assert_eq!(
@@ -2146,13 +2139,12 @@ mod tests {
     /// green because it leaves the plaintext identical. Reading the clause is the only way to
     /// get that order right, and following it costs nothing — which is why the code does.
     ///
-    /// **This is the only thing in the tree that reaches [`unwrap_owner_entry`]**, and the
-    /// six-hundred-and-twentieth session established that by checking the corpus's eight
-    /// password-protected documents one at a time: three are revision 3 or 4 and every one of
-    /// them opens on its *user* password, which returns before Algorithm 7 is reached, and the
-    /// one whose known password is the owner's — `print_protection.pdf` — is revision 6, where
-    /// §7.6.4.4.11's Algorithm 12 replaces this path entirely. A file that needs it is one this
-    /// corpus does not hold.
+    /// **This is the only thing in the tree that reaches [`unwrap_owner_entry`]**, which checking
+    /// the corpus's eight password-protected documents one at a time establishes: three are
+    /// revision 3 or 4 and every one of them opens on its *user* password, which returns before
+    /// Algorithm 7 is reached, and the one whose known password is the owner's —
+    /// `print_protection.pdf` — is revision 6, where §7.6.4.4.11's Algorithm 12 replaces this path
+    /// entirely. A file that needs it is one this corpus does not hold.
     #[test]
     fn an_owner_entry_unwraps_to_the_padded_user_password() {
         // Algorithm 3 steps (e) to (h): what a writer stores in `/O`, and what nothing in this

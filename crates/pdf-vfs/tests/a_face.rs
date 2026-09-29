@@ -438,11 +438,11 @@ fn walk_everything(vfs: &Vfs, from: &str) -> usize {
 /// **The cost floor this crate had none of**: walking the whole layout twice asks each generator
 /// once.
 ///
-/// `doc/todo/58` §5 named this as the sharpest thing missing after session 923, and the reason is
-/// in ADR 0886: a hundredfold cost regression lived in this crate for four sessions with the whole
-/// gate sequence green, because every instrument in front of it counted *outputs* and the cost was
-/// paid in *validation*. So the property is counted rather than timed — it says nothing about how
-/// fast this machine is, and a neighbouring round's load cannot move it by one.
+/// `doc/todo/58` §5 named this as the sharpest thing missing, and the reason is in ADR 0886: a
+/// hundredfold cost regression passed the whole gate sequence, because every instrument in front of
+/// it counted *outputs* and the cost was paid in *validation*. So the property is counted rather
+/// than timed — it says nothing about how fast this machine is, and a neighbouring round's load
+/// cannot move it by one.
 ///
 /// Three things are asserted, and the third is what makes the first two trustworthy:
 ///

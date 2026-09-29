@@ -451,8 +451,8 @@ pub struct SoftMask {
     /// Which derivation produces the mask values.
     pub kind: SoftMaskKind,
     /// Everything between the computed alpha or luminosity and the mask value, or `None`
-    /// where that is the identity — see [`Transfer`], which since the
-    /// three-hundred-and-eighty-third session carries more than §11.6.5.1's `/TR`.
+    /// where that is the identity — see [`Transfer`], which carries more than §11.6.5.1's `/TR`
+    /// (ADR 0220).
     pub transfer: Option<Transfer>,
     /// §11.5.3's `Y` of a group composited in a CIE-based space, where the channels hold that
     /// space's components rather than a device colour; `None` where the luminosity is
@@ -465,8 +465,7 @@ pub struct SoftMask {
     /// §11.4.7's second raster, where the mask group's blending colour space has four
     /// components (ISO 32000-2 §11.3.4, §11.5.3).
     ///
-    /// `None` for every other mask, which is every mask this type carried until the
-    /// nine-hundred-and-seventh session. See [`BlackHalf`] for what the pair is and why a
+    /// `None` for every other mask (ADR 0857). See [`BlackHalf`] for what the pair is and why a
     /// mask needs one where a wholly opaque *group* does not.
     pub black: Option<BlackHalf>,
 }
@@ -559,9 +558,9 @@ impl SoftMask {
             // three components*. A group whose blending space is subtractive is painted in a
             // grey by `pdf_model` instead, and this arithmetic then reads that grey back
             // unchanged — the three coefficients sum to 1.0 — leaving what the grey *means*
-            // to [`Transfer`], which is where the second half of §10.4.2.3 lives. It has
-            // lived there since the three-hundred-and-eighty-third session, which is what
-            // lets the clause's `min` wait for the compositing the way §11.5.3 states.
+            // to [`Transfer`], which is where the second half of §10.4.2.3 lives (ADR 0220), and
+            // that is what lets the clause's `min` wait for the compositing the way §11.5.3
+            // states.
             SoftMaskKind::Luminosity { backdrop } => {
                 let alpha = f32::from(pixel[3]) / 255.0;
                 // Source-over onto an opaque backdrop, in straight alpha: the result is
@@ -647,10 +646,8 @@ impl SoftMask {
     /// `[0, 0, 0, 0]` and [`Self::value`] gives it the transfer function applied to 0.0 for
     /// `/Alpha` and to the backdrop's luminosity for `/Luminosity` — which is what the clause
     /// asks for, arrived at by the same arithmetic as every other pixel rather than by a second
-    /// derivation that could drift from the first. This module carried an `outside_value()`
-    /// helper for that rule until the hundred-and-seventy-fifth session and **no backend ever
-    /// called it**: it was a path nobody took, which `CLAUDE.md` forbids, and the tests that
-    /// used it now state the same thing through `value([0, 0, 0, 0])`.
+    /// derivation that could drift from the first. The tests state that rule through
+    /// `value([0, 0, 0, 0])` rather than through a helper no backend would call.
     #[must_use]
     pub fn values(&self, pixels: &[u8]) -> Vec<u8> {
         let outside = self.outside();

@@ -616,8 +616,7 @@ fn draw_pages(
 ///
 /// The clause says the page "shall be rotated clockwise when displayed", so the expected raster
 /// is the source page's own raster turned a quarter turn. Two things then stop that from being an
-/// equality, and since the nine-hundred-and-fifteenth session only one of them is still in the
-/// figures:
+/// equality, and only one of them is still in the figures (ADR 0873):
 ///
 /// - **The leftover sliver changes edges, and it is worth up to a whole pixel — and this is now
 ///   derived rather than searched for.** A page `W` units wide at this scale is `ceil(W × s)`

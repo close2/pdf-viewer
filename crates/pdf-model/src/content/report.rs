@@ -527,19 +527,16 @@ pub struct Interpretation {
     /// that question is a number rather than an opinion — which is this field, summed over the
     /// corpus by `pdf-model/tests/corpus.rs`.
     ///
-    /// **It counts a mark missed and not a mark absent**, which are different things and were
-    /// one number until the four-hundred-and-thirty-fourth session: a code that reached a glyph
-    /// the program *contains* and that program describes as empty is in
+    /// **It counts a mark missed and not a mark absent**, which are different things: a code
+    /// that reached a glyph the program *contains* and that program describes as empty is in
     /// [`Self::codes_reaching_a_blank_glyph`] instead. ADR 0270 has the split.
     ///
-    /// **And a third exclusion sat in the code and not in this sentence for two hundred
-    /// sessions**: a code §9.10.2 could not *name* was excluded as well, so a route that ended
-    /// at no glyph at all went uncounted whenever the readback happened to be empty. That is
-    /// the wrong question — whether the program answered is decided by the glyph, and needs no
-    /// character — and `issue17333.pdf` is the page it cost: one `Tj`, one code, an embedded
-    /// subset, §9.6.5.4's algorithm terminating with nothing, a wholly blank sheet, and every
-    /// counter that measures the picture reading zero. Corrected in the
-    /// six-hundred-and-eighty-fifth session; ADR 0520.
+    /// **A code §9.10.2 could not *name* is counted too**: whether the program answered is
+    /// decided by the glyph, and needs no character. Excluding it would leave a route that ended
+    /// at no glyph at all uncounted whenever the readback happened to be empty, and
+    /// `issue17333.pdf` is that page: one `Tj`, one code, an embedded subset, §9.6.5.4's
+    /// algorithm terminating with nothing, a wholly blank sheet, and every counter that measures
+    /// the picture reading zero. ADR 0520.
     pub codes_without_a_glyph: usize,
     /// Codes this page showed that reached a glyph the font program describes as empty, and
     /// that §9.10.2 gave a character.
@@ -556,11 +553,10 @@ pub struct Interpretation {
     /// contributor reads its space back as U+0007 — so this is where such a code lands, and
     /// leaving it uncounted would have made the correction unmeasurable.
     ///
-    /// **The named-character condition is this half's and not the other's**, which is the shape
-    /// the six-hundred-and-eighty-fifth session separated (ADR 0520). Here the program has
-    /// answered — it contains the glyph and describes it as empty — so the only thing left to
-    /// lose is the *reading*, and §9.10.2's silence about a code is not evidence that one was
-    /// lost. [`Self::codes_without_a_glyph`] asks the opposite question and therefore does not
+    /// **The named-character condition is this half's and not the other's** (ADR 0520). Here the
+    /// program has answered — it contains the glyph and describes it as empty — so the only thing
+    /// left to lose is the *reading*, and §9.10.2's silence about a code is not evidence that one
+    /// was lost. [`Self::codes_without_a_glyph`] asks the opposite question and therefore does not
     /// wait for a character.
     pub codes_reaching_a_blank_glyph: usize,
     /// Codes this page drew whose *vertical form* the substituted face did not have.
@@ -581,11 +577,10 @@ pub struct Interpretation {
     /// bracket lies on its side and a full stop sits in the middle of the column instead of at
     /// its top right.
     ///
-    /// **Counted apart from [`Self::codes_without_a_glyph`] since the
-    /// eight-hundred-and-thirty-seventh session, and the two were one silence before it** (ADR
-    /// 0764). ADR 0763 decided not to *report* it, on ADR 0152's arithmetic — a report costs the
-    /// oracle a judged page and this is a statement about a face rather than about a file — and
-    /// left it counted by nothing at all, which is a decision the tree had no instrument for. The
+    /// **Counted apart from [`Self::codes_without_a_glyph`]** (ADR 0764). ADR 0763 decided not
+    /// to *report* it, on ADR 0152's arithmetic — a report costs the oracle a judged page and
+    /// this is a statement about a face rather than about a file — so this count is its only
+    /// instrument. The
     /// two populations are disjoint by construction: this is asked of a glyph the face reached,
     /// and a character it has no glyph for never gets here.
     pub codes_without_a_vertical_form: usize,
@@ -607,10 +602,9 @@ pub struct Interpretation {
     /// Counts a code the *page* showed. A code shown inside a Type 3 glyph description is how
     /// that glyph is painted rather than text of the page (§9.6.4), and is not counted here.
     ///
-    /// **Split by cause since the four-hundred-and-eighty-third session**, because the total on
-    /// its own could not say whether a reader lost a code to a question the standard leaves
-    /// unanswerable or to a route this program does not walk. [`UnnamedCodes::total`] is what
-    /// this field used to be.
+    /// **Split by cause**, because the total on its own cannot say whether a reader lost a code
+    /// to a question the standard leaves unanswerable or to a route this program does not walk
+    /// (ADR 0318). [`UnnamedCodes::total`] is the total.
     pub codes_without_a_character: UnnamedCodes,
     /// ISO 32000-2 §14.9's accessibility spans over [`Self::text`], in the order they closed.
     ///
@@ -1060,10 +1054,10 @@ impl Interpretation {
 /// host and to `pdf-retrieve` instead, where a reader who searched, selected or extracted can be
 /// told that what came back is short and by how much. ADR 0422.
 ///
-/// **The fourth arrived in the eight-hundred-and-thirty-seventh session** (ADR 0764) and is the
-/// same decision made a second time: ADR 0763 declined to report a substituted face with no
-/// vertical form and left it counted by nothing, so it and a face with no glyph at all were one
-/// silence with one number under it. [`Self::without_a_vertical_form`] is the other one.
+/// **The fourth is the same decision made a second time** (ADR 0764): ADR 0763 declined to
+/// report a substituted face with no vertical form, so it is counted apart from a face with no
+/// glyph at all rather than sharing one number with it. [`Self::without_a_vertical_form`] is
+/// that count.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Shortfall {
     /// Codes ISO 32000-2 §9.10.2 could not name, by which of its methods could have.

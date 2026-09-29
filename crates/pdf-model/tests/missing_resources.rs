@@ -162,7 +162,7 @@ fn a_form_that_states_no_resources_uses_the_pages() {
 ///
 /// `issue6541.pdf`'s shape one construction over. The standard defines nothing for this case —
 /// §7.8.3's inheritance is stated for an *omitted* entry — so falling back would be a choice,
-/// and it is the choice session 127 had to undo for fonts: a page's `/Fm0` and a form's `/Fm0`
+/// and it is the choice ADR 0115 refuses for fonts: a page's `/Fm0` and a form's `/Fm0`
 /// are two objects as often as they are one.
 #[test]
 fn a_form_with_its_own_resources_does_not_reach_past_them() {

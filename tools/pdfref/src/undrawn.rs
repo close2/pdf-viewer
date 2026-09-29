@@ -22,8 +22,8 @@
 //! the gate's own `ambiguous` lines and so swept a hundred pages where the population is eight
 //! hundred.
 //!
-//! **And the rebuild in the nine-hundred-and-seventy-fourth session found the shape that makes a
-//! program worth more than a corrected paragraph.** The gate prints a page from a labelled corpus
+//! **And one rebuild found the shape that makes a program worth more than a corrected
+//! paragraph** (ADR 0985). The gate prints a page from a labelled corpus
 //! as `pdfbox/cweb.pdf page 10` and writes its artefacts to `pdfbox/cweb/p10/cweb-p10-ours.png` —
 //! the label is a *directory* in the path and not part of the file's own name. A loop written
 //! from the recipe's `<target>/tmp/oracle/<stem>/p<n>/` joins the whole printed name into the

@@ -6,11 +6,10 @@
 //! A ledger note that explains a debt by pointing at something else — "while §11.4.6 does not
 //! exist", "needs §12.10.3's external references", "waits on printing" — gives a *trigger*, and
 //! nothing fires when the trigger trips. §9.7.5.2's row said vendoring the predefined `CMap`s
-//! was "a licensing decision" for a hundred and fifty sessions after the decision was taken;
-//! §11.3.7.2 said a group's shape "needs §11.4.6" for eighty sessions after §11.4.6 was built
-//! (ADRs 0107, 0108, 0140). The sweep has run as a grep since the hundred-and-eighteenth
-//! session; this is the same instrument as a program, per `doc/todo/01`'s binding rule that a
-//! sweep round commits one before running any (ADR 0319 records what a description costs).
+//! was "a licensing decision" long after the decision was taken; §11.3.7.2 said a group's shape
+//! "needs §11.4.6" long after §11.4.6 was built (ADRs 0107, 0108, 0140). This is the by-hand grep
+//! as a program, per `doc/todo/01`'s binding rule that a sweep round commits one before running
+//! any (ADR 0319 records what a description costs).
 //!
 //! # What a program can settle that the grep could not
 //!

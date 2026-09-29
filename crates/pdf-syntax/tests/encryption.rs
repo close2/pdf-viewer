@@ -541,20 +541,18 @@ fn blank(bytes: &[u8], entry: &[u8]) -> Vec<u8> {
 
 /// A revision Table 21 does not list is refused by name, rather than drawing noise.
 ///
-/// **Its other half used to be `/R 5`, and the eight-hundred-and-eighty-seventh session
-/// implemented that instead** — the argument is ADR 0820 and the module comment of
-/// `crypt.rs`. What is left here is the arm that survives: Table 21 lists 2, 3, 4, 5 and 6
+/// **`/R 5` is implemented** — the argument is ADR 0820 and the module comment of `crypt.rs` —
+/// so this is the arm that is refused: Table 21 lists 2, 3, 4, 5 and 6
 /// and nothing else, and `/R` is a direct integer in the encryption dictionary, so one byte
 /// of `issue21579.pdf` makes a `/R 7` out of it with every offset and every other entry
 /// unchanged. That is a revision this clause does not define, exercised by a real document
 /// rather than by a fragment.
 ///
-/// **The assertion names the clause rather than the revision, and that is the whole of what
-/// makes this a test** (eight-hundred-and-fifty-third session). Its deleted sibling asserted
-/// `contains("/R 5")` and passed with the refusal removed, because `crypt_filters` declined
-/// the same file for §7.6.4.1's method pairing, whose sentence begins "/R 5 with a crypt
-/// filter method" and contains the substring too. A refusal is only *by name* if the name
-/// distinguishes it from the other refusals the same document can reach.
+/// **The assertion names the clause rather than the revision, and that is the whole of what makes
+/// this a test**. An assertion of `contains("/R 5")` would pass with the refusal removed, because
+/// `crypt_filters` can decline the same file for §7.6.4.1's method pairing, whose sentence begins
+/// "/R 5 with a crypt filter method" and contains the substring too. A refusal is only *by name* if
+/// the name distinguishes it from the other refusals the same document can reach.
 #[test]
 fn an_unspecified_revision_is_refused_by_name() {
     let Some(bytes) = corpus_bytes("issue21579.pdf") else {
@@ -1104,12 +1102,11 @@ mod qpdf_revision_five {
     ///
     /// **Including its missing `/CF`, which is what this file found.** The document states
     /// `/StmF /StdCF /StrF /StdCF` and carries no crypt-filter dictionary at all, so `StdCF` is
-    /// named and never defined — against Table 20's `shall` on both rows. Until the
-    /// eight-hundred-and-ninety-second session this reader took Table 20's "Default value:
-    /// Identity" for that case, authenticated the password, and then handed the page's own
-    /// ciphertext to `FlateDecode` with nothing said; the fixture failed on exactly that, which is
-    /// what a real producer's bytes are for (trap 4). `crypt::crypt_filters` now takes the method
-    /// Table 20's `/V` 5 row states and refuses where `/V` determines none.
+    /// named and never defined — against Table 20's `shall` on both rows. Taking Table 20's
+    /// "Default value: Identity" for that case would hand the page's own ciphertext to
+    /// `FlateDecode` with nothing said, which is what a real producer's bytes are for finding
+    /// (trap 4). `crypt::crypt_filters` takes the method Table 20's `/V` 5 row states and refuses
+    /// where `/V` determines none (ADR 0829).
     fn document() -> Vec<u8> {
         let content = hex(CONTENT);
         let mut stream = format!(

@@ -1,8 +1,8 @@
 //! Which corpus documents state a given name, asked at three layers so that the layers disagree.
 //!
-//! The instrument the five-hundred-and-seventieth session owed. ADR 0403 found that `grep -rl`
-//! classes a PDF as binary and suppresses the match, so a ledger row had spent thirty-one rounds
-//! saying the corpus stated no `FieldMDP` transform on the strength of a measurement of `grep`.
+//! ADR 0403's instrument. `grep -rl` classes a PDF as binary and suppresses the match, so a
+//! ledger row can say the corpus states no `FieldMDP` transform on the strength of a measurement
+//! of `grep`.
 //! `grep -a` fixes that one failure and leaves a larger one standing: **a name inside an object
 //! stream or a content stream is not in the file's bytes at all**, because those bytes are
 //! deflated. A raw byte search — with or without `-a` — cannot see them.
@@ -16,10 +16,10 @@
 //! | `streams` | every stream's decoded data — content streams, embedded files, appearance streams | nothing, but it matches text rather than syntax, so it over-reports |
 //!
 //! `objects` is the layer to believe for a claim about what a document *states*: it matches a
-//! `Name` token as a token, so `/Lock` does not match the word `Locked` and a name inside a
-//! string does not match at all. `raw` is printed beside it precisely so that the gap is visible
-//! — a term whose `raw` count is below its `objects` count is a term a grep would have undercounted,
-//! and `doc/habits.md`'s *Measuring* section is about exactly that.
+//! `Name` token as a token, so `/Lock` does not match the word `Locked` and a name inside a string
+//! does not match at all. `raw` is printed beside it precisely so that the gap is visible — a term
+//! whose `raw` count is below its `objects` count is a term a grep would have undercounted, and
+//! `doc/habits.md`'s *Measuring* section is about exactly that.
 //!
 //! ```sh
 //! cargo run --release -p pdf-model --example witness_census -- Collection Threads Trans Lock
@@ -28,10 +28,9 @@
 //! cargo run --release -p pdf-model --example witness_census -- --names        # every name, ranked
 //! ```
 //!
-//! **`--crawl` is the six-hundred-and-sixty-seventh session's**, and it is the flag a ledger
-//! negative needs: ADR 0490 established that a claim measured before `CC-MAIN-2021-31` was on
-//! this disk is a claim nobody has measured, and this census had no way to ask it. Run it *with*
-//! the control run rather than instead of one — the old sentence is usually right about its own
+//! **`--crawl` is the flag a ledger negative needs**: ADR 0490 established that a claim measured
+//! before `CC-MAIN-2021-31` was on this disk is a claim nobody has measured. Run it *with* the
+//! control run rather than instead of one — the old sentence is usually right about its own
 //! population, which is why nothing in the tree could see it.
 //!
 //! **`--pdfjs` narrows the population to the pdf.js corpus**, which is what most of this project's
@@ -42,16 +41,16 @@
 //! With `--names` and no terms it prints how many documents state each distinct name, which is
 //! what turns "is there a witness for this entry" into a lookup rather than a run.
 //!
-//! **The `streams` layer is a content-stream census, and the six-hundred-and-eighty-sixth session
-//! is where that was noticed** (ADR 0523). `doc/todo/01` had filed §14.8.2.5.3's `/ReversedChars`
-//! and §9.7.5.4's `beginrearrangedfont` under claims needing "a content-stream census, which
-//! nothing in this tree has" — correctly, in that a walk over the object graph reports a false
-//! zero for a marked-content tag or a `CMap` operator, and wrongly about the instrument, because
-//! `streams` searches every stream's *decoded* bytes and a tag and an operator are both **tokens**.
-//! What it cannot settle is a claim about a *shape* — a path segment with no current point, a `q`
-//! inside a text object — and those still want an interpreter. The three columns say which kind a
-//! hit is: `/ReversedChars` scored as a *name* rather than only in a stream turned out to be a
-//! structure element type in a `/RoleMap`, which is not the clause at all.
+//! **The `streams` layer is a content-stream census** (ADR 0523). `doc/todo/01` had filed
+//! §14.8.2.5.3's `/ReversedChars` and §9.7.5.4's `beginrearrangedfont` under claims needing "a
+//! content-stream census, which nothing in this tree has" — correctly, in that a walk over the
+//! object graph reports a false zero for a marked-content tag or a `CMap` operator, and wrongly
+//! about the instrument, because `streams` searches every stream's *decoded* bytes and a tag and an
+//! operator are both **tokens**. What it cannot settle is a claim about a *shape* — a path segment
+//! with no current point, a `q` inside a text object — and those still want an interpreter. The
+//! three columns say which kind a hit is: `/ReversedChars` scored as a *name* rather than only in a
+//! stream turned out to be a structure element type in a `/RoleMap`, which is not the clause at
+//! all.
 
 #![expect(
     clippy::print_stdout,
@@ -96,11 +95,11 @@ enum Scope {
 /// [`Scope::Curated`] is the population ADR 0403 used, so that a claim re-checked here is
 /// re-checked against the same world the claim was made about.
 ///
-/// **[`Scope::Crawl`] is separate rather than added**, and the six-hundred-and-sixty-third
-/// session is why: a ledger negative written before the crawl arrived is usually *true* of the
-/// population it was measured over, which is exactly why nothing in the tree could see it. A run
-/// that merged the two would answer with one number and hide which of the two claims moved, so a
-/// re-derivation runs both and states both — the control and the growth (ADR 0490).
+/// **[`Scope::Crawl`] is separate rather than added**, because a ledger negative written before the
+/// crawl arrived is usually *true* of the population it was measured over, which is exactly why
+/// nothing in the tree could see it. A run that merged the two would answer with one number and
+/// hide which of the two claims moved, so a re-derivation runs both and states both — the control
+/// and the growth (ADR 0490).
 fn corpus(scope: Scope) -> Vec<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut files = Vec::new();

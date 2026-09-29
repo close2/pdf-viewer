@@ -2,12 +2,11 @@
 //!
 //! # Why this gate exists
 //!
-//! Every other gate in this tree rasterises **one** display list: the corpus and the oracle a
-//! page, `render-raster/tests/corpus.rs` a page at 1×, 2× and 4×, `viewer-ui/tests/panel.rs` the
-//! panel alone. A window draws several into one scene — the page under its target transform and
-//! the overlays at identity over it — and for four sessions that combination lost the sidebar
-//! above about 2000% magnification with nothing able to see it (ADR 0198). The defect was
-//! the rendering library's and is fixed; the hole in the instruments was this tree's.
+//! Every other gate in this tree rasterises **one** display list: the corpus and the oracle a page,
+//! `render-raster/tests/corpus.rs` a page at 1×, 2× and 4×, `viewer-ui/tests/panel.rs` the panel
+//! alone. A window draws several into one scene — the page under its target transform and the
+//! overlays at identity over it — and that combination can lose the sidebar above about 2000%
+//! magnification with no other gate able to see it (ADR 0198).
 //!
 //! # What it checks, and why it needs no reference
 //!

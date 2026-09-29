@@ -93,8 +93,8 @@ fn every_metadata_stream_in_the_corpus_is_read() {
                     // §12.2's `/DisplayDocTitle` names `dc:title` and Table 349's NOTE calls
                     // `/Title` the same fact in the other place. Where the two disagree the
                     // standard says which wins for exactly nothing, so this counts rather than
-                    // asserts — and the count being small is the reason the substitution this
-                    // program made for 163 sessions was defensible.
+                    // asserts — and the count being small is what makes preferring one of the two
+                    // defensible.
                     if let Some(other) = Information::read(&document).title.as_deref() {
                         both_titles = both_titles.saturating_add(1);
                         if other.trim() != title.trim() {

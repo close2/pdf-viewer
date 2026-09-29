@@ -3084,7 +3084,7 @@ marks on it, which is why it is worth having beside the first.
 interpretation-side clip cost, which is [`40`](40-mask-chain-crop.md)'s to price with a witness it
 did not have.
 
-### 38. What the eight-hundred-and-sixty-ninth re-walked: the second half of ADR 0798's GHOSTSCRIPT slice, after `doc/todo/17`
+### 38. What the eight-hundred-and-sixty-ninth re-walked: the second half of ADR 0798's GHOSTSCRIPT slice, after ADR 0791 closed the item that was todo 17
 
 The slice ADR 0798 measured is the first 680 of `batch2/GHOSTSCRIPT` in sorted order, and its
 second half is the 340 that held the ten-gibibyte document. Re-walked here after the raster

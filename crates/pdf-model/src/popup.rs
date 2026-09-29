@@ -27,14 +27,14 @@
 //! page's `/Annots` does not also list**, which is why this walks `/Annots` and does not chase
 //! Table 172's entry from the other end: the two routes reach the same 128.
 //!
-//! **And the parent may not be the annotation whose entries those are**, since the
-//! four-hundred-and-eightieth session: §12.5.6.2 makes all four of Table 186's overrides *group
-//! attributes*, so where the parent is a subordinate in a group the primary's apply and "the
-//! corresponding entries in the subordinate annotations shall be ignored". `crate::markup` is that
-//! sentence, and 213 of ISO 32000-2's own 2552 windows hang off a subordinate.
+//! **And the parent may not be the annotation whose entries those are**: §12.5.6.2 makes all four
+//! of Table 186's overrides *group attributes*, so where the parent is a subordinate in a group the
+//! primary's apply and "the corresponding entries in the subordinate annotations shall be ignored".
+//! `crate::markup` is that sentence, and 213 of ISO 32000-2's own 2552 windows hang off a
+//! subordinate.
 //!
-//! **A second entry opens the same window and is §12.5.6.4's**, read here since the
-//! four-hundred-and-fifty-ninth session; `opens_with_the_page` has the argument. The corpus
+//! **A second entry opens the same window and is §12.5.6.4's**, read here;
+//! `opens_with_the_page` has the argument. The corpus
 //! cannot rank it — `examples/open_annotation_census` finds 28 text annotations, exactly one
 //! stating Table 175's `/Open true`, and that one's popup already states its own — so the pair of
 //! fixtures below differ only in the rule, which is trap 8's shape.
@@ -414,12 +414,11 @@ fn read(document: &Document, id: ObjectId, dict: &Dictionary) -> Option<Popup> {
         return None;
     }
     let source = resolved.as_dict().unwrap_or(dict);
-    // **Two clauses compose here, and the second was unread until the four-hundred-and-eightieth
-    // session.** Table 186 makes the parent's `Contents`, `M`, `C` and `T` override the popup's;
-    // §12.5.6.2 makes all four *group attributes*, so where the parent is a subordinate in a group
-    // "the corresponding entries in the subordinate annotations shall be ignored" and the
-    // primary's are what this window shows. 213 of ISO 32000-2's own popups hang off a
-    // subordinate, and the erratum text a reader is looking for is in the primary.
+    // **Two clauses compose here.** Table 186 makes the parent's `Contents`, `M`, `C` and `T`
+    // override the popup's; §12.5.6.2 makes all four *group attributes*, so where the parent is a
+    // subordinate in a group "the corresponding entries in the subordinate annotations shall be
+    // ignored" and the primary's are what this window shows. 213 of ISO 32000-2's own popups hang
+    // off a subordinate, and the erratum text a reader is looking for is in the primary.
     let source = crate::markup::group_source(document, source);
     let rect = rectangle(document, dict)?;
     Some(Popup {
@@ -454,11 +453,9 @@ fn read(document: &Document, id: ObjectId, dict: &Dictionary) -> Option<Popup> {
 /// this a disjunction rather than a precedence, and means there is no conflict for Table 186's
 /// four-entry override list to have settled.
 ///
-/// **Table 175's half was read nowhere until the four-hundred-and-fifty-ninth session**, on a
-/// doc comment in `crate::appearance` saying `/Open` was not read because this program "draws no
-/// popup for any subtype" — true when it was written and false since the three-hundred-and-twelfth
-/// session, which is `doc/todo/01`'s capability shape. A file saying its sticky note starts open
-/// showed no window and said nothing about it. ADR 0294.
+/// **Table 175's half is read because this program draws a popup window** (ADR 0191): a file
+/// saying its sticky note starts open would otherwise show no window and say nothing about it.
+/// ADR 0294.
 ///
 /// **Only a text annotation's `/Open` counts**, because Table 175 is the only table outside
 /// Table 186 that gives an annotation the entry at all. §12.5.6.7, §12.5.6.8, §12.5.6.9,
@@ -497,10 +494,8 @@ fn is_open(document: &Document, dict: &Dictionary) -> bool {
 /// > A rich text string (see Adobe XML Architecture, XML Forms Architecture (XFA) Specification,
 /// > version 3.3 ) that shall be displayed in the popup window when the annotation is opened.
 ///
-/// A `shall` about the popup window, and this program has had one since the
-/// three-hundred-and-twelfth session — so `doc/todo/01`'s capability shape applies to it, and the
-/// row that said these entries "reach a comments pane this program has no panel for" stopped
-/// being true then.
+/// A `shall` about the popup window, and this program has one (ADR 0191), so the requirement is
+/// this program's to meet.
 ///
 /// # What is read, and what is deliberately not
 ///

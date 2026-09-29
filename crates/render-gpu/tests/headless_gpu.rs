@@ -194,7 +194,7 @@ fn cpu_and_gpu_agree_on_a_transparency_group() {
 /// spelling of Porter-Duff Source: `tiny-skia` sets a per-draw blend mode, Vello has no such
 /// parameter and composites a layer clipped to the element's shape with `peniko::Compose::Copy`.
 /// Trap 2's question — what does every scene leave at its default — is what this answers for
-/// the group flag that was `false` in every scene until the seventy-first session.
+/// the knockout flag, which every other scene leaves `false`.
 #[test]
 fn cpu_and_gpu_agree_on_a_knockout_group() {
     let list = test_scenes::knockout_group();
@@ -271,9 +271,8 @@ fn the_gpu_refuses_a_non_isolated_group() {
 /// with no place in this backend to hold the second. Drawing the chromatic list alone would
 /// paint the page in the complements of cyan, magenta and yellow with no black in it at all,
 /// which is a plausible wrong picture rather than an obvious one, so the frame goes to the
-/// CPU backend instead. `render-raster` draws it since the four-hundred-and-thirty-ninth
-/// session, on two `Target::Readback` renders against one device; this fails if the refusal
-/// here ever becomes silent.
+/// CPU backend instead. `render-raster` draws it on two `Target::Readback` renders against one
+/// device (ADR 0275); this fails if the refusal here ever becomes silent.
 #[test]
 fn the_gpu_refuses_a_four_component_page() {
     let list = test_scenes::four_component_page();
@@ -432,11 +431,10 @@ fn the_gpu_refuses_a_group_in_a_three_component_blending_space() {
 ///
 /// # The scene that was missing
 ///
-/// Reading clause 11 as a family in the thirty-seventh session found that not one
-/// cross-backend scene selected a blend mode at all: every `Command` in every other scene
-/// here carries `BlendMode::Normal`. So the two backends' sixteen blend functions had never
-/// been compared with each other, and trap 2 says what that means — a decision either backend
-/// can make alone is a decision neither has made.
+/// Every `Command` in every other scene here carries `BlendMode::Normal`, so without this one
+/// the two backends' sixteen blend functions are never compared with each other, and trap 2
+/// says what that means — a decision either backend can make alone is a decision neither has
+/// made (ADR 0046).
 ///
 /// Table 135's four are why it matters. Hue, Saturation, Color and Luminosity are
 /// *non-separable*: each is defined over all three components at once through the clause's
@@ -549,14 +547,13 @@ fn cpu_and_gpu_agree_on_a_soft_mask() {
     );
 }
 
-/// Vello hands back straight alpha, and this backend used to convert it as if it were
+/// Vello hands back straight alpha, and this backend must not convert it as if it were
 /// premultiplied.
 ///
-/// The defect was invisible for fifteen sessions because the page was rendered onto an opaque
-/// background: every pixel came back with an alpha of 255, and the conversion is the identity
-/// there. §11.4.7's page group is what made it visible — the page is now drawn onto
-/// transparency and imposed on the medium afterwards, so a partly covered pixel reaches the
-/// conversion with an alpha of its own.
+/// Onto an opaque background the difference is invisible: every pixel comes back with an alpha
+/// of 255, and the conversion is the identity there. §11.4.7's page group is what makes it
+/// visible — the page is drawn onto transparency and imposed on the medium afterwards, so a
+/// partly covered pixel reaches the conversion with an alpha of its own.
 ///
 /// A half-covered pixel of a 50% grey is the whole test: straight alpha is `[128, 0, 0, 128]`,
 /// and dividing a colour by its own coverage gives `[255, 0, 0, 128]`. The CPU backend is the
@@ -1111,11 +1108,12 @@ fn cpu_and_gpu_agree_on_a_deeply_reduced_image() {
 
 /// The two backends agree on the thinnest line the device can draw.
 ///
-/// The scene the fifteenth session did not have. ISO 32000-2 §8.4.3.2 makes a zero width
+/// ISO 32000-2 §8.4.3.2 makes a zero width
 /// "the thinnest line that can be rendered at device resolution: 1 device pixel wide", and
 /// `tiny-skia` implements that as its hairline mode while `kurbo` expands a zero-width stroke
-/// into an **empty outline** — so the GPU drew nothing at all, on every `0 w` line in every
-/// document, and the eleven scenes before this one all stroked a width the document stated.
+/// into an **empty outline** — so without this scene the GPU could draw nothing at all on every
+/// `0 w` line in every document while every other scene, stroking a width the document states,
+/// passed (ADR 0028).
 /// A backend-specific convention that one of two backends happens to share with PDF is not a
 /// reading of the clause; `Stroke::device_width` is where the rule lives now.
 ///

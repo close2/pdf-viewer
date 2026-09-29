@@ -16,7 +16,7 @@
 //! Both backends of this tree anti-alias, which is a departure from the clause read literally and
 //! is licensed by §10.7.1's NOTE that the algorithm "is not defined as part of PDF". The
 //! departure replaces "paint the pixel" with **coverage proportional to area**, and
-//! `doc/todo/_scan-conversion.md` has recorded it since the sixteenth session. What it does not
+//! `doc/todo/_scan-conversion.md` records it (ADR 0025). What it does not
 //! license is measuring that area *coarsely enough to reach zero*: an edge covering a tenth of its
 //! pixel that paints nothing has not been anti-aliased, it has been dropped, and the painted area
 //! is then smaller than the shape's.
@@ -78,9 +78,8 @@
 //!
 //! # Several rectangles are *one object*, and that is a different clause
 //!
-//! This module declined a path stating more than one rectangle for four sessions on the ground
-//! that "two rectangles drawn as two marks composite by §11.3.7.3's union", which made the case
-//! wait on `doc/todo/11` item 5's seam. **§11.6.2 settles it instead, and in the opposite
+//! A path stating more than one rectangle is not declined on the ground that two rectangles
+//! drawn as two marks composite by §11.3.7.3's union: **§11.6.2 settles it, and in the opposite
 //! direction** (ADR 0583). Its subject is exactly this — one graphics object described in a way
 //! that would seem to cause overlaps — and its rule is a `shall`:
 //!

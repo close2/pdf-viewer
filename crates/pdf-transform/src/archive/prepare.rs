@@ -765,6 +765,11 @@ pub(super) struct Prepared {
     /// `preserve`: the decision table refuses the site, so nothing but the operator's answer asks
     /// for this (`doc/adr/1285`).
     pub(super) reference_xobjects: Result<super::in_place::ReferenceXObjects, Because>,
+    /// The JPEG 2000 images a `preserve` transcodes to `FlateDecode`, or why they cannot be.
+    ///
+    /// `Err(NOT_ASKED_FOR)` unless the baseline requirement failed and a configuration answered it
+    /// with `preserve` (`doc/adr/1400`).
+    pub(super) transcodes: Result<super::transcode::Transcodes, Because>,
     /// The `CMap` streams a `preserve` embeds from the published set, or why none can be.
     ///
     /// `Err(NOT_ASKED_FOR)` unless the requirement failed and a configuration answered it with
@@ -994,6 +999,14 @@ impl Prepared {
                     preservation.site == super::in_place::NO_REFERENCE_XOBJECTS
                 }),
             || super::in_place::prepare_reference_xobjects(document, plan.target),
+        );
+        let transcodes = asked(
+            failed.contains(super::transcode::SITE)
+                && plan
+                    .preservations
+                    .iter()
+                    .any(|preservation| preservation.site == super::transcode::SITE),
+            || super::transcode::prepare(document, input),
         );
         let extra_appearance_states = asked(wanted(Rewrite::ExtraAppearanceStatesRemoved), || {
             prepare_extra_appearance_states(document, plan.target)
@@ -1236,6 +1249,7 @@ impl Prepared {
             forbidden_annotations,
             hidden_annotations,
             reference_xobjects,
+            transcodes,
             shipped_cmaps,
             extra_appearance_states,
             automatic_states,
@@ -1302,6 +1316,7 @@ impl Prepared {
                 self.hidden_annotations.as_ref().err().copied()
             }
             Rewrite::ReferenceXObjectProxied => self.reference_xobjects.as_ref().err().copied(),
+            Rewrite::Jpeg2000TranscodedToFlate => self.transcodes.as_ref().err().copied(),
             Rewrite::ShippedCMapEmbedded => self.shipped_cmaps.as_ref().err().copied(),
             Rewrite::ExtraAppearanceStatesRemoved => {
                 self.extra_appearance_states.as_ref().err().copied()

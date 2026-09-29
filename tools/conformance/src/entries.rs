@@ -6,8 +6,8 @@
 //! blocker, the capability it names, the string a correction retired, the file it points at, the
 //! table number it cites, the arithmetic between a parent and its children. None of them can see
 //! the sixth refusal shape `doc/habits.md` names, because a row in that shape says nothing wrong:
-//! it retires its refusal by naming a **capability that arrived** — "drawn since the Nth
-//! session", "this program now has a window" — and then nobody asks whether the *entry* that
+//! it retires its refusal by naming a **capability that arrived** — "drawn since ADR NNNN",
+//! "this program now has a window" — and then nobody asks whether the *entry* that
 //! turns the capability on was ever wired to it.
 //!
 //! So this sweep reads no reason at all. It takes the entries the clause's own tables state, out
@@ -16,9 +16,9 @@
 //! 1. Does any Rust source under [`crate::roots::source_roots`] name the entry at all?
 //! 2. Does any file the row itself lists in `code = [...]`?
 //!
-//! **The second question is the sweep.** `/Open` — the entry the four-hundred-and-fifty-ninth
-//! session found unread — *is* named under `crates/`, by the popup reader under a different
-//! table, so question 1 alone passes the very row this exists for. ADRs 0295 and 0315 are the two
+//! **The second question is the sweep.** `/Open` — an entry found unread by its own row — *is*
+//! named under `crates/`, by the popup reader under a different table, so question 1 alone
+//! passes the very row this exists for. ADRs 0295 and 0315 are the two
 //! findings it has produced: Table 187's required `/FS`, disposed of as "not a rendering
 //! question" while §12.5.6.15's own sentence says what activating one of these does, and
 //! §12.5.6.2's `/IRT` and `/RT`, disposed of as reaching "a comments pane rather than a raster"
@@ -26,9 +26,9 @@
 //!
 //! # Why it is a script now
 //!
-//! It was described in `doc/todo/01` and never committed, so the four-hundred-and-eightieth
-//! session rebuilt it from the description before it could run it. A sweep that has to be
-//! reconstructed is a sweep that will not be run, and a reconstruction is not the same
+//! A sweep described in `doc/todo/01` and never committed has to be rebuilt from the
+//! description before it can run. A sweep that has to be reconstructed is a sweep that will
+//! not be run, and a reconstruction is not the same
 //! instrument twice — which is the whole reason this project writes down commands rather than
 //! their output (ADR 0281).
 //!
@@ -289,9 +289,9 @@ fn own_text<'a>(index: &'a ClauseIndex, heading: &Heading) -> &'a str {
 ///   break carried — a blank line, a running footer, or a base64 image. So a caption's span runs
 ///   to the *next caption*, and every block inside it whose header names `Key` states entries;
 ///   a block whose header does not (Table 92's `Full Name`) states none, and the header is asked
-///   again for each block rather than once for the table. **This read the first block only until
-///   the five-hundred-and-forty-fifth**, which cost Table 31 twenty-two of its twenty-eight keys
-///   and made every citation of one of them a suspect in the ninth sweep.
+///   again for each block rather than once for the table. **Reading the first block only** would
+///   cost Table 31 twenty-two of its twenty-eight keys and make every citation of one of them a
+///   suspect in the ninth sweep.
 /// - **The columns shift.** Table 200's rows come out of `doc/md/` with the columns displaced,
 ///   so four of its five keys read as prose and only one reaches the output. That is a silence
 ///   in the conversion rather than in the standard, and `doc/HANDOVER.md`'s caveat about
@@ -541,8 +541,8 @@ fn mentions(note: &str, key: &str) -> bool {
 /// Whether a `code = [...]` path covers one source file.
 ///
 /// Equality, plus one rule Rust's own module system states: a module root `…/foo.rs` owns
-/// everything under `…/foo/`. The four-hundred-and-eighties split three of this tree's largest
-/// files into exactly that shape — `content.rs` kept as the root over `content/`,
+/// everything under `…/foo/`. Three of this tree's largest files are split into exactly that
+/// shape — `content.rs` kept as the root over `content/`,
 /// `quorra.rs` over `quorra/` — *so that every citation of the path stays valid*, and on
 /// this sweep's first run after the splits 34 entries moved from "named by the row's own code"
 /// to "named only elsewhere" without one line of the ledger or the readers changing. A row

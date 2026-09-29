@@ -3,11 +3,10 @@
 //! # Why this gate exists
 //!
 //! `doc/traps/pixels-and-rasterisers.md` trap 2: *a decision either backend can make alone is a
-//! decision neither has made*. Where the page's own colour ends and the window's surround begins
-//! is exactly such a decision — `render-cpu` composites it per pixel after the page is drawn,
-//! `render-raster` draws it as two rectangles at the bottom of a scene — and until the
-//! six-hundred-and-eleventh session there was no boundary at all, because one colour served as
-//! both. The gap between two pages of Table 29's `OneColumn` was page white on page white, so a
+//! decision neither has made*. Where the page's own colour ends and the window's surround begins is
+//! exactly such a decision — `render-cpu` composites it per pixel after the page is drawn,
+//! `render-raster` draws it as two rectangles at the bottom of a scene. One colour serving as both
+//! would make the gap between two pages of Table 29's `OneColumn` page white on page white, so a
 //! reader could not see where one page ended.
 //!
 //! # What it checks, and why it needs no reference

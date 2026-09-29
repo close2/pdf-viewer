@@ -284,8 +284,8 @@ pub fn character_for(name: &str) -> Option<char> {
 /// gave the suffix in the other direction, where a program's own name for a glyph keeps it.
 ///
 /// `issue15516_reduced.pdf` is the corpus witness: a Minion subset whose eight codes are
-/// `/f_f_i`, `/f_i`, `/f_f_l`, `/f_f`, `/f_l`, `/f_t`, `/T_h` and `/f_h`, and which read back as
-/// nothing at all until the three-hundred-and-twenty-seventh session.
+/// `/f_f_i`, `/f_i`, `/f_f_l`, `/f_f`, `/f_l`, `/f_t`, `/T_h` and `/f_h`, none of which reads
+/// back as anything without this.
 #[must_use]
 pub fn text_for(name: &str) -> Option<String> {
     let stem = name.split('.').next().unwrap_or(name);
@@ -839,8 +839,7 @@ mod tests {
     /// §9.10.2's second method names two lists, and the second brings an algorithm.
     #[test]
     fn a_composed_glyph_name_reads_back_as_its_components() {
-        // `issue15516_reduced.pdf`'s eight codes, which read back as nothing until the
-        // three-hundred-and-twenty-seventh session.
+        // `issue15516_reduced.pdf`'s eight codes.
         assert_eq!(super::text_for("f_f_i").as_deref(), Some("ffi"));
         assert_eq!(super::text_for("T_h").as_deref(), Some("Th"));
         // A variant suffix names the same character: the part after the first period is
@@ -932,7 +931,7 @@ mod tests {
     /// Annex D.6's two columns describe the same 188 codes, and the pair is the point.
     ///
     /// `ZAPF_DINGBATS` is the `NAME` column and `ZAPF_DINGBATS_CHARACTERS` is the `CHAR` column of
-    /// one table, transcribed in two passes and hundreds of sessions apart, and
+    /// one table, transcribed in two separate passes, and
     /// [`SymbolicEncoding::character_for`] walks the first to index the second — so a slip in
     /// either that left them out of step would hand a code the character of its neighbour, which
     /// is the failure a reader could not see. This is what makes them one table again.

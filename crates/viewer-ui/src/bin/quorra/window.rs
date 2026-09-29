@@ -57,10 +57,9 @@ impl App {
                 return;
             }
             self.aim_at_field(at);
-            // And the other half of §12.7.5.4, which this host had no way to do at all until the
-            // seven-hundred-and-seventeenth session: a press on a choice field lists its options,
-            // because picking one is what the clause's two controls are *for* and typing a value
-            // is what Table 233 bit 19 permits for one of them.
+            // And the other half of §12.7.5.4 (ADR 0596): a press on a choice field lists its
+            // options, because picking one is what the clause's two controls are *for* and typing a
+            // value is what Table 233 bit 19 permits for one of them.
             if self.open_choices(at) {
                 return;
             }

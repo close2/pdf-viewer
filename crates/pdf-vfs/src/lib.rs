@@ -864,8 +864,8 @@ struct Current {
     /// bytes are the cache's — `metadata_stream` is the one place that reads either — and it is
     /// remembered at all because `meta/xmp.xml` is the one row in the layout whose validation has
     /// to ask the worker a question: without this, every listing of `/meta` and every `stat` and
-    /// `open` under it fetched the whole stream again to decide whether the name exists. That is
-    /// trap 33's shape, found by this crate's own question counter in session 927 (ADR 0894).
+    /// `open` under it would fetch the whole stream again to decide whether the name exists. That
+    /// is trap 33's shape, which this crate's own question counter finds (ADR 0894).
     metadata: Mutex<Option<bool>>,
     /// Whose edit produced this generation.
     provenance: Provenance,
@@ -2275,10 +2275,10 @@ fn attachments(current: &Current) -> Result<Arc<Vec<Embedded>>, VfsError> {
 /// §14.3.2's document-level metadata stream, asked of the worker once a generation.
 ///
 /// **`meta/xmp.xml` is the one file in this tree whose existence the *document* states**, so it is
-/// the one row whose path validation cannot derive its answer and has to ask a question. Until
-/// session 927 that question was the whole stream, put again on every listing of `/meta` and on
-/// every `stat` and `open` under it — trap 33's shape exactly, and invisible to `Vfs::generated`
-/// because the bytes were produced once. [`Vfs::questions`] is what counted it (ADR 0894).
+/// the one row whose path validation cannot derive its answer and has to ask a question. That
+/// question is not the whole stream, put again on every listing of `/meta` and on every `stat`
+/// and `open` under it — trap 33's shape exactly, and invisible to `Vfs::generated` because the
+/// bytes are produced once. [`Vfs::questions`] is what counts it (ADR 0894).
 ///
 /// So: the bytes go into the cache under the path they belong to, which means a validation warms
 /// the read the way a listing of `images/NNNN/` does; a document that states no stream is

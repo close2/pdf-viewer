@@ -1,10 +1,10 @@
 //! What a *viewer* holds that a document does not: the state actions change.
 //!
-//! A [`crate::Interpretation`] is a function of a document and a page. That is true of every
-//! rendering this program did before the sixty-second session, and it stops being true the
-//! moment §12.6.4's actions are performed: §12.6.4.13 sets the state of an optional content
-//! group, §12.6.4.11 sets an annotation's Hidden flag, and both decide what the *next* render
-//! of the page draws. Neither is written back to the file.
+//! A [`crate::Interpretation`] of a document nobody has acted on is a function of a document and a
+//! page, and that stops being true the moment §12.6.4's actions are performed (ADR 0065):
+//! §12.6.4.13 sets the state of an optional content group, §12.6.4.11 sets an annotation's Hidden
+//! flag, and both decide what the *next* render of the page draws. Neither is written back to the
+//! file.
 //!
 //! So there is a third input, and this is it. [`ViewState::of`] builds the state a document
 //! opens in — §8.11.4.5's initial configuration and no hidden annotations — and
@@ -59,7 +59,7 @@ pub struct ViewState {
     /// Annotations §12.6.4.11 has shown, by object identity.
     ///
     /// The other half: `/H false` on an annotation whose own `/F` sets Hidden clears the flag
-    /// for this session. Two sets rather than a map from identity to boolean because the
+    /// for this viewing session. Two sets rather than a map from identity to boolean because the
     /// common case is that both are empty and neither allocates.
     shown: BTreeSet<ObjectId>,
     /// Widgets §12.7.6.3's reset-form action has reset, by object identity.
@@ -131,9 +131,8 @@ pub struct ViewState {
     chosen: BTreeMap<String, ChosenFile>,
     /// Which annotation the pointer is over or pressing, if any (§12.5.5).
     ///
-    /// One annotation rather than a set, because a pointer is in one place. `None` is what
-    /// every render before the seventy-sixth session assumed: nothing is interacting with the
-    /// user, so every annotation shows its normal appearance.
+    /// One annotation rather than a set, because a pointer is in one place. `None` means nothing
+    /// is interacting with the user, so every annotation shows its normal appearance.
     pointer: Option<(ObjectId, Pointer)>,
     /// How large the page is being drawn, in logical pixels per default user space unit.
     ///
@@ -148,10 +147,9 @@ pub struct ViewState {
     /// Under it `NoZoom` changes nothing, so a page rendered at its own scale is the page it
     /// always was.
     ///
-    /// (This entry said it was *the* one such thing until the four-hundred-and-ninth session,
-    /// which added the second — [`ViewState::widget_appearances`] — for exactly the reason
-    /// stated above. Two is not a trend, and each is here because a clause makes interpretation
-    /// depend on something only a window knows.)
+    /// [`ViewState::widget_appearances`] is the second such thing, for exactly the reason stated
+    /// above (ADR 0245). Two is not a trend, and each is here because a clause makes
+    /// interpretation depend on something only a window knows.
     magnification: Option<f32>,
     /// Whether §12.7's form widgets are drawn, or left to whoever asked for the page.
     ///
@@ -250,7 +248,7 @@ pub struct ViewState {
     /// thing from never having touched it: the first draws nothing and the second draws Table
     /// 166's `/Contents`.
     retyped: BTreeMap<ObjectId, String>,
-    /// §7.11.4's embedded files a person **attached** this session, in the order they did.
+    /// §7.11.4's embedded files a person **attached** this viewing session, in the order they did.
     ///
     /// The seventh thing in this struct that comes from outside the document, and the second
     /// that adds objects rather than changing one: a file put into the document is not authoring
@@ -260,7 +258,8 @@ pub struct ViewState {
     /// that files it is an entry of `added`, so the icon is drawn and written by the code every
     /// other added annotation takes. ADR 0814.
     filed: Vec<Filed>,
-    /// The `/EmbeddedFiles` keys of the file's own entries a person **detached** this session.
+    /// The `/EmbeddedFiles` keys of the file's own entries a person **detached** this viewing
+    /// session.
     ///
     /// Keys rather than objects, because a name tree files by key (§7.7.4) and what a person
     /// pointed at was a row named by one. What the entry alone reached is marked free when the
@@ -374,7 +373,7 @@ pub enum FilingHome {
     },
 }
 
-/// One file a person attached this session, with the numbers it will be written under.
+/// One file a person attached this viewing session, with the numbers it will be written under.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Filed {
     /// What was attached, and where.
@@ -392,7 +391,7 @@ pub struct Filed {
 /// Why [`ViewState::attach`] declined.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum AttachRefusal {
-    /// The document, or this session, already files something under this name.
+    /// The document, or this viewing session, already files something under this name.
     ///
     /// §7.9.6: a name tree's keys "shall not overlap", and a second file under one key would be
     /// either a replacement nobody asked for or a tree the clause forbids. One namespace for both
@@ -408,7 +407,8 @@ pub enum Detached {
     Filed,
     /// A file the document's own tree names will be left out of the tree the next save writes.
     Unfiled,
-    /// Nothing is embedded under this name in the tree or in this session, so nothing happened.
+    /// Nothing is embedded under this name in the tree or in this viewing session, so nothing
+    /// happened.
     ///
     /// A file §12.5.6.15's annotation carries in the *file's* own `/Annots` is among these:
     /// taking it out would be deleting the producer's annotation, which is `doc/todo/33`'s and
@@ -436,8 +436,7 @@ pub enum Markup {
 
 impl Markup {
     /// Table 182's `/Subtype` for this markup, which the table requires to be one of
-    /// `Highlight`, `Underline`, `Squiggly` or `StrikeOut`. (This cited Table 179 — the line
-    /// ending styles — until the three-hundred-and-eighty-seventh session.)
+    /// `Highlight`, `Underline`, `Squiggly` or `StrikeOut`.
     const fn subtype(self) -> &'static [u8] {
         match self {
             Self::Highlight => b"Highlight",
@@ -588,11 +587,10 @@ pub enum FieldValue<'a> {
 /// What a person put into one field, as [`ViewState::set_field`] takes it.
 ///
 /// Three variants, because §12.7.5 gives a field's value three shapes and a host has to be able to
-/// say all three. Two of them were `Option<String>` until the four-hundred-and-twelfth session, and
-/// the third is why that stopped being enough: Table 233 bit 22 — *"(PDF 1.4) If set, more than one
-/// of the field's option items may be selected simultaneously; if clear, at most one item shall be
-/// selected"* — lets §12.7.5.4's list box hold several items at once, and one string cannot say
-/// which several. ADR 0248.
+/// say all three, and one `Option<String>` is not enough for the third: Table 233 bit 22 — *"(PDF
+/// 1.4) If set, more than one of the field's option items may be selected simultaneously; if clear,
+/// at most one item shall be selected"* — lets §12.7.5.4's list box hold several items at once, and
+/// one string cannot say which several. ADR 0248.
 ///
 /// **A selection is named by index and not by label**, which is the decision worth stating. The
 /// clause makes `/V` hold the *labels* — a two-element `/Opt` entry's second element is the one
@@ -1822,12 +1820,6 @@ impl ViewState {
     /// the four corners by where they fall along the text's own direction, because the clause's
     /// "counterclockwise" has two readings and producers use both.
     ///
-    /// (**Both numbers said something else until the four-hundred-and-thirteenth session**:
-    /// the first was Table 179, which is the line ending styles, and the second put
-    /// `/QuadPoints` in Table 166, which states it for no annotation. The three-hundred-and-
-    /// eighty-seventh corrected this file's *other* `/QuadPoints` sentence and
-    /// `viewer-core/src/open.rs`'s, and left these two. `doc/todo/01`'s ninth sweep.)
-    ///
     /// Returns the object the annotation will be written under, or `None` where there is
     /// nothing to mark up.
     ///
@@ -2044,10 +2036,9 @@ impl ViewState {
     /// [`ViewState::save`] as §7.5.6's "this object now reads like this". Nothing is written to the
     /// file until then and the document itself never changes, which is `CLAUDE.md`'s rule 1.
     ///
-    /// (This refused the second of the two until the four-hundred-and-sixty-ninth session, on the
-    /// grounds that "replacing an object the producer wrote is a decision nobody has made". It is
-    /// §7.5.6's own second case — the clause's list is "objects that have been changed, replaced,
-    /// or deleted" — and the producer's bytes survive it byte for byte. ADR 0304.)
+    /// Replacing an object the producer wrote is §7.5.6's own second case — the clause's list is
+    /// "objects that have been changed, replaced, or deleted" — and the producer's bytes survive
+    /// it byte for byte. ADR 0304.
     ///
     /// # What Table 167 says about it, and what it does not
     ///
@@ -2239,8 +2230,8 @@ impl ViewState {
     ///
     /// # Errors
     ///
-    /// [`AttachRefusal::NameTaken`] where the document's tree — less what this session detached
-    /// — or this session already files something under the name.
+    /// [`AttachRefusal::NameTaken`] where the document's tree — less what this viewing session
+    /// detached — or this viewing session already files something under the name.
     pub fn attach(&mut self, document: &Document, filing: Filing) -> Result<(), AttachRefusal> {
         let key = pdf_syntax::text_string::encode_text_string(&filing.name);
         if self.attachment_named(document, &filing.name) {
@@ -2304,8 +2295,8 @@ impl ViewState {
         Detached::Nothing
     }
 
-    /// Whether anything — the document's tree less what was detached, or this session — files
-    /// a file under this name.
+    /// Whether anything — the document's tree less what was detached, or this viewing session —
+    /// files a file under this name.
     #[must_use]
     pub fn attachment_named(&self, document: &Document, name: &str) -> bool {
         let key = pdf_syntax::text_string::encode_text_string(name);
@@ -2324,10 +2315,10 @@ impl ViewState {
     /// §7.11.4's embedded files as this state has them: the document's own list, less what was
     /// detached, plus what was attached to the document as a whole.
     ///
-    /// The list a panel shows, so it answers for the same home the document's own list answers
-    /// for — the tree, and the catalog's `/AF` beside it — and not for a file this session put
-    /// on a *page*: that one is where §12.5.6.15 put it, drawn as its icon, and after a save and
-    /// a reopen it would be in the home the tree does not list (ADR 0295). A list that showed it
+    /// The list a panel shows, so it answers for the same home the document's own list answers for
+    /// — the tree, and the catalog's `/AF` beside it — and not for a file this viewing session put
+    /// on a *page*: that one is where §12.5.6.15 put it, drawn as its icon, and after a save and a
+    /// reopen it would be in the home the tree does not list (ADR 0295). A list that showed it
     /// before the save and not after would be a list that changed under a person who changed
     /// nothing.
     ///
@@ -2414,9 +2405,7 @@ impl ViewState {
 
     /// Every annotation a person added, in order.
     ///
-    /// What a save writes. **This said "and what a host asks to know whether there is anything
-    /// to save" until the five-hundred-and-twenty-fifth session, and no host asked it** —
-    /// `doc/todo/01`'s fifth sweep, on the round it became a program. A host that keeps an undo
+    /// What a save writes — not whether there is anything to save. A host that keeps an undo
     /// log knows what is unwritten from the log's cursor and its last save, which is where
     /// `viewer_core::Open::dirty` answers it from; what this offers is the *contents* of the
     /// additions, for a caller that wants to show them rather than count them.
@@ -2495,14 +2484,13 @@ impl ViewState {
     ///
     /// # What this does **not** consult, and where it went
     ///
-    /// §12.8.2.2's `/DocMDP` and §7.6.4.2's Table 22 restrict this operation, and until the
-    /// three-hundred-and-seventy-third session the first of them was checked here. It is not a
-    /// question this function can answer: `CLAUDE.md` makes how much of a document's restrictions
-    /// a reader obeys the *reader's* policy, with four levels of it, and two of those levels have
-    /// to describe the operation to a person before it happens. A refusal expressed as a count of
-    /// widgets can become none of that. So [`crate::restriction::asserted`] states what the
-    /// document asserts — with its clause and its level — and the host that has the policy
-    /// decides, once per operation, before calling this. ADR 0212.
+    /// §12.8.2.2's `/DocMDP` and §7.6.4.2's Table 22 restrict this operation, and neither is
+    /// checked here. It is not a question this function can answer: `CLAUDE.md` makes how much of a
+    /// document's restrictions a reader obeys the *reader's* policy, with four levels of it, and
+    /// two of those levels have to describe the operation to a person before it happens. A refusal
+    /// expressed as a count of widgets can become none of that. So [`crate::restriction::asserted`]
+    /// states what the document asserts — with its clause and its level — and the host that has the
+    /// policy decides, once per operation, before calling this. ADR 0212.
     ///
     /// **Nothing is written to the file.** `CLAUDE.md`'s rule 1 makes the document immutable;
     /// what a person did is a log beside it, and turning that log into §7.5.6's incremental
@@ -2756,15 +2744,11 @@ impl ViewState {
     /// made. That distinction is the reason this exists and it is invisible until a document is
     /// *written*, which is why `saving.rs` is where it is asserted.
     ///
-    /// **This said "the operation an undo needs" until the four-hundred-and-thirty-seventh
-    /// session, and this tree's undo needs something else.** `doc/todo/01`'s fifth sweep found
-    /// the function named by no host, no tool, no fuzz target and no example in the
-    /// four-hundred-and-twenty-ninth; reading the caller side rather than building one is what
-    /// answers it. `viewer_core::Open` makes undo a *replay* rather than an inverse — the log is
-    /// cleared with [`Self::clear_all_fields`] and re-applied up to the cursor — so forgetting
-    /// one field is what a replay does by not reaching that entry, and a second route to the same
-    /// state is not what a host is missing. What is left here is the per-field operation itself,
-    /// for a caller that wants it without a log.
+    /// **This is not what this tree's undo uses.** `viewer_core::Open` makes undo a *replay* rather
+    /// than an inverse — the log is cleared with [`Self::clear_all_fields`] and re-applied up to
+    /// the cursor — so forgetting one field is what a replay does by not reaching that entry, and a
+    /// second route to the same state is not what a host is missing. What is left here is the
+    /// per-field operation itself, for a caller that wants it without a log.
     pub fn clear_field(&mut self, document: &Document, name: &str) -> usize {
         let table = widgets_by_field_name(document);
         let Some(widgets) = table.get(name) else {
@@ -2821,14 +2805,12 @@ impl ViewState {
     /// > NOTE To protect password confidentiality, it is imperative that PDF processors never
     /// > store the value of the text field in the PDF file if this flag is set.
     ///
-    /// A NOTE is informative and this one is obeyed anyway, because the alternative is this
-    /// program writing a person's password into a file in clear text — and it did, until the
-    /// four-hundred-and-eleventh session found the sentence while reading the clause ADR 0247's
-    /// third amendment names. **Neither half of the edit is written**, which is what keeps the
-    /// file consistent with itself: the producer's `/V` and the producer's `/AP` stay as they
-    /// were and go on agreeing, where writing the appearance without the value would leave a
-    /// widget drawing something §12.7.2 says its `/V` should decide. What a person typed lives in
-    /// this log until the document is closed and nowhere else.
+    /// A NOTE is informative and this one is obeyed anyway, because the alternative is this program
+    /// writing a person's password into a file in clear text (ADR 0247). **Neither half of the edit
+    /// is written**, which is what keeps the file consistent with itself: the producer's `/V` and
+    /// the producer's `/AP` stay as they were and go on agreeing, where writing the appearance
+    /// without the value would leave a widget drawing something §12.7.2 says its `/V` should
+    /// decide. What a person typed lives in this log until the document is closed and nowhere else.
     ///
     /// # Errors
     ///
@@ -3186,8 +3168,8 @@ impl ViewState {
             let mut dict = added.dict.clone();
             dict.insert(Name::new(&b"P"[..]), Object::Reference(added.page));
             // Table 166's `/M`, for [`Update::stamp`]'s reason and at [`Self::write_retypings`]'s
-            // site: an annotation a person made this session was most recently modified when the
-            // host says it was.
+            // site: an annotation a person made this viewing session was most recently modified
+            // when the host says it was.
             update.stamp(&mut dict);
             // A carried annotation may hold a stream elsewhere than its `/AP` — Table 187's `/FS`
             // with its embedded file, Table 188's `/Sound` — and §7.3.8.1 makes every stream an
@@ -3802,17 +3784,16 @@ impl ViewState {
 /// considered a field but simply a Widget annotation", so it belongs to its parent's name
 /// rather than starting a new one.
 ///
-/// **That second sentence is unconditional, and until the eight-hundred-and-fourth session it
-/// was applied to a kid alone.** A dictionary reached from `/Fields` with no `/T` of its own and
-/// no ancestor stating one has no fully qualified name at all, so it is not a field — and every
-/// such dictionary in a document was keyed here under the *empty* name, which made one field out
-/// of annotations sharing nothing. Table 226 printed `/T` as `(Required)`, so the case read as a
+/// **That second sentence is unconditional, and applies to more than a kid.** A dictionary reached
+/// from `/Fields` with no `/T` of its own and no ancestor stating one has no fully qualified name
+/// at all, so it is not a field — keying it under the *empty* name would make one field out of
+/// annotations sharing nothing. Table 226 printed `/T` as `(Required)`, so the case read as a
 /// malformed file; Errata Collection 3's Issue #28 strikes the requirement level and writes
-/// *Optional*, which is the cell catching up with §12.7.4.2's own paragraph. What decides the
-/// case is therefore the paragraph, and the paragraph says such a dictionary is a widget. It is
-/// left out of this table, drawn by `crate::annotation` as before, and handed to no host as a
-/// control — which is the path [`crate::form::fields`] already documents for a widget the field
-/// tree does not reach.
+/// *Optional*, which is the cell catching up with §12.7.4.2's own paragraph. What decides the case
+/// is therefore the paragraph, and the paragraph says such a dictionary is a widget. It is left out
+/// of this table, drawn by `crate::annotation` as before, and handed to no host as a control —
+/// which is the path [`crate::form::fields`] already documents for a widget the field tree does not
+/// reach.
 ///
 /// **And the ancestry a name is built from is the `/Parent` chain, which is why a root entry is
 /// asked for one.** §12.7.3 makes `/Fields` "an array of references to the document's root
@@ -4022,11 +4003,10 @@ fn qualified_name(document: &Document, dict: &Dictionary, prefix: Option<&str>) 
 /// display list: a cursor crossing an annotation for which a press would change nothing would
 /// otherwise re-interpret the page for a picture that cannot differ. That is a real cost — 2 000 M
 /// instructions on the benchmark page — and it is why this exists rather than the caller looking
-/// for an `/AP` `/D` and stopping there, which is what `viewer-core` did until the
-/// hundred-and-thirty-eighth session and which left §12.5.6.19 unreachable from the one program
-/// that has a mouse.
+/// for an `/AP` `/D` and stopping there, which would leave §12.5.6.19 unreachable from the one
+/// program that has a mouse (ADR 0123).
 ///
-/// **A third clause joined them in the two-hundred-and-fifty-third session**: §12.5.3's
+/// **A third clause joins them** (ADR 0177): §12.5.3's
 /// `ToggleNoView` decides whether the annotation is drawn *at all* while the pointer is on it,
 /// which is the largest change a press can make to a picture.
 #[must_use]
@@ -4194,10 +4174,7 @@ impl Update {
             let mut form = Dictionary::default();
             // Table 224 makes the entry required: "(Required) An array of references to the
             // document's root fields (those with no ancestors in the field hierarchy)."
-            // (The quotation ended at *root fields* with a full stop of its own until the
-            // eight-hundred-and-fourth session, which is `doc/todo/01`'s stale-quotation shape
-            // in miniature — the clause the parenthetical states is what §12.7.4.2's row now
-            // argues a recovery against.)
+            // The parenthetical is what §12.7.4.2's row argues a recovery against.
             form.insert(Name::new(&b"Fields"[..]), Object::Array(Vec::new()));
             form
         });
@@ -4379,10 +4356,7 @@ impl Update {
         if added {
             // A widget that had no `/AP` needs one pointing at the stream just written. Table
             // 170's `/N` is "the annotation's normal appearance"; a widget with one state has it
-            // as the stream itself rather than as a subdictionary of states. (This said "Table
-            // 168's" until the five-hundred-and-thirty-seventh session — 168 is the border style
-            // dictionary — which is `doc/todo/01`'s ninth sweep, in the same file as its last
-            // finding.)
+            // as the stream itself rather than as a subdictionary of states.
             let Some(mut widget_dict) = self.current(document, widget) else {
                 return;
             };
@@ -4983,16 +4957,15 @@ fn widgets_at(document: &Document, page: &crate::Page, x: f32, y: f32) -> Vec<Ob
 /// `ViewState::add_markup` refuses an empty set of quadrilaterals and Table 166's `/C` is always
 /// written.
 ///
-/// **This comment said an annotation with no `/AP` is legal until the five-hundred-and-sixty-second
-/// session, and Table 166 says the opposite of a writer**: "[a] PDF writer shall include an
-/// appearance dictionary when writing or updating the PDF file except for the two cases listed
-/// below", the two being a `/Rect` whose opposite corners coincide and a `/Subtype` of `Popup`,
-/// `Projection` or `Link`. Errata Collection 3's Issue #22 moves the same requirement into the
-/// entry's own column ("Required except for conditions listed below (PDF 2.0)"). A markup this
-/// function is called for is none of the exceptions, which is why writing the appearance is
-/// obligatory here rather than a courtesy — and why the silence above is safe only because the
-/// construction cannot fail for these subtypes. [`ViewState::write_retypings`] is where the same
-/// rule is departed from on purpose.
+/// **An annotation with no `/AP` is not legal from a writer, and Table 166 says so**: "[a] PDF
+/// writer shall include an appearance dictionary when writing or updating the PDF file except for
+/// the two cases listed below", the two being a `/Rect` whose opposite corners coincide and a
+/// `/Subtype` of `Popup`, `Projection` or `Link`. Errata Collection 3's Issue #22 moves the same
+/// requirement into the entry's own column ("Required except for conditions listed below (PDF
+/// 2.0)"). A markup this function is called for is none of the exceptions, which is why writing the
+/// appearance is obligatory here rather than a courtesy — and why the silence above is safe only
+/// because the construction cannot fail for these subtypes. [`ViewState::write_retypings`] is where
+/// the same rule is departed from on purpose.
 fn write_added_appearance(document: &Document, update: &mut Update, dict: &mut Dictionary) {
     // An annotation that arrived with an appearance of its own keeps it. §12.7.8.3.4's
     // annotations are the one kind that does — they carry the producer's `/AP`, copied whole —

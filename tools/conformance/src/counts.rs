@@ -6,17 +6,17 @@
 //! it**, and nothing in this project checked one. [`crate::ledger`]'s gate reads a row's own fields;
 //! the sixth sweep compares a parent's *status* with its children's; and a count in prose is
 //! neither. Its findings are `doc/todo/01`'s fifth failure shape at family scale — a parent row is
-//! not maintained by the sessions that implement its members — and they have been large: §12.7.6's
-//! "the other two are refused by name" stood for **280 sessions** with three other rows holding the
-//! right answer, and §11.7 stated its own family's count twice, four sentences apart, disagreeing.
+//! not maintained by the rounds that implement its members — and they have been large: §12.7.6's
+//! "the other two are refused by name" stood with three other rows holding the right answer, and
+//! §11.7 stated its own family's count twice, four sentences apart, disagreeing.
 //!
 //! # Why the hand-runs' number said nothing
 //!
 //! Ten runs printed 16, 185, 124, 10, 160, 17, 70, 25, 41 and 4 counted claims over a ledger whose
-//! families barely moved, because each session wrote the pattern that morning: a number word beside
+//! families barely moved, because each run wrote the pattern afresh: a number word beside
 //! a verb of implementation, or every digit in a note, or only the phrase "aggregate of the N
 //! below". That is sweep 14's own lesson before ADR 0397 fixed it — **the obvious discriminator
-//! here is a vocabulary of counting, and a vocabulary written from memory measures the session**.
+//! here is a vocabulary of counting, and a vocabulary written from memory measures its writer**.
 //!
 //! # The discriminator, and it is two measurements this project already has
 //!
@@ -29,7 +29,7 @@
 //!   "[f]our of them are stream filters" are the noise every hand-run printed, and all three are
 //!   counts of something that is not a family. And the container is the clause the sentence
 //!   **names**, exactly as a table is: that is how §12.6.3's count of §12.6.4's family — invisible
-//!   to every hand-run, found by the blame band in the five-hundred-and-twenty-fifth — becomes a
+//!   to every hand-run, found by the blame band — becomes a
 //!   claim this sweep can judge at all.
 //! - **The family's arithmetic, which is the sixth sweep's with the sign reversed.** The sixth reads
 //!   the statuses of the rows below a clause to judge the parent's **status**; this reads the same
@@ -57,7 +57,7 @@
 //! Two claims in one place, about one family, with the same noun and different numbers, are wrong
 //! whatever the ledger holds — and this is the only check here whose evidence is entirely inside the
 //! prose. §11.7 said "[t]wo of its five subclauses are satisfied" and, four sentences later, "four
-//! of its five subclauses are satisfied", for **410 sessions**; §14.11 counted its seven subclauses
+//! of its five subclauses are satisfied"; §14.11 counted its seven subclauses
 //! twice. Both are the sixth failure shape — a document corrected by appending, read from the
 //! correction backwards — and a reader who starts at the correction never sees the first half.
 //!

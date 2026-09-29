@@ -350,12 +350,13 @@ struct Boundaries {
 /// node be.
 ///
 /// **There is no third, and the reason is worth having before a round adds one.** `doc/todo/03`
-/// section 34 named one — resynchronising past a value that will not parse, so that a `/Type /Page` four
-/// bytes past the damage could be read — and ADR 0787 closed it. Both variants below name evidence
-/// that reached this reader through an unbroken tokenisation from the object's own `<<`, which is
-/// what makes the entries carrying it the producer's; a variant naming evidence read across a gap
-/// would be naming an entry one byte of damage can manufacture, and it is the *discriminating*
-/// entry that gets manufactured. `pdf-model/tests/damaged_page_dictionaries.rs::the_third_door`.
+/// section 34 named one — resynchronising past a value that will not parse, so that a `/Type /Page`
+/// four bytes past the damage could be read — and ADR 0787 closed it. Both variants below name
+/// evidence that reached this reader through an unbroken tokenisation from the object's own `<<`,
+/// which is what makes the entries carrying it the producer's; a variant naming evidence read
+/// across a gap would be naming an entry one byte of damage can manufacture, and it is the
+/// *discriminating* entry that gets manufactured.
+/// `pdf-model/tests/damaged_page_dictionaries.rs::the_third_door`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PageIdentification {
     /// The entries whole before the damage state Table 31's `/Type /Page` themselves.
@@ -916,8 +917,8 @@ impl<'a> Pages<'a> {
     /// [`Self::index_of`] answers one reference and cannot skip a subtree, because the target's
     /// position is exactly what is unknown — so a caller resolving *many* references pays a walk
     /// apiece, and that multiplies. §12.3.3's outline of ISO 32000-2 is 988 items over a
-    /// 1023-page tree, and asking `index_of` for each cost **344 ms of every page turn**
-    /// (session 141). This is the same information gathered once: `O(pages + references)` where
+    /// 1023-page tree, and asking `index_of` for each costs **344 ms of every page turn**
+    /// (ADR 0124). This is the same information gathered once: `O(pages + references)` where
     /// the loop was `O(pages × references)`.
     ///
     /// Built on demand rather than held, because most documents never need it: a page turn

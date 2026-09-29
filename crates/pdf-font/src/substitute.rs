@@ -30,10 +30,9 @@
 //! other non-embedded font, where their broader coverage is worth more than reproducibility,
 //! and the compiled-in set is the fallback there rather than the first choice.
 //!
-//! Metrics were the other half of the same problem and were closed in the thirtieth session:
-//! [`crate::standard_metrics`] carries the standard 14's advances, so a page whose font
-//! states no `/Widths` is laid out by the document rather than by the substitute. The two
-//! halves now come from the same faces. ADRs 0007, 0133.
+//! Metrics are the other half of the same problem: [`crate::standard_metrics`] carries the standard
+//! 14's advances, so a page whose font states no `/Widths` is laid out by the document rather than
+//! by the substitute. The two halves come from the same faces. ADRs 0007, 0133.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -709,10 +708,10 @@ static MACHINE_FONTS: AtomicBool = AtomicBool::new(true);
 /// deployment, and [`find`] answers from [`crate::standard`] there. **A confined process does not
 /// get an `Err`.** `pdf-sandbox`'s seccomp filter is an allow-list whose action is
 /// `SECCOMP_RET_KILL_PROCESS`, so `openat` is not refused, it is fatal: `read_dir` on
-/// `/usr/share/fonts` ends the worker with `SIGSYS` before any `else` branch runs. The
-/// nine-hundred-and-fourteenth session's corpus walk found this on the first sixty documents it
-/// read — four of them name a CJK or Arabic face without embedding it, and each killed the
-/// generator outright, taking the whole generation with it.
+/// `/usr/share/fonts` ends the worker with `SIGSYS` before any `else` branch runs. ADR 0870's
+/// corpus walk found four such documents in its first sixty — each names a CJK or Arabic face
+/// without embedding it, and each kills the generator outright, taking the whole generation with
+/// it.
 ///
 /// So the reachability of the filesystem has to be *stated*, by the one part of the program that
 /// knows: the caller that is about to confine itself. It is the same shape, in the same place, as
@@ -847,7 +846,7 @@ fn normalise(name: &str) -> String {
 
 /// Finds a font program to stand in for the requested one.
 ///
-/// **This never fails**, since the hundred-and-forty-eighth session: [`crate::standard`] has a
+/// **This never fails** (ADR 0133): [`crate::standard`] has a
 /// face for every [`Family`], so a machine with no fonts installed at all draws the text. What
 /// the order decides is *which* answer comes first, and [`Request::standard`] is what decides
 /// the order — the fourteen the standard says a processor has are answered from the binary, and

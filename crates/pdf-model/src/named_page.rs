@@ -22,8 +22,8 @@
 //! > - A script executed by an ECMAScript action can add the named page to the current document
 //! >   as a regular page.
 //!
-//! The second is `CLAUDE.md`'s closed exclusion list. The first is §12.7.8.3.3, which is read as
-//! of the hundredth session (ADR 0090) and which this closes: an FDF page dictionary's
+//! The second is `CLAUDE.md`'s closed exclusion list. The first is §12.7.8.3.3, which is read
+//! (ADR 0090) and which this closes: an FDF page dictionary's
 //! `/Templates` each carry a Table 253 named page reference, and resolving one means looking a
 //! name up here. A template page added to the document is a page a viewer *shows*, so this is
 //! not a data-interchange feature — it is the one route by which a document gains a page after
@@ -67,9 +67,8 @@ pub struct NamedPages {
     /// resolved, because the clause states no tie-break and a file writing one has said
     /// something worth seeing.
     ///
-    /// **This line said "which §7.9.6 makes lexical by key" until the
-    /// seven-hundred-and-fiftieth session**, and *lexical* is the one word Errata Collection 3's
-    /// Issue #214 takes out of that clause; what defines the order is the byte comparison the
+    /// The order is not *lexical*, the one word Errata Collection 3's Issue #214 takes out of
+    /// §7.9.6; what defines the order is the byte comparison the
     /// two sentences after it state, which `pdf_syntax::tree` now carries in full.
     pub pages: Vec<(String, ObjectId)>,
     /// `/Names /Templates`: names of pages "not intended to be displayed by the PDF processor".
@@ -159,9 +158,8 @@ impl NamedPages {
     /// names no page.
     ///
     /// `pages` is the document's own page index, which the `/Pages` half needs. One walk of the
-    /// tree serves every name (`Pages::indices`) rather than one walk per name — the shape
-    /// §12.3.3's outline was quadratic in until the hundred-and-forty-first session, and the
-    /// same fix, applied here before anybody met it on a document with enough names to notice.
+    /// tree serves every name (`Pages::indices`) rather than one walk per name — the shape that
+    /// made §12.3.3's outline quadratic, and the same fix (ADR 0124).
     #[must_use]
     pub fn disagreements(
         &self,

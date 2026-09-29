@@ -4,9 +4,9 @@
 //! > Language (XML) and the grammar of the XML representing the metadata shall be defined
 //! > according to the extensible metadata platform specification (ISO 16684-1).
 //!
-//! That sentence is why this module exists and why it took until the two-hundred-and-ninety-fourth
-//! session to write: reading it is an XML parser over untrusted bytes, which is a dependency
-//! decision rather than a reading. ADR 0186 takes it. `xmlparser` is a pull tokenizer with no
+//! That sentence is why this module exists, and why it needed a decision before it was written:
+//! reading it is an XML parser over untrusted bytes, which is a dependency decision rather than a
+//! reading. ADR 0186 takes it. `xmlparser` is a pull tokenizer with no
 //! dependencies at all, `#![forbid(unsafe_code)]`, that resolves no entity and opens no file — so
 //! the two attacks XML is famous for, the billion-laughs expansion and the external entity, have
 //! nothing to work with. What is left to bound is this module's own stack and allocation, which
@@ -1851,10 +1851,9 @@ impl Editor {
 ///
 /// ISO 16684-1 section 6.4 requires every comparison of `xml:lang` values to be
 /// case-insensitive, and it says so by way of IETF RFC 3066, whose tags are ASCII throughout —
-/// so an ASCII fold is the whole of the rule rather than an approximation of it. This module
-/// compared the tags exactly until the nine-hundred-and-forty-sixth session, which made a packet
-/// writing `X-Default` or `EN-GB` a packet whose title this reader could not find: the sentence
-/// became readable when a copy of that standard reaching its section 7.2 arrived.
+/// so an ASCII fold is the whole of the rule rather than an approximation of it. An exact
+/// comparison would make a packet writing `X-Default` or `EN-GB` a packet whose title this reader
+/// could not find.
 fn same_language(one: &str, other: &str) -> bool {
     one.eq_ignore_ascii_case(other)
 }
@@ -1866,10 +1865,7 @@ fn same_language(one: &str, other: &str) -> bool {
 ///
 /// **Section 7.1 puts the choice between the three beyond its own scope** and leaves it to
 /// whichever standard embeds the packet, so a reader that took one of them for the rule would be
-/// inventing one. §14.3.2 embeds packets in PDF and states no encoding either. This citation
-/// said section 7.3.2 until the nine-hundred-and-forty-sixth session, when a copy of the standard
-/// reaching section 7.2 arrived and the sentence turned out to be in section 7.1 saying rather
-/// less than the citation implied.
+/// inventing one. §14.3.2 embeds packets in PDF and states no encoding either.
 ///
 /// UTF-8 is what every one of the 319 corpus streams uses and what the `<?xpacket>` header's
 /// `begin` attribute signals by carrying U+FEFF in the packet's own encoding. The other two are

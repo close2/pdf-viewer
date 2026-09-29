@@ -56,12 +56,11 @@ use crate::shading::Colouring;
 /// further does so linearly and cannot recover curvature. Ten steps is two hundred triangles
 /// per patch.
 ///
-/// **This comment used to end "puts the error of a patch spanning a whole page well under a
-/// pixel", and that was a claim with no scale in it**: the surface is evaluated in the
-/// shading's own space and the triangles are transformed afterwards, so whatever the chord
-/// error is in page units, a device sees it multiplied by the magnification. What the sentence
-/// is worth is what a measurement says, and the nine-hundred-and-forty-fifth session took one —
-/// every corpus page holding a mesh rendered at this fineness and at 60, with
+/// **A claim that the error is "well under a pixel" would have no scale in it**: the surface is
+/// evaluated in the shading's own space and the triangles are transformed afterwards, so
+/// whatever the chord error is in page units, a device sees it multiplied by the magnification.
+/// What the fineness is worth is what a measurement says — every corpus page holding a mesh
+/// rendered at this fineness and at 60, with
 /// [`MAX_TRIANGLES`] lifted so that only the fineness moved. At the page's own scale the worst
 /// page is `coons-allflags-withfunction.pdf` at a mean 0.0511 of 255 and a worst 32×32 tile of
 /// 0.92; at four times the mean is unchanged and the worst tile rises to 10.18
@@ -69,11 +68,10 @@ use crate::shading::Colouring;
 /// does not shrink as the pixels arrive. So ten steps is adequate for a page and visibly not a
 /// derivation, which is why §8.7.4.5.7's and §8.7.4.5.8's ledger rows stay `partial` on it.
 ///
-/// **And raising it is not free, which is the thing this constant could not say before
-/// [`MAX_TRIANGLES`] was public**: the bound is counted in triangles, so a document's patch
+/// **And raising it is not free**: the bound is counted in triangles, so a document's patch
 /// budget is `MAX_TRIANGLES / (2 · PATCH_STEPS²)`. The largest mesh any corpus this tree holds
 /// paints with is `bug1703683_page2_reduced.pdf`'s 305 patches — 61 000 triangles, 23.3% of the
-/// bound at this fineness — and it **crosses the bound at a fineness of 21**. So a session that
+/// bound at this fineness — and it **crosses the bound at a fineness of 21**. So a round that
 /// derives this number from §10.7.3's smoothness tolerance has to move the bound with it or
 /// start dropping patches out of a real document, which is what makes the two constants one
 /// decision rather than two.
@@ -248,12 +246,10 @@ pub(crate) fn read(
 
 /// What reading a mesh stream produced, and what a bound cost it.
 ///
-/// A struct rather than the pair this returned until the nine-hundred-and-forty-fifth session,
-/// because the third member is the one a caller must not be able to ignore by accident:
-/// [`MAX_TRIANGLES`] stops a mesh part-way, and a page that drew the part without saying so is
-/// exactly the silent drop `pdf_model::content` forbids. Every neighbouring bound in this crate is
-/// already reported as `pdf_model::Unsupported::LimitReached`; this one was not, from the day it
-/// was written until that session.
+/// A struct rather than a pair, because the third member is the one a caller must not be able to
+/// ignore by accident: [`MAX_TRIANGLES`] stops a mesh part-way, and a page that drew the part
+/// without saying so is exactly the silent drop `pdf_model::content` forbids. Every bound in this
+/// crate is reported as `pdf_model::Unsupported::LimitReached`, this one included.
 pub(crate) struct Mesh {
     /// The triangles, in the order §8.7.4.5.7's overlap rule needs them painted.
     ///

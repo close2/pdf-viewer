@@ -5,10 +5,9 @@
 //! Every other sweep in `doc/todo/01` reads what a row or a comment *claims*. This one reads what
 //! it **points at**, and a pointer decays faster than a claim — deleting a file is a thing rounds
 //! do on purpose. §8.9.6.1's note cited `doc/todo/20` for a refusal ADR 0169 had implemented, and
-//! the session that made the sentence false deleted the file it named in the same commit;
-//! `doc/todo/12` stood in six places under `crates/` after the item was done. The sweep has run as
-//! a grep since the three-hundred-and-seventy-fifth session. This is the same instrument as a
-//! program, per `doc/todo/01`'s binding rule that a sweep round commits one before running any.
+//! the commit that made the sentence false deleted the file it named; `doc/todo/12` stood in six
+//! places under `crates/` after the item was done. This is the by-hand grep as a program, per
+//! `doc/todo/01`'s binding rule that a sweep round commits one before running any.
 //!
 //! # Why it is not [`crate::citation`]
 //!
@@ -51,8 +50,8 @@
 //! fragment above.
 //! What is left is [`Reach::Absent`], and it is classified once more by
 //! [`crate::retired::kind_of`]: a **correction quoting the pointer it retired** is this sweep's
-//! oldest false positive — §8.9.6.1 has produced it on every run since the three-hundred-and-
-//! seventy-fifth — and a **standing** dead pointer is the finding. Read the sentence before
+//! oldest false positive — §8.9.6.1 produces it on every run — and a **standing** dead pointer
+//! is the finding. Read the sentence before
 //! believing a hit either way; one line of context tells a citation from a quotation.
 //!
 //! # Why it is not a gate
@@ -111,6 +110,23 @@ pub const NOT_CARRIED: [&str; 6] = [
     "scratchpad",
 ];
 
+/// The documents that are records, by the path they begin with: a pointer written in one that
+/// reaches nothing is [`Reach::Historical`].
+///
+/// `CLAUDE.md` names three — `doc/adr/`, `doc/history/` and `doc/reviews/` — and `doc/history/`
+/// is read by nothing here at all ([`retired::NOT_SWEPT`]). The rest are the correspondence with
+/// the render library this project commissioned and with `hayro`'s tracker: each is dated,
+/// addressed to or from another tree, and written about that tree's layout at the revision it
+/// names, so `crates/quorra-gpu/…` in one of them is a path of a tree that has since been folded
+/// in under `raster/` rather than a path of this one gone wrong (ADR 1403).
+pub const RECORDS: [&str; 5] = [
+    "doc/adr/",
+    "doc/reviews/",
+    "doc/QUORRA_",
+    "doc/HAYRO_",
+    "doc/quorra-",
+];
+
 /// The directory an owner's answer lives in, and the letter that makes a file one.
 const QUESTIONS: &str = "doc/questions/";
 
@@ -141,6 +157,11 @@ pub enum Reach {
     /// itself. An `A` whose `Q` is missing too is still [`Reach::Absent`] — nothing asked it
     /// (ADR 1379).
     AnswerNotHere,
+    /// Nothing at that path, written in one of [`RECORDS`]. A record says what the tree was when
+    /// it was written and is never rewritten afterwards (`CLAUDE.md`, *Where knowledge lives*), so
+    /// a pointer in one that the tree has since moved or retired is its date showing rather than
+    /// a defect — and a sentence corrected there would be a record rewritten (ADR 1403).
+    Historical,
     /// Resolved. A file or a directory exists at it, or the number it names does.
     Live,
 }
@@ -155,6 +176,7 @@ impl fmt::Display for Reach {
             Self::NotCarried => "not carried",
             Self::Ignored => "not carried, gitignored",
             Self::AnswerNotHere => "an answer not in this checkout",
+            Self::Historical => "historical, in a record",
             Self::Live => "live",
         })
     }
@@ -234,6 +256,7 @@ pub struct Tree {
     present: BTreeSet<String>,
     crates: Vec<String>,
     heads: BTreeSet<String>,
+    projects: Vec<String>,
     ignore: Ignore,
 }
 
@@ -265,10 +288,18 @@ impl Tree {
             .filter_map(|path| path.split_once('/'))
             .map(|(head, _)| head.to_owned())
             .collect();
+        // A sub-project is a directory below the root with a `CLAUDE.md` of its own, which is how
+        // `raster/` states that it is a tree with its own `crates/` and `doc/`.
+        let projects: Vec<String> = present
+            .iter()
+            .filter_map(|path| path.strip_suffix("/CLAUDE.md"))
+            .map(str::to_owned)
+            .collect();
         Self {
             present,
             crates,
             heads,
+            projects,
             ignore: Ignore::default(),
         }
     }
@@ -316,6 +347,18 @@ impl Tree {
         let mut ignore = Ignore::default();
         collect(root, root, &mut paths, &mut ignore)?;
         Ok(Self::of(paths).ignoring(ignore))
+    }
+
+    /// The sub-project a file is written in, or `None` where it is in the root's own tree.
+    ///
+    /// A pointer written under `raster/` means `raster/crates/…` and `raster/doc/…` when it says
+    /// `crates/…` and `doc/…`, because that is the root its own `CLAUDE.md` addresses.
+    #[must_use]
+    pub fn project_of(&self, path: &str) -> Option<&str> {
+        self.projects
+            .iter()
+            .find(|directory| path.starts_with(&format!("{directory}/")))
+            .map(String::as_str)
     }
 
     /// The crate directory a file belongs to, or `None` where it is in no crate.
@@ -437,7 +480,8 @@ pub fn sweep(
     sources: &[(PathBuf, String)],
     documents: &[(PathBuf, String)],
 ) -> Sweep {
-    let mut places: Vec<(String, String, Option<String>)> = Vec::new();
+    // Where each block is, its text, the crate it is written in, and the file it is written in.
+    let mut places: Vec<(String, String, Option<String>, Option<String>)> = Vec::new();
     for row in &ledger.rows {
         if let Some(note) = row.note.as_deref() {
             places.push((
@@ -450,6 +494,7 @@ pub fn sweep(
                 ),
                 note.to_owned(),
                 None,
+                None,
             ));
         }
     }
@@ -460,7 +505,12 @@ pub fn sweep(
         }
         let home = tree.crate_of(&shown).map(str::to_owned);
         for (line, block) in crate::blockers::comment_blocks(text) {
-            places.push((format!("{shown}:{line}"), block, home.clone()));
+            places.push((
+                format!("{shown}:{line}"),
+                block,
+                home.clone(),
+                Some(shown.clone()),
+            ));
         }
     }
     for (path, text) in documents {
@@ -469,17 +519,18 @@ pub fn sweep(
             continue;
         }
         for (line, block) in retired::paragraphs(text) {
-            places.push((format!("{shown}:{line}"), block, None));
+            places.push((format!("{shown}:{line}"), block, None, Some(shown.clone())));
         }
     }
 
     let index = source_index(sources);
     let mut found = Sweep::default();
-    for (location, block, home) in &places {
+    for (location, block, home, written_in) in &places {
         for sentence in crate::unread::sentences(block) {
             let kind = retired::kind_of(sentence);
             for text in paths_in(sentence) {
-                let (reach, pattern) = reach_of(&text, home.as_deref(), tree);
+                let (reach, pattern) =
+                    reach_of(&text, home.as_deref(), written_in.as_deref(), tree);
                 found.pointers.push(Pointer {
                     reach,
                     pattern,
@@ -517,12 +568,22 @@ fn source_index(sources: &[(PathBuf, String)]) -> BTreeMap<String, &str> {
         .collect()
 }
 
-/// What a pointer reaches, given the crate it was written in, and the pattern for
+/// What a pointer reaches, given the crate and the file it was written in, and the pattern for
 /// [`Reach::Ignored`].
 ///
 /// A pattern is asked before the tree is: whether a checkout happens to hold an ignored file is
 /// the machine's, and the sweep's answer should be the same in the merge and in a fresh clone.
-fn reach_of(text: &str, home: Option<&str>, tree: &Tree) -> (Reach, Option<String>) {
+///
+/// Before a pointer is called absent it is read the two other ways a reader would: from the root
+/// of the sub-project it is written in ([`Tree::project_of`]), and from the directory of the file
+/// it is written in — `raster/fill.rs` in `src/compute.rs` is that crate's `src/raster/fill.rs`.
+/// What still reaches nothing is [`Reach::Historical`] where the file is one of [`RECORDS`].
+fn reach_of(
+    text: &str,
+    home: Option<&str>,
+    written_in: Option<&str>,
+    tree: &Tree,
+) -> (Reach, Option<String>) {
     if text.contains(['*', '<']) || text.split('/').any(is_a_placeholder) {
         return (Reach::Placeholder, None);
     }
@@ -553,7 +614,14 @@ fn reach_of(text: &str, home: Option<&str>, tree: &Tree) -> (Reach, Option<Strin
             Some(format!("{}: {}", pattern.file, pattern.text)),
         );
     }
-    let reach = if tree.holds(&path) {
+    let project = written_in.and_then(|file| tree.project_of(file));
+    let beside = written_in
+        .and_then(|file| file.rsplit_once('/'))
+        .map(|(directory, _)| format!("{directory}/{text}"));
+    let reach = if tree.holds(&path)
+        || project.is_some_and(|root| tree.holds(&format!("{root}/{text}")))
+        || beside.is_some_and(|near| tree.holds(&near))
+    {
         Reach::Live
     } else if RELATIVE_HEADS.contains(&head) && tree.holds_anywhere(text) {
         Reach::AnotherCrate
@@ -561,6 +629,8 @@ fn reach_of(text: &str, home: Option<&str>, tree: &Tree) -> (Reach, Option<Strin
         Reach::NotCarried
     } else if question_of_answer(&path).is_some_and(|question| tree.holds(&question)) {
         Reach::AnswerNotHere
+    } else if written_in.is_some_and(|file| RECORDS.iter().any(|record| file.starts_with(record))) {
+        Reach::Historical
     } else {
         Reach::Absent
     };
@@ -774,6 +844,68 @@ mod tests {
         assert_eq!(absent.first().expect("one").text, "doc/todo/20");
     }
 
+    /// A record keeps the tree it was written against, so its dead pointer is its date; the same
+    /// words in a document that says what is are still the finding (ADR 1403).
+    #[test]
+    fn a_records_dead_pointer_is_historical_and_a_documents_is_absent() {
+        let documents = vec![
+            file(
+                "doc/adr/0169-a-stencil.md",
+                "The refusal was `doc/todo/20`'s.\n",
+            ),
+            file(
+                "doc/QUORRA_FEEDBACK.md",
+                "The instrument is `crates/render-quorra/examples/zoom.rs`.\n",
+            ),
+            file(
+                "doc/todo/01-ledger-partial-rows.md",
+                "The refusal is `doc/todo/20`'s.\n",
+            ),
+        ];
+        let found = sweep(&tree(), &ledger(Vec::new()), &[], &documents);
+        assert_eq!(found.reaching(Reach::Historical).len(), 2);
+        let absent = found.reaching(Reach::Absent);
+        assert_eq!(absent.len(), 1);
+        assert!(
+            absent
+                .first()
+                .expect("one")
+                .location
+                .starts_with("doc/todo/01")
+        );
+    }
+
+    /// A sub-project's `crates/…` is its own, and a module path is read from beside its file.
+    #[test]
+    fn a_pointer_is_read_from_its_sub_project_and_from_beside_its_file() {
+        let tree = Tree::of([
+            "crates",
+            "crates/pdf-model",
+            "raster",
+            "raster/CLAUDE.md",
+            "raster/crates",
+            "raster/crates/raster-gpu",
+            "raster/crates/raster-gpu/Cargo.toml",
+            "raster/crates/raster-gpu/src",
+            "raster/crates/raster-gpu/src/compute.rs",
+            "raster/crates/raster-gpu/src/raster",
+            "raster/crates/raster-gpu/src/raster/fill.rs",
+            "raster/crates/raster-gpu/tests",
+            "raster/crates/raster-gpu/tests/archetypes.rs",
+        ]);
+        assert_eq!(
+            tree.project_of("raster/crates/raster-gpu/src/compute.rs"),
+            Some("raster")
+        );
+        let sources = vec![file(
+            "raster/crates/raster-gpu/src/compute.rs",
+            "//! `raster/fill.rs`, gated by `crates/raster-gpu/tests/archetypes.rs`.\nfn a() {}\n",
+        )];
+        let found = sweep(&tree, &ledger(Vec::new()), &sources, &[]);
+        assert_eq!(found.reaching(Reach::Live).len(), 2);
+        assert!(found.reaching(Reach::Absent).is_empty());
+    }
+
     /// A pointer to a todo or an ADR names the number, and the file's name begins with it.
     #[test]
     fn a_number_resolves_the_file_whose_name_begins_with_it() {
@@ -785,7 +917,7 @@ mod tests {
     }
 
     /// A fragment is resolved from the crate it is written in — which is what a reader does
-    /// with it, and where the five-hundred-and-thirty-seventh's first defect was.
+    /// with it.
     #[test]
     fn a_fragment_is_resolved_from_the_crate_it_is_written_in() {
         let sources = vec![

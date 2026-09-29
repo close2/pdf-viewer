@@ -24,11 +24,10 @@
 //! ignored either way. A reader that treats the dictionary as authoritative for both, as it
 //! is for every other filter, renders JPEG 2000 images in the wrong colours and cannot tell.
 //!
-//! **`/Decode` is the third entry and does *not* follow those two, which this comment and
-//! §7.4.9's ledger row both got wrong for six hundred sessions.** The clause's condition is
+//! **`/Decode` is the third entry and does *not* follow those two.** The clause's condition is
 //! `/ColorSpace`'s **absence**, not the filter — its own sentence is quoted verbatim in
 //! [`decode_jpx`], where the entry is read. Where the dictionary states a colour space it
-//! states the map into it as well, and dropping the array turned a crawled catalogue cover's
+//! states the map into it as well, and dropping the array would turn a crawled catalogue cover's
 //! `/Decode [1 0 1 0 1 0 1 0]` CMYK photograph into its own complement in silence (ADR 0468).
 //!
 //! An image this module cannot decode returns an error naming why, and the interpreter
@@ -1173,11 +1172,10 @@ const fn article(word: &str) -> &'static str {
 
 /// An image dictionary, the document holding it, and the resources it was named from.
 ///
-/// One argument rather than three because the three are never apart. Table 87's entries are
-/// in the dictionary, the objects they reference are in the document, and — this is the one
-/// that was missing until the twenty-fifth session — §8.6.5.6's `/DefaultGray`, `/DefaultRGB`
-/// and `/DefaultCMYK` are in the resource dictionary the image was *drawn* from, which is a
-/// property of the `Do` rather than of the image.
+/// One argument rather than three because the three are never apart. Table 87's entries are in the
+/// dictionary, the objects they reference are in the document, and §8.6.5.6's `/DefaultGray`,
+/// `/DefaultRGB` and `/DefaultCMYK` are in the resource dictionary the image was *drawn* from,
+/// which is a property of the `Do` rather than of the image (ADR 0034).
 #[derive(Clone, Copy)]
 struct Dictionaries<'a> {
     /// The document, for resolving anything indirect.
@@ -1230,11 +1228,11 @@ fn colour_space(
     // `/N` — so the same colour rendered differently depending on whether it reached the
     // page as a fill or as an image, which is exactly trap 6's defect one level up.
     //
-    // And §14.11.5's output intent, the third source `ColourSpace::device_family` ranks and
-    // the one this route reached last: until session 987 the space was parsed with no intent,
-    // so on a page carrying one an image in `DeviceCMYK` was the assumed press's cyan beside
-    // a fill that was the intent's (ADR 1001, ADR 1008). The intent travels in `into` because
-    // that is what the interpreter already hands every route that converts after it.
+    // And §14.11.5's output intent, the third source `ColourSpace::device_family` ranks: a space
+    // parsed with no intent would make an image in `DeviceCMYK`, on a page carrying one, the
+    // assumed press's cyan beside a fill that was the intent's (ADR 1001, ADR 1008). The intent
+    // travels in `into` because that is what the interpreter already hands every route that
+    // converts after it.
     let intent = into.output_intent();
     let resolved = crate::colour::ColourSpace::parse_under(
         document,
@@ -1603,8 +1601,8 @@ fn convert_four(
 /// How many pixels one parallel band of a colour conversion covers, or `None` for one thread.
 ///
 /// **Both numbers here are measured and the measurement is a wall clock**, because a parallel
-/// change makes the instruction count go *up* while the page appears sooner — the distinction
-/// session 162 had to make for the strips, and the reason both are quoted below.
+/// change makes the instruction count go *up* while the page appears sooner — the same
+/// distinction the strips make, and the reason both are quoted below.
 ///
 /// `issue19971.pdf`'s 2500×1364 `ICCBased` photograph, interpreted whole, on 24 cores:
 ///
@@ -1870,16 +1868,13 @@ fn resolved_sample(
     // bits per component the key cannot hold the samples and the caller supplies no cache at
     // all rather than a lossy one.
     //
-    // **The tag is not decoration and this line had lost it**, which the
-    // three-hundred-and-eighty-third session found. `key` was seeded with the tag and then
-    // shifted left eight bits per component, so four components pushed it out of the word
-    // entirely and an all-zero sample tuple keyed on 0 — which is what [`SampleMemo`]'s slots
-    // hold before anything is put in one, so `get` answered a *hit* out of an empty table and
-    // every such pixel came back `Color::BLACK`. **Four components exactly**, because three
-    // leave the tag at bit 56 and a wider key is never built: a `DeviceN` of four colourants
-    // at no tint, and, since this round, every `DeviceCMYK` image inside a `/Luminosity` mask
-    // group, where zero ink is white. The bytes are packed into the low half now and the tag
-    // stays where the comment always said it was.
+    // **The tag is not decoration** (ADR 0220). A key seeded with the tag and then shifted
+    // left eight bits per component would push it out of the word at four components, and an
+    // all-zero sample tuple would key on 0 — which is what [`SampleMemo`]'s slots hold before
+    // anything is put in one, so `get` would answer a *hit* out of an empty table and every
+    // such pixel would come back `Color::BLACK`: a `DeviceN` of four colourants at no tint, or
+    // a `DeviceCMYK` image inside a `/Luminosity` mask group, where zero ink is white. So the
+    // bytes are packed into the low half and the tag stays in the high one.
     let mut packed = 0u32;
     let values: Vec<f32> = (0..count)
         .map(|component| {
@@ -2206,8 +2201,8 @@ fn jbig2_bilevel(
 /// delivers is genuinely shorter than the image. That is why this function's answer and the
 /// image's height travel *separately* over [`pdf_sandbox`]'s pipe — the first bounds the decode,
 /// the second is the grid the worker pads to — and why [`ccitt_bound_below_its_height`] says so
-/// beside the drawing. Until the five-hundred-and-ninety-ninth session the pipe carried one
-/// number for both jobs and such an image was refused for being the size the clause asked for.
+/// beside the drawing. One number for both jobs would refuse such an image for being the size the
+/// clause asked for.
 fn ccitt_rows(rows: u32, end_of_block: bool, height: u32) -> u32 {
     match rows {
         0 => height,
@@ -3796,7 +3791,7 @@ fn frame_as_defined(data: &[u8]) -> std::borrow::Cow<'_, [u8]> {
 /// beside it — and a library default that fires first has answered a question this project
 /// answers deliberately. The witness is a crawled full-page scan 28341 rows tall, refused as
 /// `Image height 28341 greater than height limit 16384` and drawn as a blank sheet where three
-/// reference renderers agree (session 619); 28341 × its width is far inside [`MAX_SAMPLES`].
+/// reference renderers agree (ADR 0454); 28341 × its width is far inside [`MAX_SAMPLES`].
 ///
 /// The bomb the default was written against is refused by [`MAX_SAMPLES`] for the reason it
 /// always was: a frame of 65535 by 65535 is 4.29 G samples against a budget of 268 M.
@@ -3901,8 +3896,8 @@ fn decode_jpeg(data: &[u8], stated: Option<i64>) -> Result<DecodedJpeg, ImageErr
     // fourth is carried alongside — and asking for `YCCK` out gets the four *raw* channels, which
     // is why the conversion below is here rather than in the decoder.
     //
-    // **The frame's component count decides this, and the APP14 transform code does not** — which
-    // is what this condition got wrong until the four-hundred-and-thirtieth session. §7.4.8 says
+    // **The frame's component count decides this, and the APP14 transform code does not**
+    // (ADR 0266). §7.4.8 says
     // where the number comes from:
     //
     // > The values of these parameters, which include the dimensions of the image and the number
@@ -4092,7 +4087,7 @@ fn widened(pixels: &[u8], count: usize, channels: usize) -> Result<Vec<u8>, Imag
 /// so the first pair governs each of them.
 ///
 /// **A channel and a component are the same thing only where the space's components run from 0
-/// to 1**, so since the six-hundred-and-thirty-first session this runs on the paths
+/// to 1**, so this runs on the paths
 /// [`convert_channels`] does *not* convert — a stencil, an unreadable space, and the device
 /// spaces the decoder already delivered. Everywhere else the map is indexed in the space's own
 /// component values, where a `Lab` lightness of 100 and an `Indexed` index of 255 both fit and
@@ -4200,9 +4195,8 @@ fn convert_channels(
     // percentage and whose two chromatic axes take the space's own `/Range`. Dividing a sample
     // by 255 hands `Lab` a lightness of at most 1 out of 100, which is a photograph drawn as a
     // **black rectangle** with nothing reported — a crawled schoolbook page, +32.097 of 255
-    // against three references agreeing to 1.8 (session 631, ADR 0464). The `Indexed` half of
-    // the same hole was found one arm along and fixed in the six-hundred-and-thirteenth
-    // (ADR 0448); this is its other two arms.
+    // against three references agreeing to 1.8 (ADR 0464). The `Indexed` half of the same hole
+    // is one arm along (ADR 0448); this is its other two arms.
     //
     // The table is the same object the unfiltered route unpacks through, so `/Decode` reaches
     // this route the way it reaches that one, in the space's own component values rather than
@@ -4274,9 +4268,8 @@ fn convert_channels(
 /// `issue16263.pdf`'s 2×2 image with a 34862×4332 `/SMask` asks for 604 MB combined and 19 MB
 /// packed, for two distinct colours.
 ///
-/// **It is a preference and not a ceiling, and that distinction is the
-/// six-hundred-and-fifteenth session's**: the same number decided both questions, so a grid
-/// past it was refused outright wherever [`eligible_for_the_device_scale`] said no — which is
+/// **It is a preference and not a ceiling** (ADR 0456): one number deciding both questions would
+/// refuse a grid past it outright wherever [`eligible_for_the_device_scale`] says no — which is
 /// every explicit `/Mask`, because a stencil is `/ImageMask true` and Table 87 gives it no
 /// colour space. The ceiling is [`MAX_SAMPLES`]: a combined grid is a raster this crate
 /// allocates, and one the size of an image the crate would have decoded on its own is not
@@ -4432,16 +4425,13 @@ fn mask_entry(document: &Document, stream: &Stream, resources: &Dictionary) -> M
 ///   domain to map them from. That case is reported, naming the depth found, rather than
 ///   guessed at.
 ///
-/// **This function refused every `JPXDecode` image until the eleven-hundred-and-eighth session,
-/// on the reading that Table 87 had taken the domain away.** It had not; §7.4.9 hands it to the
-/// data, and this crate has read the data since the module above existed (trap 40: the
-/// capability a refusal says is absent may be forty lines above it). No document in any corpus
-/// this tree holds states the pair — `examples/colour_key_mask_census` over 90 535 finds 660
-/// colour keys and not one `JPXDecode` or `JBIG2Decode` among them — so both arms are pinned by
-/// generated fixtures in `tests/image_masks.rs` and by nothing else. ADR 1121.
+/// **A `JPXDecode` image is not refused on the reading that Table 87 takes the domain away.** It
+/// does not; §7.4.9 hands it to the data, and this crate reads the data in the module above. No
+/// document in any corpus this tree holds states the pair — `examples/colour_key_mask_census` over
+/// 90 535 finds 660 colour keys and not one `JPXDecode` or `JBIG2Decode` among them — so both arms
+/// are pinned by generated fixtures in `tests/image_masks.rs` and by nothing else. ADR 1121.
 ///
-/// **The lossy filters are not refused, and this function refused all four codecs by name
-/// until the eight-hundred-and-ninety-fourth session.** §8.9.6.4 opens with a `shall`
+/// **The lossy filters are not refused.** §8.9.6.4 opens with a `shall`
 /// addressed to whoever paints the image:
 ///
 /// > Samples in the image that fall within this range shall not be painted, allowing the
@@ -4455,7 +4445,7 @@ fn mask_entry(document: &Document, stream: &Stream, resources: &Dictionary) -> M
 /// with NOTE 2 explaining that quantisation can leave a sample outside the range its producer
 /// meant it to fall in. That is a warning about a picture, addressed to a writer choosing a
 /// filter; it is not a permission to leave the `shall` unmet, and §7.4.8 states no such
-/// exclusion either. Refusing on it was this reader's choice wearing the clause's clothes
+/// exclusion either. Refusing on it would be this reader's choice wearing the clause's clothes
 /// (ADR 0832).
 ///
 /// **Where the test is taken is settled by §8.9.5.1's Table 87 rather than by this crate's
@@ -4673,12 +4663,12 @@ fn explicit_entry(document: &Document, dict: &Dictionary, stream: &Arc<Stream>) 
     // > If this flag is true , the value of BitsPerComponent , if present, shall be 1 and Mask
     // > and ColorSpace shall not be specified
     //
-    // and of `/Mask` itself, "shall not be present for image masks". So a stencil that states
-    // one is a file no clause describes, and **following it is unbounded recursion**:
-    // `decode_parts` → `apply_explicit_mask` → `decode` → `decode_parts`, which the `page`
-    // fuzz target overflowed the stack on in the five-hundred-and-sixty-fourth session. A
-    // stack overflow is an abort rather than a report, and the address-space ceiling cannot
-    // see it (`doc/todo/10` §2's `MAX_FORM_DEPTH` row, the same argument one clause along).
+    // and of `/Mask` itself, "shall not be present for image masks". So a stencil that states one
+    // is a file no clause describes, and **following it is unbounded recursion**: `decode_parts` →
+    // `apply_explicit_mask` → `decode` → `decode_parts`, which the `page` fuzz target overflows the
+    // stack on (ADR 0399). A stack overflow is an abort rather than a report, and the address-space
+    // ceiling cannot see it (`doc/todo/10` §2's `MAX_FORM_DEPTH` row, the same argument one clause
+    // along).
     //
     // Refused rather than depth-bounded, because the standard's bound is *one* and stating it
     // needs no constant: a mask's mask does not exist. Table 143's `/SMask` twin is
@@ -6091,10 +6081,7 @@ impl ShapeMasks {
 /// the same sequence**: 804.2 MB over 4534 decodes. It serves the witness's nine-in-a-row exactly,
 /// because the witness's nine are consecutive, and it is 2.9% short of the table above on a corpus
 /// where nothing interleaves two large images. What it cannot do is the interleave, which is one
-/// `Do` order away from the shape the witness already has. (This named `doc/todo/47` until the
-/// five-hundred-and-seventy-eighth session, and the file was deleted by the same commit that wrote
-/// the sentence — the pointer and its subject closing together, which is `doc/todo/01`'s eighth
-/// sweep's own shape.)
+/// `Do` order away from the shape the witness already has.
 ///
 /// **The doubling to 64 MiB is headroom for a shape the corpus does not contain and a page can
 /// state as easily as the witness's**: two large images drawn alternately. At 32 MiB two 26.1 MB
@@ -6162,11 +6149,11 @@ const RASTER_BUDGET: usize = 64 << 20;
 ///   so equality is the claim that the lookups agree. [`RasterCache::parts`] makes the claim
 ///   structural rather than a reading of `colour.rs`: the decode is *handed* a resource
 ///   dictionary holding that one entry, so a lookup of anything else finds nothing on a miss and
-///   nothing on a hit alike. **Until the eight-hundred-and-sixty-ninth session the entry held the
-///   whole dictionary**, and [`RASTER_BUDGET`] could not see it: a fuzzed page naming 10 260
-///   one-row image `XObject`s through one dictionary cloned that dictionary — about a mebibyte,
-///   since it names all 10 260 — into every entry while charging the eight bytes of samples, and
-///   cost 10.60 GiB to interpret (ADR 0798 measured it, ADR 0791 took this).
+///   nothing on a hit alike. **An entry holding the whole dictionary would escape
+///   [`RASTER_BUDGET`]**: a fuzzed page naming 10 260 one-row image `XObject`s through one
+///   dictionary would clone that dictionary — about a mebibyte, since it names all 10 260 — into
+///   every entry while charging the eight bytes of samples, 10.60 GiB to interpret (ADR 0798
+///   measured it, ADR 0791 took this).
 /// - **The fill colour**, because §8.9.6.2's stencil "does not specify colours; instead, it
 ///   designates places on the page that should either be marked with the current colour or masked
 ///   out", so the same stencil under two fill colours is two rasters. Compared as bit patterns,
@@ -6315,8 +6302,8 @@ struct Cached {
     parts: Parts,
     /// What this entry charges against [`RASTER_BUDGET`]: the samples, and the `/ColorSpace`
     /// entry it holds. The second term is what makes the budget a bound on the entry rather than
-    /// on the samples — `doc/todo/12`'s shape, met here in the eight-hundred-and-sixty-sixth
-    /// session as ten thousand eight-byte rasters holding ten thousand mebibyte dictionaries.
+    /// on the samples — `doc/todo/12`'s shape, which here is ten thousand eight-byte rasters
+    /// holding ten thousand mebibyte dictionaries (ADR 0798).
     bytes: usize,
 }
 

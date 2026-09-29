@@ -155,6 +155,7 @@ mod sites;
 mod tagged;
 mod to_unicode;
 mod toml;
+mod transcode;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
@@ -190,6 +191,7 @@ pub use report::{
 };
 pub use rewrite::Rewrite;
 pub use signatures::{Reached, SourceSignature};
+pub use transcode::TranscodedImage;
 
 pub use external::{ExternalData, ExternalStream, external_stream_data};
 
@@ -584,6 +586,7 @@ fn decide_every_failure(
         shown_annotations: Vec::new(),
         embedded_cmaps: Vec::new(),
         proxied_references: Vec::new(),
+        transcoded_images: Vec::new(),
         // What this file keeps outside itself, named whether or not anything was resolved: the
         // caller reads it to know what to resolve, exactly as it reads `Report::requested` to
         // know what to run (`doc/adr/1199`).
@@ -847,6 +850,11 @@ fn kept_where_it_is(plan: &ArchivePlan, id: &'static str, prepared: &Prepared) -
             Rewrite::ReferenceXObjectProxied,
             in_place::PROXIED,
         ),
+        transcode::SITE => (
+            prepared.transcodes.as_ref().err().copied(),
+            Rewrite::Jpeg2000TranscodedToFlate,
+            transcode::TRANSCODED,
+        ),
         _ => return None,
     };
     Some(match obstacle {
@@ -1089,6 +1097,13 @@ fn apply_the_decisions(
         conversion
             .proxied_references
             .clone_from(&references.proxied);
+    }
+    // ADR 1400: the file grows and the decoder's output becomes the archive's copy, so each
+    // image is named with its size under both filters.
+    if wanted.contains(&Rewrite::Jpeg2000TranscodedToFlate)
+        && let Ok(transcodes) = &prepared.transcodes
+    {
+        conversion.transcoded_images.clone_from(&transcodes.rows);
     }
     // `doc/pdf-a-conversion-limits.md` section 3.3's condition on its own loss: an action that is
     // gone leaves nothing in the output to notice, so what went is named one row at a time — the

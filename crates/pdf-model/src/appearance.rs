@@ -57,15 +57,11 @@
 //!   recommendation, and an invention with only a recommendation behind it is a mark the document
 //!   never described.
 //!
-//!   **This bullet named `FileAttachment` and `Sound` beside it, and had been false about both
-//!   since the round that drew them** — found in the nine-hundred-and-thirty-third session while
-//!   sweeping the arm below, which is `doc/habits.md`'s *a comment that names a refusal outlives
-//!   the refusal* happening a second time in this very module header (ADR 0105 was the first).
-//!   §12.5.6.15's `Graph`, `PushPin`, `Paperclip` and `Tag` and §12.5.6.16's `Speaker` and `Mic`
-//!   name **objects** rather than legends, so their artwork is argued from the clause's own words
-//!   and [`symbol_icon`] draws all six; what is still refused is a `/Name` outside those lists,
-//!   which is a different sentence. §12.5.6.12's names are the ones that are legends, and its arm
-//!   below says so.
+//!   `FileAttachment` and `Sound` are not on this bullet (ADR 0906): §12.5.6.15's `Graph`,
+//!   `PushPin`, `Paperclip` and `Tag` and §12.5.6.16's `Speaker` and `Mic` name **objects** rather
+//!   than legends, so their artwork is argued from the clause's own words and [`symbol_icon`] draws
+//!   all six; what is still refused is a `/Name` outside those lists, which is a different
+//!   sentence. §12.5.6.12's names are the ones that are legends, and its arm below says so.
 //! - `PrinterMark` and `TrapNet` are each a mark whose *whole* visual presentation the standard
 //!   makes the appearance stream: §14.11.3 and §14.11.6.2 say so in one sentence apiece and then
 //!   require `/AP` to be present. There is no second statement of the artwork to fall back on.
@@ -78,10 +74,10 @@
 //!   poster *image* (§13.4, Table 306), which is clause 13 rather than a silence; §12.5.6.22's
 //!   Table 194 states a transformation of the annotation rectangle, which is where an appearance
 //!   goes rather than what it contains.
-//! - `Caret` is refused for a **third** reason and shared the second one's sentence until the
-//!   six-hundred-and-twenty-second session (ADR 0457). §12.5.6.11's Table 183 states geometry
-//!   and a symbol; what it does not state is the caret, and its `/RD` row says the pilcrow is
-//!   "displayed along with the caret" rather than instead of it. [`construct`]'s arm has the
+//! - `Caret` is refused for a **third** reason, not the second one's sentence (ADR 0457).
+//!   §12.5.6.11's Table 183 states geometry and a symbol; what it does not state is the caret,
+//!   and its `/RD` row says the pilcrow is "displayed along with the caret" rather than instead
+//!   of it. [`construct`]'s arm has the
 //!   reading.
 //! - `Redact` is refused for a **fourth**, and was the second subtype to be told it stated no
 //!   geometry while its table stated some (ADR 0461). §12.5.6.23's Table 195 states
@@ -90,17 +86,15 @@
 //!   redaction: every overlay entry in that table begins after the content has been removed, and
 //!   removing it is the one edit §7.5.6's incremental update cannot express.
 //!
-//! **Six subtypes shared one sentence — "its clause states no geometry" — and it was false of
-//! every one of them that was ever read.** Four sessions took a member out of that catch-all one
-//! at a time, each having read the clause the sentence was about: §12.5.6.11's caret (ADR 0457),
-//! §12.5.6.23's redaction (ADR 0461), §12.5.6.18's screen annotation (ADR 0901), and then the
-//! nine-hundred-and-thirty-third swept the remainder rather than waiting for a fifth. No ledger
-//! sweep can see this shape: a catch-all names no blocker, no missing vocabulary and no absent
+//! **No subtype is refused by a shared sentence such as "its clause states no geometry"**: each arm
+//! is argued from its own clause — §12.5.6.11's caret (ADR 0457), §12.5.6.23's redaction (ADR
+//! 0461), §12.5.6.18's screen annotation (ADR 0901), and the rest (ADR 0906). No ledger sweep can
+//! see a catch-all's shape: a catch-all names no blocker, no missing vocabulary and no absent
 //! architecture, so it passes every sweep `doc/habits.md` lists while being wrong about whichever
 //! member is least like the rest — and *every* member is least like the rest, because a group
 //! defined by a sentence nobody checked has no other property in common.
 //!
-//! **What the sweep leaves is a population of one, and the arm now says what is true of it.**
+//! **What falls through is a population of one, and the arm says what is true of it.**
 //! Table 171 has twenty-eight subtypes; `Popup`, `Projection` and `Screen` are answered before
 //! this module is reached, a subtype outside Table 171 is answered by Table 167's `Invisible`
 //! row, and the twenty-five that remain each have an arm. What falls through is an annotation
@@ -110,23 +104,19 @@
 //! Guessing at either would put marks on the page the document never described, which is the
 //! failure principle 5 exists to prevent.
 //!
-//! **`Text` was on that first list for a hundred and nineteen sessions and does not belong on
-//! it**, because §12.5.6.4 says something the other three do not: "Interactive PDF processors
-//! **shall** provide predefined icon appearances for at least the following standard names".
-//! The artwork is as unstated there as anywhere — that is why `CLAUDE.md` uses this very icon
-//! as its standing example of a silence — but the *obligation to have some* is normative, so
-//! refusing was a conformance failure rather than a restraint. [`crate::icon`] holds the seven
-//! shapes and the argument for each; [`text_icon`] holds what the document gets to say about
-//! them. One clause of four obliging and three recommending is exactly the distinction a single
-//! `match` arm over all four subtypes had hidden.
+//! **`Text` does not belong on that first list**, because §12.5.6.4 says something the other three
+//! do not: "Interactive PDF processors **shall** provide predefined icon appearances for at least
+//! the following standard names". The artwork is as unstated there as anywhere — that is why
+//! `CLAUDE.md` uses this very icon as its standing example of a silence — but the *obligation to
+//! have some* is normative, so refusing was a conformance failure rather than a restraint.
+//! [`crate::icon`] holds the seven shapes and the argument for each; [`text_icon`] holds what the
+//! document gets to say about them. One clause of four obliging and three recommending is exactly
+//! the distinction a single `match` arm over all four subtypes had hidden.
 //!
-//! **This list used to include §12.5.6.10's four text markup subtypes, and had since before
-//! [`text_markup`] was written.** The thirty-fourth session read the clause again and found it
+//! **§12.5.6.10's four text markup subtypes are not on this list** ([`text_markup`]): the clause
 //! states four things — the mark's kind, its region, its orientation and Table 166's colour —
 //! and leaves only a thickness, which the quadrilateral's own height supplies as a fraction
-//! (ADR 0043). The refusal that stood for thirteen sessions had said the clause states nothing.
-//! A comment naming a refusal outlived the refusal by eighty sessions; the ledger row did the
-//! same, and both were corrected in the hundred-and-fifteenth. The corpus is still what says
+//! (ADR 0043). The corpus is what says
 //! the *thickness* is a choice rather than a derivation: the three reference renderers draw
 //! three different pictures of `annotation-highlight-without-appearance.pdf`.
 //!
@@ -449,11 +439,10 @@ pub(crate) fn form_xobject(rect: [f32; 4], resources: Dictionary, content: Vec<u
 /// construction, so bounding those changes nothing except in the one case where it must not:
 /// §12.7.4.3's value, which is clipped to the field it does not fit in.
 ///
-/// **This is a predicate rather than a field because `crate::annotation` asks it twice**, and for
-/// a hundred and ninety-seven sessions the second question was decided by the wrong rule: an
-/// annotation with no appearance stream and a `/Rect` covering no area was dropped before
-/// [`construct`] was reached, which is §12.5.5's arithmetic — a stored stream's `/BBox` scaled
-/// onto no extent — applied to a construction that never goes through it. ADR 0825.
+/// **This is a predicate rather than a field because `crate::annotation` asks it twice**, and the
+/// second question must not drop an annotation with no appearance stream and a `/Rect` covering no
+/// area before [`construct`] is reached: that would be §12.5.5's arithmetic — a stored stream's
+/// `/BBox` scaled onto no extent — applied to a construction that never goes through it. ADR 0825.
 pub(crate) fn bounded_by_rect(subtype: &[u8]) -> bool {
     !matches!(
         subtype,
@@ -604,11 +593,10 @@ pub(crate) fn construct(
             "its clause recommends rather than requires a predefined icon, and Table 184's \
              standard names are legends rather than symbols",
         )),
-        // **§12.5.6.11 is not the catch-all's case, and this program said it was until the
-        // six-hundred-and-twenty-second session.** Table 183 states geometry — `/RD`, in the same
-        // left, top, right, bottom order [`insets`] has read for §12.5.6.8's Table 180 and
-        // §12.5.6.6's Table 177 all along — and it states a symbol by name and by character: "P A
-        // new paragraph symbol (¶) shall be associated with the caret". What is stated nowhere is
+        // **§12.5.6.11 is not the catch-all's case** (ADR 0457). Table 183 states geometry — `/RD`,
+        // in the same left, top, right, bottom order [`insets`] has read for §12.5.6.8's Table 180
+        // and §12.5.6.6's Table 177 all along — and it states a symbol by name and by character: "P
+        // A new paragraph symbol (¶) shall be associated with the caret". What is stated nowhere is
         // the **caret**, and `/RD`'s own sentence is what keeps the refusal whole: the difference
         // it measures "can occur. When a paragraph symbol specified by Sy is displayed along with
         // the caret", so the pilcrow accompanies the mark rather than standing in for it, and
@@ -704,9 +692,8 @@ pub(crate) fn construct(
         // A watermark with no `/AP` therefore has nothing to derive, for a reason that is the
         // opposite of a silence: the clause is entirely about the annotation this reader is not
         // being given. The placement side of it is `crate::annotation::fixed_print`, which carries
-        // the clause out on the annotations that *do* carry an appearance stream — reported
-        // rather than applied until the nine-hundred-and-forty-second session, which is what
-        // this comment named here (`fixed_print_owed`, ADRs 0906 and 0934).
+        // the clause out on the annotations that *do* carry an appearance stream (ADRs 0906 and
+        // 0934).
         b"Watermark" => Err(Refusal::NotDerivable(
             "its clause states where an appearance stream is placed rather than a mark to draw, \
              and Table 194's entries all transform the annotation rectangle",
@@ -987,8 +974,7 @@ fn with_default_resources(document: &Document, mut resources: Dictionary) -> Dic
 ///
 /// - a push-button is "a purely interactive control that responds immediately to user input
 ///   without retaining a permanent value" (§12.7.5.2.2), so there is nothing for `/V` to hold —
-///   **this line quoted the sentence that said so outright until the four-hundred-and-nineteenth
-///   session**, and Errata Collection 3 strikes "Because this type of retains no permanent
+///   Errata Collection 3 strikes "Because this type of retains no permanent
 ///   value, it shall not use the V and DV entries in the field dictionary" with no replacement
 ///   (Issue #386, `/State` `Review` `Completed`), leaving the definition it drew its reason
 ///   from;
@@ -1017,9 +1003,8 @@ fn with_default_resources(document: &Document, mut resources: Dictionary) -> Dic
 /// is changed".
 ///
 /// Without this, a widget with a stored `/AP` in a document that does not set `/NeedAppearances`
-/// showed its *old* value after an import or a reset — silently, since the sixty-second session.
-/// No fixture caught it because the fixtures state no `/AP`, which is the path that constructs
-/// rather than splices.
+/// would show its *old* value after an import or a reset, silently. The fixtures that state no
+/// `/AP` cannot see it, because that is the path that constructs rather than splices.
 pub(crate) fn regenerates(
     document: &Document,
     annotation: &Dictionary,
@@ -1216,9 +1201,7 @@ fn link(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
 /// `/Open` is not read *here*, and that is a statement about this routine rather than about the
 /// entry: §12.5.6.4 gives an open text annotation a popup window "containing the text of the
 /// note", and a window is not part of the page. `crate::popup`'s `opens_with_the_page` is what
-/// reads it, since the four-hundred-and-fifty-ninth session — this comment said the entry was not
-/// read at all, on the ground that this program drew no popup for any subtype, which stopped being
-/// true in the three-hundred-and-twelfth.
+/// reads it (ADR 0294).
 /// A clause's mapping from an icon's name to its artwork.
 type IconLookup = fn(&[u8]) -> Option<&'static [icon::Figure]>;
 
@@ -1795,15 +1778,13 @@ fn ink(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Out
 ///
 /// One entry is still owed and it states a different kind of nothing: `/LE`'s endings
 /// name shapes with no size (Table 179 says "[a] square", "[t]wo short lines meeting in an
-/// acute angle" — re-read in the eighty-fifth session and it still states no dimension).
-/// **It is named beside the drawn line rather than instead of it**, since the
-/// hundred-and-sixteenth session: it is optional and additive where `/L` is required, so
+/// acute angle" — and no dimension, ADR 0075). **It is named beside the drawn line rather than
+/// instead of it** (ADR 0106): it is optional and additive where `/L` is required, so
 /// declining the whole annotation for it drew nothing where the clause states a line. That
 /// is the same reasoning the refusal above records for `/LL`, applied one entry over.
 ///
-/// **`/Cap` stood on that list until the five-hundred-and-seventy-fourth session and is drawn
-/// now** — [`caption`] holds the reading, and what it retires is a refusal whose sentence was
-/// true and whose inference was not.
+/// **`/Cap` is drawn** — [`caption`] holds the reading: the sentence that would refuse it is true
+/// and the inference from it is not.
 fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Outcome {
     let endings = line_endings(document, annotation)?;
     let ends = points(document, annotation, "L").unwrap_or_default();
@@ -1911,15 +1892,14 @@ fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
 /// line" is a statement in a frame whose axes are the line's, and the caption is placed from its
 /// midpoint in that frame. So the position is the clause's, to the point.
 ///
-/// # The refusal this replaces, and why it was wrong
+/// # Why no font entry is a reason to draw rather than to refuse
 ///
-/// Until the five-hundred-and-seventy-fourth session this entry was refused whole, on the
-/// sentence *"§12.5.6.7's /Cap asks for /Contents as a caption, and no entry gives it a font"*.
-/// The sentence is true — no entry of a line annotation is a `/DA`, and Table 172 gives a markup
+/// §12.5.6.7's `/Cap` asks for `/Contents` as a caption, and no entry gives it a font. That
+/// is true — no entry of a line annotation is a `/DA`, and Table 172 gives a markup
 /// annotation none either — and the inference from it is not, which is ADR 0109's rule: the
 /// question a silence poses is not *may I fill this* but *does a sentence around it require me
-/// to*, and the `shall` quoted above does. It is the same shape §12.7.5.4's list box was refused
-/// on one round earlier (ADR 0407): a true observation about what the clause leaves open, taken
+/// to*, and the `shall` quoted above does. It is the same shape as §12.7.5.4's list box
+/// (ADR 0407): a true observation about what the clause leaves open, taken
 /// as a reason to draw nothing where the same clause states a mark outright.
 ///
 /// # The two choices, and what the clause's own figure settled
@@ -2435,14 +2415,9 @@ fn draw_ending(
             if closed {
                 stream.close();
             }
-            // [`Ending::filled`] decides this, here as for the three shapes above. **This arm
-            // asked `closed && interior != Colour::None` instead until the
-            // seven-hundred-and-sixteenth session**, which is the same answer written a second
-            // time and reached by a different route: `filled` was consulted for three of the five
-            // shapes it names and the other two decided for themselves. The two expressions
-            // agreed, so nothing drawn moves — what moves is that a correction to `filled` now
-            // reaches every shape it is about, which is what the erratum on `RClosedArrow`'s row
-            // would have needed had it gone the other way.
+            // [`Ending::filled`] decides this, here as for the three shapes above, rather than a
+            // second expression of the same answer: one decision for all five shapes it names means
+            // a correction to `filled` reaches every shape it is about.
             stream.paint(fill, true);
         }
     }
@@ -2470,13 +2445,11 @@ fn perpendicular(start: [f32; 2], end: [f32; 2]) -> Option<[f32; 2]> {
 /// value, a choice field's selection, a button's caption — laid out by
 /// [`crate::variable_text`].
 ///
-/// Table 192's `/R` is the one entry a glyph makes load-bearing: it rotates the widget's
-/// *contents* inside `/Rect`, which a background filling that rectangle cannot see but a line of
-/// text can. **This comment said it was "read nowhere yet" and had been false since the
-/// hundred-and-fifth session**, which is where [`Rotation`] arrived and where §12.5.6.19's ledger
-/// row has said it is read and applied ever since; found by `doc/todo/02` §4's sweep run over
-/// `crates/` as that section asks. What is refused rather than applied is a value the table
-/// forbids — "[t]he value shall be a multiple of 90" — and that is named rather than rounded.
+/// Table 192's `/R` is the one entry a glyph makes load-bearing: it rotates the widget's *contents*
+/// inside `/Rect`, which a background filling that rectangle cannot see but a line of text can. It
+/// is read and applied as [`Rotation`] (ADR 0095). What is refused rather than applied is a value
+/// the table forbids — "[t]he value shall be a multiple of 90" — and that is named rather than
+/// rounded.
 fn widget(
     document: &Document,
     annotation: &Dictionary,
@@ -3903,9 +3876,8 @@ pub(crate) fn accepted_prefix(
 /// ordering is §12.5.6.2 NOTE 1's, which makes the two "textually equivalent" where a file states
 /// both, so no document stating `/Contents` changes at all. ADR 0224.
 ///
-/// Until the three-hundred-and-eighty-seventh session a free text annotation stating only `/RC`
-/// drew nothing and reported nothing, which on this subtype is a blank page: the text *is* the
-/// annotation.
+/// A free text annotation stating only `/RC` must not draw nothing, which on this subtype is a
+/// blank page: the text *is* the annotation.
 fn free_text(
     document: &Document,
     annotation: &Dictionary,
@@ -4137,9 +4109,9 @@ fn callout(document: &Document, annotation: &Dictionary, stream: &mut Stream) ->
 /// it explicitly only so that the mark cannot depend on what ran before the appearance. It is the
 /// same choice [`callout`] takes one entry over.
 ///
-/// # Why this is drawn where it was refused for a hundred sessions
+/// # Why this is drawn, and not refused
 ///
-/// The refusal rested on a claim about producers rather than about the standard — that Table
+/// A refusal would rest on a claim about producers rather than about the standard — that Table
 /// 166's `/Border` default `[0 0 1]` would put a mark on nearly every free text annotation in the
 /// world on the strength of a default nobody wrote. That claim is measurable and
 /// `examples/free_text_census` measured it: of the corpus's 73 free text annotations, 67 carry an
@@ -4295,10 +4267,7 @@ pub(crate) const FLAG_REQUIRED: i64 = 1 << 1;
 pub(crate) const FLAG_NO_EXPORT: i64 = 1 << 2;
 /// Table 231 bit 13: "the field may contain multiple lines of text".
 ///
-/// **This constant's comment said Table 227 until the three-hundred-and-ninety-eighth session.**
-/// That table is the three flags above and stops at bit 3; bit 13 is §12.7.5.3's, and the
-/// difference is not cosmetic — a reader looking the sentence up in the cited table would not
-/// find it. Found by `doc/todo/02` §4's ninth sweep, run over `crates/` as that section asks.
+/// Not Table 227, which is the three flags above and stops at bit 3; bit 13 is §12.7.5.3's.
 const FLAG_MULTILINE: i64 = 1 << 12;
 /// Table 231 bit 14: the field "is intended for entering a secure password".
 const FLAG_PASSWORD: i64 = 1 << 13;
@@ -4539,11 +4508,10 @@ impl Field {
     ///
     /// > The value of the V key shall also be the value of the AS key.
     ///
-    /// That sentence binds a *file*, and until the three-hundred-and-ninety-eighth session this
-    /// tree read only its second half — the file's `/AS` decided, always. So a person who checked
-    /// a box changed `/V` and nothing changed `/AS`, and the widget went on drawing the state it
-    /// was saved in. The reader is now the one that changed `/V`, so the reader is what has to
-    /// carry `/AS` with it.
+    /// That sentence binds a *file*, and reading only its second half — the file's `/AS` deciding,
+    /// always — would leave a checked box's `/V` changed and its `/AS` not, drawing the state it
+    /// was saved in. The reader is the one that changed `/V`, so the reader is what has to carry
+    /// `/AS` with it (ADR 0235).
     ///
     /// Two rules, one from each button subclause:
     ///
@@ -4781,13 +4749,12 @@ type Outcome = Result<Painted, Refusal>;
 /// Table 179's line endings: nine named shapes — "A square", "Two short lines meeting in an
 /// acute angle" — and not one dimension among them.
 ///
-/// **Named beside a drawn line rather than instead of one, since the hundred-and-sixteenth
-/// session.** `/LE` is optional and defaults to `[/None /None]`; `/L` and `/Vertices` are
-/// required. So an annotation stating an ending this module cannot size has still stated the
-/// line, and refusing the whole of it draws nothing where the clause states something. This is
-/// ADR 0075's finding one entry over: an entry that cannot be derived is a reason to draw the
-/// part that can be, not a reason to decline.
-/// A `/LE` naming something Table 179 does not.
+/// **Named beside a drawn line rather than instead of one** (ADR 0106). `/LE` is optional and
+/// defaults to `[/None /None]`; `/L` and `/Vertices` are required. So an annotation stating an
+/// ending this module cannot size has still stated the line, and refusing the whole of it draws
+/// nothing where the clause states something. This is ADR 0075's finding one entry over: an entry
+/// that cannot be derived is a reason to draw the part that can be, not a reason to decline. A
+/// `/LE` naming something Table 179 does not.
 ///
 /// The ten styles are the whole of the table and the entry is "[a]n array of two names", so a
 /// name outside it is a file asking for a shape this reader has no description of. Reported
@@ -4951,12 +4918,10 @@ impl Border {
         // sharpens those words to *shall be ignored*, the same precedence stated as a
         // requirement. §12.5.4 supplies the default width the two of them share.
         //
-        // **The corner radii are part of what is ignored, and were read out of `/Border`
-        // whatever `/BS` said until the four-hundred-and-fifty-eighth session.** They are the
-        // one thing Table 166's array states that Table 168 has no entry for, which is what made
-        // reading them beside a `/BS` look like completeness rather than the departure it is: a
-        // `/BS` annotation that also carries `/Border [10 10 1]` is one whose border the standard
-        // says is square, and this drew it round without a word.
+        // **The corner radii are part of what is ignored.** They are the one thing Table 166's
+        // array states that Table 168 has no entry for, which makes reading them beside a `/BS`
+        // look like completeness rather than the departure it is: a `/BS` annotation that also
+        // carries `/Border [10 10 1]` is one whose border the standard says is square.
         let (width, style, dash, radii) =
             if let Some(style) = document.get_key(annotation, "BS").as_dict() {
                 let (width, style, dash) = Self::from_style_dictionary(document, style);
@@ -5071,9 +5036,8 @@ impl Border {
     /// and the stroke of a rectangle with a zero-length pair of sides loses whatever those two
     /// sides would have covered. `bug1552113.pdf` is the witness the corpus already held: a
     /// `/Border [0 0 112]` on a 150 × 20 `/Rect`, which drew as a 38 × 20 block in the middle of
-    /// the rectangle, and a width past *both* dimensions drew nothing at all. The comment above
-    /// this method claimed the clamp "fills the rectangle solid" for eight hundred sessions, which
-    /// is what the region is and was never what the stroke did (ADR 0674).
+    /// the rectangle, and a width past *both* dimensions drew nothing at all. The clamp's region
+    /// fills the rectangle; the stroke does not (ADR 0674).
     fn fills(&self, rect: [f32; 4]) -> bool {
         self.width >= rect[2] - rect[0] || self.width >= rect[3] - rect[1]
     }
@@ -5108,15 +5072,12 @@ impl Border {
             // §12.5.4's sentence binds this style as much as the rectangular ones: "If present,
             // the border shall be drawn completely inside the annotation rectangle."
             //
-            // **This centred the line on that edge until the four-hundred-and-fifty-eighth
-            // session**, on a comment saying a stroke is centred on its path — which is true of
-            // the stroke and says nothing about where the path goes. Half the line fell below
-            // `/Rect`, where [`Constructed::bounded`]'s clip cut it off, so what a reader saw
-            // was an underline half the width the document asked for rather than ink outside
-            // the rectangle. The path is the bottom edge raised by half the width, the same
-            // arithmetic [`Self::inset`] does for the other four styles, and the butt caps a
-            // constructed appearance never changes keep the line's ends on the rectangle's own
-            // sides.
+            // **The line is not centred on that edge**: a stroke is centred on its path, and half
+            // the line would fall below `/Rect`, where [`Constructed::bounded`]'s clip cuts it off,
+            // leaving an underline half the width the document asked for. The path is the bottom
+            // edge raised by half the width, the same arithmetic [`Self::inset`] does for the other
+            // four styles, and the butt caps a constructed appearance never changes keep the line's
+            // ends on the rectangle's own sides.
             let bottom = self.inset(rect)[1];
             stream.move_to([rect[0], bottom]);
             stream.line_to([rect[2], bottom]);

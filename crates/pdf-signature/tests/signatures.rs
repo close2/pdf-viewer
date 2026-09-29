@@ -804,10 +804,10 @@ fn every_corpus_signature_answers_the_same_on_disk() {
 
 /// Every signature dictionary in the corpus, asked whether it verifies under the signer's key.
 ///
-/// **This is the three-hundred-and-ninety-second session's measurement** (ADR 0229), and it is
-/// §12.8.1's second question. It is printed beside the first because neither answer means much
-/// alone and the pairing is the whole point: `Signed` records, per signature, whether verifying it
-/// binds the document directly or only through the digest question 1 compares.
+/// **This is ADR 0229's measurement**, and it is §12.8.1's second question. It is printed beside
+/// the first because neither answer means much alone and the pairing is the whole point: `Signed`
+/// records, per signature, whether verifying it binds the document directly or only through the
+/// digest question 1 compares.
 ///
 /// **All ten verify, and four of them are the interesting ones.** `issue6127.pdf`,
 /// `poppler-395-0-fuzzed.pdf` and both of `xfa_filled_imm1344e.pdf`'s signatures answer `Changed`
@@ -1084,10 +1084,8 @@ fn flipped(signature: &Signature) -> Signature {
 ///
 /// `signature_algorithm_census` over 67 460 documents finds exactly one signature whose
 /// `SignerInfo` states RFC 5758 section 3.2's `ecdsa-with-SHA256` and whose value is the DER
-/// `ECDSA-Sig-Value` ISO/TS 32002 section 5.1.3's NOTE 2 requires. Until the
-/// six-hundred-and-eighty-ninth session it reached a reader as `AlgorithmNotVerifiable
-/// 1.2.840.10045.4.3.2`; it now verifies under the P-256 key in a certificate the value itself
-/// carries (ADR 0532).
+/// `ECDSA-Sig-Value` ISO/TS 32002 section 5.1.3's NOTE 2 requires. It verifies under the P-256
+/// key in a certificate the value itself carries (ADR 0532).
 ///
 /// **This is the demand-side half and `ecdsa.rs`'s fixtures are the other.** A real file is the
 /// only thing that proves the whole path works on bytes nobody here chose — the certificate's
@@ -1216,12 +1214,11 @@ fn every_corpus_signature_is_asked_the_third_question_both_ways() {
         "no corpus chain validated, which a working section 6.1 over these files does not do: \
          {verdicts:?}"
     );
-    // And the other half of the calibration, which changed in the thousand-and-fifty-third
-    // session and is the point of ADR 1067: an anchored path now carries what §12.8.4's material
-    // said, and what it may never carry is a `Good` this program did not compute. Every corpus
-    // document reaching `Anchored` carries no DSS at all — the census below is what says so — so
-    // the answer here is `NotChecked`, and the assertion is written against the *rule* rather than
-    // against that fact: no `Good` without material, ever.
+    // And the other half of the calibration, which is the point of ADR 1067: an anchored path now
+    // carries what §12.8.4's material said, and what it may never carry is a `Good` this program
+    // did not compute. Every corpus document reaching `Anchored` carries no DSS at all — the census
+    // below is what says so — so the answer here is `NotChecked`, and the assertion is written
+    // against the *rule* rather than against that fact: no `Good` without material, ever.
     assert!(
         verdicts
             .iter()

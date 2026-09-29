@@ -59,8 +59,8 @@ enum Component {
 ///
 /// **Both are graphics state parameters** (Table 52's `halftone` and `transfer`), so both are saved
 /// and restored by `q`/`Q`, and either can be set without the other. They are therefore kept apart
-/// and composed, rather than folded at the `gs`: a later `/TR /Identity` must clear the first bullet
-/// without touching the second, and a later `/HT /Default` the reverse.
+/// and composed, rather than folded at the `gs`: a later `/TR /Identity` must clear the first
+/// bullet without touching the second, and a later `/HT /Default` the reverse.
 #[derive(Debug, Clone, Default)]
 pub(super) struct TransferState {
     /// Table 57's `/TR` or `/TR2`.
@@ -322,15 +322,13 @@ impl Interpreter<'_> {
         // `/Default` — a state that turns an inherited transfer *off* rather than one that says
         // nothing, which are different things and only one of them clears the field.
         //
-        // **Skipped inside an uncoloured figure**, which §8.6.8 requires and which this did not
-        // do between the three-hundred-and-fifty-eighth session and the
-        // three-hundred-and-seventy-fifth. The clause names both entries in the list it applies
-        // to a `d1` glyph description and to an uncoloured tiling pattern's stream: "[a]ll of the
-        // following entries, if present in the graphics state parameter dictionary of a gs
-        // operator shall be ignored" — `TR`, `TR2`, `BG`, `BG2`, `UCR`, `UCR2`, `HT` and
-        // `UseBlackPtComp`. A transfer function is a colour mapping and such a figure's colour is
-        // "specified separately each time [it is] used", so honouring one here would let the cell
-        // decide a colour the caller supplies.
+        // **Skipped inside an uncoloured figure**, which §8.6.8 requires. The clause names both
+        // entries in the list it applies to a `d1` glyph description and to an uncoloured tiling
+        // pattern's stream: "[a]ll of the following entries, if present in the graphics state
+        // parameter dictionary of a gs operator shall be ignored" — `TR`, `TR2`, `BG`, `BG2`,
+        // `UCR`, `UCR2`, `HT` and `UseBlackPtComp`. A transfer function is a colour mapping and
+        // such a figure's colour is "specified separately each time [it is] used", so honouring one
+        // here would let the cell decide a colour the caller supplies.
         //
         // Table 57's `/HT` is read here too, and for one entry of it: §10.5's second bullet makes
         // a halftone dictionary the other place a transfer function is stated, and says that one
@@ -416,14 +414,9 @@ impl Interpreter<'_> {
         // Both are skipped inside an uncoloured figure. §8.6.8 lists the `/ExtGState` entries
         // such a stream may not set, and this tree reads four of them: `/UseBlackPtComp` by
         // name, `/RI` because the `ri` operator that sets the same parameter is on the operator
-        // half of the same list, `/TR` and `/TR2` above — since the three-hundred-and-fifty-eighth
-        // session — and `/HT` beside them, since the six-hundred-and-seventy-seventh. `/BG`,
-        // `/BG2`, `/UCR` and `/UCR2` are §10.4's, which this device does not perform, and are
-        // read for a flag and never evaluated. **This comment said the two
-        // here were "the only ones on that list this tree reads at all", and listed `/TR` and
-        // `/TR2` among the unread, until the three-hundred-and-seventy-fifth session** — thirty
-        // lines below the `Transfer::read` that had read both for seventeen sessions, and the
-        // sentence was the reason nobody noticed §8.6.8 was being broken. The rest of this
+        // half of the same list, `/TR` and `/TR2` above (ADR 0204) and `/HT` beside them (ADR
+        // 0505). `/BG`, `/BG2`, `/UCR` and `/UCR2` are §10.4's, which this device does not
+        // perform, and are read for a flag and never evaluated. The rest of this
         // dictionary is not colour and still applies — the
         // line width §9.6.4 asks a glyph description to set explicitly among it.
         if !self.uncoloured {

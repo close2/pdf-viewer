@@ -26,7 +26,7 @@
 //! # Where the witness came from
 //!
 //! Not from the pdf.js corpus, which contains no such page — the gate's count is unmoved by
-//! this report. It came from `doc/corpora/pdf-differences`, added in the same session:
+//! this report. It came from `doc/corpora/pdf-differences`:
 //! `UnknownFilter-PageContentStream.pdf`, whose content stream object's dictionary ends with
 //! one `>` where §7.3.7 requires two, so the object does not parse and the reference lands on
 //! nothing. This tree drew a blank page and said nothing; `poppler` prints

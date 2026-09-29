@@ -417,11 +417,11 @@ pub fn knockout_stated_shape() -> DisplayList {
 /// # What each backend does with it
 ///
 /// `render-cpu` and `render-raster` draw it and are held to each other on it
-/// (`headless_quorra.rs`'s `cpu_and_quorra_agree_on_a_non_isolated_group`): raster's
-/// `GroupSpec` carries Table 145's `/I` since the four-hundred-and-thirty-eighth session, so a
-/// group's buffer can begin as a copy of what is under it. `render-gpu` still refuses — a
-/// Vello layer begins fully transparent and a scene cannot read what it has drawn so far — and
-/// that refusal is tested against this scene, which is what keeps it from becoming silent.
+/// (`headless_quorra.rs`'s `cpu_and_quorra_agree_on_a_non_isolated_group`): raster's `GroupSpec`
+/// carries Table 145's `/I` (ADR 0274), so a group's buffer can begin as a copy of what is under
+/// it. `render-gpu` still refuses — a Vello layer begins fully transparent and a scene cannot read
+/// what it has drawn so far — and that refusal is tested against this scene, which is what keeps it
+/// from becoming silent.
 #[must_use]
 pub fn non_isolated_group() -> DisplayList {
     let mut list = DisplayList::new(A4);
@@ -543,11 +543,11 @@ const PROCESS_INKS: [[u8; 3]; 16] = [
 ///
 /// # What each backend does with it
 ///
-/// `render-cpu` draws it, and `render-raster` since the four-hundred-and-thirty-ninth
-/// session: two `Target::Readback` renders against one device, which raster's own
-/// `two_rasters.rs` holds (`doc/QUORRA_FEEDBACK.md` section 17.1). `render-gpu` refuses the
-/// list by name — a Vello scene renders one raster and the backend has no place to hold the
-/// second — and that refusal is tested against this scene so it cannot become silent.
+/// `render-cpu` draws it, and so does `render-raster` (ADR 0275): two `Target::Readback` renders
+/// against one device, which raster's own `two_rasters.rs` holds (`doc/QUORRA_FEEDBACK.md` section
+/// 17.1). `render-gpu` refuses the list by name — a Vello scene renders one raster and the backend
+/// has no place to hold the second — and that refusal is tested against this scene so it cannot
+/// become silent.
 ///
 /// # Panics
 ///
@@ -1025,9 +1025,8 @@ pub fn group_in_a_three_component_blending_space() -> DisplayList {
 ///
 /// The cross-backend scenes covered geometry, shadings, images, soft masks and a transparency
 /// group, and **not one of them selected a blend mode**: every `Command` in every other scene
-/// carries `BlendMode::Normal`. So the two backends' sixteen blend functions had never been
-/// held to each other at all, which the thirty-seventh session found by reading §11.3.5 rather
-/// than by any gate noticing.
+/// carries `BlendMode::Normal`, so without this one the two backends' sixteen blend functions
+/// would not be held to each other at all (ADR 0046).
 ///
 /// The four in Table 135 are why that matters. Hue, Saturation, Color and Luminosity are
 /// *non-separable*: each is defined by the clause's `Lum`, `ClipColor`, `SetLum` and `SetSat`

@@ -143,8 +143,8 @@ pub struct FrameCost {
     /// Inside `device`: copying the finished frame back off the device, mapping it, and
     /// converting premultiplied alpha to straight.
     ///
-    /// **Zero for every frame that goes to a window**, which is why this field was missing for
-    /// twenty-six sessions and why leaving it missing was wrong. A window frame is drawn into a
+    /// **Zero for every frame that goes to a window**, and still owed a field of its own. A
+    /// window frame is drawn into a
     /// texture and never read, so [`QuorraWindowRenderer::render`] reports zero here and nothing
     /// about the viewer's own trace changes. What *does* read back is
     /// [`crate::QuorraRasterizer::rasterize_frame`] — every corpus and oracle page, and the
@@ -651,11 +651,10 @@ impl Lane {
 /// The window-drawing form of the backend: raster's device draws a window's frame into two
 /// textures the host owns, and the host puts them on its window itself.
 ///
-/// **It no longer presents, and the name says so since the five-hundred-and-fifty-sixth
-/// session.** raster's ADR 0056 split the surface off the device into a `Send`
-/// [`raster_gpu::Presenter`]; [`Self::detach_presenter`] hands that over, and from then on this
-/// type is a renderer and nothing else. Before the split one call drew *and* presented, so a
-/// frame of a heavy page held the only path to the screen for as long as it took to draw.
+/// **It does not present, and the name says so.** raster's ADR 0056 split the surface off the
+/// device into a `Send` [`raster_gpu::Presenter`]; [`Self::detach_presenter`] hands that over,
+/// and from then on this type is a renderer and nothing else, so a frame of a heavy page never
+/// holds the only path to the screen for as long as it takes to draw.
 #[derive(Debug)]
 pub struct QuorraWindowRenderer {
     device: raster_gpu::Device,
@@ -794,7 +793,7 @@ impl QuorraWindowRenderer {
         // default is silence — the one way this window could stop updating
         // without a word. Same lesson, same sentence as the Vello host had.
         //
-        // **It records as well as saying, since the six-hundred-and-twenty-eighth session**, and
+        // **It records as well as saying**, and
         // that is the whole of [`crate::UncapturedErrors`]'s reason for existing: a note is not a
         // decision, and `Surface::configure` reports its failure *only* here — so a host that
         // could not ask afterwards had no way to know that the call it made next was about to
@@ -1078,10 +1077,6 @@ impl QuorraWindowRenderer {
     /// that the page is blank there. One texel scaled over the window says exactly that and costs
     /// one textured quad; a window-sized medium texture would spend the bytes of a whole window
     /// to hold one colour.
-    ///
-    /// **This doc comment described the separation before the code had it.** Until the
-    /// six-hundred-and-eleventh session `self.background` was one colour serving as both 𝑊 and
-    /// the surround, so "never page white" was exactly what this texel was.
     ///
     /// Premultiplied, as every layer is — which for the opaque medium this renderer draws under
     /// every page is the same four bytes as the straight-alpha form `crate::scene` quantises to.

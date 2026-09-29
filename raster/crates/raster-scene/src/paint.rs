@@ -15,10 +15,9 @@
 //!   device's business and happens on the device's side of the line.
 //! - **Stroke widths are given, not derived.** ISO 32000-2 §8.4.3.2 with §10.7.5 makes a
 //!   `0 w` line one device pixel, and the caller resolves that into its
-//!   `Stroke::device_width` before we see it. `tiny-skia` happened to do the right
-//!   thing, so the rule went unwritten and **every zero-width line was invisible on the
-//!   GPU for fifteen sessions**. We take the width we are given, which is therefore
-//!   always positive.
+//!   `Stroke::device_width` before we see it, because a width derived here would make
+//!   every zero-width line invisible on the GPU. We take the width we are given, which is
+//!   therefore always positive.
 //! - **Dashing is already done.** The caller dashes its own paths, including zero-length
 //!   dashes whose caps face along the path — Skia's dasher loses that direction and paints
 //!   them upright, and on a diagonal dotted line the two answers cover different pixels.

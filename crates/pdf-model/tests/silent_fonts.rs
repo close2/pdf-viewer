@@ -3,8 +3,8 @@
 //! `Interpretation::is_complete` is the claim that the interpreter drew everything the page
 //! asked for, and trap 1 is the standing warning about how little that can mean. This is the
 //! narrowest version of it: a page of text whose font program answers **every** code with no
-//! outline draws a blank page and, until the hundred-and-ninety-third session, reported
-//! `unsupported: []` while doing it.
+//! outline draws a blank page, and a reader that does not count that reports `unsupported: []`
+//! while doing it (ADR 0157).
 //!
 //! `issue13316_reduced.pdf` is the witness — 200×50 points, one `Tj` of nine codes through an
 //! embedded `TrueType` program, and `0 commands` — and the condition is the one ADR 0152 wrote
@@ -13,11 +13,10 @@
 //! back as whitespace is not counted at all: a space is *meant* to be blank, and counting one
 //! took the corpus's incomplete documents from 79 to 109.
 //!
-//! **That was the only exemption the condition was meant to have, and for two hundred sessions
-//! it had a second one nobody had written down**: a code §9.10.2 could not *name* was excluded
-//! as well, so a font whose codes reached no glyph *and* no character drew a blank page in
+//! **That is the only exemption the condition has.** Excluding a code §9.10.2 could not *name*
+//! as well would let a font whose codes reach no glyph *and* no character draw a blank page in
 //! silence — which is the failure this file exists for, wearing the exemption written to
-//! prevent a different one. `issue17333.pdf` is that page and ADR 0520 is the correction.
+//! prevent a different one. `issue17333.pdf` is that page and ADR 0520 is the reading.
 //!
 //! The tests are against real documents, which is trap 4's rule: a hand-built font program with
 //! no outlines would be built by the same reading of the format the code under test uses.
@@ -218,8 +217,8 @@ fn a_code_with_no_character_and_no_glyph_is_a_mark_missed_and_is_reported() {
 
 /// A page that draws its text and can name none of it says how much it lost.
 ///
-/// `french_diacritics.pdf` is the sharpest case in the corpus and it was refused deliberately and
-/// **silently** until the four-hundred-and-seventy-sixth session. A pdfTeX Type 3 font whose
+/// `french_diacritics.pdf` is the sharpest case in the corpus, and refusing it **silently** is
+/// the failure this guards (ADR 0311). A pdfTeX Type 3 font whose
 /// `/Differences` names the Latin-1 accented letters `/a192`, `/a194`, `/a196` …, which is the
 /// character code in decimal and is the producer's own label: §9.10.2's first method has no
 /// `/ToUnicode` to read, its second looks the name up in "the Adobe Glyph List and Adobe Glyph
@@ -254,8 +253,8 @@ fn a_page_whose_codes_no_method_can_name_says_how_many() {
 
 /// The same count on a page that reads back nothing at all.
 ///
-/// `complex_ttf_font.pdf` is the archetype the text gate has carried since the sixty-third
-/// session — 527 glyphs on the page and nothing but the placement pass's own inferred breaks out
+/// `complex_ttf_font.pdf` is the archetype the text gate carries (ADR 0066) — 527 glyphs on the
+/// page and nothing but the placement pass's own inferred breaks out
 /// of it — and the discriminating half of the test above: a page with no text and a page whose
 /// text nothing can name produce the same readback and are not the same page. This count is the
 /// only thing that tells them apart, and the readback being *whitespace* rather than empty is
@@ -342,10 +341,10 @@ fn a_dingbats_page_reads_back_the_characters_annex_d6_states() {
 /// The `/FontWeight 700`, the `/FontFamily (Optima)` and Table 121's Nonsymbolic bit are what
 /// choose the face; the font dictionary's own `/Widths` keep the layout.
 ///
-/// **It drew nothing until the nine-hundred-and-forty-third session**, because an empty decode
-/// reached the sfnt reader as though it were a program and came back `An offset was out of
-/// bounds` — a `FontError::Malformed`, which this crate refuses where it substitutes for a
-/// `FontError::NotEmbedded`. That refusal is right where the bytes are *partly* the producer's
+/// **An empty decode is no program** (ADR 0940). Handed to the sfnt reader as though it were one,
+/// it comes back `An offset was out of bounds` — a `FontError::Malformed`, which this crate
+/// refuses where it substitutes for a `FontError::NotEmbedded`, and the page draws nothing. That
+/// refusal is right where the bytes are *partly* the producer's
 /// (ADR 0343, ADR 0836: a prefix of a program draws glyphs in place of the producer's), and there
 /// are no bytes here to be partly anything.
 ///

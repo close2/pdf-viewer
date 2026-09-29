@@ -109,8 +109,8 @@ fn document_timestamp(contents: Vec<u8>) -> Signature {
 /// The grammar is the clause's own — `TSTInfo ::= SEQUENCE { version, policy, messageImprint,
 /// serialNumber, genTime, accuracy OPTIONAL, ordering DEFAULT FALSE, nonce OPTIONAL, tsa [0]
 /// OPTIONAL, extensions [1] OPTIONAL }` — and this asserts one value per member, because a reader
-/// that found the first three and stopped is how the imprint was read for six hundred sessions
-/// while `genTime` went unlooked at.
+/// that finds the first three and stops reads the imprint while `genTime` goes unlooked at (ADR
+/// 1071).
 #[test]
 fn a_tokens_tst_info_states_every_member_rfc_3161_defines() {
     let token = hex(fixtures::TOKEN);

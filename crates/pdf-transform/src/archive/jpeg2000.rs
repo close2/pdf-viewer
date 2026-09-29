@@ -263,7 +263,7 @@ fn jpx_data(
 ///
 /// §7.3.8.2 lets the entry be a name or an array, and Table 5 lets the array hold a chain. Only
 /// the two shapes that make the stream's stored bytes the JPEG 2000 data are admitted here.
-fn only_jpx(document: &Document, dict: &Dictionary) -> bool {
+pub(super) fn only_jpx(document: &Document, dict: &Dictionary) -> bool {
     let filter = document.get_key(dict, "Filter");
     match document.resolve(&filter) {
         Object::Name(name) => name.as_bytes() == b"JPXDecode",

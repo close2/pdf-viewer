@@ -3,10 +3,8 @@
 //!
 //! `render-cpu/tests/transfer_edge.rs` is the other half. The point of the pair is `CLAUDE.md`
 //! principle 2: the two backends must agree, so the per-pixel transfer channel ADR 1125 designs
-//! had to land in both at once — and this file is what says it did. Session 1118 planted the CPU
-//! half measuring the *divergence*, session 1137 planted this one measuring that the divergence
-//! was the same on both, and session 1148 built `pdf_render::resolve_transfers`, after which both
-//! files measure the clause.
+//! had to land in both at once — and this file is what says it did. Both files measure the
+//! clause, which `pdf_render::resolve_transfers` carries out for both backends.
 //!
 //! # The reading this measures
 //!

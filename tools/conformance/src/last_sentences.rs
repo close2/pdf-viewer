@@ -274,7 +274,7 @@ mod tests {
     }
 
     /// Trap 13: the sweep comes back clean over today's ledger on its top rung, so what proves it
-    /// fires is a planted defect — the exact sentence session 1200 found on §12.11.6's row, whose
+    /// fires is a planted defect — the exact sentence §12.11.6's row once carried, whose
     /// status was `implemented` while its opening sentence said what the row was `partial` for.
     #[test]
     fn a_planted_opening_sentence_naming_another_status_is_named_on_the_closest_rung() {

@@ -4,8 +4,7 @@
 //! categories are questions about the *processor* rather than about the document: `Zoom`, `User`
 //! and `Language`. `optional_content.rs` answers `Zoom` at a magnification of 1.0 and reports the
 //! other two rather than guessing, and both of those are **choices** — so the number that decides
-//! how much they cost is how many documents state them, which nothing measured until the
-//! three-hundred-and-twenty-fourth session.
+//! how much they cost is how many documents state them, which this measures.
 //!
 //! It counts two entries of Table 98 and Table 99 besides, for the same reason and by the same
 //! route: `/Configs`, which is what §8.11.4's row names as its own remaining debt, and `/Locked`,

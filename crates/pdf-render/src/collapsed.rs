@@ -68,11 +68,11 @@
 //!
 //! So the mark is the **run of whole device pixels the collapsed axis passes through**, and
 //! that run is found by flooring the axis's device coordinate — not a band of one pixel's
-//! width centred whereever the shape happened to fall between two pixel centres, which is what
-//! this module built until the three-hundred-and-sixty-eighth session. The difference is
-//! visible rather than theoretical: an anti-aliasing rasteriser splits such a band across two
-//! rows at every placement but one, so a page ruled with a grid of them — `issue4260_reduced.pdf`
-//! is one — came out as a mixture of crisp lines and fuzzy grey double ones. A mark whose
+//! width centred wherever the shape happened to fall between two pixel centres (ADR 0208). The
+//! difference is visible rather than theoretical: an anti-aliasing rasteriser splits such a band
+//! across two rows at every placement but one, so a page ruled with a grid of them —
+//! `issue4260_reduced.pdf` is one — would come out as a mixture of crisp lines and fuzzy grey
+//! double ones. A mark whose
 //! appearance depends on where it falls relative to the grid is precisely what the clause's own
 //! stated purpose forbids: "no shape ever disappears as a result of unfavourable placement
 //! relative to the device pixel grid".

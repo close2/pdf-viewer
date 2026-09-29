@@ -59,8 +59,8 @@
 //! # The noise, classified rather than filtered
 //!
 //! - **A note narrates its own corrections**, and the superseded figure stays in the sentence
-//!   that supersedes it: *"[u]ntil the four-hundred-and-sixth session this page's line read mean
-//!   27.02 …"*. That figure is contradicted by construction and the prose is correct. It is the
+//!   that supersedes it: *"[u]ntil ADR NNNN this page's line read mean 27.02 …"*. That figure is
+//!   contradicted by construction and the prose is correct. It is the
 //!   largest single source of hits on rungs 2 and 3.
 //! - **Another instrument's table.** A ladder at eight times the resolution, a mean per column,
 //!   a mean over eighty swatches: the words are the gate's and the measurement is not. Rung 3
@@ -605,7 +605,7 @@ fn offset_of(text: &str, word: &str) -> usize {
 /// The first `N.N` in a string, and where it starts.
 ///
 /// An integer is not one of these measures: the gate prints every one of them with a decimal
-/// point, and a bare `4` in a note is a count, a page or a session.
+/// point, and a bare `4` in a note is a count, a page or a round.
 fn decimal_in(window: &str) -> Option<(usize, String)> {
     let bytes = window.as_bytes();
     let mut index = 0usize;

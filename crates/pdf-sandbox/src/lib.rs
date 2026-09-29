@@ -6,12 +6,11 @@
 //! receives one image's bytes at a time over a pipe and returns samples over another. It
 //! never learns which document they came from, and it cannot ask.
 //!
-//! **Those two mechanisms are Linux's, and this crate builds everywhere.** Since the
-//! three-hundred-and-fifteenth session a platform without them gets the worker *process* and
-//! no kernel confinement, which keeps the second of the three reasons below and loses the
-//! first — and says which, in [`lockdown::Confinement::shortfall`], because the thing that
-//! must not happen is a caller believing itself confined when it is not. The decision and its
-//! argument are ADR 0194.
+//! **Those two mechanisms are Linux's, and this crate builds everywhere.** A platform without them
+//! gets the worker *process* and no kernel confinement, which keeps the second of the three reasons
+//! below and loses the first — and says which, in [`lockdown::Confinement::shortfall`], because the
+//! thing that must not happen is a caller believing itself confined when it is not. The decision
+//! and its argument are ADR 0194.
 //!
 //! # Why this is not redundant with Rust
 //!
@@ -239,8 +238,8 @@ pub enum SandboxError {
     ///
     /// **Its own name, because every other outcome of finding one would be a lie.** A worker
     /// from an older build answers every request, correctly for the decoders it has — so its
-    /// refusals arrive worded as decoders' refusals and read as the document's defect. Three
-    /// sessions were spent on one that read that way (ADR 0458).
+    /// refusals arrive worded as decoders' refusals and read as the document's defect (ADR
+    /// 0458).
     ///
     /// The clause is why that distinction is not a small one. ISO 32000-2 §7.4.7:
     ///

@@ -68,12 +68,10 @@ impl App {
                 Topic::Events
             };
             let described = self.trace.on(topic).then(|| describe_command(&command));
-            // **A command that changes the document changes what §14.7's tree says**, and
-            // nothing republished it until the five-hundred-and-ninetieth session: `App::attend`
-            // compares the page and the viewport, and an edit moves neither. Which commands those
-            // are is `viewer_accessibility::republishes` since the seven-hundred-and-thirty-first,
-            // because the two native hosts publish now too and this was about to be its third copy
-            // (ADR 0623).
+            // **A command that changes the document changes what §14.7's tree says**, so it is
+            // republished here (ADR 0425): `App::attend` compares the page and the viewport, and an
+            // edit moves neither. Which commands those are is `viewer_accessibility::republishes`,
+            // one list for the three hosts that publish (ADR 0623).
             if viewer_accessibility::republishes(&command) {
                 self.spoken = None;
             }
@@ -208,12 +206,10 @@ answers in two places"
     )]
     fn react(&mut self, event: Event, queue: &mut VecDeque<Command>) {
         match event {
-            // **Neither of these leaves the process, and both did until the
-            // seven-hundred-and-fourth session.** ADR 0545 made that argument for §7.6.4.1's
-            // prompt one round earlier and deliberately left these two: a window that exits has
-            // told a person who launched it from a desktop nothing at all, and the two native
-            // hosts have said the sentence into a status bar and stayed up since their first
-            // session. The wording is `viewer_host`'s so that the three say one thing.
+            // **Neither of these leaves the process**, on ADR 0545's argument: a window that exits
+            // has told a person who launched it from a desktop nothing at all, and the two native
+            // hosts say the sentence into a status bar and stay up (ADR 0564). The wording is
+            // `viewer_host`'s so that the three say one thing.
             Event::Opened { document, pages } => {
                 // A document that arrived under the name this window held out for
                 // `/NewWindow true` is a *second* document rather than this one reopened, so it
@@ -347,11 +343,10 @@ answers in two places"
                 let bytes = self.supply(purpose, &name);
                 queue.push_back(Command::Supply { purpose, bytes });
             }
-            // §12.4.4: the frames of it are drawn, since the three-hundred-and-ninety-third
-            // session — by this host, because a transition is an animation over wall time and
-            // `viewer-core` has no clock (rule 3). What arrives here is the *shape* of what to
-            // draw; when to draw it is this window's, and a window that is not presenting shows
-            // the page, which is the transition's own end state. ADR 0230.
+            // §12.4.4: the frames of it are drawn — by this host, because a transition is an
+            // animation over wall time and `viewer-core` has no clock (rule 3). What arrives here
+            // is the *shape* of what to draw; when to draw it is this window's, and a window that
+            // is not presenting shows the page, which is the transition's own end state. ADR 0230.
             Event::Transition { transition, .. } => self.arm_transition(transition),
             // Rule 2 in one arm: the core produced the bytes and the host owns the filesystem.
             // Written beside the document with `.edited.pdf` appended rather than over it,
@@ -382,9 +377,9 @@ answers in two places"
                 }
             }
             Event::Refused { notes, .. } => Self::say_refused(&notes),
-            // The other two of `CLAUDE.md`'s four levels, since the eight-hundred-and-eighty-fifth
-            // session (ADR 0814). *Warn* is a sentence after an edit that went ahead. *Ask* is the
-            // question this window puts, on a card of its own (ADR 1145).
+            // The other two of `CLAUDE.md`'s four levels (ADR 0814). *Warn* is a sentence after an
+            // edit that went ahead. *Ask* is the question this window puts, on a card of its own
+            // (ADR 1145).
             Event::Warned { notes, .. } => println!("note: {}", viewer_host::warned(&notes)),
             // The grant. What this window then does is show it: §12.5.3's bit 3, §8.11.4.5's
             // `Print` event and §12.5.6.22's sheet are already in force on every page it draws,

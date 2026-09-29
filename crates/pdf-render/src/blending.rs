@@ -59,12 +59,11 @@
 /// to assume, or the answers a document's own profile gives at them) and hands them over;
 /// nothing below the display list needs to know which space they came from.
 ///
-/// **`side` is 2 for the assumed process inks**, whose sixteen corners are the whole table and
-/// for which the interpolation below is exactly the multilinear one this struct held until the
-/// four-hundred-and-thirty-sixth session. A document that names its own press (§8.6.5.6's
-/// `/DefaultCMYK`, §14.11.5's output intent) or states a four-component `ICCBased` blending
-/// space (§11.7.2) supplies a finer grid instead, because a real press is not multilinear
-/// between its corners. ADR 0272.
+/// **`side` is 2 for the assumed process inks**, whose sixteen corners are the whole table and for
+/// which the interpolation below is exactly the multilinear one. A document that names its own
+/// press (§8.6.5.6's `/DefaultCMYK`, §14.11.5's output intent) or states a four-component
+/// `ICCBased` blending space (§11.7.2) supplies a finer grid instead, because a real press is not
+/// multilinear between its corners. ADR 0272.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlendingSpace {
     /// How many samples the grid holds along each of the four axes; at least two.

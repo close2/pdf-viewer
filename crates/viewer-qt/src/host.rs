@@ -95,9 +95,8 @@ struct Flat {
 struct Placement {
     /// The two names §14.9.3 makes a processor distinguish: one to address an edit to, one to say.
     ///
-    /// It was §12.7.4.2's qualified name alone until the seven-hundred-and-thirty-fifth session,
-    /// which is why every sentence this host said about a field named it the way a *file* does
-    /// rather than the way the clause says a user interface shall.
+    /// §12.7.4.2's qualified name alone would name a field the way a *file* does rather than the
+    /// way the clause says a user interface shall (ADR 0630).
     name: pdf_model::view::FieldName,
     /// The widget annotation, which with the name above identifies this control.
     annotation: pdf_syntax::ObjectId,
@@ -312,9 +311,9 @@ pub struct Host {
     /// an unknown option while telling every person who hit a refusal to use it (ADR 0604, ADR
     /// 1144).
     ///
-    /// **Two scopes since the one-thousand-one-hundred-and-fifty-fifth session**: the window's
-    /// levels, and what the open document departs from them in. A level set to catch one
-    /// suspicious file would otherwise catch every file this window opens afterwards (ADR 1145).
+    /// **Two scopes**: the window's levels, and what the open document departs from them in. A
+    /// level set to catch one suspicious file would otherwise catch every file this window opens
+    /// afterwards (ADR 1145).
     restrictions: viewer_host::Restrictions,
     /// §12.6.4.8: what this window does when a link asks for a URI, per `--links=`.
     ///
@@ -1417,11 +1416,10 @@ impl Host {
     /// §12.7.5.2.3 makes `/V` select among Table 170's appearance states by name and the names
     /// are the file's own, so a host that sent "on" would be inventing one.
     ///
-    /// **The rule is [`viewer_host::toggling`] since the seven-hundred-and-thirty-fifth session**,
-    /// shared with the other two windows and with this host's own accessibility click, so a
-    /// `QCheckBox`'s `toggled` and an assistive technology's `DoAction` cannot come to different
-    /// answers about one clause (ADR 0630). What this method still owns is the *index*, which is
-    /// the one thing only a placed control knows.
+    /// **The rule is [`viewer_host::toggling`]**, shared with the other two windows and with this
+    /// host's own accessibility click, so a `QCheckBox`'s `toggled` and an assistive technology's
+    /// `DoAction` cannot come to different answers about one clause (ADR 0630). What this method
+    /// still owns is the *index*, which is the one thing only a placed control knows.
     pub(crate) fn toggle_control(&mut self, index: usize, on: bool) {
         let Some(placed) = self.placed.get(index) else {
             return;
@@ -1978,11 +1976,9 @@ impl Host {
     /// Which order the text is in is [`viewer_host::copied`] and not this host's, because it is
     /// the same decision in all three windowed hosts.
     fn copy_selection(&mut self) {
-        // **A command rather than two questions**, since the one-thousand-one-hundred-and-forty-
-        // seventh session: §7.6.4.2's bit 5 restricts taking text out of the document, and a
-        // readback cannot be refused, asked about or warned of. The two answers still compose the
-        // text — they arrive together on `Event::Copied` — and this host's part is unchanged
-        // below (ADR 1144).
+        // **A command rather than two questions**: §7.6.4.2's bit 5 restricts taking text out of
+        // the document, and a readback cannot be refused, asked about or warned of. The two answers
+        // compose the text and arrive together on `Event::Copied` (ADR 1144).
         if !matches!(self.viewer.query(Query::Selection), Answer::Selected(_)) {
             self.say("nothing on the page is selected to copy");
             return;
@@ -2027,8 +2023,8 @@ impl Host {
 
     /// How many pages Table 29's arrangement is showing pixels for.
     ///
-    /// One under `SinglePage`, which is what this host drew for two hundred sessions; more under
-    /// a column or a spread, and the window paints each of them where [`Self::frame`] says.
+    /// One under `SinglePage`; more under a column or a spread, and the window paints each of them
+    /// where [`Self::frame`] says.
     pub(crate) fn frame_count(&self) -> usize {
         // §12.4.4.1: while one of Table 164's effects is in flight the window shows the effect and
         // not the page — one picture, because a frame is already two pages placed where they
@@ -3261,11 +3257,10 @@ impl Host {
                 section,
                 ..
             } => self.turned(index, label.as_deref(), of, section.as_deref()),
-            // **Handed to the drawing thread rather than drawn here** (ADR 0668). Until the
-            // seven-hundred-and-fifty-fourth session this arm called `rasterize` inside
-            // `QApplication::exec`, so a page written to draw for 27.6 s took the window with it —
-            // no repaint, no key, and no thread from which `pdf_render::Interrupt` could be raised.
-            // What comes back arrives in `take_the_drawn`.
+            // **Handed to the drawing thread rather than drawn here** (ADR 0668): `rasterize`
+            // inside `QApplication::exec` would let a page written to draw for 27.6 s take the
+            // window with it — no repaint, no key, and no thread from which `pdf_render::Interrupt`
+            // could be raised. What comes back arrives in `take_the_drawn`.
             Event::NeedsRender(request) => self.drawing.ask(request),
             // §12.6.4.8: resolved against this document's own location where the action left it
             // partial, then opened, declined or put to the person by the one policy three windows
@@ -3318,17 +3313,15 @@ impl Host {
             } => self.searched(found, remaining, wrapped),
             Event::Reported { page, notes, .. } => self.reported(page, &notes),
             // `CLAUDE.md`: a document's restrictions are the reader's to set, and it shall always
-            // be possible to turn them off.
-            // `CLAUDE.md`: a document's restrictions are the reader's to set, and it shall always
-            // be possible to turn them off. The sentence is `viewer_host::refused` rather than
-            // this host's own because it names the word the argument parser takes, and this host
-            // wrote its own copy of it for sessions while taking no such word (ADR 0604).
+            // be possible to turn them off. `CLAUDE.md`: a document's restrictions are the reader's
+            // to set, and it shall always be possible to turn them off. The sentence is
+            // `viewer_host::refused` rather than this host's own because it names the word the
+            // argument parser takes (ADR 0604).
             Event::Refused { notes, .. } => self.say(&viewer_host::refused(&notes)),
-            // The other two of `CLAUDE.md`'s four levels, since the eight-hundred-and-eighty-fifth
-            // session (ADR 0814). *Warn* is a sentence after an edit that went ahead. *Ask* is
-            // the question this window puts, in the modal shape §7.6.4.1's password already had:
-            // the words are `viewer_host::restriction`'s and the dialogue is C++'s, because Rust
-            // does not call a Qt object (ADR 1145).
+            // The other two of `CLAUDE.md`'s four levels (ADR 0814). *Warn* is a sentence after an
+            // edit that went ahead. *Ask* is the question this window puts, in the modal shape
+            // §7.6.4.1's password already had: the words are `viewer_host::restriction`'s and the
+            // dialogue is C++'s, because Rust does not call a Qt object (ADR 1145).
             Event::Warned { notes, .. } => self.say(&viewer_host::warned(&notes)),
             Event::Printing {
                 pages, fidelity, ..
@@ -3766,10 +3759,9 @@ fn describe_kind(kind: &ControlKind) -> (u8, i32, bool, bool) {
 ///
 /// The clause states it of the list rather than of the value — "the index in the Opt array of the
 /// first option visible in the list" — so it decides where a scrollable list *starts*, which is a
-/// question about the control and not about what is selected in it. `pdf-model` has read the entry
-/// since the three-hundred-and-ninety-eighth session and the page's own appearance obeys it
-/// (ADR 0407); a host that started every list at row 0 showed a different first option than the
-/// picture underneath it.
+/// question about the control and not about what is selected in it. `pdf-model` reads the entry and
+/// the page's own appearance obeys it (ADR 0407); a host that started every list at row 0 would
+/// show a different first option than the picture underneath it.
 fn top_option(kind: &ControlKind) -> u32 {
     match kind {
         ControlKind::List { top, .. } => u32::try_from(*top).unwrap_or(0),
@@ -4149,10 +4141,9 @@ mod tests {
 
     /// The panels this document states nothing for say so rather than showing an empty list.
     ///
-    /// Trap 5's shape for a panel, and **the assertion changed direction in the
-    /// seven-hundred-and-fourth session**: these two used to answer no rows at all, and an empty
-    /// list is indistinguishable from a list this program failed to fill. The sentence is
-    /// `viewer_host::panel`'s, so all three hosts say the same one.
+    /// Trap 5's shape for a panel: an empty list is indistinguishable from a list this program
+    /// failed to fill (ADR 0564). The sentence is `viewer_host::panel`'s, so all three hosts say
+    /// the same one.
     #[test]
     fn a_document_with_no_layers_and_no_files_says_so_rather_than_showing_nothing() {
         let host = opened(&committed());

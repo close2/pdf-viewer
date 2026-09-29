@@ -15,10 +15,10 @@
 //!   prefix property read off the file afterwards;
 //! - every refusal RFC 0003 section 5.3 argues for, as the `errno` the kernel is handed.
 //!
-//! What is *not* held here is `fuser`'s wire format: the reply objects can only be made by a
+//! What is *not* held here is `fuser`'s wire format: the reply objects can only be made by a FUSE
 //! session that has a channel. The one thing that could be checked without one is the table that
-//! turns a [`pdf_vfs::Errno`] into a `fuser::Errno`, and that is checked in `kernel.rs`'s own
-//! unit tests, exhaustively, against the numbers the core states.
+//! turns a [`pdf_vfs::Errno`] into a `fuser::Errno`, and that is checked in `kernel.rs`'s own unit
+//! tests, exhaustively, against the numbers the core states.
 
 #![expect(
     clippy::expect_used,

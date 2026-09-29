@@ -111,9 +111,8 @@ struct Mapped {
 /// Asking it once and applying the indices is not only cheaper: the comparison below runs on
 /// points that a cell far from the pattern's origin holds at a magnitude where an `f32`'s own
 /// neighbours are further apart than the tolerance, so re-deriving it per cell can fold some tiles
-/// and not others — and half a folded tiling is a worse picture than none. The
-/// three-hundred-and-seventy-fourth session watched that happen to **180 of 1296 tiles**, with the
-/// page's ink barely moving, which is how it presented.
+/// and not others — and half a folded tiling is a worse picture than none. ADR 0213 measured
+/// that at **180 of 1296 tiles**, with the page's ink barely moving.
 ///
 /// # What has to be true, and why each of it
 ///
@@ -267,8 +266,8 @@ pub fn without_subpaths(path: &Path, repeats: &Repeats) -> Option<Path> {
 /// is what tells a soft mask the cell built — and which therefore travels with it — from one
 /// that was already in force and is shared by every copy of the cell.
 ///
-/// **It counted clips too until the six-hundred-and-twenty-fifth session, and a count cannot
-/// answer that question about a clip.** [`DisplayList::add_clip`] hands back the identifier of an
+/// **It does not count clips, because a count cannot answer that question about a clip** (ADR
+/// 0459). [`DisplayList::add_clip`] hands back the identifier of an
 /// equal clip already in the table, so a second tiling whose cell states the same box as a first
 /// one's gets that first cell's identifier — which is *below* this mark although the cell built
 /// it. See [`Displaced::is_the_cells_own`] for what asks instead, and why a soft mask is not
@@ -522,15 +521,15 @@ impl Displaced<'_> {
     /// — and every other clip a cell's commands name is one the cell put there. `None` where the
     /// tiling was given no clip at all, in which case there is nothing in force to share.
     ///
-    /// **The alternative was an identifier's position, and a table that interns cannot be asked
+    /// **The alternative is an identifier's position, and a table that interns cannot be asked
     /// that way.** [`DisplayList::add_clip`] hands back the identifier of an equal clip already
     /// in the table, so a cell that states the same box a previous cell stated is handed the
     /// previous cell's identifier — one minted before this cell began — and looked, by position,
-    /// like a clip that was already in force. What that cost is a page: `4113230.pdf` of the
+    /// like a clip that was already in force. What that costs is a page: `4113230.pdf` of the
     /// `SafeDocs` crawl fills one path with two tiling patterns in turn, each a full-bleed
-    /// photograph, and the second one's every site kept the *first* pattern's first-site box —
-    /// which is off the page, so the second photograph vanished and the first stayed visible
-    /// under it (session 625).
+    /// photograph, and asked by position the second one's every site keeps the *first*
+    /// pattern's first-site box — which is off the page, so the second photograph vanishes and
+    /// the first stays visible under it (ADR 0459).
     ///
     /// **Asking it the other way round — "does this clip descend from the one in force" — is not
     /// the same question and is too narrow.** A cell may build a clip whose chain is rooted
@@ -1255,9 +1254,9 @@ mod repetition {
     /// that was already in force, left it where the first cell's first site had put it, and gave
     /// every site of the second tiling that one box.
     ///
-    /// `4113230.pdf` of the `SafeDocs` crawl is what that draws (session 625): a title page filling
-    /// one path with two full-bleed photographs in turn, whose second photograph disappeared
-    /// because the box it was clipped to belonged to a site off the top of the page.
+    /// `4113230.pdf` of the `SafeDocs` crawl is what that draws (ADR 0459): a title page filling
+    /// one path with two full-bleed photographs in turn, whose second photograph disappears when
+    /// the box it is clipped to belongs to a site off the top of the page.
     #[test]
     fn a_second_cell_stating_the_first_cells_box_still_moves_it() {
         let (mut list, outer) = list_with_an_outer_clip();

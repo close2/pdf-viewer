@@ -230,13 +230,11 @@ fn a_transfer_function_maps_every_mask_value_including_the_one_outside_the_box()
 /// present and deliberately irrelevant: Table 142 says it "shall be consulted only if the
 /// subtype S is Luminosity".
 ///
-/// **The fixture did not have those two alphas until the four-hundred-and-nineteenth
-/// session.** It named `/GA` and `/GB` in a group whose `/Resources` defined neither, so both
-/// fills were opaque, both halves masked identically at 1.0, and the test asserted the same
-/// number twice about a difference that was not in the file — with a comment inside it saying
-/// so and a doc comment above it saying the opposite. Nothing could see that: the interpreter
-/// answered a `gs` naming an undefined `/ExtGState` in silence, which is what this round made
-/// loud (ADR 0255), and the assertion this test exists for was the one it was not making.
+/// **The two alphas are defined in the group's own `/Resources`.** A fixture naming `/GA` and
+/// `/GB` in a group whose `/Resources` defined neither would paint both fills opaque, mask both
+/// halves identically at 1.0, and assert the same number twice about a difference that is not
+/// in the file; a `gs` naming an undefined `/ExtGState` is reported rather than answered in
+/// silence (ADR 0255), which is what makes that mistake visible.
 #[test]
 fn an_alpha_mask_reads_the_groups_alpha_and_ignores_its_colour() {
     let raster = render(page_with_group_resources(
@@ -363,8 +361,8 @@ fn the_masks_coordinate_system_is_the_one_in_force_at_the_gs() {
 ///   the black is painted whole and the level is 0.
 ///
 /// Read in the page's default space instead, the same gradient would occupy device x 0 to 40
-/// and the same two centres would give 188 and 61 — which is what this tree drew until the
-/// six-hundred-and-twenty-first session, silently, on `5589519.pdf` of the `SafeDocs` crawl.
+/// and the same two centres would give 188 and 61 — silently, on `5589519.pdf` of the `SafeDocs`
+/// crawl (ADR 0456).
 #[test]
 fn a_pattern_in_a_mask_group_maps_through_the_groups_own_default_space() {
     let raster = render(page_with_a_patterned_mask_group(
@@ -494,11 +492,10 @@ fn a_soft_mask_group_is_not_bound_by_an_uncoloured_glyphs_restriction() {
 /// | `0 0 0 0` (no ink at all)  | 0.00 | 1.00 | 0 — painted solid |
 /// | `0 0 0 0.5`                | 0.50 | 0.50 | 128 |
 ///
-/// **The first row is what this test exists for.** Until the three-hundred-and-eightieth
-/// session the group was composited on the device's three components, so process black went
-/// through this tree's `DeviceCMYK` → RGB table (ADR 0009) to `(35, 31, 32)` and came back as
-/// a mask value of 32 — content its producer had masked away, faintly there at 12.5%. The
-/// clause's own arithmetic gives 0.
+/// **The first row is what this test exists for.** A group composited on the device's three
+/// components would send process black through this tree's `DeviceCMYK` → RGB table (ADR 0009)
+/// to `(35, 31, 32)` and back as a mask value of 32 — content its producer had masked away,
+/// faintly there at 12.5%. The clause's own arithmetic gives 0 (ADR 0217).
 #[test]
 fn a_cmyk_mask_group_takes_its_luminosity_from_the_clauses_own_formula() {
     let raster = render(page_blending_in(

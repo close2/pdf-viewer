@@ -142,7 +142,7 @@ fn run() -> Result<(), Error> {
     println!(
         "{} path pointer(s): {} live, {} absent, {} in another crate, {} unrooted, {} a form, \
          {} not carried (the hand list), {} not carried, gitignored, {} an answer not in this \
-         checkout. {} symbol pointer(s), {} undefined.",
+         checkout, {} historical (in a record). {} symbol pointer(s), {} undefined.",
         found.pointers.len(),
         found.reaching(Reach::Live).len(),
         absent.len(),
@@ -152,6 +152,7 @@ fn run() -> Result<(), Error> {
         found.reaching(Reach::NotCarried).len(),
         found.reaching(Reach::Ignored).len(),
         found.reaching(Reach::AnswerNotHere).len(),
+        found.reaching(Reach::Historical).len(),
         found.symbols.len(),
         undefined.len(),
     );

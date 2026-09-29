@@ -22,10 +22,9 @@
 //! [`viewer_core::Query::LogicalSelection`] answers in the second where the document's structure
 //! tree reaches every byte of what is selected.
 //!
-//! **This was `viewer-ui`'s private function until the six-hundred-and-eighty-third session**
-//! (ADR 0519), which is the same sentence [`crate::clock`] and [`crate::presentation`] carry: the
-//! third copy of a decision is where two hosts stop agreeing. Here it is one function with one
-//! test, and each host supplies only the platform call.
+//! **One function for three hosts** (ADR 0519), which is the same sentence [`crate::clock`] and
+//! [`crate::presentation`] carry: the third copy of a decision is where two hosts stop agreeing.
+//! Here it is one function with one test, and each host supplies only the platform call.
 
 use core::fmt;
 

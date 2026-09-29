@@ -100,13 +100,13 @@ impl Encoder<'_> {
                 Rule::NonZero,
                 rect,
                 bound,
-                Draw::new(color, resolved.rect, self.style, mask),
+                Draw::new(color, resolved.rect, self.style, mask).under(&resolved),
             ));
         }
         // Flatten under the full transform, then expand: the width arrived
         // resolved (brief section 4.5), so our job is caps, joins and miters only.
         let span = self.clock.start();
-        let polylines = raster::flatten(&stored.segments, to_device);
+        let polylines = raster::flatten_stroke(&stored.segments, to_device);
         let stroked = raster::stroke_polylines(&polylines, stroke, device_width);
         self.clock.geometry(span);
         match paint {

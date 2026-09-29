@@ -10,7 +10,7 @@
 //! character two questions rather than one:
 //!
 //! - does a **character code** reach it — [`pdf_font::LoadedFont::code_for`], which is the route
-//!   every panel used before the four-hundred-and-ninety-first session;
+//!   a panel used before ADR 0326;
 //! - does the **face** state a glyph for it at all — [`pdf_font::LoadedFont::character_glyph`],
 //!   which is the same compiled-in bytes asked by character instead.
 //!

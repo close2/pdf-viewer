@@ -154,11 +154,10 @@ fn the_panel_puts_ink_on_the_rows_it_lists() {
 
 /// A title §9.6.2.2's fourteen cannot set draws a box per character rather than nothing.
 ///
-/// `doc/todo/27`: the popup window has said how many characters it could not set since the
-/// three-hundred-and-twelfth session, and every other string this host draws from a document —
-/// an outline title, a layer name, an `/Info` value — was dropped in silence, so a Japanese
-/// document's outline was a panel of empty rows. Trap 5 one clause over: a person shown an empty
-/// row has been told the document states nothing there.
+/// `doc/todo/27`: the popup window says how many characters it could not set (ADR 0191), and so
+/// does every other string this host draws from a document — an outline title, a layer name, an
+/// `/Info` value — or a Japanese document's outline would be a panel of empty rows. Trap 5 one
+/// clause over: a person shown an empty row has been told the document states nothing there.
 #[test]
 fn a_title_this_interfaces_font_cannot_set_draws_a_box_for_each_character() {
     // The compiled-in faces alone: with the machine's behind them (ADR 1382) these five characters
@@ -628,13 +627,12 @@ fn a_collection_puts_its_files_in_folders_with_the_schemas_columns() {
 
 /// §12.3.5.2: no embedded file falls out of the panel, however oddly its key is written.
 ///
-/// Two sentences of the clause say so and this panel obeyed neither until the
-/// seven-hundred-and-seventy-second session (ADR 0711): "[i]f no folder structure is specified,
-/// interactive PDF processors should show all files in the collection in a flat list", and
-/// "[w]hen folders are used, all files in the `EmbeddedFiles` name tree … shall be treated as
-/// members of the folder structure by an interactive PDF processor". A key naming a folder the
-/// document never wrote contradicts "[t]he value shall correspond to a folder ID" — the producer's
-/// requirement — and the clause states no remedy, so the root is the choice made here.
+/// Two sentences of the clause say so (ADR 0711): "[i]f no folder structure is specified,
+/// interactive PDF processors should show all files in the collection in a flat list", and "[w]hen
+/// folders are used, all files in the `EmbeddedFiles` name tree … shall be treated as members of
+/// the folder structure by an interactive PDF processor". A key naming a folder the document never
+/// wrote contradicts "[t]he value shall correspond to a folder ID" — the producer's requirement —
+/// and the clause states no remedy, so the root is the choice made here.
 ///
 /// A panel drawing fewer files than the document embeds looks exactly like a document that embeds
 /// fewer files, which is why this is a defect rather than a presentation question.
@@ -974,11 +972,10 @@ fn the_about_card_shows_the_notice_and_scrolls_it() {
 /// §14.3.3's tab shows what the document says about itself, in both places it says it.
 ///
 /// Table 349's every text entry carries a NOTE pointing at an XMP counterpart and §12.2's
-/// `/DisplayDocTitle` names `dc:title` outright, so a document with a metadata stream may be
-/// saying something else about itself than the dictionary does. **Since the
-/// two-hundred-and-ninety-fourth session the panel shows both rather than naming the second**
-/// (ADR 0186), and the two are kept apart on the screen for the reason the standard keeps them
-/// apart: nothing ranks them except §12.2, and only for the title.
+/// `/DisplayDocTitle` names `dc:title` outright, so a document with a metadata stream may be saying
+/// something else about itself than the dictionary does. **The panel shows both rather than naming
+/// the second** (ADR 0186), and the two are kept apart on the screen for the reason the standard
+/// keeps them apart: nothing ranks them except §12.2, and only for the title.
 #[test]
 fn the_document_tab_shows_table_349_and_the_xmp_beside_it() {
     let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
@@ -1092,10 +1089,10 @@ fn the_pages_tab_draws_a_thumbnail_and_a_click_goes_to_its_page() {
         // §12.3.4's thumbnail, whose alpha is the rectangle it covers (ADR 1022).
         sample_alpha: pdf_render::SampleAlpha::Shape,
     };
-    // **The panel is fetched a row at a time since the seven-hundred-and-fourth session**, so what
-    // a fixture supplies is what a host has *already* fetched — `viewer_host::Miniatures`, filled
-    // for the rows it is about to draw. `page_count` is the document's and is what decides how
-    // many rows there are; a row nobody has fetched still draws its number.
+    // **The panel is fetched a row at a time** (ADR 0564), so what a fixture supplies is what a
+    // host has *already* fetched — `viewer_host::Miniatures`, filled for the rows it is about to
+    // draw. `page_count` is the document's and is what decides how many rows there are; a row
+    // nobody has fetched still draws its number.
     let mut pages: viewer_host::Miniatures<pdf_render::Image> = viewer_host::Miniatures::new();
     drop(pages.row(0, || viewer_host::Held {
         label: "i".to_owned(),

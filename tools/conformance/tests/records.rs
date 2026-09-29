@@ -2,10 +2,9 @@
 //!
 //! # A number a document states is a number nobody measures
 //!
-//! `doc/todo/02` section 8 has capped a round's record at forty lines for as long as the batch
-//! loop has existed, and every brief repeats it. Nothing counted it. The six records of sessions
-//! 1086–1091 ran 44, 47, 19, 40, 40 and 40 — two over, and the only reason anybody knows is that
-//! a later round ran `wc -l`. That is the shape `CLAUDE.md` ("Where knowledge lives") names: a
+//! `doc/todo/02` section 8 caps a round's record at forty lines, and every brief repeats it; a
+//! cap nothing counts is exceeded unnoticed (ADR 1100). That is the shape `CLAUDE.md` ("Where
+//! knowledge lives") names: a
 //! fact that can be counted is not written down, and what is written down is the command that
 //! counts it.
 //!
@@ -33,11 +32,9 @@ use std::fmt::Write as _;
 /// `doc/todo/02` section 8's figure, and the only copy of it that anything reads.
 const BUDGET: usize = 40;
 
-/// The first session whose record this check holds to [`BUDGET`].
+/// The first record number this check holds to [`BUDGET`], the batch that built it (ADR 1100).
 ///
-/// Sessions 1086–1091 are the batch that built the check; two of the six were over and were
-/// trimmed by the round that built it, once, by cutting restatement rather than fact. Everything
-/// before them is a record nothing may edit, and so is a record nothing may fail.
+/// Every record before it is a record nothing may edit, and so is a record nothing may fail.
 const COUNTED_FROM: u32 = 1086;
 
 /// How many of the most recent records are printed beside the budget.

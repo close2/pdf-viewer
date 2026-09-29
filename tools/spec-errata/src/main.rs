@@ -210,8 +210,8 @@ fn check(notes: &[Note]) -> Result<(), spec_errata::Error> {
 ///
 /// **The other direction of `check`'s question**, and the reason it needs a command of its own: a
 /// renumbering strikes a *heading*, so no quotation can land on it and `check` is blind to it by
-/// construction. The five-hundred-and-sixty-second session filtered `emit`'s 1097 annotations for
-/// these verbs by hand; this prints the same population with the ground each one moves counted
+/// construction. Filtering `emit`'s 1097 annotations for these verbs by hand is the same
+/// question; this prints that population with the ground each one moves counted
 /// beside it, which is what a round writing a new citation needs to see.
 ///
 /// # Errors
@@ -368,8 +368,8 @@ fn renumbered(notes: &[Note]) -> Result<(), spec_errata::Error> {
 /// **The question `check` cannot ask, from the third direction.** `check` asks whether a
 /// quotation lands on struck text and cannot see whether the writer had read the erratum;
 /// `moved` asks whether an erratum shifts ground this tree stands on. This one asks whether a
-/// place that *records* an erratum has **applied** it — the five-hundred-and-ninetieth session's
-/// finding, whose lesson is that a row recording an erratum is not a row that has applied it.
+/// place that *records* an erratum has **applied** it — ADR 0425's finding, whose lesson is that
+/// a row recording an erratum is not a row that has applied it.
 ///
 /// The rungs are printed in the order they are worth reading: a live quotation of retired text,
 /// then a correction quoting the wording it retired, then this project's own record of the

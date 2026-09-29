@@ -210,9 +210,8 @@ fn every_specification_pdf_interprets() {
 /// ISO 32000-2 §9.3.6 Table 104 gives modes 4 to 7 as "…and add to path for clipping", and
 /// the clause makes that path take effect at `ET` and last until `Q`. `text_clip_cff_cid.pdf`
 /// is the corpus's own witness: it shows "ABC123" in mode 7 and then paints a rectangle over
-/// the whole area, expecting to see it only through the letters. Until the thirteenth session
-/// we built no clip, drew a solid blue bar, and said `unsupported: []` — the oracle found it
-/// and no metric this tree owns could have.
+/// the whole area, expecting to see it only through the letters. A reader that builds no clip
+/// draws a solid blue bar and says `unsupported: []`, which only the oracle can see (ADR 0022).
 ///
 /// `tests/text_render_modes.rs` pins each of the clause's rules on a fixture; this pins that
 /// they reach a document written by somebody else, where the glyphs come from an embedded
@@ -247,8 +246,8 @@ fn a_real_documents_text_clip_reaches_what_it_paints_afterwards() {
 ///
 /// `colorkeymask.pdf` was this project's standing example of a silent wrong page: three
 /// bands, the red one inside its image's `/Mask [255 255 0 255 0 255]`, all four reference
-/// renderers hiding it and us painting it with `unsupported: []`. The report that stood here
-/// until the fourteenth session was the honest half-measure; §8.9.6.4 is implemented now, and
+/// renderers hiding it and a reader without §8.9.6.4 painting it with `unsupported: []`.
+/// §8.9.6.4 is implemented (ADR 0023), and
 /// what this asks is that the document went quiet for the right reason — nothing left to
 /// report *and* the band gone, which `tests/image_masks.rs` pins at the pixel.
 #[test]

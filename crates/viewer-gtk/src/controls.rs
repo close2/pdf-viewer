@@ -1,19 +1,14 @@
 //! §12.7's form, as real GTK4 controls placed over the page.
 //!
-//! `doc/todo/30`'s second item, and the one that became possible in the
-//! three-hundred-and-ninety-eighth session (ADR 0235): "real controls over `Query::Fields` — a
-//! `GtkEntry` for a text field, a `GtkComboBoxText` for §12.7.5.4's combo box, a `GtkCheckButton`
-//! for a check box". The combo box is a [`gtk4::DropDown`] here rather than a `GtkComboBoxText`,
-//! which GTK deprecated in 4.10.
+//! `doc/todo/30`'s second item (ADR 0235): "real controls over `Query::Fields` — a `GtkEntry` for a
+//! text field, a `GtkComboBoxText` for §12.7.5.4's combo box, a `GtkCheckButton` for a check box".
+//! The combo box is a [`gtk4::DropDown`] here rather than a `GtkComboBoxText`, which GTK deprecated
+//! in 4.10.
 //!
-//! **What this host could not do until the four-hundred-and-ninth session**: ask for the page
-//! drawn *without* the widget appearances underneath these controls. §12.5.5's appearance streams
-//! are page content, so the entry sat on top of the picture of an entry and a person saw the
-//! field twice — the largest thing the boundary turned out to be missing (ADR 0244), and closed
-//! by [`viewer_core::Command::Delegate`], which [`crate::Host`] sends on every open (ADR 0245).
-//! (**This paragraph said the host "cannot do" it for three rounds after it could**, and it
-//! pointed at a `doc/todo/37` the round that closed it deleted: `doc/todo/01`'s eighth sweep
-//! found the dead pointer and its first and third found the claim behind it.)
+//! **The page is drawn *without* the widget appearances underneath these controls.** §12.5.5's
+//! appearance streams are page content, so otherwise the entry sits on top of the picture of an
+//! entry and a person sees the field twice (ADR 0244). [`viewer_core::Command::Delegate`] asks for
+//! that page, and [`crate::Host`] sends it on every open (ADR 0245).
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -308,11 +303,10 @@ fn offer_a_chooser(entry: &gtk4::Entry) {
 
 /// §12.7.5.2.3's check box and §12.7.5.2.4's radio button, which are one control with two rules.
 ///
-/// **What the rules *are* is [`viewer_host::toggling`] since the seven-hundred-and-thirty-fifth
-/// session** (ADR 0630), shared with `viewer-qt`, with `viewer-ui` and with this host's own
-/// accessibility click. This function had a copy of them and the copy had drifted: it never asked
-/// Table 227 bit 1, on the reasoning that an insensitive control cannot be clicked — true of a
-/// person's click and not of the two other ways one arrives.
+/// **What the rules *are* is [`viewer_host::toggling`]** (ADR 0630), shared with `viewer-qt`, with
+/// `viewer-ui` and with this host's own accessibility click, so no copy here can drift. It asks
+/// Table 227 bit 1 too: that an insensitive control cannot be clicked is true of a person's click
+/// and not of the two other ways one arrives.
 ///
 /// **And a refused click puts the button back.** `connect_toggled` fires *after* GTK has flipped
 /// the widget, so returning without an edit used to leave a `GtkCheckButton` showing a state the
@@ -393,8 +387,7 @@ fn chosen(selection: &gtk4::SelectionModel) -> Vec<usize> {
 ///
 /// So a clear flag is not the absence of a requirement: only a drop-down list is what a
 /// [`gtk4::DropDown`] is, and that is the control below. A set flag asks for two things at once,
-/// and GTK4 has no single widget that is both — which is what `doc/todo/30` item 7 and ADR 0509
-/// section 3 called a toolkit floor for thirty-nine sessions.
+/// and GTK4 has no single widget that is both (ADR 0509 section 3).
 ///
 /// **It is not a floor, and ADR 0508's rule is what found that: call the API before writing that
 /// something is blocked on it.** The floor was read off the *widget list* — `GtkDropDown` has no
@@ -547,18 +540,16 @@ fn editable_combo(
 /// real list — which is the point. This is that list, and it is the one control here that adds
 /// something the page does not already show.
 ///
-/// **And since the four-hundred-and-twelfth session it obeys Table 233 bit 22 rather than
-/// reporting it.** The bit — "(PDF 1.4) If set, more than one of the field's option items may be
-/// selected simultaneously; if clear, at most one item shall be selected" — decides which of GTK's
-/// two selection models this is, and the model is the whole difference: `viewer_core::Edit` carries
-/// a set of indices now, so a `GtkMultiSelection`'s answer has somewhere to go. ADR 0248.
+/// **It obeys Table 233 bit 22 rather than reporting it.** The bit — "(PDF 1.4) If set, more than
+/// one of the field's option items may be selected simultaneously; if clear, at most one item shall
+/// be selected" — decides which of GTK's two selection models this is, and the model is the whole
+/// difference: `viewer_core::Edit` carries a set of indices, so a `GtkMultiSelection`'s answer has
+/// somewhere to go. ADR 0248.
 ///
-/// **And since the six-hundred-and-seventy-eighth it obeys Table 234's `/TI`**, which is the last
-/// thing this host owed §12.7.5.4 and which was owed to a *binding* rather than to a decision:
-/// `GtkListView::scroll_to` is GTK 4.12 and this workspace bound `v4_10`. ADR 0508 raised the
-/// floor. The entry is "the index in the Opt array of the first option visible in the list" — where
-/// a scrollable list *starts*, which the clause makes a different question from which item is
-/// selected, and which the page's own appearance has obeyed since ADR 0407.
+/// **It obeys Table 234's `/TI`**, which needs `GtkListView::scroll_to` and therefore GTK 4.12
+/// (ADR 0508). The entry is "the index in the Opt array of the first option visible in the list" —
+/// where a scrollable list *starts*, which the clause makes a different question from which item is
+/// selected, and which the page's own appearance obeys (ADR 0407).
 fn list(
     field: &FormField,
     options: &[String],

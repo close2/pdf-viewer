@@ -3,11 +3,10 @@
 //! # The shape it exists for
 //!
 //! A ledger note that lists entries as unread — "Not read: `/I`, `/RI`, `/IX`…", "`/Usage` is
-//! read by nothing" — is one claim per entry, and the claims decay independently: the session
+//! read by nothing" — is one claim per entry, and the claims decay independently: the round
 //! that starts reading an entry is implementing some *other* clause and has no reason to come
-//! back. Six of the first ten lists checked had a live entry (`doc/todo/01`, session 122);
-//! §7.7.3.3's had eleven of eighteen; §8.11.2.1 recorded `/Usage` as unread for a hundred and
-//! fifty sessions after §8.11.4.4 read it per group.
+//! back. Six of the first ten lists checked had a live entry (ADR 0111); §7.7.3.3's had eleven
+//! of eighteen; §8.11.2.1 recorded `/Usage` as unread after §8.11.4.4 read it per group.
 //!
 //! So the sweep takes each such claim apart into keys and asks the tree: **does any Rust source
 //! under [`crate::roots::source_roots`] read the entry it says nobody reads?** Reading, here, is the
@@ -32,7 +31,7 @@
 //! count will be wrong about it:
 //!
 //! - **A correction carries the claim it retires.** A note that says "this row said `/DW2` was
-//!   not read and both halves had been false since the thirty-sixth session" holds the phrase and
+//!   not read and both halves had been false since ADR NNNN" holds the phrase and
 //!   the key in one sentence, and the sentence's own point is that the entry *is* read. Sentence
 //!   scoping cannot separate them, because the retraction is deliberately in the same breath as
 //!   what it retracts.
@@ -47,8 +46,8 @@
 //!
 //! # Why it is a program now
 //!
-//! It was one of `doc/todo/01`'s prose sweeps from the hundred-and-twenty-second session to the
-//! four-hundred-and-eighty-ninth, re-derived from its own paragraph on every run — which is the
+//! As one of `doc/todo/01`'s prose sweeps it would be re-derived from its own paragraph on every
+//! run (ADR 0324) — which is the
 //! failure mode ADR 0319 records for the fifteenth sweep, and `CLAUDE.md`'s rule that what is
 //! written down is the command that counts a fact, never the fact, failing in the direction it
 //! was written for. A description is rebuilt differently every time; a program is the same

@@ -9,7 +9,7 @@
 //!
 //! - **ISO 32000-2 §8.5.2.1.** "Most operators that add a segment to the current path start at
 //!   the current point; if the current point is undefined, an error shall be generated." That row
-//!   has said since the twenty-fourth session that such a path is passed to the rasteriser
+//!   says that such a path is passed to the rasteriser
 //!   unclassified rather than refused, and that no corpus first page reaches it.
 //! - **§9.4.2, as Errata Collection 3's Issue #368 adds to it.** "Within a text object, the
 //!   graphics state stack operators q and Q (see 8.4.2, 'Graphics state stack') shall

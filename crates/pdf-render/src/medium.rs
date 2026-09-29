@@ -50,11 +50,10 @@
 //! window may show two pages at once, with something between them, is outside its subject.
 //!
 //! So [`SURROUND`] is **a choice this program makes**, written down as one, and [`Medium`] is
-//! what keeps it from being confused with 𝑊. One colour served as both until the
-//! six-hundred-and-eleventh session, which is why a continuous column's pages ran into each
-//! other: the surround was page white, so the gap between two pages was the same colour as the
-//! paper on either side of it. Making the *medium* grey to see the gap turned the **pages** grey,
-//! and that is the proof that one value was doing two jobs (ADR 0442's last finding).
+//! what keeps it from being confused with 𝑊. One colour serving as both makes a continuous
+//! column's pages run into each other: a page-white surround makes the gap between two pages the
+//! same colour as the paper on either side of it, and a grey medium turns the **pages** grey —
+//! the proof that one value would be doing two jobs (ADR 0442's last finding).
 //!
 //! # The same boundary keeps the page's own ink in, and that is the clause rather than a choice
 //!
@@ -63,7 +62,7 @@
 //! meaning in terms of physical page geometry or intended use; it merely imposes clipping on the
 //! page contents." `pdf_model::interpret` deliberately keeps the marks a content stream made
 //! outside that box — a display list is what the file says — so something has to put the clip
-//! back, and until the six-hundred-and-twelfth session nothing did.
+//! back, and this is it.
 //!
 //! It went unseen because **a page-sized target met the requirement by accident**: the raster is
 //! the boundary's own extent, so the raster's edge did the cutting and no gate could tell the

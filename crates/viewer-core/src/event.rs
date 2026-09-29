@@ -195,7 +195,7 @@ pub enum Event {
     /// would be a false statement about the file.
     ///
     /// It carries the operation as well as the sentences, so that it can become a **question**
-    /// — and since the eight-hundred-and-eighty-fifth session it has: [`Self::Asking`] is the
+    /// — and it has (ADR 0814): [`Self::Asking`] is the
     /// same list under [`crate::RestrictionLevel::Ask`] and [`Self::Warned`] under
     /// [`crate::RestrictionLevel::Warn`]. **This one is the answer of exactly one level**,
     /// [`crate::RestrictionLevel::On`], which is how the level is named on it; the bit is named in

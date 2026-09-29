@@ -158,12 +158,11 @@ pub enum Query<'a> {
     /// §12.7's form fields with a widget on a page the arrangement is showing, as a host would
     /// *be* them.
     ///
-    /// **The sixth chrome population, and the one that did not cross until the
-    /// three-hundred-and-ninety-eighth session.** §12.3.3's outline, §8.11.4.3's layers,
+    /// **The sixth chrome population** (ADR 0235). §12.3.3's outline, §8.11.4.3's layers,
     /// §7.11.4's files, §12.3.5's collection, §12.5.6.14's popups and §12.3.4's thumbnails all
     /// answer as data so that a native host can draw them in a `QTreeView`, an `NSPopover` or its
     /// own icon view. A form field has the strongest claim of the six — a text field *is* a
-    /// `QLineEdit` — and until this query a host could only take it as pixels off the raster.
+    /// `QLineEdit` — and without this query a host could only take it as pixels off the raster.
     ///
     /// [`Query::FieldAt`] answers for one *point*, which is what a click has. A host placing
     /// controls has a page and needs every field on it before anybody clicks, with enough to build
@@ -180,8 +179,7 @@ pub enum Query<'a> {
     /// A click still asks [`Query::FieldAt`].
     ///
     /// **One list for every page Table 29's arrangement is showing**, not for the current page —
-    /// which is what [`crate::Viewer`] has answered since `Command::Layout` existed and what these
-    /// two sentences said otherwise until the six-hundred-and-seventy-eighth session. A column
+    /// which is what [`crate::Viewer`] answers (ADR 0508). A column
     /// shows several pages, a host asking for controls draws all of them, and a page whose widget
     /// appearances `Command::Delegate` took away while its fields went unanswered would show a form
     /// with holes in it. The fields carry no page number and need none: a widget's quadrilateral is
@@ -411,7 +409,7 @@ pub enum Query<'a> {
     /// §14.7's logical structure for every page the arrangement is showing, page by page.
     ///
     /// The last of the five items `doc/ui-boundary.md` lists as blocked on this interface, and
-    /// the first consumer of six sessions' reading of §14.7 and §14.9. Answers with an empty
+    /// the consumer of this tree's reading of §14.7 and §14.9. Answers with an empty
     /// [`PageStructure::nodes`] for an untagged page, which is an answer: the page says nothing
     /// about its own structure, and §14.7 leaves it free to.
     ///
@@ -462,12 +460,12 @@ pub enum Query<'a> {
 /// that asking a question at pointer speed does not allocate at pointer speed.
 ///
 /// **Which questions are asked at pointer speed decides that, and the three panel answers are
-/// not among them.** [`Answer::Outline`] borrowed until the four-hundred-and-eleventh session
-/// while [`Answer::Layers`] and [`Answer::Attachments`] were owned, and every one of the five
-/// consumers cloned it: a panel outlives the query that filled it, in a `GtkTreeListModel`, in a
-/// `QAbstractItemModel`, in `viewer-ui`'s own sidebar and across `viewer-confined`'s pipe. The
-/// borrow saved nobody an allocation and cost a `viewer-ui`-shaped asymmetry that a C header
-/// would have had to explain. ADR 0247.
+/// not among them** (ADR 0247). [`Answer::Outline`], [`Answer::Layers`] and
+/// [`Answer::Attachments`] are owned, because every consumer would clone a borrowed one: a panel
+/// outlives the query that filled it, in a `GtkTreeListModel`, in a
+/// `QAbstractItemModel`, in `viewer-ui`'s own sidebar and across `viewer-confined`'s pipe. A
+/// borrow would save nobody an allocation and cost a `viewer-ui`-shaped asymmetry that a C header
+/// would have to explain.
 #[derive(Debug)]
 pub enum Answer<'a> {
     /// There is nothing to answer with: no document is focused, or the question named a page
@@ -475,7 +473,7 @@ pub enum Answer<'a> {
     None,
     /// §14.7's structure, one entry per page the arrangement shows, in page order.
     ///
-    /// **A list since the six-hundred-and-tenth session**, and the variant changed shape rather
+    /// **A list**, and the variant changed shape rather
     /// than a second question being added, for the reason [`Answer::Frame`] gives: a column puts
     /// several pages on the screen and a screen reader handed one page's tree is being told the
     /// document is one page long. One entry under `SinglePage`, which is Table 29's default.
@@ -518,8 +516,8 @@ pub enum Answer<'a> {
     /// entry in the `EmbeddedFiles` name tree, determining the document that shall be initially
     /// presented in the user interface", and resolving it against that tree is what turns a byte
     /// string into one of [`pdf_model::collection::Initial`]'s four instructions. The tree is the
-    /// document's, so a host holding only the dictionary cannot make the decision — which is
-    /// exactly what this answer carried until the three-hundred-and-ninety-fourth session.
+    /// document's, so a host holding only the dictionary cannot make the decision, and this
+    /// answer carries the resolved instruction.
     Collection {
         /// Table 153, whole, with Tables 154 to 160 behind it.
         collection: pdf_model::collection::Collection,
@@ -595,11 +593,10 @@ pub enum Answer<'a> {
         /// host obeying ADR 0201's read-back rule **must** consult it — writing bullets back into
         /// a password control would send those bullets as the next value.
         ///
-        /// **This carried a bare `Option<String>` until the four-hundred-and-eleventh session**,
-        /// and the exception was discoverable only by reading this comment beside
-        /// `Control::Text`'s `password` and noticing that the two interact. Both native hosts
-        /// found it; a C consumer reading only the rule would have shipped the bug. The variant
-        /// changed shape rather than gaining a sentence, which is what nothing here being
+        /// **Not a bare `Option<String>`**, because with one the exception would be discoverable
+        /// only by reading this comment beside `Control::Text`'s `password` and noticing that
+        /// the two interact, and a C consumer reading only the rule would ship the bug. The
+        /// variant carries the shape rather than a sentence, which is what nothing here being
         /// `#[non_exhaustive]` is for. ADR 0247.
         value: Option<pdf_model::view::ShownValue>,
     },
@@ -669,9 +666,9 @@ pub enum Answer<'a> {
         /// "this document states no metadata" and "this document states metadata I could not
         /// read" are different sentences and only the second is about us.
         ///
-        /// **Was `metadata_stream: bool` until the two-hundred-and-ninety-fourth session**, when
-        /// `pdf_model::xmp` gave the crate something to put here. Nothing in this vocabulary is
-        /// `#[non_exhaustive]` exactly so that a change of this shape breaks every consumer's
+        /// **The packet itself, from `pdf_model::xmp`, rather than a flag saying a stream exists**
+        /// (ADR 0186). Nothing in this vocabulary is
+        /// `#[non_exhaustive]` exactly so that a change of that shape breaks every consumer's
         /// build rather than being ignored in one of them.
         metadata: Option<Result<pdf_model::xmp::Xmp, pdf_model::xmp::XmpError>>,
     },
@@ -687,8 +684,7 @@ pub enum Answer<'a> {
     /// the mechanism `doc/ui-boundary.md` prefers — where a host needs several of what a variant
     /// carried one of, the variant changes and every consumer fails to compile.
     ///
-    /// One entry under `SinglePage`, which is Table 29's default and what this crate answered
-    /// with for four hundred sessions.
+    /// One entry under `SinglePage`, which is Table 29's default.
     Frame(Vec<FrameView<'a>>),
     /// What the pages on the screen could not draw, one entry per page, in page order.
     Reports(Vec<PageReports<'a>>),
@@ -769,6 +765,43 @@ pub struct PageStructure {
     /// after the structure's own nodes rather than placed in its reading order. Empty for a page
     /// with no such widget a person may interact with. ADRs 1369 and 1381.
     pub widgets: Vec<crate::AccessibilityNode>,
+    /// Which of the four answers an empty or full [`Self::nodes`] is, which the list cannot say.
+    ///
+    /// An empty list is three different statements about a document — it states no structure, its
+    /// structure has not been read for this page yet, or its structure reaches nothing here — and
+    /// only the first is the one ADR 0214's sentence makes. ADR 1393.
+    pub tagging: Tagging,
+}
+
+/// What a document's logical structure says about one page, as [`PageStructure::tagging`] answers.
+///
+/// **The division is the document's, not the page's.** ISO 32000-2 §14.7.2 puts the structure at
+/// the catalog:
+///
+/// > At the root of the hierarchy shall be a dictionary object called the structure tree root ,
+/// > located by means of the StructTreeRoot entry in the document catalog dictionary
+///
+/// so whether a document states a structure at all is one fact for every page of it, and what a
+/// page's own content is in that structure is §14.7.5.4's parent tree keyed by the page's
+/// `/StructParents`. A tagged document whose structure reaches nothing on a page is therefore not an
+/// untagged page, and telling a person it is would misstate the file. ADR 1393.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tagging {
+    /// The catalog states no `/StructTreeRoot`: the document states no logical structure at all.
+    Untagged,
+    /// The document states a structure and this page is not yet interpreted, so which of its
+    /// content the structure reaches is not known yet.
+    Unread,
+    /// The document states a structure and no element of it reaches this page's content.
+    Unreached {
+        /// Whether the catalog's `/MarkInfo` states `/Marked true`, §14.8.1's claim to be a
+        /// tagged PDF — whose §14.8.2.2.1 structure encompasses all real content, so that an
+        /// unreached page with real content is the producer's omission rather than its choice.
+        marked: bool,
+    },
+    /// The document states a structure and [`PageStructure::nodes`] holds what it says of this
+    /// page.
+    Reached,
 }
 
 /// One page of a print operation: its marks, and where to put them on the sheet.
@@ -872,8 +905,7 @@ pub struct Selected<'a> {
     /// `[x0, y0, … x3, y3]` round each quadrilateral, in the order the runs were shown. Device
     /// pixels rather than the page's own units because the host has no transform of its own and
     /// asking it to compose one would be asking it to re-derive the magnification, the centring
-    /// and the y flip — which is exactly the arithmetic that was wrong for seventy-five sessions
-    /// (ADR 0118).
+    /// and the y flip — which is exactly the arithmetic that is easy to get wrong (ADR 0118).
     pub quads: Vec<[f32; 8]>,
 }
 

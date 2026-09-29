@@ -6,7 +6,7 @@
 //! journey from there: device pixels in, selected text out — the loop from a press to a
 //! `Command` to an `Answer` that trap 12a is about, where `user_space_at`'s doc comment named a
 //! coordinate space it did not have and **every click followed that sentence into the mirror of
-//! the point it meant**, for seventy-five sessions, because no gate clicks (ADR 0118).
+//! the point it meant**, unseen because no gate clicks (ADR 0118).
 //!
 //! One drag test has clicked since ADR 0333: one committed document, three words, at the page's
 //! own point size where the magnification is 1 and the origin is 0. This census is that test's
@@ -26,8 +26,7 @@
 //! `search` says "selecting the first matching word in the document", and the one thing this
 //! crate has that means is the range [`Query::Selection`] answers with. So the find bar's loop
 //! ends where the drag's does, on the same question, and this census is where both are asked at
-//! corpus scale. It also asks the *cost* half, which no instrument asked before the
-//! nine-hundred-and-thirty-second session: a search step reads a page out of
+//! corpus scale. It also asks the *cost* half (ADR 0905): a search step reads a page out of
 //! `viewer_core`'s readback cache where one is held, and the page a person is looking at was
 //! interpreted to be drawn — so a find bar opened on the page showing must interpret **no page
 //! at all**. The cache's own counters say whether that happened, and they are counts rather than
@@ -695,10 +694,9 @@ fn drag_across_the_reference(
 /// of interpretations rather than a duration, so a neighbouring round's load cannot change it by
 /// one, which is `doc/todo/02` §2's rule about which cost properties are worth gating.
 ///
-/// **Before the nine-hundred-and-thirty-second session no instrument reached that cache at all**:
-/// this census's forty caret queries left it at `hits: 0, misses: 0`, because nothing here asked
-/// a question that searches (ADR 0905). The five-page fixture in `tests/headless.rs` held the
-/// cache's own rules; the corpus held nothing.
+/// **This is what reaches that cache at corpus scale**: this census's forty caret queries leave
+/// it at `hits: 0, misses: 0`, because none of them is a question that searches (ADR 0905). The
+/// five-page fixture in `tests/headless.rs` holds the cache's own rules; this holds the corpus.
 fn search_for_the_reference(
     census: &mut Census,
     viewer: &mut Viewer,

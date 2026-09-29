@@ -2686,8 +2686,8 @@ mod tests {
     ///
     /// The greater root is out of range and `/Extend[1]` is false, so it is not a circle at
     /// all — and the clause's "greatest value of s" is then the other one. A two-point conical
-    /// gradient has no way to say that, which is the whole of this defect: for two hundred
-    /// sessions the point was painted with nothing.
+    /// gradient has no way to say that, which is why the point is painted here rather than left
+    /// with nothing.
     #[test]
     fn the_greatest_root_a_cone_admits_is_not_always_the_greater_root() {
         let (start, end) = (Point { x: 511.0, y: 489.0 }, Point { x: 431.0, y: 489.0 });

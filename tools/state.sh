@@ -49,11 +49,9 @@ run() {
     local output
     output=$("$@" 2>&1)
     local code=$?
-    # A gate that fails is named where it failed, not only in the script's exit status. Until
-    # the nine-hundred-and-ninety-eighth session a non-zero exit set `status` and printed
-    # nothing, so a reader of the printed state could see every gate's summary line and not the
-    # one that had failed — the merge of rounds 992–997 got `exit 101` from a forty-seven-section
-    # run and no line saying where.
+    # A gate that fails is named where it failed, not only in the script's exit status: a
+    # non-zero exit that set `status` and printed nothing would let a reader of the printed state
+    # see every gate's summary line and not the one that had failed.
     [ $code -ne 0 ] && { status=$code; printf '  ✗ the gate exited %s\n' "$code"; }
     printf '%s\n' "$output" | grep -E "$filter" || {
         printf 'no line matched %s — the gate said:\n' "$filter"
@@ -150,6 +148,17 @@ section_navigation() {
         history doc/PLAN.md doc/crate-map.md doc/state-of-play.md doc/HANDOVER.md
 }
 
+# How much of `CLAUDE.md`'s comment rule is still owed: its own grep, run as written, and each hit
+# sorted by shape into code, a session this program or the desktop has, a round's session by
+# ordinal or number, and the lines neither list decides. `raster/` is counted apart, because
+# `CLAUDE.md`'s grep does not reach it. A count and a reading list, never a gate: whether "a session
+# that reads it" is advice or history is a question about English (ADR 1403).
+section_comments() {
+    run "history in Rust comments, by shape" \
+        '^[0-9]+ lines match|^(crates and tools|raster): ' \
+        python3 tools/comment-history.py
+}
+
 # Every ledger note's opening and closing sentence, against the row's own `status` field. A note's
 # last sentence is the "what keeps this row `partial`" clause and every later round appends above
 # it; its first sentence is what a round that moves a status rewrites around. Both are inside the
@@ -234,13 +243,11 @@ section_accessibility() {
         cargo test --profile gates -p viewer-core --test accessibility_census -- --ignored --nocapture
 }
 
-# The adapter crate is `render-raster`, and this said `render-quorra` until session 945 — a name
-# the rename to `raster` left behind (`doc/questions/A05`: the rendering library is named for what
-# it is, and `render-raster` is this tree's adapter for it). `cargo` answered "package ID
-# specification `render-quorra` did not match any packages", `run` reported that no line matched
-# the pattern, and the sequence carried on: the gate was not failing, it was not running.
-# `doc/todo/02` §2 has carried the correct name throughout, which is how two statements of one
-# command drift when only one of them is executed.
+# The adapter crate is `render-raster` (`doc/questions/A05`: the rendering library is named for
+# what it is, and `render-raster` is this tree's adapter for it). A package name `cargo` does not
+# know is not a failing gate but one that does not run — `run` reports only that no line matched —
+# so this line and `doc/todo/02` §2's are two statements of one command, and only this one is
+# executed.
 section_quorra() {
     gate_binaries
     run "raster against the CPU oracle" \
@@ -328,9 +335,9 @@ section_frame() {
 # RFC 0003 section 5.2's five write verbs and section 4's whole layout, over every corpus document
 # the core opens. The `--bins` build is trap 10: a `--profile gates --test` line builds one test
 # target and nothing else, so `pdf-vfs-worker` beside it would otherwise be whatever an earlier
-# round left. There is no third line here: session 917's `awkward_classes` became the read walk's
-# population in session 919 (ADR 0878), and the walk of the *other* confined program that inherited
-# the name is `section_confined` below, `doc/todo/02` §2's since session 995.
+# round left. There is no third line here: `awkward_classes` is the read walk's population
+# (ADR 0878), and the walk of the *other* confined program that carries the name is
+# `section_confined` below, a `doc/todo/02` §2 line (ADR 1015).
 section_vfs() {
     gate_binaries
     cargo build --profile gates -p pdf-vfs --bins >/dev/null 2>&1 || status=1
@@ -343,11 +350,11 @@ section_vfs() {
 }
 
 # The other confined program — `pdf-view-worker`, the process a person reads pages in — over a
-# document of each awkward class from every corpus on the disk (ADR 0879). `doc/verify.md`'s run
-# until session 995; `doc/todo/02` §2's since (ADR 1015). What fails it is a death, and the filter
+# document of each awkward class from every corpus on the disk (ADR 0879), and a `doc/todo/02` §2
+# line (ADR 1015). What fails it is a death, and the filter
 # keeps the per-root and per-class counts and the `killed:` line; the reasons listed under them
 # are for a reader. The `--bins` build is trap 10 for this crate's own worker, and the walk runs
-# under `tools/bounded.sh` because it is the heaviest of the session-995 lines by memory.
+# under `tools/bounded.sh` because it is the heaviest of ADR 1015's lines by memory.
 section_confined() {
     cargo build --profile gates -p viewer-confined --bins >/dev/null 2>&1 || status=1
     run "the confined viewer over every awkward class on the disk (what fails it is a death)" \
@@ -452,8 +459,7 @@ section_remedies() {
 # column that matters, and every one of it is a question for doc/pdfa/ before it is a bug; the
 # per-clause rows under each heading are for a reader. The second keeps the converter's own
 # summary line per target and what a user who answers nothing gets. Both say so, loudly, without
-# `doc/veraPDF-corpus`, and the filters keep that line too. `doc/state-of-play.md` said this
-# script printed the comparison for some sessions before it did (ADR 1015).
+# `doc/veraPDF-corpus`, and the filters keep that line too (ADR 1015).
 section_archive() {
     section_remedies
     run "the validator against the veraPDF corpus (ISO 19005, clause by clause per target)" \
@@ -539,18 +545,17 @@ section_governing() {
         "tools/governing-quotations.py"
     # The other half of `--bin quotations`. That one reads a quotation against `doc/md/` and
     # reports the ones that match a specification and then diverge, so a quotation of this
-    # project's *own* governing document matches nothing and is invisible to it. Twenty-three
-    # ledger rows quoted a retired sentence of CLAUDE.md for ninety-two sessions on that
-    # account (ADR 0989). It reports rather than fails: attribution is a proximity rule, so
+    # project's *own* governing document matches nothing and is invisible to it, so a ledger row
+    # quoting a retired sentence of CLAUDE.md is invisible too (ADR 0989). It reports rather than
+    # fails: attribution is a proximity rule, so
     # part of what it prints is correct prose saying what CLAUDE.md *used* to state.
     python3 tools/governing-quotations.py || status=1
 }
 
 # The last twelve rounds' records, beside the budget `doc/todo/02` section 8 states.
 #
-# The budget is forty lines and nothing counted it: the six records of sessions 1086-1091 ran 44,
-# 47, 19, 40, 40 and 40, and the two over were found by a later round running `wc -l`. The figure
-# lives in the check rather than here, so there is one copy of it and it is the one that fails.
+# A budget nothing counts is exceeded unnoticed, so the figure lives in the check rather than here:
+# there is one copy of it and it is the one that fails.
 section_records() {
     run "records (the last twelve, against doc/todo/02 section 8's budget)" \
         'against a budget of|^  1[0-9]{3} |records, [0-9]+ of them counted' \
@@ -588,7 +593,7 @@ section_counts() {
 # and a list after `traps` (`traps 12 and 13`, `traps 53, 54`) counts each member; a range written
 # with a dash counts its two ends. The index's row count is the population; a number cited that has
 # no row is printed rather than dropped, because it is either a citation that resolves to nothing or
-# prose the pattern mistook for one ("the trap 632 named" is a session's number), and either is a
+# prose the pattern mistook for one (a round's number after the word "trap"), and either is a
 # person's to read.
 section_traps() {
     heading "traps: the index, the group files, and what the rounds cite" \
@@ -727,12 +732,9 @@ section_hosts() {
 
 # What a *window* reaches, which is the other half of the question `hosts` asks.
 #
-# **This section exists because a round found the gap by reading rather than by counting.** The
-# seven-hundred-and-fourth session took the last three panels into the two native hosts and wrote
-# down that §12.3.5's collection and §12.5.6.14's popup windows were still `viewer-ui`'s alone —
-# and then that *nothing counted it*, the way this script counts what a C caller cannot ask. A
-# parity claim with no instrument decays exactly the way a ledger row does, which is the whole
-# argument of ADR 0509's third criterion.
+# **A parity claim between windows needs an instrument**, the way this script counts what a C
+# caller cannot ask (ADR 0564): with none, it decays exactly the way a ledger row does, which is
+# the whole argument of ADR 0509's third criterion.
 #
 # The population is the three hosts that put something on a screen, and **`viewer-host` and
 # `viewer-accessibility` are added to each of them** rather than counted on their own: they are the
@@ -741,13 +743,10 @@ section_hosts() {
 # the host crates alone would report three windows blind to a panel all three draw — trap 11's
 # shape.
 #
-# **`viewer-accessibility` joined that list in the seven-hundred-and-thirty-first session, and the
-# section said so before this comment did.** That round took the six queries §14.7's tree is built
-# from out of `viewer-ui`'s own `access.rs` and into `viewer_accessibility::Reading`, so that the
-# two native hosts could publish the same tree rather than derive a second one — and the next run
-# reported `viewer-ui` reaching *fewer* queries than before, with `AccessibilityTree` and
-# `Readback` credited to no window at all on the day all three started asking them. The population
-# is "the crates a window's non-toolkit half lives in", and one had been left out of it. ADR 0623.
+# **`viewer-accessibility` is in that list** because the six queries §14.7's tree is built from
+# live in `viewer_accessibility::Reading`, so that all three windows publish the same tree rather
+# than derive a second one; left out, `AccessibilityTree` and `Readback` would be credited to no
+# window at all. The population is the crates a window's non-toolkit half lives in. ADR 0623.
 #
 # `viewer-confined` is deliberately **not** here, for the reason `hosts` gives about `trace.rs`: it
 # puts every variant on a wire, so the same grep would answer 100% and mean nothing.
@@ -944,8 +943,8 @@ section_ratchets() {
     done
 }
 
-all="ledger departures flags names cited last-sentences navigation conformance annex-o governing questions records counts traps hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame dates xmp save actions on-disk jpeg2000 instruments"
-quick="ledger departures flags names cited last-sentences navigation conformance annex-o governing questions records counts traps hosts windows binaries disk remedies instruments"
+all="ledger departures flags names cited last-sentences navigation comments conformance annex-o governing questions records counts traps hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame dates xmp save actions on-disk jpeg2000 instruments"
+quick="ledger departures flags names cited last-sentences navigation comments conformance annex-o governing questions records counts traps hosts windows binaries disk remedies instruments"
 
 # Sections another section already runs. Not in `all`, because a full run pays for every line
 # they run — `ratchets` through the gates it composes, `remedies` inside `archive` — and named by
@@ -972,6 +971,7 @@ for section in $sections; do
     cited) section_cited ;;
     last-sentences) section_last_sentences ;;
     navigation) section_navigation ;;
+    comments) section_comments ;;
     frontier) section_frontier ;;
     conformance) section_conformance ;;
     tests) section_tests ;;

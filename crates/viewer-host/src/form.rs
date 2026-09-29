@@ -13,13 +13,11 @@
 //!
 //! # And what a *click* on one comes to
 //!
-//! [`Clicked`] is the second decision here and it arrived last, in the
-//! seven-hundred-and-thirty-fifth session (ADR 0630), for the reason the first one did: it had been
-//! written three times. `viewer-ui` decided §12.7.5.2 from a point on the page, `viewer-gtk` from a
-//! `GtkCheckButton`'s new state and `viewer-qt` from a `QAbstractButton`'s — and by the time
-//! anybody compared them they disagreed, because only one of the three asked Table 227 bit 1 before
-//! sending an edit. The others were relying on an insensitive control, which is a fact about a
-//! *person's* click and not about the two other ways one now arrives.
+//! [`Clicked`] is the second decision here (ADR 0630), for the reason the first one is: written
+//! three times — from a point on the page, from a `GtkCheckButton`'s new state and from a
+//! `QAbstractButton`'s — the copies disagree, because an insensitive control is a fact about a
+//! *person's* click and not about the two other ways one arrives, so each must ask Table 227 bit 1
+//! before sending an edit.
 //!
 //! There are two ways in, because there are two things that know a click happened, and both end at
 //! one rule. [`toggling`] is the rule: one widget's flags, and the state the click asked for.
@@ -90,11 +88,9 @@ pub enum ControlKind {
         /// [`ControlKind::takes_typed_characters`] is where that sentence is stated once for
         /// every host.
         ///
-        /// (This comment said a `GtkDropDown` is not editable and a `QComboBox` is, "the one
-        /// place the two hosts differ in what they can obey". The first clause is still true of
-        /// the *widget* and the conclusion was never true of the toolkit: `viewer-gtk` composes
-        /// an entry and a drop-down list since the seven-hundred-and-seventeenth session, and
-        /// nothing about the feature floor moved to allow it.)
+        /// A `GtkDropDown` is not editable where a `QComboBox` is, but that is a fact about the
+        /// *widget* and not the toolkit: `viewer-gtk` composes an entry and a drop-down list
+        /// (ADR 0596).
         editable: bool,
     },
     /// §12.7.5.4's list box — a `GtkListView` or a `QListWidget` over its items.
@@ -108,11 +104,10 @@ pub enum ControlKind {
         /// Table 234's `/TI`: "the index in the Opt array of the first option visible in the
         /// list".
         ///
-        /// **Read by `pdf-model` since the three-hundred-and-ninety-eighth session and dropped
-        /// here until the six-hundred-and-first**, which is `doc/habits.md`'s fifth sweep exactly:
-        /// the model implements it, and the question nobody asked was who calls it. The page's own
-        /// appearance obeys the entry (ADR 0407), so a host that started its list at row 0 showed
-        /// a different first option than the picture underneath it.
+        /// **Read by `pdf-model` and carried here**, because `doc/habits.md`'s fifth sweep asks of
+        /// what the model implements who calls it. The page's own appearance obeys the entry
+        /// (ADR 0407), so a host that started its list at row 0 would show a different first option
+        /// than the picture underneath it.
         top: usize,
     },
     /// §12.7.5.5's signature field, which has no control and no value to type.

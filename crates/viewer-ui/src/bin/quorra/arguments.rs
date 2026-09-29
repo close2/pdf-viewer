@@ -101,9 +101,9 @@ pub(crate) struct Arguments {
     pub(crate) trace: Trace,
     /// Whether to draw with `render-cpu` rather than the graphics device, from `--cpu`.
     ///
-    /// **And therefore whether a graphics device is created at all**, since the
-    /// three-hundred-and-eighty-fourth session: this flag now decides the presenter as well as
-    /// the rasteriser, so a run that asks for the processor opens no driver. See ADR 0221.
+    /// **And therefore whether a graphics device is created at all**: this flag decides the
+    /// presenter as well as the rasteriser, so a run that asks for the processor opens no driver.
+    /// See ADR 0221.
     pub(crate) processor: bool,
     /// The driver stack `--backend` named, or [`DEFAULT_BACKEND`] where it did not.
     pub(crate) backend: Option<Backend>,
@@ -248,9 +248,9 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
         } else if argument == "--no-sandbox" {
             sandbox = false;
         } else if argument == "--trace" || argument.to_string_lossy().starts_with("--trace=") {
-            // `--trace=<topics>` rather than `--trace <topics>`, because the flag has taken no
-            // value for a hundred sessions and a document is what follows it: `--trace doc.pdf`
-            // must keep meaning what it always meant, and only the equals form can promise that.
+            // `--trace=<topics>` rather than `--trace <topics>`, because the bare flag takes no
+            // value and a document is what follows it: `--trace doc.pdf` must keep meaning what it
+            // means, and only the equals form can promise that.
             let list = argument.to_string_lossy();
             let list = list.split_once('=').map_or("", |(_, rest)| rest);
             match parse_topics(list) {
@@ -778,12 +778,10 @@ mod tests {
 
     use super::{Backend, DEFAULT_BACKEND, backend_names, spawn_instancing};
 
-    /// **The whole of what `--cpu` promises.** A run on the processor creates no
-    /// `wgpu::Instance`, which is what loads the driver: before the
-    /// three-hundred-and-eighty-fourth session the flag chose which rasteriser drew the page
-    /// and the driver was loaded regardless, so a driver that faulted while loading took the
-    /// run down whether or not the flag was given. That is the defect the project owner hit on
-    /// Windows, and this test is what stops it coming back.
+    /// **The whole of what `--cpu` promises.** A run on the processor creates no `wgpu::Instance`,
+    /// which is what loads the driver, so a driver that faults while loading cannot take the run
+    /// down when the flag is given. That is the defect the project owner hit on Windows (ADR 0221),
+    /// and this test is what stops it coming back.
     ///
     /// A backend named alongside `--cpu` changes nothing: there is nothing to name a backend
     /// *for*.

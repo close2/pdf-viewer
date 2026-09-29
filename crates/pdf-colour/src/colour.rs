@@ -1686,31 +1686,27 @@ impl RgbRoute {
 /// §8.6.5.8 gives an object three routes to that intent, the third of which is Table 87's
 /// `/Intent` on an image dictionary.
 ///
-/// **This type is why the third route is obeyed at all.** Until the six-hundred-and-seventh
-/// session every caller in `pdf_model::image`, `crate::shading` and `crate::mesh` passed a literal
-/// `true` to [`Compositing::paint`], so the intent reached a path's colour and a glyph's and no
-/// image sample, shading ramp or mesh vertex by any route. Pairing the flag with the target
-/// that was already threaded through all three is what made that a compile error rather than a
-/// habit: there is no longer a `paint` call that can omit it.
+/// **This type is why the third route is obeyed at all.** The flag is paired with the target
+/// that is threaded through `pdf_model::image`, `crate::shading` and `crate::mesh`, so an image
+/// sample, a shading ramp and a mesh vertex receive the intent as a path's colour and a glyph's
+/// do, and omitting it is a compile error rather than a habit: there is no [`Compositing::paint`]
+/// call that can leave it out.
 ///
-/// **And a third thing since session 987, which is not a property of the colour, the target or
-/// the object but of the page**: §14.11.5's output intent, where the document states one this
+/// **And a third thing, which is not a property of the colour, the target or the object but of
+/// the page**: §14.11.5's output intent, where the document states one this
 /// tree reads. `ColourSpace::device_family` ranks it between §8.6.5.6's default and the device
 /// space itself, so it decides what `/DeviceCMYK` *means* — and an image's, a shading's and a
 /// mesh's colour spaces are parsed where their samples are converted, in `pdf_model::image`,
-/// `crate::shading` and `crate::mesh`, after the interpreter has handed the work over. Until
-/// that session those three routes parsed with no intent, so on a page with one an image in
-/// `DeviceCMYK` drew through the assumed press beside a fill drawn through the intent (ADR
-/// 1001's finding at the sites it could not reach; ADR 1008). Carrying the intent in the same
+/// `crate::shading` and `crate::mesh`, after the interpreter has handed the work over; parsed
+/// with no intent, an image in `DeviceCMYK` would draw through the assumed press beside a fill
+/// drawn through the intent (ADR 1008). Carrying the intent in the same
 /// value as the target and the black point is what makes the omission a type error rather than
 /// a habit, exactly as pairing the flag with the target did for §8.6.5.9.
 ///
-/// **And the flag became a pair in session 1014, which is what makes §8.6.5.8's intent do
-/// something** (ADR 1032). Until then the only thing a rendering intent could change was the
-/// black point, so `Perceptual` and `Saturation` were carried the length of this crate and
-/// consumed nowhere; [`Rendering`] carries the `A2B` transform they select as well, so an image
-/// that states `/Intent /Perceptual` over a profile with an `A2B0` of its own converts through
-/// that table and not through the colorimetric one beside it.
+/// **And the flag is a pair, which is what makes §8.6.5.8's intent do something** (ADR 1032):
+/// beyond the black point, [`Rendering`] carries the `A2B` transform they select as well, so an
+/// image that states `/Intent /Perceptual` over a profile with an `A2B0` of its own converts
+/// through that table and not through the colorimetric one beside it.
 #[derive(Debug, Clone)]
 pub struct Conversion {
     /// What the converted colour is composited into.
@@ -2147,7 +2143,7 @@ pub enum ColourSpace {
         /// [`Self::device_family`] answers with a copy of the output intent for every `k`
         /// and every `cs` naming a device family, and the interpreter keeps a copy in the
         /// graphics state — and a parsed press profile is hundreds of kilobytes of lookup
-        /// table. Measured in session 987 on 4000 `k` operators under `issue20513.pdf`'s
+        /// table. Measured by ADR 1008 on 4000 `k` operators under `issue20513.pdf`'s
         /// 718 KB CMYK intent: 1.80 G instructions with the copy against 27.7 M for the same
         /// page with no intent, 95% of them in `memcpy`; a refcount makes the clone a pointer
         /// and the profile is parsed and held once (ADR 1008).
@@ -2405,7 +2401,7 @@ impl ColourSpace {
             // space family" — and the bare name its shorthand for a family with no
             // parameters, so the two select one space; and §8.6.5.6 remaps a device space
             // "[r]egardless of how the colour space is specified". The array form therefore
-            // takes the name's route, which it did not until session 980 (ADR 1001).
+            // takes the name's route (ADR 1001).
             b"DeviceGray" | b"G" | b"DeviceRGB" | b"RGB" | b"DeviceCMYK" | b"CMYK" => {
                 Self::device_family(document, &family, resources, reading, depth)
             }
@@ -3997,8 +3993,8 @@ fn channel(value: f32) -> f32 {
 /// Assuming standard process inks *is* such an assumption, made in the one place the clause
 /// leaves for it.
 ///
-/// **This paragraph cited §10.3.1's NOTE until the six-hundred-and-fifty-sixth session, and the
-/// two differ by one word.** §10.3.1's is about establishing the CIE-based **destination** — what
+/// **The NOTE this paragraph rests on is §10.3.2's, not §10.3.1's, and the two differ by one
+/// word.** §10.3.1's is about establishing the CIE-based **destination** — what
 /// the screen is — and §10.3.2's about the **source**, which is what a document's `DeviceCMYK`
 /// means. This table is a claim about the source; the destination here is sRGB. Both NOTEs
 /// contain "assumptions made by the PDF processor software", which is exactly how a citation one
@@ -4157,12 +4153,11 @@ const RENDERINGS_OF_ONE_PROFILE: usize = 7;
 /// 15 MB of press. ADR 1254.
 ///
 /// **It is a budget on the interpretation rather than on the process, and that is the thing
-/// about it worth saying out loud** (ADR 0417). It was the other way round until the
-/// five-hundred-and-eighty-second session: the table was a `static` filled from the front and
-/// never evicted, so the ninth distinct press a *process* met was refused and which document
-/// that fell on was decided by the order the scheduler ran the eight before it in. Every other
+/// about it worth saying out loud** (ADR 0417). A `static` table filled from the front and never
+/// evicted would refuse the ninth distinct press a *process* met, and which document that fell
+/// on would be decided by the order the scheduler ran the eight before it in. Every other
 /// budget in this tree — `MAX_OPERATIONS`, `MAX_FORM_DEPTH`, `MAX_STATE_DEPTH` — is spent by the
-/// document that reaches it, and this one now is too: a page naming more than this many presses
+/// document that reaches it, and this one is too: a page naming more than this many presses
 /// is refused the next one on every run and on every machine, and a page naming one is never
 /// refused whatever else the process has open. ADR 0416 is the diagnosis and `doc/todo/49`'s
 /// third-bound section the three roads.
@@ -4189,8 +4184,8 @@ const MAX_CACHED_PRESSES: usize = 8;
 ///
 /// The lock is taken once per press an interpretation names — never per colour, which is what
 /// [`Compositing`] carrying the press itself buys — and it is **never** held across
-/// [`sample_press`], because a lock held across work rayon can steal is what hung three
-/// archives in the four-hundred-and-thirty-third session (ADR 0269).
+/// [`sample_press`], because a lock held across work rayon can steal hangs the process (ADR
+/// 0269).
 static SAMPLED: Mutex<Vec<Arc<Press>>> = Mutex::new(Vec::new());
 
 /// How many times this process has built a press out of a profile.
@@ -4490,9 +4485,9 @@ pub fn press_for_profile(
     if let Some(found) = cached(identity) {
         return Some(found);
     }
-    // Sampled with no lock held. That is not an optimisation: a `Mutex` held across work rayon
-    // can steal is what hung three archives in the four-hundred-and-thirty-third session (ADR
-    // 0269), and it is why the entry is looked up again below rather than assumed absent.
+    // Sampled with no lock held. That is not an optimisation: a `Mutex` held across work rayon can
+    // steal hangs the process (ADR 0269), and it is why the entry is looked up again below rather
+    // than assumed absent.
     let space = sample_press(profile, rendering)?;
     SAMPLINGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let sampled = Arc::new(Press {
@@ -4831,9 +4826,8 @@ const INK_POLISH: usize = 6;
 /// `collect` **runs other jobs while it waits** — so a closure holding the lock and calling
 /// rayon can be handed a job that calls this function again, on the initialising thread, and
 /// then waits for itself. That is a deadlock rather than a slow path: the whole process stops
-/// with every thread parked. It is the shape this function had from the four-hundred-and-
-/// twenty-seventh session until the four-hundred-and-thirty-third found it in three of 145
-/// `SafeDocs` archives (ADR 0269), and a reduction of it — a rayon `collect` inside a
+/// with every thread parked. ADR 0269 found it in three of 145 `SafeDocs` archives, and a
+/// reduction of it — a rayon `collect` inside a
 /// `OnceLock` initialiser, called from a parallel iterator — hung 10 runs out of 10.
 ///
 /// So the grid is computed first and the lock is held only across a move. A second caller
@@ -5500,8 +5494,8 @@ pub(crate) const D50: [f32; 3] = [0.964_2, 1.0, 0.824_9];
 /// Bradford is the transform ICC's own `chad` tag carries, so this is the adaptation the
 /// referenced standard describes rather than a choice made here.
 ///
-/// **The quotation marks came off in the six-hundred-and-fifty-sixth session** and the sentence
-/// is prose now, because the words this comment quoted are retired: Errata Collection 3's Issue
+/// **This sentence is prose rather than a quotation** because the words it would quote are
+/// retired (ADR 0484): Errata Collection 3's Issue
 /// #181 (`Review`/`Completed`) strikes the dated *ISO 15076-1:2010 (ICC.1:2010)* out of §10.3.1
 /// and puts the appropriate ICC specification, with a pointer to Table 66, in its place — so
 /// `icc.rs` accepting both 2.x and 4.x profile headers is what the amended sentence asks for
@@ -7098,13 +7092,11 @@ mod tests {
     /// The second black point is `calrgb.pdf` page 14's, which Table 63 permits and no
     /// stretch is defined on: its Y span is zero and its Z span negative.
     ///
-    /// **The `CalRGB` half is the corpus's own A/B and was missing here for four hundred and
-    /// fifty sessions**, while the test's name and this comment both said "a Cal space".
-    /// `calrgb.pdf` pages 1, 5, 11 and 12 state one space in `/WhitePoint`, `/Gamma` and
-    /// `/Matrix` and differ only in `/BlackPoint` — `[0 0 0]`, `[1 1 1]`, `[8 8 8]`,
-    /// `[50 50 50]` — and four renderers produce one raster from the four. The values below
-    /// are those four pages, so a stretch reintroduced here fails this test on the same input
-    /// the oracle would fail on.
+    /// **The `CalRGB` half is the corpus's own A/B.** `calrgb.pdf` pages 1, 5, 11 and 12 state one
+    /// space in `/WhitePoint`, `/Gamma` and `/Matrix` and differ only in `/BlackPoint` — `[0 0 0]`,
+    /// `[1 1 1]`, `[8 8 8]`, `[50 50 50]` — and four renderers produce one raster from the four.
+    /// The values below are those four pages, so a stretch reintroduced here fails this test on the
+    /// same input the oracle would fail on.
     #[test]
     fn a_cal_spaces_black_point_does_not_move_its_colours() {
         let grey = |black| {

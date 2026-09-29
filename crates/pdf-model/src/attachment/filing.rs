@@ -1,10 +1,9 @@
 //! §7.11.4's embedded file *written*: the objects §7.5.6's update carries for one, and where in
 //! the document they are filed.
 //!
-//! One writer for two consumers. `pdf-transform`'s `attachments --attach` and `--remove` built
-//! these objects privately from the eight-hundred-and-seventieth session (ADRs 0802, 0803), and
-//! the viewer's own edit log wanted the same three objects and the same tree rewrite in the
-//! eight-hundred-and-eighty-fifth. The crate graph runs `pdf-transform → viewer-core` — that crate
+//! One writer for two consumers: `pdf-transform`'s `attachments --attach` and `--remove`
+//! (ADRs 0802, 0803), and the viewer's own edit log, which wants the same three objects and the
+//! same tree rewrite. The crate graph runs `pdf-transform → viewer-core` — that crate
 //! takes `viewer_core::Secret` (ADR 0800) — so the shared writer cannot live in the transform, and
 //! it lives here beside the reader it mirrors: [`super::read`] is what turns these objects back into
 //! an [`super::Attachment`]. ADR 0814.
