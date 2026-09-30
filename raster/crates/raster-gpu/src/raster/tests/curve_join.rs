@@ -16,7 +16,7 @@
 //! ([`Stroked::tiles`](crate::raster::stroke::Stroked)): where it vouches, the fill keeps its
 //! integral without asking, and that must be the set's area to the byte.
 
-use raster_scene::{LineCap, LineJoin, Point, Segment};
+use raster_scene::{LineCap, LineJoin, Point, Segment, Stroke};
 
 use crate::raster::flatten::FLATTEN_TOLERANCE;
 use crate::raster::{Rule, fill_mask, fill_mask_settled, flatten_stroke, stroke_pieces};
@@ -42,7 +42,7 @@ fn arc_then_line() -> Vec<Segment> {
 /// The area of the convex polygon `polygon` inside the unit pixel at `(x, y)`, by clipping it
 /// to the pixel's four sides (Sutherland–Hodgman) and taking the shoelace area of what is
 /// left, in `f64`.
-fn area_in_pixel(polygon: &[(f64, f64)], column: f64, row: f64) -> f64 {
+pub(super) fn area_in_pixel(polygon: &[(f64, f64)], column: f64, row: f64) -> f64 {
     let mut out = polygon.to_vec();
     // Each side as `(axis, bound, keep_below)`.
     for (axis, bound, below) in [
@@ -175,8 +175,9 @@ fn a_round_join_where_an_arc_meets_a_line_is_its_quarter_disc() {
 /// **Where the stroker says its pieces tile the set, the fill's integral is the set's area**:
 /// drawn with the question skipped, as [`fill_mask_settled`] does for such a stroke, every
 /// shape here reads within a byte of the same pieces drawn with it asked — one straight
-/// segment under each cap, a rectangle under each join, a circle of four arcs, and a
-/// rectangle narrower than its stroke whose tight corners the tiling re-cuts — at 1×–8×.
+/// segment under each cap, a rectangle under each join, a circle of four arcs, a
+/// rectangle narrower than its stroke whose tight corners the tiling re-cuts, and strokes of
+/// two subpaths whose pieces stand apart or are tiled together (ADR 1431) — at 1×–8×.
 #[test]
 fn a_stroke_whose_pieces_tile_draws_the_same_without_the_question() {
     let k = 0.552_284_8 * 20.0;
@@ -245,6 +246,10 @@ fn a_stroke_whose_pieces_tile_draws_the_same_without_the_question() {
         (&narrow, stroke(4.0, LineCap::Round, LineJoin::Round, 10.0)),
         (&lead_in, stroke(8.0, LineCap::Butt, LineJoin::Miter, 10.0)),
     ];
+    let of_two_subpaths = two_subpaths_that_tile(&rectangle);
+    let cases = cases
+        .into_iter()
+        .chain(of_two_subpaths.iter().map(|(path, drawn)| (path, *drawn)));
     for (path, drawn) in cases {
         for back in [false, true] {
             let path = if back { reversed(path) } else { path.clone() };
@@ -277,18 +282,41 @@ fn a_stroke_whose_pieces_tile_draws_the_same_without_the_question() {
     }
 }
 
+/// Strokes of two subpaths whose pieces tile the stroke's set (ADR 1431): two segments apart,
+/// each vouched for alone and no piece of one meeting the other's; and two segments crossing,
+/// and `rectangle` crossed by a segment, where the pieces of the one are cut by the pieces of
+/// the other.
+fn two_subpaths_that_tile(rectangle: &[Segment]) -> Vec<(Vec<Segment>, Stroke)> {
+    let mut apart = line_path(&[(20.3, 20.6), (60.3, 20.6)], false);
+    apart.extend(line_path(&[(20.3, 40.6), (60.3, 40.6)], false));
+    let mut cross = line_path(&[(20.3, 50.6), (80.3, 50.6)], false);
+    cross.extend(line_path(&[(50.3, 20.6), (50.3, 80.6)], false));
+    let mut crossed = rectangle.to_vec();
+    crossed.extend(line_path(&[(10.3, 40.6), (90.3, 44.6)], false));
+    vec![
+        (apart, stroke(4.0, LineCap::Round, LineJoin::Miter, 10.0)),
+        (
+            cross.clone(),
+            stroke(6.0, LineCap::Butt, LineJoin::Miter, 10.0),
+        ),
+        (cross, stroke(6.0, LineCap::Round, LineJoin::Round, 10.0)),
+        (crossed, stroke(6.0, LineCap::Square, LineJoin::Miter, 10.0)),
+    ]
+}
+
 /// **The stroker vouches for nothing it has not built to tile**: two segments meeting at a
 /// corner (a join and two bodies whose inner sides are cut, but whose far ends the stroker
-/// has not compared), two subpaths, a concave outline, and a stroke with a tight bend whose
-/// far end crosses a piece the tiling did not reach. A rectangle narrower than its own
+/// has not compared), the same beside a second subpath that stands apart from it, a concave
+/// outline, and a stroke with a tight bend whose far end crosses a piece the tiling did not
+/// reach. A rectangle narrower than its own
 /// stroke is vouched for, because every piece of it is re-cut by the tiling of its tight
 /// corners (ADR 1421), and [`a_stroke_whose_pieces_tile_draws_the_same_without_the_question`]
 /// holds it there.
 #[test]
 fn a_stroke_that_may_overlap_itself_is_not_vouched_for() {
     let two_segments = line_path(&[(20.0, 20.0), (60.0, 20.0), (60.0, 60.0)], false);
-    let mut two_subpaths = line_path(&[(20.0, 20.0), (60.0, 20.0)], false);
-    two_subpaths.extend(line_path(&[(20.0, 40.0), (60.0, 40.0)], false));
+    let mut two_subpaths = two_segments.clone();
+    two_subpaths.extend(line_path(&[(20.0, 80.0), (60.0, 80.0)], false));
     let concave = line_path(
         &[
             (20.0, 20.0),

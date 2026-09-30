@@ -42,8 +42,8 @@ annotation drawn from **the group it belongs to** rather than from itself, which
 nine shared entries. §12.7.4.3's variable text is constructed in any script: a value in a
 right-to-left, cursive one is joined by the Unicode Character Database's own tables, ordered by UAX
 #9 and set in a face from the machine where the compiled-in fourteen have no glyph (ADRs 1413,
-1414), which a save writes into the file subset and embedded where the face's licence permits (ADR
-1425). **Three rasterisers behind one display list**: `render-cpu` is the correctness
+1414), which a save writes into the file where the face's licence permits: a `glyf` face subset
+(ADR 1425), a `CFF ` one whole under `/FontFile3` (ADR 1438). **Three rasterisers behind one display list**: `render-cpu` is the correctness
 oracle — and it is one because it computes a path's coverage of a pixel as the **exact integral of
 §8.5.3.3's winding number over §10.7.4's half-open pixel square** rather than sampling it on a
 lattice, leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
@@ -71,7 +71,8 @@ overlap inside it (ADR 1375), a pixel a fill winds two ways through covered by t
 declares, a butt cap squared to its curve's end tangent, and a ramp's coincident stops carried as
 exact bounds so that each step falls at its own parameter (ADR 1389), and a join where a curve meets
 another segment built on the curve's tangent there — that set asked for only where the integral
-cannot answer, so a stroke whose pieces tile keeps its integral (ADR 1397) — and a clipped mark's
+cannot answer, so a stroke whose pieces tile keeps its integral (ADR 1397), and one whose every piece
+tiles or stands apart from the rest is asked nothing more by the fill (ADR 1421) — and a clipped mark's
 coverage and a stroke's made off the walk's thread by the encoder's fan-out, a stroke's segment
 weighed at what it costs (ADR 1395), a rectangle or a repeated glyph behind a queued mark committed
 in its place and a zoom step's strokes fanned out on the compute lane as on the page-turn one (ADR
@@ -116,6 +117,14 @@ out loud when it opens, since following it is refused and naming it never needed
 which is where the clause puts them and as far as a panel may reach without walking the page tree
 at launch (ADR 1186) — §12.2's viewer
 preferences, §12.11's requirements, §7.12's extensions and §14.3.2's XMP.
+
+The parsers that read bytes a stranger chose are **fuzzed**, a target each — the lexer, the object and
+file grammars, the interpreter over a whole page, the JBIG2, JPEG 2000 and fax filters as the
+confined worker runs them, the font programs and CMaps, §7.6's security handler, the FDF, XFDF and
+XMP readers, a field value's shaping, Annex F's reader and writer, §12.8's ASN.1 and the confined
+transport's decoders — each seeded from what the disk's documents hold, and what a campaign found is
+fixed: a token past the content window's ceiling is stepped over by the grammar that ends it, and a
+composite glyph's cycle is found in time linear in the glyph graph (ADRs 1423, 1424, 1439).
 
 It is **used**, which is a separate claim from the one above — and
 the first sentence of it is **measured** rather than asserted: a gate drags across `pdftotext`'s own word boxes on every corpus document and asks
@@ -515,7 +524,9 @@ user to abort, however don't block", and it is a *warning* rather than the deadl
 measured and refused. **The
 document chooses what opens**: all six of Table 29's `/PageMode` values reach a window in all three
 hosts — four name a panel, `UseNone` names none and `FullScreen` is §12.4.4's presentation — and
-§12.2's `/DisplayDocTitle` puts the document's own title in the title bar. **A document this program
+§12.2's `/DisplayDocTitle` puts the document's own title in the title bar of all three, `/FitWindow`
+sizes each to the first displayed page, and `/CenterWindow` centres `quorra` and `quorra-qt`, where
+GTK 4 has no call and `quorra-gtk` says so (ADR 1429). **A document this program
 cannot open, and one whose page tree has no leaves, are two sentences rather than an exit**, in all
 three windows (ADR 0564). §12.6.3's trigger events are
 raised by the pointer. Four clauses closed on the sidebar without anybody picking them off a list,

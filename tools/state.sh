@@ -603,6 +603,16 @@ section_fuzz() {
     done
 }
 
+# What the main checkout holds that a merge does not carry, read and never written: a local edit
+# the fast-forward would refuse over, whether `fuzz/Cargo.lock` agrees with the root lock, which
+# fuzz artefacts the tree has read (it names them) and which it has not, the targets with no seeds
+# there, and the owner's uncommitted answers. `doc/environment.md`'s *After a merge* is the
+# commands; this is which of them has anything to do (ADR 1440).
+section_main_checkout() {
+    heading "the main checkout: what a merge does not carry" "tools/main-checkout.py"
+    PYTHONDONTWRITEBYTECODE=1 python3 tools/main-checkout.py || status=1
+}
+
 section_counts() {
     heading "populations on disk" "find / ls"
     printf 'fuzz targets:        %s\n' "$(ls fuzz/fuzz_targets/*.rs 2>/dev/null | wc -l)"
@@ -984,8 +994,8 @@ section_ratchets() {
     done
 }
 
-all="ledger departures flags names cited last-sentences navigation superlatives comments conformance annex-o governing questions records counts fuzz traps hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame dates xmp save actions on-disk jpeg2000 instruments"
-quick="ledger departures flags names cited last-sentences navigation superlatives comments conformance annex-o governing questions records counts fuzz traps hosts windows binaries disk remedies instruments"
+all="ledger departures flags names cited last-sentences navigation superlatives comments conformance annex-o governing questions records counts fuzz main-checkout traps hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame dates xmp save actions on-disk jpeg2000 instruments"
+quick="ledger departures flags names cited last-sentences navigation superlatives comments conformance annex-o governing questions records counts fuzz main-checkout traps hosts windows binaries disk remedies instruments"
 
 # Sections another section already runs. Not in `all`, because a full run pays for every line
 # they run — `ratchets` through the gates it composes, `remedies` inside `archive` — and named by
@@ -1044,6 +1054,7 @@ for section in $sections; do
     records) section_records ;;
     counts) section_counts ;;
     fuzz) section_fuzz ;;
+    main-checkout) section_main_checkout ;;
     traps) section_traps ;;
     instruments) section_instruments ;;
     hosts) section_hosts ;;

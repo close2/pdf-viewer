@@ -1125,6 +1125,88 @@ fn covering_path(request: Request, wanted: &[char]) -> Option<PathBuf> {
     found
 }
 
+/// [`installed_covering`] for text this program sets itself — an interface's label — where the
+/// face should also look like the faces around it (ADR 1430).
+///
+/// The same two steps: the family's preferred faces first, kept only if they state every one of
+/// `wanted`, and then the machine's catalogue. What differs is how the catalogue's qualifying faces
+/// are ranked. [`installed_covering`] takes the widest repertoire, which is the right proxy for a
+/// document's other characters and says nothing about weight or width — on a machine with Noto
+/// Arabic the widest face stating an Urdu word is an extra-light condensed one, and a label set in
+/// it reads as a pale word among its neighbours. So here the face nearest the requested weight
+/// (400, or 700 for bold), then the requested slope, then normal width is taken, and the
+/// repertoire decides only between faces equal in those.
+///
+/// A function of its own rather than a change to [`installed_covering`], because that one decides
+/// the face a substituted composite font is drawn in on the page, which the raster gates hold, and
+/// this one decides only chrome. A process that cannot read a font file asks its broker exactly as
+/// [`installed_covering`] does.
+#[must_use]
+pub fn installed_covering_styled(request: Request, wanted: &[char]) -> Option<Arc<[u8]>> {
+    if wanted.is_empty() {
+        return installed(request);
+    }
+    if !machine_fonts() {
+        let (bytes, _name) = crate::provider::offered(request, wanted, 0)?;
+        return covers(&bytes, wanted).then_some(bytes);
+    }
+    for path in preferred_paths(request) {
+        if let Some(bytes) = read_cached(path)
+            && covers(&bytes, wanted)
+        {
+            return Some(bytes);
+        }
+    }
+    let key = (wanted.to_vec(), request.bold, request.italic);
+    let memo = COVERING_STYLED.get_or_init(|| RwLock::new(Vec::new()));
+    if let Ok(held) = memo.read()
+        && let Some((_, found)) = held.iter().find(|(cached, _)| *cached == key)
+    {
+        return found.as_deref().and_then(read_cached);
+    }
+    let weight = if request.bold { 700.0 } else { 400.0 };
+    // Read straight from the filesystem, for `covering_path`'s reason: the search touches most of
+    // the catalogue, and only the winner is read again through the cache.
+    let found = catalogue()
+        .iter()
+        .filter_map(|candidate| {
+            let bytes: Arc<[u8]> = std::fs::read(&candidate.path).ok()?.into();
+            if !covers(&bytes, wanted) {
+                return None;
+            }
+            let font = skrifa::FontRef::new(&bytes).ok()?;
+            let attributes = skrifa::MetadataProvider::attributes(&font);
+            let slanted = !matches!(attributes.style, skrifa::attribute::Style::Normal);
+            let mappings = skrifa::MetadataProvider::charmap(&font).mappings().count();
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "a weight distance in 0..=900 and a width distance in thousandths of \
+                          normal, both small and non-negative"
+            )]
+            let rank = (
+                (attributes.weight.value() - weight).abs() as u32,
+                slanted != request.italic,
+                ((attributes.stretch.ratio() - 1.0).abs() * 1000.0) as u32,
+                std::cmp::Reverse(mappings),
+            );
+            Some((rank, &candidate.path))
+        })
+        .min_by(|(one, _), (other, _)| one.cmp(other))
+        .map(|(_, path)| path.clone());
+    if let Ok(mut held) = memo.write() {
+        held.push((key, found.clone()));
+    }
+    found.as_deref().and_then(read_cached)
+}
+
+/// One remembered answer to [`installed_covering_styled`]'s catalogue search: the characters and
+/// the style asked for, and the file that answered.
+type CoveringStyled = ((Vec<char>, bool, bool), Option<PathBuf>);
+
+/// Answers to [`installed_covering_styled`]'s catalogue search.
+static COVERING_STYLED: OnceLock<RwLock<Vec<CoveringStyled>>> = OnceLock::new();
+
 /// One remembered answer to [`covering_path`]'s catalogue search.
 type Covering = (Vec<char>, Option<PathBuf>);
 

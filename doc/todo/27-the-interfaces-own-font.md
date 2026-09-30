@@ -83,3 +83,15 @@ passes every line of chrome through `pdf_font::shaping::Label` — the Unicode S
 then UAX #9 with the label as one paragraph whose direction is its own first strong character's —
 and asks for each displayed form as it asks for any character. Pango and Qt draw the same forms in
 the same order from the stored text, which is why the shared rows carry it unshaped.
+
+**A word is set in one face, and a wrapped line in its paragraph's direction** (ADR 1430). The
+characters of a word that the compiled-in faces lack are asked of the machine together
+(`MachineFaces::ask_word`), so a cursive word no longer changes face where the first face found
+lacks one of its forms; only where no single face states the word is each character asked alone.
+The search ranks the faces that qualify by the style asked for before their repertoire
+(`pdf_font::substitute::installed_covering_styled`), so a word is not set in an extra-light face
+beside regular ones. And a paragraph `quorra` wraps — a popup's text, a card's sentence — is resolved
+by UAX #9 as one paragraph and laid out a line at a time (`Label::line_of`), so a line that begins
+with a word of the other direction still reads in its paragraph's. `quorra-qt` registers its faces
+from the same search; `quorra-qt` hands none to Qt before the first frame is on the screen (trap 70,
+ADR 1429).

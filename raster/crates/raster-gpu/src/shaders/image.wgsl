@@ -107,30 +107,34 @@ fn to_texel(p: vec2f) -> vec2f {
     );
 }
 
-// Geometric coverage × clip × residue — the element's *shape* (§11.6.4.2: "For images
+// Geometric coverage met with the clip, times the residue — the element's *shape* (§11.6.4.2: "For images
 // … the shape shall be 1.0 inside the image rectangle and 0.0 outside it", met with
 // §8.5.4's clip). The image's own alpha, the constant alpha and the soft mask are all
 // opacity, not shape, and stay out of this product on purpose (ADR 0011, ADR 0066).
 fn shape_at(p: vec2f, st: vec2f, dims: vec2f) -> f32 {
+    // §10.7.4's intersection of the image's pixels with the clip rectangle's (the caller's
+    // ADR 1435): an axis-preserving image is a rectangle, and two rectangles meet in a
+    // rectangle, so that branch intersects them before taking the cell overlap; an oblique
+    // image's 0-or-1 sample meets the clip by `min`, which for a 0-or-1 value is the
+    // clip's overlap or nothing.
     var cov: f32;
     if params.coverage.w > 0.5 {
-        // Axis-preserving: the exact cell overlap with the image's rectangle.
-        let o_min = max(params.image_rect.xy, p);
-        let o_max = min(params.image_rect.zw, p + vec2f(1.0, 1.0));
+        let o_min = max(max(params.image_rect.xy, params.clip.xy), p);
+        let o_max = min(min(params.image_rect.zw, params.clip.zw), p + vec2f(1.0, 1.0));
         let e = max(o_max - o_min, vec2f(0.0, 0.0));
         cov = e.x * e.y;
     } else {
         // Oblique: painted where the centre lands inside the image.
-        cov = f32(all(st >= vec2f(0.0)) && all(st <= dims));
+        let overlap_min = max(params.clip.xy, p);
+        let overlap_max = min(params.clip.zw, p + vec2f(1.0, 1.0));
+        let extent = max(overlap_max - overlap_min, vec2f(0.0, 0.0));
+        cov = min(f32(all(st >= vec2f(0.0)) && all(st <= dims)), extent.x * extent.y);
     }
     if params.coverage.z > 0.5 {
         let texel = vec2i(params.coverage.xy + (p - params.dest.xy));
         cov = cov * textureLoad(scratch_tex, texel, 0).r;
     }
-    let overlap_min = max(params.clip.xy, p);
-    let overlap_max = min(params.clip.zw, p + vec2f(1.0, 1.0));
-    let extent = max(overlap_max - overlap_min, vec2f(0.0, 0.0));
-    return cov * extent.x * extent.y;
+    return cov;
 }
 
 @fragment

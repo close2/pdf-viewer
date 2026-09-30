@@ -434,3 +434,9 @@ no row points back at a superlative, so it goes false silently. `tools/superlati
 (ADR 1427). And before a fuzz campaign is spent on a target, read its `INITED` coverage against a few
 freshly generated seeds: `forms_data`'s 1 344 seeds held no FDF file and `display_list`'s corpus
 predated its wire format, and a seed count could not tell (ADR 1423).
+
+**What a round leaves on the owner's disk is named by a command in `doc/environment.md`'s "After a
+merge" section, never only in its record**, and `tools/state.sh main-checkout` prints what that
+checkout still owes (ADR 1440). And a crate or binary rename is followed by `cargo test -p
+conformance`: the ledger checker now sweeps note prose for program names, and ten rows had carried
+`render-quorra` since the rename (round 1301).

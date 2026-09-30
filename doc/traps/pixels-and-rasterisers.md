@@ -424,6 +424,21 @@ for (ADR 1421). Measure the early-return rate before adding a cache or a carried
 that paid there were a bounding-box prefilter, reused buffers and no copying — fewer operations, not
 remembered ones.
 
+### 78. A stroke has two expansion paths, and a probe on one misses the other
+
+Beside `encode/parallel.rs`'s rasterise jobs, `encode/stroke.rs` expands a stroke to polylines
+for a coverage tile or the GPU triangle lane. Round 1298's per-job probe showed no rasterise job had
+drawn `issue19360.pdf`'s moved pixel at 4×; the second path had (ADR 1431). Diff per-job logs
+across both paths before concluding that a pixel did not move.
+
+### 79. A wgpu buffer created mapped is zero-filled, so a hand-made staging copy cannot beat `write_texture`
+
+Filling a staging buffer from several threads in place of `write_texture` cost more, not less:
+without `MAP_WRITE`, wgpu-core creates a second, zero-filled staging buffer; with it, the mapping
+is zero-filled on the calling thread. `write_texture` is already one copy, and the 53 ms the
+table called "transfer" was 96% raster's host-side reduction — a column an instrument names is a
+phase's clock, not what its name says (ADR 1433).
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

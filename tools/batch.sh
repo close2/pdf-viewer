@@ -7,9 +7,13 @@
 # (ADR 1036: the corpus walks caught one self-introduced defect in 98 sessions and raised
 # fourteen false alarms at ~25 minutes a round; once per batch they take ~12 minutes and are
 # believed). `tools/worktree.sh` is the per-round shape with a build directory each; this one
-# shares the main checkout's build directory on purpose, because six agents in one tree share
-# one build lock whatever the directory is, and a cold build per batch is twenty minutes nobody
-# needs.
+# has one build directory for every batch, named in the worktree's `.cargo/config.toml`. Not the
+# main checkout's: cargo names a path package's artefacts relative to its workspace root, so the
+# main checkout and the worktree write the same files, and one built in the main checkout after
+# the worktree's sources were written is taken as fresh by the worktree — a `conformance` built
+# there reads the main checkout's ledger from every sibling's `cargo test` (trap 50's shape, ADR
+# 1440). One directory for every batch rather than one each, because the worktree's path is the
+# same every batch, so the second batch finds it warm and a cold build is paid once.
 #
 #   tools/batch.sh open  batch-1038-1043   # worktree at /home/AI/pdf-viewer-rounds, guard on
 #   tools/batch.sh gates                   # tiers 2 and 3, one line per gate, into batch-gates.log
@@ -41,11 +45,17 @@ open_batch() {
     local branch=$1
     [ -e "$wt" ] && { echo "$wt exists — close the previous batch first"; return 1; }
     git -C "$root" worktree add -q -b "$branch" "$wt" HEAD
+    # Only where the tree's own `.gitignore` says the file is a checkout's own, so that it can
+    # never become part of a batch's population.
+    if git -C "$wt" check-ignore -q .cargo/config.toml; then
+        mkdir -p "$wt/.cargo"
+        printf '[build]\ntarget-dir = "%s"\n' \
+            "${BATCH_TARGET_DIR:-/home/AI/cargo-target/pdf-viewer-batch}" > "$wt/.cargo/config.toml"
+    fi
     for r in doc/md doc/pdfa corpus-cache tmp fuzz/corpus fuzz/artifacts; do
         [ -e "$root/$r" ] || continue
         rm -rf "${wt:?}/$r"; ln -sfn "$root/$r" "$wt/$r"
     done
-    [ -f "$root/fuzz/Cargo.lock" ] && cp "$root/fuzz/Cargo.lock" "$wt/fuzz/Cargo.lock"
     for f in "$root"/doc/*.pdf; do [ -e "$f" ] && ln -sfn "$f" "$wt/doc/$(basename "$f")"; done
     # Submodules: link the content, keep the gitlink, pin it. Population derived from the index.
     while read -r sha path; do
@@ -137,10 +147,11 @@ check_batch() {
     # is still somebody's copy. `scratchpad/` is the rounds' and never committed (`commit`
     # refuses it), so it is not a finding here either — and it is left out by `population`, the
     # function `commit` stages from, so a path git would print quoted (a space, a non-ASCII
-    # character) is excluded by its real directory rather than by the spelling of its quotes.
+    # character) is excluded by its real directory rather than by the spelling of its quotes. A
+    # workspace's `Cargo.lock` is admitted by name: every workspace here tracks its lock (ADR 1439).
     found=$(untracked_paths |
-        grep -vE '\.(rs|md|toml|tsv|txt|py|pem|der|crt|xfdf|j2k|jp2|sh)$' |
-        grep -vE '^data/icc/[^/]+\.icc$' || true)
+        grep -vE '\.(rs|md|toml|tsv|txt|py|pem|der|crt|xfdf|j2k|jp2|sh|jpg)$' |
+        grep -vE '^data/icc/[^/]+\.icc$' | grep -vE '(^|/)Cargo\.lock$' || true)
     printf 'untracked, unexpected extension  %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) file(s)")"
     [ -z "$found" ] || { printf '%s\n' "$found" | sed 's/^/    /'; bad=1; }
 

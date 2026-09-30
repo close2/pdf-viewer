@@ -39,7 +39,7 @@ use viewer_host::trace::{Topic, Trace};
 
 use crate::bridge::ffi::{
     QtChrome, QtControl, QtFrame, QtMeasure, QtPage, QtPopup, QtPrintCell, QtPrintJob, QtQuad,
-    QtRow, QtScatter, QtUpdate,
+    QtRow, QtScatter, QtUpdate, QtWindowExtents,
 };
 use crate::keys;
 use crate::page;
@@ -200,6 +200,10 @@ struct Showing {
     dirty: bool,
     /// What the title bar says about the page.
     caption: String,
+    /// What the title bar calls the document where §12.2's `/DisplayDocTitle` asks for its own
+    /// title and it states one ([`viewer_host::documents::document_title`]); `None` for the file's
+    /// name.
+    titled: Option<String>,
     /// §12.9's measuring: whether a press on the page is a point, and the points so far.
     ///
     /// `viewer_host::Measuring` is shared with the other two windows — when a press is a point,
@@ -233,6 +237,7 @@ impl Showing {
             report_due: viewer_host::report::Due::default(),
             dirty: false,
             caption: String::new(),
+            titled: None,
             measuring: viewer_host::Measuring::default(),
             layout: pdf_model::viewer_preferences::PageLayout::SinglePage,
             departures: viewer_core::RestrictionOverride::NONE,
@@ -599,6 +604,12 @@ impl Host {
             height,
             scale,
         });
+        // A window asked to fit the first displayed page is measured again once it has taken
+        // the size it was asked for, because a frame is not always drawn for a viewport the page
+        // already fits the width of (ADR 1429).
+        if self.opened && self.presenting.owes_placing() {
+            self.update.placement = true;
+        }
         if !self.opened {
             self.opened = true;
             self.trace.say(
@@ -997,6 +1008,21 @@ impl Host {
             if preferences.hide_menubar {
                 self.say(viewer_host::restriction::NOT_THE_DOCUMENTS_TO_HIDE);
             }
+            // §12.2's `/DisplayDocTitle`: the title bar shows the document's own title, by the rule
+            // the other two windows take too. The metadata stream is read only for a document
+            // that asks, so a document that does not costs its opening nothing here.
+            self.showing.titled = if preferences.display_doc_title {
+                match self.viewer.query(Query::Properties) {
+                    Answer::Properties {
+                        information,
+                        metadata,
+                    } => viewer_host::documents::document_title(&information, metadata.as_ref()),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            self.update.title = true;
         }
         if self.presenting.full_screen() {
             self.start_the_clock();
@@ -2480,12 +2506,21 @@ impl Host {
     ///
     /// [`Host::drawing_wait`]'s shape, for the same reason: the search is on a thread of its own and
     /// there is no path from it into a Qt object that would not cost this crate an `unsafe` token.
+    ///
+    /// **Nothing is handed over before the first frame is on the screen.** The search is off the
+    /// window's thread, but registering what it found is not: `addApplicationFontFromData` reads
+    /// a face of megabytes on the thread that paints, and measured under `Xvfb` with a Chinese
+    /// outline title at launch a face that landed first put that registration in front of the
+    /// first frame in one run of four. So a face found early waits for the first frame, and the
+    /// rows are drawn by Qt's own fallback until then (trap 70, ADR 1429).
     pub(crate) fn faces_wait(&self) -> i32 {
-        if self.faces.found() > self.faces_taken {
+        let poll = i32::try_from(viewer_host::drawing::POLL.as_millis()).unwrap_or(i32::MAX);
+        let waiting = self.faces.found() > self.faces_taken;
+        if waiting && self.presented {
             return 0;
         }
-        if self.faces.searching() {
-            i32::try_from(viewer_host::drawing::POLL.as_millis()).unwrap_or(i32::MAX)
+        if waiting || self.faces.searching() {
+            poll
         } else {
             -1
         }
@@ -2498,10 +2533,23 @@ impl Host {
     /// `QFontDatabase::addApplicationFontFromData` and sets the strip and the panels in by the
     /// family it registers (ADRs 1406, 1418).
     pub(crate) fn take_face(&mut self) -> Vec<u8> {
+        if !self.presented {
+            return Vec::new();
+        }
         let Some(bytes) = self.faces.face(self.faces_taken) else {
             return Vec::new();
         };
         self.faces_taken = self.faces_taken.saturating_add(1);
+        // Trap 70's instrument: whether a machine face reaches the window before or after the
+        // first frame is the question `--trace=launch` answers, and the launch gate cannot.
+        self.trace.say(
+            Topic::Launch,
+            format_args!(
+                "machine face {} handed to Qt, {} bytes",
+                self.faces_taken,
+                bytes.len()
+            ),
+        );
         bytes.to_vec()
     }
 
@@ -2853,13 +2901,93 @@ impl Host {
     pub(crate) fn title(&self) -> String {
         let mark = if self.showing.dirty { "• " } else { "" };
         if self.showing.caption.is_empty() {
-            return format!("{mark}{}", named(&self.showing.path));
+            return format!("{mark}{}", self.named());
         }
-        format!(
-            "{mark}{} — {}",
-            named(&self.showing.path),
-            self.showing.caption
-        )
+        format!("{mark}{} — {}", self.named(), self.showing.caption)
+    }
+
+    /// Where the window goes and how large it is, for Table 147's `/FitWindow` and
+    /// `/CenterWindow` — asked by the window when `placement` is set, with its own extents in
+    /// logical pixels ([`QtWindowExtents`]).
+    ///
+    /// Answers `[resize, width, height, move, x, y]`, a flag before each pair, or nothing where no
+    /// placement is owed. A window that does not fit the first displayed page yet is asked to
+    /// resize and nothing else, and the next frame measures again — which it needs, because the
+    /// first frame is drawn before the tool bar and status line this document hid have left the
+    /// viewport; a window that fits is moved to the centre where that was asked, and nothing more
+    /// is owed ([`viewer_host::Presenting::place`]). The arithmetic is [`viewer_host::fitted`]'s
+    /// and [`viewer_host::centred`]'s, shared with the other two windows; what is Qt's is the
+    /// `resize` and the `move`, both requests the platform may refuse (ADR 1429).
+    pub(crate) fn place_window(&mut self, extents: QtWindowExtents) -> Vec<i32> {
+        let QtWindowExtents {
+            window_width,
+            window_height,
+            frame_width,
+            frame_height,
+            screen_left,
+            screen_top,
+            screen_width,
+            screen_height,
+        } = extents;
+        let page = match self.viewer.query(Query::View) {
+            Answer::View(viewing) => viewing.page,
+            _ => 0,
+        };
+        let Some(placing) = self.presenting.place(page) else {
+            return Vec::new();
+        };
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a window's extent and position in logical pixels, held to its screen"
+        )]
+        let whole = |value: f64| value.round() as i32;
+        // A window Qt could not put on a screen has no screen to fit to or to centre on.
+        let screen = (screen_width > 0 && screen_height > 0).then_some((
+            f64::from(screen_left),
+            f64::from(screen_top),
+            f64::from(screen_width),
+            f64::from(screen_height),
+        ));
+        let inner = (f64::from(window_width), f64::from(window_height));
+        if placing.fit
+            && let Answer::Geometry(geometry) = self.viewer.query(Query::PageGeometry(page))
+        {
+            let scale = f64::from(self.scale);
+            let wanted = viewer_host::fitted(
+                inner,
+                (
+                    f64::from(self.viewport.0) / scale,
+                    f64::from(self.viewport.1) / scale,
+                ),
+                (
+                    f64::from(geometry.width) / scale,
+                    f64::from(geometry.height) / scale,
+                ),
+                screen.map(|(_, _, width, height)| {
+                    (
+                        width - f64::from(frame_width),
+                        height - f64::from(frame_height),
+                    )
+                }),
+            );
+            if (wanted.0 - inner.0).abs() > 1.0 || (wanted.1 - inner.1).abs() > 1.0 {
+                return vec![1, whole(wanted.0), whole(wanted.1), 0, 0, 0];
+            }
+        }
+        self.presenting.placed();
+        match screen {
+            Some(screen) if placing.centre => {
+                let (x, y) = viewer_host::centred(
+                    (
+                        inner.0 + f64::from(frame_width),
+                        inner.1 + f64::from(frame_height),
+                    ),
+                    screen,
+                );
+                vec![0, 0, 0, 1, whole(x), whole(y)]
+            }
+            _ => Vec::new(),
+        }
     }
 
     /// The most recent sentence for a person.
@@ -2930,7 +3058,10 @@ impl Host {
 
     /// What to call the document, which is the file's own name.
     pub(crate) fn named(&self) -> String {
-        named(&self.showing.path)
+        self.showing
+            .titled
+            .clone()
+            .unwrap_or_else(|| named(&self.showing.path))
     }
 
     /// What the title bar says about the page, after the document's name.
@@ -3134,6 +3265,12 @@ impl Host {
             // rule both follow. ADR 1044.
             if self.showing.report_due.after_a_frame() {
                 queue.push_back(Command::Report);
+            }
+            // Table 147's `/FitWindow` and `/CenterWindow` are about the first displayed page's
+            // size, which is known now and not before; the window asks `place_window` with its
+            // own extents (ADR 1429).
+            if self.presenting.owes_placing() {
+                self.update.placement = true;
             }
             // §12.4.4.1: the page a transition moves *to* is the one whose list has just arrived,
             // so this is where an armed one can begin. Only while a presentation is running,
@@ -3976,6 +4113,7 @@ fn nothing_changed() -> QtUpdate {
         print_dialogue: false,
         documents: false,
         choose_document: false,
+        placement: false,
     }
 }
 
@@ -4136,6 +4274,17 @@ mod tests {
             "the search is running or has landed"
         );
         host.faces.settle();
+        if host.faces.found() > 0 {
+            assert!(
+                host.take_face().is_empty(),
+                "nothing is handed to Qt before the first frame is on the screen"
+            );
+            assert!(
+                host.faces_wait() > 0,
+                "a face found early is asked for again"
+            );
+        }
+        host.painted(0, 0);
         let bytes = host.take_face();
         std::fs::remove_dir_all(&directory).expect("the temporary directory is removed");
         if bytes.is_empty() {
@@ -4210,6 +4359,130 @@ mod tests {
                 viewer_host::machine_faces::Answer::Face(_)
             ),
             "every character of the title was asked for"
+        );
+    }
+
+    /// §12.2's `/DisplayDocTitle` puts XMP's `dc:title` in the title bar, and `/FitWindow` and
+    /// `/CenterWindow` are answered to the window at its first frame: resize until the viewport is
+    /// the page, then move to the centre, then nothing (ADR 1429).
+    #[test]
+    fn table_147s_window_entries_reach_the_window() {
+        use crate::bridge::ffi::QtWindowExtents;
+        let directory =
+            std::env::temp_dir().join(format!("quorra-qt-window-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("a temporary directory");
+        let path = directory.join("placed.pdf");
+        let packet = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF \
+            xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description \
+            rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:title><rdf:Alt>\
+            <rdf:li xml:lang=\"x-default\">The stated title</rdf:li></rdf:Alt></dc:title>\
+            </rdf:Description></rdf:RDF></x:xmpmeta>";
+        let metadata = format!(
+            "<< /Type /Metadata /Subtype /XML /Length {} >>\nstream\n{packet}\nendstream",
+            packet.len()
+        );
+        std::fs::write(
+            &path,
+            written(&[
+                "<< /Type /Catalog /Pages 2 0 R /Metadata 4 0 R /ViewerPreferences \
+                 << /DisplayDocTitle true /FitWindow true /CenterWindow true >> >>",
+                "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] >>",
+                &metadata,
+            ]),
+        )
+        .expect("the document is written");
+        let mut host = opened(&path);
+        std::fs::remove_dir_all(&directory).expect("the temporary directory is removed");
+        assert!(
+            host.title().starts_with("The stated title"),
+            "{}",
+            host.title()
+        );
+
+        let viewer_core::Answer::Geometry(geometry) =
+            host.viewer.query(viewer_core::Query::PageGeometry(0))
+        else {
+            panic!("page one has a geometry");
+        };
+        let (wide, tall) = (
+            i32::try_from(geometry.width).expect("a page's width in pixels"),
+            i32::try_from(geometry.height).expect("a page's height in pixels"),
+        );
+        // A window 200 wider and 100 taller than its 800 by 1000 viewport, on a 1400 by 1200
+        // screen with no frame.
+        let resize = host.place_window(QtWindowExtents {
+            window_width: 1000,
+            window_height: 1100,
+            frame_width: 0,
+            frame_height: 0,
+            screen_left: 0,
+            screen_top: 0,
+            screen_width: 1400,
+            screen_height: 1200,
+        });
+        assert_eq!(resize, vec![1, 200 + wide, 100 + tall, 0, 0, 0]);
+        host.resized(
+            u32::try_from(wide).expect("positive"),
+            u32::try_from(tall).expect("positive"),
+            1.0,
+        );
+        drawn(&mut host);
+        let centre = host.place_window(QtWindowExtents {
+            window_width: 200 + wide,
+            window_height: 100 + tall,
+            frame_width: 0,
+            frame_height: 0,
+            screen_left: 0,
+            screen_top: 0,
+            screen_width: 1400,
+            screen_height: 1200,
+        });
+        assert_eq!(
+            centre,
+            vec![0, 0, 0, 1, (1400 - 200 - wide) / 2, (1200 - 100 - tall) / 2]
+        );
+        assert!(
+            host.place_window(QtWindowExtents {
+                window_width: 200 + wide,
+                window_height: 100 + tall,
+                frame_width: 0,
+                frame_height: 0,
+                screen_left: 0,
+                screen_top: 0,
+                screen_width: 1400,
+                screen_height: 1200
+            })
+            .is_empty(),
+            "paid once"
+        );
+    }
+
+    /// A document stating none of Table 147's window entries is titled by its file and placed
+    /// nowhere.
+    #[test]
+    fn a_silent_document_is_titled_by_its_file_and_placed_nowhere() {
+        use crate::bridge::ffi::QtWindowExtents;
+        let directory =
+            std::env::temp_dir().join(format!("quorra-qt-silent-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("a temporary directory");
+        let path = directory.join("silent.pdf");
+        std::fs::write(&path, untitled()).expect("the document is written");
+        let mut host = opened(&path);
+        std::fs::remove_dir_all(&directory).expect("the temporary directory is removed");
+        assert!(host.title().starts_with("silent.pdf"), "{}", host.title());
+        assert!(
+            host.place_window(QtWindowExtents {
+                window_width: 1000,
+                window_height: 1100,
+                frame_width: 0,
+                frame_height: 0,
+                screen_left: 0,
+                screen_top: 0,
+                screen_width: 1400,
+                screen_height: 1200
+            })
+            .is_empty()
         );
     }
 

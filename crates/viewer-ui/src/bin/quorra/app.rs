@@ -1039,34 +1039,19 @@ impl App {
 
     /// What the title bar calls the document — §12.2's `/DisplayDocTitle`.
     ///
-    /// Table 147: "[a] flag specifying whether the window's title bar should display the
-    /// document title taken from the `dc:title` entry of the XMP metadata stream … If false, the
-    /// title bar should instead display the name of the PDF file containing the document."
-    ///
-    /// **The clause is obeyed as written** (ADR 0186). It names `dc:title` and nothing else, and
-    /// `pdf_model::xmp` reads it, so that is what a document asking for its title gets. §14.3.3's
-    /// `/Info /Title` is the *fallback* rather than the substitution: it is used where the document
-    /// states no metadata stream, where the stream states no `dc:title`, or where the stream could
-    /// not be read — and the last of those three is printed, because it is the only one where this
-    /// program failed at something.
-    ///
-    /// Table 349's NOTE 1 is why the fallback is a reading rather than a guess: "[t]he `dc:title`
-    /// entry in the document's metadata stream **can be used to represent** the document's
-    /// title." Measured over the corpus, 93 documents state a title in both places and one
-    /// disagrees, so the ranking is what decides a single file (ADR 0186).
-    pub(crate) fn named(&self) -> &str {
+    /// Table 147: "[a] flag specifying whether the window's title bar should display the document
+    /// title taken from the dc:title element of the XMP metadata stream … If false, the title bar
+    /// should instead display the name of the PDF file containing the document." The title is
+    /// [`viewer_host::documents::document_title`]'s, the rule the other two windows take too: XMP's
+    /// `dc:title`, and §14.3.3's `/Info /Title` where the document states none or its stream could
+    /// not be read (ADRs 0186, 1429). The last of those is printed by [`Self::gather`], because it
+    /// is the one case where this program failed at something.
+    pub(crate) fn named(&self) -> String {
         if !self.display_doc_title() {
-            return &self.title;
+            return self.title.clone();
         }
-        let stated = self
-            .metadata
-            .as_ref()
-            .and_then(|metadata| metadata.as_ref().ok())
-            .and_then(pdf_model::xmp::Xmp::title)
-            .or(self.information.title.as_deref());
-        stated
-            .filter(|title| !title.is_empty())
-            .unwrap_or(&self.title)
+        viewer_host::documents::document_title(&self.information, self.metadata.as_ref())
+            .unwrap_or_else(|| self.title.clone())
     }
 
     /// Table 147's `/DisplayDocTitle`, **default false**.

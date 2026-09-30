@@ -161,26 +161,27 @@ fn sweep_t(p_shading: vec2f) -> f32 {
     return s;
 }
 
-// Coverage × clip at the fragment's cell — the element's *shape* (§11.6.4.2 met with
+// Coverage met with the clip at the fragment's cell — the element's *shape* (§11.6.4.2 met with
 // §8.5.4's clip), shared by both entry points. The soft mask is not in it (ADR 0066):
 // Table 57's alpha source flag reads §11.6.4.3's mask as opacity by default, so
 // `fs_main` multiplies it in and `fs_shape` does not.
 fn shape_at(p: vec2f) -> f32 {
     // Coverage: a scratch tile's byte, or the analytic rectangle's cell overlap.
-    var cov: f32;
+    // §10.7.4's intersection of the mark's pixels with the clip's (the caller's ADR 1435):
+    // two rectangles meet in a rectangle, so that branch intersects them before taking the
+    // cell overlap and is exact; a scratch byte carries no geometry, so it meets the clip
+    // by `min`, the area of the intersection's upper bound and never below it.
     if params.coverage.z > 0.5 {
         let texel = vec2i(params.coverage.xy + (p - params.dest.xy));
-        cov = textureLoad(scratch_tex, texel, 0).r;
-    } else {
-        let o_min = max(params.coverage_rect.xy, p);
-        let o_max = min(params.coverage_rect.zw, p + vec2f(1.0, 1.0));
-        let e = max(o_max - o_min, vec2f(0.0, 0.0));
-        cov = e.x * e.y;
+        let overlap_min = max(params.clip.xy, p);
+        let overlap_max = min(params.clip.zw, p + vec2f(1.0, 1.0));
+        let extent = max(overlap_max - overlap_min, vec2f(0.0, 0.0));
+        return min(textureLoad(scratch_tex, texel, 0).r, extent.x * extent.y);
     }
-    let overlap_min = max(params.clip.xy, p);
-    let overlap_max = min(params.clip.zw, p + vec2f(1.0, 1.0));
-    let extent = max(overlap_max - overlap_min, vec2f(0.0, 0.0));
-    return cov * extent.x * extent.y;
+    let o_min = max(max(params.coverage_rect.xy, params.clip.xy), p);
+    let o_max = min(min(params.coverage_rect.zw, params.clip.zw), p + vec2f(1.0, 1.0));
+    let e = max(o_max - o_min, vec2f(0.0, 0.0));
+    return e.x * e.y;
 }
 
 // The straight-alpha paint at the fragment, or a negative alpha sentinel where the

@@ -750,9 +750,23 @@ impl Image {
     /// carrying a soft mask or a stencil is exactly the case a constant alpha cannot see.
     ///
     /// Linear in the samples, which is why the one caller asks it only for a knockout group.
+    ///
+    /// **Asked a block of samples at a time**: the alphas of 64 samples are folded together with
+    /// `&` and the block is tested once, which the compiler turns into vector instructions where
+    /// a test per sample — an early exit after every one — stays a loop of scalar compares. The
+    /// answer is the same, since a block's fold is 255 exactly when every alpha in it is; what
+    /// changes is 120 M instructions on a 5280 × 3792 photograph's page, 11% of interpreting
+    /// it (ADR 1433).
     #[must_use]
     pub fn is_opaque(&self) -> bool {
-        self.data.chunks_exact(4).all(|sample| sample[3] == u8::MAX)
+        let opaque = |samples: &[u8]| {
+            samples
+                .chunks_exact(4)
+                .fold(u8::MAX, |alphas, sample| alphas & sample[3])
+                == u8::MAX
+        };
+        let mut blocks = self.data.chunks_exact(256);
+        blocks.by_ref().all(opaque) && opaque(blocks.remainder())
     }
 
     /// Whether a backend should filter between samples when drawing under `placement`.

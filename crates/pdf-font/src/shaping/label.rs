@@ -52,13 +52,30 @@ impl Label {
     /// on one line replaces them first, which is what a label's line is.
     #[must_use]
     pub fn new(text: &str) -> Self {
+        Self::line_of(text, 0..text.len())
+    }
+
+    /// Joins and orders one line of a paragraph a layout has broken across several.
+    ///
+    /// UAX #9 resolves a *paragraph*: rules P2 and P3 find its direction from its first strong
+    /// character, and the weak and neutral types are resolved against their neighbours in it.
+    /// Only rules L1 to L4 are a line's. So the levels are resolved over the whole of `paragraph`
+    /// and `line` — a byte range of it on character boundaries — takes the ones its characters
+    /// resolved to: a wrapped line reads in its paragraph's direction even where it begins with a
+    /// word of the other one. Joining is over the line's characters, which is what is drawn
+    /// together. [`Glyph::stored`] and [`Self::boundary`] count bytes of the line, not of the
+    /// paragraph.
+    #[must_use]
+    pub fn line_of(paragraph: &str, line: Range<usize>) -> Self {
+        let text = paragraph.get(line.clone()).unwrap_or_default();
+        let offset = line.start;
         let characters: Vec<(usize, char)> = text.char_indices().collect();
         let letters: Vec<char> = characters.iter().map(|(_, character)| *character).collect();
         let shaped = shape(&letters);
-        let paragraphs = Paragraphs::new(text);
-        let by_byte = paragraphs
-            .as_ref()
-            .map(|paragraphs| paragraphs.line_levels(0..text.len()));
+        let paragraphs = Paragraphs::new(paragraph);
+        let by_byte = paragraphs.as_ref().map(|paragraphs| {
+            paragraphs.line_levels(line.start..line.start.saturating_add(text.len()))
+        });
         let byte_of = |index: usize| characters.get(index).map_or(text.len(), |(at, _)| *at);
         let end_of = |index: usize| {
             characters.get(index).map_or(text.len(), |(at, character)| {
@@ -91,7 +108,11 @@ impl Label {
             let start = byte_of(item.source);
             let end = end_of(item.joined_with.unwrap_or(item.source)).max(end_of(item.source));
             glyphs.push(Glyph {
-                character: displayed(item.character, start, paragraphs.as_ref()),
+                character: displayed(
+                    item.character,
+                    offset.saturating_add(start),
+                    paragraphs.as_ref(),
+                ),
                 stored: start..end,
                 right_to_left: levels.get(index).is_some_and(|level| level % 2 == 1),
                 unformed: item.unformed,
@@ -99,7 +120,7 @@ impl Label {
         }
         let right_to_left = paragraphs
             .as_ref()
-            .is_some_and(|paragraphs| paragraphs.paragraph_level(0) % 2 == 1);
+            .is_some_and(|paragraphs| paragraphs.paragraph_level(offset) % 2 == 1);
         Self {
             glyphs,
             position,
@@ -215,6 +236,52 @@ mod tests {
             ['I', 'n', 't', 'r', 'o', ' ', '\u{5DC}', '\u{5E9}']
         );
         assert!(Label::new("\u{5E9}\u{5DC} Intro").right_to_left());
+    }
+
+    /// A wrapped line takes its paragraph's direction and not its own: "Intro של עו." broken
+    /// after "Intro" leaves a second line that begins with Hebrew, and that line is still part of
+    /// a left-to-right paragraph by P2 and P3 — so its Hebrew is one run reversed in place and the
+    /// full stop, a neutral between that run and the paragraph's end, takes the paragraph's level
+    /// and stays at the line's right. Laid out alone, the same line would be right to left with
+    /// its full stop at the left.
+    #[test]
+    fn a_wrapped_line_reads_in_its_paragraphs_direction() {
+        let paragraph = "Intro \u{5E9}\u{5DC} \u{5E2}\u{5D5}.";
+        let second = "Intro ".len()..paragraph.len();
+        let line = Label::line_of(paragraph, second.clone());
+        assert!(!line.right_to_left(), "the paragraph is left to right");
+        let alone = Label::new(&paragraph[second]);
+        assert!(alone.right_to_left());
+        let drawn = |label: &Label| -> Vec<char> {
+            label.glyphs().iter().map(|glyph| glyph.character).collect()
+        };
+        assert_eq!(
+            drawn(&line),
+            ['\u{5D5}', '\u{5E2}', ' ', '\u{5DC}', '\u{5E9}', '.']
+        );
+        assert_eq!(
+            drawn(&alone),
+            ['.', '\u{5D5}', '\u{5E2}', ' ', '\u{5DC}', '\u{5E9}']
+        );
+        assert_eq!(
+            line.glyphs()[0].stored,
+            7..9,
+            "bytes of the line, not the paragraph"
+        );
+    }
+
+    /// And the other way round: an Arabic paragraph whose second line begins with a Latin word
+    /// is still right to left on that line, so the Latin word stands at the line's right end —
+    /// where the line begins — rather than at its left.
+    #[test]
+    fn a_wrapped_line_of_an_arabic_paragraph_stays_right_to_left() {
+        let paragraph = "\u{628}\u{627}\u{628} PDF \u{628}";
+        let second = "\u{628}\u{627}\u{628} ".len()..paragraph.len();
+        let line = Label::line_of(paragraph, second.clone());
+        assert!(line.right_to_left());
+        assert!(!Label::new(&paragraph[second]).right_to_left());
+        let drawn: Vec<char> = line.glyphs().iter().map(|glyph| glyph.character).collect();
+        assert_eq!(drawn, ['\u{628}', ' ', 'P', 'D', 'F']);
     }
 
     /// Rule L4: a parenthesis in a right-to-left run is drawn as its mirror, so that it still

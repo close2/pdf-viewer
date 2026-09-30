@@ -34,9 +34,12 @@ use raster_scene::{LineCap, LineJoin, Point, Stroke};
 use super::flatten::{DeviceTransform, Polyline, convex};
 
 mod centre;
+mod convex;
 mod disjoint;
+mod sweep;
 
 use centre::{Centre, InnerCut, Side, Turned, inner_cut, turns};
+use disjoint::Subpath;
 
 /// The device width a stroke resolves to under a placement (ADR 0085).
 ///
@@ -85,11 +88,13 @@ pub(crate) struct Stroked {
     /// The closed polygons, all wound one way.
     pub pieces: Vec<Polyline>,
     /// Whether no point is inside two pieces, so that the fill winds every point `0` or one
-    /// value and its integral is the set's area in every pixel: the stroke is one subpath,
-    /// and either one straight segment — its body and its two caps, which share their
+    /// value and its integral is the set's area in every pixel. A subpath vouches for its own
+    /// pieces where it is one straight segment — its body and its two caps, which share their
     /// corners to the bit — or closed and convex with every corner cut, whose pieces are the
     /// convex ring's decomposition into a strip per edge and a sector per corner (ADR 1397),
-    /// or bent so tightly that the tiling re-cut every one of its pieces (ADR 1421).
+    /// or bent so tightly that the tiling re-cut every one of its pieces (ADR 1421); a stroke
+    /// of several subpaths where each does and no piece of one overlaps a piece of another,
+    /// or where the tiling of the whole stroke re-cut the pieces that do (ADR 1431).
     /// `false` says only that the stroker cannot vouch for it.
     pub tiles: bool,
 }
@@ -97,25 +102,19 @@ pub(crate) struct Stroked {
 /// [`stroke_polylines`], saying besides whether the pieces tile the set ([`Stroked::tiles`]).
 pub(crate) fn stroke_pieces(polylines: &[Polyline], stroke: Stroke, device_width: f32) -> Stroked {
     let hw = device_width * 0.5;
-    let mut pieces = Vec::new();
-    let (mut subpaths, mut tiles) = (0_usize, true);
-    for polyline in polylines {
-        let Some(centre) = Centre::of(polyline) else {
-            continue;
-        };
-        subpaths = subpaths.saturating_add(1);
-        tiles &= stroke_subpath(&centre, stroke, hw, &mut pieces);
-    }
-    Stroked {
-        pieces,
-        tiles: tiles && subpaths == 1,
-    }
+    let subpaths: Vec<Subpath> = polylines
+        .iter()
+        .filter_map(Centre::of)
+        .map(|centre| stroke_subpath(&centre, stroke, hw))
+        .collect();
+    let (pieces, tiles) = disjoint::tile_stroke(subpaths);
+    Stroked { pieces, tiles }
 }
 
-/// One subpath's pieces, appended to `out`; `true` where they tile its set by construction
-/// ([`Stroked::tiles`]).
+/// One subpath's pieces, beside each whether it meets a tight bend, and whether they tile
+/// the subpath's set by construction ([`Stroked::tiles`]) before any tiling.
 #[expect(clippy::arithmetic_side_effects)] // indices below the point count, at least two
-fn stroke_subpath(centre: &Centre, stroke: Stroke, hw: f32, out: &mut Vec<Polyline>) -> bool {
+fn stroke_subpath(centre: &Centre, stroke: Stroke, hw: f32) -> Subpath {
     let pts = &centre.points;
     let n = pts.len();
     let segment_count = centre.segments();
@@ -202,7 +201,7 @@ fn stroke_subpath(centre: &Centre, stroke: Stroke, hw: f32, out: &mut Vec<Polyli
     };
     // Where the path bends more tightly than the half-width the pieces overlap in a star
     // whose points are the rim, and the fill would count each overlap twice there; the
-    // tiling holds the same set with every point covered once.
+    // tiling ([`disjoint::tile_stroke`]) holds the same set with every point covered once.
     //
     // **Kept although the fill now asks for the set (ADR 1389), because that question has a
     // bound and the tiling does not need it** (ADR 1407). Untiled, the hook and the tight L
@@ -211,14 +210,10 @@ fn stroke_subpath(centre: &Centre, stroke: Stroke, hw: f32, out: &mut Vec<Polyli
     // overlap — all 205 such strokes of `bug1743245.pdf`, up to 184 levels too dark, and 19
     // corpus pages past a sixteenth. Every lane that integrates without the set, the GPU
     // triangles among them, takes these same pieces.
-    if at_a_tight_bend.contains(&true) {
-        let tiling = disjoint::disjoint(pieces, &at_a_tight_bend);
-        out.extend(tiling.pieces);
-        // No point inside two pieces, whatever the path does: the fill need not ask (ADR 1421).
-        tiles || tiling.whole
-    } else {
-        out.extend(pieces);
-        tiles
+    Subpath {
+        pieces,
+        at_a_tight_bend,
+        tiles,
     }
 }
 

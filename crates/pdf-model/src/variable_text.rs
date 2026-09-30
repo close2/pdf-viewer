@@ -824,8 +824,8 @@ const MACHINE_FACE: &[u8] = b"VariableTextMachineFace";
 ///
 /// # Errors
 ///
-/// The sentence naming why the face cannot be written — its licence, or a program that is not a
-/// `TrueType` one a `/FontFile2` carries.
+/// The sentence naming why the face cannot be written — its licence, a program with neither `glyf`
+/// nor `CFF ` outlines, or a CID-keyed `CFF ` program whose CIDs are not its glyph indices.
 pub(crate) fn for_a_file(resources: &Dictionary) -> Result<Dictionary, String> {
     let Some(fonts) = resources.get("Font").and_then(Object::as_dict) else {
         return Ok(resources.clone());
@@ -896,6 +896,17 @@ fn machine_font_for_a_file(font: &Dictionary) -> Result<Dictionary, String> {
         format!("its value is drawn in a face from this machine that is not written into a file: {refusal}")
     })?;
 
+    descriptor.insert(key(b"FontName"), name(embedded.name.as_bytes()));
+    if let pdf_font::embed::Outlines::Cff { system } = &embedded.outlines {
+        return Ok(cff_font_for_a_file(
+            font,
+            descendant,
+            descriptor,
+            &embedded,
+            system.as_ref(),
+        ));
+    }
+
     // Table 125's `/Length1` is the decoded program's length, whatever the filter.
     let mut file = Dictionary::new();
     file.insert(
@@ -903,7 +914,6 @@ fn machine_font_for_a_file(font: &Dictionary) -> Result<Dictionary, String> {
         Object::Integer(i64::try_from(embedded.program.len()).unwrap_or(i64::MAX)),
     );
     descriptor.insert(key(b"FontFile2"), deflated(file, &embedded.program));
-    descriptor.insert(key(b"FontName"), name(embedded.name.as_bytes()));
 
     let map = if embedded.renumbered() {
         let highest = embedded.glyphs.keys().next_back().copied().unwrap_or(0);
@@ -929,6 +939,65 @@ fn machine_font_for_a_file(font: &Dictionary) -> Result<Dictionary, String> {
         Object::Array(vec![Object::Dictionary(descendant)]),
     );
     Ok(out)
+}
+
+/// A machine face whose outlines are a `CFF ` table, rewritten for a file (ADR 1438).
+///
+/// Table 124's `OpenType` row puts such a program under a `CIDFontType0` whichever kind its Top
+/// DICT is, as `/FontFile3` with Table 125's `/Subtype`, whose value is "OpenType for OpenType
+/// fonts"; `/Length1` is Table 125's for a `TrueType` program only and is not written.
+/// `/CIDToGIDMap` goes, because Table 117 states it for Type 2 `CIDFonts` alone and §9.7.4.2
+/// reaches a Type 0's glyphs through the program — which [`pdf_font::embed`] has made the glyph
+/// indices the stream shows. A CID-keyed program's `ROS` becomes `/CIDSystemInfo`, which
+/// §9.7.4.2 says "should be copied into the PDF `CIDFont` dictionary". Table 119's `/BaseFont`
+/// for a Type 0 font over a Type 0 `CIDFont` "should be the concatenation of the `CIDFont`'s
+/// `BaseFont` name, a hyphen, and the `CMap` name given in the `Encoding` entry".
+fn cff_font_for_a_file(
+    font: &Dictionary,
+    mut descendant: Dictionary,
+    mut descriptor: Dictionary,
+    embedded: &pdf_font::embed::Embedded,
+    system: Option<&pdf_font::embed::SystemInfo>,
+) -> Dictionary {
+    let key = |value: &[u8]| pdf_syntax::Name::new(value.to_vec());
+    let name = |value: &[u8]| Object::Name(pdf_syntax::Name::new(value.to_vec()));
+    let mut file = Dictionary::new();
+    file.insert(key(b"Subtype"), name(b"OpenType"));
+    descriptor.remove("FontFile2");
+    descriptor.insert(key(b"FontFile3"), deflated(file, &embedded.program));
+
+    if let Some(system) = system {
+        let mut info = Dictionary::new();
+        info.insert(
+            key(b"Registry"),
+            Object::String(system.registry.as_slice().into()),
+        );
+        info.insert(
+            key(b"Ordering"),
+            Object::String(system.ordering.as_slice().into()),
+        );
+        info.insert(key(b"Supplement"), Object::Integer(system.supplement));
+        descendant.insert(key(b"CIDSystemInfo"), Object::Dictionary(info));
+    }
+    descendant.remove("CIDToGIDMap");
+    descendant.insert(key(b"Subtype"), name(b"CIDFontType0"));
+    descendant.insert(key(b"BaseFont"), name(embedded.name.as_bytes()));
+    descendant.insert(key(b"FontDescriptor"), Object::Dictionary(descriptor));
+
+    let encoding = font.get("Encoding").and_then(Object::as_name).map_or_else(
+        || b"Identity-H".to_vec(),
+        |encoding| encoding.as_bytes().to_vec(),
+    );
+    let mut combined = embedded.name.as_bytes().to_vec();
+    combined.push(b'-');
+    combined.extend_from_slice(&encoding);
+    let mut out = font.clone();
+    out.insert(key(b"BaseFont"), name(&combined));
+    out.insert(
+        key(b"DescendantFonts"),
+        Object::Array(vec![Object::Dictionary(descendant)]),
+    );
+    out
 }
 
 /// A stream of `data` under §7.4.4's `FlateDecode`, or unfiltered where the encoder declines.

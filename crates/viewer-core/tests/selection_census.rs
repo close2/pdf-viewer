@@ -140,22 +140,17 @@ const WITNESSES: usize = 30;
 /// not a reason to interpret a thousand pages.
 const FIND_STEPS: usize = 2;
 
-/// The corpus documents that refuse §7.6.4.1's default user password, with the password each
-/// one's own pdf.js issue records.
-///
-/// The same list `accessibility_census.rs`, `save_round_trip.rs` and `pdf-syntax`'s
-/// `encryption.rs` carry: test binaries share no code, and ADR 0323's denominator rule is "what
-/// opens without a password or with the corpus's known ones".
-const KNOWN_PASSWORDS: &[(&str, &str)] = &[
-    ("issue15893_reduced.pdf", "test"),
-    ("issue3371.pdf", "ELXRTQWS"),
-    ("bug1782186.pdf", "Hello"),
-    ("issue6010_1.pdf", "abc"),
-    ("issue6010_2.pdf", "\u{E6}\u{F8}\u{E5}"),
-    ("saslprep-r6.pdf", "S\u{AA}SL\u{AD}prep"),
-    ("pr6531_1.pdf", "asdfasdf"),
-    ("print_protection.pdf", "1234"),
-];
+/// The published passwords of the corpus's encrypted documents, read from the one table
+/// (`crates/pdf-model/tests/support/corpus_passwords.rs`, ADR 1377) rather than from a list of
+/// this census's own, so the denominator is ADR 0323's "what opens without a password or with the
+/// corpus's known ones" and a password added there reaches this census at once.
+#[path = "../../pdf-model/tests/support/corpus_passwords.rs"]
+#[expect(
+    dead_code,
+    reason = "the references' spelling of a password is `pdf-model`'s oracle's; this census \
+              hands a password to this tree alone"
+)]
+mod corpus_passwords;
 
 /// A word and its box as `pdftotext -bbox -cropbox` states it: points, origin at the displayed
 /// page's top-left corner, y growing down.
@@ -266,10 +261,7 @@ fn population() -> Vec<PathBuf> {
 
 /// The password on record for one file, or the empty default §7.6.4.1 starts with.
 fn password_for(name: &str) -> &'static str {
-    KNOWN_PASSWORDS
-        .iter()
-        .find(|(known, _)| *known == name)
-        .map_or("", |(_, password)| *password)
+    corpus_passwords::corpus_password(name).map_or("", |known| known.password)
 }
 
 /// The cache the reference's answers are remembered in — `pdfref`'s own, one level down.

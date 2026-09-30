@@ -531,7 +531,7 @@ fn a_raster_is_shared_across_resource_dictionaries_that_agree_on_their_colour_sp
 /// **The budget charges what an entry holds**, which is the samples and the `/ColorSpace` entry
 /// the decode was handed: under a direct `/ColorSpace` dictionary of a thousand names an entry
 /// weighs at least the thousand names more than under a dictionary of one. This is what makes
-/// `RASTER_BUDGET` a bound on the cache rather than on the samples — `doc/todo/12`'s shape, and
+/// `RASTER_BUDGET` a bound on the cache rather than on the samples — ADR 0243's shape, one bound doing two jobs, and
 /// the half of ADR 0791 the test above cannot see.
 ///
 /// Fails against a charge of the samples alone: both caches then hold sixteen bytes.

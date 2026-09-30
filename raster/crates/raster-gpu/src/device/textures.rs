@@ -30,9 +30,19 @@ use super::Device;
 /// before its bilinear filter reads it, with the same round-to-nearest, which is what makes
 /// the two backends' reduced images agree (this tree's ADR 1287).
 ///
-/// Borrowed where every sample is opaque, which premultiplying leaves unchanged.
+/// Borrowed where every sample is opaque, which premultiplying leaves unchanged. That question
+/// is asked of 64 samples at a time — their alphas folded with `&` and the block tested once —
+/// because a test per sample stays a scalar loop over a photograph's every pixel, where the fold
+/// is vector instructions and the same answer (this tree's ADR 1433).
 pub(super) fn premultiplied(data: &[u8]) -> Cow<'_, [u8]> {
-    if data.chunks_exact(4).all(|sample| sample[3] == u8::MAX) {
+    let opaque = |samples: &[u8]| {
+        samples
+            .chunks_exact(4)
+            .fold(u8::MAX, |alphas, sample| alphas & sample[3])
+            == u8::MAX
+    };
+    let mut blocks = data.chunks_exact(256);
+    if blocks.by_ref().all(opaque) && opaque(blocks.remainder()) {
         return Cow::Borrowed(data);
     }
     let mut out = data.to_vec();

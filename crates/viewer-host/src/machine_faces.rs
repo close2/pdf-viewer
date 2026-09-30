@@ -25,6 +25,16 @@
 //! One thread and one queue rather than one thread per character: a line of Japanese asks for every
 //! character at once, and every search after the first is answered by the face the first one found
 //! ([`pdf_font::substitute::face_covers`]), which a pool of parallel walks would not know about.
+//!
+//! # A word is asked for as a word
+//!
+//! A character asked alone is answered by the first face found that states it, which is right for
+//! a character and wrong for a word: an Arabic word whose first form one face states and whose
+//! last form only another does would be drawn in two faces, their weights and their joins not
+//! meeting in the middle of it. So a window asks [`MachineFaces::ask_word`] for every character of
+//! a word its own faces lack, the search looks for one face stating all of them, and only where the
+//! machine has no such face does the window fall back to [`MachineFaces::ask`] per character
+//! (ADR 1430).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::mpsc::{Sender, channel};
@@ -41,7 +51,52 @@ pub struct Wanted {
     pub italic: bool,
 }
 
-/// What is known about one [`Wanted`] at the moment it is asked.
+/// The characters of one word that a window's own faces lack, in one style: the unit a word's face
+/// is asked for (ADR 1430).
+///
+/// Held sorted and without repeats, so that the same word asked twice, or two words spelling the
+/// same letters, is one question and one search.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Word {
+    /// The characters, sorted, each once.
+    characters: Box<[char]>,
+    /// Whether a bold face is asked for.
+    bold: bool,
+    /// Whether an italic face is asked for.
+    italic: bool,
+}
+
+impl Word {
+    /// The word spelling `characters`, in the style given.
+    #[must_use]
+    pub fn new(characters: &[char], bold: bool, italic: bool) -> Self {
+        let mut characters = characters.to_vec();
+        characters.sort_unstable();
+        characters.dedup();
+        Self {
+            characters: characters.into_boxed_slice(),
+            bold,
+            italic,
+        }
+    }
+
+    /// The characters asked for, sorted, each once.
+    #[must_use]
+    pub fn characters(&self) -> &[char] {
+        &self.characters
+    }
+}
+
+/// One question on the searching thread's queue.
+#[derive(Debug, Clone)]
+enum Asked {
+    /// A face stating one character.
+    Character(Wanted),
+    /// One face stating every character of a word.
+    Word(Word),
+}
+
+/// What is known about one [`Wanted`] or [`Word`] at the moment it is asked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Answer {
     /// Face number `.0` of [`MachineFaces::face`] states a glyph for it.
@@ -65,10 +120,15 @@ struct State {
     /// Characters queued and not yet answered: what a second ask answers [`Answer::Pending`] from,
     /// and what [`MachineFaces::settle`] waits to see empty.
     pending: BTreeSet<Wanted>,
+    /// What each word asked for came to: the one face stating all of it, or `None` where the
+    /// machine has no such face and the window falls back to a face per character.
+    words: BTreeMap<Word, Option<usize>>,
+    /// Words queued and not yet answered, as [`State::pending`] is for characters.
+    pending_words: BTreeSet<Word>,
     /// Whether an answer has landed since [`MachineFaces::take_arrivals`] last asked.
     arrived: bool,
-    /// The queue to the searching thread, made when the first character is asked for.
-    queue: Option<Sender<Wanted>>,
+    /// The queue to the searching thread, made when the first character or word is asked for.
+    queue: Option<Sender<Asked>>,
     /// How to wake the window that asked.
     wake: Option<Wake>,
 }
@@ -105,6 +165,7 @@ impl std::fmt::Debug for MachineFaces {
             .field("faces", &state.faces.len())
             .field("answered", &state.answered.len())
             .field("pending", &state.pending.len())
+            .field("words", &state.words.len())
             .finish_non_exhaustive()
     }
 }
@@ -153,7 +214,7 @@ impl MachineFaces {
         let queued = state
             .queue
             .as_ref()
-            .is_some_and(|queue| queue.send(wanted).is_ok());
+            .is_some_and(|queue| queue.send(Asked::Character(wanted)).is_ok());
         if queued {
             state.pending.insert(wanted);
             return Answer::Pending;
@@ -165,6 +226,42 @@ impl MachineFaces {
         let mut state = self.shared.lock();
         let answer = record(&mut state, wanted, found);
         answer.map_or(Answer::Nothing, Answer::Face)
+    }
+
+    /// What is known about one face stating every character of `word`, and the search queued where
+    /// nothing is (ADR 1430).
+    ///
+    /// [`Answer::Nothing`] means the machine has no single face for the word, and is the window's
+    /// cue to ask [`Self::ask`] for each character instead. A face already found that states the
+    /// whole word answers it at once, as it does a character. Never reads a font file on the
+    /// calling thread, except where no searching thread can be started, as for [`Self::ask`].
+    pub fn ask_word(&self, word: &Word) -> Answer {
+        let mut state = self.shared.lock();
+        match state.words.get(word) {
+            Some(Some(index)) => return Answer::Face(*index),
+            Some(None) => return Answer::Nothing,
+            None if state.pending_words.contains(word) => return Answer::Pending,
+            None => {}
+        }
+        if let Some(index) = held_covering(&state, word.characters()) {
+            state.words.insert(word.clone(), Some(index));
+            return Answer::Face(index);
+        }
+        if state.queue.is_none() {
+            state.queue = self.start();
+        }
+        let queued = state
+            .queue
+            .as_ref()
+            .is_some_and(|queue| queue.send(Asked::Word(word.clone())).is_ok());
+        if queued {
+            state.pending_words.insert(word.clone());
+            return Answer::Pending;
+        }
+        drop(state);
+        let found = search_word(word);
+        let mut state = self.shared.lock();
+        record_word(&mut state, word, found).map_or(Answer::Nothing, Answer::Face)
     }
 
     /// Face `index`'s bytes, as the search read them.
@@ -182,7 +279,8 @@ impl MachineFaces {
     /// Whether any search is queued or running.
     #[must_use]
     pub fn searching(&self) -> bool {
-        !self.shared.lock().pending.is_empty()
+        let state = self.shared.lock();
+        !state.pending.is_empty() || !state.pending_words.is_empty()
     }
 
     /// Whether an answer has landed since this was last asked, which is when a window draws again.
@@ -198,7 +296,7 @@ impl MachineFaces {
     /// here would have put the catalogue walk back on the path this module exists to take it off.
     pub fn settle(&self) {
         let mut state = self.shared.lock();
-        while !state.pending.is_empty() {
+        while !state.pending.is_empty() || !state.pending_words.is_empty() {
             state = self
                 .shared
                 .settled
@@ -208,41 +306,16 @@ impl MachineFaces {
     }
 
     /// Starts the searching thread and answers its queue, or `None` where no thread can be had.
-    fn start(&self) -> Option<Sender<Wanted>> {
-        let (queue, asked) = channel::<Wanted>();
+    fn start(&self) -> Option<Sender<Asked>> {
+        let (queue, asked) = channel::<Asked>();
         let shared = Arc::clone(&self.shared);
         std::thread::Builder::new()
             .name("machine-faces".to_owned())
             .spawn(move || {
-                for wanted in asked {
-                    // A face found since this was queued may already answer it, which is the
-                    // common case for every character of a line after its first.
-                    let known = {
-                        let state = shared.lock();
-                        state.faces.iter().position(|face| {
-                            pdf_font::substitute::face_covers(face, &[wanted.character])
-                        })
-                    };
-                    let found = match known {
-                        Some(index) => Found::Known(index),
-                        None => search(wanted).map_or(Found::None, Found::New),
-                    };
-                    let wake = {
-                        let mut state = shared.lock();
-                        match found {
-                            Found::Known(index) => {
-                                state.answered.insert(wanted, Some(index));
-                            }
-                            Found::New(bytes) => {
-                                record(&mut state, wanted, Some(bytes));
-                            }
-                            Found::None => {
-                                record(&mut state, wanted, None);
-                            }
-                        }
-                        state.pending.remove(&wanted);
-                        state.arrived = true;
-                        state.wake.clone()
+                for question in asked {
+                    let wake = match question {
+                        Asked::Character(wanted) => answer_character(&shared, wanted),
+                        Asked::Word(word) => answer_word(&shared, &word),
                     };
                     shared.settled.notify_all();
                     if let Some(wake) = wake {
@@ -253,6 +326,59 @@ impl MachineFaces {
             .ok()
             .map(|_| queue)
     }
+}
+
+/// Answers one character on the searching thread, and says whom to wake.
+fn answer_character(shared: &Shared, wanted: Wanted) -> Option<Wake> {
+    // A face found since this was queued may already answer it, which is the common case for
+    // every character of a line after its first.
+    let known = held_covering(&shared.lock(), &[wanted.character]);
+    let found = match known {
+        Some(index) => Found::Known(index),
+        None => search(wanted).map_or(Found::None, Found::New),
+    };
+    let mut state = shared.lock();
+    match found {
+        Found::Known(index) => {
+            state.answered.insert(wanted, Some(index));
+        }
+        Found::New(bytes) => {
+            record(&mut state, wanted, Some(bytes));
+        }
+        Found::None => {
+            record(&mut state, wanted, None);
+        }
+    }
+    state.pending.remove(&wanted);
+    state.arrived = true;
+    state.wake.clone()
+}
+
+/// Answers one word on the searching thread, and says whom to wake.
+fn answer_word(shared: &Shared, word: &Word) -> Option<Wake> {
+    let known = held_covering(&shared.lock(), word.characters());
+    let found = if known.is_none() {
+        search_word(word)
+    } else {
+        None
+    };
+    let mut state = shared.lock();
+    if let Some(index) = known {
+        state.words.insert(word.clone(), Some(index));
+    } else {
+        record_word(&mut state, word, found);
+    }
+    state.pending_words.remove(word);
+    state.arrived = true;
+    state.wake.clone()
+}
+
+/// The first face already found that states every one of `characters`.
+fn held_covering(state: &State, characters: &[char]) -> Option<usize> {
+    state
+        .faces
+        .iter()
+        .position(|face| pdf_font::substitute::face_covers(face, characters))
 }
 
 /// What the searching thread found for one character.
@@ -267,23 +393,35 @@ enum Found {
 
 /// Enters an answer, keeping one entry per distinct face, and says which face it is.
 fn record(state: &mut State, wanted: Wanted, found: Option<Arc<[u8]>>) -> Option<usize> {
-    let index = found.map(|bytes| {
-        // The search hands back the same `Arc` for the same file, so a second character answered
-        // by a face already held is not a second face.
-        state
-            .faces
-            .iter()
-            .position(|face| Arc::ptr_eq(face, &bytes))
-            .unwrap_or_else(|| {
-                state.faces.push(bytes);
-                state.faces.len().saturating_sub(1)
-            })
-    });
+    let index = found.map(|bytes| held(state, bytes));
     state.answered.insert(wanted, index);
     index
 }
 
-/// The one search: ADR 1382's, for one character in one style of the sans-serif family.
+/// Enters a word's answer the way [`record`] enters a character's.
+fn record_word(state: &mut State, word: &Word, found: Option<Arc<[u8]>>) -> Option<usize> {
+    let index = found.map(|bytes| held(state, bytes));
+    state.words.insert(word.clone(), index);
+    index
+}
+
+/// Which face `bytes` is, holding it if it is new.
+fn held(state: &mut State, bytes: Arc<[u8]>) -> usize {
+    // The search hands back the same `Arc` for the same file, so a second character answered by a
+    // face already held is not a second face.
+    state
+        .faces
+        .iter()
+        .position(|face| Arc::ptr_eq(face, &bytes))
+        .unwrap_or_else(|| {
+            state.faces.push(bytes);
+            state.faces.len().saturating_sub(1)
+        })
+}
+
+/// The one search: ADR 1382's, for one character in one style of the sans-serif family, ranked
+/// by the style asked for before the repertoire because the face sits beside other text of this
+/// window's (ADR 1430).
 fn search(wanted: Wanted) -> Option<Arc<[u8]>> {
     let request = pdf_font::substitute::Request {
         family: pdf_font::substitute::Family::SansSerif,
@@ -291,7 +429,18 @@ fn search(wanted: Wanted) -> Option<Arc<[u8]>> {
         italic: wanted.italic,
         standard: false,
     };
-    pdf_font::substitute::installed_covering(request, &[wanted.character])
+    pdf_font::substitute::installed_covering_styled(request, &[wanted.character])
+}
+
+/// The same search for one face stating every character of a word (ADR 1430).
+fn search_word(word: &Word) -> Option<Arc<[u8]>> {
+    let request = pdf_font::substitute::Request {
+        family: pdf_font::substitute::Family::SansSerif,
+        bold: word.bold,
+        italic: word.italic,
+        standard: false,
+    };
+    pdf_font::substitute::installed_covering_styled(request, word.characters())
 }
 
 /// Whether §9.6.2.2's compiled-in sans-serif face states no glyph for `character`, by either of the
@@ -382,5 +531,44 @@ mod tests {
             }
             Answer::Pending => panic!("settled, so nothing is pending"),
         }
+    }
+
+    /// A word is answered by one face stating all of it, even where a face already held states
+    /// its other letters and not one of them (ADR 1430).
+    ///
+    /// The characters are Urdu "کہانی" as a label displays it: kaf initial U+FB90, heh goal medial
+    /// U+FBA9, alef final, noon initial and farsi yeh final. The face the machine answers a lam
+    /// with alone is asked first, as a line drawn earlier would have found it; where that face
+    /// lacks U+FBA9 — as the widest face on a machine with Noto Arabic does — the answer character
+    /// by character would change face inside the word.
+    #[test]
+    fn a_word_is_answered_by_one_face() {
+        let faces = MachineFaces::new();
+        let word = ['\u{FB90}', '\u{FBA9}', '\u{FE8E}', '\u{FEE7}', '\u{FBFD}'];
+        assert_eq!(faces.ask(regular('\u{FEDF}')), Answer::Pending);
+        faces.settle();
+        let asked = super::Word::new(&word, false, false);
+        assert_eq!(asked.characters().len(), word.len());
+        let answer = match faces.ask_word(&asked) {
+            Answer::Pending => {
+                faces.settle();
+                faces.ask_word(&asked)
+            }
+            answered => answered,
+        };
+        match answer {
+            Answer::Face(index) => {
+                let face = faces.face(index).expect("an answered face is held");
+                assert!(
+                    pdf_font::substitute::face_covers(&face, &word),
+                    "the word's face states every letter of it"
+                );
+            }
+            Answer::Nothing => {
+                eprintln!("skipped: this machine offers no single face for the word");
+            }
+            Answer::Pending => panic!("settled, so nothing is pending"),
+        }
+        assert!(!faces.searching());
     }
 }

@@ -7,9 +7,11 @@ github-token.txt
 
 # Fuzzing: the corpus and crash artefacts are large and machine-generated. Crashers
 # that matter are promoted into `tests/regression/` as committed fixtures instead,
-# so a reproducer never lives only in an ignored directory.
+# so a reproducer never lives only in an ignored directory. `fuzz/Cargo.lock` is *not*
+# here: the fuzz workspace resolves on its own, and a lock nobody tracks drifts from the
+# workspace's until the targets stop building. It is tracked, and
+# `tools/conformance/tests/fuzz_workspace.rs` holds it to the root lock's versions (ADR 1439).
 /fuzz/target
-/fuzz/Cargo.lock
 /fuzz/artifacts
 /fuzz/corpus
 

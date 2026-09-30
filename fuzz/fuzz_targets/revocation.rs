@@ -44,6 +44,7 @@
 )]
 
 use libfuzzer_sys::fuzz_target;
+use pdf_signature::der::Reader;
 use pdf_signature::pkcs1;
 use pdf_signature::revocation::{
     self, Material, Revocation, Subject, certificate_list, ocsp_response,
@@ -83,6 +84,45 @@ fuzz_target!(|data: &[u8]| {
                 );
             }
         }
+        // The serials the list itself carries, read by this target's own walk of RFC 5280
+        // section 5.1's `revokedCertificates`. A serial chosen by the target alone never matches
+        // an entry, so the search's matching branch — the date, the entry extensions, section
+        // 5.3's reason code — was unreachable from any seed; asked with the list's own numbers,
+        // a listed serial must be found or refused, never reported "not listed".
+        for serial in listed_serials(data) {
+            match list.entry_for(serial) {
+                Ok(Some(entry)) => {
+                    inside(entry.serial_number);
+                    assert!(
+                        entry.serial_number == serial,
+                        "an entry answered for a serial number it does not carry"
+                    );
+                }
+                Ok(None) => panic!("a serial number the list carries was reported as not listed"),
+                Err(_) => {}
+            }
+            // The status question put by a certificate this list *names*: its issuer is the
+            // list's and its serial one of the list's entries, so section 6.3.3's walk passes
+            // the issuer comparison and reaches the signature — which no key this target holds
+            // can make verify, so `Good` stays the one answer that may not come back.
+            let named = subject_certificate(list.issuer, serial);
+            let subject = Subject {
+                certificate: &named,
+                issuer_name: named.subject_encoding,
+                issuer_key_bits: named.public_key_bits,
+                issuer_key: named.public_key,
+                issuer_key_usage: None,
+                position: 0,
+            };
+            let material = Material::read(&[data], &[]);
+            assert!(
+                !matches!(
+                    revocation::status(&subject, &material, Instant::from_unix_seconds(0)),
+                    Revocation::Good { .. }
+                ),
+                "a revocation list nobody's key signed said a certificate it names was not revoked"
+            );
+        }
         // Reading the same bytes twice must give the same answer: the reader carries a depth
         // across nested calls, and state leaking between them is what one pass cannot see.
         let again = certificate_list(data).expect("the same list parsed once already");
@@ -115,6 +155,28 @@ fuzz_target!(|data: &[u8]| {
             inside(single.issuer_name_hash);
             inside(single.issuer_key_hash);
             inside(single.serial_number);
+        }
+        // A certificate carrying the first single response's serial number, so that RFC 6960
+        // section 4.1.1's `CertID` comparison is taken as far as its two digests — which no
+        // input can steer, so the response still names nobody this target asks about.
+        if let Some(first) = response.responses.first() {
+            let named = subject_certificate(&[], first.serial_number);
+            let subject = Subject {
+                certificate: &named,
+                issuer_name: named.subject_encoding,
+                issuer_key_bits: named.public_key_bits,
+                issuer_key: named.public_key,
+                issuer_key_usage: None,
+                position: 0,
+            };
+            let material = Material::read(&[], &[data]);
+            assert!(
+                !matches!(
+                    revocation::status(&subject, &material, Instant::from_unix_seconds(0)),
+                    Revocation::Good { .. }
+                ),
+                "an OCSP response nobody's key signed said a certificate was not revoked"
+            );
         }
     }
 
@@ -152,7 +214,7 @@ fuzz_target!(|data: &[u8]| {
     // The property that matters most, asked of whatever the input turned out to be: a certificate
     // this target chose, under a key this target chose, against material a fuzzer wrote. Nothing
     // here is signed by that key, so `Good` is the one answer that may not come back.
-    let ours = subject_certificate();
+    let ours = subject_certificate(NAME.get(2..).unwrap_or(&[]), SERIAL);
     let material = Material::read(&[data], &[data]);
     let subject = Subject {
         certificate: &ours,
@@ -180,29 +242,36 @@ fuzz_target!(|data: &[u8]| {
     }
 });
 
-/// The certificate this target asks about, built rather than parsed.
+/// A `Name` a fuzzer would have to guess to make an `issuerNameHash` match:
+/// `SEQUENCE { SET { SEQUENCE { OBJECT IDENTIFIER commonName, UTF8String "q" } } }`.
+const NAME: &[u8] = &[
+    0x30, 0x0C, 0x31, 0x0A, 0x30, 0x08, 0x06, 0x03, 0x55, 0x04, 0x03, 0x0C, 0x01, 0x71,
+];
+
+/// A serial number the input cannot reach.
+const SERIAL: &[u8] = &[0x51, 0x55, 0x4F, 0x52, 0x52, 0x41];
+
+/// The certificate this target asks about, built rather than parsed, under `issuer` with
+/// `serial`.
 ///
 /// **Built, because what is wanted here is the opposite of a real certificate.** A positive
 /// revocation answer would need material signed by the key that issued this one, and the whole
 /// property this target asserts is that no such material can come out of a fuzzer — so the key is
-/// a number nobody holds the factors of, and the serial and the names are constants the input
-/// cannot reach. `pdf_signature::x509::Certificate` is a view over borrowed slices with public
-/// fields, which is what makes this possible without a private key or a pasted blob.
-fn subject_certificate() -> Certificate<'static> {
+/// a number nobody holds the factors of. The issuer and the serial are the caller's: constants the
+/// input cannot reach for the question every input is asked, and the input's own for the question
+/// that has to get past the name comparison to reach the signature at all.
+/// `pdf_signature::x509::Certificate` is a view over borrowed slices with public fields, which is
+/// what makes this possible without a private key or a pasted blob.
+fn subject_certificate<'a>(issuer: &'a [u8], serial: &'a [u8]) -> Certificate<'a> {
     /// A 2048-bit odd number. Not an RSA modulus anybody generated, which is the point: `pkcs1`
     /// will do its modular exponentiation over it and the comparison will fail, for every
     /// signature there is.
     const MODULUS: &[u8] = &[0xC7; 256];
     /// F4, the exponent every real key states.
     const EXPONENT: &[u8] = &[0x01, 0x00, 0x01];
-    /// `SEQUENCE { SET { SEQUENCE { OBJECT IDENTIFIER commonName, UTF8String "q" } } }`, which is
-    /// a `Name` a fuzzer would have to guess to make an `issuerNameHash` match.
-    const NAME: &[u8] = &[
-        0x30, 0x0C, 0x31, 0x0A, 0x30, 0x08, 0x06, 0x03, 0x55, 0x04, 0x03, 0x0C, 0x01, 0x71,
-    ];
     Certificate {
-        serial_number: &[0x51, 0x55, 0x4F, 0x52, 0x52, 0x41],
-        issuer: NAME.get(2..).unwrap_or(&[]),
+        serial_number: serial,
+        issuer,
         subject: NAME.get(2..).unwrap_or(&[]),
         subject_encoding: NAME,
         key_identifier: None,
@@ -223,4 +292,60 @@ fn subject_certificate() -> Certificate<'static> {
         }),
         extensions: Extensions::default(),
     }
+}
+
+/// How many of a list's entries [`listed_serials`] hands back: enough to reach an entry past the
+/// first — the search is a walk, and a match found at the head is not one found after a skip —
+/// and few enough that one input is not a thousand status questions.
+const LISTED: usize = 4;
+
+/// The serial numbers of the first [`LISTED`] entries of `data`'s `revokedCertificates`, read by
+/// RFC 5280 section 5.1's field order through `pdf_signature::der`'s public reader.
+///
+/// `TBSCertList ::= SEQUENCE { version INTEGER OPTIONAL, signature AlgorithmIdentifier, issuer
+/// Name, thisUpdate Time, nextUpdate Time OPTIONAL, revokedCertificates SEQUENCE OF SEQUENCE {
+/// userCertificate CertificateSerialNumber, .. } OPTIONAL, crlExtensions [0] OPTIONAL }` — so the
+/// entries are the first `SEQUENCE` after the first `Time`, and a walk that finds none returns
+/// nothing. Its own walk rather than the library's, because the property it feeds is the library's
+/// search answering for what the bytes say.
+fn listed_serials(data: &[u8]) -> Vec<&[u8]> {
+    const SEQUENCE: u8 = 0x30;
+    const UTC_TIME: u8 = 0x17;
+    const GENERALIZED_TIME: u8 = 0x18;
+    let walk = || -> Result<Vec<&[u8]>, pdf_signature::der::DerError> {
+        let mut out = Vec::new();
+        let mut outer = Reader::new(data)?;
+        let Some(list) = outer.next_value()? else {
+            return Ok(out);
+        };
+        let mut parts = list.children()?;
+        let Some(tbs) = parts.next_value()? else {
+            return Ok(out);
+        };
+        let mut fields = tbs.children()?;
+        let mut after_time = false;
+        while let Some(field) = fields.next_value()? {
+            if field.identifier == UTC_TIME || field.identifier == GENERALIZED_TIME {
+                after_time = true;
+            } else if after_time && field.identifier == SEQUENCE {
+                let mut entries = field.children()?;
+                while let Some(entry) = entries.next_value()? {
+                    if out.len() == LISTED {
+                        break;
+                    }
+                    if entry.identifier != SEQUENCE {
+                        continue;
+                    }
+                    if let Some(number) = entry.children()?.next_value()?
+                        && number.identifier == pdf_signature::der::INTEGER
+                    {
+                        out.push(number.contents);
+                    }
+                }
+                break;
+            }
+        }
+        Ok(out)
+    };
+    walk().unwrap_or_default()
 }

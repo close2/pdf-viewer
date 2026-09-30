@@ -140,3 +140,11 @@ Two rules of the fax decoder, each defensible from the clause — an end-of-line
 under `/EndOfLine`, a refusal of empty runs — failed on real Ghostscript and PDFium producers, and only
 the census over 190 537 streams showed it; every disagreement was then checked against a third
 decoder's diagnostic (ADR 1349). Census first, then the ADR.
+
+## A differing page is read against a per-pixel reference from its own geometry before either lane is called right
+
+`issue2177.pdf` had been "differs" for a long time; a reference built from each mark's exact area
+intersected with its clip, composited in paint order and sampled 128×128 per pixel, put the oracle
+0.71 of 255 away and raster 2.05, named raster's flattening as the interior cause, and let the gate
+hold the page to a measured bound instead of a blanket (ADR 1435). The ink ladder's convergence
+cannot say which lane pays a difference; the geometry can.

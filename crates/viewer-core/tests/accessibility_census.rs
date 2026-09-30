@@ -127,20 +127,17 @@ const VIEWPORT: (u32, u32) = (800, 1000);
 /// the bound, with nothing in [`Answer::Accessibility`] able to say it was.
 const ANSWER_BOUND: usize = 8192;
 
-/// The corpus documents that refuse §7.6.4.1's default user password, with the password each
-/// one's own pdf.js issue records — the same eight `pdf-syntax`'s `encryption.rs` verifies, and
-/// ADR 0323's rule that the denominator is what opens "without a password or with the corpus's
-/// known ones".
-const KNOWN_PASSWORDS: &[(&str, &str)] = &[
-    ("issue15893_reduced.pdf", "test"),
-    ("issue3371.pdf", "ELXRTQWS"),
-    ("bug1782186.pdf", "Hello"),
-    ("issue6010_1.pdf", "abc"),
-    ("issue6010_2.pdf", "\u{E6}\u{F8}\u{E5}"),
-    ("saslprep-r6.pdf", "S\u{AA}SL\u{AD}prep"),
-    ("pr6531_1.pdf", "asdfasdf"),
-    ("print_protection.pdf", "1234"),
-];
+/// The published passwords of the corpus's encrypted documents, read from the one table
+/// (`crates/pdf-model/tests/support/corpus_passwords.rs`, ADR 1377) rather than from a list of
+/// this census's own, so the denominator is ADR 0323's "what opens without a password or with the
+/// corpus's known ones" and a password added there reaches this census at once.
+#[path = "../../pdf-model/tests/support/corpus_passwords.rs"]
+#[expect(
+    dead_code,
+    reason = "the references' spelling of a password is `pdf-model`'s oracle's; this census \
+              hands a password to this tree alone"
+)]
+mod corpus_passwords;
 
 /// How many witnesses of one class are printed before the rest are summarised.
 const WITNESSES: usize = 30;
@@ -711,10 +708,7 @@ fn tracked(path: &Path) -> bool {
 
 /// The password on record for one file, or the empty default §7.6.4.1 starts with.
 fn password_for(name: &str) -> &'static str {
-    KNOWN_PASSWORDS
-        .iter()
-        .find(|(known, _)| *known == name)
-        .map_or("", |(_, password)| *password)
+    corpus_passwords::corpus_password(name).map_or("", |known| known.password)
 }
 
 /// How many elements the whole document's tree holds, and whether the read was itself bounded.
@@ -1214,14 +1208,11 @@ fn require_the_sandbox() {
 /// from one that stopped, and both are findings. `encrypted-attachment.pdf` joined when §7.6.6's
 /// `/AuthEvent` was read against Table 25 — it states none, so the default `DocOpen` requires the
 /// key before the document opens (ADR 1040).
-const REFUSED_OPEN: [&str; 3] = [
+const REFUSED_OPEN: [&str; 2] = [
     // `/Encrypt` does not resolve to a dictionary, so §7.6.1's handler cannot be chosen.
     "PDFBOX-4352-0.pdf",
     // Needs a password nobody has recorded (ADR 1040).
     "encrypted-attachment.pdf",
-    // Its published password is in `corpus_passwords.rs` (ADR 1377), but this census reads its
-    // own `KNOWN_PASSWORDS`, which lacks it, so the file is refused on the default user password.
-    "issue21579.pdf",
 ];
 
 /// The instrument. Ignored: minutes over every document this project holds, every page of the
@@ -1400,10 +1391,12 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
         );
         gate_ratchet::floor("lines, whole population", census.lines, 209_705);
         gate_ratchet::floor("characters, whole population", census.characters, 5_681_047);
+        // `issue21579.pdf` opens with the password `corpus_passwords.rs` publishes (ADR 1377), so
+        // its one untagged page is in this population as it is in the tracked one.
         gate_ratchet::floor(
             "untagged pages answering honestly, whole population",
             census.untagged_honest,
-            889,
+            890,
         );
         // ADR 1369's two counts, new with it, over the whole population.
         gate_ratchet::floor(
@@ -1738,11 +1731,13 @@ fn ratchet(
     // 25's default `DocOpen` requires the key before the document opens and its one page is
     // locked rather than drawn. A screen reader is told nothing about it because the file will
     // not open without a password, which is the file's answer and not a regression in this
-    // program (ADR 1040).
+    // program (ADR 1040). `issue21579.pdf` is the other side of the same sentence: its password is
+    // published and read from `corpus_passwords.rs`, so its one untagged page is counted here
+    // (ADR 1377's table, trap 43's bound beside the population it admits).
     gate_ratchet::floor(
         "untagged pages answering honestly",
         tracked_census.untagged_honest,
-        876,
+        877,
     );
     widget_floors(tracked_census);
 

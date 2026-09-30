@@ -814,6 +814,23 @@ pub enum Problem {
         /// The number the note names.
         adr: u16,
     },
+    /// A note names, in code type, a crate, a program or a corpus this tree does not have.
+    ///
+    /// `code` and `test` paths are checked by [`Problem::MissingSite`]; a note's prose was not,
+    /// and ten rows went on naming `render-quorra` after the crate became `render-raster` — a
+    /// claim about the tree that was false and that nothing could see. ADR 1437.
+    UnknownProgram {
+        /// The clause.
+        clause: ClauseNumber,
+        /// The name, as the note writes it.
+        name: String,
+    },
+    /// The workspace's crates, programs or corpora could not be listed, so no note's names could
+    /// be checked. Reported for trap 13's reason, as [`Problem::ArgumentsUnreadable`] is.
+    ProgramsUnreadable {
+        /// What went wrong.
+        why: String,
+    },
     /// `doc/adr/` could not be listed, so no `departed` row's argument could be checked.
     ///
     /// Reported rather than passed over: a sweep that could not open its population and said
@@ -894,6 +911,17 @@ impl fmt::Display for Problem {
             ),
             Self::ArgumentsUnreadable { why } => {
                 write!(f, "no `departed` row's argument could be checked: {why}")
+            }
+            Self::UnknownProgram { clause, name } => write!(
+                f,
+                "§{clause}'s note names `{name}`, which is no crate, program or corpus of this \
+                 tree. A name in a note is a claim about the tree; write the one it has now."
+            ),
+            Self::ProgramsUnreadable { why } => {
+                write!(
+                    f,
+                    "no note's crate or program names could be checked: {why}"
+                )
             }
         }
     }
@@ -1003,6 +1031,7 @@ pub fn check(
     }
 
     problems.extend(check_arguments(ledger, root));
+    problems.extend(check_named_programs(ledger, root));
     problems.extend(check_population(index));
 
     problems
@@ -1046,6 +1075,124 @@ fn check_arguments(ledger: &Ledger, root: &Path) -> Vec<Problem> {
         }
     }
     problems
+}
+
+/// The prefixes a crate or program of this workspace is named with; a token wearing one is a
+/// claim that such a thing exists.
+const PROGRAM_PREFIXES: [&str; 5] = ["pdf", "render", "viewer", "raster", "quorra"];
+
+/// Every crate, program and corpus a note names in code type is one this tree has.
+///
+/// A backticked token shaped like a package name (`render-raster`) or like the first segment of
+/// a Rust path (`raster_scene::GroupSpec`) is looked up among the package and target names of
+/// every manifest under `crates/`, `raster/crates/`, `tools/` and `fuzz/`, the programs under
+/// each `src/bin/`, and the corpora under `doc/corpora/`. Nothing is listed unless some note
+/// names such a token, so a ledger without one pays no listing. ADR 1437.
+fn check_named_programs(ledger: &Ledger, root: &Path) -> Vec<Problem> {
+    let named: Vec<(&Row, String)> = ledger
+        .rows
+        .iter()
+        .flat_map(|row| {
+            named_programs(row.note.as_deref().unwrap_or_default())
+                .into_iter()
+                .map(move |name| (row, name))
+        })
+        .collect();
+    if named.is_empty() {
+        return Vec::new();
+    }
+    let known = match programs_on_disk(root) {
+        Ok(known) => known,
+        Err(why) => {
+            return vec![Problem::ProgramsUnreadable {
+                why: why.to_string(),
+            }];
+        }
+    };
+    named
+        .into_iter()
+        .filter(|(_, name)| !known.contains(name.as_str()))
+        .map(|(row, name)| Problem::UnknownProgram {
+            clause: row.clause.clone(),
+            name,
+        })
+        .collect()
+}
+
+/// The package-shaped names a note writes in code type, each as a package would spell it.
+///
+/// A Rust path's first segment is spelled with underscores and is returned with hyphens, which
+/// is how Cargo derives a library's name from its package's; a segment that is itself a
+/// target name spelled with underscores is still found, because [`programs_on_disk`] records
+/// both spellings.
+fn named_programs(note: &str) -> Vec<String> {
+    let is_named = |text: &str, separator: char| {
+        PROGRAM_PREFIXES.iter().any(|prefix| {
+            text.strip_prefix(prefix)
+                .and_then(|rest| rest.strip_prefix(separator))
+                .is_some_and(|rest| {
+                    !rest.is_empty()
+                        && !rest.ends_with(separator)
+                        && rest
+                            .chars()
+                            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == separator)
+                })
+        })
+    };
+    let mut names = Vec::new();
+    for span in note.split('`').skip(1).step_by(2) {
+        for token in span.split(|c: char| c.is_whitespace() || "(),;'".contains(c)) {
+            if is_named(token, '-') {
+                names.push(token.to_owned());
+            } else if let Some((first, _)) = token.split_once("::")
+                && is_named(first, '_')
+            {
+                names.push(first.replace('_', "-"));
+            }
+        }
+    }
+    names
+}
+
+/// The names a note may give a crate, a program or a corpus: every manifest `name`, every
+/// `src/bin/` entry and every `doc/corpora/` directory, each also with its underscores
+/// read as hyphens.
+fn programs_on_disk(root: &Path) -> std::io::Result<std::collections::BTreeSet<String>> {
+    let mut known = std::collections::BTreeSet::new();
+    let mut manifests = vec![root.join("fuzz/Cargo.toml")];
+    for parent in ["crates", "raster/crates", "tools"] {
+        for entry in std::fs::read_dir(root.join(parent))? {
+            let directory = entry?.path();
+            manifests.push(directory.join("Cargo.toml"));
+            let bins = directory.join("src/bin");
+            if bins.is_dir() {
+                for bin in std::fs::read_dir(bins)? {
+                    let bin = bin?.path();
+                    if let Some(stem) = bin.file_stem().and_then(|stem| stem.to_str()) {
+                        known.insert(stem.to_owned());
+                    }
+                }
+            }
+        }
+    }
+    for manifest in manifests.into_iter().filter(|manifest| manifest.is_file()) {
+        for line in std::fs::read_to_string(manifest)?.lines() {
+            if let Some(name) = line
+                .strip_prefix("name = \"")
+                .and_then(|rest| rest.strip_suffix('"'))
+            {
+                known.insert(name.to_owned());
+            }
+        }
+    }
+    for corpus in std::fs::read_dir(root.join("doc/corpora"))? {
+        if let Some(name) = corpus?.file_name().to_str() {
+            known.insert(name.to_owned());
+        }
+    }
+    let hyphenated: Vec<String> = known.iter().map(|name| name.replace('_', "-")).collect();
+    known.extend(hyphenated);
+    Ok(known)
 }
 
 /// The ledger's population, read against the standard rather than against itself.
@@ -1518,6 +1665,33 @@ mod tests {
                 .any(|problem| matches!(problem, Problem::ArgumentsUnreadable { .. })),
             "{problems:?}"
         );
+    }
+
+    /// Trap 13: the sweep is run against the defect it looks for before it is believed — the
+    /// renamed crate this check was written for, beside names the tree has. ADR 1437.
+    #[test]
+    fn a_note_naming_a_crate_the_tree_does_not_have_is_a_finding() {
+        let problems = check(
+            &ledger(
+                "[[clause]]\nclause = \"8.1\"\ntitle = \"General\"\nstatus = \"implemented\"\n\
+                 code = [\"a.rs\"]\ntest = [\"t.rs\"]\n\
+                 note = \"`render-quorra` and `quorra_scene::GroupSpec` draw it; `render-raster`, \
+                 `raster_scene::GroupSpec`, `pdf_model::view`, `quorra-gtk`, `pdf-view-worker` and \
+                 `doc/corpora/pdf-differences` are here, and `quorra_collection_read` is a \
+                 function.\"\n",
+            ),
+            &index(),
+            &[],
+            &crate::workspace_root(),
+        );
+        let named: Vec<&str> = problems
+            .iter()
+            .filter_map(|problem| match problem {
+                Problem::UnknownProgram { name, .. } => Some(name.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(named, vec!["render-quorra", "quorra-scene"], "{problems:?}");
     }
 
     /// A `departed` row settles, so a heading above one stops being an aggregate on its account

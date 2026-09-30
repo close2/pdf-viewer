@@ -58,10 +58,10 @@ is four costs with two owners:
 
 | the cost | whose | where it stands |
 |---|---|---|
-| raster's encode of a page seen for the first time, on the lane a page turn takes | raster's, in `raster/` | asked in `doc/QUORRA_FEEDBACK.md` section 52, ask 1. A clipped mark and a stroke are made off the walk's thread (ADR 1395), and a repeated glyph, a rectangle and a compute tile queue behind the marks before them rather than drain (ADR 1409), so a text page's turn and a zoom step's strokes divide; what is left is the walk and the commit, ordered by construction, and the stroke construction's own cost, whose largest part is the tiling of a tight bend (ADR 1375; ADR 1421 prices what is left of it) |
+| raster's encode of a page seen for the first time, on the lane a page turn takes | raster's, in `raster/` | asked in `doc/QUORRA_FEEDBACK.md` section 52, ask 1. A clipped mark and a stroke are made off the walk's thread (ADR 1395), and a repeated glyph, a rectangle and a compute tile queue behind the marks before them rather than drain (ADR 1409), so a text page's turn and a zoom step's strokes divide; what is left is the walk and the commit, ordered by construction, and the stroke construction's own cost, whose largest part is the tiling of a tight bend (ADR 1375; ADR 1421 prices what is left of it), and on the Type 3 page the tiling of a stroke whose subpaths cross, which costs its turn 1.8 ms and would come back where the fill's set question can answer (ADR 1431) |
 | an image restaged for every placement it is drawn at | quorra's | asked, with the byte counts: `doc/QUORRA_FEEDBACK.md` §52 ask 2 |
 | a mesh shading rasterised into device pixels on every view change | this tree's | the **paint** is divided across the pool (ADR 1259); `PatchMesh::tessellate` is still serial and is what remains |
-| a photograph decoded on the way into a page turn | this tree's | **taken** (ADR 1271): the decoder is asked for the raster this tree used to widen its components into, and the walk that looks for a `DNL` marker reads the codestream a word at a time rather than a byte. What is left of that stage is `zune-jpeg`'s own Huffman and IDCT, which is most of it and is nobody's to divide — `doc/stack.md`'s crate is single-threaded by construction. A page of *several* photographs decodes them beside each other (ADR 1321) |
+| a photograph decoded on the way into a page turn | this tree's | **taken** (ADR 1271): the decoder is asked for the raster this tree used to widen its components into, and the walk that looks for a `DNL` marker reads the codestream a word at a time rather than a byte. What is left of that stage is `zune-jpeg`'s own Huffman and IDCT, which the crate runs on one thread — so a codestream whose restart intervals begin on MCU rows is cut into bands decoded beside each other, and raster's reduction of it is divided by rows (ADR 1433); a photograph with no `DRI` keeps one thread's Huffman pass. A page of *several* photographs decodes them beside each other (ADR 1321) |
 
 ## Two standing facts about measuring this, which no command prints
 
@@ -89,7 +89,8 @@ One is this tree's; the other it had is built:
    left to the interpreter and a page reaching fewer than two starts nothing, so a page of one
    photograph is unchanged. What it does not reach: an image under a transparency group with a
    blending space of its own, the sandboxed codecs behind their one worker, and a page whose cost
-   is one photograph's Huffman decode.
+   is one photograph's Huffman decode — which ADR 1433's restart bands divide where the codestream
+   has intervals on MCU rows.
 
 The first is a wall-clock change on a shared machine, so it owes `doc/habits/measuring.md`'s
 method: arms alternated in one sitting, pinned to the faster core class, the minimum of several

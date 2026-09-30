@@ -154,8 +154,11 @@ impl App {
     ///
     /// Once, when the document opens, and only for what it actually asked for: a document that
     /// says nothing gets no line. Table 147's three are a tool bar, a menu bar and the window's
-    /// own scroll bars and navigation controls, and this host draws none of the three — which is
-    /// a fact about winit rather than about the reading, and the other two hosts obey all three.
+    /// own scroll bars and navigation controls, and this window draws none of the three — its
+    /// panel, find bar and cards are Table 29's "other window", and its restriction levels are a
+    /// card a key opens rather than a menu bar. That is a fact about this window rather than a
+    /// reading, and it is not what the other two windows do: they hide their tool bars and status
+    /// line and keep their menu bar, which holds the reader's restriction levels (ADRs 1145, 1429).
     pub(crate) fn report_unobeyable_chrome(&self) {
         let Answer::Preferences(preferences) = self.viewer.query(Query::Preferences) else {
             return;
@@ -171,10 +174,86 @@ impl App {
         if !asked.is_empty() {
             println!(
                 "note: this document asks for {} (§12.2) — this window has no menu bar, tool bar \
-                 or scroll bars of its own to hide; the GTK and Qt hosts obey all three",
+                 or scroll bars of its own to hide",
                 asked.join(", ")
             );
         }
+    }
+
+    /// Obeys Table 147's `/FitWindow` and `/CenterWindow` at a frame of a document opened in
+    /// front, while [`viewer_host::Presenting::place`] says they are owed.
+    ///
+    /// The size is [`viewer_host::fitted`]'s — the panel kept, the page's viewport made the size of
+    /// the page it shows — and a window that does not fit yet is asked to, and the next frame
+    /// measures again. A window that fits is centred with [`viewer_host::centred`] over the
+    /// monitor it is on, frame included, and nothing more is owed. Both are requests to the
+    /// platform: a window manager may refuse either, and a Wayland compositor gives no client its
+    /// position at all, which winit then ignores without an error.
+    pub(crate) fn place_the_window(&mut self) {
+        let page = match self.viewer.query(Query::View) {
+            Answer::View(viewing) => viewing.page,
+            _ => 0,
+        };
+        let Some(placing) = self.presenting.place(page) else {
+            return;
+        };
+        let Some((width, height, _)) = self.window() else {
+            return;
+        };
+        let inset = self.inset();
+        let drawn = match self.viewer.query(Query::PageGeometry(page)) {
+            Answer::Geometry(geometry) => Some((geometry.width, geometry.height)),
+            _ => None,
+        };
+        let Some(state) = self.state.as_ref() else {
+            return;
+        };
+        let monitor = state.window.current_monitor();
+        let inner = (f64::from(width), f64::from(height));
+        if placing.fit
+            && let Some((page_wide, page_tall)) = drawn
+        {
+            let wanted = viewer_host::fitted(
+                inner,
+                (f64::from(width.saturating_sub(inset)), f64::from(height)),
+                (f64::from(page_wide), f64::from(page_tall)),
+                monitor.as_ref().map(|monitor| {
+                    let size = monitor.size();
+                    (f64::from(size.width), f64::from(size.height))
+                }),
+            );
+            if (wanted.0 - inner.0).abs() > 1.0 || (wanted.1 - inner.1).abs() > 1.0 {
+                let _unchanged_now = state
+                    .window
+                    .request_inner_size(winit::dpi::PhysicalSize::new(wanted.0, wanted.1));
+                return;
+            }
+        }
+        self.presenting.placed();
+        if !placing.centre {
+            return;
+        }
+        let Some(monitor) = monitor else {
+            println!(
+                "note: this document asks for its window in the centre of the screen (§12.2's \
+                 /CenterWindow), and this window cannot tell which screen it is on"
+            );
+            return;
+        };
+        let outer = state.window.outer_size();
+        let (at, size) = (monitor.position(), monitor.size());
+        let (x, y) = viewer_host::centred(
+            (f64::from(outer.width), f64::from(outer.height)),
+            (
+                f64::from(at.x),
+                f64::from(at.y),
+                f64::from(size.width),
+                f64::from(size.height),
+            ),
+        );
+        state
+            .window
+            .set_outer_position(winit::dpi::PhysicalPosition::new(x, y));
     }
 
     /// Tells the core how long the page has been up, where a presentation is running.

@@ -117,7 +117,12 @@ codegen (§5), and `crates/pdf-sandbox/build.rs` bakes the confined worker's pat
 - `proptest` — parser round-trips
 - `cargo-fuzz` — from the first parser commit; every crasher becomes a regression test. The
   targets live in `fuzz/`, which is **its own workspace**: `--all` and `--workspace` do not reach
-  them (trap 23).
+  them (trap 23). Every target has its invocation in `doc/verify.md` and its seed recipe as an arm
+  of `fuzz/seeds.sh`, and the workspace's lock is tracked and held to the root lock's versions —
+  `tools/conformance/tests/fuzz_workspace.rs` fails on either missing (ADR 1439). A campaign runs
+  each target without the sanitiser, behind the heavy-walk lock and `tools/bounded.sh`, from a
+  scratch corpus first (ADR 1423); `tools/fuzz.sh` asks whether a run fuzzed anything, and
+  `tools/state.sh fuzz` prints what the disk holds of every target.
 - the reference-comparison harness (§4), and the self-golden beside it
 - **the launch-path gate**: cold open, time-to-first-page, page-turn latency, memory high-water,
   measured with a cold page cache, plus the cold graphics bring-up principle 2 makes a gate of its
@@ -513,13 +518,17 @@ lines (`tests/records.rs`), `--bin cited`'s rank is calibrated by a planted pair
 ADR 1274), and `tools/batch.sh commit` stages the whole population by name while `close` refuses a
 worktree holding uncommitted work (`tests/batch.rs`, ADR 1313), and every row of the trap index has
 an entry of its number in the group file it names and every entry its row (`tests/traps.rs`,
-ADR 1379), and an environment variable a live document names is one the code reads
-(`tests/variables.rs`). The sweeps under `src/bin/` —
+ADR 1379), an environment variable a live document names is one the code reads
+(`tests/variables.rs`), and the fuzz workspace's lock and targets are what `tools/fuzz.sh` and
+`fuzz/seeds.sh` need (`tests/fuzz_workspace.rs`, ADR 1439). The sweeps under `src/bin/` —
 `pointers`, `overtaken`, `retired`, `unread`, `cited` and the rest — are reading lists and never
 gates, since each judges prose; `tools/state.sh` runs them by section. `tools/state.sh comments`
 is the same kind of list for `CLAUDE.md`'s comment rule: its grep, run as written, then each hit
 sorted into code, a session this program has, a round's session, and the lines neither decides
-(`tools/comment-history.py`, ADR 1403).
+(`tools/comment-history.py`, ADR 1403). `tools/state.sh superlatives` is another: each sentence that
+ranks a member of a growing population — the oracle's and the corpus gates' notes, the ledger's —
+listed so that a rank is read as a comparison with the member it names (`tools/superlatives.py`,
+ADR 1427).
 
 Two ratchets, both in the gate and both two-directional. `UNREVIEWED_CEILING` may only fall.
 `REVIEW_OWED` names the clauses the code cites whose rows are still `unreviewed`, and a clause not

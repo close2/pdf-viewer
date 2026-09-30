@@ -174,7 +174,7 @@ pub use policy::{
     under_remote_documents, uri_note, warned,
 };
 pub use popup::Window;
-pub use presentation::{Chrome, Presenting};
+pub use presentation::{Chrome, Placing, Presenting, centred, fitted};
 pub use printing::Defaults as PrintDefaults;
 pub use restriction::{
     Act, ActEntry, ActLevel, Chose, Entry, Question, Restrictions, Row, Scope, Subject, act_chosen,

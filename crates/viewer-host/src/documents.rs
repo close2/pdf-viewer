@@ -358,6 +358,37 @@ pub fn titled(information: &pdf_model::metadata::Information, path: &std::path::
         .map_or_else(|| label(path), str::to_owned)
 }
 
+/// What a window's title bar calls a document whose §12.2 `/DisplayDocTitle` is true, or `None`
+/// where the document states no title and the file's name stands.
+///
+/// Table 147: "[a] flag specifying whether the window's title bar should display the document
+/// title taken from the dc:title element of the XMP metadata stream". So `dc:title` is asked
+/// first, through `pdf_model::xmp`. §14.3.3's `/Info /Title` is the fallback rather than the
+/// substitution — used where the document states no metadata stream, where the stream states no
+/// `dc:title`, or where the stream could not be read — because Table 349's NOTE 1 is that "[t]he
+/// dc:title entry in the document's metadata stream can be used to represent the document's
+/// title", which makes the two the same title in two places (ADR 0186). An empty title names
+/// nothing and is no answer.
+///
+/// One function for the three windows, so that the rule is not three rules (ADR 1429).
+#[must_use]
+pub fn document_title(
+    information: &pdf_model::metadata::Information,
+    metadata: Option<&Result<pdf_model::xmp::Xmp, pdf_model::xmp::XmpError>>,
+) -> Option<String> {
+    metadata
+        .and_then(|metadata| metadata.as_ref().ok())
+        .and_then(pdf_model::xmp::Xmp::title)
+        .filter(|title| !title.trim().is_empty())
+        .or_else(|| {
+            information
+                .title
+                .as_deref()
+                .filter(|title| !title.trim().is_empty())
+        })
+        .map(str::to_owned)
+}
+
 /// A document named on a command line or chosen by a person: the file, and Annex O's fragment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Named {
@@ -923,6 +954,41 @@ mod tests {
                 "a title with nothing to read on it is not a name for a tab"
             );
         }
+    }
+
+    /// §12.2's `/DisplayDocTitle` names XMP's `dc:title`; `/Info /Title` stands where the stream
+    /// states none, or could not be read; and a blank title is no answer (ADR 1429).
+    #[test]
+    fn a_title_bar_takes_dc_title_first_and_the_information_title_after() {
+        use pdf_model::metadata::Information;
+        let information = Information {
+            title: Some("Info title".to_owned()),
+            ..Information::default()
+        };
+        let packet = br#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title><rdf:Alt><rdf:li xml:lang="x-default">XMP title</rdf:li></rdf:Alt></dc:title></rdf:Description></rdf:RDF></x:xmpmeta>"#;
+        let stated = pdf_model::xmp::Xmp::parse(packet);
+        assert!(stated.is_ok(), "the packet parses: {stated:?}");
+        assert_eq!(
+            super::document_title(&information, Some(&stated)).as_deref(),
+            Some("XMP title")
+        );
+        assert_eq!(
+            super::document_title(&information, None).as_deref(),
+            Some("Info title"),
+            "no metadata stream"
+        );
+        let refused = pdf_model::xmp::Xmp::parse(b"<not xmp");
+        assert!(refused.is_err());
+        assert_eq!(
+            super::document_title(&information, Some(&refused)).as_deref(),
+            Some("Info title"),
+            "a stream this reader refused"
+        );
+        let blank = Information {
+            title: Some("  ".to_owned()),
+            ..Information::default()
+        };
+        assert_eq!(super::document_title(&blank, None), None);
     }
 
     /// A fragment is split off a command-line word, undecoded, unless the whole word is a file.

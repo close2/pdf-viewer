@@ -103,11 +103,21 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32, instance: Instance) -> VsOu
     return out;
 }
 
-// The element's SHAPE at this fragment: the CPU-rasterised coverage byte times the
-// analytic clip-rectangle overlap of the pixel's unit cell (same formula as
-// rect.wgsl, ADR 0005/0007) — §11.6.4.2's object shape met with §8.5.4's clip. The
-// soft mask is *not* in it (ADR 0066): Table 57's alpha source flag reads the mask as
-// opacity by default, so it belongs to `q` and not to `f`.
+// The element's SHAPE at this fragment: the CPU-rasterised coverage byte met with the
+// analytic clip-rectangle overlap of the pixel's unit cell (rect.wgsl's formula, ADR
+// 0005/0007) — §11.6.4.2's object shape met with §8.5.4's clip. The soft mask is *not*
+// in it (ADR 0066): Table 57's alpha source flag reads the mask as opacity by default,
+// so it belongs to `q` and not to `f`.
+//
+// **Met by `min`, not by a product** (the caller's ADR 1435). §10.7.4 makes the painted
+// region "the intersection of the set of pixels defined by the clipping region with the
+// set of pixels for the region to be painted", and within one pixel the area of an
+// intersection is at most the smaller of the two areas — equal to it wherever one set
+// contains the other there, which is every pixel a mark's edge shares with a coincident
+// clip edge. A product is below that wherever both are fractional, squaring a border
+// rule's coverage where its edge is the clip's; `min` never falls below the area of the
+// intersection, which is the side §10.7.4's "at least as large as the area of the
+// original shape" states. The byte carries no geometry to intersect exactly.
 fn shape_at(in: VsOut, p: vec2f) -> f32 {
     let local = vec2i(p - in.dest_min);
     let texel = vec2i(in.tex_origin_source.xy) + local;
@@ -120,7 +130,7 @@ fn shape_at(in: VsOut, p: vec2f) -> f32 {
     let overlap_min = max(in.clip.xy, p);
     let overlap_max = min(in.clip.zw, p + vec2f(1.0, 1.0));
     let extent = max(overlap_max - overlap_min, vec2f(0.0, 0.0));
-    return cov * extent.x * extent.y;
+    return min(cov, extent.x * extent.y);
 }
 
 // The device pixel this fragment shades (rect.wgsl's `pixel_of`).

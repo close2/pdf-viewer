@@ -45,6 +45,7 @@ use rayon::slice::ParallelSliceMut as _;
 use crate::colour::{Compositing, Conversion};
 
 mod ahead;
+mod restart;
 pub(crate) use ahead::{AHEAD_FLOOR, DecodesAhead};
 
 /// Largest image this will decode, in samples.
@@ -1441,6 +1442,16 @@ fn unpack(data: &[u8], width: u32, height: u32, samples: &Samples) -> Result<Vec
         .filter(|fits| *fits)
         .map(|_| SampleMemo::for_pixels(width_usize.saturating_mul(height_usize)));
 
+    if let Some(tables) = eight_bit_device_tables(samples) {
+        return Ok(unpack_eight_bit_device(
+            data,
+            width_usize,
+            height_usize,
+            row_bytes,
+            &tables,
+        ));
+    }
+
     let mut out = Vec::with_capacity(width_usize.saturating_mul(height_usize).saturating_mul(4));
 
     // §7.3.8.2 puts this image's extent among the lengths "from whose attributes a length can
@@ -1492,6 +1503,94 @@ fn unpack(data: &[u8], width: u32, height: u32, samples: &Samples) -> Result<Vec
     }
 
     Ok(out)
+}
+
+/// The channel table of each component of an eight-bit `DeviceGray` or `DeviceRGB` image, where
+/// [`sample_rgba`]'s answer for a pixel is those tables' entries and nothing else — or `None`
+/// for every other shape of image, which keeps [`unpack`]'s per-sample route.
+///
+/// The conditions are the ones under which [`sample_rgba`]'s `Gray` and `Rgb` arms reduce to
+/// [`Decode::channel`]: no §11.6.5.2 pre-blending to undo (the matte'd arms convert through
+/// floats), no §8.9.6.4 colour key (which masks by the raw sample), and eight bits, where a
+/// sample is one byte and [`raw_sample`] reads it unshifted.
+fn eight_bit_device_tables<'a>(samples: &Samples<'a>) -> Option<Vec<&'a [u8; 256]>> {
+    let &Samples {
+        bits,
+        space,
+        decode,
+        colour_key,
+        matte,
+        ..
+    } = samples;
+    if bits != 8 || colour_key.is_some() || matte.is_some() {
+        return None;
+    }
+    let components = match space {
+        ColourSpace::Gray => 1,
+        ColourSpace::Rgb => 3,
+        _ => return None,
+    };
+    (0..components)
+        .map(|component| {
+            decode
+                .channels
+                .get(component)
+                .and_then(|table| <&[u8; 256]>::try_from(table.as_slice()).ok())
+        })
+        .collect()
+}
+
+/// [`unpack`] for the images [`eight_bit_device_tables`] admits: each sample one table lookup,
+/// each row one pass pairing its bytes with its pixels.
+///
+/// **The same pixels as the per-sample route, by construction.** A carried pixel is
+/// `[t₀[r], t₁[g], t₂[b], 255]` (or `[t[v], t[v], t[v], 255]` for grey), which is what
+/// [`sample_rgba`] builds from [`Decode::channel`]; a pixel past what the row carries stays the
+/// `[0, 0, 0, 0]` the buffer starts as, which is what [`unpack`] writes there for §7.3.8.2's
+/// reason. What goes is the per-sample work around the lookups — a `match` on the space, a
+/// `match` on the depth and three bounds-checked reads a pixel — which callgrind put at 48% of
+/// interpreting `images.pdf`'s page (ADR 1433).
+fn unpack_eight_bit_device(
+    data: &[u8],
+    width: usize,
+    height: usize,
+    row_bytes: usize,
+    tables: &[&[u8; 256]],
+) -> Vec<u8> {
+    let components = tables.len().max(1);
+    let pixel_row = width.saturating_mul(4);
+    let mut out = vec![0u8; pixel_row.saturating_mul(height)];
+    if pixel_row == 0 {
+        return out;
+    }
+    for (y, pixels) in out.chunks_exact_mut(pixel_row).enumerate() {
+        let start = y.saturating_mul(row_bytes);
+        let available = data.len().saturating_sub(start).min(row_bytes);
+        let row = data
+            .get(start..start.saturating_add(available))
+            .unwrap_or_default();
+        match tables {
+            [grey] => {
+                for (pixel, &value) in pixels.chunks_exact_mut(4).zip(row) {
+                    let level = grey[usize::from(value)];
+                    pixel.copy_from_slice(&[level, level, level, u8::MAX]);
+                }
+            }
+            [red, green, blue] => {
+                for (pixel, sample) in pixels.chunks_exact_mut(4).zip(row.chunks_exact(components))
+                {
+                    pixel.copy_from_slice(&[
+                        red[usize::from(sample[0])],
+                        green[usize::from(sample[1])],
+                        blue[usize::from(sample[2])],
+                        u8::MAX,
+                    ]);
+                }
+            }
+            _ => {}
+        }
+    }
+    out
 }
 
 /// Converts a three-component raster in place, optionally on more than one thread.
@@ -3975,12 +4074,22 @@ fn decode_jpeg(data: &[u8], stated: Option<i64>) -> Result<DecodedJpeg, ImageErr
     // along it — and the instrument would have called it faster, because it is. The second
     // decoder re-reads the marker segments, which is a walk over a few hundred bytes; the
     // scan's data is still read once. ADR 1271.
+    //
+    // **And where its restart intervals allow, the frame is decoded in bands beside each other**,
+    // each band a codestream of its own and the whole frame the one decoder's answer whenever the
+    // codestream is not one `restart` admits (ADR 1433).
     let mut pixels = if direct {
-        zune_jpeg::JpegDecoder::new_with_options(
-            zune_jpeg::zune_core::bytestream::ZCursor::new(&*data),
-            jpeg_options().jpeg_set_out_colorspace(ColorSpace::RGBA),
+        let options = jpeg_options().jpeg_set_out_colorspace(ColorSpace::RGBA);
+        restart::decode(&data, options, 4).map_or_else(
+            || {
+                zune_jpeg::JpegDecoder::new_with_options(
+                    zune_jpeg::zune_core::bytestream::ZCursor::new(&*data),
+                    options,
+                )
+                .decode()
+            },
+            Ok,
         )
-        .decode()
     } else {
         decoder.decode()
     }
@@ -5057,7 +5166,8 @@ fn combine_on_the_finer_grid(
     let width = image.width.max(mask.width);
     let height = image.height.max(mask.height);
     let (width_usize, height_usize) = (width as usize, height as usize);
-    let mut data = Vec::with_capacity(width_usize.saturating_mul(height_usize).saturating_mul(4));
+    let pixel_row = width_usize.saturating_mul(4);
+    let mut data = vec![0u8; pixel_row.saturating_mul(height_usize)];
 
     // `scale` maps a column or row of the combined grid onto one of a source grid. Integer
     // arithmetic throughout: both grids are at least one sample and the divisor is the
@@ -5068,45 +5178,74 @@ fn combine_on_the_finer_grid(
             .checked_div(combined)
             .unwrap_or(0)
     };
+    // **A column's source is a function of the column alone**, so it is asked once per column
+    // rather than once per pixel: the two divisions `scale` makes were most of what this loop
+    // cost on a photograph under its soft mask (ADR 1433). The answers are the same numbers.
+    let image_columns: Vec<usize> = (0..width_usize)
+        .map(|x| scale(x, image.width, width_usize))
+        .collect();
+    let mask_columns: Vec<usize> = (0..width_usize)
+        .map(|x| scale(x, mask.width, width_usize))
+        .collect();
+    let combine = |pixel: &[u8], above: &[u8], out: &mut [u8]| {
+        let colour = [
+            pixel.first().copied().unwrap_or(0),
+            pixel.get(1).copied().unwrap_or(0),
+            pixel.get(2).copied().unwrap_or(0),
+        ];
+        let (colour, opacity) = sample(colour, above);
+        let own = u16::from(pixel.get(3).copied().unwrap_or(0));
+        // Rounded rather than truncated, so an opaque pixel under a fully opaque mask
+        // stays opaque: 255 × 255 / 255 is exact either way, but 255 × 254 / 255 is not.
+        let combined = own
+            .saturating_mul(u16::from(opacity))
+            .saturating_add(127)
+            .checked_div(255)
+            .unwrap_or(0);
+        out.copy_from_slice(&[
+            colour[0],
+            colour[1],
+            colour[2],
+            u8::try_from(combined).unwrap_or(u8::MAX),
+        ]);
+    };
 
-    for y in 0..height_usize {
-        let image_row = scale(y, image.height, height_usize).saturating_mul(image.width as usize);
-        let mask_row = scale(y, mask.height, height_usize).saturating_mul(mask.width as usize);
-        for x in 0..width_usize {
-            let at = image_row
-                .saturating_add(scale(x, image.width, width_usize))
-                .saturating_mul(4);
-            let mask_at = mask_row
-                .saturating_add(scale(x, mask.width, width_usize))
-                .saturating_mul(4);
-            let pixel = image
-                .data
-                .get(at..at.saturating_add(4))
-                .unwrap_or(&[0, 0, 0, 0]);
-            let above = mask
-                .data
-                .get(mask_at..mask_at.saturating_add(4))
-                .unwrap_or(&[0, 0, 0, 0]);
-            let colour = [
-                pixel.first().copied().unwrap_or(0),
-                pixel.get(1).copied().unwrap_or(0),
-                pixel.get(2).copied().unwrap_or(0),
-            ];
-            let (colour, opacity) = sample(colour, above);
-            let own = u16::from(pixel.get(3).copied().unwrap_or(0));
-            // Rounded rather than truncated, so an opaque pixel under a fully opaque mask
-            // stays opaque: 255 × 255 / 255 is exact either way, but 255 × 254 / 255 is not.
-            let combined = own
-                .saturating_mul(u16::from(opacity))
-                .saturating_add(127)
-                .checked_div(255)
-                .unwrap_or(0);
-            data.extend_from_slice(&[
-                colour[0],
-                colour[1],
-                colour[2],
-                u8::try_from(combined).unwrap_or(u8::MAX),
-            ]);
+    let one_grid = |raster: &Image| {
+        raster.width == width && raster.height == height && raster.data.len() == data.len()
+    };
+    if one_grid(image) && one_grid(mask) {
+        // **Both rasters on the combined grid**, which is every corpus pair this function
+        // meets under a soft mask: `scale` is then the identity on every row and column, so the
+        // pixels pair by position and the walk is three iterators in step (ADR 1433).
+        for ((out, pixel), above) in data
+            .chunks_exact_mut(4)
+            .zip(image.data.chunks_exact(4))
+            .zip(mask.data.chunks_exact(4))
+        {
+            combine(pixel, above, out);
+        }
+    } else if pixel_row != 0 {
+        for (y, out_row) in data.chunks_exact_mut(pixel_row).enumerate() {
+            let image_row =
+                scale(y, image.height, height_usize).saturating_mul(image.width as usize);
+            let mask_row = scale(y, mask.height, height_usize).saturating_mul(mask.width as usize);
+            for ((out, &image_x), &mask_x) in out_row
+                .chunks_exact_mut(4)
+                .zip(&image_columns)
+                .zip(&mask_columns)
+            {
+                let at = image_row.saturating_add(image_x).saturating_mul(4);
+                let mask_at = mask_row.saturating_add(mask_x).saturating_mul(4);
+                let pixel = image
+                    .data
+                    .get(at..at.saturating_add(4))
+                    .unwrap_or(&[0, 0, 0, 0]);
+                let above = mask
+                    .data
+                    .get(mask_at..mask_at.saturating_add(4))
+                    .unwrap_or(&[0, 0, 0, 0]);
+                combine(pixel, above, out);
+            }
         }
     }
 
@@ -6302,7 +6441,7 @@ struct Cached {
     parts: Parts,
     /// What this entry charges against [`RASTER_BUDGET`]: the samples, and the `/ColorSpace`
     /// entry it holds. The second term is what makes the budget a bound on the entry rather than
-    /// on the samples — `doc/todo/12`'s shape, which here is ten thousand eight-byte rasters
+    /// on the samples — ADR 0243's shape, one bound doing two jobs, which here is ten thousand eight-byte rasters
     /// holding ten thousand mebibyte dictionaries (ADR 0798).
     bytes: usize,
 }
@@ -6883,6 +7022,115 @@ mod tests {
         for cells in 1..=32u64 {
             for index in 0..cells {
                 assert!(super::centre(index, cells, 32) < 32);
+            }
+        }
+    }
+
+    /// An eight-bit grey or RGB image unpacked by the table route is the image the per-sample
+    /// route builds, pixel for pixel: a `/Decode` that is not the identity, a width whose rows
+    /// are not a multiple of eight bytes, and a stream that stops two and a half samples into its
+    /// last row, whose uncarried samples §7.3.8.2 leaves unpainted (ADR 1433).
+    #[test]
+    fn the_table_route_unpacks_the_per_sample_routes_pixels() {
+        for (space, stated) in [
+            (super::ColourSpace::Gray, vec![1.0_f32, 0.0]),
+            (super::ColourSpace::Rgb, vec![0.2, 0.9, 1.0, 0.0, 0.0, 0.5]),
+        ] {
+            let decode = super::Decode::from_pairs(&stated, &space, 8);
+            let into = super::Conversion::device();
+            let samples = super::Samples {
+                bits: 8,
+                space: &space,
+                decode: &decode,
+                colour_key: None,
+                fill: pdf_render::Color::BLACK,
+                into: &into,
+                matte: None,
+            };
+            let (width, height) = (13_usize, 7_usize);
+            let components = space.components();
+            let row_bytes = width * components;
+            let short = row_bytes * (height - 1) + components * 2 + 1;
+            let data: Vec<u8> = (0..short)
+                .map(|index| u8::try_from((index * 37 + 11) % 256).expect("under 256"))
+                .collect();
+            assert!(super::eight_bit_device_tables(&samples).is_some());
+            let tabled = super::unpack(
+                &data,
+                u32::try_from(width).expect("small"),
+                u32::try_from(height).expect("small"),
+                &samples,
+            )
+            .expect("unpacked");
+            let mut expected = Vec::new();
+            for y in 0..height {
+                let start = (y * row_bytes).min(data.len());
+                let row = &data[start..(start + row_bytes).min(data.len())];
+                let carried = row.len() / components;
+                for x in 0..width {
+                    if x < carried {
+                        expected.extend_from_slice(&super::sample_rgba(
+                            &samples,
+                            None,
+                            &mut None,
+                            row,
+                            x,
+                            y * width + x,
+                        ));
+                    } else {
+                        expected.extend_from_slice(&[0, 0, 0, 0]);
+                    }
+                }
+            }
+            assert_eq!(tabled, expected, "{space:?}");
+        }
+    }
+
+    /// The combined raster is, pixel for pixel, the nearest sample of each source on the finer
+    /// grid and their alphas' rounded product — asked of a pair on one grid, which takes the
+    /// paired walk, and of pairs whose grids differ in either axis or both, which take the
+    /// per-column one (ADR 1433).
+    #[test]
+    fn a_combined_raster_is_its_sources_nearest_samples() {
+        let raster = |width: u32, height: u32, seed: usize| pdf_render::Image {
+            width,
+            height,
+            data: (0..(width * height * 4) as usize)
+                .map(|index| u8::try_from((index * 53 + seed) % 256).expect("under 256"))
+                .collect::<Vec<u8>>()
+                .into(),
+            interpolate: false,
+            sample_alpha: pdf_render::SampleAlpha::Opacity,
+        };
+        for ((iw, ih), (mw, mh)) in [((6, 4), (6, 4)), ((3, 4), (6, 5)), ((7, 2), (2, 9))] {
+            let (image, mask) = (raster(iw, ih, 1), raster(mw, mh, 7));
+            let combined = super::combine_on_the_finer_grid(&image, &mask, |colour, sample| {
+                (colour, sample[0])
+            });
+            let (width, height) = (iw.max(mw) as usize, ih.max(mh) as usize);
+            assert_eq!(
+                (combined.width as usize, combined.height as usize),
+                (width, height)
+            );
+            for y in 0..height {
+                for x in 0..width {
+                    let at =
+                        ((y * ih as usize / height) * iw as usize + x * iw as usize / width) * 4;
+                    let mask_at =
+                        ((y * mh as usize / height) * mw as usize + x * mw as usize / width) * 4;
+                    let alpha =
+                        (u16::from(image.data[at + 3]) * u16::from(mask.data[mask_at]) + 127) / 255;
+                    let out = (y * width + x) * 4;
+                    assert_eq!(
+                        combined.data[out..out + 4],
+                        [
+                            image.data[at],
+                            image.data[at + 1],
+                            image.data[at + 2],
+                            u8::try_from(alpha).expect("a byte")
+                        ]
+                    );
+                }
             }
         }
     }

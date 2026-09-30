@@ -453,6 +453,8 @@ private:
     /// window visible" the panel of three trees. Full screen is `showFullScreen`, which is a
     /// fifth thing rather than a fourth: the sentence names the window controls too. ADR 0470.
     void applyChrome();
+    /// Table 147's `/FitWindow` and `/CenterWindow`, once, at the first frame (ADR 1429).
+    void placeWindow();
 
 protected:
     /// What a key means is `src/keys.rs`'s, so this carries the `Qt::Key` number and no meaning.

@@ -363,9 +363,25 @@ impl Chrome {
     /// the machine offers no face it is still the box, and nothing else is said; while the search
     /// is running it is the box too, and the line is drawn again when it lands (ADR 1406).
     fn set(&self, style: Style, character: char) -> (Set, f32) {
+        if let Some(set) = self.set_compiled_in(style, character) {
+            return set;
+        }
+        // U+FFFD stays a box, for the reason `set_compiled_in` gives: it is §7.9.2.2's report about
+        // the file rather than a character a face could be missing.
+        if character != char::REPLACEMENT_CHARACTER
+            && let Some((index, advance)) = self.machine_glyph(style, character)
+        {
+            return (Set::Machine(index, character), advance);
+        }
+        (Set::Missing, MISSING_WIDTH)
+    }
+
+    /// What [`Self::set`] answers from the compiled-in faces alone, or `None` for a character
+    /// that is the machine's to answer or a box.
+    fn set_compiled_in(&self, style: Style, character: char) -> Option<(Set, f32)> {
         let face = self.face(style);
         if let Some(code) = face.code_for(character) {
-            return (Set::Glyph(code), face.advance(code));
+            return Some((Set::Glyph(code), face.advance(code)));
         }
         // **The face knows more characters than any encoding of it can name**, and this line is
         // what makes that matter. A code is one byte (§9.7.1: "each byte of a string to be shown
@@ -376,14 +392,14 @@ impl Chrome {
         // no encoding in the question. `pdf-model --example interface_font_census` is the
         // measurement and ADR 0326 the argument.
         if let Some(glyph) = face.character_glyph(character) {
-            return (Set::Character(character), glyph.advance);
+            return Some((Set::Character(character), glyph.advance));
         }
         if character.is_whitespace() {
             // A space this face cannot spell — U+00A0 and U+3000 are the ones documents write —
             // is still a space, and a box in place of one would be a claim about a character
             // nobody can see. It takes the width of the space the face *does* state.
             let blank = face.code_for(' ').map_or(0.25, |code| face.advance(code));
-            return (Set::Blank, blank);
+            return Some((Set::Blank, blank));
         }
         if character.is_control() {
             // Nor is a control character something a producer meant a person to see: it has no
@@ -396,16 +412,64 @@ impl Chrome {
             // that report. `bug1146106.pdf` writes its layer names as UTF-16 **little**-endian,
             // which is none of the clause's three encodings, so 51 characters of one name are
             // that case and the panel says so.
-            return (Set::Blank, 0.0);
+            return Some((Set::Blank, 0.0));
         }
-        // U+FFFD stays a box, for the reason the arm above gives: it is §7.9.2.2's report about the
-        // file rather than a character a face could be missing.
-        if character != char::REPLACEMENT_CHARACTER
-            && let Some((index, advance)) = self.machine_glyph(style, character)
-        {
-            return (Set::Machine(index, character), advance);
+        None
+    }
+
+    /// The characters of one word the compiled-in faces lack, set in one machine face where the
+    /// machine has one stating them all (ADR 1430).
+    ///
+    /// `glyphs` is one word — a run of the line with no white space in it — and `sets` what the
+    /// compiled-in faces answered for each of its glyphs. A character asked alone is answered by
+    /// the first face found that states it, so a word whose first form one face states and whose
+    /// last only another does would change face in its middle; asking for the word's characters
+    /// together is what keeps it in one. Where the machine has no single face for the word, the
+    /// entries are left for [`Self::set`] to answer character by character, which is the old
+    /// answer and still better than a box; while the word's search is running, they are boxes, so
+    /// that a frame never draws half a word in a face the whole word will not be drawn in.
+    fn set_word(
+        &self,
+        style: Style,
+        glyphs: &[pdf_font::shaping::Glyph],
+        sets: &mut [Option<(Set, f32)>],
+    ) {
+        let Some(machine) = self.machine.as_ref() else {
+            return;
+        };
+        let lacking: Vec<char> = glyphs
+            .iter()
+            .zip(sets.iter())
+            .filter(|(glyph, set)| set.is_none() && glyph.character != char::REPLACEMENT_CHARACTER)
+            .map(|(glyph, _)| glyph.character)
+            .collect();
+        let word = viewer_host::machine_faces::Word::new(&lacking, style.bold, style.italic);
+        // One character is a character's question, and asking it as one shares its answer with
+        // every other line that asks for it.
+        if word.characters().len() < 2 {
+            return;
         }
-        (Set::Missing, MISSING_WIDTH)
+        let answer = machine.search.ask_word(&word);
+        let face = match answer {
+            viewer_host::machine_faces::Answer::Face(index) => {
+                machine.face(index).map(|face| (index, face))
+            }
+            viewer_host::machine_faces::Answer::Pending => None,
+            viewer_host::machine_faces::Answer::Nothing => return,
+        };
+        for (glyph, set) in glyphs.iter().zip(sets.iter_mut()) {
+            if set.is_some() || glyph.character == char::REPLACEMENT_CHARACTER {
+                continue;
+            }
+            *set = Some(
+                face.as_ref()
+                    .and_then(|(index, face)| {
+                        let advance = face.character_glyph(glyph.character)?.advance;
+                        Some((Set::Machine(*index, glyph.character), advance))
+                    })
+                    .unwrap_or((Set::Missing, MISSING_WIDTH)),
+            );
+        }
     }
 
     /// Which machine face states a glyph for `character` in `style`, and its advance in ems.
@@ -462,12 +526,42 @@ impl Chrome {
     /// [`Self::set`], so a face the machine offers for it is asked for off this thread (ADR 1406).
     fn laid_out(&self, text: &str, style: Style) -> (pdf_font::shaping::Label, Vec<(Set, f32)>) {
         let label = pdf_font::shaping::Label::new(text);
-        let sets = label
-            .glyphs()
-            .iter()
-            .map(|glyph| self.set(style, glyph.character))
-            .collect();
+        let sets = self.sets(&label, style);
         (label, sets)
+    }
+
+    /// What stands for each glyph of a laid-out label, a word at a time (ADR 1430).
+    ///
+    /// The compiled-in faces answer first, glyph by glyph; what they lack is asked of the machine
+    /// by the word it belongs to ([`Self::set_word`]), and what no word's face answered falls to
+    /// [`Self::set`] one character at a time.
+    fn sets(&self, label: &pdf_font::shaping::Label, style: Style) -> Vec<(Set, f32)> {
+        let glyphs = label.glyphs();
+        let mut sets: Vec<Option<(Set, f32)>> = glyphs
+            .iter()
+            .map(|glyph| self.set_compiled_in(style, glyph.character))
+            .collect();
+        let mut start = 0;
+        while start < glyphs.len() {
+            let blank = |glyph: &pdf_font::shaping::Glyph| glyph.character.is_whitespace();
+            if glyphs.get(start).is_some_and(blank) {
+                start = start.saturating_add(1);
+                continue;
+            }
+            let end = (start..glyphs.len())
+                .find(|&at| glyphs.get(at).is_some_and(blank))
+                .unwrap_or(glyphs.len());
+            if let (Some(word), Some(word_sets)) =
+                (glyphs.get(start..end), sets.get_mut(start..end))
+            {
+                self.set_word(style, word, word_sets);
+            }
+            start = end;
+        }
+        sets.into_iter()
+            .zip(glyphs)
+            .map(|(set, glyph)| set.unwrap_or_else(|| self.set(style, glyph.character)))
+            .collect()
     }
 
     /// How far from a line's left edge a caret at byte `at` of `text` stands, in the same pixels
@@ -525,9 +619,29 @@ impl Chrome {
         style: Style,
         colour: Color,
     ) -> f32 {
+        let label = pdf_font::shaping::Label::new(text);
+        self.label(list, &label, at, size, style, colour)
+    }
+
+    /// Draws a laid-out label as [`Self::text`] draws a string: left edge at `at`, baseline at
+    /// `at.1`, and where the next run would start returned.
+    ///
+    /// For a line this window has wrapped out of a paragraph, laid out by
+    /// [`pdf_font::shaping::Label::line_of`] so that it reads in its paragraph's direction rather
+    /// than its own: UAX #9's rules P2 and P3 find a *paragraph's* direction, and a wrapped line
+    /// that begins with a word of the other direction is still part of it.
+    pub fn label(
+        &self,
+        list: &mut DisplayList,
+        label: &pdf_font::shaping::Label,
+        at: (f32, f32),
+        size: f32,
+        style: Style,
+        colour: Color,
+    ) -> f32 {
         let face = self.face(style);
         let mut x = at.0;
-        for (set, advance) in self.laid_out(text, style).1 {
+        for (set, advance) in self.sets(label, style) {
             let machine = match set {
                 Set::Machine(index, character) => self.machine_outline(index, character),
                 _ => None,
@@ -2726,7 +2840,7 @@ fn draw_popup(
             if line > bottom {
                 return;
             }
-            chrome.text(
+            chrome.label(
                 list,
                 &run,
                 (x + padding, line),
@@ -2819,7 +2933,7 @@ fn draw_thread(
                 if line > bottom {
                     return line;
                 }
-                chrome.text(list, &run, (at, line), size, Style::default(), Color::BLACK);
+                chrome.label(list, &run, (at, line), size, Style::default(), Color::BLACK);
                 line += size * 1.25;
             }
         }
@@ -2832,38 +2946,78 @@ fn draw_thread(
 /// A word longer than the line is broken by character, because the alternative is a line that
 /// runs out of the window — and the window is the document's rectangle rather than this host's,
 /// so there is nowhere for it to go.
-fn wrap(chrome: &Chrome, paragraph: &str, size: f32, room: f32) -> Vec<String> {
-    let mut lines = Vec::new();
-    let mut line = String::new();
-    for word in paragraph.split_whitespace() {
-        let candidate = if line.is_empty() {
-            word.to_owned()
-        } else {
-            format!("{line} {word}")
+///
+/// Each line comes back laid out by [`pdf_font::shaping::Label::line_of`], in the paragraph's
+/// direction rather than its own, for [`Chrome::label`] to draw.
+fn wrap(chrome: &Chrome, paragraph: &str, size: f32, room: f32) -> Vec<pdf_font::shaping::Label> {
+    let wrapped = Wrapped::new(chrome, paragraph, size, room);
+    wrapped
+        .lines
+        .iter()
+        .map(|line| pdf_font::shaping::Label::line_of(&wrapped.text, line.clone()))
+        .collect()
+}
+
+/// A paragraph broken into lines, kept as one paragraph so that each line can be laid out in the
+/// paragraph's direction.
+struct Wrapped {
+    /// The paragraph with its white space collapsed to single spaces, which is what the lines are
+    /// cut from and what UAX #9 resolves.
+    text: String,
+    /// Each line, a byte range of [`Self::text`]; the space a line was broken at is in neither.
+    lines: Vec<Range<usize>>,
+}
+
+impl Wrapped {
+    /// Breaks `paragraph` into lines that fit `room`, at word boundaries where it can.
+    ///
+    /// A word longer than the line is broken by character, because the alternative is a line that
+    /// runs out of the window — and the window is the document's rectangle rather than this
+    /// host's, so there is nowhere for it to go.
+    fn new(chrome: &Chrome, paragraph: &str, size: f32, room: f32) -> Self {
+        let text = paragraph.split_whitespace().collect::<Vec<_>>().join(" ");
+        let fits = |range: Range<usize>| {
+            chrome.width(text.get(range).unwrap_or_default(), size, Style::default()) <= room
         };
-        if chrome.width(&candidate, size, Style::default()) <= room {
-            line = candidate;
-            continue;
-        }
-        if !line.is_empty() {
-            lines.push(std::mem::take(&mut line));
-        }
-        // The word alone, broken where it stops fitting.
-        for character in word.chars() {
-            let wider = format!("{line}{character}");
-            if !line.is_empty() && chrome.width(&wider, size, Style::default()) > room {
-                lines.push(std::mem::take(&mut line));
+        let mut lines = Vec::new();
+        let mut line: Option<Range<usize>> = None;
+        let mut at: usize = 0;
+        for word in text.split(' ') {
+            let start = at;
+            let end = start.saturating_add(word.len());
+            at = end.saturating_add(1);
+            let candidate = line.as_ref().map_or(start..end, |line| line.start..end);
+            if fits(candidate.clone()) {
+                line = Some(candidate);
+                continue;
             }
-            line.push(character);
+            if let Some(full) = line.take() {
+                lines.push(full);
+            }
+            // The word alone, broken where it stops fitting.
+            let mut piece = start..start;
+            for (offset, character) in word.char_indices() {
+                let next = start
+                    .saturating_add(offset)
+                    .saturating_add(character.len_utf8());
+                if piece.start < piece.end && !fits(piece.start..next) {
+                    lines.push(piece.clone());
+                    piece = piece.end..piece.end;
+                }
+                piece.end = next;
+            }
+            if piece.start < piece.end {
+                line = Some(piece);
+            }
         }
+        if let Some(last) = line {
+            lines.push(last);
+        }
+        if lines.is_empty() {
+            lines.push(0..0);
+        }
+        Self { text, lines }
     }
-    if !line.is_empty() {
-        lines.push(line);
-    }
-    if lines.is_empty() {
-        lines.push(String::new());
-    }
-    lines
 }
 
 /// How many of Table 234's options this host shows at once.
@@ -3280,7 +3434,7 @@ impl PasswordCard {
         let inner = (card_wide - pad * 2.0).max(0.0);
         let mut baseline = top + pad + size;
         for line in wrap(chrome, &self.prompt, size, inner) {
-            chrome.text(
+            chrome.label(
                 &mut list,
                 &line,
                 (left + pad, baseline),
@@ -3452,23 +3606,25 @@ impl QuestionCard {
         let pad = CARD_PADDING * scale;
         let card_wide = RESTRICTION_WIDTH * scale;
         let inner = (card_wide - pad * 2.0).max(0.0);
-        let mut lines: Vec<(String, bool)> = wrap(chrome, &self.reasons, size, inner)
-            .into_iter()
-            .map(|line| (line, false))
-            .collect();
-        lines.push((String::new(), true));
+        let blank = || pdf_font::shaping::Label::new("");
+        let mut lines: Vec<(pdf_font::shaping::Label, bool)> =
+            wrap(chrome, &self.reasons, size, inner)
+                .into_iter()
+                .map(|line| (line, false))
+                .collect();
+        lines.push((blank(), true));
         lines.extend(
             wrap(chrome, &self.choice, size, inner)
                 .into_iter()
                 .map(|line| (line, true)),
         );
-        lines.push((String::new(), true));
+        lines.push((blank(), true));
         lines.push((
-            format!(
+            pdf_font::shaping::Label::new(&format!(
                 "Enter — {}   ·   Escape — {}",
                 viewer_host::restriction::GO_AHEAD,
                 viewer_host::restriction::DO_NOT
-            ),
+            )),
             true,
         ));
         #[expect(
@@ -3485,7 +3641,7 @@ impl QuestionCard {
         rectangle(&mut list, (left, top, card_wide, card_tall), CARD_PAPER);
         let mut baseline = top + pad + size;
         for (line, dim) in &lines {
-            chrome.text(
+            chrome.label(
                 &mut list,
                 line,
                 (left + pad, baseline),
@@ -3870,7 +4026,7 @@ impl Refusal {
         }
         let mut baseline = top + pad + size;
         for line in lines {
-            chrome.text(
+            chrome.label(
                 &mut list,
                 &line,
                 (left + pad, baseline),
@@ -3970,6 +4126,79 @@ mod tests {
             return;
         }
         assert!(sets.iter().all(|(set, _)| matches!(set, Set::Machine(..))));
+    }
+
+    /// A word the compiled-in faces lack is set in one machine face where the machine has one
+    /// stating the whole word (ADR 1430).
+    ///
+    /// Urdu "کہانی" displays heh goal in its medial form U+FBA9 between a joined kaf and alef. A
+    /// lam asked for first, as an earlier label would have, is answered by a face that — on a
+    /// machine with Noto Arabic — states kaf's, alef's and noon's forms and lacks U+FBA9, and
+    /// asking character by character then set the word in two faces. Skips with a sentence where
+    /// the machine offers no face for the word.
+    #[test]
+    fn a_word_is_set_in_one_machine_face() {
+        let chrome = Chrome::new().expect("the compiled-in faces load");
+        let _ = chrome.width("\u{644}", 12.0, Style::default());
+        chrome.settle();
+        let stored = "\u{6A9}\u{6C1}\u{627}\u{646}\u{6CC}";
+        let _ = chrome.width(stored, 12.0, Style::default());
+        chrome.settle();
+        let (label, sets) = chrome.laid_out(stored, Style::default());
+        let drawn: Vec<char> = label.glyphs().iter().map(|glyph| glyph.character).collect();
+        assert!(
+            drawn.contains(&'\u{FBA9}'),
+            "heh goal is displayed in its medial form: {drawn:?}"
+        );
+        if sets.iter().any(|(set, _)| matches!(set, Set::Missing)) {
+            eprintln!("skipped: this machine offers no single face for the word");
+            return;
+        }
+        let faces: std::collections::BTreeSet<usize> = sets
+            .iter()
+            .filter_map(|(set, _)| match set {
+                Set::Machine(index, _) => Some(*index),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(faces.len(), 1, "one face for the word {drawn:?}: {sets:?}");
+    }
+
+    /// A popup's paragraph is wrapped into lines that read in the paragraph's direction: the
+    /// second line of "Introduction של עו." begins with Hebrew and keeps its full stop at the
+    /// right, where a left-to-right paragraph ends, rather than at the left (UAX #9's P2 and P3
+    /// are the paragraph's; ADR 1417's rule for a label is not a wrapped line's).
+    #[test]
+    fn a_wrapped_line_reads_in_its_paragraphs_direction() {
+        let chrome = Chrome::compiled_in_only().expect("the compiled-in faces load");
+        let paragraph = "Introduction \u{5E9}\u{5DC} \u{5E2}\u{5D5}.";
+        let room = chrome.width("Introduction", 12.0, Style::default()) + 1.0;
+        let lines = super::wrap(&chrome, paragraph, 12.0, room);
+        assert_eq!(lines.len(), 2);
+        let second: Vec<char> = lines[1]
+            .glyphs()
+            .iter()
+            .map(|glyph| glyph.character)
+            .collect();
+        assert!(!lines[1].right_to_left());
+        assert_eq!(
+            second,
+            ['\u{5D5}', '\u{5E2}', ' ', '\u{5DC}', '\u{5E9}', '.']
+        );
+        // And the drawing is that label's: the full stop's fill is the line's last.
+        let mut list = DisplayList::new(pdf_render::Size {
+            width: 400.0,
+            height: 40.0,
+        });
+        let end = chrome.label(
+            &mut list,
+            &lines[1],
+            (0.0, 20.0),
+            12.0,
+            Style::default(),
+            Color::BLACK,
+        );
+        assert!(end > 0.0);
     }
 
     /// The words a prompt shows, so the card can be driven without a `viewer-host` in the test.

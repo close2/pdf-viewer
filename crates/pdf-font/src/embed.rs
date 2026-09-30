@@ -1,5 +1,6 @@
 //! A face from this machine written into a file: ISO 32000-2 §9.9.1's embedded `TrueType`
-//! program, §9.9.2's subset of it, and what the face's own licence permits.
+//! program, §9.9.2's subset of it, and what the face's own licence permits. A face whose outlines
+//! are a `CFF ` table is written by [`cff`] instead, whole and under `/FontFile3` (ADR 1438).
 //!
 //! A layout that sets a value no compiled-in face can draw sets it in a face the machine offers
 //! (ADR 1414), and drawing it asks nothing of the face's licence or size. Writing it into a
@@ -36,6 +37,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::sfnt::{be16, be32, checksummed, horizontal_metric, sfnt_tables};
+
+mod cff;
 
 /// Offset of `indexToLocFormat` within `head`.
 const INDEX_TO_LOC_FORMAT: usize = 50;
@@ -125,15 +128,46 @@ pub enum Refusal {
     /// The face's licence permits embedding its bitmaps only, and what is drawn is its outlines.
     #[error("the face's licence permits embedding its bitmaps only (its OS/2 fsType)")]
     BitmapsOnly,
-    /// The face has no `glyf` outlines, so it is not a program Table 124's `/FontFile2` carries.
-    #[error("the face is not a TrueType program with glyf outlines")]
-    NotTrueType,
+    /// The face has neither `glyf` nor `CFF ` outlines, so no row of Table 124 carries it.
+    #[error("the face has neither glyf nor CFF outlines")]
+    NoOutlines,
+    /// A CID-keyed `CFF ` face's charset gives this glyph a CID other than its own index, so the
+    /// CID the content stream shows would reach another glyph under §9.7.4.2 (ADR 1438).
+    #[error(
+        "the face is a CID-keyed CFF program whose charset gives glyph {0} another CID, and a \
+         CIDFontType0 has no CIDToGIDMap to say otherwise"
+    )]
+    CidsAreNotGlyphs(u16),
     /// The face's tables could not be taken apart consistently.
     #[error("the face's {0} table could not be read")]
     Malformed(&'static str),
 }
 
-/// A program ready for a `/FontFile2` stream, and how its glyphs were renumbered.
+/// Which row of §9.9.1's Table 124 a written program belongs under.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Outlines {
+    /// `glyf` outlines: `/FontFile2` under a `CIDFontType2`.
+    TrueType,
+    /// A `CFF ` table: `/FontFile3` with `/Subtype /OpenType`, under a `CIDFontType0`.
+    Cff {
+        /// The character collection a CID-keyed program's `ROS` names, which §9.7.4.2 says
+        /// "should be copied into the PDF `CIDFont` dictionary"; `None` for a name-keyed one.
+        system: Option<SystemInfo>,
+    },
+}
+
+/// A CID-keyed `CFF ` program's `ROS`: Table 114's `/Registry`, `/Ordering` and `/Supplement`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SystemInfo {
+    /// The issuer of the character collection.
+    pub registry: Vec<u8>,
+    /// The character collection within the registry.
+    pub ordering: Vec<u8>,
+    /// The supplement number of the character collection.
+    pub supplement: i64,
+}
+
+/// A program ready for a font file stream, and how its glyphs were renumbered.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Embedded {
     /// The sfnt bytes, the stream's decoded data and Table 125's `/Length1`.
@@ -144,6 +178,8 @@ pub struct Embedded {
     /// PostScript name — or the PostScript name alone where the face forbids subsetting and
     /// every glyph was kept.
     pub name: String,
+    /// Which font file and which `CIDFont` subtype the program is written under.
+    pub outlines: Outlines,
 }
 
 impl Embedded {
@@ -166,8 +202,13 @@ impl Embedded {
 ///
 /// [`Refusal::Restricted`] and [`Refusal::BitmapsOnly`] where the face's licence stops it being
 /// written — the font vendor's, not the document's, so no reader's level turns it off —
-/// [`Refusal::NotTrueType`] for a program with no `glyf` table, and [`Refusal::Malformed`] where a
-/// table this needs is absent or inconsistent.
+/// [`Refusal::NoOutlines`] for a program with neither `glyf` nor `CFF `,
+/// [`Refusal::CidsAreNotGlyphs`] for a CID-keyed `CFF ` program [`cff`] cannot write so that the
+/// stream's CIDs still reach their glyphs, and [`Refusal::Malformed`] where a table this needs is
+/// absent or inconsistent.
+///
+/// A `CFF ` program is written whole whatever `fsType` says about subsetting, since nothing of it
+/// is subset ([`cff`]); the licence's other two answers bind it as they bind a `glyf` one.
 pub fn for_embedding(program: &[u8], used: &BTreeSet<u16>) -> Result<Embedded, Refusal> {
     let permitted = permission(program);
     if permitted.licence == Licence::Restricted {
@@ -175,6 +216,14 @@ pub fn for_embedding(program: &[u8], used: &BTreeSet<u16>) -> Result<Embedded, R
     }
     if permitted.bitmaps_only {
         return Err(Refusal::BitmapsOnly);
+    }
+    let tables = sfnt_tables(program).ok_or(Refusal::Malformed("table directory"))?;
+    if !tables.contains_key(b"glyf".as_slice()) {
+        return if tables.contains_key(b"CFF ".as_slice()) {
+            cff::for_embedding(program, used)
+        } else {
+            Err(Refusal::NoOutlines)
+        };
     }
     let face = Face::read(program)?;
     let kept = if permitted.subsetting {
@@ -187,8 +236,8 @@ pub fn for_embedding(program: &[u8], used: &BTreeSet<u16>) -> Result<Embedded, R
         .zip(0u16..)
         .map(|(old, new)| (*old, new))
         .collect();
-    let program_out =
-        assembled(&face.rebuilt(&glyphs)?).ok_or(Refusal::Malformed("table directory"))?;
+    let program_out = assembled(&face.rebuilt(&glyphs)?, TRUE_TYPE)
+        .ok_or(Refusal::Malformed("table directory"))?;
     let postscript = postscript_name(program);
     let name = if permitted.subsetting {
         format!("{}+{postscript}", tag(program, &kept))
@@ -199,6 +248,7 @@ pub fn for_embedding(program: &[u8], used: &BTreeSet<u16>) -> Result<Embedded, R
         program: program_out,
         glyphs,
         name,
+        outlines: Outlines::TrueType,
     })
 }
 
@@ -228,7 +278,7 @@ impl<'a> Face<'a> {
     fn read(program: &'a [u8]) -> Result<Self, Refusal> {
         let tables = sfnt_tables(program).ok_or(Refusal::Malformed("table directory"))?;
         if !tables.contains_key(b"glyf".as_slice()) {
-            return Err(Refusal::NotTrueType);
+            return Err(Refusal::NoOutlines);
         }
         let table = |tag: &'static str| -> Result<&'a [u8], Refusal> {
             let (at, length) = *tables.get(tag.as_bytes()).ok_or(Refusal::Malformed(tag))?;
@@ -422,14 +472,17 @@ fn patch(table: &mut [u8], at: usize, value: u16, tag: &'static str) -> Result<(
     Ok(())
 }
 
-/// An sfnt laid out from its tables, in the tag order a directory is kept in, every checksum
-/// stated.
-fn assembled(tables: &BTreeMap<[u8; 4], Vec<u8>>) -> Option<Vec<u8>> {
+/// The sfnt version of a program whose outlines are `glyf`.
+const TRUE_TYPE: [u8; 4] = 0x0001_0000_u32.to_be_bytes();
+
+/// An sfnt laid out from its tables under `version`, in the tag order a directory is kept in,
+/// every checksum stated.
+fn assembled(tables: &BTreeMap<[u8; 4], Vec<u8>>, version: [u8; 4]) -> Option<Vec<u8>> {
     let count = u16::try_from(tables.len()).ok()?;
     // ISO/IEC 14496-22's three search fields, from the table count.
     let selector = u16::try_from(15u32.checked_sub(count.leading_zeros())?).ok()?;
     let search = 16u16.checked_mul(1u16.checked_shl(u32::from(selector))?)?;
-    let mut out = 0x0001_0000_u32.to_be_bytes().to_vec();
+    let mut out = version.to_vec();
     out.extend_from_slice(&count.to_be_bytes());
     out.extend_from_slice(&search.to_be_bytes());
     out.extend_from_slice(&selector.to_be_bytes());
@@ -586,7 +639,7 @@ mod tests {
         tables.insert(*b"hmtx", hmtx);
         tables.insert(*b"loca", loca);
         tables.insert(*b"maxp", maxp);
-        super::assembled(&tables).expect("the fixture lays out")
+        super::assembled(&tables, super::TRUE_TYPE).expect("the fixture lays out")
     }
 
     fn glyf_entry(program: &[u8], glyph: usize) -> Vec<u8> {

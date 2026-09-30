@@ -225,3 +225,12 @@ whatever string they are given. A future round that "shares" the shaping by movi
 `viewer_host` hands every window would have the toolkits reorder an already-reordered string. Shape
 at the point of drawing, never in shared data; the GTK test that the rows reach Pango as stored is
 what guards it.
+
+### 76. The first frame is drawn before the hidden chrome has left the viewport
+
+`/FitWindow` measured against the first frame's viewport fitted the wrong size in every window,
+because tool bars and status lines hidden by `/HideToolbar` and `/HideWindowUI` were still in that
+frame's layout. `Presenting::place` retries against the settled viewport, up to four frames, for the
+first displayed page only (ADR 1429). And GTK 4 will not size a window below its natural size, which
+a `GtkFixed` computes from its children's positions: the page had to become an overlay child over
+an unmeasured ground before the window could shrink to the page.

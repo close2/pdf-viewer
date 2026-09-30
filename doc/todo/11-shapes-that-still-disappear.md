@@ -551,9 +551,9 @@ Two things bound any attempt at the rest:
   sides still multiply where the clip meets the **mark**, and quorra records that as a choice with
   the same reason this file gives — two unrelated boundaries in one pixel are the common case, and
   only a conflation-free rasteriser answers the clause. **This tree stopped multiplying there for a
-  *fill* in ADR 0355 and quorra has not**, so the two part at the mark: the cross-backend gate went
-  934 agree / 20 differ to 930 / 24, every arrival a widget border sitting on its own `/BBox`, and
-  `doc/QUORRA_FEEDBACK.md`'s twenty-fourth section is the ask. The magnified lane does not see it.
+  *fill* in ADR 0355, and quorra stopped at a clip *rectangle* in ADR 1435** — two rectangles are
+  intersected outright and a coverage byte meets one by `min` — so the two part at the mark only
+  where the clip is a residue, which `doc/QUORRA_FEEDBACK.md` section 59's second ask carries.
 
   **And they part at the group blit too since ADR 0492, at no cost to the gate at all** — 933 agree /
   22 differ before and after, the same names and the same means. Neither of the other two backends

@@ -641,6 +641,190 @@ fn the_pieces_of_a_tight_bend_tile_its_set() {
     }
 }
 
+/// Two subpaths drawn across each other at `6 w` under butt caps, off the pixel grid:
+/// `20.3 50.6 m 80.3 50.6 l` and `50.3 20.6 m 50.3 80.6 l`. Each subpath's set is its own
+/// rectangle, `H = [20.3, 80.3] × [47.6, 53.6]` and `V = [47.3, 53.3] × [20.6, 80.6]`, and
+/// the two share the square `[47.3, 53.3] × [47.6, 53.6]`.
+fn cross() -> (Vec<Segment>, [f64; 4], [f64; 4]) {
+    let mut path = line_path(&[(20.3, 50.6), (80.3, 50.6)], false);
+    path.extend(line_path(&[(50.3, 20.6), (50.3, 80.6)], false));
+    (path, [20.3, 80.3, 47.6, 53.6], [47.3, 53.3, 20.6, 80.6])
+}
+
+/// The pieces' signed areas summed with no rasteriser: all of one sign but for rounding's
+/// slivers, and their total.
+fn pieces_sum(pieces: &[crate::raster::Polyline], what: &str) -> f64 {
+    let areas: Vec<f64> = pieces.iter().map(signed_area).collect();
+    // A fragment cut between two crossing points that round to nearly one `f32` point can
+    // hold an area of that rounding's order, of either sign: a sliver of 1e-8 against a
+    // piece's tens. Its sign says nothing about the winding; its area still counts.
+    let negative = areas.iter().filter(|a| **a < -1e-6).count();
+    let positive = areas.iter().filter(|a| **a > 1e-6).count();
+    assert!(
+        negative == 0 || positive == 0,
+        "{what}: {negative} pieces wound one way and {positive} the other"
+    );
+    areas.iter().sum::<f64>().abs()
+}
+
+/// **Two subpaths are one set** (ADR 1431). §8.4.3.2 paints "all points whose perpendicular
+/// distance from the path in user space is less than or equal to half the line width", and
+/// the path is every subpath of it, so where two subpaths' strokes overlap the overlap is
+/// painted once.
+///
+/// The set of [`cross`] is `H ∪ V`, whose area in any pixel `P` is exactly
+/// `|P∩H| + |P∩V| − |P∩H∩V|`, and `360 + 360 − 36 = 684` in all. The pieces the stroker
+/// returns must sum to 684, not 720; the stroker must vouch for them; and every pixel at every
+/// rung, each subpath drawn either way and the two in either order, is held to the set within
+/// one coverage step — with the fill's set question asked, and with the integral kept as the
+/// encoder keeps it for a stroke the stroker vouches for. Vouched for without the tiling
+/// across the two, the pieces sum to 720 and the rings below to 1 534.33 against 1 342.54.
+#[test]
+fn two_subpaths_that_cross_are_one_set() {
+    let (path, h, v) = cross();
+    let both = [
+        h[0].max(v[0]),
+        h[1].min(v[1]),
+        h[2].max(v[2]),
+        h[3].min(v[3]),
+    ];
+    let butt = stroke(6.0, LineCap::Butt, LineJoin::Miter, 10.0);
+    let swapped = {
+        let mut swapped = path[2..].to_vec();
+        swapped.extend_from_slice(&path[..2]);
+        swapped
+    };
+    for drawn in [path.clone(), reversed(&path), swapped] {
+        let at_one = stroke_pieces(&flatten_stroke(&drawn, scaled(1.0)), butt, 6.0);
+        let sum = pieces_sum(&at_one.pieces, "the cross");
+        assert!(
+            (sum - 684.0).abs() < 1e-3,
+            "the cross: the pieces sum to {sum:.5} against the set's 684"
+        );
+        for s in RUNGS {
+            let asked = mask(&drawn, butt, s);
+            let stroked = stroke_pieces(&flatten_stroke(&drawn, scaled(s)), butt, 6.0 * s);
+            assert!(stroked.tiles, "the cross at {s}× is not vouched for");
+            let kept = fill_mask_settled(
+                &stroked.pieces,
+                Rule::NonZero,
+                (0, 0, asked.width, asked.height),
+                true,
+            );
+            let scale = f64::from(s);
+            for mask in [asked, kept] {
+                for y in 0..mask.height {
+                    for x in 0..mask.width {
+                        let pixel = [
+                            f64::from(x) / scale,
+                            f64::from(x + 1) / scale,
+                            f64::from(y) / scale,
+                            f64::from(y + 1) / scale,
+                        ];
+                        let set = (overlap(pixel, h) + overlap(pixel, v) - overlap(pixel, both))
+                            * scale
+                            * scale;
+                        let byte = f64::from(mask.coverage[(y * mask.width + x) as usize]);
+                        assert!(
+                            (byte - 255.0 * set).abs() <= 1.0,
+                            "the cross at {s}×, pixel ({x}, {y}): {byte} against the set's {:.2}",
+                            255.0 * set
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// **Two concentric rings whose strokes overlap are one ring** (ADR 1431): regular 64-gons
+/// about `(50.3, 50.6)` of apothems `a₁ = 29` and `a₂ = 32`, each its own closed subpath, at
+/// `4 w` under miters (§8.4.3.5's ratio at each corner is `1 / cos(π/64)`, far under the limit
+/// of 10). A convex polygon stroked under miters is its outer parallel polygon, of apothem
+/// `a + r`, less its inner one, of apothem `a − r`; the two rings are 3 apart and each is 4
+/// wide, so between them nothing is left out and the set is the polygon of apothem `a₂ + r`
+/// less the polygon of apothem `a₁ − r`, `N·tan(π/N)·((a₂ + r)² − (a₁ − r)²)`. Nothing is
+/// flattened, so that is exact; in each pixel the set is the outer polygon's area there less
+/// the inner one's ([`area_in_pixel`](super::curve_join::area_in_pixel)), which every pixel is
+/// held to at 1× and 2× — asked and kept — and the pieces' sum is held to the total.
+#[test]
+fn two_concentric_rings_whose_strokes_overlap_are_one_ring() {
+    const N: usize = 64;
+    let (centre, r) = ((50.3_f64, 50.6_f64), 2.0_f64);
+    #[expect(clippy::cast_precision_loss)] // 64
+    let n = N as f64;
+    let (tan, cos) = (
+        (std::f64::consts::PI / n).tan(),
+        (std::f64::consts::PI / n).cos(),
+    );
+    let polygon = |apothem: f64| -> Vec<(f64, f64)> {
+        (0..N)
+            .map(|i| {
+                #[expect(clippy::cast_precision_loss)] // below 64
+                let angle = std::f64::consts::TAU * i as f64 / n;
+                let radius = apothem / cos;
+                (
+                    centre.0 + radius * angle.cos(),
+                    centre.1 + radius * angle.sin(),
+                )
+            })
+            .collect()
+    };
+    #[expect(clippy::cast_possible_truncation)] // page coordinates, well inside `f32`
+    let ring = |apothem: f64| -> Vec<(f32, f32)> {
+        polygon(apothem)
+            .into_iter()
+            .map(|(x, y)| (x as f32, y as f32))
+            .collect()
+    };
+    let mut path = line_path(&ring(29.0), true);
+    path.extend(line_path(&ring(32.0), true));
+    let mitred = stroke(4.0, LineCap::Butt, LineJoin::Miter, 10.0);
+    let want = n * tan * ((32.0 + r).powi(2) - (29.0 - r).powi(2));
+    for drawn in [path.clone(), reversed(&path)] {
+        let at_one = stroke_pieces(&flatten_stroke(&drawn, scaled(1.0)), mitred, 4.0);
+        let sum = pieces_sum(&at_one.pieces, "the rings");
+        assert!(
+            (sum - want).abs() < 1e-2,
+            "the rings: the pieces sum to {sum:.5} against the set's {want:.5}"
+        );
+        for s in [1.0_f32, 2.0] {
+            let scale = f64::from(s);
+            let scaled_polygon = |apothem: f64| -> Vec<(f64, f64)> {
+                polygon(apothem)
+                    .into_iter()
+                    .map(|(x, y)| (x * scale, y * scale))
+                    .collect()
+            };
+            let (outer, inner) = (scaled_polygon(32.0 + r), scaled_polygon(29.0 - r));
+            let asked = mask(&drawn, mitred, s);
+            let stroked = stroke_pieces(&flatten_stroke(&drawn, scaled(s)), mitred, 4.0 * s);
+            assert!(stroked.tiles, "the rings at {s}× are not vouched for");
+            let kept = fill_mask_settled(
+                &stroked.pieces,
+                Rule::NonZero,
+                (0, 0, asked.width, asked.height),
+                true,
+            );
+            for mask in [asked, kept] {
+                for y in 0..mask.height {
+                    for x in 0..mask.width {
+                        let (column, row) = (f64::from(x), f64::from(y));
+                        let set = super::curve_join::area_in_pixel(&outer, column, row)
+                            - super::curve_join::area_in_pixel(&inner, column, row);
+                        let byte = f64::from(mask.coverage[(y * mask.width + x) as usize]);
+                        assert!(
+                            (byte - 255.0 * set).abs() <= 1.0,
+                            "the rings at {s}×, pixel ({x}, {y}): {byte} against the set's {:.2}",
+                            255.0 * set
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// **A round-capped dot is its disc, to within the flatness bound's own ceiling.**
 ///
 /// A subpath of length `ε = 1/64` at `4 w` with round caps is, by Table 53, a disc of radius

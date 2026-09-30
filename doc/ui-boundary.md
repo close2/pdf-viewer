@@ -104,6 +104,11 @@ had ever acted on. The decision itself is not on this boundary at all: it is `vi
 because *which sentence a window is obeying* is shared and `GtkWindow::fullscreen` against
 `QWidget::showFullScreen` against `winit`'s `set_fullscreen` is what a toolkit is (ADR 0470). No
 consumer failed to compile, `QUORRA_EVENT_KIND_COUNT` stayed 16, and the C ABI gained no entry point.
+**Table 147's window entries added nothing either** (ADR 1429): `/FitWindow` and `/CenterWindow` are
+answered from `Query::View` and `Query::PageGeometry` at a frame, `/DisplayDocTitle` from
+`Query::Properties`, and the arithmetic is `viewer_host::Presenting::place`, `fitted` and `centred`,
+shared by the three windows; `quorra-qt`'s own bridge gained `place_window`, which is a host's
+inside and not this boundary.
 **And the six-hundred-and-forty-second added nothing at all either**, which is three rounds
 running and is worth the sentence because this one had the shape that usually *does* ask for a
 message: two hosts gained a capability the third already had. §12.4.4.1's **clock** now runs in all

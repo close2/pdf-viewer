@@ -295,24 +295,28 @@ and a window does not. `warm` is 3% to 11% of the refresh on every page and is l
 | | step | 1.38 (17%) | — | — | 0.22 | 0.11 | 0.94 | 0.11 |
 | `personwithdog.pdf` p1, patch meshes | turn | 10.08 (121%) | 3.73 | 2.94 | 1.17 | 0.43 | 1.62 | 0.19 |
 | | step | 11.33 (136%) | — | **4.58** | 4.56 | 0.44 | 1.50 | 0.26 |
-| `issue12841_reduced.pdf` p1, one photograph | turn | 126.21 (1515%) | **71.95** | 0.01 | 0.01 | **52.91** | 1.19 | 0.13 |
-| | step | 15.40 (185%) | — | 0.00 | 0.01 | **12.59** | 2.62 | 0.18 |
-| `22060_A1_01_Plans.pdf` p1, 72 placed images | turn | 129.78 (1557%) | **97.11** | 0.16 | 3.59 | **25.40** | 3.17 | 0.34 |
-| | step | 48.35 (580%) | — | — | 5.22 | **41.62** | 1.16 | 0.34 |
-| `images.pdf` p1 | turn | 147.09 (1765%) | **132.87** | 0.04 | 0.85 | 11.93 | 0.88 | 0.53 |
-| | step | 22.48 (270%) | — | — | 2.50 | **18.66** | 0.56 | 0.76 |
-| `issue14415.pdf` p1, strokes, 959 commands | turn | 11.24 (135%) | 2.63 | 0.62 | **6.03** | 0.95 | 0.82 | 0.20 |
-| | step | 5.44 (65%) | — | — | **3.76** | 0.17 | 1.36 | 0.15 |
+| `issue12841_reduced.pdf` p1, one 5 280 × 3 792 photograph | turn | 49.31 (592%) | **31.27** | 0.02 | 0.02 | **16.53** | 1.27 | 0.20 |
+| | step | 14.01 (168%) | — | 0.00 | 0.01 | **10.75** | 2.84 | 0.41 |
+| `22060_A1_01_Plans.pdf` p1, 72 placed images | turn | 93.38 (1121%) | **76.61** | 0.18 | 3.33 | 8.13 | 4.07 | 1.07 |
+| | step | 22.96 (276%) | — | — | 5.20 | **15.14** | 1.56 | 1.05 |
+| `images.pdf` p1 | turn | 50.87 (610%) | **42.70** | 0.04 | 0.86 | 5.71 | 0.95 | 0.62 |
+| | step | 12.43 (149%) | — | — | 2.54 | **8.33** | 0.62 | 0.94 |
+| `issue14415.pdf` p1, strokes, 959 commands | turn | 11.14 (134%) | 2.49 | 0.63 | **6.28** | 0.84 | 0.76 | 0.14 |
+| | step | 5.88 (71%) | — | — | **4.41** | 0.21 | 1.11 | 0.15 |
 | `issue19802.pdf` p1, 1 032 commands | turn | 4.13 (50%) | 0.49 | 0.21 | **2.60** | 0.19 | 0.46 | 0.18 |
 | | step | 1.21 (15%) | — | — | 0.08 | 0.15 | 0.84 | 0.13 |
-| `ContentStreamNoCycleType3insideType3.pdf`, stroked Type 3 in a tiling | turn | 9.38 (113%) | 0.43 | 0.18 | **7.97** | 0.27 | 0.42 | 0.11 |
-| | step | 10.88 (131%) | — | — | **10.23** | 0.06 | 0.40 | 0.18 |
+| `ContentStreamNoCycleType3insideType3.pdf`, stroked Type 3 in a tiling | turn | 11.21 (135%) | 0.43 | 0.18 | **9.82** | 0.25 | 0.42 | 0.11 |
+| | step | 11.49 (138%) | — | — | **10.83** | 0.08 | 0.38 | 0.19 |
 
 The text and `issue19802.pdf` rows were re-taken the same day after ADR 1409, against a build of
 the tree before it in the same sitting: minimum of three runs of five rounds, pinned, load 1.9–2.1.
-The `issue14415.pdf` and Type 3 rows were re-taken on 2026-09-30 after ADR 1421, the same way
-against the tree before it (load 2.4–2.8; that build read 11.16 and 12.80 on the Type 3 page and
-11.74 and 6.38 on `issue14415.pdf`). The rest are the re-baseline's.
+The `issue14415.pdf` and Type 3 rows were re-taken on 2026-09-30 after ADR 1431, minimum of three
+runs of five rounds in one sitting, pinned, load 2.2–2.4: since ADR 1431 a stroke of several
+subpaths is tiled as one set, so the Type 3 page's turn includes tiling strokes whose subpaths
+cross (after ADR 1421 the same page read 9.38 and 10.88, and `issue14415.pdf` 11.24 and 5.44). The three image rows were re-taken on 2026-09-30 after ADR
+1433, the same way against the tree before it (load 16–20; that build read 126.04–129.90 and
+15.78 on the photograph, 128.0–131.6 and 49.2 on the plan, 156.0–157.9 and 22.6 on `images.pdf`).
+The rest are the re-baseline's.
 
 **A repaint of what is on the screen always fits**; **a page turn onto a page whose outlines the
 device has not seen fits on two of the eight** — the expensive end of that gesture, where
@@ -331,8 +335,14 @@ cost. On the mesh page the scene walk divides `MeshRaster`'s rows across rayon's
 identical by construction, since a mesh is point-sampled, and held to that by a calibrated test
 (ADR 1259). On a photograph `interp` is the codec's own Huffman and IDCT: the decoder is asked for
 the four-byte raster directly and the `DNL` walk reads a word at a time (ADR 1271, which also says
-why the conditional walk that looks obvious is a refusal ISO/IEC 10918-1 does not permit), and the
-`transfer` is the upload of what it decoded.
+why the conditional walk that looks obvious is a refusal ISO/IEC 10918-1 does not permit), and a
+codestream whose restart intervals begin on MCU rows is decoded in bands beside each other, each
+band a codestream of its own (ADR 1433 — 53 of the corpus's 168 baseline frames of a megasample
+or more). **The `transfer` of a photograph is not mostly bytes**: the queue moves the 20 MB a turn
+draws in about 2 ms, and what the column holds is raster's area-averaging reduction on the host,
+now divided among the device's threads by rows (ADR 1433). On `images.pdf` and the plan the
+`interp` was this tree's own per-sample unpacking and soft-mask combination rather than a codec,
+and both are single passes now (ADR 1433).
 
 **The launch gate on the same day** (`PDFVIEWER_LAUNCH_CLOCKS=1`, calibration 0.702 ms): all 42
 banded figures judged and inside their bands. Cold graphics bring-up 31.7 ms; first page 39.5,

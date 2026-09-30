@@ -571,6 +571,36 @@ fn material_that_is_not_der_is_refused_by_name() {
     );
 }
 
+/// The fuzzer's `revocation` finding, kept as it was found (ADR 1435 section 4): a real authority's
+/// list whose `TBSCertList` carries, after its `revokedCertificates`, a member of no type the
+/// grammar names and then a second `SEQUENCE`. The reader took the later `SEQUENCE` as the entries,
+/// so the serial `27B1` its first entry states was reported as not listed. RFC 5280 section 5.1
+/// gives the three optional members one order and each at most once, so these bytes are not a
+/// `CertificateList` and are refused as one.
+#[test]
+fn a_tbs_cert_list_with_members_out_of_the_grammars_order_is_not_a_list() {
+    let found = hex(concat!(
+        "308202233082010b020101300d06092a864886f70d01010b0500303a310b300906035504061302494e311230",
+        "10060355040a1309496e64696120504b49311730150603550403130e43434120496e6469612032303134170d",
+        "3231303532363130333934355a170d3231303730323130333934355a30773021020227b1170d313830363239",
+        "3130333332385a300c300a0603551d1504030a01053021020227b3170d3137313031313039303235365a300c",
+        "300a0603551d1504030a0105302f02106b3184a8ab94b4b6b378ee49f6fd208f170d31393035303131313030",
+        "30395a300c300a0603551d1504030a010510003022300b0603551d1404040202017d30130603551d23040c30",
+        "0a800842b8c5cf6db357e1300d06092a864886f70d01010b05000382010100c020f8bb8de67c2847792a1396",
+        "d2a5b7b613cdb85804cb24a04c8ba8d478d88c80b4a4c32202f7e9c47c9883c5a1fb7d9bb240a73ca3be63d5",
+        "a99875a797cd879509236ec56456618a6c742bc4b8692d678b029edfe4410eb5888fdb7d560e0a119aa7fe12",
+        "a4fb4a7349098d892495698274b19d1675c454b528799df2215263dcf07c2e63b7249b0b72491a76ef4965db",
+        "34d2f4b1b8140c12b45e2674f2ac4580674a96ad9c665757cccdb695f1cada35a6543b6ef3c3cb6e4ffa1095",
+        "52ad888ad3e5b38e81781913a6d3962eccf0c5f62eaed18c6beef1e72da148ff956911715283c75301b6b1c3",
+        "f95cbf99c3e8f9f054d3e5cb993e28e84ccd58dc8a28ff",
+    ));
+    assert_eq!(
+        certificate_list(&found),
+        Err(MaterialRefusal::NotACertificateList),
+        "a second SEQUENCE after the entries is not a TBSCertList member"
+    );
+}
+
 #[test]
 fn the_worst_answer_is_the_one_a_path_reports() {
     let good = Revocation::Good {

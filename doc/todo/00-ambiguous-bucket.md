@@ -212,7 +212,7 @@ hand, in levels of 255, over the 786. Computed in *bounds* over all 836 of this 
 pages — our nearest against the closest voting pair, both in `Distance`'s three measures — it is
 **58**, which is 6.9% of the population against that session's 7.1% of a smaller one. Asked the same
 way over **four** measures it is **583**, which is seven pages in ten. That is the whole argument for
-leaving the differing fraction out of `Distance`: the bound `doc/todo/12` is about is one the
+leaving the differing fraction out of `Distance`: the bound ADR 0243 measured is one the
 references miss by as much as we do, so a reading that includes it says *we are alone* about most of
 the bucket and therefore says nothing. **A shape read off one instrument is a hypothesis until a
 second instrument produces it**, and here two did — the gate now prints the four-measure count under
@@ -1379,7 +1379,7 @@ about the file. **Take the tail first**: each of those is a file somebody added 
 reason, and the reason is written down.
 
 **And the book is what a looser gate would convict, which is the answer to the standing question
-about it** (ADR 0776). `doc/todo/12` item 1 asked what raising the bound that *forms* a consensus
+about it** (ADR 0776). That ADR asked what raising the bound that *forms* a consensus
 would do; the gate counts it every run now, and of the 276 pages it would newly contradict,
 **272 are `freeculture.pdf`**. So the population this section already holds by name is almost the
 whole of what that change was worth — and the reason those pages would be convicted is not the
@@ -1822,7 +1822,7 @@ and `poppler` are §10.4.2.5's arithmetic and the three that share a SWOP charac
 desaturated together, which ADR 0773 priced by taking the profile away. Below them are the three
 link borders (a reference gap and a printer's Print flag), one substituted symbolic face with a
 closed form, one page where the references space glyphs by a width the file does not state, and
-then the differing-fraction population `doc/todo/12` is about.
+then the differing-fraction population ADR 0243 measured.
 
 **So the next page is not on this list, and the rule for choosing one from a fully held pool is
 the line the gate prints: the highest row whose note names a departure of *ours* rather than a

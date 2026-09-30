@@ -41,8 +41,9 @@ presentations. No row is here at present: what the bucket held was a gap in the 
 in the reading, each row's core already in place and waiting only on the operation it drives, and
 each row left as its surface was built. **What builds a row that arrives here:** the host work of
 `doc/todo/30`–`38` and RFC 0004's print path. Table 147's print half is no longer among them: it is
-read, answered and applied entry by entry, and §12.2 is `departed` for `/HideMenubar` alone
-(ADRs 1203, 1204, 1227).
+read, answered and applied entry by entry, and §12.2 is `departed` for `/HideMenubar` over the
+reader's own menu and for `/CenterWindow` in the one window whose toolkit cannot place it
+(ADRs 1203, 1204, 1227, 1145, 1429).
 
 - **Beside this bucket and not in it** — §12.3.5 and §12.3.5.1 are `departed`, and §12.3 with them:
   every name Table 160 defines is drawn, `/View` is obeyed for each of its four values, `/Sort`
@@ -83,8 +84,10 @@ permanent) or an owner decision to acquire a specification.
   e-sYCC (PIMA 7667), CIE Jab (CIE Publication 131) and CIE Lab under another illuminant take
   §7.4.9's device fallback, because those texts are not held — PIMA 7667 is sold (IS&T, ANSI), CIE
   131 is sold and superseded there by CIE 159, and a non-D50 Lab wants the illuminant's white point,
-  which T.801 codes after ITU-T T.4 Annex E, free and not yet read. The row's note carries the date
-  that availability was read on, which is the date to re-check it against. Checking the restriction on a file is not a reader's job and is not
+  which T.801 codes after ITU-T T.4 Annex E. That text is held and read: it gives the white point in
+  XYZ for D50 alone and names every other illuminant by a code, its data left for further study, so
+  no held text states the value this case needs. The row's note carries the date each text's
+  availability was read on, which is the date to re-check it against. Checking the restriction on a file is not a reader's job and is not
   counted as debt (ADR 1184); `pdf-archive` checks all of M.9.2 for ISO 19005 (ADRs 1383, 1399).
 - §12.8.3.4.4 — enforcing a signature policy's constraints. Everything the held texts define is read:
   ETSI EN 319 122-1 clause 5.2.9's attribute whole — which policy, its digest with the all-zero *not
@@ -95,13 +98,16 @@ permanent) or an owner decision to acquire a specification.
 
 ISO/TS 32002's brainpoolP512r1 and Ed448 are not in this bucket: they are the tree's own under the
 owner's answer A170 (ADRs 1385 and 1386), so an upstream release is their *swap* condition rather
-than a blocker, and `doc/stack.md`'s curve paragraph names it. **Re-checked on 2026-09-29** with
+than a blocker, and `doc/stack.md`'s curve paragraph names it. **Re-checked on 2026-09-30** with
 `cargo search bp512`, `cargo search brainpool` and `cargo search ed448`: RustCrypto has published no
-`bp512`, and `ed448-goldilocks` is still on `0.14.0-pre.15`. One package that paragraph does not
-name, `ed448-goldilocks-plus` 0.18.1 (BSD-3-Clause, published from `mikelodder7/Ed448-Goldilocks` on a stable version line), is a
-candidate to be judged on `doc/stack.md`'s terms. Whether it is *reviewed* is the owner's open
-question `doc/questions/Q192`, and its own README says it has not been. It is not a swap this map
-makes.
+`bp512`, and `ed448-goldilocks` is still on `0.14.0-pre.15`; RustCrypto's `ed448` 0.5.0 is the
+signature and key-encoding types over it, not the arithmetic. Two packages that paragraph does not
+name are candidates to be judged on `doc/stack.md`'s terms. `bp512-nestler` 0.2.1 (from `Basty-devel/bp512-nestler`)
+is a brainpoolP512r1 over RustCrypto's `primeorder`, and its licence is PolyForm Noncommercial 1.0.0, which
+this tree's Apache-2.0 cannot take whatever its review. `ed448-goldilocks-plus` 0.18.1
+(BSD-3-Clause, from `mikelodder7/Ed448-Goldilocks`, on a stable version line) waits on the owner's
+open question `doc/questions/Q192` — whether it counts as reviewed, which its own README says it has
+not been — and this map does not decide it.
 
 ### 3. Hard rendering / architecture — a real build across several rounds
 

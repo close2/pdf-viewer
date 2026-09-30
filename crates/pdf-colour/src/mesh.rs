@@ -66,7 +66,10 @@ use crate::shading::Colouring;
 /// 0.92; at four times the mean is unchanged and the worst tile rises to 10.18
 /// (`issue18816.pdf`), because the departure is a seam at each patch's boundary whose *width*
 /// does not shrink as the pixels arrive. So ten steps is adequate for a page and visibly not a
-/// derivation, which is why §8.7.4.5.7's and §8.7.4.5.8's ledger rows stay `partial` on it.
+/// derivation. It is therefore the fineness of one kind of patch only — one whose colours are
+/// interpolated in a space no backend holds and whose conversion is not linear across it; every
+/// other patch travels to the backend and is subdivided there from the device transform (ADR
+/// 1217) — and §8.7.4.5.7's and §8.7.4.5.8's ledger rows are `departed` on exactly that kind.
 ///
 /// **And raising it is not free**: the bound is counted in triangles, so a document's patch
 /// budget is `MAX_TRIANGLES / (2 · PATCH_STEPS²)`. The largest mesh any corpus this tree holds

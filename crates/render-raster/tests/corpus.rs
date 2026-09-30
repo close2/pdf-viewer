@@ -315,8 +315,8 @@ const REFUSED_BEFORE_THE_SCENE: [&str; 4] = [
 /// wind more than two values, so ADR 1389's `Encoder::compute_takes` sends them to the scratch
 /// lane, which charges a tile's area and not the compute lane's accumulator of four bytes a pixel
 /// besides — 252594693 scene-derived bytes against the budget of 268435456, where the compute lane
-/// asked 527497181 (`doc/QUORRA_FEEDBACK.md` section 40). At 4× it is refused on the scene-byte
-/// budget, in [`REFUSED_BY_THE_DEVICE_AT_FOUR`].
+/// asked 527497181 (`doc/QUORRA_FEEDBACK.md` section 40). At 4× it is refused on the coverage
+/// sheet's ceiling, in [`REFUSED_BY_THE_DEVICE_AT_FOUR`].
 ///
 /// **What a departure from this list means.** A name arriving is a page a person could open at
 /// 100% and not see: it is raster's to move, or this adapter's, and the round that finds one
@@ -367,13 +367,13 @@ const REFUSED_BY_THE_DEVICE: [&str; 2] =
 /// was that most of them were *arithmetic against a byte budget* that upstream kept improving:
 /// four pages over the 256 MiB frame budget by 4 % to 20 % is a list that moves the moment
 /// anything is allocated more tightly, and raster's ADRs 0036 to 0039 allocated every plan, mask
-/// and root to what it marks. **What that allocation left refused at this scale is four pages, and
-/// two of them are over the frame's scene-byte budget by far more than any allocation reaches**:
-/// `issue1905.pdf` at *365144861* and `issue12810.pdf` at *609086160 scene-derived bytes*, each
-/// over 268435456, beside `issue9418.pdf`'s coverage sheet and the cycle's resource bytes — a run
-/// of this lane over the four names and the two that left, taken after ADR 0702 rebuilt the scene
-/// in page space and [`PIXEL_BUDGET`]'s raise admitted the second page. The two bullets below are
-/// what left and what stayed:
+/// and root to what it marks. **What that allocation left refused at this scale is four pages**:
+/// `issue12810.pdf` at *609086160 scene-derived bytes* over 268435456, by far more than any
+/// allocation reaches; `issue1905.pdf` and `issue9418.pdf` at the coverage sheet's ceiling; and the
+/// cycle's resource bytes. The scene-byte budget is sized for what a frame draws, and at this scale
+/// the whole page is a frame no window asks for — `issue12810.pdf` is 71.7 megapixels here — so a
+/// refusal of it is the instrument asking past the window, not a budget set wrong (ADR 1435). The
+/// two bullets below are what left and what stayed:
 ///
 /// - **`22060_A1_01_Plans.pdf` left this list, and what took it off was neither a larger budget
 ///   nor a tighter allocation (ADR 0374).** It held 522 014 748
@@ -387,11 +387,10 @@ const REFUSED_BY_THE_DEVICE: [&str; 2] =
 ///   of the backend entirely. Nobody raised `max_resource_bytes`, and a budget raised to admit one
 ///   page would still be a budget chosen by that page.
 /// - `issue1905.pdf` exceeded the **16 384 × 16 384 texture** this adapter allows for the
-///   rasterised-coverage sheet, and what it prints at this scale is the scene-byte budget —
-///   *frame needs 365144861*, over 268435456 — so the ceiling below is a reading the byte budget
-///   preempts rather than one a run still shows; at [`SCALE`] it is drawn (ADR 1389).
-///   (`issue9418.pdf`, added above, is the page that prints it today.) That ceiling is a device
-///   capability, not a policy. Raster measured a
+///   rasterised-coverage sheet, and that is what it prints at this scale — *a 4763x7103 tile would
+///   not fit a sheet at 14289x15117 holding 6 tiles* — beside `issue9418.pdf`, which prints the
+///   same ceiling; at [`SCALE`] it is drawn (ADR 1389). That ceiling is a device capability, not a
+///   policy. Raster measured a
 ///   multi-sheet fix at its `5483996` and **declined it with the numbers written down**: a second
 ///   sheet takes this page to 287 MB — refused again, on bytes — and its neighbours to a
 ///   quarter-gigabyte of per-frame upload, a page drawn at a cost its own brief calls a failure.
@@ -492,9 +491,12 @@ fn refused_pages(by_the_device: &[&'static str]) -> Vec<&'static str> {
 /// - the five [`NotComparable::NoFirstPage`] are its `NO_RENDER_NO_PAGE_IN_THE_TREE` less the one
 ///   entry that names a *second* page, which this gate never asks for.
 ///
-/// So what is owed here is not a second diagnosis but the names, and the case each falls in is
-/// `CLAUDE.md` principle 5's second: the file broke it, and a rasteriser comparison is not what
-/// any of them is waiting on.
+/// So what is owed here is not a second diagnosis but the names. Six of the seven are
+/// `CLAUDE.md` principle 5's second case — the file broke it — and `Brotli-Prototype-FileA.pdf`
+/// is a file that keeps its page tree in object streams compressed by a filter §7.4.1's Table 6
+/// does not name. **Every one is a limit of the document, and none is a limit of either lane or
+/// of this instrument**: no comparison, however sharp, has a page one to compare, and a
+/// rasteriser comparison is not what any of them is waiting on (ADR 1435).
 ///
 /// **Four of the six causes are empty at this scale and all four are kept.**
 /// [`NotComparable::TheOracleRefused`] being empty is a *measurement* rather than an omission:
@@ -526,6 +528,21 @@ fn not_comparable_pages() -> Vec<(String, NotComparable)> {
     all
 }
 
+/// A page held on one of the two differing lists, with the bound it is held to.
+///
+/// A name alone says only that a page differs; the bound says by how much, so a page that grows
+/// worse while staying on its list fails the gate instead of passing it. Each figure is the
+/// measured one rounded up at its last printed digit, on this lane at [`SCALE`], and each entry's
+/// note derives the difference from the clause (ADR 1435).
+struct Held {
+    /// The document's file name.
+    name: &'static str,
+    /// The largest mean error, in levels of 255, the page may reach.
+    mean: f64,
+    /// The largest worst-tile error, in levels of 255, the page may reach.
+    worst_tile: f64,
+}
+
 /// Pages where the two rasterisers differ only at the **edges** of what they draw.
 ///
 /// Structural similarity above 0.99 — `raster_compare`'s own vector threshold — is the
@@ -535,41 +552,49 @@ fn not_comparable_pages() -> Vec<(String, NotComparable)> {
 /// left it, each by one backend moving onto the geometry the other already drew, are recorded in
 /// `doc/adr/` and `doc/history/`.
 ///
-/// **`issue2177.pdf` is two analytic answers rather than a quantum** (ADR 1082 on the oracle,
-/// raster's ADR 0049 on the device). Its page is three clipped circles filled with a tiling
-/// pattern of small coloured ellipses, so almost every inked pixel is somebody's curve boundary;
-/// `examples/ink_ladder` puts
-/// the two backends 0.74% apart at 1× and **0.17% apart at 8×**, and the excess shrinks at every
-/// rung, which is that instrument's signature for a per-boundary cost rather than a shape. Both
-/// backends read heavier at the page's own scale than at eight times it — ours by 0.68% and
-/// raster's by 0.11% — which is the side §10.7.4's "[t]he area covered by painted pixels shall
-/// always be at least as large as the area of the original shape" asks for. Flattening is not the
-/// difference and that is measured rather than assumed: at tolerances of 1/16, 1/64, 1/256 and
-/// 1/1024 of a device pixel the page's ink reads 13002.05, 13022.88, 13030.50 and 13031.90, so the
-/// converter's own tolerance is within 0.011% of its limit. The worst tile the gate prints is at
-/// (32, 224), which is the raster's own bottom row and one pixel tall — trap 26, and the verdict
-/// here rests on the differing fraction.
-const DIFFERS_AT_THE_EDGES: [&str; 1] = ["issue2177.pdf"];
+/// **`issue2177.pdf` is read against a reference derived from the page's own geometry, and raster
+/// is the lane the clause puts further from it** (ADR 1435). The page is three circles painted `B`
+/// with a `/TilingType 2` pattern of stroked circles under a shearing `/Matrix`, a triangle painted
+/// `b` with the same pattern, and a black rule round each. §10.7.4 identifies a pixel with
+/// `[i, i+1) × [j, j+1)`, so each mark's coverage of a pixel is the area of the mark intersected
+/// with its clip there, composited in paint order; ADR 1435's reference samples 128 × 128 points
+/// a pixel and moves by 0.016 of 255 from 64 × 64, so it is converged. Against it the
+/// oracle is 0.71 of 255 away per channel and raster 2.05, raster 0.40 light on average; the page's
+/// ink reads 13013.8 in the reference, 13030.3 on the oracle and 12933.9 on raster.
+///
+/// - **Inside the circles the difference is raster's flattening.** Its path lane flattens a curve
+///   to chords a quarter of a device pixel from it, and chords are inscribed, so each small ring
+///   of the pattern loses area on its outer edge. Re-flattening the rings' outlines at 1/256 of a
+///   device pixel before raster sees them takes raster to 0.39 of the reference and this page's
+///   mean from 1.94 to 0.68. §10.7.2 leaves the tolerance to the processor — "PDF processors may
+///   choose to ignore any flatness tolerance specified within a PDF file" — and §10.7.4 says which
+///   side the error it leaves may fall on: "[t]he area covered by painted pixels shall always be
+///   at least as large as the area of the original shape." An inscribed polygon is on the other
+///   side; `doc/QUORRA_FEEDBACK.md` section 59 is the ask.
+/// - **The worst tile is where the pattern meets its circle**, at (32, 224): the raster's bottom
+///   row, one pixel tall (trap 26). The pattern's cells are clipped by the circle's own path, which
+///   raster applies as a residue it multiplies and the oracle as a `min`; against the reference's
+///   intersection in that tile the oracle is 8.5 of 255 heavy and raster 7.2 light, so neither lane
+///   states the intersection where a curved clip crosses a curved mark, and the two part in
+///   opposite directions from it.
+/// - **`/TilingType 2` is not what separates them.** Table 74 lets "the spacing between pattern
+///   cells" "vary by as much as 1 device pixel", and both lanes place every cell at its exact
+///   `/XStep` and `/YStep` multiple, so the latitude is taken by neither.
+///
+/// Held at mean 1.94 and worst tile 11.6 against the 1.9385 and 11.54 measured.
+const DIFFERS_AT_THE_EDGES: [Held; 1] = [Held {
+    name: "issue2177.pdf",
+    mean: 1.94,
+    worst_tile: 11.6,
+}];
 
 /// Pages where the difference is **structural**: similarity at or below 0.99.
 ///
-/// The name is the *classifier's*, and every page here has been examined; none is an open
-/// question. Each is below with the clause that says which backend is right and the ask that
-/// would take it off. The pages that left, and why, are the ADRs this list cites, ADR 1361 for
-/// the strokes, and `doc/history/`; what is written here is only what holds for the one that stays.
-///
-/// **`issue19083.pdf` is a clip taken as a product at a coincident boundary.** It is one widget
-/// appearance whose `/BBox` is `[0 0 125.25 20]` and whose whole content is `0.5 0.5 124.2502 19
-/// re s` at the default `1 w` — a border rule whose outer edge sits 0.0002 *outside* the `/BBox`
-/// §8.10.1 step c) clips it by, so the clip genuinely cuts and ADR 1088's `cuts_nothing` rule
-/// declines it by name. §10.7.4 asks for "the intersection of the set of pixels defined by the
-/// clipping region with the set of pixels for the region to be painted"; `render-cpu` composes the
-/// two with `min` (ADR 0355, ADR 0535) and raster multiplies them inside the graphics library,
-/// which squares a mark's coverage where its own edge and its clip's share a pixel.
-/// `examples/ink_ladder` reads raster 396.58 at 1× against the oracle's 448.33 and level with it by
-/// 4×, the signature of a per-boundary cost. The oracle is the side the clause states, and
-/// `doc/QUORRA_FEEDBACK.md` section 24c is the ask.
-const DIFFERS_IN_SHAPE: [&str; 1] = ["issue19083.pdf"];
+/// The name is the *classifier's*, and it is empty: a page arriving here is the same ink in
+/// different shapes, which no difference in boundary coverage makes. The pages that left, and
+/// why, are the ADRs that took each off — ADR 1361 for the strokes, ADR 1435 for the clip met at
+/// a coincident edge — and `doc/history/`.
+const DIFFERS_IN_SHAPE: [Held; 0] = [];
 
 /// The two groups as one list, sorted as the run produces them.
 ///
@@ -589,9 +614,7 @@ const DIFFERS_IN_SHAPE: [&str; 1] = ["issue19083.pdf"];
 ///
 /// > Its coordinates are mapped into device space but not rounded to device pixel boundaries.
 ///
-/// **`issue2177` is what this and the next two paragraphs read**; the pages that left the list when
-/// the two backends took one substitution are ADR 1102's. The rest part on the ladder and are read
-/// from `issue19083` on.
+/// The pages that left the list when the two backends took one substitution are ADR 1102's.
 ///
 /// **Neither backend snaps a path's edges to a lattice, and that is measured rather than assumed.**
 /// `render_cpu::area` computes the coverage this subclause's own definition of a pixel implies
@@ -610,21 +633,16 @@ const DIFFERS_IN_SHAPE: [&str; 1] = ["issue19083.pdf"];
 /// reached what it names rather than everything.
 ///
 /// **A page whose totals part is the other shape**, and the way the gap moves along the ladder
-/// says what it is. A gap that halves at every rung is a cost paid per boundary pixel, and one
-/// page here is still made of that: `issue19083.pdf` reads raster 396.58 at 1× against the
-/// oracle's 448.33 and is level with it by 4×, which is ADR 0355's clip-against-the-mark product
-/// measured in ink instead of in pixels — §10.7.4 asks for "the intersection of the set of pixels
-/// defined by the clipping region with the set of pixels for the region to be painted", and a
-/// product at a coincident boundary takes ink an intersection does not. It is the page that is
-/// left because its stroke's outer edge sits 0.0002 *outside* the `/BBox` §8.10.1 step c) clips
-/// it by, so the clip genuinely cuts and ADR 1088's rule declines it by name;
-/// `doc/QUORRA_FEEDBACK.md` section 24c is the standing ask, and it is where this measurement
-/// is written down.
+/// says what it is: a gap that halves at every rung is a cost paid per boundary pixel. What the
+/// ladder cannot say is *which* lane pays it, because its reference is the two lanes converging
+/// on each other. A per-pixel reference computed from the page's own geometry can, and that is how
+/// [`DIFFERS_AT_THE_EDGES`]'s page is read and how the clip met at a coincident edge was found to
+/// be raster's product (ADR 1435).
 fn differing_pages() -> Vec<&'static str> {
     let mut all: Vec<&'static str> = DIFFERS_AT_THE_EDGES
         .iter()
         .chain(&DIFFERS_IN_SHAPE)
-        .copied()
+        .map(|held| held.name)
         .collect();
     all.sort_unstable();
     all
@@ -634,8 +652,16 @@ fn differing_pages() -> Vec<&'static str> {
 enum Outcome {
     /// Rendered by both, within tolerance.
     Agrees,
-    /// Rendered by both, outside it.
-    Differs(String),
+    /// Rendered by both, outside it: the three figures printed, and the two a held page is
+    /// bounded by.
+    Differs {
+        /// The comparison as a person reads it.
+        how: String,
+        /// Mean error, in levels of 255.
+        mean: f64,
+        /// Worst tile's mean error, in levels of 255.
+        worst_tile: f64,
+    },
     /// raster refused the display list.
     Refused(String),
     /// Nothing to compare, and which of the six things stopped the comparison.
@@ -725,6 +751,7 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
     let mut agreed = 0usize;
     let mut incomparable: Vec<(String, NotComparable)> = Vec::new();
     let mut differing = Vec::new();
+    let mut measured: Vec<(String, f64, f64)> = Vec::new();
     let mut refused = Vec::new();
     let mut worst: Vec<(f64, String)> = Vec::new();
     let (mut cpu_total, mut gpu_total) = (Duration::ZERO, Duration::ZERO);
@@ -775,16 +802,16 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
 
         match verdict {
             Outcome::Agrees => agreed = agreed.saturating_add(1),
-            Outcome::Differs(how) => {
+            Outcome::Differs {
+                how,
+                mean,
+                worst_tile,
+            } => {
                 // The frame judged, not a second one: a redraw is another frame on the retained
                 // atlas, which the one-threaded backend beside this one would not have drawn.
                 write_artefacts(&name, &cpu, &ours);
-                let mean = how
-                    .split_once("mean ")
-                    .and_then(|(_, rest)| rest.split_whitespace().next())
-                    .and_then(|value| value.parse::<f64>().ok())
-                    .unwrap_or(0.0);
                 worst.push((mean, name.clone()));
+                measured.push((name.clone(), mean, worst_tile));
                 differing.push(name.clone());
                 println!("  differs: {name}: {how}");
             }
@@ -815,7 +842,7 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
     hold(
         ratchets(files.len(), settings, only.is_some()),
         &refused,
-        &differing,
+        (&differing, &measured),
         &incomparable,
     );
     one_thread.hold();
@@ -958,7 +985,7 @@ fn page_times() -> Option<std::io::BufWriter<std::fs::File>> {
 fn hold(
     which: Ratchets,
     refused: &[String],
-    differing: &[String],
+    (differing, measured): (&[String], &[(String, f64, f64)]),
     incomparable: &[(String, NotComparable)],
 ) {
     match which {
@@ -984,6 +1011,17 @@ fn hold(
                 differing_pages(),
                 "the pages raster draws differently from the oracle have changed"
             );
+            for held in DIFFERS_AT_THE_EDGES.iter().chain(&DIFFERS_IN_SHAPE) {
+                for (name, mean, worst_tile) in measured.iter().filter(|(n, ..)| n == held.name) {
+                    assert!(
+                        *mean <= held.mean && *worst_tile <= held.worst_tile,
+                        "{name} is held at mean {} and worst tile {} and measured {mean:.4} and \
+                         {worst_tile:.2}: the difference its note derives has grown",
+                        held.mean,
+                        held.worst_tile
+                    );
+                }
+            }
             let named: Vec<(String, NotComparable)> = incomparable
                 .iter()
                 .map(|(name, why)| (name.clone(), *why))
@@ -1258,14 +1296,18 @@ fn outcome(cpu: &pdf_render::Raster, ours: &Result<pdf_render::Raster, impl ToSt
     {
         return Outcome::Agrees;
     }
-    Outcome::Differs(format!(
-        "mean {:.4} worst tile {:.2} at {:?} differing {:.4} ssim {:.5}",
-        c.mean_error,
-        c.worst_tile_error,
-        c.worst_tile_at,
-        c.differing_fraction,
-        c.structural_similarity,
-    ))
+    Outcome::Differs {
+        how: format!(
+            "mean {:.4} worst tile {:.2} at {:?} differing {:.4} ssim {:.5}",
+            c.mean_error,
+            c.worst_tile_error,
+            c.worst_tile_at,
+            c.differing_fraction,
+            c.structural_similarity,
+        ),
+        mean: c.mean_error,
+        worst_tile: c.worst_tile_error,
+    }
 }
 
 /// The three stages before the backend under test is asked anything, or which of them stopped.

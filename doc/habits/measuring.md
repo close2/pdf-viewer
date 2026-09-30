@@ -646,3 +646,11 @@ diffing the two sequences found the first differing line in one read, and it dis
 (ADR 1419). And a callgrind summary picks each column by function NAME, never by rank:
 `callgrind_annotate` sorts by cost, so a function missing from one arm shifts every column after it
 and two of round 1292's early tables were mislabelled that way (ADR 1421).
+
+## 57. A phase's clock is timed step by step before a lever is chosen for it
+
+`doc/performance.md`'s "transfer" column on a photograph read 53 ms, and 96% of it was raster's
+host-side area reduction on one thread; the upload itself was 2 ms at 10 GB/s (ADR 1433). And
+before a sweep or a grid replaces a box-prefiltered scan, count the scan's visits against the pairs
+that meet and the pairs actually asked: 31 M cheap box tests cost less than the sorting that would
+have avoided them, and the expensive questions were already limited to pairs that meet (ADR 1431).

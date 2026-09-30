@@ -356,7 +356,7 @@ const CONTRADICTED_COINCIDENT_CLIP_EDGES: [&str; 0] = [];
 /// **What it fails is the differing fraction and nothing else** — 8.90% against a bound of
 /// 5.30%, with mean 4.06 of 5.00, worst tile 26.29 of 54.36 and ssim 0.9392 of 0.9000 all
 /// inside. The gate's own counterfactual takes it off the list at the references' 99th
-/// percentile, which `doc/todo/12` item 1 is about.
+/// percentile, which is the question ADR 0776 answers.
 ///
 /// **The page's left quarter is a 122x843 indexed image drawn through `123.6 0 0 848.15 -15.9
 /// -0.35`** — 848.15 device rows for 843 samples, a magnification of 1.006, so each device
@@ -3410,7 +3410,7 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 12] = [
 /// That is the control trap 12 asks for, taken over the population instead of a page: put
 /// `ghostscript` where our render stands and the same consensus contradicts it on nearly every
 /// page of this group. It is **not** evidence that our phases are right — agreement and its
-/// absence run in one direction only — and no bound moves on it (`doc/todo/12` says what moving
+/// absence run in one direction only — and no bound moves on it (ADRs 0771 and 0776 say what moving
 /// one costs). What it establishes is that these verdicts rest on a bound derived from the one
 /// pair whose agreement trap 9's tenth mechanism manufactures, and that a voting reference
 /// with its own rasteriser cannot meet that bound either. ADR 0717.
@@ -11239,7 +11239,7 @@ const AMBIGUOUS_MARKUP_APPEARANCES_AND_OPEN_POPUPS: [&str; 1] = ["issue14438.pdf
 /// page failing it is not an accusation. That is `doc/oracle-and-corpus.md` §3c's result — all
 /// eight fixed bounds re-derived, and this one rejecting
 /// **29.4%** of reference pairs on text pages, alone among the four — reproduced on a corpus
-/// written by different producers and never used to set it. `doc/todo/12` owns the bound; ADR 0243
+/// written by different producers and never used to set it. ADR 0243 measured the bound and
 /// has the argument for leaving it where it is, and this group is not a request to move it.
 ///
 /// The mean converts the same way: **on 61 of 63 our worst mean is at or below the largest
@@ -11850,7 +11850,7 @@ struct Examined {
     /// What this page's verdict would be if the bound that forms a consensus were raised.
     ///
     /// `None` on every page the gate reached no comparison on. See [`RaisedFormation`] for the
-    /// question — `doc/todo/12` item 1, the half ADR 0243 measured once and left — and
+    /// question — ADR 0776's, the half ADR 0243 measured once and left — and
     /// [`a_raised_formation_bound`] for the census it feeds.
     raised_formation: Option<RaisedFormation>,
     /// How many references produced a raster of one colour on a page another one drew, and
@@ -12665,7 +12665,7 @@ fn consensus_missed_by(triangulation: &pdfref::Triangulation) -> Option<f64> {
 /// `doc/todo/00` step 1 asks which pages *we are alone on* — our nearest further away than the
 /// closest pair of references are from each other — and the answer depends on which measures the
 /// question is asked in. Both readings are in one unit and neither is a mixed one; what separates
-/// them is `doc/todo/12`'s differing fraction, a bound the references miss by nearly as much as we
+/// them is the differing fraction ADR 0243 measured, a bound the references miss by nearly as much as we
 /// do. Over the complete ambiguous pool the four-measure reading names seven pages in ten, and the
 /// three-measure reading names about one in fourteen — and it is the *three*-measure one that
 /// reproduces a reading taken by hand in levels of 255 over a smaller pool, 6.9%
@@ -12851,7 +12851,7 @@ fn corpus_widening_factor() -> f64 {
 ///   measures beside it.
 /// - **On the ambiguous pool it would replace the ordering rather than sharpen it.** The differing
 ///   fraction is the largest of the four ratios on 762 of the 804 complete ambiguous pages, so a
-///   four-measure `Distance` would order that bucket by it alone — and `doc/todo/12`'s bound is the
+///   four-measure `Distance` would order that bucket by it alone — and ADR 0243's bound is the
 ///   reason it cannot: over the same pages our differing fraction sits at a median **2.08** times
 ///   the class bound against the closest reference pair's **1.96**, so the measure separates us
 ///   from the references by 6% at the middle of the population. Read as *we are alone*, the
@@ -13057,7 +13057,7 @@ struct ConsensusIdentity {
     widest_max_error: u8,
     /// Whether the bound this set held us to is the bare class floor.
     ///
-    /// The other half of `doc/todo/12`'s question, and not the same population as
+    /// The other half of ADR 0774's question, and not the same population as
     /// [`Self::widest_max_error`] being zero: a spread of zero implies a floor, and a spread
     /// small enough that twice it is still under every class bound does too. This is the
     /// population on which the *relative* bound — the whole reason this gate judges the way it
@@ -13125,7 +13125,7 @@ fn the_consensus_that_decided_it(
 /// What one page's verdict would be if the bound that forms a consensus were raised to the
 /// spread the references themselves show.
 ///
-/// # The question, which is `doc/todo/12` item 1
+/// # The question, which ADR 0776 answers
 ///
 /// `Tolerance::max_differing_fraction` does two jobs: it decides whether two references **form**
 /// a consensus, and it **floors** the bound `Tolerance::widened_to` then derives for us. ADR
@@ -13142,7 +13142,7 @@ fn the_consensus_that_decided_it(
 /// # The two arms, and why both
 ///
 /// [`Self::formation_only`] raises the formation bound and leaves our own floor at the class
-/// value — which is the change `doc/todo/12` item 1 actually describes, and the strict one: a
+/// value — which is the change ADR 0776 prices, and the strict one: a
 /// consensus that would not have formed now judges us at the bound we are judged at today.
 /// [`Self::with_the_floor`] raises both, which is what ADR 0243 ran and what its 457/278 counts.
 /// The difference between the two is the price of the floor half on this population, and until
@@ -13760,7 +13760,7 @@ fn outside_by(comparison: &raster_compare::Comparison, bounds: &Tolerance) -> f6
 /// On an ambiguous page `outside_by` is above 1 for every pair by construction — a pair inside all
 /// four bounds would have been a consensus and the page would not be ambiguous. **This one can be
 /// below 1**, and exactly where the closest pair misses on the differing fraction alone. That is
-/// not a defect of the measure: it is `doc/todo/12`'s bound saying that the pair agreed about
+/// not a defect of the measure: it is ADR 0243's bound saying that the pair agreed about
 /// everything the other three measures see. What follows for a reader is that a ratio taken over
 /// this number can be large because *we* are far or because the pair was close on three measures,
 /// and the second is a page where the picture is the instrument (trap 1).
@@ -14494,7 +14494,7 @@ fn what_the_consensus_was_made_of(results: &[Examined]) {
 ///
 /// # Why this is a census and not a proposal
 ///
-/// `doc/todo/12` item 1 is the one half of that item nobody had measured: raising
+/// ADR 0776's question is the one half of ADR 0243's bound nobody had measured: raising
 /// `Tolerance::max_differing_fraction` for consensus **formation** makes several hundred
 /// `ambiguous` pages judgeable, and ADR 0243 recorded that 278 of them arrive contradicted. That
 /// count is the whole of what was known about them — not their class, not which pair of
@@ -14539,7 +14539,7 @@ fn a_raised_formation_bound(results: &[Examined]) {
 
     println!(
         "  raising the bound that forms a consensus to the references' own 99th percentile \
-         (0.12 text, 0.0136 vector) over {} judged pages — `doc/todo/12` item 1, counterfactual \
+         (0.12 text, 0.0136 vector) over {} judged pages — ADR 0776, counterfactual \
          only:",
         judged.len()
     );
@@ -15042,9 +15042,9 @@ fn rank_the_contradicted_by_the_bound(results: &[Examined]) {
     }
     name_the_pages_no_group_holds(&ranked);
 
-    // The pool's shape in one line, and it is `doc/todo/12`'s population counted by the gate that
-    // makes it rather than by a round with a log. That item says most of this pool fails the
-    // differing fraction and no other bound; what it could not say is by how much, because until
+    // The pool's shape in one line, and it is ADR 0243's population counted by the gate that
+    // makes it rather than by a round with a log. That ADR found pages failing the differing
+    // fraction and no other bound; what it could not say is by how much, because until
     // this ranking nothing put the pool in that unit.
     let on_the_differing_fraction: Vec<f64> = ranked
         .iter()
@@ -15060,7 +15060,7 @@ fn rank_the_contradicted_by_the_bound(results: &[Examined]) {
         let (low, high) = range(&on_the_differing_fraction);
         println!(
             "    of the {} pages, {} are furthest outside on the differing fraction, between \
-             {low:.2}x and {high:.2}x — the bound `doc/todo/12` is about",
+             {low:.2}x and {high:.2}x — the bound ADR 0243 measured",
             ranked.len(),
             on_the_differing_fraction.len(),
         );
@@ -15197,7 +15197,7 @@ fn name_the_pages_the_excluded_reference_survives(ranked: &[(&Examined, f64, &st
         .collect();
     println!(
         "    and on {} of them the voting reference the consensus excludes meets that same bound \
-         while we do not — the population `doc/todo/12`'s consensus half is read from (ADR 0772):",
+         while we do not — the population the consensus half is read from (ADRs 0772, 0776):",
         survives.len(),
     );
     for (name, reference) in survives {
@@ -15281,7 +15281,7 @@ fn rank_the_manufactured_ambiguity(results: &[Examined]) {
 ///
 /// ADR 0643 puts the two columns of that list into comparable units and counts the result in
 /// **four** measures as well as three. Read in four the shape names seven pages in ten,
-/// which is `doc/todo/12`'s bound arriving as a signal: the differing fraction is one the
+/// which is ADR 0243's bound arriving as a signal: the differing fraction is one the
 /// references miss by nearly as much as we do. [`consensus_missed_in_three_measures`] supplies the
 /// other unit, and it is the one that reproduces a reading taken by hand — 6.9%
 /// against 7.1% of a smaller pool — so the **three**-measure count is what orders the queue and

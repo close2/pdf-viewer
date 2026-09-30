@@ -39,6 +39,7 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QResizeEvent>
+#include <QScreen>
 #include <QSizePolicy>
 #include <QMenu>
 #include <QMenuBar>
@@ -1839,6 +1840,9 @@ void MainWindow::applyUpdates()
     if (update.window) {
         applyChrome();
     }
+    if (update.placement) {
+        placeWindow();
+    }
     if (update.clipboard) {
         // ISO 32000-2 §14.8.2.5's text leaving the program (ADR 0519). `QGuiApplication` owns the
         // clipboard and hands out a pointer it keeps, so there is nothing here to create, to store
@@ -1936,6 +1940,32 @@ void MainWindow::arrive()
 // Which sentence is in force is decided once on the Rust side and shared with the other two hosts
 // (`viewer_host::Presenting`); what is here is the mapping from four booleans onto four widgets,
 // which is the half that genuinely is a toolkit's. ADR 0470.
+// Table 147's `/FitWindow` and `/CenterWindow`, once, at the first frame of a document opened in
+// front. What to do is the Rust side's (`Host::place_window`, over `viewer_host::fitted` and
+// `viewer_host::centred`, shared with the other two windows); what is here is handing it this
+// window's extents and carrying out the answer. Both calls are requests: a window manager may
+// refuse either, and on Wayland `move` places nothing. ADR 1429.
+void MainWindow::placeWindow()
+{
+    const QRect outer = frameGeometry();
+    const QRect inner = geometry();
+    const QScreen *on = screen();
+    const QRect area = on != nullptr ? on->availableGeometry() : QRect();
+    const QtWindowExtents extents{inner.width(),  inner.height(), outer.width() - inner.width(),
+                                  outer.height() - inner.height(), area.x(), area.y(),
+                                  area.width(),   area.height()};
+    const rust::Vec<std::int32_t> placed = host_->place_window(extents);
+    if (placed.size() < 6) {
+        return;
+    }
+    if (placed[0] != 0) {
+        resize(placed[1], placed[2]);
+    }
+    if (placed[3] != 0) {
+        move(placed[4], placed[5]);
+    }
+}
+
 void MainWindow::applyChrome()
 {
     const QtChrome chrome = host_->chrome();

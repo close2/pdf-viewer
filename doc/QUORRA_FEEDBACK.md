@@ -5581,7 +5581,9 @@ keeps a scene view-free and this side asked for it, so this is not a request to 
 narrower: **can the reduction for a placement be computed from the resident samples on the device
 rather than staged from the host each time it changes?** A 20-megapixel image redrawn at each notch
 of a zoom gesture is 80 MB a notch, and 8.23 ms of a 8.333 ms refresh is the whole budget for one
-picture.
+picture. Since this tree's ADR 1433 the host reduction your `area_averaged` makes is divided by
+rows across the threads `Options::encode_threads` permits, which took a page turn's 53 ms of it to
+about 17; the ask to compute it on the device stays open.
 
 **Reproducing either.** `cargo run --release -p render-raster --example frame_budget`, or
 `tools/state.sh frame`. The example names its three documents, all committed here; the first is
@@ -5789,3 +5791,34 @@ two devices' compute lanes differ from each other on four pixels of the glyph fi
 arithmetic can match both, so `compute_lane.rs` holds glyphs to one level and says why, and
 `compute.rs`'s module comment no longer claims the CPU's bytes. **The ask back**: if the lanes are
 ever to be byte-equal under rotation, it is an integer rasteriser on both sides, not a rounding rule.
+
+## 59. A clip rectangle is met as a set on every coverage lane, and two asks the corpus's last differing page reads to (ADR 1435)
+
+**Closed on this side: section 24's product at a rectangle.** `coverage.wgsl`, `image.wgsl`,
+`shading.wgsl` and `function_lane.wgsl` multiplied a mark's coverage by the clip rectangle's cell
+overlap. §10.7.4 asks for "the intersection of the set of pixels defined by the clipping region
+with the set of pixels for the region to be painted", and a product falls below that area wherever
+both are fractional — a border rule standing on its `/BBox` edge kept 0.75² of its coverage in the
+edge row (`issue19083.pdf`: 112 where the clause's value is 64). Where a lane holds both rectangles
+(an axis-preserving image, an analytic coverage rectangle) they are now intersected before the cell
+overlap and the area is exact; where it holds a coverage byte, the byte meets the clip by `min`,
+the intersection's upper bound, which is the side "[t]he area covered by painted pixels shall
+always be at least as large as the area of the original shape" states. `tests/clip_meets_a_mark_as_a_set.rs`
+holds five pixels from the closed form, four of which the product drew wrong. `issue19083.pdf` now
+agrees with the oracle at 1×; nothing else in the corpus moved lists.
+
+**Ask 1 — the path lane's flattening is inscribed, and it takes area.** `issue2177.pdf` (a pattern
+of small stroked rings under a shearing matrix) was read against a per-pixel reference computed
+from the page's geometry. Raster is 2.05 of 255 from it per channel, 0.40 light on average; the
+oracle 0.71. Re-flattening the rings' outlines at 1/256 device pixel before your encode sees them
+takes raster to 0.39 of the reference and the page's mean against the oracle from 1.94 to 0.68, so
+`FLATTEN_TOLERANCE = 0.25` with chords on the curve is the whole interior difference. §10.7.2 lets
+you choose the tolerance; §10.7.4's sentence above says which side the remaining error goes, and an
+inscribed polygon is on the other one. A tighter absolute tolerance, or chords displaced outward by
+their sagitta, would each answer it; the price is yours to measure.
+
+**Ask 2 — a residue clip still multiplies.** The same page's worst tile is where the pattern's cells
+meet the circle that clips them, a path clip your encode applies as a residue multiplied into the
+tile. Against the reference's intersection in that one-pixel-tall tile the oracle (`min`) is 8.5 of
+255 heavy and raster 7.2 light. `min` is the bound this side draws with; whether a residue can carry
+enough to do better is the open question.

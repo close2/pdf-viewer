@@ -73,6 +73,18 @@
 //!   screen the *reader* asked for is not the clause's subject at all; [`Presenting::on_exit`]
 //!   answers `None` there and says so rather than substituting `UseNone`, which is Table 147's
 //!   default for a different question.
+//!
+//! # The window's size and place
+//!
+//! Table 147 has two more entries about the window rather than about its chrome: `/FitWindow`, "[a]
+//! flag specifying whether to resize the document's window to fit the size of the first displayed
+//! page", and `/CenterWindow`, "[a] flag specifying whether to position the document's window in
+//! the centre of the screen". Neither can be obeyed when the document opens, because the size of
+//! the first displayed page is not known until it has been displayed: [`Presenting::place`] answers
+//! them at the frames of a document opened in front until its window fits the page, and [`fitted`] and [`centred`] are
+//! the arithmetic every host shares. The toolkit call is each host's, and one of them has none:
+//! GTK 4 gives a client no way to position its own window, so `quorra-gtk` says so rather than
+//! centring (ADR 1429).
 
 use pdf_model::viewer_preferences::{Opening, PageMode, ViewerPreferences};
 use viewer_core::PresentationMode;
@@ -152,6 +164,33 @@ pub struct Presenting {
     on_exit: Option<PageMode>,
     /// Whether the window is full screen now.
     full_screen: bool,
+    /// Table 147's `/FitWindow` and `/CenterWindow`, while still owed.
+    placing: Option<Placing>,
+    /// The page the first frame asked about showed, which the placing is owed to.
+    placing_page: Option<usize>,
+    /// How many frames have been asked about the placing.
+    placing_asked: u8,
+}
+
+/// How many frames a window is given to come to fit the first displayed page.
+///
+/// A window that hides a tool bar or a status line when the document opens draws its first frame
+/// before that chrome has left, so the first fit is measured against a viewport about to grow and
+/// a second frame measures it again; two frames is what the two native windows take under `Xvfb`.
+/// The bound is for a platform that refuses a size, which would otherwise be asked again at every
+/// frame; the last frame gives up the fit and still centres (ADR 1429).
+const PLACING_FRAMES: u8 = 4;
+
+/// Table 147's two entries about the window's extent and position, as one first frame owes them.
+///
+/// `struct_excessive_bools` would have two flags be an enumeration of four states; the table
+/// states two independent entries with two independent defaults, as [`Chrome`] states four.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Placing {
+    /// `/FitWindow`: resize the window to the first displayed page.
+    pub fit: bool,
+    /// `/CenterWindow`: put the window in the centre of the screen.
+    pub centre: bool,
 }
 
 impl Default for Presenting {
@@ -165,6 +204,9 @@ impl Default for Presenting {
             stated: Chrome::SHOWN,
             on_exit: None,
             full_screen: false,
+            placing: None,
+            placing_page: None,
+            placing_asked: 0,
         }
     }
 }
@@ -179,11 +221,60 @@ impl Presenting {
     #[must_use]
     pub fn opening(opening: Opening, preferences: &ViewerPreferences) -> Self {
         let full_screen = opening.mode == PageMode::FullScreen;
+        let placing = Placing {
+            fit: preferences.fit_window,
+            centre: preferences.center_window,
+        };
         Self {
             stated: Chrome::stated(preferences),
             on_exit: full_screen.then_some(preferences.non_full_screen_page_mode),
             full_screen,
+            placing: (placing.fit || placing.centre).then_some(placing),
+            placing_page: None,
+            placing_asked: 0,
         }
+    }
+
+    /// Table 147's `/FitWindow` and `/CenterWindow`, asked at a frame of page `page`: `Some` while
+    /// they are owed, and `None` once [`Self::placed`] has been said, once a frame of another page
+    /// has been drawn, or once [`PLACING_FRAMES`] frames have been asked.
+    ///
+    /// At a frame rather than on opening, because "the size of the first displayed page" is the
+    /// size a page is drawn at, which the window knows only once it has drawn it. A host fits the
+    /// window where it does not fit yet and otherwise centres it and says [`Self::placed`], so a
+    /// person who resizes or moves the window afterwards keeps what they chose; the last frame
+    /// asked answers with `fit` false, so that a window the platform will not resize is still
+    /// centred. A window that opens full screen owes neither: Table 29's full screen is the whole
+    /// screen, which no size or position the table states can improve on.
+    pub fn place(&mut self, page: usize) -> Option<Placing> {
+        if self.full_screen {
+            self.placing = None;
+        }
+        let mut placing = self.placing?;
+        if self.placing_page.is_some_and(|first| first != page) {
+            self.placing = None;
+            return None;
+        }
+        self.placing_page = Some(page);
+        self.placing_asked = self.placing_asked.saturating_add(1);
+        if self.placing_asked >= PLACING_FRAMES {
+            self.placing = None;
+            placing.fit = false;
+        }
+        Some(placing)
+    }
+
+    /// Whether Table 147's `/FitWindow` or `/CenterWindow` is still owed, for a host that must
+    /// ask its window's extents before it can answer [`Self::place`].
+    #[must_use]
+    pub const fn owes_placing(&self) -> bool {
+        self.placing.is_some() && !self.full_screen
+    }
+
+    /// The window fits the first displayed page and has been centred where that was asked:
+    /// nothing more is owed.
+    pub const fn placed(&mut self) {
+        self.placing = None;
     }
 
     /// Whether the window should be full screen.
@@ -247,12 +338,134 @@ impl Presenting {
     }
 }
 
+/// The inner size a window takes for Table 147's `/FitWindow`, in the units it is given.
+///
+/// The chrome is kept as it is and the part that shows pages is made the size of the page drawn in
+/// it: `window` less `viewport` is what surrounds the pages, and `page` is the first displayed
+/// page's extent at the magnification it was displayed at. Held to `screen` where a host knows it,
+/// because a page drawn larger than the screen is a window no one could see the edges of; and
+/// never below one unit either way.
+#[must_use]
+pub fn fitted(
+    window: (f64, f64),
+    viewport: (f64, f64),
+    page: (f64, f64),
+    screen: Option<(f64, f64)>,
+) -> (f64, f64) {
+    let width = window.0 - viewport.0 + page.0;
+    let height = window.1 - viewport.1 + page.1;
+    let (width, height) = screen.map_or((width, height), |(most_wide, most_tall)| {
+        (width.min(most_wide), height.min(most_tall))
+    });
+    (width.max(1.0), height.max(1.0))
+}
+
+/// Where a window's top-left corner goes for Table 147's `/CenterWindow`: its `outer` extent,
+/// frame included, centred on `screen` given as `(left, top, width, height)`.
+///
+/// A window larger than the screen keeps its top-left corner on it, because the half that would
+/// otherwise be off the top holds the title bar that moves it.
+#[must_use]
+pub fn centred(outer: (f64, f64), screen: (f64, f64, f64, f64)) -> (f64, f64) {
+    let (left, top, width, height) = screen;
+    (
+        left + ((width - outer.0) / 2.0).max(0.0),
+        top + ((height - outer.1) / 2.0).max(0.0),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use pdf_model::viewer_preferences::{Opening, PageLayout, PageMode, ViewerPreferences};
     use viewer_core::PresentationMode;
 
-    use super::{Chrome, Presenting};
+    use super::{Chrome, Placing, Presenting, centred, fitted};
+
+    /// Table 147's `/FitWindow` and `/CenterWindow` are owed once, to the first frame, and not by a
+    /// window that opened full screen.
+    #[test]
+    fn the_windows_size_and_place_are_owed_once() {
+        let preferences = ViewerPreferences {
+            fit_window: true,
+            center_window: true,
+            ..ViewerPreferences::default()
+        };
+        let single = Opening {
+            mode: PageMode::UseNone,
+            layout: PageLayout::SinglePage,
+        };
+        let asked = Some(Placing {
+            fit: true,
+            centre: true,
+        });
+        let mut presenting = Presenting::opening(single, &preferences);
+        assert_eq!(presenting.place(0), asked);
+        assert_eq!(presenting.place(0), asked, "owed until the window fits");
+        presenting.placed();
+        assert_eq!(presenting.place(0), None, "paid once");
+
+        let mut another_page = Presenting::opening(single, &preferences);
+        assert_eq!(another_page.place(0), asked);
+        assert_eq!(
+            another_page.place(1),
+            None,
+            "the first displayed page's, not the next one's"
+        );
+
+        let mut refused = Presenting::opening(single, &preferences);
+        for _ in 1..super::PLACING_FRAMES {
+            assert_eq!(refused.place(0), asked);
+        }
+        assert_eq!(
+            refused.place(0),
+            Some(Placing {
+                fit: false,
+                centre: true
+            }),
+            "the last frame gives up the fit and still centres"
+        );
+        assert_eq!(refused.place(0), None);
+
+        let mut silent = Presenting::opening(single, &ViewerPreferences::default());
+        assert_eq!(silent.place(0), None, "Table 147's defaults are false");
+        let mut full = Presenting::opening(
+            Opening {
+                mode: PageMode::FullScreen,
+                layout: PageLayout::SinglePage,
+            },
+            &preferences,
+        );
+        assert_eq!(full.place(0), None, "full screen is the whole screen");
+    }
+
+    /// The chrome is kept and the viewport becomes the page: a 1000 by 1100 window whose pages are
+    /// shown in 610 by 1020 of it, showing a page drawn 610 by 812, becomes 1000 by 892.
+    #[test]
+    fn a_fitted_window_keeps_its_chrome_and_takes_the_pages_size() {
+        assert_eq!(
+            fitted((1000.0, 1100.0), (610.0, 1020.0), (610.0, 812.0), None),
+            (1000.0, 892.0)
+        );
+        assert_eq!(
+            fitted(
+                (800.0, 1000.0),
+                (800.0, 1000.0),
+                (750.0, 3000.0),
+                Some((1400.0, 1200.0))
+            ),
+            (750.0, 1200.0),
+            "held to the screen"
+        );
+        assert_eq!(
+            centred((750.0, 1000.0), (0.0, 0.0, 1400.0, 1200.0)),
+            (325.0, 100.0)
+        );
+        assert_eq!(
+            centred((2000.0, 1000.0), (10.0, 0.0, 1400.0, 1200.0)),
+            (10.0, 100.0),
+            "a window wider than the screen keeps its corner on it"
+        );
+    }
 
     /// A document that opens on `/PageMode /FullScreen`, which Table 29 states as a `shall`.
     fn asks_for_full_screen(non_full_screen: PageMode) -> Presenting {

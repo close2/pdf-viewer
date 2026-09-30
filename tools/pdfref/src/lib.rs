@@ -177,7 +177,7 @@ impl Tolerance {
     /// percentile of the reference spread, 12.02%, was run over the corpus and forms **457**
     /// new consensuses, of which **278** then contradict us — so the derived value cannot be
     /// adopted without arguing 278 pages, and adopting it for our own side alone would loosen
-    /// the gate in the one direction that flatters us. `doc/todo/12` is the work.
+    /// the gate in the one direction that flatters us. ADR 0771 is why the floor was not raised.
     ///
     /// # And the 278 have been read, which is what closed that half (ADR 0776)
     ///
@@ -342,7 +342,7 @@ impl Tolerance {
     /// known-good independent implementation on 0.6% of text pages under the one consensus whose
     /// members do not share the `FreeType` object, and on 9.1% under the one whose members do — and
     /// under all three this tree is contradicted at a rate between a third less and half again as
-    /// much as the reference beside it. ADR 0771; `doc/todo/12` says why that does not move the
+    /// much as the reference beside it. ADRs 0771 and 0776 say why that does not move the
     /// number.
     ///
     /// # That measurement, and it is still not that renderer
@@ -826,7 +826,7 @@ pub fn triangulate_with(
 
     let abstained = consensus_abstentions(references, testimony, &between_references, tolerance);
     let drew: Vec<Reference> = references.iter().map(|(reference, _)| *reference).collect();
-    // The same number in both places, which is the whole of what `doc/todo/12` is about: one
+    // The same number in both places, which is the whole of what ADR 0243 measured: one
     // bound decides whether the references agree *and* floors what we are held to.
     let (outcome, judged_by, consensuses) = decide(
         &drew,
@@ -874,8 +874,8 @@ pub fn triangulate_with(
 ///
 /// `formation` is what two references must agree within to form a consensus at all; `floor` is
 /// what our own render is held to before [`Tolerance::widened_to`] widens it. They are one
-/// number on every path this harness renders through — `doc/todo/12`'s "one bound doing two
-/// jobs" — and they are two parameters so that [`Triangulation::rejudged`] can ask what a
+/// number on every path this harness renders through — one bound doing two jobs (ADRs 0243,
+/// 0776) — and they are two parameters so that [`Triangulation::rejudged`] can ask what a
 /// different formation bound would decide **without a second copy of this function**.
 fn decide(
     drew: &[Reference],
@@ -1867,8 +1867,8 @@ mod tests {
     /// And the counterfactual has to be able to *move*, or the assertion above is vacuous.
     ///
     /// Two references 8 columns apart form no consensus under the class bound and do form one
-    /// under a bound wide enough to admit them — which is the whole mechanism `doc/todo/12`
-    /// item 1 is about: raising the formation bound manufactures consensuses, and each one then
+    /// under a bound wide enough to admit them — which is the whole mechanism ADR 0776
+    /// is about: raising the formation bound manufactures consensuses, and each one then
     /// reaches a verdict about us that nobody has looked at.
     #[test]
     fn a_wider_formation_bound_forms_a_consensus_that_then_convicts() {

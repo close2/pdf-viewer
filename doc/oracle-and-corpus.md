@@ -643,7 +643,7 @@ where `ghostscript` carries its own statically linked copy. The measurement behi
 on every such page `ghostscript` fails the same differing-fraction bound against both members of
 the convicting pair — the pair's spread and the `ghostscript` pairs' spreads do not even overlap —
 so those verdicts rest on a bound a voting reference cannot meet either. `CONTRADICTED_GLYPH_EDGES`
-carries the table; no verdict or bound moved on it, and `doc/todo/12` still prices what moving one
+carries the table; no verdict or bound moved on it, and ADRs 0771 and 0776 price what moving one
 would cost.
 
 **The seven-hundred-and-forty-first session put the fourth measure into the ordering and measured
@@ -651,7 +651,7 @@ what moved, and the answer is nothing worth having** (ADR 0643). On the contradi
 pages `rank_the_contradicted` prints are the same ten in the same order to the hundredth under either
 unit, because the measure that decides those verdicts is never the largest ratio of the page's
 *nearest* comparison. On the ambiguous pool it is the largest ratio on nearly the whole population,
-and `doc/todo/12`'s bound is why that disqualifies it rather than recommending it: over the complete
+and ADR 0243's bound is why that disqualifies it rather than recommending it: over the complete
 ambiguous pages our differing fraction sits at a median 2.08 times the class bound against the closest
 reference pair's 1.96, so the measure separates us from the references by six percent in the middle of
 the bucket. Read as *we are alone*, three measures name 48 of those pages and four name 569. **So the
@@ -1153,8 +1153,11 @@ newly contradicted** against 37 leaving, which is 278 diagnoses rather than a ro
 population that would justify loosening our own side alone is the one crossing the hinting boundary,
 where the median differing fraction doubles (1.69% → 3.42%) — but the sole renderer on the far side
 of it is `hayro`, which shares `skrifa` with this tree, so it is not evidence about us.
-**ADR 0243** has the tables; [todo 12](todo/12-one-bound-two-jobs.md) has the work; the 38 pages'
-status is unchanged and now has a reason beside it.
+**ADR 0243** has the tables. The question is answered, and the bound stays one number: ADR 0771
+declined the floor for our own side alone, on six named pages whose error is a colour reading or a
+sub-pixel departure rather than a phase, and ADR 0776 found that raising the formation bound
+acquits the same six through `widened_to` — the two jobs are one knob. `doc/verify.md` has the two
+commands that re-run the derivation; the 38 pages' status is unchanged and has that reason beside it.
 
 **Two cautions the contradicted list earned.** A page may be contradicted for a reason other than
 the one its group names — **twelve for twelve, so far, on the group being wrong, and the

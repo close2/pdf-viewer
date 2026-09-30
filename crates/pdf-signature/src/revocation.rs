@@ -427,6 +427,20 @@ pub struct RevokedCertificate<'a> {
     pub reason: Option<RevocationReason>,
 }
 
+/// Which of `TBSCertList`'s trailing optional members may come next, in RFC 5280 section 5.1's
+/// order: `nextUpdate`, `revokedCertificates`, `crlExtensions`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Optional {
+    /// Any of the three.
+    NextUpdate,
+    /// The entries or the extensions.
+    Revoked,
+    /// The extensions alone.
+    Extensions,
+    /// Nothing more.
+    Nothing,
+}
+
 /// RFC 5280 section 5.1's `CertificateList`, read out of `bytes`.
 ///
 /// # Errors
@@ -505,15 +519,26 @@ pub fn certificate_list(bytes: &[u8]) -> Result<CertificateList<'_>, MaterialRef
         signature,
         unrecognised_critical: None,
     };
+    // The three optional members come in the grammar's order and each at most once: `nextUpdate`,
+    // then `revokedCertificates`, then `crlExtensions`. A member out of that order, or a second of
+    // one, is not a `TBSCertList` — and reading it anyway meant a later `SEQUENCE` silently
+    // replaced the list's entries, so a serial the list carries was searched for in bytes that
+    // are not its entries and reported as not listed (ADR 1435 section 4).
+    let mut stage = Optional::NextUpdate;
     for member in std::iter::from_fn(|| members.next_value().transpose()) {
         let member = member?;
-        if member.is_context(0) {
+        if member.is_context(0) && stage <= Optional::Extensions {
             list.unrecognised_critical = unrecognised_critical(&member)?;
-        } else if member.identifier == SEQUENCE {
+            stage = Optional::Nothing;
+        } else if member.identifier == SEQUENCE && stage <= Optional::Revoked {
             list.revoked = Some(member);
-        } else if list.next_update.is_none() {
+            stage = Optional::Extensions;
+        } else if stage == Optional::NextUpdate {
             list.next_update =
                 Some(x509::read_time(&member).ok_or(MaterialRefusal::DateUnreadable)?);
+            stage = Optional::Revoked;
+        } else {
+            return Err(MaterialRefusal::NotACertificateList);
         }
     }
     Ok(list)

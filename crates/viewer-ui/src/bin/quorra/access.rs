@@ -239,7 +239,7 @@ impl App {
         if self.accessibility.is_none() {
             return;
         }
-        let document = self.named().to_owned();
+        let document = self.named();
         let window = format!("{document} — {}", self.caption);
         #[expect(
             clippy::cast_precision_loss,

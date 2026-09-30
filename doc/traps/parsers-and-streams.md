@@ -329,6 +329,15 @@ zero octets, which decodes to a point of order 4 and satisfies RFC 8032's cofact
 all-zero signature for every message (ADR 1386). That is the equation behaving as written; the
 refusal is of the key. A verification property needs a key-validity rung before the equation.
 
+### 77. A fuzz target that fixes its subject in advance never leaves the first comparison
+
+`revocation` started at 437 edges from 771 seeds because every input was asked about one fixed
+certificate that no input names, so RFC 5280's walk always stopped at the issuer comparison and the
+matching branch never ran. The target now asks each list about the serials and the certificate the
+list itself carries; starting coverage went from 437 to 841 edges and the first run found a real
+defect in 38 seconds — a second `SEQUENCE` after `revokedCertificates` silently replacing the
+entries (ADR 1435). Read what `INITED` stops at, and let the input supply the subject.
+
 ## Things worth knowing
 
 - **A recovery searches for something, and *where that thing can be* is a claim the standard

@@ -241,6 +241,10 @@ struct Showing {
     dirty: bool,
     /// What the title bar says about the page.
     caption: String,
+    /// What the title bar calls the document where §12.2's `/DisplayDocTitle` asks for its own
+    /// title and it states one ([`viewer_host::documents::document_title`]); `None` for the file's
+    /// name.
+    titled: Option<String>,
     /// §12.9's measuring: whether a press on the page is a point, and the points so far.
     ///
     /// What is shared with the other two windows is `viewer_host::Measuring` — when a press is a
@@ -280,6 +284,7 @@ impl Showing {
             report_due: viewer_host::report::Due::default(),
             dirty: false,
             caption: String::new(),
+            titled: None,
             measuring: viewer_host::Measuring::default(),
             layout: pdf_model::viewer_preferences::PageLayout::SinglePage,
             departures: viewer_core::RestrictionOverride::NONE,
@@ -692,6 +697,12 @@ impl Host {
             height,
             scale,
         });
+        // A window asked to fit the first displayed page is measured again once it has taken
+        // the size it was asked for, because a frame is not always drawn for a viewport the page
+        // already fits the width of (ADR 1429).
+        if self.opened && self.presenting.owes_placing() {
+            self.fit_the_window();
+        }
         if !self.opened {
             self.opened = true;
             self.trace.say(
@@ -1255,6 +1266,11 @@ impl Host {
             if self.showing.report_due.after_a_frame() {
                 queue.push_back(Command::Report);
             }
+            // Table 147's `/FitWindow` is about the first displayed page's size, which is known
+            // now and not before (ADR 1429).
+            if self.presenting.owes_placing() {
+                self.fit_the_window();
+            }
             // §12.4.4.1: the page a transition moves *to* is the one whose list has just
             // arrived, so this is where an armed one can begin. The face is kept whether or not
             // anything is presenting — it is an `Arc` and a target, and no rasterisation — because
@@ -1262,6 +1278,73 @@ impl Host {
             self.face_arrived(&finished.request);
         }
         self.mind_a_long_draw();
+    }
+
+    /// Obeys Table 147's `/FitWindow` at a frame of a document opened in front, while
+    /// [`viewer_host::Presenting::place`] says it is owed: the window keeps its chrome and the
+    /// page's viewport becomes the size of the page it shows ([`viewer_host::fitted`]), held to
+    /// the monitor the window is on. A window that does not fit yet is asked to, and the next
+    /// frame measures again — which it needs, because the first frame is drawn before the chrome
+    /// this document hid has left the viewport.
+    ///
+    /// `/CenterWindow` is not obeyed here, and was said when the document opened
+    /// ([`NO_POSITION_TO_SET`]). The size is `set_default_size`, which is GTK 4's one way to ask
+    /// for a window's size, and a request the platform may refuse.
+    fn fit_the_window(&mut self) {
+        let page = match self.viewer.query(Query::View) {
+            Answer::View(viewing) => viewing.page,
+            _ => 0,
+        };
+        let Some(placing) = self.presenting.place(page) else {
+            return;
+        };
+        let geometry = match self.viewer.query(Query::PageGeometry(page)) {
+            Answer::Geometry(geometry) if placing.fit => geometry,
+            _ => {
+                self.presenting.placed();
+                return;
+            }
+        };
+        let scale = f64::from(self.scale.max(1));
+        let window = (
+            f64::from(self.ui.window.width()),
+            f64::from(self.ui.window.height()),
+        );
+        let viewport = (
+            f64::from(self.viewport.0) / scale,
+            f64::from(self.viewport.1) / scale,
+        );
+        let drawn = (
+            f64::from(geometry.width) / scale,
+            f64::from(geometry.height) / scale,
+        );
+        let screen = self.ui.window.surface().and_then(|surface| {
+            let geometry = WidgetExt::display(&self.ui.window)
+                .monitor_at_surface(&surface)?
+                .geometry();
+            Some((f64::from(geometry.width()), f64::from(geometry.height())))
+        });
+        let (width, height) = viewer_host::fitted(window, viewport, drawn, screen);
+        // `set_default_size` measures the surface, which is the widget and the shadow a client
+        // side decoration draws around it; `width` and `height` measure the widget alone.
+        let shadow = self.ui.window.surface().map_or((0.0, 0.0), |surface| {
+            (
+                f64::from(surface.width()) - window.0,
+                f64::from(surface.height()) - window.1,
+            )
+        });
+        if (width - window.0).abs() <= 1.0 && (height - window.1).abs() <= 1.0 {
+            self.presenting.placed();
+            return;
+        }
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a window's extent in logical pixels, held to the screen above"
+        )]
+        self.ui.window.set_default_size(
+            (width + shadow.0).round() as i32,
+            (height + shadow.1).round() as i32,
+        );
     }
 
     /// Tells the person about a draw that has outlasted `viewer_host::drawing::WARN`, and takes
@@ -1680,7 +1763,10 @@ impl Host {
 
     /// What to call the document, which is the file's own name.
     pub(crate) fn named(&self) -> String {
-        named(&self.showing.path)
+        self.showing
+            .titled
+            .clone()
+            .unwrap_or_else(|| named(&self.showing.path))
     }
 
     /// What the title bar says about the page, which is what the window is called after the name.
@@ -2926,7 +3012,7 @@ impl Host {
         let mark = if self.showing.dirty { "• " } else { "" };
         self.ui.window.set_title(Some(&format!(
             "{mark}{} — {}",
-            named(&self.showing.path),
+            self.named(),
             self.showing.caption
         )));
     }
@@ -2967,6 +3053,26 @@ impl Host {
             if preferences.hide_menubar {
                 self.say(viewer_host::restriction::NOT_THE_DOCUMENTS_TO_HIDE);
             }
+            // Table 147's `/CenterWindow` has no call to reach in GTK 4, which gives a program no
+            // way to place its own top-level window; said rather than dropped (trap 5, ADR 1429).
+            if preferences.center_window {
+                self.say(NO_POSITION_TO_SET);
+            }
+            // §12.2's `/DisplayDocTitle`: the title bar shows the document's own title, by the rule
+            // the other two windows take too. The metadata stream is read only for a document
+            // that asks, so a document that does not costs its opening nothing here.
+            self.showing.titled = if preferences.display_doc_title {
+                match self.viewer.query(Query::Properties) {
+                    Answer::Properties {
+                        information,
+                        metadata,
+                    } => viewer_host::documents::document_title(&information, metadata.as_ref()),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            self.retitle();
         }
         // Queued rather than dispatched: this runs inside `react`, and `dispatch` would start a
         // second `pump` under the first. `queue` is what that parameter is for.
@@ -3891,6 +3997,15 @@ impl Host {
 }
 
 /// What to call the document in a title bar: its file name, or the whole path where it has none.
+/// What this window says to a document asking for Table 147's `/CenterWindow`.
+///
+/// GTK 4 removed the call that placed a top-level window, and on Wayland no client places its own
+/// window at all; the position is the platform's. A departure the toolkit made rather than one this
+/// program decided, and said once when the document opens rather than dropped (ADR 1429).
+const NO_POSITION_TO_SET: &str = "this document asks for its window in the centre of the screen \
+                                  (§12.2's /CenterWindow); GTK 4 gives a program no way to place \
+                                  its own window, so it stays where the platform put it";
+
 fn named(path: &Path) -> String {
     path.file_name().map_or_else(
         || path.display().to_string(),
@@ -4591,8 +4706,21 @@ fn page_area(
     popups.set_can_target(false);
     popups.set_overflow(gtk4::Overflow::Hidden);
 
+    // **The page's `GtkFixed` is an overlay child as well, over a ground that is measured in its
+    // place**, for the popups' reason and for Table 147's `/FitWindow`: a `GtkFixed` measures the
+    // union of its children, so a page centred in a tall viewport makes the viewport's *natural*
+    // height its own offset plus its height, and GTK 4 will not size a window below its natural
+    // size — a window asked to fit a page 812 pixels tall stopped at 915, and every retry halved
+    // the gap rather than closing it. The ground expands and states no size of its own, so the
+    // window's size is the window's (ADR 1429). The fixed is still allocated the whole overlay, so
+    // its surround and its children are where they were.
+    let ground = gtk4::DrawingArea::new();
+    ground.set_can_target(false);
+    ground.set_hexpand(true);
+    ground.set_vexpand(true);
     let overlay = gtk4::Overlay::new();
-    overlay.set_child(Some(&fixed));
+    overlay.set_child(Some(&ground));
+    overlay.add_overlay(&fixed);
     // Under the chrome layer: a selection, a match and §12.5.1's ring are marks *on the page*, and
     // a window that hid them would be furniture eating the document. The window is opaque either
     // way, so what this decides is only what happens where the two meet.

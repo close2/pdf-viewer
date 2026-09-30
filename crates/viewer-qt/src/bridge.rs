@@ -322,6 +322,30 @@ pub mod ffi {
         height: f32,
     }
 
+    /// A window's extents as Table 147's `/FitWindow` and `/CenterWindow` need them, in logical
+    /// pixels: its inner size, what its frame adds, and the available area of its screen.
+    ///
+    /// A shared struct for `QtPlace`'s reason; a screen of no size is one Qt could not name.
+    #[derive(Debug, Clone, Copy)]
+    struct QtWindowExtents {
+        /// The window's inner width.
+        window_width: i32,
+        /// Its inner height.
+        window_height: i32,
+        /// What its frame adds to the width.
+        frame_width: i32,
+        /// What its frame adds to the height.
+        frame_height: i32,
+        /// The screen's available area: its left edge.
+        screen_left: i32,
+        /// Its top edge.
+        screen_top: i32,
+        /// Its width.
+        screen_width: i32,
+        /// Its height.
+        screen_height: i32,
+    }
+
     /// One quadrilateral of interactive chrome, in device pixels of the viewport.
     ///
     /// `[x0, y0, … x3, y3]` as eight named fields rather than an array, because the C++ reads
@@ -435,6 +459,10 @@ pub mod ffi {
         /// other two hosts, because a notice that differs between two binaries of one program is
         /// two claims about one obligation.
         notices: bool,
+        /// Table 147's `/FitWindow` or `/CenterWindow` is owed now that the first frame is up:
+        /// the window asks `place_window` with its own extents and resizes or moves itself by the
+        /// answer, because Rust never calls a Qt object (ADR 1429).
+        placement: bool,
     }
 
     /// A print job, as a `QPrintDialog` opens on it — §12.2's Table 147 and §7.6.4.2's bit 12.
@@ -857,6 +885,9 @@ pub mod ffi {
         fn status(self: &Host) -> String;
         /// The window's initial size in logical pixels: width, then height.
         fn window_size(self: &Host) -> Vec<i32>;
+        /// Table 147's `/FitWindow` and `/CenterWindow` for the window's own extents, as
+        /// `[resize, width, height, move, x, y]`, or empty where nothing is owed.
+        fn place_window(self: &mut Host, extents: QtWindowExtents) -> Vec<i32>;
         /// What the page area shows where no page lies: red, green, blue, in 0..=255.
         ///
         /// **Not §11.4.7's 𝑊**, which is the page's own colour and is imposed by the rasteriser

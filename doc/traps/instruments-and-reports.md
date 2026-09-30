@@ -984,6 +984,16 @@ both, because the citation scanner matches the singular form only (round 1295). 
 `ADR 0820, ADR 1377`, and when a sweep names a note as citing nothing, read the note before believing
 it.
 
+### 75. A shared target directory hands a gate the other tree's `CARGO_MANIFEST_DIR`
+
+Both the batch worktree and the main checkout built into one target directory; cargo names a
+path package's artefacts relative to its workspace root, so an rlib built in main a few minutes
+earlier counted as fresh for the worktree, and `strings` on the worktree's conformance test binary
+showed `/home/cl/projects/pdf-viewer/tools/conformance` (round 1302). Every conformance run of that
+batch had checked main's ledger and `doc/todo/65`, not the worktree's — trap 50 met by a gate rather
+than a measurement. `tools/batch.sh open` now writes the worktree's own `.cargo/config.toml` (ADR
+1440); until a batch has built there once, check the path before trusting a clean run.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

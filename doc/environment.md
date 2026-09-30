@@ -474,6 +474,40 @@ here** and unpacks the archive from the `SPEC_ZIP_PASSWORD` repository secret be
 a pull request from a fork gets no secret, and the step says so rather than failing obscurely.
 
 
+## After a merge: the commands the owner runs in the main checkout
+
+A round works in a worktree and never edits `/home/cl/projects/pdf-viewer`, so what a batch cannot
+carry is left on the owner's disk: an ignored or untracked file no merge updates, a fuzz artefact
+whose defect is fixed, a corpus a campaign found stale, the owner's own answers. The commands are
+here; **which of them has anything to do today is printed, not written down** —
+`tools/state.sh main-checkout` reads the main checkout without touching it (ADR 1440).
+
+```sh
+tools/state.sh main-checkout             # first, from the main checkout or the worktree
+
+# 1. A local edit to a path the batch changes stops `git merge --ff-only`. Set it aside and put it
+#    back around the fast-forward — never commit it on main first, which ends the fast-forward.
+git diff -- <path> > /tmp/owner.patch && git checkout -- <path>
+git merge --ff-only <batch branch>
+git apply --3way /tmp/owner.patch
+
+# 2. The fuzz workspace's lock is tracked (ADR 1439); an ignored copy on disk is replaced by the
+#    merge. It then agrees with the root lock or this fails, naming the package:
+cargo test -p conformance --test fuzz_workspace
+
+# 3. An artefact the tree names is one a round read, fixed and turned into a test; it may go.
+#    An unread one stays until a round reads it.
+PYTHONDONTWRITEBYTECODE=1 python3 tools/main-checkout.py \
+    | awk '$1 == "read," { print $3 }' | xargs -r rm --
+
+# 4. Seed what is unseeded or stale — the targets `main-checkout` names, and any a campaign's record
+#    calls stale — behind the lock, because it walks the corpus:
+flock /home/AI/heavy-walk.lock fuzz/seeds.sh fuzz/corpus <target>...
+
+# 5. The owner's own answers, which no round writes or commits:
+git status --short doc/questions
+```
+
 **Driving `quorra-qt` under Xvfb:** Qt ignores key presses there until it is run with
 `QT_XCB_NO_XI2=1` and the page has been clicked once; `xdotool windowfocus --sync <id>` before every
 `key` (round 1260, ADR 1357).

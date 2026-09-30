@@ -613,8 +613,10 @@ cargo run --release -p hayro-compare --bin hayro-speed -- --per-document ...  # 
 # why the wrapper asks the directory. Two consequences a round meets. A **fresh worktree had
 # neither directory at all** until `tools/worktree.sh` was taught to link them, so every fuzz run a
 # parallel round made started from nothing and said nothing about it. And a **clone has to
-# re-seed**, from the scripts in `fuzz/` and the recipes under each target below; a corpus is not
-# recoverable from the history because it was never in it.
+# re-seed**, with `fuzz/seeds.sh` — one `case` arm per target, which `tools/conformance/tests/
+# fuzz_workspace.rs` holds every target to beside its line here (ADR 1439); the prose under each
+# line says why its population is the one it is. A corpus is not recoverable from the history
+# because it was never in it.
 tools/fuzz.sh lexer                               # or, without the two questions, by hand:
 cd fuzz && cargo +nightly fuzz run lexer         -- -runs=50000   # needs nightly
 cd fuzz && cargo +nightly fuzz run cmap          -- -runs=50000   # §9.7's CMap parser
@@ -674,11 +676,13 @@ cd fuzz && cargo +nightly fuzz run page -- -runs=50000 -fork=6 -rss_limit_mb=409
   # libFuzzer called 15 s is 0.8 s in `target/quorra-retrieve`, which is ASan, the debug assertions
   # and six forks sharing 24 cores.
 cd fuzz && cargo +nightly fuzz run xmp           -- -runs=50000   # §14.3.2's XMP, the tree's
-  # only XML. Its corpus is seeded with all 318 packets the pdf.js documents decode to
+  # only XML. Seeded by `fuzz/seeds.sh` with every metadata packet the documents decode to, which
+  # `fuzz/seed_streams.py` takes out of them with the CMap, font, fax, security-handler and field
+  # seeds of five other targets
 cd fuzz && cargo +nightly fuzz run sfnt          -- -runs=50000   # §9.6.3's two glyph-table repairs
-  # **seed its corpus with real fonts** — 60 `/FontFile2` streams out of `doc/pdf.js/test/pdfs/`
-  # into `fuzz/corpus/sfnt/`. Unseeded it never forms a table directory and tests nothing; seeded
-  # it produced two crashers in its first minute (ADR 0175)
+  # **seed its corpus with real fonts** — every embedded TrueType program the documents hold, by
+  # `fuzz/seeds.sh`. Unseeded it never forms a table directory and tests nothing; seeded it
+  # produced two crashers in its first minute (ADR 0175)
 # §14.7's tree on a real accessibility bus, which is the only way to check the AccessKit bridge
 # end to end from here. A session bus, at-spi's own bus and registry, Xvfb, and `busctl` walking
 # `org.a11y.atspi.Accessible` from the registry root — a real client rather than this program's
@@ -960,6 +964,8 @@ tools/state.sh traps        # the trap index's rows, the group files' lengths, a
 tools/state.sh remedies     # doc/todo/66's two halves: remedy sites not built, profiles that
                             # still say `does not carry out yet`
 tools/state.sh instruments  # the examples this catalogue does not name
+tools/state.sh main-checkout # what the main checkout holds that a merge does not carry — read
+                            # only; doc/environment.md's *After a merge* is the commands (ADR 1440)
 cargo run --release -p conformance --bin unread   # the whole list navigation filters
 cargo run --release -p conformance --bin pointers # every path pointer, by rung; an owner's
                             # uncommitted answer is its own rung, not an absent pointer
@@ -1016,6 +1022,29 @@ which is trap 9's shared-data removal made runnable: it is `-sDefaultCMYKProfile
 else, it costs a full `gs` re-render because the cache keys on the invocation, and it is never set
 by a gate. ADR 0773 has what it measured and the two controls a null result needs. `PDFVIEWER_CORPUS_TRACE=1` names each document as it starts, which is how
 a hang is identified from a killed run.
+
+**Two re-runs of the bound the oracle judges a text page by**, one differing fraction doing two
+jobs — forming a consensus and flooring our own bound through `widened_to` — which ADR 0243
+measured, ADR 0771 declined to split, ADR 0776 showed to be one knob, and ADR 0773 read the vector
+row of. Both are walks, so both go behind the lock. The spread of the fixed bounds against the
+references' own, and the substitution table beside it — one command, both tables:
+
+```sh
+PDFVIEWER_ORACLE_SPREAD=1 cargo test --profile gates -p pdf-model --test oracle -- \
+    --ignored --nocapture the_fixed_bounds_against_the_references_own_spread
+```
+
+And the shared-profile removal: `doc/todo/02` §2's oracle line run three times, once under each of
+these, because the cache keys on the invocation and re-renders `ghostscript` rather than answering
+from the baseline's renders. The third is the control and must reproduce the baseline byte for
+byte; the second is the null removal ADR 0773 needed a control for, since a CGATS copy is the same
+press as the profile it replaces:
+
+```sh
+PDFREF_GS_CMYK_PROFILE=/usr/share/ghostscript/iccprofiles/ps_cmyk.icc        # a different press
+PDFREF_GS_CMYK_PROFILE=<a CGATS copy>                                        # the same press: a null
+PDFREF_GS_CMYK_PROFILE=/usr/share/ghostscript/iccprofiles/default_cmyk.icc   # the control
+```
 
 Cargo prints one line about `proc-macro-error2` being rejected by a future compiler. It arrives
 through `iai-callgrind`, a dev-dependency reaching no shipped binary, and `deny.toml` records the

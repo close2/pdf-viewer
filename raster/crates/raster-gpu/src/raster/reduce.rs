@@ -14,12 +14,15 @@
 //! continuously. The reduced samples are byte-identical by construction: the
 //! arithmetic is integer sums and divisions with no float in the data path.
 //!
-//! What is deliberately *not* mirrored is their rayon split: a reduction here runs
-//! once per `(image, factors)` for the device's life ([`crate::device`]'s cache),
-//! against once per placement change upstream, so the parallel crossover their
-//! `PARALLEL_FLOOR` earns has no work to divide. The cost is stated rather than
-//! hidden: a 2700×3450 photograph pays ~20 ms once, on the first frame that minifies
-//! it past a new integer factor.
+//! Their row split is mirrored too, on the threads the host permits
+//! ([`Options::encode_threads`](crate::Options::encode_threads)) rather than on a pool
+//! of this library's: a reduction here runs once per `(image, factors)` for the
+//! device's life ([`crate::device`]'s cache), but that once is the first frame that
+//! minifies the image past a new integer factor, which is a page turn onto the
+//! photograph — a 5280×3792 one paid 53 ms of the turn's 55 ms of transfer on one
+//! thread. Every output row is a function of its own band of source rows, so dividing
+//! the rows moves no byte ([`PARALLEL_FLOOR`] and the caller's ADR 1433 have the
+//! numbers).
 
 use raster_scene::ImageSpec;
 
@@ -108,21 +111,67 @@ pub(crate) fn reduction(
     })
 }
 
+/// Source samples below which a reduction runs on the calling thread alone — the
+/// caller's `PARALLEL_FLOOR`, the same number for their reason: under it, starting
+/// threads costs more than the rows they would share.
+const PARALLEL_FLOOR: u64 = 65_536;
+
+/// Output rows one thread takes at a time from the shared counter.
+///
+/// Small against a photograph's thousands of rows, so that a thread on this machine's
+/// slower core class takes fewer bands rather than an equal share it finishes last.
+const ROWS_PER_TAKE: usize = 16;
+
 /// Averages each block of samples that would share one device pixel — the caller's
 /// `Image::area_averaged`, statement for statement (premultiplied sums, proportional
-/// band boundaries, round-to-nearest), minus the rayon split the module comment
-/// accounts for. The bytes are theirs to the last one.
-pub(crate) fn area_averaged(spec: &ImageSpec, reduced: Reduction) -> ImageSpec {
+/// band boundaries, round-to-nearest), with its rows divided among up to `threads`
+/// threads as the module comment says. The bytes are theirs to the last one, at any
+/// value of `threads`.
+pub(crate) fn area_averaged(spec: &ImageSpec, reduced: Reduction, threads: usize) -> ImageSpec {
     let Reduction { width, height, .. } = reduced;
     let rows = Bands::new(spec.height, height);
     let columns = Bands::new(spec.width, width);
     let spans: Vec<(u32, u32)> = (0..width).map(|out_x| columns.at(out_x)).collect();
     let row_bytes = (width as usize).saturating_mul(4);
     let mut data: Vec<u8> = vec![0; row_bytes.saturating_mul(height as usize)];
-    for (out_y, row) in data.chunks_exact_mut(row_bytes).enumerate() {
+    let fill = |out_y: usize, row: &mut [u8]| {
         let (y0, y1) = rows.at(u32::try_from(out_y).unwrap_or(u32::MAX));
         for (cell, &(x0, x1)) in row.chunks_exact_mut(4).zip(&spans) {
             cell.copy_from_slice(&average_block(spec, x0, y0, x1, y1));
+        }
+    };
+    let take = row_bytes.saturating_mul(ROWS_PER_TAKE);
+    let samples = u64::from(spec.width).saturating_mul(u64::from(spec.height));
+    if threads > 1 && samples >= PARALLEL_FLOOR && take > 0 && data.len() > take {
+        // Each thread takes the next band of rows from one counter; a band is written by
+        // exactly the thread that took it, through the lock that hands it over.
+        let bands: Vec<std::sync::Mutex<&mut [u8]>> =
+            data.chunks_mut(take).map(std::sync::Mutex::new).collect();
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let work = || {
+            loop {
+                let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some(band) = bands.get(index) else {
+                    return;
+                };
+                let Ok(mut band) = band.lock() else {
+                    return;
+                };
+                let first = index.saturating_mul(ROWS_PER_TAKE);
+                for (offset, row) in band.chunks_exact_mut(row_bytes).enumerate() {
+                    fill(first.saturating_add(offset), row);
+                }
+            }
+        };
+        std::thread::scope(|scope| {
+            for _ in 1..threads.min(bands.len()) {
+                scope.spawn(work);
+            }
+            work();
+        });
+    } else {
+        for (out_y, row) in data.chunks_exact_mut(row_bytes).enumerate() {
+            fill(out_y, row);
         }
     }
     ImageSpec {
@@ -262,7 +311,7 @@ mod tests {
         let reduced = reduction(&source, false, &placement).expect("factor 2 both ways");
         assert_eq!(reduced.factors, (2, 2));
         assert_eq!((reduced.width, reduced.height), (2, 2));
-        let out = area_averaged(&source, reduced);
+        let out = area_averaged(&source, reduced, 1);
         for cell in out.data.chunks_exact(4) {
             assert_eq!(cell, [128, 128, 128, 255]);
         }
@@ -295,7 +344,26 @@ mod tests {
                 height: 1,
                 smoothed: true,
             },
+            1,
         );
         assert_eq!(&out.data[..], &[255, 0, 0, 128]);
+    }
+
+    /// Dividing the rows among threads moves no byte: a grid above [`PARALLEL_FLOOR`]
+    /// whose bands do not divide its rows evenly, with alpha varying so that the
+    /// premultiplied sums are exercised, reduced on one thread and on five.
+    #[test]
+    fn a_thread_count_changes_no_byte() {
+        let (width, height) = (301_u32, 257_u32);
+        let data: Vec<u8> = (0..width * height * 4)
+            .map(|index| u8::try_from((index.wrapping_mul(2_654_435_761)) >> 24).unwrap_or(0))
+            .collect();
+        let source = spec(width, height, data);
+        let placement = [100.0, 0.0, 0.0, 70.0, 0.0, 0.0];
+        let reduced = reduction(&source, false, &placement).expect("a reduction");
+        let one = area_averaged(&source, reduced, 1);
+        let five = area_averaged(&source, reduced, 5);
+        assert!(u64::from(width) * u64::from(height) >= PARALLEL_FLOOR);
+        assert_eq!(one.data, five.data);
     }
 }

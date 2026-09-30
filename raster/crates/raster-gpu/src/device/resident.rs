@@ -217,7 +217,8 @@ impl Device {
                 height: stored.spec.height.div_ceil(fy.max(1)),
                 smoothed: false, // the op carries the resolved filter; unused here
             };
-            let spec = crate::raster::reduce::area_averaged(&stored.spec, reduced);
+            let spec =
+                crate::raster::reduce::area_averaged(&stored.spec, reduced, self.encode_threads);
             let texels = super::textures::premultiplied(&spec.data);
             let pair = self.rgba_texture("raster reduced image", spec.width, spec.height, &texels);
             bytes = bytes.saturating_add(spec.data.len() as u64);

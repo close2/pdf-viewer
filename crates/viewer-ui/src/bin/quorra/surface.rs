@@ -1595,6 +1595,11 @@ impl App {
         if self.report_due.after_a_frame() {
             self.dispatch(Command::Report);
         }
+        // Table 147's `/FitWindow` and `/CenterWindow` are about the first displayed page's size,
+        // which is known now and not before (ADR 1429).
+        if self.presenting.owes_placing() {
+            self.place_the_window();
+        }
     }
 }
 
