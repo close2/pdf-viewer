@@ -51,6 +51,11 @@ impl Tally {
     /// Adds one string, and says whether it lost anything.
     fn add(&mut self, chrome: &Chrome, text: &str) -> bool {
         self.strings = self.strings.saturating_add(1);
+        // The first count queues the machine's search for what the compiled-in faces lack, and a
+        // measurement waits for it (ADR 1406) where a window would draw the box and move on.
+        if chrome.without_a_code(text, Style::default()) > 0 {
+            chrome.settle();
+        }
         let missing = chrome.without_a_code(text, Style::default());
         if missing == 0 {
             return false;

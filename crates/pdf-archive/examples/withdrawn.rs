@@ -279,8 +279,8 @@ enum Did {
 ///
 /// **A root is a checkpoint, and on a large corpus that is what to use it for.** Each root's
 /// report is printed as that root finishes, so a walk stopped by a bound — eight workers over the
-/// crawl reached `bounded.sh`'s twelve-gibibyte `RLIMIT_DATA` in session 1007 and aborted with
-/// nothing printed — keeps what it had. Name the subdirectories rather than the corpus when the
+/// crawl can reach `bounded.sh`'s twelve-gibibyte `RLIMIT_DATA` and abort with nothing printed —
+/// keeps what it had. Name the subdirectories rather than the corpus when the
 /// walk is long enough to lose.
 fn sweep(root: &Path, options: &Options, tally: &mut Tally) {
     let paths = files(root);

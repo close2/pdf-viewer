@@ -348,7 +348,7 @@ it.
   where N documents in N threads meant N parses and N caches. The two answers differ because the
   measurements differ, which is the point. No flag was added, and what would justify one is written
   in that ADR: a person needing a single-threaded *window*. The gate that needs another number has
-  `PDFVIEWER_QUORRA_ENCODE_THREADS`, which is a gate's knob and not a person's.
+  `PDFVIEWER_RASTER_ENCODE_THREADS`, which is a gate's knob and not a person's.
 - **What a flag may not be**: a way to avoid deciding. `CLAUDE.md` principle 1 is that a shortcut is
   documented as a deliberate decision with its cost, never taken silently — and a knob whose default
   is wrong is a decision deferred onto the user. Every flag here should have a right default and

@@ -443,11 +443,10 @@ fn a_glyph_that_shows_itself_reaches_a_bound_and_stops() {
     assert!(
         interpretation.unsupported.iter().any(|item| matches!(
             item,
-            pdf_model::Unsupported::LimitReached {
-                limit: "MAX_FORM_DEPTH"
-            }
+            pdf_model::Unsupported::NestingCycle { stream } if stream.contains("/square")
         )),
-        "the cycle should reach the nesting bound and say so: {:?}",
+        "the cycle should reach the nesting bound and name the glyph it re-enters (ADR 1411): \
+         {:?}",
         interpretation.unsupported
     );
 }

@@ -167,20 +167,20 @@ pub struct Chrome {
     /// Asked only after both of [`Chrome::set`]'s routes into the compiled-in face have failed, so
     /// every character those faces state is drawn the same on every machine, which is ADR 0133's
     /// argument kept whole; what varies from machine to machine is only what would otherwise be a
-    /// box on all of them (ADR 1382). Behind a lock because a line is set through `&self`, and
-    /// empty until a line needs it, so that nothing reads the machine's fonts on the launch path
-    /// of a window whose text the compiled-in faces cover.
-    machine: Option<Mutex<MachineFaces>>,
+    /// box on all of them (ADR 1382). **The search never runs on the thread that draws** (ADR
+    /// 1406): a character nobody has answered is the box on this frame, the search is queued on
+    /// [`viewer_host::machine_faces`]'s thread, and the window is woken to draw again when the face
+    /// lands — so a label holding one such character costs the launch path no catalogue walk.
+    machine: Option<MachineFaces>,
 }
 
-/// The machine's faces [`Chrome`] has found so far, and what it has asked of them.
-#[derive(Default)]
+/// The machine's faces behind [`Chrome`]: the search, shared with `quorra-qt`, and each face it
+/// found loaded as the chrome draws it.
 struct MachineFaces {
-    /// Every face loaded, in the order they were found.
-    faces: Vec<Arc<pdf_font::LoadedFont>>,
-    /// Which of [`Self::faces`] answers a character in a style, or `None` where the machine
-    /// offers none — kept, so a label drawn every frame searches the machine once.
-    answered: BTreeMap<(char, bool, bool), Option<usize>>,
+    /// Which file answers a character, asked off this thread.
+    search: viewer_host::machine_faces::MachineFaces,
+    /// Face `n` of [`Self::search`], loaded on first use; `None` where it would not load.
+    loaded: Mutex<BTreeMap<usize, Option<Arc<pdf_font::LoadedFont>>>>,
 }
 
 impl std::fmt::Debug for Chrome {
@@ -209,8 +209,50 @@ impl Chrome {
     /// no chrome and said nothing would be trap 5 in its own interface.
     pub fn new() -> Result<Self, String> {
         let mut chrome = Self::compiled_in_only()?;
-        chrome.machine = Some(Mutex::new(MachineFaces::default()));
+        chrome.machine = Some(MachineFaces {
+            search: viewer_host::machine_faces::MachineFaces::new(),
+            loaded: Mutex::new(BTreeMap::new()),
+        });
         Ok(chrome)
+    }
+
+    /// What to call, from the searching thread, when a machine face lands (ADR 1406).
+    ///
+    /// A window's event loop is what to wake: the line that drew a box for the character will draw
+    /// the character when it is drawn again. Does nothing for [`Self::compiled_in_only`].
+    pub fn wake_with(&self, wake: impl Fn() + Send + Sync + 'static) {
+        if let Some(machine) = self.machine.as_ref() {
+            machine.search.wake_with(wake);
+        }
+    }
+
+    /// Whether a machine face has landed since this was last asked, which is when a window whose
+    /// chrome drew a box for want of one draws again.
+    #[must_use]
+    pub fn take_arrivals(&self) -> bool {
+        self.machine
+            .as_ref()
+            .is_some_and(|machine| machine.search.take_arrivals())
+    }
+
+    /// Whether a character this chrome asked the machine for is still being searched for, which a
+    /// window with no waker polls on.
+    #[must_use]
+    pub fn searching(&self) -> bool {
+        self.machine
+            .as_ref()
+            .is_some_and(|machine| machine.search.searching())
+    }
+
+    /// Waits until every character this chrome has asked the machine for is answered.
+    ///
+    /// **For a caller measuring the chrome, never for a window**: a test comparing a line with the
+    /// machine's face behind it, or an example counting coverage. A window that waited here would
+    /// have put the catalogue walk back on the path ADR 1406 takes it off.
+    pub fn settle(&self) {
+        if let Some(machine) = self.machine.as_ref() {
+            machine.search.settle();
+        }
     }
 
     /// The same four faces, with no machine face behind them: a character §9.6.2.2's fourteen do
@@ -318,7 +360,8 @@ impl Chrome {
     /// **And a character neither route reaches is asked of the machine before it is a box**
     /// (ADR 1382): the same catalogue search §9.7.4.2's substituted composite fonts are drawn
     /// through, [`pdf_font::substitute::installed_covering`], asked for this one character. Where
-    /// the machine offers no face it is still the box, and nothing else is said.
+    /// the machine offers no face it is still the box, and nothing else is said; while the search
+    /// is running it is the box too, and the line is drawn again when it lands (ADR 1406).
     fn set(&self, style: Style, character: char) -> (Set, f32) {
         let face = self.face(style);
         if let Some(code) = face.code_for(character) {
@@ -367,46 +410,27 @@ impl Chrome {
 
     /// Which machine face states a glyph for `character` in `style`, and its advance in ems.
     ///
-    /// The faces already found are asked first, so a line of Japanese searches the machine for its
-    /// first character and finds the rest in the face that answered it. The answer — including
-    /// "none" — is kept per character and style.
+    /// `None` while the search is running as well as where it found nothing: this asks
+    /// [`viewer_host::machine_faces::MachineFaces::ask`], which never searches on this thread.
     fn machine_glyph(&self, style: Style, character: char) -> Option<(usize, f32)> {
         let machine = self.machine.as_ref()?;
-        let mut machine = machine.lock().unwrap_or_else(PoisonError::into_inner);
-        let key = (character, style.bold, style.italic);
-        let index = if let Some(answered) = machine.answered.get(&key) {
-            *answered
-        } else {
-            let found = machine
-                .faces
-                .iter()
-                .position(|face| face.character_glyph(character).is_some())
-                .or_else(|| {
-                    let face = machine_face(style, character)?;
-                    machine.faces.push(Arc::new(face));
-                    Some(machine.faces.len().saturating_sub(1))
-                });
-            machine.answered.insert(key, found);
-            found
-        }?;
-        let advance = machine
-            .faces
-            .get(index)?
-            .character_glyph(character)?
-            .advance;
+        let wanted = viewer_host::machine_faces::Wanted {
+            character,
+            bold: style.bold,
+            italic: style.italic,
+        };
+        let viewer_host::machine_faces::Answer::Face(index) = machine.search.ask(wanted) else {
+            return None;
+        };
+        let advance = machine.face(index)?.character_glyph(character)?.advance;
         Some((index, advance))
     }
 
     /// The outline machine face `index` states for `character`, in ems, y upwards.
     fn machine_outline(&self, index: usize, character: char) -> Option<Arc<Path>> {
-        let machine = self
-            .machine
+        self.machine
             .as_ref()?
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        machine
-            .faces
-            .get(index)?
+            .face(index)?
             .character_glyph(character)?
             .outline
     }
@@ -560,7 +584,22 @@ enum Set {
     Missing,
 }
 
-/// A face this machine offers that states a glyph for `character`, loaded the ordinary way.
+impl MachineFaces {
+    /// Face `index` of the search, loaded the first time the chrome draws from it.
+    fn face(&self, index: usize) -> Option<Arc<pdf_font::LoadedFont>> {
+        let mut loaded = self.loaded.lock().unwrap_or_else(PoisonError::into_inner);
+        loaded
+            .entry(index)
+            .or_insert_with(|| {
+                self.search
+                    .face(index)
+                    .and_then(|bytes| machine_face(bytes).map(Arc::new))
+            })
+            .clone()
+    }
+}
+
+/// A face the machine offered, loaded the ordinary way.
 ///
 /// The search is [`pdf_font::substitute::installed_covering`], which is how a substituted
 /// composite font's face is found (§9.7.4.2): the sans-serif family's preferred faces first and
@@ -569,17 +608,9 @@ enum Set {
 /// dictionary is assembled — here a `/TrueType` one whose descriptor's `/FontFile2` holds the
 /// face, which Table 124 gives to a `TrueType` program and which the loader reads for any `sfnt`
 /// face — and handed to [`pdf_font::LoadedFont::load`] against an empty document, so there is no
-/// second reader of a font program here. `None` where the machine offers no face, or offers one
-/// that will not load.
-fn machine_face(style: Style, character: char) -> Option<pdf_font::LoadedFont> {
+/// second reader of a font program here. `None` where the face will not load.
+fn machine_face(bytes: Arc<[u8]>) -> Option<pdf_font::LoadedFont> {
     use pdf_syntax::{Dictionary, Name, Object};
-    let request = pdf_font::substitute::Request {
-        family: pdf_font::substitute::Family::SansSerif,
-        bold: style.bold,
-        italic: style.italic,
-        standard: false,
-    };
-    let bytes = pdf_font::substitute::installed_covering(request, &[character])?;
     let name = |value: &str| Object::Name(Name::new(value.as_bytes().to_vec()));
     let key = |value: &str| Name::new(value.as_bytes().to_vec());
     let mut stream = Dictionary::new();
@@ -606,13 +637,12 @@ fn machine_face(style: Style, character: char) -> Option<pdf_font::LoadedFont> {
     font.insert(key("Subtype"), name("TrueType"));
     font.insert(key("BaseFont"), name("InterfaceFallback"));
     font.insert(key("FontDescriptor"), Object::Dictionary(descriptor));
-    let face = pdf_font::LoadedFont::load(
+    pdf_font::LoadedFont::load(
         &pdf_syntax::Document::empty(),
         &font,
         "the interface's machine face",
     )
-    .ok()?;
-    face.character_glyph(character).is_some().then_some(face)
+    .ok()
 }
 
 /// The box drawn for a character the interface's own font cannot set.

@@ -4,6 +4,7 @@ Status: **done.** `NoZoom` and `NoRotate` since the two-hundred-and-seventeenth 
 0168), all ten of Table 197's events raised, and §12.5.6.22's `/FixedPrint` applied in the
 nine-hundred-and-forty-second (ADR 0934). Every item this road was opened for is carried out;
 what is left of the subject is RFC 0004's printing half, which is that RFC's.
+Cited by: comments in `crates/pdf-model` and `crates/viewer-core`; §12.5.6.22's ledger note — the reason the file is kept whole rather than deleted (ADR 1416).
 Priority: 25
 Corpus: 15 documents write an `/AA`; 124 annotations in 51 documents set `NoZoom`; **one** of the
 4172 PDFs under `doc/` that open states a `/FixedPrint`

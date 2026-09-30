@@ -1613,6 +1613,7 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             parent,
             role,
             name,
+            titled,
             substituted,
             language,
             quads,
@@ -1636,6 +1637,7 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             .option_usize(*parent)
             .str(role)
             .str(name)
+            .bool(*titled)
             .bool(*substituted)
             .option_str(language.as_deref())
             .u8(scope_kind(*header_scope));
@@ -1750,6 +1752,7 @@ pub(super) fn decode_accessibility(
             parent,
             role: reader.string("a node's role")?,
             name: reader.string("a node's name")?,
+            titled: reader.bool("a node's title flag")?,
             substituted: reader.bool("a node's substitution flag")?,
             language: reader.option_string("a node's language")?,
             header_scope: read_scope(reader)?,

@@ -10050,6 +10050,358 @@ fn keep_everything_transcodes_a_jpx_image_outside_the_baseline_to_flate_and_it_v
     );
 }
 
+/// An 8×8 JP2 file with one grey component of 200 and an opacity channel a `cdef` box names,
+/// whose sample at row `r`, column `c` is `40 + 25c + r`: `crates/pdf-transform/tests/redact.rs`'s
+/// `JPX_GREY_WITH_OPACITY`, lossless 5/3, made by
+///
+/// ```sh
+/// python3 - <<'PY'
+/// from PIL import Image
+/// im = Image.new('LA', (8, 8))
+/// for y in range(8):
+///     for x in range(8):
+///         im.putpixel((x, y), (200, 40 + x * 25 + y))
+/// im.save('ga.png')
+/// PY
+/// opj_compress -i ga.png -o ga.jp2 -n 1
+/// ```
+///
+/// Only its codestream and its `cdef` box are used here: [`a_grey_jpx_with_opacity_off_the_baseline`]
+/// wraps them again with a colour specification off the baseline's list.
+const JPX_GREY_WITH_OPACITY: &[u8] = &[
+    0x00, 0x00, 0x00, 0x0c, 0x6a, 0x50, 0x20, 0x20, 0x0d, 0x0a, 0x87, 0x0a, 0x00, 0x00, 0x00, 0x14,
+    0x66, 0x74, 0x79, 0x70, 0x6a, 0x70, 0x32, 0x20, 0x00, 0x00, 0x00, 0x00, 0x6a, 0x70, 0x32, 0x20,
+    0x00, 0x00, 0x00, 0x43, 0x6a, 0x70, 0x32, 0x68, 0x00, 0x00, 0x00, 0x16, 0x69, 0x68, 0x64, 0x72,
+    0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x08, 0x00, 0x02, 0x07, 0x07, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x0f, 0x63, 0x6f, 0x6c, 0x72, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00,
+    0x16, 0x63, 0x64, 0x65, 0x66, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0xcc, 0x6a, 0x70, 0x32, 0x63, 0xff, 0x4f, 0xff, 0x51, 0x00,
+    0x2c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x02, 0x07, 0x01, 0x01, 0x07, 0x01, 0x01, 0xff, 0x52, 0x00, 0x0c, 0x00,
+    0x00, 0x00, 0x01, 0x00, 0x00, 0x04, 0x04, 0x00, 0x01, 0xff, 0x5c, 0x00, 0x04, 0x40, 0x40, 0xff,
+    0x64, 0x00, 0x25, 0x00, 0x01, 0x43, 0x72, 0x65, 0x61, 0x74, 0x65, 0x64, 0x20, 0x62, 0x79, 0x20,
+    0x4f, 0x70, 0x65, 0x6e, 0x4a, 0x50, 0x45, 0x47, 0x20, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e,
+    0x20, 0x32, 0x2e, 0x35, 0x2e, 0x34, 0xff, 0x90, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x57,
+    0x00, 0x01, 0xff, 0x93, 0xcf, 0xb4, 0x48, 0x14, 0x00, 0x5c, 0xa3, 0x65, 0x5d, 0xb0, 0x00, 0x03,
+    0x09, 0x08, 0xd5, 0x0a, 0x18, 0x48, 0x4b, 0xff, 0x7f, 0xcf, 0xb4, 0xc4, 0x11, 0x64, 0xe3, 0x72,
+    0x5c, 0x73, 0x0a, 0x36, 0x7d, 0xf5, 0x15, 0xaf, 0x90, 0x0f, 0x1e, 0x69, 0x46, 0x5a, 0x68, 0xf8,
+    0x25, 0x20, 0x3b, 0xec, 0x40, 0x15, 0x6f, 0x13, 0xbd, 0x37, 0xfd, 0x3c, 0x3d, 0xbc, 0x6e, 0x4e,
+    0xf3, 0xc1, 0x1c, 0x0e, 0xed, 0xb5, 0xda, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xa7, 0xff, 0xd9,
+];
+
+/// [`JPX_GREY_WITH_OPACITY`]'s codestream and `cdef` box, wrapped again with one colour
+/// specification: enumerated YCbCr(2), code 3, which ITU-T T.801 M.9.2.4's list does not hold, so
+/// the data is off the JPX baseline and nothing else about it is wrong.
+fn a_grey_jpx_with_opacity_off_the_baseline() -> Vec<u8> {
+    fn boxed(kind: [u8; 4], payload: &[u8]) -> Vec<u8> {
+        let mut out = u32::try_from(payload.len().saturating_add(8))
+            .expect("the fixture is small")
+            .to_be_bytes()
+            .to_vec();
+        out.extend_from_slice(&kind);
+        out.extend_from_slice(payload);
+        out
+    }
+    let find = |kind: &[u8]| {
+        JPX_GREY_WITH_OPACITY
+            .windows(4)
+            .position(|window| window == kind)
+            .expect("the fixture holds the box")
+    };
+    // A box's contents begin after its four-byte type, and the `cdef` box's are fourteen bytes.
+    let codestream = &JPX_GREY_WITH_OPACITY[find(b"jp2c").saturating_add(4)..];
+    let cdef_at = find(b"cdef").saturating_add(4);
+    let cdef = &JPX_GREY_WITH_OPACITY[cdef_at..cdef_at.saturating_add(14)];
+    let mut header = boxed(*b"ihdr", &[0, 0, 0, 8, 0, 0, 0, 8, 0, 2, 7, 7, 0, 0]);
+    header.extend(boxed(*b"colr", &[1, 0, 0, 0, 0, 0, 3]));
+    header.extend(boxed(*b"cdef", cdef));
+    let mut out = boxed(*b"jP  ", &[0x0d, 0x0a, 0x87, 0x0a]);
+    out.extend(boxed(*b"ftyp", b"jp2 \0\0\0\0jp2 "));
+    out.extend(boxed(*b"jp2h", &header));
+    out.extend(boxed(*b"jp2c", codestream));
+    out
+}
+
+/// A part 2 page drawing [`a_grey_jpx_with_opacity_off_the_baseline`] under `/DeviceGray` with
+/// the `/SMaskInData` code given.
+fn a_page_with_a_jpx_image_carrying_opacity(code: i64) -> Vec<u8> {
+    let data = a_grey_jpx_with_opacity_off_the_baseline();
+    Conforming {
+        resources: "/XObject << /Im 6 0 R >>".to_owned(),
+        binary_objects: vec![stream(
+            &format!(
+                "/Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceGray \
+                 /SMaskInData {code} /Filter /JPXDecode /Length {}",
+                data.len()
+            ),
+            &data,
+        )],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+/// The transcoded image's own stream and the soft-mask image its `/SMask` names, from `output`.
+fn transcoded_image_and_its_soft_mask(
+    output: &[u8],
+) -> (
+    Document,
+    std::sync::Arc<pdf_syntax::object::Stream>,
+    std::sync::Arc<pdf_syntax::object::Stream>,
+) {
+    let held = Document::open_with_limits(output.to_vec(), Limits::DEFAULT).expect("it opens");
+    let pages = pdf_model::Pages::new(&held);
+    let page = pages.get(0).expect("the one page");
+    let resources = held.get_key(&page.dict, "Resources");
+    let xobjects = resources
+        .as_dict()
+        .map(|dict| held.get_key(dict, "XObject"))
+        .expect("the page's resources");
+    let image = xobjects
+        .as_dict()
+        .map(|dict| held.get_key(dict, "Im"))
+        .expect("the image is still a resource");
+    let pdf_syntax::Object::Stream(image) = image else {
+        panic!("the image is a stream");
+    };
+    let pdf_syntax::Object::Stream(mask) = held.get_key(&image.dict, "SMask") else {
+        panic!("the copy names a soft-mask image: {:?}", image.dict);
+    };
+    (held, image, mask)
+}
+
+#[test]
+fn a_jpx_image_whose_data_carries_opacity_is_transcoded_with_a_soft_mask_image() {
+    // Table 87's SMaskInData 1: "A PDF processor shall create a soft-mask image from the
+    // information". The Flate copy has no channel for it, so the transcode creates that image,
+    // DeviceGray as Table 143 requires, and the copy names it in SMask (ADR 1412).
+    let source = a_page_with_a_jpx_image_carrying_opacity(1);
+    let target = Target::Two(Level::B);
+    let row = "graphics/jpeg2000-uses-the-baseline-feature-set";
+    let failed: Vec<&str> = holds(&source, target)
+        .failures()
+        .map(|failed| failed.id)
+        .collect();
+    // Two more, and each is the fixture's shape rather than the transcode's concern: a
+    // `DeviceGray` image under the part 2 fixture's RGB output intent, and the transparency
+    // §11.6.4.3 gives a non-zero SMaskInData on a page with no group. The profile answers both
+    // with its own rows, and the transcode writes nothing either depends on.
+    assert_eq!(
+        failed,
+        vec![
+            "graphics/device-gray-needs-a-default-or-an-output-intent",
+            row,
+            "graphics/a-transparent-page-has-a-blending-space",
+        ],
+    );
+
+    let plan = plan_from(&keep_everything(), target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    let answered = decision(&report, row);
+    let Decision::Configured { rewrite, .. } = answered else {
+        panic!("the profile's preserve answers the site: {answered:?}");
+    };
+    assert_eq!(rewrite, Rewrite::Jpeg2000TranscodedToFlate);
+    let output = output.expect("the image is transcoded and the file is written");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let rows = &conversion(&report).transcoded_images;
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert!(
+        rows[0].soft_mask.is_some(),
+        "the row names the mask: {rows:?}"
+    );
+
+    let before = Document::open_with_limits(source, Limits::DEFAULT).expect("the source opens");
+    let source_image = before
+        .xref()
+        .object_numbers()
+        .find_map(|number| match before.get(ObjectId::new(number, 0)) {
+            pdf_syntax::Object::Stream(stream)
+                if before
+                    .get_key(&stream.dict, "Subtype")
+                    .as_name()
+                    .is_some_and(|name| name.as_bytes() == b"Image") =>
+            {
+                Some(stream)
+            }
+            _ => None,
+        })
+        .expect("the source image");
+    let decoded = pdf_model::image::jpx_samples(
+        &before,
+        &source_image.dict,
+        &pdf_syntax::object::Dictionary::new(),
+        (&source_image.data, pdf_model::image::ORDINARY_JPX_SAMPLES),
+    )
+    .expect("the source decodes");
+    let opacity = decoded
+        .opacity
+        .clone()
+        .expect("the codestream carries opacity");
+    assert_eq!(opacity[8 * 2 + 3], 40 + 3 * 25 + 2, "row 2, column 3");
+
+    let (after, copy, mask) = transcoded_image_and_its_soft_mask(&output);
+    assert!(after.get_key(&copy.dict, "SMaskInData").is_null());
+    assert_eq!(
+        after.decoded_stream_data(&copy).as_deref(),
+        Some(decoded.colour.as_slice()),
+        "the grey samples are the decoder's"
+    );
+    let name = |text: &[u8]| pdf_syntax::Object::Name(pdf_syntax::object::Name::new(text));
+    assert_eq!(after.get_key(&mask.dict, "ColorSpace"), name(b"DeviceGray"));
+    assert_eq!(after.get_key(&mask.dict, "Subtype"), name(b"Image"));
+    assert_eq!(
+        after.get_key(&mask.dict, "BitsPerComponent"),
+        pdf_syntax::Object::Integer(8)
+    );
+    assert!(
+        after.get_key(&mask.dict, "Matte").is_null(),
+        "code 1 is not premultiplied"
+    );
+    assert_eq!(
+        after.decoded_stream_data(&mask).as_deref(),
+        Some(opacity.as_slice()),
+        "the opacity samples are the decoder's"
+    );
+}
+
+#[test]
+fn a_premultiplied_jpx_image_is_transcoded_with_a_matte_of_zero() {
+    // Table 87's SMaskInData 2 multiplied the colour by the opacity, which §11.6.5.2's
+    // pre-blending "c' = m + alpha x (c - m)" states with every component of the matte zero.
+    let source = a_page_with_a_jpx_image_carrying_opacity(2);
+    let target = Target::Two(Level::B);
+    let plan = plan_from(&keep_everything(), target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    let output = output.unwrap_or_else(|| {
+        panic!(
+            "the premultiplied image is transcoded: {:?}",
+            conversion(&report).decided
+        )
+    });
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let (after, _, mask) = transcoded_image_and_its_soft_mask(&output);
+    let matte = after.get_key(&mask.dict, "Matte");
+    let values: Vec<f64> = matte
+        .as_array()
+        .expect("a Matte array")
+        .iter()
+        .filter_map(pdf_syntax::Object::as_number)
+        .collect();
+    assert_eq!(values, vec![0.0], "one DeviceGray component, zero");
+}
+
+#[test]
+fn a_jpx_image_stating_both_soft_masks_keeps_the_refusal() {
+    // Table 87: "If this entry has a non-zero value, SMask shall not be specified."
+    let data = a_grey_jpx_with_opacity_off_the_baseline();
+    let source = Conforming {
+        resources: "/XObject << /Im 6 0 R >>".to_owned(),
+        binary_objects: vec![
+            stream(
+                &format!(
+                    "/Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceGray \
+                     /SMaskInData 1 /SMask 7 0 R /Filter /JPXDecode /Length {}",
+                    data.len()
+                ),
+                &data,
+            ),
+            stream(
+                "/Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray \
+                 /BitsPerComponent 8 /Length 1",
+                &[255],
+            ),
+        ],
+        ..Conforming::part_two()
+    }
+    .build();
+    let plan = plan_from(&keep_everything(), Target::Two(Level::B));
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert!(output.is_none());
+    let Decision::Refused(because) =
+        decision(&report, "graphics/jpeg2000-uses-the-baseline-feature-set")
+    else {
+        panic!("two soft masks keep the refusal");
+    };
+    assert!(
+        because.sentence().contains("SMask shall not be specified"),
+        "{}",
+        because.sentence()
+    );
+}
+
+/// [`JPX_GREY_WITH_OPACITY`]'s codestream as a bare JP2 of two channels with no `cdef` box, so
+/// neither channel is declared opacity and the data has two colour channels.
+fn a_two_channel_jpx() -> Vec<u8> {
+    fn boxed(kind: [u8; 4], payload: &[u8]) -> Vec<u8> {
+        let mut out = u32::try_from(payload.len().saturating_add(8))
+            .expect("the fixture is small")
+            .to_be_bytes()
+            .to_vec();
+        out.extend_from_slice(&kind);
+        out.extend_from_slice(payload);
+        out
+    }
+    let at = JPX_GREY_WITH_OPACITY
+        .windows(4)
+        .position(|window| window == b"jp2c")
+        .expect("the fixture holds its codestream");
+    let codestream = &JPX_GREY_WITH_OPACITY[at.saturating_add(4)..];
+    let mut header = boxed(*b"ihdr", &[0, 0, 0, 8, 0, 0, 0, 8, 0, 2, 7, 7, 0, 0]);
+    header.extend(boxed(*b"colr", &[1, 0, 0, 0, 0, 0, 17]));
+    let mut out = boxed(*b"jP  ", &[0x0d, 0x0a, 0x87, 0x0a]);
+    out.extend(boxed(*b"ftyp", b"jp2 \0\0\0\0jp2 "));
+    out.extend(boxed(*b"jp2h", &header));
+    out.extend(boxed(*b"jp2c", codestream));
+    out
+}
+
+#[test]
+fn keep_everything_transcodes_a_jpx_image_with_two_colour_channels() {
+    // ISO 19005-2 section 6.2.8.3's channel count binds JPEG 2000 data, and a Flate copy in the
+    // colour space the dictionary states is not JPEG 2000 data: the baseline site's transcode
+    // answers this row for the same shape (ADR 1412). Two channels, a DeviceN space of two.
+    let data = a_two_channel_jpx();
+    let source = Conforming {
+        resources: "/XObject << /Im 6 0 R >>".to_owned(),
+        binary_objects: vec![
+            stream(
+                &format!(
+                    "/Type /XObject /Subtype /Image /Width 8 /Height 8 \
+                 /ColorSpace [/DeviceN [/Cyan /Magenta] /DeviceCMYK 7 0 R] \
+                 /Filter /JPXDecode /Length {}",
+                    data.len()
+                ),
+                &data,
+            ),
+            stream(
+                "/FunctionType 4 /Domain [0 1 0 1] /Range [0 1 0 1 0 1 0 1] /Length 16",
+                b"{ 0 0 } ",
+            ),
+        ],
+        ..Conforming::part_two()
+    }
+    .build();
+    let target = Target::Two(Level::B);
+    let row = "graphics/jpeg2000-channel-count";
+    let failed: Vec<&str> = holds(&source, target)
+        .failures()
+        .map(|failed| failed.id)
+        .collect();
+    assert!(failed.contains(&row), "{failed:?}");
+    let plan = plan_from(&keep_everything(), target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    let answered = decision(&report, row);
+    let Decision::Configured { rewrite, .. } = answered else {
+        panic!("the profile's preserve answers the site: {answered:?}");
+    };
+    assert_eq!(rewrite, Rewrite::Jpeg2000TranscodedToFlate);
+    let output = output.unwrap_or_else(|| panic!("{:?}", conversion(&report).decided));
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert_eq!(conversion(&report).transcoded_images.len(), 1);
+}
+
 #[test]
 fn a_jpx_image_whose_colour_comes_from_its_data_keeps_the_refusal() {
     // With no ColorSpace, §7.4.9 has a reader take the colour space from the data, and a Flate

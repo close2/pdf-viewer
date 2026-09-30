@@ -348,412 +348,14 @@ const PAGELESS: [&str; 5] = [
 /// a report the table cannot place stopping the gate rather than rounding to nothing. Read that
 /// output; do not write a table here again. ADR 0730.
 ///
-/// What stays below is the *argument* — why each rise happened and what each fall bought — which
-/// no command can print and which is why the numbers inside those paragraphs are history rather
-/// than a claim about today.
+/// # What a change to the population means
 ///
-/// **The `Content` row was 10 and is 1**, and the `Operator` row 12 and is 9, for one
-/// reason: §7.6's encryption is implemented (ADR 0031). Nine of those ten `Content` reports
-/// were an encrypted `/Contents` refusing to inflate because it was ciphertext, and three of
-/// the `Operator` reports were the same ciphertext lexing as operator names — `issue15893_reduced.pdf`
-/// announced an operator called `)` and two of byte soup. Six of those twelve documents now
-/// draw with nothing reported and six say they need a password, which is the honest form of
-/// what they were saying badly.
-///
-/// **The `Text` row fell by 33 documents in the twentieth session** and two other rows rose by
-/// one each, which is the same 31 documents rather than a regression: a document whose font
-/// report was its *first* now reports its annotation or its transparency group first. §9.7's
-/// composite fonts are implemented (ADR 0029), so an embedded `CMap` stream and a
-/// `/CIDToGIDMap` in any of its forms both draw. Counting *fonts* rather than documents, the
-/// row is 67: 27 with no `/ToUnicode` so a substitute cannot be addressed, 21 whose substitute
-/// draws none of the codes the document declares, 15 naming one of Table 116's predefined
-/// `CMap`s — which are registered data files rather than an algorithm, so this is a licensing
-/// decision — 4 asking for vertical writing, and the rest malformed programs. **Nothing left on
-/// it is a `CMap` question.**
-///
-/// **The `Shading` row is gone.** It held 28 documents, every one of them a soft mask in an
-/// `/ExtGState` — which is transparency rather than shading, and was filed there because
-/// nothing else fitted. §11.5's masks are implemented as of the eighteenth session (ADR
-/// 0027), so 17 documents left this list outright and the rest report something narrower:
-/// 7 that the luminosity of their mask group is taken in device RGB rather than in the
-/// blending colour space its `/CS` names (§11.5.3), and 1, `knockout_smask.pdf`, that its
-/// group is a *knockout* one — a report that had been hidden behind the mask report, because
-/// the condition for it is that an element composites and a mask is what makes this one do so.
-///
-/// The count **rose** by six in the seventeenth session, and both directions of that are the
-/// design. Six documents joined by saying that their `/Group` is a *knockout* group (§11.4.6)
-/// and one that its group is non-isolated with an element that blends (§11.4.4) — two silences
-/// ending, on the pages where the two models can differ rather than on every group there is.
-/// One left: `issue15372.pdf` reported §9.3.8's text knockout only because a constant alpha
-/// reached its glyphs, and §11.6.6 resets that constant inside the group the glyphs are in,
-/// so the report no longer fires and the alpha is applied once, to the group.
-///
-/// The `Operator` row was 33 before §9.3.6's rendering modes were implemented. What remains
-/// is `BT` without `ET`, `BDC` without `EMC`, and the byte soup a fuzzed content stream
-/// lexes as operator names — nothing on it is a feature anybody could implement.
-///
-/// The `Image` row was 161 before JBIG2 and JPEG 2000 landed, 42 after, 30 once inline images
-/// (§8.9.7) drew and `Indexed`, `Separation` and `DeviceN` images unpacked, 18 once
-/// `CCITTFaxDecode` decoded (§7.4.6), 13 once `/Mask` was applied in both its forms (§8.9.6.3
-/// and §8.9.6.4), and is 11 now that an `/SMask` of another size is combined with its image on
-/// the finer of the two grids (§11.6.5.2 Table 143). What is left of it is one image apiece,
-/// and **nothing on it is a feature**: 4 malformed streams, 3 bit depths the unpacker refuses,
-/// one `/Mask` that is not an image mask and so is outside what Table 87 defines the entry to
-/// hold, one JBIG2 with a segment type ISO/IEC 14492 does not define, one 212-megapixel JPEG
-/// 2000 scan larger than the sandbox is given room to decode, and one `/SMask` whose combined
-/// grid `image::combined_grid` refuses.
-///
-/// The `CompositedInParts` row is §11.6.2, which says the portions of one object are not
-/// composited with one another: `B` fills and strokes one path, and this renderer emits two
-/// commands, so the band a centred stroke shares with the fill composites twice under a paint
-/// that composites at all. 4 documents reach the report and one has nothing else to say, which
-/// is the row here. Its condition is narrow on purpose — the paint has to composite *and* both
-/// parts have to mark the page — and three of the six documents that fill and stroke under a
-/// `gs` are silent because one of their two parts has an alpha of zero.
-///
-/// This number has gone *up* five times, and every rise was the point.
-///
-/// One, when §11.6.2's fill-and-stroke started reporting, described above. It is the smallest
-/// rise on this list and it cost the oracle one page it had judged as *agreeing* —
-/// `alphatrans.pdf`, whose gradient the same session fixed — which is the whole of the trade a
-/// report makes: honesty about a difference nobody can see yet, paid for in comparison.
-///
-/// Ten, when content-stream decoding started reporting. Nine of those are encrypted
-/// documents whose content stream is unreadable without decryption, and they had been
-/// rendering as blank pages returning `unsupported: []` — a wrong page indistinguishable
-/// from a sparse one. The tenth is `bomb_giant.pdf`, refusing a decompression bomb.
-///
-/// Five, when text render modes 4 to 7 started reporting. Those modes add the glyphs to
-/// the clipping path (ISO 32000-2 §9.3.6), which we did not build, so a rectangle painted
-/// afterwards to be seen only through the letters covered its whole area instead. The
-/// reference-oracle gate found two of these drawing a solid bar over the text while
-/// claiming to be complete; see `oracle.rs`. **All eight modes are implemented as of the
-/// thirteenth session**, and the report is gone — which is what a rise is supposed to end
-/// in, and the reason a rise is not a regression.
-///
-/// Five more, when an image's `/Mask` started reporting. An explicit mask or a colour-key
-/// range makes part of an image transparent (§8.9.6.3 and §8.9.6.4) and neither was applied,
-/// so `colorkeymask.pdf` drew a band all three references correctly hide. Found the same
-/// way. **Both forms are implemented as of the fourteenth session**, and five of those six
-/// documents have left this count — the sixth writes a `/Mask` that is not an image mask,
-/// which is outside what Table 87 defines the entry to hold, and still reports.
-///
-/// Two, when §9.3.8's text knockout started reporting — the ledger's third `silent` row
-/// closed at the cheap end. `Tk`'s initial value is *true*, which makes a text object a
-/// non-isolated knockout group so that a later glyph overwrites an earlier one where they
-/// overlap; we composite each glyph separately, which is the `Tk` false model. The report
-/// costs two documents rather than several hundred because both of the clause's conditions
-/// are tested rather than assumed: the paint has to composite — a constant alpha below one
-/// or a blend mode other than Normal, since opaque Normal painting gives both models the
-/// same pixels — and two glyphs of one text object have to overlap. The looser version of
-/// this check, which asked only for two glyphs under a compositing paint, reported seven
-/// documents and took three *agreeing* pages out of the oracle's gated set for a difference
-/// that could not have been on any of them.
-///
-/// Seventy-seven, when annotation appearance streams started being drawn — the largest rise
-/// yet, and the one that most needs explaining, because it accompanied a *feature landing*.
-/// Before it, 148 of 988 first pages carried a visible annotation with an `/AP` and none was
-/// drawn or reported; the page simply came out missing its form fields and its highlights,
-/// saying nothing. Those now draw. What newly reports is the other side of the same walk:
-/// 63 documents carry an annotation with **no** appearance stream at all, which would have
-/// to be synthesised from `/IC`, `/C`, `/BS` and the subtype's own rules — 26 `Widget`,
-/// 18 `Link`, and the rest markup annotations. 7 set `/NeedAppearances` on their interactive
-/// form, which §12.7.4.3 makes a statement that the stored appearance is *not* the one to
-/// draw: the field's value is computed at viewing time, so its appearance has to be
-/// constructed then. The stored one is still drawn, because it is all the file offers, and
-/// the report is what keeps that from passing as correct. 3 carry a malformed appearance —
-/// no `/BBox`, no usable `/Rect`, or a stream that did not decode.
-///
-/// 68 of those 73 documents had reported nothing at all before. The other 9 of the 77 are
-/// documents whose *appearance streams* draw content this crate already reports elsewhere:
-/// a CID font, a JPX image, a transparency group, now met inside an annotation rather than
-/// inside the page — which is why the `Image`, `Text` and `Operator` rows above also grew.
-///
-/// And down by 118 this session, when JBIG2 and JPEG 2000 started decoding — the largest
-/// single fall so far, and the first that came from a *dependency* rather than from code
-/// written here. See doc/adr/0014 for why that was the right call and what it costs.
-///
-/// Down by one and up by 41 this session, and every part of it is one piece of work:
-/// implementing ISO 32000-2 §9.6.5.4, the algorithm that turns a character code into an
-/// index into a `TrueType` font's `cmap`. `issue5501.pdf` left this list, because its font's
-/// only `cmap` subtable is one that algorithm reaches and the previous code did not. The
-/// two rises are both gaps that algorithm's absence had been hiding.
-///
-/// **Type 3 fonts, 24 documents.** A Type 3 font has no font program at all: §9.6.4 makes
-/// each glyph a content stream in `/CharProcs`, which is the interpreter's work and not this
-/// crate's. Every one of these documents was therefore reaching the *substitution* path,
-/// where the names in a Type 3 `/Differences` array — `/a192`, `/g3`, names of procedures —
-/// were resolved against a Latin system font. `issue918.pdf` drew 388 text operations of
-/// letter fragments at the wrong places and reported `unsupported: []`; poppler draws a page
-/// of readable text. This is trap 1 exactly, and the rise is that page saying so.
-///
-/// **A substitute that draws none of the codes the document declares, 19 documents.** The
-/// old test asked whether the substitute reached *any* of the 256 codes, which a Latin face
-/// always does — so a font whose `/FirstChar`..`/LastChar` range mapped to nothing at all
-/// still passed. `issue20504.pdf` set a line of Chinese in a Type 1 program this crate
-/// cannot read, and all four of its codes name glyphs only the original font had; the line
-/// drew nothing and said nothing. `tracemonkey.pdf` and its five relatives are the smaller
-/// case, and the more instructive one: a Type 1 `CMSY7` subset whose single declared code is
-/// `/circlecopyrt`, so the © in the copyright line is missing from a page that otherwise
-/// draws perfectly.
-///
-/// That rule is deliberately about the font rather than about each code. A font that maps
-/// *some* of its declared codes and not others is still silent about the rest, which needs
-/// a report at the point a glyph is shown rather than at the point a font is loaded.
-///
-/// Ratcheted downward otherwise: this falls as features land, and a rise that is not a new
-/// *report* means something that used to draw no longer does.
-///
-/// **290 to 280 in the tenth session, and the arithmetic is worth reading rather than the
-/// total.** Type 3 fonts landed (§9.6.4), which removed the report from all 24 documents
-/// carrying one — and only 10 of them became complete. The other 14 immediately began
-/// reporting something the Type 3 refusal had been standing in front of: 10 draw their
-/// glyphs as *inline images*, which this interpreter does not decode, one carries a soft
-/// mask, two use a stroking text render mode and one has a malformed number in a glyph
-/// description. That is this file's own habit in miniature — fixing the mask shows what the
-/// mask was hiding — and it is why a feature landing moves this number by less than the
-/// count of documents it was blamed for.
-///
-/// **And 280 back up to 283**, which is the other half of the same session and a rise of the
-/// only kind this ratchet allows: three documents began saying that their text is set
-/// *vertically*. `Identity-V` was accepted beside `Identity-H` because the two map codes
-/// identically — and they differ in the writing mode, which §9.2.4 gives a second set of
-/// metrics no part of this tree reads. `vertical.pdf` should set two columns down the right
-/// edge of the page; it came out as one overlapping line across the top, reporting
-/// `unsupported: []`. Nothing stopped drawing correctly.
-///
-/// **283 to 263 in the eleventh session, and again the arithmetic rather than the total.**
-/// Inline images (§8.9.7) took 13 documents off this list and named the reason on the other
-/// 9 — an inline image now reports `CCITTFaxDecode` or a bit depth rather than the bare word
-/// `<inline>`. `Indexed`, `Separation`, `DeviceN` and `Lab` images unpack, which took another
-/// 10. And 3 came *back*: `chrome-text-selection-markedContent.pdf`, `issue16263.pdf` and
-/// `smaskdim.pdf` carry a soft mask whose sample grid is not their image's, which §11.6.5.2
-/// Table 143 expressly permits and this tree does not apply. All three were drawing an
-/// unmasked image in silence; `issue16263.pdf` puts black bars across its text.
-///
-/// **263 to 251 in the twelfth session**, and for once the arithmetic is simple: 12
-/// documents reported `CCITTFaxDecode` and none of them reports anything else, so all 12
-/// became complete when §7.4.6 landed. Nothing came back — which is worth stating rather
-/// than passing over, because every other feature in this list uncovered something behind
-/// it. What CCITT uncovered is not a *report*, it is a picture: `bug1001080.pdf` is now
-/// contradicted by the oracle for a reason that has nothing to do with the filter, and
-/// `oracle.rs`'s `CONTRADICTED_IMAGE_RESAMPLING` has it.
-///
-/// **251 to 235 in the thirteenth session**, and the arithmetic is again simple: §9.3.6's
-/// eight text rendering modes are all implemented, so the report that stood in for four of
-/// them is gone from 18 documents — 16 of which report nothing else and became complete. The
-/// `Operator` row falls from 33 to 15 and what is left on it is malformed streams rather
-/// than anything unimplemented. Nothing came back, and nothing newly appeared: no corpus
-/// document names a `Tr` operand outside Table 104's eight.
-///
-/// One of the 16 is worth knowing about, because it is a picture rather than a count.
-/// `recursiveCompositGlyf.pdf` shows "hello world" in mode 7 and then paints the page red,
-/// expecting to see it through the letters — and its font is a deliberately malformed
-/// TrueType whose composite glyph refers to itself. `skrifa` produces no outline for it, so
-/// §9.3.6's "if the only glyphs shown have no outlines … no clipping shall occur" applies
-/// and the page comes out solidly red. So do poppler's and `hayro`'s; `mupdf` refuses the
-/// font and draws nothing; only `ghostscript`, with its own TrueType interpreter, recovers
-/// the glyphs. That is a *font* question about a malformed file, not a rendering-mode one,
-/// and it is the visible face of a gap this project already knows about: a font reports as a
-/// whole, so a glyph that fails to load draws nothing and says nothing.
-/// **137 to 129 in the twenty-third session**, and this one has a rise inside it. §12.7.4.3's
-/// variable text closed the whole annotation half of the list a clause was owed for: 9
-/// documents stopped saying `/NeedAppearances`, 3 stopped saying a widget holds a value, and 4
-/// `FreeText` annotations stopped saying their text needs laying out. What replaced them is 5
-/// documents whose `/DA` names a font the interactive form dictionary's `/DR` does not define,
-/// which is a sharper statement about the same files — and one document, `checkbox_no_appearance.pdf`,
-/// that had been silent and now says a check box it draws as empty is one the file calls
-/// checked. Nothing on this row is a `/NeedAppearances` any longer.
-///
-/// **129 to 130 in the twenty-fourth session, and the one that joined is a silence ending.**
-/// Reading §8.4.5 against Table 57 found four entries of a graphics state parameter
-/// dictionary that reached nothing at all. Three of them — `/LC`, `/LJ` and `/ML` — are now
-/// implemented and report nothing, because the operators `J`, `j` and `M` set the same three
-/// parameters and always had. The fourth, `/Font`, selects a font by *indirect reference*
-/// rather than by the resource name this crate's font cache is keyed on, and one document
-/// writes it: `extgstate.pdf`, which now says so instead of drawing its text in whatever font
-/// was current. Trap 5's rule, and the price is one page leaving the oracle's judged set.
-///
-/// **130 to 110 in the thirtieth session, the largest fall it has had since JBIG2**, and the
-/// feature that caused it was on the "not implemented" list with a corpus count of **zero**
-/// beside it. §9.9's `/FontFile` — a bare Type 1 font program — is now read, and 20 documents
-/// stopped reporting. The zero was measuring *reports*, not documents: an unreadable embedded
-/// program fell through to substitution, and substitution only speaks when it can address none
-/// of the declared codes, so a page set in a Type 1 font drew in some other typeface and said
-/// nothing. Trap 5's rule from the other side — the report that never fired was the one for a
-/// feature that had a fallback.
-///
-/// Nothing joined the row, and one thing nearly did. `issue5751.pdf` and
-/// `issue11740_reduced.pdf` are **`CIDFonts`** whose descendant descriptors embed a
-/// `/FontFile`, which §9.9's Table 124 does not allow there — a Type 1 program is keyed by
-/// glyph name and a `CIDFont` selects by CID, so the clause states no route between them. The
-/// first draft read the program anyway and reported that it was not an sfnt, which named the
-/// wrong defect: the program is fine and its *placement* is what the clause forbids. They get
-/// what any `CIDFont` with no usable program gets, which is a substitute.
-///
-/// **110 to 106 in the thirty-second session**, and the feature was three lines of packing:
-/// §8.9.5.1's Table 87 permits five component widths and the unpacker read two, so 2, 4 and
-/// 16 bits were refused and named. Three documents were waiting on that; the fourth is
-/// `issue14256.pdf`, whose 4-bit image was one of eight inline images testing §8.9.7's
-/// abbreviations against their full names, and which now draws all eight alike.
-///
-/// **106 to 105 in the thirty-third session.** §8.4.5's Table 57 `/Font` selects a font by
-/// indirect reference rather than by resource name, and this crate's font cache was keyed by
-/// the name — so `extgstate.pdf`, a page whose text says "I should be courier!", said instead
-/// that it could not address the font. The cache is now keyed by either, and the page draws in
-/// Courier and agrees with the reference consensus.
-///
-/// **105 to 97 in the thirty-fourth session**, all of them §12.5.6.10's text markup
-/// annotations, which had been refused on the argument that the clause "states its
-/// `/QuadPoints` without stating what mark to make in them". Reading it again, it states the
-/// mark ("shall appear as highlights, underlines, strikeouts … or jagged ('squiggly')
-/// underlines"), the region and the orientation, and leaves a thickness — which is a choice
-/// to argue rather than a reason to draw nothing. Eight pages joined the oracle's judged set
-/// and six of them agree with the reference consensus; none is contradicted.
-///
-/// **97 to 94 in the thirty-sixth session**: §9.2.4's second set of glyph metrics, which
-/// §9.7.4.3 puts in `/W2` and `/DW2`, so a `CMap` in writing mode 1 places its glyphs down a
-/// column instead of being refused.
-///
-/// **94 to 95 in the fortieth session, and it is a new report** — trap 5's rule, which this
-/// ratchet exists to allow rather than to forbid. A `CIDFont` whose descriptor embeds a bare
-/// Type 1 program is now *read*, by §9.7.4.2's rule for a non-CID-keyed CFF and §9.6.2.1's
-/// NOTE 1 that the two are one format (ADR 0049). Two corpus documents write one.
-/// `issue11740_reduced.pdf` had been drawing mojibake in silence and now draws its Russian
-/// correctly; `issue5751.pdf`'s program is one this tree's Type 1 reader refuses, and a
-/// malformed program is *reported* rather than quietly substituted — which is already what a
-/// simple font with the same defect gets. The document that joined this row left the oracle's
-/// contradicted list on the same change, which is the exchange trap 5 describes: a page we can
-/// no longer be judged on is a page we have stopped claiming to draw.
-/// **95 to 97 in the fifty-third session, and both are new reports** — from one change, which
-/// is that a glyph filled with a *tiling* pattern is now its outline tiled rather than a solid
-/// fill in whatever colour happened to be set. §8.7.2 makes a pattern a colour: "All patterns
-/// shall be treated as colours". `pattern_text_embedded_font.pdf` left the oracle's
-/// contradicted list on the same change, drawing the checkerboard line three references draw
-/// and we had left blank.
-///
-/// `scorecard_reduced.pdf` reported **a stroke whose colour is a tiling pattern** from that
-/// session until the eight-hundred-and-second, which is the half of §8.7.2 that had no
-/// construction: the stroked outline is the backends' to compute (ADR 0028), so there was no path
-/// here to tile. It had been stroked in the last solid colour before the report, and the page
-/// drew nothing where its producer stated a dotted leader. The region a stroke covers turned out
-/// not to be only a path — §11.5.2's mask over a group holding the stroke alone is the same
-/// region, expanded by each backend's own expander — and the document left this list on that
-/// change (ADR 0735).
-///
-/// `ContentStreamCycleType3insideType3.pdf` reports `MAX_FORM_DEPTH`, and the document is named
-/// for the reason: its tiling pattern's `/Resources` name `/CyclicFont`, which *is* the Type 3
-/// font whose glyph the pattern is filling. Entering the cycle is what tiling a glyph means;
-/// stopping at a bounded depth and saying so is what the bound is for. Before this change the
-/// cycle was never entered because the pattern was ignored, and the page was quietly wrong.
-/// **97 to 96 in the fifty-fifth session, without anything being drawn differently.** An inline
-/// `BDC` property list is now assembled into a dictionary — §14.6.2 allows "either an inline
-/// dictionary containing the property list or a name object associated with it in the
-/// Properties subdictionary", and only the second form had ever been read. Its *booleans* were
-/// reaching the operator dispatch one token at a time, so `issue7821.pdf` and `issue17069.pdf`
-/// were reporting `true` and `false` as unknown operators. `/ActualText` arrived on the same
-/// change; see §14.9.4's ledger row.
-///
-/// **96 to 97 in the sixty-third session, and it is a new report on a page that now draws
-/// *more*.** `operator-in-TJ-array.pdf` writes `[(Grandes) 0.0 Tc -250.0 (Clientèles,) 0.0 Tc
-/// … ] TJ` — an operator between two elements of an array. §7.3.6 makes an array "a
-/// one-dimensional collection of objects arranged sequentially" and §7.8.2 puts an operator
-/// after its operands, so a keyword inside an array is neither; dispatching those `Tc`s
-/// consumed the runs before them and the page drew one word of five. It now draws all four and
-/// says the file is malformed, which is the pattern trap 5 lists four other instances of: the
-/// report accompanies the drawing rather than replacing it. The page's glyph count went 7 to 39
-/// and its extraction score 25% to 100%, which is how the pdf.js text gate found it.
-///
-/// **97 to 95 in the seventy-first session**, and this one is a feature: §11.4.6's knockout
-/// groups are drawn rather than reported wherever every element's shape is the coverage a
-/// rasteriser draws it with. `knockout_isolated_overlap.pdf` and `knockout_blend_multiply.pdf`
-/// draw with nothing reported; `knockout_nested.pdf`, `knockout_nested_group_alpha.pdf`,
-/// `knockout_smask.pdf`, `knockout_inner_backdrop.pdf` and `issue18032.pdf` keep the report,
-/// each for the reason the clause gives — a nested group's shape reaches a backend as one
-/// alpha channel, and so does a mask's.
-///
-/// **95 to 90 in the seventy-second session**, from the two clauses that had been waiting on
-/// that one. §9.3.8 makes a text object with `Tk` true "equivalent to treating the entire text
-/// object as if it were a non-isolated knockout transparency group", and §11.6.2 says
-/// "[p]ortions of an object shall not be composited with one another" of a path filled and
-/// stroked by one operator — both are knockout groups the file does not state, and both are
-/// built now where the elements' shapes are the coverage they are drawn with. `TextKnockout`
-/// is gone from the corpus entirely and `CompositedInParts` is 2 of 4.
-///
-/// **90 to 89 in the eighty-fifth session**, from a refusal that was reading the clause
-/// correctly and drawing the wrong conclusion: §12.5.6.7's `/LL` makes `/L` "the endpoints of
-/// the leader lines rather than the endpoints of the line itself", which is a reason to compute
-/// where the line is rather than a reason to decline, and Table 178 states the computation.
-/// The document it names is `annotation-line-without-appearance.pdf`, and it states `/LL 0` —
-/// which Table 178 defines as "no leader lines", so the refusal was firing on the *presence* of
-/// an entry whose value says there is nothing to do. It draws with nothing reported now and the
-/// oracle's agreeing set gains it: 836 pages to 837.
-///
-/// **89 to 86 in the hundred-and-third session**, from §11.4.4's own NOTE 5, which states when a
-/// non-isolated group need not be built at all: "the effect of compositing objects as a group is
-/// the same as that of compositing them separately (without grouping)" where the group is
-/// non-isolated with its parent's knockout attribute and its result is composited with Normal
-/// and shape and opacity of 1.0. Such a group's elements are now emitted inline, so every blend
-/// mode inside one sees the backdrop §11.4.4 says it should — which is what the report was
-/// about. `bug1873345.pdf`, `issue13242.pdf` and `nonisolated_blend_smask.pdf` leave the list,
-/// two of them into the oracle's *agreeing* set: 837 pages to 839.
-///
-/// **86 to 90 in the hundred-and-seventh session, and it is a rise on purpose.** Six documents
-/// that had no page one now have one (see [`PAGELESS`]), and five of them report something —
-/// a form-depth cycle the file is named for, two whose content is ciphertext this reader derives
-/// the wrong key for, and a fuzzed file whose content stream does not inflate. Trap 5: a rise in
-/// this count is not a regression when it is a new report, and here it is not even that — it is
-/// four pages that were not being counted at all. The sixth, `issue9418.pdf`, draws **completely**
-/// once §7.7.3.4's inheritance reaches its recovered page and its `/Resources` with it.
-///
-/// **90 to 89 in the hundred-and-twenty-second session**, from an *optional* entry that was
-/// erasing a font. `bug859204.pdf` writes `/Encoding /NULL` on an embedded Type 1 program, and
-/// Table 112 permits four names there and no others — so the value says nothing, and the same
-/// cell says what a font that says nothing does: `/Encoding` specifies the encoding "if
-/// different from its built-in encoding", so the built-in one stands. The page drew no text at
-/// all for it. It draws with nothing reported now and the oracle's agreeing set gains it: 840
-/// pages to 841. `MacExpertEncoding` kept its refusal for the same reason turned round —
-/// that name *is* one Table 112 permits, so a font stating it means it and a Latin fallback
-/// would have drawn its punctuation right and its letters wrong — **and it stopped needing one
-/// when Annex D.4's table was transcribed** (ADR 0286). No corpus document names it, so this
-/// count does not move either way.
-///
-/// **89 to 91 in the hundred-and-twenty-seventh session, and it is a rise on purpose** — trap
-/// 5's kind, and the sharpest instance this file records. The interpreter's font cache was keyed
-/// by the *resource name* a content stream used, and §8.10.1 gives a form `XObject` a
-/// `/Resources` of its own: a page's `/F1` and a form's `/F1` are two fonts as often as they are
-/// one, and the second was being handed the first's glyphs with nothing reported. `issue17492.pdf`
-/// names a `/Helvetica` resource its own dictionary does not define and `issue19182.pdf` names
-/// a predefined `CMap` this tree refuses; both were drawing some other font's glyphs in silence
-/// and now say so. The cache is keyed by the font dictionary's object identity (ADR 0115), and
-/// `issue19971.pdf` — whose readback was 83% and undiagnosed — rose above the text gate's floor
-/// for the same reason.
-///
-/// **91 to 61 in the thousand-and-thirty-sixth session, and nothing was fixed in it.** The bound
-/// had stood at the hundred-and-twenty-seventh session's number while nine hundred sessions of
-/// work took the population down under it, so the gate was admitting thirty documents' worth of
-/// regression before it could speak — a third of its own headline, silently, and every other
-/// ratchet in this file sits on its count or one above it. A bound with slack in it is not a
-/// ratchet, and the slack is the one thing a number cannot report about itself: the run prints
-/// the population, the constant does not, and nobody had put the two side by side. It is the
-/// counted figure now, so trap 5's rise-on-purpose costs the round that earns it one line here —
-/// which is what every entry above this one already is.
-///
-/// **61 to 62 in the thousand-one-hundred-and-sixtieth session, and it is trap 5's rise on
-/// purpose.** §11.7.4.3's special overprinting blend mode is built (ADR 1157), and with it the
-/// clause's last paragraph became a condition that can be met: an object painted under a blend
-/// mode other than Normal while overprinting is enabled shall be treated as if it were in an
-/// implicit non-isolated, non-knockout group painted under the special mode, whose result is
-/// then painted under the current mode. That group is not built, and `issue12798_page1_reduced.pdf`
-/// asks for it — a `DeviceCMYK` page group, `/OP true /op true /OPM 1`, and marks under
-/// `/BM /Multiply`. It was drawn the same way before this round and said nothing; it draws the
-/// same way still and says so. One document, found by `raster_golden` rather than by a search.
-///
-/// **62 back to 61, and the same document is why.** That group is built (ADR 1170), so
-/// `issue12798_page1_reduced.pdf` completes again — and it does not draw the same way: the
-/// group's result is the backdrop in the chromatic raster and is then painted under Multiply,
-/// which the clause's last paragraph asks for and which painting the object directly did not
-/// do.
+/// It falls as features land, and a document that joins without a new *report* is one that used
+/// to draw and no longer does. A document that joins *with* one is the design rather than a
+/// regression — trap 5: a silence ending, on a page that was being drawn wrong without a word — so
+/// the list admits it, beside the clause it rests on. Why each move happened is argued in the ADR
+/// of the change that made it, never in this comment, and the argument for every earlier move is
+/// kept whole, as a record, in ADR 1415's appendix.
 ///
 /// # Named, and each name read against its clause
 ///
@@ -766,10 +368,10 @@ const PAGELESS: [&str; 5] = [
 ///
 /// The groups follow [`whose_defect`]'s partition — the mechanism that decides each document is
 /// the most-owed one it carries — and the sentence beside a group is the clause it rests on. Of the
-/// sixty-one, one is this reader's (`freetext_no_appearance.pdf`, `doc/todo/22` and ADR 0348's
-/// list: an Arabic glyph source, joining forms and right-to-left order, together or not at all);
-/// seven are no route the standard states; fifty-three are the file's.
-const INCOMPLETE: [&str; 61] = [
+/// fifty-nine, none is this reader's — `freetext_no_appearance.pdf`, the last, draws since ADRs
+/// 1413 and 1414 set its Arabic joined and right to left in a face from the machine; four are no
+/// route the standard states; fifty-five are the file's (ADR 1401, ADR 1411).
+const INCOMPLETE: [&str; 59] = [
     // ── The file's: §9.7.5.2, "[t]he Identity-H and Identity-V CMaps shall not be used with a
     // non-embedded font". Every one is a `CIDFontType2` naming a system face (Arial, Calibri,
     // Times New Roman …) whose CIDs are that face's glyph indices, which §9.7.4.2 says are "not
@@ -866,23 +468,31 @@ const INCOMPLETE: [&str; 61] = [
     "bomb_giant.pdf",
     // A page object that stops part-way, read as far as §7.3.7 states it (ADR 0784).
     "poppler-742-0-fuzzed.pdf",
-    // ── Neither one: a font whose program has no outline for any code the page shows (ADR 0270).
-    // A `TrueType` program whose glyphs are empty; `silent_fonts.rs` is its argument.
-    "issue17333.pdf",
-    // Composite glyphs that recurse, shown in render mode 7, so the clip they add is empty.
+    // ── The file's: an embedded program whose own statement is what leaves the text undrawn
+    // (ADR 1411). Every code reaches `space`, a composite whose components include itself, so no
+    // depth the TrueType Reference Manual's `maxp` can state describes it (Table 124); shown in
+    // render mode 7 and nothing is painted after, so the page loses a clip nothing uses.
     "recursiveCompositGlyf.pdf",
-    // Symbolic and Nonsymbolic both set; §9.8.2 says to read the Symbolic flag, §9.6.5.4 then
-    // ignores `/Encoding`, and the (3, 0) subtable reaches an empty glyph (`oracle.rs` has it).
+    // `/Flags 36`, Symbolic and Nonsymbolic both set, which §9.8.2 says "shall not both be set";
+    // read as Symbolic, §9.6.5.4 ignores the `/Encoding` and the (3, 0) subtable reaches an empty
+    // `G` where the `/Differences` named `/Ccedilla` (`oracle.rs` has it).
     "issue20232.pdf",
-    // `HiddenHorzOCR`, an OCR layer's font whose program carries no outlines, shown in mode 0.
-    "issue12963.pdf",
-    // ── Neither one: a bound this program set. All three are forms or glyphs that invoke
-    // themselves, so what the file states is unbounded and `MAX_FORM_DEPTH` is where it stops.
+    // ── Neither one: §9.6.5.4's last sentence, "a PDF processor may supply a mapping of its
+    // choosing", over a code no route maps. Code 0 through `MacRomanEncoding`, which names
+    // nothing there, into a (1, 0) subtable holding code 165 alone; this reader's choice is no
+    // glyph (ADR 0270, ADR 0520; `silent_fonts.rs` is its argument).
+    "issue17333.pdf",
+    // ── Neither one: a chain of nested content streams that re-enters itself, which §9.6.4's
+    // Errata Collection 3 paragraph makes implementation-dependent for a glyph and Table C.1
+    // leaves to the processor for a form. Each was read and is a cycle whatever state it
+    // inherits — the form or glyph re-entered selects its own paint — so no value of
+    // `MAX_FORM_DEPTH` finishes it, and the report names the stream re-entered (ADR 1411).
+    // Form 7 → form 9 → pattern 11's cell → form 7.
     "operator_list_cycle.pdf",
+    // `/X1` → `/X0` → `/X1`, each at half the scale.
     "issue19800.pdf",
+    // Glyph `a` of `/FType3A` → glyph `c` of `/FType3B` → pattern `/P1`'s cell → `/FType3A`.
     "ContentStreamCycleType3insideType3.pdf",
-    // ── This reader's: `doc/todo/22`.
-    "freetext_no_appearance.pdf",
 ];
 
 /// How long one document may take before it counts as a failure.
@@ -969,17 +579,16 @@ struct Tally {
     /// Every document that opens and yields no page one, with the reason in the standard's
     /// own terms.
     ///
-    /// A `String` until the thousand-and-fifty-eighth session, printed under the same word as
-    /// [`Tally::unopenable`] — so one line said `unusable` of a file with no catalogue, a file
-    /// whose page tree names an object the file does not define, and a file whose page tree
-    /// lives inside a filter this reader does not have. [`why_no_page_one`] is what says which,
-    /// and the gate prints it.
+    /// A reason beside each name rather than [`Tally::unopenable`]'s one word, because a file
+    /// with no catalogue, a file whose page tree names an object the file does not define, and a
+    /// file whose page tree lives inside a filter this reader does not have are three different
+    /// facts. [`why_no_page_one`] is what says which, and the gate prints it.
     pageless: Vec<(String, String)>,
     /// Every document whose page one reports something, with the reports themselves.
     ///
-    /// **Held as the values rather than as their `Debug` string**, since the
-    /// seven-hundred-and-ninety-sixth session, because [`whose_defect`] classifies them and a
-    /// classification derived from a formatted string is one that decays without saying so.
+    /// **Held as the values rather than as their `Debug` string**, because [`whose_defect`]
+    /// classifies them and a classification derived from a formatted string is one that decays
+    /// without saying so.
     incomplete: Vec<(String, Vec<Unsupported>)>,
     slow: Vec<(String, Duration)>,
 }
@@ -1086,6 +695,14 @@ fn whose_defect(report: &Unsupported) -> Option<(Whose, &'static str)> {
         Unsupported::LimitReached { .. } | Unsupported::SpotColourantsWithoutAPlane { .. } => {
             (Whose::NeitherOne, "a bound this program set")
         }
+        // §9.6.4's Errata Collection 3 paragraph makes a Type 3 glyph that "refers to itself
+        // directly or indirectly" implementation-dependent, and Table C.1 leaves nested
+        // `XObject`s to the processor: a chain that re-enters itself has no end the standard
+        // states and none the file broke a clause to write (ADR 1411).
+        Unsupported::NestingCycle { .. } => (
+            Whose::NeitherOne,
+            "a chain of nested content streams that re-enters itself (§9.6.4, Table C.1)",
+        ),
         Unsupported::SeparationGivenUp { .. } => (
             Whose::ThisReader,
             "§10.8.3's separation given up, the page simulated per painting operation",
@@ -1206,6 +823,17 @@ fn a_font_refusal(detail: &str) -> Option<(Whose, &'static str)> {
         _ if has("could not be parsed") || has("Type 3 glyph for code") => (
             Whose::TheFile,
             "an embedded font program that would not parse",
+        ),
+        // ADR 1411: the same report where the program or the descriptor states the reason — a
+        // composite glyph that includes itself, which Table 124's TrueType Reference Manual gives
+        // no depth for, and §9.8.2's two flags both set, which "shall not both be set".
+        _ if has("whose components include itself") => (
+            Whose::TheFile,
+            "a TrueType composite glyph that includes itself (Table 124)",
+        ),
+        _ if has("sets both the Symbolic and the Nonsymbolic flag") => (
+            Whose::TheFile,
+            "a font descriptor setting both flags §9.8.2 says shall not both be set",
         ),
         // ADR 0270: an embedded subset that contains no glyph for the codes its own document
         // shows is traced to the end of every route the standard states.
@@ -1709,7 +1337,7 @@ fn unreadable_object_streams(document: &Document) -> String {
 /// have is a classifier nobody has seen answer, so each answer is planted here and named. The
 /// documents are fragments, which is trap 8's caution and is why they are *only* the calibration —
 /// what says the classifier is right about a file is the run over the corpus, whose five sentences
-/// were each checked against the file's own bytes in the thousand-and-fifty-eighth session.
+/// were each read against the file's own bytes before this calibration was written.
 #[test]
 fn the_page_tree_diagnosis_names_each_clause_it_can_stop_at() {
     /// A document with the objects given and a trailer, and no cross-reference table — which

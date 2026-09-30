@@ -99,6 +99,10 @@
 //! - [`popup`] — §12.5.6.14's window: the title bar's two texts, the body, and the upright box it
 //!   occupies. The clause gives a popup *no appearance stream*, so the window is furniture rather
 //!   than ink and a host draws it — which two of the three did not, until they were made to.
+//! - [`machine_faces`] — a character the interface's compiled-in faces lack, asked of the machine
+//!   by file on a thread of its own, and the window woken when the face lands. `quorra` draws the
+//!   face in its chrome and `quorra-qt` registers the same file with Qt (ADR 1382, ADR 1406); two
+//!   windows asking the question two ways is where one of them draws boxes.
 //! - [`geometry`] — the axis-aligned bound of a quadrilateral. Both native hosts had written it,
 //!   identically, before [`popup`] wanted it a third and fourth time.
 //! - [`trace`] — `--trace=<topics>`, in the line format `viewer-ui` prints, so that two hosts'
@@ -124,6 +128,7 @@ pub mod fit;
 pub mod form;
 pub mod geometry;
 pub mod keys;
+pub mod machine_faces;
 pub mod measuring;
 pub mod modification;
 pub mod panel;

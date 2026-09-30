@@ -717,8 +717,8 @@ CARGO_TARGET_DIR=<scratch>/target cargo test --release -p render-raster --test c
   -- --ignored --nocapture
 ```
 
-`PDFVIEWER_QUORRA_ONLY=a.pdf,b.pdf` narrows it (the ratchets are then *not* checked),
-`PDFVIEWER_QUORRA_COVERAGE=cpu|gpu` picks the lane and `PDFVIEWER_QUORRA_SCALE=n` the
+`PDFVIEWER_RASTER_ONLY=a.pdf,b.pdf` narrows it (the ratchets are then *not* checked),
+`PDFVIEWER_RASTER_COVERAGE=cpu|gpu|compute` picks the lane and `PDFVIEWER_RASTER_SCALE=n` the
 magnification.
 
 ## Counting a feature's population without the corpus test

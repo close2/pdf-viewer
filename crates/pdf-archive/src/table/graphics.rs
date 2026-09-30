@@ -900,7 +900,7 @@ const DESTINATION_PROFILE_VALIDITY_NEEDS_AN_ICC_TEXT: &str = "both parts require
 /// ISO 19005-2 section 6.2.4.2 names ICC.1:1998-09, ICC.1:2001-12, ICC.1:2003-09 and ISO 15076-1.
 /// The last is undated in that part's clause 2, whose normative-reference boilerplate makes the
 /// latest edition apply, and its title line there pins the part to the one based on ICC.1:2010.
-/// This project holds two of the four, both since the nine-hundred-and-fiftieth session:
+/// This project holds two of the four:
 /// ICC.1:1998-09 and ICC.1:2001-12. ICC.1:2003-09 is not here — the ICC supplies its past
 /// specifications on request only — and ISO 15076-1:2010 is a front-matter preview. Holding
 /// ICC.1:2022 does not substitute for either of the two that are missing: it is a fifth text,
@@ -1358,9 +1358,9 @@ fn check_destination_profiles(
 /// older ones by saying the revision numbers match the editions of the specification. A profile
 /// stating 5.0.0.0 therefore claims iccMAX whichever part is asking, and failing iccMAX's
 /// requirements is what makes it not a valid ICC profile under ISO 19005-2 section 6.2.3's own
-/// undefined word. **This comment cited §8.6.5.5 for both parts until the nine-hundred-and-sixty-
-/// first session**, which was a reading of ISO 32000-2 applied to a file whose base standard is
-/// ISO 32000-1 — `Part::Two`'s standing caveat, met in the concrete. ADR 0964.
+/// undefined word. **§8.6.5.5 is not what a part 2 file is judged by**: it is a reading of
+/// ISO 32000-2, and a part 2 file's base standard is ISO 32000-1 — `Part::Two`'s standing caveat,
+/// met in the concrete. ADR 0964.
 ///
 /// **The match is exact rather than "4.4 or later" or "any version 2".** Each edition says which
 /// number is consistent with *it*, and nothing held says what a 2.1.0 or a 4.1.0 profile would have
@@ -3207,9 +3207,9 @@ fn a_device_dependent_page_carries_an_output_intent(
 /// sentence does not say the names have to be *defined* there.
 ///
 /// This row therefore cites part 2's own clause number and reports the clarification beside the
-/// verdict, which `crate::clarification` carries and `crate::report` prints. Until session 942 the
-/// row was part 4's alone, so a PDF/A-2 file naming a resource its associated dictionary does not
-/// define passed here.
+/// verdict, which `crate::clarification` carries and `crate::report` prints, so a PDF/A-2 file
+/// naming a resource its associated dictionary does not define fails here as a PDF/A-4 file
+/// does.
 ///
 /// The population is what `crate::survey` reached: a name is reported only where a content
 /// stream the walk actually ran used it, which is what part 4's same paragraph's closing sentence
@@ -3795,12 +3795,10 @@ fn jpeg2000_channel_count(exam: &Examination<'_>, findings: &mut Findings) {
 /// below is asked of part 4 alone, and a part 2 file's `colr` profile is held to Table 68's two
 /// fields and nothing more.
 ///
-/// **This used to say the sentence "needs the ICC texts, which this project does not hold".** Four
-/// of those editions arrived — ICC.1:1998-09 and ICC.1:2001-12 in the nine-hundred-and-fiftieth
-/// session, ICC.1:2022 and ICC.2:2023 before them — and [`missing_required_tags`] and
-/// [`IccEdition::profile_id_clause`] have judged `ICCBased` and destination profiles against them
-/// since. Nothing announced that the same judge could reach a profile inside a `colr` box, which
-/// is `doc/habits.md`'s third shape: a capability that arrived and said nothing. ADR 0964.
+/// **The ICC texts are held, so the edition is a check here too.** Four editions —
+/// ICC.1:1998-09, ICC.1:2001-12, ICC.1:2022 and ICC.2:2023 — are what [`missing_required_tags`]
+/// and [`IccEdition::profile_id_clause`] judge `ICCBased` and destination profiles against, and
+/// the same judge reaches a profile inside a `colr` box. ADR 0964.
 ///
 /// Only a `METH` of 2 yields profile bytes to read. ISO/IEC 15444-1:2000 Table I-9 defines the
 /// embedded profile for that method alone and reserves every other value, so a `METH` of 3 —

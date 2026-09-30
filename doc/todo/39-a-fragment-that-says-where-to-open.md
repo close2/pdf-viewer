@@ -5,6 +5,7 @@ session and `Parameter::unhonoured` names none; **§O.2.1's last sentence — th
 — is carried out since the five-hundred-and-ninety-sixth**, so all four of Annex O's rows are
 `implemented` and nothing in the annex is reported. What is left is *not this annex's*: the two
 limits named below, and `doc/todo/38`'s ask level. ADRs 0209, 0250, 0310, 0357, 0431.
+Cited by: `CLAUDE.md`'s normative-annexes entry, beside `tools/state.sh annex-o` — the reason the file is kept whole rather than deleted (ADR 1416).
 Priority: 39 — closed; kept as the reading beside `tools/state.sh annex-o`
 Clauses: Annex O (§O.2.1, §O.2.2), §12.7.8, §7.11.4
 Code: `crates/pdf-model/src/fragment.rs`, `crates/viewer-core/src/open.rs`,

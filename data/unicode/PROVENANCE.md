@@ -48,3 +48,36 @@ Unicode's data files are published under the Unicode licence, which is on the al
 and permission notice travel with any copy. `/NOTICE` section 5 carries that notice verbatim,
 which is the same surface the fonts and the CMaps use — `cargo deny` reads Cargo metadata and
 cannot see vendored data.
+
+## The shaping and ordering data (ADRs 1413 and 1414)
+
+§12.7.4.3 has this program write the content stream that shows a field's value, and §7.9.2.2.1
+makes that value Unicode text. Drawing one in a right-to-left, cursive script takes Unicode Standard
+Annex #9's order and the Unicode Standard's cursive joining, and five more files of the UCD are
+that data. All five were fetched from <https://www.unicode.org/Public/UCD/latest/ucd/> on 2026-09-29 —
+`DerivedJoiningType.txt` from its `extracted/` directory — and each names version **18.0.0** on its
+first line. They are shipped unchanged.
+
+    sha256  8ccde4ebd070500a68e8bcb9d5514522fb0bebe57b9ebad3ff925b8e1e669f83  ArabicShaping.txt
+    sha256  e2408ff2c92b175b0f7bf62c989bbb54c7b077528fe31f8d69b96fa09e7d61ed  DerivedJoiningType.txt
+    sha256  0736451de439ae7baf1425136617da495e09ee5afbe6e394374db7009ea08950  UnicodeData.txt
+    sha256  cd54810ebf52f0e61a730c8b9cb25975de6c85f6d788a559b416afd548923fd6  BidiMirroring.txt
+    sha256  045b24d2c8ab066951bd32fe8c6b4de34647f72b5b1c7df0265f24ab53573e01  BidiCharacterTest.txt
+
+What is used, field by field, by `crates/pdf-font/build.rs`, which compiles each into a `static`
+table so that nothing is parsed at launch:
+
+- `DerivedJoiningType.txt`, both fields — every code point whose Joining_Type is not U, the
+  transparent class included, which is why this file rather than `ArabicShaping.txt` is the
+  source of the types.
+- `ArabicShaping.txt`, fields 0 and 3 — the members of the joining groups LAM and ALEF, which the
+  obligatory lam-alef ligature is stated over.
+- `UnicodeData.txt`, fields 0 and 5, over U+FB50..U+FDFF and U+FE70..U+FEFF only — each
+  presentation form's `<isolated>`, `<final>`, `<initial>` or `<medial>` decomposition, which is
+  the table from a letter and a position to the code point that draws it.
+- `BidiMirroring.txt`, both fields — rule L4's mirror image of a character.
+- `BidiCharacterTest.txt` is **not compiled in**: `crates/pdf-font/tests/bidi_character_test.rs`
+  reads it at test time and runs every line through `pdf_font::shaping`.
+
+The bidirectional algorithm's own class data is `unicode-bidi`'s, a Cargo dependency whose licence
+`cargo deny` reads; these files are what the same notice in `/NOTICE` section 5 covers.

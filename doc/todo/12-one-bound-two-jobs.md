@@ -3,10 +3,11 @@
 Status: **answered, and nothing here is owed.** The two jobs stay one number, and the reason is
 measured rather than cautious — from both ends since the eight-hundred-and-forty-ninth session,
 which found that they are not two jobs a threshold can separate in *either* direction. The file
-is kept rather than deleted because twenty-one comments in `crates/` and `tools/` point a reader
+is kept rather than deleted because comments in `crates/` and `tools/` point a reader
 at it, and every decision in it is in the ADRs below.
 Opened in the four-hundred-and-seventh session, answered in the eight-hundred-and-forty-fourth
 and closed in the eight-hundred-and-forty-ninth.
+Cited by: comments in `crates/pdf-model`, `tools/pdfref` and `tools/conformance`; §8.9.5's ledger note — the reason the file is kept whole rather than deleted (ADR 1416).
 Priority: 12 — demand-driven, and it is about the instrument rather than about a page
 Code: `tools/pdfref/src/lib.rs` (`Tolerance`, `Judgement`, `widened_to`),
 `tools/pdfref/src/reference.rs` (`substituted_cmyk_profile`),

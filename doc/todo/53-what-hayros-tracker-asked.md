@@ -3,6 +3,7 @@
 Status: **closed** — all three residues, the last in the nine-hundred-and-eighty-third (ADR 1004);
 kept as the record of three cases a round deliberately did not fix and what changed each answer.
 Opened in the five-hundred-and-fifty-seventh session.
+Cited by: comments in `crates/pdf-font`; §7.2.3's ledger note — the reason the file is kept whole rather than deleted (ADR 1416).
 Priority: 53 — neither is witnessed by a corpus document, which is exactly why they are written
 down rather than left to be rediscovered.
 Clauses: §7.2.3 and §7.8.2 (item 1), §9.6.5.2 (item 2)

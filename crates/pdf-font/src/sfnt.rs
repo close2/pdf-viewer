@@ -13,6 +13,56 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
+/// The glyph at which a `glyf` composite reached from `glyph` includes itself, or `None` where
+/// every component chain from it ends.
+///
+/// Table 124 has a `/FontFile2` program "shall conform to the TrueType Reference Manual", and that
+/// manual's `maxp` table (version 1.0, the one a `glyf` program states) gives the deepest nesting
+/// of its composite glyphs as a finite count of levels. A composite whose components reach it
+/// again has no such depth, so it describes no outline at all, and what it would draw is not the
+/// program's statement but whatever depth a rasteriser gives up at (ADR 1411).
+///
+/// A walk of the component graph with each glyph finished once, so it costs at most one visit
+/// per glyph the program holds; asked only where a code reached no outline, which is where the
+/// sentence it supplies is wanted.
+#[must_use]
+pub(crate) fn composite_cycle(data: &[u8], glyph: u16) -> Option<u16> {
+    use skrifa::raw::TableProvider;
+    use skrifa::raw::tables::glyf::Glyph;
+
+    let font = skrifa::FontRef::new(data).ok()?;
+    let glyf = font.glyf().ok()?;
+    let loca = font.loca(None).ok()?;
+    let components = |of: u16| -> Vec<u16> {
+        match loca.get_glyf(skrifa::GlyphId::from(of), &glyf) {
+            Ok(Some(Glyph::Composite(composite))) => composite
+                .components()
+                .map(|component| component.glyph.to_u16())
+                .collect(),
+            _ => Vec::new(),
+        }
+    };
+    // `on_path` is the chain from `glyph` to the glyph being expanded; `finished` holds every
+    // glyph whose components have all been walked, so none is walked twice.
+    let mut on_path: Vec<(u16, Vec<u16>)> = vec![(glyph, components(glyph))];
+    let mut finished = std::collections::BTreeSet::new();
+    while let Some((_, pending)) = on_path.last_mut() {
+        let Some(next) = pending.pop() else {
+            if let Some((done, _)) = on_path.pop() {
+                finished.insert(done);
+            }
+            continue;
+        };
+        if on_path.iter().any(|(held, _)| *held == next) {
+            return Some(next);
+        }
+        if !finished.contains(&next) {
+            on_path.push((next, components(next)));
+        }
+    }
+    None
+}
+
 /// How many bytes an `sfnt`'s own table directory says the program has, when that is more than
 /// it has.
 ///

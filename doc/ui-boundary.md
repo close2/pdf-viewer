@@ -771,7 +771,9 @@ Text this program generates for *itself* had no font: every route into `pdf-font
 `&Document` beside a `&Dictionary`, and an interface has neither. `LoadedFont::standard` loads one
 of §9.6.2.2's fourteen through the ordinary `LoadedFont::load` against a new `Document::empty`, so
 the encoding is §9.6.5.2's and the widths are the clause's own — and an interface set in Helvetica
-is set in the same Helvetica on a machine with no fonts installed.
+is set in the same Helvetica on a machine with no fonts installed. A character none of the fourteen
+states is asked of the machine by file (ADR 1382), on `viewer_host::machine_faces`' thread rather
+than the one that draws (ADR 1406), and `quorra-qt` registers the same file with Qt.
 
 #### Crates
 

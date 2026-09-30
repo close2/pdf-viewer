@@ -16,9 +16,9 @@
 //! # Why a grammar rather than a list
 //!
 //! `TechNote 0010` A020 resolves that an XMP `Date` is validated as ISO 8601 and nothing more
-//! (`crate::clarification`). Until session 993 the check was the XMP Specification's six
-//! profiles of ISO 8601, and `doc/questions/Q53` recorded the gap: a date in any other ISO 8601
-//! form was refused. The six profiles remain what an XMP packet is *written* in — `pdf_model::xmp`
+//! (`crate::clarification`), so the check is ISO 8601's own grammar rather than the XMP
+//! Specification's six profiles of it, which would refuse a date in any other ISO 8601 form
+//! (`doc/questions/Q53`). The six profiles remain what an XMP packet is *written* in — `pdf_model::xmp`
 //! emits them and this module does not change that — and what moves is what the validator
 //! *admits*. ADR 1013 has the decision.
 //!

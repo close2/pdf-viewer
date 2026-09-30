@@ -403,3 +403,10 @@ sentence read a falsehood, and `--bin unread` counted it (round 1253). And a sec
 todo file is written "section N" even when the document's name sits on the previous line: the citation
 scanner resolves a document named on the same line only, so a wrapped "ADR 1000 / §7" reads as ISO
 clause 7 and collects ledger findings.
+
+**An earlier ADR's counter-example is built as a test before its decision is overturned.** A brief
+asked that a form re-entering itself be refused by identity; ADR 0793 had declined that on a file
+whose second pass finishes — a form filled under a pattern whose cell draws the same form in black —
+and building that file as a test showed it still draws whole, so identity now names the cycle in the
+report and refuses nothing the bound did not (ADR 1411). What survives the counter-example is done;
+the rest is not.

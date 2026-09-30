@@ -68,3 +68,11 @@ argument holds for all of them; what differs from machine to machine is only wha
 machine. `Chrome::compiled_in_only` is the chrome with no machine face behind it. So on a machine
 with the faces, the thirteen documents above lose nothing in `quorra`'s panels either, and the two
 answers above are now about a machine that has none.
+
+**The search runs on a thread of its own, never on the thread that draws** (ADR 1406):
+`viewer_host::machine_faces` answers a character from the faces already found or queues it, the
+character is the box until the answer lands, and the window is woken to draw it. Measured cold on
+this machine, the catalogue walk is a second, and a document opening on a panel holding one such
+character had put it in front of first present. **`quorra-qt` takes the same answer**: Qt falls
+back by family, eleven faces here share `Droid Sans`, and the strip drew boxes until the host
+handed Qt the file the search names. `quorra-gtk` needs nothing: Pango draws it.

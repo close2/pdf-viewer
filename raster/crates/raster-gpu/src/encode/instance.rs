@@ -21,6 +21,7 @@
 
 use raster_scene::{Point, Rect};
 
+use super::parallel::{Draw, Job};
 use super::{Encoder, Op};
 use crate::error::RenderError;
 
@@ -124,8 +125,24 @@ impl Encoder<'_> {
         style: DrawStyle,
         mask: Option<u32>,
     ) -> Result<(), RenderError> {
-        // Draw order is the scene's order, so anything queued draws first (`parallel`).
-        self.drain_queue()?;
+        // Draw order is the scene's order, so behind anything queued the rectangle queues
+        // too, and is written at its commit (ADR 1409): a drain here would cut a page of
+        // text and rules into runs too short for the fan-out's floor.
+        if !self.queue.is_empty() {
+            return self.enqueue(Job::rect(rect, Draw::new(color, rect, style, mask)));
+        }
+        self.write_rect_instance(rect, color, style, mask);
+        Ok(())
+    }
+
+    /// Write one rectangle instance, with nothing queued ahead of it.
+    pub(super) fn write_rect_instance(
+        &mut self,
+        rect: Rect,
+        color: raster_scene::Color,
+        style: DrawStyle,
+        mask: Option<u32>,
+    ) {
         self.plan_mut()
             .mark([rect.min.x, rect.min.y, rect.max.x, rect.max.y]);
         let premultiplied = [
@@ -142,7 +159,6 @@ impl Encoder<'_> {
         }
         self.lanes.rectangle = self.lanes.rectangle.saturating_add(1);
         self.note_batch(BatchKind::Rect, style, mask);
-        Ok(())
     }
 
     #[expect(clippy::too_many_arguments)] // one instance layout, one writer

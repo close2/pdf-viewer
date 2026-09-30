@@ -71,6 +71,18 @@ pub enum Unsupported {
         /// Which bound.
         limit: &'static str,
     },
+    /// The nesting bound was reached by a chain of content streams that re-enters one it is
+    /// already running, so no value of the bound would have finished it.
+    ///
+    /// §9.6.4, as Errata Collection 3 inserts it, says of the Type 3 case that "[t]he result in
+    /// all such cases is implementation-dependent", and §C.2's Table C.1 says as much of nested
+    /// `XObject`s; this is that result, said by name. The run is refused at `MAX_FORM_DEPTH`
+    /// exactly as [`Self::LimitReached`]'s is — ADR 0793 is why a re-entry is not refused sooner
+    /// — and what differs is that the report says which stream the chain came back to (ADR 1411).
+    NestingCycle {
+        /// The stream the chain re-entered, as the interpreter names it.
+        stream: String,
+    },
     /// A text object whose glyphs should have knocked one another out (§9.3.8).
     ///
     /// `Tk`'s initial value is true, which makes a text object a non-isolated knockout

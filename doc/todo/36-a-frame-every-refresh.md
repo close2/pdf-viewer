@@ -33,8 +33,9 @@ rather than inherit:
 - **A repaint of what is already on the screen fits inside one refresh on every page class
   measured**, with most of the budget to spare. A window that has drawn its page can answer a
   selection, a caret or a chrome change at 120 Hz today.
-- **A page turn onto a page whose outlines the device has not seen fits on none of them**,
-  including a page of ordinary text. That is the expensive end of the gesture; `launch_path`'s
+- **A page turn onto a page whose outlines the device has not seen fits only on the light
+  pages**: the text witness now fits, its glyphs divided across the fan-out (ADR 1409), and the
+  artwork, photograph and stroke witnesses do not. That is the expensive end of the gesture; `launch_path`'s
   own page-turn figure — arrow keys inside one document whose page one is already drawn — is the
   cheap end, and a session moves between the two.
 - **The largest stage is a different one per page class** — raster's encode for dense text, this
@@ -57,7 +58,7 @@ is four costs with two owners:
 
 | the cost | whose | where it stands |
 |---|---|---|
-| raster's encode of a page seen for the first time, on the lane a page turn takes | raster's, in `raster/` | asked in `doc/QUORRA_FEEDBACK.md` section 52, ask 1. A clipped mark and a stroke are made off the walk's thread (ADR 1395); what keeps a text page's turn serial is the drains a repeated glyph and a rectangle force, none of them past the fan-out's floor |
+| raster's encode of a page seen for the first time, on the lane a page turn takes | raster's, in `raster/` | asked in `doc/QUORRA_FEEDBACK.md` section 52, ask 1. A clipped mark and a stroke are made off the walk's thread (ADR 1395), and a repeated glyph, a rectangle and a compute tile queue behind the marks before them rather than drain (ADR 1409), so a text page's turn and a zoom step's strokes divide; what is left is the walk and the commit, ordered by construction, and the stroke construction's own cost |
 | an image restaged for every placement it is drawn at | quorra's | asked, with the byte counts: `doc/QUORRA_FEEDBACK.md` §52 ask 2 |
 | a mesh shading rasterised into device pixels on every view change | this tree's | the **paint** is divided across the pool (ADR 1259); `PatchMesh::tessellate` is still serial and is what remains |
 | a photograph decoded on the way into a page turn | this tree's | **taken** (ADR 1271): the decoder is asked for the raster this tree used to widen its components into, and the walk that looks for a `DNL` marker reads the codestream a word at a time rather than a byte. What is left of that stage is `zune-jpeg`'s own Huffman and IDCT, which is most of it and is nobody's to divide — `doc/stack.md`'s crate is single-threaded by construction. A page of *several* photographs decodes them beside each other (ADR 1321) |

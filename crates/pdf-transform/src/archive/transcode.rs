@@ -19,6 +19,14 @@
 //! meaning for its samples, §7.4.9's "single colour channel with 1-bit samples", so it is
 //! transcoded as well.
 //!
+//! **An opacity channel travels as the soft-mask image Table 87 names.** A non-zero `/SMaskInData`
+//! says the codestream carries one, and Table 87 has a processor "create a soft-mask image from the
+//! information"; a Flate copy has no channel for it, so the transcode creates that image as an
+//! object of its own — `DeviceGray` as Table 143 requires, at the opacity channel's own depth — and
+//! names it in `/SMask`. Code 2's colour was multiplied by the opacity, which §11.6.5.2's
+//! pre-blending states as a `/Matte` of the space's zero, the redaction writer's construction
+//! (ADR 1277, ADR 1412).
+//!
 //! The depth is the codestream's: where every component has one depth that Table 87 can state,
 //! the samples are written at it and the dictionary's `/Decode` is carried as it stood; otherwise
 //! they are written in the field of the widest, eight bits or sixteen, with each component's
@@ -40,6 +48,20 @@ use super::decision::Because;
 
 /// The requirement whose `preserve` transcodes the image.
 pub(super) const SITE: &str = "graphics/jpeg2000-uses-the-baseline-feature-set";
+
+/// Every requirement the same transcode answers, [`SITE`] first.
+///
+/// ISO 19005-2 section 6.2.8.3 and ISO 19005-4 section 6.2.7.3 state the channel count, the bit
+/// depth and the enumerated `CIEJab` colour space of *JPEG 2000 data*, exactly as they state its
+/// baseline, so an image whose samples are carried under `FlateDecode` is outside those three
+/// sentences for the reason it is outside the first. The shape is the same too: only where the
+/// dictionary states `ColorSpace` are the samples already in a domain a copy can keep (ADR 1412).
+pub(super) const SITES: [&str; 4] = [
+    SITE,
+    "graphics/jpeg2000-bit-depth",
+    "graphics/jpeg2000-channel-count",
+    "graphics/jpeg2000-no-ciejab-colour-space",
+];
 
 /// What an operator answering the site with `preserve` is agreeing to.
 pub(super) const TRANSCODED: &str = "each JPEG 2000 image outside the JPX baseline whose \
@@ -68,11 +90,26 @@ const NOT_THE_DATA: &str = "a JPEG 2000 image outside the JPX baseline keeps its
      JPXDecode alone, so the stream's own bytes are not the JPEG 2000 data this remedy would \
      decode";
 
-/// Why an image with its opacity in the codestream is not transcoded.
-const OPACITY_IN_THE_DATA: &str = "a JPEG 2000 image outside the JPX baseline states a non-zero \
-     SMaskInData, so ISO 32000-2 Table 87 has a processor create a soft-mask image from the \
-     codestream's opacity channel. Transcoding it means writing that soft-mask image as an \
-     object of its own, which this remedy does not build";
+/// Why an image stating both kinds of soft mask is not transcoded.
+const TWO_SOFT_MASKS: &str = "a JPEG 2000 image outside the JPX baseline states a non-zero \
+     SMaskInData beside an SMask entry, which ISO 32000-2 Table 87 forbids (\"[i]f this entry has \
+     a non-zero value, SMask shall not be specified\"), so there is no one soft mask a Flate copy \
+     could carry";
+
+/// Why a premultiplied image in an `Indexed` space is not transcoded.
+const PREMULTIPLIED_INDICES: &str = "a JPEG 2000 image outside the JPX baseline states \
+     SMaskInData 2 over an Indexed space or one whose components do not reach zero, so \
+     \u{a7}11.6.5.2's Matte, which states the pre-blending in the parent's own components, has no \
+     value that says what the multiplication did";
+
+/// Why an image mask whose data carries opacity is not transcoded.
+const OPACITY_OVER_A_STENCIL: &str = "a JPEG 2000 image mask outside the JPX baseline states a \
+     non-zero SMaskInData, so its stencil and its opacity are two planes, and ISO 32000-2 Table \
+     87 gives an image mask no SMask entry a Flate copy could carry the second in";
+
+/// Why no object number could be found for a soft-mask image.
+const NO_NUMBER_FOR_THE_MASK: &str = "a JPEG 2000 image's opacity channel needs a soft-mask image \
+     object of its own and no unused object number was found for it";
 
 /// Why an image the codec does not return whole is not transcoded.
 const NOT_DECODED_WHOLE: &str = "a JPEG 2000 image outside the JPX baseline was not decoded to \
@@ -112,6 +149,9 @@ pub struct TranscodedImage {
     pub before: usize,
     /// The stream's length under `FlateDecode`.
     pub after: usize,
+    /// The soft-mask image created from the codestream's opacity channel, where Table 87's
+    /// `/SMaskInData` said it carried one (ADR 1412).
+    pub soft_mask: Option<ObjectId>,
 }
 
 impl TranscodedImage {
@@ -137,6 +177,12 @@ impl TranscodedImage {
             ),
             ("bytes_before".to_owned(), Value::count(self.before)),
             ("bytes_after".to_owned(), Value::count(self.after)),
+            (
+                "soft_mask".to_owned(),
+                self.soft_mask.map_or(Value::Null, |mask| {
+                    Value::text(format!("{} {}", mask.number, mask.generation))
+                }),
+            ),
         ])
     }
 }
@@ -148,12 +194,15 @@ pub(super) struct Transcodes {
     pub(super) at: BTreeMap<ObjectId, Object>,
     /// One row per image, for the report.
     pub(super) rows: Vec<TranscodedImage>,
+    /// The soft-mask images the opacity channels became, by the number each was given.
+    pub(super) written: BTreeMap<ObjectId, Object>,
 }
 
-/// Every `JPXDecode` image the baseline requirement named, transcoded.
+/// Every `JPXDecode` image one of the requirements in `answered` named, transcoded.
 ///
-/// The population is the validator's findings, so the images this touches are the ones the
-/// requirement reported; one that cannot be transcoded refuses the site with its own sentence,
+/// `answered` is the members of [`SITES`] that failed and that the plan answers with `preserve`.
+/// The population is the validator's findings, so the images this touches are the ones those
+/// requirements reported; one that cannot be transcoded refuses the site with its own sentence,
 /// because a conversion that transcoded the others would still fail the requirement.
 ///
 /// # Errors
@@ -162,10 +211,12 @@ pub(super) struct Transcodes {
 pub(super) fn prepare(
     document: &Document,
     input: &pdf_archive::Report,
+    spare: &mut super::prepare::Spare,
+    answered: &[&str],
 ) -> Result<Transcodes, Because> {
     let mut out = Transcodes::default();
     for judgement in input.failures() {
-        if judgement.id != SITE {
+        if !answered.contains(&judgement.id) {
             continue;
         }
         let Outcome::Failed { places, .. } = &judgement.outcome else {
@@ -179,9 +230,12 @@ pub(super) fn prepare(
             if out.at.contains_key(&id) {
                 continue;
             }
-            let (stream, row) = transcode(document, id)?;
-            out.at.insert(id, stream);
-            out.rows.push(row);
+            let transcoded = transcode(document, id, spare)?;
+            out.at.insert(id, transcoded.stream);
+            out.rows.push(transcoded.row);
+            if let Some((at, mask)) = transcoded.soft_mask {
+                out.written.insert(at, mask);
+            }
         }
     }
     if out.at.is_empty() {
@@ -190,53 +244,30 @@ pub(super) fn prepare(
     Ok(out)
 }
 
-/// One image's replacement stream, proved, and its report row.
-fn transcode(document: &Document, id: ObjectId) -> Result<(Object, TranscodedImage), Because> {
+/// What one image became: its replacement stream, its report row, and the soft-mask image its
+/// opacity channel became, with the number it was given, where it carried one.
+struct Transcoded {
+    /// The replacement image stream, proved.
+    stream: Object,
+    /// The report row.
+    row: TranscodedImage,
+    /// The soft-mask image object and its number.
+    soft_mask: Option<(ObjectId, Object)>,
+}
+
+/// One image's replacement stream, proved, its report row, and the soft-mask image its opacity
+/// channel became where it carried one.
+fn transcode(
+    document: &Document,
+    id: ObjectId,
+    spare: &mut super::prepare::Spare,
+) -> Result<Transcoded, Because> {
     let Object::Stream(stream) = document.get(id) else {
         return Err(Because::NotBuiltYet(NO_IMAGE_OBJECT));
     };
     let dict = &stream.dict;
-    if stream.decryption_failed
-        || !document.get_key(dict, "F").is_null()
-        || !super::jpeg2000::only_jpx(document, dict)
-    {
-        return Err(Because::NotBuiltYet(NOT_THE_DATA));
-    }
-    let mask = document.get_key(dict, "ImageMask") == Object::Boolean(true);
-    let stated = !document.get_key(dict, "ColorSpace").is_null();
-    if !stated && !mask {
-        return Err(Because::NotBuiltYet(THE_DATA_STATES_THE_COLOUR));
-    }
-    if document
-        .get_key(dict, "SMaskInData")
-        .as_integer()
-        .is_some_and(|code| code != 0)
-    {
-        return Err(Because::NotBuiltYet(OPACITY_IN_THE_DATA));
-    }
-    let samples = pdf_model::image::jpx_samples(
-        document,
-        dict,
-        &Dictionary::new(),
-        (&stream.data, ORDINARY_JPX_SAMPLES),
-    )
-    .map_err(|_| Because::NotBuiltYet(NOT_DECODED_WHOLE))?;
-    if samples.depths.iter().any(|depth| *depth > 16) {
-        return Err(Because::NotBuiltYet(DEEPER_THAN_SIXTEEN));
-    }
-    let expected = if mask {
-        Some(1)
-    } else {
-        pdf_model::colour::ColourSpace::parse(
-            document,
-            &document.get_key(dict, "ColorSpace"),
-            &Dictionary::new(),
-        )
-        .map(|space| space.components())
-    };
-    if expected != Some(samples.components) || (mask && samples.depths.as_slice() != [1]) {
-        return Err(Because::NotBuiltYet(COMPONENTS_DISAGREE));
-    }
+    let samples = admitted_samples(document, &stream)?;
+    let soft_mask = soft_mask_for(document, dict, &samples, spare)?;
     let (bits, data, decode) = laid_out(&samples);
     let encoded = pdf_syntax::serialize::flate_encode(&data, COMPRESSION_LEVEL)
         .ok_or(Because::NotBuiltYet(NOT_PROVED))?;
@@ -246,8 +277,12 @@ fn transcode(document: &Document, id: ObjectId) -> Result<(Object, TranscodedIma
         Object::Name(Name::new(&b"FlateDecode"[..])),
     );
     written.remove("DecodeParms");
-    // Table 87 makes the entry meaningless for any filter but `JPXDecode`.
+    // Table 87 makes the entry meaningless for any filter but `JPXDecode`; what it said is now
+    // the soft-mask image below, where it said anything.
     written.remove("SMaskInData");
+    if let Some((at, _)) = &soft_mask {
+        written.insert(Name::new(&b"SMask"[..]), Object::Reference(*at));
+    }
     written.insert(
         Name::new(&b"BitsPerComponent"[..]),
         Object::Integer(i64::from(bits)),
@@ -284,8 +319,193 @@ fn transcode(document: &Document, id: ObjectId) -> Result<(Object, TranscodedIma
         bits,
         before: stream.data.len(),
         after: replacement.data.len(),
+        soft_mask: soft_mask.as_ref().map(|(at, _)| *at),
     };
-    Ok((Object::Stream(Arc::new(replacement)), row))
+    Ok(Transcoded {
+        stream: Object::Stream(Arc::new(replacement)),
+        row,
+        soft_mask,
+    })
+}
+
+/// The image's samples, decoded whole, where every refusal this remedy states has been asked of
+/// its dictionary and of what the codec returned.
+fn admitted_samples(document: &Document, stream: &Stream) -> Result<JpxSamples, Because> {
+    let dict = &stream.dict;
+    if stream.decryption_failed
+        || !document.get_key(dict, "F").is_null()
+        || !super::jpeg2000::only_jpx(document, dict)
+    {
+        return Err(Because::NotBuiltYet(NOT_THE_DATA));
+    }
+    let mask = document.get_key(dict, "ImageMask") == Object::Boolean(true);
+    let stated = !document.get_key(dict, "ColorSpace").is_null();
+    if !stated && !mask {
+        return Err(Because::NotBuiltYet(THE_DATA_STATES_THE_COLOUR));
+    }
+    let opacity_stated = document
+        .get_key(dict, "SMaskInData")
+        .as_integer()
+        .is_some_and(|code| code != 0);
+    if opacity_stated && !document.get_key(dict, "SMask").is_null() {
+        return Err(Because::NotBuiltYet(TWO_SOFT_MASKS));
+    }
+    if opacity_stated && mask {
+        return Err(Because::NotBuiltYet(OPACITY_OVER_A_STENCIL));
+    }
+    let samples = pdf_model::image::jpx_samples(
+        document,
+        dict,
+        &Dictionary::new(),
+        (&stream.data, ORDINARY_JPX_SAMPLES),
+    )
+    .map_err(|_| Because::NotBuiltYet(NOT_DECODED_WHOLE))?;
+    if samples.depths.iter().any(|depth| *depth > 16) {
+        return Err(Because::NotBuiltYet(DEEPER_THAN_SIXTEEN));
+    }
+    let expected = if mask {
+        Some(1)
+    } else {
+        pdf_model::colour::ColourSpace::parse(
+            document,
+            &document.get_key(dict, "ColorSpace"),
+            &Dictionary::new(),
+        )
+        .map(|space| space.components())
+    };
+    if expected != Some(samples.components) || (mask && samples.depths.as_slice() != [1]) {
+        return Err(Because::NotBuiltYet(COMPONENTS_DISAGREE));
+    }
+    Ok(samples)
+}
+
+/// The soft-mask image Table 87 has a processor create from the codestream's opacity channel,
+/// with the object number it takes, or `None` where the samples carry no opacity (ADR 1412).
+fn soft_mask_for(
+    document: &Document,
+    dict: &Dictionary,
+    samples: &JpxSamples,
+    spare: &mut super::prepare::Spare,
+) -> Result<Option<(ObjectId, Object)>, Because> {
+    Ok(match samples.opacity.as_deref() {
+        Some(opacity) => {
+            let matte = if samples.premultiplied {
+                Some(zero_matte(document, dict, samples.components)?)
+            } else {
+                None
+            };
+            let at = spare
+                .take(document)
+                .ok_or(Because::NotBuiltYet(NO_NUMBER_FOR_THE_MASK))?;
+            Some((at, soft_mask_image(document, samples, opacity, matte)?))
+        }
+        None => None,
+    })
+}
+
+/// §11.6.5.2's `/Matte` for Table 87's code 2: the parent space's zero in every component.
+///
+/// The pre-blending formula is `c′ = m + α × (c − m)`, computed "using actual colour component
+/// values, with the effects of the Filter and Decode transformations already performed", so a
+/// multiplication by the opacity alone is the matte whose every component is zero — which this
+/// tree's own reading of code 2 undoes in those same values. Table 144 requires the matte's numbers
+/// to be "valid colour components in that colour space", so a space one of whose components does
+/// not reach zero, and an `Indexed` space whose indices no opacity can have multiplied, are refused.
+fn zero_matte(
+    document: &Document,
+    dict: &Dictionary,
+    components: usize,
+) -> Result<Vec<f32>, Because> {
+    let space = pdf_model::colour::ColourSpace::parse(
+        document,
+        &document.get_key(dict, "ColorSpace"),
+        &Dictionary::new(),
+    )
+    .ok_or(Because::NotBuiltYet(PREMULTIPLIED_INDICES))?;
+    let reaches_zero = (0..components).all(|component| {
+        let (low, high) = space.component_range(component);
+        low <= 0.0 && high >= 0.0
+    });
+    if matches!(space, pdf_model::colour::ColourSpace::Indexed { .. }) || !reaches_zero {
+        return Err(Because::NotBuiltYet(PREMULTIPLIED_INDICES));
+    }
+    Ok(vec![0.0; components])
+}
+
+/// The soft-mask image Table 87 has a processor create from the codestream's opacity channel,
+/// written under `FlateDecode` and proved.
+///
+/// Table 143's restrictions are what it states: `/Subtype /Image`, `/ColorSpace /DeviceGray`,
+/// and a `/BitsPerComponent` — the opacity channel's own depth where Table 87 can state it, the
+/// field of the widest channel otherwise with `/Decode` widened, as [`laid_out`] decides for the
+/// colour. `/Width` and `/Height` are the parent's, which Table 143 requires where a `/Matte` is
+/// present and which the channel has in any case.
+fn soft_mask_image(
+    document: &Document,
+    samples: &JpxSamples,
+    opacity: &[u8],
+    matte: Option<Vec<f32>>,
+) -> Result<Object, Because> {
+    let plane = JpxSamples {
+        components: 1,
+        depths: vec![samples.opacity_depth],
+        colour: opacity.to_vec(),
+        opacity: None,
+        premultiplied: false,
+        decode: vec![(0.0, 1.0)],
+        ..samples.clone()
+    };
+    let (bits, data, decode) = laid_out(&plane);
+    let encoded = pdf_syntax::serialize::flate_encode(&data, COMPRESSION_LEVEL)
+        .ok_or(Because::NotBuiltYet(NOT_PROVED))?;
+    let mut dict = Dictionary::new();
+    let name = |text: &[u8]| Object::Name(Name::new(text));
+    dict.insert(Name::new(&b"Type"[..]), name(b"XObject"));
+    dict.insert(Name::new(&b"Subtype"[..]), name(b"Image"));
+    dict.insert(
+        Name::new(&b"Width"[..]),
+        Object::Integer(i64::from(samples.width)),
+    );
+    dict.insert(
+        Name::new(&b"Height"[..]),
+        Object::Integer(i64::from(samples.height)),
+    );
+    dict.insert(Name::new(&b"ColorSpace"[..]), name(b"DeviceGray"));
+    dict.insert(
+        Name::new(&b"BitsPerComponent"[..]),
+        Object::Integer(i64::from(bits)),
+    );
+    dict.insert(Name::new(&b"Filter"[..]), name(b"FlateDecode"));
+    let reals = |values: Vec<f32>| {
+        Object::Array(
+            values
+                .into_iter()
+                .map(|value| Object::Real(f64::from(value)))
+                .collect(),
+        )
+    };
+    if let Some(decode) = decode {
+        dict.insert(Name::new(&b"Decode"[..]), reals(decode));
+    }
+    if let Some(matte) = matte {
+        dict.insert(Name::new(&b"Matte"[..]), reals(matte));
+    }
+    dict.insert(
+        Name::new(&b"Length"[..]),
+        Object::Integer(i64::try_from(encoded.len()).unwrap_or(i64::MAX)),
+    );
+    let written = Stream {
+        dict,
+        data: encoded.into(),
+        decryption_failed: false,
+    };
+    if document
+        .decoded_stream_data(&written)
+        .is_none_or(|back| *back != *data)
+    {
+        return Err(Because::NotBuiltYet(NOT_PROVED));
+    }
+    Ok(Object::Stream(Arc::new(written)))
 }
 
 /// The depth to write, the samples laid out at it, and the `/Decode` array to state where the

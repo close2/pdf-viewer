@@ -298,6 +298,17 @@ pub(super) struct Coverage {
     /// The repair's own sentence, taken from the font the first time `lost` is raised, so that
     /// the page's report can say what was done to the program and not only what it cost.
     pub(super) shortfall: Option<String>,
+    /// A `glyf` composite one of the empty codes reached that includes itself, which describes no
+    /// outline at all: the program's fault, named in the report (ADR 1411).
+    pub(super) cycle: Option<u16>,
+    /// Whether the font's descriptor sets both Table 121's Symbolic and Nonsymbolic flags, which
+    /// §9.8.2 says "shall not both be set": the reading that chose the empty glyphs is the one the
+    /// clause's "should always check the Symbolic flag" gives such a file (ADR 1411).
+    pub(super) both_flags: bool,
+    /// Whether the program describes no outline for any glyph it holds, asked once at the first
+    /// empty code. Such a font draws nothing by §9.7.6.3's own route, and the page does not report
+    /// it (ADR 1411).
+    pub(super) outline_free: Option<bool>,
 }
 
 /// What one code contributed to the page's readback.
@@ -663,6 +674,16 @@ impl Interpreter<'_> {
                             let blank = program
                                 .glyph_index(code)
                                 .is_some_and(|glyph| glyph != pdf_font::NOTDEF_GLYPH);
+                            // What the report at the end of the page says about *why* nothing
+                            // was drawn, asked here where the code and the program are both at
+                            // hand, and each asked once per font (ADR 1411).
+                            if coverage.cycle.is_none() {
+                                coverage.cycle = program.composite_cycle(code);
+                            }
+                            coverage.both_flags |= program.states_both_symbolic_flags();
+                            if coverage.outline_free.is_none() {
+                                coverage.outline_free = Some(program.holds_no_outline());
+                            }
                             // Asked before the two arms below, because a glyph the program's
                             // repair could not supply has an index and no contours *drawn* —
                             // which the first arm would read as the program describing it

@@ -10,10 +10,9 @@
 //! different real subclause rather than failing to resolve**, which is worse than a dangling
 //! pointer: ISO 32000-2 removed *Font subsets* as a subclause of its own, so everything after
 //! ISO 32000-1's 9.6.4 moved up one, and §9.6.4 names Type 3 fonts in one edition and font subsets
-//! in the other. The nine-hundred-and-seventy-fifth session found eight such numbers by hand (ADR
-//! 0986 section 4) and wrote each file's share of them into that file's module comment, with the
-//! sentence "everything else this file cites was checked and agrees" — a claim about a sweep
-//! nobody could re-run.
+//! in the other. Eight such numbers were found by hand (ADR 0986 section 4), and a module comment
+//! saying that the rest of its file's citations were checked and agree is a claim about a sweep
+//! nobody can re-run.
 //!
 //! This module is that sweep made a table and a test. [`SHIFTS`] records every cited number whose
 //! counterpart in ISO 32000-1:2008 is not the same number under the same title, and

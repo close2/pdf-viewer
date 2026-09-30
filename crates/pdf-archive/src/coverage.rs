@@ -6,9 +6,9 @@
 //! against the part that states it, its identifier against every other row's, its reason against
 //! the tree it names, and its predicate against the corpus. **A requirement with no row at all is
 //! invisible to all of that**: it is not `Unchecked`, it fails no document, it is in no
-//! denominator, and no sweep of the reasons that *exist* can see it. Two consecutive sessions
-//! swept every `Check::Unchecked` and `Check::Processor` reason and found them accurate, which
-//! established nothing whatever about the rules nobody had written a row for.
+//! denominator, and no sweep of the reasons that *exist* can see it. A sweep that finds every
+//! `Check::Unchecked` and `Check::Processor` reason accurate establishes nothing whatever about
+//! the rules nobody has written a row for.
 //!
 //! So this module walks the standards the other way round — from the document's own table of
 //! contents — and records, for **every** subclause of ISO 19005-2 and ISO 19005-4 including their
@@ -136,9 +136,9 @@ pub fn subclauses() -> impl Iterator<Item = &'static Subclause> {
 ///
 /// Clause 5 is here as well as clause 6, because two rows cite it: a conforming file adheres to
 /// its base standard, and part 4 forbids the features that standard deprecates. Clause 6 is the
-/// bulk. The normative annexes are the part this crate had never looked at — ISO 19005-2's
-/// Annex A and Annex B carried between them a method and nine requirements with not one row
-/// against them until the session that wrote this file.
+/// bulk. The normative annexes are listed as well — ISO 19005-2's Annex A and Annex B carry
+/// between them a method and nine requirements, and an audit of clause 6 alone would see none of
+/// them.
 ///
 /// Clauses 1 to 4 are scope, references, terms and notation, and state no requirement; they are
 /// not listed, and that is the one boundary of this audit.

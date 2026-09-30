@@ -23,6 +23,7 @@ fn element(parent: Option<usize>, role: &str, name: &str) -> AccessibilityNode {
         parent,
         role: role.to_owned(),
         name: name.to_owned(),
+        titled: false,
         substituted: false,
         language: None,
         quads: Vec::new(),
@@ -162,6 +163,35 @@ fn a_pages_elements_arrive_as_roles() {
     assert_eq!(heading.label(), Some("A heading"));
     assert_eq!(node(&update, NodeId(17)).role(), Role::Paragraph);
     assert_eq!(node(&update, NodeId(18)).role(), Role::Image);
+}
+
+/// A `Sect` named by its Table 355 `/T` is a region a person can be taken to by that name, its
+/// children still say what is in it, and a `Sect` without a title and a titled `Div` stay sections
+/// (ADR 1405).
+#[test]
+fn a_titled_section_is_a_region_named_by_its_title() {
+    let mut titled = element(None, "Sect", "Chapter 1");
+    titled.titled = true;
+    let mut division = element(None, "Div", "Sidebar");
+    division.titled = true;
+    let nodes = [
+        titled,
+        element(Some(0), "P", "The first paragraph."),
+        element(None, "Sect", ""),
+        division,
+    ];
+    let update = built(view(&nodes, &[]));
+    let region = node(&update, NodeId(16));
+    assert_eq!(region.role(), Role::Region);
+    assert_eq!(region.label(), Some("Chapter 1"));
+    assert_eq!(
+        region.children(),
+        [NodeId(17)],
+        "a title substitutes nothing"
+    );
+    assert_eq!(node(&update, NodeId(18)).role(), Role::Section);
+    assert_eq!(node(&update, NodeId(19)).role(), Role::Section);
+    assert_eq!(node(&update, NodeId(19)).label(), Some("Sidebar"));
 }
 
 /// §14.9.3's `/Alt` replaces the element, so what is under it is not published as well.

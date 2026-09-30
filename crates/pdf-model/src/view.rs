@@ -4988,6 +4988,10 @@ fn write_added_appearance(document: &Document, update: &mut Update, dict: &mut D
     };
     let built =
         crate::appearance::construct(document, dict, &subtype, AnnotationView::default(), rect);
+    // A value set in a face from this machine is drawn and not written (ADR 1414).
+    if crate::variable_text::uses_a_machine_face(&built.resources) {
+        return;
+    }
     let Some(content) = built.content else {
         return;
     };
@@ -5079,11 +5083,15 @@ fn write_retyped_appearance(
         ..AnnotationView::default()
     };
     let built = crate::appearance::construct(document, dict, b"FreeText", view, rect);
-    let Some(content) = built.content else {
+    // A value set in a face from this machine is drawn and not written (ADR 1414), so the
+    // annotation is written as one owing its appearance, as a layout that declined would be.
+    let machine = crate::variable_text::uses_a_machine_face(&built.resources);
+    let content = built.content.filter(|_| !machine);
+    let Some(content) = content else {
         // Table 177 makes `/AP` decisive over `/DA`, so a stream that draws the producer's text is
         // exactly what an annotation that no longer says it must not keep.
         dict.remove("AP");
-        return built.report.is_none();
+        return !machine && built.report.is_none();
     };
     let existing = document
         .get_key(dict, "AP")

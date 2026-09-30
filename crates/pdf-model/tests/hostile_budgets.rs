@@ -234,8 +234,8 @@ fn a_form_that_draws_itself_is_refused_by_name() {
     let document = page("/Fx Do", "<< /XObject << /Fx 5 0 R >> >>", form);
     let reported = reported(&document);
     assert!(
-        reported.contains("MAX_FORM_DEPTH"),
-        "a form naming itself is a cycle and must be refused by name: {reported}"
+        reported.contains("NestingCycle") && reported.contains("/Fx"),
+        "a form naming itself is a cycle and must be refused naming it (ADR 1411): {reported}"
     );
 }
 
@@ -602,7 +602,7 @@ fn a_tiling_pattern_whose_cell_fills_with_itself_is_refused_by_name() {
     );
     let reported = reported(&document);
     assert!(
-        reported.contains("MAX_FORM_DEPTH"),
+        reported.contains("NestingCycle"),
         "a cell filling with its own pattern is a cycle and must be refused by name: {reported}"
     );
 }
@@ -623,7 +623,7 @@ fn a_form_and_a_tiling_cell_that_reach_each_other_are_refused_by_name() {
     let document = page("/F Do", "<< /XObject << /F 5 0 R >> >>", objects);
     let reported = reported(&document);
     assert!(
-        reported.contains("MAX_FORM_DEPTH"),
+        reported.contains("NestingCycle"),
         "a form and a cell reaching each other are a cycle and must be refused by name: \
          {reported}"
     );
@@ -655,7 +655,7 @@ fn a_coloured_glyph_and_a_tiling_cell_that_reach_each_other_are_refused_by_name(
     );
     let reported = reported(&document);
     assert!(
-        reported.contains("MAX_FORM_DEPTH"),
+        reported.contains("NestingCycle"),
         "a glyph and a cell reaching each other are a cycle and must be refused by name: \
          {reported}"
     );
@@ -726,9 +726,38 @@ fn the_sixty_fourth_nested_form_draws_and_the_sixty_fifth_is_refused_by_name() {
     let past_it = chain_of_forms(65);
     let reported = reported(&past_it);
     assert!(
-        reported.contains("MAX_FORM_DEPTH"),
-        "the sixty-fifth nested form is refused by name: {reported}"
+        reported.contains("MAX_FORM_DEPTH") && !reported.contains("NestingCycle"),
+        "the sixty-fifth nested form is refused by name, as a depth and not as a cycle: \
+         {reported}"
     );
+}
+
+/// A form drawn a second time inside itself is not a cycle when what it invokes changes, and it
+/// draws whole.
+///
+/// ADR 0793's reason for not refusing a re-entry by name: the form fills with the *current*
+/// colour, the page's is a tiling pattern whose cell draws the same form in black, and the
+/// second time it runs the colour is black and the chain ends. The form is on the chain twice
+/// and nothing is refused, which is why the interpreter only *names* a re-entry, and only once
+/// the depth bound has been reached (ADR 1411).
+#[test]
+fn a_form_that_reenters_itself_under_another_colour_draws_whole() {
+    let objects = "5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] \
+                   /Length 14 >>\nstream\n0 0 10 10 re f\nendstream\nendobj\n\
+                   6 0 obj\n<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 612 792] \
+                   /XStep 612 /YStep 792 /Resources << /XObject << /F 5 0 R >> >> \
+                   /Length 14 >>\nstream\n0 0 0 rg /F Do\nendstream\nendobj\n";
+    let document = page(
+        "/Pattern cs /P scn /F Do",
+        "<< /XObject << /F 5 0 R >> /Pattern << /P 6 0 R >> >>",
+        objects,
+    );
+    let reported = reported(&document);
+    assert!(
+        !reported.contains("MAX_FORM_DEPTH") && !reported.contains("NestingCycle"),
+        "a finite re-entry is not refused: {reported}"
+    );
+    assert!(commands(&document) > 0, "and the black square is drawn");
 }
 
 /// A cycle through a tiling cell that marks the page at every level stays inside the operator
@@ -758,7 +787,7 @@ fn a_marking_cycle_through_a_tiling_cell_stays_inside_the_operator_budget() {
     );
     let reported = reported(&document);
     assert!(
-        reported.contains("MAX_FORM_DEPTH")
+        reported.contains("NestingCycle")
             && (reported.contains("MAX_OPERATIONS") || reported.contains("MAX_TILE_COPIES")),
         "the cycle reaches the nesting bound and the copies reach a budget by name: {reported}"
     );

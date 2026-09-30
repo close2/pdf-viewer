@@ -970,6 +970,13 @@ which also excused the history sentence on the same line, and paired backticks a
 which swallowed "session 625" between two code spans (ADR 1403). Remove the excused phrase and read
 what is left; pair code spans per line.
 
+### 69. A Python import under `tools/` leaves a directory that the workspace reads as a crate
+
+Calibrating `comment-history.py` by importing it wrote `tools/__pycache__/`; the workspace member
+pattern `tools/*` then read that directory as a member and every `cargo` command in the shared
+worktree failed on its missing `Cargo.toml` (round 1289). Run `tools/` Python with
+`PYTHONDONTWRITEBYTECODE=1`, or remove the directory the moment it appears.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

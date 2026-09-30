@@ -511,6 +511,13 @@ const-oid = { version = "0.10.2", default-features = false, features = ["db"] }
 # `pr6531_2.pdf` in the corpus are the two files that prove it.
 stringprep = "0.1.5"
 
+# ISO 32000-2 §12.7.4.3 has the processor construct a field's appearance from its value, and
+# §7.9.2.2 makes that value Unicode text, stored in logical order. Drawing a right-to-left
+# value needs Unicode Standard Annex #9's algorithm, and Servo's `unicode-bidi` is it: already in
+# this lock under `stringprep`, MIT or Apache-2.0, and run against the UCD's own
+# `BidiCharacterTest.txt` by `pdf-font`'s tests rather than trusted (ADR 1413).
+unicode-bidi = "0.3.18"
+
 # §7.6.3.1's initialisation vector: "the initialization vector is a 16-byte random number
 # that is stored as the first 16 bytes of the encrypted stream or string." That is the one
 # place this project needs randomness, and it needs the cryptographic kind — a CBC

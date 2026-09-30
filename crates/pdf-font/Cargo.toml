@@ -17,6 +17,7 @@ pdf-syntax.workspace = true
 thiserror.workspace = true
 skrifa.workspace = true
 read-fonts.workspace = true
+unicode-bidi.workspace = true
 
 [lints]
 workspace = true

@@ -16,6 +16,11 @@
 //! last unorm step can differ. So the exact comparisons below keep the atlas out of the
 //! way (a tiny budget, `coverage_lanes.rs`'s trick), and the one scene that exercises
 //! the atlas asserts a one-step bound instead and says why.
+//!
+//! **Same arithmetic is not yet the same bits under every transform.** The mosaic's fills
+//! are all placed by the identity; glyphs scaled, rotated and set at a fractional phase put
+//! a pixel on a rounding tie now and then, and there the lanes are one level apart
+//! ([`the_compute_lane_is_within_one_level_of_the_cpu_lane_on_glyphs`], ADR 1407).
 
 #![allow(
     clippy::unwrap_used,
@@ -335,4 +340,195 @@ fn a_replayed_compute_frame_draws_the_same_bytes() {
         .unwrap()
         .into_pixels();
     assert_eq!(first, second, "a replay moved pixels");
+}
+
+/// A letter `v` rotated 60° and a letter `w` on a half-pixel baseline, as `issue1905.pdf`'s first
+/// page draws them — outline and composed transform read off the page, one placement each — and
+/// 150 more placements of each at random rotations and phases.
+fn glyphs(device: &mut Device) -> Scene {
+    let point = Point::new;
+    let cubic = |c1: (f32, f32), c2: (f32, f32), to: (f32, f32)| Segment::CubicTo {
+        c1: point(c1.0, c1.1),
+        c2: point(c2.0, c2.1),
+        to: point(to.0, to.1),
+    };
+    let lines = |points: &[(f32, f32)]| {
+        let mut path = vec![Segment::MoveTo(point(points[0].0, points[0].1))];
+        path.extend(
+            points[1..]
+                .iter()
+                .map(|&(x, y)| Segment::LineTo(point(x, y))),
+        );
+        path
+    };
+    let mut letter_v = lines(&[
+        (0.645, 0.678),
+        (0.4, 0.066),
+        (0.397, 0.066),
+        (0.157, 0.678),
+        (0.107, 0.678),
+        (0.083, 0.0),
+        (0.12, 0.0),
+        (0.137, 0.624),
+        (0.14, 0.624),
+        (0.378, 0.02),
+        (0.416, 0.02),
+        (0.658, 0.624),
+        (0.661, 0.624),
+        (0.678, 0.0),
+        (0.718, 0.0),
+        (0.694, 0.678),
+    ]);
+    letter_v.push(Segment::Close);
+    let mut letter_w = lines(&[(0.645, 0.488), (0.581, 0.258)]);
+    letter_w.extend([
+        cubic((0.563, 0.195), (0.554, 0.155), (0.552, 0.107)),
+        Segment::LineTo(point(0.549, 0.107)),
+        cubic((0.546, 0.155), (0.538, 0.195), (0.522, 0.258)),
+        Segment::LineTo(point(0.464, 0.488)),
+        Segment::LineTo(point(0.328, 0.488)),
+        Segment::LineTo(point(0.27, 0.257)),
+        cubic((0.254, 0.195), (0.246, 0.155), (0.244, 0.107)),
+        Segment::LineTo(point(0.241, 0.107)),
+        cubic((0.238, 0.155), (0.229, 0.195), (0.211, 0.259)),
+        Segment::LineTo(point(0.147, 0.488)),
+        Segment::LineTo(point(0.003, 0.488)),
+        Segment::LineTo(point(0.17, 0.0)),
+        Segment::LineTo(point(0.309, 0.0)),
+        Segment::LineTo(point(0.367, 0.227)),
+        cubic((0.376, 0.263), (0.387, 0.321), (0.39, 0.372)),
+        Segment::LineTo(point(0.393, 0.372)),
+        cubic((0.396, 0.321), (0.408, 0.263), (0.417, 0.226)),
+        Segment::LineTo(point(0.475, 0.0)),
+        Segment::LineTo(point(0.613, 0.0)),
+        Segment::LineTo(point(0.78, 0.488)),
+        Segment::Close,
+    ]);
+    let (v, w) = (
+        device.upload_outline(&letter_v).expect("a glyph"),
+        device.upload_outline(&letter_w).expect("a glyph"),
+    );
+    let mut lcg = 0x5DEECE66D_u64;
+    let mut random = move || {
+        lcg = lcg.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        ((lcg >> 33) as f32) / (u32::MAX >> 1) as f32
+    };
+    let mut placements = vec![
+        (
+            v,
+            Affine {
+                a: 4.0,
+                b: -6.92816,
+                c: -6.92816,
+                d: -4.0,
+                e: 493.8,
+                f: 608.19995,
+            },
+        ),
+        (
+            w,
+            Affine {
+                a: 18.0,
+                b: 0.0,
+                c: 0.0,
+                d: -18.0,
+                e: 248.37997,
+                f: 295.5,
+            },
+        ),
+    ];
+    for k in 0..150 {
+        let (x, y) = ((k % 15) as f32 * 16.0 + 2.0, (k / 15) as f32 * 16.0 + 2.0);
+        let angle = random() * std::f32::consts::TAU;
+        let (sin, cos) = (8.0 * angle.sin(), 8.0 * angle.cos());
+        placements.push((
+            v,
+            Affine {
+                a: cos,
+                b: -sin,
+                c: -sin,
+                d: -cos,
+                e: x + 6.0 + random(),
+                f: y + 6.0 + random(),
+            },
+        ));
+        placements.push((
+            w,
+            Affine {
+                a: 18.0,
+                b: 0.0,
+                c: 0.0,
+                d: -18.0,
+                e: x + 330.0 + random(),
+                f: y + 9.0 + random(),
+            },
+        ));
+    }
+    let mut builder = SceneBuilder::new();
+    for (outline, transform) in placements {
+        builder
+            .fill(
+                outline,
+                transform,
+                FillRule::NonZero,
+                Paint::Solid(Color::new(0.0, 0.0, 0.0, 1.0)),
+                None,
+                BlendMode::Normal,
+                Compose::SrcOver,
+                None,
+            )
+            .expect("a glyph fill the builder admits");
+    }
+    builder.finish()
+}
+
+/// **The compute lane and the CPU lane are one level apart at most, on glyphs as a page draws
+/// them** — the bound ADR 0082 allows between a device and the processor, and the one the room
+/// probe's lane choice relied on being zero (ADR 1407).
+///
+/// Both lanes compute §10.7.4's coverage, the area of the pixel's half-open square inside the
+/// set, by the same flattening and trapezoid deposits in `f32`, the WGSL a statement-for-statement
+/// port. [`mosaic`]'s transforms are all the identity, and there the two agree to the byte; under
+/// a scale, a rotation and a fractional phase they do not, on RADV and on llvmpipe both, and every
+/// pixel that differs is one level apart — on `issue1905.pdf` the first three read 127 against 128
+/// under a baseline on a half-pixel row, a coverage of exactly one half. Which operation rounds
+/// differently is not isolated (a device compiler may evaluate `a · b + c` with one rounding
+/// where the processor takes two). The atlas and ADR 0090's hybrid are both switched off, so
+/// that the CPU lane's own arithmetic is what is compared.
+#[test]
+fn the_compute_lane_is_within_one_level_of_the_cpu_lane_on_glyphs() {
+    const PAGE: u32 = 640;
+    let render = |adapter: &str, coverage: Coverage| {
+        let mut device = Device::headless(&Options {
+            adapter: Some(adapter.into()),
+            coverage,
+            atlas_budget: 1,
+            compute_assist: Some(false),
+            ..Options::default()
+        })
+        .expect("an adapter that enumerated can be opened");
+        device.wait_until_warm();
+        let scene = glyphs(&mut device);
+        device
+            .render(
+                &scene,
+                &Viewport::full(PAGE, PAGE, Affine::IDENTITY),
+                Target::Readback,
+            )
+            .expect("the scene is inside every budget")
+            .into_raster()
+            .unwrap()
+            .into_pixels()
+    };
+    for adapter in &adapter_names() {
+        let (pixels, max) = diff(
+            &render(adapter, Coverage::Cpu),
+            &render(adapter, Coverage::Compute),
+        );
+        println!("{adapter}: {pixels} pixel(s) differ, max {max}");
+        assert!(
+            max <= 1,
+            "{adapter}: the lanes differ by {max} levels at a pixel"
+        );
+    }
 }

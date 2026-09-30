@@ -43,6 +43,7 @@ mod program;
 pub mod provider;
 pub mod restate;
 mod sfnt;
+pub mod shaping;
 pub mod standard;
 pub mod standard_metrics;
 pub mod substitute;

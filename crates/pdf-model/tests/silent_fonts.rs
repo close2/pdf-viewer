@@ -105,6 +105,57 @@ fn a_program_that_parses_and_draws_no_code_is_still_reported() {
         said.contains("/F1") && said.contains("no outline for any"),
         "a program that parses and draws nothing is the other report, and it still fires: {said}"
     );
+    // And it says why, because the file does: every code reaches `space`, a composite whose
+    // components are glyph 1 and `space` itself — no depth of nesting the program's `maxp`
+    // could state describes it (Table 124, ADR 1411).
+    assert!(
+        said.contains("glyph 2 is a composite glyph whose components include itself"),
+        "the cause is the program's own cycle: {said}"
+    );
+}
+
+/// A descriptor that sets both of Table 121's Symbolic and Nonsymbolic flags is named as the
+/// cause when the reading §9.8.2 prescribes draws nothing.
+///
+/// `issue20232.pdf`'s `/F1` states `/Flags 36` — bits 3 and 6 — over a `TrueType` subset whose
+/// `/Differences` names code 71 `/Ccedilla`. §9.8.2: "This flag and the Nonsymbolic flag shall not
+/// both be set or both be clear", and "[a] PDF processor should always check the Symbolic flag";
+/// read as symbolic, §9.6.5.4 ignores the `/Encoding` and the (3, 0) subtable takes code 71 to the
+/// program's empty `G`. ADR 1411.
+#[test]
+fn a_descriptor_setting_both_symbol_flags_is_named_as_the_cause() {
+    let Some(interpretation) = page_one("issue20232.pdf") else {
+        return;
+    };
+    let said = reports(&interpretation);
+    assert!(
+        said.contains("/F1") && said.contains("sets both the Symbolic and the Nonsymbolic flag"),
+        "the file's contradiction is the cause the report names: {said}"
+    );
+}
+
+/// A program with no outline for any glyph it holds draws nothing by §9.7.6.3's own route, and the
+/// page reports nothing.
+///
+/// `issue12963.pdf`'s `HiddenHorzOCR` is an OCR layer's font: a CID-keyed CFF holding one glyph,
+/// CID 0, whose charstring is `endchar` alone. Every CID the page shows is absent, so §9.7.6.3
+/// substitutes "the glyph for CID 0 (which shall be present)", and CID 0 is empty. That is the
+/// page the file states, and a report saying its text "is not drawn" described the font rather
+/// than a mark this reader lost (ADR 1411). Its text is still read back, from its `/ToUnicode`.
+#[test]
+fn a_program_with_no_outline_anywhere_is_what_the_file_states() {
+    let Some(interpretation) = page_one("issue12963.pdf") else {
+        return;
+    };
+    let said = reports(&interpretation);
+    assert!(
+        interpretation.is_complete(),
+        "an outline-free program draws what §9.7.6.3 says: {said}"
+    );
+    assert!(
+        !interpretation.text.trim().is_empty(),
+        "and the invisible layer's text is still read back"
+    );
 }
 
 /// And a page whose text draws normally says nothing about its fonts.

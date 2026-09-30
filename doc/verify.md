@@ -175,12 +175,12 @@ GESTURE_PDF=<file.pdf> cargo test --release -p viewer-ui --bin quorra -- --ignor
   # a zoom gesture on the real render thread and adapter under a simulated 120 Hz clock: how many
   # of each notch's refreshes put up a frame of its own and how many a stand-in;
   # `GESTURE_NOTCHES`, `GESTURE_EVERY`, `GESTURE_SUPERSAMPLE` (ADR 1289). Needs a device
-PDFVIEWER_QUORRA_COVERAGE=gpu PDFVIEWER_QUORRA_SCALE=4 \
+PDFVIEWER_RASTER_COVERAGE=gpu PDFVIEWER_RASTER_SCALE=4 \
   cargo test --profile gates -p render-raster --test corpus -- --ignored --nocapture
   # §2's quorra gate pointed at the *other* coverage lane — the one `viewer-ui` switches to past
   # ten times magnification, and the one no gate had ever run over the corpus. Either knob turns
-  # the ratchets off and the run says so; a value that is neither `cpu` nor `gpu` is a panic
-  # rather than a silent default. `PDFVIEWER_QUORRA_SCALE=4` is the interesting pairing, because
+  # the ratchets off and the run says so; a value that is none of `cpu`, `gpu` and `compute` is a panic
+  # rather than a silent default. `PDFVIEWER_RASTER_SCALE=4` is the interesting pairing, because
   # the lane exists for magnification: ADR 0283 took its refusals from 36 to 12 there.
 FIRST_FRAME_COVERAGE=gpu cargo run --release -p render-raster --example first_frame -- [page] [scale]
   # what the first frame costs that the tenth does not, on either lane (ADRs 0179, 0283)

@@ -405,6 +405,16 @@ x ≈ 1000, so a hairline's round cap was read as nested inside its body and 29 
 frame answered a question already decided (ADR 1397). The point and the ray test are `f64` now;
 walks per frame on that page fell to 480.
 
+### 71. A thread-count comparison across a corpus walk cascades through the retained atlas
+
+Round 1279's thirteen thread-dependent pages were not the hybrid against the scratch lane: the
+room probe read atlas shelves that queued inserts had not filled, so many threads admitted a tile
+one thread refused, and the tile was then drawn at a different phase (ADR 1407). Because the atlas
+is kept across pages, one such divergence moved every page after it, four pages that differed in
+sequence agreed alone, and the list of differing pages was not attributable until the race was
+switched off in both arms (ADR 1409). Judge a change by "0 with the known race off"; run pages
+alone and in sequence; hold the list empty only where it is.
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

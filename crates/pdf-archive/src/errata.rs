@@ -23,9 +23,9 @@
 //! parts 1, 2 and 3 and directs a reader to the Technical Notes instead, so a part 2 row is
 //! amended by nothing here.
 //!
-//! **That pointer is now followed rather than noted.** PDF Association `TechNote 0010`, which
-//! clarifies parts 1 to 3, was unreadable when this table was written — the copy at `pdfa.org`
-//! returned HTTP 403 — and the owner obtained it in session 941. It is **not** an erratum and
+//! **That pointer is followed rather than noted.** PDF Association `TechNote 0010`, which
+//! clarifies parts 1 to 3, is held, and `doc/third-party-data.md` says where it came from and on
+//! what terms. It is **not** an erratum and
 //! does not belong here: it changes no text, which is what every entry below does. It has its own
 //! module, [`crate::clarification`], and ADR 0931 argues why the two are different inputs rather
 //! than one.

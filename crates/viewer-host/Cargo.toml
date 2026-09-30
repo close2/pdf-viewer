@@ -12,6 +12,9 @@ repository.workspace = true
 viewer-core.workspace = true
 # §12.7.5's `Control`, §7.9.4's date behind an attachment's `/ModDate`, and §12.3.3's outline.
 pdf-model.workspace = true
+# §9.7.4.2's covering search, asked for a character the interface's compiled-in face lacks
+# (`machine_faces`, ADR 1406) — the one search the document's own substituted fonts use.
+pdf-font.workspace = true
 # §12.5.6.5's link targets and §8.11's groups are named by object identity.
 pdf-syntax.workspace = true
 # §12.4.4.1's clock shapes a transition's frames, and a frame is a `DisplayList` over two

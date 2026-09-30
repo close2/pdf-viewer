@@ -26,12 +26,14 @@ is `doc/PLAN.md` §1; `doc/crate-map.md` says which crate each choice lives in.
 **Not used:** `rustybuzz`. PDF content streams carry already-positioned glyphs; shaping
 them again would move glyphs away from where the document specifies. It may return later,
 scoped strictly to text *we* generate (annotations, form fields with non-embedded fonts).
-**And if it does return for that scope, `rustybuzz` is not its shape** (ADR 0348, on
-§12.7.4.3's one Arabic witness): it would bring `ttf-parser`, a second sfnt stack beside
-`skrifa`/`read-fonts` — the same shape ADR 0229 declined a second hash stack for — while
-`read-fonts`, already here, parses the `GSUB` such work would execute. What actually blocks
-shaping the one witness is not machinery at all: **no compiled-in face has one Arabic glyph**,
-so the shaper question is moot until a glyph source exists, and the ADR prices both.
+**And for that scope, `rustybuzz` is not its shape** (ADR 0348): it would bring `ttf-parser`, a
+second sfnt stack beside `skrifa`/`read-fonts` — the same shape ADR 0229 declined a second hash
+stack for. Text this program writes is shaped in `pdf_font::shaping` instead: **UAX #9's order by
+`unicode-bidi`** (Servo's, already in the lock under `stringprep`, run against every line of the
+UCD's `BidiCharacterTest.txt`; ADR 1413) and **the Unicode Standard's cursive joining over the
+UCD's own tables**, reaching each form as a presentation-form code point (ADR 1414). The glyph
+source is a face on the machine covering the shaped value, since no compiled-in face has an Arabic
+glyph; executing a face's `GSUB` through `read-fonts` is priced there and not built.
 
 ## The public-key *constructions* are in the tree; the arithmetic under them no longer is
 

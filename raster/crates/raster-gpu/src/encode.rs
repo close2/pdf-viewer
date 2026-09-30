@@ -264,6 +264,9 @@ struct Encoder<'a> {
     /// The atlas keys the queue will write, so that two queued jobs cannot rasterise
     /// one key against an atlas neither has reached (`parallel`'s guard).
     queued_keys: FastSet<GlyphKey>,
+    /// The queue's atlas inserts, each by an upper bound on its tile, against which the room
+    /// probe asks whether it can answer before they are committed (ADR 1407).
+    queued_inserts: crate::atlas::PendingInserts,
     /// The queue's weight in outline segments, against which the fan-out's floor is
     /// tested. A `u64` because it is a sum of scene-derived counts.
     queued_weight: u64,
@@ -541,6 +544,7 @@ fn encoder_for<'a>(
         threads,
         queue: Vec::new(),
         queued_keys: FastSet::default(),
+        queued_inserts: crate::atlas::PendingInserts::default(),
         queued_weight: 0,
         queued_bytes: 0,
         in_flight_limit: parallel::in_flight_limit(frame_budget_bytes),

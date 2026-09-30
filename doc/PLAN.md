@@ -289,6 +289,12 @@ Add pdf.js and pdfium corpora, veraPDF, Isartor (malformed files), Arlington's o
 `TestGrammar/test/` fixtures, and the growing fuzz corpus. Large corpora fetched on
 demand, not committed.
 
+`crates/pdf-model/tests/corpus.rs` opens, interprets and rasterises every pdf.js document's first
+page. A page that reports something unsupported is the honest-reporting requirement working rather
+than a defect, so its documents are **held by name** (`INCOMPLETE`), each group beside the clause
+its report rests on, and a document joining or leaving fails the gate naming it (ADR 1401); the run
+prints whose defect each report is — the file's, neither's, or this reader's (ADR 0730).
+
 Where all open-source renderers are jointly wrong, Acrobat is the gold standard and is not
 scriptable on Linux — keep a small manually-captured Acrobat golden set.
 
@@ -505,9 +511,13 @@ lines (`tests/records.rs`), `--bin cited`'s rank is calibrated by a planted pair
 ADR 1274), and `tools/batch.sh commit` stages the whole population by name while `close` refuses a
 worktree holding uncommitted work (`tests/batch.rs`, ADR 1313), and every row of the trap index has
 an entry of its number in the group file it names and every entry its row (`tests/traps.rs`,
-ADR 1379). The sweeps under `src/bin/` —
+ADR 1379), and an environment variable a live document names is one the code reads
+(`tests/variables.rs`). The sweeps under `src/bin/` —
 `pointers`, `overtaken`, `retired`, `unread`, `cited` and the rest — are reading lists and never
-gates, since each judges prose; `tools/state.sh` runs them by section.
+gates, since each judges prose; `tools/state.sh` runs them by section. `tools/state.sh comments`
+is the same kind of list for `CLAUDE.md`'s comment rule: its grep, run as written, then each hit
+sorted into code, a session this program has, a round's session, and the lines neither decides
+(`tools/comment-history.py`, ADR 1403).
 
 Two ratchets, both in the gate and both two-directional. `UNREVIEWED_CEILING` may only fall.
 `REVIEW_OWED` names the clauses the code cites whose rows are still `unreviewed`, and a clause not

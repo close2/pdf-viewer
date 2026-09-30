@@ -61,6 +61,10 @@ pub(crate) fn describe(item: &Unsupported) -> String {
         Unsupported::LimitReached { limit } => format!(
             "the page reached this program's {limit} bound, so part of what the document asked              for is not on it"
         ),
+        Unsupported::NestingCycle { stream } => format!(
+            "{stream} draws itself again from inside itself, so the page stopped it at this \
+             program's MAX_FORM_DEPTH bound and part of what it asked for is not on it"
+        ),
         // Both of these are drawn — they say the picture is *nearly* right, which is a
         // different sentence from the ones above and has to read like one.
         Unsupported::TextKnockout { glyphs } => format!(

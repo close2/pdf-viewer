@@ -43,6 +43,7 @@ The producer half was ADR 0343's, the measurement ADR 0362's, the page's rewrite
 other three nested streams ADR 0427's, the LZW pump ADR 0429's, §8.7.3.1's tiling cell — which
 needed the cell drawn once and its commands repeated before its decode could be windowed at all —
 ADR 0430's, and the chain ADR 0587's.
+Cited by: comments in `crates/pdf-syntax` and `crates/pdf-model`; the ledger notes of §7.3.8.2, §7.4, §7.8.2 and §8.9.7 — the reason the file is kept whole rather than deleted (ADR 1416).
 Priority: 14 — the first road of [`10`](10-bounds-that-cap-size.md), whose §5 table prices all
 four and whose §6 binds whatever lands here. **Finished, twice** (above); road B
 ([`15`](15-ship-the-confinement.md)) is what the owner's order points at next.

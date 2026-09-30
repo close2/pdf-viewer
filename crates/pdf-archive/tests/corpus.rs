@@ -299,11 +299,9 @@ static ADJUDICATED: &[(&str, Ruling, &str)] = &[
          describes; the value here was never the subject of the test.",
     ),
     // ISO 19005-4 section 6.7.2.1, the witness that asks which standard states the encoding of an
-    // XMP packet. Session 941 left it open because neither part 4 nor ISO 32000-2 §14.3.2 named
-    // one and ISO 16684-1 was not held; a preview of that standard reaching its section 7.2
-    // arrived in the nine-hundred-and-forty-sixth session and settles the question in the
-    // direction nobody had checked — the standard the two others defer to declines the subject
-    // itself.
+    // XMP packet. Neither part 4 nor ISO 32000-2 §14.3.2 names one, and the standard the two
+    // defer to declines the subject itself: ISO 16684-1 section 7.1 names UTF-8, UTF-16 and
+    // UTF-32 and puts the choice between them beyond its scope.
     (
         "veraPDF test suite 6-7-2-1-t01-fail-e.pdf",
         Ruling::SpecAgainstTheCorpus,

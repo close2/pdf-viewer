@@ -39,7 +39,10 @@ constructed where the standard states one — including §12.5.6.4's seven icons
 this processor's own because the clause requires one and draws none, and §12.5.6.15's four and
 §12.5.6.16's two, whose clauses only *recommend* one and whose names name objects — and a markup
 annotation drawn from **the group it belongs to** rather than from itself, which is §12.5.6.2's
-nine shared entries. **Three rasterisers behind one display list**: `render-cpu` is the correctness
+nine shared entries. §12.7.4.3's variable text is constructed in any script: a value in a
+right-to-left, cursive one is joined by the Unicode Character Database's own tables, ordered by UAX
+#9 and set in a face from the machine where the compiled-in fourteen have no glyph (ADRs 1413,
+1414). **Three rasterisers behind one display list**: `render-cpu` is the correctness
 oracle — and it is one because it computes a path's coverage of a pixel as the **exact integral of
 §8.5.3.3's winding number over §10.7.4's half-open pixel square** rather than sampling it on a
 lattice, leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
@@ -66,7 +69,10 @@ stroke's pieces at a bend tighter than its half-width cut to tile the stroke's s
 overlap inside it (ADR 1375), a pixel a fill winds two ways through covered by the set its rule
 declares, a butt cap squared to its curve's end tangent, and a ramp's coincident stops carried as
 exact bounds so that each step falls at its own parameter (ADR 1389), and a join where a curve meets
-another segment built on the curve's tangent there (ADR 1397). **A shading end
+another segment built on the curve's tangent there — that set asked for only where the integral
+cannot answer, so a stroke whose pieces tile keeps its integral (ADR 1397) — and a clipped mark's
+coverage and a stroke's made off the walk's thread by the encoder's fan-out, a stroke's segment
+weighed at what it costs (ADR 1395). **A shading end
 `/Extend` leaves off stops at that end's own position** — a hard transparent stop in every
 backend rather than a fade squeezed inside the ramp, which had moved every other stop of it along
 the axis, and within half a texel of Vello's fixed ramp (ADR 1387). The Vello
@@ -304,7 +310,9 @@ after the first on a command line opens as a tab behind it once page one is on t
 them through `viewer_host::open_chosen` and one at a time, and each under `Command::Open`, so every
 answer the reader gave reaches the second document as it did the first. A tab says §14.3.3's
 `/Title` where the document states one and otherwise the file's name, and `quorra` sets a character
-its compiled-in faces lack from a face the machine offers rather than as a box (ADR 1382).
+its compiled-in faces lack from a face the machine offers rather than as a box (ADR 1382), searched
+for on a thread of its own so that no catalogue walk is on the launch path, while `quorra-qt` hands
+Qt the same file (ADR 1406).
 `quorra-confined` holds one
 document, on ADR 1190's rule. **A window is the front document's**: one opened behind obeys its
 `/PageMode` when it first comes to the front, so a presentation running when a second document
@@ -674,7 +682,9 @@ or fail a document for those. Non-conformance is an answer rather than an error,
 stays zero and the JSON carries the verdict. The JPX baseline its JPEG 2000 rule turns on is read
 from ITU-T T.801 M.9.2, the held text of ISO/IEC 15444-2, subclause by subclause (ADRs 1383,
 1399), and a non-baseline image that states its own colour space is transcoded to `FlateDecode` in
-that space on an operator's `preserve` (ADR 1400).
+that space on an operator's `preserve` (ADR 1400) — its opacity channel written as the soft-mask image
+Table 87 names, and the channel-count, bit-depth and CIEJab rows answered by the same transcode
+(ADR 1412).
 
 Its own reading is compared against the veraPDF corpus clause by clause, and **the comparison is
 adjudicated rather than tolerated**: where the corpus and the clause disagree, the clause is read
@@ -1146,7 +1156,8 @@ Table 226's `/TU` and in §12.5.1's tab order (ADR 1369); a tagged page's widget
 out crosses the same way, after the structure's own nodes (ADR 1381). A tagged document's page its
 structure reaches nothing on says that instead of the untagged sentence, and names the producer's
 omission where the catalog claims §14.8.1's tagged PDF (ADR 1393); a `Form` element with no text of
-its own is named by its `/T`, else its field's `/TU` or §12.7.4.2 name (ADR 1394). **And a client may now *act* rather than only listen**: a check box says a
+its own is named by its `/T`, else its field's `/TU` or §12.7.4.2 name (ADR 1394), any element with
+no text of its own is named by its `/T`, and a titled `Sect` is a region (ADR 1405). **And a client may now *act* rather than only listen**: a check box says a
 click may be asked of it and a person using a screen reader alone can tick one, an element says it
 may be scrolled to, and the page says a caret may be put in it — each carried out as a place, in the
 device pixels a pointer already works in, so the boundary gained no message and one definition of a

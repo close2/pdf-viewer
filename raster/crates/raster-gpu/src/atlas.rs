@@ -279,6 +279,49 @@ struct Shelf {
     cursor: u32,
 }
 
+/// Atlas inserts queued and not yet committed, each by an upper bound on its tile — what
+/// [`AtlasStore::probe_settled`] needs to know that none of them can change a probe's answer
+/// (ADR 1407).
+#[derive(Debug, Default)]
+pub(crate) struct PendingInserts {
+    /// Each insert's width and height, bounded above.
+    tiles: Vec<(u32, u32)>,
+    /// Their heights summed: the most rows they can open as fresh shelves.
+    rows: u32,
+    /// Their widths summed: the most any one shelf can lose to them.
+    width: u32,
+}
+
+impl PendingInserts {
+    /// One more queued insert, of a tile at most `width × height`.
+    pub(crate) fn add(&mut self, width: u32, height: u32) {
+        self.tiles.push((width, height));
+        self.rows = self.rows.saturating_add(height);
+        self.width = self.width.saturating_add(width);
+    }
+
+    /// The queue drained: every insert committed.
+    pub(crate) fn clear(&mut self) {
+        self.tiles.clear();
+        self.rows = 0;
+        self.width = 0;
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.tiles.is_empty()
+    }
+
+    /// The width the pending inserts could take from a shelf `shelf_height` rows tall:
+    /// [`AtlasStore::allocate`] seats a tile on a shelf at most twice its height, so a tile
+    /// bounded under half the shelf's cannot land there.
+    fn width_onto(&self, shelf_height: u32) -> u32 {
+        self.tiles
+            .iter()
+            .filter(|(_, height)| height.saturating_mul(2) >= shelf_height)
+            .fold(0, |sum, (width, _)| sum.saturating_add(*width))
+    }
+}
+
 /// A contiguous range of atlas rows the texture has not seen yet: `start..end`,
 /// full-width, exclusive at the end.
 ///
@@ -404,9 +447,10 @@ impl AtlasStore {
         // the hybrid's device flattening — a tile the packer has no room for is
         // declined *here*, before a worker rasterises it, instead of falling through
         // to the sheet at commit with a quantised phase that bought nothing. The
-        // probe is exact: `prospect_for` drains the queue first, so every prior
-        // insert is already in the shelves this reads. Without the flag nothing
-        // changes, so the fall-through path keeps its exact old behaviour.
+        // answer is the one-threaded walk's: `prospect_for` drains the queue first
+        // wherever an insert still queued could change it ([`AtlasStore::probe_settled`],
+        // ADR 1407). Without the flag nothing changes, so the fall-through path keeps its
+        // exact old behaviour.
         if probe_room && entry.is_none() && !self.would_fit(width, height) {
             return CacheProspect::TooLarge;
         }
@@ -415,6 +459,46 @@ impl AtlasStore {
             entry,
             placement,
         }
+    }
+
+    /// Whether the room probe's answer for this placement is already the one it will give
+    /// once the `pending` inserts have been committed — so that the probe may be asked now
+    /// and answer as a one-threaded walk, which has committed them, would (ADR 1407).
+    ///
+    /// Five ways, each a property of [`AtlasStore::allocate`], which only ever consumes
+    /// room: a tile the atlas never admits, and a key already resident, do not reach the
+    /// probe at all; a tile that finds no room now finds none later, since a shelf a
+    /// pending insert opens tall enough for it needed the same free rows this tile already
+    /// lacked; a tile that fits on a fresh shelf below every row the pending inserts could
+    /// open still fits, since an insert opens at most one shelf, of its own height; and a
+    /// tile that fits on a shelf with its width to spare beyond every pending insert that
+    /// shelf could take — one at least half the shelf's height — still fits there. Anything
+    /// else is left to the caller, who asks at the commit.
+    pub(crate) fn probe_settled(
+        &self,
+        key: &GlyphKey,
+        width: u32,
+        height: u32,
+        pending: &PendingInserts,
+    ) -> bool {
+        if !self.admits(width, height)
+            || self.entries.contains_key(key)
+            || !self.would_fit(width, height)
+            || self
+                .next_shelf_y
+                .saturating_add(pending.rows)
+                .saturating_add(height)
+                <= self.height
+        {
+            return true;
+        }
+        self.shelves.iter().any(|shelf| {
+            let room = shelf.cursor.saturating_add(width);
+            shelf.height >= height
+                && shelf.height <= height.saturating_mul(2)
+                && (room.saturating_add(pending.width) <= self.width
+                    || room.saturating_add(pending.width_onto(shelf.height)) <= self.width)
+        })
     }
 
     /// Whether [`AtlasStore::insert`] would find room for a tile of this size —
@@ -593,7 +677,7 @@ impl AtlasStore {
 #[cfg(test)]
 #[expect(clippy::arithmetic_side_effects)] // test tile sizes are tiny and literal
 mod tests {
-    use super::{AtlasStore, GlyphKey, GlyphPlacement, PhaseKey};
+    use super::{AtlasStore, GlyphKey, GlyphPlacement, PendingInserts, PhaseKey};
     use crate::raster::{CoverageMask, DeviceTransform, Rule};
 
     fn key(outline: u32, phase: (u16, u16)) -> GlyphKey {
@@ -817,6 +901,54 @@ mod tests {
                 .prospect(placement, 16, 16, false, false)
                 .worth_caching(),
             "placed more than once, so the second placement reads what the first wrote"
+        );
+    }
+
+    /// **A settled probe is the one-threaded walk's probe** (ADR 1407): wherever
+    /// [`AtlasStore::probe_settled`] says the pending inserts cannot change the room probe's
+    /// answer, inserting them — each at any size within its bound — leaves `would_fit` as it
+    /// was. Random atlases, random pending runs, random actual sizes; the settled cases must
+    /// be many for the statement to say anything, and the unsettled ones exist too.
+    #[test]
+    fn a_settled_probe_answers_as_it_will_after_the_pending_inserts() {
+        let mut lcg = 0x2545_F491_4F6C_DD1D_u64;
+        let mut below = move |n: u32| {
+            lcg = lcg.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            u32::try_from(lcg >> 33).expect("31 bits") % n
+        };
+        let (mut settled, mut unsettled) = (0, 0);
+        for round in 0..4_000_u32 {
+            let mut atlas = AtlasStore::new(96 * 96, 96);
+            for k in 0..below(40) {
+                let _ = atlas.insert(key(k, (0, 0)), &tile(1 + below(20), 1 + below(20)));
+            }
+            let mut pending = PendingInserts::default();
+            let bounds: Vec<(u32, u32)> = (0..below(8))
+                .map(|_| (1 + below(20), 1 + below(20)))
+                .collect();
+            for &(w, h) in &bounds {
+                pending.add(w, h);
+            }
+            let (w, h) = (1 + below(24), 1 + below(24));
+            let probe = key(10_000 + round, (0, 0));
+            if !atlas.probe_settled(&probe, w, h, &pending) {
+                unsettled += 1;
+                continue;
+            }
+            settled += 1;
+            let before = atlas.admits(w, h) && atlas.would_fit(w, h);
+            for (k, &(bw, bh)) in (1_000_u32..).zip(&bounds) {
+                let _ = atlas.insert(key(k, (0, 0)), &tile(1 + below(bw), 1 + below(bh)));
+            }
+            assert_eq!(
+                atlas.admits(w, h) && atlas.would_fit(w, h),
+                before,
+                "round {round}: settled, and the pending inserts changed the answer"
+            );
+        }
+        assert!(
+            settled > 1_000 && unsettled > 100,
+            "{settled} settled, {unsettled} not"
         );
     }
 }

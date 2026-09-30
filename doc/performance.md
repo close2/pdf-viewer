@@ -291,7 +291,7 @@ and a window does not. `warm` is 3% to 11% of the refresh on every page and is l
 
 | page | row | budget | interp | scene | encode | transfer | elsewhere | execute |
 |---|---|---|---|---|---|---|---|---|
-| ISO 32000-2 p101, text, 3 007 commands | turn | 10.19 (122%) | 1.38 | 0.43 | **7.39** | 0.20 | 0.47 | 0.32 |
+| ISO 32000-2 p101, text, 3 007 commands | turn | 6.78 (81%) | 1.47 | 0.42 | **4.07** | 0.20 | 0.45 | 0.15 |
 | | step | 1.38 (17%) | — | — | 0.22 | 0.11 | 0.94 | 0.11 |
 | `personwithdog.pdf` p1, patch meshes | turn | 10.08 (121%) | 3.73 | 2.94 | 1.17 | 0.43 | 1.62 | 0.19 |
 | | step | 11.33 (136%) | — | **4.58** | 4.56 | 0.44 | 1.50 | 0.26 |
@@ -301,15 +301,19 @@ and a window does not. `warm` is 3% to 11% of the refresh on every page and is l
 | | step | 48.35 (580%) | — | — | 5.22 | **41.62** | 1.16 | 0.34 |
 | `images.pdf` p1 | turn | 147.09 (1765%) | **132.87** | 0.04 | 0.85 | 11.93 | 0.88 | 0.53 |
 | | step | 22.48 (270%) | — | — | 2.50 | **18.66** | 0.56 | 0.76 |
-| `issue14415.pdf` p1, strokes, 959 commands | turn | 18.93 (227%) | 2.40 | 0.57 | **14.19** | 0.93 | 0.72 | 0.12 |
-| | step | 22.20 (266%) | — | — | **20.81** | 0.19 | 1.06 | 0.14 |
-| `issue19802.pdf` p1, 1 032 commands | turn | 7.23 (87%) | 0.47 | 0.20 | **5.59** | 0.17 | 0.49 | 0.30 |
+| `issue14415.pdf` p1, strokes, 959 commands | turn | 12.13 (146%) | 2.60 | 0.61 | **7.03** | 0.93 | 0.76 | 0.20 |
+| | step | 6.06 (73%) | — | — | **4.61** | 0.24 | 1.07 | 0.13 |
+| `issue19802.pdf` p1, 1 032 commands | turn | 4.13 (50%) | 0.49 | 0.21 | **2.60** | 0.19 | 0.46 | 0.18 |
 | | step | 1.21 (15%) | — | — | 0.08 | 0.15 | 0.84 | 0.13 |
-| `ContentStreamNoCycleType3insideType3.pdf`, stroked Type 3 in a tiling | turn | 16.92 (203%) | 0.40 | 0.16 | **15.58** | 0.25 | 0.43 | 0.10 |
-| | step | 54.28 (651%) | — | — | **53.60** | 0.06 | 0.40 | 0.21 |
+| `ContentStreamNoCycleType3insideType3.pdf`, stroked Type 3 in a tiling | turn | 11.23 (135%) | 0.43 | 0.18 | **9.79** | 0.31 | 0.43 | 0.09 |
+| | step | 12.65 (152%) | — | — | **12.05** | 0.06 | 0.37 | 0.17 |
+
+The text, `issue14415.pdf`, `issue19802.pdf` and Type 3 rows were re-taken the same day after ADR
+1409, against a build of the tree before it in the same sitting: minimum of three runs of five
+rounds, pinned, load 1.9–2.1. The rest are the re-baseline's.
 
 **A repaint of what is on the screen always fits**; **a page turn onto a page whose outlines the
-device has not seen fits on one of the eight** — the expensive end of that gesture, where
+device has not seen fits on two of the eight** — the expensive end of that gesture, where
 `launch_path`'s `turn_ms` inside one already-drawn document is the cheap end; and
 **`execute` — the device's own passes — is a few per cent of every row**, which is ADR 0387's 0.07%
 on one page found again across every class. A frame that misses the refresh is a host thread,
@@ -317,9 +321,11 @@ every time.
 
 **Where each page's turn goes is a different stage, and each has its ADR.** On text and on stroked
 artwork it is raster's `encode`: ADR 1375's tiling of a tight bend and ADR 1389's fill set are the
-cost (ADR 1395 has the per-commit table), and ADR 1395 takes a clipped mark and a stroke off the
-walk's thread, where a text page's glyphs are still drawn in drains too small for the fan-out's
-floor. On the mesh page the scene walk divides `MeshRaster`'s rows across rayon's pool — byte-
+cost (ADR 1395 has the per-commit table), ADR 1395 takes a clipped mark and a stroke off the
+walk's thread, and ADR 1409 lets a repeated glyph, a rectangle and a compute tile queue behind the
+marks before them, so a text page's glyphs and a zoom step's strokes are divided too. What is left
+is the walk and the commit, which are ordered by construction, and the stroke construction's own
+cost. On the mesh page the scene walk divides `MeshRaster`'s rows across rayon's pool — byte-
 identical by construction, since a mesh is point-sampled, and held to that by a calibrated test
 (ADR 1259). On a photograph `interp` is the codec's own Huffman and IDCT: the decoder is asked for
 the four-byte raster directly and the `DNL` walk reads a word at a time (ADR 1271, which also says

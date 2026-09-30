@@ -201,7 +201,7 @@ It is shipped unaltered, which is the one thing that grant forbids, and
 
 
 -------------------------------------------------------------------------------
-5. The Unicode case-folding data
+5. The Unicode Character Database files
 -------------------------------------------------------------------------------
 
 `data/unicode/CaseFolding.txt` is the Unicode Character Database's case-folding file, version
@@ -210,7 +210,11 @@ static table and nothing is parsed at run time. ISO 32000-2 §12.3.5.2 compares 
 folder of a portable collection "following case normalization" and sends a reader to Unicode
 Standard Annex #21 for what that is; this file is that annex's data.
 `data/unicode/PROVENANCE.md` records where it came from, its hash, and which of its four statuses
-are used.
+are used. The same directory holds five more files of the same database, version 18.0.0, shipped
+unchanged — `ArabicShaping.txt`, `DerivedJoiningType.txt`, `UnicodeData.txt`, `BidiMirroring.txt`
+and `BidiCharacterTest.txt` — the first four compiled by `crates/pdf-font/build.rs` into the tables
+a field value in a right-to-left, cursive script is shaped and ordered by, and the fifth read by a
+test; the same file records their hashes and which fields are used.
 
 Unicode's terms of use put one obligation on a copy — that this notice travel with it.
 

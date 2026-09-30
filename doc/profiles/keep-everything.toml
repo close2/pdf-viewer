@@ -295,22 +295,17 @@ remedy = "preserve"        # built where the image states its own ColorSpace: th
                            # whose colour comes from its data keeps the refusal
 
 [site."graphics/jpeg2000-bit-depth"]
-remedy = "preserve"
-codec = "flate"
-max-growth = "4x"
-on-failure = "stop"
+remedy = "preserve"        # built the same way and for the same shape (ADR 1412): the baseline
+                           # site's transcode, whose copy is not JPEG 2000 data; a component deeper
+                           # than sixteen bits keeps the refusal
 
 [site."graphics/jpeg2000-channel-count"]
-remedy = "preserve"
-codec = "flate"
-max-growth = "4x"
-on-failure = "stop"
+remedy = "preserve"        # built: the same transcode (ADR 1412); an opacity channel becomes the
+                           # soft-mask image Table 87 names
 
 [site."graphics/jpeg2000-no-ciejab-colour-space"]
-remedy = "preserve"
-codec = "flate"
-max-growth = "4x"
-on-failure = "stop"
+remedy = "preserve"        # built: the same transcode (ADR 1412). With a ColorSpace stated,
+                           # ISO 32000-2 7.4.9 has a reader ignore the CIEJab specification already
 
 # Built (ADR 1245, ADR 1270): a fresh conforming packet replaces one this tree cannot read, and the
 # producer's own is kept — attached where the target holds a file of any type, PDF/A-4f and PDF/A-4e,

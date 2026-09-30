@@ -27,20 +27,28 @@
 //!
 //! A queued job has not charged, not packed and not drawn. Anything that reads or
 //! advances the frame's order therefore drains the queue first —
-//! [`Encoder::drain_queue`] is called from `charge`, `pack_scratch`, `push_op`, the two
-//! instance appenders and `plan_child`, which between them are every route to an
-//! order-dependent effect. Draining empties the queue *before* committing, so the
-//! commit reaches those same methods and finds nothing to drain: there is one set of
-//! call sites rather than a shadow set that must be kept in step.
+//! [`Encoder::drain_queue`] is called from `charge`, `pack_scratch`, `push_op`, the quad
+//! appender and `plan_child`, which between them are every route to an order-dependent
+//! effect. Draining empties the queue *before* committing, so the commit reaches those
+//! same methods and finds nothing to drain: there is one set of call sites rather than a
+//! shadow set that must be kept in step.
+//!
+//! **A mark whose host work needs no geometry queues rather than drains** (ADR 1409): a
+//! rectangle instance or a compute-lane tile behind a queued mark is a job of its own,
+//! written or seated at its commit. A drain costs the fan-out everything queued before it,
+//! and on a page of text and rules, or a zoom step of strokes between filled shapes, no
+//! drain reached the floor.
 //!
 //! The other observation is the atlas: a queued job has not inserted its key, so a
 //! repeat of that key would read `entry: None` from an atlas the first has not reached
-//! and both would rasterise and insert. [`Encoder::prospect_for`] drains before the
-//! answer is given rather than before the job is queued, because the lane is chosen on
-//! that answer and a drain after the choice comes too late. Nothing else about
-//! [`AtlasStore::prospect`](crate::atlas::AtlasStore::prospect) depends on what is
-//! queued — ADR 0029 kept "has the atlas room?" out of that answer deliberately, so
-//! occupancy cannot change a lane.
+//! and both would rasterise and insert. Where the walk's answer for the repeat turns on
+//! that entry alone, the repeat is queued behind the first and reads the entry at its
+//! commit ([`Encoder::follow_queued`], ADR 1409); everywhere else
+//! [`Encoder::prospect_for`] drains before the answer is given rather than before the job
+//! is queued, because the lane is chosen on that answer and a drain after the choice comes
+//! too late. Nothing else about [`AtlasStore::prospect`](crate::atlas::AtlasStore::prospect)
+//! depends on what is queued — ADR 0029 kept "has the atlas room?" out of that answer
+//! deliberately, so occupancy cannot change a lane.
 //!
 //! # Why a scope and not a pool
 //!
@@ -60,11 +68,11 @@
 //!
 //! # Why this is one file, having been looked at as two
 //!
-//! It is 559 lines, which CLAUDE.md's file-scale rule calls a smell, and it has already
-//! given up the seam it had: `commit` is step 3, in its own module. The division
-//! proposed for what is left — the [`Job`] record in one module and the fan-out
-//! (`partition`, `rasterise_all`, `fan_out`) in another — was looked for and is not
-//! there:
+//! It is past the length CLAUDE.md's file-scale rule calls a smell (`wc -l` counts it),
+//! and it has already given up the seam it had: `commit` is step 3, in its own module.
+//! The division proposed for what is left — the [`Job`] record in one module and the
+//! fan-out (`partition`, `rasterise_all`, `fan_out`) in another — was looked for and is
+//! not there:
 //!
 //! - **[`rasterise`] is the join, not a member of either half.** It is the pure function
 //!   of a [`Job`] that the whole design rests on, and it would have to be filed with the
@@ -74,26 +82,24 @@
 //!   cannot see. The two constants are the same: `IN_FLIGHT_BUDGET_SHARE` bounds what
 //!   jobs may sit queued and `PARALLEL_FLOOR_SEGMENTS` decides whether any go off-thread
 //!   at all, and neither means anything without the other side.
-//! - **The four tests do not divide.** Three are statements about the partition and the
-//!   floor and the fourth about the queue's bound — none is a statement about a `Job` on
-//!   its own, which is the tell that the record is not a subject.
+//! - **The tests do not divide.** They are statements about the partition, the floor, a
+//!   job's weight and the queue's bound — none is a statement about a `Job` on its own,
+//!   which is the tell that the record is not a subject.
 //!
-//! Of the 559 lines, **313 carry code and 96 of those are the tests**; sixty are this
-//! comment, which is the design argument the caller's `doc/QUORRA_ENCODE_THREADS.md`
-//! asked for and the reason a reader can check the determinism claim at all.
-//! `raster/doc/HANDOVER.md` recorded that this file "was left because ADR 0054 had landed in it
-//! two commits earlier" — that reason has expired, and this paragraph replaces it with
-//! one that does not.
+//! What is not code is mostly this comment, which is the design argument the caller's
+//! `doc/QUORRA_ENCODE_THREADS.md` asked for and the reason a reader can check the
+//! determinism claim at all.
 
 use std::thread;
 
-use raster_scene::{Color, Rect, Segment, Stroke};
+use raster_scene::{Color, OutlineId, Rect, Segment, Stroke};
 
 use crate::atlas::{AtlasEntry, GlyphKey};
 use crate::raster::{self, CoverageMask, DeviceTransform, Rule};
 
 use super::DrawStyle;
 use super::clips::ResolvedClip;
+use super::fill::SolidFill;
 
 mod commit;
 
@@ -145,7 +151,7 @@ pub(super) struct Job<'a> {
     stroke: Option<Stroke>,
     rule: Rule,
     extent: Extent,
-    place: Place,
+    place: Place<'a>,
     draw: Draw,
     /// What this job is expected to cost, in outline segments — the only size known
     /// before the geometry exists, and the one [`partition`] balances by.
@@ -170,6 +176,16 @@ pub(super) struct Job<'a> {
     outline: Option<&'a crate::resources::StoredOutline>,
 }
 
+/// The transform a job with no geometry carries, which nothing reads.
+const IDENTITY: DeviceTransform = DeviceTransform {
+    a: 1.0,
+    b: 0.0,
+    c: 0.0,
+    d: 1.0,
+    e: 0.0,
+    f: 0.0,
+};
+
 /// Which rectangle a job's coverage is rasterised over: the two lanes' own arithmetic,
 /// moved here so that one reading of it serves the serial and the parallel path alike.
 enum Extent {
@@ -189,8 +205,7 @@ enum Extent {
 }
 
 /// Where a job's tile goes once the commit reaches it.
-#[derive(Clone, Copy)]
-enum Place {
+enum Place<'a> {
     /// The atlas already holds this placement: nothing to rasterise, one quad to draw.
     Resident {
         key: GlyphKey,
@@ -200,8 +215,33 @@ enum Place {
     /// Offer the tile to the atlas under this key, and fall through to the sheet when
     /// the atlas will not take it.
     Atlas { key: GlyphKey, origin: [f32; 2] },
+    /// A repeat of a key a queued [`Place::Atlas`] job will insert: nothing to rasterise,
+    /// and the entry is read at the commit, where the one-threaded walk would have read
+    /// it (ADR 1409).
+    ///
+    /// The fill rides along for the one case where the atlas still lacks the key at the
+    /// commit — the first placement made no geometry or found the atlas full — and there
+    /// the fill is walked again, at the point in the order where the walk asked.
+    Follows {
+        key: GlyphKey,
+        origin: [f32; 2],
+        fill: SolidFill<'a>,
+        clip: ResolvedClip,
+    },
     /// Pack the tile onto the frame's scratch sheet.
     Sheet,
+    /// An instance of the analytic rectangle lane (ADR 0007): no geometry, only a place
+    /// in the draw order (ADR 1409).
+    Rect { rect: Rect },
+    /// A tile of the compute lane (ADR 0080): the device flattens and fills it, so the
+    /// host's part is a seat and a record, taken at the commit (ADR 1409).
+    Compute {
+        outline: OutlineId,
+        to_device: DeviceTransform,
+        bounds: (f32, f32, f32, f32),
+        even_odd: bool,
+        clip: ResolvedClip,
+    },
 }
 
 /// The instance a committed job appends.
@@ -319,18 +359,95 @@ impl<'a> Job<'a> {
         self.held
     }
 
-    /// Whether this job has any geometry to make: a placement the atlas already holds
-    /// costs a quad and nothing else, and the instrument must not time the nothing (a
-    /// second interpretation of one page is `tests/two_rasters.rs`'s whole subject).
+    /// A repeat of `key`, which a queued job will insert: drawn from the entry the commit
+    /// finds, and walked again from `fill` where it finds none (ADR 1409).
+    pub(super) fn follows(
+        key: GlyphKey,
+        origin: [f32; 2],
+        fill: SolidFill<'a>,
+        clip: ResolvedClip,
+    ) -> Self {
+        Self {
+            segments: &[],
+            transform: IDENTITY,
+            stroke: None,
+            rule: fill.rule,
+            extent: Extent::Own,
+            draw: Draw::new(fill.color, clip.rect, fill.style, fill.mask),
+            place: Place::Follows {
+                key,
+                origin,
+                fill,
+                clip,
+            },
+            weight: 0,
+            held: held_by(0, true),
+            outline: None,
+        }
+    }
+
+    /// A compute-lane tile, queued behind the marks before it (ADR 1409).
+    pub(super) fn compute(
+        outline: OutlineId,
+        to_device: DeviceTransform,
+        bounds: (f32, f32, f32, f32),
+        even_odd: bool,
+        clip: ResolvedClip,
+        draw: Draw,
+    ) -> Self {
+        Self {
+            segments: &[],
+            transform: IDENTITY,
+            stroke: None,
+            rule: Rule::NonZero,
+            extent: Extent::Own,
+            place: Place::Compute {
+                outline,
+                to_device,
+                bounds,
+                even_odd,
+                clip,
+            },
+            draw,
+            weight: 0,
+            held: held_by(0, true),
+            outline: None,
+        }
+    }
+
+    /// An analytic rectangle instance, queued behind the marks before it (ADR 1409).
+    pub(super) fn rect(rect: Rect, draw: Draw) -> Self {
+        Self {
+            segments: &[],
+            transform: IDENTITY,
+            stroke: None,
+            rule: Rule::NonZero,
+            extent: Extent::Own,
+            place: Place::Rect { rect },
+            draw,
+            weight: 0,
+            held: held_by(0, true),
+            outline: None,
+        }
+    }
+
+    /// Whether this job has any geometry to make: a placement the atlas already holds, a
+    /// repeat of a queued key and a rectangle cost an instance and nothing else, and the
+    /// instrument must not time the nothing (a second interpretation of one page is
+    /// `tests/two_rasters.rs`'s whole subject).
     fn rasterises(&self) -> bool {
-        !matches!(self.place, Place::Resident { .. })
+        matches!(self.place, Place::Atlas { .. } | Place::Sheet)
     }
 
     /// The atlas key this job would write, for the guard in [`Encoder::enqueue`].
     fn key_written(&self) -> Option<GlyphKey> {
         match self.place {
             Place::Atlas { key, .. } => Some(key),
-            Place::Resident { .. } | Place::Sheet => None,
+            Place::Resident { .. }
+            | Place::Follows { .. }
+            | Place::Sheet
+            | Place::Rect { .. }
+            | Place::Compute { .. } => None,
         }
     }
 }
@@ -341,16 +458,17 @@ impl<'a> Job<'a> {
 /// and a join per vertex, the pieces at a tight bend are tiled (ADR 1375), and the fill of
 /// that expansion asks whether it winds more than two values (ADR 1389) — so the same count
 /// of outline segments is many times the work. Measured over the pdf.js corpus's first
-/// pages at 1×, every job timed on one pinned performance core (ADR 1395): 189 083 glyph
-/// fills averaged 0.139 µs per segment and 56 621 strokes 3.456, a ratio of 24.9. Counted
-/// as one each, a page of strokes weighed a twenty-fifth of its work, stayed under
+/// pages at 1×, every job timed on one pinned performance core (ADR 1395, re-taken by ADR
+/// 1407 after ADR 1397 made a stroke cheaper): 166 726 glyph fills averaged 0.138 µs per
+/// segment and 57 118 strokes 3.012, a ratio of 21.9. Counted
+/// as one each, a page of strokes weighed a twenty-second of its work, stayed under
 /// [`PARALLEL_FLOOR_SEGMENTS`] in every drain and drew on the walk's thread alone: 35 ms
 /// of a 40 ms page turn on `issue14415.pdf`, 14 ms with this weight.
 ///
 /// Rounded down, so the floor is reached no earlier than the measured costs say it should
 /// be. The number moves only where a job runs on which thread, never what it makes: the
 /// fan-out's bytes are the one-threaded frame's (`tests/encode_threads.rs`).
-const STROKE_SEGMENT_WEIGHT: u64 = 24;
+const STROKE_SEGMENT_WEIGHT: u64 = 21;
 
 /// A job's share of the fan-out, in the units [`partition`] balances: a filled outline's
 /// segments, with a stroke's counted at [`STROKE_SEGMENT_WEIGHT`].
@@ -385,7 +503,7 @@ fn held_by(tile_bound: u64, resident: bool) -> u64 {
 #[expect(clippy::arithmetic_side_effects)] // the same bounded corner arithmetic the two
 // lanes did in place, moved here unchanged
 pub(super) fn rasterise(job: &Job<'_>) -> Rasterised {
-    if matches!(job.place, Place::Resident { .. }) {
+    if !job.rasterises() {
         return None;
     }
     let flattened = match job.stroke {

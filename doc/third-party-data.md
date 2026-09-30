@@ -967,3 +967,34 @@ names the RFC it came from, the legends being owed only past a fifth of a docume
 values are unmodified but for joining the lines they were printed on, each file names its RFC, and
 none is near a fifth of its document. Prose from the three is paraphrased in source, never quoted,
 because the quotation gate reads quotation marks as ISO 32000-2's.
+
+## The Unicode Character Database, and `unicode-bidi`, for a right-to-left field value
+
+§12.7.4.3's construction draws a field's value, and a value in Arabic needs the Unicode Standard's
+order and joining (ADRs 1413 and 1414). Everything read was fetched on 2026-09-29, into a round's
+scratch directory first: the UCD's `ArabicShaping.txt`, `extracted/DerivedJoiningType.txt`,
+`UnicodeData.txt`, `BidiMirroring.txt` and `BidiCharacterTest.txt` (version 18.0.0, each from
+`https://www.unicode.org/Public/UCD/latest/ucd/`), UAX #9 revision 52 from
+`https://www.unicode.org/reports/tr9/`, the core specification's chapter 9 (the joining and
+ligature rules, section 9.2) from `https://www.unicode.org/versions/latest/core-spec/chapter-9/`,
+and the licence from `https://www.unicode.org/license.txt`.
+
+**Terms, read rather than assumed.** The licence is UNICODE LICENSE V3 — the text `/NOTICE`
+section 5 already carries verbatim for `CaseFolding.txt` — which grants copying, modification and
+distribution of the data files on the one condition that the notice appear with every copy or in
+its documentation, and `cargo deny` admits it as `Unicode-3.0`. The five files are committed
+unchanged under `data/unicode/`, with their hashes and the fields used in
+`data/unicode/PROVENANCE.md`; four are compiled into `static` tables by `crates/pdf-font/build.rs`
+and the fifth is read by a test. The annex and chapter 9 are cited by rule number and paraphrased in
+source, never quoted, because the quotation gate reads quotation marks as ISO 32000-2's.
+
+**`unicode-bidi` 0.3.18, taken rather than written.** Servo's crate was already in the lock under
+`stringprep`, so the dependency adds no package; it is MIT or Apache-2.0, and `cargo deny check`
+passes with `pdf-font` naming it. Its coverage was measured rather than read off its README: every
+line of `BidiCharacterTest.txt` resolves as the file states, through `pdf_font::shaping`, whose own
+rule L1 sits between the crate's resolution and its reordering. Its tables are Unicode 16.0
+against the file's 18.0, and no line disagrees.
+
+**Not taken.** `rustybuzz`, for `doc/stack.md`'s reason, and `harfbuzz_rs`, which is C. The joining
+is the Unicode Standard's own rules over the tables above, reaching each form as a presentation-form
+code point; executing a face's `GSUB` instead is priced in ADR 1414 and not built.

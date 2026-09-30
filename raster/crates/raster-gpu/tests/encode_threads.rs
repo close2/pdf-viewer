@@ -11,10 +11,12 @@
 //! Every test here therefore states its claim as equality against the one-threaded
 //! frame, at several thread counts including one far above what the divided work needs.
 //! The fixtures are chosen so that a *missing* one of the encoder's drain points would
-//! move a pixel: marks overlap, so draw order is visible; a rectangle, a stroke, a
-//! blended fill, a curve-clipped fill, a curve-clipped stroke and a group sit between runs
-//! of fills, so a queue that survived one of them would reorder the page. The two clipped
-//! marks are queued too, and their residue is multiplied in at the commit (ADR 1395).
+//! move a pixel: marks overlap, so draw order is visible; a stroke, a blended fill, a
+//! curve-clipped fill, a curve-clipped stroke and a group sit between runs of fills, so a
+//! queue that survived one of them out of order would reorder the page. The two clipped
+//! marks are queued too, and their residue is multiplied in at the commit (ADR 1395); a
+//! rectangle, a repeat of a queued glyph and a compute tile are queued behind the marks
+//! before them and placed at their commits (ADR 1409).
 //!
 //! **One drain point is not among them, and this file cannot reach it.** Every op
 //! `busy_page` pushes follows a `plan_child` that has drained already, so
@@ -38,7 +40,7 @@
     clippy::arithmetic_side_effects
 )]
 
-use raster_gpu::{Counters, Device, Options, Target, Viewport};
+use raster_gpu::{Counters, Coverage, Device, Options, Target, Viewport};
 use raster_scene::{
     Affine, BlendMode, Color, Compose, FillRule, GroupSpec, LineCap, LineJoin, OutlineId, Paint,
     Point, Rect, Scene, SceneBuilder, Segment, Stroke,
@@ -509,5 +511,137 @@ fn a_clipped_run_meets_its_clip_at_every_thread_count() {
             divided == alone,
             "the clipped run drawn on {threads} threads is not the run drawn on one"
         );
+    }
+}
+
+/// A page shaped like text: a few dozen letterforms, each placed many times at whole-pixel
+/// origins so that its placements share one atlas key, with a translucent rule every ninth
+/// mark — the page on which every drain used to be forced by a repeated key or by a
+/// rectangle, and none reached the fan-out's floor (ADR 1409).
+///
+/// Sixty letterforms of 42 to 101 segments weigh more than the floor's 4 096 between them,
+/// so the run is divided only if a repeat and a rule queue behind the marks before them
+/// rather than drain.
+fn text_page(device: &mut Device) -> Scene {
+    let letters: Vec<OutlineId> = (0..60_u32)
+        .map(|n| device.upload_outline(&blob(40 + n, 4.0)).unwrap())
+        .collect();
+    let rule = device.upload_outline(&square(9.0)).unwrap();
+    let mut builder = SceneBuilder::new();
+    for index in 0..420_u32 {
+        let x = 10.0 + f32::from((index % 34) as u16) * 6.0;
+        let y = 10.0 + f32::from((index / 34) as u16) * 6.0;
+        let shade = f32::from((index % 7) as u16) / 7.0;
+        let outline = if index % 9 == 4 {
+            rule
+        } else {
+            letters[(index as usize * 7) % letters.len()]
+        };
+        builder
+            .fill(
+                outline,
+                Affine::translate(x, y),
+                FillRule::NonZero,
+                ink(shade),
+                None,
+                BlendMode::Normal,
+                Compose::SrcOver,
+                None,
+            )
+            .unwrap();
+    }
+    builder.finish()
+}
+
+fn draw_with(options: &Options, scene: impl Fn(&mut Device) -> Scene) -> (Vec<u8>, Counters) {
+    let mut device =
+        Device::headless(options).expect("llvmpipe is present wherever this suite runs");
+    device.wait_until_warm();
+    let scene = scene(&mut device);
+    let frame = device
+        .render(
+            &scene,
+            &Viewport::full(SIDE, SIDE, Affine::IDENTITY),
+            Target::Readback,
+        )
+        .expect("the fixture is inside every budget");
+    let counters = frame.counters();
+    (frame.into_raster().unwrap().into_pixels(), counters)
+}
+
+/// **A repeat reads the entry its first placement leaves, at the commit** (ADR 1409): a page
+/// of repeated letterforms and rules draws the same bytes and counts the same numbers at
+/// every thread count — with an atlas that holds every letterform, and with one that holds
+/// a handful, where a repeat's first placement found the atlas full and the repeat is walked
+/// again at its commit.
+#[test]
+fn a_text_page_is_the_same_bytes_at_every_thread_count() {
+    for atlas_budget in [Options::default().atlas_budget, 32 * 32] {
+        let options = |threads: usize| Options {
+            adapter: Some("llvmpipe".into()),
+            encode_threads: threads,
+            atlas_budget,
+            ..Options::default()
+        };
+        let (alone, counters) = draw_with(&options(1), text_page);
+        assert!(
+            counters.atlas_distinct_keys >= 60 && counters.lanes.rectangle > 0,
+            "the fixture places every letterform and draws its rules: {counters:?}"
+        );
+        if atlas_budget == 32 * 32 {
+            assert!(
+                counters.atlas_overflow_tiles > 0,
+                "the small atlas is full before the page is, or the walk-again is not reached: \
+                 {counters:?}"
+            );
+        }
+        for threads in COUNTS.into_iter().skip(1) {
+            let (divided, also) = draw_with(&options(threads), text_page);
+            assert_eq!(
+                counters, also,
+                "the counters moved at {threads} threads (atlas {atlas_budget})"
+            );
+            assert!(
+                divided == alone,
+                "the text page drawn on {threads} threads is not the page drawn on one \
+                 (atlas {atlas_budget})"
+            );
+        }
+    }
+}
+
+/// **The compute lane divides its strokes too** (ADR 1409): a zoom step draws on
+/// [`Coverage::Compute`], whose kernels take the fills and leave every stroke and every
+/// curve-clipped mark to the processor, and those are the fan-out's jobs there as on the
+/// page-turn lane — so the busy page and the clipped run are the same bytes at every thread
+/// count on that lane as well.
+#[test]
+fn the_compute_lanes_strokes_are_the_same_bytes_at_every_thread_count() {
+    let options = |threads: usize| Options {
+        adapter: Some("llvmpipe".into()),
+        encode_threads: threads,
+        coverage: Coverage::Compute,
+        ..Options::default()
+    };
+    for (name, scene) in [
+        ("busy page", busy_page as fn(&mut Device) -> Scene),
+        ("clipped run", clipped_run),
+    ] {
+        let (alone, counters) = draw_with(&options(1), scene);
+        assert!(
+            alone.iter().skip(3).step_by(4).any(|&a| a > 0),
+            "the {name} draws something on the compute lane"
+        );
+        for threads in COUNTS.into_iter().skip(1) {
+            let (divided, also) = draw_with(&options(threads), scene);
+            assert_eq!(
+                counters, also,
+                "the {name}'s counters moved at {threads} threads"
+            );
+            assert!(
+                divided == alone,
+                "the {name} drawn on {threads} threads is not the one drawn on one"
+            );
+        }
     }
 }

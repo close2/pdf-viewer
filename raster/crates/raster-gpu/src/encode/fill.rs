@@ -38,7 +38,11 @@ use crate::startup::Coverage;
 /// The lifetime is the **resource store's**, not the encoder's borrow: it carries the
 /// outline the caller already looked up, which is what keeps the hottest walk in the
 /// tree to one hash probe per solid fill instead of two ([`Encoder::fill_solid`]).
-struct SolidFill<'a> {
+///
+/// `Copy`, so that a repeat of a queued atlas key can carry its fill to the commit and be
+/// walked again there where the atlas still lacks the key (ADR 1409).
+#[derive(Clone, Copy)]
+pub(super) struct SolidFill<'a> {
     outline: OutlineId,
     /// The outline's resident geometry, looked up once by [`Encoder::encode_fill`].
     ///
@@ -54,12 +58,12 @@ struct SolidFill<'a> {
     /// The same transform composed with the viewport, which is what the tile is
     /// rasterised and keyed by.
     to_device: DeviceTransform,
-    rule: Rule,
-    color: raster_scene::Color,
+    pub(super) rule: Rule,
+    pub(super) color: raster_scene::Color,
     /// Device bounds: min x, min y, max x, max y.
     bounds: (f32, f32, f32, f32),
-    style: DrawStyle,
-    mask: Option<u32>,
+    pub(super) style: DrawStyle,
+    pub(super) mask: Option<u32>,
 }
 
 /// One §10.7.4 mark's ink: the command's own paint, resolved as far as a mark needs.
@@ -501,7 +505,7 @@ impl<'a> Encoder<'a> {
     /// [`Encoder::encode_fill`] has already taken the `UnknownOutline` refusal for this
     /// id, so a second lookup here could only ever succeed — and did, once per solid
     /// fill, on the hottest walk in the tree.
-    fn fill_solid(
+    pub(super) fn fill_solid(
         &mut self,
         fill: &SolidFill<'a>,
         resolved: &ResolvedClip,
@@ -519,12 +523,11 @@ impl<'a> Encoder<'a> {
         let placed_once =
             self.census
                 .placed_once(fill.outline.0, linear_bits(fill.transform), fill.rule);
-        let cache = self.prospect_for(
-            GlyphPlacement::of(fill.outline, &fill.to_device, fill.rule, self.quantum),
-            tile_width,
-            tile_height,
-            placed_once,
-        )?;
+        let placement = GlyphPlacement::of(fill.outline, &fill.to_device, fill.rule, self.quantum);
+        if self.follow_queued(fill, resolved, placement, (tile_width, tile_height))? {
+            return Ok(()); // a repeat of a queued key, read at its commit (ADR 1409)
+        }
+        let cache = self.prospect_for(placement, tile_width, tile_height, placed_once)?;
         // The GPU lane takes the outline as quadratics, not polylines — which is the
         // whole of why its cost does not grow with the magnification: there is no
         // flattening here to be done again at a new scale, and no atlas in front of it
@@ -590,7 +593,8 @@ impl<'a> Encoder<'a> {
                 f: placement.phase[1],
                 ..fill.to_device
             };
-            return self.enqueue(
+            let inserts = entry.is_none();
+            self.enqueue(
                 Job::glyph(
                     &stored.segments,
                     tile_transform,
@@ -604,13 +608,19 @@ impl<'a> Encoder<'a> {
                     Draw::new(fill.color, resolved.rect, fill.style, fill.mask),
                 )
                 .of_outline(stored),
-            );
+            )?;
+            if inserts {
+                self.note_atlas_insert(tile_width, tile_height);
+            }
+            return Ok(());
         }
         // ADR 0090's hybrid: a tile the atlas will not hold flattens on the device
         // where one is worth using. After the atlas admission — glyphs keep the cache
         // and its replay — and gated off residues exactly as the compute lane itself
-        // is. Cpu↔Compute are held to zero pixels (`tests/compute_lane.rs`), so the
-        // reroute is invisible except in time.
+        // is. The two lanes compute the same coverage and differ only where a pixel's
+        // lands on a rounding tie, by one level (`tests/compute_lane.rs`, ADR 1407), so
+        // the reroute is invisible except in time — and it is taken or declined on the
+        // one-threaded walk's answer (`prospect_for`), whatever the thread count.
         if self.assisted(fill, resolved)? {
             return Ok(());
         }
@@ -708,6 +718,18 @@ impl<'a> Encoder<'a> {
         mask: Option<u32>,
         resolved: &ResolvedClip,
     ) -> Result<(), RenderError> {
+        // Behind a queued mark the tile queues too, and is seated at its commit: a drain
+        // here would cut a zoom step's strokes into runs too short to divide (ADR 1409).
+        if !self.queue.is_empty() {
+            return self.enqueue(Job::compute(
+                outline,
+                *to_device,
+                bounds,
+                even_odd,
+                resolved.clone(),
+                Draw::new(color, resolved.rect, style, mask),
+            ));
+        }
         let Some((left, top, width, height)) = self.visible_tile(bounds, resolved) else {
             return Ok(());
         };

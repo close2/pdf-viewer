@@ -5748,3 +5748,26 @@ boxes as integers, and a stroke whose pieces tile by construction is not asked a
 a curve meets another segment is now square to the curve's tangent, as Table 54 builds it from the
 two segments' own strokes. The largest price left is ADR 1375's tiling of tight bends, which the
 exact fill no longer needs within its bounds.
+
+## 57. A frame's bytes depended on its thread count through the room probe, and the compute lane is one level from the CPU lane on a rounding tie (ADR 1407)
+
+**Closed on this side.** ADR 0093's room probe read the atlas's shelves while inserts were still
+queued, so on many encode threads it admitted tiles one thread refused, and the two lanes it chooses
+between are not one picture: an admitted tile is rasterised at the quantised phase (ADR 0009), a
+refused one at its own transform, ten levels apart on `issue1905.pdf`. The probe is now asked only
+where no queued insert can change its answer, and the queue is drained first where one could; the
+corpus gate draws every page again at one thread and holds the bytes equal — 0 of 957 differ.
+
+**The ask.** The hybrid is not zero pixels from the CPU lane, as ADR 0090 and `compute_lane.rs`'s
+header say. Glyphs under a scale, a rotation and a fractional phase put a pixel on a rounding tie now
+and then, and there the lanes read 127 and 128: 6 pixels of 300 placements on RADV, 2 on llvmpipe,
+one level each; the mosaic, whose transforms are all the identity, cannot see it. The new test holds
+the lanes to one level. Either share the arithmetic that rounds differently, once it is isolated, or
+state the bound where the zero is claimed. Separately, `compute_lane.rs`'s `device_with` leaves
+`compute_assist` at `None`, so on a real adapter its CPU arm sends the fills the tiny atlas refuses
+to the hybrid, and the comparison there is partly the compute lane against itself.
+
+**Section 56's last sentence, measured.** ADR 1375's tiling is not redundant beside the exact fill:
+a stroke of hundreds of pieces in a few pixels spends the fill's sweep bound, and untiled its rim
+reads up to 184 levels too dark (`bug1743245.pdf`, all 205 such strokes); 19 corpus pages move past
+a sixteenth. It stays.

@@ -82,9 +82,9 @@
 //! content-stream tokens.
 //!
 //! **About 6%, and the ratio is what to trust rather than either figure.** Back to back in one
-//! session, fastest of five runs each, the survey went from 547 ms to 580 ms; the same
+//! sitting, fastest of five runs each, the survey went from 547 ms to 580 ms; the same
 //! comparison earlier the same day, on a quieter machine and fastest of three, put it at 521 ms
-//! and 596 ms. The spread between sessions is twice the difference either measured, which is
+//! and 596 ms. The spread between sittings is twice the difference either measured, which is
 //! the honest thing to write down rather than the one number that flattered the change.
 //!
 //! The 6% divides in half, measured by taking each side out on the quieter machine: about

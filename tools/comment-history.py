@@ -81,7 +81,7 @@ SWEEP = re.compile(r"hundred-and-|session")
 
 
 def hits(roots):
-    """Every line CLAUDE.md's grep matches under `roots`, as (path, line number, text)."""
+    """Every line CLAUDE.md's grep matches under `roots`, as (path, number, previous, text, next)."""
     for top in roots:
         for directory, subdirectories, files in os.walk(os.path.join(ROOT, top)):
             subdirectories[:] = sorted(d for d in subdirectories if d not in ("target", ".git"))
@@ -90,12 +90,12 @@ def hits(roots):
                     continue
                 path = os.path.join(directory, name)
                 with open(path, encoding="utf-8", errors="replace") as source:
-                    previous = ""
-                    for number, text in enumerate(source, 1):
-                        text = text.rstrip("\n")
-                        if SWEEP.search(text):
-                            yield os.path.relpath(path, ROOT), number, previous, text
-                        previous = text
+                    lines = [text.rstrip("\n") for text in source]
+                for index, text in enumerate(lines):
+                    if SWEEP.search(text):
+                        previous = lines[index - 1] if index > 0 else ""
+                        following = lines[index + 1] if index + 1 < len(lines) else ""
+                        yield os.path.relpath(path, ROOT), index + 1, previous, text, following
 
 
 def comment_of(text):
@@ -109,12 +109,14 @@ def strip_code_spans(comment):
     return re.sub(r"`[^`]*`", "", comment)
 
 
-def classify(previous, text):
+def classify(previous, text, following=""):
     """The class of one hit; see the module comment for the order and the reasons.
 
     A comment wraps at a hundred columns, so "the four-hundred-and-seventy-first" often ends one
     line and "session" begins the next: the tail of the line before, when it is a comment too, is
-    read with the hit so that a wrapped ordinal is seen as one.
+    read with the hit so that a wrapped ordinal is seen as one. The wrap cuts the other way as
+    well — "session" ends a line and "bookkeeping" or "945" begins the next — so a hit whose
+    comment *ends* in the word is read with the head of the line after it.
     """
     comment = comment_of(text)
     if comment is None or not SWEEP.search(comment):
@@ -125,6 +127,9 @@ def classify(previous, text):
     before = comment_of(previous)
     if before is not None:
         comment = strip_code_spans(before)[-60:] + " " + comment.lstrip()
+    after = comment_of(following)
+    if after is not None and re.search(r"session\W*$", comment, re.IGNORECASE):
+        comment = comment.rstrip() + " " + strip_code_spans(after).lstrip()[:40]
     # A legitimate phrase is removed rather than excusing its line, so a line naming the session
     # bus and a round's ordinal is still history.
     rest = LEGITIMATE.sub("", comment)
@@ -153,8 +158,8 @@ def main():
 
     for label, roots in (("crates and tools", ("crates", "tools")), ("raster", ("raster",))):
         counts = {"code": 0, "legitimate": 0, "history": 0, "unread": 0}
-        for path, number, previous, text in hits(roots):
-            kind = classify(previous, text)
+        for path, number, previous, text, following in hits(roots):
+            kind = classify(previous, text, following)
             counts[kind] += 1
             if kind == listing:
                 print(f"{path}:{number}: {text.strip()}")

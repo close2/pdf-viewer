@@ -668,41 +668,355 @@ fn a_stand_in_draws_the_whole_value_or_none_of_it() {
     );
 }
 
-/// The Arabic free text annotation declines whole and names both halves (§12.5.6.6, §12.7.4.3).
+/// Whether this machine offers a face covering every character `text` displays once shaped.
 ///
-/// `freetext_no_appearance.pdf` is the one corpus document §12.7.4.3's construction refuses: a
-/// paragraph of Arabic under `/DA (/Helv 10 Tf 0 g)`, no `/AP`, no `/DR`, and the page has no
-/// other content at all — so what this test pins is that the page stays *blank with a report*
-/// rather than becoming a partial or reordered drawing. Both alternatives were looked at and are
-/// worse (trap 1): `pdftoppm` lays out what its Latin face can represent and draws the value's
-/// full stops scattered over an otherwise empty page, and a face with the glyphs but without
-/// Unicode's joining-form selection and right-to-left ordering would draw isolated forms
-/// left-to-right — a wrong-but-plausible page that reports nothing. ADR 0348 is the reading of
-/// what drawing this value would actually take, and why nothing in this binary can start it: no
-/// compiled-in face has one Arabic glyph.
+/// The same question `variable_text` asks before it sets a value no compiled-in face can draw —
+/// `pdf_font::shaping::displayed_characters` and `pdf_font::substitute::installed_covering`, in
+/// the sans-serif family `/Helv` names — so the test asks `pdf-font` rather than reading the
+/// shape of a refusal (ADR 1154).
+fn machine_offers_a_face_covering(text: &str) -> bool {
+    let paragraphs = pdf_font::shaping::Paragraphs::new(text);
+    let Some(wanted) = pdf_font::shaping::displayed_characters(text, paragraphs.as_ref()) else {
+        return false;
+    };
+    let wanted: Vec<char> = wanted.keys().copied().collect();
+    let request = pdf_font::substitute::Request {
+        family: pdf_font::substitute::Family::SansSerif,
+        bold: false,
+        italic: false,
+        standard: false,
+    };
+    pdf_font::substitute::installed_covering(request, &wanted).is_some()
+}
+
+/// The sentence a fixture needing a machine face for Arabic prints where this machine has none.
+const NO_ARABIC_FACE: &str = "skipped: no face on this machine covers the Arabic value's \
+                              shaped characters";
+
+/// The Arabic free text annotation is drawn whole (§12.5.6.6, §12.7.4.3).
 ///
-/// The refusal is machine-independent twice over, which is what lets a picture assertion live in
-/// a gate: the value has more distinct missing characters than the invented `/Differences` has
-/// free codes, and the Adobe Glyph List `read-fonts` carries has no name for any of them — so
-/// `named_glyphs_reach_more` cannot reach an installed face on any machine.
+/// `freetext_no_appearance.pdf` is a paragraph of Arabic under `/DA (/Helv 10 Tf 0 g)`, no `/AP`
+/// and no `/DR`. §12.5.6.6 sends its `/Contents` through §12.7.4.3 — "the PDF processor shall
+/// construct an appearance stream dynamically at rendering time" — and drawing it takes the three
+/// things ADR 0348 listed together: a face with Arabic glyphs, which none of §9.6.2.2's
+/// compiled-in fourteen has, so one is asked of the machine; each letter's joined form, from the
+/// Unicode Standard's cursive joining (ADR 1414); and the right-to-left order, from UAX #9 (ADR
+/// 1413). The page reports nothing: `/Helv` denotes Helvetica, so the name is not the file's
+/// defect, and the value is drawn whole.
+///
+/// Where the machine offers no face covering the value, the refusal is the one this module has
+/// always given — the value not drawn at all rather than in part — and the test says so and
+/// stops, because what it would then be measuring is the font catalogue.
 #[test]
-fn the_arabic_free_text_declines_whole_and_names_both_halves() {
+fn the_arabic_free_text_is_drawn_joined_and_right_to_left() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../doc/pdf.js/test/pdfs/freetext_no_appearance.pdf");
     let Ok(bytes) = std::fs::read(path) else {
         // The pdf.js corpus is an optional submodule; without it there is nothing to open.
         return;
     };
+    let document = Document::open(bytes.clone()).expect("the witness opens");
+    let annotation = document.get(pdf_syntax::ObjectId {
+        number: 17,
+        generation: 0,
+    });
+    let value = annotation
+        .as_dict()
+        .and_then(|annotation| contents_of(&document, annotation))
+        .expect("the witness's /Contents");
     let (reports, raster) = draw(bytes);
+    if !machine_offers_a_face_covering(&value) {
+        assert!(
+            reports
+                .iter()
+                .any(|report| report.contains("not drawn at all")),
+            "{reports:?}"
+        );
+        println!("{NO_ARABIC_FACE}");
+        return;
+    }
+    assert!(reports.is_empty(), "{reports:?}");
     assert!(
-        inked_columns(&raster).is_empty(),
-        "the refusal is whole: a partial drawing of this value is trap 1's archetype"
+        !inked_columns(&raster).is_empty(),
+        "the value is drawn, and drawn whole"
     );
-    assert_eq!(reports.len(), 1, "{reports:?}");
+}
+
+/// The codes a constructed appearance shows, read out of its `Tj` operands in stream order.
+///
+/// §7.3.4.2's literal string, with the escapes `variable_text::show` writes: the three that
+/// shall be escaped and a three-digit octal escape for every byte outside printable ASCII.
+fn shown_bytes(content: &[u8]) -> Vec<Vec<u8>> {
+    let mut lines = Vec::new();
+    for line in content.split(|byte| *byte == b'\n') {
+        let Some(operand) = line
+            .strip_suffix(b") Tj")
+            .and_then(|line| line.strip_prefix(b"("))
+        else {
+            continue;
+        };
+        let mut bytes = Vec::new();
+        let mut rest = operand.iter().copied();
+        while let Some(byte) = rest.next() {
+            if byte != b'\\' {
+                bytes.push(byte);
+                continue;
+            }
+            match rest.next() {
+                Some(first) if first.is_ascii_digit() => {
+                    let digits = [Some(first), rest.next(), rest.next()];
+                    let value = digits
+                        .iter()
+                        .map(|digit| digit.map(|digit| u32::from(digit.wrapping_sub(b'0'))))
+                        .try_fold(0_u32, |value, digit| {
+                            digit.map(|digit| value.wrapping_mul(8).wrapping_add(digit))
+                        })
+                        .and_then(|value| u8::try_from(value).ok())
+                        .expect("a three-digit octal escape");
+                    bytes.push(value);
+                }
+                Some(escaped) => bytes.push(escaped),
+                None => {}
+            }
+        }
+        lines.push(bytes);
+    }
+    lines
+}
+
+/// The glyph indices one constructed free text appearance shows, one vector per line, and the
+/// face program they index.
+fn shown_glyphs(annotation: &str) -> (Vec<Vec<u16>>, std::sync::Arc<[u8]>) {
+    let bytes = pdf_with("", annotation);
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let annotation = document.get(pdf_syntax::ObjectId {
+        number: 5,
+        generation: 0,
+    });
+    let written = pdf_model::appearance::for_annotation(
+        &document,
+        annotation.as_dict().expect("the annotation"),
+    )
+    .expect("a free text annotation is constructed");
+    // The one owed sentence is the writer's (ADR 1414): the page draws it, a file does not get it.
     assert!(
-        reports[0].contains("/Helv") && reports[0].contains("not drawn at all"),
-        "the report names the undefined name and the wholeness of the refusal: {reports:?}"
+        written
+            .owed
+            .as_deref()
+            .is_some_and(|owed| owed.contains("face from this machine")),
+        "{:?}",
+        written.owed
     );
+    let stream = match &written.stream {
+        pdf_syntax::Object::Stream(stream) => Some(stream),
+        _ => None,
+    }
+    .expect("a form XObject");
+    let font = stream
+        .dict
+        .get("Resources")
+        .and_then(pdf_syntax::Object::as_dict)
+        .and_then(|resources| resources.get("Font"))
+        .and_then(pdf_syntax::Object::as_dict)
+        .and_then(|fonts| fonts.iter().next().map(|(_, font)| font.clone()))
+        .expect("the invented font is among the resources");
+    let program = font
+        .as_dict()
+        .and_then(|font| font.get("DescendantFonts"))
+        .and_then(pdf_syntax::Object::as_array)
+        .and_then(<[pdf_syntax::Object]>::first)
+        .and_then(pdf_syntax::Object::as_dict)
+        .and_then(|descendant| descendant.get("FontDescriptor"))
+        .and_then(pdf_syntax::Object::as_dict)
+        .and_then(|descriptor| descriptor.get("FontFile2"))
+        .and_then(|program| match program {
+            pdf_syntax::Object::Stream(program) => Some(program.data.clone()),
+            _ => None,
+        })
+        .expect("the face is embedded in the invented font");
+    let glyphs = shown_bytes(&stream.data)
+        .iter()
+        .map(|codes| {
+            codes
+                .chunks(2)
+                .map(|pair| u16::from_be_bytes([pair[0], pair.get(1).copied().unwrap_or(0)]))
+                .collect()
+        })
+        .collect();
+    (glyphs, program)
+}
+
+/// An Arabic value is shaped, ligated and displayed right to left as the UCD's tables state.
+///
+/// Expectations worked by hand from `data/unicode/`, not read off any renderer:
+///
+/// - `سلام` is SEEN, LAM, ALEF, MEEM. `DerivedJoiningType.txt` makes seen, lam and meem `D` and
+///   alef `R`, so the seen joins the lam (rule R6, initial: `UnicodeData.txt`'s FEB3 is
+///   `<initial> 0633`), the lam sits between the seen and the alef (R4, medial) and the alef
+///   joins the lam (R2, final), and ligature rule L2 makes that `(LAM-ALEF) r` — FEFC,
+///   `<final> 0644 0627`. The alef does not join on its left, so the meem is isolated (R7), its
+///   nominal character.
+/// - `BidiCharacterTest.txt`'s algorithm puts the paragraph at level 1 by P2 and P3 (the first
+///   strong character is AL) and every character at 1, so rule L2 reverses the line: meem,
+///   lam-alef, seen, from the left.
+/// - Followed by ` 123`, W2 makes the European digits Arabic numbers after an AL, I2 raises them
+///   to level 2 and the space between is a neutral between R and AN, level 1 (N1) — so L2 leaves
+///   the digits reading left to right, at the left end of the line: `1 2 3`, space, then the word.
+#[test]
+fn an_arabic_value_is_shaped_and_displayed_as_the_ucd_tables_state() {
+    let annotation = |value: &str| {
+        format!(
+            "<< /Type /Annot /Subtype /FreeText /Rect [10 10 190 90] /F 4 \
+             /DA (/HeBo 12 Tf 0 g) /Contents <FEFF{value}> >>"
+        )
+    };
+    let word = "\u{633}\u{644}\u{627}\u{645}";
+    if !machine_offers_a_face_covering(&format!("{word} 123")) {
+        println!("{NO_ARABIC_FACE}");
+        return;
+    }
+    let (glyphs, program) = shown_glyphs(&annotation("0633064406270645"));
+    let glyph = |character: char| {
+        pdf_font::shaping::face::glyph(&program, character)
+            .expect("the face covers what the value displays")
+            .0
+    };
+    assert_eq!(
+        glyphs,
+        [vec![glyph('\u{645}'), glyph('\u{fefc}'), glyph('\u{feb3}')]]
+    );
+
+    let (glyphs, program) = shown_glyphs(&annotation("06330644062706450020003100320033"));
+    let glyph = |character: char| {
+        pdf_font::shaping::face::glyph(&program, character)
+            .expect("the face covers what the value displays")
+            .0
+    };
+    assert_eq!(
+        glyphs,
+        [vec![
+            glyph('1'),
+            glyph('2'),
+            glyph('3'),
+            glyph(' '),
+            glyph('\u{645}'),
+            glyph('\u{fefc}'),
+            glyph('\u{feb3}'),
+        ]]
+    );
+}
+
+/// A right-to-left value too long for its box wraps at its spaces, and each line is displayed
+/// in its own order.
+///
+/// Ten copies of `سلام` separated by spaces, in a box a few words wide. The wrap is this layout's
+/// rule — break at the last space that fits, and inside a word only where the word alone is wider
+/// than the line — so every line is whole words: the hand-worked `[meem, lam-alef, seen]` of the
+/// shaping test, separated by space glyphs, with a line's trailing space set back to the paragraph
+/// level by UAX #9's rule L1 and so displayed at the line's left end.
+#[test]
+fn a_wrapped_right_to_left_value_breaks_between_words() {
+    let words = vec!["\u{633}\u{644}\u{627}\u{645}"; 10].join(" ");
+    if !machine_offers_a_face_covering(&words) {
+        println!("{NO_ARABIC_FACE}");
+        return;
+    }
+    let value: String = words
+        .encode_utf16()
+        .map(|unit| format!("{unit:04X}"))
+        .collect();
+    let (glyphs, program) = shown_glyphs(&format!(
+        "<< /Type /Annot /Subtype /FreeText /Rect [10 10 90 90] /F 4 \
+         /DA (/HeBo 12 Tf 0 g) /Contents <FEFF{value}> >>"
+    ));
+    let glyph = |character: char| {
+        pdf_font::shaping::face::glyph(&program, character)
+            .expect("the face covers what the value displays")
+            .0
+    };
+    let word = [glyph('\u{645}'), glyph('\u{fefc}'), glyph('\u{feb3}')];
+    let space = glyph(' ');
+    assert!(glyphs.len() > 1, "the value wraps: {glyphs:?}");
+    let mut drawn = 0;
+    for line in &glyphs {
+        let trimmed: Vec<u16> = line
+            .iter()
+            .copied()
+            .skip_while(|glyph| *glyph == space)
+            .collect();
+        for piece in trimmed.split(|glyph| *glyph == space) {
+            assert_eq!(piece, word, "a line holds whole words: {line:?}");
+            drawn += 1;
+        }
+    }
+    assert_eq!(drawn, 10, "every word is drawn once");
+}
+
+/// A value set in a face from this machine is drawn and not saved (§7.3.8.1, Table 224).
+///
+/// The font around a machine face holds the face's program as a stream inside a dictionary,
+/// which §7.3.8.1 does not admit in a file — "[a]ll streams shall be indirect objects" — and a
+/// file carrying it would carry this machine's font rather than the document's. So a save of a
+/// field whose Arabic value only a machine face can set writes no appearance for it, sets
+/// Table 224's `/NeedAppearances` as for any widget left without one, and names the field
+/// (ADR 1414).
+#[test]
+fn a_value_set_in_a_machine_face_is_not_written_into_the_file() {
+    let typed = "\u{633}\u{644}\u{627}\u{645}";
+    if !machine_offers_a_face_covering(typed) {
+        println!("{NO_ARABIC_FACE}");
+        return;
+    }
+    let document = Document::open(pdf_with(
+        "",
+        "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx /T (field) \
+         /DA (/HeBo 12 Tf 0 g) >>",
+    ))
+    .expect("the fixture is a valid PDF");
+    let mut view = pdf_model::view::ViewState::of(&document);
+    assert_eq!(
+        view.set_field(&document, "field", &Entered::Text(typed.to_owned())),
+        1
+    );
+    let written = view.save(&document).expect("the fixture can be written");
+    assert_eq!(written.unconstructed, vec!["field".to_owned()]);
+    let name = b"VariableTextMachineFace";
+    assert!(
+        !written.bytes.windows(name.len()).any(|run| run == name),
+        "no machine face reaches the file"
+    );
+}
+
+/// `/Q` names sides of the box, and a right-to-left value is quadded to the side it names.
+///
+/// Table 228: "0 Left-justified 1 Centred 2 Right-justified", with no word about a paragraph's
+/// direction — so a right-to-left value under `/Q 0` starts at the box's left edge and under `/Q
+/// 2` ends at its right one, exactly as a left-to-right value does (ADR 1413).
+#[test]
+fn a_right_to_left_value_is_quadded_to_the_side_q_names() {
+    let value = "0633064406270645";
+    if !machine_offers_a_face_covering("\u{633}\u{644}\u{627}\u{645}") {
+        println!("{NO_ARABIC_FACE}");
+        return;
+    }
+    let span = |quadding: u8| {
+        let (reports, raster) = draw(pdf_with(
+            "",
+            &format!(
+                "<< /Type /Annot /Subtype /FreeText /Rect [10 10 190 90] /F 4 /Q {quadding} \
+                 /DA (/HeBo 12 Tf 0 g) /Contents <FEFF{value}> >>"
+            ),
+        ));
+        assert!(reports.is_empty(), "{reports:?}");
+        ink_span(&raster)
+    };
+    let (left, _) = span(0);
+    let (_, right) = span(2);
+    assert!(
+        left < 40,
+        "/Q 0 starts the line at the box's left side: {left}"
+    );
+    assert!(right > 160, "/Q 2 ends it at the box's right side: {right}");
 }
 
 /// A check box shows Table 192's caption only in its on state (§12.7.5.2.3).

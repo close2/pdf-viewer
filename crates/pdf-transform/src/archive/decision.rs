@@ -2089,6 +2089,47 @@ pub(super) const SHAPES: &[(&str, &[Shape])] = &[
             },
         ],
     ),
+    // The same subclauses' channel count, bit depth and CIEJab rows: the same transcode answers
+    // the same half of each, because their subject is JPEG 2000 data too (ADR 1412).
+    (
+        "graphics/jpeg2000-bit-depth",
+        &[
+            Shape {
+                name: "stated-colour-space",
+                answered: true,
+            },
+            Shape {
+                name: "data-colour-space",
+                answered: false,
+            },
+        ],
+    ),
+    (
+        "graphics/jpeg2000-channel-count",
+        &[
+            Shape {
+                name: "stated-colour-space",
+                answered: true,
+            },
+            Shape {
+                name: "data-colour-space",
+                answered: false,
+            },
+        ],
+    ),
+    (
+        "graphics/jpeg2000-no-ciejab-colour-space",
+        &[
+            Shape {
+                name: "stated-colour-space",
+                answered: true,
+            },
+            Shape {
+                name: "data-colour-space",
+                answered: false,
+            },
+        ],
+    ),
     // ISO 19005-2 section 6.4.2, ISO 19005-4 section 6.4.2.
     (
         "forms/no-xfa-key",
@@ -2812,11 +2853,14 @@ const TRANSFER_FUNCTION_NOT_REMOVED: &str = "ISO 19005 forbids a TR entry in a g
 const JPEG2000_SAMPLES_NOT_RE_ENCODED: &str = "doc/pdf-a-conversion-limits.md section 4.10: the \
      bit depth and the channel count are stated in the codestream's own SIZ marker, and the \
      enumerated CIEJab colour space is what the samples mean — so meeting these means decoding \
-     and re-encoding the image, or relabelling what its numbers are. The universal fallback is \
-     transcoding the samples to FlateDecode, which loses nothing visible at a large cost in size \
-     and puts this tree's own JPEG 2000 decoder's output into the archive permanently. One \
-     channel-count case is cheaper and is unbuilt too: a cdef box declaring the second channel \
-     as opacity leaves one colour channel without a sample being touched";
+     the image, or relabelling what its numbers are. Where the image dictionary states a \
+     ColorSpace the samples are already in its domain, and `remedy = \"preserve\"` at this site \
+     transcodes them to FlateDecode in that space (doc/adr/1400, doc/adr/1412) — at a cost in \
+     size, and with this program's decoder's output kept as the picture, which is why it is the \
+     operator's answer rather than the default. Where it states none, what the data says is what \
+     the samples mean, and a copy would need a ColorSpace this converter chose. One channel-count \
+     case is cheaper and is unbuilt: a cdef box declaring the second channel as opacity leaves \
+     one colour channel without a sample being touched";
 
 /// Why JPEG 2000 data outside the JPX baseline is not brought into it without a configuration.
 ///

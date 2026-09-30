@@ -441,10 +441,10 @@ fn descriptor(document: &Document, font: &Dictionary) -> Option<Dictionary> {
 ///
 /// Which *format* each holds is §9.9's Table 124.
 ///
-/// This cited §9.9's Table 128 until session 944, and **Table 128 is "Entries in a Type 1
-/// halftone dictionary"** — a real table, in a different clause, about something else. It
-/// passed `tools/conformance` because that checker asks whether a cited table exists, not
-/// whether it is the one the sentence is about.
+/// **Table 124, not Table 128**: Table 128 is "Entries in a Type 1 halftone dictionary" — a real
+/// table, in a different clause, about something else — and `tools/conformance` asks whether a
+/// cited table exists, not whether it is the one the sentence is about, so it cannot tell the two
+/// apart.
 ///
 /// # Why the value is resolved rather than the key counted
 ///

@@ -353,6 +353,13 @@ struct Census {
     /// an element whose content is a widget alone. An empty one is a control announced as nothing.
     forms: usize,
     forms_unnamed: Vec<(String, String)>,
+    /// Elements named by their Table 355 `/T` for want of text of their own, by structure type.
+    ///
+    /// ADR 1405's capability: the title names every element with no text of its own, not a `Form`
+    /// alone. Every one of these that is not a `Form` crossed with an empty name before it, and a
+    /// `Sect` among them is published as a region a person can be taken to by that name.
+    titled: usize,
+    titled_roles: std::collections::BTreeMap<String, usize>,
     /// A document whose examination panicked, which principle 1 forbids.
     panicked: Vec<(String, String)>,
 }
@@ -426,6 +433,11 @@ impl Census {
         self.unread.extend(from.unread);
         self.forms = self.forms.saturating_add(from.forms);
         self.forms_unnamed.extend(from.forms_unnamed);
+        self.titled = self.titled.saturating_add(from.titled);
+        for (role, count) in from.titled_roles {
+            let entry = self.titled_roles.entry(role).or_default();
+            *entry = entry.saturating_add(count);
+        }
         self.panicked.extend(from.panicked);
     }
 
@@ -464,6 +476,15 @@ impl Census {
                 .unread
                 .push((where_.to_owned(), "answered before it was read".to_owned())),
             Tagging::Untagged | Tagging::Reached => {}
+        }
+    }
+
+    /// Counts the page's elements named by their `/T`, by structure type.
+    fn titles(&mut self, nodes: &[AccessibilityNode]) {
+        for node in nodes.iter().filter(|node| node.titled) {
+            self.titled = self.titled.saturating_add(1);
+            let entry = self.titled_roles.entry(node.role.clone()).or_default();
+            *entry = entry.saturating_add(1);
         }
     }
 
@@ -838,6 +859,7 @@ fn sweep(
         let where_ = format!("{name} p{}", index.saturating_add(1));
         census.tagging(&taggings, tree.is_some(), nodes.is_empty(), &where_);
         census.named_forms(&nodes, &where_);
+        census.titles(&nodes);
         let Some(tree) = tree else {
             census.untagged_pages = census.untagged_pages.saturating_add(1);
             if widgets > 0 {
@@ -1158,6 +1180,10 @@ fn report_tagging(census: &Census) {
     print_witnesses(
         "a Form element naming a widget crossing with no name",
         &census.forms_unnamed,
+    );
+    println!(
+        "elements named by their /T: {} ({:?})",
+        census.titled, census.titled_roles
     );
 }
 
@@ -1596,6 +1622,11 @@ fn widget_floors(tracked_census: &Census) {
     // ADR 1394's population: every one of these is named now, and every one crossed with an empty
     // name before it (272 of 272), which `forms_unnamed` holds at zero.
     gate_ratchet::floor("Form elements naming a widget", tracked_census.forms, 272);
+    // ADR 1405's population, new with that decision: every one of these crossed with an empty name
+    // before it, because `/T` was read for a `Form` alone. Measured as 5 `Part`, 10 `TOCI`, 2 `TOC`
+    // and 3 `Formula`; no corpus `Sect` states a title over no text of its own, so the region it
+    // becomes is held by `viewer-core`'s fixture rather than by this floor (trap 8).
+    gate_ratchet::floor("elements named by their /T", tracked_census.titled, 20);
 }
 
 /// The ratchet, which is what ADR 0323 called this instrument's verdict shape.

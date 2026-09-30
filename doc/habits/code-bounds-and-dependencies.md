@@ -400,3 +400,11 @@ JBIG2Decode filter shall always deliver 1-bit samples, a RunLengthDecode or DCTD
 always deliver 8-bit samples" — and decoding all the way to eight-bit RGB instead cost three rounds of
 refusals: the matte, the colour key, the shape no fresh raster held (ADR 1371). Keep the file's own
 domain.
+
+## A resource invented for drawing is asked whether it can be written before any writer takes it
+
+The machine face that draws an Arabic field value was a stream held directly in a dictionary — right
+on screen, invalid in a file, because "All streams shall be indirect objects" (§7.3.8.1) — and a save
+would have carried this machine's font into the document (ADR 1414). When a new invented resource
+shape is added, grep every writer of constructed resources (`form_xobject`, `update.put`) and make
+each either write it properly or report it owed.

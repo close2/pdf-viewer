@@ -52,8 +52,9 @@ ADR 1260 measures a patch-mesh page's zoom step on the compute lane and finds `e
 term of it — not because encode grew but because that page's kernels are small, which is what a
 condition written around the worst page cannot see. So the condition below stands as written, on
 Entwurf, and the encode question that is actually open is asked from the *other* lane: a page turn
-takes `Coverage::Cpu`, where a page seen for the first time spends most of a 120 Hz refresh in
-`encode` and a replay of the same frame spends none. `doc/QUORRA_FEEDBACK.md` §52 ask 1 is that
+takes `Coverage::Cpu`, where a page seen for the first time spends the largest share of a 120 Hz
+refresh in `encode` — divided across the fan-out on a text page since ADR 1409 — and a replay of
+the same frame spends none. `doc/QUORRA_FEEDBACK.md` §52 ask 1 is that
 question with the table under it, and `tools/state.sh frame` is what prints it.
 
 

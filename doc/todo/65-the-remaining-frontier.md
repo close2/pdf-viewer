@@ -71,16 +71,20 @@ permanent) or an owner decision to acquire a specification.
   person can trace a path in one: which system the map is in, how many `/GPTS`–`/LPTS` pairs register
   it, whether §12.10.2's `/Bounds` neatline covers the point (ADR 1191). Turning a projected
   coordinate into a latitude needs the EPSG registry or an ISO 19162 string, and §12.10.3 names both
-  as texts outside this standard.
+  as texts outside this standard. **Whether the projection may be built of this tree's own is the
+  owner's open question `doc/questions/Q171`** — a WKT grammar and the inverse series from IOGP's
+  free guidance note, or the registry's tables beside them — and neither row is built on it until
+  the answer lands; this map records the wait and does not decide it.
 - §7.4.9 — thirteen corpus JPEG 2000 codestreams decode one level off the reference software, held by
   name so an upstream release closing it fails the build. The one sentence of this clause addressed
   to a processor asks for *support* of the JPX baseline enumerated colour spaces, which ITU-T T.801
   M.9.2.4 lists — the held identical text of ISO/IEC 15444-2 (`doc/questions/A169`, ADR 1383).
   CMYK, sRGB, its grey, sYCC, ROMM-RGB and CIE Lab under D50 are drawn as defined; e-sRGB and
   e-sYCC (PIMA 7667), CIE Jab (CIE Publication 131) and CIE Lab under another illuminant take
-  §7.4.9's device fallback, because those texts are not held — the first two are sold (IS&T, ANSI),
-  and a non-D50 Lab wants the illuminant's white point, which T.801 codes after ITU-T T.4 Annex E,
-  free and not yet read. Checking the restriction on a file is not a reader's job and is not
+  §7.4.9's device fallback, because those texts are not held — PIMA 7667 is sold (IS&T, ANSI), CIE
+  131 is sold and superseded there by CIE 159, and a non-D50 Lab wants the illuminant's white point,
+  which T.801 codes after ITU-T T.4 Annex E, free and not yet read. The row's note carries the date
+  that availability was read on, which is the date to re-check it against. Checking the restriction on a file is not a reader's job and is not
   counted as debt (ADR 1184); `pdf-archive` checks all of M.9.2 for ISO 19005 (ADRs 1383, 1399).
 - §12.8.3.4.4 — enforcing a signature policy's constraints. Everything the held texts define is read:
   ETSI EN 319 122-1 clause 5.2.9's attribute whole — which policy, its digest with the all-zero *not
@@ -91,7 +95,12 @@ permanent) or an owner decision to acquire a specification.
 
 ISO/TS 32002's brainpoolP512r1 and Ed448 are not in this bucket: they are the tree's own under the
 owner's answer A170 (ADRs 1385 and 1386), so an upstream release is their *swap* condition rather
-than a blocker, and `doc/stack.md`'s curve paragraph names it.
+than a blocker, and `doc/stack.md`'s curve paragraph names it. **Re-checked on 2026-09-29** with
+`cargo search bp512`, `cargo search brainpool` and `cargo search ed448`: RustCrypto has published no
+`bp512`, and `ed448-goldilocks` is still on `0.14.0-pre.15`. One package that paragraph does not
+name, `ed448-goldilocks-plus` 0.18.1 (BSD-3-Clause, published from `mikelodder7/Ed448-Goldilocks` on a stable version line), is a
+candidate to be judged on `doc/stack.md`'s terms — whether it is *reviewed* is the question those
+terms ask — and not a swap this map makes.
 
 ### 3. Hard rendering / architecture — a real build across several rounds
 

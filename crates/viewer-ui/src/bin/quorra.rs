@@ -474,10 +474,18 @@ fn main() {
     };
 
     let event_loop = EventLoop::new().expect("an event loop requires a display server");
-    // The proxy is the only way into this loop from another thread, and the accessibility bridge's
-    // is the only such thread. Taken here rather than where the bridge comes up, because
+    // The proxy is the only way into this loop from another thread: the accessibility bridge, the
+    // `submit-form` thread and the chrome's machine-face search each wake it with a clone. Taken here rather than where the bridge comes up, because
     // `ActiveEventLoop` — which is all a running loop hands its callbacks — cannot make one.
     app.waker = Some(event_loop.create_proxy());
+    // A face the chrome asked the machine for lands on another thread, and the line that drew a
+    // box for want of it is drawn again when the loop wakes (ADR 1406).
+    if let (Some(chrome), Some(waker)) = (app.chrome.as_ref(), app.waker.clone()) {
+        chrome.wake_with(move || {
+            // A loop that has already exited has nothing left to draw the face into.
+            let _ = waker.send_event(());
+        });
+    }
     app.launch.mark("event loop");
     // Redraw on request rather than continuously: a document viewer is idle almost all the time,
     // and a spinning loop would drain a battery for nothing.

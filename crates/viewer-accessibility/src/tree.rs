@@ -455,6 +455,7 @@ fn elements(view: &PageView, band: Band, out: &mut Vec<(NodeId, Node)>) -> Vec<N
         let mapping = crate::role::map(
             &node.role,
             !node.name.trim().is_empty(),
+            node.titled,
             node.header_scope,
             node.control.as_ref(),
         );

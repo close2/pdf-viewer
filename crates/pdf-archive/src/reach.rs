@@ -958,10 +958,6 @@ pub fn exemption_narrows(clauses: Clauses, target: Target) -> bool {
 /// exempts the resource from every requirement of the **document**, and a normative annex is part
 /// of the document. [`crate::withdrawal`] records the answer for each of those three subclauses
 /// beside the reason, which is where a reader should find it.
-///
-/// This comment used to claim the opposite — that a clause the table did not write as digits
-/// would be *kept*, and that every clause in the table was digits and dots. Both halves were
-/// wrong, and the second was checkable: session 1007 found the annex rows above.
 fn components(clause: &str) -> Vec<u32> {
     let mut out = Vec::new();
     for piece in clause.split('.') {

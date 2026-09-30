@@ -22,6 +22,7 @@
 #include <QPixmap>
 #include <QPoint>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 #include <QWidget>
 
@@ -331,6 +332,16 @@ private:
     /// The strip hides itself for a single document, so a window that opened one file looks
     /// exactly as it did before tabs existed. ADR 1264.
     void syncDocuments();
+    /// Registers the machine faces the host has found for the strip's labels, and sets the strip
+    /// in them, at whatever interval the host asks for.
+    ///
+    /// ADR 1406: Qt falls back by *family*, and on a machine where the face covering a label's
+    /// characters shares its family name with Latin faces it picks one of those and draws boxes.
+    /// The host asks `viewer_host::machine_faces` by *file* — the question `quorra`'s own chrome
+    /// asks (ADR 1382) — on a thread of its own, and this hands the file it names to
+    /// `QFontDatabase::addApplicationFontFromData`. `-1` means nothing is searched for, and it
+    /// arms nothing.
+    void pumpFaces();
     /// Rebuilds ISO 32000-2 §12.5.6.14's popup windows, which happens when the answer changes.
     ///
     /// Rebuilt rather than moved, which is the opposite of `placeControls`' rule and right for the
@@ -521,6 +532,10 @@ private:
     /// The timer asking the drawing thread for a finished page, stopped whenever none is being
     /// drawn.
     QTimer* drawing_ = nullptr;
+    /// The timer asking for a machine face a tab's label is waiting on, stopped whenever none is.
+    QTimer* faces_ = nullptr;
+    /// The families `pumpFaces` has registered, in the order the host found their files.
+    QStringList fallbackFamilies_;
     /// Set while this window is writing values into its own controls, so that the write is not
     /// mistaken for a person typing. The same flag `viewer-gtk` calls `suppress`.
     bool writing_ = false;

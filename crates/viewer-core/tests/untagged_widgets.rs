@@ -254,6 +254,55 @@ fn a_form_element_with_no_text_is_named_by_its_title_then_its_field() {
     );
 }
 
+/// A `Sect` whose content is its children's is named by its title, and an element with text of its
+/// own keeps that text (ADR 1405).
+///
+/// Table 355 defines `/T` for every structure element — "[t]he title of the structure element, a
+/// text string representing it in human-readable form" — and its example is a section's: "such as
+/// Chapter 1". The element's own text still comes first, so a paragraph that states a title is
+/// spoken as what it says.
+#[test]
+fn a_section_with_no_text_of_its_own_is_named_by_its_title() {
+    let content = "/P << /MCID 0 >> BDC BT /F1 12 Tf 20 150 Td (The first paragraph) Tj ET EMC \
+                   /P << /MCID 1 >> BDC BT /F1 12 Tf 20 100 Td (A titled paragraph) Tj ET EMC";
+    let stream = format!(
+        "<< /Length {} >>\nstream\n{content}\nendstream",
+        content.len()
+    );
+    let page = answered(assembled(&[
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 6 0 R /MarkInfo << /Marked true >> >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R \
+         /Resources << /Font << /F1 5 0 R >> >> /StructParents 0 >>",
+        &stream,
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        "<< /Type /StructTreeRoot /K 7 0 R /ParentTree << /Nums [0 [8 0 R 9 0 R]] >> >>",
+        "<< /Type /StructElem /S /Sect /P 6 0 R /T (Chapter 1) /K [8 0 R 9 0 R] >>",
+        "<< /Type /StructElem /S /P /P 7 0 R /Pg 3 0 R /K 0 >>",
+        "<< /Type /StructElem /S /P /P 7 0 R /Pg 3 0 R /T (Paragraph two) /K 1 >>",
+    ]));
+    let named: Vec<(&str, &str, bool)> = page
+        .nodes
+        .iter()
+        // Trimmed, because the second paragraph's text begins on a new line and the extraction
+        // says so; the line break is not what this test is about.
+        .map(|node| (node.role.as_str(), node.name.trim(), node.titled))
+        .collect();
+    assert_eq!(
+        named,
+        [
+            ("Sect", "Chapter 1", true),
+            ("P", "The first paragraph", false),
+            ("P", "A titled paragraph", false),
+        ],
+        "the section by its title; each paragraph by its own text, titled or not"
+    );
+    assert!(
+        page.nodes.iter().all(|node| !node.substituted),
+        "a title substitutes for nothing, so both paragraphs are still published"
+    );
+}
+
 /// A two-page document whose catalog states `catalog_extra` and whose structure tree holds one
 /// paragraph: page one's text, reached through its `/StructParents` (§14.7.5.4). Page two draws
 /// text of its own and nothing in the tree names it.

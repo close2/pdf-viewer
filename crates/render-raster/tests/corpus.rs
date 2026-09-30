@@ -719,6 +719,7 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
 
     let mut raster = settings.rasterizer();
     announce(&raster, files.len(), settings);
+    let mut one_thread = OneThread::beside(settings);
 
     let started = Instant::now();
     let mut agreed = 0usize;
@@ -746,6 +747,7 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
         let at = Instant::now();
         let ours = raster.rasterize(&list, target);
         let gpu_took = at.elapsed();
+        one_thread.compare(&name, &list, target, &ours);
         let verdict = outcome(&cpu, ours);
         // **A refused frame is a fast frame**, and counting one as a time would report a
         // backend that draws nothing as the quickest there is: at four times the page's own
@@ -814,6 +816,112 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
         &differing,
         &incomparable,
     );
+    one_thread.hold();
+}
+
+/// The same backend at one encode thread, beside a run that fans out, and every page whose bytes
+/// the thread count moved.
+///
+/// **A frame is a function of the display list and the view**, never of how many threads encoded
+/// it: raster states it (their ADR 0054), `CLAUDE.md`'s oracle comparison rests on it, and trap 66
+/// is how it was lost — thirteen pages of this corpus drew differently at one thread and at
+/// twenty-four while every gate passed, because no gate ran both. So this one does, inside the
+/// walk rather than as a second walk: the page is already parsed and the list already built, and a
+/// second raster at one thread is all the comparison costs. Held to **empty** at [`SCALE`] on every
+/// lane and quantum, and under a filter too — equality to nothing is the one list a subset cannot
+/// misreport. At any other scale it is a survey and holds nothing: at [`MAGNIFIED`] on the CPU lane
+/// pages still differ, the divergence first showing as the retained atlas's state after one frame,
+/// and each such page alone agrees — ADR 1407 section 4 names that residue, and section 1 the cause
+/// found at [`SCALE`] and its fix.
+struct OneThread {
+    /// `None` when the run under test is itself one-threaded, so there is nothing to compare.
+    raster: Option<QuorraRasterizer>,
+    /// Whether the run is at [`SCALE`], where the list is held.
+    held: bool,
+    /// The pages whose bytes differ, or which one thread refused and many drew.
+    differing: Vec<String>,
+}
+
+impl OneThread {
+    /// A one-threaded backend configured as `settings` otherwise is, when `settings` fans out.
+    fn beside(settings: Settings) -> Self {
+        let raster = (settings.threads > 1).then(|| {
+            Settings {
+                threads: 1,
+                ..settings
+            }
+            .rasterizer()
+        });
+        if raster.is_none() {
+            println!("one encode thread: the thread-count comparison has nothing to compare");
+        }
+        Self {
+            raster,
+            held: is_exactly(settings.scale, SCALE),
+            differing: Vec::new(),
+        }
+    }
+
+    /// Draws the page again at one thread and records it when the bytes are not the same.
+    fn compare(
+        &mut self,
+        name: &str,
+        list: &DisplayList,
+        target: TargetSpec,
+        ours: &Result<pdf_render::Raster, impl ToString>,
+    ) {
+        let (Some(raster), Ok(ours)) = (self.raster.as_mut(), ours) else {
+            return;
+        };
+        match raster.rasterize(list, target) {
+            Ok(serial) if serial.data == ours.data => {}
+            Ok(serial) => {
+                let row = usize::try_from(serial.width).map_or(1, |w| w.saturating_mul(4).max(1));
+                let (mut bytes, mut most) = (0usize, 0u8);
+                let (mut left, mut top, mut right, mut bottom) = (usize::MAX, usize::MAX, 0, 0);
+                for (at, (a, b)) in serial.data.iter().zip(&ours.data).enumerate() {
+                    if a != b {
+                        bytes = bytes.saturating_add(1);
+                        most = most.max(a.abs_diff(*b));
+                        let (x, y) = (
+                            at.checked_rem(row).unwrap_or(0) / 4,
+                            at.checked_div(row).unwrap_or(0),
+                        );
+                        (left, right) = (left.min(x), right.max(x));
+                        (top, bottom) = (top.min(y), bottom.max(y));
+                    }
+                }
+                println!(
+                    "  thread count moves: {name}: {bytes} bytes differ, by up to {most} levels, \
+                     in x {left}–{right}, y {top}–{bottom}"
+                );
+                self.differing.push(name.to_owned());
+            }
+            Err(why) => {
+                println!("  thread count moves: {name}: one thread refused what many drew: {why}");
+                self.differing.push(name.to_owned());
+            }
+        }
+    }
+
+    /// Fails the gate on any page the thread count moved.
+    fn hold(&self) {
+        if self.raster.is_some() {
+            println!(
+                "  thread count: {} page(s) differ between one encode thread and many",
+                self.differing.len()
+            );
+        }
+        if !self.held {
+            println!("  thread count: a survey at this scale, not held (ADR 1407 section 4)");
+            return;
+        }
+        assert!(
+            self.differing.is_empty(),
+            "a frame's bytes depend on its encode thread count on {:?}",
+            self.differing
+        );
+    }
 }
 
 /// Where each timed page's two clocks go, one `name, oracle ms, raster ms` line per page, when

@@ -129,12 +129,24 @@ impl Interpreter<'_> {
         // The one place the bound is asked, so that no kind of nested stream can be run without
         // it — see [`MAX_FORM_DEPTH`] for the kind that was.
         if self.nesting >= MAX_FORM_DEPTH {
-            self.note(Unsupported::LimitReached {
-                limit: "MAX_FORM_DEPTH",
+            // Which of the two it is, said rather than refused: a stream already on the chain
+            // is a chain that re-enters itself, and ADR 0793 is why that is not refused sooner.
+            let reentered = content
+                .identity()
+                .is_some_and(|identity| self.chain.contains(&Some(identity)));
+            self.note(if reentered {
+                Unsupported::NestingCycle {
+                    stream: content.detail().to_owned(),
+                }
+            } else {
+                Unsupported::LimitReached {
+                    limit: "MAX_FORM_DEPTH",
+                }
             });
             return;
         }
         self.nesting = self.nesting.saturating_add(1);
+        self.chain.push(content.identity());
         let mut reader = content.reader();
         // What the run has to have produced *nothing* against, for the one fact below to travel.
         let operations = self.operations;
@@ -153,6 +165,7 @@ impl Interpreter<'_> {
         self.run_reader(&mut reader, resources, initial);
         self.pattern_initial = outer;
         self.nesting = self.nesting.saturating_sub(1);
+        self.chain.pop();
         let mut reached = None;
         for issue in reader.take_issues() {
             if let crate::page::ContentIssue::TooLarge { limit, .. } = issue {

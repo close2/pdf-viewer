@@ -835,19 +835,26 @@ session 971**
 #### `graphics/jpeg2000-bit-depth`
 #### `graphics/jpeg2000-channel-count`
 #### `graphics/jpeg2000-no-ciejab-colour-space`
-ISO 19005-2 6.2.8.3, ISO 19005-4 6.2.7.3 · all six · today `not-built-yet`
+ISO 19005-2 6.2.8.3, ISO 19005-4 6.2.7.3 · all six · **built** as `preserve` for the
+stated-colour-space shape, the baseline row's transcode (ADRs 1400, 1412); the other shape refused
+by name
 
-- **Mitigation** — `preserve` by **transcoding to a permitted codec**, which is `doc/rfc/0007`
-  section 5's last table row made concrete: decode the samples and re-encode them with
-  `FlateDecode`, losing nothing visible. Two costs that have to be said out loud, and the second is
-  the serious one: the file grows, often by a great deal; and **this tree's own JPEG 2000 decoder's
-  output becomes the archive permanently**, so a bug in it is baked in rather than re-decodable
-  later. One cheaper case exists for the channel count — a `cdef` box declaring the second channel
-  as opacity leaves one colour channel without a sample being touched.
+- **Mitigation, carried out** — `preserve` by **transcoding to a permitted codec**, which is
+  `doc/rfc/0007` section 5's last table row made concrete: decode the samples and re-encode them
+  with `FlateDecode`, losing nothing visible. Each of these sentences has JPEG 2000 data as its
+  subject, as the baseline's does, so the transcode below answers them for the same shape — an
+  image whose dictionary states its `ColorSpace` — and refuses the same way where it states none.
+  The bit-depth row is answered where Table 87 can hold the depths (a codestream whose channels
+  differ); a component deeper than sixteen bits keeps the refusal. Two costs that have to be said
+  out loud, and the second is the serious one: the file grows, often by a great deal; and **this
+  tree's own JPEG 2000 decoder's output becomes the archive permanently**, so a bug in it is baked
+  in rather than re-decodable later. One cheaper case exists for the channel count and is unbuilt —
+  a `cdef` box declaring the second channel as opacity leaves one colour channel without a sample
+  being touched.
 - **By target** — none in kind.
-- **From a configuration** — `remedy = "preserve"`, `codec = "flate"`, `max-growth = "4x"` so a
-  queue does not silently quadruple. The operator needs both costs; the decoder-output one is not
-  obvious and belongs in the profile comment rather than only in the report.
+- **From a configuration** — `remedy = "preserve"` at the site, no mechanism key; the shape
+  qualifiers are the baseline row's. A growth bound (`max-growth`) is not built; the report
+  names each image's size under both filters instead.
 - **Departure** — **B**. A codestream with five channels or a 40-bit depth is still ISO 15444-1 and
   still decodable; what the clause protects is the narrower set a PDF reader is obliged to handle.
   Narrowable declaratively per field, `fields = ["bit-depth"]`.
@@ -876,8 +883,11 @@ refused by name
   pair widened — and every sentence of the subclause is about JPEG 2000 data, so the copy is
   outside all of them. The two costs of section 4.5's universal fallback above stand and are the
   reason it is the operator's answer: the file grows, and this tree's decoder's output is kept as
-  the picture. Refused by name within the shape: an opacity channel in the data (`SMaskInData`
-  non-zero, whose soft-mask image would be a new object), a component deeper than sixteen bits, a
+  the picture. An opacity channel in the data (`SMaskInData` non-zero) becomes the soft-mask image
+  Table 87 has a processor create, `DeviceGray` under `FlateDecode`, with a zero `Matte` for code 2
+  (ADR 1412). Refused by name within the shape: code 2 over an `Indexed` space, `SMask` beside a
+  non-zero `SMaskInData`, an image mask whose data carries opacity, a component deeper than sixteen
+  bits, a
   decode that is not whole at the ordinary budget, a channel count the space does not have. Where
   the dictionary states none, a specification off the list is what the samples mean: writing a
   baseline code, or a `ColorSpace` beside a Flate copy, relabels the picture, which the catalogue
@@ -886,8 +896,7 @@ refused by name
 - **From a configuration** — `remedy = "preserve"` at the site, no mechanism key; the shape
   qualifier `stated-colour-space` names the answered half and `data-colour-space` the refused one.
   `--remedy-sites` prints the sentence; the report lists each image with its depths and its size
-  under both filters. The same transcode would answer the three rows above for this shape; they are
-  not re-classed yet.
+  under both filters. The same transcode answers the three rows above for this shape (ADR 1412).
 - **Departure** — **B**. A non-baseline JPX file is still ISO/IEC 15444-2 and decodable by a
   reader that implements the extension; what the rule protects is the set every PDF reader is
   obliged to handle.

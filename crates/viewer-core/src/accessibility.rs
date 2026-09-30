@@ -122,6 +122,13 @@ pub struct TableCell {
 }
 
 /// One element of §14.7's structure tree, as an accessibility API would take it.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "four facts a host reads one at a time: a substitution, a title, a list continued \
+              from elsewhere and a refused draw inside. The first two could be one enum of where \
+              the name came from, at the cost of changing a field every host and the confined \
+              wire already read, for a lint rather than for a reader"
+)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct AccessibilityNode {
     /// Which node encloses this one, as an index into the answer, or `None` for a root.
@@ -162,11 +169,22 @@ pub struct AccessibilityNode {
     /// name repeated its children's would be read twice. Where the element states a substitution
     /// there is nothing to repeat, and [`Self::substituted`] says which of the two this is.
     ///
-    /// **A `Form` element with no text of its own is named rather than left empty** (ADR 1394):
-    /// by Table 355's `/T`, the title the producer gave the element, else by the field its
-    /// widget annotation belongs to — Table 226's `/TU`, else §12.7.4.2's fully qualified name,
-    /// which is [`pdf_model::view::FieldName::shown`]'s order and §14.9.3's `shall`.
+    /// **An element with no text of its own is named by its title rather than left empty**: Table
+    /// 355's `/T`, which the table defines for every structure element — "a text string
+    /// representing it in human-readable form" — and which a grouping element such as a `Sect`
+    /// states as the title a person navigating by section would be told (ADR 1405). **A `Form`
+    /// element with neither** is named by the field its widget annotation belongs to — Table 226's
+    /// `/TU`, else §12.7.4.2's fully qualified name, which is
+    /// [`pdf_model::view::FieldName::shown`]'s order and §14.9.3's `shall` (ADR 1394).
     pub name: String,
+    /// Whether [`Self::name`] is the element's Table 355 `/T` — the producer's title for it —
+    /// rather than its own text, a substitution or its field's name.
+    ///
+    /// Crosses because the platform's vocabulary cares: a `Sect` with a title is a section a person
+    /// can be taken to by name, which is a different role from one that merely encloses content
+    /// (ADR 1405), and a host cannot tell a title from a line of the section's own text by reading
+    /// the string.
+    pub titled: bool,
     /// Whether [`Self::name`] **replaces** what is below this element, or merely names it.
     ///
     /// ISO 32000-2 §14.9.3 makes `/Alt` "a complete (or whole) word or phrase substitution for the
@@ -566,6 +584,7 @@ impl AccessibilityNode {
             parent: None,
             role: String::new(),
             name: String::new(),
+            titled: false,
             substituted: false,
             language: None,
             quads: Vec::new(),
@@ -675,8 +694,9 @@ pub(crate) struct Gathered {
     pub(crate) objects: Vec<ObjectId>,
     /// §14.9.3's `/Alt` or §14.9.5's `/E`, where the element itself states one.
     pub(crate) phrase: Option<String>,
-    /// Table 355's `/T` for a `Form` element, where it states one — a name for an element whose
-    /// content is a widget and so has no text of its own to be named by (ADR 1394).
+    /// Table 355's `/T`, where the element states one — a name for an element with no text of its
+    /// own to be named by: a `Form` whose content is a widget (ADR 1394), a `Sect` whose content is
+    /// its children's (ADR 1405).
     pub(crate) title: Option<String>,
     /// §14.9.2's `/Lang`, where the element itself states one.
     pub(crate) language: Option<String>,
@@ -1014,12 +1034,9 @@ fn walk(
                 let short = (kind == Some(StandardType::TableHeader))
                     .then(|| tree.header_short(document, &dict))
                     .flatten();
-                // Table 355's `/T`, read only where §14.8.4.7.2's `Form` makes the element's
-                // content a widget annotation, which is the one type whose own content items can
-                // leave it with nothing to be called (ADR 1394).
-                let title = (kind == Some(StandardType::Form))
-                    .then(|| text_entry(document, &dict, "T"))
-                    .flatten();
+                // Table 355's `/T`, which the table states for every structure element and which is
+                // spoken only where the element has no text of its own (ADR 1405, ADR 1394).
+                let title = text_entry(document, &dict, "T");
                 let continues_a_list =
                     list_entry(document, tree, &dict, kind.as_ref(), depth, index, lists);
                 // Inside a table the pruning stops, for the reason this function's own comment
@@ -1300,13 +1317,16 @@ pub(crate) fn finish(
         // The element's own content items, not its descendants': see `AccessibilityNode::name`.
         spoken(page.text, page.described, &own)
     });
-    // **A `Form` element whose own content is a widget alone has no text to be called by**, and
-    // the producer and the field each name it (ADR 1394). The element's `/T` first, because
-    // Table 355 makes it "a text string representing it in human-readable form" and it is stated
-    // on the element itself; then the field, because §14.9.3 makes `/TU` the name "used in place
-    // of the actual field name when an interactive PDF processor identifies the field in a
-    // user-interface", and a node on this bus is such a place.
-    let name = if name.trim().is_empty() && !substituted {
+    // **An element with no text of its own is called by its title**, and a `Form` element with
+    // none by its field (ADR 1405, ADR 1394). The element's `/T` first, because Table 355 makes it
+    // "a text string representing it in human-readable form" and it is stated on the element
+    // itself; then the field, because §14.9.3 makes `/TU` the name "used in place of the actual
+    // field name when an interactive PDF processor identifies the field in a user-interface", and
+    // a node on this bus is such a place. Neither replaces anything below the element: a title
+    // names a section and its children still say what is in it.
+    let unnamed = name.trim().is_empty() && !substituted;
+    let titled = unnamed && gathered.title.is_some();
+    let name = if unnamed {
         gathered
             .title
             .or_else(|| {
@@ -1335,6 +1355,7 @@ pub(crate) fn finish(
         parent,
         role: gathered.role,
         name,
+        titled,
         substituted,
         language: referenced_language(&gathered.objects, page.languages).or(gathered.language),
         quads: all,
@@ -1647,6 +1668,7 @@ mod tests {
             parent,
             role: "P".to_owned(),
             name: String::new(),
+            titled: false,
             substituted: false,
             language: None,
             quads: Vec::new(),

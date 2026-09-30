@@ -202,6 +202,14 @@ fn stroke_subpath(centre: &Centre, stroke: Stroke, hw: f32, out: &mut Vec<Polyli
     // Where the path bends more tightly than the half-width the pieces overlap in a star
     // whose points are the rim, and the fill would count each overlap twice there; the
     // tiling holds the same set with every point covered once.
+    //
+    // **Kept although the fill now asks for the set (ADR 1389), because that question has a
+    // bound and the tiling does not need it** (ADR 1407). Untiled, the hook and the tight L
+    // are drawn to the byte as tiled; but a stroke of hundreds of pieces in a few pixels
+    // spends the fill's sweep before it is answered, and the integral then counts every
+    // overlap — all 205 such strokes of `bug1743245.pdf`, up to 184 levels too dark, and 19
+    // corpus pages past a sixteenth. Every lane that integrates without the set, the GPU
+    // triangles among them, takes these same pieces.
     if at_a_tight_bend.contains(&true) {
         out.extend(disjoint::disjoint(pieces, &at_a_tight_bend));
     } else {

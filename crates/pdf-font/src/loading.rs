@@ -767,6 +767,14 @@ pub struct LoadedFont {
     /// program that has none, which the NOTE under that sentence leaves implementation
     /// dependent and which this crate answers by drawing nothing — the picture it drew before.
     notdef: Option<u16>,
+    /// Whether a simple font's descriptor sets both Table 121's Symbolic and Nonsymbolic flags.
+    ///
+    /// §9.8.2: "This flag and the Nonsymbolic flag shall not both be set or both be clear", and
+    /// "[a] PDF processor should always check the Symbolic flag". So this crate reads such a
+    /// font as symbolic, which for a `TrueType` program makes §9.6.5.4 ignore its `/Encoding` —
+    /// and the fact is kept so that a page drawn short by that reading can say the file asked for
+    /// both (ADR 1411). Always false for a composite font, whose descriptor selects no encoding.
+    symbolic_flags_conflict: bool,
     /// Cached outlines: a page reuses the same few dozen glyphs constantly, and
     /// re-extracting each one would dominate the render.
     outlines: Mutex<BTreeMap<Placed, Option<Arc<Path>>>>,
@@ -1062,6 +1070,7 @@ impl LoadedFont {
             symbolic_set: requested.and_then(|request| symbolic_set(request.family)),
             glyph_names: names,
             notdef,
+            symbolic_flags_conflict: both_symbol_flags(document, descriptor),
             reader_chosen,
             // §9.8.3.3's `/FD` is Table 122's, an entry of a `CIDFont`'s descriptor, and §9.8.3
             // says so: a simple font's descriptor has no glyph classes to override anything for.
@@ -1285,6 +1294,7 @@ impl LoadedFont {
             notdef: None,
             // §9.6.5.4 is a *simple* font's subclause: a composite font's codes reach glyphs
             // through §9.7.6.2 and §9.7.4.2, neither of which offers the processor a choice.
+            symbolic_flags_conflict: false,
             reader_chosen: CodeSet::default(),
             widths: composite_widths(document, &descendant),
             default_width,
@@ -1374,6 +1384,7 @@ impl LoadedFont {
             symbolic_set: None,
             glyph_names: None,
             notdef: None,
+            symbolic_flags_conflict: false,
             reader_chosen: CodeSet::default(),
             outlines: Mutex::new(BTreeMap::new()),
             codes_by_character: OnceLock::new(),
@@ -2181,6 +2192,92 @@ impl LoadedFont {
         self.cached_outline(placed)
     }
 
+    /// Whether the font's descriptor sets both Table 121's Symbolic and Nonsymbolic flags, which
+    /// §9.8.2 says "shall not both be set"; see the field of the same name.
+    #[must_use]
+    pub fn states_both_symbolic_flags(&self) -> bool {
+        self.symbolic_flags_conflict
+    }
+
+    /// The glyph at which the `glyf` composite `code` reaches includes itself, where it does.
+    ///
+    /// Only the producer's own `TrueType` program is asked: a substitute's glyphs are this
+    /// machine's, and a name-keyed or CFF program has no composite glyphs of this kind.
+    /// [`crate::sfnt::composite_cycle`] holds the reading (ADR 1411).
+    #[must_use]
+    pub fn composite_cycle(&self, code: Code) -> Option<u16> {
+        if self.substituted || self.program != Program::Sfnt {
+            return None;
+        }
+        let placed = self.placed_glyph(code)?;
+        if placed.face != Face::Own {
+            return None;
+        }
+        crate::sfnt::composite_cycle(&self.data, placed.glyph)
+    }
+
+    /// Whether the producer's own program describes no outline for any glyph it holds.
+    ///
+    /// The case §9.7.6.3 settles by construction: a code whose CID the program lacks is given "the
+    /// glyph for CID 0 (which shall be present)", and a program whose every glyph — CID 0
+    /// included — is empty therefore draws nothing for any code by the clause's own route. That
+    /// is the font the file states, not a mark this reader lost, and an OCR layer's invisible font
+    /// is its ordinary shape. A program with even one outline is answered `false`, so a subset
+    /// short of the glyphs its page shows is still what a page reports (ADR 1411).
+    ///
+    /// Walks glyph indices in order and stops at the first outline, so it costs one glyph for
+    /// any ordinary font; the whole walk is bounded by the program's own glyph count, 65 535 at
+    /// most, and happens only where a code already reached no outline. `false` for a substitute,
+    /// which is this machine's face, and for a Type 1 program, whose glyphs are read by name.
+    #[must_use]
+    pub fn holds_no_outline(&self) -> bool {
+        if self.substituted {
+            return false;
+        }
+        // A glyph that could not be read is not one the program states empty, so an error
+        // answers `false` as an outline does: a damaged program is not silenced by this.
+        let states_empty = |glyph: u16| {
+            let mut pen = PathPen {
+                path: Path::new(),
+                scale: 1.0,
+                stretch: 1.0,
+                last: None,
+            };
+            let drawn = match self.program {
+                Program::Sfnt => FontRef::new(&self.data).ok().is_some_and(|font| {
+                    font.outline_glyphs()
+                        .get(GlyphId::from(glyph))
+                        .is_some_and(|outline| {
+                            outline
+                                .draw(
+                                    DrawSettings::unhinted(
+                                        Size::unscaled(),
+                                        LocationRef::default(),
+                                    ),
+                                    &mut pen,
+                                )
+                                .is_ok()
+                        })
+                }),
+                Program::BareCff => cff::draw(&self.data, glyph, &mut pen).is_ok(),
+                Program::Type1 => false,
+            };
+            drawn && pen.path.is_empty()
+        };
+        let count = match self.program {
+            Program::Sfnt => FontRef::new(&self.data)
+                .ok()
+                .and_then(|font| font.maxp().ok())
+                .map(|maxp| u32::from(maxp.num_glyphs())),
+            Program::BareCff => cff::glyph_count(&self.data).ok(),
+            Program::Type1 => None,
+        };
+        let Some(count) = count.and_then(|count| u16::try_from(count).ok()) else {
+            return false;
+        };
+        count > 0 && (0..count).all(states_empty)
+    }
+
     /// One glyph's outline, through the cache both routes into this font share.
     ///
     /// Separated from [`Self::outline`] because [`Self::character_glyph`] arrives at a glyph
@@ -2751,6 +2848,17 @@ impl LoadedFont {
         }
         Some(Arc::new(pen.path))
     }
+}
+
+/// Whether a descriptor sets both of Table 121's Symbolic (bit 3) and Nonsymbolic (bit 6) flags,
+/// which §9.8.2 says "shall not both be set"; see [`LoadedFont::states_both_symbolic_flags`].
+fn both_symbol_flags(document: &Document, descriptor: Option<&Dictionary>) -> bool {
+    /// Bit 3 and bit 6, counting from one as the specification does.
+    const BOTH: [u32; 2] = [1 << 2, 1 << 5];
+    descriptor.is_some_and(|descriptor| {
+        BOTH.iter()
+            .all(|mask| metrics::flag(document, descriptor, *mask))
+    })
 }
 
 /// Reads a font dictionary's `/ToUnicode` `CMap` and whatever it builds on (§9.10.3).

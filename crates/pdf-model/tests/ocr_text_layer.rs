@@ -113,8 +113,11 @@ fn the_selection_band_is_the_descriptors_not_the_outlines() {
 /// contours is `codes_reaching_a_blank_glyph`, apart from a code that reached nothing. The
 /// invisible layer never enters that accounting — Table 104's mode 3 neither fills nor
 /// strokes, so no mark is owed and nothing is counted or reported; the same file with mode 0
-/// owes every mark, counts all ten in the blank band (the stream mapped every CID to a glyph
-/// the program *contains*), none in the absent band, and reports the font as drawing nothing.
+/// owes every mark and counts all ten in the blank band (the stream mapped every CID to a glyph
+/// the program *contains*), none in the absent band — which is what separates "nothing counted
+/// because nothing was owed" from "nothing counted because nobody looked". It reports nothing:
+/// a program that describes no outline for any glyph it holds draws nothing by the clause's own
+/// route, so the page is what the file states (ADR 1411).
 #[test]
 fn the_blank_glyph_band_counts_only_where_a_mark_is_owed() {
     let invisible = interpreted(OcrFont::HollowEmbedded, INVISIBLE);
@@ -142,10 +145,10 @@ fn the_blank_glyph_band_counts_only_where_a_mark_is_owed() {
         (usize::from(OCR_CID_COUNT), 0),
         "every CID reaches a glyph the program contains and describes as empty"
     );
-    let said = format!("{:?}", visible.unsupported);
     assert!(
-        said.contains("/F0") && said.contains("no outline for any"),
-        "a visible page of hollow text must say the font drew nothing: {said}"
+        visible.unsupported.is_empty(),
+        "an outline-free program's page is what the file states: {:?}",
+        visible.unsupported
     );
 }
 

@@ -448,19 +448,19 @@ list it had read rather than the list it left:
   nothing to overlap.
 
 - **The quorra gate runs one of two coverage lanes, and the other one is a round's to ask for.**
-  `PDFVIEWER_QUORRA_COVERAGE=gpu` points the same gate at the lane `viewer-ui` switches to past ten
-  times magnification; paired with `PDFVIEWER_QUORRA_SCALE=4` it is the population that lane
+  `PDFVIEWER_RASTER_COVERAGE=gpu` points the same gate at the lane `viewer-ui` switches to past ten
+  times magnification; paired with `PDFVIEWER_RASTER_SCALE=4` it is the population that lane
   actually draws for. Both turn the ratchets off, and the run says so. **Two kinds of round owe
   this run**: one that takes a quorra release, because the release may be entirely inside a lane
   §2 does not exercise — which `74c4994d` was, and it took 24 refusals off that lane at 4× while
   moving nothing at all on the default one (ADR 0283) — and one that changes the zoom path.
 
 - **The quorra gate runs at the quantum this product ships, and that is the line above rather than
-  a fourth run.** It is the same invocation: since the six-hundred-and-seventy-third session
-  `tests/corpus.rs` takes `render_quorra::options()`'s `glyph_quantum` instead of forcing it off,
+  a fourth run.** It is the same invocation: `tests/corpus.rs` takes
+  `render_raster::options()`'s `glyph_quantum` instead of forcing it off,
   so the sequence's own line measures the shipped configuration and **costs nothing extra** — it is
   in fact the *faster* of the two settings, because the atlas reuse the quantum exists for is what
-  the run then gets. `PDFVIEWER_QUORRA_GLYPH_QUANTUM=off` is the isolation column, and like the
+  the run then gets. `PDFVIEWER_RASTER_GLYPH_QUANTUM=off` is the isolation column, and like the
   other knobs it turns the ratchets off.
 
   **What that column would have caught is the reason it is here.** For the whole of this gate's

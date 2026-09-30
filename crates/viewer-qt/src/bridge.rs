@@ -776,6 +776,11 @@ pub mod ffi {
         /// remote go-to — and the `QTabBar` is hidden for a strip of one, so a window showing one
         /// document looks exactly as it did before tabs existed (ADR 1264).
         fn documents(self: &Host) -> Vec<String>;
+        /// How long to wait before asking whether a machine face for a tab's label has landed, in
+        /// milliseconds, or `-1` where nothing is searched for or waiting (ADR 1406).
+        fn faces_wait(self: &Host) -> i32;
+        /// The next such face, as the bytes of the file the covering search named, or empty.
+        fn take_face(self: &mut Host) -> Vec<u8>;
         /// Which of them is in front, as a place in the list above.
         fn focused_document(self: &Host) -> usize;
         /// A person chose a tab, by its place in that list.

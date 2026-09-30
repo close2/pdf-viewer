@@ -38,6 +38,7 @@ which map the finished pixel once. **Nothing is owed here now**: both paints rid
 1266), every mark states §11.6.4.2's shape to it — a stencil under a soft mask of its own included —
 and §11.7.5.2's overprinting paragraph is read (ADR 1279), so §10.5 and §11.7.5.2 are both
 `implemented`. The file stays because `CLAUDE.md` points at its reading of §10.5.
+Cited by: `CLAUDE.md`'s clause 10 entry; comments in `crates/pdf-model`, `crates/viewer-ui` and `tools/conformance`; §10.5's ledger note — the reason the file is kept whole rather than deleted (ADR 1416).
 Priority: 13 — done; kept as the reading `CLAUDE.md` cites
 Corpus: `cargo run --release -p pdf-model --example transfer_function_census --
 doc/pdf.js/test/pdfs/*.pdf` counts how many state a `/TR` or `/TR2`, how many state a real one, how

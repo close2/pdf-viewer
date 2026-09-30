@@ -1472,7 +1472,7 @@ fn a_free_form_thumbnail_is_where_the_click_finds_it() {
 }
 
 /// A tab naming a file in Chinese is set from a face this machine offers, and is not boxes
-/// (ADR 1382).
+/// (ADR 1382) — once the search, which runs off the drawing thread, has landed (ADR 1406).
 ///
 /// A file name is not a document's text and no clause states how an interface draws it; the
 /// compiled-in faces state no glyph for these characters, so without the machine's faces each is
@@ -1498,6 +1498,18 @@ fn a_tab_naming_a_file_in_chinese_is_set_from_the_machines_face() {
         return;
     }
     let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    // The first ask never searches on this thread (ADR 1406): all five are the box while the
+    // machine is asked, and the search is on a thread of its own.
+    assert_eq!(
+        chrome.without_a_code(label, Style::default()),
+        5,
+        "a character nobody has answered is the box on the frame that asked"
+    );
+    chrome.settle();
+    assert!(
+        chrome.take_arrivals(),
+        "the landing is what a window draws again on"
+    );
     assert_eq!(
         chrome.without_a_code(label, Style::default()),
         0,

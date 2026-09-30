@@ -79,7 +79,12 @@ take from the *demand-driven* side (10–29, what the corpus and oracle name) **
 A header block — status, priority, corpus witnesses, the clauses, the code — then the argument.
 A todo file is a place to *think*: what the clause determines, what has been measured, what the
 fix would cost, and what has to be settled before it can be taken. When an item is done the file
-is **deleted** and its argument lives on in an ADR, which is where a decision belongs.
+is **deleted** and its argument lives on in an ADR, which is where a decision belongs — **unless
+something outside `doc/adr/` cites it** (a comment under `crates/` or `tools/`, a ledger note,
+`CLAUDE.md`). Then it stays whole, its `Status:` line says it is done and names what cites it, and
+it leaves the index of owed work for the table of done files below it. It is reduced to its header
+block only where every paragraph of its body is shown to be held by an ADR the header names, since
+a reading nobody else holds is the one thing a deletion cannot give back (ADR 1416).
 
 ## The index
 
@@ -92,16 +97,10 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [05](05-an-instrument-for-the-interactive-surface.md) | An instrument for the interactive surface — all three are built and two of them gate; what is left is the save round-trip's ratchet and each item's named remainder |
 | [10](10-bounds-that-cap-size.md) | Bounds that cap size rather than guard against a bomb, asked for by the project owner. The three defects owed on any road are carried out; what is open is which of the four roads to take, with each road's price, and that choice is the owner's |
 | [11](11-shapes-that-still-disappear.md) | Shapes that still disappear. Most of the file is closed, item 8 — a mark under a matrix with no inverse — with it; the file's status line names what is left on each backend |
-| [12](12-one-bound-two-jobs.md) | One bound doing two jobs — **answered in both halves and nothing here is owed**: the floor is derived, implemented and priced, and the two knobs turn out to be one knob, which the gate re-runs as a counterfactual every run |
-| [13](13-the-transfer-function.md) | §10.5 — applied to solid colours, image samples and every colour a shading makes, and read from a halftone dictionary's `TransferFunction` besides, so the clause is `implemented`, and so is §11.7.5.2's per-region model (ADRs 1266, 1279). Nothing is owed; the file is the reading `CLAUDE.md` cites |
-| [14](14-stream-the-decompression.md) | **Road D — done**, first of the three the owner ordered out of `10`: all five of §7.8.2's content streams are read through a window and all five of §7.4's byte filters pump in a chain. The file is kept because comments under `crates/` and ledger notes point a reader at it, and `01`'s sweeps read it |
 | [15](15-ship-the-confinement.md) | **Road B**, second: ship the confinement and let the kernel hold the bound. The tier change, the stoppable draw, the abandonment policy and the first host on the boundary are built; what is left is moving the three established windows onto it, and the owner's warn-then-abort as an input they share |
 | [16](16-resumable-interpretation.md) | **Road C**, third: interpretation as a resumable job the host pumps — the only always-interruptible road, a state-machine rewrite against the oracle's pages, and it contains road A |
 | [21](21-font-substitution.md) | `Identity` orderings; per-character fallback, with no witness left |
-| [22](22-variable-text-edges.md) | §12.7.4.3's remaining edges: the Arabic free text value, refused whole — read, priced and pinned |
 | [23](23-transparency-departures.md) | §11.4, §11.4.7 and §11.6.6, each reported where it can change a pixel. What stands wants a conversion between **two presses** per pixel at a group boundary, which is a function rather than a quantity and which no corpus document asks for |
-| [25](25-view-dependent-annotations.md) | View-dependent annotations and Table 197's events — **done**, §12.5.6.22's `/FixedPrint` with them (ADR 0934); the file stays while a comment under `crates/` and a ledger note cite it, and what is left of the subject is RFC 0004's printing half |
-| [26](26-icons-a-clause-only-recommends.md) | `Stamp`'s icon, whose standard names are legends rather than symbols — **nothing is owed**: `doc/questions/A72`'s bound decided it, §12.5.6.12 is `departed` (ADR 1367), and the file is the argument the row cites |
 | [27](27-the-interfaces-own-font.md) | The interface's own font: the face reaches every script it carries now; what is open is a script it does not |
 | [28](28-a-catalogue-that-draws-nothing.md) | A catalogue that drew nothing — **nothing is left to build and the whole file is one run**: every departure it printed is expected to be gone, and only the owner has the document |
 | [30](30-a-native-host.md) | All three native hosts are built and level, and `tools/state.sh hosts`/`windows` count what a C caller and each window reach rather than claiming it. What is left is surface, named in the file: a window opening a file a *person* chose, a second path on the command line, a tab's label from §14.3.3's `/Info /Title`, and what the confined window owes the day it performs an operation |
@@ -111,9 +110,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [34](34-sandbox-the-interpreter.md) | Confine the interpreter and rasteriser — built, drawing real pages behind seccomp, answering every question, stoppable, and shipping marks to a host that holds the device. What the marks arm leaves a host is in [15](15-ship-the-confinement.md) |
 | [35](35-confinement-off-linux.md) | Confinement on macOS and Windows — what the snapshot release cannot ship, and the three ways out |
 | [36](36-a-frame-every-refresh.md) | A frame every refresh — 60 Hz as the floor and 120 Hz as the target, with the cadence built: a presenter on a clock of its own, a reprojection standing in for a missed frame and a re-base on a late one. **The frame is measured now, stage by stage, against the 8.333 ms a 120 Hz refresh allows** (ADR 1260); what that measurement names is the open half |
-| [37](37-a-frame-that-says-it-is-stale.md) | A frame that says it is stale — built for both windows and the same arrangement on both, with each of the five rules enforced by a test, a type or the structure. Nothing this item names is owed |
 | [38](38-a-documents-restrictions-have-levels.md) | A document's restrictions are the reader's to set: every Table 22 bit named, eight operations (`Print`, `PrintFaithfully` and §12.11.6's `Process` among them), the four levels and the verdict in one module asked once, a level per restriction, a per-document scope, a menu and the *ask* prompt in all three windows; what is left is the attach and detach gestures, which wait on the owner's HTML mockups, and `Assemble`, which awaits a verb no window has |
-| [39](39-a-fragment-that-says-where-to-open.md) | Annex O's fragment identifiers — `tools/state.sh annex-o` says which are carried out and which are reported, and nothing here restates its answer. The file is kept as the reading beside that command, and the two limits it names are not this annex's |
 | [40](40-mask-chain-crop.md) | A clip chain as one crop and one intersect — unblocked and re-priced, with the copying and the chain step that admits every pixel of its band both taken. What is left is the chain itself, now a priced choice rather than an open question |
 | [41](41-decoded-stream-cache.md) | A decoded-stream cache — taken on the population a reader is in, with the memoised *refusal* and `image_stream` beside it. What is left is a refusal whose **encoded** bytes exceed the budget, and `NestedContent::damage`, which still pumps to the end once per read |
 | [42](42-the-launch-path.md) | The launch path: four of five items closed, the fifth is quorra's |
@@ -129,7 +126,6 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [50](50-the-windows-dx12-retest.md) | The Windows DX12 retest — the owner's first traces arrived and half the file is answered. The file says exactly what to run next, including the `--coverage cpu` A/B only that machine can take |
 | [51](51-signatures-and-public-keys.md) | A signature's three questions: the first two are answered for **every algorithm family the standard names**, and every digest either table names is computed. The second covers every ISO/TS 32002 curve, two of them this tree's own under A170 until a reviewed crate covers them; then the signer's *trustworthiness* — a certificate store and a network — and §7.6.5's public-key handlers |
 | [52](52-zlib-rs-deallocates-through-the-wrong-pointer.md) | `zlib-rs` fails both of Miri's aliasing models — an upstream report to write |
-| [53](53-what-hayros-tracker-asked.md) | The residues of reading hayro's tracker against this tree — **closed**, all three (ADR 1004); the file stays while a comment under `crates/` and a ledger note cite it |
 | [55](55-a-filter-that-mixes-in-black.md) | The **shipped** backend's image filter blends straight-alpha texels, so every partly covered edge of an image carries the black its transparent samples are stored with — §8.9.6.2's interpolation `shall` said in as many words, and the two backends that meet it are gated. Nothing here can fix it and the ask is written (`doc/QUORRA_FEEDBACK.md` §39) |
 | [56](56-a-script-engine-that-is-memory-safe.md) | §12.6.4.17's two `shall`s, and whether the exclusion that closes them has outlived its reason. Researched and measured on both denominators, with the engine grading, the placement argument, the smallest first step and the amendment the owner would have to ratify — **blocked on that decision and on nothing else** |
 | [57](57-the-transform-suite.md) | **The transform suite** — RFC 0002's stream. The serializer, **all five writing verbs** (`attach`, `split`, `merge`, `pages`, `optimize`) and §14.7's carried structure tree are done, each with its own corpus walk in `doc/todo/02` §2. What is left is three things and two of them are the owner's; the file says which |
@@ -146,7 +142,26 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | — | [`_scan-conversion.md`](_scan-conversion.md) — shared: §10.7.4, what this tree departs from and why |
 | — | [`_image-codecs-and-the-sandbox.md`](_image-codecs-and-the-sandbox.md) — shared: the three sandboxed codecs are already pure safe Rust, what the sandbox is really for, and what a subset would and would not buy |
 
-**What is not implemented has a file, and that is what this index is.** Every one of them is
+### Done, and kept because something cites it
+
+Nothing in these is owed. Each is the reading a comment, a ledger note or `CLAUDE.md` points a
+reader at, so a citation resolves to the argument rather than to nothing (ADR 1416); a round that
+takes work does not take it from here.
+
+| | item |
+|---|---|
+| [12](12-one-bound-two-jobs.md) | One bound doing two jobs — **answered in both halves and nothing here is owed**: the floor is derived, implemented and priced, and the two knobs turn out to be one knob, which the gate re-runs as a counterfactual every run |
+| [13](13-the-transfer-function.md) | §10.5 — applied to solid colours, image samples and every colour a shading makes, and read from a halftone dictionary's `TransferFunction` besides, so the clause is `implemented`, and so is §11.7.5.2's per-region model (ADRs 1266, 1279). Nothing is owed; the file is the reading `CLAUDE.md` cites |
+| [14](14-stream-the-decompression.md) | **Road D — done**, first of the three the owner ordered out of `10`: all five of §7.8.2's content streams are read through a window and all five of §7.4's byte filters pump in a chain. The file is kept because comments under `crates/` and ledger notes point a reader at it, and `01`'s sweeps read it |
+| [22](22-variable-text-edges.md) | §12.7.4.3's edges — **nothing is owed**: the Arabic free text value draws, joined and right to left in a face from the machine (ADRs 1413, 1414); the file stays while comments under `crates/` and `doc/todo/65` cite it, for the reasoning behind seven closed items |
+| [25](25-view-dependent-annotations.md) | View-dependent annotations and Table 197's events — **done**, §12.5.6.22's `/FixedPrint` with them (ADR 0934); the file stays while a comment under `crates/` and a ledger note cite it, and what is left of the subject is RFC 0004's printing half |
+| [26](26-icons-a-clause-only-recommends.md) | `Stamp`'s icon, whose standard names are legends rather than symbols — **nothing is owed**: `doc/questions/A72`'s bound decided it, §12.5.6.12 is `departed` (ADR 1367), and the file is the argument the row cites |
+| [37](37-a-frame-that-says-it-is-stale.md) | A frame that says it is stale — built for both windows and the same arrangement on both, with each of the five rules enforced by a test, a type or the structure. Nothing this item names is owed |
+| [39](39-a-fragment-that-says-where-to-open.md) | Annex O's fragment identifiers — `tools/state.sh annex-o` says which are carried out and which are reported, and nothing here restates its answer. The file is kept as the reading beside that command, and the two limits it names are not this annex's |
+| [53](53-what-hayros-tracker-asked.md) | The residues of reading hayro's tracker against this tree — **closed**, all three (ADR 1004); the file stays while a comment under `crates/` and a ledger note cite it |
+
+**What is not implemented has a file, and that is what the first table is**; the second holds
+only what is done. Every one of them is
 *reported* at runtime rather than silently skipped; the corpus witnesses, the clause and what it
 would cost live with the item rather than here.
 

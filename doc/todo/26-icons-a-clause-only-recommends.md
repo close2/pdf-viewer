@@ -3,6 +3,7 @@
 Status: **nothing is owed.** `FileAttachment` and `Sound` are drawn; `Stamp` is not, and the reason
 is what the names *are* — which `doc/questions/A72`'s bound made a decision rather than a debt, so
 §12.5.6.12 is `departed` (ADR 1367). The file is kept as the argument the row cites.
+Cited by: comments in `crates/pdf-model`; the ledger notes of §12.5.6.12 and §12.5.6.15 — the reason the file is kept whole rather than deleted (ADR 1416).
 Priority: 26
 Corpus: 1 document
 Clauses: §12.5.6.12, with §12.5.6.15 and §12.5.6.16 closed

@@ -48,7 +48,7 @@
 //!
 //! # The XMP standard, half held, and the five rows that came out of the half
 //!
-//! ISO 16684-1:2012 arrived in the nine-hundred-and-forty-sixth session as an iTeh preview: real
+//! ISO 16684-1:2012 is held as an iTeh preview: real
 //! clause text from its clause 1 to its section 7.2, and nothing after. That is enough for its
 //! conformance clause, its whole data model and the general part of its serialisation, and it
 //! stops exactly where the canonical RDF serialisation begins — sections 7.4 to 7.9. So the one
@@ -60,9 +60,8 @@
 //! preview stops short of — and `metadata/xmp-packets-meet-the-xmp-serialisation` keeps what the
 //! preview does not reach.
 //!
-//! **The character-data row was a check waiting on a reader rather than on a text**, and it came
-//! off `Unchecked` in the nine-hundred-and-fifty-eighth session when `pdf_model::xmp` learned to
-//! say where each run of character data sat. A reason that names a missing reader decays the way
+//! **The character-data row is a check because a reader supplies it rather than a text**:
+//! `pdf_model::xmp` says where each run of character data sits. A reason that names a missing reader decays the way
 //! one that names a missing standard does not.
 //!
 //! **One thing the preview withdraws rather than adds.** The old row's reason named an encoding —
@@ -93,9 +92,9 @@
 //! and which `crate::clarification` reads, records at item A021 the ISO working group resolving
 //! that parts 2 and 3 are to be read as if requirements on `xmpMM:History` were requirements on
 //! the writing application and thus irrelevant to ISO 19005 validation. That is why veraPDF
-//! checks neither subclause and why its corpus names every witness a pass; until session 941 this
-//! crate had the resolution only at second hand, through a test fixture's outline and a
-//! conference summary that contradicted it, and principle 5 rightly refused both. The row stays,
+//! checks neither subclause and why its corpus names every witness a pass. The resolution is read
+//! from the note itself rather than at second hand — a test fixture's outline and a conference
+//! summary contradict it, and principle 5 refuses both. The row stays,
 //! reports nothing, and says why — `doc/adr/0931`.
 //!
 //! **Part 4's stands on part 4's own text**, published in 2020 with `action` and `when` still
@@ -1271,11 +1270,10 @@ impl Shape {
 ///   is to record what the schema defines.
 /// - **`Date` is ISO 8601**, and [`crate::iso_8601`] is that standard's grammar for a date and
 ///   a date with a time of day, read from the working draft this project holds (ISO/WD 8601-1,
-///   `doc/questions/A53`). Until session 993 the check was the XMP Specification's six profiles
-///   of ISO 8601, so a date in any other of the standard's forms — the basic `20260910`, a local
-///   time with no zone, a difference from UTC in hours alone — was reported against A020's own
-///   rule; `doc/questions/Q53` recorded the gap and the owner obtained the text. The six profiles
-///   remain what a packet is *written* in; what widened is what this check admits (ADR 1013).
+///   `doc/questions/A53`), so a date in any of the standard's forms — the basic `20260910`, a
+///   local time with no zone, a difference from UTC in hours alone — is admitted rather than
+///   held to the XMP Specification's six profiles of ISO 8601, which A020's own rule does not
+///   ask for. The six profiles remain what a packet is *written* in (ADR 1013).
 ///
 /// `MimeType` is A020's third named form, RFC 2046, and no property is judged against it: `Any`
 /// is what `dc:format` and its like carry, which under-reports rather than misreports.

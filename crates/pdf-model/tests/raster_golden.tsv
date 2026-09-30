@@ -17,7 +17,7 @@
 90ms_rksj_h_sample.pdf p1	drawn	612x792	db5c15d404b31a45	8b01e1e381443856	4f53cda18c2baa0c
 ArabicCIDTrueType.pdf p1	drawn	595x842	505fe1d02e9cc6c2	8b92f276eb198bdf	4f53cda18c2baa0c
 Brotli-Prototype-FileA.pdf p1	no-page	-	-	-	-
-ContentStreamCycleType3insideType3.pdf p1	drawn	600x840	f2156307726a1393	f88f3a2cbe4fe12a	96144a35db70d960
+ContentStreamCycleType3insideType3.pdf p1	drawn	600x840	f2156307726a1393	f88f3a2cbe4fe12a	6d2944e007b206be
 ContentStreamNoCycleType3insideType3.pdf p1	drawn	600x840	aaa02dd132254fb9	0b8faf6a20dfa31b	4f53cda18c2baa0c
 Embedded_font.pdf p1	drawn	792x612	d0cabc8b271d239e	d5e990028d117858	4f53cda18c2baa0c
 GHOSTSCRIPT-698804-1-fuzzed.pdf p1	drawn	612x792	5dff3922f8ab64ac	255c29f222ec54f6	4f53cda18c2baa0c
@@ -363,7 +363,7 @@ fraction-highlight.pdf p1	drawn	595x842	03e75c77e2ec3291	b84aa669c034201f	4f53cd
 franz.pdf p1	drawn	200x50	4d2f89e494b90d0f	3f5ce5cb4c6c8a7e	4f53cda18c2baa0c
 franz_2.pdf p1	drawn	200x50	743c848357944f62	6d74b0fec5d3d785	4f53cda18c2baa0c
 freeculture.pdf p1	drawn	490x735	b9509811337e513b	d5274a08bfb17901	4f53cda18c2baa0c
-freetext_no_appearance.pdf p1	drawn	612x792	5dff3922f8ab64ac	255c29f222ec54f6	4f654bf7e15c2ea9
+freetext_no_appearance.pdf p1	drawn	612x792	989296a6e6fbb654	7503f49000afde7a	4f53cda18c2baa0c
 freetexts.pdf p1	drawn	612x792	a1e079a0a9880214	964e1994fb00c9fd	4f53cda18c2baa0c
 french_diacritics.pdf p1	drawn	596x842	70a52acd2b6acf39	2697a000b83f670b	4f53cda18c2baa0c
 function_based_shading.pdf p1	drawn	612x792	f1a845423e819717	cefbe0c6806ea3e3	4f53cda18c2baa0c
@@ -445,7 +445,7 @@ issue12810.pdf p1	drawn	1728x2592	c55de63ee30f14da	27e72f29d27e126f	4f53cda18c2b
 issue12823.pdf p1	drawn	612x792	583d40ccb3a2af14	af7b96f5adf8e080	f934f76863df5d6d
 issue12841_reduced.pdf p1	drawn	612x792	2082f979a7ef6538	42de16f878ce8b37	4f53cda18c2baa0c
 issue1293r.pdf p1	drawn	200x50	0f9ba38f2e667066	112739d48d01786b	4f53cda18c2baa0c
-issue12963.pdf p1	drawn	596x842	7e0274a20eeceff5	c9ec0311f4e27ead	c293a21ab043b988
+issue12963.pdf p1	drawn	596x842	7e0274a20eeceff5	c9ec0311f4e27ead	4f53cda18c2baa0c
 issue13003.pdf p1	drawn	612x792	73c76052eb0ce182	c2b1837db6dee2e0	4f53cda18c2baa0c
 issue13107_reduced.pdf p1	drawn	318x102	7902b168cc9c4f26	54e954710c1fb583	4f53cda18c2baa0c
 issue13147.pdf p1	drawn	200x50	2789868aae792bd7	a553c58fd9522e4d	4f53cda18c2baa0c
@@ -610,7 +610,7 @@ issue19550.pdf p1	drawn	200x50	e2ce7238a89a97ff	ec564febf92da314	d98660c64697f68
 issue19633.pdf p1	drawn	252x161	e6b2f1e309ce537f	a060a27f8cb6ee2c	4f53cda18c2baa0c
 issue19634.pdf p1	drawn	100x100	da7119522c8dd19a	5568d9e42662c589	4f53cda18c2baa0c
 issue19695.pdf p1	drawn	200x50	e2ce7238a89a97ff	ec564febf92da314	d98660c64697f68b
-issue19800.pdf p1	drawn	500x300	37668fdc690cdf22	1dc24a5cf0ed92b6	e10ee134b00b444c
+issue19800.pdf p1	drawn	500x300	37668fdc690cdf22	1dc24a5cf0ed92b6	78a32cb33cbe2fad
 issue19802.pdf p1	drawn	1318x738	2bd7fcaf400011fc	0c695e5277632854	4f53cda18c2baa0c
 issue19848.pdf p1	drawn	596x842	c5dc59811b873075	d729d28bb64ce566	4f53cda18c2baa0c
 issue1985.pdf p1	drawn	20x21	5de02f43c96b049a	314ceeb59fbfcde9	4f53cda18c2baa0c
@@ -620,7 +620,7 @@ issue20065.pdf p1	drawn	612x792	3cd8d67b31a8a356	472868cec77fca6b	4f53cda18c2baa
 issue20102.pdf p1	drawn	612x792	94bc2f6febbac1e0	86c7b5fe2abbd7cd	4f53cda18c2baa0c
 issue2017r.pdf p1	drawn	400x140	2e7be831cd0ed482	216a02f2e71cafd5	4f53cda18c2baa0c
 issue20225.pdf p1	drawn	176x87	e980ead2e516a2ab	4e18acc9fcf029f2	4f53cda18c2baa0c
-issue20232.pdf p1	drawn	599x846	dbeded6a6ed57cd3	a2412e1cc6f74d62	a11204aecac640e4
+issue20232.pdf p1	drawn	599x846	dbeded6a6ed57cd3	a2412e1cc6f74d62	8b14cba8793a0392
 issue20319_1.pdf p1	drawn	612x792	d949976b14f526c2	521a9cb46db1754a	4f53cda18c2baa0c
 issue20319_2.pdf p1	drawn	200x200	0dd3156efce6493b	421e2c9574b6896d	4f53cda18c2baa0c
 issue20324.pdf p1	drawn	596x842	70b7fb4a9008492e	6fedcca01cf2331b	4f53cda18c2baa0c
@@ -896,7 +896,7 @@ non-embedded-NuptialScript.pdf p1	drawn	350x50	f6659f73c6b5accd	f81de11637a30004
 nonisolated_blend_smask.pdf p1	drawn	320x240	32642da9da837d45	bee3de627c12d82e	4f53cda18c2baa0c
 openoffice.pdf p1	drawn	200x50	19e318fdf574db06	4ada5ba337f6c6ca	4f53cda18c2baa0c
 operator-in-TJ-array.pdf p1	drawn	595x839	0dfe011a54f5942d	5f04cd1fa16a03d4	a83a0c8fd16ff954
-operator_list_cycle.pdf p1	drawn	596x842	462d6fdbd534229c	829d2948104827e2	6209b0f198d47258
+operator_list_cycle.pdf p1	drawn	596x842	462d6fdbd534229c	829d2948104827e2	a07301f4efff33c9
 opt_demo.pdf p1	drawn	540x360	fe6ee498c604854a	dee927d7c540e517	4f53cda18c2baa0c
 outline_goto_action.pdf p1	drawn	595x842	b748ad2f71a947b2	1b8b29f185e76642	4f53cda18c2baa0c
 outlines_for_editor.pdf p1	drawn	612x792	5dff3922f8ab64ac	255c29f222ec54f6	4f53cda18c2baa0c
@@ -932,7 +932,7 @@ print_protection.pdf p1	drawn	612x792	ad6610d9aba1d7f4	e2dff306273a092b	4f53cda1
 quadpoints.pdf p1	drawn	596x842	125e2671791994ec	51f0ec7d435e96bc	4f53cda18c2baa0c
 radial_gradients.pdf p1	drawn	595x842	df60861880f62564	e3793359d13dd8b4	4f53cda18c2baa0c
 rc_annotation.pdf p1	drawn	100x100	f37ce972078d289c	1a7c50edeae7cfb9	4f53cda18c2baa0c
-recursiveCompositGlyf.pdf p1	drawn	612x792	a08fc0266b11daa8	561b0d8bca12c74f	f4a3ef362df5b59a
+recursiveCompositGlyf.pdf p1	drawn	612x792	a08fc0266b11daa8	561b0d8bca12c74f	dbc2ced9ded2ea86
 red_stamp.pdf p1	drawn	304x316	0441d53d1db12de3	2c5ce564577722f2	4f53cda18c2baa0c
 resetform.pdf p1	drawn	612x792	c63cf7a6a9084455	80ff8ba094e20ac5	4f53cda18c2baa0c
 rotated.pdf p1	drawn	612x792	86f9a5cc5aa6934b	939a9e83188c5029	4f53cda18c2baa0c

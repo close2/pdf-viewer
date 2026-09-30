@@ -850,7 +850,7 @@ fn kept_where_it_is(plan: &ArchivePlan, id: &'static str, prepared: &Prepared) -
             Rewrite::ReferenceXObjectProxied,
             in_place::PROXIED,
         ),
-        transcode::SITE => (
+        _ if transcode::SITES.contains(&id) => (
             prepared.transcodes.as_ref().err().copied(),
             Rewrite::Jpeg2000TranscodedToFlate,
             transcode::TRANSCODED,

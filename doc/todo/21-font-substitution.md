@@ -53,7 +53,9 @@ that value's Arabic in isolated forms left-to-right even where it found every gl
 wrong-but-plausible page, worse than the refusal it would replace. What that document needs is a
 glyph source (no compiled-in face has one Arabic glyph — measured; Liberation Sans's `cmap` maps
 the whole Arabic range to glyph 0 and its `GSUB` has no `arab` script), Unicode's joining-form
-selection and right-to-left ordering, **together or not at all**; the cost of each is ADR 0348's.
+selection and right-to-left ordering, **together or not at all**; the cost of each is ADR 0348's,
+and ADRs 1413 and 1414 built all three, the face asked of the machine for the whole shaped value
+rather than per character.
 **They also depend in that order, which ADR 1247 wrote down when it asked which of the three
 actually refuses**: with no glyph source the value produces no codes at all, so ordering would have
 nothing to order and shaping nothing to shape — the face is the blocker, and a bidi implementation

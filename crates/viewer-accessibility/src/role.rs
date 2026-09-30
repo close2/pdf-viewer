@@ -167,6 +167,10 @@ pub struct Mapping {
 /// type that would otherwise become a role the platform filters out of the tree keeps its text by
 /// becoming a [`Role::Label`] instead. See this module's own documentation.
 ///
+/// `titled` is whether that name is Table 355's `/T` rather than the element's own text
+/// ([`viewer_core::AccessibilityNode::titled`]), which decides one thing too: a `Sect` with a title
+/// is a [`Role::Region`], a section a person can be taken to by name (ADR 1405).
+///
 /// `scope` is Table 384's axis for a `TH`, which
 /// [`viewer_core::AccessibilityNode::header_scope`] answers with and which decides between two
 /// roles the platform keeps apart. It is ignored for every other type, because the entry "shall
@@ -180,6 +184,7 @@ pub struct Mapping {
 pub fn map(
     role: &str,
     speaking: bool,
+    titled: bool,
     scope: Option<HeaderScope>,
     control: Option<&Control>,
 ) -> Mapping {
@@ -204,6 +209,12 @@ pub fn map(
         StandardType::Document | StandardType::DocumentFragment => (Role::Document, None),
         // Table 365, grouping level.
         StandardType::Part => (Role::Group, None),
+        // A titled `Sect` is ARIA's `region`, which AT-SPI carries as a landmark a person can be
+        // taken to by name: §14.8.4.4 makes a `Sect` a grouping "with consideration for their
+        // hierarchy", and its `/T` is the name that hierarchy is navigated by (ADR 1405). A `Div`
+        // stays a section whatever it states, because the same table makes it "orthogonal to the
+        // semantic structure".
+        StandardType::Section if titled => (Role::Region, None),
         StandardType::Section | StandardType::Division => (Role::Section, None),
         // "content that is distinct from other content within its parent structure element",
         // whose examples are callouts, sidebars and commentary — which is ARIA's `complementary`.
@@ -445,7 +456,7 @@ mod tests {
                 StandardType::read(name).is_some(),
                 "{name} is one of §14.8.4's own names"
             );
-            let mapping = map(name, false, None, None);
+            let mapping = map(name, false, false, None, None);
             assert_eq!(mapping.unmapped, None, "{name} is standard");
             assert_ne!(
                 mapping.role,
@@ -458,13 +469,13 @@ mod tests {
     /// §14.8.4.5's `Hn` carries its level, and `H` deliberately does not.
     #[test]
     fn a_numbered_heading_carries_its_level_and_an_unnumbered_one_does_not() {
-        assert_eq!(map("H1", true, None, None).level, Some(1));
-        assert_eq!(map("H6", true, None, None).level, Some(6));
+        assert_eq!(map("H1", true, false, None, None).level, Some(1));
+        assert_eq!(map("H6", true, false, None, None).level, Some(6));
         // "with n being a sequence of digits representing an unsigned integer greater than or
         // equal to 1" — so a level nobody enumerated is still a level.
-        assert_eq!(map("H17", true, None, None).level, Some(17));
-        assert_eq!(map("H", true, None, None).role, Role::Heading);
-        assert_eq!(map("H", true, None, None).level, None);
+        assert_eq!(map("H17", true, false, None, None).level, Some(17));
+        assert_eq!(map("H", true, false, None, None).role, Role::Heading);
+        assert_eq!(map("H", true, false, None, None).level, None);
     }
 
     /// A role the platform filters out never carries the element's text away with it.
@@ -473,19 +484,22 @@ mod tests {
         // `NonStruct` is the type whose clause asks to be ignored, and the mapping obeys that
         // where there is nothing to lose.
         assert_eq!(
-            map("NonStruct", false, None, None).role,
+            map("NonStruct", false, false, None, None).role,
             Role::GenericContainer
         );
-        assert_eq!(map("LBody", false, None, None).role, Role::GenericContainer);
+        assert_eq!(
+            map("LBody", false, false, None, None).role,
+            Role::GenericContainer
+        );
         // And keeps the node where there is.
-        assert_eq!(map("NonStruct", true, None, None).role, Role::Label);
-        assert_eq!(map("LBody", true, None, None).role, Role::Label);
+        assert_eq!(map("NonStruct", true, false, None, None).role, Role::Label);
+        assert_eq!(map("LBody", true, false, None, None).role, Role::Label);
     }
 
     /// §14.8.2.2's artifact keeps its filtered role and is never spoken.
     #[test]
     fn an_artifact_is_not_spoken_even_when_it_has_text() {
-        let Mapping { role, speaks, .. } = map("Artifact", true, None, None);
+        let Mapping { role, speaks, .. } = map("Artifact", true, false, None, None);
         assert_eq!(role, Role::GenericContainer);
         assert!(
             !speaks,
@@ -504,15 +518,18 @@ mod tests {
     fn a_control_changes_a_form_and_nothing_else() {
         let control = Control::CheckBox { on: true };
         assert_eq!(
-            map("Form", false, None, Some(&control)).role,
+            map("Form", false, false, None, Some(&control)).role,
             Role::CheckBox
         );
-        assert_eq!(map("Form", false, None, Some(&control)).toggled, Some(true));
+        assert_eq!(
+            map("Form", false, false, None, Some(&control)).toggled,
+            Some(true)
+        );
         for name in ["Annot", "P", "Figure", "Link"] {
-            let with = map(name, false, None, Some(&control));
+            let with = map(name, false, false, None, Some(&control));
             assert_eq!(
                 with.role,
-                map(name, false, None, None).role,
+                map(name, false, false, None, None).role,
                 "{name} is not §14.8.4.7.2's widget type"
             );
             assert_eq!(with.toggled, None, "{name}");
@@ -525,7 +542,7 @@ mod tests {
     /// arriving here is §14.8.4.1's requirement unmet by the document.
     #[test]
     fn a_type_outside_the_standard_set_is_carried_rather_than_dropped() {
-        let mapping = map("Advertising", true, None, None);
+        let mapping = map("Advertising", true, false, None, None);
         assert_eq!(mapping.role, Role::Group);
         assert_eq!(mapping.unmapped.as_deref(), Some("Advertising"));
     }

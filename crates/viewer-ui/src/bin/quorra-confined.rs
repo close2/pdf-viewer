@@ -1363,7 +1363,14 @@ impl ApplicationHandler for Host {
         {
             self.frame_landed(landed);
         }
+        // The password card's chrome may have drawn a box for a character whose machine face was
+        // still being searched for (ADR 1406); this window has no waker, so it looks on the same
+        // poll a drawing thread gets and draws the card again when the face is in.
+        if self.chrome.as_ref().is_some_and(Chrome::take_arrivals) {
+            self.redraw();
+        }
         let waiting = self.drawing.interval().is_some()
+            || self.chrome.as_ref().is_some_and(Chrome::searching)
             || matches!(
                 self.presentation.as_ref(),
                 Some(Presentation::Device(device)) if device.busy()

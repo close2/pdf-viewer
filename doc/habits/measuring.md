@@ -627,3 +627,13 @@ After the stroke constructions a stroke's segment cost 25 times a glyph's, so a 
 silently kept whole pages on the walk's thread; the per-job probe on one pinned core gave the weight
 (ADR 1395). And the scaffolding an older ADR built to make a construction exact is measured as its own
 "off" arm — ADR 1375's tiling was the largest cost left in raster's fill (ADR 1397).
+
+## 55. A drain, a lever and a lane are each judged with the others switched off
+
+Two causes of a forced drain were one wall: the rectangle lever alone and the repeated-key lever
+alone each moved nothing, and only both together took the text page's turn from 9.9 to 6.8 ms — a
+`#[track_caller]` print on `drain_queue` and `charge` names each drain's site (ADR 1409). And before
+"lane A differs from lane B" is accepted as a cause, switch each lane off in turn at one thread: that
+turned "the hybrid differs" into "the quantised phase differs" (ADR 1407). A font-catalogue walk is
+measured cold by evicting `/usr/share/fonts` with `posix_fadvise(POSIX_FADV_DONTNEED)` first — about a
+second against a tenth warm on this machine (ADR 1406).

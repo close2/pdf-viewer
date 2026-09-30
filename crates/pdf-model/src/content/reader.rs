@@ -157,6 +157,8 @@ pub struct NestedContent {
     detail: String,
     /// Where the bytes come from.
     source: Nested,
+    /// Which stream object this is, where it is one: see [`Self::identity`].
+    identity: Option<usize>,
 }
 
 /// The three shapes of [`NestedContent`]. See there.
@@ -223,7 +225,11 @@ impl NestedContent {
             },
             StreamSource::Refused { limit } => Nested::Refused { limit },
         };
-        Ok(Self { detail, source })
+        Ok(Self {
+            detail,
+            source,
+            identity: Some(Arc::as_ptr(&stream.data).cast::<u8>().addr()),
+        })
     }
 
     /// Bytes held whole, with no single stream object behind them to decode or to be damaged.
@@ -238,7 +244,22 @@ impl NestedContent {
         Self {
             detail,
             source: Nested::Whole { data, damage: None },
+            identity: None,
         }
+    }
+
+    /// Which stream object these bytes are, as the address of the encoded bytes the document
+    /// holds for it, or `None` for bytes this program assembled.
+    ///
+    /// [`Document::get`] loads an object once and hands out clones of what it cached, so every
+    /// route that reaches one stream object shares one allocation of its data, and two stream
+    /// objects never share one. That makes the address an identity for the lifetime of the
+    /// document without a reference being threaded through the five callers, each of which
+    /// reached its stream by a different path. Only the interpreter's nesting bound asks it,
+    /// and only for its sentence (ADR 1411).
+    #[must_use]
+    pub fn identity(&self) -> Option<usize> {
+        self.identity
     }
 
     /// Whether the bytes are inflated through a window rather than held whole.

@@ -366,6 +366,11 @@ both named for the binary, one carrying the toolkit's widgets and one carrying �
   the element, else the field's §14.9.3 name (`/TU`, else §12.7.4.2's); `/Alt` stays a
   substitution ahead of both. All 272 corpus `Form` elements crossed with an empty name before it,
   and the census holds that class at zero.
+- **Any element with no text of its own is named by its `/T`** (ADR 1405), which Table 355 states
+  for every structure element, and a titled `Sect` is published as a region — AT-SPI's landmark,
+  which a screen reader can move to by name; a `Div` or a `Part` keeps its role and carries the
+  title as its name. The census counts the elements named this way (20 in the corpus: `Part`,
+  `TOCI`, `TOC`, `Formula`; no titled `Sect` without text, so the region rests on a fixture).
 - **macOS and Windows have no bridge**, and `Bridge::shortfall` says so in the program's first
   lines rather than exposing nothing quietly — in all three windows since the
   seven-hundred-and-thirty-first, because the sentence is the crate's rather than a host's. AccessKit has adapters for both; nothing in this

@@ -738,7 +738,7 @@ pub struct Preservation {
     ///
     /// `false` for the `preserve`s whose mechanism is neither a page nor an attachment: ISO
     /// 19005-2 section 6.6.2.3.2's container keeps the properties *where they are*, by describing
-    /// the schema they use, and [`PRESERVABLE_IN_PLACE`]'s two keep the object on its page.
+    /// the schema they use, and [`PRESERVABLE_IN_PLACE`]'s sites keep the object on its page.
     /// [`super::preserve`] never hears about such a row.
     pub by_page: bool,
     /// Whether the content is kept as a file embedded in the document.
@@ -840,16 +840,20 @@ const PRESERVABLE_XFA: [&str; 1] = ["forms/no-xfa-key"];
 ///   available", and an archive is that case (`doc/adr/1285`).
 /// - ISO 19005-2 section 6.2.8.3 and ISO 19005-4 section 6.2.7.3's JPX baseline: an image that
 ///   states its own colour space keeps its samples in that space under `FlateDecode`, which no
-///   sentence about JPEG 2000 data binds (`doc/adr/1400`).
-const PRESERVABLE_IN_PLACE: [&str; 3] = [
+///   sentence about JPEG 2000 data binds (`doc/adr/1400`) — and the same subclauses' channel
+///   count, bit depth and `CIEJab` rows, whose subject is JPEG 2000 data too (`doc/adr/1412`).
+const PRESERVABLE_IN_PLACE: [&str; 6] = [
     "annotations/printable-and-visible",
     "graphics/no-reference-xobjects",
     "graphics/jpeg2000-uses-the-baseline-feature-set",
+    "graphics/jpeg2000-bit-depth",
+    "graphics/jpeg2000-channel-count",
+    "graphics/jpeg2000-no-ciejab-colour-space",
 ];
 
 /// What a `preserve` that moves nothing does at one site, where it is built there.
 ///
-/// [`PRESERVABLE_IN_PLACE`]'s two, and [`EMBEDDABLE_CMAP`], where what is kept is the mapping a
+/// [`PRESERVABLE_IN_PLACE`]'s sites, and [`EMBEDDABLE_CMAP`], where what is kept is the mapping a
 /// name already meant and nothing leaves the page it was on.
 ///
 /// The sentence `--remedy-sites` prints beside the site, so an operator reads what the word
@@ -877,6 +881,17 @@ fn in_place_preservation(requirement: &str) -> Option<&'static str> {
              this program's decoder's output becomes the archive's copy of the picture. An image \
              whose colour comes from its data keeps the refusal, and the report names each image \
              with its size before and after (doc/adr/1400)",
+        ),
+        "graphics/jpeg2000-bit-depth"
+        | "graphics/jpeg2000-channel-count"
+        | "graphics/jpeg2000-no-ciejab-colour-space" => Some(
+            "preserve — the JPX baseline site's transcode: a JPEG 2000 image this rule names \
+             whose dictionary states its own ColorSpace is decoded to its samples and written \
+             again under FlateDecode in that space, and this rule's subject is JPEG 2000 data, \
+             which the copy is not; an opacity channel becomes the soft-mask image Table 87 \
+             names. The file grows and this program's decoder's output becomes the archive's \
+             copy of the picture; an image whose colour comes from its data, or with a component \
+             deeper than sixteen bits, keeps the refusal (doc/adr/1400, doc/adr/1412)",
         ),
         "graphics/no-reference-xobjects" => Some(
             "preserve — the form XObject stays and its Ref entry goes, so every reader draws the \

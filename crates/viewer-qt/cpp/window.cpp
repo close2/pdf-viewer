@@ -5,12 +5,14 @@
 #include "window.h"
 
 #include <chrono>
+#include <cstdio>
 #include <cstdint>
 #include <vector>
 
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
+#include <QByteArray>
 #include <QCheckBox>
 #include <QClipboard>
 #include <QComboBox>
@@ -937,6 +939,18 @@ MainWindow::MainWindow(rust::Box<Host> host)
         applyUpdates();
     });
 
+    // The look for a machine face a tab's label waits on (ADR 1406). Created stopped, exactly as the
+    // three above are: `faces_wait` answers `-1` until a label holds a character the compiled-in
+    // face lacks, so a window whose labels it covers never arms this at all.
+    faces_ = new QTimer(this);
+    connect(faces_, &QTimer::timeout, this, [this] {
+        if (busy_) {
+            return;
+        }
+        Busy guard(busy_);
+        pumpFaces();
+    });
+
     // One tab per `viewer_host::Tab`, in that list's own order and with that list's own wording.
     // The words are asked for across the bridge rather than written here for `notices`' reason —
     // three hosts naming one panel three ways is three claims about one clause — and the loop ends
@@ -1357,6 +1371,49 @@ void MainWindow::pumpDrawing()
     }
 }
 
+// The machine's faces for the strip's labels, registered by file (ADR 1406).
+//
+// Registering the file is what mends the strip: Qt's own fallback then finds a face under the
+// family that states the characters. The strip's font names that family too, after the platform's
+// own, so that the answer does not rest on the order Qt happens to try families in.
+void MainWindow::pumpFaces()
+{
+    bool registered = false;
+    for (rust::Vec<std::uint8_t> bytes = host_->take_face(); !bytes.empty();
+         bytes = host_->take_face()) {
+        const int id = QFontDatabase::addApplicationFontFromData(
+            QByteArray(reinterpret_cast<const char*>(bytes.data()), static_cast<qsizetype>(bytes.size())));
+        if (id < 0) {
+            // A file Qt will not read is one this strip cannot be set in; the label keeps whatever
+            // the platform draws for it, and the reason is said once.
+            std::fprintf(stderr, "note: Qt could not register a machine face for a tab's label\n");
+            continue;
+        }
+        for (const QString& family : QFontDatabase::applicationFontFamilies(id)) {
+            if (!fallbackFamilies_.contains(family)) {
+                fallbackFamilies_.append(family);
+                registered = true;
+            }
+        }
+    }
+    if (registered) {
+        QFont font = QApplication::font(documents_->tabBar());
+        QStringList families{font.family()};
+        families.append(fallbackFamilies_);
+        font.setFamilies(families);
+        documents_->tabBar()->setFont(font);
+    }
+    const int wait = host_->faces_wait();
+    if (wait < 0) {
+        faces_->stop();
+        return;
+    }
+    if (!faces_->isActive() || faces_->interval() != wait) {
+        faces_->setInterval(wait);
+        faces_->start();
+    }
+}
+
 // Where this window is on the screen, which is what AT-SPI adds to a node's own rectangle.
 //
 // **The one thing `viewer-gtk` cannot answer.** A node's extents cross this boundary in the
@@ -1683,6 +1740,7 @@ void MainWindow::syncDocuments()
         documents_->setTabText(index, text(labels[static_cast<std::size_t>(index)]));
     }
     documents_->setCurrentIndex(focused);
+    pumpFaces();
     // Table 29's FullScreen shows "no menu bar, window controls, or any other window visible",
     // and a tab bar holding the keyboard would turn the arrows that turn a presented page into a
     // change of document (ADR 1303).

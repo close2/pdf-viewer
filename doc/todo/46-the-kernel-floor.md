@@ -13,7 +13,7 @@ chain and its WGSL); the CPU mirror it is held to is `render-lib`'s port of
 `pdf-render`'s `fill.rs` arithmetic.
 Instrument: the compute lane's own pass timestamps (quorra's `ComputeQueries`), read off
 any traced run — `ZOOM_FRAME_COVERAGE=compute` on `examples/zoom_frame` (ADR 0767's
-knob); and since session 843 `PDFVIEWER_QUORRA_COVERAGE=compute` points the corpus gate
+knob); and `PDFVIEWER_RASTER_COVERAGE=compute` points the corpus gate
 at this lane.
 
 ## Where the time is
@@ -22,6 +22,10 @@ Re-measured in session 843 (ADR 0770), consistent with rounds 840 and earlier: a
 Entwurf moved-view step is 62–67 ms on the 890M — kernels 42–47 (count 12.5–19.9,
 emit ~16.5, deposit ~13.5, the emit/deposit split taken by rescoping the coverage query
 for one sitting), host encode 9–10 record-replayed, residency+records ~4, transfer ~5.
+
+**A page of strokes is the other shape, and its step was the host's.** The kernels fill outlines;
+every stroke on that lane was expanded and rasterised on the walk's thread until ADR 1409 gave
+those marks the fan-out, as on the page-turn lane. The floor this file prices is the fill page's.
 
 ## What was tried and declined, so nobody re-buys it
 

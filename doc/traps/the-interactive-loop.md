@@ -206,3 +206,13 @@ Qt's own focus chain took every Tab, so §12.5.1's walk over the document's `/Ta
 the Rust side at all, and no test could see it; GTK's move-focus did the same for its own controls
 (ADR 1357). The page now declines the toolkit's focus chain and an event filter hands Tab to the
 shared key table. After any focus or controls change, drive Tab under Xvfb in every window.
+
+### 70. The launch gate measures launch minus the window, so a chrome cost is invisible to it
+
+ADR 1382's fallback walked the machine's font catalogue on the drawing thread for a label the
+built-in faces could not draw; `launch_path` showed nothing because the path it measures holds no
+chrome, and a single-document launch does not draw a tab strip. A document that opens on its
+outline panel with a Chinese item put first present at about a second cold against a hundred
+milliseconds (ADR 1406). After any change to the chrome's text path, take time-to-first-page with
+`--trace=frames,launch` under Xvfb on a document whose first frame's chrome holds the characters
+in question, with the font files evicted from the page cache first.

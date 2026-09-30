@@ -1,25 +1,19 @@
 # §12.7.4.3's remaining edges
 
-Status: **one document, which is `doc/todo/21`'s.** Table 231's `DoNotScroll` closed in the
-three-hundred-and-thirty-eighth session (ADR 0197), the baseline's guard and the list box's cost
-both closed in the four-hundred-and-third (ADR 0240), **the composite `/DA` font closed in the
-five-hundred-and-second** (ADR 0337), **the list box itself drew in the
-five-hundred-and-seventy-first** (ADR 0407), reversing what this file had concluded about it, and
-**§7.3.5's font name closed in the six-hundred-and-seventeenth** (ADR 0453), and **the rich text
-`CLAUDE.md` was read as excluding turned out not to be excluded** (ADR 1197), and **the `/DA` text
-matrix is now laid out for every linear part that has an inverse** (ADR 1247), **and one with no
-inverse is the clause carried out** — the translation is the processor's to choose, the producer's
-matrix is written in front of the value and draws no area, and the report says why the field is
-blank (`Owed::SingularTextMatrix`). The row is `departed` for rich text formatting alone, which
-§12.7.4.3 hands to XFA 3.3 (ADRs 1122, 1197). What is left is one
-refusal that belongs to another item, and the reasoning behind seven closed ones.
+Status: **done — nothing is owed.** The last document, `freetext_no_appearance.pdf`, draws since
+ADRs 1413 and 1414. The file stays whole because comments under `crates/`
+(`examples/variable_text_census.rs`, `view.rs`, `tests/saving.rs`, `tests/corpus.rs`) and
+`doc/todo/65` cite it, and what it keeps is the reasoning behind the closed items, which is the
+reason a later round will not reopen any of them. The row is `departed` for rich text formatting
+alone, which §12.7.4.3 hands to XFA 3.3 (ADRs 1122, 1197); a `/DA` text matrix with no inverse is
+the clause carried out, and the report says why the field is blank (`Owed::SingularTextMatrix`).
 Priority: 22
-Corpus: 1 document
+Corpus: 0 documents
 Clauses: §12.7.4.3, §12.7.5.3, §12.7.5.4, §9.6.5.2, §9.7.6.2
-Code: `crates/pdf-model/src/variable_text.rs`, `crates/pdf-model/src/view.rs`
+Code: `crates/pdf-model/src/variable_text.rs`, `crates/pdf-model/src/view.rs`, `crates/pdf-font/src/shaping/`
 Census: `crates/pdf-model/examples/variable_text_census.rs`
 
-## A `/DA` font `/DR` does not define — **1 document, from 7**
+## ~~A `/DA` font `/DR` does not define~~ — **the last of seven drawn** (ADRs 1413, 1414)
 
 A malformed file rather than a clause gap: §12.7.4.3 requires the name to match a `/DR` entry.
 Since ADR 0112 the value is laid out in a stand-in **where the stand-in can draw all of it**, and
@@ -27,42 +21,31 @@ the missing font is named. The rule is asymmetric on purpose: a Latin stand-in d
 of Arabic's punctuation and nothing else is worse than a blank, and the first version of that ADR
 drew six dots on an otherwise empty page.
 
-**Five of the seven named one of §9.6.2.2's fourteen and nobody had noticed** — the
-two-hundred-and-fifty-eighth session. `/Helv`, `/HeBo`, `/TiRo`, `/ZaDb` and their ten siblings
-are the four-letter abbreviations of the standard 14 and there is no fifteenth, so the table is a
-*bijection* with the clause's own list rather than a habit read off a corpus. A `/DA` naming one
-therefore names a font this binary carries, and the value is drawn in the face the name means: a
-documented choice about a malformed file, and one that buys ADR 0133's own argument — those pages
-reproduce where no fonts are installed.
+**Five of the seven named one of §9.6.2.2's fourteen and nobody had noticed.** `/Helv`, `/HeBo`,
+`/TiRo`, `/ZaDb` and their ten siblings are the four-letter abbreviations of the standard 14 and
+there is no fifteenth, so the table is a *bijection* with the clause's own list rather than a habit
+read off a corpus. A `/DA` naming one names a font this binary carries, and the value is drawn in
+the face the name means: a documented choice about a malformed file, and one that buys ADR 0133's
+own argument — those pages reproduce where no fonts are installed.
 
-Still owed, and it is one file — **and it is the only thing this item still owes**:
+**`freetext_no_appearance.pdf` (`/Helv`, a paragraph of Arabic) needed three things together**, and
+the order they depend in is the lesson: a glyph source first, because with no face the value
+produced no codes and neither ordering nor shaping had anything to act on (ADR 1247 settled which
+of the three declined), then joining, then order. ADR 0348 read and priced them; ADR 1414 took the
+glyph source from the machine — a face covering every character the *shaped* value displays, asked
+after both routes into the compiled-in fourteen, so what those draw is unchanged everywhere — and
+the joining from the UCD's own tables as presentation-form code points; ADR 1413 took the order
+from `unicode-bidi`, measured against every line of `BidiCharacterTest.txt`. **The `/Differences`
+route stayed shut and it was right to**: 36 distinct missing characters against 31 free codes, and
+no Adobe Glyph List name for any Arabic character. Where a machine offers no covering face the value
+is still not drawn at all rather than in part, and a test that needs one skips saying so (ADR 1154).
 
-- `freetext_no_appearance.pdf` (`/Helv`, a paragraph of Arabic) declines, and the refusal is now
-  read, costed and pinned (ADR 0348, session 513). **The `/Differences` route is shut
-  machine-independently** — measured, where this file used to guess at the mechanism: the value
-  has 36 distinct missing characters against the invented array's 31 free codes, and the Adobe
-  Glyph List `read-fonts` carries has *no name at all* for an Arabic character (zero `afii`
-  entries), so `named_glyphs_reach_more` can reach no face on any machine. **And it is more than
-  `doc/todo/21`'s per-character fallback**, which is the correction this entry needed: a chain of
-  faces asked per character would draw isolated forms left-to-right even where it found every
-  glyph — the wrong-but-plausible page, worse than the blank. Drawing this value takes an Arabic
-  glyph source this binary does not have (no compiled-in face has one Arabic glyph — measured,
-  against the standing assumption that Liberation Sans carries them), joining-form selection and
-  right-to-left ordering, together or not at all; ADR 0348 has the cost of each and the order
-  they depend in. `pdftoppm` draws this witness as its full stops scattered on an empty page,
-  which is ADR 0112's rejected construction, looked at.
-  `tests/variable_text.rs::the_arabic_free_text_declines_whole_and_names_both_halves` pins the
-  blank and the report. **Which of the three declines it is settled** (ADR 1247): the **face** does,
-  and the other two are downstream of it — `encode` produces no codes at all for that value, so
-  UAX #9's run ordering would have nothing to order and shaping nothing to shape. The order of
-  dependence is face, then shaping, then ordering, and nothing above the first can be tested until
-  the first exists. Until a round takes ADR 0348's list whole, this file is kept for the
-  closed arguments below, which are the reason a later round will not reopen any of them.
-- **And a *save* that meets this refusal now names the field.** A widget whose value this layout
-  could not set in full is what Table 224's `/NeedAppearances` goes into the written file for, and
-  the entry is a boolean: `view::Written::unconstructed` carries §12.7.4.2's qualified name beside
-  it and `viewer_core`'s save reports each one, so the population is visible from the write path as
-  well as from the page (ADR 1159).
+- **A save does not write a machine face.** The font around it holds the program as a stream
+  inside a dictionary, which §7.3.8.1 does not admit, and would carry this machine's font into
+  the document; so the widget goes out with Table 224's `/NeedAppearances` and
+  `view::Written::unconstructed` names it (ADR 1159's route), and the archive's writer refuses it.
+  Writing one — an indirect, subset program, with the face's embedding permission read — is not
+  built, and ADR 1414 names it.
 
 ## ~~A `/DA` font name that is not text, and the escaping that goes with it~~ — **done in the six-hundred-and-seventeenth session**
 

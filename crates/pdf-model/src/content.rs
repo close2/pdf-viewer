@@ -173,7 +173,12 @@ const MAX_OPERANDS: usize = 8192;
 /// always infinite: what a form invokes depends on the state it inherits — the font in force, a
 /// fill that is a pattern whose cell draws the same form in a flat colour — so a re-entry refused
 /// by name would refuse finite files, and a report firing on it would fire on a condition no clause
-/// states. ADR 0793.
+/// states. ADR 0793. **Identity names; it does not refuse**: once the bound is reached, a stream
+/// already on [`Interpreter::chain`] makes the report `Unsupported::NestingCycle`, naming the
+/// stream re-entered — a chain no value of this bound would finish — and a chain of distinct
+/// streams keeps `LimitReached`, the one a larger value would. `examples/nesting_census` counts the
+/// two over a population, and that census is what says the value cuts no finite chain the
+/// population holds (ADR 1411).
 ///
 /// **The check is in `run` rather than at each call site** because a bound asked per call site
 /// misses a route: a tiling cell run at a fixed depth of one below the bound lets a pattern
@@ -1521,6 +1526,7 @@ impl<'a> Interpreter<'a> {
             glyph_depth: 0,
             soft_mask_depth: 0,
             nesting: 0,
+            chain: Vec::new(),
             uncoloured: false,
             enclosing_knockout: None,
             // §8.4.1 Table 51 gives the alpha source parameter an initial value of `false`,
@@ -1601,6 +1607,8 @@ impl<'a> Interpreter<'a> {
             stream_structures: _,
             clip_extents: _,
             into_parent: _,
+            // Empty at every seam a checkpoint is taken at, because nothing nested is running.
+            chain: _,
             // Accumulated: the tail of every one of these is what the annotation pass appends.
             list,
             unsupported,
@@ -2141,6 +2149,12 @@ fn complete(
         if coverage.drawn > 0 || coverage.empty == 0 || coverage.lost == coverage.empty {
             continue;
         }
+        // A program with no outline anywhere draws nothing for any code by §9.7.6.3's own route
+        // — the codes it lacks are given CID 0, and CID 0 is empty too — so the page is what the
+        // file states and there is nothing to report. ADR 1411; `LoadedFont::holds_no_outline`.
+        if coverage.uncovered == 0 && coverage.outline_free == Some(true) {
+            continue;
+        }
         let detail = if coverage.uncovered > 0 {
             format!(
                 "font /{name} is substituted and the face this machine offers draws none of \
@@ -2148,9 +2162,23 @@ fn complete(
                 coverage.empty
             )
         } else {
+            // Why, where the file says why: a composite glyph that includes itself is no
+            // outline under Table 124's TrueType Reference Manual, and a descriptor setting both
+            // of Table 121's Symbolic and Nonsymbolic flags is what §9.8.2 forbids. ADR 1411.
+            let cause = match (coverage.cycle, coverage.both_flags) {
+                (Some(glyph), _) => format!(
+                    "; its glyph {glyph} is a composite glyph whose components include itself, \
+                     which describes no outline (Table 124)"
+                ),
+                (None, true) => "; its descriptor sets both the Symbolic and the Nonsymbolic \
+                                 flag, which §9.8.2 says shall not both be set, and read as \
+                                 Symbolic its /Encoding is ignored"
+                    .to_owned(),
+                (None, false) => String::new(),
+            };
             format!(
                 "font /{name}'s program has no outline for any of the {} code(s) the page \
-                 shows through it, so the text it states is not drawn",
+                 shows through it, so the text it states is not drawn{cause}",
                 coverage.empty
             )
         };
@@ -2828,6 +2856,14 @@ struct Interpreter<'a> {
     /// the run at [`MAX_FORM_DEPTH`] — one counter for every kind, because the thing it
     /// bounds is one stack.
     nesting: usize,
+    /// Which stream each of those [`Self::nesting`] runs is, outermost first, where it has one.
+    ///
+    /// Read only when the bound is reached, to say whether the stream refused there is already
+    /// running further out — a chain that re-enters itself, which no value of the bound would
+    /// finish — or a chain of distinct streams that a larger bound would. The refusal is the
+    /// bound's either way (ADR 0793 declines refusing a re-entry by name); what this changes is
+    /// the sentence (ADR 1411).
+    chain: Vec<Option<usize>>,
     /// Whether the content being run is a figure whose colour is supplied from outside it.
     ///
     /// ISO 32000-2 §8.6.8 names two such circumstances and gives them one rule: "in any glyph

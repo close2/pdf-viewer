@@ -8551,15 +8551,33 @@ const AMBIGUOUS_STACKED_SCREEN_UNDER_MASKS: [&str; 0] = [];
 /// page 5     10.9246      10.6455      10.6461    0.0006     10.6006     -0.045
 /// ```
 ///
-/// **Two independent programs agreeing about a geometry to 0.0004 of 255 is the tightest limit
-/// this bucket has measured**, four figures better than page 7's thousandth, and it is measured
-/// four times over on one document. At the page's own scale `poppler` is 0.28 to 0.35 *over* its
+/// **Two independent programs agreeing about a geometry to 0.0004 of 255**, four figures better
+/// than page 7's thousandth, is measured four times over on one document, and page 1 below
+/// tightens it by another order. At the page's own scale `poppler` is 0.28 to 0.35 *over* its
 /// own limit and ours is 0.04 to 0.05 under it (re-taken after ADR 1082) — a form of five-point type and comb cells is
 /// thin marks all the way down, which is this group's standing subject.
 ///
 /// The verdict is `ambiguous` rather than agreeing because `ghostscript` draws the same form a
 /// fifth of a level lighter still and its comb cells come out dotted; the picture is five
 /// renderings of one page that a person would call identical.
+///
+/// # And page 1, which joined when its OCR font stopped being reported
+///
+/// Page 1 is the same form's cover sheet, and it reached this gate only when ADR 1411 took the
+/// document off the corpus's incomplete list: its invisible OCR layer is shown in mode 0 through
+/// `HiddenHorzOCR`, a CID-keyed CFF holding CID 0 alone with an empty charstring, so §9.7.6.3's own
+/// route — "the glyph for CID 0 (which shall be present) shall be substituted" — draws nothing.
+/// **No reference draws a mark for it either**: `mupdf` logs "cannot render glyph" for every code,
+/// and the four-panel strip shows the same form with no text over it in all five renderings.
+///
+/// ```text
+///          poppler 576   mupdf 576    apart      ours 1x   ours 8x   ours 1x - limit
+/// page 1      7.79100      7.79103   0.00003     7.768     7.7882       -0.023
+/// ```
+///
+/// At the page's own scale `poppler` is 8.115, `ghostscript` 8.026, `hayro` 8.024 and `mupdf`
+/// 7.804, every one over the limit its own ladder descends onto, and ours is 0.023 under it —
+/// thin marks all the way down, which is this group's subject, measured on one more page.
 ///
 /// # What ADR 0735 has to do with `issue12295.pdf`, which is nothing
 ///
@@ -8589,7 +8607,8 @@ const AMBIGUOUS_STACKED_SCREEN_UNDER_MASKS: [&str; 0] = [];
 /// its own geometry — so every reference paints more than the geometry and ours paints the
 /// geometry. The page is `ambiguous`, because the four references still floor a
 /// sub-pixel stroke at four device-pixel widths no two of which agree.
-const AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY: [&str; 8] = [
+const AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY: [&str; 9] = [
+    "issue12963.pdf page 1",
     "issue12963.pdf page 2",
     "issue12963.pdf page 3",
     "issue12963.pdf page 4",

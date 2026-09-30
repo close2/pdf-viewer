@@ -17,6 +17,7 @@ use crate::atlas::{AtlasEntry, CacheProspect, GlyphKey, GlyphPlacement};
 use crate::error::RenderError;
 use crate::startup::Coverage;
 
+use super::super::fill::SolidFill;
 use super::super::instance::CoverageSource;
 use super::super::{Encoder, ResolvedClip};
 use super::{Draw, Job, Place, Rasterised, fan_out, rasterise, rasterise_all};
@@ -46,14 +47,47 @@ impl<'a> Encoder<'a> {
             self.drain_queue()?;
         }
         // The room probe (ADR 0093) is asked only where a refused tile has somewhere
-        // better to go — the hybrid's device flattening. Jobs still queued for *other*
-        // keys have not consumed their room yet, so the probe can admit a tile a
-        // pending insert will beat to the shelf; that tile falls through at commit
-        // exactly as every over-admitted tile always has, and only misses the reroute.
+        // better to go — the hybrid's device flattening. **Its answer picks the lane, and
+        // the lanes are not the same picture**: an admitted tile is rasterised at the
+        // quantised phase (ADR 0009), a refused one at its own transform, and on
+        // `issue1905.pdf` the two are 10 levels apart. So it is answered from the atlas a
+        // one-threaded walk reads, every insert before it committed: where a queued insert
+        // could still change the answer, the queue is drained first, and where none could
+        // it is asked at once (ADR 1407).
         let probe_room = self.compute_assist && self.coverage == Coverage::Cpu;
+        if self.probe_unsettled(&placement.key, width, height) {
+            self.drain_queue()?;
+        }
         Ok(self
             .atlas
             .prospect(placement, width, height, placed_once, probe_room))
+    }
+
+    /// Whether the room probe's answer for this placement could still be changed by an
+    /// atlas insert the queue holds ([`AtlasStore::probe_settled`](crate::atlas::AtlasStore::probe_settled)):
+    /// never where the probe is not asked, nor where nothing is queued to insert (ADR 1407).
+    ///
+    /// **Drained for rather than carried to the commit.** A fill carried there and walked
+    /// again (`Job::follows`) was measured: the carried fills add no weight, so the queue
+    /// they sit in drains no sooner and every fill behind them stays unsettled — 123 536 on
+    /// the corpus at 1× against 551 drains, and `issue12295.pdf` 22× slower. Draining costs
+    /// the pages whose atlas is near full 10% over twelve of them (ADR 1407).
+    fn probe_unsettled(&self, key: &GlyphKey, width: u32, height: u32) -> bool {
+        self.compute_assist
+            && self.coverage == Coverage::Cpu
+            && !self.queued_inserts.is_empty()
+            && !self
+                .atlas
+                .probe_settled(key, width, height, &self.queued_inserts)
+    }
+
+    /// Records a queued atlas insert of a tile the hull's box calls `width × height`: at its
+    /// quantised phase the tile is at most one pixel wider and one taller (ADR 1407).
+    pub(in crate::encode) fn note_atlas_insert(&mut self, width: u32, height: u32) {
+        if self.threads > 1 {
+            self.queued_inserts
+                .add(width.saturating_add(1), height.saturating_add(1));
+        }
     }
 
     /// The largest coverage tile a mark with these bounds can make: the same arithmetic
@@ -80,7 +114,10 @@ impl<'a> Encoder<'a> {
     /// One condition: **[`Coverage::Gpu`]** asks [`Encoder::take_gpu_lane`] a second
     /// question about the *flattened* triangle count, so a job that skipped the flattening
     /// would be choosing its lane on one reading and drawing on another — the hazard ADR
-    /// 0029 names.
+    /// 0029 names. [`Coverage::Compute`] asks it too and is answered no on sight
+    /// ([`Encoder::gpu_lane_admissible`]), so a stroke or a fill the compute kernels do not
+    /// take is rasterised by the processor on that lane as on this one, and leaves the
+    /// thread the same way: a zoom step's strokes are the fan-out's (ADR 1409).
     ///
     /// **A residue clip leaves the thread too** (ADR 1395). Its product is read out of a
     /// cache the walk decides about in encounter order (`super::super::residue`), so the
@@ -96,7 +133,7 @@ impl<'a> Encoder<'a> {
     /// `max(x0, max(clip, 0))` for every input, which is what makes this the same bound
     /// [`Encoder::coverage_tile`] computes in place.
     pub(in crate::encode) fn deferrable_bounds(&self, resolved: &ResolvedClip) -> Option<[f32; 4]> {
-        (self.coverage == Coverage::Cpu).then(|| {
+        (self.coverage != Coverage::Gpu).then(|| {
             if resolved.residues.is_some() {
                 self.folded(resolved.mark_bounds())
             } else {
@@ -162,37 +199,115 @@ impl<'a> Encoder<'a> {
     /// Rasterise everything queued and commit it, in encounter order.
     ///
     /// The queue is emptied **before** the commit runs, so the commit reaches the same
-    /// ordinary methods the walk does and finds nothing to drain.
+    /// ordinary methods the walk does and finds nothing to drain. A repeat whose key the
+    /// atlas still lacks at its commit is walked again there and may queue a job of its
+    /// own (ADR 1409); the next commit drains it before placing anything, and the loop
+    /// drains what the last one left, so the queue is empty when this returns.
     pub(in crate::encode) fn drain_queue(&mut self) -> Result<(), RenderError> {
-        if self.queue.is_empty() {
-            return Ok(());
-        }
-        let jobs = std::mem::take(&mut self.queue);
-        self.queued_keys.clear();
-        self.queued_bytes = 0;
-        let weight = std::mem::take(&mut self.queued_weight);
-        let threads = fan_out(weight, self.threads);
-        // The fan-out's own wall clock is this frame's geometry, whoever ran it: the
-        // instrument's subject is what the frame spent, not what one thread did
-        // (ADR 0023).
-        let span = if weight > 0 { self.clock.start() } else { None };
-        let masks = rasterise_all(&jobs, threads);
-        self.clock.geometry(span);
-        for (job, mask) in jobs.iter().zip(masks) {
-            self.commit(job, mask)?;
+        while !self.queue.is_empty() {
+            let jobs = std::mem::take(&mut self.queue);
+            self.queued_keys.clear();
+            self.queued_inserts.clear();
+            self.queued_bytes = 0;
+            let weight = std::mem::take(&mut self.queued_weight);
+            let threads = fan_out(weight, self.threads);
+            // The fan-out's own wall clock is this frame's geometry, whoever ran it: the
+            // instrument's subject is what the frame spent, not what one thread did
+            // (ADR 0023).
+            let span = if weight > 0 { self.clock.start() } else { None };
+            let masks = rasterise_all(&jobs, threads);
+            self.clock.geometry(span);
+            for (job, mask) in jobs.iter().zip(masks) {
+                self.commit(job, mask)?;
+            }
         }
         Ok(())
     }
 
     /// Place one rasterised job: the third phase, in encounter order.
     fn commit(&mut self, job: &Job<'a>, mask: Rasterised) -> Result<(), RenderError> {
-        match job.place {
+        match &job.place {
             Place::Resident { key, origin, entry } => {
-                self.commit_glyph(key, origin, Some(entry), None, &job.draw)
+                self.commit_glyph(*key, *origin, Some(*entry), None, &job.draw)
             }
-            Place::Atlas { key, origin } => self.commit_glyph(key, origin, None, mask, &job.draw),
+            Place::Atlas { key, origin } => self.commit_glyph(*key, *origin, None, mask, &job.draw),
+            Place::Follows {
+                key,
+                origin,
+                fill,
+                clip,
+            } => {
+                // A walk-again earlier in this drain may have queued a job, which is
+                // earlier in the order than this read of the atlas: its insert is committed
+                // first, so the entry and the room a walk-again reads are the walk's.
+                self.drain_queue()?;
+                match self.atlas.get(key) {
+                    Some(entry) => self.commit_glyph(*key, *origin, Some(entry), None, &job.draw),
+                    None => self.fill_solid(fill, clip),
+                }
+            }
             Place::Sheet => self.commit_sheet(mask, &job.draw),
+            Place::Rect { rect } => {
+                self.drain_queue()?;
+                self.write_rect_instance(*rect, job.draw.color, job.draw.style, job.draw.mask);
+                Ok(())
+            }
+            Place::Compute {
+                outline,
+                to_device,
+                bounds,
+                even_odd,
+                clip,
+            } => {
+                // Emptied first, so the tile is written here rather than queued again.
+                self.drain_queue()?;
+                self.fill_compute(
+                    *outline,
+                    to_device,
+                    *bounds,
+                    *even_odd,
+                    job.draw.color,
+                    job.draw.style,
+                    job.draw.mask,
+                    clip,
+                )
+            }
         }
+    }
+
+    /// Queue a repeat of a key the queue will write, where the one-threaded walk's answer
+    /// about it is known before the atlas has the key, and say so — or `false`, and the
+    /// caller asks [`Encoder::prospect_for`], which drains.
+    ///
+    /// **Why this is the walk's answer, read later rather than guessed.** Under
+    /// [`Coverage::Cpu`] with no residue clip, the walk's lane for a solid fill turns on
+    /// [`AtlasStore::prospect`](crate::atlas::AtlasStore::prospect) alone, and of what that
+    /// reads only the entry depends on what is queued: the tile's admission is a question
+    /// about its size and the atlas's extent, and the room probe is asked only where there
+    /// is no entry. So the walk's answer for a tile the atlas admits is the entry the queued
+    /// job leaves, and the commit reads it in encounter order, where the walk would have.
+    /// Where the commit finds none — the first placement made no geometry, or found the
+    /// atlas full — the fill is walked again from there (ADR 1409).
+    ///
+    /// A drain here is what it saves: on a page of text a key recurs within a few words,
+    /// so a repeat that drained would leave no run long enough to reach the fan-out's floor.
+    pub(in crate::encode) fn follow_queued(
+        &mut self,
+        fill: &SolidFill<'a>,
+        resolved: &ResolvedClip,
+        placement: GlyphPlacement,
+        (width, height): (u32, u32),
+    ) -> Result<bool, RenderError> {
+        let follows = self.threads > 1
+            && self.coverage == Coverage::Cpu
+            && resolved.residues.is_none()
+            && self.queued_keys.contains(&placement.key)
+            && self.atlas.admits(width, height);
+        if follows {
+            let job = Job::follows(placement.key, placement.origin, *fill, resolved.clone());
+            self.enqueue(job)?;
+        }
+        Ok(follows)
     }
 
     /// The glyph lane's commit: the atlas is offered the tile, and the placement draws

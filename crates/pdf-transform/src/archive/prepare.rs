@@ -1000,14 +1000,21 @@ impl Prepared {
                 }),
             || super::in_place::prepare_reference_xobjects(document, plan.target),
         );
-        let transcodes = asked(
-            failed.contains(super::transcode::SITE)
-                && plan
-                    .preservations
-                    .iter()
-                    .any(|preservation| preservation.site == super::transcode::SITE),
-            || super::transcode::prepare(document, input),
-        );
+        // ADR 1412: the four JPEG 2000 sites one transcode answers, each where it failed and
+        // the plan preserves it.
+        let transcode_sites: Vec<&str> = super::transcode::SITES
+            .into_iter()
+            .filter(|site| {
+                failed.contains(site)
+                    && plan
+                        .preservations
+                        .iter()
+                        .any(|preservation| preservation.site == *site)
+            })
+            .collect();
+        let transcodes = asked(!transcode_sites.is_empty(), || {
+            super::transcode::prepare(document, input, &mut spare, &transcode_sites)
+        });
         let extra_appearance_states = asked(wanted(Rewrite::ExtraAppearanceStatesRemoved), || {
             prepare_extra_appearance_states(document, plan.target)
         });
@@ -1410,6 +1417,11 @@ impl Prepared {
         }
         if let Ok(shipped) = &self.shipped_cmaps {
             for (id, object) in &shipped.written {
+                out.insert(*id, object.clone());
+            }
+        }
+        if let Ok(transcodes) = &self.transcodes {
+            for (id, object) in &transcodes.written {
                 out.insert(*id, object.clone());
             }
         }

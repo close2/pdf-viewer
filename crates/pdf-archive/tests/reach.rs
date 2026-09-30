@@ -220,8 +220,7 @@ fn each_carve_out_is_the_range_its_own_part_states() {
 /// Both parts exempt an unreferenced named resource from every requirement of the **document**,
 /// and a normative annex is part of the document, so nothing in Annex A or Annex B is carved back
 /// out — only the file-structure ranges are. Three rows of the table cite an annex *with a
-/// predicate*, and until session 1007 the answer for them was reached by a fall-through whose own
-/// comment claimed the opposite; this pins it. `pdf_archive::withdrawal` carries the reading subclause by subclause.
+/// predicate*, and this pins their answer to the clause rather than to a parser's fall-through. `pdf_archive::withdrawal` carries the reading subclause by subclause.
 #[test]
 fn an_annex_clause_is_narrowed_like_any_other_requirement_of_the_document() {
     let two = Target::Two(Level::B);

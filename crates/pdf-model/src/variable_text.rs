@@ -202,6 +202,15 @@ pub(crate) enum Owed {
     },
     /// The value contains characters the font states no code for, so they cannot be shown.
     CharactersNotInFont(String),
+    /// The value holds letters of a cursive script, or brackets in a right-to-left run, that the
+    /// document's own font states codes for only as stored, so they are drawn unjoined or
+    /// unmirrored.
+    ///
+    /// **A report beside a drawing**, the same asymmetry as [`Self::CharactersNotInFont`]: a
+    /// font `/DR` defines is the document's choice. The forms are the Unicode Standard's cursive
+    /// joining, reached as presentation-form code points (ADR 1414); a font whose only route to
+    /// them is its own `GSUB` is the case this names.
+    FormsNotInFont(String),
     /// The value is longer than [`MAX_CODES`] and the rest is not laid out.
     Truncated(usize),
     /// §12.7.5.4's list box: its options are drawn and the ones its value selects are marked
@@ -281,6 +290,10 @@ impl Owed {
             Self::CharactersNotInFont(characters) => {
                 format!("its value contains {characters}, for which its /DA's font states no code")
             }
+            Self::FormsNotInFont(letters) => format!(
+                "its value's characters {letters} are drawn as stored, because its /DA's font \
+                 states no code for the joined or mirrored forms they are displayed in"
+            ),
             Self::ListBoxSelection => "its /Opt options are drawn and the ones its value selects \
                                        are marked with a highlight whose colour and extent this \
                                        program chose, because §12.7.5.4 names a list box's \
@@ -484,6 +497,7 @@ fn set_in(
     document: &Document,
     request: &Request,
     font_name: &pdf_syntax::Name,
+    paragraphs: Option<&pdf_font::shaping::Paragraphs>,
 ) -> Result<(Dictionary, pdf_font::LoadedFont, Encoded, Resolution), Owed> {
     let (dict, resolution) = resolve_font(document, request.resources, font_name);
     // The label `FontError` puts in its message, which is §7.3.5's text exception rather than a
@@ -506,7 +520,15 @@ fn set_in(
         )));
     }
 
-    let runs = encode(&font, request.text, request.asked);
+    let runs = encode(
+        &|character| {
+            font.code_for(character)
+                .or_else(|| substitutable(character, &font))
+        },
+        request.text,
+        request.asked,
+        paragraphs,
+    );
     // **A character the base encoding has no code for, given one.** §9.6.5.1 lets an encoding
     // dictionary name glyphs directly — "the value of the Differences entry [is] an array of
     // character codes and glyph names" — and a font *this module invented* is one whose encoding
@@ -519,12 +541,25 @@ fn set_in(
     // the document says its field is set in, and rewriting it would be answering a different
     // question from the one the file asked. And the codes go at the bottom of the range, which
     // both of §9.6.5.2's encodings leave unmapped.
+    let (mut dict, mut font, mut runs) = (dict, font, runs);
     if resolution != Resolution::Named
         && !runs.missing.is_empty()
-        && let Some((named, reloaded, again)) =
-            named_glyphs_reach_more(document, &dict, &label, request, &runs)
+        && let Some(named) =
+            named_glyphs_reach_more(document, &dict, &label, request, &runs, paragraphs)
     {
-        return Ok((named, reloaded, again, resolution));
+        (dict, font, runs) = named;
+    }
+    // **A value no compiled-in face can draw, asked of the machine** (ADR 1414). A font this
+    // module invented may not fall short, and the fourteen carry the Latin character set and
+    // nothing else, so a value in another script is drawn from a face on this machine that covers
+    // every character the shaped value displays — ADR 1382's answer for the interface's own
+    // strings, and ADR 1154's rule for a test that depends on one. Tried only after both routes
+    // into the compiled-in face, so every value those draw is drawn identically everywhere.
+    if resolution != Resolution::Named
+        && !runs.missing.is_empty()
+        && let Some(machine) = machine_set(document, &dict, &label, request, paragraphs)
+    {
+        (dict, font, runs) = machine;
     }
     Ok((dict, font, runs, resolution))
 }
@@ -540,10 +575,20 @@ fn named_glyphs_reach_more(
     label: &str,
     request: &Request,
     runs: &Encoded,
+    paragraphs: Option<&pdf_font::shaping::Paragraphs>,
 ) -> Option<(Dictionary, pdf_font::LoadedFont, Encoded)> {
     let named = with_differences(dict, &runs.missing)?;
     let reloaded = pdf_font::LoadedFont::load(document, &named, label).ok()?;
-    let again = encode(&reloaded, request.text, request.asked);
+    let again = encode(
+        &|character| {
+            reloaded
+                .code_for(character)
+                .or_else(|| substitutable(character, &reloaded))
+        },
+        request.text,
+        request.asked,
+        paragraphs,
+    );
     (again.missing.len() < runs.missing.len()).then_some((named, reloaded, again))
 }
 
@@ -626,6 +671,191 @@ fn substituted_font(name: &pdf_syntax::Name) -> Dictionary {
     dict
 }
 
+/// The value set in a face from this machine, where the compiled-in ones cannot draw it.
+///
+/// The face is [`pdf_font::substitute::installed_covering`]'s answer for every character the
+/// shaped value displays, asked in the family the stand-in's name implies, and the font is the
+/// composite one [`machine_font`] writes around it. `None` where a letter has no presentation
+/// form to ask for, where the machine offers no face covering the rest, or where the face does
+/// not load — each of which leaves the refusal the caller already had, whole.
+fn machine_set(
+    document: &Document,
+    stood_in: &Dictionary,
+    label: &str,
+    request: &Request,
+    paragraphs: Option<&pdf_font::shaping::Paragraphs>,
+) -> Option<(Dictionary, pdf_font::LoadedFont, Encoded)> {
+    let glyphs = pdf_font::shaping::displayed_characters(request.text, paragraphs)?;
+    let wanted: Vec<char> = glyphs.keys().copied().collect();
+    let mut asked = pdf_font::substitute::Request::derive(document, stood_in, None);
+    // The machine is being asked because the standard font cannot answer, so the question is
+    // not the standard font's any more.
+    asked.standard = false;
+    let program = pdf_font::substitute::installed_covering(asked, &wanted)?;
+    let (dict, by_character) = machine_font(&program, &glyphs)?;
+    let font = pdf_font::LoadedFont::load(document, &dict, label).ok()?;
+    let identity = pdf_font::cmap::CMap::identity();
+    let again = encode(
+        &|character| {
+            by_character
+                .get(&character)
+                .map(|glyph| identity.next_code(&glyph.to_be_bytes()))
+        },
+        request.text,
+        request.asked,
+        paragraphs,
+    );
+    (again.missing.is_empty() && again.unformed.is_empty()).then_some((dict, font, again))
+}
+
+/// A `Type0` font around a machine face: §9.7.4's `CIDFontType2`, the face's glyph indices as
+/// its CIDs, and each displayed character's glyph.
+///
+/// `/Identity-H` makes a two-byte code the CID (Table 116), `/CIDToGIDMap /Identity` makes the
+/// CID the glyph index (Table 115), and `/W` states each glyph's advance — §9.7.4.3 makes that
+/// array, and not the program, what the interpreter advances by, so it is read from the face's
+/// own metrics rather than left to `/DW`. `/ToUnicode` maps each code to the characters it was
+/// set for, the stored ones, which is §9.10.2's first method.
+fn machine_font(
+    program: &std::sync::Arc<[u8]>,
+    glyphs: &std::collections::BTreeMap<char, String>,
+) -> Option<(Dictionary, std::collections::BTreeMap<char, u16>)> {
+    use pdf_font::shaping::face;
+    let key = |value: &[u8]| pdf_syntax::Name::new(value.to_vec());
+    let name = |value: &[u8]| Object::Name(pdf_syntax::Name::new(value.to_vec()));
+    let number = |value: f32| Object::Real(f64::from(value));
+    let metrics = face::metrics(program)?;
+
+    let mut by_character = std::collections::BTreeMap::new();
+    let mut widths: std::collections::BTreeMap<u16, f32> = std::collections::BTreeMap::new();
+    let mut meanings: std::collections::BTreeMap<u16, &str> = std::collections::BTreeMap::new();
+    for (character, meaning) in glyphs {
+        let (glyph, advance) = face::glyph(program, *character)?;
+        by_character.insert(*character, glyph);
+        widths.insert(glyph, advance);
+        meanings.entry(glyph).or_insert(meaning.as_str());
+    }
+
+    let mut descriptor = Dictionary::new();
+    descriptor.insert(key(b"Type"), name(b"FontDescriptor"));
+    descriptor.insert(key(b"FontName"), name(MACHINE_FACE));
+    // Table 121's bit 6, Nonsymbolic: the face is reached by character, through its own `cmap`.
+    descriptor.insert(key(b"Flags"), Object::Integer(32));
+    descriptor.insert(
+        key(b"FontBBox"),
+        Object::Array(metrics.bounding_box.map(number).to_vec()),
+    );
+    descriptor.insert(key(b"ItalicAngle"), Object::Integer(0));
+    descriptor.insert(key(b"Ascent"), number(metrics.ascent));
+    descriptor.insert(key(b"Descent"), number(metrics.descent));
+    descriptor.insert(key(b"CapHeight"), number(metrics.ascent));
+    descriptor.insert(key(b"StemV"), Object::Integer(0));
+    descriptor.insert(
+        key(b"FontFile2"),
+        stream(Dictionary::new(), program.clone()),
+    );
+
+    let mut system = Dictionary::new();
+    system.insert(key(b"Registry"), Object::String(b"Adobe".as_slice().into()));
+    system.insert(
+        key(b"Ordering"),
+        Object::String(b"Identity".as_slice().into()),
+    );
+    system.insert(key(b"Supplement"), Object::Integer(0));
+
+    let mut w = Vec::with_capacity(widths.len().saturating_mul(2));
+    for (glyph, advance) in &widths {
+        w.push(Object::Integer(i64::from(*glyph)));
+        w.push(Object::Array(vec![number(*advance)]));
+    }
+    let mut descendant = Dictionary::new();
+    descendant.insert(key(b"Type"), name(b"Font"));
+    descendant.insert(key(b"Subtype"), name(b"CIDFontType2"));
+    descendant.insert(key(b"BaseFont"), name(MACHINE_FACE));
+    descendant.insert(key(b"CIDSystemInfo"), Object::Dictionary(system));
+    descendant.insert(key(b"FontDescriptor"), Object::Dictionary(descriptor));
+    descendant.insert(key(b"W"), Object::Array(w));
+    descendant.insert(key(b"CIDToGIDMap"), name(b"Identity"));
+
+    let mut font = Dictionary::new();
+    font.insert(key(b"Type"), name(b"Font"));
+    font.insert(key(b"Subtype"), name(b"Type0"));
+    font.insert(key(b"BaseFont"), name(MACHINE_FACE));
+    font.insert(key(b"Encoding"), name(b"Identity-H"));
+    font.insert(
+        key(b"DescendantFonts"),
+        Object::Array(vec![Object::Dictionary(descendant)]),
+    );
+    font.insert(
+        key(b"ToUnicode"),
+        stream(Dictionary::new(), to_unicode(&meanings).into_bytes().into()),
+    );
+    Some((font, by_character))
+}
+
+/// The `/BaseFont` of a font [`machine_font`] writes: a name for the reports, since the program
+/// is embedded and nothing looks the name up.
+const MACHINE_FACE: &[u8] = b"VariableTextMachineFace";
+
+/// Whether a resource dictionary holds a font [`machine_font`] wrote.
+///
+/// What a caller writing a constructed appearance into a file asks: such a font is this
+/// machine's face held as a stream inside a dictionary, which is a drawing and not a file's
+/// object (ADR 1414).
+pub(crate) fn uses_a_machine_face(resources: &Dictionary) -> bool {
+    resources
+        .get("Font")
+        .and_then(Object::as_dict)
+        .is_some_and(|fonts| {
+            fonts.iter().any(|(_, font)| {
+                font.as_dict()
+                    .and_then(|font| font.get("BaseFont"))
+                    .and_then(Object::as_name)
+                    .is_some_and(|name| name.as_bytes() == MACHINE_FACE)
+            })
+        })
+}
+
+/// A stream object held directly in the dictionary that uses it, its `/Length` stated.
+fn stream(mut dict: Dictionary, data: std::sync::Arc<[u8]>) -> Object {
+    dict.insert(
+        pdf_syntax::Name::new(b"Length".to_vec()),
+        Object::Integer(i64::try_from(data.len()).unwrap_or(i64::MAX)),
+    );
+    Object::Stream(std::sync::Arc::new(pdf_syntax::Stream {
+        dict,
+        data,
+        decryption_failed: false,
+    }))
+}
+
+/// A §9.10.3 `ToUnicode` `CMap` from two-byte codes to the characters each draws.
+///
+/// `bfchar` entries in blocks of a hundred, the size the `CMap`s §9.7.5.2 lists are written in;
+/// each destination is the characters' UTF-16BE, which is how §9.10.3 states a Unicode value.
+fn to_unicode(meanings: &std::collections::BTreeMap<u16, &str>) -> String {
+    let mut out = String::from(
+        "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
+         /CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n\
+         /CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n\
+         1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n",
+    );
+    let entries: Vec<(&u16, &&str)> = meanings.iter().collect();
+    for block in entries.chunks(100) {
+        let _ = writeln!(out, "{} beginbfchar", block.len());
+        for (glyph, meaning) in block {
+            let _ = write!(out, "<{glyph:04X}> <");
+            for unit in meaning.encode_utf16() {
+                let _ = write!(out, "{unit:04X}");
+            }
+            out.push_str(">\n");
+        }
+        out.push_str("endbfchar\n");
+    }
+    out.push_str("endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n");
+    out
+}
+
 /// The ratio of one line's height to the font size, when the `/DA` sets no leading.
 ///
 /// **A choice**, and the clause is why one is needed at all: it hands line layout to "any
@@ -689,10 +919,14 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         return Err(Owed::NoFont);
     };
 
-    let (dict, font, runs, resolution) = set_in(document, request, &font_name)?;
+    // UAX #9's resolution of the value, `None` where every character is left to right; the lines
+    // it is reordered by are only known once the layout has broken them (ADR 1413).
+    let paragraphs = pdf_font::shaping::Paragraphs::new(request.text);
+    let (dict, font, runs, resolution) =
+        set_in(document, request, &font_name, paragraphs.as_ref())?;
 
     let metrics = Metrics::read(document, &dict);
-    if resolution != Resolution::Named && !runs.missing.is_empty() {
+    if resolution != Resolution::Named && !(runs.missing.is_empty() && runs.unformed.is_empty()) {
         // **A font this crate invented may not fall short.** `freetext_no_appearance.pdf` is
         // the reason the rule is asymmetric: its value is a paragraph of Arabic, and a Latin
         // stand-in draws its spaces and full stops and nothing else — a scatter of dots on an
@@ -707,10 +941,17 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         // and `bug1865341.pdf`'s value is *Załącznik*, whose `ł` and `ą` are in Liberation Sans
         // and in neither §9.6.5.2 encoding a simple font may use. The reason is the **encoding**
         // rather than the face, and a report that does not say so sends a reader looking in the
-        // wrong place. `doc/todo/22` holds what closing it would take.
+        // wrong place. A value in another script reaches here only where the machine offers no
+        // face covering it, since [`machine_set`] is asked first (ADR 1414).
+        let mut characters = runs.missing;
+        for letter in runs.unformed.chars() {
+            if !characters.contains(letter) {
+                characters.push(letter);
+            }
+        }
         return Err(Owed::InventedFontFellShort {
             name: font_name,
-            characters: runs.missing,
+            characters,
         });
     }
     let mut owed = if resolution == Resolution::StoodIn {
@@ -720,8 +961,10 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         Some(Owed::FontNotInResources(font_name.clone()))
     } else if runs.truncated {
         Some(Owed::Truncated(MAX_CODES))
+    } else if !runs.missing.is_empty() {
+        Some(Owed::CharactersNotInFont(runs.missing))
     } else {
-        (!runs.missing.is_empty()).then_some(Owed::CharactersNotInFont(runs.missing))
+        (!runs.unformed.is_empty()).then_some(Owed::FormsNotInFont(runs.unformed))
     };
     let measure = Measure {
         font: &font,
@@ -768,6 +1011,7 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         selection: runs.selection,
         point: request.asked.point.map(|point| frame.shrink_point(point)),
         offsets: &runs.offsets,
+        paragraphs: paragraphs.as_ref(),
         frame,
     };
     // What is left of the report: a linear part with no inverse, which leaves the box no preimage
@@ -1281,6 +1525,13 @@ enum Placed {
     Break,
     /// A character code of the `/DA`'s font, from [`pdf_font::LoadedFont::code_for`].
     Shown(pdf_font::Code),
+    /// The code drawn for U+0020, which is where [`wrap`] may end a line.
+    ///
+    /// Told apart by the character rather than by the code being 32, because a composite font
+    /// draws its space with a code of two bytes and §9.3.3's word spacing does not reach it —
+    /// and a no-break space is drawn with the space's code and is exactly where a line may not
+    /// break.
+    Space(pdf_font::Code),
 }
 
 impl Placed {
@@ -1288,13 +1539,8 @@ impl Placed {
     fn code(self) -> Option<pdf_font::Code> {
         match self {
             Self::Break => None,
-            Self::Shown(code) => Some(code),
+            Self::Shown(code) | Self::Space(code) => Some(code),
         }
-    }
-
-    /// Whether §9.3.3's word spacing applies here, which it never does to a break.
-    fn takes_word_spacing(self) -> bool {
-        self.code().is_some_and(pdf_font::Code::takes_word_spacing)
     }
 }
 
@@ -1330,6 +1576,9 @@ struct Encoded {
     codes: Vec<Placed>,
     /// The distinct characters the font states no code for, ready for a report.
     missing: String,
+    /// The distinct characters drawn as stored where cursive joining or UAX #9's mirroring
+    /// displays them otherwise, because the font states no code for that form.
+    unformed: String,
     /// Whether [`MAX_CODES`] was reached and the rest of the value dropped.
     truncated: bool,
     /// Which code [`Asked::caret`]'s byte offset falls before, where one was asked for.
@@ -1342,9 +1591,10 @@ struct Encoded {
     selection: Option<(usize, usize)>,
     /// Which byte of the value each code came from, with the end after the last.
     ///
-    /// The mapping the other two run backwards, and the only one that needs a vector: a point
-    /// lands between two codes and the answer owed is a byte offset. Built **only** where
-    /// [`Asked::point`] asked for one, so that nothing that draws pays for it.
+    /// The mapping the other two run backwards: a point lands between two codes and the answer
+    /// owed is a byte offset, and a right-to-left line is reordered by the levels of the bytes
+    /// its codes came from. Built **only** where [`Asked::point`] asked for one or the value has
+    /// a level other than 0, so that nothing that draws a left-to-right value pays for it.
     offsets: Vec<usize>,
 }
 
@@ -1352,12 +1602,27 @@ struct Encoded {
 ///
 /// The byte offsets [`Asked`] carries are turned into code indices here, in the one loop that
 /// knows how many codes a character produced — which is none for a character the font cannot
-/// spell, and one for each of §12.7.5.3's line breaks. An offset inside a character counts that
-/// character as still to come, and one past the end is the end. [`Encoded::offsets`] is the same
-/// correspondence written down, for the one question that runs it backwards.
-fn encode(font: &pdf_font::LoadedFont, text: &str, asked: Asked) -> Encoded {
+/// spell, one for each of §12.7.5.3's line breaks, and one for the two characters of a lam-alef
+/// ligature. An offset inside a character counts that character as still to come, and one past
+/// the end is the end. [`Encoded::offsets`] is the same correspondence written down, for the
+/// questions that run it backwards.
+///
+/// **The characters asked of `lookup` are the ones the Unicode Standard says are displayed**
+/// rather than the ones stored (ADRs 1413 and 1414): the value is shaped first — each letter of a
+/// cursive script in the positional form its neighbours give it, as a presentation-form code
+/// point — and a character resolved to a right-to-left level is asked for by its mirror image
+/// where `BidiMirroring.txt` states one, which is UAX #9's rule L4. Where the font has no code
+/// for the form but has one for the letter itself, the letter is drawn unjoined and named in
+/// [`Encoded::unformed`]. For a Latin value every one of these is the identity.
+fn encode(
+    lookup: &dyn Fn(char) -> Option<pdf_font::Code>,
+    text: &str,
+    asked: Asked,
+    paragraphs: Option<&pdf_font::shaping::Paragraphs>,
+) -> Encoded {
     let mut codes = Vec::with_capacity(text.len().min(MAX_CODES));
     let mut missing = String::new();
+    let mut unformed = String::new();
     let mut truncated = false;
     let wanted = [
         asked.caret,
@@ -1365,7 +1630,13 @@ fn encode(font: &pdf_font::LoadedFont, text: &str, asked: Asked) -> Encoded {
         asked.selection.map(|(_, to)| to),
     ];
     let mut marks: [Option<usize>; 3] = [None; 3];
+    // Collected where a question needs them and where the value has a right-to-left level, whose
+    // lines are reordered by the levels of the bytes each code came from.
+    let keep_offsets = asked.point.is_some() || paragraphs.is_some();
     let mut offsets = Vec::new();
+    let characters: Vec<(usize, char)> = text.char_indices().collect();
+    let letters: Vec<char> = characters.iter().map(|(_, character)| *character).collect();
+    let shaped = pdf_font::shaping::shape(&letters);
     // A carriage return, a line feed and the pair are all one line break, and none of them is
     // a glyph. They travel through the layout as `Placed::Break` and `show` drops them. Read
     // from the value as it stands rather than from a normalised copy, so that a caret's offset
@@ -1379,7 +1650,10 @@ fn encode(font: &pdf_font::LoadedFont, text: &str, asked: Asked) -> Encoded {
     // paragraph break as a space, on the page rather than in a window.
     let mut after_return = false;
     let mut end = text.len();
-    for (at, character) in text.char_indices() {
+    for item in &shaped {
+        let Some(&(at, original)) = characters.get(item.source) else {
+            continue;
+        };
         for (mark, want) in marks.iter_mut().zip(wanted) {
             if mark.is_none() && want.is_some_and(|offset| offset <= at) {
                 *mark = Some(codes.len());
@@ -1390,7 +1664,7 @@ fn encode(font: &pdf_font::LoadedFont, text: &str, asked: Asked) -> Encoded {
             end = at;
             break;
         }
-        let character = match character {
+        let original = match original {
             '\n' if after_return => {
                 after_return = false;
                 continue;
@@ -1404,31 +1678,31 @@ fn encode(font: &pdf_font::LoadedFont, text: &str, asked: Asked) -> Encoded {
                 other
             }
         };
-        let produced = if character == '\n' {
+        let produced = if original == '\n' {
             Some(Placed::Break)
         } else {
-            match font
-                .code_for(character)
-                .or_else(|| substitutable(character, font))
-            {
+            let drawn = pdf_font::shaping::displayed(item.character, at, paragraphs);
+            let code = code_of(lookup, (drawn, original), item.unformed, &mut unformed);
+            match code {
+                Some(code) if original == ' ' => Some(Placed::Space(code)),
                 Some(code) => Some(Placed::Shown(code)),
-                None if missing.contains(character) => None,
+                None if missing.contains(original) => None,
                 None => {
-                    missing.push(character);
+                    missing.push(original);
                     None
                 }
             }
         };
         if let Some(code) = produced {
             codes.push(code);
-            if asked.point.is_some() {
+            if keep_offsets {
                 offsets.push(at);
             }
         }
     }
-    if asked.point.is_some() {
-        // The end, so that an index of `codes.len()` — a point past the last glyph — has a byte
-        // offset to answer with.
+    if keep_offsets {
+        // The end, so that an index of `codes.len()` — a point past the last glyph, or the end
+        // of the last line — has a byte offset to answer with.
         offsets.push(end);
     }
     // An offset no character index reached is one past the value's last character, which is the
@@ -1442,8 +1716,29 @@ fn encode(font: &pdf_font::LoadedFont, text: &str, asked: Asked) -> Encoded {
         offsets,
         codes,
         missing,
+        unformed,
         truncated,
     }
+}
+
+/// The code `lookup` gives the displayed character, or failing that the stored one it is a form
+/// of — in which case, and wherever joining wanted a form no presentation block holds, the
+/// letter is added to `unformed`.
+fn code_of(
+    lookup: &dyn Fn(char) -> Option<pdf_font::Code>,
+    (drawn, original): (char, char),
+    wanted_a_missing_form: bool,
+    unformed: &mut String,
+) -> Option<pdf_font::Code> {
+    let (code, nominal) = match lookup(drawn) {
+        Some(code) => (Some(code), wanted_a_missing_form),
+        None if drawn != original => (lookup(original), true),
+        None => (None, false),
+    };
+    if nominal && code.is_some() && !unformed.contains(original) {
+        unformed.push(original);
+    }
+    code
 }
 
 /// A code for a character the font's encoding has no code for, where the standard names one.
@@ -1562,7 +1857,8 @@ fn auto_size(measure: &Measure, codes: &[Placed], stack: Stack) -> f32 {
 /// Positions each line by `/Q` and writes it.
 ///
 /// Where a line sits is [`Stack`]'s answer and how much room it has is [`Room`]'s; what is here
-/// is the clause's own `/Q`, applied to the room that line actually got.
+/// is the clause's own `/Q`, applied to the room that line actually got, and the order the
+/// line's codes are displayed in, which is [`Order`]'s.
 fn write_lines(
     stream: &mut String,
     lines: &[std::ops::Range<usize>],
@@ -1580,6 +1876,8 @@ fn write_lines(
 
     for (index, line) in lines.iter().enumerate() {
         let codes = line_codes(written.codes, line);
+        let order = Order::of(codes, line, written);
+        let shown = order.shown(codes);
         let advance = measure.width(codes, size);
         marks.advance = marks.advance.max(advance);
         let baseline = stack.baseline(size, lines.len(), index);
@@ -1588,6 +1886,9 @@ fn write_lines(
         // the length as well, because the room is then a chord of the box rather than a side of
         // it (ADR 1247). Under every other matrix both are what they were.
         let (start, width) = stack.room.at(baseline);
+        // Table 228's three codes are *left*, *centred* and *right*, and they are read as sides
+        // of the box whatever the direction the line reads in: the clause names the sides and
+        // says nothing of a paragraph's start or end (ADR 1413).
         let x = match request.quadding {
             Quadding::Left => start,
             Quadding::Centred => start + (width - advance) * 0.5,
@@ -1601,27 +1902,29 @@ fn write_lines(
         if marks.caret.is_none()
             && let Some(at) = written.caret.filter(|at| *at <= line.end)
         {
-            let before = codes
-                .get(..at.saturating_sub(line.start).min(codes.len()))
-                .unwrap_or(codes);
-            let x = x + measure.width(before, size);
+            let boundary = order.visual_boundary(at.saturating_sub(line.start));
+            let x = x + measure.width(shown.get(..boundary).unwrap_or_default(), size);
             marks.caret = Some(Caret {
                 from: [x, baseline + descent],
                 to: [x, baseline + ascent],
             });
         }
-        // The part of the selected range this line holds, as one box between the same descent
-        // and ascent the caret stands between: a highlight and a cursor the same height is what
-        // makes the two look like one thing, and neither is the standard's.
+        // The part of the selected range this line holds, as boxes between the same descent and
+        // ascent the caret stands between: a highlight and a cursor the same height is what makes
+        // the two look like one thing, and neither is the standard's. One box per run of selected
+        // codes that sit together on the line, which is one box unless the line is reordered.
         if let Some((from, to)) = written.selection {
-            let (start, end) = (from.max(line.start), to.min(line.end));
-            if start < end {
-                let x0 = x + measure.width(line_codes(written.codes, &(line.start..start)), size);
-                let x1 = x + measure.width(line_codes(written.codes, &(line.start..end)), size);
+            let (from, to) = (
+                from.saturating_sub(line.start),
+                to.min(line.end).saturating_sub(line.start),
+            );
+            let (bottom, top) = (baseline + descent, baseline + ascent);
+            for (first, last) in order.runs(from..to) {
+                let x0 = x + measure.width(shown.get(..first).unwrap_or_default(), size);
+                let x1 = x + measure.width(shown.get(..last).unwrap_or_default(), size);
                 // A range covering nothing but a line break has no shape, because a break draws
                 // no glyph — the same reason `show` skips it.
                 if x1 > x0 {
-                    let (bottom, top) = (baseline + descent, baseline + ascent);
                     marks
                         .selection
                         .push([x0, top, x1, top, x1, bottom, x0, bottom]);
@@ -1640,7 +1943,8 @@ fn write_lines(
             } else {
                 0.0
             };
-            let (at, dx) = nearest_boundary(measure, codes, size, x, px);
+            let (boundary, dx) = nearest_boundary(measure, &shown, size, x, px);
+            let at = order.logical_boundary(boundary);
             if nearest
                 .is_none_or(|(best_y, best_x, _)| dy < best_y || (dy <= best_y && dx < best_x))
             {
@@ -1659,10 +1963,129 @@ fn write_lines(
             "{} {} {} {} {tx} {ty} Tm",
             linear[0], linear[1], linear[2], linear[3]
         );
-        show(stream, codes);
+        show(stream, &shown);
     }
     marks.offset = nearest.map(|(_, _, code)| written.byte(code));
     marks
+}
+
+/// The order one line's codes are displayed in: UAX #9's rules L1 and L2 over the levels of the
+/// bytes each code came from (ADR 1413).
+///
+/// The identity for a value every character of which is left to right, which is every value
+/// [`pdf_font::shaping::Paragraphs::new`] answers `None` for — so the arithmetic below reduces
+/// to a line's logical order exactly and a Latin field is laid out as it always was.
+///
+/// The three questions a line is asked in logical terms — where a caret at an offset stands,
+/// which offset a point lands on, what a range covers — are answered through it, and each uses
+/// the convention the annex's reordering implies: a boundary is drawn at the edge of the code
+/// after it on that code's own reading side, so a caret before a right-to-left letter stands at
+/// its right edge.
+struct Order {
+    /// For each display position, the index into the line of the code shown there.
+    visual: Vec<usize>,
+    /// For each index into the line, its display position.
+    position: Vec<usize>,
+    /// For each index into the line, whether its level is odd.
+    right_to_left: Vec<bool>,
+}
+
+impl Order {
+    /// The order of the codes of `line`, whose levels are read from `written`'s paragraphs.
+    fn of(codes: &[Placed], line: &std::ops::Range<usize>, written: Written) -> Self {
+        let count = codes.len();
+        let levels: Vec<u8> = match written.paragraphs {
+            Some(paragraphs) => {
+                let first = written.byte(line.start);
+                let last = written.byte(line.end).max(first);
+                let by_byte = paragraphs.line_levels(first..last);
+                (line.start..line.end)
+                    .map(|code| {
+                        by_byte
+                            .get(written.byte(code).saturating_sub(first))
+                            .copied()
+                            .unwrap_or_default()
+                    })
+                    .collect()
+            }
+            None => vec![0; count],
+        };
+        let visual = if levels.iter().any(|level| *level > 0) {
+            pdf_font::shaping::visual_order(&levels)
+        } else {
+            (0..count).collect()
+        };
+        let mut position = vec![0; count];
+        for (shown_at, index) in visual.iter().enumerate() {
+            if let Some(slot) = position.get_mut(*index) {
+                *slot = shown_at;
+            }
+        }
+        Self {
+            visual,
+            position,
+            right_to_left: levels.iter().map(|level| level % 2 == 1).collect(),
+        }
+    }
+
+    /// The line's codes in display order.
+    fn shown(&self, codes: &[Placed]) -> Vec<Placed> {
+        self.visual
+            .iter()
+            .filter_map(|index| codes.get(*index).copied())
+            .collect()
+    }
+
+    /// Whether the code at index `index` of the line reads right to left.
+    fn reversed(&self, index: usize) -> bool {
+        self.right_to_left.get(index).copied().unwrap_or(false)
+    }
+
+    /// How many displayed codes stand left of the boundary before logical index `at`.
+    fn visual_boundary(&self, at: usize) -> usize {
+        let count = self.visual.len();
+        let position = |index: usize| self.position.get(index).copied().unwrap_or(count);
+        if at < count {
+            position(at).saturating_add(usize::from(self.reversed(at)))
+        } else if let Some(last) = count.checked_sub(1) {
+            position(last).saturating_add(usize::from(!self.reversed(last)))
+        } else {
+            0
+        }
+    }
+
+    /// The logical boundary drawn `boundary` displayed codes from the left: [`Self::visual_boundary`]
+    /// run backwards.
+    fn logical_boundary(&self, boundary: usize) -> usize {
+        let count = self.visual.len();
+        let edge = |shown_at: usize, right_edge: bool| {
+            let index = self.visual.get(shown_at).copied().unwrap_or(count);
+            // A code's right edge is its logical start where it reads right to left.
+            index.saturating_add(usize::from(self.reversed(index) != right_edge))
+        };
+        if boundary < count {
+            edge(boundary, false)
+        } else if let Some(last) = count.checked_sub(1) {
+            edge(last, true)
+        } else {
+            0
+        }
+    }
+
+    /// The runs of display positions a logical range of the line covers, as `[first, last)`.
+    fn runs(&self, range: std::ops::Range<usize>) -> Vec<(usize, usize)> {
+        let mut out: Vec<(usize, usize)> = Vec::new();
+        for (shown_at, index) in self.visual.iter().enumerate() {
+            if !range.contains(index) {
+                continue;
+            }
+            match out.last_mut() {
+                Some(run) if run.1 == shown_at => run.1 = shown_at.saturating_add(1),
+                _ => out.push((shown_at, shown_at.saturating_add(1))),
+            }
+        }
+        out
+    }
 }
 
 /// The boundary between two glyphs a point is nearest, within one line already positioned.
@@ -1720,6 +2143,8 @@ struct Written<'a> {
     point: Option<[f32; 2]>,
     /// Which byte of the value each code came from, from [`Encoded::offsets`].
     offsets: &'a [usize],
+    /// UAX #9's resolution of the value, `None` where every character is left to right.
+    paragraphs: Option<&'a pdf_font::shaping::Paragraphs<'a>>,
     /// What [`Frame`] the lengths around this one are measured under, and whose linear part is
     /// written into every `Tm` below.
     frame: Frame,
@@ -1835,7 +2260,7 @@ fn wrap(
             continue;
         }
         reached += measure.width(std::slice::from_ref(code), size);
-        if code.takes_word_spacing() {
+        if matches!(code, Placed::Space(_)) {
             last_space = Some(index.saturating_add(1));
         }
         if reached <= width || index.saturating_sub(start) == 0 {
@@ -1908,12 +2333,25 @@ fn comb(
     let frame = written.frame;
     let cells = count(usize::try_from(cell_count).unwrap_or(usize::MAX)).max(1.0);
     let codes = written.codes;
-    let shown: Vec<Placed> = codes
+    // The value in display order (ADR 1413), the one line a comb has; cells are filled left to
+    // right with it, so a right-to-left value reads right to left across its cells.
+    let order = Order::of(codes, &(0..codes.len()), written);
+    let displayed = order.shown(codes);
+    let shown: Vec<Placed> = displayed
         .iter()
         .copied()
         .filter(|placed| !matches!(placed, Placed::Break))
         .collect();
     let used = count(shown.len());
+    // How many drawn characters stand left of a boundary `boundary` displayed codes in.
+    let cells_before = |boundary: usize| {
+        displayed
+            .get(..boundary)
+            .unwrap_or(&displayed)
+            .iter()
+            .filter(|placed| !matches!(placed, Placed::Break))
+            .count()
+    };
 
     let first = match request.quadding {
         Quadding::Left => 0.0,
@@ -1952,16 +2390,7 @@ fn comb(
     // selection covers. `edge` is the left side of the comb a slot names, clamped to the box —
     // a position past the last cell stays on the right edge, which is where the value has
     // stopped fitting.
-    let slot_of = |at: usize| {
-        let filled = codes.get(..at.min(codes.len())).unwrap_or_default();
-        first
-            + count(
-                filled
-                    .iter()
-                    .filter(|placed| !matches!(placed, Placed::Break))
-                    .count(),
-            )
-    };
+    let slot_of = |at: usize| first + count(cells_before(order.visual_boundary(at)));
     let edge = |slot: f32| cell.mul_add(slot.min(cells), 0.0) + start;
 
     let caret = written.caret.map(|at| Caret {
@@ -1970,9 +2399,14 @@ fn comb(
     });
     let mut selection = Vec::new();
     if let Some((from, to)) = written.selection {
-        let (x0, x1) = (edge(slot_of(from)), edge(slot_of(to)));
-        if x1 > x0 {
-            selection.push([x0, top, x1, top, x1, bottom, x0, bottom]);
+        for (left, right) in order.runs(from..to) {
+            let (x0, x1) = (
+                edge(first + count(cells_before(left))),
+                edge(first + count(cells_before(right))),
+            );
+            if x1 > x0 {
+                selection.push([x0, top, x1, top, x1, bottom, x0, bottom]);
+            }
         }
     }
     let mut offset = None;
@@ -1986,20 +2420,12 @@ fn comb(
                 nearest = (index, distance);
             }
         }
-        // Back from a count of *shown* characters to an index into the codes, which differ by the
-        // line breaks a comb does not lay out.
-        let mut seen = 0_usize;
-        let mut at = codes.len();
-        for (index, code) in codes.iter().enumerate() {
-            if seen == nearest.0 {
-                at = index;
-                break;
-            }
-            if !matches!(code, Placed::Break) {
-                seen = seen.saturating_add(1);
-            }
-        }
-        offset = Some(written.byte(at));
+        // Back from a count of *shown* characters to a boundary among the displayed codes, which
+        // differ by the line breaks a comb does not lay out, and from there to the value's order.
+        let boundary = (0..=displayed.len())
+            .find(|boundary| cells_before(*boundary) == nearest.0)
+            .unwrap_or(displayed.len());
+        offset = Some(written.byte(order.logical_boundary(boundary)));
     }
     Marks {
         caret,

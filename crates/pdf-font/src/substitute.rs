@@ -1046,6 +1046,17 @@ pub fn installed_covering(request: Request, wanted: &[char]) -> Option<Arc<[u8]>
     covering_path(request, wanted).and_then(|path| read_cached(&path))
 }
 
+/// Whether a face found earlier answers every one of `wanted`: the test [`installed_covering`] keeps
+/// a face by, for a caller holding faces it already has.
+///
+/// A caller that asked once and was given a face asks this before asking the machine again, so a
+/// line of Japanese walks the catalogue for its first character and finds the rest in the face
+/// that answered it (ADR 1406).
+#[must_use]
+pub fn face_covers(bytes: &Arc<[u8]>, wanted: &[char]) -> bool {
+    covers(bytes, wanted)
+}
+
 /// Whether a face answers every one of the characters asked for.
 fn covers(bytes: &Arc<[u8]>, wanted: &[char]) -> bool {
     let Ok(font) = skrifa::FontRef::new(bytes) else {

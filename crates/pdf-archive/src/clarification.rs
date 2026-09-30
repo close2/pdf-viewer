@@ -72,15 +72,15 @@
 //! Recorded in full because the note was read in full, and because an item nobody wrote down is
 //! an item the next round has to rediscover. Items pertaining only to ISO 19005-1 or -3 are
 //! absent: neither part is a target (`doc/questions/A17`). **This list is checked against the note
-//! rather than against its predecessor** — session 941's copy of it omitted A028 outright and
-//! called A002 already true when the row it names bound part 4 alone.
+//! rather than against its predecessor**, because a list checked against a copy of itself
+//! inherits every item the copy omitted or misread (ADR 0931).
 //!
 //! **Taken, and a check changed**; each is carried in [`CLARIFICATIONS`] below:
 //!
 //! - **A002**, ISO 19005-2 section 6.2.2 — the explicitly associated resources dictionary shall
 //!   define every named resource its content stream references. Part 2's text requires the
-//!   dictionary and does not say that, so `graphics/named-resources-are-defined` bound part 4
-//!   alone until session 942 and now binds both parts.
+//!   dictionary and does not say that, so `graphics/named-resources-are-defined` binds both
+//!   parts rather than part 4 alone.
 //! - **A020**, ISO 19005-2 section 6.6.2.3.1 — an XMP value is validated on its type alone, and
 //!   the note's list of the basic types puts `Rational` among those admitting any string. So
 //!   `metadata/properties-use-known-schemas` no longer holds `exif:XResolution` and its like to a
@@ -160,8 +160,7 @@
 //! - **A010** — an unreferenced named resource is exempt from the part *except* its
 //!   file-structure and implementation-limit subclauses, sections 6.1.2 to 6.1.13, and shall
 //!   still conform to the base standard. **The exemption it narrows is section 6.2.2's own last
-//!   sentence, and neither was stated here until session 1001.** Half of it had always held by
-//!   construction: the rows that read `crate::survey` never see a resource nothing references,
+//!   sentence.** Half of it holds by construction: the rows that read `crate::survey` never see a resource nothing references,
 //!   because the walk reaches a form `XObject` only through the `Do` that names it. The other
 //!   half is now [`crate::reach`] — `Exempt` computes the population, which is a question about
 //!   the whole file that no predicate holding one object could answer, and

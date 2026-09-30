@@ -257,6 +257,15 @@ pub struct Host {
     /// the `QTabBar` is hidden until then, so a window showing one document looks exactly as it
     /// did (ADR 1264).
     documents: viewer_host::Documents<Showing>,
+    /// The machine's faces for characters of a tab's label the compiled-in face lacks, asked by
+    /// file off this thread (ADR 1406), and how many of them the window has registered with Qt.
+    ///
+    /// Qt's own fallback goes by *family*, and on a machine where the face covering a label shares
+    /// its family name with Latin faces it picks one of those and draws boxes; the file the covering
+    /// search names, registered with `QFontDatabase`, is what the tab strip is then set in.
+    faces: viewer_host::machine_faces::MachineFaces,
+    /// How many of [`Self::faces`] the C++ side has taken.
+    faces_taken: usize,
     /// The documents a reader named that are still to open beside this one — the command line's
     /// later paths and the files chosen with Ctrl + O — one at a time (`viewer_host::Arrivals`).
     arrivals: viewer_host::Arrivals,
@@ -509,6 +518,10 @@ impl Host {
             // One document, and the strip is hidden for it — the launch path opens exactly the
             // one document it always has, under exactly the name it always had (ADR 1264).
             documents: viewer_host::Documents::new(DOCUMENT, viewer_host::documents::label(path)),
+            // No thread and nothing read until a label holds a character the compiled-in face
+            // lacks, and then off this thread (ADR 1406).
+            faces: viewer_host::machine_faces::MachineFaces::new(),
+            faces_taken: 0,
             arrivals: viewer_host::Arrivals::new(),
             prompting: DOCUMENT,
             arrival_due: false,
@@ -2417,11 +2430,55 @@ impl Host {
     // ---------------------------------------------------------------------------------------
 
     /// What each tab says, in the order the strip shows them.
+    ///
+    /// **And the machine is asked for a face for any character of them the compiled-in face lacks**
+    /// (ADR 1406) — the question `quorra`'s chrome asks of the same strings (ADR 1382), answered on
+    /// `viewer_host::machine_faces`' thread and taken by [`Host::take_face`] when it lands.
     pub(crate) fn documents(&self) -> Vec<String> {
-        self.documents
+        let labels: Vec<String> = self
+            .documents
             .iter()
             .map(|(_, label)| label.to_owned())
-            .collect()
+            .collect();
+        for character in labels.iter().flat_map(|label| label.chars()) {
+            if viewer_host::machine_faces::compiled_in_lacks(character) {
+                let _answer = self.faces.ask(viewer_host::machine_faces::Wanted {
+                    character,
+                    bold: false,
+                    italic: false,
+                });
+            }
+        }
+        labels
+    }
+
+    /// How long to wait before asking whether a machine face has landed, in milliseconds, or `-1`
+    /// where none is being searched for and none is waiting to be taken.
+    ///
+    /// [`Host::drawing_wait`]'s shape, for the same reason: the search is on a thread of its own and
+    /// there is no path from it into a Qt object that would not cost this crate an `unsafe` token.
+    pub(crate) fn faces_wait(&self) -> i32 {
+        if self.faces.found() > self.faces_taken {
+            return 0;
+        }
+        if self.faces.searching() {
+            i32::try_from(viewer_host::drawing::POLL.as_millis()).unwrap_or(i32::MAX)
+        } else {
+            -1
+        }
+    }
+
+    /// The next machine face the window has not registered, as the bytes of its file, or empty
+    /// where there is none.
+    ///
+    /// The file the covering search named (§9.7.4.2's search, ADR 1382), which the window hands to
+    /// `QFontDatabase::addApplicationFontFromData` and sets the strip in by the family it registers.
+    pub(crate) fn take_face(&mut self) -> Vec<u8> {
+        let Some(bytes) = self.faces.face(self.faces_taken) else {
+            return Vec::new();
+        };
+        self.faces_taken = self.faces_taken.saturating_add(1);
+        bytes.to_vec()
     }
 
     /// Which of them is in front.
@@ -4027,6 +4084,79 @@ mod tests {
         }
         assert_eq!(lists, 1, "exactly one panel is a list of pictures");
         assert_eq!(PANELS, Tab::ALL.len());
+    }
+
+    /// A tab whose label is Chinese asks the machine for a face off this thread, and the window is
+    /// handed the file the search named (ADR 1406).
+    ///
+    /// A document stating no `/Title` is labelled by its file's name, so a one-page document with no
+    /// information dictionary is written under a Chinese one. Where the machine offers no face
+    /// stating the characters the test says so and skips, as ADR 1154's tests do.
+    #[test]
+    fn a_chinese_tab_label_is_handed_the_machines_face() {
+        let directory =
+            std::env::temp_dir().join(format!("quorra-qt-faces-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("a temporary directory");
+        let path = directory.join("多边形批注.pdf");
+        std::fs::write(&path, untitled()).expect("the document is written");
+        let mut host = opened(&path);
+        assert_eq!(
+            host.faces_wait(),
+            -1,
+            "nothing is asked before the strip is"
+        );
+        let labels = host.documents();
+        assert_eq!(labels, vec!["多边形批注.pdf".to_owned()]);
+        assert!(
+            host.faces_wait() >= 0,
+            "the search is running or has landed"
+        );
+        host.faces.settle();
+        let bytes = host.take_face();
+        std::fs::remove_dir_all(&directory).expect("the temporary directory is removed");
+        if bytes.is_empty() {
+            eprintln!("skipped: this machine offers no face stating 多边形批注's characters");
+            return;
+        }
+        let asked = viewer_host::machine_faces::Wanted {
+            character: '多',
+            bold: false,
+            italic: false,
+        };
+        assert_eq!(
+            host.faces.ask(asked),
+            viewer_host::machine_faces::Answer::Face(0),
+            "the first face handed over is the one that answered the first character"
+        );
+        while !host.take_face().is_empty() {}
+        assert!(host.take_face().is_empty(), "every face is taken once");
+        assert_eq!(host.faces_wait(), -1, "nothing left to look for");
+    }
+
+    /// One empty page and nothing else: no information dictionary, so no title to be labelled by.
+    fn untitled() -> Vec<u8> {
+        let objects = [
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] >>",
+        ];
+        let mut out = b"%PDF-1.7\n".to_vec();
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            out.extend_from_slice(
+                format!("{} 0 obj\n{body}\nendobj\n", index.saturating_add(1)).as_bytes(),
+            );
+        }
+        let xref = out.len();
+        out.extend_from_slice(b"xref\n0 4\n0000000000 65535 f \n");
+        for offset in offsets {
+            out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        out.extend_from_slice(
+            format!("trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
+        );
+        out
     }
 
     /// A document committed in `doc/`, which every checkout has once the archive is unpacked.
