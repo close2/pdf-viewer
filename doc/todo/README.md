@@ -150,7 +150,7 @@ takes work does not take it from here.
 
 | | item |
 |---|---|
-| [12](12-one-bound-two-jobs.md) | One bound doing two jobs — **answered in both halves and nothing here is owed**: the floor is derived, implemented and priced, and the two knobs turn out to be one knob, which the gate re-runs as a counterfactual every run |
+| [12](12-one-bound-two-jobs.md) | One bound doing two jobs — **answered in both halves and nothing here is owed**: the floor is derived, implemented and priced, and the two knobs turn out to be one knob, which the gate re-runs as a counterfactual every run; kept whole because its two re-run commands are written nowhere else |
 | [13](13-the-transfer-function.md) | §10.5 — applied to solid colours, image samples and every colour a shading makes, and read from a halftone dictionary's `TransferFunction` besides, so the clause is `implemented`, and so is §11.7.5.2's per-region model (ADRs 1266, 1279). Nothing is owed; the file is the reading `CLAUDE.md` cites |
 | [14](14-stream-the-decompression.md) | **Road D — done**, first of the three the owner ordered out of `10`: all five of §7.8.2's content streams are read through a window and all five of §7.4's byte filters pump in a chain. The file is kept because comments under `crates/` and ledger notes point a reader at it, and `01`'s sweeps read it |
 | [22](22-variable-text-edges.md) | §12.7.4.3's edges — **nothing is owed**: the Arabic free text value draws, joined and right to left in a face from the machine (ADRs 1413, 1414); the file stays while comments under `crates/` and `doc/todo/65` cite it, for the reasoning behind seven closed items |

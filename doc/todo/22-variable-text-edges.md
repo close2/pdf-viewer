@@ -40,12 +40,12 @@ route stayed shut and it was right to**: 36 distinct missing characters against 
 no Adobe Glyph List name for any Arabic character. Where a machine offers no covering face the value
 is still not drawn at all rather than in part, and a test that needs one skips saying so (ADR 1154).
 
-- **A save does not write a machine face.** The font around it holds the program as a stream
-  inside a dictionary, which §7.3.8.1 does not admit, and would carry this machine's font into
-  the document; so the widget goes out with Table 224's `/NeedAppearances` and
-  `view::Written::unconstructed` names it (ADR 1159's route), and the archive's writer refuses it.
-  Writing one — an indirect, subset program, with the face's embedding permission read — is not
-  built, and ADR 1414 names it.
+- **A save writes the machine face subset and embedded** (ADR 1425): §9.9.2's tagged subset of the
+  glyphs the value displays, no `cmap` under the `CIDFont` (§9.9.1), a `/CIDToGIDMap` stream where
+  the glyphs were renumbered, every stream an object of its own (§7.3.8.1), in the incremental
+  update and the archive's writer alike. A face whose `OS/2` `fsType` forbids embedding is not
+  written: the widget goes out with Table 224's `/NeedAppearances` and `view::Written::unconstructed`
+  names it (ADR 1159's route), and the archive's writer refuses it.
 
 ## ~~A `/DA` font name that is not text, and the escaping that goes with it~~ — **done in the six-hundred-and-seventeenth session**
 

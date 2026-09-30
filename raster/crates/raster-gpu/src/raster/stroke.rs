@@ -88,7 +88,8 @@ pub(crate) struct Stroked {
     /// value and its integral is the set's area in every pixel: the stroke is one subpath,
     /// and either one straight segment — its body and its two caps, which share their
     /// corners to the bit — or closed and convex with every corner cut, whose pieces are the
-    /// convex ring's decomposition into a strip per edge and a sector per corner (ADR 1397).
+    /// convex ring's decomposition into a strip per edge and a sector per corner (ADR 1397),
+    /// or bent so tightly that the tiling re-cut every one of its pieces (ADR 1421).
     /// `false` says only that the stroker cannot vouch for it.
     pub tiles: bool,
 }
@@ -211,11 +212,14 @@ fn stroke_subpath(centre: &Centre, stroke: Stroke, hw: f32, out: &mut Vec<Polyli
     // corpus pages past a sixteenth. Every lane that integrates without the set, the GPU
     // triangles among them, takes these same pieces.
     if at_a_tight_bend.contains(&true) {
-        out.extend(disjoint::disjoint(pieces, &at_a_tight_bend));
+        let tiling = disjoint::disjoint(pieces, &at_a_tight_bend);
+        out.extend(tiling.pieces);
+        // No point inside two pieces, whatever the path does: the fill need not ask (ADR 1421).
+        tiles || tiling.whole
     } else {
         out.extend(pieces);
+        tiles
     }
-    tiles
 }
 
 /// The unit vector from `a` to `b`, or the zero vector when there is no direction to

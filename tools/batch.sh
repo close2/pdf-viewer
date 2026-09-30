@@ -139,7 +139,7 @@ check_batch() {
     # function `commit` stages from, so a path git would print quoted (a space, a non-ASCII
     # character) is excluded by its real directory rather than by the spelling of its quotes.
     found=$(untracked_paths |
-        grep -vE '\.(rs|md|toml|tsv|txt|py|pem|der|crt|xfdf|j2k|jp2)$' |
+        grep -vE '\.(rs|md|toml|tsv|txt|py|pem|der|crt|xfdf|j2k|jp2|sh)$' |
         grep -vE '^data/icc/[^/]+\.icc$' || true)
     printf 'untracked, unexpected extension  %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) file(s)")"
     [ -z "$found" ] || { printf '%s\n' "$found" | sed 's/^/    /'; bad=1; }

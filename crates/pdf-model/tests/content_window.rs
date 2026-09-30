@@ -198,6 +198,52 @@ fn a_token_longer_than_the_window_is_reported_rather_than_cut() {
     );
 }
 
+/// A string longer than the window is stepped over to the parenthesis that ends it, and what it
+/// holds is not read as content.
+///
+/// §7.3.4.2: "Balanced pairs of parentheses within a string require no special treatment", so the
+/// string below is one token from its first `(` to the last `)` — about one and a half windows of
+/// [`CEILING`], and it holds white space. The fuzzer's `page` target found the shape (ADR 1424): a
+/// reader that steps over such a token to the next white space instead reads the string's own
+/// bytes as operators — the stroke inside it would draw — and meets a `(` that opens another
+/// string it cannot hold at every word, lexing [`CEILING`] bytes each time, which made a
+/// fourteen-kilobyte file a minute of interpretation. Stepped over whole it is one pass.
+#[test]
+fn a_string_longer_than_the_window_is_stepped_over_whole() {
+    let word = format!("({} ", "h".repeat(1000));
+    let words = (CEILING + CEILING / 2) / word.len();
+    let mut content = String::from("0 0 0 rg 10 10 20 20 re f\n( 1 1 m 2 2 l S ");
+    content.push_str(&word.repeat(words));
+    content.push_str(&") ".repeat(words));
+    content.push_str(") Tj\n50 50 20 20 re f\n");
+    let document = page(&content);
+    let page_one = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("the fixture has a page");
+
+    let started = std::time::Instant::now();
+    let interpretation = pdf_model::interpret(&document, &page_one);
+    let spent = started.elapsed();
+
+    assert!(
+        format!("{:?}", interpretation.unsupported)
+            .contains(&format!("TokenTooLong {{ limit: {CEILING} }}")),
+        "the reader says which bound it met: {:?}",
+        interpretation.unsupported
+    );
+    assert_eq!(
+        interpretation.display_list.commands().len(),
+        2,
+        "the two rectangles draw, and the stroke written inside the string does not"
+    );
+    // Principle 3's time budget: one pass over three mebibytes. Loose for a loaded machine; the
+    // defect this guards was minutes.
+    assert!(
+        spent < std::time::Duration::from_secs(10),
+        "stepping over the string took {spent:?}"
+    );
+}
+
 /// An inline image whose data outruns the lookahead is refused by name, not read short.
 ///
 /// The second thing a bounded buffer cannot do, and §8.9.7 is why it is a *different* answer

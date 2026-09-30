@@ -23,7 +23,8 @@ use raster_scene::{LineCap, LineJoin, Point, Segment, Stroke};
 
 use crate::raster::flatten::FLATTEN_TOLERANCE;
 use crate::raster::{
-    CoverageMask, DeviceTransform, Rule, fill_mask, flatten_stroke, stroke_polylines,
+    CoverageMask, DeviceTransform, Rule, fill_mask, fill_mask_settled, flatten_stroke,
+    stroke_pieces, stroke_polylines,
 };
 
 /// The rungs of the ladder: the caller's `ink_ladder` scales.
@@ -557,7 +558,9 @@ fn overlap(a: [f64; 4], b: [f64; 4]) -> f64 {
 /// rectangles meeting `M` only along edges. Every pixel at every rung, drawn both ways, is
 /// held to that within one coverage step. A fill that integrates winding and clamps it
 /// (trap 58) reads the overlap twice in the three pixels that hold a reflex corner, a
-/// quarter of a pixel or more apart from the set's own coverage at each.
+/// quarter of a pixel or more apart from the set's own coverage at each. The tiling re-cuts
+/// every piece of the L, so the stroker vouches for it and the encoder keeps the integral
+/// without asking (ADR 1421): that mask is held to the set too.
 #[test]
 fn a_tight_bend_counts_its_rim_once_either_way() {
     let mitred = stroke(8.0, LineCap::Butt, LineJoin::Miter, 10.0);
@@ -572,26 +575,36 @@ fn a_tight_bend_counts_its_rim_once_either_way() {
     }
     for s in RUNGS {
         for drawn in [tight_ell(), reversed(&tight_ell())] {
-            let mask = mask(&drawn, mitred, s);
-            let scale = f64::from(s);
-            for y in 0..mask.height {
-                for x in 0..mask.width {
-                    let pixel = [
-                        f64::from(x) / scale,
-                        f64::from(x + 1) / scale,
-                        f64::from(y) / scale,
-                        f64::from(y + 1) / scale,
-                    ];
-                    let set = (overlap(pixel, a) + overlap(pixel, b) + overlap(pixel, m)
-                        - overlap(pixel, both))
-                        * scale
-                        * scale;
-                    let byte = f64::from(mask.coverage[(y * mask.width + x) as usize]);
-                    assert!(
-                        (byte - 255.0 * set).abs() <= 1.0,
-                        "the tight L at {s}×, pixel ({x}, {y}): {byte} against the set's {:.2}",
-                        255.0 * set
-                    );
+            let asked = mask(&drawn, mitred, s);
+            let stroked = stroke_pieces(&flatten_stroke(&drawn, scaled(s)), mitred, 8.0 * s);
+            assert!(stroked.tiles, "the tight L at {s}× is not vouched for");
+            let kept = fill_mask_settled(
+                &stroked.pieces,
+                Rule::NonZero,
+                (0, 0, asked.width, asked.height),
+                true,
+            );
+            for mask in [asked, kept] {
+                let scale = f64::from(s);
+                for y in 0..mask.height {
+                    for x in 0..mask.width {
+                        let pixel = [
+                            f64::from(x) / scale,
+                            f64::from(x + 1) / scale,
+                            f64::from(y) / scale,
+                            f64::from(y + 1) / scale,
+                        ];
+                        let set = (overlap(pixel, a) + overlap(pixel, b) + overlap(pixel, m)
+                            - overlap(pixel, both))
+                            * scale
+                            * scale;
+                        let byte = f64::from(mask.coverage[(y * mask.width + x) as usize]);
+                        assert!(
+                            (byte - 255.0 * set).abs() <= 1.0,
+                            "the tight L at {s}×, pixel ({x}, {y}): {byte} against the set's {:.2}",
+                            255.0 * set
+                        );
+                    }
                 }
             }
         }

@@ -5771,3 +5771,21 @@ to the hybrid, and the comparison there is partly the compute lane against itsel
 a stroke of hundreds of pieces in a few pixels spends the fill's sweep bound, and untiled its rim
 reads up to 184 levels too dark (`bug1743245.pdf`, all 205 such strokes); 19 corpus pages move past
 a sixteenth. It stays.
+
+## 58. The 4× thread-count residue was the comparison's, an outline's topology is read once, and the one level is the device's fused multiply-adds (ADRs 1419, 1420)
+
+**Closed on this side.** The 176 pages that differed between one encode thread and many at 4× were
+not an encoder race: the corpus gate drew the one-threaded backend only when the other had drawn, so
+a frame refused by its budget — which had already committed atlas inserts — was drawn by one backend
+and not the other, and every page after it met two different atlases. Drawn on both, the atlas
+insert logs of the whole walk are identical and 0 of 966 pages differ; the list is held empty at
+every scale. `StoredOutline::winds_two_values` is now always asked of the outline's own flattening:
+a coarse placement asking first could fix an answer the outline's topology does not have.
+
+**Section 57's ask, answered.** The one level is not the rounding — both lanes round half up the
+same `f32` — but the multiply-adds before it: WGSL section 15.7.5 lets a device fuse and reassociate,
+RADV fuses the transform, the edge interpolation and the trapezoid deposit, llvmpipe fewer, and the
+two devices' compute lanes differ from each other on four pixels of the glyph fixture. No processor
+arithmetic can match both, so `compute_lane.rs` holds glyphs to one level and says why, and
+`compute.rs`'s module comment no longer claims the CPU's bytes. **The ask back**: if the lanes are
+ever to be byte-equal under rotation, it is an integer rasteriser on both sides, not a rounding rule.

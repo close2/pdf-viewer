@@ -257,12 +257,14 @@ pub struct Host {
     /// the `QTabBar` is hidden until then, so a window showing one document looks exactly as it
     /// did (ADR 1264).
     documents: viewer_host::Documents<Showing>,
-    /// The machine's faces for characters of a tab's label the compiled-in face lacks, asked by
-    /// file off this thread (ADR 1406), and how many of them the window has registered with Qt.
+    /// The machine's faces for characters of a tab's or a panel row's label the compiled-in face
+    /// lacks, asked by file off this thread (ADRs 1406, 1418), and how many of them the window has
+    /// registered with Qt.
     ///
     /// Qt's own fallback goes by *family*, and on a machine where the face covering a label shares
     /// its family name with Latin faces it picks one of those and draws boxes; the file the covering
-    /// search names, registered with `QFontDatabase`, is what the tab strip is then set in.
+    /// search names, registered with `QFontDatabase`, is what the tab strip and the panels are then
+    /// set in.
     faces: viewer_host::machine_faces::MachineFaces,
     /// How many of [`Self::faces`] the C++ side has taken.
     faces_taken: usize,
@@ -2115,10 +2117,21 @@ impl Host {
     }
 
     /// One panel's rows, depth first.
+    ///
+    /// **And the machine is asked for a face for any character of them the compiled-in face
+    /// lacks**, as the strip's labels are (ADR 1418): Qt falls back by family in a tree view exactly
+    /// as it does in a tab bar, and drew a Chinese outline title as boxes on a machine whose
+    /// covering face shares its family name with Latin ones.
     pub(crate) fn rows(&self, tree: u8) -> Vec<QtRow> {
-        self.tree(tree)
+        let rows: Vec<QtRow> = self
+            .tree(tree)
             .map(|rows| rows.iter().map(|flat| flat.row.clone()).collect())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        for row in &rows {
+            self.ask_machine(&row.label);
+            self.ask_machine(&row.detail);
+        }
+        rows
     }
 
     /// What one of [`viewer_host::Tab`]'s panels is called.
@@ -2181,6 +2194,7 @@ impl Host {
     /// avoided copy at the price of a second cache on this side of the bridge.
     pub(crate) fn page_row(&self, index: usize) -> QtPage {
         let entry = viewer_host::page_entry(&self.viewer, index);
+        self.ask_machine(&entry.label);
         match entry.thumbnail {
             Some(image) => QtPage {
                 label: entry.label,
@@ -2440,7 +2454,17 @@ impl Host {
             .iter()
             .map(|(_, label)| label.to_owned())
             .collect();
-        for character in labels.iter().flat_map(|label| label.chars()) {
+        for label in &labels {
+            self.ask_machine(label);
+        }
+        labels
+    }
+
+    /// Queues every character of `text` the compiled-in face lacks on `viewer_host::machine_faces`'
+    /// thread, which never searches on this one (ADR 1406); the answer is taken by
+    /// [`Host::take_face`] when it lands.
+    fn ask_machine(&self, text: &str) {
+        for character in text.chars() {
             if viewer_host::machine_faces::compiled_in_lacks(character) {
                 let _answer = self.faces.ask(viewer_host::machine_faces::Wanted {
                     character,
@@ -2449,7 +2473,6 @@ impl Host {
                 });
             }
         }
-        labels
     }
 
     /// How long to wait before asking whether a machine face has landed, in milliseconds, or `-1`
@@ -2472,7 +2495,8 @@ impl Host {
     /// where there is none.
     ///
     /// The file the covering search named (§9.7.4.2's search, ADR 1382), which the window hands to
-    /// `QFontDatabase::addApplicationFontFromData` and sets the strip in by the family it registers.
+    /// `QFontDatabase::addApplicationFontFromData` and sets the strip and the panels in by the
+    /// family it registers (ADRs 1406, 1418).
     pub(crate) fn take_face(&mut self) -> Vec<u8> {
         let Some(bytes) = self.faces.face(self.faces_taken) else {
             return Vec::new();
@@ -4133,13 +4157,85 @@ mod tests {
         assert_eq!(host.faces_wait(), -1, "nothing left to look for");
     }
 
+    /// An outline title Qt's own fallback drew as boxes asks the machine for a face as a tab's label
+    /// does, and nothing is asked before the panel's rows are (ADR 1418).
+    ///
+    /// §12.3.3's `/Title` is "[t]he text that shall be displayed on the screen for this item", in a
+    /// `QTreeView` that falls back by family exactly as the tab bar does. Skips with a sentence
+    /// where the machine offers no face stating the characters, as ADR 1154's tests do.
+    #[test]
+    fn a_chinese_outline_title_asks_the_machine_for_a_face() {
+        let directory =
+            std::env::temp_dir().join(format!("quorra-qt-outline-faces-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("a temporary directory");
+        let path = directory.join("outlined.pdf");
+        let title = "多边形批注"
+            .encode_utf16()
+            .fold(String::new(), |mut hex, unit| {
+                use std::fmt::Write as _;
+                let _ = write!(hex, "{unit:04X}");
+                hex
+            });
+        std::fs::write(&path, outlined(&title)).expect("the document is written");
+        let host = opened(&path);
+        std::fs::remove_dir_all(&directory).expect("the temporary directory is removed");
+        assert_eq!(
+            host.faces_wait(),
+            -1,
+            "nothing is asked before the rows are"
+        );
+        let contents = u8::try_from(Tab::Contents.index()).expect("a handful of panels");
+        let rows = host.rows(contents);
+        assert_eq!(
+            rows.first().map(|row| row.label.as_str()),
+            Some("多边形批注")
+        );
+        assert!(
+            host.faces_wait() >= 0,
+            "the search is running or has landed"
+        );
+        host.faces.settle();
+        if host.faces.found() == 0 {
+            eprintln!("skipped: this machine offers no face stating 多边形批注's characters");
+            return;
+        }
+        let asked = viewer_host::machine_faces::Wanted {
+            character: '批',
+            bold: false,
+            italic: false,
+        };
+        assert!(
+            matches!(
+                host.faces.ask(asked),
+                viewer_host::machine_faces::Answer::Face(_)
+            ),
+            "every character of the title was asked for"
+        );
+    }
+
     /// One empty page and nothing else: no information dictionary, so no title to be labelled by.
     fn untitled() -> Vec<u8> {
-        let objects = [
+        written(&[
             "<< /Type /Catalog /Pages 2 0 R >>",
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] >>",
-        ];
+        ])
+    }
+
+    /// One empty page and an outline of one item, whose `/Title` is the UTF-16BE `title` in hex.
+    fn outlined(title: &str) -> Vec<u8> {
+        let item = format!("<< /Title <FEFF{title}> /Parent 4 0 R /Dest [3 0 R /Fit] >>");
+        written(&[
+            "<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] >>",
+            "<< /Type /Outlines /First 5 0 R /Last 5 0 R /Count 1 >>",
+            &item,
+        ])
+    }
+
+    /// A file of `objects`, numbered from 1, with a cross-reference table and the first as root.
+    fn written(objects: &[&str]) -> Vec<u8> {
         let mut out = b"%PDF-1.7\n".to_vec();
         let mut offsets = Vec::new();
         for (index, body) in objects.iter().enumerate() {
@@ -4149,12 +4245,14 @@ mod tests {
             );
         }
         let xref = out.len();
-        out.extend_from_slice(b"xref\n0 4\n0000000000 65535 f \n");
+        let size = objects.len().saturating_add(1);
+        out.extend_from_slice(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes());
         for offset in offsets {
             out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
         }
         out.extend_from_slice(
-            format!("trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
+            format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n")
+                .as_bytes(),
         );
         out
     }

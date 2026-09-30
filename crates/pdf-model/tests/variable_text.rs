@@ -675,18 +675,21 @@ fn a_stand_in_draws_the_whole_value_or_none_of_it() {
 /// the sans-serif family `/Helv` names — so the test asks `pdf-font` rather than reading the
 /// shape of a refusal (ADR 1154).
 fn machine_offers_a_face_covering(text: &str) -> bool {
+    machine_face_covering(text, false).is_some()
+}
+
+/// The face [`machine_offers_a_face_covering`] asks about, in the bold weight where `bold`.
+fn machine_face_covering(text: &str, bold: bool) -> Option<std::sync::Arc<[u8]>> {
     let paragraphs = pdf_font::shaping::Paragraphs::new(text);
-    let Some(wanted) = pdf_font::shaping::displayed_characters(text, paragraphs.as_ref()) else {
-        return false;
-    };
+    let wanted = pdf_font::shaping::displayed_characters(text, paragraphs.as_ref())?;
     let wanted: Vec<char> = wanted.keys().copied().collect();
     let request = pdf_font::substitute::Request {
         family: pdf_font::substitute::Family::SansSerif,
-        bold: false,
+        bold,
         italic: false,
         standard: false,
     };
-    pdf_font::substitute::installed_covering(request, &wanted).is_some()
+    pdf_font::substitute::installed_covering(request, &wanted)
 }
 
 /// The sentence a fixture needing a machine face for Arabic prints where this machine has none.
@@ -786,7 +789,12 @@ fn shown_bytes(content: &[u8]) -> Vec<Vec<u8>> {
 
 /// The glyph indices one constructed free text appearance shows, one vector per line, and the
 /// face program they index.
-fn shown_glyphs(annotation: &str) -> (Vec<Vec<u16>>, std::sync::Arc<[u8]>) {
+///
+/// The codes are the CIDs the content stream shows, which are the machine face's own glyph
+/// indices; the program the written font embeds is §9.9.2's subset of that face (ADR 1425), so the
+/// face the indices are read against is the one the machine offers for `displayed` in the weight
+/// the fixtures' `/HeBo` names.
+fn shown_glyphs(annotation: &str, displayed: &str) -> (Vec<Vec<u16>>, std::sync::Arc<[u8]>) {
     let bytes = pdf_with("", annotation);
     let document = Document::open(bytes).expect("the fixture is a valid PDF");
     let annotation = document.get(pdf_syntax::ObjectId {
@@ -798,15 +806,8 @@ fn shown_glyphs(annotation: &str) -> (Vec<Vec<u16>>, std::sync::Arc<[u8]>) {
         annotation.as_dict().expect("the annotation"),
     )
     .expect("a free text annotation is constructed");
-    // The one owed sentence is the writer's (ADR 1414): the page draws it, a file does not get it.
-    assert!(
-        written
-            .owed
-            .as_deref()
-            .is_some_and(|owed| owed.contains("face from this machine")),
-        "{:?}",
-        written.owed
-    );
+    // The face is written into the file, subset and embedded, so nothing is owed (ADR 1425).
+    assert_eq!(written.owed, None);
     let stream = match &written.stream {
         pdf_syntax::Object::Stream(stream) => Some(stream),
         _ => None,
@@ -820,20 +821,19 @@ fn shown_glyphs(annotation: &str) -> (Vec<Vec<u16>>, std::sync::Arc<[u8]>) {
         .and_then(pdf_syntax::Object::as_dict)
         .and_then(|fonts| fonts.iter().next().map(|(_, font)| font.clone()))
         .expect("the invented font is among the resources");
-    let program = font
-        .as_dict()
-        .and_then(|font| font.get("DescendantFonts"))
-        .and_then(pdf_syntax::Object::as_array)
-        .and_then(<[pdf_syntax::Object]>::first)
-        .and_then(pdf_syntax::Object::as_dict)
-        .and_then(|descendant| descendant.get("FontDescriptor"))
-        .and_then(pdf_syntax::Object::as_dict)
-        .and_then(|descriptor| descriptor.get("FontFile2"))
-        .and_then(|program| match program {
-            pdf_syntax::Object::Stream(program) => Some(program.data.clone()),
-            _ => None,
-        })
-        .expect("the face is embedded in the invented font");
+    assert!(
+        font.as_dict()
+            .and_then(|font| font.get("DescendantFonts"))
+            .and_then(pdf_syntax::Object::as_array)
+            .and_then(<[pdf_syntax::Object]>::first)
+            .and_then(pdf_syntax::Object::as_dict)
+            .and_then(|descendant| descendant.get("FontDescriptor"))
+            .and_then(pdf_syntax::Object::as_dict)
+            .is_some_and(|descriptor| descriptor.get("FontFile2").is_some()),
+        "the face is embedded in the invented font"
+    );
+    let program =
+        machine_face_covering(displayed, true).expect("the caller asked the machine first");
     let glyphs = shown_bytes(&stream.data)
         .iter()
         .map(|codes| {
@@ -875,7 +875,7 @@ fn an_arabic_value_is_shaped_and_displayed_as_the_ucd_tables_state() {
         println!("{NO_ARABIC_FACE}");
         return;
     }
-    let (glyphs, program) = shown_glyphs(&annotation("0633064406270645"));
+    let (glyphs, program) = shown_glyphs(&annotation("0633064406270645"), word);
     let glyph = |character: char| {
         pdf_font::shaping::face::glyph(&program, character)
             .expect("the face covers what the value displays")
@@ -886,7 +886,10 @@ fn an_arabic_value_is_shaped_and_displayed_as_the_ucd_tables_state() {
         [vec![glyph('\u{645}'), glyph('\u{fefc}'), glyph('\u{feb3}')]]
     );
 
-    let (glyphs, program) = shown_glyphs(&annotation("06330644062706450020003100320033"));
+    let (glyphs, program) = shown_glyphs(
+        &annotation("06330644062706450020003100320033"),
+        &format!("{word} 123"),
+    );
     let glyph = |character: char| {
         pdf_font::shaping::face::glyph(&program, character)
             .expect("the face covers what the value displays")
@@ -916,19 +919,22 @@ fn an_arabic_value_is_shaped_and_displayed_as_the_ucd_tables_state() {
 /// level by UAX #9's rule L1 and so displayed at the line's left end.
 #[test]
 fn a_wrapped_right_to_left_value_breaks_between_words() {
-    let words = vec!["\u{633}\u{644}\u{627}\u{645}"; 10].join(" ");
+    let words = ["\u{633}\u{644}\u{627}\u{645}"; 10].join(" ");
     if !machine_offers_a_face_covering(&words) {
         println!("{NO_ARABIC_FACE}");
         return;
     }
-    let value: String = words
-        .encode_utf16()
-        .map(|unit| format!("{unit:04X}"))
-        .collect();
-    let (glyphs, program) = shown_glyphs(&format!(
-        "<< /Type /Annot /Subtype /FreeText /Rect [10 10 90 90] /F 4 \
-         /DA (/HeBo 12 Tf 0 g) /Contents <FEFF{value}> >>"
-    ));
+    let value = words.encode_utf16().fold(String::new(), |mut out, unit| {
+        let _ = write!(out, "{unit:04X}");
+        out
+    });
+    let (glyphs, program) = shown_glyphs(
+        &format!(
+            "<< /Type /Annot /Subtype /FreeText /Rect [10 10 90 90] /F 4 \
+             /DA (/HeBo 12 Tf 0 g) /Contents <FEFF{value}> >>"
+        ),
+        &words,
+    );
     let glyph = |character: char| {
         pdf_font::shaping::face::glyph(&program, character)
             .expect("the face covers what the value displays")
@@ -952,16 +958,17 @@ fn a_wrapped_right_to_left_value_breaks_between_words() {
     assert_eq!(drawn, 10, "every word is drawn once");
 }
 
-/// A value set in a face from this machine is drawn and not saved (§7.3.8.1, Table 224).
+/// A value set in a face from this machine is saved with that face subset and embedded (§9.9.1,
+/// §9.9.2, §7.3.8.1).
 ///
-/// The font around a machine face holds the face's program as a stream inside a dictionary,
-/// which §7.3.8.1 does not admit in a file — "[a]ll streams shall be indirect objects" — and a
-/// file carrying it would carry this machine's font rather than the document's. So a save of a
-/// field whose Arabic value only a machine face can set writes no appearance for it, sets
-/// Table 224's `/NeedAppearances` as for any widget left without one, and names the field
-/// (ADR 1414).
+/// The font written around the face is the drawing's, with the program cut to the glyphs the
+/// value displays and §9.9.2's six-letter tag before its name; every stream in it is an object of
+/// its own, which is §7.3.8.1's "[a]ll streams shall be indirect objects". So the field is not
+/// owed, Table 224's `/NeedAppearances` is not set, and the name the drawing gives the face does
+/// not reach the file (ADR 1425). `tests/machine_face_written.rs` re-opens such a file with no
+/// machine face and draws it.
 #[test]
-fn a_value_set_in_a_machine_face_is_not_written_into_the_file() {
+fn a_value_set_in_a_machine_face_is_written_subset_and_embedded() {
     let typed = "\u{633}\u{644}\u{627}\u{645}";
     if !machine_offers_a_face_covering(typed) {
         println!("{NO_ARABIC_FACE}");
@@ -979,12 +986,29 @@ fn a_value_set_in_a_machine_face_is_not_written_into_the_file() {
         1
     );
     let written = view.save(&document).expect("the fixture can be written");
-    assert_eq!(written.unconstructed, vec!["field".to_owned()]);
+    assert!(
+        written.unconstructed.is_empty(),
+        "{:?}",
+        written.unconstructed
+    );
     let name = b"VariableTextMachineFace";
     assert!(
         !written.bytes.windows(name.len()).any(|run| run == name),
-        "no machine face reaches the file"
+        "the drawing's name for the face does not reach the file"
     );
+    let saved = Document::open(written.bytes).expect("the save re-opens");
+    let (program, length1) = (1..64)
+        .map(|number| saved.get(pdf_syntax::ObjectId::new(number, 0)))
+        .find_map(|object| {
+            let stream = object.as_stream()?;
+            let length1 = stream.dict.get("Length1")?.as_integer()?;
+            Some((saved.decoded_stream_data(stream)?, length1))
+        })
+        .expect("the program is an indirect stream stating Length1");
+    assert_eq!(usize::try_from(length1).ok(), Some(program.len()));
+    let tables = pdf_font::embedding::sfnt_tables(&program).expect("an sfnt");
+    assert!(tables.carries_all(&[*b"glyf", *b"head", *b"hhea", *b"hmtx", *b"loca", *b"maxp"]));
+    assert!(!tables.carries(b"cmap"), "§9.9.1: no cmap under a CIDFont");
 }
 
 /// `/Q` names sides of the box, and a right-to-left value is quadded to the side it names.

@@ -175,7 +175,8 @@ fn a_round_join_where_an_arc_meets_a_line_is_its_quarter_disc() {
 /// **Where the stroker says its pieces tile the set, the fill's integral is the set's area**:
 /// drawn with the question skipped, as [`fill_mask_settled`] does for such a stroke, every
 /// shape here reads within a byte of the same pieces drawn with it asked — one straight
-/// segment under each cap, a rectangle under each join, a circle of four arcs — at 1×–8×.
+/// segment under each cap, a rectangle under each join, a circle of four arcs, and a
+/// rectangle narrower than its stroke whose tight corners the tiling re-cuts — at 1×–8×.
 #[test]
 fn a_stroke_whose_pieces_tile_draws_the_same_without_the_question() {
     let k = 0.552_284_8 * 20.0;
@@ -208,6 +209,18 @@ fn a_stroke_whose_pieces_tile_draws_the_same_without_the_question() {
         &[(20.3, 20.6), (80.3, 20.6), (80.3, 60.6), (20.3, 60.6)],
         true,
     );
+    // Narrower than its stroke: every corner is tighter than the half-width, and the tiling
+    // re-cuts every piece (ADR 1421).
+    let narrow = line_path(
+        &[(20.3, 20.6), (80.3, 20.6), (80.3, 21.6), (20.3, 21.6)],
+        true,
+    );
+    // A lead-in the tiling does not reach, then a bend tighter than the half-width: the
+    // lead-in's piece meets the tiled ones edge to edge and nothing else (ADR 1421).
+    let lead_in = line_path(
+        &[(10.3, 50.6), (60.3, 50.6), (72.3, 50.6), (72.3, 52.6)],
+        false,
+    );
     let cases = [
         (&segment, stroke(6.0, LineCap::Round, LineJoin::Miter, 10.0)),
         (
@@ -228,6 +241,9 @@ fn a_stroke_whose_pieces_tile_draws_the_same_without_the_question() {
             stroke(6.0, LineCap::Butt, LineJoin::Bevel, 10.0),
         ),
         (&circle, stroke(3.0, LineCap::Butt, LineJoin::Miter, 10.0)),
+        (&narrow, stroke(4.0, LineCap::Butt, LineJoin::Miter, 10.0)),
+        (&narrow, stroke(4.0, LineCap::Round, LineJoin::Round, 10.0)),
+        (&lead_in, stroke(8.0, LineCap::Butt, LineJoin::Miter, 10.0)),
     ];
     for (path, drawn) in cases {
         for back in [false, true] {
@@ -263,8 +279,11 @@ fn a_stroke_whose_pieces_tile_draws_the_same_without_the_question() {
 
 /// **The stroker vouches for nothing it has not built to tile**: two segments meeting at a
 /// corner (a join and two bodies whose inner sides are cut, but whose far ends the stroker
-/// has not compared), two subpaths, a concave outline, and a rectangle narrower than its own
-/// stroke, whose corners are too tight to cut.
+/// has not compared), two subpaths, a concave outline, and a stroke with a tight bend whose
+/// far end crosses a piece the tiling did not reach. A rectangle narrower than its own
+/// stroke is vouched for, because every piece of it is re-cut by the tiling of its tight
+/// corners (ADR 1421), and [`a_stroke_whose_pieces_tile_draws_the_same_without_the_question`]
+/// holds it there.
 #[test]
 fn a_stroke_that_may_overlap_itself_is_not_vouched_for() {
     let two_segments = line_path(&[(20.0, 20.0), (60.0, 20.0), (60.0, 60.0)], false);
@@ -280,18 +299,26 @@ fn a_stroke_that_may_overlap_itself_is_not_vouched_for() {
         ],
         true,
     );
-    let narrow = line_path(
-        &[(20.0, 20.0), (80.0, 20.0), (80.0, 21.0), (20.0, 21.0)],
-        true,
+    let crossing_after_a_bend = line_path(
+        &[
+            (10.0, 50.0),
+            (60.0, 50.0),
+            (72.0, 50.0),
+            (72.0, 52.0),
+            (72.0, 90.0),
+            (30.0, 90.0),
+            (30.0, 20.0),
+        ],
+        false,
     );
-    for (what, path) in [
-        ("two segments", two_segments),
-        ("two subpaths", two_subpaths),
-        ("concave", concave),
-        ("narrow", narrow),
+    for (what, path, width) in [
+        ("two segments", two_segments, 4.0),
+        ("two subpaths", two_subpaths, 4.0),
+        ("concave", concave, 4.0),
+        ("crossing after a bend", crossing_after_a_bend, 8.0),
     ] {
-        let drawn = stroke(4.0, LineCap::Butt, LineJoin::Miter, 10.0);
-        let stroked = stroke_pieces(&flatten_stroke(&path, scaled(1.0)), drawn, 4.0);
+        let drawn = stroke(width, LineCap::Butt, LineJoin::Miter, 10.0);
+        let stroked = stroke_pieces(&flatten_stroke(&path, scaled(1.0)), drawn, width);
         assert!(!stroked.tiles, "{what}: vouched for");
     }
 }

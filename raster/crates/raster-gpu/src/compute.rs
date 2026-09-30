@@ -21,15 +21,19 @@
 //!    passes → texture, so a mixed sheet costs two whole copies and never one per
 //!    tile (ADR 0078's lesson standing).
 //!
-//! # Why the bytes are still the CPU's bytes
+//! # Why the bytes are the CPU's bytes, to one level
 //!
-//! Every stage is the same arithmetic in the same order. The flattening is
+//! Every stage is the same statements in the same order. They are not the same bits under every
+//! transform: WGSL section 15.7.5 lets a device reassociate and fuse floating-point operations,
+//! each driver fuses a different set of these multiply-adds, and a pixel within an ulp of a
+//! level's boundary then rounds one level apart — `tests/compute_lane.rs` holds glyphs to one
+//! level for that reason, and whole identity-placed scenes to the byte (ADR 1420). The flattening is
 //! `raster/flatten.rs` statement for statement — the transform's `a·x + c·y + e`, the
 //! exact midpoint halving, the flatness cross-products, the depth cap — made iterative
 //! with an explicit stack because WGSL has no recursion, pushed right-half-first so
 //! the emission order is the recursion's; the cubic's own control points stay in
 //! unshifted device space so no round-trip through the tile shift can move a bit. The
-//! deposit pass is ADR 0080's shader unchanged. The **one stated divergence**:
+//! deposit pass is ADR 0080's shader unchanged. The **one divergence in the statements**:
 //! `cubic_tolerance` takes `√(w² + h²)` where the CPU takes `f32::hypot`, which WGSL
 //! does not have — the two differ by at most an ulp of the diagonal, that can matter
 //! only for a cubic whose flatness test lands within it of the boundary, and

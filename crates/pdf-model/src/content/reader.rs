@@ -792,10 +792,26 @@ impl Window {
 
     /// Steps over a token no buffer of [`CEILING`] bytes can hold.
     ///
-    /// To the next white-space byte, which §7.2.3 makes the one thing that ends every kind of
-    /// token, refilling until one is found or the stream ends. What is stepped over is
+    /// A string is stepped over to its own end, by the grammar that ends it: §7.3.4.2's
+    /// literal string at the right parenthesis that balances its first — "[b]alanced pairs of
+    /// parentheses within a string require no special treatment" — with a REVERSE SOLIDUS
+    /// escaping the byte after it, and §7.3.4.3's hexadecimal string at its `>`. Both hold white
+    /// space, so stepping to the next white-space byte instead would read the rest of the string
+    /// as content: operators the producer wrote as a string's bytes would draw, and every `(` in
+    /// it would open another string this buffer cannot hold — a lex of [`CEILING`] bytes each,
+    /// which made a fourteen-kilobyte file a minute's work (ADR 1424). Every other token ends at
+    /// white space, which §7.2.3 makes the one thing that ends every kind of token. Either way the
+    /// stream is refilled until the end is found or the stream ends, and what is stepped over is
     /// reported by the caller; nothing here is silent.
     fn drop_token(&mut self) {
+        match (
+            self.buffer.get(self.at).copied(),
+            self.buffer.get(self.at.saturating_add(1)).copied(),
+        ) {
+            (Some(b'('), _) => return self.drop_literal_string(),
+            (Some(b'<'), Some(second)) if second != b'<' => return self.drop_hexadecimal_string(),
+            _ => {}
+        }
         loop {
             let found = self.buffer.get(self.at..self.filled).and_then(|rest| {
                 rest.iter()
@@ -803,6 +819,59 @@ impl Window {
             });
             if let Some(offset) = found {
                 self.at += offset;
+                return;
+            }
+            self.at = self.filled;
+            if !self.pull() {
+                return;
+            }
+        }
+    }
+
+    /// [`Self::drop_token`] for a literal string: past the right parenthesis that balances the
+    /// one at the cursor, or to the end of the stream where none does.
+    ///
+    /// The depth and a pending escape carry across refills, which is what makes this one pass
+    /// over the string however many buffers it spans.
+    fn drop_literal_string(&mut self) {
+        let mut depth = 0usize;
+        let mut escaped = false;
+        loop {
+            let rest = self.buffer.get(self.at..self.filled).unwrap_or_default();
+            for (offset, &byte) in rest.iter().enumerate() {
+                if escaped {
+                    escaped = false;
+                    continue;
+                }
+                match byte {
+                    b'\\' => escaped = true,
+                    b'(' => depth = depth.saturating_add(1),
+                    b')' => {
+                        depth = depth.saturating_sub(1);
+                        if depth == 0 {
+                            self.at += offset + 1;
+                            return;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            self.at = self.filled;
+            if !self.pull() {
+                return;
+            }
+        }
+    }
+
+    /// [`Self::drop_token`] for a hexadecimal string: past its `>`, or to the end of the stream.
+    fn drop_hexadecimal_string(&mut self) {
+        loop {
+            let found = self
+                .buffer
+                .get(self.at..self.filled)
+                .and_then(|rest| rest.iter().position(|&byte| byte == b'>'));
+            if let Some(offset) = found {
+                self.at += offset + 1;
                 return;
             }
             self.at = self.filled;

@@ -99,8 +99,9 @@ than a blocker, and `doc/stack.md`'s curve paragraph names it. **Re-checked on 2
 `cargo search bp512`, `cargo search brainpool` and `cargo search ed448`: RustCrypto has published no
 `bp512`, and `ed448-goldilocks` is still on `0.14.0-pre.15`. One package that paragraph does not
 name, `ed448-goldilocks-plus` 0.18.1 (BSD-3-Clause, published from `mikelodder7/Ed448-Goldilocks` on a stable version line), is a
-candidate to be judged on `doc/stack.md`'s terms — whether it is *reviewed* is the question those
-terms ask — and not a swap this map makes.
+candidate to be judged on `doc/stack.md`'s terms. Whether it is *reviewed* is the owner's open
+question `doc/questions/Q192`, and its own README says it has not been. It is not a swap this map
+makes.
 
 ### 3. Hard rendering / architecture — a real build across several rounds
 

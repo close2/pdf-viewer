@@ -16,6 +16,8 @@
 //!   obligatory lam-alef ligature, over `DerivedJoiningType.txt` and `ArabicShaping.txt`, with the
 //!   positional forms reached as the Arabic Presentation Forms code points `UnicodeData.txt`
 //!   decomposes to them (ADR 1414).
+//! - [`Label`] is both over one line of an interface's own text, whose direction is its own
+//!   (ADR 1417).
 //!
 //! Every table is compiled in by `build.rs` from `data/unicode/`, so nothing is parsed at launch.
 //! **Content a document positioned is never passed through here**: its glyphs are where the
@@ -24,9 +26,11 @@
 mod bidi;
 pub mod face;
 mod joining;
+mod label;
 
 pub use bidi::{Paragraphs, mirrored, visual_order};
 pub use joining::{JoiningType, Position, Shaped, joining_type, positions, shape};
+pub use label::{Glyph, Label};
 
 /// The character UAX #9's rule L4 displays for `character`, which starts at byte `at` of the
 /// text `paragraphs` resolved.

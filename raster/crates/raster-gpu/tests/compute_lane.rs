@@ -17,10 +17,13 @@
 //! way (a tiny budget, `coverage_lanes.rs`'s trick), and the one scene that exercises
 //! the atlas asserts a one-step bound instead and says why.
 //!
-//! **Same arithmetic is not yet the same bits under every transform.** The mosaic's fills
-//! are all placed by the identity; glyphs scaled, rotated and set at a fractional phase put
-//! a pixel on a rounding tie now and then, and there the lanes are one level apart
-//! ([`the_compute_lane_is_within_one_level_of_the_cpu_lane_on_glyphs`], ADR 1407).
+//! **Same statements are not the same bits under every transform, and cannot be made so.**
+//! The mosaic's fills are all placed by the identity; glyphs scaled, rotated and set at a
+//! fractional phase put a pixel within an ulp of a level's boundary now and then, and there
+//! the lanes are one level apart
+//! ([`the_compute_lane_is_within_one_level_of_the_cpu_lane_on_glyphs`], ADR 1420): WGSL
+//! section 15.7.5 lets a device reassociate and fuse floating-point operations, and each
+//! driver fuses a different set of the scanline's multiply-adds.
 
 #![allow(
     clippy::unwrap_used,
@@ -483,18 +486,23 @@ fn glyphs(device: &mut Device) -> Scene {
 }
 
 /// **The compute lane and the CPU lane are one level apart at most, on glyphs as a page draws
-/// them** — the bound ADR 0082 allows between a device and the processor, and the one the room
-/// probe's lane choice relied on being zero (ADR 1407).
+/// them** — the bound ADR 0082 allows between a device and the processor (ADR 1420).
 ///
 /// Both lanes compute §10.7.4's coverage, the area of the pixel's half-open square inside the
 /// set, by the same flattening and trapezoid deposits in `f32`, the WGSL a statement-for-statement
-/// port. [`mosaic`]'s transforms are all the identity, and there the two agree to the byte; under
-/// a scale, a rotation and a fractional phase they do not, on RADV and on llvmpipe both, and every
-/// pixel that differs is one level apart — on `issue1905.pdf` the first three read 127 against 128
-/// under a baseline on a half-pixel row, a coverage of exactly one half. Which operation rounds
-/// differently is not isolated (a device compiler may evaluate `a · b + c` with one rounding
-/// where the processor takes two). The atlas and ADR 0090's hybrid are both switched off, so
-/// that the CPU lane's own arithmetic is what is compared.
+/// port, and both turn it into a level by rounding half up the same `f32`. §10.7.4 fixes which
+/// pixels a shape paints and says nothing of how a fractional coverage becomes a level, so that
+/// rounding is ADR 0005's choice — and it is not where the lanes part. **The multiply-adds are**:
+/// WGSL section 15.7.5 lets an implementation reassociate and fuse, and even its `fma` built-in may
+/// be evaluated as two roundings, so no WGSL program fixes these bits. Measured on this scene: the
+/// processor evaluating the device transform as two nested fused multiply-adds reproduces two of
+/// the pixels on both drivers; the trapezoid deposit fused as well reproduces RADV's two pixels on
+/// a half-pixel baseline, coverage exactly one half, 127 against 128 — and makes llvmpipe differ
+/// there, because llvmpipe does not fuse the deposit. The two drivers' compute lanes differ from
+/// each other on four pixels, one level each, so no arithmetic on the processor matches both, and
+/// a tie at one half sits on a level's boundary exactly (`255 / 2`), so an ulp of either sign moves
+/// it. Held to one level. The atlas and ADR 0090's hybrid are both switched off, so that the CPU
+/// lane's own arithmetic is what is compared.
 #[test]
 fn the_compute_lane_is_within_one_level_of_the_cpu_lane_on_glyphs() {
     const PAGE: u32 = 640;

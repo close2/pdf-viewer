@@ -2027,7 +2027,8 @@ fn prepare_appearances(
             .take(document)
             .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
         at.insert(annotation, stream);
-        written.push((stream, built.stream));
+        let form = streams_numbered(document, spare, &mut written, built.stream)?;
+        written.push((stream, form));
         constructed.push(WrittenAppearance {
             page: missing.page,
             subtype: missing
@@ -2123,7 +2124,8 @@ fn prepare_field_appearances(
             .take(document)
             .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
         found.at.insert(annotation, stream);
-        found.written.push((stream, built.stream));
+        let form = streams_numbered(document, spare, &mut found.written, built.stream)?;
+        found.written.push((stream, form));
         found.constructed.push(WrittenAppearance {
             page: widget.page,
             subtype: "Widget".to_owned(),
@@ -2132,6 +2134,77 @@ fn prepare_field_appearances(
     found.unconstructed.sort_unstable();
     found.unconstructed.dedup();
     Ok(found)
+}
+
+/// A constructed appearance with every stream held inside its dictionary given a number of its own.
+///
+/// §7.3.8.1: "[a]ll streams shall be indirect objects". A value set in a face from this machine
+/// comes with its font's program, `/CIDToGIDMap` and `/ToUnicode` as streams held directly in the
+/// font's dictionaries (ADR 1425); each is written here under a spare number and the reference
+/// takes its place. The appearance itself keeps the number its caller took for it.
+fn streams_numbered(
+    document: &Document,
+    spare: &mut Spare,
+    written: &mut Vec<(ObjectId, Object)>,
+    form: Object,
+) -> Result<Object, Because> {
+    fn within(
+        document: &Document,
+        spare: &mut Spare,
+        written: &mut Vec<(ObjectId, Object)>,
+        value: Object,
+    ) -> Result<Object, Because> {
+        Ok(match value {
+            Object::Stream(stream) => {
+                let dict = entries(document, spare, written, &stream.dict)?;
+                let id = spare
+                    .take(document)
+                    .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
+                written.push((
+                    id,
+                    Object::Stream(std::sync::Arc::new(Stream {
+                        dict,
+                        data: std::sync::Arc::clone(&stream.data),
+                        decryption_failed: false,
+                    })),
+                ));
+                Object::Reference(id)
+            }
+            Object::Dictionary(dict) => {
+                Object::Dictionary(entries(document, spare, written, &dict)?)
+            }
+            Object::Array(items) => Object::Array(
+                items
+                    .into_iter()
+                    .map(|item| within(document, spare, written, item))
+                    .collect::<Result<_, _>>()?,
+            ),
+            other => other,
+        })
+    }
+    fn entries(
+        document: &Document,
+        spare: &mut Spare,
+        written: &mut Vec<(ObjectId, Object)>,
+        dict: &Dictionary,
+    ) -> Result<Dictionary, Because> {
+        let mut out = Dictionary::new();
+        for (key, value) in dict.iter() {
+            out.insert(
+                key.clone(),
+                within(document, spare, written, value.clone())?,
+            );
+        }
+        Ok(out)
+    }
+    match form {
+        Object::Stream(stream) => Ok(Object::Stream(std::sync::Arc::new(Stream {
+            dict: entries(document, spare, written, &stream.dict)?,
+            data: std::sync::Arc::clone(&stream.data),
+            decryption_failed: stream.decryption_failed,
+        }))),
+        other => Ok(other),
+    }
 }
 
 /// §12.7.4.2's fully qualified name of the field a widget belongs to.
@@ -4639,4 +4712,71 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
         .position(|window| window == needle)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Spare, streams_numbered};
+    use pdf_syntax::Document;
+    use pdf_syntax::object::{Dictionary, Name, Object, Stream};
+    use std::sync::Arc;
+
+    /// A one-object document, whose only number is 1.
+    fn document() -> Document {
+        let object = "1 0 obj\n<< /Type /Catalog >>\nendobj\n";
+        let head = "%PDF-1.7\n";
+        let xref = head.len().saturating_add(object.len());
+        let text = format!(
+            "{head}{object}xref\n0 2\n0000000000 65535 f \n{:010} 00000 n \n\
+             trailer\n<< /Size 2 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+            head.len()
+        );
+        Document::open(text.into_bytes()).expect("the fixture is a valid PDF")
+    }
+
+    fn stream(dict: Dictionary, data: &[u8]) -> Object {
+        Object::Stream(Arc::new(Stream {
+            dict,
+            data: data.into(),
+            decryption_failed: false,
+        }))
+    }
+
+    /// §7.3.8.1: a program held directly inside a constructed appearance's font is written as an
+    /// object of its own and named by reference, and the appearance itself keeps its body (ADR 1425).
+    #[test]
+    fn a_stream_inside_a_constructed_appearance_is_given_a_number() {
+        let document = document();
+        let mut descriptor = Dictionary::new();
+        descriptor.insert(
+            Name::new(&b"FontFile2"[..]),
+            stream(Dictionary::new(), b"program"),
+        );
+        let mut resources = Dictionary::new();
+        resources.insert(Name::new(&b"Font"[..]), Object::Dictionary(descriptor));
+        let mut form = Dictionary::new();
+        form.insert(Name::new(&b"Resources"[..]), Object::Dictionary(resources));
+        let mut spare = Spare::of(&document);
+        let mut written = Vec::new();
+        let numbered = streams_numbered(&document, &mut spare, &mut written, stream(form, b"q Q"))
+            .expect("spare numbers");
+
+        assert_eq!(written.len(), 1, "the program, and only it");
+        let (id, program) = &written[0];
+        assert_eq!(id.number, 2, "past the document's own numbers");
+        assert_eq!(program.as_stream().map(|s| &*s.data), Some(&b"program"[..]));
+        let Object::Stream(form) = numbered else {
+            panic!("the appearance stays a stream");
+        };
+        assert_eq!(&*form.data, b"q Q");
+        let reference = form
+            .dict
+            .get("Resources")
+            .and_then(Object::as_dict)
+            .and_then(|resources| resources.get("Font"))
+            .and_then(Object::as_dict)
+            .and_then(|descriptor| descriptor.get("FontFile2"))
+            .and_then(Object::as_reference);
+        assert_eq!(reference, Some(*id));
+    }
 }

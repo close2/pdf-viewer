@@ -216,3 +216,12 @@ outline panel with a Chinese item put first present at about a second cold again
 milliseconds (ADR 1406). After any change to the chrome's text path, take time-to-first-page with
 `--trace=frames,launch` under Xvfb on a document whose first frame's chrome holds the characters
 in question, with the font files evicted from the page cache first.
+
+### 72. A string handed to a toolkit must be logical and unshaped
+
+`quorra` now shapes and orders a chrome label itself (`pdf_font::shaping::Label`, ADR 1417), and
+`quorra-gtk` and `quorra-qt` never did, because Pango and QTextLayout apply UAX #9 and joining to
+whatever string they are given. A future round that "shares" the shaping by moving it into the rows
+`viewer_host` hands every window would have the toolkits reorder an already-reordered string. Shape
+at the point of drawing, never in shared data; the GTK test that the rows reach Pango as stored is
+what guards it.

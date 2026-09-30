@@ -71,6 +71,9 @@
 //!   discriminator applied to the reading instead of to the note's citations. Keyed by the
 //!   list's name, which does not move when a sibling edits the lines above it; a name the tree
 //!   no longer declares is printed rather than kept silently. ADR 1355.
+//! - **An ADR's appendix is not the ADR's decision.** A record moved whole into an appendix names
+//!   the pages it named when it was first written, so [`decided`] reads each ADR above its
+//!   `## Appendix` heading only. ADR 1427.
 //! - **[`Report::uncited`] is a ranking, not a finding.** A note citing no ADR at all has no
 //!   left-hand side to compare, so it is counted rather than listed among the hits — the
 //!   comparison is undefined, not failed.
@@ -98,27 +101,28 @@ pub const DECISIONS: &str = "doc/adr";
 /// the note against each decision the sweep prints for it, correcting any sentence one of them
 /// made false, and writing the newest number; a decision taken later brings the note back.
 /// ADR 1355.
-pub const READ: [(&str, u32); 68] = [
+pub const READ: [(&str, u32); 82] = [
     ("AMBIGUOUS_BOUNDARY_PIXELS", 1082),
     ("AMBIGUOUS_CALRGB_TO_SCREEN", 985),
+    ("AMBIGUOUS_DEGENERATE_GLYPH_BOX", 985),
     ("AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE", 1321),
     ("AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE", 1341),
-    ("AMBIGUOUS_DEVICE_CMYK_CONVERSION", 805),
-    ("AMBIGUOUS_DIVIDED_CONSENSUS", 773),
-    ("AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY", 1347),
+    ("AMBIGUOUS_DEVICE_CMYK_CONVERSION", 1378),
+    ("AMBIGUOUS_DIVIDED_CONSENSUS", 1374),
+    ("AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY", 1427),
     ("AMBIGUOUS_FUNCTION_SAMPLED_BY_A_REFERENCE", 633),
     ("AMBIGUOUS_GLYPH_COVERAGE", 1361),
     ("AMBIGUOUS_GRADIENT_QUANTISATION", 355),
     ("AMBIGUOUS_ICC_MATRIX_PROFILE", 585),
     ("AMBIGUOUS_ICON_ARTWORK", 777),
-    ("AMBIGUOUS_IMAGE_REDUCTION", 1321),
+    ("AMBIGUOUS_IMAGE_REDUCTION", 1377),
     ("AMBIGUOUS_IRREVERSIBLE_JPEG_2000", 985),
     ("AMBIGUOUS_LINE_ENDING_SIZE", 1082),
     ("AMBIGUOUS_LINK_BORDER", 1253),
     ("AMBIGUOUS_LOCA_OUT_OF_ORDER", 174),
     ("AMBIGUOUS_NEAREST_THE_GEOMETRY", 1260),
     ("AMBIGUOUS_NON_ISOLATED_POSTER", 1307),
-    ("AMBIGUOUS_ONE_LADDER", 1321),
+    ("AMBIGUOUS_ONE_LADDER", 1361),
     ("AMBIGUOUS_OUTLINED_TEXT", 791),
     ("AMBIGUOUS_OVERSIZED_BORDER", 985),
     ("AMBIGUOUS_PAGE_DRAWN_IN_INK", 1267),
@@ -127,46 +131,59 @@ pub const READ: [(&str, u32); 68] = [
     ("AMBIGUOUS_SPACE_DRAWN_AS_A_MARK", 174),
     ("AMBIGUOUS_STACKED_SCREEN_UNDER_MASKS", 961),
     ("AMBIGUOUS_STANDARD_FOURTEEN_FACE", 1102),
-    ("AMBIGUOUS_STROKE_ADJUSTMENT", 985),
+    ("AMBIGUOUS_STROKE_ADJUSTMENT", 1407),
     ("AMBIGUOUS_SUBSTITUTED_FACE", 1082),
     ("AMBIGUOUS_SUBTRACTIVE_MASK_GROUP", 1058),
-    ("AMBIGUOUS_SUB_PIXEL_LINE_WORK", 1341),
+    ("AMBIGUOUS_SUB_PIXEL_LINE_WORK", 1407),
     ("AMBIGUOUS_TEXT_AT_DOCUMENT_SIZE", 985),
     ("AMBIGUOUS_TILING_CELL_CLIP", 1102),
+    ("AMBIGUOUS_TRANSFER_FUNCTION_UNAPPLIED", 1125),
+    ("AMBIGUOUS_WIDGET_BORDER", 1361),
     ("AMBIGUOUS_ZERO_AREA_FILL", 985),
-    ("CONTRADICTED_ANTIALIASED_EDGES", 773),
+    ("CONTRADICTED_ANTIALIASED_EDGES", 1374),
     ("CONTRADICTED_CALIBRATED_COLOUR", 985),
     ("CONTRADICTED_CALRGB_TO_SCREEN", 985),
     ("CONTRADICTED_COINCIDENT_CLIP_EDGES", 857),
     ("CONTRADICTED_DEVICE_CMYK_CONVERSION", 805),
     ("CONTRADICTED_GLYPH_EDGES", 1321),
-    ("CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE", 962),
+    ("CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE", 1374),
     ("CONTRADICTED_LUMINOSITY_OF_A_CIE_BASED_MASK", 857),
-    ("CONTRADICTED_PAGE_ROUNDING", 866),
+    ("CONTRADICTED_PAGE_ROUNDING", 1374),
+    ("CONTRADICTED_PATTERN_CELL_STATE", 1397),
     ("CONTRADICTED_REFERENCES_DREW_NOTHING", 985),
     ("CONTRADICTED_SHARED_JBIG2_DECODER", 805),
     ("CONTRADICTED_SUBPIXEL_IMAGE", 1082),
     ("CONTRADICTED_SUBSTITUTED_FONT", 1113),
-    ("CONTRADICTED_SYMBOLIC_FONT_FLAGS", 1341),
-    ("CONTRADICTED_TIGHT_CONSENSUS", 773),
-    ("CONTRADICTED_UNEXPLAINED", 1321),
+    ("CONTRADICTED_SYMBOLIC_FONT_FLAGS", 1411),
+    ("CONTRADICTED_TIGHT_CONSENSUS", 1374),
+    ("CONTRADICTED_UNEXPLAINED", 1411),
     ("CONTRADICTED_VISIBILITY_EXPRESSION", 510),
+    ("DIFFERS_AT_THE_EDGES", 1361),
+    ("DIFFERS_FROM_THE_REFERENCE_SOFTWARE", 985),
     ("DIFFERS_IN_SHAPE", 1341),
     ("JUDGED_WITHOUT_A_THIRD_READING", 985),
     ("KNOWN_SLOW", 1267),
     ("LOCKED", 1102),
+    ("NOT_COMPARABLE_A_FLAT_SHEET_IS_THE_PAGE", 1411),
+    ("NOT_COMPARABLE_A_MARK_ONE_REFERENCE_DRAWS", 1411),
+    ("NOT_COMPARABLE_ENCRYPTION_TWO_REFERENCES_DECLINE", 1377),
     ("NOT_COMPARABLE_NO_REFERENCE_REACHES_A_PAGE", 1328),
-    ("NOT_COMPARABLE_ONE_REFERENCE_REBUILT_THE_FILE", 860),
+    ("NOT_COMPARABLE_ONE_REFERENCE_REBUILT_THE_FILE", 1397),
     ("NOT_COMPARABLE_THE_OBJECT_TWO_REFERENCES_THREW_AWAY", 513),
     ("NOT_COMPARABLE_THE_RENDERERS_SAID_THEY_DREW_NOTHING", 1011),
+    ("NO_RENDER_ENCRYPTION_THE_STANDARD_DOES_NOT_STATE", 1377),
     ("NO_RENDER_NEEDS_A_PASSWORD", 1102),
     ("NO_RENDER_NO_PAGE_IN_THE_TREE", 852),
+    ("PAGELESS", 1411),
+    ("PDFBOX_BELOW_FLOOR", 1027),
     ("REFERENCE_GEOMETRY_A_REFUSAL_WEARING_A_RASTER", 1151),
     ("REFUSED_BEFORE_THE_SCENE", 1267),
-    ("REFUSED_BY_THE_DEVICE", 1321),
-    ("REFUSED_BY_THE_DEVICE_AT_FOUR", 1321),
-    ("SELECTION_BELOW_FLOOR", 1341),
-    ("TEXT_BELOW_FLOOR", 1341),
+    ("REFUSED_BY_THE_DEVICE", 1411),
+    ("REFUSED_BY_THE_DEVICE_AT_FOUR", 1411),
+    ("REFUSED_OPEN", 1377),
+    ("SELECTION_BELOW_FLOOR", 1411),
+    ("TEXT_BELOW_FLOOR", 1409),
+    ("UNREADABLE_ENCRYPTION", 1377),
 ];
 
 /// How many decimal digits an ADR's file name begins with.
@@ -392,15 +409,32 @@ pub fn decisions(root: &Path) -> std::io::Result<Vec<Decision>> {
             continue;
         };
         let text = std::fs::read_to_string(&path)?;
+        let decided = decided(&text);
         records.push(Decision {
             number,
             file: format!("{DECISIONS}/{name}"),
-            documents: documents_in(&text),
-            groups: constants_in(&text),
+            documents: documents_in(decided),
+            groups: constants_in(decided),
         });
     }
     records.sort_by_key(|decision| decision.number);
     Ok(records)
+}
+
+/// The part of a decision record that the record's number dates: everything above its appendix.
+///
+/// An appendix in `doc/adr/` carries text moved whole from somewhere else — ADR 1415's holds the
+/// log of moves `corpus.rs` kept, verbatim — so the pages it names were named at the
+/// dates of the moves it records, not at the number of the ADR that received it. Read as the
+/// ADR's own, one such appendix names a page of every list the log ever touched, as a decision
+/// newer than every note, and fills the sweep with a record rather than with a decision. What the
+/// ADR itself decides is above the heading, and that is what is compared. ADR 1427.
+#[must_use]
+pub fn decided(text: &str) -> &str {
+    const APPENDIX: &str = "\n## Appendix";
+    text.find(APPENDIX)
+        .and_then(|at| text.get(..at))
+        .unwrap_or(text)
 }
 
 /// Runs the sweep.
@@ -862,6 +896,20 @@ mod tests {
 
         let stray = sweep(&notes, &decisions, &[("NO_SUCH_LIST", 489)]);
         assert_eq!(stray.unknown_read, vec!["NO_SUCH_LIST".to_owned()]);
+    }
+
+    /// A page named only in an appendix is a record's, dated by what the appendix carries.
+    #[test]
+    fn a_page_named_only_in_an_appendix_is_not_the_decisions() {
+        let text = "# 9999 — a decision\n\nAbout colors.pdf.\n\n## Appendix — a moved log\n\nissue9418.pdf moved.\n";
+        assert_eq!(
+            documents_in(decided(text)),
+            BTreeSet::from(["colors.pdf".to_owned()])
+        );
+        assert_eq!(
+            decided("no appendix, issue9418.pdf"),
+            "no appendix, issue9418.pdf"
+        );
     }
 
     #[test]

@@ -293,7 +293,9 @@ demand, not committed.
 page. A page that reports something unsupported is the honest-reporting requirement working rather
 than a defect, so its documents are **held by name** (`INCOMPLETE`), each group beside the clause
 its report rests on, and a document joining or leaving fails the gate naming it (ADR 1401); the run
-prints whose defect each report is — the file's, neither's, or this reader's (ADR 0730).
+prints whose defect each report is — the file's, neither's, or this reader's (ADR 0730). The argument
+for each move of that population is in the ADR of the change that made it, never in the test file
+(ADR 1415).
 
 Where all open-source renderers are jointly wrong, Acrobat is the gold standard and is not
 scriptable on Linux — keep a small manually-captured Acrobat golden set.

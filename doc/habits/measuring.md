@@ -637,3 +637,12 @@ alone each moved nothing, and only both together took the text page's turn from 
 turned "the hybrid differs" into "the quantised phase differs" (ADR 1407). A font-catalogue walk is
 measured cold by evicting `/usr/share/fonts` with `posix_fadvise(POSIX_FADV_DONTNEED)` first — about a
 second against a tenth warm on this machine (ADR 1406).
+
+## 56. Two diverging arms are diffed as event logs before a hypothesis is formed
+
+The brief for round 1291 offered three causes for 176 thread-dependent pages; logging every atlas
+insert, probe answer and repack per arm with the page boundaries, stripping per-device ids and
+diffing the two sequences found the first differing line in one read, and it disproved all three
+(ADR 1419). And a callgrind summary picks each column by function NAME, never by rank:
+`callgrind_annotate` sorts by cost, so a function missing from one arm shifts every column after it
+and two of round 1292's early tables were mislabelled that way (ADR 1421).

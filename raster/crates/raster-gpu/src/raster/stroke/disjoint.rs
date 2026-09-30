@@ -55,9 +55,13 @@ const MAX_FRAGMENTS: usize = 65_536;
 /// [`MAX_FRAGMENTS`].
 ///
 /// A piece with no area deposits nothing and holds nothing, and is dropped from the tiling.
-pub(super) fn disjoint(pieces: Vec<Polyline>, at_a_tight_bend: &[bool]) -> Vec<Polyline> {
+pub(super) fn disjoint(pieces: Vec<Polyline>, at_a_tight_bend: &[bool]) -> Tiled {
+    let untouched = |pieces| Tiled {
+        pieces,
+        whole: false,
+    };
     if at_a_tight_bend.iter().filter(|seed| **seed).count() > MAX_PIECES {
-        return pieces;
+        return untouched(pieces);
     }
     let convex: Vec<Option<Convex>> = pieces.iter().map(Convex::new).collect();
     let seeds: Vec<Bounds> = convex
@@ -65,31 +69,54 @@ pub(super) fn disjoint(pieces: Vec<Polyline>, at_a_tight_bend: &[bool]) -> Vec<P
         .zip(at_a_tight_bend)
         .filter_map(|(piece, seed)| piece.as_ref().filter(|_| *seed).map(|p| p.bounds))
         .collect();
+    // Asked once per piece rather than once for the tiling and again for the rest.
+    let takes_part: Vec<bool> = convex
+        .iter()
+        .map(|piece| {
+            piece
+                .as_ref()
+                .is_some_and(|piece| seeds.iter().any(|seed| seed.meets(piece.bounds)))
+        })
+        .collect();
     let tiled: Vec<&Convex> = convex
         .iter()
-        .flatten()
-        .filter(|piece| seeds.iter().any(|seed| seed.meets(piece.bounds)))
+        .zip(&takes_part)
+        .filter_map(|(piece, takes_part)| piece.as_ref().filter(|_| *takes_part))
         .collect();
     if tiled.len() > MAX_PIECES {
-        return pieces;
+        return untouched(pieces);
     }
+    // The boxes side by side, for the scan below that reads nothing else of most pieces.
+    let boxes: Vec<Bounds> = tiled.iter().map(|piece| piece.bounds).collect();
+    let mut scratch = Scratch::default();
+    let mut fragments = Vec::new();
     let mut out: Vec<Polyline> = Vec::with_capacity(pieces.len());
     for (k, piece) in tiled.iter().enumerate() {
-        let mut fragments = vec![(piece.points.clone(), piece.bounds)];
+        fragments.clear();
+        fragments.push((piece.points.clone(), piece.bounds));
+        // The box round what is left of this piece. An earlier piece whose box misses it
+        // misses every fragment's box, which lies inside it, so it would hand the fragments
+        // back unchanged ([`Convex::subtract_from_each`]) and is passed over without asking
+        // (ADR 1421).
+        let mut reach = piece.bounds;
         // Nearest first: a piece's neighbours hold most of what it shares, so taking them
         // away first leaves little for the rest to cut.
-        for earlier in tiled[..k].iter().rev() {
-            fragments = earlier.subtract_from_each(fragments, piece.orientation);
+        for j in (0..k).rev() {
+            if boxes[j].meets(reach)
+                && tiled[j].subtract_from_each(&mut fragments, piece.orientation, &mut scratch)
+            {
+                reach = Bounds::round(fragments.iter().map(|(_, bounds)| *bounds));
+            }
             if fragments.is_empty() || out.len().saturating_add(fragments.len()) > MAX_FRAGMENTS {
                 break;
             }
         }
         if out.len().saturating_add(fragments.len()) > MAX_FRAGMENTS {
-            return pieces;
+            return untouched(pieces);
         }
         out.extend(
             fragments
-                .into_iter()
+                .drain(..)
                 .map(|(points, _)| Polyline::polygon(points)),
         );
     }
@@ -97,14 +124,72 @@ pub(super) fn disjoint(pieces: Vec<Polyline>, at_a_tight_bend: &[bool]) -> Vec<P
         pieces
             .into_iter()
             .zip(&convex)
-            .filter(|(_, piece)| {
-                piece
-                    .as_ref()
-                    .is_some_and(|piece| !seeds.iter().any(|seed| seed.meets(piece.bounds)))
-            })
-            .map(|(piece, _)| piece),
+            .zip(&takes_part)
+            .filter(|((_, piece), takes_part)| piece.is_some() && !**takes_part)
+            .map(|((piece, _), _)| piece),
     );
-    out
+    let whole = tiled.len() == convex.iter().flatten().count()
+        || the_rest_stand_apart(&convex, &takes_part);
+    Tiled { pieces: out, whole }
+}
+
+/// Whether every piece that took no part in the tiling shares no area with any other piece,
+/// so that with the tiled fragments, which share none among themselves, no point of the
+/// subpath is inside two pieces (ADR 1421).
+///
+/// Asked of the pieces as they came: a fragment lies inside the piece it was cut from, so a
+/// piece apart from that piece is apart from every fragment of it. Two convex pieces are
+/// apart where a line through an edge of either has the other wholly on its outside — a
+/// neighbour meeting edge to edge is, on the edge they share. The pairs are found by a sweep
+/// along `x`, and past [`MAX_FRAGMENTS`] box comparisons the question answers no, which
+/// leaves it to the fill (ADR 1389) as before.
+#[expect(clippy::arithmetic_side_effects)] // a count below `MAX_FRAGMENTS` plus a length
+fn the_rest_stand_apart(convex: &[Option<Convex>], takes_part: &[bool]) -> bool {
+    let pieces: Vec<(bool, &Convex)> = convex
+        .iter()
+        .zip(takes_part)
+        .filter_map(|(piece, takes_part)| piece.as_ref().map(|piece| (*takes_part, piece)))
+        .collect();
+    let mut order: Vec<usize> = (0..pieces.len()).collect();
+    order.sort_unstable_by(|&a, &b| {
+        pieces[a]
+            .1
+            .bounds
+            .min
+            .x
+            .total_cmp(&pieces[b].1.bounds.min.x)
+    });
+    let (mut active, mut tests) = (Vec::<usize>::new(), 0_usize);
+    for k in order {
+        let (tiled_k, piece_k) = pieces[k];
+        active.retain(|&m| pieces[m].1.bounds.max.x > piece_k.bounds.min.x);
+        tests += active.len();
+        if tests > MAX_FRAGMENTS {
+            return false;
+        }
+        for &m in &active {
+            let (tiled_m, piece_m) = pieces[m];
+            // Two tiled pieces' fragments share nothing by construction.
+            if !(tiled_k && tiled_m)
+                && piece_k.bounds.meets(piece_m.bounds)
+                && !piece_k.apart_from(piece_m)
+            {
+                return false;
+            }
+        }
+        active.push(k);
+    }
+    true
+}
+
+/// What [`disjoint`] made of a subpath's pieces.
+pub(super) struct Tiled {
+    /// The pieces, the tiled ones re-cut.
+    pub(super) pieces: Vec<Polyline>,
+    /// Whether no point is inside two of the pieces, so that they tile the subpath's set:
+    /// every piece with an area took part in the tiling, or those that did not stand apart
+    /// from every other piece.
+    pub(super) whole: bool,
 }
 
 /// An axis-aligned box round a piece, for skipping the pairs that cannot meet.
@@ -125,6 +210,20 @@ impl Bounds {
             bounds.max = Point::new(bounds.max.x.max(p.x), bounds.max.y.max(p.y));
         }
         bounds
+    }
+
+    /// The box round `boxes`, or an empty box (one that meets nothing) where there are none.
+    fn round(boxes: impl Iterator<Item = Self>) -> Self {
+        boxes.fold(
+            Self {
+                min: Point::new(f32::INFINITY, f32::INFINITY),
+                max: Point::new(f32::NEG_INFINITY, f32::NEG_INFINITY),
+            },
+            |a, b| Self {
+                min: Point::new(a.min.x.min(b.min.x), a.min.y.min(b.min.y)),
+                max: Point::new(a.max.x.max(b.max.x), a.max.y.max(b.max.y)),
+            },
+        )
     }
 
     /// Whether the two boxes share any area. Boxes that only touch along an edge share
@@ -166,22 +265,40 @@ impl Convex {
         })
     }
 
+    /// Whether a line through an edge of either piece has the other wholly on its outside.
+    /// An edge of no length has no line, and is not asked.
+    fn apart_from(&self, other: &Self) -> bool {
+        let separates =
+            |line: &Line, points: &[Point]| line.has_length() && line.holds_none_of(points);
+        self.lines.iter().any(|line| separates(line, &other.points))
+            || other.lines.iter().any(|line| separates(line, &self.points))
+    }
+
     /// Each of `fragments` less this piece: a fragment whose box misses this piece's, or
     /// that a line through an edge of either separates from it, keeps its shape — cutting
-    /// it along lines that pass beside it would only multiply its pieces.
+    /// it along lines that pass beside it would only multiply its pieces. `true` where any
+    /// fragment was cut.
+    ///
+    /// The fragments are rewritten in place through `scratch`'s buffers, in the order a
+    /// fresh list would hold them: the tiling asks this millions of times on a tight page,
+    /// and a list and a carried remainder allocated per question cost a quarter of its
+    /// instructions (ADR 1421).
     fn subtract_from_each(
         &self,
-        fragments: Vec<(Vec<Point>, Bounds)>,
+        fragments: &mut Vec<(Vec<Point>, Bounds)>,
         orientation: f64,
-    ) -> Vec<(Vec<Point>, Bounds)> {
+        scratch: &mut Scratch,
+    ) -> bool {
         if !fragments
             .iter()
             .any(|(_, bounds)| bounds.meets(self.bounds))
         {
-            return fragments;
+            return false;
         }
-        let mut cut = Vec::with_capacity(fragments.len());
-        for (fragment, bounds) in fragments {
+        let mut cut_any = false;
+        let Scratch { cut, inside } = scratch;
+        cut.clear();
+        for (fragment, bounds) in fragments.drain(..) {
             let separated = !bounds.meets(self.bounds)
                 || self.lines.iter().any(|line| line.holds_none_of(&fragment))
                 || edges(&fragment).any(|(from, to)| {
@@ -190,34 +307,66 @@ impl Convex {
             if separated {
                 cut.push((fragment, bounds));
             } else {
-                cut.extend(self.subtract_from(fragment).into_iter().map(|points| {
-                    let bounds = Bounds::of(&points);
-                    (points, bounds)
-                }));
+                self.subtract_from(fragment, inside, cut);
+                cut_any = true;
             }
         }
-        cut
+        std::mem::swap(fragments, cut);
+        cut_any
     }
 
     /// `fragment − self`, as convex fragments that are disjoint and keep `fragment`'s
-    /// winding: for each of this piece's edges in turn, the part of what is left that
-    /// lies outside the edge is emitted and the part inside is carried on. What is
-    /// carried past the last edge lies inside this piece and is dropped.
-    fn subtract_from(&self, fragment: Vec<Point>) -> Vec<Vec<Point>> {
-        let mut out = Vec::new();
-        let (mut rest, mut inside) = (fragment, Vec::new());
+    /// winding, appended to `out` with their boxes: for each of this piece's edges in turn,
+    /// the part of what is left that lies outside the edge is emitted and the part inside is
+    /// carried on. What is carried past the last edge lies inside this piece and is dropped.
+    /// `inside` is a buffer for what is carried, kept for the next call.
+    fn subtract_from(
+        &self,
+        fragment: Vec<Point>,
+        inside: &mut Vec<Point>,
+        out: &mut Vec<(Vec<Point>, Bounds)>,
+    ) {
+        let (mut rest, mut carried) = (fragment, std::mem::take(inside));
         for line in &self.lines {
-            let outside = line.split(&rest, &mut inside);
-            if outside.len() >= 3 {
-                out.push(outside);
-            }
-            std::mem::swap(&mut rest, &mut inside);
-            if rest.len() < 3 {
-                break;
+            match line.split(&rest, &mut carried) {
+                // Wholly inside this edge: carried on as it is.
+                Split::Inside => {}
+                // Wholly outside it: emitted as it is, and nothing is left to carry.
+                Split::Outside => {
+                    if rest.len() >= 3 {
+                        let bounds = Bounds::of(&rest);
+                        out.push((rest, bounds));
+                    }
+                    *inside = carried;
+                    return;
+                }
+                Split::Across(outside) => {
+                    if outside.len() >= 3 {
+                        let bounds = Bounds::of(&outside);
+                        out.push((outside, bounds));
+                    }
+                    std::mem::swap(&mut rest, &mut carried);
+                    if rest.len() < 3 {
+                        break;
+                    }
+                }
             }
         }
-        out
+        *inside = if rest.capacity() > carried.capacity() {
+            rest
+        } else {
+            carried
+        };
     }
+}
+
+/// The buffers one tiling's subtractions reuse.
+#[derive(Default)]
+struct Scratch {
+    /// The fragments being rebuilt.
+    cut: Vec<(Vec<Point>, Bounds)>,
+    /// What a subtraction carries past each edge.
+    inside: Vec<Point>,
 }
 
 /// A polygon's edges, the closing one included.
@@ -256,20 +405,25 @@ impl Line {
             - self.along.1 * (f64::from(p.x) - self.from.0)
     }
 
+    /// Whether the edge the line was drawn through has a length, and so a direction.
+    fn has_length(&self) -> bool {
+        self.along.0 != 0.0 || self.along.1 != 0.0
+    }
+
     /// Whether every point is outside this line or on it: a separating line.
     fn holds_none_of(&self, points: &[Point]) -> bool {
         points.iter().all(|p| self.side(*p) <= 0.0)
     }
 
-    /// A convex polygon cut by this line: the part outside is returned and the part
-    /// inside written to `inside`.
+    /// A convex polygon cut by this line: which side it lies on where it lies on one, and
+    /// otherwise the part outside, with the part inside written to `inside`.
     ///
     /// A point exactly on the line belongs to both parts, so a polygon lying wholly on one
-    /// side — touching the line or not — comes back whole on that side and empty on the
-    /// other. Each crossing point is computed once and pushed to both parts, which is what
-    /// makes the two meet edge to edge.
-    fn split(&self, polygon: &[Point], inside: &mut Vec<Point>) -> Vec<Point> {
-        inside.clear();
+    /// side — touching the line or not — is that side's whole; a polygon on the line
+    /// throughout is inside. Each crossing point is computed once and pushed to both parts,
+    /// which is what makes the two meet edge to edge. A polygon on one side is not copied:
+    /// the caller has it already (ADR 1421).
+    fn split(&self, polygon: &[Point], inside: &mut Vec<Point>) -> Split {
         let (mut low, mut high) = (f64::INFINITY, f64::NEG_INFINITY);
         for p in polygon {
             let side = self.side(*p);
@@ -277,12 +431,12 @@ impl Line {
             high = high.max(side);
         }
         if low >= 0.0 {
-            inside.extend_from_slice(polygon);
-            return Vec::new();
+            return Split::Inside;
         }
         if high <= 0.0 {
-            return polygon.to_vec();
+            return Split::Outside;
         }
+        inside.clear();
         let mut outside = Vec::with_capacity(polygon.len().saturating_add(1));
         for (p, q) in edges(polygon) {
             let (sp, sq) = (self.side(p), self.side(q));
@@ -303,8 +457,18 @@ impl Line {
                 outside.push(crossing);
             }
         }
-        outside
+        Split::Across(outside)
     }
+}
+
+/// Where a convex polygon lies against a line ([`Line::split`]).
+enum Split {
+    /// Wholly on the inside, or on the line.
+    Inside,
+    /// Wholly on the outside, touching the line or not.
+    Outside,
+    /// On both sides: the part outside, the part inside having been written out.
+    Across(Vec<Point>),
 }
 
 /// The polygon's signed area, the shoelace sum halved — in `f64`, so that a piece's sign

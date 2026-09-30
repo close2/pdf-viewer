@@ -933,7 +933,7 @@ impl Tree {
     /// the document's logical reading order. Bounded by [`MAX_DEPTH`], by [`MAX_ELEMENTS`] and
     /// by visiting each element once, because `/K` and `/P` are references a document controls.
     ///
-    /// The bound is *reported* rather than applied in silence — [`Walk::truncated`] — because a
+    /// The bound is *reported* rather than applied in silence — [`Reading::truncated`] — because a
     /// walk cut short is not the document's logical order and a consumer that cannot tell the
     /// two apart has been handed a partial reading as a complete one.
     #[must_use]
@@ -2795,7 +2795,7 @@ impl TableStack {
     ///
     /// `true` means [`Self::headers`] answers for a *part* of the document's tables, which is a
     /// different statement from a document whose cells state no headers. Reported rather than
-    /// applied in silence, for [`Walk::truncated`]'s reason.
+    /// applied in silence, for [`Reading::truncated`]'s reason.
     #[must_use]
     pub fn truncated(&self) -> bool {
         self.truncated

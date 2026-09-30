@@ -773,7 +773,11 @@ of §9.6.2.2's fourteen through the ordinary `LoadedFont::load` against a new `D
 the encoding is §9.6.5.2's and the widths are the clause's own — and an interface set in Helvetica
 is set in the same Helvetica on a machine with no fonts installed. A character none of the fourteen
 states is asked of the machine by file (ADR 1382), on `viewer_host::machine_faces`' thread rather
-than the one that draws (ADR 1406), and `quorra-qt` registers the same file with Qt.
+than the one that draws (ADR 1406), and `quorra-qt` registers the same file with Qt for its tabs and
+its panels (ADR 1418). **What crosses the boundary is the stored text, in logical order**: a toolkit
+shapes and orders a label itself, and `quorra`'s chrome does the same through
+`pdf_font::shaping::Label` (ADR 1417), so a row ordered before it reached Pango or Qt would be
+reordered a second time.
 
 #### Crates
 

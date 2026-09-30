@@ -240,20 +240,19 @@ pub fn for_annotation(document: &Document, annotation: &Dictionary) -> Option<Wr
         rect,
     );
     let drawn = built.content.is_some();
-    // A value §12.7.4.3 could only set in a face from this machine is drawn on the page and not
-    // written into a file: the font around that face holds its program as a stream inside the
-    // dictionary, which §7.3.8.1 does not admit in a file, and a file carrying it would be this
-    // machine's font rather than the document's (ADR 1414).
-    let owed = built.report.or_else(|| {
-        variable_text::uses_a_machine_face(&built.resources).then(|| {
-            "its value is drawn in a face from this machine, which is not written into a file"
-                .to_owned()
-        })
-    });
+    // A value §12.7.4.3 could only set in a face from this machine is written with that face
+    // subset and embedded as a file holds a font, where the face's licence permits it; where it
+    // does not, the construction is owed with the licence's sentence (ADR 1425). The font's
+    // streams are still direct here, and the writer that takes this gives each its own number.
+    let (resources, unwritten) = match variable_text::for_a_file(&built.resources) {
+        Ok(resources) => (resources, None),
+        Err(sentence) => (built.resources, Some(sentence)),
+    };
+    let owed = built.report.or(unwritten);
     Some(Written {
         // An annotation that draws nothing gets an empty stream rather than none: drawing
         // nothing is what its own entries state, and an empty form `XObject` says exactly that.
-        stream: form_xobject(rect, built.resources, built.content.unwrap_or_default()),
+        stream: form_xobject(rect, resources, built.content.unwrap_or_default()),
         drawn,
         owed,
     })
@@ -1119,14 +1118,15 @@ pub(crate) fn for_saving(
         let Some(regenerated) = regenerate(document, annotation, &stored, bbox, value) else {
             return ForSaving::Owed;
         };
-        // A value set in a face from this machine is drawn and not saved (ADR 1414): the flag
-        // Table 224 gives a writer for an appearance it did not provide is the honest answer.
-        if variable_text::uses_a_machine_face(&regenerated.resources) {
+        // A value set in a face from this machine is saved with the face subset and embedded;
+        // where its licence forbids that, the flag Table 224 gives a writer for an appearance it
+        // did not provide is the honest answer (ADR 1425).
+        let Ok(resources) = variable_text::for_a_file(&regenerated.resources) else {
             return ForSaving::Owed;
-        }
+        };
         return ForSaving::Stream(SavedStream {
             content: regenerated.content,
-            resources: regenerated.resources,
+            resources,
             bbox,
             existing: normal
                 .as_ref()
@@ -1162,12 +1162,12 @@ pub(crate) fn for_saving(
             None => ForSaving::Selected,
         };
     };
-    if variable_text::uses_a_machine_face(&constructed.resources) {
+    let Ok(resources) = variable_text::for_a_file(&constructed.resources) else {
         return ForSaving::Owed;
-    }
+    };
     ForSaving::Stream(SavedStream {
         content,
-        resources: constructed.resources,
+        resources,
         bbox: rect,
         existing: None,
         report: constructed.report,

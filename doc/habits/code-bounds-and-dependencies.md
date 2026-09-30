@@ -408,3 +408,11 @@ on screen, invalid in a file, because "All streams shall be indirect objects" (Â
 would have carried this machine's font into the document (ADR 1414). When a new invented resource
 shape is added, grep every writer of constructed resources (`form_xobject`, `update.put`) and make
 each either write it properly or report it owed.
+
+## A census over the crawl checks a file's size before it reads it
+
+The first JavaScript census died at `tools/bounded.sh`'s data limit on a 6 GB Tika artefact; the
+instrument now counts a file over its bound as *not read* per corpus and says so in its report
+(round 1296, `crates/pdf-model/examples/javascript_census.rs`). A walk that reads whole files
+states its size bound and reports what it skipped, or the bound kills the walk and the report is
+never written.

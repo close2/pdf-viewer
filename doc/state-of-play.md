@@ -42,7 +42,8 @@ annotation drawn from **the group it belongs to** rather than from itself, which
 nine shared entries. §12.7.4.3's variable text is constructed in any script: a value in a
 right-to-left, cursive one is joined by the Unicode Character Database's own tables, ordered by UAX
 #9 and set in a face from the machine where the compiled-in fourteen have no glyph (ADRs 1413,
-1414). **Three rasterisers behind one display list**: `render-cpu` is the correctness
+1414), which a save writes into the file subset and embedded where the face's licence permits (ADR
+1425). **Three rasterisers behind one display list**: `render-cpu` is the correctness
 oracle — and it is one because it computes a path's coverage of a pixel as the **exact integral of
 §8.5.3.3's winding number over §10.7.4's half-open pixel square** rather than sampling it on a
 lattice, leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
@@ -72,10 +73,19 @@ exact bounds so that each step falls at its own parameter (ADR 1389), and a join
 another segment built on the curve's tangent there — that set asked for only where the integral
 cannot answer, so a stroke whose pieces tile keeps its integral (ADR 1397) — and a clipped mark's
 coverage and a stroke's made off the walk's thread by the encoder's fan-out, a stroke's segment
-weighed at what it costs (ADR 1395). **A shading end
+weighed at what it costs (ADR 1395), a rectangle or a repeated glyph behind a queued mark committed
+in its place and a zoom step's strokes fanned out on the compute lane as on the page-turn one (ADR
+1409), and every frame the same bytes at every thread count — the atlas asked for room as one
+thread would find it, and the corpus gate drawing each page again at one thread and holding the
+two equal at every scale, the one-threaded backend drawing every frame the other draws, a refused
+one included (ADRs 1407, 1419); the compute lane is within one level of the CPU lane, because a
+device may fuse the multiply-adds the processor rounds twice (ADR 1420). **A shading end
 `/Extend` leaves off stops at that end's own position** — a hard transparent stop in every
 backend rather than a fade squeezed inside the ramp, which had moved every other stop of it along
-the axis, and within half a texel of Vello's fixed ramp (ADR 1387). The Vello
+the axis, and within half a texel of Vello's fixed ramp (ADR 1387). A content stream that re-enters
+itself at the nesting bound is reported as the cycle it is, by the stream it re-entered, and a font
+program whose every glyph draws and draws nothing is what the file states rather than a report —
+which is §9.7.6.3's own route for a CID-keyed program holding CID 0 alone (ADR 1411). The Vello
 backend **bands a target the device cannot draw in one pass**, because its working buffers are fixed
 constants with no knob and a page of small text at a laptop's resolution can exceed them. JBIG2 and
 JPEG 2000 in a confined worker — its colour specification chosen by §7.4.9's precedence rather
@@ -312,7 +322,8 @@ answer the reader gave reaches the second document as it did the first. A tab sa
 `/Title` where the document states one and otherwise the file's name, and `quorra` sets a character
 its compiled-in faces lack from a face the machine offers rather than as a box (ADR 1382), searched
 for on a thread of its own so that no catalogue walk is on the launch path, while `quorra-qt` hands
-Qt the same file (ADR 1406).
+Qt the same file for its tabs and panels (ADRs 1406, 1418); an Arabic or Hebrew label is joined and
+read in its own direction in all three windows (ADR 1417).
 `quorra-confined` holds one
 document, on ADR 1190's rule. **A window is the front document's**: one opened behind obeys its
 `/PageMode` when it first comes to the front, so a presentation running when a second document

@@ -512,7 +512,8 @@ pub(super) fn rasterise(job: &Job<'_>) -> Rasterised {
     };
     // A stroke whose pieces tile its set by construction winds two values and keeps its
     // integral (ADR 1397); a fill of an outline known to, likewise — that question is asked
-    // on the worker, once per outline, not on the walk (ADR 1389).
+    // once per outline, of the outline's own flattening whoever asks first (ADR 1389,
+    // ADR 1419).
     let (polylines, tiles) = match job.stroke {
         Some(stroke) => {
             let stroked = raster::stroke_pieces(
@@ -548,7 +549,7 @@ pub(super) fn rasterise(job: &Job<'_>) -> Rasterised {
         || (job.stroke.is_none()
             && job
                 .outline
-                .is_some_and(|o| o.winds_two_values_as(&polylines)));
+                .is_some_and(crate::resources::StoredOutline::winds_two_values));
     Some(raster::fill_mask_settled(
         &polylines,
         job.rule,
@@ -804,6 +805,91 @@ mod tests {
             fan_out(u64::MAX, 1),
             1,
             "and a host that asked for one thread gets one at any size"
+        );
+    }
+
+    /// An outline whose topology its flattening decides: a rectangle closed by an arc that
+    /// bulges 1.5 units past the chord, and a small rectangle wound the same way inside that
+    /// bulge. Flattened finely the small one is nested and the plane winds 0, 1 and 2; at a
+    /// tenth of its size the arc's control points are 0.2 pixels off the chord, inside
+    /// §10.7.2's quarter-pixel tolerance, so it flattens to the chord and the small
+    /// rectangle falls outside — 0 and 1.
+    fn nested_inside_a_bulge() -> Vec<Segment> {
+        vec![
+            Segment::MoveTo(Point::new(0.0, 0.0)),
+            Segment::LineTo(Point::new(0.0, 50.0)),
+            Segment::LineTo(Point::new(100.0, 50.0)),
+            Segment::LineTo(Point::new(100.0, 0.0)),
+            Segment::CubicTo {
+                c1: Point::new(66.0, -2.0),
+                c2: Point::new(34.0, -2.0),
+                to: Point::new(0.0, 0.0),
+            },
+            Segment::Close,
+            Segment::MoveTo(Point::new(45.0, -1.0)),
+            Segment::LineTo(Point::new(45.0, -0.4)),
+            Segment::LineTo(Point::new(55.0, -0.4)),
+            Segment::LineTo(Point::new(55.0, -1.0)),
+            Segment::Close,
+        ]
+    }
+
+    /// **An outline's two-values answer is the same whichever caller asks first** (ADR 1419).
+    ///
+    /// The compute route asks
+    /// [`StoredOutline::winds_two_values`](crate::resources::StoredOutline::winds_two_values) on
+    /// the walk's thread and a path-lane job asks it on a worker, and which arrives first
+    /// depends on the thread count and on which frame placed the outline first. So the answer
+    /// is taken of one flattening, the outline's own, whoever asks — and this outline, whose
+    /// topology a coarse placement changes, is asked in both orders.
+    #[test]
+    fn an_outlines_two_values_answer_does_not_depend_on_who_asks_first() {
+        let mut store = crate::resources::ResourceStore::new(u64::MAX);
+        let path = nested_inside_a_bulge();
+        let first = store.upload_outline(&path).expect("valid outline");
+        let second = store.upload_outline(&path).expect("valid outline");
+        let tenth = DeviceTransform {
+            a: 0.1,
+            b: 0.0,
+            c: 0.0,
+            d: 0.1,
+            e: 4.0,
+            f: 4.0,
+        };
+        let job_of = |stored| {
+            Job::sheet(
+                &path,
+                tenth,
+                None,
+                Rule::NonZero,
+                [0.0, 0.0, 64.0, 64.0],
+                64 * 64,
+                Draw::new(
+                    Color::new(0.0, 0.0, 0.0, 1.0),
+                    Rect::new(Point::new(0.0, 0.0), Point::new(64.0, 64.0)),
+                    DrawStyle::Over,
+                    None,
+                ),
+            )
+            .of_outline(stored)
+        };
+        let asked_first = store.outline(first).expect("resident");
+        let answer_first = asked_first.winds_two_values();
+        let placed_after = super::rasterise(&job_of(asked_first)).expect("a tile");
+        let placed_first = store.outline(second).expect("resident");
+        let tile_first = super::rasterise(&job_of(placed_first)).expect("a tile");
+        assert!(
+            !answer_first,
+            "flattened in its own space, the small rectangle is nested and winds 2"
+        );
+        assert_eq!(
+            placed_first.winds_two_values(),
+            answer_first,
+            "a placement that asked first fixed a different answer"
+        );
+        assert_eq!(
+            tile_first.coverage, placed_after.coverage,
+            "and the tile drawn is the same whichever asked first"
         );
     }
 }

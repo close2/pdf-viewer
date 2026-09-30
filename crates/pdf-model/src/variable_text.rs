@@ -739,8 +739,9 @@ fn machine_font(
     let mut descriptor = Dictionary::new();
     descriptor.insert(key(b"Type"), name(b"FontDescriptor"));
     descriptor.insert(key(b"FontName"), name(MACHINE_FACE));
-    // Table 121's bit 6, Nonsymbolic: the face is reached by character, through its own `cmap`.
-    descriptor.insert(key(b"Flags"), Object::Integer(32));
+    // Table 121's bit 3, Symbolic: §9.8.2 sets it for a face with glyphs outside the Standard
+    // Latin character set, which is every face this is asked for.
+    descriptor.insert(key(b"Flags"), Object::Integer(4));
     descriptor.insert(
         key(b"FontBBox"),
         Object::Array(metrics.bounding_box.map(number).to_vec()),
@@ -797,23 +798,151 @@ fn machine_font(
 /// is embedded and nothing looks the name up.
 const MACHINE_FACE: &[u8] = b"VariableTextMachineFace";
 
-/// Whether a resource dictionary holds a font [`machine_font`] wrote.
+/// The resources of a constructed appearance, with every font [`machine_font`] wrote made into
+/// one a file may hold (ADR 1425).
 ///
-/// What a caller writing a constructed appearance into a file asks: such a font is this
-/// machine's face held as a stream inside a dictionary, which is a drawing and not a file's
-/// object (ADR 1414).
-pub(crate) fn uses_a_machine_face(resources: &Dictionary) -> bool {
-    resources
-        .get("Font")
+/// What drawing needs and what a file needs differ in two ways, and each is answered here
+/// rather than in the drawing path, which stays as it is:
+///
+/// - **The program is subset** to the glyphs `/W` states — which are every glyph the value
+///   displays, since [`machine_font`] states each one's advance — by
+///   [`pdf_font::embed::for_embedding`], §9.9.2's six-letter tag in `/BaseFont` and `/FontName`.
+///   The CIDs the content stream shows stay the face's glyph indices, so the stream is the one
+///   drawn; where the subset renumbered them, `/CIDToGIDMap` is Table 115's stream, "the glyph
+///   index for a particular CID value c shall be a 2-byte value stored in bytes 2 × 𝑐 and 2 × 𝑐 +
+///   1", which §9.7.4.2 requires wherever the program is embedded.
+/// - **The face's licence is asked**: a face whose `OS/2` `fsType` forbids embedding is not
+///   written, and the sentence returned is what the caller reports as owed. That is the font
+///   vendor's condition, which §9.9.1 names — "[o]ne of the conditions may be that the font
+///   program cannot be embedded, in which case it should not be incorporated into a PDF file" —
+///   and not a restriction the document asserts over its reader, so no reader's level reaches it.
+///
+/// The streams are still held directly in the dictionaries; a writer gives each a number of its
+/// own, which §7.3.8.1 requires of a file ("[a]ll streams shall be indirect objects") — the
+/// incremental update's [`crate::view`] and the archive conversion each do that for every stream
+/// they write. Resources with no machine face come back unchanged.
+///
+/// # Errors
+///
+/// The sentence naming why the face cannot be written — its licence, or a program that is not a
+/// `TrueType` one a `/FontFile2` carries.
+pub(crate) fn for_a_file(resources: &Dictionary) -> Result<Dictionary, String> {
+    let Some(fonts) = resources.get("Font").and_then(Object::as_dict) else {
+        return Ok(resources.clone());
+    };
+    let mut written = fonts.clone();
+    for (key, font) in fonts.iter() {
+        let Some(font) = font.as_dict().filter(|font| is_machine_font(font)) else {
+            continue;
+        };
+        written.insert(
+            key.clone(),
+            Object::Dictionary(machine_font_for_a_file(font)?),
+        );
+    }
+    let mut out = resources.clone();
+    out.insert(
+        pdf_syntax::Name::new(b"Font".to_vec()),
+        Object::Dictionary(written),
+    );
+    Ok(out)
+}
+
+/// Whether a font dictionary is one [`machine_font`] wrote.
+fn is_machine_font(font: &Dictionary) -> bool {
+    font.get("BaseFont")
+        .and_then(Object::as_name)
+        .is_some_and(|name| name.as_bytes() == MACHINE_FACE)
+}
+
+/// One of [`machine_font`]'s fonts rewritten as [`for_a_file`] describes.
+fn machine_font_for_a_file(font: &Dictionary) -> Result<Dictionary, String> {
+    let key = |value: &[u8]| pdf_syntax::Name::new(value.to_vec());
+    let name = |value: &[u8]| Object::Name(pdf_syntax::Name::new(value.to_vec()));
+    let unreadable = || {
+        "its value is drawn in a face from this machine whose font could not be read back"
+            .to_owned()
+    };
+    let mut descendant = font
+        .get("DescendantFonts")
+        .and_then(Object::as_array)
+        .and_then(<[Object]>::first)
         .and_then(Object::as_dict)
-        .is_some_and(|fonts| {
-            fonts.iter().any(|(_, font)| {
-                font.as_dict()
-                    .and_then(|font| font.get("BaseFont"))
-                    .and_then(Object::as_name)
-                    .is_some_and(|name| name.as_bytes() == MACHINE_FACE)
-            })
+        .cloned()
+        .ok_or_else(unreadable)?;
+    let mut descriptor = descendant
+        .get("FontDescriptor")
+        .and_then(Object::as_dict)
+        .cloned()
+        .ok_or_else(unreadable)?;
+    let program = match descriptor.get("FontFile2") {
+        Some(Object::Stream(program)) => program.data.clone(),
+        _ => return Err(unreadable()),
+    };
+    // `/W` is `[glyph [advance] glyph [advance] …]`, one entry per displayed glyph.
+    let used: std::collections::BTreeSet<u16> = descendant
+        .get("W")
+        .and_then(Object::as_array)
+        .map(|w| {
+            w.iter()
+                .filter_map(|entry| match entry {
+                    Object::Integer(glyph) => u16::try_from(*glyph).ok(),
+                    _ => None,
+                })
+                .collect()
         })
+        .unwrap_or_default();
+    let embedded = pdf_font::embed::for_embedding(&program, &used).map_err(|refusal| {
+        format!("its value is drawn in a face from this machine that is not written into a file: {refusal}")
+    })?;
+
+    // Table 125's `/Length1` is the decoded program's length, whatever the filter.
+    let mut file = Dictionary::new();
+    file.insert(
+        key(b"Length1"),
+        Object::Integer(i64::try_from(embedded.program.len()).unwrap_or(i64::MAX)),
+    );
+    descriptor.insert(key(b"FontFile2"), deflated(file, &embedded.program));
+    descriptor.insert(key(b"FontName"), name(embedded.name.as_bytes()));
+
+    let map = if embedded.renumbered() {
+        let highest = embedded.glyphs.keys().next_back().copied().unwrap_or(0);
+        let mut bytes =
+            Vec::with_capacity(usize::from(highest).saturating_add(1).saturating_mul(2));
+        for cid in 0..=highest {
+            let glyph = embedded.glyphs.get(&cid).copied().unwrap_or(0);
+            bytes.extend_from_slice(&glyph.to_be_bytes());
+        }
+        deflated(Dictionary::new(), &bytes)
+    } else {
+        name(b"Identity")
+    };
+    descendant.insert(key(b"CIDToGIDMap"), map);
+    descendant.insert(key(b"BaseFont"), name(embedded.name.as_bytes()));
+    descendant.insert(key(b"FontDescriptor"), Object::Dictionary(descriptor));
+
+    // Table 119 has a Type 0 font over a Type 2 CIDFont named as the CIDFont is.
+    let mut out = font.clone();
+    out.insert(key(b"BaseFont"), name(embedded.name.as_bytes()));
+    out.insert(
+        key(b"DescendantFonts"),
+        Object::Array(vec![Object::Dictionary(descendant)]),
+    );
+    Ok(out)
+}
+
+/// A stream of `data` under §7.4.4's `FlateDecode`, or unfiltered where the encoder declines.
+fn deflated(mut dict: Dictionary, data: &[u8]) -> Object {
+    match pdf_syntax::serialize::flate_encode(data, 9) {
+        Some(encoded) => {
+            dict.insert(
+                pdf_syntax::Name::new(b"Filter".to_vec()),
+                Object::Name(pdf_syntax::Name::new(b"FlateDecode".to_vec())),
+            );
+            stream(dict, encoded.into())
+        }
+        None => stream(dict, data.into()),
+    }
 }
 
 /// A stream object held directly in the dictionary that uses it, its `/Length` stated.
@@ -2723,5 +2852,110 @@ pub(crate) fn value_text(document: &Document, value: &Object) -> Option<String> 
         )),
         Object::Array(items) => items.iter().find_map(|item| value_text(document, item)),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MACHINE_FACE, for_a_file, machine_font};
+    use pdf_syntax::{Dictionary, Name, Object};
+
+    /// A face's program and the characters a shaped value displays, each with what it means.
+    type Face = (
+        std::sync::Arc<[u8]>,
+        std::collections::BTreeMap<char, String>,
+    );
+
+    /// A face on this machine covering `text` once shaped, and the characters it displays.
+    fn machine_face(text: &str) -> Option<Face> {
+        let paragraphs = pdf_font::shaping::Paragraphs::new(text);
+        let glyphs = pdf_font::shaping::displayed_characters(text, paragraphs.as_ref())?;
+        let wanted: Vec<char> = glyphs.keys().copied().collect();
+        let request = pdf_font::substitute::Request {
+            family: pdf_font::substitute::Family::SansSerif,
+            bold: false,
+            italic: false,
+            standard: false,
+        };
+        Some((
+            pdf_font::substitute::installed_covering(request, &wanted)?,
+            glyphs,
+        ))
+    }
+
+    /// Resources naming one font, as a constructed appearance's are.
+    fn resources_of(font: Dictionary) -> Dictionary {
+        let mut fonts = Dictionary::new();
+        fonts.insert(Name::new(b"F0".to_vec()), Object::Dictionary(font));
+        let mut resources = Dictionary::new();
+        resources.insert(Name::new(b"Font".to_vec()), Object::Dictionary(fonts));
+        resources
+    }
+
+    /// The face with its `OS/2` `fsType` restated, `None` where it has no such table.
+    fn with_fs_type(program: &[u8], fs_type: u16) -> Option<Vec<u8>> {
+        let be16 = |at: usize| {
+            Some(u16::from_be_bytes([
+                *program.get(at)?,
+                *program.get(at.checked_add(1)?)?,
+            ]))
+        };
+        let count = usize::from(be16(4)?);
+        let entry = (0..count)
+            .filter_map(|index| index.checked_mul(16)?.checked_add(12))
+            .find(|at| program.get(*at..at.saturating_add(4)) == Some(b"OS/2".as_slice()))?;
+        let offset_at = entry.checked_add(8)?;
+        let offset = usize::try_from(u32::from_be_bytes(
+            program
+                .get(offset_at..offset_at.checked_add(4)?)?
+                .try_into()
+                .ok()?,
+        ))
+        .ok()?;
+        let field = offset.checked_add(8)?;
+        let mut out = program.to_vec();
+        out.get_mut(field..field.checked_add(2)?)?
+            .copy_from_slice(&fs_type.to_be_bytes());
+        Some(out)
+    }
+
+    /// A machine face is written as §9.9.2's subset where its licence permits, and not at all where
+    /// its `OS/2` `fsType` states restricted-licence embedding (ADR 1425).
+    ///
+    /// The restricted face is this machine's own face with that one field restated, because what is
+    /// under test is the reading of the field and not which faces happen to be installed.
+    #[test]
+    fn a_face_whose_licence_forbids_embedding_stays_owed() {
+        let Some((program, glyphs)) = machine_face("\u{633}\u{644}\u{627}\u{645}") else {
+            println!(
+                "skipped: no face on this machine covers the Arabic value's shaped characters"
+            );
+            return;
+        };
+        let (font, _) = machine_font(&program, &glyphs).expect("the face is written around");
+        let written = for_a_file(&resources_of(font)).expect("the installed face may be embedded");
+        let font = written
+            .get("Font")
+            .and_then(Object::as_dict)
+            .and_then(|fonts| fonts.get("F0"))
+            .and_then(Object::as_dict)
+            .expect("the font is kept");
+        let name = font
+            .get("BaseFont")
+            .and_then(Object::as_name)
+            .expect("a name")
+            .as_bytes()
+            .to_vec();
+        assert_ne!(name, MACHINE_FACE);
+        assert_eq!(name.get(6), Some(&b'+'), "§9.9.2's tag");
+
+        let Some(restricted) = with_fs_type(&program, 0x0002) else {
+            println!("skipped: this machine's face has no OS/2 table to restate");
+            return;
+        };
+        let (font, _) =
+            machine_font(&restricted.into(), &glyphs).expect("the face is written around");
+        let refused = for_a_file(&resources_of(font)).expect_err("restricted-licence embedding");
+        assert!(refused.contains("licence"), "{refused}");
     }
 }

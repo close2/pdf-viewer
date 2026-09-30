@@ -74,5 +74,12 @@ answers above are now about a machine that has none.
 character is the box until the answer lands, and the window is woken to draw it. Measured cold on
 this machine, the catalogue walk is a second, and a document opening on a panel holding one such
 character had put it in front of first present. **`quorra-qt` takes the same answer**: Qt falls
-back by family, eleven faces here share `Droid Sans`, and the strip drew boxes until the host
-handed Qt the file the search names. `quorra-gtk` needs nothing: Pango draws it.
+back by family, eleven faces here share `Droid Sans`, and the strip and the panels drew boxes until
+the host handed Qt the file the search names (ADRs 1406, 1418). `quorra-gtk` needs nothing: Pango
+draws it.
+
+**A right-to-left label is joined and ordered in `quorra` too** (ADR 1417): `Chrome::laid_out`
+passes every line of chrome through `pdf_font::shaping::Label` — the Unicode Standard's joining,
+then UAX #9 with the label as one paragraph whose direction is its own first strong character's —
+and asks for each displayed form as it asks for any character. Pango and Qt draw the same forms in
+the same order from the stored text, which is why the shared rows carry it unshaped.

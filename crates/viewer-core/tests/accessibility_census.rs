@@ -1217,8 +1217,10 @@ fn require_the_sandbox() {
 const REFUSED_OPEN: [&str; 3] = [
     // `/Encrypt` does not resolve to a dictionary, so §7.6.1's handler cannot be chosen.
     "PDFBOX-4352-0.pdf",
-    // Both need a password nobody has recorded.
+    // Needs a password nobody has recorded (ADR 1040).
     "encrypted-attachment.pdf",
+    // Its published password is in `corpus_passwords.rs` (ADR 1377), but this census reads its
+    // own `KNOWN_PASSWORDS`, which lacks it, so the file is refused on the default user password.
     "issue21579.pdf",
 ];
 

@@ -621,6 +621,9 @@ cd fuzz && cargo +nightly fuzz run cmap          -- -runs=50000   # §9.7's CMap
 cd fuzz && cargo +nightly fuzz run crypt         -- -runs=50000   # §7.6's algorithms
 cd fuzz && cargo +nightly fuzz run variable_text -- -runs=50000   # §12.7.4.3's /DA and layout
 cd fuzz && cargo +nightly fuzz run forms_data    -- -runs=50000   # §12.7.8's FDF, §7.9.4's dates
+  # **Seed it with FDF files**, `python3 fuzz/seed_forms_data.py fuzz/corpus/forms_data`: a corpus
+  # of dates alone never opens a document, and the one on this disk held no FDF file at all, so its
+  # runs never reached `FormsData::read` (ADR 1423).
 cd fuzz && cargo +nightly fuzz run object        -- -runs=50000   # §7.3's object grammar
 cd fuzz && cargo +nightly fuzz run document      -- -runs=50000   # §7.5's file structure
 cd fuzz && cargo +nightly fuzz run serialize     -- -runs=50000   # §7.5's structure on the way
@@ -786,6 +789,9 @@ cd fuzz && cargo +nightly fuzz run confined_wire -- -runs=4000000 -rss_limit_mb=
 
 
 cd fuzz && cargo +nightly fuzz run display_list  -- -max_total_time=600 -rss_limit_mb=4096
+  # **A corpus of encoded lists goes stale when the encoding moves**, and nothing but its `INITED`
+  # coverage says so: re-seed it with the recipe below whenever that figure falls far under what a
+  # few fresh seeds reach (ADR 1423).
   # ADR 0607's *other* payload, and the second target whose input is a process rather than a
   # document: a window on the confinement receives display lists, so the unconfined host parses a
   # whole page of geometry that the confined side chose. Four shared tables, a clip table whose
@@ -898,6 +904,46 @@ cd fuzz && cargo +nightly fuzz run x509         -- -runs=1000000  # the signer's
   # agree, and sits in `/CRLs` immediately beside `/Certs` — so the second route reads as far as
   # `Validity`, where a certificate states two `Time`s and a revocation list one.
   # Clean at 1 000 000 in the three-hundred-and-ninety-second (ADR 0229)
+cd fuzz && cargo +nightly fuzz run ccitt        -- -max_total_time=600 -timeout=20  # §7.4.6's fax
+  # decoder of this tree's own (ADR 1349): six head bytes choose Table 11's parameters, the rest is
+  # coded data. Seeded from the fax streams of the corpus; it was the one target here without a line,
+  # so `tools/fuzz.sh --list` refused it and exited 1 until this line was written (ADR 1423).
+cd fuzz && cargo +nightly fuzz run shaping      -- -max_total_time=600 -max_len=16384  # UAX #9 and
+  # the Unicode Standard's cursive joining over a field value, §12.7.4.3 (ADRs 1413, 1414, 1417).
+  # Seed it with `python3 fuzz/seed_shaping.py fuzz/corpus/shaping` — the UCD's bidirectional cases
+  # and generated Arabic words; `-max_len` is raised because joining and rule L1 are walks over the
+  # whole text, and a quadratic one shows only on a long value.
+cd fuzz && cargo +nightly fuzz run jbig2        -- -max_total_time=600 -rss_limit_mb=2048 -timeout=30
+cd fuzz && cargo +nightly fuzz run jpx          -- -max_total_time=600 -rss_limit_mb=2048 -timeout=30
+  # §7.4.7's and §7.4.9's filters as the confined worker runs them — the codecs are `hayro-jbig2`
+  # and `hayro-jpeg2000`, the framing, the prefix retry and the sample budget are `pdf-sandbox`'s —
+  # reached through `Isolation::InProcess`, which calls the worker's own functions; `jpx` also reads
+  # the same bytes with `pdf_model::jpeg2000`'s header reader. `-timeout=30` is the worker's own
+  # request deadline, so a slow unit under it is a decode the viewer would have waited for and one
+  # over it is one the worker would have been killed for. Seed both with `fuzz/seeds.sh`, which
+  # frames every codestream of the corpus the way each target reads it. libFuzzer stops at its first
+  # timeout, and `hayro-jbig2` has inputs past the deadline (ADR 1424's third section), so a run
+  # meant to go on past one adds `-fork=1 -ignore_timeouts=1` and reads what it leaves behind.
+cd fuzz && cargo +nightly fuzz run xfdf         -- -max_total_time=600  # ISO 19444-1's XFDF and the
+  # import it feeds, §12.7.6.4 (ADR 1297). Seeded from `crates/pdf-model/tests/xfdf/` by `fuzz/seeds.sh`.
+cd fuzz && cargo +nightly fuzz run linearize    -- -max_total_time=600 -rss_limit_mb=2048 -timeout=60
+  # Annex F both ways: `linearize::state` on the input, and `serialize_linearized`'s file opened
+  # again and found linearised with `/L` its length and `/N` the plan's pages (ADRs 1293, 1309).
+  # Seeded from whole documents, `serialize`'s recipe, by `fuzz/seeds.sh`.
+# **A campaign runs the targets without the sanitiser, under the lock and `tools/bounded.sh`.** The
+# crates a fuzz target reaches forbid `unsafe`, so what AddressSanitizer adds over Rust's own checks
+# is a dependency's unsafe code, and what it costs is the shadow memory that `tools/bounded.sh`'s
+# `RLIMIT_DATA` refuses (the paragraph above). `-s none` keeps libFuzzer's coverage and overflow
+# checks, runs about twice as fast, and fits the bound; the sanitised build stays the one to reach
+# for when a dependency's crash needs its stack. Give each run a scratch corpus as its *first*
+# directory and the seeded one second, so that what the run finds is written to the scratch one
+# and a worktree's linked `fuzz/corpus` is read rather than grown (ADR 1423):
+#   cargo +nightly fuzz build -O -s none
+#   RAYON_NUM_THREADS=4 flock /home/AI/heavy-walk.lock tools/bounded.sh --data 4 --tree 4 -- \
+#     <target dir>/x86_64-unknown-linux-gnu/release/<target> <scratch>/<target> fuzz/corpus/<target> \
+#     -max_total_time=600 -rss_limit_mb=2048 -timeout=20 -jobs=1 -artifact_prefix=<scratch>/<target>-
+# `tools/state.sh fuzz` prints what the disk holds of every target: its seeds, and the crashes,
+# timeouts and memory refusals sitting in `fuzz/artifacts/`.
 ```
 
 **Sections of `tools/state.sh` a round runs by name**, each seconds long and each in `quick`, with

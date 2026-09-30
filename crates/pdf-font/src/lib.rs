@@ -28,6 +28,7 @@ pub mod cff;
 pub mod cmap;
 pub mod collection;
 mod composite;
+pub mod embed;
 pub mod embedding;
 pub mod encoding;
 #[cfg(test)]
@@ -57,4 +58,4 @@ pub use crate::cmap::Code;
 pub use crate::composite::composite_cmap;
 pub use crate::loading::{CharacterGlyph, FontError, LoadedFont, NOTDEF_GLYPH, NamingGap};
 pub use crate::metrics::{VerticalDisplacements, measured_extent};
-pub use crate::sfnt::repaired_font_program;
+pub use crate::sfnt::{composite_cycle, repaired_font_program};

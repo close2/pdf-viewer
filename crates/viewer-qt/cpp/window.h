@@ -532,7 +532,8 @@ private:
     /// The timer asking the drawing thread for a finished page, stopped whenever none is being
     /// drawn.
     QTimer* drawing_ = nullptr;
-    /// The timer asking for a machine face a tab's label is waiting on, stopped whenever none is.
+    /// The timer asking for a machine face a tab's or a panel row's label is waiting on, stopped
+    /// whenever none is.
     QTimer* faces_ = nullptr;
     /// The families `pumpFaces` has registered, in the order the host found their files.
     QStringList fallbackFamilies_;

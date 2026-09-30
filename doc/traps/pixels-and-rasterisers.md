@@ -405,15 +405,24 @@ x ≈ 1000, so a hairline's round cap was read as nested inside its body and 29 
 frame answered a question already decided (ADR 1397). The point and the ray test are `f64` now;
 walks per frame on that page fell to 480.
 
-### 71. A thread-count comparison across a corpus walk cascades through the retained atlas
+### 71. A comparison of two stateful backends compares their histories
 
-Round 1279's thirteen thread-dependent pages were not the hybrid against the scratch lane: the
-room probe read atlas shelves that queued inserts had not filled, so many threads admitted a tile
-one thread refused, and the tile was then drawn at a different phase (ADR 1407). Because the atlas
-is kept across pages, one such divergence moved every page after it, four pages that differed in
-sequence agreed alone, and the list of differing pages was not attributable until the race was
-switched off in both arms (ADR 1409). Judge a change by "0 with the known race off"; run pages
-alone and in sequence; hold the list empty only where it is.
+Round 1279's thirteen thread-dependent pages at 1× were the room probe reading atlas shelves that
+queued inserts had not filled, so many threads admitted a tile one thread refused and drew it at a
+different phase (ADR 1407). The 176 that remained at 4× were not the encoder's at all: the corpus
+gate drew a refused page, and a page redrawn for its artefacts, on one backend only, and because the
+atlas is kept across pages that one asymmetry moved every page after it — four pages that differed in
+sequence agreed alone (ADR 1419). Both arms draw every frame, refused ones and redraws included; two
+refusals are equal only with identical sentences; and the list of differing pages is held empty at
+every scale, never surveyed. Judge alone *and* in sequence.
+
+### 73. A cache in a hot step that the common case reads once is a loss
+
+`Line::split` usually returns after one pass, so caching each point's side cost +213 M instructions
+and carrying the side from edge to edge +116 M on the very page the tiling was being made cheaper
+for (ADR 1421). Measure the early-return rate before adding a cache or a carried value; the levers
+that paid there were a bounding-box prefilter, reused buffers and no copying — fewer operations, not
+remembered ones.
 
 ## Things worth knowing
 

@@ -7,7 +7,12 @@ is kept rather than deleted because comments in `crates/` and `tools/` point a r
 at it, and every decision in it is in the ADRs below.
 Opened in the four-hundred-and-seventh session, answered in the eight-hundred-and-forty-fourth
 and closed in the eight-hundred-and-forty-ninth.
-Cited by: comments in `crates/pdf-model`, `tools/pdfref` and `tools/conformance`; §8.9.5's ledger note — the reason the file is kept whole rather than deleted (ADR 1416).
+Cited by: comments in `crates/pdf-model` (`src/image.rs`, `tests/oracle.rs`, `tests/image_reuse.rs`) and
+`tools/pdfref`; §8.9.5's ledger note; `doc/oracle-and-corpus.md`, `doc/traps/oracle-and-references.md` and
+`doc/todo/00` — the reason the file is kept whole rather than deleted (ADR 1416). Read paragraph by
+paragraph against the ADRs below, every one is held but three: the two re-run commands, which are
+written nowhere else, and the two neighbouring questions, held by ADRs 0575, 0616 and 0617, which
+this header does not name.
 Priority: 12 — demand-driven, and it is about the instrument rather than about a page
 Code: `tools/pdfref/src/lib.rs` (`Tolerance`, `Judgement`, `widened_to`),
 `tools/pdfref/src/reference.rs` (`substituted_cmyk_profile`),

@@ -301,16 +301,18 @@ and a window does not. `warm` is 3% to 11% of the refresh on every page and is l
 | | step | 48.35 (580%) | — | — | 5.22 | **41.62** | 1.16 | 0.34 |
 | `images.pdf` p1 | turn | 147.09 (1765%) | **132.87** | 0.04 | 0.85 | 11.93 | 0.88 | 0.53 |
 | | step | 22.48 (270%) | — | — | 2.50 | **18.66** | 0.56 | 0.76 |
-| `issue14415.pdf` p1, strokes, 959 commands | turn | 12.13 (146%) | 2.60 | 0.61 | **7.03** | 0.93 | 0.76 | 0.20 |
-| | step | 6.06 (73%) | — | — | **4.61** | 0.24 | 1.07 | 0.13 |
+| `issue14415.pdf` p1, strokes, 959 commands | turn | 11.24 (135%) | 2.63 | 0.62 | **6.03** | 0.95 | 0.82 | 0.20 |
+| | step | 5.44 (65%) | — | — | **3.76** | 0.17 | 1.36 | 0.15 |
 | `issue19802.pdf` p1, 1 032 commands | turn | 4.13 (50%) | 0.49 | 0.21 | **2.60** | 0.19 | 0.46 | 0.18 |
 | | step | 1.21 (15%) | — | — | 0.08 | 0.15 | 0.84 | 0.13 |
-| `ContentStreamNoCycleType3insideType3.pdf`, stroked Type 3 in a tiling | turn | 11.23 (135%) | 0.43 | 0.18 | **9.79** | 0.31 | 0.43 | 0.09 |
-| | step | 12.65 (152%) | — | — | **12.05** | 0.06 | 0.37 | 0.17 |
+| `ContentStreamNoCycleType3insideType3.pdf`, stroked Type 3 in a tiling | turn | 9.38 (113%) | 0.43 | 0.18 | **7.97** | 0.27 | 0.42 | 0.11 |
+| | step | 10.88 (131%) | — | — | **10.23** | 0.06 | 0.40 | 0.18 |
 
-The text, `issue14415.pdf`, `issue19802.pdf` and Type 3 rows were re-taken the same day after ADR
-1409, against a build of the tree before it in the same sitting: minimum of three runs of five
-rounds, pinned, load 1.9–2.1. The rest are the re-baseline's.
+The text and `issue19802.pdf` rows were re-taken the same day after ADR 1409, against a build of
+the tree before it in the same sitting: minimum of three runs of five rounds, pinned, load 1.9–2.1.
+The `issue14415.pdf` and Type 3 rows were re-taken on 2026-09-30 after ADR 1421, the same way
+against the tree before it (load 2.4–2.8; that build read 11.16 and 12.80 on the Type 3 page and
+11.74 and 6.38 on `issue14415.pdf`). The rest are the re-baseline's.
 
 **A repaint of what is on the screen always fits**; **a page turn onto a page whose outlines the
 device has not seen fits on two of the eight** — the expensive end of that gesture, where
@@ -321,8 +323,8 @@ every time.
 
 **Where each page's turn goes is a different stage, and each has its ADR.** On text and on stroked
 artwork it is raster's `encode`: ADR 1375's tiling of a tight bend and ADR 1389's fill set are the
-cost (ADR 1395 has the per-commit table), ADR 1395 takes a clipped mark and a stroke off the
-walk's thread, and ADR 1409 lets a repeated glyph, a rectangle and a compute tile queue behind the
+cost (ADR 1395 has the per-commit table; ADR 1421 prices the tiling against its off arm), ADR 1395
+takes a clipped mark and a stroke off the walk's thread, and ADR 1409 lets a repeated glyph, a rectangle and a compute tile queue behind the
 marks before them, so a text page's glyphs and a zoom step's strokes are divided too. What is left
 is the walk and the commit, which are ordered by construction, and the stroke construction's own
 cost. On the mesh page the scene walk divides `MeshRaster`'s rows across rayon's pool — byte-

@@ -5239,6 +5239,34 @@ mod tests {
         }
     }
 
+    /// §12.3.3's title reaches this host's `GtkLabel` as the document stored it — logical order,
+    /// nominal letters — which is the text Pango's own bidirectional algorithm and shaping start
+    /// from (ADR 1417).
+    ///
+    /// `quorra` joins and orders a label itself, in `viewer-ui`'s chrome and nowhere shared; a row
+    /// that reached this host already ordered would be reordered a second time by Pango. Driven under
+    /// `Xvfb`, Pango draws the same joined forms, in the same order, as `quorra`'s chrome does.
+    #[test]
+    fn an_arabic_outline_title_reaches_pango_as_stored() {
+        let stored =
+            "\u{627}\u{644}\u{641}\u{635}\u{644} 12: \u{627}\u{644}\u{633}\u{644}\u{627}\u{645}";
+        let outline = pdf_model::outline::Outline {
+            items: vec![pdf_model::outline::Item {
+                id: pdf_syntax::ObjectId::new(5, 0),
+                title: stored.to_owned(),
+                destination: None,
+                open: false,
+                italic: false,
+                bold: false,
+                colour: [0.0; 3],
+                children: Vec::new(),
+            }],
+            stated_count: None,
+        };
+        let rows = viewer_host::panel::outline_rows(&outline);
+        assert_eq!(rows.first().map(|row| row.label.as_str()), Some(stored));
+    }
+
     /// A capital letter is the same key, because GDK reports the shifted keyval.
     #[test]
     fn a_capital_letter_is_the_same_key_as_its_lower_case() {

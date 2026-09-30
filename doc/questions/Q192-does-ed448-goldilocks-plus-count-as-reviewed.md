@@ -1,0 +1,44 @@
+# Q192 — Does `ed448-goldilocks-plus` count as "reviewed" under `doc/stack.md`'s terms?
+
+Source: round 1295, from `doc/todo/65` bucket 2, which named the package as a candidate on 2026-09-29.
+Status: **open** — answered when `A192-does-ed448-goldilocks-plus-count-as-reviewed.md` exists beside this file.
+
+## Why it needs the owner
+
+The swap condition for `crates/pdf-signature/src/ed448.rs` is the owner's own, from A170 as ADR 1386
+item 3 records it: the day a *stable, reviewed* crate covers the curve, the swap is decided on
+`doc/stack.md`'s terms. "Stable" can be read off a version number. "Reviewed" is a word whose meaning
+belongs to the owner, and one package now meets the first half and not, by its own statement, the
+second.
+
+## What was found (2026-09-30)
+
+- **The package.** `ed448-goldilocks-plus` 0.18.1 (`cargo info`): Ed448, Curve448 and Decaf, with
+  Ed448 signing and verification; `BSD-3-Clause`; no stated MSRV; default features bring `std`,
+  `signing`, `pkcs8` and `kex`. It is on a stable version line, which RustCrypto's own
+  `ed448-goldilocks` is not (`0.14.0-pre.15`, `Apache-2.0 OR MIT`, MSRV 1.85).
+- **Where it comes from.** It is published from `mikelodder7/Ed448-Goldilocks`, a one-person
+  GitHub fork of `crate-crypto/Ed448-Goldilocks`. RustCrypto's `ed448-goldilocks` lives in
+  `RustCrypto/elliptic-curves` and is a different package. RustCrypto neither publishes nor
+  maintains the `-plus` line, and nothing in either repository says it tracks RustCrypto's.
+- **The review record.** Neither repository names an audit. **Both READMEs state, in capitals, that
+  the code has not been audited or reviewed and is to be used at one's own risk**: the fork's and
+  RustCrypto's `ed448-goldilocks`'s alike.
+- **The licence.** `BSD-3-Clause` is not one of the `Apache-2.0 OR MIT` pair every other
+  cryptographic package here carries. Whether `deny.toml` admits it has not been checked, because the
+  question above comes first.
+
+## What the tree does meanwhile
+
+Nothing changes. `ed448.rs` stays the tree's own under A170, not advertised and built so the switch
+is easy (ADR 1386). `doc/todo/65` names this question beside the candidate instead of judging it.
+
+## Recommendation
+
+**No, it does not count.** The package's own README says it has not been reviewed. Being stable is
+not the same as being reviewed, and the tree's other curves were taken from RustCrypto because they
+share a supplier with the ciphers and digests already here (`doc/stack.md`), which a one-person fork
+does not. Keep the swap condition as written and keep checking RustCrypto's `ed448-goldilocks`. If
+that crate reaches a stable line, this same question comes back about it, and its README carries the
+same sentence today. If the owner wants "reviewed" to mean something weaker, such as "stable, and
+from the supplier the tree already trusts", saying so here would settle both packages at once.

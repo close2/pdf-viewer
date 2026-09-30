@@ -29,8 +29,10 @@ scoped strictly to text *we* generate (annotations, form fields with non-embedde
 **And for that scope, `rustybuzz` is not its shape** (ADR 0348): it would bring `ttf-parser`, a
 second sfnt stack beside `skrifa`/`read-fonts` — the same shape ADR 0229 declined a second hash
 stack for. Text this program writes is shaped in `pdf_font::shaping` instead: **UAX #9's order by
-`unicode-bidi`** (Servo's, already in the lock under `stringprep`, run against every line of the
-UCD's `BidiCharacterTest.txt`; ADR 1413) and **the Unicode Standard's cursive joining over the
+`unicode-bidi`** (Servo's 0.3.18, `MIT OR Apache-2.0`, already in the lock under `stringprep` so it
+adds no package; its one `unsafe` block reinterprets a byte slice as its `repr(transparent)` level
+type whatever the input, and it is run against every line of the UCD's `BidiCharacterTest.txt`
+rather than trusted; ADR 1413) and **the Unicode Standard's cursive joining over the
 UCD's own tables**, reaching each form as a presentation-form code point (ADR 1414). The glyph
 source is a face on the machine covering the shaped value, since no compiled-in face has an Arabic
 glyph; executing a face's `GSUB` through `read-fonts` is priced there and not built.

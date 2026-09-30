@@ -315,8 +315,8 @@ const REFUSED_BEFORE_THE_SCENE: [&str; 4] = [
 /// wind more than two values, so ADR 1389's `Encoder::compute_takes` sends them to the scratch
 /// lane, which charges a tile's area and not the compute lane's accumulator of four bytes a pixel
 /// besides — 252594693 scene-derived bytes against the budget of 268435456, where the compute lane
-/// asked 527497181 (`doc/QUORRA_FEEDBACK.md` section 40). At 4× it is refused, over the coverage
-/// sheet's texture ceiling, in [`REFUSED_BY_THE_DEVICE_AT_FOUR`].
+/// asked 527497181 (`doc/QUORRA_FEEDBACK.md` section 40). At 4× it is refused on the scene-byte
+/// budget, in [`REFUSED_BY_THE_DEVICE_AT_FOUR`].
 ///
 /// **What a departure from this list means.** A name arriving is a page a person could open at
 /// 100% and not see: it is raster's to move, or this adapter's, and the round that finds one
@@ -387,9 +387,9 @@ const REFUSED_BY_THE_DEVICE: [&str; 2] =
 ///   of the backend entirely. Nobody raised `max_resource_bytes`, and a budget raised to admit one
 ///   page would still be a budget chosen by that page.
 /// - `issue1905.pdf` exceeded the **16 384 × 16 384 texture** this adapter allows for the
-///   rasterised-coverage sheet, and what it prints now is the scene-byte budget at both scales —
-///   *frame needs 272158852* at [`SCALE`] and *365144861* at this one, each over 268435456 — so
-///   the ceiling below is a reading the byte budget preempts rather than one a run still shows.
+///   rasterised-coverage sheet, and what it prints at this scale is the scene-byte budget —
+///   *frame needs 365144861*, over 268435456 — so the ceiling below is a reading the byte budget
+///   preempts rather than one a run still shows; at [`SCALE`] it is drawn (ADR 1389).
 ///   (`issue9418.pdf`, added above, is the page that prints it today.) That ceiling is a device
 ///   capability, not a policy. Raster measured a
 ///   multi-sheet fix at its `5483996` and **declined it with the numbers written down**: a second
@@ -748,7 +748,7 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
         let ours = raster.rasterize(&list, target);
         let gpu_took = at.elapsed();
         one_thread.compare(&name, &list, target, &ours);
-        let verdict = outcome(&cpu, ours);
+        let verdict = outcome(&cpu, &ours);
         // **A refused frame is a fast frame**, and counting one as a time would report a
         // backend that draws nothing as the quickest there is: at four times the page's own
         // scale, 533 of these documents are refused and the median ratio came back as 0.00×
@@ -776,7 +776,9 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
         match verdict {
             Outcome::Agrees => agreed = agreed.saturating_add(1),
             Outcome::Differs(how) => {
-                write_artefacts(&name, &cpu, &raster.rasterize(&list, target));
+                // The frame judged, not a second one: a redraw is another frame on the retained
+                // atlas, which the one-threaded backend beside this one would not have drawn.
+                write_artefacts(&name, &cpu, &ours);
                 let mean = how
                     .split_once("mean ")
                     .and_then(|(_, rest)| rest.split_whitespace().next())
@@ -827,17 +829,14 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
 /// is how it was lost — thirteen pages of this corpus drew differently at one thread and at
 /// twenty-four while every gate passed, because no gate ran both. So this one does, inside the
 /// walk rather than as a second walk: the page is already parsed and the list already built, and a
-/// second raster at one thread is all the comparison costs. Held to **empty** at [`SCALE`] on every
-/// lane and quantum, and under a filter too — equality to nothing is the one list a subset cannot
-/// misreport. At any other scale it is a survey and holds nothing: at [`MAGNIFIED`] on the CPU lane
-/// pages still differ, the divergence first showing as the retained atlas's state after one frame,
-/// and each such page alone agrees — ADR 1407 section 4 names that residue, and section 1 the cause
-/// found at [`SCALE`] and its fix.
+/// second raster at one thread is all the comparison costs. Held to **empty** at every scale, lane
+/// and quantum, and under a filter too — equality to nothing is the one list a subset cannot
+/// misreport. Each backend keeps its atlas from page to page, so the two must draw the same frames
+/// in the same order, a refused frame included ([`OneThread::compare`], ADR 1419); ADR 1407
+/// section 1 is the encoder's half of the same property.
 struct OneThread {
     /// `None` when the run under test is itself one-threaded, so there is nothing to compare.
     raster: Option<QuorraRasterizer>,
-    /// Whether the run is at [`SCALE`], where the list is held.
-    held: bool,
     /// The pages whose bytes differ, or which one thread refused and many drew.
     differing: Vec<String>,
 }
@@ -857,12 +856,19 @@ impl OneThread {
         }
         Self {
             raster,
-            held: is_exactly(settings.scale, SCALE),
             differing: Vec::new(),
         }
     }
 
-    /// Draws the page again at one thread and records it when the bytes are not the same.
+    /// Draws the page again at one thread and records it when the bytes are not the same, or when
+    /// one of the two refused what the other drew.
+    ///
+    /// **Drawn whatever the fanned-out backend answered, a refusal included.** Each backend keeps
+    /// its atlas from page to page, and a frame refused part way through its encode has already
+    /// committed the atlas inserts before the refusing charge — so a page drawn by one backend and
+    /// skipped by the other leaves the next page on two different atlases, and every page after it
+    /// differs by the retained state rather than by the thread count (ADR 1419). The two histories
+    /// are the same frames in the same order, or the comparison compares histories.
     fn compare(
         &mut self,
         name: &str,
@@ -870,12 +876,13 @@ impl OneThread {
         target: TargetSpec,
         ours: &Result<pdf_render::Raster, impl ToString>,
     ) {
-        let (Some(raster), Ok(ours)) = (self.raster.as_mut(), ours) else {
+        let Some(raster) = self.raster.as_mut() else {
             return;
         };
-        match raster.rasterize(list, target) {
-            Ok(serial) if serial.data == ours.data => {}
-            Ok(serial) => {
+        match (raster.rasterize(list, target), ours) {
+            (Ok(serial), Ok(ours)) if serial.data == ours.data => {}
+            (Err(serial), Err(ours)) if serial.to_string() == ours.to_string() => {}
+            (Ok(serial), Ok(ours)) => {
                 let row = usize::try_from(serial.width).map_or(1, |w| w.saturating_mul(4).max(1));
                 let (mut bytes, mut most) = (0usize, 0u8);
                 let (mut left, mut top, mut right, mut bottom) = (usize::MAX, usize::MAX, 0, 0);
@@ -897,8 +904,22 @@ impl OneThread {
                 );
                 self.differing.push(name.to_owned());
             }
-            Err(why) => {
+            (Err(why), Ok(_)) => {
                 println!("  thread count moves: {name}: one thread refused what many drew: {why}");
+                self.differing.push(name.to_owned());
+            }
+            (Ok(_), Err(why)) => {
+                println!(
+                    "  thread count moves: {name}: many threads refused what one drew: {}",
+                    why.to_string()
+                );
+                self.differing.push(name.to_owned());
+            }
+            (Err(serial), Err(many)) => {
+                println!(
+                    "  thread count moves: {name}: the two refusals differ: one thread {serial}, many {}",
+                    many.to_string()
+                );
                 self.differing.push(name.to_owned());
             }
         }
@@ -911,10 +932,6 @@ impl OneThread {
                 "  thread count: {} page(s) differ between one encode thread and many",
                 self.differing.len()
             );
-        }
-        if !self.held {
-            println!("  thread count: a survey at this scale, not held (ADR 1407 section 4)");
-            return;
         }
         assert!(
             self.differing.is_empty(),
@@ -1227,12 +1244,12 @@ fn write_artefacts(
 }
 
 /// Compares one page, or says why it could not be.
-fn outcome(cpu: &pdf_render::Raster, ours: Result<pdf_render::Raster, impl ToString>) -> Outcome {
+fn outcome(cpu: &pdf_render::Raster, ours: &Result<pdf_render::Raster, impl ToString>) -> Outcome {
     let ours = match ours {
         Ok(raster) => raster,
         Err(why) => return Outcome::Refused(why.to_string()),
     };
-    let Ok(c) = raster_compare::compare(cpu, &ours) else {
+    let Ok(c) = raster_compare::compare(cpu, ours) else {
         return Outcome::NotComparable(NotComparable::RastersCannotBeCompared);
     };
     if c.mean_error < MAX_MEAN_ERROR

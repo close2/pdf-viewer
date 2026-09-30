@@ -645,3 +645,95 @@ fn the_compute_lanes_strokes_are_the_same_bytes_at_every_thread_count() {
         }
     }
 }
+
+/// Sixty more letterforms than [`text_page`] places, at four times its placements: a page the
+/// frame budget below refuses part way through its run of glyphs, after the atlas has taken
+/// some of them.
+fn long_text_page(device: &mut Device) -> Scene {
+    let letters: Vec<OutlineId> = (0..120_u32)
+        .map(|n| device.upload_outline(&blob(30 + n, 4.0)).unwrap())
+        .collect();
+    let mut builder = SceneBuilder::new();
+    for index in 0..1_680_u32 {
+        let x = 10.0 + f32::from((index % 34) as u16) * 6.0;
+        let y = 10.0 + f32::from((index / 34 % 34) as u16) * 6.0;
+        builder
+            .fill(
+                letters[(index as usize * 13) % letters.len()],
+                Affine::translate(x + 0.37 * f32::from((index % 3) as u16), y),
+                FillRule::NonZero,
+                ink(f32::from((index % 5) as u16) / 5.0),
+                None,
+                BlendMode::Normal,
+                Compose::SrcOver,
+                None,
+            )
+            .unwrap();
+    }
+    builder.finish()
+}
+
+/// **A refused frame's atlas inserts are the one-threaded walk's, and they stand** (ADR 1419):
+/// a device keeps its atlas from frame to frame, a frame refused by its budget has committed
+/// every insert before the refusing charge, and the page after it is drawn on that atlas. So
+/// the refused frame, then a text page, is the same refusal and the same bytes at every thread
+/// count — and the text page does not take the lanes it takes on a fresh device, which is why a
+/// comparison of two devices must draw the refused frame on both.
+#[test]
+fn the_page_after_a_refused_frame_is_the_same_bytes_at_every_thread_count() {
+    let history = |threads: usize, refused_first: bool| {
+        let mut device = Device::headless(&Options {
+            adapter: Some("llvmpipe".into()),
+            encode_threads: threads,
+            atlas_budget: 64 * 64,
+            // Room for the text page, and not for the long one's coverage tiles.
+            max_frame_bytes: 200_000,
+            ..Options::default()
+        })
+        .expect("llvmpipe is present wherever this suite runs");
+        device.wait_until_warm();
+        let viewport = Viewport::full(SIDE, SIDE, Affine::IDENTITY);
+        let refusal = refused_first.then(|| {
+            let long = long_text_page(&mut device);
+            let error = device
+                .render(&long, &viewport, Target::Readback)
+                .expect_err("this budget cannot hold the long page");
+            format!("{error:?}")
+        });
+        let page = text_page(&mut device);
+        let frame = device
+            .render(&page, &viewport, Target::Readback)
+            .expect("the text page is inside the budget");
+        let counters = frame.counters();
+        (
+            refusal,
+            frame.into_raster().unwrap().into_pixels(),
+            counters,
+        )
+    };
+    let (refusal, alone, counters) = history(1, true);
+    let (_, _, fresh) = history(1, false);
+    assert!(
+        refusal
+            .as_deref()
+            .is_some_and(|r| r.contains("FrameBudgetExceeded")),
+        "the long page must refuse on the budget: {refusal:?}"
+    );
+    assert!(
+        fresh.atlas_overflow_tiles == 0 && counters.atlas_overflow_tiles > 0,
+        "the refused frame's inserts must fill the atlas the next page finds, or this fixture \
+         tests nothing: {fresh:?} against {counters:?}"
+    );
+    for threads in COUNTS.into_iter().skip(1) {
+        let (also_refused, divided, also) = history(threads, true);
+        assert_eq!(
+            refusal, also_refused,
+            "the refusal moved at {threads} threads"
+        );
+        assert_eq!(counters, also, "the counters moved at {threads} threads");
+        assert!(
+            divided == alone,
+            "the page after the refused frame moved at {threads} threads"
+        );
+    }
+}

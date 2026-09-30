@@ -977,6 +977,13 @@ pattern `tools/*` then read that directory as a member and every `cargo` command
 worktree failed on its missing `Cargo.toml` (round 1289). Run `tools/` Python with
 `PYTHONDONTWRITEBYTECODE=1`, or remove the directory the moment it appears.
 
+### 74. The overtaken sweep reads `ADR NNNN`, not `ADRs NNNN and MMMM`
+
+A note citing two decisions in one phrase — "ADRs 0820 and 1377" — was reported as overtaken by
+both, because the citation scanner matches the singular form only (round 1295). Cite each one as
+`ADR 0820, ADR 1377`, and when a sweep names a note as citing nothing, read the note before believing
+it.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

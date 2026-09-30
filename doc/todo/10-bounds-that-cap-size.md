@@ -149,6 +149,18 @@ draws less than the file says and says so, and a memo whose key cannot be hit dr
 file says and takes minutes doing it. The question to ask of one is *what population does its
 lookup walk, and can a document grow that population without limit?*
 
+**And a fifth, which the fuzzer finds and a census cannot: the *step* a reader takes past what a
+bound refused, and the *membership test* inside a walk that is otherwise linear.** Both are ADR
+1424. The content reader stepped over a token longer than `CEILING` to the next white space, which
+ends every token but a string, so a long string's own words were read as content and each `(` in
+it cost `CEILING` bytes of lexing — a minute from a fourteen-kilobyte file, left in
+`fuzz/artifacts/page/` as a timeout for six weeks. And `pdf_font::composite_cycle` visited each
+glyph once but scanned the whole path per component reference, 34.5 s for one code over a chain the
+file can make 65 534 deep. The question to ask of a skip is *does it end where the grammar ends the
+thing skipped*, and of a walk *is every per-step question constant*. Every crasher, timeout and
+memory refusal the fuzz targets leave is read in a release build and becomes a test named for the
+bound it violates (principle 3); `tools/state.sh fuzz` prints what `fuzz/artifacts/` holds.
+
 | bound | if removed, a *small malicious* input can… | verdict |
 |---|---|---|
 | `MAX_FORM_DEPTH` 64 (16 until ADR 0793, which found a tiling cell outside it) | recurse until the **stack** aborts the process — which the address-space ceiling cannot see, and which Rust turns into an abort rather than a report | **load-bearing, and a stack figure rather than a habit since ADR 0793** |

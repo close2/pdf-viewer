@@ -43,3 +43,4 @@ the RFC stays here as the argument that started it.
 | [0005](0005-text-editing-without-reflow.md) | Basic text editing, without reflow | draft | 786 |
 | [0006](0006-pdf-a-validation-and-conversion.md) | PDF/A: validating a document, and converting one | ratified (2026-09-09, A46; validator first, PDF/A-4 certified first) | 895 |
 | [0007](0007-a-refusal-is-a-question-somebody-can-answer-in-advance.md) | A refusal is a question somebody can answer in advance — a remedy configuration, and an API for external tools | accepted (2026-09-12, A54–A60; the third amendment in ADR 1014) | 954 |
+| [0008](0008-a-script-is-a-document-acting-on-its-reader.md) | A script is a document acting on its reader — what running one would mean, where the line is, and which engine | proposed (eleven questions in §10; `doc/questions/Q193` points at them) | 1296 |

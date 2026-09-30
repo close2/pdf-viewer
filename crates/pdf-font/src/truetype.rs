@@ -1017,4 +1017,106 @@ mod truetype_encoding_tests {
         let font = FontRef::new(&without).expect("readable");
         assert!(Subtables::read(&font).all.is_none());
     }
+
+    /// A `glyf` program whose glyph `i` is a composite of the glyphs `components(i)` names, and
+    /// empty where that names none.
+    ///
+    /// Each component has byte arguments and no scale, the smallest the TrueType Reference
+    /// Manual's `glyf` table describes: ten bytes of header and six a component, so a chain of
+    /// every glyph index a `u16` holds is about a megabyte.
+    fn composite_fixture(glyphs: u16, components: impl Fn(u16) -> Vec<u16>) -> Vec<u8> {
+        /// The flag that says another component follows this one.
+        const MORE_COMPONENTS: u16 = 0x0020;
+        let mut glyf = Vec::new();
+        let mut loca = Vec::new();
+        for glyph in 0..glyphs {
+            loca.extend_from_slice(&u32::try_from(glyf.len()).expect("small").to_be_bytes());
+            let parts = components(glyph);
+            if parts.is_empty() {
+                continue;
+            }
+            glyf.extend_from_slice(&(-1_i16).to_be_bytes());
+            glyf.extend_from_slice(&[0; 8]);
+            for (at, part) in parts.iter().enumerate() {
+                let flags = if at.saturating_add(1) < parts.len() {
+                    MORE_COMPONENTS
+                } else {
+                    0
+                };
+                glyf.extend_from_slice(&flags.to_be_bytes());
+                glyf.extend_from_slice(&part.to_be_bytes());
+                glyf.extend_from_slice(&[0, 0]);
+            }
+        }
+        loca.extend_from_slice(&u32::try_from(glyf.len()).expect("small").to_be_bytes());
+        let mut head = vec![0u8; 54];
+        head.splice(50..52, 1_u16.to_be_bytes());
+        let mut maxp = vec![0u8; 6];
+        maxp.splice(4..6, glyphs.to_be_bytes());
+        sfnt(&[
+            (*b"head", head),
+            (*b"maxp", maxp),
+            (*b"loca", loca),
+            (*b"glyf", glyf),
+        ])
+    }
+
+    /// A composite that reaches itself is found, at the glyph that closes the circle (ADR 1411).
+    #[test]
+    fn a_composite_that_includes_itself_is_named_at_the_glyph_that_closes_the_cycle() {
+        // 0 -> 1 -> 2 -> 1
+        let font = composite_fixture(3, |glyph| vec![if glyph == 2 { 1 } else { glyph + 1 }]);
+        assert_eq!(crate::sfnt::composite_cycle(&font, 0), Some(1));
+        // A chain that ends in an empty glyph has a depth, and so no cycle.
+        let font = composite_fixture(3, |glyph| if glyph < 2 { vec![glyph + 1] } else { vec![] });
+        assert_eq!(crate::sfnt::composite_cycle(&font, 0), None);
+        // A glyph reached twice by two routes is a diamond, not a cycle.
+        let font = composite_fixture(4, |glyph| match glyph {
+            0 => vec![1, 2],
+            1 | 2 => vec![3],
+            _ => vec![],
+        });
+        assert_eq!(crate::sfnt::composite_cycle(&font, 0), None);
+    }
+
+    /// The walk is linear in the component references it meets, over the deepest chain a `u16`
+    /// can number.
+    ///
+    /// Principle 3's time budget, `doc/todo/10`'s class: a program is a document's stream, so the
+    /// depth and breadth of its component graph are the file's to choose, and the question is
+    /// asked for every code a page shows that reached no outline. Every glyph here is on one
+    /// chain of 65 534 and also names the empty last glyph fifteen times, so a walk that scanned
+    /// the path for each reference would make about thirty-two billion comparisons for one code
+    /// out of a program of six megabytes — tens of seconds in this build. A lookup per reference
+    /// is well inside the bound, which is loose for a loaded machine.
+    #[test]
+    fn the_deepest_composite_chain_is_walked_in_linear_time() {
+        let last = u16::MAX - 1;
+        let wide = |next: u16| {
+            let mut parts = vec![next];
+            parts.extend(std::iter::repeat_n(last, 15));
+            parts
+        };
+        let font = composite_fixture(u16::MAX, |glyph| {
+            if glyph < last - 1 {
+                wide(glyph + 1)
+            } else {
+                vec![]
+            }
+        });
+        let started = std::time::Instant::now();
+        assert_eq!(crate::sfnt::composite_cycle(&font, 0), None);
+        // And closing the chain on its first glyph is a cycle found at the far end of the path.
+        let font = composite_fixture(u16::MAX, |glyph| match glyph.cmp(&(last - 1)) {
+            std::cmp::Ordering::Less => wide(glyph + 1),
+            std::cmp::Ordering::Equal => vec![0],
+            std::cmp::Ordering::Greater => vec![],
+        });
+        assert_eq!(crate::sfnt::composite_cycle(&font, 0), Some(0));
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "two walks of 65 534 glyphs took {:?}",
+            started.elapsed()
+        );
+    }
 }

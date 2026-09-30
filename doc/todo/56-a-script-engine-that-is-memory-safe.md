@@ -1,6 +1,9 @@
 # A script engine that is memory-safe, and the exclusion it invites the owner to re-read
 
-Status: **blocked on the owner's decision about the exclusion, and on nothing else.** The premise
+Status: **blocked on the owner's decision about the exclusion, and on nothing else — and the
+decision is now put as `doc/rfc/0008`, with `doc/questions/Q193` pointing at its ten questions.**
+This file is the finding the RFC builds on; the RFC re-measured what it could and this file keeps
+its 2026-08-28 numbers as what was found then. The premise
 this file was commissioned to test — *is it true that there is now a safe ECMAScript library?* — is
 **true, with one qualification that matters and is stated in full below**. What is not settled is
 whether the project wants the capability; `CLAUDE.md`'s exclusion list still closes it, and an
@@ -15,7 +18,9 @@ is untouched: §8 is still an argument awaiting ratification, with the four clai
 it still standing, and the round that recorded the source decision changed no ledger status, no
 `Cargo.toml`, no file under `doc/rfc/` and no line of `CLAUDE.md`.
 
-Corpus: **run the census rather than reading a number here.** The instrument already existed
+Corpus: **run the census rather than reading a number here.** The instrument that answers *at
+which site* and *what each script calls* is `crates/pdf-model/examples/javascript_census.rs`
+(RFC 0008 §3 has its command); the two below answer *how many*, and existed
 before this file did — `refused_action_census` walks every object the cross-reference table lists
 and every dictionary inside one, so it sees a script action inside an object stream, which a
 byte-level `grep` cannot:
@@ -489,9 +494,13 @@ Read 2026-08-28, by fetching rather than by searching.
 
 **The PDF edition is retired and the document is now an HTML page tree.**
 `https://www.adobe.com/content/dam/acom/en/devnet/acrobat/pdfs/js_api_reference.pdf` answers 301 to
-the SDK landing page; so does `js_developer_guide.pdf`. What is live is
+the SDK landing page; so does `js_developer_guide.pdf`. What was live on
+2026-08-28 was
 <https://opensource.adobe.com/dc-acrobat-sdk-docs/library/jsapiref/index.html>, retitled *Acrobat
-JavaScript API Reference*, and the body of it is **two pages**: `JS_API_AcroJS.html`, 2 727 020
+JavaScript API Reference* — **and on 2026-09-30 that URL answers 404**: the content is now one
+page per topic under `docs/acrobatsdk/html2015/Acro12_MasterBook/JS_API_AcroJS/` in the
+repository named below, at commit `ab3b42a7` (2026-01-22), which is the pinning rule below
+proving its worth within a month. As read on 2026-08-28 the body of it was **two pages**: `JS_API_AcroJS.html`, 2 727 020
 bytes, holding every object type except `Doc`, and `doc.html`, 891 KB, holding `Doc`. Objects are
 addressable by fragment — `#app`, `#color`, `#event`, `#field`, `#util`.
 
@@ -653,7 +662,9 @@ split:
 ```
 
 **Exactly one row is out-of-scope because of the JavaScript exclusion**, and it is §12.6.4.17
-itself. Its note, verbatim from the ledger:
+itself. (The `partial` statuses in the table below are the ledger's of 2026-08-28; §12.6.3,
+§12.7.3, §7.7.4 and §12.6.4 are `implemented` since, each note naming the script half as excluded
+rather than owed — RFC 0008 §7 has the rows as they stand.) Its note, verbatim from the ledger:
 
 > ECMAScript actions run a script. Principle 5's closed list excludes "JavaScript and script-driven
 > form behaviour — a sandboxed script engine is a separate project with its own security argument".
@@ -1116,12 +1127,12 @@ and the round that wrote it added no dependency and no engine.**
 ## 9. What a round would do next, and in what order
 
 1. **The owner rules on §8.** Nothing below may start first.
-2. **An RFC, not a todo.** The placement question in §6 and the API subset in §7 are a design
-   several rounds long, and `doc/rfc/`'s conventions were written for exactly this — a proposal the
-   owner marks up, with the standing restriction named and its rationale given. **The next free
-   number is 0006**; this round did not take it, because `doc/rfc/` is awaiting the owner's review
-   and a round does not add to a queue it was told not to touch.
-3. **The `/CO` and `/AA` census** — owed whatever the owner decides, per §4.2.
+2. **An RFC, not a todo.** Written: `doc/rfc/0008-a-script-is-a-document-acting-on-its-reader.md`
+   (round 1296, commissioned by the owner on 2026-09-30), with the placement question of §6, the
+   tiers, the engine measurements and ten questions for the owner; `doc/questions/Q193` points at
+   them.
+3. **The `/CO` and `/AA` census** — built: `crates/pdf-model/examples/javascript_census.rs`, which
+   also tokenises what each script calls.
 4. ~~**Acquire ISO 21757-1:2020.**~~ **Answered by the owner, and answered against acquiring it.**
    This step used to read that the standard had to be bought and that principle 5 could not be
    satisfied without it. The owner has decided otherwise: ISO 21757-1:2020 will not be obtained,

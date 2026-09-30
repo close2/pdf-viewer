@@ -25,8 +25,11 @@ use std::collections::BTreeMap;
 /// A walk of the component graph with each glyph finished once, so it costs at most one visit
 /// per glyph the program holds; asked only where a code reached no outline, which is where the
 /// sentence it supplies is wanted.
+///
+/// Public for the reason [`repaired_font_program`] is: it walks a graph read out of a document's
+/// bytes, so it is a parser, and `fuzz/fuzz_targets/sfnt.rs` asks it directly.
 #[must_use]
-pub(crate) fn composite_cycle(data: &[u8], glyph: u16) -> Option<u16> {
+pub fn composite_cycle(data: &[u8], glyph: u16) -> Option<u16> {
     use skrifa::raw::TableProvider;
     use skrifa::raw::tables::glyf::Glyph;
 
@@ -42,25 +45,47 @@ pub(crate) fn composite_cycle(data: &[u8], glyph: u16) -> Option<u16> {
             _ => Vec::new(),
         }
     };
-    // `on_path` is the chain from `glyph` to the glyph being expanded; `finished` holds every
-    // glyph whose components have all been walked, so none is walked twice.
+    // `on_path` is the chain from `glyph` to the glyph being expanded, and `state` says of every
+    // glyph index whether it is on that chain or finished — every one of its components walked —
+    // so that none is walked twice and the question "is it on the path" is one lookup. Scanning
+    // the path instead is quadratic in its depth, which the file chooses: two billion comparisons
+    // for one code over a chain of 65 535 composites (`doc/todo/10`).
+    let mut state = vec![Walk::Unseen; usize::from(u16::MAX) + 1];
+    let mark = |state: &mut [Walk], glyph: u16, to: Walk| {
+        if let Some(slot) = state.get_mut(usize::from(glyph)) {
+            *slot = to;
+        }
+    };
+    mark(&mut state, glyph, Walk::OnPath);
     let mut on_path: Vec<(u16, Vec<u16>)> = vec![(glyph, components(glyph))];
-    let mut finished = std::collections::BTreeSet::new();
     while let Some((_, pending)) = on_path.last_mut() {
         let Some(next) = pending.pop() else {
             if let Some((done, _)) = on_path.pop() {
-                finished.insert(done);
+                mark(&mut state, done, Walk::Finished);
             }
             continue;
         };
-        if on_path.iter().any(|(held, _)| *held == next) {
-            return Some(next);
-        }
-        if !finished.contains(&next) {
-            on_path.push((next, components(next)));
+        match state.get(usize::from(next)) {
+            Some(Walk::OnPath) => return Some(next),
+            Some(Walk::Finished) => {}
+            _ => {
+                mark(&mut state, next, Walk::OnPath);
+                on_path.push((next, components(next)));
+            }
         }
     }
     None
+}
+
+/// Where [`composite_cycle`]'s walk stands with one glyph.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Walk {
+    /// Not reached yet.
+    Unseen,
+    /// On the chain from the glyph asked about to the one being expanded.
+    OnPath,
+    /// Every component chain from it ends, and it has been left.
+    Finished,
 }
 
 /// How many bytes an `sfnt`'s own table directory says the program has, when that is more than
@@ -240,7 +265,7 @@ pub(crate) fn repaired_loca_format(data: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// A big-endian `u16` at a byte offset, or `None` past the end.
-fn be16(data: &[u8], at: usize) -> Option<u16> {
+pub(crate) fn be16(data: &[u8], at: usize) -> Option<u16> {
     let bytes = data.get(at..at.checked_add(2)?)?;
     Some(u16::from_be_bytes([*bytes.first()?, *bytes.get(1)?]))
 }
@@ -674,7 +699,7 @@ const CHECKSUM_MAGIC: u32 = 0xb1b0_afba;
 /// ISO/IEC 14496-22 gives `hmtx` `numberOfHMetrics` pairs followed by side bearings alone, the
 /// last stated advance applying to every glyph past the pairs — which is how a monospaced face
 /// stores one advance for a thousand glyphs.
-fn horizontal_metric(hmtx: &[u8], pairs: usize, glyph: usize) -> (u16, i16) {
+pub(crate) fn horizontal_metric(hmtx: &[u8], pairs: usize, glyph: usize) -> (u16, i16) {
     let paired = glyph.min(pairs.saturating_sub(1));
     let advance = paired
         .checked_mul(4)
@@ -801,7 +826,7 @@ pub(crate) fn without_tables(data: &[u8], dropped: &[[u8; 4]]) -> Option<Vec<u8>
 /// that field zero. A program this tree hands to a reader states them rather than leaving a
 /// producer's, because a restated `hmtx` makes both false and a font that lies about itself is
 /// not one to archive.
-fn checksummed(mut data: Vec<u8>) -> Option<Vec<u8>> {
+pub(crate) fn checksummed(mut data: Vec<u8>) -> Option<Vec<u8>> {
     let count = usize::from(be16(&data, 4)?);
     let mut head_at = None;
     for index in 0..count {

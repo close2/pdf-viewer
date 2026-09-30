@@ -168,14 +168,20 @@ impl StoredOutline {
     /// Whether the outline winds every point of the plane two neighbouring values —
     /// no subpath crossing itself or another, and their nesting alternating in
     /// orientation — so that an integrated winding is its set's area in every pixel
-    /// (ADR 1389). Asked once per outline, of whichever flattening reaches it first:
-    /// crossing and nesting are what an invertible transform keeps, so every placement
-    /// shares the answer. An outline too crowded to ask within the question's bound
-    /// answers yes, and keeps the integral, as a region past the same bound does.
+    /// (ADR 1389). Asked once per outline and shared by every placement: crossing and
+    /// nesting are what an invertible transform keeps. An outline too crowded to ask within
+    /// the question's bound answers yes, and keeps the integral, as a region past the same
+    /// bound does.
     ///
-    /// This form flattens the outline in its own space, for the compute lane, which
-    /// flattens nothing on the host; [`Self::winds_two_values_as`] takes a flattening the
-    /// caller already has.
+    /// **Always of the outline's own flattening, whoever asks** (ADR 1419). The curves'
+    /// topology is placement-free but a flattening's is not: a placement coarse enough to
+    /// flatten an arc to its chord can move a subpath out of the one it nests in. The walk's
+    /// compute route and a path-lane job's worker both ask, and which arrives first depends
+    /// on the thread count and on which frame placed the outline first — so a flattening
+    /// chosen by the first asker made the answer, and the pixels, a function of both. In its
+    /// own space §10.7.2's relative bound (`flatten.rs`'s `RELATIVE_FLATTEN_TOLERANCE`)
+    /// keeps the flattening a fixed fraction of each curve's size, so a small glyph outline
+    /// is read as finely, relative to itself, as a page-sized one.
     pub(crate) fn winds_two_values(&self) -> bool {
         *self.two_values.get_or_init(|| {
             let identity = crate::raster::DeviceTransform {
@@ -189,14 +195,6 @@ impl StoredOutline {
             crate::raster::winds_two_values(&crate::raster::flatten(&self.segments, identity))
                 .unwrap_or(true)
         })
-    }
-
-    /// [`Self::winds_two_values`], asked of `flattened` — this outline under some
-    /// placement — where nobody has asked yet.
-    pub(crate) fn winds_two_values_as(&self, flattened: &[crate::raster::Polyline]) -> bool {
-        *self
-            .two_values
-            .get_or_init(|| crate::raster::winds_two_values(flattened).unwrap_or(true))
     }
 
     /// Whether the converted form is resident, for the tests that state *when* it is.

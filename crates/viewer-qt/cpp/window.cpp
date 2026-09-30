@@ -1371,11 +1371,11 @@ void MainWindow::pumpDrawing()
     }
 }
 
-// The machine's faces for the strip's labels, registered by file (ADR 1406).
+// The machine's faces for the strip's and the panels' labels, registered by file (ADRs 1406, 1418).
 //
-// Registering the file is what mends the strip: Qt's own fallback then finds a face under the
-// family that states the characters. The strip's font names that family too, after the platform's
-// own, so that the answer does not rest on the order Qt happens to try families in.
+// Registering the file is what mends a label: Qt's own fallback then finds a face under the family
+// that states the characters. The strip's and every panel's font name that family too, after the
+// platform's own, so that the answer does not rest on the order Qt happens to try families in.
 void MainWindow::pumpFaces()
 {
     bool registered = false;
@@ -1397,11 +1397,27 @@ void MainWindow::pumpFaces()
         }
     }
     if (registered) {
-        QFont font = QApplication::font(documents_->tabBar());
-        QStringList families{font.family()};
-        families.append(fallbackFamilies_);
-        font.setFamilies(families);
-        documents_->tabBar()->setFont(font);
+        const auto fallBack = [this](QWidget* widget) {
+            QFont font = QApplication::font(widget);
+            QStringList families{font.family()};
+            families.append(fallbackFamilies_);
+            font.setFamilies(families);
+            widget->setFont(font);
+        };
+        fallBack(documents_->tabBar());
+        for (QTreeView* tree : trees_) {
+            if (tree != nullptr) {
+                fallBack(tree);
+                // A column sized to the boxes is the wrong width for the characters.
+                tree->resizeColumnToContents(0);
+            }
+        }
+        if (pageView_ != nullptr) {
+            fallBack(pageView_);
+        }
+        if (scatterView_ != nullptr) {
+            fallBack(scatterView_);
+        }
     }
     const int wait = host_->faces_wait();
     if (wait < 0) {
@@ -2058,6 +2074,9 @@ void MainWindow::rebuildPanels()
         pageModel_->setCount(pages);
     }
     arrangeTheCollection();
+    // The rows asked the machine for any character the compiled-in face lacks; this arms the look
+    // for the answer, and leaves it stopped where nothing was asked (ADR 1418).
+    pumpFaces();
     const QString said = QStringLiteral("%1 tree row(s) into %2 model(s) and %3 page row(s) in %4 µs")
                              .arg(built)
                              .arg(models_.size())

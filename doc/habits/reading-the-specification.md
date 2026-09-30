@@ -251,3 +251,9 @@ Q169 described T.801 as "Amendment 1 and Corrigenda 1 and 2 integrated"; the fil
 T.801 (08/2002), © ITU 2003, with running heads "ISO/IEC 15444-2:2003 (E)", and nothing about
 integration — that sentence is ITU's catalogue page's (ADR 1383). Cite what the held file says of
 itself.
+
+Before building the table list a brief gives for a font program, read the clause for the dictionary
+the program sits under: §9.9.1 requires a `cmap` under a simple font and forbids one under a
+`CIDFont`, and the brief for round 1294 had the `CIDFont` case backwards (ADR 1425). A brief's
+table numbers are checked the same way — batch forty-five's named Tables 217 and 195–199 for what
+the text prints as 221 and 197–200.

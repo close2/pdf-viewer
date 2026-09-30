@@ -442,8 +442,46 @@ impl Chrome {
     /// every elision and every wrap in the wrong place.
     #[must_use]
     pub fn width(&self, text: &str, size: f32, style: Style) -> f32 {
-        text.chars()
-            .map(|character| self.set(style, character).1 * size)
+        self.laid_out(text, style)
+            .1
+            .iter()
+            .map(|(_, advance)| advance * size)
+            .sum()
+    }
+
+    /// A line of chrome as it is displayed: joined, in UAX #9's order, and what stands for each
+    /// glyph, left to right (ADR 1417).
+    ///
+    /// **The one place a label becomes glyphs**, so that [`Self::width`], [`Self::text`],
+    /// [`Self::caret`] and [`Self::without_a_code`] cannot disagree about a right-to-left label any
+    /// more than [`Self::set`] lets them disagree about a character. The label is one paragraph
+    /// whose direction is its own first strong character's, by rules P2 and P3, and not this
+    /// window's: §12.3.3's title is "[t]he text that shall be displayed on the screen for this
+    /// item", and the standard states no direction for it, for a file name or for any text of this
+    /// window's own. A presentation form or a mirrored bracket is a character like any other to
+    /// [`Self::set`], so a face the machine offers for it is asked for off this thread (ADR 1406).
+    fn laid_out(&self, text: &str, style: Style) -> (pdf_font::shaping::Label, Vec<(Set, f32)>) {
+        let label = pdf_font::shaping::Label::new(text);
+        let sets = label
+            .glyphs()
+            .iter()
+            .map(|glyph| self.set(style, glyph.character))
+            .collect();
+        (label, sets)
+    }
+
+    /// How far from a line's left edge a caret at byte `at` of `text` stands, in the same pixels
+    /// [`Self::text`] draws the line in.
+    ///
+    /// Through the display order, the way a field's caret is (ADR 1413): at the end of a
+    /// right-to-left line the caret is at its left edge, which is where the next letter typed
+    /// will appear.
+    #[must_use]
+    pub fn caret(&self, text: &str, at: usize, size: f32, style: Style) -> f32 {
+        let (label, sets) = self.laid_out(text, style);
+        sets.iter()
+            .take(label.boundary(at))
+            .map(|(_, advance)| advance * size)
             .sum()
     }
 
@@ -461,8 +499,10 @@ impl Chrome {
     /// be worse than no count.
     #[must_use]
     pub fn without_a_code(&self, text: &str, style: Style) -> usize {
-        text.chars()
-            .filter(|character| matches!(self.set(style, *character).0, Set::Missing))
+        self.laid_out(text, style)
+            .1
+            .iter()
+            .filter(|(set, _)| matches!(set, Set::Missing))
             .count()
     }
 
@@ -471,6 +511,11 @@ impl Chrome {
     /// Returns where the next run would start. The transform is the flip this module's header
     /// names: glyph outlines are y-up in font units and the panel is y-down in pixels, so the
     /// `d` component is negative and `f` is the baseline itself.
+    ///
+    /// The string is drawn as [`Self::laid_out`] displays it, so an Arabic or Hebrew label reads
+    /// right to left from its left edge, joined; a line is anchored at its left whatever its
+    /// direction, because the window's layout is left to right and a list whose rows started at
+    /// different edges would no longer read as one list (ADR 1417).
     pub fn text(
         &self,
         list: &mut DisplayList,
@@ -482,8 +527,7 @@ impl Chrome {
     ) -> f32 {
         let face = self.face(style);
         let mut x = at.0;
-        for character in text.chars() {
-            let (set, advance) = self.set(style, character);
+        for (set, advance) in self.laid_out(text, style).1 {
             let machine = match set {
                 Set::Machine(index, character) => self.machine_outline(index, character),
                 _ => None,
@@ -2081,6 +2125,11 @@ fn elide(chrome: &Chrome, label: &str, size: f32, style: Style, room: f32) -> St
         used += advance;
         kept.push(character);
     }
+    // A letter measured alone is measured in its isolated form, and the joined forms the cut
+    // label is drawn in can be wider (ADR 1417) — so the cut is checked as it will be drawn.
+    while !kept.is_empty() && chrome.width(&format!("{kept}…"), size, style) > room {
+        kept.pop();
+    }
     kept.push('…');
     kept
 }
@@ -2348,7 +2397,7 @@ impl FindBar {
             (x, 4.0 * scale, field, tall - 8.0 * scale),
             FIND_FIELD,
         );
-        let after = chrome.text(
+        chrome.text(
             &mut list,
             &self.needle,
             (x + 6.0 * scale, baseline),
@@ -2358,7 +2407,11 @@ impl FindBar {
         );
         // A caret, because a box with a string in it and nothing after it does not look like a
         // place a person is typing. One rectangle: this host has no blink and needs none — ADR
-        // 0211 says what a caret *looks* like is the host's, and this is the whole of that.
+        // 0211 says what a caret *looks* like is the host's, and this is the whole of that. It
+        // stands where the next character typed will appear, which for a right-to-left string is
+        // its left end (ADR 1417).
+        let after =
+            x + 6.0 * scale + chrome.caret(&self.needle, self.needle.len(), size, Style::default());
         rectangle(
             &mut list,
             (
@@ -3833,7 +3886,91 @@ impl Refusal {
 
 #[cfg(test)]
 mod tests {
-    use super::{PASSWORD_ECHO, PasswordCard, RestrictionsCard};
+    use super::{Chrome, PASSWORD_ECHO, PasswordCard, RestrictionsCard, Set, Style};
+    use pdf_render::{Color, DisplayList};
+
+    /// The fills a line of chrome draws, as text, for comparing two drawings of it.
+    fn drawn(chrome: &Chrome, text: &str) -> String {
+        let mut list = DisplayList::new(pdf_render::Size {
+            width: 400.0,
+            height: 40.0,
+        });
+        chrome.text(
+            &mut list,
+            text,
+            (0.0, 20.0),
+            12.0,
+            Style::default(),
+            Color::BLACK,
+        );
+        format!("{:?}", list.commands())
+    }
+
+    /// A Hebrew label is drawn right to left from its left edge (ADR 1417): the drawing of "שלום"
+    /// is the drawing of its four letters set one after another in the reverse order, which is
+    /// what UAX #9 displays a right-to-left paragraph as. The compiled-in face has no Hebrew, so
+    /// the letters are the machine's; skips with a sentence where it offers none.
+    #[test]
+    fn a_hebrew_label_is_drawn_in_display_order() {
+        let chrome = Chrome::new().expect("the compiled-in faces load");
+        let stored = "\u{5E9}\u{5DC}\u{5D5}\u{5DD}";
+        let _ = chrome.width(stored, 12.0, Style::default());
+        chrome.settle();
+        if chrome.without_a_code(stored, Style::default()) > 0 {
+            eprintln!("skipped: this machine offers no face for the label's Hebrew letters");
+            return;
+        }
+        let mut list = DisplayList::new(pdf_render::Size {
+            width: 400.0,
+            height: 40.0,
+        });
+        let mut x = 0.0;
+        for letter in stored.chars().rev() {
+            x = chrome.text(
+                &mut list,
+                &letter.to_string(),
+                (x, 20.0),
+                12.0,
+                Style::default(),
+                Color::BLACK,
+            );
+        }
+        assert_eq!(drawn(&chrome, stored), format!("{:?}", list.commands()));
+    }
+
+    /// The find bar's caret stands where the next character typed appears: after a Latin string,
+    /// and at the left end of a right-to-left one (ADR 1413's convention, ADR 1417).
+    #[test]
+    fn the_caret_follows_the_display_order() {
+        let chrome = Chrome::compiled_in_only().expect("the compiled-in faces load");
+        let style = Style::default();
+        let latin = "Find me";
+        let width = chrome.width(latin, 12.0, style);
+        assert!((chrome.caret(latin, latin.len(), 12.0, style) - width).abs() < 1e-3);
+        let hebrew = "\u{5E9}\u{5DC}\u{5D5}\u{5DD}";
+        assert!(chrome.caret(hebrew, hebrew.len(), 12.0, style).abs() < 1e-3);
+        let width = chrome.width(hebrew, 12.0, style);
+        assert!((chrome.caret(hebrew, 0, 12.0, style) - width).abs() < 1e-3);
+    }
+
+    /// An Arabic label is drawn in its joined forms from the machine's face, with no box, once the
+    /// face has landed (ADRs 1406, 1414, 1417). Skips with a sentence where the machine offers no
+    /// face for them, as ADR 1154's tests do.
+    #[test]
+    fn an_arabic_label_is_joined_and_drawn_from_the_machine() {
+        let chrome = Chrome::new().expect("the compiled-in faces load");
+        let stored = "\u{633}\u{644}\u{627}\u{645}";
+        let _ = chrome.width(stored, 12.0, Style::default());
+        chrome.settle();
+        let (label, sets) = chrome.laid_out(stored, Style::default());
+        let drawn: Vec<char> = label.glyphs().iter().map(|glyph| glyph.character).collect();
+        assert_eq!(drawn, ['\u{645}', '\u{FEFC}', '\u{FEB3}']);
+        if sets.iter().any(|(set, _)| matches!(set, Set::Missing)) {
+            eprintln!("skipped: this machine offers no face for the joined forms of the label");
+            return;
+        }
+        assert!(sets.iter().all(|(set, _)| matches!(set, Set::Machine(..))));
+    }
 
     /// The words a prompt shows, so the card can be driven without a `viewer-host` in the test.
     fn words() -> viewer_host::Wording {
@@ -4066,7 +4203,7 @@ mod tests {
     #[test]
     fn a_card_that_is_not_shown_is_not_a_display_list() {
         let card = PasswordCard::default();
-        let Ok(chrome) = super::Chrome::new() else {
+        let Ok(chrome) = Chrome::new() else {
             // A build whose compiled-in faces will not parse cannot draw chrome at all, which the
             // host already reports; there is nothing for this test to say about it.
             return;

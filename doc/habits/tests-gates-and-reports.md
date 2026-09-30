@@ -426,3 +426,11 @@ And a script's rendering is judged in each toolkit separately: GTK drew a CJK la
 the same machine because eleven fonts share the family name "Droid Sans" (round 1278) — `fc-list
 :lang=<script>` before blaming the program. A fork's helper script gets a name of its own; a shared one
 was overwritten mid-run and silently dropped two forks' batches (round 1283).
+
+**A rank over a population that grows is written as a comparison with a named member, or deferred to
+the command that ranks.** "The tightest limit this bucket has measured" was written three times in
+`oracle.rs` for three different numbers, and one more page overtook all of them the day it was added;
+no row points back at a superlative, so it goes false silently. `tools/superlatives.py` lists them
+(ADR 1427). And before a fuzz campaign is spent on a target, read its `INITED` coverage against a few
+freshly generated seeds: `forms_data`'s 1 344 seeds held no FDF file and `display_list`'s corpus
+predated its wire format, and a seed count could not tell (ADR 1423).

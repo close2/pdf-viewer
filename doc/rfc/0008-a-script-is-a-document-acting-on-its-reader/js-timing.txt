@@ -1,0 +1,252 @@
+# js-timing — the probe RFC 0008 §5 measured with, and what it printed on 2026-09-30
+
+A detached crate (not a workspace member). Build: cargo build --release --features boa,quickjs,duktape
+in scratchpad/r1296/js-timing with CARGO_TARGET_DIR set to its own target/.
+
+## Cargo.toml
+
+    [package]
+    name = "js-timing"
+    version = "0.1.0"
+    edition = "2021"
+    license = "Apache-2.0"
+    
+    # Detached from the pdf-viewer workspace on purpose: nothing here is a workspace member.
+    [workspace]
+    
+    [dependencies]
+    boa_engine = { version = "0.22.0", default-features = false, optional = true }
+    rquickjs = { version = "0.14.0", features = ["bindgen"], optional = true }
+    ducc = { version = "0.1.5", optional = true }
+    v8 = { version = "152.2.0", optional = true }
+    
+    [features]
+    boa = ["dep:boa_engine"]
+    quickjs = ["dep:rquickjs"]
+    duktape = ["dep:ducc"]
+    v8 = ["dep:v8"]
+    
+    [[bin]]
+    name = "boa"
+    required-features = ["boa"]
+    [[bin]]
+    name = "quickjs"
+    required-features = ["quickjs"]
+    [[bin]]
+    name = "duktape"
+    required-features = ["duktape"]
+    [[bin]]
+    name = "v8"
+    required-features = ["v8"]
+    
+    [profile.release]
+    opt-level = 3
+    lto = "thin"
+    codegen-units = 1
+
+## src/bin/boa.rs
+
+    //! Construct a Boa context, evaluate `1+1`, and time both; then a runaway loop under RuntimeLimits.
+    use std::time::Instant;
+    use boa_engine::{Context, Source, JsValue};
+    fn main() {
+        let t0 = Instant::now();
+        let mut context = Context::default();
+        let t1 = Instant::now();
+        let value = context.eval(Source::from_bytes("1+1")).expect("1+1");
+        let t2 = Instant::now();
+        assert_eq!(value, JsValue::from(2));
+        let value2 = context.eval(Source::from_bytes("var s=0; for (var i=0;i<1000;i++) s+=i; s")).expect("loop");
+        let t3 = Instant::now();
+        assert_eq!(value2, JsValue::from(499500));
+        println!("boa\tconstruct={:?}\teval(1+1)={:?}\teval(loop1000)={:?}", t1 - t0, t2 - t1, t3 - t2);
+        // Second context, cold-ish again, to see construction variance.
+        let t4 = Instant::now();
+        let mut c2 = Context::default();
+        let t5 = Instant::now();
+        println!("boa\tconstruct#2={:?}", t5 - t4);
+        // Budgets: loop-iteration and recursion limits, the two RuntimeLimits offers.
+        let mut limits = c2.runtime_limits();
+        limits.set_loop_iteration_limit(1_000_000);
+        limits.set_recursion_limit(100);
+        c2.set_runtime_limits(limits);
+        let t6 = Instant::now();
+        let r = c2.eval(Source::from_bytes("while(true){}"));
+        let t7 = Instant::now();
+        println!("boa\twhile(true) under loop limit: {:?} after {:?}", r.map(|_| "finished").map_err(|e| e.to_string()), t7 - t6);
+        let t8 = Instant::now();
+        let r = c2.eval(Source::from_bytes("function f(){return f();} f()"));
+        let t9 = Instant::now();
+        println!("boa\tunbounded recursion under recursion limit: {:?} after {:?}", r.map(|_| "finished").map_err(|e| e.to_string()), t9 - t8);
+        // What RuntimeLimits does not bound: work inside a built-in.
+        let t10 = Instant::now();
+        let r = c2.eval(Source::from_bytes("var a = new Array(5000000).fill(0); a.length"));
+        let t11 = Instant::now();
+        println!("boa\tnew Array(5e6).fill(0): {:?} after {:?}", r.map(|v| v.display().to_string()).map_err(|e| e.to_string()), t11 - t10);
+    }
+
+## src/bin/quickjs.rs
+
+    //! Construct a QuickJS runtime and context, evaluate `1+1`, and time both; then a runaway loop under an interrupt handler and a memory limit.
+    use std::time::{Duration, Instant};
+    use rquickjs::{Context, Runtime};
+    fn main() {
+        let t0 = Instant::now();
+        let rt = Runtime::new().expect("runtime");
+        let ctx = Context::full(&rt).expect("context");
+        let t1 = Instant::now();
+        let v: i32 = ctx.with(|ctx| ctx.eval("1+1")).expect("1+1");
+        let t2 = Instant::now();
+        assert_eq!(v, 2);
+        let v2: i32 = ctx.with(|ctx| ctx.eval("var s=0; for (var i=0;i<1000;i++) s+=i; s")).expect("loop");
+        let t3 = Instant::now();
+        assert_eq!(v2, 499500);
+        println!("quickjs\tconstruct={:?}\teval(1+1)={:?}\teval(loop1000)={:?}", t1 - t0, t2 - t1, t3 - t2);
+        let t4 = Instant::now();
+        let rt2 = Runtime::new().expect("runtime");
+        let ctx2 = Context::full(&rt2).expect("context");
+        let t5 = Instant::now();
+        println!("quickjs\tconstruct#2={:?}", t5 - t4);
+        // Budgets: a wall-clock interrupt and a memory ceiling, both the engine's own.
+        let deadline = Instant::now() + Duration::from_millis(50);
+        rt2.set_interrupt_handler(Some(Box::new(move || Instant::now() > deadline)));
+        rt2.set_memory_limit(8 * 1024 * 1024);
+        let t6 = Instant::now();
+        let r: Result<i32, _> = ctx2.with(|ctx| ctx.eval("while(true){}"));
+        let t7 = Instant::now();
+        println!("quickjs\twhile(true) under 50 ms interrupt: {:?} after {:?}", r.map(|_| "finished").map_err(|e| e.to_string()), t7 - t6);
+        rt2.set_interrupt_handler(None);
+        let t8 = Instant::now();
+        let r: Result<i32, _> = ctx2.with(|ctx| ctx.eval("var a = new Array(5000000).fill(0); a.length"));
+        let t9 = Instant::now();
+        println!("quickjs\tnew Array(5e6).fill(0) under 8 MiB: {:?} after {:?}", r.map(|_| "finished").map_err(|e| e.to_string()), t9 - t8);
+    }
+
+## src/bin/duktape.rs
+
+    //! Construct a Duktape context via ducc, evaluate `1+1`, and time both.
+    use std::time::Instant;
+    use ducc::Ducc;
+    fn main() {
+        let t0 = Instant::now();
+        let ducc = Ducc::new();
+        let t1 = Instant::now();
+        let v: i32 = ducc.exec("1+1", None, ducc::ExecSettings::default()).expect("1+1");
+        let t2 = Instant::now();
+        assert_eq!(v, 2);
+        let v2: i32 = ducc.exec("var s=0; for (var i=0;i<1000;i++) s+=i; s", None, ducc::ExecSettings::default()).expect("loop");
+        let t3 = Instant::now();
+        assert_eq!(v2, 499500);
+        println!("duktape\tconstruct={:?}\teval(1+1)={:?}\teval(loop1000)={:?}", t1 - t0, t2 - t1, t3 - t2);
+    }
+
+## src/bin/v8.rs
+
+    //! Initialise V8, create an isolate and context, evaluate `1+1`, and time each stage.
+    use std::time::Instant;
+    fn main() {
+        let t0 = Instant::now();
+        let platform = v8::new_default_platform(0, false).make_shared();
+        v8::V8::initialize_platform(platform);
+        v8::V8::initialize();
+        let t1 = Instant::now();
+        let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
+        v8::scope!(let handle_scope, isolate);
+        let context = v8::Context::new(handle_scope, Default::default());
+        let scope = &v8::ContextScope::new(handle_scope, context);
+        let t2 = Instant::now();
+        let code = v8::String::new(scope, "1+1").unwrap();
+        let script = v8::Script::compile(scope, code, None).unwrap();
+        let result = script.run(scope).unwrap();
+        let t3 = Instant::now();
+        assert_eq!(result.int32_value(scope), Some(2));
+        println!("v8\tplatform+initialize={:?}\tisolate+context={:?}\teval(1+1)={:?}", t1 - t0, t2 - t1, t3 - t2);
+    }
+
+## Output, five runs each, load average 2.8 (a neighbour was fuzzing)
+
+    boa	construct=263.969µs	eval(1+1)=80.342µs	eval(loop1000)=596.338µs
+    boa	construct#2=104.988µs
+    boa	while(true) under loop limit: Err("RuntimeLimitError: reached the maximum number of iteration loops on this execution
+    boa	unbounded recursion under recursion limit: Err("RuntimeLimitError: reached the maximum number of recursive calls on this execution
+    boa	new Array(5e6).fill(0): Ok("5000000") after 679.345302ms
+    boa	construct=425.395µs	eval(1+1)=99.528µs	eval(loop1000)=1.19454ms
+    boa	construct#2=205.329µs
+    boa	while(true) under loop limit: Err("RuntimeLimitError: reached the maximum number of iteration loops on this execution
+    boa	unbounded recursion under recursion limit: Err("RuntimeLimitError: reached the maximum number of recursive calls on this execution
+    boa	new Array(5e6).fill(0): Ok("5000000") after 686.304216ms
+    boa	construct=408.102µs	eval(1+1)=101.903µs	eval(loop1000)=1.21039ms
+    boa	construct#2=195.84µs
+    boa	while(true) under loop limit: Err("RuntimeLimitError: reached the maximum number of iteration loops on this execution
+    boa	unbounded recursion under recursion limit: Err("RuntimeLimitError: reached the maximum number of recursive calls on this execution
+    boa	new Array(5e6).fill(0): Ok("5000000") after 681.278285ms
+    boa	construct=398.774µs	eval(1+1)=103.886µs	eval(loop1000)=1.15215ms
+    boa	construct#2=179.229µs
+    boa	while(true) under loop limit: Err("RuntimeLimitError: reached the maximum number of iteration loops on this execution
+    boa	unbounded recursion under recursion limit: Err("RuntimeLimitError: reached the maximum number of recursive calls on this execution
+    boa	new Array(5e6).fill(0): Ok("5000000") after 683.053493ms
+    boa	construct=401.27µs	eval(1+1)=100.229µs	eval(loop1000)=1.228625ms
+    boa	construct#2=197.183µs
+    boa	while(true) under loop limit: Err("RuntimeLimitError: reached the maximum number of iteration loops on this execution
+    boa	unbounded recursion under recursion limit: Err("RuntimeLimitError: reached the maximum number of recursive calls on this execution
+    boa	new Array(5e6).fill(0): Ok("5000000") after 686.58441ms
+    quickjs	construct=357.947µs	eval(1+1)=49.394µs	eval(loop1000)=120.708µs
+    quickjs	construct#2=158.51µs
+    quickjs	while(true) under 50 ms interrupt: Err("Exception generated by QuickJS") after 50.035523ms
+    quickjs	new Array(5e6).fill(0) under 8 MiB: Err("Exception generated by QuickJS") after 5.076184ms
+    quickjs	construct=292.854µs	eval(1+1)=43.442µs	eval(loop1000)=120.077µs
+    quickjs	construct#2=157.327µs
+    quickjs	while(true) under 50 ms interrupt: Err("Exception generated by QuickJS") after 50.014854ms
+    quickjs	new Array(5e6).fill(0) under 8 MiB: Err("Exception generated by QuickJS") after 5.232539ms
+    quickjs	construct=325.456µs	eval(1+1)=42.721µs	eval(loop1000)=122.421µs
+    quickjs	construct#2=158.771µs
+    quickjs	while(true) under 50 ms interrupt: Err("Exception generated by QuickJS") after 50.024783ms
+    quickjs	new Array(5e6).fill(0) under 8 MiB: Err("Exception generated by QuickJS") after 5.43913ms
+    quickjs	construct=304.717µs	eval(1+1)=46.278µs	eval(loop1000)=120.097µs
+    quickjs	construct#2=169.08µs
+    quickjs	while(true) under 50 ms interrupt: Err("Exception generated by QuickJS") after 50.024202ms
+    quickjs	new Array(5e6).fill(0) under 8 MiB: Err("Exception generated by QuickJS") after 5.688482ms
+    quickjs	construct=295.599µs	eval(1+1)=47.43µs	eval(loop1000)=119.847µs
+    quickjs	construct#2=157.608µs
+    quickjs	while(true) under 50 ms interrupt: Err("Exception generated by QuickJS") after 50.021646ms
+    quickjs	new Array(5e6).fill(0) under 8 MiB: Err("Exception generated by QuickJS") after 4.993667ms
+    duktape	construct=265.222µs	eval(1+1)=41.899µs	eval(loop1000)=311.76µs
+    duktape	construct=255.083µs	eval(1+1)=33.022µs	eval(loop1000)=312.902µs
+    duktape	construct=278.948µs	eval(1+1)=33.634µs	eval(loop1000)=312.661µs
+    duktape	construct=252.237µs	eval(1+1)=33.844µs	eval(loop1000)=320.296µs
+    duktape	construct=255.814µs	eval(1+1)=30.047µs	eval(loop1000)=313.944µs
+    9554752 target/release/boa
+    1008184 target/release/duktape
+    1892808 target/release/quickjs
+
+## V8, five runs, after the probe was rewritten for the 152 scope API (first run cold)
+
+    v8	platform+initialize=8.594736ms	isolate+context=4.69743ms	eval(1+1)=82.986µs
+    v8	platform+initialize=787.759µs	isolate+context=1.892958ms	eval(1+1)=90.451µs
+    v8	platform+initialize=725.993µs	isolate+context=1.813167ms	eval(1+1)=93.687µs
+    v8	platform+initialize=685.326µs	isolate+context=1.208474ms	eval(1+1)=46.999µs
+    v8	platform+initialize=752.723µs	isolate+context=1.820231ms	eval(1+1)=93.677µs
+    64678088 target/release/v8
+
+## Packages, against the workspace's Cargo.lock of the same day
+
+    boa: 128 packages, 57 new to the workspace lock
+    quickjs: 7 packages, 3 new to the workspace lock
+    duktape: 3 packages, 3 new to the workspace lock
+    v8: 45 packages, 28 new to the workspace lock
+
+## cargo deny check licenses advisories bans, with the workspace's deny.toml copied beside the probe
+
+    boa: advisories ok, bans ok, licenses ok
+    quickjs: advisories ok, bans ok, licenses ok
+    duktape: advisories ok, bans ok, licenses ok
+    v8: advisories FAILED (paste — no longer maintained), bans ok, licenses ok
+
+## unsafe occurrences (grep -rw unsafe --include=*.rs, tests excluded) and C lines, registry sources
+
+    boa_engine-0.22.0: 293 in 148436 rust lines; C: 0
+    boa_gc-0.22.0: 180 in 4305; C: 0
+    boa_string-0.22.0: 96 in 5036; C: 0
+    rquickjs-core-0.14.0: 670 in 22274; C: 0
+    rquickjs-sys-0.14.0: 6130 in 47229 (generated bindings); C: 108296
+    ducc-0.1.5: 62 in 2729; ducc-sys C: 100960

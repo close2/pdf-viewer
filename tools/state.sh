@@ -159,6 +159,18 @@ section_comments() {
         python3 tools/comment-history.py
 }
 
+# Every superlative the corpus gates' notes, `raster_golden`'s and the ledger's notes scope to a
+# population that grows — "the tightest limit this bucket has measured" — with the numbers each
+# sentence asserts. The population grows after the sentence is written, so a later row overtakes it
+# and nothing points back; each hit is read against the table it claims and an overtaken one is
+# rewritten as what is, usually as a comparison with a named member, which does not decay. A reading
+# list, never a gate (ADR 1427).
+section_superlatives() {
+    run "superlatives scoped to a growing population" \
+        '^[0-9]+ superlative|^  (oracle\.rs|corpus\.rs|raster_golden|ledger) ' \
+        env PYTHONDONTWRITEBYTECODE=1 python3 tools/superlatives.py --count
+}
+
 # Every ledger note's opening and closing sentence, against the row's own `status` field. A note's
 # last sentence is the "what keeps this row `partial`" clause and every later round appends above
 # it; its first sentence is what a round that moves a status rewrites around. Both are inside the
@@ -562,6 +574,35 @@ section_records() {
         cargo test -q -p conformance --test records -- --nocapture
 }
 
+# Every fuzz target, what this disk holds for it, and what its runs left behind. `fuzz/corpus` and
+# `fuzz/artifacts` are gitignored, so both are facts about the disk: a target with no seeds fuzzes
+# nothing it exists for (ADR 0742), and a file in `fuzz/artifacts/<target>/` is an input libFuzzer
+# stopped on — `crash-` a panic, `timeout-` past `-timeout`, `oom-` past `-rss_limit_mb`, `slow-unit-`
+# a warning only — which principle 3 makes a regression test once it is read, and which the
+# campaign recipe in `doc/verify.md` writes to a scratch prefix instead (ADR 1423). `newest` is the
+# date of the latest artefact, so a count left from an old run reads as old.
+section_fuzz() {
+    heading "fuzz targets: seeds, doc/verify.md line, and artefacts on this disk" \
+        "fuzz/Cargo.toml [[bin]]s; ls fuzz/corpus/<t> fuzz/artifacts/<t>"
+    local targets t seeds line kind counts newest
+    targets=$(awk '/^\[\[bin\]\]/ { want = 1; next }
+                   want && /^name *= *"/ { gsub(/^name *= *"|"$/, ""); print; want = 0 }' fuzz/Cargo.toml)
+    printf '%-14s %7s %-6s %6s %8s %4s %6s  %s\n' target seeds line crash timeout oom slow newest
+    for t in $targets; do
+        seeds=$(find "fuzz/corpus/$t" -maxdepth 1 -type f 2>/dev/null | wc -l)
+        line=no
+        grep -qE "cargo \+nightly fuzz run +${t}( |\$)" doc/verify.md && line=yes
+        counts=
+        for kind in crash timeout oom slow-unit; do
+            counts="$counts $(find "fuzz/artifacts/$t" -maxdepth 1 -name "$kind-*" 2>/dev/null | wc -l)"
+        done
+        newest=$(find "fuzz/artifacts/$t" -maxdepth 1 -type f -printf '%TY-%Tm-%Td\n' 2>/dev/null \
+            | sort | tail -1)
+        # shellcheck disable=SC2086
+        printf '%-14s %7s %-6s %6s %8s %4s %6s  %s\n' "$t" "$seeds" "$line" $counts "${newest:--}"
+    done
+}
+
 section_counts() {
     heading "populations on disk" "find / ls"
     printf 'fuzz targets:        %s\n' "$(ls fuzz/fuzz_targets/*.rs 2>/dev/null | wc -l)"
@@ -943,8 +984,8 @@ section_ratchets() {
     done
 }
 
-all="ledger departures flags names cited last-sentences navigation comments conformance annex-o governing questions records counts traps hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame dates xmp save actions on-disk jpeg2000 instruments"
-quick="ledger departures flags names cited last-sentences navigation comments conformance annex-o governing questions records counts traps hosts windows binaries disk remedies instruments"
+all="ledger departures flags names cited last-sentences navigation superlatives comments conformance annex-o governing questions records counts fuzz traps hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame dates xmp save actions on-disk jpeg2000 instruments"
+quick="ledger departures flags names cited last-sentences navigation superlatives comments conformance annex-o governing questions records counts fuzz traps hosts windows binaries disk remedies instruments"
 
 # Sections another section already runs. Not in `all`, because a full run pays for every line
 # they run — `ratchets` through the gates it composes, `remedies` inside `archive` — and named by
@@ -972,6 +1013,7 @@ for section in $sections; do
     last-sentences) section_last_sentences ;;
     navigation) section_navigation ;;
     comments) section_comments ;;
+    superlatives) section_superlatives ;;
     frontier) section_frontier ;;
     conformance) section_conformance ;;
     tests) section_tests ;;
@@ -1001,6 +1043,7 @@ for section in $sections; do
     questions) section_questions ;;
     records) section_records ;;
     counts) section_counts ;;
+    fuzz) section_fuzz ;;
     traps) section_traps ;;
     instruments) section_instruments ;;
     hosts) section_hosts ;;

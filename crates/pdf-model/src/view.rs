@@ -32,12 +32,15 @@ use crate::destination::Destination;
 use crate::forms_data::Import;
 use crate::optional_content::{Audience, OptionalContent, Purpose};
 
-/// Deepest nesting of `/Kids` walked when a field name is resolved.
+/// Deepest nesting of `/Kids`, and longest `/Parent` chain, walked in §12.7.4.1's field tree.
 ///
-/// §12.7.4.1's field tree is a tree a document controls, and `/Kids` may point back up it.
-/// Real forms nest two or three levels — a page, a section, a field — and this is far past
-/// any of them.
-const MAX_FIELD_DEPTH: usize = 32;
+/// The tree is one a document controls, and `/Kids` may point back up it, so every walk is
+/// bounded — which §12.7.4.1 forbids ("[a]n interactive PDF processor shall not limit the range of
+/// inheritance for field dictionaries") and its ledger row records as departed. The bound is the
+/// appearance construction's own, [`crate::appearance::MAX_FIELD_ANCESTRY`], because ADR 1198
+/// found real fields thirty-two links deep: one number for one tree, so no walk here stops
+/// silently short of where the construction reports.
+const MAX_FIELD_DEPTH: usize = crate::appearance::MAX_FIELD_ANCESTRY;
 
 /// The document state a viewer holds and §12.6.4's actions change.
 #[derive(Debug, Clone, PartialEq)]
@@ -2823,9 +2826,9 @@ impl ViewState {
         let mut update = Update::beside(document, self.modified);
         let mut withheld = Vec::new();
         let (freed, still_reached) = self.write_filings(document, &mut update);
-        self.write_additions(document, &mut update);
+        let mut unappeared = self.write_additions(document, &mut update);
         self.write_imported_appearances(document, &mut update);
-        let unappeared = self.write_retypings(document, &mut update);
+        unappeared.extend(self.write_retypings(document, &mut update));
         for (widget, entered) in &self.edited {
             let widget = *widget;
             let Some(dict) = document.get(widget).as_dict().cloned() else {
@@ -3147,7 +3150,12 @@ impl ViewState {
     /// Table 166's `/P` is added here rather than at [`ViewState::add_markup`]: it is "an
     /// indirect reference to the page object with which this annotation is associated", which is
     /// a statement about the *file* and so belongs to the writing rather than to the log.
-    fn write_additions(&self, document: &Document, update: &mut Update) {
+    ///
+    /// Returns every added annotation written with no appearance, which is only one whose text is
+    /// set in a face from this machine whose licence forbids embedding it (ADR 1425) — the same
+    /// shortfall [`Written::unappeared`] already names for a retyped note.
+    fn write_additions(&self, document: &Document, update: &mut Update) -> Vec<ObjectId> {
+        let mut unappeared = Vec::new();
         for added in &self.added {
             // The numbers were allocated when the annotation was added, so nothing else in this
             // update may reach for them.
@@ -3182,7 +3190,9 @@ impl ViewState {
             for (key, value) in carried {
                 dict.insert(key, promote_streams(update, value));
             }
-            write_added_appearance(document, update, &mut dict);
+            if !write_added_appearance(document, update, &mut dict) {
+                unappeared.push(added.id);
+            }
             update.put(added.id, Object::Dictionary(dict));
 
             let Some(mut page) = update.current(document, added.page) else {
@@ -3213,6 +3223,7 @@ impl ViewState {
                 }
             }
         }
+        unappeared
     }
 
     /// Forgets every value a person typed, leaving the file's own and whatever actions did.
@@ -4331,10 +4342,8 @@ impl Update {
                     .collect(),
             ),
         );
-        stream_dict.insert(
-            Name::new(&b"Resources"[..]),
-            Object::Dictionary(built.resources),
-        );
+        let resources = promote_resource_streams(self, built.resources);
+        stream_dict.insert(Name::new(&b"Resources"[..]), Object::Dictionary(resources));
         stream_dict.insert(
             Name::new(&b"Length"[..]),
             Object::Integer(i64::try_from(built.content.len()).unwrap_or(i64::MAX)),
@@ -4736,7 +4745,8 @@ pub struct Written {
     /// carries what the person typed and Table 177 makes `/DA` Required, so the next reader has
     /// everything §12.5.6.6 needs to generate an appearance — this one could not, and says which
     /// annotations. Empty unless a retyped annotation's `/DA` names a font its document does not
-    /// define. See [`ViewState::save`].
+    /// define, or a retyped or added annotation's text is set in a face from this machine whose
+    /// licence forbids embedding it (ADR 1425). See [`ViewState::save`].
     pub unappeared: Vec<ObjectId>,
     /// §12.7.4.2's qualified name of every field whose widget was written without a complete
     /// appearance stream, which is what Table 224's `/NeedAppearances` in the written file is for.
@@ -4963,10 +4973,11 @@ fn widgets_at(document: &Document, page: &crate::Page, x: f32, y: f32) -> Vec<Ob
 /// `/Subtype` of `Popup`, `Projection` or `Link`. Errata Collection 3's Issue #22 moves the same
 /// requirement into the entry's own column ("Required except for conditions listed below (PDF
 /// 2.0)"). A markup this function is called for is none of the exceptions, which is why writing the
-/// appearance is obligatory here rather than a courtesy — and why the silence above is safe only
-/// because the construction cannot fail for these subtypes. [`ViewState::write_retypings`] is where
-/// the same rule is departed from on purpose.
-fn write_added_appearance(document: &Document, update: &mut Update, dict: &mut Dictionary) {
+/// appearance is obligatory here rather than a courtesy. The one construction that is not written
+/// is a value set in a face from this machine whose licence forbids embedding it (ADR 1425), and
+/// `false` says so, for [`Written::unappeared`] to name; [`ViewState::write_retypings`] is where
+/// the same rule is departed from for a layout that declined.
+fn write_added_appearance(document: &Document, update: &mut Update, dict: &mut Dictionary) -> bool {
     // An annotation that arrived with an appearance of its own keeps it. §12.7.8.3.4's
     // annotations are the one kind that does — they carry the producer's `/AP`, copied whole —
     // and constructing over it would replace another producer's marks with this program's, which
@@ -4974,35 +4985,52 @@ fn write_added_appearance(document: &Document, update: &mut Update, dict: &mut D
     // [`ViewState::write_imported_appearances`]'s reason: §7.3.8.1 requires it of a file.
     if let Some(stated) = dict.get("AP").cloned() {
         dict.insert(Name::new(&b"AP"[..]), promote_streams(update, stated));
-        return;
+        return true;
     }
     let Some(subtype) = document
         .get_key(dict, "Subtype")
         .as_name()
         .map(|name| name.as_bytes().to_vec())
     else {
-        return;
+        return true;
     };
     let Some(rect) = crate::annotation::rectangle(document, dict, "Rect") else {
-        return;
+        return true;
     };
     let built =
         crate::appearance::construct(document, dict, &subtype, AnnotationView::default(), rect);
-    // A value set in a face from this machine is drawn and not written (ADR 1414).
-    if crate::variable_text::uses_a_machine_face(&built.resources) {
-        return;
-    }
-    let Some(content) = built.content else {
-        return;
+    // A value set in a face from this machine is written with the face subset and embedded, and
+    // not written at all where the face's licence forbids it (ADR 1425).
+    let Ok(resources) = crate::variable_text::for_a_file(&built.resources) else {
+        return false;
     };
+    let Some(content) = built.content else {
+        return true;
+    };
+    let resources = promote_resource_streams(update, resources);
     let id = update.allocate();
     update.put(
         id,
-        crate::appearance::form_xobject(rect, built.resources, content),
+        crate::appearance::form_xobject(rect, resources, content),
     );
     let mut appearances = Dictionary::new();
     appearances.insert(Name::new(&b"N"[..]), Object::Reference(id));
     dict.insert(Name::new(&b"AP"[..]), Object::Dictionary(appearances));
+    true
+}
+
+/// A form's resources with every stream inside them given a number in this update.
+///
+/// §7.3.8.1 for the fonts [`crate::variable_text::for_a_file`] writes around a face from this
+/// machine: the program, its `/CIDToGIDMap` and its `/ToUnicode` are streams held directly in
+/// their dictionaries until a writer numbers them (ADR 1425).
+fn promote_resource_streams(update: &mut Update, resources: Dictionary) -> Dictionary {
+    match promote_streams(update, Object::Dictionary(resources)) {
+        Object::Dictionary(resources) => resources,
+        // `promote_streams` of a dictionary answers a dictionary; an empty one is the only
+        // harmless answer to a case that cannot arise.
+        _ => Dictionary::new(),
+    }
 }
 
 /// Gives every stream inside a carried object a number in this update, in place.
@@ -5083,16 +5111,18 @@ fn write_retyped_appearance(
         ..AnnotationView::default()
     };
     let built = crate::appearance::construct(document, dict, b"FreeText", view, rect);
-    // A value set in a face from this machine is drawn and not written (ADR 1414), so the
-    // annotation is written as one owing its appearance, as a layout that declined would be.
-    let machine = crate::variable_text::uses_a_machine_face(&built.resources);
-    let content = built.content.filter(|_| !machine);
-    let Some(content) = content else {
+    // A value set in a face from this machine is written with the face subset and embedded; where
+    // the face's licence forbids that, the annotation is written as one owing its appearance, as
+    // a layout that declined would be (ADR 1425).
+    let resources = crate::variable_text::for_a_file(&built.resources).ok();
+    let unwritten = resources.is_none();
+    let (Some(content), Some(resources)) = (built.content, resources) else {
         // Table 177 makes `/AP` decisive over `/DA`, so a stream that draws the producer's text is
         // exactly what an annotation that no longer says it must not keep.
         dict.remove("AP");
-        return !machine && built.report.is_none();
+        return !unwritten && built.report.is_none();
     };
+    let resources = promote_resource_streams(update, resources);
     let existing = document
         .get_key(dict, "AP")
         .as_dict()
@@ -5102,7 +5132,7 @@ fn write_retyped_appearance(
     let id = existing.unwrap_or_else(|| update.allocate());
     update.put(
         id,
-        crate::appearance::form_xobject(rect, built.resources, content),
+        crate::appearance::form_xobject(rect, resources, content),
     );
     let mut appearances = Dictionary::new();
     appearances.insert(Name::new(&b"N"[..]), Object::Reference(id));
