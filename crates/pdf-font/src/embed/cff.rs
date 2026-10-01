@@ -63,8 +63,10 @@
 //! Name INDEX as well, because Table 117's `/BaseFont` for a Type 0 `CIDFont` "shall be the value
 //! of the `CIDFontName` entry in the `CIDFont` program".
 //!
-//! A face whose kept charstrings use the accented-character form of `endchar` names two further
-//! glyphs by standard code, which a CID-keyed program cannot carry; that face is written whole.
+//! A kept charstring in the accented-character form of `endchar` names two further glyphs by
+//! standard code, which a CID-keyed program cannot carry; the subset holds in its place the
+//! outline that form draws, composed by [`super::accented`] (ADR 1486). A face where that cannot
+//! be done is written whole.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -91,7 +93,7 @@ const CARRIED: [[u8; 4]; 8] = [
 const OTTO: [u8; 4] = *b"OTTO";
 
 /// Writes a `CFF ` face as the module documentation describes: a subset where `subsetting`, and
-/// whole where the face's licence forbids one or a kept charstring is the accented form.
+/// whole where the face's licence forbids one or a kept accented charstring cannot be composed.
 ///
 /// # Errors
 ///
@@ -201,7 +203,7 @@ const UNREACHED: &[u8] = &[14];
 const IDENTITY: (&[u8], &[u8], i64) = (b"Adobe", b"Identity", 0);
 
 /// Writes the subset the module documentation describes, or `None` where a kept charstring uses
-/// the accented-character `endchar` a CID-keyed program cannot carry.
+/// the accented-character `endchar` and [`super::accented::composed`] cannot compose it.
 fn subset(program: &[u8], used: &BTreeSet<u16>) -> Result<Option<Embedded>, Refusal> {
     let cff = cff_table(program)?;
     let parts = Parts::read(cff).ok_or(Refusal::Malformed("CFF "))?;
@@ -212,7 +214,7 @@ fn subset(program: &[u8], used: &BTreeSet<u16>) -> Result<Option<Embedded>, Refu
     {
         return Err(Refusal::Malformed("CFF "));
     }
-    let Some(closure) = Closure::of(&parts, &kept)? else {
+    let Some(closure) = Closure::of(cff, &parts, &kept)? else {
         return Ok(None);
     };
     let system = subset_system(cff, &parts, &kept)?;
@@ -255,15 +257,20 @@ struct Closure {
     global: BTreeSet<usize>,
     /// Per source Font DICT, the Local Subr INDEX positions reached.
     local: Vec<BTreeSet<usize>>,
+    /// The charstrings written in place of a kept glyph's own: an accented character's composed
+    /// outline (ADR 1486).
+    composed: BTreeMap<u16, Vec<u8>>,
 }
 
 impl Closure {
-    /// Walks every kept charstring ([`super::reach`]); `None` where one is the accented form.
-    fn of(parts: &Parts<'_>, kept: &BTreeSet<u16>) -> Result<Option<Self>, Refusal> {
+    /// Walks every kept charstring of `cff` ([`super::reach`]); `None` where one is the accented
+    /// form and cannot be composed.
+    fn of(cff: &[u8], parts: &Parts<'_>, kept: &BTreeSet<u16>) -> Result<Option<Self>, Refusal> {
         let mut closure = Self {
             glyphs: Vec::with_capacity(kept.len()),
             global: BTreeSet::new(),
             local: vec![BTreeSet::new(); parts.font_dicts.len()],
+            composed: BTreeMap::new(),
         };
         let mut everything = false;
         for glyph in kept {
@@ -284,7 +291,15 @@ impl Closure {
             match reached.walk(charstring) {
                 Walk::Followed => {}
                 Walk::Unfollowable => everything = true,
-                Walk::Seac => return Ok(None),
+                Walk::Seac(accented) => {
+                    let Some(outline) = super::accented::composed(cff, parts, &accented) else {
+                        return Ok(None);
+                    };
+                    // The composed outline calls no subroutine, so none it entered is kept for it.
+                    closure.composed.insert(*glyph, outline);
+                    closure.glyphs.push((*glyph, font_dict));
+                    continue;
+                }
             }
             closure.global.extend(reached.global_entered);
             closure.local[font_dict].extend(reached.local_entered);
@@ -298,6 +313,18 @@ impl Closure {
             }
         }
         Ok(Some(closure))
+    }
+
+    /// The kept glyphs' charstrings in the subset's order: each glyph's own, or the outline
+    /// composed in its place.
+    fn charstrings<'a>(&'a self, parts: &Parts<'a>) -> Option<Vec<&'a [u8]>> {
+        self.glyphs
+            .iter()
+            .map(|(glyph, _)| match self.composed.get(glyph) {
+                Some(outline) => Some(outline.as_slice()),
+                None => parts.charstrings.get(usize::from(*glyph)).copied(),
+            })
+            .collect()
     }
 }
 
@@ -461,12 +488,7 @@ fn written(
         }
         out
     };
-    let charstrings: Vec<&[u8]> = closure
-        .glyphs
-        .iter()
-        .map(|(glyph, _)| parts.charstrings.get(usize::from(*glyph)).copied())
-        .collect::<Option<_>>()
-        .ok_or(MALFORMED)?;
+    let charstrings = closure.charstrings(parts).ok_or(MALFORMED)?;
     let global = stubbed(&parts.global_subrs, &closure.global);
     let privates: Vec<(Vec<u8>, Vec<u8>)> = font_dicts
         .iter()
@@ -962,7 +984,7 @@ mod tests {
         let cff = name_keyed();
         let parts = Parts::read(&cff).expect("the fixture reads");
         let kept: BTreeSet<u16> = used.iter().copied().chain([0]).collect();
-        let closure = Closure::of(&parts, &kept)
+        let closure = Closure::of(&cff, &parts, &kept)
             .expect("walks")
             .expect("no accented endchar");
         (closure.global, closure.local[0].clone())
@@ -1016,7 +1038,9 @@ mod tests {
         // glyph 3 reaches through local subroutine 2.
         let parts = Parts::read(&cff).expect("reads");
         let kept = BTreeSet::from([0, 3]);
-        let mut closure = Closure::of(&parts, &kept).expect("walks").expect("no seac");
+        let mut closure = Closure::of(&cff, &parts, &kept)
+            .expect("walks")
+            .expect("no seac");
         // Global subroutine 1 stands in for it, so the INDEX keeps its count and subroutine 0 is
         // the one-byte `endchar` an unreached position is written as.
         assert!(closure.global.remove(&0));
@@ -1098,6 +1122,116 @@ mod tests {
             panic!("a CIDFontType0C program");
         };
         assert_eq!(system.ordering, b"Identity");
+    }
+
+    /// A name-keyed CFF whose glyph 3, `Aacute`, is `450 30 600 65 194 endchar` — Appendix C's
+    /// accented character over `A` (glyph 1, the square under an `hstem`) and `acute` (glyph 2,
+    /// `200 0 rmoveto 100 hlineto 50 100 rlineto endchar`), its width 450 past a `nominalWidthX` of
+    /// 100 — and whose glyph 4, `Bacute`, names `B`, which the face does not hold.
+    #[expect(clippy::arithmetic_side_effects, reason = "a fixture builder")]
+    fn accented_face() -> Vec<u8> {
+        use skrifa::raw::ps::encoding::PredefinedEncoding;
+        let sid = |code: u8| {
+            PredefinedEncoding::Standard
+                .sid(code)
+                .expect("a standard code")
+                .to_u16()
+        };
+        let header = vec![1u8, 0, 4, 4];
+        let names = index(&[b"Accented".to_vec()]);
+        let strings = index(&[b"Aacute".to_vec(), b"Bacute".to_vec()]);
+        let global = index(&[]);
+        let mut charset = vec![0u8];
+        for glyph_sid in [sid(65), sid(194), 391, 392] {
+            charset.extend_from_slice(&glyph_sid.to_be_bytes());
+        }
+        let charstrings = index(&[
+            vec![14],
+            [&[139, 189, 1][..], SQUARE].concat(),
+            vec![247, 92, 139, 21, 239, 6, 189, 239, 5, 14],
+            vec![248, 86, 169, 248, 236, 204, 247, 86, 14],
+            vec![248, 86, 169, 248, 236, 205, 247, 86, 14],
+        ]);
+        // nominalWidthX 100.
+        let private = vec![239, 21];
+        // charset, CharStrings, Private: 6 + 6 + 11 bytes.
+        let top_len = 23;
+        let top_index_len = 2 + 1 + 2 * 2 + top_len;
+        let charset_at = header.len() + names.len() + top_index_len + strings.len() + global.len();
+        let charstrings_at = charset_at + charset.len();
+        let private_at = charstrings_at + charstrings.len();
+        let mut top = int5(charset_at);
+        top.push(15);
+        top.extend(int5(charstrings_at));
+        top.push(17);
+        top.extend(int5(private.len()));
+        top.extend(int5(private_at));
+        top.push(18);
+        assert_eq!(top.len(), top_len);
+        [
+            header,
+            names,
+            index(&[top]),
+            strings,
+            global,
+            charset,
+            charstrings,
+            private,
+        ]
+        .concat()
+    }
+
+    /// Appendix C's accented `endchar` names its components by standard code, which the CID-keyed
+    /// subset cannot carry, so the subset holds the outline it draws: the accent's origin at
+    /// `(adx, ady)` from the base's, the width the charstring states, and no component kept that
+    /// was not asked for (ADR 1486).
+    #[test]
+    fn an_accented_character_is_subset_as_the_outline_it_draws() {
+        let cff = accented_face();
+        let embedded = for_embedding(&wrapped(&cff, 0), &BTreeSet::from([3])).expect("installable");
+        assert!(
+            matches!(embedded.outlines, Outlines::CompactCid { .. }),
+            "subset, not whole"
+        );
+        assert_eq!(embedded.glyphs, [(0, 0), (3, 1)].into());
+        assert_eq!(crate::cff::glyph_count(&embedded.program), Ok(2));
+
+        // The accent's `200 0 rmoveto` from its origin at (30, 600), then the base's square from
+        // its own at (0, 0): Appendix C's placement worked by hand.
+        let drawn = outline(&embedded.program, 1);
+        let moves: Vec<[f32; 2]> = drawn
+            .0
+            .iter()
+            .filter(|(op, _)| *op == 'M')
+            .map(|(_, p)| [p[0], p[1]])
+            .collect();
+        assert_eq!(moves, [[230.0, 600.0], [100.0, 100.0]]);
+        assert_eq!(
+            crate::cff::advances(&embedded.program, &[1]),
+            Ok(vec![Some(550.0)]),
+            "450 past the nominal width of 100"
+        );
+
+        // The reader this tree draws the whole face with composes the same outline.
+        assert_same_outlines(&cff, &embedded.program, &embedded.glyphs);
+        assert_eq!(
+            crate::cff::advances(&cff, &[3]),
+            crate::cff::advances(&embedded.program, &[1])
+        );
+
+        // With its components shown too, each keeps its own charstring, hints and all.
+        let all = for_embedding(&wrapped(&cff, 0), &BTreeSet::from([1, 2, 3])).expect("written");
+        assert!(matches!(all.outlines, Outlines::CompactCid { .. }));
+        assert_same_outlines(&cff, &all.program, &all.glyphs);
+    }
+
+    /// An accented character whose base the face does not hold cannot be composed, so the face
+    /// is written whole as before.
+    #[test]
+    fn an_accented_character_that_names_a_missing_glyph_keeps_the_face_whole() {
+        let embedded = for_embedding(&wrapped(&accented_face(), 0), &BTreeSet::from([4]))
+            .expect("installable");
+        assert!(matches!(embedded.outlines, Outlines::Cff { .. }));
     }
 
     /// The face's licence decides what is written: restricted and bitmap-only faces are not;

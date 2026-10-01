@@ -1,19 +1,29 @@
 #!/usr/bin/env bash
 # Drives the three windows — `quorra`, `quorra-gtk`, `quorra-qt` — through what a reader does with an
-# open document, headless under Xvfb, and photographs every step.
+# open document, headless under Xvfb, and photographs every step; then `quorra-confined` through the
+# one thing only it can show, a device refusal of a page its sandboxed worker sent as marks.
 #
 #   tools/drive-windows.sh [--out DIR] [--window NAME]... [--bin DIR] [--display :N]
+#                          [--goldens DIR] [--regolden REASON]
 #
 # The list is `doc/verify.md`'s "Driving the three windows": open, §12.2's Table 147 entries, the
-# outline, page turns by key and wheel, zoom, find (a Latin and an Arabic word), a popup, a link, a
-# markup, §7.5.6's save read back, the pages panel, the restrictions levels, print, §7.6.4's
-# password, and a form's §12.5.1 tab order, check box, choice and push button saved and re-read.
-# Each step's observable is a title, a line the window printed, or the saved file's bytes, and the
-# verdict is printed as `step<TAB>window<TAB>works|wrong|not offered<TAB>what was seen`, one line
-# each, into `$OUT/results.tsv`; the photographs are `$OUT/shots/<window>/<step>.png`, and every
-# other top-level window the program has up (a popup, a dialog) is photographed beside it, because
-# with no window manager GTK's and Qt's popups are not on the root's picture. LOOK at them: a title
-# is a weaker witness than the picture (ADR 1453).
+# outline, page turns by key and wheel, zoom, find (a Latin word, an Arabic word, and a word typed
+# without the marks printed on it), a popup, a link, a markup, §7.5.6's save read back, the pages
+# panel, the restrictions levels, print, §7.6.4's password, and a form's §12.5.1 tab order, check
+# box, choice and push button saved and re-read. Each step's observable is a title, a line the
+# window printed, the saved file's bytes, what AT-SPI reads off the window, or a count of pixels of
+# a colour the step draws, and the verdict is printed as
+# `step<TAB>window<TAB>works|wrong|not offered|manual<TAB>what was seen`, one line each, into
+# `$OUT/results.tsv`; the photographs are `$OUT/shots/<window>/<step>.png`, and every other
+# top-level window the program has up (a popup, a dialog) is photographed beside it, because with no
+# window manager GTK's and Qt's popups are not on the root's picture. A title is a weaker witness
+# than the picture (ADR 1453), so no step rests on one where the window says more.
+#
+# One step has no witness but its picture: `quorra`'s reopened form, whose drawn fields publish no
+# value. It is compared with a golden — the same crop kept from the first run, under `--goldens`
+# (default `scratchpad/drive-goldens`, this machine's, never committed) — and the first run writes
+# it and reports it `manual`, to be looked at once; `--regolden REASON` writes it again and keeps
+# the reason in `reasons.tsv` beside it (ADR 1478).
 #
 # Coordinates are ASKED of the window where it can answer: the drive runs on a private session bus
 # with AT-SPI on it, and the outline rows, the pages tab and row, the check box and the choice are
@@ -25,8 +35,8 @@
 # which each click was. A step that clicks nothing says `wrong` with the title it saw. The release
 # binaries are
 # taken from `--bin` (default: this worktree's release directory); build them first:
-#   cargo build --release -p viewer-ui --bin quorra -p viewer-gtk --bin quorra-gtk \
-#                         -p viewer-qt --bin quorra-qt
+#   cargo build --release -p viewer-ui --bin quorra --bin quorra-confined -p viewer-gtk \
+#                         --bin quorra-gtk -p viewer-qt --bin quorra-qt
 # Needs Xvfb, xdotool, xwd, ImageMagick's `magick` and python3 with pikepdf; the accessibility step
 # and the asked coordinates need at-spi2-core and python3's `gi` Atspi. Nothing here is a gate: a test that skipped silently
 # would be worse than none (doc/environment.md).
@@ -38,6 +48,8 @@ DISPLAY_NUMBER=":93"
 TARGET=$(cargo metadata --format-version 1 --no-deps --manifest-path "$ROOT/Cargo.toml" 2>/dev/null \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])' 2>/dev/null)
 BIN="${TARGET:-$ROOT/target}/release"
+GOLDENS="$ROOT/scratchpad/drive-goldens"
+REGOLDEN=""
 WINDOWS=()
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -45,10 +57,12 @@ while [ $# -gt 0 ]; do
         --window) WINDOWS+=("$2"); shift 2 ;;
         --bin) BIN=$2; shift 2 ;;
         --display) DISPLAY_NUMBER=$2; shift 2 ;;
+        --goldens) GOLDENS=$2; shift 2 ;;
+        --regolden) REGOLDEN=$2; shift 2 ;;
         *) echo "drive-windows: unknown argument $1" >&2; exit 2 ;;
     esac
 done
-[ ${#WINDOWS[@]} -eq 0 ] && WINDOWS=(quorra quorra-gtk quorra-qt)
+[ ${#WINDOWS[@]} -eq 0 ] && WINDOWS=(quorra quorra-gtk quorra-qt quorra-confined)
 for tool in Xvfb xdotool xwd magick python3; do
     command -v "$tool" >/dev/null || { echo "drive-windows: $tool is not installed" >&2; exit 2; }
 done
@@ -177,6 +191,46 @@ pdf.save(f"{out}/drive-form.pdf")
 pdf = pikepdf.new()
 page(pdf, helv(pdf), "Behind a password")
 pdf.save(f"{out}/drive-password.pdf", encryption=pikepdf.Encryption(user="drive", owner="owner", R=6))
+
+# drive-vowelled.pdf: "كَتَبَ" with its three fathas, in reading order (each glyph placed leftwards of
+# the one before by TJ), through a Type 3 font whose /ToUnicode names the letters and the marks; a
+# letter is a box and a fatha a bar above it, of no width (ADR 1477).
+pdf = pikepdf.new()
+# The TJ's 1000 moves each fatha's origin back a whole em, so its bar is drawn 550 units on, over
+# the letter shown before it.
+glyphs = {"l": b"500 0 d0 0 0 450 700 re f", "m": b"0 0 d0 550 780 350 60 re f"}
+procs = Dictionary({f"/{name}": pdf.make_stream(body) for name, body in glyphs.items()})
+cmap = (b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapName /Vowelled def "
+        b"/CMapType 2 def 1 begincodespacerange <00> <FF> endcodespacerange 4 beginbfchar "
+        b"<01> <0643> <02> <062A> <03> <0628> <04> <064E> endbfchar endcmap "
+        b"CMapName currentdict /CMap defineresource pop end end")
+type3 = pdf.make_indirect(Dictionary(
+    Type=Name.Font, Subtype=Name.Type3, FontBBox=[0, 0, 950, 840],
+    FontMatrix=[0.001, 0, 0, 0.001, 0, 0], CharProcs=procs,
+    Encoding=Dictionary(Type=Name.Encoding, Differences=[1, Name.l, Name.l, Name.l, Name.m]),
+    FirstChar=1, LastChar=4, Widths=[500, 500, 500, 0], Resources=Dictionary(),
+    ToUnicode=pdf.make_stream(cmap)))
+vowelled = page(pdf, helv(pdf), "Vowelled",
+                b"BT /F2 60 Tf 300 500 Td [<01> 1000 <04> <02> 1000 <04> <03> 1000 <04>] TJ ET\n")
+vowelled.obj.Resources.Font.F2 = type3
+pdf.save(f"{out}/drive-vowelled.pdf")
+
+# drive-coverage.pdf: a thousand fifteen-point stars over the whole page. A few kilobytes of marks,
+# so a confined worker sends them as a list rather than as pixels (ADR 0607), and more coverage than
+# a device's scratch sheet holds, so the device refuses the frame (ADR 1478).
+import math
+pdf = pikepdf.new()
+stars = []
+for i in range(1000):
+    cx, cy = 306 + (i % 7) * 3, 396 + (i % 5) * 3
+    points = [(cx + 700 * math.cos(2 * math.pi * k * 7 / 15 + i * 0.01),
+               cy + 700 * math.sin(2 * math.pi * k * 7 / 15 + i * 0.01)) for k in range(15)]
+    stars.append("%.3f %.3f %.3f rg " % ((i % 3) / 3, (i % 5) / 5, (i % 7) / 7)
+                 + "%.1f %.1f m " % points[0]
+                 + " ".join("%.1f %.1f l" % point for point in points[1:]) + " h f")
+pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 612, 792],
+                                         Contents=pdf.make_stream("\n".join(stars).encode()))))
+pdf.save(f"{out}/drive-coverage.pdf")
 PY
 ARABIC="$ROOT/doc/pdf.js/test/pdfs/ArabicCIDTrueType.pdf"
 [ -f "$ARABIC" ] && cp "$ARABIC" "$FIXTURES/arabic.pdf"
@@ -314,6 +368,70 @@ expect_title() { # step needle
     esac
 }
 said() { grep -c -- "$1" "$LOG" 2>/dev/null; }
+lines() { wc -l < "$LOG" 2>/dev/null || echo 0; }
+# found_since N: whether the window said, after line N of its log, that a search found something —
+# `quorra`'s trace of the core's answer, or the two native windows' "found" note.
+found_since() { tail -n "+$(($1 + 1))" "$LOG" 2>/dev/null | grep -q 'searched: page\|^note: found "'; }
+# yellow PNG: how many pixels are the drive popup's /C colour, [1 0.9 0.2] — its title bar and icon.
+yellow() {
+    magick "$1" -fuzz 6% -fill "#ff0000" -opaque "#ffe633" -fuzz 0 -fill black +opaque "#ff0000" \
+        -fill white -opaque "#ff0000" -colorspace gray -format "%[fx:round(mean*w*h)]" info: 2>/dev/null
+}
+# golden STEP NAME GEOMETRY WHAT: the main window's picture, cropped to GEOMETRY, against the one this
+# drive kept from its first run. A golden is a picture a person looked at once (ADR 1478): the first
+# run writes it and says so as a step to look at, every later run compares, and `--regolden REASON`
+# writes it again with the reason beside it, as `raster_golden` is regenerated.
+golden() {
+    local dir="$GOLDENS/$WINDOW" crop="$OUT/shots/$WINDOW/$2.golden.png" differing
+    mkdir -p "$dir"
+    xwd -id "$(main_window)" -silent -out "$OUT/window.xwd" \
+        && magick "xwd:$OUT/window.xwd" -crop "$3" +repage "$crop"
+    rm -f "$OUT/window.xwd"
+    if [ -n "$REGOLDEN" ] || [ ! -f "$dir/$2.png" ]; then
+        cp "$crop" "$dir/$2.png"
+        [ -n "$REGOLDEN" ] && printf '%s\t%s\t%s\t%s\n' "$(date -I)" "$WINDOW" "$2" "$REGOLDEN" >> "$GOLDENS/reasons.tsv"
+        verdict "$1" manual "golden written to $dir/$2.png: look at it once ($4); later runs compare"
+        return
+    fi
+    differing=$(magick compare -metric AE -fuzz 10% "$dir/$2.png" "$crop" null: 2>&1 | cut -d' ' -f1)
+    if [ "${differing%.*}" -le 40 ] 2>/dev/null; then
+        verdict "$1" works "$4: $differing pixel(s) off the golden"
+    else
+        verdict "$1" wrong "$4: ${differing:-no comparison} pixel(s) off the golden $dir/$2.png"
+    fi
+}
+# reopened PID: the form's toolkit widgets as AT-SPI reads them — each text field's text, the check
+# box's state and the combo box's name — on one line, A C B D E.
+cat > "$OUT/reopened.py" <<'PY'
+import sys
+import gi
+gi.require_version("Atspi", "2.0")
+from gi.repository import Atspi
+pid, seen = int(sys.argv[1]), {}
+def walk(node, depth, document=False):
+    if node is None or depth > 40:
+        return
+    try:
+        role, name = node.get_role_name(), node.get_name()
+        document = document or node.get_role() == Atspi.Role.DOCUMENT_FRAME
+        if role == "text" and name in "ABC" and len(name) == 1 and not document:
+            text = node.get_text_iface()
+            seen[name] = Atspi.Text.get_text(text, 0, Atspi.Text.get_character_count(text))
+        elif role == "check box" and name == "D":
+            seen.setdefault("D", node.get_state_set().contains(Atspi.StateType.CHECKED))
+        elif role == "combo box" and not document:
+            seen["E"] = name
+        for index in range(node.get_child_count()):
+            walk(node.get_child_at_index(index), depth + 1, document)
+    except gi.repository.GLib.Error:
+        return
+desktop = Atspi.get_desktop(0)
+for index in range(desktop.get_child_count()):
+    application = desktop.get_child_at_index(index)
+    if application is not None and application.get_process_id() == pid:
+        walk(application, 0)
+print(" ".join(str(seen.get(key, "-")) for key in "ACBDE"))
+PY
 # asked VARIABLE ROLE NAME: replaces the measured coordinates in VARIABLE with the widget's own
 # centre where the window publishes it, and says which the click will be.
 asked() {
@@ -414,9 +532,17 @@ drive() {
     key Escape; click $PAGE; key Home; key 0
 
     # §12.5.6.14: the popup opens and closes on its annotation; §12.5.6.5's link.
+    # The popup's title bar is drawn in the annotation's /C colour in all three windows (ADR 1466),
+    # so the open picture has thousands of pixels of it and the closed one only the icon's.
     click $ICON; shot 10-popup-open
     click $ICON; shot 11-popup-closed
-    verdict 10-popup manual "look at 10-popup-open.png and 11-popup-closed.png"
+    local open closed
+    open=$(yellow "$OUT/shots/$WINDOW/10-popup-open.png"); closed=$(yellow "$OUT/shots/$WINDOW/11-popup-closed.png")
+    if [ "${open:-0}" -ge $((${closed:-0} + 1000)) ] && [ "${closed:-0}" -lt 1000 ]; then
+        verdict 10-popup works "opened ($open pixels of /C) and closed ($closed, the icon's)"
+    else
+        verdict 10-popup wrong "pixels of /C: open ${open:-?}, closed ${closed:-?}"
+    fi
     click $LINK; shot 12-link; expect_title 12-link "page 3 of 3"
 
     # §12.5.6.10's highlight over everything selected, then §7.5.6's save read back.
@@ -435,15 +561,37 @@ drive() {
     # The four levels (CLAUDE.md principle 3), and print.
     click $PAGE; key r; sleep 1; shot 15-restrictions
     if [ "$WINDOW" = quorra ]; then
-        verdict 15-restrictions manual "look at 15-restrictions.png: the card of four levels"
+        # The card is drawn rather than published, so it is driven instead: the second row sets
+        # copy to "on", which the core's trace states, and the first sets it back.
+        key Down; key Return; sleep 1
+        if [ "$(said 'restrictions in this window copy:On')" -gt 0 ]; then
+            verdict 15-restrictions works "the card's second row set copy to on"
+        else
+            verdict 15-restrictions wrong "r put up no card that sets a level"
+        fi
+        key Up; key Return
     elif [ "$(xdotool search --onlyvisible --pid "$APP" | wc -l)" -gt 1 ]; then
         verdict 15-restrictions works "r put the menu up: look at 15-restrictions.window1.png"
     else
         verdict 15-restrictions wrong "r put no menu up"
     fi
     key Escape; key Escape
-    click $PAGE; key shift+p; sleep 1; shot 16-print
-    verdict 16-print manual "look at 16-print*.png"
+    # GTK's is the platform's print dialogue; `quorra` and Qt have no printer and say so (ADR 1180).
+    click $PAGE; key shift+p
+    local printing=""
+    for _ in $(seq 1 10); do
+        [ "$WINDOW" = quorra-gtk ] && printing=$(xdotool search --onlyvisible --pid "$APP" --name '^Print$' 2>/dev/null | head -1)
+        [ "$WINDOW" != quorra-gtk ] && [ "$(said 'over 3 page(s)')" -gt 0 ] && printing=said
+        [ -n "$printing" ] && break
+        sleep 1
+    done
+    shot 16-print
+    case "$WINDOW:$printing" in
+        quorra-gtk:) verdict 16-print wrong "no print dialogue came up" ;;
+        quorra-gtk:*) verdict 16-print works "the print dialogue is up: 16-print.window*.png" ;;
+        *:said) verdict 16-print works "$(grep -m1 'over 3 page(s)' "$LOG")" ;;
+        *) verdict 16-print wrong "print said nothing about three pages" ;;
+    esac
 
     # A host that found itself borrowed dropped what a person asked for, and says so.
     if grep -q "was busy and an action was dropped" "$LOG"; then
@@ -485,18 +633,46 @@ PY
         "1 2 3 pikepdf.Name(\"/Yes\") pikepdf.Name(\"/Yes\") Blue") verdict 20-tab-order-and-save works "$seen" ;;
         *) verdict 20-tab-order-and-save wrong "A C B D/V D/AS E: $seen" ;;
     esac
+    # The saved values as the reopened window shows them: the two toolkits' widgets on the bus, and
+    # `quorra`'s drawn fields — which publish no value (ADR 1478) — against a golden.
     launch "${form%.pdf}.edited.pdf"; shot 24-reopened
-    verdict 24-reopened manual "look at 24-reopened.png: 1, 2, 3, the box ticked, Blue"
+    seen=""
+    [ -n "$BUS" ] && seen=$(timeout 30 python3 "$OUT/reopened.py" "$APP" 2>/dev/null)
+    if [ "$WINDOW" = quorra ]; then
+        golden 24-reopened 24-reopened 620x320+90+240 "1, 2, 3, the box ticked, Blue"
+    elif [ "$seen" = "1 2 3 True Blue" ]; then
+        verdict 24-reopened works "A C B D E on the bus: $seen"
+    else
+        verdict 24-reopened wrong "A C B D E on the bus: ${seen:-nothing}"
+    fi
 
     # A right-to-left word on a page whose text runs in visual order through presentation forms.
     if [ -f "$FIXTURES/arabic.pdf" ]; then
         launch "$FIXTURES/arabic.pdf"
-        click 400 600; key f; type_in "العربية"; key Return; shot 25-find-arabic
-        if grep -q "not in this document\|is not in this document" "$LOG"; then
-            verdict 25-find-arabic wrong "the word on the page is not found (doc/todo/27)"
-        else
+        click 400 600; key f; local mark; mark=$(lines); type_in "العربية"; key Return
+        shot 25-find-arabic
+        if found_since "$mark"; then
             verdict 25-find-arabic works "found"
+        else
+            verdict 25-find-arabic wrong "the word on the page is not found (doc/todo/27)"
         fi
+    fi
+
+    # ADR 1477: a word typed without its marks finds one printed with them, and a mark typed is
+    # asked for — "كتب" finds "كَتَبَ", "كُتُب" (dammas) does not.
+    launch "$FIXTURES/drive-vowelled.pdf"
+    click 400 600; key f; mark=$(lines); type_in "كتب"; key Return; shot 25-find-vowelled
+    if found_since "$mark"; then
+        verdict 25-find-vowelled works "the bare word found the vowelled one"
+    else
+        verdict 25-find-vowelled wrong "the bare word did not find the vowelled one"
+    fi
+    launch "$FIXTURES/drive-vowelled.pdf"
+    click 400 600; key f; mark=$(lines); type_in "كُتُب"; key Return; sleep 1
+    if found_since "$mark"; then
+        verdict 25-find-other-mark wrong "a word with dammas found one with fathas"
+    else
+        verdict 25-find-other-mark works "a word with dammas did not find one with fathas"
     fi
 
     # Principle 2: a frame the graphics device refuses is drawn on the processor, "reported out
@@ -610,7 +786,40 @@ PY
     fi
 }
 
+# `quorra-confined`, whose pages come from the sandboxed worker (ADR 0713): a frame its graphics
+# device refuses is drawn on the processor and said in the title as well as on the terminal (ADR
+# 1466). The page must cross as marks for its device to have anything to refuse — a page whose
+# pixels are smaller crosses as pixels (ADR 0607) — so it is `drive-coverage.pdf`, a few kilobytes of
+# stars whose coverage outgrows the device's scratch sheet (ADR 1478).
+confined() {
+    [ -x "$BIN/quorra-confined" ] || { verdict 28-confined-refusal "not offered" "no $BIN/quorra-confined"; return; }
+    launch "$FIXTURES/drive-coverage.pdf"
+    for _ in $(seq 1 24); do
+        [[ "$(title)" == *"drawn on the processor"* ]] && break
+        sleep 5
+    done
+    sleep 3
+    shot 28-confined-refusal
+    local seen colours
+    seen=$(title)
+    colours=$(magick "$OUT/shots/$WINDOW/28-confined-refusal.png" -unique-colors -format %w info: 2>/dev/null)
+    if [ "$(said 'the graphics device refused the frame')" -eq 0 ]; then
+        verdict 28-confined-refusal wrong "no refusal on standard error: the device drew it? $seen"
+    elif [[ "$seen" != *"drawn on the processor"*"confined" ]]; then
+        verdict 28-confined-refusal wrong "said on the terminal only; title: $seen"
+    elif [ "${colours:-0}" -le 3 ]; then
+        verdict 28-confined-refusal wrong "the page is blank ($colours colours)"
+    else
+        verdict 28-confined-refusal works "$seen"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
 for WINDOW in "${WINDOWS[@]}"; do
+    if [ "$WINDOW" = quorra-confined ]; then
+        confined
+        continue
+    fi
     drive
     accessibility
 done

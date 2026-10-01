@@ -521,8 +521,10 @@ an entry of its number in the group file it names and every entry its row (`test
 ADR 1379), an environment variable a live document names is one the code reads
 (`tests/variables.rs`), a command a live document writes names a package, target and `tools/`
 script the tree has and no `--release` `doc/verify.md` does not prescribe (`tests/commands.rs`,
-ADR 1475), and the fuzz workspace's lock and targets are what `tools/fuzz.sh` and
-`fuzz/seeds.sh` need (`tests/fuzz_workspace.rs`, ADR 1439). The sweeps under `src/bin/` —
+ADR 1475), the fuzz workspace's lock and targets are what `tools/fuzz.sh` and
+`fuzz/seeds.sh` need (`tests/fuzz_workspace.rs`, ADR 1439), every `tools/state.sh` section reads
+and none writes (`tests/read_only.rs`, ADR 1487), and `doc/environment.md`'s *After a merge* holds
+one entry per kind of line `tools/main-checkout.py` prints, in its order (`tests/owner_section.rs`). The sweeps under `src/bin/` —
 `pointers`, `overtaken`, `retired`, `unread`, `cited` and the rest — are reading lists and never
 gates, since each judges prose; `tools/state.sh` runs them by section. `tools/state.sh comments`
 is the same kind of list for `CLAUDE.md`'s comment rule: its grep, run as written, then each hit
@@ -533,6 +535,9 @@ listed so that a rank is read as a comparison with the member it names (`tools/s
 ADR 1427). `tools/state.sh prose` runs the prose sweeps together — comment history, superlatives,
 overtaken notes, unread claims, doc-comment names, environment variables, document commands and
 the ledger's program names — one count and one listing command each, so "is the prose true" is one command (ADR 1451).
+A batch's clock is read, never written down: `tools/state.sh gates-cost` prints the merge's gate log
+dearest first and `tools/state.sh batches` each batch commit's gates figure and round durations
+(ADRs 1476, 1487).
 
 Two ratchets, both in the gate and both two-directional. `UNREVIEWED_CEILING` may only fall.
 `REVIEW_OWED` names the clauses the code cites whose rows are still `unreviewed`, and a clause not

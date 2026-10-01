@@ -39,6 +39,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::sfnt::{be16, be32, checksummed, horizontal_metric, sfnt_tables};
 
+mod accented;
 mod cff;
 mod reach;
 

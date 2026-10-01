@@ -1002,6 +1002,17 @@ those are nothing, the CIDFont descriptor additions, and the Type 3 operators. T
 heading in `doc/md/` before a number is cited or a sentence quoted under it, and name the
 correction in the report.
 
+### 91. A command that counts may not write
+
+`tools/state.sh ledger` ran `--bin ledger`, which is the generator: it rebuilt the ledger from the
+clause index and wrote the whole file back in canonical key order, so a row whose keys were out of
+order moved on every run. Run in the owner's main checkout after a merge, it dirtied
+`doc/conformance/ledger.toml` and the next fast-forward refused until the rewrite was discarded
+(ADR 1487). The binary now counts unless passed `--write`; `main-checkout` runs git with
+`--no-optional-locks`; every Python a section runs sets `PYTHONDONTWRITEBYTECODE=1`; and
+`tests/read_only.rs` reads the script for redirections, writing commands, lock-taking git and
+writing binaries. A section reads, and never writes.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

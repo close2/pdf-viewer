@@ -678,3 +678,13 @@ Plans' ICC memo already answered 99.97% of pixels; the cost was the hit itself, 
 pixel, and copying the previous pixel's output where the input repeats removed most of it (ADR
 1469). And a corpus `grep -r` misses `doc/corpora/*`, which are symlinks — `grep -R`; a first count
 of public-key witnesses missed four that way (round 1319).
+
+## 61. The stage that holds the memory is found before the lever is designed
+
+The brief named the tiled frame for a 7.9 GiB peak; `VmHWM` reset between stages
+(`echo 5 > /proc/self/clear_refs`) showed the frame at 0.99 GB and the structural-similarity
+comparison at 7.45 GB, nine `f32` planes of the whole page at once — banded, the corpus walk's
+peak fell from 11.3 to 5.2 GiB (ADR 1481). And a signal that "the pool would otherwise idle"
+includes the pool's size: callgrind runs at one thread, where every decode is alone and the cut is
+pure overhead. A speed-up is called byte-identical only after per-page digests from exported HEAD
+and change trees, each in its own target directory, agree (ADR 1479).

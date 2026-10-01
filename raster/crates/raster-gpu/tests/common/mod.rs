@@ -6,7 +6,7 @@
 //! is what each caller already built** — a fixture generalised on the way in would change
 //! what somebody's assertion means without anybody deciding to.
 //!
-//! Seven parts, along what each is about:
+//! Eight parts, along what each is about:
 //!
 //! - [`blend`] — §11.3.5's sixteen blend functions, the reference two files composite by;
 //! - [`headless`] — the device this suite renders through, and the pixels it hands back;
@@ -16,6 +16,8 @@
 //! - [`clause`] — §11.4.6's line, which four files measure a frame against;
 //! - [`probe`] — a drawn raster turned into the number an assertion is written on;
 //! - [`bound`] — ADR 0006's cross-implementation bound, read at one pixel.
+//! - [`meet`] — a residue clip meeting a mark, against a polygon's closed-form area in a
+//!   pixel, which the path lane's and the image lane's fixtures both hold to.
 //!
 //! [`clause`] and [`probe`] were listed in `raster/doc/HANDOVER.md` as deliberately *not*
 //! unified, and the recorded obstacle was the same sentence for both: each copy indexed a
@@ -61,6 +63,7 @@ pub mod blend;
 pub mod bound;
 pub mod clause;
 pub mod headless;
+pub mod meet;
 pub mod probe;
 pub mod retained;
 pub mod scene;

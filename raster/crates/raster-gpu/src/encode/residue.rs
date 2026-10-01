@@ -48,6 +48,10 @@ use raster_scene::{Command, Scene};
 use crate::keyhash::FastMap;
 use crate::raster::{CoverageMask, RowEdges};
 
+mod flats;
+
+pub(super) use flats::{LinkFlats, LinkKey};
+
 /// The share of the frame budget one frame's residue regions may hold: a quarter.
 ///
 /// Derived from the caller's own `Options::max_frame_bytes` rather than stated as a
@@ -118,6 +122,9 @@ pub(super) struct ResidueRegions {
     /// a separate account, so that keeping edges never changes which regions are admitted.
     edge_budget: u64,
     edges_spent: u64,
+    /// Each residue link's flattening, filed by its outline and transform and shared by
+    /// every chain and every use that names it (ADR 1479).
+    pub(super) flats: LinkFlats,
 }
 
 impl ResidueRegions {
@@ -159,6 +166,7 @@ impl ResidueRegions {
             edges: FastMap::default(),
             edge_budget: budget,
             edges_spent: 0,
+            flats: LinkFlats::new(budget),
         }
     }
 

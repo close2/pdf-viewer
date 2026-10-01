@@ -17,6 +17,8 @@
 use super::Encoder;
 use super::clips::ResolvedClip;
 use crate::error::RenderError;
+use raster_scene::Point;
+
 use crate::raster::{self, CoverageMask, MeetWork, Polyline, RowEdges, Rule};
 
 /// The mark a residue meets: the polylines its coverage was filled from, and the rule.
@@ -66,6 +68,83 @@ impl Encoder<'_> {
         self.clock.geometry(span);
         Ok(())
     }
+}
+
+impl Encoder<'_> {
+    /// Meet the residue tile an axis-preserving image samples with the image's own set, the
+    /// rectangle `shape` — the image's device rectangle intersected with the chain's clip
+    /// rectangle, the set `image.wgsl` takes each pixel's cell overlap of (ADR 1480).
+    ///
+    /// The shader meets that overlap with the tile by `min`, which is exact wherever one
+    /// set holds the pixel whole or misses it. In the pixels where both the rectangle and
+    /// the residue are fractional the tile is replaced by the area of their intersection,
+    /// from both sets' edges as a path's meet computes it; `min` then reads that area, which
+    /// is never above the rectangle's own overlap. Every other pixel of the tile keeps the
+    /// residue's byte, so an image the residue holds whole or misses whole draws what it did.
+    pub(super) fn meet_residue_with_rectangle(
+        &mut self,
+        tile: &mut CoverageMask,
+        resolved: &ResolvedClip,
+        shape: [f32; 4],
+    ) -> Result<(), RenderError> {
+        let [x0, y0, x1, y1] = shape;
+        if !(x0 < x1 && y0 < y1) {
+            return Ok(());
+        }
+        let cut = rectangle_cut(tile, shape);
+        let Some(rows) = cut_rows(tile, &cut) else {
+            return Ok(());
+        };
+        let Some(links) = self.residue_edges(resolved, rows, edge_limit(tile))? else {
+            return Ok(());
+        };
+        let rectangle = [Polyline::polygon(vec![
+            Point::new(x0, y0),
+            Point::new(x1, y0),
+            Point::new(x1, y1),
+            Point::new(x0, y1),
+        ])];
+        let span = self.clock.start();
+        let mark = Mark {
+            polylines: &rectangle,
+            rule: Rule::NonZero,
+        };
+        if let Some(exact) = exact_areas(tile, &cut, &links, mark) {
+            for (&index, value) in cut.iter().zip(exact) {
+                let met = &mut tile.coverage[index];
+                *met = value.min(*met);
+            }
+        }
+        self.clock.geometry(span);
+        Ok(())
+    }
+}
+
+/// The pixels of `tile` where the residue's byte is fractional and so is the rectangle
+/// `shape`'s overlap — computed as `image.wgsl`'s `shape_at` computes it, the extent of the
+/// rectangle within the pixel in each axis, multiplied.
+#[expect(clippy::cast_precision_loss)] // pixel corners of a tile whose extent is a viewport's
+#[expect(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
+#[expect(clippy::arithmetic_side_effects)]
+fn rectangle_cut(tile: &CoverageMask, [x0, y0, x1, y1]: [f32; 4]) -> Vec<usize> {
+    let width = tile.width as usize;
+    let fractional = |v: u8| v != 0 && v != u8::MAX;
+    tile.coverage
+        .iter()
+        .enumerate()
+        .filter(|&(index, &clip)| {
+            if !fractional(clip) {
+                return false;
+            }
+            let px = (tile.left + (index % width) as i32) as f32;
+            let py = (tile.top + (index / width) as i32) as f32;
+            let ex = (x1.min(px + 1.0) - x0.max(px)).max(0.0);
+            let ey = (y1.min(py + 1.0) - y0.max(py)).max(0.0);
+            let overlap = ex * ey;
+            overlap > 0.0 && overlap < 1.0
+        })
+        .map(|(index, _)| index)
+        .collect()
 }
 
 /// The pixels of `tile` where both the mark and the clip are fractional — the only pixels

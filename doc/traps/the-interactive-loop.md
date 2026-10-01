@@ -254,3 +254,12 @@ relocations the loader applies before any code runs, and `launch_path`'s open co
 `xfa_filled_imm1344e.pdf` rose from under its 1 820 k ceiling to 1 826 k (ADR 1465). Rebuilt as a
 letter pool indexed by `(u16, u8)` it read 1 818.7 k. Any `build.rs` table is written as a pool plus
 integer indices; the launch gate is what notices when it is not.
+
+### 93. A settle that leaves a wake in flight is not settled
+
+`MachineFaces::settle` returned once the answer had landed, while the worker thread called the
+window's wake after the signal; under a full workspace test run the test's wake counter read 0,
+and alone it read 1 — the signature of a race, not of a defect in the logic under test. The worker
+now calls the wake first and signals after, and `settle` waits while any answer's wake is still
+owed (ADR 1478 §5). A test that counts callbacks after a settle is only as good as the settle's
+definition; when one fails under load and passes alone, the code's ordering is what is fixed.

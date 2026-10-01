@@ -426,3 +426,10 @@ symbol's size is bounded only by 32 bits (ADR 1447). T.88 bounds none of them; t
 real streams gave each bound its number. And a bound a brief proposes is run past the census before
 it is built — "a symbol no larger than its page" would have refused real striped pages whose shared
 dictionary is 474× a strip.
+
+## A dependency's item is checked for visibility before a fixture is planned against it
+
+T.88's Annex H.2 test sequence was to be a `pdf-sandbox` fixture against `hayro-jbig2`'s MQ
+decoder; the decoder and its context are `pub(crate)`, and a second decoder written in the test
+would test only itself, so the fixture went into the fork as a patch, verified by applying it to a
+scratch clone at the pinned revision (ADR 1485). Read the `pub` before the plan.

@@ -288,18 +288,12 @@ impl Encoder<'_> {
         let top = vy0.floor() as i32;
         let width = (vx1.ceil() as i32 - left).max(1) as u32;
         let height = (vy1.ceil() as i32 - top).max(1) as u32;
-        let residue_origin = if resolved.residues.is_some() {
-            self.charge_tile(width, height)?;
-            match self.residue_intersection(&resolved, left, top, width, height)? {
-                Some(product) => {
-                    let (sx, sy) = self.pack_scratch(&product)?;
-                    Some([sx as f32, sy as f32])
-                }
-                None => None,
-            }
-        } else {
-            None
-        };
+        let residue_origin = self.image_residue(
+            &resolved,
+            transform_preserves_axes(&to_device),
+            [bx0, by0, bx1, by1],
+            (left, top, width, height),
+        )?;
         self.push_op(Op::Image(Box::new(ImageOp {
             image: image.0,
             texel,
@@ -319,6 +313,42 @@ impl Encoder<'_> {
             style: self.style,
             mask,
         })))
+    }
+
+    /// The residue tile an image samples, packed into scratch, or `None` for a chain with
+    /// no residue link.
+    ///
+    /// An axis-preserving image is the rectangle `image.wgsl` takes each pixel's overlap of,
+    /// and a rectangle meets the residue as a set (ADR 1480). An oblique one is painted in
+    /// the pixels whose centre falls inside it (ADR 0011), a set that holds each pixel whole
+    /// or misses it, which `min` meets exactly.
+    #[expect(clippy::cast_precision_loss)] // scratch positions far below 2^24
+    fn image_residue(
+        &mut self,
+        resolved: &ResolvedClip,
+        axis_aligned: bool,
+        [bx0, by0, bx1, by1]: [f32; 4],
+        (left, top, width, height): (i32, i32, u32, u32),
+    ) -> Result<Option<[f32; 2]>, RenderError> {
+        if resolved.residues.is_none() {
+            return Ok(None);
+        }
+        self.charge_tile(width, height)?;
+        let Some(mut product) = self.residue_intersection(resolved, left, top, width, height)?
+        else {
+            return Ok(None);
+        };
+        if axis_aligned {
+            let shape = [
+                bx0.max(resolved.rect.min.x),
+                by0.max(resolved.rect.min.y),
+                bx1.min(resolved.rect.max.x),
+                by1.min(resolved.rect.max.y),
+            ];
+            self.meet_residue_with_rectangle(&mut product, resolved, shape)?;
+        }
+        let (sx, sy) = self.pack_scratch(&product)?;
+        Ok(Some([sx as f32, sy as f32]))
     }
 
     /// The shading-space geometry of a non-solid paint. `None` means a singular

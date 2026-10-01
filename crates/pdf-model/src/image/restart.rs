@@ -50,7 +50,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 ///
 /// Below it the frame is decoded whole: each band re-reads the header segments and decodes the
 /// rows it overlaps, and a frame that decodes in a few milliseconds has nothing to divide.
-const BANDED_FLOOR: u64 = 1 << 20;
+pub(super) const BANDED_FLOOR: u64 = 1 << 20;
 
 /// The fewest lines a band keeps, rounded up to whole MCU rows and whole restart periods.
 ///
@@ -58,7 +58,7 @@ const BANDED_FLOOR: u64 = 1 << 20;
 /// what the overlap is paid against. On a 5 280 × 3 792 photograph, unpinned, 256 lines
 /// interpreted the page in 25.7–27.8 ms against 26.8–36.6 at 512 and 31.6–42.0 at 1 024; pinned
 /// to the faster cores 512 was a millisecond ahead. ADR 1433 has the table.
-const BAND_LINES: u32 = 256;
+pub(super) const BAND_LINES: u32 = 256;
 
 /// The one scan of a baseline frame, as the parts a band is built from.
 #[derive(Debug)]
@@ -85,12 +85,23 @@ struct Layout {
 
 /// Where one band decodes, and what of that it keeps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Band {
+pub(super) struct Band {
     /// The MCU rows decoded: interval-aligned at the top, one row past what is kept at the
     /// bottom unless the frame ends first.
-    decoded: (u32, u32),
+    pub(super) decoded: (u32, u32),
     /// The MCU rows kept.
-    kept: (u32, u32),
+    pub(super) kept: (u32, u32),
+}
+
+/// What [`decode_bands`] needs of a frame to place each band's lines in the whole raster.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Geometry {
+    /// Samples per line.
+    pub(super) width: u32,
+    /// The frame's number of lines.
+    pub(super) lines: u32,
+    /// Lines per MCU row.
+    pub(super) mcu_lines: u32,
 }
 
 /// Decodes `data` in bands on rayon's pool with the calling thread taking bands too, or `None`
@@ -114,7 +125,14 @@ pub(super) fn decode(
         return None;
     }
     let bands = plan(&layout, BAND_LINES)?;
-    decode_bands(data, &layout, &bands, width, options, channels)
+    let lines = Geometry {
+        width,
+        lines: layout.lines,
+        mcu_lines: layout.mcu_lines,
+    };
+    decode_bands(lines, &bands, options, channels, &|band| {
+        band_codestream(data, &layout, band)
+    })
 }
 
 /// The frame's number of samples per line, from the header [`layout`] already walked.
@@ -298,22 +316,33 @@ fn plan(layout: &Layout, lines: u32) -> Option<Vec<Band>> {
     let period = layout
         .restart
         .checked_div(gcd(layout.restart, layout.mcus_per_row))?;
-    let wanted = lines.div_ceil(layout.mcu_lines.max(1)).max(1);
+    plan_rows((layout.mcu_rows, layout.mcu_lines), period, lines)
+}
+
+/// [`plan`] for a frame of `mcu_rows` rows of `mcu_lines` lines in which a band may begin
+/// decoding at every `period`-th row — the restart period here, and every row for a frame cut at
+/// the rows an entropy pass found (`super::cut`).
+pub(super) fn plan_rows(
+    (mcu_rows, mcu_lines): (u32, u32),
+    period: u32,
+    lines: u32,
+) -> Option<Vec<Band>> {
+    let wanted = lines.div_ceil(mcu_lines.max(1)).max(1);
     let rows = wanted
         .div_ceil(period)
         .checked_mul(period)?
         .max(period.checked_mul(4)?);
-    if rows >= layout.mcu_rows {
+    if rows >= mcu_rows {
         return None;
     }
     let mut bands = Vec::new();
     let mut first = 0u32;
-    while first < layout.mcu_rows {
-        let last = first.saturating_add(rows).min(layout.mcu_rows);
+    while first < mcu_rows {
+        let last = first.saturating_add(rows).min(mcu_rows);
         bands.push(Band {
             decoded: (
                 first.saturating_sub(period),
-                last.saturating_add(1).min(layout.mcu_rows),
+                last.saturating_add(1).min(mcu_rows),
             ),
             kept: (first, last),
         });
@@ -390,21 +419,23 @@ fn band_codestream(data: &[u8], layout: &Layout, band: Band) -> Option<Vec<u8>> 
 /// Decodes every band into its own lines of one raster, on rayon's pool and the calling thread
 /// together, or `None` if any band is refused or delivers other than the lines it owes.
 ///
+/// `codestream` makes each band's codestream: [`band_codestream`] here, and the entropy pass's
+/// own construction for a frame with no restart interval (`super::cut`).
+///
 /// **The calling thread takes bands too**, rather than handing them all to the pool and
 /// waiting: `rayon::in_place_scope` runs its body here, so this thread — which on a page turn is
 /// the interpreter's, usually on the faster of this machine's two core classes
 /// (`doc/habits/measuring.md` 48) — draws from the same counter the pool's tasks do.
-fn decode_bands(
-    data: &[u8],
-    layout: &Layout,
+pub(super) fn decode_bands(
+    frame: Geometry,
     bands: &[Band],
-    width: u32,
     options: zune_jpeg::zune_core::options::DecoderOptions,
     channels: usize,
+    codestream: &(dyn Fn(Band) -> Option<Vec<u8>> + Sync),
 ) -> Option<Vec<u8>> {
-    let line = usize::try_from(width).ok()?.checked_mul(channels)?;
-    let mcu_lines = usize::try_from(layout.mcu_lines).ok()?;
-    let lines = usize::try_from(layout.lines).ok()?;
+    let line = usize::try_from(frame.width).ok()?.checked_mul(channels)?;
+    let mcu_lines = usize::try_from(frame.mcu_lines).ok()?;
+    let lines = usize::try_from(frame.lines).ok()?;
     let mut raster = vec![0u8; line.checked_mul(lines)?];
     // Each band's kept lines, as a slice of the raster it alone writes.
     let mut slots: Vec<Mutex<&mut [u8]>> = Vec::with_capacity(bands.len());
@@ -424,12 +455,24 @@ fn decode_bands(
     let next = AtomicUsize::new(0);
     let refused = AtomicBool::new(false);
     let work = || {
+        // One buffer a thread, decoded into band after band, rather than a fresh raster from the
+        // decoder for each: bands decoding beside each other each faulted their own few
+        // megabytes in at once, and a band of `issue13931.pdf` took 3.8 ms where its thread had
+        // no buffer yet and 2.8 ms where it had one (ADR 1481).
+        let mut scratch = Vec::new();
         while !refused.load(Ordering::Relaxed) {
             let index = next.fetch_add(1, Ordering::Relaxed);
             let (Some(band), Some(slot)) = (bands.get(index), slots.get(index)) else {
                 return;
             };
-            let delivered = decode_band(data, layout, *band, line, mcu_lines, options, slot);
+            let delivered = decode_band(
+                codestream(*band),
+                *band,
+                (line, mcu_lines),
+                options,
+                slot,
+                &mut scratch,
+            );
             if delivered.is_none() {
                 refused.store(true, Ordering::Relaxed);
             }
@@ -445,23 +488,29 @@ fn decode_bands(
     (!refused.into_inner()).then_some(raster)
 }
 
-/// Decodes one band and copies the lines it keeps into its slot.
+/// Decodes one band's codestream into `scratch`, the calling thread's buffer, and copies the lines
+/// it keeps into its slot. `zune-jpeg`'s `decode_into` writes what its `decode` would allocate and
+/// return, so a band's bytes do not depend on whose buffer they were written in.
 fn decode_band(
-    data: &[u8],
-    layout: &Layout,
+    codestream: Option<Vec<u8>>,
     band: Band,
-    line: usize,
-    mcu_lines: usize,
+    (line, mcu_lines): (usize, usize),
     options: zune_jpeg::zune_core::options::DecoderOptions,
     slot: &Mutex<&mut [u8]>,
+    scratch: &mut Vec<u8>,
 ) -> Option<()> {
-    let codestream = band_codestream(data, layout, band)?;
-    let pixels = zune_jpeg::JpegDecoder::new_with_options(
+    let codestream = codestream?;
+    let mut decoder = zune_jpeg::JpegDecoder::new_with_options(
         zune_jpeg::zune_core::bytestream::ZCursor::new(codestream.as_slice()),
         options,
-    )
-    .decode()
-    .ok()?;
+    );
+    decoder.decode_headers().ok()?;
+    let size = decoder.output_buffer_size()?;
+    if scratch.len() < size {
+        scratch.resize(size, 0);
+    }
+    let pixels = scratch.get_mut(..size)?;
+    decoder.decode_into(pixels).ok()?;
     let skipped = usize::try_from(band.kept.0.checked_sub(band.decoded.0)?)
         .ok()?
         .checked_mul(mcu_lines)?
@@ -474,7 +523,9 @@ fn decode_band(
 
 #[cfg(test)]
 mod tests {
-    use super::{Band, Layout, decode_bands, layout as read_layout, plan};
+    use super::{
+        Band, Geometry, Layout, band_codestream, decode_bands, layout as read_layout, plan,
+    };
     use zune_jpeg::zune_core::colorspace::ColorSpace;
     use zune_jpeg::zune_core::options::DecoderOptions;
 
@@ -530,8 +581,15 @@ mod tests {
                     continue;
                 };
                 cut += 1;
-                let banded = decode_bands(data, &layout, &bands, width, rgba(), 4)
-                    .unwrap_or_else(|| panic!("{name} decodes in bands of {lines} lines"));
+                let frame = Geometry {
+                    width,
+                    lines: layout.lines,
+                    mcu_lines: layout.mcu_lines,
+                };
+                let banded = decode_bands(frame, &bands, rgba(), 4, &|band| {
+                    band_codestream(data, &layout, band)
+                })
+                .unwrap_or_else(|| panic!("{name} decodes in bands of {lines} lines"));
                 assert!(
                     banded == whole,
                     "{name} in bands of {lines} lines moved a byte"

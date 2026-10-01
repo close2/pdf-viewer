@@ -456,3 +456,9 @@ which made an all-targets build read 918 misses against 11 hits (ADR 1463).
 **A sweep's rule "X is prescribed by document Y" is restricted to the line shapes where Y prescribes
 X.** The commands gate's first draft took every `check`/`build` line in `doc/verify.md` as a profile
 prescription and flagged three packages that run under `--release` legitimately (ADR 1475).
+
+**A drive verdict needs a positive observable, calibrated against a broken input.** The Arabic
+find step judged by the absence of "not in this document", which the window never prints; every
+step now needs a found signal, a pixel count, a title, an AT-SPI value or a golden, and each new
+threshold was set by breaking the input on purpose (an erased digit gives 78 differing pixels
+against a threshold of 40, ADR 1478).

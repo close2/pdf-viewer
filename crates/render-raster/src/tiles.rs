@@ -13,6 +13,14 @@
 //! The post-passes [`crate::QuorraRasterizer`]'s `rasterize` runs over a readback — the four-
 //! component pair, the curve and the cube, the crop, the medium, the transfer functions — run over
 //! the stitched raster against the whole target, exactly as they do over one frame.
+//!
+//! **What the host holds is the target's raster and one tile.** Each tile is drawn, read back,
+//! copied into its place and dropped before the next is drawn, so the peak over the device's own
+//! memory is `width × height × 4` bytes plus one tile's readback — 0.99 GB for `issue19517.pdf`'s
+//! 847 MB raster, measured. The raster is reserved before the first tile, and a target whose raster
+//! cannot be reserved is refused as [`QuorraRasterError::Allocation`] with its size, before any
+//! tile is drawn; how large a target a caller may ask for is that caller's pixel budget
+//! ([`pdf_render::TargetSpec::for_page`]), which the correctness gate sets at 2^28 pixels (ADR 1481).
 
 use pdf_render::{DisplayList, TargetSpec, Transform};
 

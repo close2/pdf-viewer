@@ -7987,14 +7987,92 @@ fn an_arabic_word_shown_in_display_order_is_found_as_it_is_typed() {
 /// — on none, because each line's glyph positions say which order it was stored in (ADR 1465).
 #[test]
 fn a_right_to_left_word_is_found_however_its_line_stored_it() {
-    let cmap = "/CIDInit /ProcSet findresource begin 12 dict begin begincmap \
-                /CMapName /Arab def /CMapType 2 def 1 begincodespacerange <00> <FF> \
-                endcodespacerange 3 beginbfchar <01> <0628> <02> <0631> <03> <0639> endbfchar \
-                endcmap CMapName currentdict /CMap defineresource pop end end";
-    let glyph = "500 0 d0 0 0 450 700 re f";
     let content = "BT /F1 20 Tf 50 150 Td <010203> Tj ET \
                    BT /F1 20 Tf 90 100 Td [<03> 1000 <02> 1000 <01>] TJ ET \
                    /ReversedChars BMC BT /F1 20 Tf 50 50 Td <010203> Tj ET EMC";
+    let viewer = boxes_page(&["0628", "0631", "0639"], &[500, 500, 500], content);
+    let typed = "\u{639}\u{631}\u{628}";
+    assert_eq!(found(&viewer, typed), 3, "on every line");
+    let reversed: String = typed.chars().rev().collect();
+    assert_eq!(found(&viewer, &reversed), 0, "the reversal is on no line");
+}
+
+/// The same three lines drawn through a mirror, `-1 0 0 1 200 0 cm`: §9.4.4's text rendering
+/// matrix then has a negative determinant, every glyph's box extends leftwards from its origin,
+/// and a show string in display order advances leftwards across the page. The order each line
+/// stored is still the producer's, so the word typed is found on all three and its reversal on
+/// none; read with a fixed quarter turn, the first and third lines voted the other way.
+#[test]
+fn a_right_to_left_word_under_a_mirroring_text_matrix_is_found_as_typed() {
+    let content = "-1 0 0 1 200 0 cm \
+                   BT /F1 20 Tf 50 150 Td <010203> Tj ET \
+                   BT /F1 20 Tf 90 100 Td [<03> 1000 <02> 1000 <01>] TJ ET \
+                   /ReversedChars BMC BT /F1 20 Tf 50 50 Td <010203> Tj ET EMC";
+    let viewer = boxes_page(&["0628", "0631", "0639"], &[500, 500, 500], content);
+    let typed = "\u{639}\u{631}\u{628}";
+    assert_eq!(found(&viewer, typed), 3, "on every line");
+    let reversed: String = typed.chars().rev().collect();
+    assert_eq!(found(&viewer, &reversed), 0, "the reversal is on no line");
+}
+
+/// "كَتَبَ" with its three fathas, each a glyph of no width, and "كتب" bare beneath it, both in
+/// reading order. ADR 1477's rule from a page: the bare word typed is found on both lines, the
+/// vowelled word only where its marks are printed, and a word with a damma on neither.
+#[test]
+fn a_word_typed_without_its_marks_finds_one_printed_with_them() {
+    let content = "BT /F1 20 Tf 150 150 Td [<01> 1000 <04> <02> 1000 <04> <03> 1000 <04>] TJ ET \
+                   BT /F1 20 Tf 150 100 Td [<01> 1000 <02> 1000 <03>] TJ ET";
+    let viewer = boxes_page(
+        &["0643", "062A", "0628", "064E"],
+        &[500, 500, 500, 0],
+        content,
+    );
+    assert_eq!(
+        found(&viewer, "\u{643}\u{62a}\u{628}"),
+        2,
+        "the bare word, on both lines"
+    );
+    assert_eq!(
+        found(&viewer, "\u{643}\u{64e}\u{62a}\u{64e}\u{628}\u{64e}"),
+        1,
+        "the vowelled word, only where it is vowelled"
+    );
+    assert_eq!(
+        found(&viewer, "\u{643}\u{64f}\u{62a}\u{628}"),
+        0,
+        "a damma is on neither"
+    );
+}
+
+/// How many places on the open page `needle` is found.
+fn found(viewer: &Viewer, needle: &str) -> usize {
+    let Answer::Found(found) = viewer.query(Query::Find(needle)) else {
+        panic!("a search always answers");
+    };
+    found.len()
+}
+
+/// A drawn 200 by 200 page whose Type 3 font draws code `n` (from 1) as a box `widths[n - 1]`
+/// thousandths wide, and whose `/ToUnicode` maps it to the code point `characters[n - 1]`.
+fn boxes_page(characters: &[&str], widths: &[u32], content: &str) -> Viewer {
+    let mut mappings = String::new();
+    for (code, character) in (1_u8..).zip(characters) {
+        let _ = write!(mappings, "<{code:02X}> <{character}> ");
+    }
+    let cmap = format!(
+        "/CIDInit /ProcSet findresource begin 12 dict begin begincmap \
+         /CMapName /Arab def /CMapType 2 def 1 begincodespacerange <00> <FF> \
+         endcodespacerange {} beginbfchar {mappings}endbfchar \
+         endcmap CMapName currentdict /CMap defineresource pop end end",
+        characters.len()
+    );
+    let glyph = "500 0 d0 0 0 450 700 re f";
+    let names = "/g ".repeat(characters.len());
+    let widths = widths
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(" ");
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
@@ -8003,11 +8081,12 @@ fn a_right_to_left_word_is_found_however_its_line_stored_it() {
          4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
          5 0 obj\n<< /Type /Font /Subtype /Type3 /FontBBox [0 0 500 700] \
          /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << /g 6 0 R >> \
-         /Encoding << /Type /Encoding /Differences [1 /g /g /g] >> /FirstChar 1 /LastChar 3 \
-         /Widths [500 500 500] /Resources << >> /ToUnicode 7 0 R >>\nendobj\n\
+         /Encoding << /Type /Encoding /Differences [1 {names}] >> /FirstChar 1 /LastChar {} \
+         /Widths [{widths}] /Resources << >> /ToUnicode 7 0 R >>\nendobj\n\
          6 0 obj\n<< /Length {} >>\nstream\n{glyph}\nendstream\nendobj\n\
          7 0 obj\n<< /Length {} >>\nstream\n{cmap}\nendstream\nendobj\n",
         content.len(),
+        characters.len(),
         glyph.len(),
         cmap.len()
     );
@@ -8022,17 +8101,7 @@ fn a_right_to_left_word_is_found_however_its_line_stored_it() {
         .collect();
     let request = request(&events).clone();
     serve(&mut viewer, &request);
-
-    let typed = "\u{639}\u{631}\u{628}";
-    let Answer::Found(found) = viewer.query(Query::Find(typed)) else {
-        panic!("a search always answers");
-    };
-    assert_eq!(found.len(), 3, "on every line: {found:?}");
-    let reversed: String = typed.chars().rev().collect();
-    let Answer::Found(none) = viewer.query(Query::Find(&reversed)) else {
-        panic!("a search always answers");
-    };
-    assert!(none.is_empty(), "the reversal is on no line: {none:?}");
+    viewer
 }
 
 /// A word that is in no page of the document is reported as absent, after every page was read.

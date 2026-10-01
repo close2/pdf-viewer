@@ -28,7 +28,10 @@ use super::flatten::Polyline;
 
 mod exact;
 mod overlap;
+mod rows;
 mod topology;
+
+pub(crate) use rows::RowIndex;
 
 /// A rasterised coverage tile: `width × height` bytes anchored at integer device
 /// pixel `(left, top)`.
@@ -133,12 +136,45 @@ pub(crate) fn fill_mask(
 /// neighbouring values — the answer a stored outline keeps for all its placements
 /// ([`winds_two_values`]) — in which case the integral is the set's area everywhere and
 /// the question is not asked again (ADR 1389).
+pub(crate) fn fill_mask_settled(
+    polylines: &[Polyline],
+    rule: Rule,
+    region: (i32, i32, u32, u32),
+    two_values: bool,
+) -> CoverageMask {
+    fill_over(polylines, None, rule, region, two_values)
+}
+
+/// [`fill_mask`], reading only the edges and subpaths `index` lists for the region's rows:
+/// the same bytes, from the few edges that can reach a small region of a large fill
+/// (ADR 1479, [`RowIndex`]).
+pub(crate) fn fill_mask_indexed(
+    polylines: &[Polyline],
+    index: &RowIndex,
+    rule: Rule,
+    left: i32,
+    top: i32,
+    width: u32,
+    height: u32,
+) -> CoverageMask {
+    fill_over(
+        polylines,
+        Some(index),
+        rule,
+        (left, top, width, height),
+        false,
+    )
+}
+
+/// The one fill both entries share: every edge, or the ones `index` lists for the region,
+/// visited in the same order.
 // The accumulation arithmetic below is bounded by construction: coordinates are
 // clamped into the region, whose dimensions were checked against the frame budget
 // before allocation. Stated once here rather than per line of a hot loop.
 #[expect(clippy::arithmetic_side_effects)]
-pub(crate) fn fill_mask_settled(
+fn fill_over(
     polylines: &[Polyline],
+    index: Option<&RowIndex>,
     rule: Rule,
     (left, top, width, height): (i32, i32, u32, u32),
     two_values: bool,
@@ -150,11 +186,21 @@ pub(crate) fn fill_mask_settled(
 
     #[expect(clippy::cast_precision_loss)] // region dims are bounded by target limits
     let (fw, fh) = (w as f32, h as f32);
-    for polyline in polylines {
-        for i in 0..polyline.points.len() {
-            let (x0, y0, x1, y1) = local_edge(polyline, i, left, top);
-            if let Some(edge) = Edge::cut(x0, y0, x1, y1, fh) {
-                accumulate_edge(&mut acc, w, fw, &edge);
+    let mut deposit = |polyline: &Polyline, i: usize| {
+        let (x0, y0, x1, y1) = local_edge(polyline, i, left, top);
+        if let Some(edge) = Edge::cut(x0, y0, x1, y1, fh) {
+            accumulate_edge(&mut acc, w, fw, &edge);
+        }
+    };
+    let mut listed = Vec::new();
+    if index.is_some_and(|index| index.edges_meeting(top, h, &mut listed)) {
+        for (subpath, i) in listed {
+            deposit(&polylines[subpath], i);
+        }
+    } else {
+        for polyline in polylines {
+            for i in 0..polyline.points.len() {
+                deposit(polyline, i);
             }
         }
     }
@@ -184,7 +230,7 @@ pub(crate) fn fill_mask_settled(
     }
     // Where the fill can wind a pixel more than two neighbouring values, the integral
     // above is not the set's area there: those pixels are recomputed from the set itself.
-    if !two_values && let Some(complex) = complex_pixels(polylines, (left, top), (w, h)) {
+    if !two_values && let Some(complex) = complex_pixels(polylines, index, (left, top), (w, h)) {
         exact::correct(
             &complex,
             polylines,
@@ -213,7 +259,7 @@ pub(crate) fn winds_two_values(polylines: &[Polyline]) -> Option<bool> {
     if topology::plainly_two_values(polylines, region) {
         return Some(true);
     }
-    Some(topology::Topology::of(polylines, region, 0)?.two_values())
+    Some(topology::Topology::of(polylines, None, region, 0)?.two_values())
 }
 
 /// The pixels of the region at `origin` of `size` pixels whose winding may take more than
@@ -223,16 +269,25 @@ pub(crate) fn winds_two_values(polylines: &[Polyline]) -> Option<bool> {
 #[expect(clippy::cast_precision_loss)] // region corners are bounded by target limits
 fn complex_pixels(
     polylines: &[Polyline],
+    index: Option<&RowIndex>,
     origin: (i32, i32),
     size: (usize, usize),
 ) -> Option<overlap::Complex> {
     let (w, h) = size;
     let (x, y) = (origin.0 as f32, origin.1 as f32);
     let region = [x, y, x + w as f32, y + h as f32];
-    if topology::plainly_two_values(polylines, region) {
+    let listed = index.and_then(|index| index.subpaths_meeting(origin.1, h));
+    let plain = match &listed {
+        Some(listed) => {
+            topology::plainly_two_values_among(polylines, listed.iter().copied(), region)
+        }
+        None => topology::plainly_two_values(polylines, region),
+    };
+    if plain {
         return None;
     }
-    let mut topology = topology::Topology::of(polylines, region, w.saturating_mul(h))?;
+    let mut topology =
+        topology::Topology::of(polylines, listed.as_deref(), region, w.saturating_mul(h))?;
     if topology.two_values() {
         return None;
     }
@@ -391,6 +446,22 @@ fn deposit_slab(row: &mut [f32], fw: f32, dir: f32, xs: f32, ys: f32, xe: f32, y
         deposit_inside(row, fw, dir, xs, ys, xe, ye);
         return;
     }
+    // A piece wholly left or wholly right of the region crosses neither border — each
+    // `t` below rounds to at least `1` or below `0`, rounding being monotone — and
+    // `deposit_inside` then clamps both ends onto one border column: its whole height into
+    // the column at that border and a zero beside it. That deposit, made directly, without
+    // the two divisions and the walk that arrive at it (ADR 1479): a small tile of a large
+    // clip meets most of the clip's edges in its rows on one side or the other.
+    if xs < 0.0 && xe < 0.0 {
+        deposit_at_border(row, 0, dir * (ye - ys), 0.0);
+        return;
+    }
+    if xs > fw && xe > fw {
+        let last = row.len().saturating_sub(2);
+        #[expect(clippy::cast_precision_loss)] // a column index of a bounded region
+        deposit_at_border(row, last, dir * (ye - ys), fw - last as f32);
+        return;
+    }
     let (dx, dy) = (xe - xs, ye - ys);
     // At most two borders can be crossed, and `dx == 0` crosses neither: a vertical
     // piece is on one side for its whole height.
@@ -418,6 +489,16 @@ fn deposit_slab(row: &mut [f32], fw: f32, dir: f32, xs: f32, ys: f32, xe: f32, y
         (px, py) = (nx, ny);
     }
     deposit_inside(row, fw, dir, px, py, xe, ye);
+}
+
+/// What [`deposit_inside`] deposits for a piece both of whose ends it clamps onto one border
+/// column: `d · (1 − frac)` into `cell` and `d · frac` beside it, the same two products.
+#[expect(clippy::arithmetic_side_effects)] // `cell + 1` is the spill column at most
+fn deposit_at_border(row: &mut [f32], cell: usize, d: f32, frac: f32) {
+    if d != 0.0 {
+        row[cell] += d * (1.0 - frac);
+        row[cell + 1] += d * frac;
+    }
 }
 
 /// One slab piece that does not cross the region's borders: split at each vertical cell

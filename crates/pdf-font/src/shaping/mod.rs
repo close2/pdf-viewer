@@ -19,7 +19,8 @@
 //! - [`Label`] is both over one line of an interface's own text, whose direction is its own
 //!   (ADR 1417).
 //! - [`fold`] runs [`shape`]'s forms backwards, for a search comparing a page's presentation
-//!   forms against the letters a person typed (ADR 1465).
+//!   forms against the letters a person typed (ADR 1465), with [`decompose`] and [`mark_class`]
+//!   for the canonical equivalence and the marks a search may find without (ADR 1477).
 //!
 //! Every table is compiled in by `build.rs` from `data/unicode/`, so nothing is parsed at launch.
 //! **Content a document positioned is never shaped or reordered here**: its glyphs are where the
@@ -32,7 +33,7 @@ mod joining;
 mod label;
 
 pub use bidi::{Paragraphs, mirrored, visual_order};
-pub use fold::{fold, right_to_left};
+pub use fold::{decompose, fold, mark_class, right_to_left};
 pub use joining::{JoiningType, Position, Shaped, joining_type, positions, shape};
 pub use label::{Glyph, Label};
 

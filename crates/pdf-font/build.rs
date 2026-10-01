@@ -200,6 +200,8 @@ fn unicode_tables() {
 
     presentation_tables(&mut out);
     presentation_decompositions(&mut out);
+    canonical_decompositions(&mut out);
+    combining_marks(&mut out);
     mirroring_table(&mut out);
 
     let target = std::path::PathBuf::from(
@@ -362,6 +364,120 @@ fn presentation_decompositions(out: &mut String) {
         let start = u16::try_from(*start).expect("the pool is a few thousand letters");
         let length = u8::try_from(*length).expect("a decomposition is at most eighteen letters");
         let _ = writeln!(out, "    ({}, {start}, {length}),", literal(*point));
+    }
+    out.push_str("];\n");
+}
+
+/// `UnicodeData.txt`'s canonical decompositions, as the table `shaping::fold` reads to compare
+/// two spellings the Unicode Standard calls the same text.
+///
+/// Field 5 of every line whose decomposition carries no `<tag>` — a tagged one is a compatibility
+/// decomposition, which changes what the text says — expanded through the field itself until no
+/// part decomposes further: `U+1EA5` is `U+00E2 U+0301` in the file and `a U+0302 U+0301` here.
+/// The Hangul syllables are not in the field; the Unicode Standard decomposes them by arithmetic,
+/// and `shaping::fold` does too. Letters in one pool, as the presentation table keeps them, so
+/// the tables hold no pointer for the loader to relocate before `main` (ADR 1465).
+fn canonical_decompositions(out: &mut String) {
+    let mut raw: std::collections::BTreeMap<char, Vec<char>> = std::collections::BTreeMap::new();
+    for fields in ucd("UnicodeData.txt") {
+        if fields[5].is_empty() || fields[5].starts_with('<') {
+            continue;
+        }
+        let (point, _) = points(&fields[0]);
+        let parts: Vec<char> = fields[5]
+            .split_whitespace()
+            .map(|part| points(part).0)
+            .collect();
+        raw.insert(point, parts);
+    }
+    let mut letters: Vec<char> = Vec::new();
+    let mut entries: Vec<(char, usize, usize)> = Vec::new();
+    for (point, parts) in &raw {
+        let mut expanded: Vec<char> = parts.clone();
+        // The field nests at most three deep (a Greek letter with breathing, accent and
+        // iota subscript); a fixed point is reached well inside eight rounds.
+        for _ in 0..8 {
+            expanded = expanded
+                .iter()
+                .flat_map(|part| raw.get(part).cloned().unwrap_or_else(|| vec![*part]))
+                .collect();
+        }
+        assert!(
+            expanded.iter().all(|part| !raw.contains_key(part)),
+            "UnicodeData.txt: the decomposition of {point:?} did not reach a fixed point"
+        );
+        entries.push((*point, letters.len(), expanded.len()));
+        letters.extend(expanded);
+    }
+    let _ = writeln!(
+        out,
+        "/// `UnicodeData.txt`: the characters the canonical decompositions expand to, end to end.\n\
+         pub(crate) static CANONICAL_LETTERS: [char; {}] = [{}];",
+        letters.len(),
+        letters
+            .iter()
+            .map(|letter| literal(*letter))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    let _ = writeln!(
+        out,
+        "/// `UnicodeData.txt`: a character with a canonical decomposition, and where its full\n\
+         /// expansion starts in `CANONICAL_LETTERS` and how long it is, sorted.\n\
+         pub(crate) static CANONICAL_DECOMPOSITIONS: [(char, u16, u8); {}] = [",
+        entries.len()
+    );
+    for (point, start, length) in &entries {
+        let start = u16::try_from(*start).expect("the pool is a few thousand characters");
+        let length = u8::try_from(*length).expect("a canonical decomposition is a few characters");
+        let _ = writeln!(out, "    ({}, {start}, {length}),", literal(*point));
+    }
+    out.push_str("];\n");
+}
+
+/// `UnicodeData.txt`'s nonspacing marks that canonical ordering moves, as the table
+/// `shaping::fold` reads to tell a mark from a letter.
+///
+/// General category `Mn` (field 2) with a canonical combining class (field 3) other than zero,
+/// as ranges of consecutive code points sharing one class. ADR 1477 is why the class is asked as
+/// well as the category: a nonspacing mark of class zero — a Devanagari or Thai vowel sign — is
+/// part of how the syllable is spelled rather than something a writer may leave off.
+fn combining_marks(out: &mut String) {
+    let mut ranges: Vec<(char, char, u8)> = Vec::new();
+    for fields in ucd("UnicodeData.txt") {
+        if fields[2] != "Mn" {
+            continue;
+        }
+        let class: u8 = fields[3]
+            .parse()
+            .unwrap_or_else(|error| panic!("UnicodeData.txt: {}: {error}", fields[0]));
+        if class == 0 {
+            continue;
+        }
+        let (point, _) = points(&fields[0]);
+        match ranges.last_mut() {
+            Some((_, last, same))
+                if *same == class && u32::from(*last).checked_add(1) == Some(u32::from(point)) =>
+            {
+                *last = point;
+            }
+            _ => ranges.push((point, point, class)),
+        }
+    }
+    let _ = writeln!(
+        out,
+        "/// `UnicodeData.txt`: first, last, and the canonical combining class of every run of\n\
+         /// nonspacing marks whose class is not zero, sorted.\n\
+         pub(crate) static COMBINING_MARKS: [(char, char, u8); {}] = [",
+        ranges.len()
+    );
+    for (first, last, class) in &ranges {
+        let _ = writeln!(
+            out,
+            "    ({}, {}, {class}),",
+            literal(*first),
+            literal(*last)
+        );
     }
     out.push_str("];\n");
 }

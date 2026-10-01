@@ -47,6 +47,7 @@ use rayon::slice::ParallelSliceMut as _;
 use crate::colour::{Compositing, Conversion};
 
 mod ahead;
+mod cut;
 mod restart;
 pub(crate) use ahead::{AHEAD_FLOOR, DecodesAhead};
 
@@ -55,6 +56,24 @@ pub(crate) use ahead::{AHEAD_FLOOR, DecodesAhead};
 /// 2^28 samples is a gigabyte of RGBA. Image dimensions come from the document, so an
 /// unbounded allocation here is a denial of service with a two-line file.
 const MAX_SAMPLES: u64 = 1 << 28;
+
+/// Whether an image is decoded with nothing else of its page decoding beside it: the signal that
+/// lets one `DCTDecode` frame with no restart interval divide its own decode across the pool
+/// (`cut`, ADR 1481).
+///
+/// The cut's entropy pass is serial and pays for itself only where the pool would otherwise idle;
+/// on a page whose other images ADR 1321 is already decoding ahead it was measured a loss. So the
+/// one caller placed to know answers — [`RasterCache::parts`], which knows whether the page offered
+/// its images to be decoded ahead and runs on the interpreter's own thread — and every other caller
+/// says [`InFlight::AmongOthers`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InFlight {
+    /// No other image of the page is being decoded ahead, and this decode runs outside rayon's
+    /// pool of two threads or more, whose threads would otherwise idle.
+    Alone,
+    /// Other decodes may be running beside it, or the caller cannot say.
+    AmongOthers,
+}
 
 /// Why an image could not be decoded.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -520,6 +539,23 @@ pub fn decode_parts(
     into: &Conversion,
     masks: &mut MaskCache,
 ) -> Result<Parts, ImageError> {
+    decode_parts_in(
+        document,
+        stream,
+        (resources, fill, into),
+        masks,
+        InFlight::AmongOthers,
+    )
+}
+
+/// [`decode_parts`], told whether anything else of the page is being decoded beside it.
+fn decode_parts_in(
+    document: &Document,
+    stream: &Stream,
+    (resources, fill, into): (&Dictionary, pdf_render::Color, &Conversion),
+    masks: &mut MaskCache,
+    in_flight: InFlight,
+) -> Result<Parts, ImageError> {
     let dict = &stream.dict;
     let at = Dictionaries {
         document,
@@ -573,7 +609,13 @@ pub fn decode_parts(
     // grids differ the mask is decoded for the inversion and again for the opacity, as before.
     let entry = soft_mask_entry(document, dict, resources, (width, height));
     let one_grid = stated_grid(document, dict) == (width, height);
-    let (premultiplied, eager_mask) = matte_before_samples(at, &entry, (width, height), one_grid);
+    let (frame, premultiplied, eager_mask) = matte_before_samples(
+        at,
+        (&source, is_mask, in_flight),
+        &entry,
+        (width, height),
+        one_grid,
+    );
     let prematte = premultiplied
         .as_ref()
         .map(|(matte, alpha)| Prematte { matte, alpha });
@@ -587,7 +629,7 @@ pub fn decode_parts(
     };
     let (decoded, eager_mask) = samples_beside_the_mask(
         at,
-        (&source, (width, height)),
+        (&source, (width, height), in_flight, frame),
         painting,
         (&entry, one_grid, eager_mask),
     );
@@ -672,7 +714,11 @@ pub fn decode_parts(
 
 /// Table 144's `/Matte` in the parent's components, and the mask's samples on the parent's grid:
 /// what [`Prematte`] borrows.
-type Premultiplied = (Vec<f32>, Vec<u8>);
+type Premultiplied = (Vec<f32>, Arc<[u8]>);
+
+/// A `DCTDecode` frame [`matte_before_samples`] decoded beside its `/Matte`'s mask, and its
+/// codec's answer — or `None` where it did not, and the samples are decoded as they always were.
+type FrameBeside = Option<Result<DecodedJpeg, ImageError>>;
 
 /// [`eager_soft_mask`]'s answer, where [`decode_parts`] asked it before the routing reached
 /// [`apply_soft_mask`] (ADR 1469).
@@ -680,47 +726,73 @@ enum EagerMask {
     /// Not asked: [`apply_soft_mask`] asks it, if the routing reaches it.
     Unasked,
     /// Asked, and this is what it answered — `None` being a mask that would not decode.
-    Asked(Option<Flattened>),
+    Asked(Option<MaskPlane>),
 }
 
 /// §11.6.5.2's `/Matte` and the opacity its inversion reads, where the parent states one, and
-/// the eager route's mask where the decode that read the opacity was that mask's.
+/// the eager route's mask where the decode that read the opacity was that mask's — with the
+/// parent's `DCTDecode` frame where that was decoded beside the mask.
 ///
 /// `entry` is the parent's soft-mask entry on `grid`, the grid [`decode_parts`] read, and
 /// `one_grid` whether that is the dictionary's grid [`eager_soft_mask`] reads: only then is the
 /// entry, the stream and the `decode` call the eager route's own, and only then is its answer
 /// handed on rather than asked again.
+///
+/// **A `DCTDecode` frame is decoded beside its `/Matte`'s mask.** The clause orders the inversion
+/// before the colour conversion — "inversion of the pre-blending shall precede the colour
+/// conversion" — and the inversion reads the mask; the codec reads neither, and decoding the frame
+/// is most of what such an image costs. So where the parent is a `DCTDecode` image of at least
+/// [`PARALLEL_PIXELS`] samples on the eager route's grid, the frame ([`dct_frame`]) is decoded on
+/// this thread and the mask on the pool, and the inversion runs on the pair after both, where it
+/// ran before. On `issue13931.pdf` the mask (its inflation and its plane) was 6 ms of the turn
+/// spent before the frame's 9.5 ms began (ADR 1481). The frame comes back as the first part, and
+/// `None` there means the caller decodes the samples as it always did.
 fn matte_before_samples(
     at: Dictionaries,
+    (source, is_mask, in_flight): (&ImageStream, bool, InFlight),
     entry: &SoftMaskEntry,
     grid: (u32, u32),
     one_grid: bool,
-) -> (Option<Premultiplied>, EagerMask) {
+) -> (FrameBeside, Option<Premultiplied>, EagerMask) {
     let SoftMaskEntry::Image {
         stream,
         matte: Some(matte),
         ..
     } = entry
     else {
-        return (None, EagerMask::Unasked);
+        return (None, None, EagerMask::Unasked);
     };
     if !one_grid {
         let alpha = prematte_alpha(at.document, stream, grid);
         return (
+            None,
             alpha.map(|alpha| (matte.clone(), alpha)),
             EagerMask::Unasked,
         );
     }
-    let mask = eager_soft_mask(at.document, at.dict, at.resources);
-    let alpha = mask.as_ref().map(|mask| alpha_of_mask(&mask.image, grid));
+    let beside_the_frame = !is_mask
+        && matches!(source.codec.as_deref(), Some(b"DCTDecode" | b"DCT"))
+        && u64::from(grid.0).saturating_mul(u64::from(grid.1)) >= PARALLEL_PIXELS as u64;
+    let (frame, mask) = if beside_the_frame {
+        let (frame, mask) = beside(
+            || dct_frame(at, source, in_flight),
+            || eager_soft_mask(at.document, at.dict, at.resources),
+        );
+        (Some(frame), mask.flatten())
+    } else {
+        (None, eager_soft_mask(at.document, at.dict, at.resources))
+    };
+    let alpha = mask.as_ref().map(|mask| mask.on_grid(grid));
     (
+        frame,
         alpha.map(|alpha| (matte.clone(), alpha)),
         EagerMask::Asked(mask),
     )
 }
 
 /// [`samples_of`]'s answer, with the eager route's mask decoded beside it on the pool where that
-/// pays.
+/// pays — or, where [`matte_before_samples`] already decoded the `DCTDecode` frame beside its
+/// mask, that frame made the samples.
 ///
 /// Where it pays is four conditions: [`matte_before_samples`] has not asked the mask already; the
 /// dictionary's grid is the one read, so the entry is the eager route's (`one_grid`); the image is
@@ -730,20 +802,27 @@ fn matte_before_samples(
 /// 66.8 → 55.8; it costs no instruction, only moves the mask's decode off the image's thread.
 fn samples_beside_the_mask(
     at: Dictionaries,
-    (source, grid): (&ImageStream, (u32, u32)),
+    (source, grid, in_flight, frame): (&ImageStream, (u32, u32), InFlight, FrameBeside),
     painting: Painting,
     (entry, one_grid, eager_mask): (&SoftMaskEntry, bool, EagerMask),
 ) -> (Result<SamplesOnGrid, ImageError>, EagerMask) {
+    if let Some(frame) = frame {
+        let samples = frame.and_then(|frame| samples_of_frame(at, frame, grid, painting));
+        return (samples, eager_mask);
+    }
     let worth_it = matches!(eager_mask, EagerMask::Unasked)
         && one_grid
         && u64::from(grid.0).saturating_mul(u64::from(grid.1)) >= PARALLEL_PIXELS as u64
         && !matches!(source.codec.as_deref(), Some(b"JPXDecode"))
         && matches!(entry, SoftMaskEntry::Image { .. });
     if !worth_it {
-        return (samples_of(at, source, grid, painting), eager_mask);
+        return (
+            samples_of(at, source, grid, painting, in_flight),
+            eager_mask,
+        );
     }
     let (decoded, mask) = beside(
-        || samples_of(at, source, grid, painting),
+        || samples_of(at, source, grid, painting, in_flight),
         || eager_soft_mask(at.document, at.dict, at.resources),
     );
     (decoded, mask.map_or(EagerMask::Unasked, EagerMask::Asked))
@@ -870,6 +949,7 @@ fn samples_of(
     source: &ImageStream,
     (width, height): (u32, u32),
     painting: Painting,
+    in_flight: InFlight,
 ) -> Result<SamplesOnGrid, ImageError> {
     let Dictionaries {
         document,
@@ -877,7 +957,7 @@ fn samples_of(
         resources,
     } = at;
     match source.codec.as_deref() {
-        Some(b"DCTDecode" | b"DCT") => decode_dct(at, source, (width, height), painting),
+        Some(b"DCTDecode" | b"DCT") => decode_dct(at, source, (width, height), painting, in_flight),
         Some(b"JBIG2Decode") => {
             let (rgba, shortfall) = decode_jbig2(at, source, (width, height), painting)?;
             Ok(SamplesOnGrid {
@@ -976,10 +1056,10 @@ fn samples_of(
 fn matte_through_unpack(
     at: Dictionaries,
     painting: &Painting,
-    frame: (&[u8], usize),
+    frame: (&mut Vec<u8>, usize),
     grid: (u32, u32),
     stated: (u32, u32),
-) -> Result<Result<Vec<u8>, String>, ImageError> {
+) -> Result<Result<(), String>, ImageError> {
     if grid != stated {
         return Ok(Err(format!(
             "the /Matte could not be undone: the codestream is {}x{} where the dictionary says \
@@ -1009,23 +1089,80 @@ fn matte_through_unpack(
         matte: painting.matte,
     };
     let (width, height) = (grid.0 as usize, grid.1 as usize);
-    // Where the inversion is tabulated the frame's own four-byte pixels are read in place: the
-    // components are their first bytes, which is the layout the repacked rows below would
-    // hold, `stride` apart instead of `wanted`.
+    // Where the inversion is tabulated the frame's own four-byte pixels are read where they lie:
+    // the components are their first bytes, which is the layout the repacked rows below would
+    // hold, `stride` apart instead of `wanted`. And where the frame covers the grid each pixel is
+    // written back over itself, since an output pixel reads its own input pixel and nothing else
+    // — so no second raster is allocated and faulted in beside the frame (ADR 1481).
     if let Some(tables) = matted_eight_bit_device_tables(&samples, width, height) {
-        return Ok(Ok(unpack_matted_eight_bit_device(
-            rgba,
-            (width, height),
-            (width.saturating_mul(4), 4),
-            &tables,
-            painting.matte.map_or(&[][..], |matte| matte.alpha),
-        )));
+        let alpha = painting.matte.map_or(&[][..], |matte| matte.alpha);
+        if !invert_matte_in_place(rgba, (width, height), &tables, alpha) {
+            *rgba = unpack_matted_eight_bit_device(
+                rgba,
+                (width, height),
+                (width.saturating_mul(4), 4),
+                &tables,
+                alpha,
+            );
+        }
+        return Ok(Ok(()));
     }
     let raw: Vec<u8> = rgba
         .chunks_exact(4)
         .flat_map(|pixel| pixel.iter().take(wanted).copied())
         .collect();
-    unpack(&raw, grid.0, grid.1, &samples).map(Ok)
+    *rgba = unpack(&raw, grid.0, grid.1, &samples)?;
+    Ok(Ok(()))
+}
+
+/// [`unpack_matted_eight_bit_device`] over a frame of four-byte pixels that covers its grid, each
+/// pixel's answer written over the pixel it is read from; `false`, and nothing touched, where the
+/// frame or the mask does not cover the grid, which that function then answers.
+///
+/// The same bytes by construction: a pixel is `[t₀[α, c₀], t₁[α, c₁], t₂[α, c₂], 255]` (or the
+/// grey table's entry three times) in both, read from the same four bytes before they are written,
+/// and with every sample and mask value present neither function meets the rows' short ends.
+/// `the_matte_table_route_unpacks_the_per_sample_routes_pixels` holds the three to one answer.
+fn invert_matte_in_place(
+    rgba: &mut [u8],
+    (width, height): (usize, usize),
+    tables: &[MatteTable],
+    alpha: &[u8],
+) -> bool {
+    let pixels = width.saturating_mul(height);
+    if width == 0 || rgba.len() != pixels.saturating_mul(4) || alpha.len() < pixels {
+        return false;
+    }
+    let entry = |table: &MatteTable, alpha: u8, sample: u8| {
+        table[usize::from(alpha) << 8 | usize::from(sample)]
+    };
+    let invert = |(pixels, alphas): (&mut [[u8; 4]], &[u8])| match tables {
+        [grey] => {
+            for (pixel, &alpha) in pixels.iter_mut().zip(alphas) {
+                let level = entry(grey, alpha, pixel[0]);
+                *pixel = [level, level, level, u8::MAX];
+            }
+        }
+        [red, green, blue] => {
+            for (pixel, &alpha) in pixels.iter_mut().zip(alphas) {
+                *pixel = [
+                    entry(red, alpha, pixel[0]),
+                    entry(green, alpha, pixel[1]),
+                    entry(blue, alpha, pixel[2]),
+                    u8::MAX,
+                ];
+            }
+        }
+        _ => {}
+    };
+    // Rows divide across the pool for [`unpack_matted_eight_bit_device`]'s reason: no pixel reads
+    // another.
+    let (frame, _) = rgba.as_chunks_mut::<4>();
+    frame
+        .par_chunks_mut(width)
+        .zip(alpha.par_chunks(width))
+        .for_each(invert);
+    true
 }
 
 /// Decodes a `DCTDecode` image: §7.4.8's frame, converted from the space its dictionary names.
@@ -1035,9 +1172,24 @@ fn matte_through_unpack(
 fn decode_dct(
     at: Dictionaries,
     source: &ImageStream,
-    (width, height): (u32, u32),
+    grid: (u32, u32),
     painting: Painting,
+    in_flight: InFlight,
 ) -> Result<SamplesOnGrid, ImageError> {
+    let frame = dct_frame(at, source, in_flight)?;
+    samples_of_frame(at, frame, grid, painting)
+}
+
+/// A `DCTDecode` image's frame, decoded by the codec and nothing more: what [`samples_of_frame`]
+/// makes the image's samples of.
+///
+/// Apart from it because nothing in it reads the image's mask, so a `/Matte`'s mask can be decoded
+/// beside it ([`decode_parts`], ADR 1481); the inversion that does read the mask is the next step's.
+fn dct_frame(
+    at: Dictionaries,
+    source: &ImageStream,
+    in_flight: InFlight,
+) -> Result<DecodedJpeg, ImageError> {
     // The codestream's grid rather than the dictionary's, on §7.4.8's own statement of
     // where a JPEG's dimensions live; [`decode_jpeg`] has the reading and says why the
     // two disagreeing costs no mark.
@@ -1053,12 +1205,23 @@ fn decode_dct(
         .as_ref()
         .map(|parms| at.document.get_key(parms, "ColorTransform"))
         .and_then(|value| value.as_integer());
+    decode_jpeg(&source.data, stated, in_flight)
+}
+
+/// [`decode_dct`]'s second step: the frame [`dct_frame`] decoded, made the image's samples under
+/// what the dictionary says — §8.9.6.4's colour key, §11.6.5.2's inversion, the colour space.
+fn samples_of_frame(
+    at: Dictionaries,
+    frame: DecodedJpeg,
+    (width, height): (u32, u32),
+    painting: Painting,
+) -> Result<SamplesOnGrid, ImageError> {
     let DecodedJpeg {
         samples: mut rgba,
         components,
         grid,
         ..
-    } = decode_jpeg(&source.data, stated)?;
+    } = frame;
     // §8.9.6.4's ranges cover "colour components before decoding", which for this
     // filter are the bytes just answered with; the conversion below replaces them, so
     // the test is taken here and its answer applied afterwards. It cannot be applied
@@ -1072,19 +1235,24 @@ fn decode_dct(
     let mut shortfall = None;
     let matted = match painting.matte {
         Some(_) if !painting.is_mask => {
-            match matte_through_unpack(at, &painting, (&rgba, components), grid, (width, height))? {
-                Ok(restored) => Some(restored),
+            match matte_through_unpack(
+                at,
+                &painting,
+                (&mut rgba, components),
+                grid,
+                (width, height),
+            )? {
+                Ok(()) => true,
                 Err(sentence) => {
                     shortfall = Some(sentence);
-                    None
+                    false
                 }
             }
         }
-        _ => None,
+        _ => false,
     };
-    match matted {
-        Some(restored) => rgba = restored,
-        None => convert_channels(at, painting.is_mask, components, &mut rgba, painting.into)?,
+    if !matted {
+        convert_channels(at, painting.is_mask, components, &mut rgba, painting.into)?;
     }
     if let Some(masked) = masked {
         // The same answer [`unpack`] gives a masked sample: its position, and no
@@ -1175,7 +1343,7 @@ pub fn filter_samples(document: &Document, stream: &Stream) -> Result<FilterSamp
                 stated_components: components,
                 grid,
                 ..
-            } = decode_jpeg(&source.data, stated)?;
+            } = decode_jpeg(&source.data, stated, InFlight::AmongOthers)?;
             // [`DecodedJpeg::samples`] holds four bytes a pixel whatever the frame's count; the
             // frame's own components are the first `components` of them, a grey frame's one
             // component being delivered three times over.
@@ -4285,7 +4453,11 @@ fn jpeg_options() -> zune_jpeg::zune_core::options::DecoderOptions {
     clippy::doc_markdown,
     reason = "verbatim quotations: Table 13 spells ColorTransform and YCbCrK without backticks"
 )]
-fn decode_jpeg(data: &[u8], stated: Option<i64>) -> Result<DecodedJpeg, ImageError> {
+fn decode_jpeg(
+    data: &[u8],
+    stated: Option<i64>,
+    in_flight: InFlight,
+) -> Result<DecodedJpeg, ImageError> {
     use zune_jpeg::zune_core::colorspace::ColorSpace;
 
     // One walk over the first scan serves the `DNL`, the restart intervals and the bands' bits;
@@ -4421,11 +4593,12 @@ fn decode_jpeg(data: &[u8], stated: Option<i64>) -> Result<DecodedJpeg, ImageErr
     //
     // **And where its restart intervals allow, the frame is decoded in bands beside each other**,
     // each band a codestream of its own and the whole frame the one decoder's answer whenever the
-    // codestream is not one `restart` admits (ADR 1433).
+    // codestream is not one `restart` admits (ADR 1433), or the rows an entropy pass finds where
+    // nothing else of the page is decoding beside it (`cut`, ADR 1481): [`in_bands`].
     let mut pixels = if direct {
         let options = jpeg_options().jpeg_set_out_colorspace(ColorSpace::RGBA);
         scan.as_ref()
-            .and_then(|scan| restart::decode(&data, scan, options, 4))
+            .and_then(|scan| in_bands(&data, scan, options, in_flight))
             .map_or_else(
                 || {
                     zune_jpeg::JpegDecoder::new_with_options(
@@ -4476,6 +4649,23 @@ fn decode_jpeg(data: &[u8], stated: Option<i64>) -> Result<DecodedJpeg, ImageErr
         components,
         stated_components: usize::from(info.components),
         grid,
+    })
+}
+
+/// A `DCTDecode` frame decoded in bands beside each other, or `None` where it is to be decoded
+/// whole: at its restart intervals where they begin on MCU rows ([`restart`], ADR 1433), and
+/// otherwise at the rows an entropy pass finds, where nothing else of the page is decoding beside
+/// it ([`cut`], ADR 1481). The caller's RGBA output is what both were measured for.
+fn in_bands(
+    data: &[u8],
+    scan: &FirstScan,
+    options: zune_jpeg::zune_core::options::DecoderOptions,
+    in_flight: InFlight,
+) -> Option<Vec<u8>> {
+    restart::decode(data, scan, options, 4).or_else(|| {
+        (in_flight == InFlight::Alone)
+            .then(|| cut::decode(data, scan, options, 4))
+            .flatten()
     })
 }
 
@@ -5465,9 +5655,39 @@ pub fn overrides_graphics_state_mask(document: &Document, dict: &Dictionary) -> 
         || !matches!(document.get_key(dict, "Mask"), Object::Null)
 }
 
+/// A mask's samples as [`combine_on_the_finer_grid`] reads them: `stride` bytes a sample, row by
+/// row on a `width` × `height` grid.
+///
+/// Four bytes for a decoded raster — an explicit mask's stencil, a soft mask resolved at device
+/// scale — and one for a [`MaskPlane`], which is what a soft mask decoded eagerly is held as.
+#[derive(Clone, Copy)]
+struct MaskSamples<'a> {
+    /// Samples per row.
+    width: u32,
+    /// Rows.
+    height: u32,
+    /// The samples.
+    data: &'a [u8],
+    /// Bytes a sample.
+    stride: usize,
+}
+
+impl<'a> MaskSamples<'a> {
+    /// A decoded RGBA raster's samples, four bytes each.
+    fn of_raster(raster: &'a Image) -> Self {
+        Self {
+            width: raster.width,
+            height: raster.height,
+            data: &raster.data,
+            stride: 4,
+        }
+    }
+}
+
 /// Combines an image with a mask that need not share its resolution, on the finer grid.
 ///
-/// `sample` is asked of each base colour and the four bytes of the mask sample above it, for
+/// `sample` is asked of each base colour and the bytes of the mask sample above it — four of a
+/// decoded raster's, one of a [`MaskPlane`]'s — for
 /// the colour to write and the opacity to scale the base pixel's own alpha by. Both of the
 /// standard's per-image masks reduce to an opacity: a stencil (§8.9.6.3) answers all or
 /// nothing, a soft-mask image (§11.6.5.2) answers its grey level. Multiplying rather than
@@ -5506,7 +5726,7 @@ pub fn overrides_graphics_state_mask(document: &Document, dict: &Dictionary) -> 
 /// about: it is the image that gets magnified in every corpus pair.
 fn combine_on_the_finer_grid(
     image: &Image,
-    mask: &Image,
+    mask: MaskSamples<'_>,
     sample: impl Fn([u8; 3], &[u8]) -> ([u8; 3], u8),
 ) -> Image {
     let width = image.width.max(mask.width);
@@ -5556,17 +5776,22 @@ fn combine_on_the_finer_grid(
         ]);
     };
 
-    let one_grid = |raster: &Image| {
-        raster.width == width && raster.height == height && raster.data.len() == data.len()
-    };
-    if one_grid(image) && one_grid(mask) {
+    let pixels = width_usize.saturating_mul(height_usize);
+    let stride = mask.stride.max(1);
+    let one_grid = image.width == width
+        && image.height == height
+        && image.data.len() == data.len()
+        && mask.width == width
+        && mask.height == height
+        && mask.data.len() == pixels.saturating_mul(stride);
+    if one_grid {
         // **Both rasters on the combined grid**, which is every corpus pair this function
         // meets under a soft mask: `scale` is then the identity on every row and column, so the
         // pixels pair by position and the walk is three iterators in step (ADR 1433).
         for ((out, pixel), above) in data
             .chunks_exact_mut(4)
             .zip(image.data.chunks_exact(4))
-            .zip(mask.data.chunks_exact(4))
+            .zip(mask.data.chunks_exact(stride))
         {
             combine(pixel, above, out);
         }
@@ -5581,15 +5806,15 @@ fn combine_on_the_finer_grid(
                 .zip(&mask_columns)
             {
                 let at = image_row.saturating_add(image_x).saturating_mul(4);
-                let mask_at = mask_row.saturating_add(mask_x).saturating_mul(4);
+                let mask_at = mask_row.saturating_add(mask_x).saturating_mul(stride);
                 let pixel = image
                     .data
                     .get(at..at.saturating_add(4))
                     .unwrap_or(&[0, 0, 0, 0]);
                 let above = mask
                     .data
-                    .get(mask_at..mask_at.saturating_add(4))
-                    .unwrap_or(&[0, 0, 0, 0]);
+                    .get(mask_at..mask_at.saturating_add(stride))
+                    .unwrap_or(&[0, 0, 0, 0][..stride.min(4)]);
                 combine(pixel, above, out);
             }
         }
@@ -5619,32 +5844,35 @@ fn combine_on_the_finer_grid(
 /// are divided across the pool, since no pixel reads another (ADR 1469). Measured alone, pinned:
 /// `issue13931.pdf`'s turn 66.8 → 53.1 ms and `images.pdf`'s 51.3 → 40.7; `apply_soft_mask`
 /// 548 M → 170 M instructions on `22060_A1_01_Plans.pdf`.
-fn opacity_multiplied_in_place(image: &mut Image, mask: &Image) -> bool {
-    if image.width != mask.width
+fn opacity_multiplied_in_place(image: &mut Image, mask: MaskSamples<'_>) -> bool {
+    let pixels = (image.width as usize).saturating_mul(image.height as usize);
+    if mask.stride != 1
+        || image.width != mask.width
         || image.height != mask.height
-        || image.data.len() != mask.data.len()
+        || image.data.len() != pixels.saturating_mul(4)
+        || mask.data.len() != pixels
     {
         return false;
     }
     let Some(data) = Arc::get_mut(&mut image.data) else {
         return false;
     };
-    let multiply = |pixels: &mut [[u8; 4]], above: &[[u8; 4]]| {
-        for (pixel, above) in pixels.iter_mut().zip(above) {
+    let multiply = |pixels: &mut [[u8; 4]], above: &[u8]| {
+        for (pixel, &above) in pixels.iter_mut().zip(above) {
             // Read and written as one word, alpha in the top byte, so that the loop is the same
             // arithmetic on every lane of a vector; the colour bytes pass through untouched.
             let word = u32::from_le_bytes(*pixel);
             // [`combine_on_the_finer_grid`]'s rounding, so a fully opaque pair stays opaque; at
             // most 255 × 255 + 127, so nothing wraps.
             let product = (word >> 24)
-                .wrapping_mul(u32::from(above[0]))
+                .wrapping_mul(u32::from(above))
                 .wrapping_add(127)
                 / 255;
             *pixel = ((word & 0x00FF_FFFF) | (product << 24)).to_le_bytes();
         }
     };
     let (pixels, _) = data.as_chunks_mut::<4>();
-    let (above, _) = mask.data.as_chunks::<4>();
+    let above = mask.data;
     match band_pixels(pixels.len()) {
         Some(band) => pixels
             .par_chunks_mut(band)
@@ -5689,10 +5917,11 @@ fn apply_explicit_mask(
     // The sense is the clause's — the mask indicates which places on the page are painted and
     // which are masked out — so a sample that marks paints and one that does not is left
     // unchanged.
-    let masked = combine_on_the_finer_grid(image, &stencil, |colour, sample| {
-        let marks = sample.get(3).is_some_and(|alpha| *alpha != 0);
-        (colour, if marks { u8::MAX } else { 0 })
-    });
+    let masked =
+        combine_on_the_finer_grid(image, MaskSamples::of_raster(&stencil), |colour, sample| {
+            let marks = sample.get(3).is_some_and(|alpha| *alpha != 0);
+            (colour, if marks { u8::MAX } else { 0 })
+        });
     Ok((masked, shortfall))
 }
 
@@ -6021,29 +6250,252 @@ fn matte_colour(
 /// over the worker's budget, at a reduced level — is carried onto it by [`alpha_on_grid`].
 /// `None` where the mask does not decode, which is the same answer [`apply_soft_mask`] gives
 /// such a mask: the image is drawn, with its samples left as the file wrote them.
-fn prematte_alpha(document: &Document, mask: &Stream, parent: (u32, u32)) -> Option<Vec<u8>> {
-    let Flattened { image, .. } = decode(
+fn prematte_alpha(document: &Document, mask: &Stream, parent: (u32, u32)) -> Option<Arc<[u8]>> {
+    Some(mask_plane(document, mask)?.on_grid(parent))
+}
+
+/// A §11.6.5.2 soft mask's samples, decoded: one byte each, the opacity, on the mask's own grid.
+///
+/// **One byte a sample, because the mask is one component.** Table 143 makes the mask
+/// `DeviceGray` (and [`soft_mask_entry`] substitutes that space for a file stating another), so
+/// every consumer of a decoded mask — the `/Matte` inversion's `α`, the multiplication into the
+/// image, the plane kept beside a stencil, the plane at device scale — reads one number a sample
+/// and nothing else. Held as an RGBA raster it was four: on `issue13931.pdf`'s 2 996 × 4 256 mask
+/// that was 51 MB written and read again for the 13 MB that carry anything (ADR 1481).
+struct MaskPlane {
+    /// Samples per row.
+    width: u32,
+    /// Rows.
+    height: u32,
+    /// The opacities, row by row: §8.9.5.2's `/Decode` already applied.
+    opacity: Arc<[u8]>,
+    /// See [`Parts::shortfall`]: the mask's own filter's sentence, where it stopped short.
+    shortfall: Option<String>,
+}
+
+impl MaskPlane {
+    /// The plane of a decoded mask raster, whose first channel is the opacity: what
+    /// [`mask_plane`] answers for a mask its direct route does not admit.
+    fn of_decoded(Flattened { image, shortfall }: Flattened) -> Self {
+        Self {
+            width: image.width,
+            height: image.height,
+            opacity: image
+                .data
+                .chunks_exact(4)
+                .map(|sample| sample.first().copied().unwrap_or(0))
+                .collect(),
+            shortfall,
+        }
+    }
+
+    /// The opacities carried onto the parent's grid ([`alpha_on_grid`]): the same plane, not a
+    /// copy of it, where the two grids are one — which Table 143 makes them under a `/Matte`.
+    fn on_grid(&self, parent: (u32, u32)) -> Arc<[u8]> {
+        if (self.width, self.height) == parent {
+            return Arc::clone(&self.opacity);
+        }
+        Arc::from(alpha_on_grid(
+            &self.opacity,
+            (self.width, self.height),
+            parent,
+        ))
+    }
+
+    /// The plane as [`combine_on_the_finer_grid`] reads a mask.
+    fn samples(&self) -> MaskSamples<'_> {
+        MaskSamples {
+            width: self.width,
+            height: self.height,
+            data: &self.opacity,
+            stride: 1,
+        }
+    }
+}
+
+/// A soft-mask stream decoded as [`MaskPlane`], or `None` where it will not decode.
+///
+/// Every mask goes through [`decode`], the route every image takes, and its first channel is
+/// taken — except the shapes that route would only widen and narrow again: eight-bit `DeviceGray`
+/// samples with neither a `/Mask` nor an `/SMask` of their own ([`grey_mask`]), behind no codec
+/// ([`grey_plane_of_samples`]) or behind `DCTDecode` in a frame of one component
+/// ([`grey_plane_of_frame`]). Those are written as the plane directly, through the same `/Decode`
+/// table the raster's route reads.
+fn mask_plane(document: &Document, mask: &Stream) -> Option<MaskPlane> {
+    if let Some(plane) =
+        grey_plane_of_samples(document, mask).or_else(|| grey_plane_of_frame(document, mask))
+    {
+        return Some(plane);
+    }
+    decode(
         document,
         mask,
         // No resource dictionary and no colour to redirect, for [`mask_colour_space`]'s
         // reason: a mask's samples are mask values rather than colours.
         &Dictionary::new(),
         pdf_render::Color::BLACK,
+        // §11.6.5.2's mask is read for its one channel of opacity, not for colour.
         &Conversion::device(),
     )
-    .ok()?;
-    Some(alpha_of_mask(&image, parent))
+    .ok()
+    .map(MaskPlane::of_decoded)
 }
 
-/// A decoded mask's samples, one byte each, carried onto the parent's grid: what
-/// [`prematte_alpha`] reads off its decode, and [`decode_parts`] off the eager route's.
-fn alpha_of_mask(mask: &Image, parent: (u32, u32)) -> Vec<u8> {
-    let alpha: Vec<u8> = mask
+/// What [`mask_plane`]'s two direct routes share: a mask [`decode_parts`] would send through no
+/// step but its codec (if any) and its `/Decode` table, its grid, its data with every filter before
+/// the codec applied, and that table — or `None` for any other mask.
+///
+/// Admitted is what [`decode_parts`] would treat with nothing else to do: no `/ImageMask`, no
+/// `/Mask` (which a colour key would read in the table's place) and no `/SMask`,
+/// `/BitsPerComponent` read as [`samples_of`] reads it and found 8, and the space read as
+/// [`mask_colour_space`] reads it and found `DeviceGray`. The dimensions are checked as
+/// [`decode_parts`] checks them.
+fn grey_mask(document: &Document, mask: &Stream) -> Option<(u32, u32, ImageStream, [u8; 256])> {
+    let dict = &mask.dict;
+    let absent = |key: &str| matches!(document.get_key(dict, key), Object::Null);
+    if !absent("Mask")
+        || !absent("SMask")
+        || matches!(document.get_key(dict, "ImageMask"), Object::Boolean(true))
+    {
+        return None;
+    }
+    let width = positive_integer(document, dict, "Width").ok()?;
+    let height = positive_integer(document, dict, "Height").ok()?;
+    if u64::from(width).saturating_mul(u64::from(height)) > MAX_SAMPLES {
+        return None;
+    }
+    let bits = u32::try_from(
+        document
+            .get_key(dict, "BitsPerComponent")
+            .as_integer()
+            .unwrap_or(8),
+    )
+    .unwrap_or(8);
+    if bits != 8 {
+        return None;
+    }
+    let space = mask_colour_space(document, dict).ok()?;
+    if !matches!(space, ColourSpace::Gray) {
+        return None;
+    }
+    let source = document.image_stream(mask)?;
+    let decode = Decode::read(document, dict, &space, bits);
+    let conversion = Conversion::device();
+    let samples = Samples {
+        bits,
+        space: &space,
+        decode: &decode,
+        colour_key: None,
+        fill: pdf_render::Color::BLACK,
+        into: &conversion,
+        matte: None,
+    };
+    let tables = eight_bit_device_tables(&samples)?;
+    let [table] = tables.as_slice() else {
+        return None;
+    };
+    Some((width, height, source, **table))
+}
+
+/// [`mask_plane`]'s direct route for samples no codec stands in front of: the plane [`decode`]'s
+/// first channel would be, written from the samples without the raster between, or `None` for any
+/// mask outside [`grey_mask`]'s shape or behind a codec.
+///
+/// **The same bytes as [`decode`]'s, by the same steps**: what [`decode_parts`] sends through
+/// [`unpack`]'s [`eight_bit_device_tables`] arm, each sample that arm's table entry, and a sample
+/// past what its row carries 0, the first byte of the `[0, 0, 0, 0]` [`unpack`] leaves there for
+/// §7.3.8.2's reason. The arm reports no shortfall, and nor does this.
+/// `a_grey_mask_plane_is_its_decoded_first_channel` holds the two routes to one answer.
+fn grey_plane_of_samples(document: &Document, mask: &Stream) -> Option<MaskPlane> {
+    let (width, height, source, table) = grey_mask(document, mask)?;
+    if source.codec.is_some() {
+        return None;
+    }
+    // A row of one-byte samples is `width` bytes with no padding, so the rows are the data's
+    // first `width × height` bytes in order, and what the data does not carry is the tail.
+    let count = (width as usize).saturating_mul(height as usize);
+    let carried = source
         .data
-        .chunks_exact(4)
-        .map(|sample| sample.first().copied().unwrap_or(0))
-        .collect();
-    alpha_on_grid(&alpha, (mask.width, mask.height), parent)
+        .get(..source.data.len().min(count))
+        .unwrap_or_default();
+    let lookup = |&sample: &u8| table[usize::from(sample)];
+    // Where the data covers the grid, which is every mask that is not damaged, the plane is
+    // allocated once and already shared; a slice's mapped iterator states its length, which is
+    // what lets the collection skip the copy into the shared allocation.
+    let opacity: Arc<[u8]> = if carried.len() == count {
+        carried.iter().map(lookup).collect()
+    } else {
+        let mut plane = vec![0u8; count];
+        for (out, sample) in plane.iter_mut().zip(carried) {
+            *out = lookup(sample);
+        }
+        Arc::from(plane)
+    };
+    Some(MaskPlane {
+        width,
+        height,
+        opacity,
+        shortfall: None,
+    })
+}
+
+/// [`mask_plane`]'s direct route for a `DCTDecode` mask of one component: the codec asked for its
+/// one channel rather than for the four-byte raster [`decode`] would build and the first channel
+/// of which is all a mask is read for — or `None` for any mask outside [`grey_mask`]'s shape, behind
+/// another codec, or whose frame is not one `Luma` component.
+///
+/// **The same bytes as [`decode`]'s.** That route asks `zune-jpeg` for the frame's luminance
+/// written to the three colour channels of each pixel, and [`apply_decode_to_channels`] maps each
+/// by the first `/Decode` pair, which is [`grey_mask`]'s table; this asks for the luminance once and
+/// maps it by the same table. The grid is the frame's, as [`decode`]'s raster is (§7.4.8), and a
+/// `DNL` is honoured and a frame cut at its restart intervals as [`decode_jpeg`] does both.
+/// `a_grey_mask_plane_is_its_decoded_first_channel` holds the two routes to one answer. On
+/// `22060_A1_01_Plans.pdf` it leaves four 2 480 × 2 630 masks a byte a sample where each was
+/// 26 MB of raster (ADR 1481).
+fn grey_plane_of_frame(document: &Document, mask: &Stream) -> Option<MaskPlane> {
+    use zune_jpeg::zune_core::colorspace::ColorSpace;
+
+    let (_, _, source, table) = grey_mask(document, mask)?;
+    if !matches!(source.codec.as_deref(), Some(b"DCTDecode" | b"DCT")) {
+        return None;
+    }
+    let walked = first_scan(&source.data);
+    let data = frame_as_defined(&source.data, walked.as_ref());
+    let scan = match &data {
+        std::borrow::Cow::Borrowed(_) => walked,
+        std::borrow::Cow::Owned(defined) => first_scan(defined),
+    };
+    let options = jpeg_options().jpeg_set_out_colorspace(ColorSpace::Luma);
+    let mut decoder = zune_jpeg::JpegDecoder::new_with_options(
+        zune_jpeg::zune_core::bytestream::ZCursor::new(&*data),
+        options,
+    );
+    decoder.decode_headers().ok()?;
+    let info = decoder.info()?;
+    if info.components != 1 || decoder.input_colorspace() != Some(ColorSpace::Luma) {
+        return None;
+    }
+    let (width, height) = (u32::from(info.width), u32::from(info.height));
+    let count = usize::from(info.width).saturating_mul(usize::from(info.height));
+    if count == 0 || u64::try_from(count).ok()? > MAX_SAMPLES {
+        return None;
+    }
+    let mut luma = scan
+        .as_ref()
+        .and_then(|scan| restart::decode(&data, scan, options, 1))
+        .map_or_else(|| decoder.decode().ok(), Some)?;
+    if luma.len() != count {
+        return None;
+    }
+    for sample in &mut luma {
+        *sample = table[usize::from(*sample)];
+    }
+    Some(MaskPlane {
+        width,
+        height,
+        opacity: Arc::from(luma),
+        shortfall: None,
+    })
 }
 
 /// `here` on this thread and `there` beside it on rayon's pool, and both answers.
@@ -6316,30 +6768,14 @@ impl SoftMaskAtDeviceScale {
     /// The map §8.9.5.2 puts between a sample and a value has been applied by whatever decoded
     /// the plane, so what is stored beside it is Table 88's identity for eight-bit
     /// `DeviceGray`.
-    fn grey_plane(width: u32, height: u32, plane: Vec<u8>) -> Self {
+    fn grey_plane(width: u32, height: u32, plane: Arc<[u8]>) -> Self {
         Self {
-            data: Arc::from(plane),
+            data: plane,
             width,
             height,
             bits: 8,
             decode: Arc::new(Decode::from_pairs(&[], &ColourSpace::Gray, 8)),
         }
-    }
-
-    /// A decoded soft-mask raster as a plane, its first channel being the opacity.
-    ///
-    /// Table 143 requires the mask to be `DeviceGray` — and the eager route substitutes that
-    /// space for a file that states another one-component space — so the three colour channels
-    /// of a decoded sample hold one value and the first of them is it.
-    fn of_decoded(mask: &Image) -> Self {
-        Self::grey_plane(
-            mask.width,
-            mask.height,
-            mask.data
-                .chunks_exact(4)
-                .map(|sample| sample.first().copied().unwrap_or(0))
-                .collect(),
-        )
     }
 
     /// The mask's samples as a grey raster, on a grid no finer than `grid`.
@@ -6460,9 +6896,11 @@ impl pdf_render::ImageAtDeviceScale for MaskedAtDeviceScale {
     /// been blended into (`decode_parts`, ADR 1279).
     fn samples(&self, grid: pdf_render::Grid) -> Image {
         let mask = self.mask.raster(grid);
-        combine_on_the_finer_grid(&self.base, &mask, |colour, sample| {
-            (colour, sample.first().copied().unwrap_or(0))
-        })
+        combine_on_the_finer_grid(
+            &self.base,
+            MaskSamples::of_raster(&mask),
+            |colour, sample| (colour, sample.first().copied().unwrap_or(0)),
+        )
     }
 
     /// The base's, which is what every raster [`Self::samples`] returns carries.
@@ -6970,9 +7408,26 @@ impl RasterCache {
             (StreamIdentity::Allocation, Some(ahead)) => ahead.take(stream, colour_spaces, into),
             _ => None,
         };
+        // The cut's signal (ADR 1481): nothing of this page is decoded ahead, this thread is not
+        // one of the pool's, whose threads a frame divided across it would otherwise find busy,
+        // and there is a pool to divide it across — on one thread the pass is all the cut adds.
+        let in_flight = if self.ahead.is_none()
+            && rayon::current_thread_index().is_none()
+            && rayon::current_num_threads() >= 2
+        {
+            InFlight::Alone
+        } else {
+            InFlight::AmongOthers
+        };
         let parts = match ahead {
             Some(answer) => answer?,
-            None => decode_parts(document, stream, &read, fill_of(fill), into, masks)?,
+            None => decode_parts_in(
+                document,
+                stream,
+                (&read, fill_of(fill), into),
+                masks,
+                in_flight,
+            )?,
         };
         let colour_spaces = read.remove(COLOUR_SPACES).unwrap_or(Object::Null);
         let bytes = parts.bytes().saturating_add(footprint(&colour_spaces));
@@ -7157,15 +7612,13 @@ fn device_scaled_soft_mask(
 /// codestream may have been decoded at one of its own reduced levels (§7.4.9 NOTE 3) and the
 /// plane this keeps is the one that exists.
 fn decoded_grey_plane(document: &Document, mask: &Stream) -> Option<SoftMaskAtDeviceScale> {
-    let Flattened { image, .. } = decode(
-        document,
-        mask,
-        &Dictionary::new(),
-        pdf_render::Color::BLACK,
-        &Conversion::device(),
-    )
-    .ok()?;
-    Some(SoftMaskAtDeviceScale::of_decoded(&image))
+    let MaskPlane {
+        width,
+        height,
+        opacity,
+        ..
+    } = mask_plane(document, mask)?;
+    Some(SoftMaskAtDeviceScale::grey_plane(width, height, opacity))
 }
 
 /// What [`apply_soft_mask`] delivers: the image, what the mask's filter said where it stopped
@@ -7209,11 +7662,7 @@ fn apply_soft_mask(
         EagerMask::Asked(made) => made,
         EagerMask::Unasked => eager_soft_mask(document, dict, resources),
     };
-    let Some(Flattened {
-        image: mask,
-        shortfall,
-    }) = made
-    else {
+    let Some(mask) = made else {
         return Softened {
             image,
             shortfall: None,
@@ -7229,21 +7678,25 @@ fn apply_soft_mask(
         // none. So nothing here needs the pair to be one raster.
         return Softened {
             image,
-            shortfall,
+            shortfall: mask.shortfall,
             applied: true,
-            apart: Some(SoftMaskAtDeviceScale::of_decoded(&mask)),
+            apart: Some(SoftMaskAtDeviceScale::grey_plane(
+                mask.width,
+                mask.height,
+                mask.opacity,
+            )),
         };
     }
     let mut image = image;
-    if opacity_multiplied_in_place(&mut image, &mask) {
+    if opacity_multiplied_in_place(&mut image, mask.samples()) {
         return Softened {
             image,
-            shortfall,
+            shortfall: mask.shortfall,
             applied: true,
             apart: None,
         };
     }
-    let masked = combine_on_the_finer_grid(&image, &mask, |colour, sample| {
+    let masked = combine_on_the_finer_grid(&image, mask.samples(), |colour, sample| {
         // The stream `soft_mask_entry` handed on states `DeviceGray` — Table 143's own
         // requirement, and the space it substitutes for a file that states another
         // one-component space and is reported for it — so the three colour channels of a mask
@@ -7256,7 +7709,7 @@ fn apply_soft_mask(
     });
     Softened {
         image: masked,
-        shortfall,
+        shortfall: mask.shortfall,
         applied: true,
         apart: None,
     }
@@ -7272,7 +7725,7 @@ fn eager_soft_mask(
     document: &Document,
     dict: &Dictionary,
     resources: &Dictionary,
-) -> Option<Flattened> {
+) -> Option<MaskPlane> {
     // The dictionary's grid rather than the raster's, deliberately: this route and
     // `unapplied_soft_mask` must answer the same question, or the interpreter's report and
     // what actually happened drift apart. For the one image whose raster is coarser than its
@@ -7286,18 +7739,10 @@ fn eager_soft_mask(
     else {
         return None;
     };
-    decode(
-        document,
-        &mask_stream,
-        // No resource dictionary, which [`mask_colour_space`] is the argument for: the mask's
-        // samples are mask values and §8.6.5.6's defaults remap colours. The two readings have
-        // to agree, because `soft_mask_entry` decided this mask was usable from the first.
-        &Dictionary::new(),
-        pdf_render::Color::BLACK,
-        // §11.6.5.2's mask is read for its one channel of opacity, not for colour.
-        &Conversion::device(),
-    )
-    .ok()
+    // Read with no resource dictionary, which [`mask_colour_space`] is the argument for: the
+    // mask's samples are mask values and §8.6.5.6's defaults remap colours. The two readings have
+    // to agree, because `soft_mask_entry` decided this mask was usable from the first.
+    mask_plane(document, &mask_stream)
 }
 
 #[cfg(test)]
@@ -7487,24 +7932,137 @@ mod tests {
             interpolate: false,
             sample_alpha: pdf_render::SampleAlpha::Opacity,
         };
+        let plane = |raster: pdf_render::Image| {
+            super::MaskPlane::of_decoded(super::Flattened {
+                image: raster,
+                shortfall: None,
+            })
+        };
         for (width, height) in [(7, 5), (640, 512)] {
             let (image, mask) = (raster(width, height, 1), raster(width, height, 7));
-            let wanted = super::combine_on_the_finer_grid(&image, &mask, |colour, sample| {
-                (colour, sample[0])
-            });
+            let wanted = super::combine_on_the_finer_grid(
+                &image,
+                super::MaskSamples::of_raster(&mask),
+                |colour, sample| (colour, sample[0]),
+            );
+            let mask = plane(mask);
+            // The mask held as a plane combines to the bytes it did as the raster it came from.
+            let combined =
+                super::combine_on_the_finer_grid(&image, mask.samples(), |colour, sample| {
+                    (colour, sample[0])
+                });
+            assert_eq!(combined.data, wanted.data, "{width}x{height} as a plane");
             let mut multiplied = image.clone();
             // The clone shares the samples, so nothing may be written through it.
-            assert!(!super::opacity_multiplied_in_place(&mut multiplied, &mask));
+            assert!(!super::opacity_multiplied_in_place(
+                &mut multiplied,
+                mask.samples()
+            ));
             assert_eq!(multiplied.data, image.data);
             drop(image);
-            assert!(super::opacity_multiplied_in_place(&mut multiplied, &mask));
+            assert!(super::opacity_multiplied_in_place(
+                &mut multiplied,
+                mask.samples()
+            ));
             assert_eq!(multiplied.data, wanted.data, "{width}x{height}");
         }
         let mut image = raster(6, 4, 1);
         assert!(!super::opacity_multiplied_in_place(
             &mut image,
-            &raster(3, 4, 7)
+            plane(raster(3, 4, 7)).samples()
         ));
+    }
+
+    /// **A soft mask's plane written directly is the plane [`super::decode`] would have given.**
+    /// Each admitted shape is decoded both ways and held to the same bytes: raw samples under the
+    /// default `/Decode`, an inverted one and a narrowed one, short of the grid, past it and with
+    /// no `/BitsPerComponent`; and a `DCTDecode` frame of one component (`tests/cut/grey.jpg`)
+    /// plain and inverted. A four-bit mask, one carrying a colour key, and a three-component frame
+    /// a dictionary calls `DeviceGray` are left to the decode route (ADR 1481).
+    #[test]
+    fn a_grey_mask_plane_is_its_decoded_first_channel() {
+        let samples: Vec<u8> = (0..48_u8).map(|index| index.wrapping_mul(37)).collect();
+        let grey: &[u8] = include_bytes!("../tests/cut/grey.jpg");
+        let colour: &[u8] = include_bytes!("../tests/cut/hv.jpg");
+        let raw = "/Width 8 /Height 5 /BitsPerComponent 8";
+        let frame = "/Width 48 /Height 200 /BitsPerComponent 8 /Filter /DCTDecode";
+        let cases: [(String, &[u8], Option<&str>); 10] = [
+            (raw.to_owned(), &samples, Some("samples")),
+            (format!("{raw} /Decode [1 0]"), &samples, Some("samples")),
+            (
+                format!("{raw} /Decode [0.25 0.75]"),
+                &samples,
+                Some("samples"),
+            ),
+            (raw.to_owned(), &samples[..29], Some("samples")),
+            ("/Width 8 /Height 5".to_owned(), &samples, Some("samples")),
+            (
+                "/Width 8 /Height 5 /BitsPerComponent 4".to_owned(),
+                &samples[..24],
+                None,
+            ),
+            (format!("{raw} /Mask [0 100]"), &samples, None),
+            (frame.to_owned(), grey, Some("frame")),
+            (format!("{frame} /Decode [1 0]"), grey, Some("frame")),
+            (frame.to_owned(), colour, None),
+        ];
+        for (entries, data, route) in cases {
+            let mut file = b"%PDF-1.7\n".to_vec();
+            let mut offsets = Vec::new();
+            offsets.push(file.len());
+            file.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+            offsets.push(file.len());
+            file.extend_from_slice(b"2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n");
+            offsets.push(file.len());
+            file.extend_from_slice(
+                format!(
+                    "3 0 obj\n<< /Type /XObject /Subtype /Image /ColorSpace /DeviceGray {entries} \
+                     /Length {} >>\nstream\n",
+                    data.len()
+                )
+                .as_bytes(),
+            );
+            file.extend_from_slice(data);
+            file.extend_from_slice(b"\nendstream\nendobj\n");
+            let at = file.len();
+            file.extend_from_slice(b"xref\n0 4\n0000000000 65535 f \n");
+            for offset in &offsets {
+                file.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+            }
+            file.extend_from_slice(
+                format!("trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n{at}\n%%EOF\n").as_bytes(),
+            );
+            let document = pdf_syntax::Document::open(file).expect("the fixture opens");
+            let object = document.get(pdf_syntax::ObjectId::new(3, 0));
+            let stream = object.as_stream().expect("object 3 is the mask");
+            let decoded = super::MaskPlane::of_decoded(
+                super::decode(
+                    &document,
+                    stream,
+                    &pdf_syntax::Dictionary::new(),
+                    pdf_render::Color::BLACK,
+                    &crate::colour::Conversion::device(),
+                )
+                .expect("the mask decodes"),
+            );
+            let direct = match route {
+                Some("samples") => super::grey_plane_of_samples(&document, stream),
+                Some(_) => super::grey_plane_of_frame(&document, stream),
+                None => super::grey_plane_of_samples(&document, stream)
+                    .or_else(|| super::grey_plane_of_frame(&document, stream)),
+            };
+            assert_eq!(direct.is_some(), route.is_some(), "{entries}");
+            if let Some(direct) = direct {
+                assert_eq!(
+                    (direct.width, direct.height),
+                    (decoded.width, decoded.height)
+                );
+                assert_eq!(direct.opacity, decoded.opacity, "{entries}");
+                assert_eq!(direct.shortfall, decoded.shortfall, "{entries}");
+            }
+            let either = super::mask_plane(&document, stream).expect("the mask decodes");
+            assert_eq!(either.opacity, decoded.opacity, "{entries}");
+        }
     }
 
     /// [`super::beside`] answers with both closures' results, whichever thread ran the second.
@@ -7729,6 +8287,40 @@ mod tests {
                 }
             }
             assert_eq!(tabled, expected, "{space:?}");
+            // The same samples four bytes a pixel, as a `DCTDecode` frame holds them: the rows
+            // whose samples and mask values are whole take the fixed-size walk, the last row
+            // (short of both) the general one, and every pixel is the per-sample route's.
+            let mut framed = Vec::new();
+            for pixel in data.chunks_exact(components) {
+                framed.extend_from_slice(pixel);
+                framed.resize(framed.len() + 4 - components, 0);
+            }
+            framed.extend_from_slice(&data[data.len() / components * components..]);
+            let from_frame = super::unpack_matted_eight_bit_device(
+                &framed,
+                (width, height),
+                (width * 4, 4),
+                &inversions,
+                &alpha,
+            );
+            assert_eq!(from_frame, expected, "{space:?}, four bytes a pixel");
+            // And a frame that covers its grid under a mask that does, inverted where it lies: the
+            // whole rows of the same fixture, every pixel the per-sample route's.
+            let whole = width * (height - 1);
+            let mut in_place = framed[..whole * 4].to_vec();
+            assert!(super::invert_matte_in_place(
+                &mut in_place,
+                (width, height - 1),
+                &inversions,
+                &alpha,
+            ));
+            assert_eq!(in_place, expected[..whole * 4], "{space:?}, in place");
+            assert!(!super::invert_matte_in_place(
+                &mut framed.clone(),
+                (width, height),
+                &inversions,
+                &alpha,
+            ));
         }
     }
 
@@ -7750,9 +8342,21 @@ mod tests {
         };
         for ((iw, ih), (mw, mh)) in [((6, 4), (6, 4)), ((3, 4), (6, 5)), ((7, 2), (2, 9))] {
             let (image, mask) = (raster(iw, ih, 1), raster(mw, mh, 7));
-            let combined = super::combine_on_the_finer_grid(&image, &mask, |colour, sample| {
-                (colour, sample[0])
+            let combined = super::combine_on_the_finer_grid(
+                &image,
+                super::MaskSamples::of_raster(&mask),
+                |colour, sample| (colour, sample[0]),
+            );
+            // The same mask held one byte a sample takes the same walk to the same bytes.
+            let plane = super::MaskPlane::of_decoded(super::Flattened {
+                image: mask.clone(),
+                shortfall: None,
             });
+            let from_plane =
+                super::combine_on_the_finer_grid(&image, plane.samples(), |colour, sample| {
+                    (colour, sample[0])
+                });
+            assert_eq!(from_plane.data, combined.data);
             let (width, height) = (iw.max(mw) as usize, ih.max(mh) as usize);
             assert_eq!(
                 (combined.width as usize, combined.height as usize),

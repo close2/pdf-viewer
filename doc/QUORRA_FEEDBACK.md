@@ -5922,3 +5922,25 @@ rasterising residue chains per mark: each of its 3 518 clipped shadings arrives 
 for one of two clipping paths, so raster's region cache (keyed by id) never sees a repeat. Keying that
 cache by the chain's content on this side was tried and did not recover the time, for a reason not yet
 established (ADR 1467 section 3); it is raster's to find.
+
+## 62. `bug1721218_reduced.pdf`'s residue cost found and mostly removed (ADR 1479); an axis-preserving image meets its residue as a set (ADR 1480)
+
+**Section 60 and 61's measurement, answered.** The page arrives as two own-space frames, each one
+encoder. In each there are 3 515 residue chains, all distinct by id and by content, so keying
+the region cache by content found nothing to share. The cost was one chain of 111 677 points,
+which 3 025 shadings ask for over two-pixel tiles. Its region was declined because it costs
+more bytes than those tiles, so each ask flattened the chain again and filled every edge.
+Raster now keeps a residue link's flattening per frame by `(outline, transform bits)`. From
+its second use it also lists the edges by device row, so a small tile reads only the edges
+that reach its rows, in the plain walk's order. Nothing your oracle compares moves: the
+change is byte-identical by construction and by corpus digest. The page goes from 7.2 s to
+about 0.56 s. What is left is mostly the per-tile fill and the exact meet; admitting the
+region would reach 0.39 s, but it moves bytes by one level on rare pixels (ADR 0049), so it
+is not taken.
+
+**The image lane, which ADR 1467 left on `min`.** An image whose placement keeps the axes is a
+rectangle. Where that rectangle and a residue clip both cut a pixel, the pixel now holds
+their intersection's area. An oblique image is still painted pixel by pixel, by whether each
+centre is inside it, and `min` meets that set exactly. Building the image fixture also found
+a defect: a horizontal edge running across a pixel did not bound a band in the exact meet, so
+it can now move a path's rim pixel too.

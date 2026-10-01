@@ -207,9 +207,18 @@ fn joins(run: [f32; 8], quad: [f32; 8]) -> bool {
 /// A presentation form — an Arabic letter's initial, medial, final or isolated form, a lam-alef
 /// or Latin `ﬁ` ligature — is compared as the characters `UnicodeData.txt` decomposes it to
 /// ([`pdf_font::shaping::fold`]), because §9.10.2 hands a `/ToUnicode` that names the forms
-/// through as stated and nobody types them. Anything beyond that — accent folding, the Unicode
-/// collation algorithm's tailorings — is a decision about a language rather than about a page,
-/// and the readback is what §9.10.2's methods produced rather than normalised text (ADR 1465).
+/// through as stated and nobody types them (ADR 1465). Every character is compared as its
+/// canonical decomposition ([`pdf_font::shaping::decompose`]), so `é` and `e` with U+0301 are the
+/// one text the Unicode Standard says they are.
+///
+/// **A mark the needle leaves off is not asked for; a mark it states is**, which is the fifth
+/// judgement and one rule for every script: "كتب" finds "كَتَبَ", "שלום" finds "שָׁלוֹם" and "cafe"
+/// finds "café", while "كَتَبَ" does not find "كتب" and "café" does not find "cafe". A mark is a
+/// nonspacing mark with a canonical combining class ([`pdf_font::shaping::mark_class`]); harakat
+/// and points are what a writer of Arabic and Hebrew leaves off, and a search that required them
+/// would find nothing a person types. Beyond that — the Unicode collation algorithm's tailorings,
+/// a language's own equivalences — is a decision about a language rather than about a page, and
+/// the readback is what §9.10.2's methods produced rather than normalised text (ADR 1477).
 ///
 /// **A right-to-left word is looked for in the order the page stored it**, which is the fourth
 /// judgement and the subject of [`Order`] and [`spellings`]: the needle is typed in reading order,
@@ -247,6 +256,7 @@ pub(crate) fn find(text: &str, needle: &str, order: &Order) -> Vec<(usize, usize
     // report ranges that do not exist in the readback. So the scan walks the original's character
     // boundaries and compares from each.
     let mut out = Vec::new();
+    let mut scratch = Scratch::default();
     for spelling in spellings(needle) {
         let mut from = 0;
         while from < text.len() {
@@ -255,9 +265,9 @@ pub(crate) fn find(text: &str, needle: &str, order: &Order) -> Vec<(usize, usize
                 from = from.saturating_add(1);
                 continue;
             };
-            let found = matches_at(rest, from, &spelling.characters, order).filter(|length| {
-                spelling.admitted(text, from..from.saturating_add(*length), order)
-            });
+            let found = matches_at(rest, from, &spelling.characters, order, &mut scratch).filter(
+                |length| spelling.admitted(text, from..from.saturating_add(*length), order),
+            );
             match found {
                 Some(length) => {
                     out.push((from, from.saturating_add(length)));
@@ -323,17 +333,16 @@ impl Spelling {
 /// `PDF يبرع` in a right-to-left paragraph and as `يبرع PDF` in a left-to-right one, and an
 /// untagged page states neither. A needle with no right-to-left character has one spelling.
 ///
-/// Folded first — a presentation form typed into the bar is its letters, as on the page — and
-/// lowered, which is [`find`]'s first judgement.
+/// Folded first — a presentation form typed into the bar is its letters, as on the page, and a
+/// precomposed letter its canonical decomposition — and lowered, which is [`find`]'s first
+/// judgement.
 fn spellings(needle: &str) -> Vec<Spelling> {
-    let folded: String = needle
-        .chars()
-        .flat_map(|character| match shaping::fold(character) {
-            Some(letters) => letters.to_vec(),
-            None => vec![character],
-        })
-        .flat_map(char::to_lowercase)
-        .collect();
+    let mut letters = Vec::new();
+    let mut spare = Vec::new();
+    for character in needle.chars() {
+        compared_as(character, false, &mut spare, &mut letters);
+    }
+    let folded: String = letters.into_iter().collect();
     if folded.is_empty() {
         return Vec::new();
     }
@@ -393,11 +402,9 @@ enum Stored {
 /// in that order; logical content order is the structure tree's, so an untagged page states none.
 /// What the page does state is where each glyph landed, and a run of right-to-left letters whose
 /// glyphs advance rightwards in the order they were shown was shown in display order. The
-/// direction is read off each glyph's own box — its ascent side is *up*, and *right* is a quarter
-/// turn from it in the display list's space, which `pdf_model::content::base_transform` keeps
-/// right-handed under every `/Rotate` — so a rotated page or a flipped `cm` reads the same. A
-/// glyph a text matrix *mirrored* would vote the other way; no clause or corpus document has
-/// asked for that case, and ADR 1465 records it.
+/// direction is read off each glyph's own box ([`axes`]) — its ascent side is *up*, and *right*
+/// is the quarter turn from it on the side the glyph's own horizontal axis points — so a rotated
+/// page, a flipped `cm` and a mirroring text matrix all read as the producer wrote them.
 ///
 /// A run is the right-to-left glyphs of one line, with whatever sits between them; each pair of
 /// neighbours votes and the majority decides. A run with no vote is not recorded, and every
@@ -479,10 +486,27 @@ impl Order {
     }
 }
 
-/// A glyph's *up* and *right*, from its box: the ascent side, and a quarter turn clockwise of it.
+/// A glyph's *up* and *right*, from its box: the ascent side, and the quarter turn of it that
+/// text space's horizontal axis points along.
+///
+/// §9.4.4's text rendering matrix carries the glyph's box from text space, where a glyph extends
+/// from its origin along +x and its ascent is along +y, into the display list's space. Under a
+/// matrix of positive determinant the picture keeps its handedness and +x is the same quarter turn
+/// from +y it is on an upright page; under a negative one — `Tm`, `Tz` or `cm` with one axis
+/// negated — the picture is a mirror image, the glyphs advance the other way across the display,
+/// and +x is the opposite quarter turn. The box's own corners say which: *right* is the quarter
+/// turn of *up* on the side its base (origin to advance corner) points to, which is the sign of
+/// the matrix's determinant read off the box, and holds whatever the handedness of the space the
+/// box is in. A box of no width says nothing, and is read as unmirrored.
 fn axes(quad: [f32; 8]) -> ((f32, f32), (f32, f32)) {
     let up = (quad[6] - quad[0], quad[7] - quad[1]);
-    (up, (up.1, -up.0))
+    let base = (quad[2] - quad[0], quad[3] - quad[1]);
+    let clockwise = (up.1, -up.0);
+    if base.0 * clockwise.0 + base.1 * clockwise.1 < 0.0 {
+        (up, (-up.1, up.0))
+    } else {
+        (up, clockwise)
+    }
 }
 
 /// Whether `quad` stands on the line `previous` stands on: its foot no further off that baseline
@@ -520,8 +544,8 @@ const SOFT_HYPHEN: char = '\u{00ad}';
 
 /// The byte length of a case-insensitive match at the start of `text`, if there is one.
 ///
-/// Whitespace is the one place the two sides are not compared character for character: a run of
-/// it in the needle stands for a run of it in the text, for the reason [`find`] states.
+/// Whitespace is the one place the two sides are not compared unit for unit: a run of it in the
+/// needle stands for a run of it in the text, for the reason [`find`] states.
 ///
 /// # §14.8.2.3's rejoining, which is the third judgement
 ///
@@ -545,27 +569,38 @@ const SOFT_HYPHEN: char = '\u{00ad}';
 ///
 /// **A hard hyphen is untouched.** NOTE 1 makes U+002D a different character, and a reader that
 /// folded it would join two words the page keeps apart.
-fn matches_at(text: &str, offset: usize, needle: &[char], order: &Order) -> Option<usize> {
+///
+/// # Marks, which are the fifth judgement
+///
+/// Wherever either side has a run of marks ([`shaping::mark_class`]), the two runs are sorted by
+/// canonical combining class and the needle's must be found, in order, inside the page's: a mark
+/// the needle leaves off is not asked for, and one it states must be there. A match never starts
+/// on a mark the needle does not state, and it takes in the marks after its last letter, so the
+/// highlight covers the whole of what was printed (ADR 1477).
+fn matches_at(
+    text: &str,
+    offset: usize,
+    needle: &[char],
+    order: &Order,
+    scratch: &mut Scratch,
+) -> Option<usize> {
     let mut wanted = needle.iter().copied().peekable();
-    let mut characters = text.chars().peekable();
-    let mut length = 0_usize;
+    let mut page = Cursor::new(text, offset, order, scratch);
+    let mut started = false;
     loop {
         // §14.8.2.3, before either branch: the character and the break it introduced are not part
         // of the word, so neither side of the comparison should see them.
-        if characters.peek() == Some(&SOFT_HYPHEN) && wanted.peek() != Some(&SOFT_HYPHEN) {
-            characters.next();
-            length = length.saturating_add(SOFT_HYPHEN.len_utf8());
-            while let Some(character) = characters.peek().copied().filter(|c| c.is_whitespace()) {
-                characters.next();
-                length = length.saturating_add(character.len_utf8());
+        if page.peek() == Some(SOFT_HYPHEN) && wanted.peek() != Some(&SOFT_HYPHEN) {
+            page.next();
+            while page.peek().is_some_and(char::is_whitespace) {
+                page.next();
             }
             continue;
         }
         if wanted.peek().is_some_and(|want| want.is_whitespace()) {
             let mut separated = false;
-            while let Some(character) = characters.peek().copied().filter(|c| c.is_whitespace()) {
-                characters.next();
-                length = length.saturating_add(character.len_utf8());
+            while page.peek().is_some_and(char::is_whitespace) {
+                page.next();
                 separated = true;
             }
             if !separated {
@@ -575,42 +610,174 @@ fn matches_at(text: &str, offset: usize, needle: &[char], order: &Order) -> Opti
                 wanted.next();
             }
             if wanted.peek().is_none() {
-                return Some(length);
+                return page.finished();
             }
             continue;
         }
-        let character = characters.next()?;
-        let displayed = shaping::right_to_left(character)
-            && order.stored(offset.saturating_add(length)) == Some(Stored::Display);
-        if !compares(character, displayed, &mut wanted) {
-            return None;
+        let page_mark = page.peek().and_then(shaping::mark_class).is_some();
+        let wanted_mark = wanted
+            .peek()
+            .copied()
+            .and_then(shaping::mark_class)
+            .is_some();
+        if page_mark || wanted_mark {
+            if !started && !wanted_mark {
+                return None;
+            }
+            if !page.marks_hold(&mut wanted) {
+                return None;
+            }
+        } else {
+            let have = page.next()?;
+            wanted.next_if_eq(&have)?;
         }
-        length = length.saturating_add(character.len_utf8());
+        started = true;
         if wanted.peek().is_none() {
-            return Some(length);
+            return page.finished();
         }
     }
 }
 
-/// Whether one character of the page is the next of the needle's, consuming them if so.
-///
-/// Lowered and folded ([`find`]'s first judgement), and a presentation form standing for two
-/// letters — a lam-alef — is compared as its two **in the order the run was stored**: in a run
-/// stored in display order the alef is on the left, so it comes first.
-fn compares(
-    character: char,
-    displayed: bool,
-    wanted: &mut std::iter::Peekable<impl Iterator<Item = char>>,
-) -> bool {
-    let mut next = |letter: char| {
-        letter
-            .to_lowercase()
-            .all(|have| wanted.next_if_eq(&have).is_some())
-    };
+/// The buffers one [`find`] lends every comparison it starts, so that comparing a page character
+/// allocates nothing: a search over a cached readback is a few milliseconds for a whole document
+/// (ADR 0256), and an allocation per character compared would be most of it.
+#[derive(Debug, Default)]
+struct Scratch {
+    /// What the page character being compared is compared as.
+    units: Vec<char>,
+    /// One character's canonical decomposition, before it is lowered.
+    spare: Vec<char>,
+    /// A run of the page's marks, with their classes.
+    have: Vec<(u8, char)>,
+    /// A run of the needle's marks, with their classes.
+    want: Vec<(u8, char)>,
+}
+
+/// The page's side of one comparison: its characters as the units they are compared as, and how
+/// many bytes of it the units taken so far wholly cover.
+struct Cursor<'t, 'o, 's> {
+    characters: std::str::CharIndices<'t>,
+    /// Where `characters` starts in the readback, which is what [`Order`] is indexed by.
+    offset: usize,
+    order: &'o Order,
+    scratch: &'s mut Scratch,
+    /// How many of `scratch.units` have been taken.
+    taken: usize,
+    /// The byte, relative to the start, where the character `scratch.units` came from ends.
+    end: usize,
+    /// The bytes of the characters whose every unit has been taken.
+    consumed: usize,
+}
+
+impl<'t, 'o, 's> Cursor<'t, 'o, 's> {
+    fn new(text: &'t str, offset: usize, order: &'o Order, scratch: &'s mut Scratch) -> Self {
+        scratch.units.clear();
+        Self {
+            characters: text.char_indices(),
+            offset,
+            order,
+            scratch,
+            taken: 0,
+            end: 0,
+            consumed: 0,
+        }
+    }
+
+    /// The next unit, reading the next character when this one's are all taken.
+    fn peek(&mut self) -> Option<char> {
+        if self.taken == self.scratch.units.len() {
+            let (at, character) = self.characters.next()?;
+            self.scratch.units.clear();
+            self.taken = 0;
+            self.end = at.saturating_add(character.len_utf8());
+            let displayed = shaping::right_to_left(character)
+                && self.order.stored(self.offset.saturating_add(at)) == Some(Stored::Display);
+            compared_as(
+                character,
+                displayed,
+                &mut self.scratch.spare,
+                &mut self.scratch.units,
+            );
+        }
+        self.scratch.units.get(self.taken).copied()
+    }
+
+    fn next(&mut self) -> Option<char> {
+        let unit = self.peek()?;
+        self.taken = self.taken.saturating_add(1);
+        if self.taken == self.scratch.units.len() {
+            self.consumed = self.end;
+        }
+        Some(unit)
+    }
+
+    /// Takes the page's run of marks here and the needle's, and says whether the needle's sorted
+    /// run is found in order inside the page's sorted one.
+    fn marks_hold(&mut self, wanted: &mut std::iter::Peekable<impl Iterator<Item = char>>) -> bool {
+        self.scratch.have.clear();
+        while let Some(unit) = self.peek() {
+            let Some(class) = shaping::mark_class(unit) else {
+                break;
+            };
+            self.scratch.have.push((class, unit));
+            self.next();
+        }
+        let want = &mut self.scratch.want;
+        want.clear();
+        while let Some(class) = wanted.peek().copied().and_then(shaping::mark_class) {
+            want.extend(wanted.next().map(|mark| (class, mark)));
+        }
+        // Stable, so marks of one class keep the order they were stored in: canonical ordering
+        // reorders only across classes.
+        self.scratch.have.sort_by_key(|(class, _)| *class);
+        want.sort_by_key(|(class, _)| *class);
+        let mut have = self.scratch.have.iter();
+        want.iter().all(|mark| have.any(|held| held == mark))
+    }
+
+    /// The match's length, once the needle is spent: the marks after its last letter taken in,
+    /// and refused where a character was compared only in part — a ligature whose second letter
+    /// the needle did not want.
+    fn finished(&mut self) -> Option<usize> {
+        while self.peek().and_then(shaping::mark_class).is_some() {
+            self.next();
+        }
+        (self.taken == 0 || self.taken == self.scratch.units.len()).then_some(self.consumed)
+    }
+}
+
+/// Pushes onto `into` the units one character is compared as: a presentation form's letters
+/// (§9.10.2 hands the forms through and nobody types them) in the order its run was stored — in a
+/// run stored in display order a lam-alef's alef is on the left, so it comes first — and each
+/// letter's canonical decomposition, lowered ([`find`]'s first judgement).
+fn compared_as(character: char, displayed: bool, spare: &mut Vec<char>, into: &mut Vec<char>) {
+    if character.is_ascii() {
+        into.push(character.to_ascii_lowercase());
+        return;
+    }
     match shaping::fold(character) {
-        Some(letters) if displayed => letters.iter().rev().all(|letter| next(*letter)),
-        Some(letters) => letters.iter().all(|letter| next(*letter)),
-        None => next(character),
+        Some(letters) if displayed => {
+            for letter in letters.iter().rev() {
+                lowered(*letter, spare, into);
+            }
+        }
+        Some(letters) => {
+            for letter in letters {
+                lowered(*letter, spare, into);
+            }
+        }
+        None => lowered(character, spare, into),
+    }
+}
+
+/// `letter`'s canonical decomposition, lowered, and decomposed again where lowering composed.
+fn lowered(letter: char, spare: &mut Vec<char>, into: &mut Vec<char>) {
+    spare.clear();
+    shaping::decompose(letter, spare);
+    for part in spare.iter() {
+        for lower in part.to_lowercase() {
+            shaping::decompose(lower, into);
+        }
     }
 }
 
@@ -886,6 +1053,112 @@ mod tests {
         assert_eq!(
             find_ordered(&text, "\u{fef3}\u{fe94}", &order),
             vec![(0, text.len())]
+        );
+    }
+
+    /// ADR 1477's rule, the same for every script: a mark the needle leaves off is not asked for,
+    /// and a mark it states must be on the page.
+    ///
+    /// "كتب" finds "كَتَبَ" and "שלום" finds "שָׁלוֹם", and the range covers the marks after the last
+    /// letter, so a highlight is over everything printed. The calibration is the other direction:
+    /// a needle with a fatha does not find the bare word, nor a word whose mark is another.
+    #[test]
+    fn a_mark_the_needle_leaves_off_is_not_asked_for_and_one_it_states_is() {
+        let vowelled = "\u{643}\u{64e}\u{62a}\u{64e}\u{628}\u{64e}";
+        let bare = "\u{643}\u{62a}\u{628}";
+        assert_eq!(find(vowelled, bare), vec![(0, vowelled.len())]);
+        assert_eq!(find(vowelled, vowelled), vec![(0, vowelled.len())]);
+        assert_eq!(find(bare, vowelled), vec![], "a stated mark is required");
+        assert_eq!(
+            find(vowelled, "\u{643}\u{64f}\u{62a}\u{628}"),
+            vec![],
+            "a damma is not a fatha"
+        );
+        assert_eq!(
+            find(vowelled, "\u{643}\u{64e}\u{62a}\u{628}"),
+            vec![(0, vowelled.len())],
+            "the marks stated are asked for and the rest are not"
+        );
+
+        // Hebrew: shin, shin dot, qamats; lamed; vav, holam; final mem.
+        let pointed = "\u{5e9}\u{5c1}\u{5b8}\u{5dc}\u{5d5}\u{5b9}\u{5dd}";
+        assert_eq!(
+            find(pointed, "\u{5e9}\u{5dc}\u{5d5}\u{5dd}"),
+            vec![(0, pointed.len())]
+        );
+
+        // Latin by the same rule, and canonical equivalence on either side.
+        assert_eq!(find("caf\u{e9}", "cafe"), vec![(0, 5)]);
+        assert_eq!(find("cafe", "caf\u{e9}"), vec![]);
+        assert_eq!(find("cafe\u{301}", "caf\u{e9}"), vec![(0, 6)]);
+        assert_eq!(find("caf\u{e9}", "cafe\u{301}"), vec![(0, 5)]);
+        assert_eq!(find("CAF\u{c9} noir", "caf\u{e9}"), vec![(0, 5)]);
+    }
+
+    /// Two marks on one letter compare by canonical ordering, not by the order a producer wrote
+    /// them: a shadda and a fatha stored either way round are one text, and a needle naming the
+    /// fatha alone finds both. A match does not start on a mark the needle does not state.
+    #[test]
+    fn marks_compare_in_canonical_order_and_a_match_starts_on_a_letter() {
+        let fatha_first = "\u{628}\u{64e}\u{651}";
+        let shadda_first = "\u{628}\u{651}\u{64e}";
+        assert_eq!(find(fatha_first, shadda_first), vec![(0, 6)]);
+        assert_eq!(find(shadda_first, fatha_first), vec![(0, 6)]);
+        assert_eq!(find(shadda_first, "\u{628}\u{64e}"), vec![(0, 6)]);
+        assert_eq!(
+            find("\u{301}e", "e"),
+            vec![(2, 3)],
+            "the stray mark is not part of the match"
+        );
+    }
+
+    /// A Devanagari vowel sign is a nonspacing mark of combining class zero: it spells the
+    /// syllable, so a needle without it is another word (ADR 1477).
+    #[test]
+    fn a_vowel_sign_that_spells_its_syllable_is_a_letter() {
+        // कुल, "total", and कल, "tomorrow".
+        assert_eq!(find("\u{915}\u{941}\u{932}", "\u{915}\u{932}"), vec![]);
+    }
+
+    /// A line under a text matrix that mirrors it (`-1 0 0 1 x y Tm`): each glyph's box extends
+    /// from its origin to the *left*, and a word shown in display order advances leftwards across
+    /// the display. Its stored order is the producer's, so it is display order, and the needle is
+    /// found as typed; read with a fixed quarter turn it would vote reading order and the reversed
+    /// spelling would be found instead.
+    #[test]
+    fn a_mirrored_line_is_read_in_the_order_its_producer_stored() {
+        let stored = "\u{628}\u{631}\u{639}";
+        let placed: Vec<Placed> = stored
+            .char_indices()
+            .enumerate()
+            .map(|(index, (at, character))| {
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "test code: three glyphs, exact in f32"
+                )]
+                let origin = 100.0 - index as f32 * 10.0;
+                Placed {
+                    span: at..at.saturating_add(character.len_utf8()),
+                    quad: [
+                        origin,
+                        0.0,
+                        origin - 10.0,
+                        0.0,
+                        origin - 10.0,
+                        12.0,
+                        origin,
+                        12.0,
+                    ],
+                }
+            })
+            .collect();
+        let order = Order::of(stored, &placed);
+        let typed = "\u{639}\u{631}\u{628}";
+        assert_eq!(find_ordered(stored, typed, &order), vec![(0, stored.len())]);
+        assert_eq!(
+            find_ordered(stored, stored, &order),
+            vec![],
+            "the stored order typed as though it were the reading order is another word"
         );
     }
 

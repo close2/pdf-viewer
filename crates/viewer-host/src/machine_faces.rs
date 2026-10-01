@@ -131,6 +131,10 @@ struct State {
     queue: Option<Sender<Asked>>,
     /// How to wake the window that asked.
     wake: Option<Wake>,
+    /// Answers that have left the pending sets and whose wake has not yet been called: what
+    /// [`MachineFaces::settle`] also waits to see zero, so that a settled set of faces has woken
+    /// its window for every answer it holds.
+    unwoken: usize,
 }
 
 /// The shared half, behind one lock and one condition.
@@ -138,7 +142,7 @@ struct State {
 struct Shared {
     /// Everything [`State`] holds.
     state: Mutex<State>,
-    /// Signalled whenever an entry leaves [`State::pending`].
+    /// Signalled whenever an answer's wake has been called.
     settled: Condvar,
 }
 
@@ -289,14 +293,18 @@ impl MachineFaces {
         std::mem::take(&mut self.shared.lock().arrived)
     }
 
-    /// Waits until every queued search has landed.
+    /// Waits until every queued search has landed and the window has been woken for it.
+    ///
+    /// The wake is called on the searching thread after the answer is recorded, so an answer
+    /// that has landed is not yet settled: a caller counting wakes would otherwise read the count
+    /// in the gap between the two (ADR 1478).
     ///
     /// **For a caller measuring the faces, never for a window**: a test that compares what a line
     /// draws with a machine face behind it, or an example counting coverage. A window that waited
     /// here would have put the catalogue walk back on the path this module exists to take it off.
     pub fn settle(&self) {
         let mut state = self.shared.lock();
-        while !state.pending.is_empty() || !state.pending_words.is_empty() {
+        while !state.pending.is_empty() || !state.pending_words.is_empty() || state.unwoken > 0 {
             state = self
                 .shared
                 .settled
@@ -317,10 +325,13 @@ impl MachineFaces {
                         Asked::Character(wanted) => answer_character(&shared, wanted),
                         Asked::Word(word) => answer_word(&shared, &word),
                     };
-                    shared.settled.notify_all();
                     if let Some(wake) = wake {
                         wake();
                     }
+                    let mut state = shared.lock();
+                    state.unwoken = state.unwoken.saturating_sub(1);
+                    drop(state);
+                    shared.settled.notify_all();
                 }
             })
             .ok()
@@ -351,6 +362,7 @@ fn answer_character(shared: &Shared, wanted: Wanted) -> Option<Wake> {
     }
     state.pending.remove(&wanted);
     state.arrived = true;
+    state.unwoken = state.unwoken.saturating_add(1);
     state.wake.clone()
 }
 
@@ -370,6 +382,7 @@ fn answer_word(shared: &Shared, word: &Word) -> Option<Wake> {
     }
     state.pending_words.remove(word);
     state.arrived = true;
+    state.unwoken = state.unwoken.saturating_add(1);
     state.wake.clone()
 }
 

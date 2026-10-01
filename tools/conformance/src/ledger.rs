@@ -852,7 +852,7 @@ impl fmt::Display for Problem {
             }
             Self::MissingRow { clause } => write!(
                 f,
-                "§{clause} has no row; regenerate the ledger with `cargo run -p conformance --bin ledger`"
+                "§{clause} has no row; regenerate the ledger with `cargo run -p conformance --bin ledger -- --write`"
             ),
             Self::OutOfOrder { clause, line } => write!(
                 f,

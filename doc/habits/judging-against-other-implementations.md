@@ -148,3 +148,12 @@ intersected with its clip, composited in paint order and sampled 128×128 per pi
 0.71 of 255 away and raster 2.05, named raster's flattening as the interior cause, and let the gate
 hold the page to a measured bound instead of a blanket (ADR 1435). The ink ladder's convergence
 cannot say which lane pays a difference; the geometry can.
+
+## A contradicted group's verdict and its `WHOSE_DEPARTURE` row change in one edit
+
+The oracle's forty-seven contradicted pages are each held by a group whose note now says whose
+departure it is — ours, the references', or a documented choice — with the deciding sentence
+quoted, and `every_held_page_names_whose_departure_it_is` holds that each group cites its row's
+clause (ADR 1483). The test catches a clause the note no longer cites, not a verdict that flipped
+while the row stayed: when a note's reading changes, its row changes in the same edit. The ranking
+names the next page itself; a round takes the page it names, not the one its brief guesses.

@@ -43,7 +43,8 @@ nine shared entries. §12.7.4.3's variable text is constructed in any script: a 
 right-to-left, cursive one is joined by the Unicode Character Database's own tables, ordered by UAX
 #9 and set in a face from the machine where the compiled-in fourteen have no glyph (ADRs 1413,
 1414), which a save writes into the file where the face's licence permits: a `glyf` face subset
-(ADR 1425), a `CFF ` one subset as a bare CID-keyed program under `/FontFile3` (ADR 1449), whole
+(ADR 1425), a `CFF ` one subset as a bare CID-keyed program under `/FontFile3` (ADR 1449), an
+accented character in it composed into the outline it draws (ADR 1486), whole
 where its licence forbids subsetting (ADR 1438); in memory a `CFF ` face is described as the
 `CIDFontType0` Table 124 puts it under (ADR 1450). A font the document did not embed is stood in
 for by a machine face ranked by its descriptor — Table 120's weight, slope and width against each
@@ -72,7 +73,10 @@ they did not (ADR 0127) — and `render-raster` is the third, over the document 
 commissioned (`doc/RENDER_LIBRARY.md`), **what the window actually presents with**, held against the
 processor's raster over the whole corpus at the page's own scale and at four times it — a page the
 two still differ on held by name to a bound measured against a per-pixel reference from its own
-geometry (ADR 1435) — with a
+geometry (ADR 1435), an isolated group that composites in a blending colour space of its own drawn
+as a frame of its own on the same device and placed back as device pixels, which §11.4.5 makes
+exact (ADR 1471), and a target past the adapter's side limit drawn in tiles and stitched (ADR
+1472) — with a
 stroke's pieces at a bend tighter than its half-width cut to tile the stroke's set rather than
 overlap inside it (ADR 1375), a pixel a fill winds two ways through covered by the set its rule
 declares, a butt cap squared to its curve's end tangent, and a ramp's coincident stops carried as
@@ -90,7 +94,9 @@ so that the polygon encloses the curve's own area rather than falling inside it,
 built the same way (ADR 1443), and a clip — a rectangle or a residue held as a coverage byte —
 meeting a mark's coverage as §10.7.4's intersection: the smaller of the two, not their product
 (ADRs 1435, 1444), and where a residue and a mark both cut a pixel, the area of their intersection
-computed from both sets' edges (ADR 1467) — and a clipped mark's
+computed from both sets' edges, a path's mark or an axis-preserving image's rectangle (ADRs 1467,
+1480), a residue link flattened once a frame and a small tile reading only its rows' edges (ADR
+1479) — and a clipped mark's
 coverage and a stroke's made off the walk's thread by the encoder's fan-out, a stroke's segment
 weighed at what it costs (ADR 1395), a rectangle or a repeated glyph behind a queued mark committed
 in its place and a zoom step's strokes fanned out on the compute lane as on the page-turn one (ADR
@@ -118,7 +124,11 @@ the entry, the `APP14` segment that silences it, and the component count, ranked
 decoded band by band on the pool, each band overlapping a row either side so that its upsampling
 sees what the whole frame's does, and `raster-gpu` divides the image's reduction to the page's
 scale by rows across the device's threads, reading an opaque band off its column sums (ADRs 1433,
-1457). Encryption at every revision Table 21 lists and every method Table 25 names, in both
+1457), and one with no restart interval is cut at the rows a Huffman-only pass finds where nothing
+else of its page is decoding beside it (ADR 1481); a converted pixel equal to the one before it is
+copied rather than converted again, and a soft mask is decoded beside its image, held one byte a
+sample and multiplied into it where it lies, a `/Matte`'s frame decoded beside its mask (ADRs 1469,
+1481). Encryption at every revision Table 21 lists and every method Table 25 names, in both
 directions — including revision 5, whose algorithm is the Adobe extension the table points at
 rather than a clause of the standard (ADR 0820). §12.3.2's destinations, §12.3.3's outline, §12.4.2's page labels, §12.5.6.5's links
 performing every one of Table 201's actions that is neither clause 13's media nor the excluded
@@ -155,7 +165,9 @@ loops are bounded in a patch the owner applies to the codec's fork (ADR 1447). T
 Annex K's conformance data, read from outside the tree: T.88's own Annex H datastream and Annex K's
 fax pages decode bit for bit, the streams that depart from the clauses they exercise are held by
 name with the clause, and a generic region on the extended template — which the codec reads as the
-ordinary one — is refused out loud until the fork takes the patch for it (ADR 1459).
+ordinary one — is refused out loud until the fork takes the patch for it (ADR 1459). Annex H.2's arithmetic-coder
+sequence holds the codec's decoder register for register in a unit test a third patch gives the fork
+(ADR 1485).
 
 It is **used**, which is a separate claim from the one above — and
 the first sentence of it is **measured** rather than asserted: a gate drags across `pdftotext`'s own word boxes on every corpus document and asks
@@ -232,7 +244,7 @@ click on a markup annotation
 activation (ADR 0191) — **in all three windows**, where two
 of them drew nothing of it at all: the clause gives a popup "no appearance stream", so the window is
 furniture rather than ink and each host places its own, over one reading of the two clauses that say
-what goes in it (ADR 0613) — **with the subject and the creation date beside the title and the
+what goes in it (ADR 0613), drawn in all three as opaque paper with an edge (ADR 1466) — **with the subject and the creation date beside the title and the
 text**, and the two dates kept apart, because Table 172 states when an annotation was made and
 Table 166 when it was last changed (ADR 1224); a **cursor changes over §12.5.6.5's activation region** in all three,
 which no clause states and which is therefore recorded as this program's convention; a person can
@@ -551,7 +563,8 @@ fact. Which population a claim is about is part of the claim; ADR 0405. `?` puts
 font programs and had no surface for their licences at all (ADR 0526). **What a key means is one
 value, `viewer_host::keys`, that all three hosts translate their toolkit's key into**: three tables
 that disagreed about the arrow keys, about `f` and about Escape are one, and each host has a test
-that fails when it stops translating the whole of it. **A draw a person is waiting for says so and
+that fails when it stops translating the whole of it, and Control with the wheel zooms about the
+pointer in all three through one `viewer_host::wheel::ZoomWheel` (ADR 1466). **A draw a person is waiting for says so and
 offers a key**: a page — or, on the window that draws whole frames, a view — still being drawn
 after `viewer_host::drawing::WARN` puts a sentence in the status bar naming Escape, and Escape then
 takes the drawing thread back without reporting anything to the core, so the page keeps its picture
@@ -569,7 +582,7 @@ raised by the pointer. Four clauses closed on the sidebar without anybody pickin
 and three of the four had a ledger row whose reason was "this program has no ___" — which is the
 lesson in [`doc/habits.md`](habits.md)'s ledger section rather than a fact about the sidebar.
 
-**And what a reader does is driven in all three windows by one command**: `tools/drive-windows.sh` takes them under `Xvfb` through open, the outline, page turns, zoom, find, a popup, a link, a markup and a form saved and reopened, the restriction levels, print, a password and AT-SPI, and photographs each step (ADR 1453). The find bar finds a right-to-left word typed in reading order on a page that shows it as presentation forms in display order, folding the forms and reading the order off the glyphs' positions (ADR 1465).
+**And what a reader does is driven in all three windows by one command**: `tools/drive-windows.sh` takes them under `Xvfb` through open, the outline, page turns, zoom, find, a popup, a link, a markup and a form saved and reopened, the restriction levels, print, a password and AT-SPI, and photographs each step (ADR 1453). The find bar finds a right-to-left word typed in reading order on a page that shows it as presentation forms in display order, folding the forms and reading the order off the glyphs' positions (ADR 1465), and a word typed without its vowel marks or accents finds one printed with them, while a mark typed is asked for (ADR 1477). No step of the drive rests on a person looking at a picture but the first run of `quorra`'s reopened form, kept as a golden, and `quorra-confined`'s device refusal is driven to its title (ADR 1478).
 
 **All of it sits behind `viewer-core`**: `Command` in, `Event` out, `Query` → `Answer` beside
 them, with no type from a windowing or graphics library anywhere in its API.
@@ -613,7 +626,8 @@ pass.
   (ADR 0737) — **and the graphics device draws its
   pages** (ADR 0725) — the marks as they crossed and the worker's rasters
   wrapped as one-image lists, on a render thread of the window's own, with the interruptible CPU
-  thread kept for the frames the device refuses and `--cpu` the window with no device; the same
+  thread kept for the frames the device refuses, each said in the title as well as on the terminal
+  as it is in `quorra` (ADR 1466 section 5), and `--cpu` the window with no device; the same
   round made an unchanged page's `Arc` identity survive the pipe, which every host-side cache was
   silently missing without — while the three established windows stay in process: for
   `viewer-ui` putting the flagship there is a

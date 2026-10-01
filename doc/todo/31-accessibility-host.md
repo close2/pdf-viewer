@@ -132,9 +132,17 @@ AT-SPI bus for the whole drive, asks each window where the widgets it clicks are
 (`Component.GetExtents`), walks it with `gi`'s Atspi and counts the `DocumentFrame` nodes each window
 publishes for the same document, and stops by pid what the bus started (ADR 1453). `quorra-qt`'s
 form controls carry §14.9.3's name as their accessible name, as `quorra-gtk`'s do.
+The reopened form is read off the same bus: each toolkit's text fields, check box and combo box
+answer with the values the saved file holds (ADR 1478).
 
 ## What is left
 
+- **`quorra`'s form nodes publish no value.** A text field's node is a `TextInput` with its
+  §14.9.3 name and nothing a screen reader can read as its contents, where the two toolkits' widgets
+  answer with their text; the drive compares `quorra`'s drawn fields against a golden for that
+  reason (ADR 1478). The value would be a field of `viewer_core::AccessibilityNode`, which crosses
+  the confined worker's pipe (`viewer-confined`'s `protocol/panels.rs`), so it is a wire change
+  as well as a bridge one.
 - ~~The answer for any page but the first of a large tagged document is empty~~ — **closed in the
   four-hundred-and-ninetieth session** (ADR 0325), and checked on a real bus. The page's elements
   are found through

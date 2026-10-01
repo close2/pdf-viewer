@@ -102,7 +102,7 @@ ADR 1429).
 (ADR 1465, `tools/drive-windows.sh`'s `25-find-arabic`). `ArabicCIDTrueType.pdf`'s `/ToUnicode`
 names the Arabic Presentation Forms and its show strings give the codes in display order, so the
 readback is `ﺔﻴﺑﺮﻌﻟا` where a person types `العربية`; §9.10.2 hands that through as stated and the
-readback keeps it. Two folds are the search's, both choices:
+readback keeps it. Three folds are the search's, all choices:
 
 1. **Presentation forms.** `viewer_core::select::find` compares a form as the characters
    `UnicodeData.txt` decomposes it to (`pdf_font::shaping::fold`, compiled in by `pdf-font`'s
@@ -112,5 +112,15 @@ readback keeps it. Two folds are the search's, both choices:
    positions say the page stored that order (`select::Order`). An untagged page states no logical
    order (§14.8.2.5.1), so the positions are the only evidence there is.
 
-What is not done is diacritic folding — a word typed without its vowel marks does not find one
-printed with them — which is a decision about a language rather than about a page.
+3. **Marks** (ADR 1477). Both sides are compared as their canonical decompositions
+   (`pdf_font::shaping::decompose`), and a nonspacing mark of non-zero combining class
+   (`shaping::mark_class`: harakat, Hebrew points, Latin accents) the needle leaves off is not asked
+   for, while one it states must be printed: "كتب" finds "كَتَبَ" and "cafe" finds "café", and neither
+   the other way round. One rule for every script; a Devanagari or Thai vowel sign, of class zero,
+   is a letter. `25-find-vowelled` and `25-find-other-mark` drive it in all three windows.
+
+A glyph whose text rendering matrix mirrors it reads its stored order off its box's own turn
+(`select::axes`), so a mirrored line is read as its producer stored it. What the readback itself
+does under a mirroring `Tm` is `pdf-model`'s: `separate_text` measures a gap along user-space x
+rather than along the text matrix's axis, so a `TJ` in reading order under `-1 0 0 1 x y Tm` reads
+back with a space between every glyph and the word is not found there; under a mirroring `cm` it is.

@@ -26,7 +26,7 @@ use raster_scene::{ClipId, FillRule, OutlineId, Point, Rect, Scene, Segment};
 use super::Encoder;
 use super::device_space::{apply, compose, transform_preserves_axes};
 use super::hull::HullMemo;
-use super::residue::{Edges, Verdict};
+use super::residue::{Edges, LinkKey, Verdict};
 use crate::error::RenderError;
 use crate::raster::{self, DeviceTransform, RowEdges, Rule};
 use crate::resources::ResourceStore;
@@ -304,7 +304,7 @@ impl Encoder<'_> {
     /// rasterise every link and the region path would otherwise flatten them again. What
     /// is held is bounded by the outlines the chain names, which were budgeted when the
     /// caller uploaded them.
-    fn flatten_chain(&self, leaf: &Arc<ResidueLink>) -> Result<Vec<FlatLink>, RenderError> {
+    fn flatten_chain(&mut self, leaf: &Arc<ResidueLink>) -> Result<Vec<FlatLink>, RenderError> {
         let mut links = Vec::new();
         let mut residue = Some(Arc::clone(leaf));
         while let Some(link) = residue.take() {
@@ -315,12 +315,18 @@ impl Encoder<'_> {
                     .ok_or(RenderError::UnknownOutline {
                         outline: def.outline,
                     })?;
-            let span = self.clock.start();
-            let polylines =
-                raster::flatten(&stored.segments, compose(def.transform, self.viewport));
-            self.clock.geometry(span);
+            let key = LinkKey::of(def.outline, def.transform);
+            let flat = if let Some(kept) = self.residue.flats.get(key) {
+                kept
+            } else {
+                let span = self.clock.start();
+                let made = raster::flatten(&stored.segments, compose(def.transform, self.viewport));
+                self.clock.geometry(span);
+                self.residue.flats.keep(key, made)
+            };
             links.push(FlatLink {
-                polylines,
+                polylines: flat.polylines,
+                index: flat.index,
                 rule: match def.rule {
                     FillRule::NonZero => Rule::NonZero,
                     FillRule::EvenOdd => Rule::EvenOdd,
@@ -344,7 +350,18 @@ impl Encoder<'_> {
         let span = self.clock.start();
         let mut combined: Option<raster::CoverageMask> = None;
         for link in links {
-            let mask = raster::fill_mask(&link.polylines, link.rule, left, top, width, height);
+            let mask = match &link.index {
+                Some(index) => raster::fill_mask_indexed(
+                    &link.polylines,
+                    index,
+                    link.rule,
+                    left,
+                    top,
+                    width,
+                    height,
+                ),
+                None => raster::fill_mask(&link.polylines, link.rule, left, top, width, height),
+            };
             combined = Some(match combined {
                 None => mask,
                 Some(mut base) => {
@@ -411,7 +428,9 @@ fn empty_rect() -> Rect {
 
 /// One residue link, flattened into device space.
 struct FlatLink {
-    polylines: Vec<raster::Polyline>,
+    polylines: Arc<[raster::Polyline]>,
+    /// The polylines' edges by row, where the frame kept them (ADR 1479).
+    index: Option<Arc<raster::RowIndex>>,
     rule: Rule,
 }
 

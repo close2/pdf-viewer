@@ -84,6 +84,47 @@ fn edges_between(polylines: &[Polyline], first: f64, last: f64) -> Vec<Edge> {
     edges
 }
 
+/// A horizontal edge: it crosses no horizontal ray, but where it runs across a pixel it
+/// bounds a band — a set's inside changes across it — so its height is a cut.
+#[derive(Debug, Clone, Copy)]
+struct Level {
+    y: f64,
+    lo: f64,
+    hi: f64,
+}
+
+/// Every horizontal edge of `polylines` at a height strictly inside one of the rows
+/// `first .. last` (both whole numbers), closed as a fill closes each subpath (§8.5.3.1), by
+/// row, as `(row, level)`.
+#[expect(clippy::arithmetic_side_effects)] // `(i + 1) % n` with `i < n`
+#[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a height inside the rows
+fn levels_between(polylines: &[Polyline], first: f64, last: f64) -> Vec<(u32, Level)> {
+    let mut levels = Vec::new();
+    for polyline in polylines {
+        let count = polyline.points.len();
+        for i in 0..count {
+            let (from, to) = (polyline.points[i], polyline.points[(i + 1) % count]);
+            let (y, xa, xb) = (f64::from(from.y), f64::from(from.x), f64::from(to.x));
+            #[expect(clippy::float_cmp)] // exact: a horizontal edge is one whose ends are equal
+            let horizontal = from.y == to.y;
+            // A level on a row's own top edge is already a band's end there.
+            let inside_a_row = y > first && y < last && y.fract() != 0.0;
+            if horizontal && inside_a_row && xa.is_finite() && xb.is_finite() {
+                let row = (y - first).floor() as u32;
+                levels.push((
+                    row,
+                    Level {
+                        y,
+                        lo: xa.min(xb),
+                        hi: xa.max(xb),
+                    },
+                ));
+            }
+        }
+    }
+    levels
+}
+
 /// The part of row `y .. y + 1` an edge spans.
 fn row_span(edge: &Edge, y: f64) -> (f64, f64) {
     (edge.y0.max(y), edge.y1.min(y + 1.0))
@@ -115,6 +156,9 @@ pub(crate) struct RowEdges {
     /// of row `r` whose edge spans only part of it.
     partial_starts: Vec<u32>,
     partials: Vec<u32>,
+    /// `level_starts[r] .. level_starts[r + 1]` indexes `levels` for row `top + r`.
+    level_starts: Vec<u32>,
+    levels: Vec<Level>,
 }
 
 /// One edge as one row lists it: which edge, and where it starts across the row.
@@ -131,6 +175,7 @@ struct Row<'a> {
     reach: &'a [f64],
     prefix: &'a [i32],
     partials: &'a [u32],
+    levels: &'a [Level],
 }
 
 impl RowEdges {
@@ -177,6 +222,22 @@ impl RowEdges {
             starts.push(running);
             running += count;
         }
+        let mut levels = levels_between(polylines, first, last);
+        total = total.saturating_add(levels.len());
+        if total > limit {
+            return None;
+        }
+        levels.sort_by_key(|&(row, _)| row);
+        let mut level_starts = Vec::with_capacity(rows as usize + 1);
+        let mut at = 0_usize;
+        for r in 0..=rows {
+            level_starts.push(at as u32);
+            while levels.get(at).is_some_and(|&(row, _)| row == r) {
+                at += 1;
+            }
+        }
+        let levels: Vec<Level> = levels.into_iter().map(|(_, level)| level).collect();
+        let total = total - levels.len();
         let mut fill = starts.clone();
         let mut entries = vec![Entry { edge: 0, lo: 0.0 }; total];
         for (index, edge) in edges.iter().enumerate() {
@@ -201,6 +262,8 @@ impl RowEdges {
             prefix: Vec::new(),
             partial_starts: Vec::new(),
             partials: Vec::new(),
+            level_starts,
+            levels,
         };
         sets.order_rows(first, rows);
         Some(sets)
@@ -254,37 +317,42 @@ impl RowEdges {
             .saturating_add(self.prefix.len())
             .saturating_add(self.partial_starts.len())
             .saturating_add(self.partials.len())
+            .saturating_add(self.level_starts.len())
             .saturating_mul(size_of::<u32>());
         let wide = self
             .edges
             .len()
             .saturating_mul(size_of::<Edge>())
             .saturating_add(self.entries.len().saturating_mul(size_of::<Entry>()))
-            .saturating_add(self.reach.len().saturating_mul(size_of::<f64>()));
+            .saturating_add(self.reach.len().saturating_mul(size_of::<f64>()))
+            .saturating_add(self.levels.len().saturating_mul(size_of::<Level>()));
         words.saturating_add(wide) as u64
     }
 
     /// Device row `y`, empty outside the bucketed rows.
     #[expect(clippy::arithmetic_side_effects)] // `r + 1` is a row of `starts`
     fn row(&self, y: i32) -> Row<'_> {
-        let bounds = |r: usize| -> Option<(usize, usize, usize, usize)> {
+        let bounds = |r: usize| -> Option<(usize, usize, usize, usize, usize, usize)> {
             Some((
                 *self.starts.get(r)? as usize,
                 *self.starts.get(r + 1)? as usize,
                 *self.partial_starts.get(r)? as usize,
                 *self.partial_starts.get(r + 1)? as usize,
+                *self.level_starts.get(r)? as usize,
+                *self.level_starts.get(r + 1)? as usize,
             ))
         };
         match usize::try_from(y.saturating_sub(self.top))
             .ok()
             .and_then(|r| Some((r, bounds(r)?)))
         {
-            Some((r, (from, to, p_from, p_to))) => Row {
+            Some((r, (from, to, p_from, p_to, l_from, l_to))) => Row {
                 edges: &self.edges,
                 entries: &self.entries[from..to],
                 reach: &self.reach[from..to],
                 prefix: &self.prefix[from + r..=to + r],
                 partials: &self.partials[p_from..p_to],
+                levels: &self.levels[l_from..l_to],
             },
             None => Row {
                 edges: &self.edges,
@@ -292,6 +360,7 @@ impl RowEdges {
                 reach: &[],
                 prefix: &[0],
                 partials: &[],
+                levels: &[],
             },
         }
     }
@@ -354,6 +423,11 @@ pub(crate) struct Work {
     /// Per set, the winding of the edges left of the pixel that span its whole row.
     left: Vec<i32>,
     windings: Vec<i32>,
+    /// Each band's middle height, in order.
+    middles: Vec<f64>,
+    /// Per band and set, the winding of the partial edges left of the pixel
+    /// ([`partial_windings`]).
+    band_partials: Vec<i32>,
 }
 
 /// The area, in `0 ..= 1`, of the intersection of every set in `sets` inside device pixel
@@ -375,13 +449,26 @@ pub(crate) fn area_in_pixel(x: i32, y: i32, sets: &[&RowEdges], work: &mut Work)
     work.cuts.extend([yt, yb]);
     for (index, set) in sets.iter().enumerate() {
         let row = set.row(y);
+        // A horizontal edge running across the pixel changes this set's inside at its height,
+        // whether or not an edge through the pixel starts or ends there.
+        for level in row.levels {
+            if level.y > yt && level.y < yb && level.lo <= xr && level.hi >= xl {
+                work.cuts.push(level.y);
+            }
+        }
         // Every entry before `wholly_left` ends left of the pixel: the whole-row ones add
         // their winding through the prefix sum, the partial ones one by one.
         let wholly_left = row.reach.partition_point(|&furthest| furthest < xl);
         work.left[index] += row.prefix[wholly_left];
-        for &k in row.partials {
+        // `partials` lists its entries by position in the row, so the ones left of the pixel
+        // are a prefix of it: a row of a long curved clip is almost all partial edges, and
+        // walking the ones right of the pixel to skip them was most of a meet (ADR 1479).
+        let left_partials = row
+            .partials
+            .partition_point(|&k| (k as usize) < wholly_left);
+        for &k in &row.partials[..left_partials] {
             let k = k as usize;
-            if k < wholly_left {
+            {
                 let edge = &row.edges[row.entries[k].edge as usize];
                 let (ya, yz) = row_span(edge, yt);
                 work.partial.push(Partial {
@@ -433,15 +520,54 @@ pub(crate) fn area_in_pixel(x: i32, y: i32, sets: &[&RowEdges], work: &mut Work)
     work.cuts.sort_by(f64::total_cmp);
     work.cuts.dedup();
 
+    partial_windings(sets.len(), work);
+
     let mut area = 0.0;
+    let mut band = 0;
     for k in 1..work.cuts.len() {
         let (ya, yz) = (work.cuts[k - 1], work.cuts[k]);
         if yz <= ya {
             continue;
         }
-        area += band_area(sets, (xl, xr), (ya, yz), work);
+        area += band_area(sets, (xl, xr), (ya, yz), band, work);
+        band += 1;
     }
     area.clamp(0.0, 1.0)
+}
+
+/// Each band's winding from the partial edges left of the pixel, per set, into
+/// `work.band_partials` — band `b`'s windings at `b × sets .. (b + 1) × sets`.
+///
+/// A partial edge adds its winding to a band whose middle height `ym` has
+/// `ya ≤ ym < yb` (half-open, as a ray through a vertex counts one of its two edges). The
+/// middles rise with the bands, so those bands are one run, found by two searches, and the
+/// run is added as a difference: each edge costs two searches rather than one test per band.
+/// The windings are integers, so the order they are summed in changes nothing.
+#[expect(clippy::arithmetic_side_effects)] // band and set indices inside the buffers
+fn partial_windings(sets: usize, work: &mut Work) {
+    work.middles.clear();
+    for k in 1..work.cuts.len() {
+        let (ya, yz) = (work.cuts[k - 1], work.cuts[k]);
+        if yz > ya {
+            work.middles.push(0.5 * (ya + yz));
+        }
+    }
+    let bands = work.middles.len();
+    work.band_partials.clear();
+    work.band_partials.resize((bands + 1) * sets, 0);
+    for partial in &work.partial {
+        let first = work.middles.partition_point(|&ym| ym < partial.ya);
+        let last = work.middles.partition_point(|&ym| ym < partial.yb);
+        if first < last {
+            work.band_partials[first * sets + partial.set] += partial.dir;
+            work.band_partials[last * sets + partial.set] -= partial.dir;
+        }
+    }
+    for b in 1..bands {
+        for set in 0..sets {
+            work.band_partials[b * sets + set] += work.band_partials[(b - 1) * sets + set];
+        }
+    }
 }
 
 /// The heights inside `rows` where two edges through the pixel cross.
@@ -470,15 +596,14 @@ fn band_area(
     sets: &[&RowEdges],
     (xl, xr): (f64, f64),
     (ya, yz): (f64, f64),
+    band: usize,
     work: &mut Work,
 ) -> f64 {
     let ym = 0.5 * (ya + yz);
     work.windings.clone_from(&work.left);
-    // Half-open, as a ray through a vertex counts one of its two edges.
-    for partial in &work.partial {
-        if partial.ya <= ym && ym < partial.yb {
-            work.windings[partial.set] += partial.dir;
-        }
+    let partials = &work.band_partials[band * sets.len()..(band + 1) * sets.len()];
+    for (winding, partial) in work.windings.iter_mut().zip(partials) {
+        *winding += partial;
     }
     work.boundaries.clear();
     for edge in &work.through {
@@ -535,6 +660,33 @@ mod tests {
 
     fn set(polylines: &[Polyline], rule: Rule) -> RowEdges {
         RowEdges::of(polylines, rule, -4, 16, usize::MAX).expect("within the limit")
+    }
+
+    /// A set whose horizontal edge crosses the pixel between two sides that lie outside it:
+    /// the rectangle `[-3, 9] × [2.2, 9]` holds the pixel `(2, 2)` below `y = 2.2` only, and
+    /// the half-plane `x ≤ 2.6` holds it left of `x = 2.6`, so the two meet in
+    /// `[2, 2.6] × [2.2, 3]` — `0.6 × 0.8 = 0.48`. The rectangle's winding along the pixel's
+    /// left side changes at `y = 2.2`, where its left side ends, and no edge through the
+    /// pixel starts there: the band must still be cut at that height, or the rectangle is
+    /// read as holding the whole of it (`0.6`).
+    #[test]
+    fn a_horizontal_edge_through_the_pixel_bounds_a_band() {
+        let mut work = Work::default();
+        let rectangle = set(
+            &[polygon(&[(-3.0, 2.2), (9.0, 2.2), (9.0, 9.0), (-3.0, 9.0)])],
+            Rule::NonZero,
+        );
+        let half = set(
+            &[polygon(&[
+                (-3.0, -3.0),
+                (2.6, -3.0),
+                (2.6, 9.0),
+                (-3.0, 9.0),
+            ])],
+            Rule::NonZero,
+        );
+        let area = area_in_pixel(2, 2, &[&rectangle, &half], &mut work);
+        assert!((area - 0.48).abs() < 1e-6, "{area} against 0.48");
     }
 
     /// Two half-planes `x ≤ 2.6` meet in a pixel at their common 0.6, and two that miss each

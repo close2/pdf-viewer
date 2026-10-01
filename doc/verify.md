@@ -20,7 +20,8 @@ An example a round writes gets its line here in the same round.
 and is in `doc/environment.md`.
 
 ```sh
-cargo run -p conformance --bin ledger      # regenerates rows, keeps every status
+cargo run -p conformance --bin ledger      # counts the statuses, writes nothing
+cargo run -p conformance --bin ledger -- --write  # regenerates rows, keeps every status
 tools/governing-quotations.py              # or `tools/state.sh governing`
   # **The other half of `--bin quotations`.** That one reads every quotation in this project's
   # prose against the specification Markdown in `doc/md/` and reports the ones that match a
@@ -683,7 +684,7 @@ cd fuzz && cargo +nightly fuzz run sfnt          -- -runs=50000   # §9.6.3's tw
   # **seed its corpus with real fonts** — every embedded TrueType program the documents hold, by
   # `fuzz/seeds.sh`. Unseeded it never forms a table directory and tests nothing; seeded it
   # produced two crashers in its first minute (ADR 0175)
-tools/drive-windows.sh [--window quorra|quorra-gtk|quorra-qt]... [--out DIR]   # all three windows,
+tools/drive-windows.sh [--window quorra|quorra-gtk|quorra-qt|quorra-confined]... [--out DIR]   # all three windows,
   # driven end to end under Xvfb (ADR 1453). **The drive list**, each step with its observable:
   # open with Table 147's `/DisplayDocTitle` (the title), `/FitWindow` and `/CenterWindow` (the
   # geometry; GTK 4 places no window and says so); §12.3.3's outline clicked on a Chinese and an
@@ -694,13 +695,19 @@ tools/drive-windows.sh [--window quorra|quorra-gtk|quorra-qt]... [--out DIR]   #
   # §7.6.4.1's password; a form whose page states `/Tabs /C` with `/Annots` reversed, so column, row
   # and array order all differ — three values typed by Tab, §12.7.5.2.3's check box, §12.7.5.4's
   # choice and §12.7.5.2.2's push button, the save's `/V` and `/AS` read back and the file reopened;
-  # an Arabic word typed at `ArabicCIDTrueType.pdf`; and §14.7's tree on a private AT-SPI bus.
+  # an Arabic word typed at `ArabicCIDTrueType.pdf`; "كتب" typed at a page printing "كَتَبَ", found, and
+  # "كُتُب" not (ADR 1477); §14.7's tree on a private AT-SPI bus; and `quorra-confined` on a page of
+  # stars its worker sends as marks and its device refuses, the refusal in the title (ADR 1478).
   # **Release binaries first** (the script names the command), and `pikepdf` for the fixtures it
   # writes. It prints `step, window, works|wrong|not offered|manual, what was seen` into
   # `results.tsv` and photographs each step into `shots/<window>/<step>.png` — and every other
   # top-level window beside it, because with no window manager GTK's and Qt's popups and dialogs are
-  # not on the root's picture. **Look at the pictures**: a title is a weaker witness than the page,
-  # and four of the steps are `manual` because only a picture says whether they worked. Its clicks
+  # not on the root's picture. **No step rests on a title where the window says more** (ADR 1478):
+  # the popup by the pixels of its `/C` colour open and closed, `quorra`'s restrictions card by the
+  # level its second row sets, print by GTK's dialogue or the other two's "over 3 page(s)", the
+  # reopened form by AT-SPI's reading of the toolkits' widgets — and `quorra`'s drawn fields, which
+  # publish no value, by a golden kept under `--goldens` from the first run, which reports it
+  # `manual` to be looked at once (`--regolden REASON` writes it again). Its clicks
   # are **asked of the window**: the drive runs on one private AT-SPI bus, and the outline rows, the
   # pages tab and row, the check box and the choice are found by role and name and clicked at the
   # centre of `Component.GetExtents`, with the find bar's presence a step of its own. `quorra-gtk`
@@ -708,7 +715,7 @@ tools/drive-windows.sh [--window quorra|quorra-gtk|quorra-qt]... [--out DIR]   #
   # nodes only, so its form controls are asked and its own panels' rows are not. What no window
   # answers falls back to coordinates measured on the fixtures at 1400×1100, and `coordinates.tsv`
   # says which each click was. A step that clicks nothing says `wrong` with the title it saw. About
-  # eleven minutes for the three.
+  # nine minutes for the four.
 # §14.7's tree on a real accessibility bus, which is the only way to check the AccessKit bridge
 # end to end from here. A session bus, at-spi's own bus and registry, Xvfb, and `busctl` walking
 # `org.a11y.atspi.Accessible` from the registry root — a real client rather than this program's

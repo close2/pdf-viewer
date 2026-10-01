@@ -1,25 +1,35 @@
-//! Generates `doc/conformance/ledger.toml`, and regenerates it without losing what is in it.
+//! Counts `doc/conformance/ledger.toml`'s statuses, and — only when asked to — regenerates it
+//! without losing what is in it.
 //!
-//! Run it after nothing in particular: the ledger is generated once and then edited by
-//! people, and this program exists so that the *set of rows* is never edited by hand. It
-//! reads the standard's clause index, keeps every existing row exactly as written, adds an
-//! `unreviewed` row for any subclause that has none, refreshes each row's title from the
-//! standard, and writes the file back in clause order.
+//! **Run without arguments it writes nothing.** It reads the standard's clause index and the
+//! ledger, builds the file the generator would write, prints the status counts of that file and
+//! says whether the one on disk is already in that form. `tools/state.sh ledger` runs this mode:
+//! a command that counts may not write, because six rounds edit this file at once and a counting
+//! run that rewrote it — reordering nothing a person changed, but writing the whole file — is a
+//! write nobody asked for, which the next fast-forward then refuses (ADR 1487).
+//!
+//! **`--write` is the generator.** The ledger is generated once and then edited by people, and
+//! this program exists so that the *set of rows* is never edited by hand. With `--write` it keeps
+//! every existing row exactly as written, adds an `unreviewed` row for any subclause that has
+//! none, refreshes each row's title from the standard, and writes the file back in clause order.
+//! A round that edits the ledger and wants it in generated form runs it, alone, on its own tree.
 //!
 //! A row is never deleted by this program. If the standard's conversion loses a heading, the
 //! row for it stays and the gate reports it as naming a clause that does not exist — which
 //! is a finding about the conversion, and not something to fix by dropping the row.
 //!
 //! ```text
-//! cargo run -p conformance --bin ledger
+//! cargo run -p conformance --bin ledger              # counts; writes nothing
+//! cargo run -p conformance --bin ledger -- --write   # regenerates the rows, keeps every status
 //! ```
 
 #![forbid(unsafe_code)]
 #![expect(
     clippy::print_stdout,
-    reason = "a command-line program whose whole output is a report on what it wrote"
+    reason = "a command-line program whose whole output is a report on what it read or wrote"
 )]
 
+use std::path::Path;
 use std::process::ExitCode;
 
 use conformance::clause::ClauseIndex;
@@ -63,6 +73,17 @@ already there, and only reading the clause finds one.
 See doc/PLAN.md section 5a for the design, and tools/conformance for the checker that reads this.";
 
 fn main() -> ExitCode {
+    let write = match std::env::args().skip(1).collect::<Vec<_>>().as_slice() {
+        [] => false,
+        [flag] if flag == "--write" => true,
+        _ => {
+            eprintln!(
+                "usage: ledger [--write]\n  without arguments it counts and writes nothing; \
+                 --write regenerates doc/conformance/ledger.toml"
+            );
+            return ExitCode::from(2);
+        }
+    };
     let root = conformance::workspace_root();
     let index = match ClauseIndex::read(&root.join(conformance::STANDARD)) {
         Ok(index) => index,
@@ -129,28 +150,62 @@ fn main() -> ExitCode {
         }
     }
 
-    if let Some(directory) = path.parent()
-        && let Err(error) = std::fs::create_dir_all(directory)
-    {
-        eprintln!("cannot create {}: {error}", directory.display());
-        return ExitCode::FAILURE;
+    let text = generated.to_toml(PREAMBLE);
+    let outcome = if write {
+        write_ledger(&path, &text)
+    } else {
+        compare_ledger(&path, &text)
+    };
+    match outcome {
+        Ok(state) => println!(
+            "{}: {} rows, {added} {state}",
+            path.display(),
+            generated.rows.len()
+        ),
+        Err(error) => {
+            eprintln!("{error}");
+            return ExitCode::FAILURE;
+        }
     }
-    if let Err(error) = std::fs::write(&path, generated.to_toml(PREAMBLE)) {
-        eprintln!("cannot write {}: {error}", path.display());
-        return ExitCode::FAILURE;
-    }
-
-    println!(
-        "{}: {} rows, {added} new",
-        path.display(),
-        generated.rows.len()
-    );
     for (status, count) in generated.counts() {
         if count > 0 {
             println!("  {status:<13} {count}");
         }
     }
     ExitCode::SUCCESS
+}
+
+/// Writes the generated ledger over `path`: the one thing this program does only under `--write`.
+fn write_ledger(path: &Path, text: &str) -> Result<String, String> {
+    if let Some(directory) = path.parent() {
+        std::fs::create_dir_all(directory)
+            .map_err(|error| format!("cannot create {}: {error}", directory.display()))?;
+    }
+    std::fs::write(path, text)
+        .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+    Ok("new, written".to_owned())
+}
+
+/// Says whether the ledger at `path` is already the generated `text`, and writes nothing.
+///
+/// A ledger that does not exist yet reads as empty: every row is then one the standard has and
+/// the file lacks, which is the true answer about a missing file.
+fn compare_ledger(path: &Path, text: &str) -> Result<String, String> {
+    let on_disk = if path.exists() {
+        std::fs::read_to_string(path)
+            .map_err(|error| format!("cannot read {}: {error}", path.display()))?
+    } else {
+        String::new()
+    };
+    Ok(match first_difference(&on_disk, text) {
+        None => {
+            "the standard has and the file lacks; in its generated form; nothing written".to_owned()
+        }
+        Some(line) => format!(
+            "the standard has and the file lacks; differs from its generated form from line \
+             {line}; nothing written (`--write` regenerates it, run by a round editing the ledger)"
+        ),
+    })
 }
 
 /// A row for a subclause nobody has recorded yet.
@@ -169,4 +224,20 @@ fn new_row(clause: conformance::clause::ClauseNumber, title: String) -> Row {
         };
     }
     Row::unreviewed(clause, title)
+}
+
+/// The first line, counted from 1, at which `on_disk` and `generated` differ, if they do.
+fn first_difference(on_disk: &str, generated: &str) -> Option<usize> {
+    if on_disk == generated {
+        return None;
+    }
+    let mut ours = on_disk.lines();
+    let mut theirs = generated.lines();
+    let mut line = 1usize;
+    loop {
+        match (ours.next(), theirs.next()) {
+            (Some(a), Some(b)) if a == b => line = line.saturating_add(1),
+            _ => return Some(line),
+        }
+    }
 }

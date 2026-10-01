@@ -174,22 +174,27 @@ pub fn compare_with_tile(
     let mut differing = 0u64;
     let mut worst_tile_error = 0.0f64;
     let mut worst_tile_at = (0, 0);
-    let similarity = ssim::map(left, right);
+    let mut similarity = ssim::Bands::new(left, right);
     let mut total_similarity = 0.0f64;
     let mut worst_tile_similarity = f64::INFINITY;
     let mut worst_tile_similarity_at = (0, 0);
 
     for tile_y in (0..height).step_by(tile as usize) {
+        let tile_h = tile.min(height - tile_y);
+        // The structural map of this row of tiles only: the whole map is nine `f32` planes of the
+        // raster, which on a page the size of the corpus's largest was most of the walk's memory
+        // (`ssim::Bands`, ADR 1481).
+        let band = similarity.rows(tile_y as usize, (tile_y + tile_h) as usize);
         for tile_x in (0..width).step_by(tile as usize) {
             let tile_w = tile.min(width - tile_x);
-            let tile_h = tile.min(height - tile_y);
 
             let mut tile_diff = 0u64;
             let mut tile_similarity = 0.0f64;
             for y in tile_y..tile_y + tile_h {
                 for x in tile_x..tile_x + tile_w {
                     let pixel = (y as usize) * (width as usize) + (x as usize);
-                    tile_similarity += f64::from(similarity.get(pixel).copied().unwrap_or(1.0));
+                    let in_band = ((y - tile_y) as usize) * (width as usize) + (x as usize);
+                    tile_similarity += f64::from(band.get(in_band).copied().unwrap_or(1.0));
                     let index = pixel * 4;
                     for channel in 0..4 {
                         let a = left.data[index + channel];
@@ -512,6 +517,50 @@ mod structural_tests {
                 "pixel {index}: separable {quick} against direct {direct}"
             );
         }
+    }
+
+    /// The map produced a band of rows at a time is the whole map to the bit, at every band
+    /// height and across every band boundary — the window's margin reaching into the rows above
+    /// and below a band, and clamping at the raster's own edges, exactly as over the whole.
+    #[test]
+    fn a_banded_map_is_the_whole_map() {
+        let a = stripes(48, 7, 20, 230);
+        let mut b = a.clone();
+        paint_columns(&mut b, 10..14, 120);
+        for row in 0..b.height as usize {
+            let at = (row * b.width as usize + (row * 7) % b.width as usize) * 4;
+            b.data[at] = b.data[at].wrapping_add(90);
+            b.data[at + 3] = 200;
+        }
+        let whole = ssim::map(&a, &b);
+        let height = a.height as usize;
+        for band in [1, 2, 5, 11, 32, 47, 48, 64] {
+            let mut bands = ssim::Bands::new(&a, &b);
+            let mut joined: Vec<u32> = Vec::new();
+            for top in (0..height).step_by(band) {
+                joined.extend(
+                    bands
+                        .band(top, top + band)
+                        .iter()
+                        .map(|entry| entry.to_bits()),
+                );
+            }
+            let expected: Vec<u32> = whole.iter().map(|entry| entry.to_bits()).collect();
+            assert_eq!(joined, expected, "bands of {band} rows");
+        }
+        let mut bands = ssim::Bands::new(&a, &b);
+        let mut joined: Vec<u32> = Vec::new();
+        for top in (0..height).step_by(7) {
+            joined.extend(bands.rows(top, top + 7).iter().map(|entry| entry.to_bits()));
+        }
+        assert_eq!(
+            joined,
+            whole
+                .iter()
+                .map(|entry| entry.to_bits())
+                .collect::<Vec<_>>(),
+            "rows handed out of a held band"
+        );
     }
 
     /// The property that justifies the metric existing, tested fairly.

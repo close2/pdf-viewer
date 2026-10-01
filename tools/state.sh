@@ -19,6 +19,10 @@
 #   tools/state.sh --list          # the section names
 #
 # Exit status is the worst of the commands it ran, so a round may trust a zero.
+#
+# Every section reads and none writes: a command that counts may not write, because six rounds edit
+# one worktree at once and the merge fast-forwards from it (ADR 1487, `tools/conformance/tests/
+# read_only.rs`).
 
 set -u -o pipefail
 
@@ -65,7 +69,9 @@ section_ledger() {
     # Every status the ledger has, `departed` among them and counted as itself: the word the owner
     # added in answer to doc/questions/Q63 says a requirement was decided against with its cost
     # recorded, and folding it into `implemented` would hide the sentence while folding it into
-    # `partial` would go on counting a decision as debt. ADR 1119.
+    # `partial` would go on counting a decision as debt. ADR 1119. The binary runs without `--write`,
+    # so it counts and writes nothing: a state section is read-only, and this file is the one six
+    # rounds edit at once (ADR 1487). Its first line says whether the ledger is in generated form.
     run "ledger" '.' cargo run -q -p conformance --bin ledger
 }
 
@@ -156,7 +162,7 @@ section_navigation() {
 section_comments() {
     run "history in Rust comments, by shape" \
         '^[0-9]+ lines match|^(crates and tools|raster): ' \
-        python3 tools/comment-history.py
+        env PYTHONDONTWRITEBYTECODE=1 python3 tools/comment-history.py
 }
 
 # Every superlative the corpus gates' notes, `raster_golden`'s and the ledger's notes scope to a
@@ -199,7 +205,7 @@ prose_line() {
 section_prose() {
     heading "whether the prose is true: eight sweeps, one count each" "tools/state.sh prose"
     prose_line comments '^crates and tools: ' 'tools/state.sh comments' \
-        python3 tools/comment-history.py
+        env PYTHONDONTWRITEBYTECODE=1 python3 tools/comment-history.py
     prose_line superlat. '^[0-9]+ superlative' 'tools/state.sh superlatives' \
         env PYTHONDONTWRITEBYTECODE=1 python3 tools/superlatives.py --count
     prose_line overtaken '^[0-9]+ page-list note' 'cargo run -q -p conformance --bin overtaken' \
@@ -606,7 +612,7 @@ section_governing() {
     # quoting a retired sentence of CLAUDE.md is invisible too (ADR 0989). It reports rather than
     # fails: attribution is a proximity rule, so
     # part of what it prints is correct prose saying what CLAUDE.md *used* to state.
-    python3 tools/governing-quotations.py || status=1
+    PYTHONDONTWRITEBYTECODE=1 python3 tools/governing-quotations.py || status=1
 }
 
 # The last twelve rounds' records, beside the budget `doc/todo/02` section 8 states.
@@ -686,6 +692,61 @@ section_gates_cost() {
 section_main_checkout() {
     heading "the main checkout: what a merge does not carry" "tools/main-checkout.py"
     PYTHONDONTWRITEBYTECODE=1 python3 tools/main-checkout.py || status=1
+}
+
+# Each batch's clock, out of the batch commits that carry it (ADR 1476): per commit since the
+# orchestrator began writing round durations into the body, the gates line's figure and the round
+# durations the body states. Read from `git log`, never from a document. The one sum here is of the
+# round durations the message writes as `<n> s`, with how many figures it summed, so a figure
+# written another way is visible as missing from the count rather than silently left out; the gate
+# figure is the message's own, the sum `tools/batch.sh gates` made (ADR 1487).
+section_batches() {
+    heading "each batch's clock, from its commit message (ADR 1476)" \
+        "git log --grep 'Round durations'"
+    local commits commit body gates rounds seconds figures
+    commits=$(git log --grep='Round durations' --format=%h)
+    if [ -z "$commits" ]; then
+        printf 'no batch commit carries round durations yet\n'
+        return 0
+    fi
+    for commit in $commits; do
+        body=$(git log -1 --format=%B "$commit" | tr '\n' ' ' | tr -s ' ')
+        gates=$(printf '%s' "$body" | grep -oE '[0-9]+ of [0-9]+ green, [0-9]+ s of gate wall time' | tail -1)
+        rounds=$(printf '%s' "$body" | sed -n 's/.*Round durations[^:]*: *//p' | sed 's/ *Co-Authored-By.*//')
+        seconds=$(printf '%s' "$rounds" | grep -oE '[0-9]+ s\b' | awk '{ t += $1 } END { print t + 0 }')
+        figures=$(printf '%s' "$rounds" | grep -oE '[0-9]+ s\b' | grep -c .)
+        printf '%s %s\n  gates:  %s\n  rounds: %s s over %s figure(s) written "<n> s"\n' \
+            "$commit" "$(git log -1 --format=%cs "$commit")" "${gates:-no gate wall-time line}" \
+            "$seconds" "$figures"
+    done
+}
+
+# What the last drive of the three windows found (`tools/drive-windows.sh`): its `results.tsv`'s
+# verdict column counted, read-only. A counted fact is printed and never written down, so there is
+# no copy under `doc/`; the file is the script's own, at its default `--out`
+# (`scratchpad/drive-windows/results.tsv`) unless `DRIVE_RESULTS` names another, and otherwise the
+# newest `results.tsv` under `scratchpad/` — a round driving into `scratchpad/r<session>/` is found
+# there. `manual` is the script's word for a step whose photograph a person has to look at (ADR 1487).
+section_drive() {
+    local file=${DRIVE_RESULTS:-}
+    if [ -z "$file" ]; then
+        file=$(find scratchpad -name results.tsv -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2-)
+    fi
+    heading "the last drive of the three windows, read-only" "${file:-scratchpad/**/results.tsv}"
+    if [ -z "$file" ] || [ ! -r "$file" ]; then
+        if [ -n "$file" ]; then
+            printf 'no readable results file at %s\n' "$file"
+        else
+            printf 'no results.tsv under scratchpad/ — tools/drive-windows.sh has not run in this checkout\n'
+        fi
+        return 0
+    fi
+    printf 'run: %s\n' "$(date -r "$file" '+%Y-%m-%d %H:%M')"
+    awk -F'\t' '{ n[$3]++ }
+        END { printf "%d works, %d wrong, %d not offered, %d to look at\n",
+                     n["works"], n["wrong"], n["not offered"], n["manual"]
+              for (v in n) if (v != "works" && v != "wrong" && v != "not offered" && v != "manual")
+                  printf "  and %d with the verdict %s, which this section does not know\n", n[v], v }' "$file"
 }
 
 section_counts() {
@@ -1069,8 +1130,8 @@ section_ratchets() {
     done
 }
 
-all="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost traps hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame dates xmp save actions on-disk jpeg2000 instruments"
-quick="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost traps hosts windows binaries disk remedies instruments"
+all="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame dates xmp save actions on-disk jpeg2000 instruments"
+quick="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk remedies instruments"
 
 # Sections another section already runs. Not in `all`, because a full run pays for every line
 # they run — `ratchets` through the gates it composes, `remedies` inside `archive` — and named by
@@ -1129,6 +1190,8 @@ for section in $sections; do
     questions) section_questions ;;
     records) section_records ;;
     counts) section_counts ;;
+    batches) section_batches ;;
+    drive) section_drive ;;
     fuzz) section_fuzz ;;
     main-checkout) section_main_checkout ;;
     gates-cost) section_gates_cost ;;

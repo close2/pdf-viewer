@@ -9,8 +9,9 @@ update, a fuzz artefact whose defect is fixed, a corpus a campaign found stale, 
 will stop the fast-forward, an uncommitted question whose `§` the main checkout's own conformance
 run fails on, a patch a dependency's fork has not taken. This prints one line per kind, with its
 count; `doc/environment.md`'s *After a merge* section says what each line means and the command that
-clears it, in the order printed here, so a line added here owes its entry there. Every figure is read from the disk and from git,
-never written down (ADR 1440). It exits non-zero only when it cannot read the main checkout.
+clears it, in the order printed here, so a line added here owes its entry there, and
+`tools/conformance/tests/owner_section.rs` holds the two to one list in one order. Every figure is
+read from the disk and from git, never written down (ADR 1440). It exits non-zero only when it cannot read the main checkout.
 
 The main checkout is the directory holding the repository's common git directory — the same
 derivation `tools/batch.sh` makes — so run from the main checkout itself it reads itself.
@@ -26,7 +27,12 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def git(directory, *arguments):
-    result = subprocess.run(["git", "-C", directory, *arguments], capture_output=True, text=True)
+    # `--no-optional-locks`: `git status` and `git diff` otherwise refresh the index's stat cache
+    # and take `index.lock` to write it back — in the owner's checkout and in a worktree a round is
+    # merging. This script reads and never writes, and a state section is read-only (ADR 1487).
+    result = subprocess.run(
+        ["git", "--no-optional-locks", "-C", directory, *arguments], capture_output=True, text=True
+    )
     return result.stdout if result.returncode == 0 else None
 
 

@@ -478,6 +478,16 @@ again (ADR 1467 §4), and `tests/frame_independence.rs` holds a page's verdict a
 and in sequence. Before a refusal in a walk is attributed to a change, run the page alone and after
 its predecessor on both trees.
 
+### 92. A cache blamed for missing repeats is measured by asks per key first
+
+ADR 1467 guessed that the region cache, keyed by clip id, never saw `bug1721218_reduced.pdf`'s
+repeats; the 9 078 ids were 3 515 distinct chains, every chain one link, and one chain of 111 677
+points was asked 3 025 times for tiles of two or three pixels — ADR 0049's rule declined the
+region, so each ask re-flattened the chain and filled every edge over the tile. Keying by content
+had nothing to find. Flattening once per frame by `(outline, transform bits)` and listing edges by
+device row took the frame from 7 248 to 556 ms with every corpus digest unchanged (ADR 1479).
+Count the asks per key and the cost of one ask before a cache is re-keyed.
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

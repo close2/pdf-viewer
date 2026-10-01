@@ -80,6 +80,9 @@ struct Swept {
 /// A box, `[left, top, right, bottom]`.
 pub(super) type Box2 = [f32; 4];
 
+/// A box as [`polyline_bounds`] returns one, `(left, top, right, bottom)`.
+pub(super) type Box4 = (f32, f32, f32, f32);
+
 /// Call `visit` with every pair of `boxes` that meet, each pair once, sweeping along the
 /// longer side of their union so that a line of text or a long stroke keeps few boxes in
 /// the sweep at once. `false` where the comparisons ran past `budget`, or `visit` asked to
@@ -158,13 +161,34 @@ const PLAIN: usize = 4;
 /// nothing and hold nothing: each winds `0` outside and the same value inside, and no point
 /// is inside two. Such a fill needs no sweep, and most fills are one. (Wound against each
 /// other, two apart in one pixel would wind it `+1`, `0` and `−1`.)
-#[expect(clippy::float_cmp)] // orientations are exactly `−1`, `0` or `+1`
 pub(super) fn plainly_two_values(subpaths: &[Polyline], region: Box2) -> bool {
+    plainly_two_values_among(
+        subpaths,
+        subpaths
+            .iter()
+            .enumerate()
+            .map(|(index, polyline)| (index, polyline_bounds(std::slice::from_ref(polyline)))),
+        region,
+    )
+}
+
+/// [`plainly_two_values`], asked of the `candidates` — each subpath's index and its own box,
+/// in order — where every subpath left out is one whose box cannot meet `region` (ADR 1479's
+/// row index): those are the subpaths the full question skips, so the answer is the same.
+#[expect(clippy::float_cmp)] // orientations are exactly `−1`, `0` or `+1`
+pub(super) fn plainly_two_values_among(
+    subpaths: &[Polyline],
+    candidates: impl IntoIterator<Item = (usize, Option<Box4>)>,
+    region: Box2,
+) -> bool {
     let mut boxes = [[0.0_f32; 4]; PLAIN];
     let mut count = 0;
     let mut wound = 0.0_f32;
-    for polyline in subpaths {
-        let Some((x0, y0, x1, y1)) = polyline_bounds(std::slice::from_ref(polyline)) else {
+    for (index, bounds) in candidates {
+        let Some(polyline) = subpaths.get(index) else {
+            continue;
+        };
+        let Some((x0, y0, x1, y1)) = bounds else {
             continue;
         };
         if x1 < region[0] || y1 < region[1] || x0 > region[2] || y0 > region[3] {
@@ -202,12 +226,21 @@ impl<'a> Topology<'a> {
     ///
     /// A subpath that stays outside the region adds the same winding to every point of it,
     /// whatever it is, so it neither moves a pixel's values apart nor needs asking about.
-    pub(super) fn of(subpaths: &'a [Polyline], region: Box2, area: usize) -> Option<Self> {
+    ///
+    /// `candidates`, where given, are the subpaths whose boxes can meet `region`, each with
+    /// its box, in order (ADR 1479's row index): every subpath left out is one the region
+    /// test below would skip, so the sweep sees the same subpaths either way.
+    pub(super) fn of(
+        subpaths: &'a [Polyline],
+        candidates: Option<&[(usize, Option<Box4>)]>,
+        region: Box2,
+        area: usize,
+    ) -> Option<Self> {
         // The sweep's buffers are the thread's, reused fill after fill: most fills are a
         // few dozen edges, and four allocations each were a measurable part of asking.
         SWEEP.with(|cell| {
             let mut sweep = cell.take();
-            let topology = Self::swept(subpaths, region, area, &mut sweep);
+            let topology = Self::swept(subpaths, candidates, region, area, &mut sweep);
             cell.replace(sweep);
             topology
         })
@@ -217,6 +250,7 @@ impl<'a> Topology<'a> {
     #[expect(clippy::arithmetic_side_effects)] // `i + 1` below the subpath's length
     fn swept(
         subpaths: &'a [Polyline],
+        candidates: Option<&[(usize, Option<Box4>)]>,
         region: Box2,
         area: usize,
         sweep: &mut Sweep,
@@ -230,8 +264,21 @@ impl<'a> Topology<'a> {
         edges.clear();
         boxes.clear();
         let mut near = Vec::new();
-        for (s, polyline) in subpaths.iter().enumerate() {
-            let Some((x0, y0, x1, y1)) = polyline_bounds(std::slice::from_ref(polyline)) else {
+        let every = || {
+            subpaths
+                .iter()
+                .enumerate()
+                .map(|(s, polyline)| (s, polyline_bounds(std::slice::from_ref(polyline))))
+        };
+        let visits: Box<dyn Iterator<Item = (usize, Option<Box4>)>> = match candidates {
+            Some(listed) => Box::new(listed.iter().copied()),
+            None => Box::new(every()),
+        };
+        for (s, bounds) in visits {
+            let Some(polyline) = subpaths.get(s) else {
+                continue;
+            };
+            let Some((x0, y0, x1, y1)) = bounds else {
                 continue;
             };
             if x1 < region[0] || y1 < region[1] || x0 > region[2] || y0 > region[3] {

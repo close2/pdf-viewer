@@ -1402,6 +1402,15 @@ const CONTRADICTED_NEGATIVE_LINE_WIDTH: [&str; 1] = ["issue19633.pdf page 1"];
 ///   channels — the two that assume standard process inks — against `mupdf` and `ghostscript`
 ///   reading Artifex's SWOP profile. That is trap 9's second shape, and it is why page 1 and
 ///   page 2 belong to one mechanism.
+///
+/// # Whose departure this is: a choice, and the order the standard ranks it in (ADR 1483)
+///
+/// Neither side departs. §10.4.2.1's sentence quoted above puts §10.3 first, and every one of the
+/// five renderers is on §10.3's route; the source each assumes for a `DeviceCMYK` the document
+/// names no press for is what §10.3.2's NOTE licenses, and ours is [`WHOSE_DEPARTURE`]'s
+/// [`Whose::Choice`] under that clause. The defect this group would hide is ours using
+/// §10.4.2.5's formula while the references took the ICC route, and the sampled bottle above is
+/// what excludes it: the formula draws it black, and we draw (28, 32, 40).
 const CONTRADICTED_DEVICE_CMYK_CONVERSION: [&str; 5] = [
     "function_based_shading_cmyk.pdf page 1",
     // Contradicted rather than in [`AMBIGUOUS_DEVICE_CMYK_CONVERSION`], on the reading above: a
@@ -1494,6 +1503,15 @@ const CONTRADICTED_DEVICE_CMYK_CONVERSION: [&str; 5] = [
 /// the 16 pages on which `ghostscript` fails the same differing-fraction bound against both
 /// members of that pair — [`CONTRADICTED_GLYPH_EDGES`]'s last section has the table. The mask
 /// paragraph above owns the margin; ADR 0717 measured what the bound under it is made of.
+///
+/// # Whose departure this is (ADR 1483)
+///
+/// Ours, and it stands as a decision rather than a defect: the image paragraph's "only those
+/// pixels whose centres lie within the region shall be painted" is the sentence, the 0.478 of a
+/// row is §10.7.4 row's departure (1) met at an image's edge, and that row records it as the
+/// departure it is. The references' whole row is not the clause either, so neither moving to
+/// them nor to the clause's empty row is a fix this group can ask for; the one that would be is
+/// the departure revisited on its own row. [`Whose::Ours`] in [`WHOSE_DEPARTURE`].
 const CONTRADICTED_SUBPIXEL_IMAGE: [&str; 1] = ["issue4436r.pdf page 1"];
 
 /// Contradicted, where the two references that agree are the same decoder.
@@ -1673,6 +1691,17 @@ const CONTRADICTED_SUBPIXEL_IMAGE: [&str; 1] = ["issue4436r.pdf page 1"];
 /// rests on `jbig2dec` twice is exactly the group already named for `jbig2dec` twice, which is why
 /// the census moved no page: it found no conviction this file was not already holding by name for
 /// the same mechanism. ADR 0774.
+///
+/// # Whose departure this is, and the sentence that makes a decode checkable (ADR 1483)
+///
+/// §7.4.7 hands the decoder to ISO/IEC 14492 and says why that settles it:
+///
+/// > JBIG2 explicitly defines the requirements of a compliant bitstream, and thus defines decoder
+/// > behaviour.
+///
+/// A defined decoder returns one image for one drawing however it was coded, which is the
+/// invariant `tests/jbig2.rs` holds this tree to and `jbig2dec` fails on a quarter of the family —
+/// so the departure is the references', [`Whose::References`] in [`WHOSE_DEPARTURE`].
 const CONTRADICTED_SHARED_JBIG2_DECODER: [&str; 3] = [
     "bitmap-halftone-composite.pdf page 1",
     "bitmap-refine-page-subrect.pdf page 1",
@@ -2121,6 +2150,13 @@ const CONTRADICTED_REFERENCES_DREW_NOTHING: [&str; 0] = [];
 /// which draws the codestream's samples **and reports the contradiction beside them**, so the page
 /// is on `corpus.rs`'s list saying in words what the picture cannot: that a 200 × 100 picture was
 /// described and one red sample was supplied.
+///
+/// # Whose departure this is (ADR 1483)
+///
+/// Nobody's, because no sentence covers a file whose dictionary and codestream disagree: the two
+/// clauses above each speak to a conforming file, and §7.4.8's is the one that lets a decoder take
+/// the codestream's own dimensions. [`Whose::Choice`] in [`WHOSE_DEPARTURE`], and the report beside
+/// the picture is what makes the choice visible rather than silent.
 const CONTRADICTED_ON_A_PAGE_WE_REPORT: [&str; 1] = ["xobject-image.pdf page 1"];
 
 /// Contradicted for drawing a link's border, where the two references that agree agree for two
@@ -2250,6 +2286,19 @@ const CONTRADICTED_ON_A_PAGE_WE_REPORT: [&str; 1] = ["xobject-image.pdf page 1"]
 /// `ghostscript`, `mupdf` against `hayro` and `ghostscript` against `hayro` are **byte for byte
 /// identical** between the two variants on all three documents, because none of those three draws
 /// a link border and an entry they ignore cannot move them. ADR 0499.
+///
+/// # Whose departure this is, and the two sentences that decide it (ADR 1483)
+///
+/// A border is a `shall` and not a choice. §12.5.4:
+///
+/// > If present, the border shall be drawn completely inside the annotation rectangle.
+///
+/// and §12.5.3's Table 167, on the one flag that could have excused a blank page:
+///
+/// > If the annotation does not contain any appearance streams this flag shall be ignored.
+///
+/// So the departure is the references' — one constructs no link appearance, one answers the print
+/// question — and the group is [`Whose::References`] in [`WHOSE_DEPARTURE`].
 const CONTRADICTED_LINK_BORDER: [&str; 3] = [
     "file_url_link.pdf page 1",
     "issue14802.pdf page 1",
@@ -3075,6 +3124,14 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// 32000-2 chooses between URW's Helvetica clone and Liberation's, and a bound that convicts a
 /// reader for holding the second is measuring this machine's font directory. ADR 0962.
 ///
+/// # Whose departure this is, and what the descriptor-ranked substitute did not touch (ADR 1483)
+///
+/// A choice, on §9.5 NOTE 5's sentence quoted above, and [`Whose::Choice`] in
+/// [`WHOSE_DEPARTURE`]. ADR 1441's descriptor ranking chooses among the faces a *non-standard*
+/// name can reach; `issue15716.pdf` names `/ZapfDingbats`, which §9.6.2.2 makes one of the
+/// standard 14, so `pdf_font::standard` answers it before any ranking is asked, and the page is
+/// still contradicted on the run after that ADR at 3.10x on the structural similarity — the same
+/// outline difference the closed form above prices.
 const CONTRADICTED_SUBSTITUTED_FONT: [&str; 12] = [
     "ICC.1-2022-05.pdf page 1",
     "bug847420.pdf page 1",
@@ -3461,6 +3518,17 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 12] = [
 /// and `CONTRADICTED_SUBPIXEL_IMAGE`'s one with them, which are a §8.6.5.3 colour reading and a
 /// §10.7.4 departure. A differing fraction is a threshold count, so a glyph phase and a small
 /// colour error over a large area reach the same 5–12% and no bound can separate them. ADR 0771.
+///
+/// # Whose departure this is (ADR 1483)
+///
+/// A choice. The coverage half was ours and is closed (ADR 1082); what is left is the phase a
+/// glyph is placed at and the grid-fitting a reference applies to its outline, and §10.7.1 leaves
+/// both to the processor:
+///
+/// > The specifics of the scan conversion algorithm are not defined as part of PDF.
+///
+/// That sentence is a NOTE, and it is the clause's own statement of what its `shall`s do not
+/// reach; [`Whose::Choice`] in [`WHOSE_DEPARTURE`].
 const CONTRADICTED_GLYPH_EDGES: [&str; 10] = [
     "pdfbox/unencrypted.pdf page 2",
     "issue8088.pdf page 1",
@@ -4008,6 +4076,14 @@ const CONTRADICTED_UNEXPLAINED: [&str; 0] = [];
 /// through the verdict — a bound derived from two agreeing references is tighter than the
 /// arithmetic, and *which* third implementation happens to fall inside it is a fact about where it
 /// sits on the spread rather than about the clause. ADR 0772.
+///
+/// # Whose departure this is (ADR 1483)
+///
+/// Ours, on the clipping paragraph quoted above: a clip is "the set of pixels that would be
+/// included by a fill operation", and our 118 on device row 290 is §10.7.4 row's departure (1)
+/// painting the clip's partly covered row partly. The departure is recorded on that row and the
+/// tile that decides the verdict is the page's own arithmetic to a level, so the page stands as
+/// the departure's witness rather than as a defect. [`Whose::Ours`] in [`WHOSE_DEPARTURE`].
 const CONTRADICTED_TIGHT_CONSENSUS: [&str; 1] = ["issue7891_bc1.pdf page 1"];
 
 /// Contradicted because the three references take §11.5.3's device branch for a mask group
@@ -4038,6 +4114,11 @@ const CONTRADICTED_TIGHT_CONSENSUS: [&str; 1] = ["issue7891_bc1.pdf page 1"];
 /// 11.17 from the nearest reference. Every pixel of the rectangle differs, which is what a mask
 /// value moved everywhere it applies looks like: this is a *different mask*, not a rounding of
 /// one, and the group is named for the reading rather than for a mechanism.
+///
+/// # Whose departure this is (ADR 1483)
+///
+/// The references', on the §11.5.3 sentence quoted above: an `ICCBased` group space is CIE-based
+/// and its luminosity is the profile's `Y`. [`Whose::References`] in [`WHOSE_DEPARTURE`].
 const CONTRADICTED_LUMINOSITY_OF_A_CIE_BASED_MASK: [&str; 1] = ["issue21346.pdf page 1"];
 
 /// Documents where our page geometry differs from the references' by more than the one
@@ -14026,6 +14107,175 @@ fn held_by(page: &str) -> Option<&'static str> {
         })
 }
 
+/// Whose departure from ISO 32000-2 a contradicted group's note names.
+///
+/// Principle 5 gives a disagreement three outcomes with three different consequences — we misread
+/// the clause, they did, or the clause leaves the answer open — and [`name_the_pages_no_group_holds`]
+/// sends a round to "the highest row whose note names a departure of ours". Until each group said
+/// which of the three it is, finding that row meant reading every note on the ranking; the answer
+/// is a property of the group and not of a run, so it is stated once here, beside the clause the
+/// note decides it by, and [`every_held_page_names_whose_departure_it_is`] holds the two together
+/// (ADR 1483).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Whose {
+    /// This tree departs from a sentence of the clause, deliberately and in writing. A page held
+    /// by such a group is where a defect of ours could still be, so the ranking names the highest
+    /// of them as the next page to take.
+    Ours,
+    /// The references depart from a sentence this tree carries out.
+    References,
+    /// The clause leaves the answer to the processor — by a permission, by a NOTE licensing a
+    /// source assumption, or by stating nothing for a file that contradicts itself — and the
+    /// references chose differently.
+    Choice,
+}
+
+impl Whose {
+    /// The words the ranking prints beside a group's name.
+    fn phrase(self) -> &'static str {
+        match self {
+            Self::Ours => "a departure of ours",
+            Self::References => "a departure of the references'",
+            Self::Choice => "a choice the clause leaves to the processor",
+        }
+    }
+}
+
+/// Every non-empty contradicted group's [`Whose`], with the clause its note decides it by.
+///
+/// The clause is the one whose sentence settles the verdict the group holds, which is not always
+/// the group's subject: [`CONTRADICTED_VISIBILITY_EXPRESSION`] is about `/VE`, and its note
+/// measures that the `DeviceCMYK` press owns the differing fraction it fails on, but the sentence
+/// the references depart from is §8.11.2.2's and that is the claim the group makes. The two
+/// [`Whose::Ours`] rows are §10.7.4 row's departure (1) — a partly covered pixel painted partly —
+/// met at an image's edge and at a clip's, and both notes measure that departure as the margin.
+const WHOSE_DEPARTURE: &[(&str, Whose, &str)] = &[
+    (
+        "CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE",
+        Whose::References,
+        "§10.7.4",
+    ),
+    ("CONTRADICTED_CALRGB_TO_SCREEN", Whose::Choice, "§10.3.1"),
+    (
+        "CONTRADICTED_REFERENCE_GLYPH_WIDTHS",
+        Whose::References,
+        "§9.7.4.3",
+    ),
+    (
+        "CONTRADICTED_NEGATIVE_LINE_WIDTH",
+        Whose::References,
+        "§8.4.1",
+    ),
+    (
+        "CONTRADICTED_DEVICE_CMYK_CONVERSION",
+        Whose::Choice,
+        "§10.3.2",
+    ),
+    ("CONTRADICTED_SUBPIXEL_IMAGE", Whose::Ours, "§10.7.4"),
+    (
+        "CONTRADICTED_SHARED_JBIG2_DECODER",
+        Whose::References,
+        "§7.4.7",
+    ),
+    (
+        "CONTRADICTED_VISIBILITY_EXPRESSION",
+        Whose::References,
+        "§8.11.2.2",
+    ),
+    (
+        "CONTRADICTED_PATTERN_CELL_STATE",
+        Whose::References,
+        "§8.7.3.1",
+    ),
+    ("CONTRADICTED_ON_A_PAGE_WE_REPORT", Whose::Choice, "§7.4.8"),
+    ("CONTRADICTED_LINK_BORDER", Whose::References, "§12.5.4"),
+    ("CONTRADICTED_GLYPH_EDGES", Whose::Choice, "§10.7.1"),
+    ("CONTRADICTED_SUBSTITUTED_FONT", Whose::Choice, "§9.5"),
+    ("CONTRADICTED_TIGHT_CONSENSUS", Whose::Ours, "§10.7.4"),
+    (
+        "CONTRADICTED_LUMINOSITY_OF_A_CIE_BASED_MASK",
+        Whose::References,
+        "§11.5.3",
+    ),
+];
+
+/// The [`Whose`] and the deciding clause of the group named `group`.
+fn whose_departure(group: &str) -> Option<(Whose, &'static str)> {
+    WHOSE_DEPARTURE
+        .iter()
+        .find(|(name, _, _)| *name == group)
+        .map(|(_, whose, clause)| (*whose, *clause))
+}
+
+/// The section sign a clause citation opens with, named so that the citation checker reads it as
+/// a character rather than as a clause.
+const SECTION_SIGN: char = '\u{a7}';
+
+/// The documentation comment directly above `const <group>:` in this file.
+fn note_of(source: &str, group: &str) -> String {
+    let declaration = format!("const {group}:");
+    let lines: Vec<&str> = source.lines().collect();
+    let Some(at) = lines.iter().position(|line| line.starts_with(&declaration)) else {
+        return String::new();
+    };
+    let note: Vec<&str> = lines[..at]
+        .iter()
+        .rev()
+        .take_while(|line| line.starts_with("///"))
+        .copied()
+        .collect();
+    note.into_iter().rev().collect::<Vec<_>>().join("\n")
+}
+
+/// Every page a contradicted group holds says whose departure it is, under a clause its own note
+/// cites — and the table names no group that is not holding a page.
+///
+/// Not `#[ignore]`d: it reads this file and no corpus. A page arriving in an empty group fails
+/// here until somebody has said whose the departure is, which is the question the ranking needs
+/// answered; a group emptying fails here until its row leaves, so the table never claims a
+/// departure for a group with nothing in it (ADR 1483).
+#[test]
+fn every_held_page_names_whose_departure_it_is() {
+    let source = include_str!("oracle.rs");
+    let holding: Vec<&str> = CONTRADICTED_GROUPS
+        .iter()
+        .filter(|(_, pages)| !pages.is_empty())
+        .map(|(name, _)| *name)
+        .chain(
+            (!CONTRADICTED_ON_A_PAGE_WE_REPORT.is_empty())
+                .then_some("CONTRADICTED_ON_A_PAGE_WE_REPORT"),
+        )
+        .collect();
+    let unanswered: Vec<&&str> = holding
+        .iter()
+        .filter(|group| whose_departure(group).is_none())
+        .collect();
+    assert!(
+        unanswered.is_empty(),
+        "holding pages and absent from WHOSE_DEPARTURE: {unanswered:?}"
+    );
+    let idle: Vec<&str> = WHOSE_DEPARTURE
+        .iter()
+        .map(|(name, _, _)| *name)
+        .filter(|name| !holding.contains(name))
+        .collect();
+    assert!(
+        idle.is_empty(),
+        "WHOSE_DEPARTURE names a group holding no page: {idle:?}"
+    );
+    let uncited: Vec<String> = WHOSE_DEPARTURE
+        .iter()
+        .filter(|(name, _, clause)| {
+            let note = note_of(source, name);
+            !note
+                .split(|c: char| !(c == SECTION_SIGN || c == '.' || c.is_ascii_digit()))
+                .any(|token| token.trim_end_matches('.') == *clause)
+        })
+        .map(|(name, _, clause)| format!("{name} does not cite {clause}"))
+        .collect();
+    assert!(uncited.is_empty(), "{uncited:?}");
+}
+
 /// Holds every gated outcome to the list that carries its argument.
 ///
 /// Split out of the gate itself because a hundred lines of ratchet in the middle of a test
@@ -15037,11 +15287,17 @@ fn rank_the_contradicted_by_the_bound(results: &[Examined]) {
             },
             held_by(&examined.name).map_or_else(
                 || "held by no group".to_owned(),
-                |group| format!("held by {group}")
+                |group| match whose_departure(group) {
+                    Some((whose, clause)) => {
+                        format!("held by {group}, {} ({clause})", whose.phrase())
+                    }
+                    None => format!("held by {group}"),
+                }
             )
         );
     }
     name_the_pages_no_group_holds(&ranked);
+    name_the_next_departure_of_ours(&ranked);
 
     // The pool's shape in one line, and it is ADR 0243's population counted by the gate that
     // makes it rather than by a round with a log. That ADR found pages failing the differing
@@ -15165,6 +15421,48 @@ fn name_the_pages_no_group_holds(ranked: &[(&Examined, f64, &str)]) {
             ranked.len(),
             unheld.join(", ")
         );
+    }
+}
+
+/// The page the ranking's last sentence sends a round to, named rather than described.
+///
+/// [`name_the_pages_no_group_holds`] ends on "the next page to take is the highest row whose note
+/// names a departure of ours"; [`WHOSE_DEPARTURE`] says which notes those are, so the row is
+/// found here over the whole pool rather than the ten printed above it, and the pool's split
+/// between the three answers is counted beside it (ADR 1483).
+fn name_the_next_departure_of_ours(ranked: &[(&Examined, f64, &str)]) {
+    let whose_of = |examined: &Examined| held_by(&examined.name).and_then(whose_departure);
+    let count = |wanted: Whose| {
+        ranked
+            .iter()
+            .filter(|(examined, _, _)| whose_of(examined).is_some_and(|(whose, _)| whose == wanted))
+            .count()
+    };
+    println!(
+        "    of the {} pages, {} are held as a departure of ours, {} as the references' and {} as a \
+         choice the clause leaves to the processor",
+        ranked.len(),
+        count(Whose::Ours),
+        count(Whose::References),
+        count(Whose::Choice),
+    );
+    let next = ranked
+        .iter()
+        .find(|(examined, _, _)| whose_of(examined).is_some_and(|(whose, _)| whose == Whose::Ours));
+    match next {
+        Some((examined, ratio, of)) => {
+            let group = held_by(&examined.name).unwrap_or("no group");
+            let clause = whose_of(examined).map_or("", |(_, clause)| clause);
+            println!(
+                "    the next page to take is {}, {ratio:.2}x on the {of}, held by {group} as a \
+                 departure of ours from {clause}",
+                examined.name
+            );
+        }
+        None => println!(
+            "    no page is held as a departure of ours, so every contradiction left is a \
+             reference's or a choice the clause leaves open"
+        ),
     }
 }
 

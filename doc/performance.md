@@ -295,14 +295,14 @@ and a window does not. `warm` is 3% to 11% of the refresh on every page and is l
 | | step | 1.38 (17%) | — | — | 0.22 | 0.11 | 0.94 | 0.11 |
 | `personwithdog.pdf` p1, patch meshes | turn | 10.08 (121%) | 3.73 | 2.94 | 1.17 | 0.43 | 1.62 | 0.19 |
 | | step | 11.33 (136%) | — | **4.58** | 4.56 | 0.44 | 1.50 | 0.26 |
-| `issue12841_reduced.pdf` p1, one 5 280 × 3 792 photograph | turn | 39.96 (480%) | **26.85** | 0.01 | 0.01 | **11.27** | 1.22 | 0.08 |
-| | step | 12.60 (151%) | — | 0.00 | 0.01 | **9.81** | 2.60 | 0.18 |
-| `22060_A1_01_Plans.pdf` p1, four photographs under soft masks, 72 placements | turn | 52.91 (635%) | **36.97** | 0.16 | 4.44 | 7.98 | 2.57 | 0.32 |
-| | step | 20.88 (251%) | — | — | 5.44 | **13.62** | 0.97 | 0.33 |
-| `issue13931.pdf` p1, one photograph under a `/Matte`'d mask | turn | 38.76 (465%) | **33.85** | 0.04 | 0.35 | 3.83 | 0.62 | 0.06 |
-| | step | 7.63 (92%) | — | — | 0.05 | **6.82** | 0.59 | 0.12 |
-| `images.pdf` p1 | turn | 35.07 (421%) | **28.49** | 0.04 | 0.72 | 4.12 | 0.91 | 0.43 |
-| | step | 9.82 (118%) | — | — | 2.26 | **6.35** | 0.53 | 0.66 |
+| `issue12841_reduced.pdf` p1, one 5 280 × 3 792 photograph | turn | 37.03 (444%) | **24.46** | 0.01 | 0.01 | **11.23** | 1.18 | 0.13 |
+| | step | 12.78 (153%) | — | 0.00 | 0.01 | **10.01** | 2.58 | 0.18 |
+| `22060_A1_01_Plans.pdf` p1, four photographs under soft masks, 72 placements | turn | 47.77 (573%) | **32.43** | 0.15 | 4.44 | 7.53 | 2.92 | 0.32 |
+| | step | 20.33 (244%) | — | — | 5.77 | **13.26** | 0.96 | 0.35 |
+| `issue13931.pdf` p1, one photograph under a `/Matte`'d mask | turn | 22.60 (271%) | **17.54** | 0.05 | 0.40 | 3.96 | 0.59 | 0.06 |
+| | step | 7.55 (91%) | — | — | 0.05 | **6.42** | 0.96 | 0.12 |
+| `images.pdf` p1 | turn | 31.09 (373%) | **24.62** | 0.03 | 0.83 | 4.20 | 0.96 | 0.45 |
+| | step | 9.76 (117%) | — | — | 2.31 | **6.19** | 0.63 | 0.63 |
 | `issue14415.pdf` p1, strokes, 959 commands | turn | 11.14 (134%) | 2.49 | 0.63 | **6.28** | 0.84 | 0.76 | 0.14 |
 | | step | 5.88 (71%) | — | — | **4.41** | 0.21 | 1.11 | 0.15 |
 | `issue19802.pdf` p1, 1 032 commands | turn | 4.13 (50%) | 0.49 | 0.21 | **2.60** | 0.19 | 0.46 | 0.18 |
@@ -317,13 +317,13 @@ five rounds in one sitting, pinned, load 2.2–2.4. The Type 3 row was re-taken 
 ADR 1445, the same way against the tree before it (load 5.2–6.4; that build read 11.48 and 11.65):
 each glyph's stroke is expanded once for all its placements in the tiling, where it was expanded
 and tiled at each; p101 and `issue14415.pdf` did not move beyond the runs' spread.
-The four image rows were re-taken on 2026-10-01 after ADR 1469, three runs of five rounds against
-the tree before it in the same sitting (load 2.2–2.5; that build read 86.64 (71.26) on the plan,
-60.94 (55.47) on `issue13931.pdf`, 47.84 (41.01) on `images.pdf` and 39.32 on the photograph):
-a soft mask is decoded once, beside its image, and multiplied into the raster where it lies, and a
-converted pixel is copied from the one before it or from the memo's bytes. Unpinned the same day,
-the plan 80.14 → 53.10, `issue13931.pdf` 64.36 → 41.28, `images.pdf` 48.24 → 38.88. The rest are
-the re-baseline's.
+The four image rows were re-taken on 2026-10-01 after ADR 1481, three runs of five rounds against
+the tree before it in the same sitting (load 1.5–2.0; that build read 51.38 (36.16) on the plan,
+37.87 (32.73) on `issue13931.pdf`, 34.90 (28.70) on `images.pdf` and 37.66 on the photograph): a
+soft mask is held one byte a sample, a `/Matte`'s frame decodes beside its mask and is inverted
+where it lies, and a frame with no restart interval, decoded with nothing else of its page beside
+it, is cut at the rows an entropy pass finds. Unpinned the same day, `issue13931.pdf` 39.78 →
+25.74, `images.pdf` 35.85 → 31.51, the plan 50.32 → 50.02. The rest are the re-baseline's.
 
 **A repaint of what is on the screen always fits**; **a page turn onto a page whose outlines the
 device has not seen fits on three of the nine** — the expensive end of that gesture, where
@@ -348,22 +348,29 @@ band a codestream of its own (ADR 1433 — 53 of the corpus's 168 baseline frame
 or more). **The `transfer` of a photograph is not mostly bytes**: the queue moves the 20 MB a turn
 draws in about 2 ms, and what the column holds is raster's area-averaging reduction on the host,
 divided among the device's threads by rows (ADR 1433), an opaque band of it summed down its
-columns once and each cell read off the sums (ADR 1457). A frame with no restart interval keeps
-one thread's Huffman pass: cutting it at rows an entropy pass finds was built, byte-identical, and
-measured not to pay (ADR 1457). On `images.pdf` and the plan the
+columns once and each cell read off the sums (ADR 1457). A frame with no restart interval is cut
+at the rows one Huffman-only pass finds, each band's first DC re-coded from a prediction of zero —
+but only where nothing else of its page is decoding beside it, because the pass is serial and on a
+page whose other photographs already fill the pool it was measured a loss (ADRs 1457, 1481). On
+`images.pdf` and the plan the
 `interp` was this tree's own per-sample unpacking and soft-mask combination rather than a codec,
 and both are single passes now (ADR 1433); the combination is a pass over the alpha bytes of the
 raster the decode has just made, divided across the pool, the mask decoded beside its image, and
 the plan's `ICCBased` conversion, which its memo already answered for 99.97% of its pixels, copies
-three bytes where it rounded three floats (ADR 1469). What is left of the plan's `interp` is
-`zune-jpeg`'s Huffman on eight frames with no restart interval, all eight cores busy.
+three bytes where it rounded three floats (ADR 1469). A soft mask is held one byte a sample, the
+codec asked for a grey frame's one channel, and a `/Matte`'s frame is decoded beside its mask and
+inverted where it lies (ADR 1481). What is left of the plan's `interp` is `zune-jpeg`'s Huffman on
+eight frames with no restart interval, all eight cores busy.
 
 **The launch gate on the same day** (`PDFVIEWER_LAUNCH_CLOCKS=1`, calibration 0.702 ms): all 42
 banded figures judged and inside their bands. Cold graphics bring-up 31.7 ms; first page 39.5,
 46.6, 43.1, 62.7 and 34.7 ms over `launch-path.toml`'s five rows in order; page turn 4.4, 5.1 and
 5.7 ms. **The raster corpus gate**, pdf.js page one, readback included: 3.9–4.1 s through raster
 at 1× (median page 1.34–1.39× the CPU backend) and 19.1–19.6 s at 4× (median 2.2–2.35×), 959 agree
-and 2 differ at 1×, 958 and 0 at 4×; `PDFVIEWER_RASTER_SCALE` sets the scale.
+and 2 differ at 1×, 958 and 0 at 4×; `PDFVIEWER_RASTER_SCALE` sets the scale. Its memory at 1× peaks
+on `issue19517.pdf` (12 608 × 16 806): 5.15 GiB on 2026-10-01, the three whole-page rasters the
+comparison holds, after the structural-similarity map was taken a band at a time where it had held
+nine `f32` planes of the page and peaked the walk at 11.31 (ADR 1481).
 
 **And a page of several photographs decodes them beside each other.** A pool task reads the
 content stream ahead of the interpreter and starts each image's decode; the `Do` that draws it
