@@ -35,7 +35,7 @@ use crate::startup::Coverage;
 
 impl Encoder<'_> {
     /// The path lane: rasterise coverage for these polylines over the visible
-    /// region, multiply residue clips in, pack into scratch, emit the quad.
+    /// region, meet residue clips, pack into scratch, emit the quad.
     ///
     /// `stroke_width` is the mark's resolved device width where it is a stroke's
     /// expansion and `None` where it is a fill's outline — the second half of what
@@ -122,7 +122,7 @@ impl Encoder<'_> {
     }
 
     /// Rasterise the visible coverage of these polylines — shape ∩ clip ∩ target,
-    /// residue clips multiplied in — or `None` when nothing is visible.
+    /// residue clips met — or `None` when nothing is visible.
     pub(super) fn coverage_tile(
         &mut self,
         polylines: &[Polyline],
@@ -142,42 +142,28 @@ impl Encoder<'_> {
         let mut tile = raster::fill_mask(polylines, rule, left, top, width, height);
         self.clock.geometry(span);
 
-        self.multiply_residue(&mut tile, resolved)?;
+        self.meet_residue(&mut tile, resolved)?;
         Ok(Some(tile))
     }
 
-    /// Multiply the residue of `resolved`'s chain into a mark's coverage tile, or leave
-    /// the tile as it is where the chain is rectangles alone.
+    /// Meet a mark's coverage tile with the residue of `resolved`'s chain, pixel by pixel,
+    /// or leave the tile as it is where the chain is rectangles alone.
     ///
     /// The one site a mark meets its residue, for the walk's own tiles and for the ones
     /// the fan-out made ([`Encoder::drain_queue`], ADR 1395).
-    pub(super) fn multiply_residue(
+    pub(super) fn meet_residue(
         &mut self,
         tile: &mut raster::CoverageMask,
         resolved: &ResolvedClip,
     ) -> Result<(), RenderError> {
-        // The clip meets the mark here, and **this one still multiplies** — deliberately,
-        // and not for the reason the chain intersects (ADR 0030). §8.5.4 asks for an
-        // intersection of the object's shape with the clipping path, and *neither* `min`
-        // nor a product is that: the exact answer is the area of the two regions'
-        // intersection inside the pixel, which only a conflation-free rasteriser has.
-        // What separates the two estimates is whether the boundaries are related, and
-        // here they usually are not — where a chain's links are one region restated,
-        // which is what makes `min` exact for them and only an upper bound here.
-        // Measured, and it is the reason this is a choice rather than a conclusion:
-        // moving this site to `min` as well moves no page of the caller's corpus, in
-        // either direction, and no page's printed numbers.
+        // The clip meets the mark here as a set, by `min` ([`residue_meet`], ADR 1444).
         if let Some(clip) =
             self.residue_intersection(resolved, tile.left, tile.top, tile.width, tile.height)?
         {
-            // **Its own span, which is ADR 0023's amendment of 2026-08-17.** One multiply
-            // and one divide per pixel of the tile, and what it computes is the mark's
-            // coverage: geometry by the phase's own definition. Until that date it sat
-            // outside every span, so a page with a curve clip on it reported per-pixel
-            // arithmetic as `recording` — the remainder — and the subdivision said
-            // something untrue about the only page shape that has a residue at all.
+            // Its own span (ADR 0023): one comparison per pixel of the tile, and what it
+            // computes is the mark's coverage — geometry by the phase's own definition.
             let span = self.clock.start();
-            residue_product(tile, &clip);
+            residue_meet(tile, &clip);
             self.clock.geometry(span);
         }
         Ok(())
@@ -225,9 +211,9 @@ impl Encoder<'_> {
     /// **The caller asked for it.** [`Coverage::Gpu`] is a request; the rest decides
     /// where honouring it is a win.
     ///
-    /// **No residue clip.** A non-rectangular clip multiplies into the coverage bytes on
-    /// the CPU (`residue_product`), and there is no pass yet that does the same on the
-    /// device (ADR 0016).
+    /// **No residue clip.** A non-rectangular clip meets the coverage bytes on the CPU
+    /// ([`residue_meet`]), and there is no pass yet that does the same on the device
+    /// (ADR 0016).
     ///
     /// **The tile is worth more than its triangles.** The GPU lane costs an outline's
     /// triangles *per placement, whatever the tile's size* — a nine-pixel glyph is
@@ -437,20 +423,22 @@ impl Encoder<'_> {
     }
 }
 
-/// The mark's coverage, held to the chain's: `tile ← tile × clip`, per pixel, rounded.
+/// The mark's coverage met with the chain's: `tile ← min(tile, clip)`, per pixel.
 ///
-/// A function of its own because it is the whole of what one seam of the encode clock
-/// measures ([`crate::instrument`]) and because it is the site the comment above its call
-/// argues about: ISO 32000-2 §8.5.4 asks for the intersection of the object's shape with
-/// the clipping path, and this product is an estimate of it that the links' own `min` is
-/// not (ADR 0030). `(a·b + 127) / 255` is the unorm product rounded to nearest, so a
-/// clip of 255 leaves the mark exactly where it was.
-#[expect(clippy::cast_possible_truncation)]
-// the quotient of a u16 product by 255 is a
-// byte: both operands are bytes, so the numerator is at most 255·255 + 127
-#[expect(clippy::arithmetic_side_effects)] // and for the same reason it cannot overflow
-fn residue_product(tile: &mut raster::CoverageMask, clip: &raster::CoverageMask) {
+/// ISO 32000-2 §10.7.4: "Subsequent painting operations shall affect a region that is the
+/// intersection of the set of pixels defined by the clipping region with the set of pixels
+/// for the region to be painted." Two coverage bytes say how much of a pixel each set holds
+/// and not where, so the intersection's area there is only known to lie between
+/// `max(0, s + c − 1)` and `min(s, c)`, and it is `min(s, c)` wherever one set holds the other
+/// in the pixel — a mark standing on its clip's own edge among them. The same paragraph says
+/// which side of that interval an estimate may take: "[t]he area covered by painted pixels
+/// shall always be at least as large as the area of the original shape." `min` is the least
+/// value never below the intersection, and a product falls below it wherever both are
+/// fractional and the edges coincide (ADR 1444, which measures both against the closed
+/// form). A function of its own because it is the whole of what one seam of the encode
+/// clock measures ([`crate::instrument`]).
+fn residue_meet(tile: &mut raster::CoverageMask, clip: &raster::CoverageMask) {
     for (m, l) in tile.coverage.iter_mut().zip(&clip.coverage) {
-        *m = ((u16::from(*m) * u16::from(*l) + 127) / 255) as u8;
+        *m = (*m).min(*l);
     }
 }

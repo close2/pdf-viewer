@@ -11,9 +11,12 @@
 //! nothing embedded, and a `/Widths` array stating Arial Narrow's advances — about 0.82 of the
 //! Arial-metric faces every entry of `substitute`'s sans preference list is.
 //!
-//! **What is asserted is the property and not this machine's number.** Every face that list
-//! names is a normal-width design, and so is the compiled-in fallback, so the ratio is a
-//! property of the *file*: the letters fit in the room the file gives them.
+//! **What is asserted is the property and not this machine's number**: the letters fit in the
+//! room the file gives them. Where the machine offers a condensed member of a preferred family,
+//! the name's `Narrow` chooses it (ADR 1441) — `NimbusSansNarrow` is drawn to Arial Narrow's
+//! advances — and the face then needs no scale at all; the control below, which shows what an
+//! unscaled normal-width face would have overflowed, is asked only of a normal-width face, read
+//! off the face's own `OS/2` width class rather than off the scale under test.
 //!
 //! # Why the claim is the line's and not each letter's
 //!
@@ -61,6 +64,15 @@ fn witness_font() -> Option<(Document, Dictionary)> {
         .expect("the font resource is a dictionary")
         .clone();
     Some((document, dict))
+}
+
+/// Whether the face standing in states a width class narrower than normal, from its own `OS/2`.
+fn face_is_condensed(font: &LoadedFont) -> bool {
+    use read_fonts::TableProvider;
+    font.substitute_program()
+        .and_then(|bytes| read_fonts::FontRef::new(bytes).ok())
+        .and_then(|face| face.os2().ok())
+        .is_some_and(|os2| os2.us_width_class() < 5)
 }
 
 /// The letters the witness shows are drawn inside the advances its `/Widths` states for them.
@@ -116,6 +128,13 @@ fn a_substituted_glyph_fits_the_width_the_file_states_for_it() {
         over.len(),
         over.join("\n")
     );
+    if face_is_condensed(&font) {
+        println!(
+            "skipped the control: this machine's stand-in is a condensed face (ADR 1441), which \
+             needs no scale to fit"
+        );
+        return;
+    }
     assert!(
         over_unscaled * 2 > checked,
         "only {over_unscaled} of {checked} letters would overflow unscaled, so the assertion \
@@ -138,6 +157,15 @@ fn the_scale_derived_from_the_widths_agrees_with_the_stated_stem() {
     };
     let font = LoadedFont::load(&document, &dict, "F1").expect("a non-embedded TrueType loads");
     let stretch = font.stretch();
+    if face_is_condensed(&font) {
+        // A condensed stand-in for a condensed font: the widths and the face agree, and the
+        // scale is the one it would be for an embedded program.
+        assert!(
+            (0.9..=1.1).contains(&stretch),
+            "a condensed face against a condensed face's widths: {stretch}"
+        );
+        return;
+    }
     assert!(
         (0.70..=0.90).contains(&stretch),
         "a condensed face's widths against a normal-width substitute: {stretch}"

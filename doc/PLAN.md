@@ -528,7 +528,9 @@ sorted into code, a session this program has, a round's session, and the lines n
 (`tools/comment-history.py`, ADR 1403). `tools/state.sh superlatives` is another: each sentence that
 ranks a member of a growing population — the oracle's and the corpus gates' notes, the ledger's —
 listed so that a rank is read as a comparison with the member it names (`tools/superlatives.py`,
-ADR 1427).
+ADR 1427). `tools/state.sh prose` runs the prose sweeps together — comment history, superlatives,
+overtaken notes, unread claims, doc-comment names, environment variables and the ledger's program
+names — one count and one listing command each, so "is the prose true" is one command (ADR 1451).
 
 Two ratchets, both in the gate and both two-directional. `UNREVIEWED_CEILING` may only fall.
 `REVIEW_OWED` names the clauses the code cites whose rows are still `unreviewed`, and a clause not

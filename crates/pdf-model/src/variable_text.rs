@@ -708,11 +708,17 @@ fn machine_set(
     (again.missing.is_empty() && again.unformed.is_empty()).then_some((dict, font, again))
 }
 
-/// A `Type0` font around a machine face: §9.7.4's `CIDFontType2`, the face's glyph indices as
-/// its CIDs, and each displayed character's glyph.
+/// A `Type0` font around a machine face: the face's glyph indices as its CIDs, and each displayed
+/// character's glyph.
 ///
-/// `/Identity-H` makes a two-byte code the CID (Table 116), `/CIDToGIDMap /Identity` makes the
-/// CID the glyph index (Table 115), and `/W` states each glyph's advance — §9.7.4.3 makes that
+/// `/Identity-H` makes a two-byte code the CID (Table 116). The descendant is the `CIDFont` Table
+/// 124 puts the program under. A `glyf` face is a `CIDFontType2` under `/FontFile2`, and
+/// `/CIDToGIDMap /Identity` makes the CID the glyph index (Table 115). A `CFF ` face is a
+/// `CIDFontType0` under `/FontFile3` with Table 125's `/Subtype /OpenType`, and has no
+/// `/CIDToGIDMap`, which Table 117 states "for Type 2 `CIDFonts`" only. §9.7.4.2 then reaches the
+/// glyph by the CID directly for a name-keyed program, and through the charset for a CID-keyed
+/// one. So a CID-keyed face whose charset gives a displayed glyph another CID is not used, and
+/// the value keeps the refusal it had (ADR 1450). `/W` states each glyph's advance — §9.7.4.3 makes that
 /// array, and not the program, what the interpreter advances by, so it is read from the face's
 /// own metrics rather than left to `/DW`. `/ToUnicode` maps each code to the characters it was
 /// set for, the stored ones, which is §9.10.2's first method.
@@ -725,6 +731,7 @@ fn machine_font(
     let name = |value: &[u8]| Object::Name(pdf_syntax::Name::new(value.to_vec()));
     let number = |value: f32| Object::Real(f64::from(value));
     let metrics = face::metrics(program)?;
+    let cff = pdf_font::embed::has_cff_outlines(program);
 
     let mut by_character = std::collections::BTreeMap::new();
     let mut widths: std::collections::BTreeMap<u16, f32> = std::collections::BTreeMap::new();
@@ -734,6 +741,9 @@ fn machine_font(
         by_character.insert(*character, glyph);
         widths.insert(glyph, advance);
         meanings.entry(glyph).or_insert(meaning.as_str());
+    }
+    if !pdf_font::embed::glyph_indices_reach(program, &widths.keys().copied().collect()) {
+        return None;
     }
 
     let mut descriptor = Dictionary::new();
@@ -751,10 +761,16 @@ fn machine_font(
     descriptor.insert(key(b"Descent"), number(metrics.descent));
     descriptor.insert(key(b"CapHeight"), number(metrics.ascent));
     descriptor.insert(key(b"StemV"), Object::Integer(0));
-    descriptor.insert(
-        key(b"FontFile2"),
-        stream(Dictionary::new(), program.clone()),
-    );
+    if cff {
+        let mut file = Dictionary::new();
+        file.insert(key(b"Subtype"), name(b"OpenType"));
+        descriptor.insert(key(b"FontFile3"), stream(file, program.clone()));
+    } else {
+        descriptor.insert(
+            key(b"FontFile2"),
+            stream(Dictionary::new(), program.clone()),
+        );
+    }
 
     let mut system = Dictionary::new();
     system.insert(key(b"Registry"), Object::String(b"Adobe".as_slice().into()));
@@ -771,12 +787,21 @@ fn machine_font(
     }
     let mut descendant = Dictionary::new();
     descendant.insert(key(b"Type"), name(b"Font"));
-    descendant.insert(key(b"Subtype"), name(b"CIDFontType2"));
+    descendant.insert(
+        key(b"Subtype"),
+        name(if cff {
+            b"CIDFontType0"
+        } else {
+            b"CIDFontType2"
+        }),
+    );
     descendant.insert(key(b"BaseFont"), name(MACHINE_FACE));
     descendant.insert(key(b"CIDSystemInfo"), Object::Dictionary(system));
     descendant.insert(key(b"FontDescriptor"), Object::Dictionary(descriptor));
     descendant.insert(key(b"W"), Object::Array(w));
-    descendant.insert(key(b"CIDToGIDMap"), name(b"Identity"));
+    if !cff {
+        descendant.insert(key(b"CIDToGIDMap"), name(b"Identity"));
+    }
 
     let mut font = Dictionary::new();
     font.insert(key(b"Type"), name(b"Font"));
@@ -875,7 +900,10 @@ fn machine_font_for_a_file(font: &Dictionary) -> Result<Dictionary, String> {
         .and_then(Object::as_dict)
         .cloned()
         .ok_or_else(unreadable)?;
-    let program = match descriptor.get("FontFile2") {
+    let program = match descriptor
+        .get("FontFile2")
+        .or_else(|| descriptor.get("FontFile3"))
+    {
         Some(Object::Stream(program)) => program.data.clone(),
         _ => return Err(unreadable()),
     };
@@ -897,14 +925,28 @@ fn machine_font_for_a_file(font: &Dictionary) -> Result<Dictionary, String> {
     })?;
 
     descriptor.insert(key(b"FontName"), name(embedded.name.as_bytes()));
-    if let pdf_font::embed::Outlines::Cff { system } = &embedded.outlines {
-        return Ok(cff_font_for_a_file(
-            font,
-            descendant,
-            descriptor,
-            &embedded,
-            system.as_ref(),
-        ));
+    match &embedded.outlines {
+        pdf_font::embed::Outlines::Cff { system } => {
+            return Ok(cff_font_for_a_file(
+                font,
+                descendant,
+                descriptor,
+                &embedded,
+                b"OpenType",
+                system.as_ref(),
+            ));
+        }
+        pdf_font::embed::Outlines::CompactCid { system } => {
+            return Ok(cff_font_for_a_file(
+                font,
+                descendant,
+                descriptor,
+                &embedded,
+                b"CIDFontType0C",
+                Some(system),
+            ));
+        }
+        pdf_font::embed::Outlines::TrueType => {}
     }
 
     // Table 125's `/Length1` is the decoded program's length, whatever the filter.
@@ -941,14 +983,15 @@ fn machine_font_for_a_file(font: &Dictionary) -> Result<Dictionary, String> {
     Ok(out)
 }
 
-/// A machine face whose outlines are a `CFF ` table, rewritten for a file (ADR 1438).
+/// A machine face whose outlines are a `CFF ` table, rewritten for a file (ADR 1438, ADR 1449).
 ///
-/// Table 124's `OpenType` row puts such a program under a `CIDFontType0` whichever kind its Top
-/// DICT is, as `/FontFile3` with Table 125's `/Subtype`, whose value is "OpenType for OpenType
-/// fonts"; `/Length1` is Table 125's for a `TrueType` program only and is not written.
-/// `/CIDToGIDMap` goes, because Table 117 states it for Type 2 `CIDFonts` alone and §9.7.4.2
-/// reaches a Type 0's glyphs through the program — which [`pdf_font::embed`] has made the glyph
-/// indices the stream shows. A CID-keyed program's `ROS` becomes `/CIDSystemInfo`, which
+/// The program is `/FontFile3` under a `CIDFontType0`, with Table 125's `/Subtype` `subtype`:
+/// "`CIDFontType0C` for Type 0 compact `CIDFonts`" where [`pdf_font::embed`] wrote §9.9.2's subset
+/// as a bare CID-keyed program, and "OpenType for OpenType fonts" where it wrote the face whole.
+/// `/Length1` is Table 125's for a `TrueType` program only and is not written. `/CIDToGIDMap`
+/// goes, because Table 117 states it for Type 2 `CIDFonts` alone and §9.7.4.2 reaches a Type 0's
+/// glyphs through the program — whose charset, or whose glyph order, [`pdf_font::embed`] has
+/// made answer the CIDs the stream shows. A CID-keyed program's `ROS` becomes `/CIDSystemInfo`, which
 /// §9.7.4.2 says "should be copied into the PDF `CIDFont` dictionary". Table 119's `/BaseFont`
 /// for a Type 0 font over a Type 0 `CIDFont` "should be the concatenation of the `CIDFont`'s
 /// `BaseFont` name, a hyphen, and the `CMap` name given in the `Encoding` entry".
@@ -957,12 +1000,13 @@ fn cff_font_for_a_file(
     mut descendant: Dictionary,
     mut descriptor: Dictionary,
     embedded: &pdf_font::embed::Embedded,
+    subtype: &[u8],
     system: Option<&pdf_font::embed::SystemInfo>,
 ) -> Dictionary {
     let key = |value: &[u8]| pdf_syntax::Name::new(value.to_vec());
     let name = |value: &[u8]| Object::Name(pdf_syntax::Name::new(value.to_vec()));
     let mut file = Dictionary::new();
-    file.insert(key(b"Subtype"), name(b"OpenType"));
+    file.insert(key(b"Subtype"), name(subtype));
     descriptor.remove("FontFile2");
     descriptor.insert(key(b"FontFile3"), deflated(file, &embedded.program));
 
@@ -3026,5 +3070,116 @@ mod tests {
             machine_font(&restricted.into(), &glyphs).expect("the face is written around");
         let refused = for_a_file(&resources_of(font)).expect_err("restricted-licence embedding");
         assert!(refused.contains("licence"), "{refused}");
+    }
+
+    /// A `CFF ` face on this machine, by `fc-list`, the first in path order.
+    fn machine_cff_face() -> Option<std::sync::Arc<[u8]>> {
+        let listed = std::process::Command::new("fc-list")
+            .args([":fontformat=CFF", "file"])
+            .output()
+            .ok()?;
+        let mut paths: Vec<String> = String::from_utf8_lossy(&listed.stdout)
+            .lines()
+            .filter_map(|line| line.split(':').next().map(str::to_owned))
+            .collect();
+        paths.sort();
+        paths
+            .into_iter()
+            .filter_map(|path| std::fs::read(path).ok())
+            .find(|program| pdf_font::embed::has_cff_outlines(program))
+            .map(std::sync::Arc::from)
+    }
+
+    /// The drawing path describes a `CFF ` machine face as what it is — a `CIDFontType0` under
+    /// `/FontFile3` `/OpenType`, no `/CIDToGIDMap` (Table 117) — and it draws every glyph exactly
+    /// as the `CIDFontType2` description it replaced did (ADR 1450).
+    #[test]
+    fn a_cff_machine_face_is_a_cid_font_type_0_in_memory_and_draws_as_before() {
+        let Some(program) = machine_cff_face() else {
+            println!("skipped: this machine offers no CFF face (ADR 1154)");
+            return;
+        };
+        let glyphs: std::collections::BTreeMap<char, String> = "Aggregate"
+            .chars()
+            .map(|character| (character, character.to_string()))
+            .collect();
+        let (font, by_character) = machine_font(&program, &glyphs).expect("the face covers Latin");
+        let descendant = |font: &Dictionary| {
+            font.get("DescendantFonts")
+                .and_then(Object::as_array)
+                .and_then(|fonts| fonts.first())
+                .and_then(Object::as_dict)
+                .cloned()
+                .expect("a descendant")
+        };
+        let now = descendant(&font);
+        assert_eq!(
+            now.get("Subtype")
+                .and_then(Object::as_name)
+                .map(Name::as_bytes),
+            Some(b"CIDFontType0".as_slice())
+        );
+        assert!(now.get("CIDToGIDMap").is_none());
+        let descriptor = now
+            .get("FontDescriptor")
+            .and_then(Object::as_dict)
+            .expect("a descriptor");
+        assert!(descriptor.get("FontFile2").is_none());
+        let Some(Object::Stream(file)) = descriptor.get("FontFile3") else {
+            panic!("a /FontFile3 stream");
+        };
+        assert_eq!(
+            file.dict
+                .get("Subtype")
+                .and_then(Object::as_name)
+                .map(Name::as_bytes),
+            Some(b"OpenType".as_slice())
+        );
+
+        // The description this replaced, rebuilt: a `CIDFontType2` over the same program.
+        let mut before_descriptor = descriptor.clone();
+        before_descriptor.remove("FontFile3");
+        let mut plain = (**file).clone();
+        plain.dict.remove("Subtype");
+        before_descriptor.insert(
+            Name::new(b"FontFile2".to_vec()),
+            Object::Stream(std::sync::Arc::new(plain)),
+        );
+        let mut before = now.clone();
+        before.insert(
+            Name::new(b"Subtype".to_vec()),
+            Object::Name(Name::new(b"CIDFontType2".to_vec())),
+        );
+        before.insert(
+            Name::new(b"CIDToGIDMap".to_vec()),
+            Object::Name(Name::new(b"Identity".to_vec())),
+        );
+        before.insert(
+            Name::new(b"FontDescriptor".to_vec()),
+            Object::Dictionary(before_descriptor),
+        );
+        let mut before_font = font.clone();
+        before_font.insert(
+            Name::new(b"DescendantFonts".to_vec()),
+            Object::Array(vec![Object::Dictionary(before)]),
+        );
+
+        let document = pdf_syntax::Document::empty();
+        let loaded = pdf_font::LoadedFont::load(&document, &font, "now").expect("loads");
+        let loaded_before =
+            pdf_font::LoadedFont::load(&document, &before_font, "before").expect("loads");
+        for glyph in by_character.values() {
+            let code = loaded.decode(&glyph.to_be_bytes());
+            let code = *code.first().expect("one code");
+            assert_eq!(loaded.glyph_index(code), loaded_before.glyph_index(code));
+            let outline = loaded.outline(code).expect("an outline");
+            let outline_before = loaded_before.outline(code).expect("an outline");
+            assert_eq!(
+                outline.commands(),
+                outline_before.commands(),
+                "glyph {glyph}"
+            );
+            assert!(!outline.commands().is_empty() || *glyph == 0);
+        }
     }
 }

@@ -22,7 +22,7 @@
 //! # The parts
 //!
 //! - **geometry** — flattening outlines to polylines, expanding strokes, running the
-//!   scanline rasteriser, and multiplying a clip chain's residue into a mark's tile:
+//!   scanline rasteriser, and meeting a mark's tile with a clip chain's residue:
 //!   making coverage out of shapes.
 //! - **staging** — packing that coverage into the frame's scratch sheet and the glyph
 //!   atlas: the memory traffic that carries it, as distinct from the arithmetic that

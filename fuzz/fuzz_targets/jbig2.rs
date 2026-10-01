@@ -3,8 +3,11 @@
 //! The codec is `hayro-jbig2` and runs in the sandboxed process (principle 3); what this tree
 //! writes around it is `pdf_sandbox`'s filter — the embedded organisation §7.4.7 describes, the
 //! `/JBIG2Globals` stream Table 12 places before the page's segments, the retry on a whole prefix
-//! of segments, the bilevel sense, and [`pdf_sandbox`]'s pixel bound. The in-process isolation runs
-//! the very functions the worker calls, so this reaches all of it without a process per input.
+//! of segments, the bilevel sense, and [`pdf_sandbox`]'s pixel bound. [`pdf_sandbox::decode_here`]
+//! runs the very function the worker calls, on this thread, so this reaches all of it without a
+//! process per input — and without the in-process deadline, because libFuzzer's own `-timeout` is
+//! the bound here, and a deadline that abandons slow inputs would, after two, refuse every input
+//! after them (ADR 1447).
 //!
 //! The first two bytes are the globals' length (big-endian, clamped to what follows), then the
 //! globals, then the page's own segments. Beyond never panicking, the answer is checked against
@@ -18,7 +21,7 @@
 )]
 
 use libfuzzer_sys::fuzz_target;
-use pdf_sandbox::{Decoded, Isolation, Request};
+use pdf_sandbox::{Decoded, Request};
 
 fuzz_target!(|data: &[u8]| {
     let Some((head, rest)) = data.split_first_chunk::<2>() else {
@@ -27,8 +30,7 @@ fuzz_target!(|data: &[u8]| {
     let split = usize::from(u16::from_be_bytes(*head)).min(rest.len());
     let (globals, segments) = rest.split_at(split);
 
-    pdf_sandbox::set_isolation(Isolation::InProcess);
-    let Ok(decoded) = pdf_sandbox::decode(&Request::Jbig2 {
+    let Ok(decoded) = pdf_sandbox::decode_here(&Request::Jbig2 {
         data: segments,
         globals,
     }) else {

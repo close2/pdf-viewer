@@ -15,7 +15,8 @@
 //   is the footprint expanded to pixel bounds.
 // - An oblique placement paints the fragments whose centres map inside the unit
 //   square — hard edges, stated as the deliberate cost of the rare case.
-// - A residue clip arrives as a scratch tile multiplied in, like every lane.
+// - A residue clip arrives as a scratch tile met by `min`, like every lane (the caller's
+//   ADR 1444).
 //
 // Filtering is the placement's **resolved** decision (§4.5, integration note 1):
 // nearest goes through textureLoad (exact, adapter-invariant); linear goes through
@@ -107,7 +108,7 @@ fn to_texel(p: vec2f) -> vec2f {
     );
 }
 
-// Geometric coverage met with the clip, times the residue — the element's *shape* (§11.6.4.2: "For images
+// Geometric coverage met with the clip and the residue — the element's *shape* (§11.6.4.2: "For images
 // … the shape shall be 1.0 inside the image rectangle and 0.0 outside it", met with
 // §8.5.4's clip). The image's own alpha, the constant alpha and the soft mask are all
 // opacity, not shape, and stay out of this product on purpose (ADR 0011, ADR 0066).
@@ -132,7 +133,9 @@ fn shape_at(p: vec2f, st: vec2f, dims: vec2f) -> f32 {
     }
     if params.coverage.z > 0.5 {
         let texel = vec2i(params.coverage.xy + (p - params.dest.xy));
-        cov = cov * textureLoad(scratch_tex, texel, 0).r;
+        // A residue byte carries no geometry: it meets the shape by `min`, the least value
+        // never below §10.7.4's intersection (the caller's ADR 1444).
+        cov = min(cov, textureLoad(scratch_tex, texel, 0).r);
     }
     return cov;
 }

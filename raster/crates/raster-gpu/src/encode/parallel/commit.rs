@@ -402,10 +402,10 @@ impl<'a> Encoder<'a> {
         let Some(mut tile) = tile else { return Ok(()) };
         self.charge_tile(tile.width, tile.height)?;
         // The clip meets the mark here, as it does in `Encoder::coverage_tile`, and after
-        // the same charge: the walk would have charged, rasterised and multiplied, and the
-        // rasterising is the only step that moved (ADR 1395).
+        // the same charge: the walk would have charged, rasterised and met the residue, and
+        // the rasterising is the only step that moved (ADR 1395).
         if let Some(resolved) = &draw.residue {
-            self.multiply_residue(&mut tile, resolved)?;
+            self.meet_residue(&mut tile, resolved)?;
         }
         let dest = Point::new(tile.left as f32, tile.top as f32);
         self.push_scratch_quad(&tile, dest, draw.color, draw.clip, draw.style, draw.mask)

@@ -167,7 +167,7 @@ impl<'a> Encoder<'a> {
             .ok_or(RenderError::UnknownOutline { outline })?;
         let to_device = compose(transform, self.viewport);
         let resolved = self.resolve_clip(clip)?;
-        // A residue clip multiplies into every tile from frame-wide rasterisations,
+        // A residue clip meets every tile from frame-wide rasterisations,
         // and it also routes a compute-lane fill back through the cache lanes: no
         // record rebuilds either, so the frame re-walks (`replay.rs`).
         if resolved.residues.is_some() {
@@ -237,7 +237,7 @@ impl<'a> Encoder<'a> {
             // lane (ADR 0047). The three conditions are the shaded arm's below, and each
             // is the same requirement seen on a different paint:
             //
-            // - a **residue** clip has to multiply into a coverage mask, and the
+            // - a **residue** clip has to meet a coverage mask, and the
             //   analytic lane has nowhere to put one;
             // - an **oblique** transform makes the four edges a parallelogram, whose
             //   coverage `rect.wgsl` cannot express;
@@ -674,7 +674,7 @@ impl<'a> Encoder<'a> {
         Ok(true)
     }
 
-    /// Whether the compute lane may draw this fill: no residue clip to multiply in, and an
+    /// Whether the compute lane may draw this fill: no residue clip to meet, and an
     /// outline that winds every point two neighbouring values — the lane integrates the
     /// winding, and an outline that can wind more stays on the scratch lane, which asks
     /// the set (ADR 1389).

@@ -406,13 +406,13 @@ struct Layout {
 }
 
 /// The two-byte escape's operators, as `escape + second byte`.
-const ESCAPE: u16 = 0x0c00;
-const OP_CHARSET: u16 = 15;
+pub(crate) const ESCAPE: u16 = 0x0c00;
+pub(crate) const OP_CHARSET: u16 = 15;
 const OP_ENCODING: u16 = 16;
-const OP_CHARSTRINGS: u16 = 17;
-const OP_PRIVATE: u16 = 18;
-const OP_FD_ARRAY: u16 = ESCAPE | 0x24;
-const OP_FD_SELECT: u16 = ESCAPE | 0x25;
+pub(crate) const OP_CHARSTRINGS: u16 = 17;
+pub(crate) const OP_PRIVATE: u16 = 18;
+pub(crate) const OP_FD_ARRAY: u16 = ESCAPE | 0x24;
+pub(crate) const OP_FD_SELECT: u16 = ESCAPE | 0x25;
 
 /// Where a rebuilt program's Top DICT is to point, for the offsets that are not simply shifted.
 ///
@@ -634,7 +634,7 @@ fn push_index(out: &mut Vec<u8>, items: &[Vec<u8>]) {
 }
 
 /// Writes a DICT operator, in its one- or two-byte form.
-fn push_operator(out: &mut Vec<u8>, op: u16) {
+pub(crate) fn push_operator(out: &mut Vec<u8>, op: u16) {
     if op & ESCAPE == ESCAPE {
         out.push(12);
     }
@@ -642,7 +642,7 @@ fn push_operator(out: &mut Vec<u8>, op: u16) {
 }
 
 /// A DICT integer in the five-byte form, which holds any offset a CFF can state.
-fn int5(value: i64) -> [u8; 5] {
+pub(crate) fn int5(value: i64) -> [u8; 5] {
     let value = i32::try_from(value).unwrap_or(i32::MAX);
     let [a, b, c, d] = value.to_be_bytes();
     [29, a, b, c, d]
@@ -756,7 +756,7 @@ fn dict_entries(dict: &[u8]) -> Option<Vec<(Vec<u8>, u16)>> {
 /// The value a one- or two-byte operand encodes and its width, for a first byte in
 /// `32..=254` — the forms a DICT and a Type 2 charstring share (Adobe Technical Note #5176,
 /// Table 3; #5177, section 3.2). `b1` is read only for the two-byte forms.
-fn small_operand(b0: u8, b1: u8) -> (i64, usize) {
+pub(crate) fn small_operand(b0: u8, b1: u8) -> (i64, usize) {
     let (b0, b1) = (i64::from(b0), i64::from(b1));
     match b0 {
         32..=246 => (b0.saturating_sub(139), 1),
@@ -779,7 +779,7 @@ fn small_operand(b0: u8, b1: u8) -> (i64, usize) {
 }
 
 /// The integers a DICT's operand bytes encode, in order; a real number ends the list.
-fn dict_ints(operands: &[u8]) -> Vec<i64> {
+pub(crate) fn dict_ints(operands: &[u8]) -> Vec<i64> {
     let mut values = Vec::new();
     let mut i = 0usize;
     while let Some(&b0) = operands.get(i) {
@@ -1022,7 +1022,7 @@ fn has_width(operands: &[std::ops::Range<usize>], present: bool) -> LeadingWidth
 
 /// The `Subrs` operator of a Private DICT (Adobe Technical Note #5176, Table 23, operator 19),
 /// whose operand is an offset **relative to the Private DICT's own start**.
-const OP_SUBRS: u16 = 19;
+pub(crate) const OP_SUBRS: u16 = 19;
 
 /// `callsubr` and `callgsubr` (Adobe Technical Note #5177, section 4.7).
 const CALL_LOCAL: u8 = 10;
@@ -1042,7 +1042,7 @@ const MAX_INLINE_DEPTH: usize = 8;
 
 /// The subroutine bias, which Adobe Technical Note #5177 section 4.7 makes a function of how
 /// many subroutines the INDEX holds.
-fn bias(count: usize) -> i64 {
+pub(crate) fn bias(count: usize) -> i64 {
     if count < 1240 {
         107
     } else if count < 33900 {
@@ -1389,6 +1389,131 @@ pub fn with_advances(data: &[u8], advances: &BTreeMap<u16, i64>) -> Result<Vec<u
         )?;
     }
     Ok(layout.with_charstrings(data, &charstrings))
+}
+
+// ---------------------------------------------------------------------------------------------
+// The pieces a subsetter rebuilds a program from.
+// ---------------------------------------------------------------------------------------------
+
+/// A CFF program taken apart into the structures a subset is rebuilt from (Adobe Technical Note
+/// #5176, section 2's order: header, Name INDEX, Top DICT INDEX, String INDEX, Global Subr INDEX,
+/// then whatever the Top DICT's offsets locate).
+///
+/// Every piece borrows from the program, and nothing is interpreted beyond the INDEX and DICT
+/// encodings; `pdf_font::embed`'s CFF writer decides what of it is kept.
+pub(crate) struct Parts<'a> {
+    /// The Top DICT's entries, as (operand bytes, operator).
+    pub(crate) top: Vec<(Vec<u8>, u16)>,
+    /// The String INDEX's items, SID 391 first.
+    pub(crate) strings: Vec<&'a [u8]>,
+    /// The Global Subr INDEX's items.
+    pub(crate) global_subrs: Vec<&'a [u8]>,
+    /// The `CharStrings` INDEX's items, by glyph index.
+    pub(crate) charstrings: Vec<&'a [u8]>,
+    /// Whether the Top DICT uses `CIDFont` operators.
+    pub(crate) cid_keyed: bool,
+    /// The Font DICTs: a CID-keyed program's `FDArray`, or for a name-keyed one a single entry
+    /// holding the Top DICT's Private DICT and no Font DICT entries of its own.
+    pub(crate) font_dicts: Vec<FontDictParts<'a>>,
+    /// The program, opened, for `FDSelect`.
+    font: CffFontRef<'a>,
+}
+
+/// One Font DICT of [`Parts`], with the Private DICT and local subroutines it names.
+pub(crate) struct FontDictParts<'a> {
+    /// The Font DICT's own entries; empty for a name-keyed program's one.
+    pub(crate) entries: Vec<(Vec<u8>, u16)>,
+    /// The Private DICT's entries.
+    pub(crate) private: Vec<(Vec<u8>, u16)>,
+    /// The Local Subr INDEX's items, which the Private DICT's `Subrs` locates.
+    pub(crate) subrs: Vec<&'a [u8]>,
+}
+
+impl<'a> Parts<'a> {
+    /// Takes `data` apart, or `None` where any of the structures does not read.
+    pub(crate) fn read(data: &'a [u8]) -> Option<Self> {
+        let header = usize::from(*data.get(2)?);
+        let name_index = index_extent(data, header)?;
+        let top_index = index_extent(data, name_index.end)?;
+        let top_bytes = index_item(data, name_index.end, 0)?;
+        let top = dict_entries(top_bytes)?;
+        let string_index = index_extent(data, top_index.end)?;
+        let strings = index_items(data, top_index.end)?;
+        let global_subrs = index_items(data, string_index.end)?;
+        let offset = |wanted: u16| {
+            top.iter()
+                .find(|(_, op)| *op == wanted)
+                .and_then(|(operands, _)| dict_int(operands))
+                .and_then(|at| usize::try_from(at).ok())
+        };
+        let charstrings = index_items(data, offset(OP_CHARSTRINGS)?)?;
+        let font = open(data).ok()?;
+        let cid_keyed = font.is_cid();
+        let font_dicts = if cid_keyed {
+            index_items(data, offset(OP_FD_ARRAY)?)?
+                .into_iter()
+                .map(|dict| FontDictParts::read(data, dict, true))
+                .collect::<Option<Vec<_>>>()?
+        } else {
+            vec![FontDictParts::read(data, top_bytes, false)?]
+        };
+        Some(Self {
+            top,
+            strings,
+            global_subrs,
+            charstrings,
+            cid_keyed,
+            font_dicts,
+            font,
+        })
+    }
+
+    /// The index into [`Self::font_dicts`] a glyph's charstring is read against: `FDSelect`'s
+    /// answer for a CID-keyed program, the one entry for a name-keyed one.
+    pub(crate) fn font_dict_of(&self, glyph: u16) -> Option<usize> {
+        if !self.cid_keyed {
+            return Some(0);
+        }
+        self.font
+            .subfont_index(GlyphId::from(glyph))
+            .map(usize::from)
+    }
+}
+
+impl<'a> FontDictParts<'a> {
+    /// A DICT's `Private` entry followed to its Private DICT and that DICT's `Subrs`, the
+    /// DICT's own entries kept where `own` (a Font DICT) and not where it is a Top DICT.
+    fn read(data: &'a [u8], dict: &[u8], own: bool) -> Option<Self> {
+        let entries = dict_entries(dict)?;
+        let located = entries
+            .iter()
+            .find(|(_, op)| *op == OP_PRIVATE)
+            .and_then(|(operands, _)| dict_two_ints(operands));
+        let (private, subrs) = match located {
+            Some((size, at)) => {
+                let at = usize::try_from(at).ok()?;
+                let bytes = data.get(at..at.checked_add(usize::try_from(size).ok()?)?)?;
+                let private = dict_entries(bytes)?;
+                let relative = private
+                    .iter()
+                    .find(|(_, op)| *op == OP_SUBRS)
+                    .and_then(|(operands, _)| dict_int(operands));
+                let subrs = match relative {
+                    Some(relative) => {
+                        index_items(data, at.checked_add(usize::try_from(relative).ok()?)?)?
+                    }
+                    None => Vec::new(),
+                };
+                (private, subrs)
+            }
+            None => (Vec::new(), Vec::new()),
+        };
+        Some(Self {
+            entries: if own { entries } else { Vec::new() },
+            private,
+            subrs,
+        })
+    }
 }
 
 #[cfg(test)]

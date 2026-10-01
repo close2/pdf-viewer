@@ -294,3 +294,78 @@ fn every_ignored_test_file_is_named_by_the_sequence_or_says_why_it_is_not() {
          {unnamed:?}"
     );
 }
+
+/// The words of the shell assignment `name="…"` in `script`, which is how `tools/state.sh` writes
+/// its `all`, `quick` and `composed` lists — empty where there is none, which the test refuses.
+fn section_list(script: &str, name: &str) -> BTreeSet<String> {
+    let prefix = format!("{name}=\"");
+    script
+        .lines()
+        .find_map(|line| line.strip_prefix(prefix.as_str()))
+        .and_then(|rest| rest.split('"').next())
+        .unwrap_or_default()
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Every section a list names is one the script can run, and every section it can run is one a
+/// list names.
+///
+/// A name in `all` or `quick` with no `name) section_…` arm prints "no such section" in the middle
+/// of a full run and sets the exit status, which a round reads as a gate failing; an arm in neither
+/// `all` nor `composed` is a section `--list` never prints, which is a section nobody runs (the
+/// script's own comment on `composed`). `prose` gathers the prose sweeps into one answer (ADR 1451)
+/// and is the section this was written beside.
+#[test]
+fn every_section_a_list_names_is_one_the_script_runs_and_every_one_it_runs_is_listed() {
+    let script = std::fs::read_to_string(repository_root().join("tools/state.sh"))
+        .expect("tools/state.sh is this check's population");
+    let arms: BTreeSet<String> = script
+        .lines()
+        .filter_map(|line| {
+            let (name, body) = line.trim().split_once(") section_")?;
+            let named = !name.is_empty()
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+                && body.ends_with(";;");
+            named.then(|| name.to_owned())
+        })
+        .collect();
+    let all = section_list(&script, "all");
+    let quick = section_list(&script, "quick");
+    let composed = section_list(&script, "composed");
+    assert!(
+        arms.len() > 20 && all.len() > 20 && !quick.is_empty() && !composed.is_empty(),
+        "{} arms, and {} / {} / {} sections in `all` / `quick` / `composed`: the parse is \
+         measuring nothing",
+        arms.len(),
+        all.len(),
+        quick.len(),
+        composed.len()
+    );
+    let unrunnable: Vec<&String> = all
+        .iter()
+        .chain(&quick)
+        .chain(&composed)
+        .filter(|name| !arms.contains(*name))
+        .collect();
+    let unlisted: Vec<&String> = arms
+        .iter()
+        .filter(|name| !all.contains(*name) && !composed.contains(*name))
+        .collect();
+    assert!(
+        unrunnable.is_empty(),
+        "tools/state.sh lists sections it has no arm for: {unrunnable:?}"
+    );
+    assert!(
+        unlisted.is_empty(),
+        "tools/state.sh runs sections neither `all` nor `composed` names, so `--list` hides them: \
+         {unlisted:?}"
+    );
+    assert!(
+        all.contains("prose") && quick.contains("prose"),
+        "the prose section is in `all` and `quick` (ADR 1451)"
+    );
+}

@@ -6,7 +6,8 @@
 //! decoding a sample. `pdf_sandbox`'s filter hands the codestream to `hayro-jpeg2000` inside the
 //! sandboxed process (principle 3) and keeps the sample budget — a step down the resolution
 //! progression for a viewer, §7.4.9 NOTE 3, or a refusal for a writer that asked for the whole
-//! grid (ADR 1333). The in-process isolation runs the very functions the worker calls.
+//! grid (ADR 1333). [`pdf_sandbox::decode_here`] runs the very functions the worker calls, on this
+//! thread, where libFuzzer's own `-timeout` bounds it (ADR 1447).
 //!
 //! The first byte chooses the request — the stepped-down decode or the whole one, colours or
 //! palette indices — and the rest is the file. Beyond never panicking, a raster is checked against
@@ -21,7 +22,7 @@
 )]
 
 use libfuzzer_sys::fuzz_target;
-use pdf_sandbox::{Decoded, Isolation, Request};
+use pdf_sandbox::{Decoded, Request};
 
 /// What a whole decode is allowed here: a sixteenth of the ordinary worker's budget, so that one
 /// input costs milliseconds while the refusal past it is still reached.
@@ -47,8 +48,7 @@ fuzz_target!(|data: &[u8]| {
             indices,
         }
     };
-    pdf_sandbox::set_isolation(Isolation::InProcess);
-    let Ok(decoded) = pdf_sandbox::decode(&request) else {
+    let Ok(decoded) = pdf_sandbox::decode_here(&request) else {
         return;
     };
     let Decoded::Raster(raster) = decoded else {

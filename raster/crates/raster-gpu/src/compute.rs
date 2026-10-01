@@ -29,7 +29,8 @@
 //! level's boundary then rounds one level apart — `tests/compute_lane.rs` holds glyphs to one
 //! level for that reason, and whole identity-placed scenes to the byte (ADR 1420). The flattening is
 //! `raster/flatten.rs` statement for statement — the transform's `a·x + c·y + e`, the
-//! exact midpoint halving, the flatness cross-products, the depth cap — made iterative
+//! exact midpoint halving, the flatness cross-products, the depth cap, the two chords a flat
+//! piece leaves (ADR 1443) — made iterative
 //! with an explicit stack because WGSL has no recursion, pushed right-half-first so
 //! the emission order is the recursion's; the cubic's own control points stay in
 //! unshifted device space so no round-trip through the tile shift can move a bit. The
@@ -412,12 +413,15 @@ fn flatten_cubic(w: ptr<function, Walk>, start: vec2<f32>, c1: vec2<f32>, c2: ve
         let p0 = stack_p0[sp]; let p1 = stack_p1[sp];
         let p2 = stack_p2[sp]; let p3 = stack_p3[sp];
         let depth = stack_depth[sp];
+        let q1 = (p1 + p2) * 0.5;
+        // A flat piece leaves the midpoint of its inner controls and then its end, which
+        // enclose the piece's own area where one chord would inscribe it (ADR 1443).
         if (is_flat(p0, p1, p2, p3, tolerance) || depth >= 16u) {
+            point(w, q1);
             point(w, p3);
             continue;
         }
         let q0 = (p0 + p1) * 0.5;
-        let q1 = (p1 + p2) * 0.5;
         let q2 = (p2 + p3) * 0.5;
         let r0 = (q0 + q1) * 0.5;
         let r1 = (q1 + q2) * 0.5;

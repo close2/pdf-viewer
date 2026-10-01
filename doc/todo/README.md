@@ -146,7 +146,9 @@ a reading nobody else holds is the one thing a deletion cannot give back (ADR 14
 
 Nothing in these is owed. Each is the reading a comment, a ledger note or `CLAUDE.md` points a
 reader at, so a citation resolves to the argument rather than to nothing (ADR 1416); a round that
-takes work does not take it from here.
+takes work does not take it from here. A file's `Cited by:` line is held to its citers —
+`cargo test -p conformance --test todo_citers` fails on a directory, document or ledger note it
+names that no longer mentions the file (ADR 1451).
 
 | | item |
 |---|---|

@@ -18,7 +18,6 @@
 
 use raster_scene::{LineCap, LineJoin, Point, Segment, Stroke};
 
-use crate::raster::flatten::FLATTEN_TOLERANCE;
 use crate::raster::{Rule, fill_mask, fill_mask_settled, flatten_stroke, stroke_pieces};
 
 use super::stroke_set::{RUNGS, line_path, mask, reversed, scaled, stroke};
@@ -129,14 +128,13 @@ fn a_join_where_an_arc_meets_a_line_is_square_to_its_tangent() {
 /// **The round join at the same corner** is Table 54's pie slice, "[a]n arc of a circle with
 /// a diameter equal to the line width … drawn around the point where the two segments meet,
 /// connecting the outer edges of the strokes for the two segments": in the quadrant, the
-/// quarter disc of radius 4 about `(50, 50)`, `4π`. Its arc is flattened, so the quadrant's
-/// ink may fall short of it by the strip §10.7.2 lets a chord cut off (arc length times
-/// `FLATTEN_TOLERANCE`, in device pixels) and exceed it by nothing but rounding; and no
-/// pixel of the quadrant wholly outside the disc holds any ink.
+/// quarter disc of radius 4 about `(50, 50)`, `4π`. Its arc is flattened in pairs of chords,
+/// each pair through a point that makes it enclose its own sector (ADR 1443), so the quadrant's
+/// ink is the quarter disc's to within rounding either way; and no pixel of the quadrant
+/// wholly outside the disc holds any ink.
 #[test]
 fn a_round_join_where_an_arc_meets_a_line_is_its_quarter_disc() {
     let quarter = std::f32::consts::PI * 16.0 / 4.0;
-    let arc = std::f32::consts::FRAC_PI_2 * 4.0;
     for (back, path) in [(false, arc_then_line()), (true, reversed(&arc_then_line()))] {
         for s in RUNGS {
             let m = mask(&path, stroke(8.0, LineCap::Butt, LineJoin::Round, 10.0), s);
@@ -162,9 +160,8 @@ fn a_round_join_where_an_arc_meets_a_line_is_its_quarter_disc() {
             let ink = ink / (s * s);
             #[expect(clippy::cast_precision_loss)] // a pixel count
             let rounding = partial as f32 / 510.0 / (s * s) + 1.0 / 16.0;
-            let short = arc * FLATTEN_TOLERANCE / s;
             assert!(
-                ink >= quarter - short - rounding && ink <= quarter + rounding,
+                (ink - quarter).abs() <= rounding,
                 "round join at {s}× (reversed: {back}): {ink:.4} in the quadrant against the \
                  quarter disc's {quarter:.4}"
             );

@@ -7,7 +7,7 @@
 
 use raster_scene::{Point, Segment};
 
-use crate::raster::flatten::{FLATTEN_TOLERANCE, cubic_tolerance};
+use crate::raster::flatten::{DeviceTransform, FLATTEN_TOLERANCE, cubic_tolerance};
 use crate::raster::{Rule, fill_mask, flatten};
 
 use super::IDENTITY;
@@ -48,15 +48,121 @@ fn circle_path(cx: f32, cy: f32, r: f32) -> Vec<Segment> {
     ]
 }
 
-/// The most a flattened closed curve may fall short of its own area, as a fraction
-/// of it (ADR 0044).
+/// The area a closed path of lines and cubics encloses, in closed form, `f64`: Green's
+/// theorem, where a cubic from `p0` contributes `(3/20)·(p1×p2 + p1×p3 + 2·p2×p3)` measured
+/// from `p0` plus the triangle `p0×p3 / 2` (ADR 1443).
+fn enclosed_area(path: &[Segment], t: DeviceTransform) -> f64 {
+    let at = |p: Point| {
+        (
+            f64::from(t.a) * f64::from(p.x) + f64::from(t.c) * f64::from(p.y) + f64::from(t.e),
+            f64::from(t.b) * f64::from(p.x) + f64::from(t.d) * f64::from(p.y) + f64::from(t.f),
+        )
+    };
+    let cross = |a: (f64, f64), b: (f64, f64)| a.0 * b.1 - a.1 * b.0;
+    let less = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0, a.1 - b.1);
+    let (mut sum, mut start, mut current) = (0.0, (0.0, 0.0), (0.0, 0.0));
+    for segment in path {
+        match *segment {
+            Segment::MoveTo(p) => {
+                start = at(p);
+                current = start;
+            }
+            Segment::LineTo(p) => {
+                let to = at(p);
+                sum += cross(current, to) / 2.0;
+                current = to;
+            }
+            Segment::CubicTo { c1, c2, to } => {
+                let (p1, p2, p3) = (at(c1), at(c2), at(to));
+                let (a, b, c) = (less(p1, current), less(p2, current), less(p3, current));
+                sum += 0.15 * (cross(a, b) + cross(a, c) + 2.0 * cross(b, c))
+                    + cross(current, p3) / 2.0;
+                current = p3;
+            }
+            Segment::Close => {
+                sum += cross(current, start) / 2.0;
+                current = start;
+            }
+        }
+    }
+    sum
+}
+
+/// A flattening's own polygon area and perimeter, `f64`, no rasteriser.
+fn polygon_area_and_length(path: &[Segment], t: DeviceTransform) -> (f64, f64) {
+    let (mut area, mut length) = (0.0, 0.0);
+    for polyline in flatten(path, t) {
+        let p = &polyline.points;
+        for i in 0..p.len() {
+            let (a, b) = (p[i], p[(i + 1) % p.len()]);
+            area += (f64::from(a.x) * f64::from(b.y) - f64::from(b.x) * f64::from(a.y)) / 2.0;
+            length += (f64::from(b.x) - f64::from(a.x)).hypot(f64::from(b.y) - f64::from(a.y));
+        }
+    }
+    (area, length)
+}
+
+/// **A flattened curve encloses its own area** (ADR 1443), summed with no rasteriser.
 ///
-/// `RELATIVE_FLATTEN_TOLERANCE` holds any full turn to at least 16 chords, and a
-/// regular 16-gon inscribed in a circle covers `(16/2π)·sin(2π/16) = 0.974495` of
-/// it. Derived, not observed: the flattener is free to place *more* chords than the
-/// bound requires, and a 16-gon is the most area 16 points on a circle can enclose,
-/// so no flattening of a circle may be further short than this.
-const MAX_AREA_DEFICIT: f32 = 1.0 - 0.974_495;
+/// §10.7.4: "[t]he area covered by painted pixels shall always be at least as large as the
+/// area of the original shape." A chord between two points of a curve lies on its concave
+/// side, so an inscribed flattening takes two thirds of each piece's height times its length
+/// out of the rim — 2.4 levels of 255 a rim pixel on a circle of radius 0.75 and 19.7 on one
+/// of radius 24, at this tolerance. The two chords through the midpoint of each piece's inner
+/// controls enclose the piece's own area to second order; the bound held here is **half a
+/// coverage level per unit of rim**, `0.5/255` times the perimeter, which is the rounding a
+/// coverage byte already costs a rim pixel. Circles from a quarter pixel to 96, a sheared
+/// ellipse, and a closed S whose cubic inflects, each drawn both ways round.
+#[test]
+fn a_flattened_curve_encloses_its_own_area() {
+    let sheared = DeviceTransform {
+        a: 1.4,
+        b: 1.0,
+        c: -0.5,
+        d: 0.7,
+        e: 30.0,
+        f: 10.0,
+    };
+    let s_curve = vec![
+        Segment::MoveTo(Point::new(10.0, 10.0)),
+        Segment::CubicTo {
+            c1: Point::new(30.0, -5.0),
+            c2: Point::new(20.0, 35.0),
+            to: Point::new(40.0, 20.0),
+        },
+        Segment::LineTo(Point::new(40.0, 40.0)),
+        Segment::Close,
+    ];
+    let mut cases: Vec<(String, Vec<Segment>, DeviceTransform)> =
+        [0.25_f32, 0.75, 1.5, 3.0, 6.0, 24.0, 96.0]
+            .iter()
+            .map(|&r| {
+                (
+                    format!("circle of radius {r}"),
+                    circle_path(100.3, 100.7, r),
+                    IDENTITY,
+                )
+            })
+            .collect();
+    cases.push((
+        "sheared ellipse".into(),
+        circle_path(20.0, 20.0, 3.75),
+        sheared,
+    ));
+    cases.push(("closed S".into(), s_curve, IDENTITY));
+    for (what, path, t) in cases {
+        for drawn in [path.clone(), super::stroke_set::reversed(&path)] {
+            let want = enclosed_area(&drawn, t);
+            let (got, rim) = polygon_area_and_length(&drawn, t);
+            let per_rim = 255.0 * (got - want) / rim;
+            assert!(
+                per_rim.abs() <= 0.5,
+                "{what}: the flattening encloses {got:.6} against the curve's {want:.6}, \
+                 {per_rim:+.3} levels a unit of rim"
+            );
+        }
+    }
+}
 
 /// A cubic with collinear control points is a straight line: flattening must not
 /// bend it, so the fill equals the `LineTo` version byte for byte.
@@ -95,12 +201,11 @@ fn collinear_cubic_equals_the_line() {
 /// purpose of the flatness tolerance is to control the precision of curve
 /// rendering, not to draw inscribed polygons".
 ///
-/// The bound compared against is two terms, both arithmetic:
-///
-/// - [`MAX_AREA_DEFICIT`], the 16-chord polygon's shortfall, one-sided because a
-///   chord never leaves the curve's convex hull;
-/// - one half of a coverage step for each pixel the circle can touch, either way,
-///   because coverage is quantised by `round(cov × 255)` at every one of them.
+/// The area compared against is the four cubics' own, in closed form ([`enclosed_area`]),
+/// and the bound is one half of a coverage step for each pixel the circle can touch,
+/// either way, because coverage is quantised by `round(cov × 255)` at every one of them:
+/// each piece's two chords enclose its own area (ADR 1443), so the flattening leaves no
+/// shortfall of its own to allow for.
 #[test]
 fn a_circle_deposits_its_own_area_at_every_size() {
     // A pixel centre, so a mark of any diameter is centred in the grid rather than
@@ -117,7 +222,8 @@ fn a_circle_deposits_its_own_area_at_every_size() {
             9,
         );
         let ink: f32 = mask.coverage.iter().map(|b| f32::from(*b) / 255.0).sum();
-        let area = std::f32::consts::PI * r * r;
+        #[expect(clippy::cast_possible_truncation)] // an area of a few pixels
+        let area = enclosed_area(&circle_path(C, C, r), IDENTITY) as f32;
 
         // Only pixels the circle reaches carry a rounding error; the rest are an
         // exact zero. `[floor(c − r), ceil(c + r))` is §10.7.4's half-open pixel
@@ -126,17 +232,9 @@ fn a_circle_deposits_its_own_area_at_every_size() {
         let quantum = touched * touched * 0.5 / 255.0;
 
         assert!(
-            ink <= area + quantum,
-            "a circle of diameter {diameter} drew {ink:.4}, more than its area \
-             {area:.4} plus {quantum:.4} of rounding — a chord left the curve"
-        );
-        assert!(
-            ink >= area * (1.0 - MAX_AREA_DEFICIT) - quantum,
-            "a circle of diameter {diameter} drew {ink:.4} against its area \
-             {area:.4}: {:.2}% short, past the {:.2}% a 16-chord flattening and \
-             {quantum:.4} of rounding allow",
-            100.0 * (area - ink) / area,
-            100.0 * MAX_AREA_DEFICIT,
+            (ink - area).abs() <= quantum,
+            "a circle of diameter {diameter} drew {ink:.4} against its area {area:.4}, \
+             past the {quantum:.4} rounding allows"
         );
     }
 }
@@ -151,14 +249,18 @@ fn a_circle_deposits_its_own_area_at_every_size() {
 ///
 /// A quarter-arc of half-angle `α` puts its controls `(4/3)·r·tan(α/2)·sin(α)` from
 /// its chord, so at `r = 20` the successive depths are 7.81, 2.03, 0.51 and 0.128
-/// device pixels: three splits, eight chords a quarter, **32 a turn**. The polyline
-/// carries one point more than that because it opens on the `MoveTo` and closes by
-/// returning to it.
+/// device pixels: three splits, eight pieces a quarter, **32 a turn**, each piece two
+/// chords (ADR 1443). The polyline carries one point more than its 64 chords because it
+/// opens on the `MoveTo` and closes by returning to it.
 #[test]
 fn a_large_curve_keeps_the_segment_count_it_had() {
     let big = flatten(&circle_path(40.0, 40.0, 20.0), IDENTITY);
     assert_eq!(big.len(), 1, "one subpath");
-    assert_eq!(big[0].points.len(), 33, "32 chords a turn at r = 20");
+    assert_eq!(
+        big[0].points.len(),
+        65,
+        "32 pieces a turn at r = 20, two chords each"
+    );
 
     // The `min` is not binding anywhere on that curve: every one of its four cubics
     // spans `r√2 = 28.3` device pixels, and 28.3/32 is past a quarter pixel.
@@ -172,13 +274,13 @@ fn a_large_curve_keeps_the_segment_count_it_had() {
         }
     }
 
-    // And the small ones are where it does bind: 16 chords a turn, at every size.
+    // And the small ones are where it does bind: 16 pieces a turn, at every size.
     for diameter in [0.5_f32, 1.0, 2.0, 4.0] {
         let small = flatten(&circle_path(8.0, 8.0, diameter / 2.0), IDENTITY);
         assert_eq!(
             small[0].points.len(),
-            17,
-            "a circle of diameter {diameter} flattens to 16 chords"
+            33,
+            "a circle of diameter {diameter} flattens to 16 pieces, two chords each"
         );
     }
 }

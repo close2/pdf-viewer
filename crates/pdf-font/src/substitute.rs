@@ -131,43 +131,247 @@ impl Request {
         // `/Flags` is a bitfield producers set carelessly (see `family_of`).
         let panose = descriptor.and_then(|d| panose(document, d));
 
-        // Table 120's `/FontWeight` is an integer between 1 and 1000 inclusive since Errata
-        // Collection 3 — Issue #474 widens the value set from the published nine hundreds,
-        // which become a `should`, and Issue #152 makes the type integer. A threshold at 600
-        // (Demi, the same line PANOSE draws) reads every conforming value under either
-        // printing; `as_number` is wider than the amended type on purpose, a reader's
-        // tolerance for a file writing `700.0`.
-        let bold = folded.contains("bold")
-            || folded.contains("black")
-            || folded.contains("heavy")
-            || descriptor.is_some_and(|d| {
-                document
-                    .get_key(d, "FontWeight")
-                    .as_number()
-                    .is_some_and(|weight| weight >= 600.0)
-            })
-            || panose
-                .and_then(crate::panose::Panose::is_bold)
-                .unwrap_or(false)
-            || descriptor.is_some_and(|d| flag(document, d, Flags::FORCE_BOLD));
-
-        let italic = folded.contains("italic")
-            || folded.contains("oblique")
-            || descriptor.is_some_and(|d| {
-                document
-                    .get_key(d, "ItalicAngle")
-                    .as_number()
-                    .is_some_and(|angle| angle != 0.0)
-                    || flag(document, d, Flags::ITALIC)
-            });
+        // Bold and italic are [`Style::derive`]'s, so that the compiled-in face a machine with no
+        // fonts falls back to is the same weight and slope as the machine face ranked by the
+        // whole style (ADR 1441).
+        let style = Style::derive(document, dict, descriptor);
 
         Self {
             family: family_of(&folded, document, dict, descriptor, panose),
-            bold,
-            italic,
+            bold: style.is_bold(),
+            italic: style.italic,
             standard: names_a_standard_font(&folded),
         }
     }
+}
+
+/// The style a substitute is chosen by: Table 120's weight, slope and width, derived from the
+/// document alone as [`Request`] is.
+///
+/// ISO 32000-2 §9.8.1 is the clause that gives a descriptor this job:
+///
+/// > These font metrics provide information that enables a PDF processor to synthesise a
+/// > substitute font or select a similar font when the font program is unavailable.
+///
+/// [`Request`] carries the generic family (Table 121's `FixedPitch` and `Serif`, after the name and
+/// PANOSE) and a bold/italic pair, which is all §9.6.2.2's compiled-in faces can be chosen by. A
+/// machine's catalogue offers more — a light, a semibold, a black, a narrow face — and this is
+/// what [`find_styled`] and [`installed_covering_styled`] rank its faces against (ADR 1441).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Style {
+    /// Table 120's `/FontWeight` scale: 400 normal, 700 bold, each hundred "at least as dark as
+    /// its predecessor" — the scale an `OS/2` table's `usWeightClass` states a face's weight on.
+    pub weight: u16,
+    /// Whether the glyphs slope: `/ItalicAngle` other than zero, or Table 121's Italic flag.
+    pub italic: bool,
+    /// Table 120's nine `/FontStretch` names numbered 1 (`UltraCondensed`) to 9
+    /// (`UltraExpanded`), 5 being `Normal` — the numbering an `OS/2` table's `usWidthClass` uses.
+    pub width: u16,
+}
+
+impl Style {
+    /// The normal width.
+    pub const NORMAL_WIDTH: u16 = 5;
+
+    /// The style a request's two booleans imply, for a caller that knows no more than them — an
+    /// interface's label, or one of §9.6.2.2's fourteen.
+    #[must_use]
+    pub const fn of(request: Request) -> Self {
+        Self {
+            weight: if request.bold { 700 } else { 400 },
+            italic: request.italic,
+            width: Self::NORMAL_WIDTH,
+        }
+    }
+
+    /// Derives the style from a font dictionary and its descriptor, if it has one.
+    ///
+    /// **The weight** is the first of these that speaks, and the order is a documented choice
+    /// (ADR 1441):
+    ///
+    /// 1. A weight word in the `/BaseFont` name (`Light`, `Medium`, `Semibold`, `Bold`, `Black`,
+    ///    …). Table 120 calls `/FontWeight` "[t]he weight (thickness) component of the fully-
+    ///    qualified font name", so where both are stated they state one thing, and the name is
+    ///    what [`Request::derive`] has always read first. One of §9.6.2.2's fourteen states its
+    ///    weight by its name alone — `Helvetica` is regular because it is not `Helvetica-Bold` —
+    ///    so for those the name is the whole answer.
+    /// 2. `/FontWeight`.
+    /// 3. §9.8.3.2's PANOSE classification, where it says bold or not.
+    /// 4. `/StemV`, by [`weight_from_stem`] — which is **not** the standard's: Table 120 defines
+    ///    the entry as "[t]he thickness measured horizontally, of the dominant vertical stems of
+    ///    glyphs in the font" and says nothing of how a thickness becomes a weight.
+    ///
+    /// and Table 121's `ForceBold`, whose clause speaks of "bold glyphs", makes it at least bold.
+    ///
+    /// **The slope** is [`Request::derive`]'s: the name, `/ItalicAngle` other than zero, or the
+    /// Italic flag. **The width** is `/FontStretch`, and then a width word in the name.
+    #[must_use]
+    pub fn derive(document: &Document, dict: &Dictionary, descriptor: Option<&Dictionary>) -> Self {
+        let folded = folded_base_font(document, dict);
+        let number = |key: &str| descriptor.and_then(|d| document.get_key(d, key).as_number());
+        let panose = descriptor.and_then(|d| panose(document, d));
+
+        let named = weight_named(&folded).or_else(|| names_a_standard_font(&folded).then_some(400));
+        let mut weight = named
+            .or_else(|| number("FontWeight").and_then(weight_stated))
+            .or_else(|| {
+                panose
+                    .and_then(crate::panose::Panose::is_bold)
+                    .map(|bold| if bold { 700 } else { 400 })
+            })
+            .or_else(|| number("StemV").and_then(weight_from_stem))
+            .unwrap_or(400);
+        if descriptor.is_some_and(|d| flag(document, d, Flags::FORCE_BOLD)) {
+            weight = weight.max(700);
+        }
+
+        let italic = folded.contains("italic")
+            || folded.contains("oblique")
+            || number("ItalicAngle").is_some_and(|angle| angle != 0.0)
+            || descriptor.is_some_and(|d| flag(document, d, Flags::ITALIC));
+
+        let stretch = descriptor.and_then(|d| {
+            document
+                .get_key(d, "FontStretch")
+                .as_name()
+                .and_then(|name| width_stated(name.as_bytes()))
+        });
+        let width = stretch
+            .or_else(|| width_named(&folded))
+            .unwrap_or(Self::NORMAL_WIDTH);
+
+        Self {
+            weight,
+            italic,
+            width,
+        }
+    }
+
+    /// Whether this weight is bold, which is what §9.6.2.2's compiled-in faces are chosen by.
+    ///
+    /// Six hundred, `Demi` — the line PANOSE draws, and the one an integer `/FontWeight` of
+    /// Errata Collection 3's 1..=1000 is read against as well as the published nine hundreds.
+    #[must_use]
+    pub const fn is_bold(self) -> bool {
+        self.weight >= 600
+    }
+}
+
+/// A `/BaseFont` name without its subset tag, lowercased and without punctuation.
+fn folded_base_font(document: &Document, dict: &Dictionary) -> String {
+    let base = document
+        .get_key(dict, "BaseFont")
+        .as_name()
+        .map(|value| String::from_utf8_lossy(value.as_bytes()).into_owned())
+        .unwrap_or_default();
+    strip_subset_prefix(&base)
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
+}
+
+/// A weight word a folded name carries, on Table 120's scale.
+///
+/// Longest first, so that `extralight` is not read as `light` nor `semibold` as `bold`. The words
+/// and their numbers are the names `OS/2`'s `usWeightClass` gives its nine classes, which is the
+/// scale Table 120's hundreds share — a documented choice, since the standard names no words.
+fn weight_named(folded: &str) -> Option<u16> {
+    const WORDS: &[(&str, u16)] = &[
+        ("extralight", 200),
+        ("ultralight", 200),
+        ("extrabold", 800),
+        ("ultrabold", 800),
+        ("semibold", 600),
+        ("demibold", 600),
+        ("hairline", 100),
+        ("medium", 500),
+        ("black", 900),
+        ("heavy", 900),
+        ("light", 300),
+        ("thin", 100),
+        ("demi", 600),
+        ("bold", 700),
+    ];
+    WORDS
+        .iter()
+        .find(|(word, _)| folded.contains(word))
+        .map(|(_, weight)| *weight)
+}
+
+/// Table 120's `/FontWeight`, as one of the nine classes faces are ranked against.
+///
+/// Errata Collection 3 makes the entry an integer from 1 to 1000; a value outside that, or not a
+/// finite number, states nothing this can rank by. A value between the published hundreds is read
+/// as the nearest of them, 100 to 900, because a face states its weight on those nine classes and
+/// because a description that crosses to a broker (`crate::provider`) is then one of nine weights
+/// rather than one of a thousand.
+fn weight_stated(value: f64) -> Option<u16> {
+    if !(1.0..=1000.0).contains(&value) {
+        return None;
+    }
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "checked to lie in 1..=1000 on the line above, so the hundreds are 0..=10"
+    )]
+    let hundreds = (value / 100.0).round() as u16;
+    Some(hundreds.clamp(1, 9).saturating_mul(100))
+}
+
+/// A weight from Table 120's `/StemV`, where nothing else states one — **a documented choice, not
+/// the standard's** (ADR 1441).
+///
+/// The rule: a stem of 120 thousandths of an em or more is bold (700), and a stem above zero and
+/// below it is normal (400). Zero is Table 120's "unknown stem thickness" and states nothing. The
+/// line sits between the stems of the regular and the bold of each of §9.6.2.2's Latin families
+/// as their own font metrics state them — the Helvetica and Times regulars near 85 and their
+/// bolds near 140 — so that a descriptor carrying the stems of one of those designs is read as
+/// the weight it names. It ranks nothing finer than bold or not, because a stem measures one
+/// design's strokes and the weight classes between are a designer's names, not a thickness.
+fn weight_from_stem(stem: f64) -> Option<u16> {
+    /// The stem width, in thousandths of an em, from which a face is read as bold.
+    const BOLD_STEM: f64 = 120.0;
+    if !stem.is_finite() || stem <= 0.0 {
+        return None;
+    }
+    Some(if stem >= BOLD_STEM { 700 } else { 400 })
+}
+
+/// Table 120's nine `/FontStretch` names, numbered as [`Style::width`] numbers them.
+fn width_stated(name: &[u8]) -> Option<u16> {
+    Some(match name {
+        b"UltraCondensed" => 1,
+        b"ExtraCondensed" => 2,
+        b"Condensed" => 3,
+        b"SemiCondensed" => 4,
+        b"Normal" => 5,
+        b"SemiExpanded" => 6,
+        b"Expanded" => 7,
+        b"ExtraExpanded" => 8,
+        b"UltraExpanded" => 9,
+        _ => return None,
+    })
+}
+
+/// A width word a folded name carries, longest first; `narrow` is how a producer names a
+/// condensed design (`ArialNarrow`), and the standard names no words.
+fn width_named(folded: &str) -> Option<u16> {
+    const WORDS: &[(&str, u16)] = &[
+        ("ultracondensed", 1),
+        ("extracondensed", 2),
+        ("semicondensed", 4),
+        ("ultraexpanded", 9),
+        ("extraexpanded", 8),
+        ("semiexpanded", 6),
+        ("condensed", 3),
+        ("narrow", 3),
+        ("expanded", 7),
+    ];
+    WORDS
+        .iter()
+        .find(|(word, _)| folded.contains(word))
+        .map(|(_, width)| *width)
 }
 
 /// Whether a folded `/BaseFont` names one of §9.6.2.2's fourteen.
@@ -652,17 +856,191 @@ static PREFERENCES: &[(Family, &[&str])] = &[
     ),
 ];
 
-/// A style suffix as font file names spell it, in the order they are tried.
+/// Whether what follows a family's name in a file name is a style and nothing else.
 ///
-/// A file whose name carries no suffix at all is treated as the regular face, which is how
-/// most families name their upright weight.
-fn suffixes(bold: bool, italic: bool) -> &'static [&'static str] {
-    match (bold, italic) {
-        (true, true) => &["bolditalic", "boldoblique", "bold", "italic", "regular", ""],
-        (true, false) => &["bold", "regular", ""],
-        (false, true) => &["italic", "oblique", "regular", ""],
-        (false, false) => &["regular", "roman", "book", ""],
+/// `NimbusSans` is a family and `NimbusSans-BoldItalic`, `NimbusSansNarrow-Regular` and
+/// `NimbusSans` are three of its members; `NotoSansMono-Regular` is not a member of `NotoSans`,
+/// because `mono` names another design rather than a weight, a slope or a width. A file whose
+/// name carries nothing after the family is a member — how most families name their upright
+/// regular. What a member *is* comes from its own tables ([`FaceStyle::read`]); the words decide
+/// only which files are the family.
+fn names_a_style(mut rest: &str) -> bool {
+    /// The weight, slope and width words a file name spells a style in, longest first so that
+    /// `semibold` is not read as `semi` followed by something that is not a word.
+    const WORDS: &[&str] = &[
+        "ultracondensed",
+        "extracondensed",
+        "semicondensed",
+        "ultraexpanded",
+        "extraexpanded",
+        "semiexpanded",
+        "extralight",
+        "ultralight",
+        "extrabold",
+        "ultrabold",
+        "condensed",
+        "semibold",
+        "demibold",
+        "expanded",
+        "hairline",
+        "regular",
+        "oblique",
+        "italic",
+        "medium",
+        "narrow",
+        "normal",
+        "black",
+        "heavy",
+        "light",
+        "roman",
+        "bold",
+        "book",
+        "demi",
+        "thin",
+    ];
+    while !rest.is_empty() {
+        let Some(word) = WORDS.iter().find(|word| rest.starts_with(**word)) else {
+            return false;
+        };
+        rest = &rest[word.len()..];
     }
+    true
+}
+
+/// What a machine face states about its own style, read from its `OS/2` and `post` tables.
+///
+/// The face side of [`Style`]: `usWeightClass` is on Table 120's `/FontWeight` scale and
+/// `usWidthClass` numbers Table 120's nine `/FontStretch` names in their order, so a request and a
+/// face are compared on one scale without a conversion of this crate's own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FaceStyle {
+    weight: u16,
+    italic: bool,
+    width: u16,
+    fixed_pitch: bool,
+    /// The face's own serif classification — `OS/2`'s `sFamilyClass`, or its PANOSE numbers where
+    /// the class says nothing — or `None` where it states neither.
+    serif: Option<bool>,
+}
+
+impl FaceStyle {
+    /// Reads a face's statement of its style, or `None` for bytes that are not an `sfnt`.
+    ///
+    /// A face without an `OS/2` table (an old Macintosh `TrueType`) is read through `skrifa`'s
+    /// attributes, which fall back to the `head` table's style bits.
+    fn read(bytes: &[u8]) -> Option<Self> {
+        use read_fonts::TableProvider;
+        let font = skrifa::FontRef::new(bytes).ok()?;
+        let attributes = skrifa::MetadataProvider::attributes(&font);
+        let fixed_pitch = font.post().is_ok_and(|post| post.is_fixed_pitch() != 0);
+        let os2 = font.os2().ok();
+        let serif = os2.as_ref().and_then(|os2| {
+            let class = os2.s_family_class().to_be_bytes();
+            match class[0] {
+                // The IBM font classes `OS/2` borrows: 1 to 5 and 7 are serifed designs, 8 the
+                // sans serifs.
+                1..=5 | 7 => Some(true),
+                8 => Some(false),
+                _ => {
+                    // §9.8.3.2's `/Panose` is these same twelve bytes — the class and the ten
+                    // PANOSE digits — so the one reader of them answers for a face as well.
+                    let mut numbers = [0_u8; 12];
+                    numbers[..2].copy_from_slice(&class);
+                    numbers[2..].copy_from_slice(os2.panose_10());
+                    crate::panose::Panose::read(&numbers).and_then(crate::panose::Panose::is_serif)
+                }
+            }
+        });
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "skrifa's weight is a usWeightClass, 1..=1000"
+        )]
+        let weight = os2.as_ref().map_or_else(
+            || attributes.weight.value().clamp(1.0, 1000.0) as u16,
+            read_fonts::tables::os2::Os2::us_weight_class,
+        );
+        let width = os2
+            .as_ref()
+            .map_or(Style::NORMAL_WIDTH, |os2| os2.us_width_class().clamp(1, 9));
+        Some(Self {
+            weight,
+            italic: !matches!(attributes.style, skrifa::attribute::Style::Normal),
+            width,
+            fixed_pitch,
+            serif,
+        })
+    }
+
+    /// How far this face is from `style`, as a key that sorts the nearest first: the weight, then
+    /// the slope, then the width (ADR 1441).
+    ///
+    /// **Weight before slope** because a family missing the bold italic answers a bold italic
+    /// request better with its bold than with its italic — a line of text is read by its weight
+    /// before its slope. **Slope before width** because the width is the one of the three a page
+    /// partly repairs: a substitute is drawn to the advances the file states
+    /// ([`crate::metrics::substitute_stretch`]), and a slant has no such repair. Between two faces
+    /// equally far in weight, the lighter is taken for a weight of 500 or less and the heavier
+    /// above it — a documented choice, the one CSS's font matching makes.
+    fn distance(self, style: Style) -> Distance {
+        let wrong_side = if style.weight <= 500 {
+            self.weight > style.weight
+        } else {
+            self.weight < style.weight
+        };
+        (
+            self.weight.abs_diff(style.weight),
+            wrong_side,
+            self.italic != style.italic,
+            self.width.abs_diff(style.width),
+        )
+    }
+
+    /// Whether this face is of another generic family than the request's: spaced when Table 121's
+    /// `FixedPitch` was asked for or proportional when it was not, serifed or not against the Serif
+    /// flag. The two symbolic families ask neither.
+    fn other_family(self, family: Family) -> bool {
+        match family {
+            Family::Monospace => !self.fixed_pitch,
+            Family::Serif => self.fixed_pitch || self.serif == Some(false),
+            Family::SansSerif => self.fixed_pitch || self.serif == Some(true),
+            Family::Symbol | Family::ZapfDingbats => false,
+        }
+    }
+}
+
+/// [`FaceStyle::distance`]'s key: the weight's distance and whether it lies on the side not
+/// preferred, whether the slope differs, and the width's distance.
+type Distance = (u16, bool, bool, u16);
+
+/// The style each file states, read once per file and kept as the style alone.
+///
+/// Ranking a family's members reads every member, and holding their programs to answer one
+/// question would keep faces no page draws; only the winner is read again through
+/// [`read_cached`], where the pages that use it find it.
+static STYLES: OnceLock<RwLock<Vec<StyleRead>>> = OnceLock::new();
+
+/// One file's style, or `None` where it is not a face this crate reads.
+type StyleRead = (PathBuf, Option<FaceStyle>);
+
+/// The style a file states, read and remembered.
+fn style_of(path: &Path) -> Option<FaceStyle> {
+    let memo = STYLES.get_or_init(|| RwLock::new(Vec::new()));
+    if let Ok(held) = memo.read()
+        && let Some((_, style)) = held.iter().find(|(cached, _)| cached == path)
+    {
+        return *style;
+    }
+    if !machine_fonts() {
+        return None;
+    }
+    let style = std::fs::read(path)
+        .ok()
+        .and_then(|bytes| FaceStyle::read(&bytes));
+    if let Ok(mut held) = memo.write() {
+        held.push((path.to_path_buf(), style));
+    }
+    style
 }
 
 /// A font file this machine offers, with its name already in the form matching needs.
@@ -844,7 +1222,16 @@ fn normalise(name: &str) -> String {
         .collect()
 }
 
-/// Finds a font program to stand in for the requested one.
+/// Finds a font program to stand in for the requested one, in the style its two booleans imply.
+///
+/// [`find_styled`] with [`Style::of`], for a caller that knows no more than the request — the
+/// compiled-in faces are chosen by nothing finer.
+#[must_use]
+pub fn find(request: Request) -> (Arc<[u8]>, Format) {
+    find_styled(request, Style::of(request))
+}
+
+/// Finds a font program to stand in for the requested one, the machine's faces ranked by `style`.
 ///
 /// **This never fails** (ADR 0133): [`crate::standard`] has a
 /// face for every [`Family`], so a machine with no fonts installed at all draws the text. What
@@ -852,12 +1239,12 @@ fn normalise(name: &str) -> String {
 /// the order — the fourteen the standard says a processor has are answered from the binary, and
 /// everything else is answered from the machine with the binary behind it.
 #[must_use]
-pub fn find(request: Request) -> (Arc<[u8]>, Format) {
+pub fn find_styled(request: Request, style: Style) -> (Arc<[u8]>, Format) {
     if request.standard {
         let (bytes, format) = crate::standard::face(request);
         return (Arc::from(bytes), format);
     }
-    if let Some(bytes) = installed(request) {
+    if let Some(bytes) = installed_styled(request, style) {
         return (bytes, Format::Sfnt);
     }
     let (bytes, format) = crate::standard::face(request);
@@ -865,6 +1252,14 @@ pub fn find(request: Request) -> (Arc<[u8]>, Format) {
 }
 
 /// The best face this machine offers for a request, or `None` if it offers none.
+///
+/// [`installed_styled`] with [`Style::of`].
+#[must_use]
+pub fn installed(request: Request) -> Option<Arc<[u8]>> {
+    installed_styled(request, Style::of(request))
+}
+
+/// The best face this machine offers for a request in a style, or `None` if it offers none.
 ///
 /// Every candidate is an `sfnt` container: [`catalogue`] admits no other extension, because a
 /// bare Type 1 program on disk carries no name this could match against without opening it.
@@ -874,8 +1269,8 @@ pub fn find(request: Request) -> (Arc<[u8]>, Format) {
 /// character* — which an `sfnt`'s `cmap` does and a name-keyed CFF cannot. Handing the compiled-in
 /// Foxit faces to that path would refuse five corpus documents that a machine font draws.
 #[must_use]
-pub fn installed(request: Request) -> Option<Arc<[u8]>> {
-    installed_accepted(request, |_| true)
+pub fn installed_styled(request: Request, style: Style) -> Option<Arc<[u8]>> {
+    installed_accepted(request, style, |_| true)
 }
 
 /// The best face of the request's family that answers more of a document's codes than the one
@@ -893,8 +1288,12 @@ pub fn installed(request: Request) -> Option<Arc<[u8]>> {
 /// machine's `Serif` list, `NimbusRoman` having no Cyrillic — rather than whatever face on the
 /// machine happens to have the widest `cmap`.
 #[must_use]
-pub fn installed_wider(request: Request, accept: impl Fn(&Arc<[u8]>) -> bool) -> Option<Arc<[u8]>> {
-    installed_accepted(request, accept)
+pub fn installed_wider(
+    request: Request,
+    style: Style,
+    accept: impl Fn(&Arc<[u8]>) -> bool,
+) -> Option<Arc<[u8]>> {
+    installed_accepted(request, style, accept)
 }
 
 /// The best face on this machine that matches the request's family *and* satisfies `accept`.
@@ -905,7 +1304,11 @@ pub fn installed_wider(request: Request, accept: impl Fn(&Arc<[u8]>) -> bool) ->
 /// between a Cyrillic document drawn in a serif face and one drawn in whatever face on the
 /// machine happens to have the widest `cmap`: this machine's preference list for `Serif` begins
 /// with `NimbusRoman`, which has no Cyrillic, and continues with `LiberationSerif`, which has.
-fn installed_accepted(request: Request, accept: impl Fn(&Arc<[u8]>) -> bool) -> Option<Arc<[u8]>> {
+fn installed_accepted(
+    request: Request,
+    style: Style,
+    accept: impl Fn(&Arc<[u8]>) -> bool,
+) -> Option<Arc<[u8]>> {
     // A process that has stated it cannot read the machine's fonts has no catalogue to walk, and
     // [`crate::provider`] is the one way a face can still reach it: the broker walks the list
     // below in the broker's own process and hands one candidate over at a time, so `accept` —
@@ -914,7 +1317,7 @@ fn installed_accepted(request: Request, accept: impl Fn(&Arc<[u8]>) -> bool) -> 
     // `None` in every process that has not asked for the port.
     if !machine_fonts() {
         for skip in 0..MAX_OFFERS {
-            let (bytes, _name) = crate::provider::offered(request, &[], skip)?;
+            let (bytes, _name) = crate::provider::offered(request, style, &[], skip)?;
             if accept(&bytes) {
                 return Some(bytes);
             }
@@ -924,7 +1327,7 @@ fn installed_accepted(request: Request, accept: impl Fn(&Arc<[u8]>) -> bool) -> 
 
     // Not this one is not the end of it: the same family's next name may still answer, which is
     // why the walk is a list and the accept is a filter over it.
-    for path in preferred_paths(request) {
+    for path in preferred_paths(request, style) {
         if let Some(bytes) = read_cached(path)
             && accept(&bytes)
         {
@@ -936,49 +1339,61 @@ fn installed_accepted(request: Request, accept: impl Fn(&Arc<[u8]>) -> bool) -> 
 
 /// How many candidates a confined caller may ask its broker for before it gives up.
 ///
-/// [`preferred_paths`] is [`PREFERENCES`]'s families crossed with [`suffixes`]'s endings, so its
-/// length is bounded by those two tables and is well under this on every family. The constant is
-/// a bound on *round trips* rather than a policy about faces: a broker that answered every `skip`
-/// would otherwise be able to keep a worker asking.
+/// [`preferred_paths`] is [`PREFERENCES`]'s families and each family's members, so its length is
+/// bounded by that table and the machine's catalogue and is well under this for every family
+/// installed here. The constant is a bound on *round trips* rather than a policy about faces: a
+/// broker that answered every `skip` would otherwise be able to keep a worker asking.
 pub(crate) const MAX_OFFERS: u32 = 64;
 
-/// Every face this machine offers for a request, in the order [`PREFERENCES`] puts them.
+/// Every face this machine offers for a request, in the order [`PREFERENCES`] puts the families
+/// and `style` puts each family's members.
 ///
 /// **Family is the outer loop**: a Helvetica-metric face in the wrong style beats a
-/// correctly-styled face with unrelated metrics, because the style is cosmetic and the metrics
-/// move every glyph on the line. One entry per family and ending, because a second file with the
-/// same stem is the same face under another directory.
+/// correctly-styled face with unrelated metrics, because the metrics move every glyph on the line
+/// and the style changes its shape. **Within a family the members are ranked by the style each
+/// states of itself** ([`FaceStyle::distance`]): a request for 300 gets `DejaVuSans-ExtraLight`
+/// before `DejaVuSans`, and one for a condensed width gets `NimbusSansNarrow` before `NimbusSans`
+/// (ADR 1441). One entry per file name, because a second file with the same stem is the same face
+/// under another directory.
+///
+/// Lazy by family, because ranking a family reads its members and a lookup that the first family
+/// answers should read no other.
 ///
 /// Public in this module rather than a loop inside one caller because two callers need the same
 /// order and a third needs it **as paths**: [`machine_face`] is what a broker answers a confined
 /// worker's description with, and a broker matching in some other order would be a second matcher
 /// for the confined side to disagree with the unconfined one about.
-fn preferred_paths(request: Request) -> Vec<&'static Path> {
-    let Some(families) = PREFERENCES
+fn preferred_paths(request: Request, style: Style) -> impl Iterator<Item = &'static Path> {
+    let families = PREFERENCES
         .iter()
         .find(|(family, _)| *family == request.family)
-        .map(|(_, names)| *names)
-    else {
-        return Vec::new();
-    };
+        .map_or(&[][..], |(_, names)| *names);
+    families
+        .iter()
+        .flat_map(move |family| family_members(family, style))
+}
 
-    let mut found: Vec<&'static Path> = Vec::new();
-    for family in families {
-        let family = normalise(family);
-        for suffix in suffixes(request.bold, request.italic) {
-            for candidate in catalogue() {
-                if candidate
-                    .stem
-                    .strip_prefix(&family)
-                    .is_some_and(|rest| rest == *suffix)
-                {
-                    found.push(candidate.path.as_path());
-                    break;
-                }
-            }
+/// One family's members on this machine, nearest `style` first.
+fn family_members(family: &str, style: Style) -> Vec<&'static Path> {
+    let family = normalise(family);
+    let mut stems: Vec<&str> = Vec::new();
+    let mut members: Vec<(Distance, &'static Path)> = Vec::new();
+    for candidate in catalogue() {
+        let Some(rest) = candidate.stem.strip_prefix(&family) else {
+            continue;
+        };
+        if !names_a_style(rest) || stems.contains(&candidate.stem.as_str()) {
+            continue;
+        }
+        stems.push(&candidate.stem);
+        if let Some(face) = style_of(&candidate.path) {
+            members.push((face.distance(style), candidate.path.as_path()));
         }
     }
-    found
+    // A stable sort over the catalogue's path order, so that two members equally near are taken in
+    // one order on every run.
+    members.sort_by_key(|(distance, _)| *distance);
+    members.into_iter().map(|(_, path)| path).collect()
 }
 
 /// The face this machine offers for a description, as a path a broker can open.
@@ -991,24 +1406,33 @@ fn preferred_paths(request: Request) -> Vec<&'static Path> {
 /// `skip` passes over that many of the answers, so a caller judging faces by their *contents* can
 /// walk the list rather than being handed one candidate — which is what [`installed_wider`] needs,
 /// because §9.6.5.4's code table is built from the face's own program and cannot cross a wire. It
-/// is meaningful only where `wanted` is empty: a covering search is a search for *the* widest face
-/// that draws a script (§9.10.2 gives a composite font's substitute characters and nothing else),
+/// is meaningful only where `wanted` is empty: a covering search is a search for *the* face that
+/// draws a script best (§9.10.2 gives a composite font's substitute characters and nothing else),
 /// and there is no second answer to it — a `skip` past zero with characters asked for is `None`.
 #[must_use]
-pub fn machine_face(request: Request, wanted: &[char], skip: u32) -> Option<PathBuf> {
+pub fn machine_face(request: Request, style: Style, wanted: &[char], skip: u32) -> Option<PathBuf> {
     if wanted.is_empty() {
         let index = usize::try_from(skip).ok()?;
-        return preferred_paths(request)
-            .get(index)
-            .map(|path| path.to_path_buf());
+        return preferred_paths(request, style)
+            .nth(index)
+            .map(Path::to_path_buf);
     }
     if skip != 0 {
         return None;
     }
-    covering_path(request, wanted)
+    covering_path(request, style, wanted)
 }
 
-/// The best face this machine offers that can draw `wanted`, or `None`.
+/// The best face this machine offers that can draw `wanted`, in the style its request's two
+/// booleans imply — [`installed_covering_styled`] with [`Style::of`].
+#[must_use]
+pub fn installed_covering(request: Request, wanted: &[char]) -> Option<Arc<[u8]>> {
+    installed_covering_styled(request, Style::of(request), wanted)
+}
+
+/// The best face this machine offers that can draw `wanted`, or `None` — the one covering search,
+/// which a substituted composite font on the page and a word of this program's own interface both
+/// ask (ADRs 0152, 1430, 1441).
 ///
 /// # Why a composite font needs this and [`installed`] is not enough
 ///
@@ -1018,32 +1442,50 @@ pub fn machine_face(request: Request, wanted: &[char], skip: u32) -> Option<Path
 /// a Latin face with no glyph for any character §9.10.2 gave it, and the page came out blank:
 /// `issue8372.pdf`, and seven more like it (ADR 0152).
 ///
-/// So the family's preference list is tried first and *kept only if it covers*, and the whole
-/// catalogue is searched in path order otherwise. The order makes the answer deterministic on
-/// one machine and says nothing about which machine — which is inherent: §9.10.2 leaves the
-/// choice of substitute open, and ADR 0133 is why only §9.6.2.2's fourteen are compiled in.
+/// So the family's preference list is tried first, in `style`'s order, and *kept only if it
+/// covers*; the whole catalogue is searched otherwise. The answer is deterministic on one machine
+/// and says nothing about which machine — which is inherent: §9.10.2 leaves the choice of
+/// substitute open, and ADR 0133 is why only §9.6.2.2's fourteen are compiled in.
 ///
 /// **Coverage means every character in `wanted`, not some.** A face with one of the
 /// collection's characters and not the rest is worse than the family match, because it draws
 /// part of a line and leaves the rest blank at a different metric.
 ///
+/// # How the catalogue's qualifying faces are ranked
+///
+/// **Repertoire first, and then the style** — the weight, the slope, the generic family (Table
+/// 121's `FixedPitch` and `Serif` against the face's `post` and `OS/2`) and the width, in that order.
+/// The widest `cmap` is the proxy for the characters the sample does not name, and the sample is
+/// one character: this machine's widest faces for 的 are `DroidSansFallbackFull`'s thousands, and
+/// among the faces stating it is `NotoTraditionalNushu-Bold`, a Nüshu face with a handful of Han
+/// characters, which a style-first ranking hands every bold Chinese font. So style never buys a
+/// face with fewer characters; it decides among the faces of the widest repertoire, which is where
+/// a family's weights sit — every weight and width of `NotoSansArabic` states the same 1 250
+/// characters, and the style is then what picks `NotoSansArabic-Regular` from its thirty-six
+/// (ADR 1441). An interface's label gets its regular weight the same way a page's composite font
+/// gets its bold.
+///
 /// Costs one `cmap` lookup per candidate per character, over faces already read for the
-/// catalogue; it runs only where a composite font is substituted *and* its collection is a
-/// registered one, which is ten of the 974 corpus documents.
+/// catalogue, the first time a set of characters is asked for; after that the qualifying faces
+/// are remembered and each style is a ranking over them.
 #[must_use]
-pub fn installed_covering(request: Request, wanted: &[char]) -> Option<Arc<[u8]>> {
+pub fn installed_covering_styled(
+    request: Request,
+    style: Style,
+    wanted: &[char],
+) -> Option<Arc<[u8]>> {
     if wanted.is_empty() {
-        return installed(request);
+        return installed_styled(request, style);
     }
     // The port, for a process that cannot read a font file: the description that crosses carries
-    // the characters, so the broker runs `covering_path` — this function's own search — in the
-    // process that has the filesystem. The answer is checked here anyway, because a broker is a
-    // peer and a face that does not cover is worse than the compiled-in one (see below).
+    // the characters and the style, so the broker runs `covering_path` — this function's own
+    // search — in the process that has the filesystem. The answer is checked here anyway, because
+    // a broker is a peer and a face that does not cover is worse than the compiled-in one.
     if !machine_fonts() {
-        let (bytes, _name) = crate::provider::offered(request, wanted, 0)?;
+        let (bytes, _name) = crate::provider::offered(request, style, wanted, 0)?;
         return covers(&bytes, wanted).then_some(bytes);
     }
-    covering_path(request, wanted).and_then(|path| read_cached(&path))
+    covering_path(request, style, wanted).and_then(|path| read_cached(&path))
 }
 
 /// Whether a face found earlier answers every one of `wanted`: the test [`installed_covering`] keeps
@@ -1066,26 +1508,53 @@ fn covers(bytes: &Arc<[u8]>, wanted: &[char]) -> bool {
     wanted.iter().all(|c| charmap.map(*c).is_some())
 }
 
-/// [`installed_covering`]'s search, answering the path rather than the bytes.
+/// [`installed_covering_styled`]'s search, answering the path rather than the bytes.
 ///
 /// Split out because [`machine_face`] answers a broker with a path to open, and a broker that
 /// searched differently would be a second matcher.
-fn covering_path(request: Request, wanted: &[char]) -> Option<PathBuf> {
-    let accept = |bytes: &Arc<[u8]>| covers(bytes, wanted);
-    for path in preferred_paths(request) {
+fn covering_path(request: Request, style: Style, wanted: &[char]) -> Option<PathBuf> {
+    for path in preferred_paths(request, style) {
         if let Some(bytes) = read_cached(path)
-            && accept(&bytes)
+            && covers(&bytes, wanted)
         {
             return Some(path.to_path_buf());
         }
     }
+    best_covering(&qualifying(wanted), request, style).map(Path::to_path_buf)
+}
 
-    // Memoised on the characters, because the search is the expensive part: it reads font
-    // files until one covers them, and a document with three Japanese fonts would otherwise
-    // walk the machine's catalogue three times. Measured: 215 ms the first time on this
-    // machine's 1 400 faces, and nothing after it. Keyed by the characters alone, which is
-    // exactly right for this half of the search: it walks the whole catalogue and asks nothing
-    // about the family.
+/// The catalogue face [`installed_covering_styled`] takes among those stating every character:
+/// the widest repertoire, and among the widest the nearest style, then the request's generic
+/// family. The first in the catalogue's path order wins a tie, so one machine answers alike on
+/// every run.
+fn best_covering(faces: &[Qualifying], request: Request, style: Style) -> Option<&Path> {
+    faces
+        .iter()
+        .min_by_key(|(_, mappings, face)| {
+            (
+                std::cmp::Reverse(*mappings),
+                face.distance(style),
+                face.other_family(request.family),
+            )
+        })
+        .map(|(path, _, _)| path.as_path())
+}
+
+/// One face that states every character of a set: its file, its `cmap`'s size, and its style.
+type Qualifying = (PathBuf, usize, FaceStyle);
+
+/// The catalogue's faces that state every one of `wanted`, remembered by the characters.
+///
+/// Memoised on the characters alone, because the search is the expensive part — it reads font
+/// files until it has read them all, 215 ms the first time on this machine's 1 400 faces — and
+/// what it finds does not depend on the style: a document with three Japanese fonts in three
+/// weights walks the catalogue once and ranks its answer three times.
+///
+/// Read straight from the filesystem rather than through `read_cached`: the search touches most of
+/// the catalogue, and caching every face it rejects would hold the machine's entire font collection
+/// in memory to answer one question. Only the winner is read again through the cache, where the
+/// pages that use it will find it.
+fn qualifying(wanted: &[char]) -> Vec<Qualifying> {
     let key: Vec<char> = wanted.to_vec();
     let memo = COVERING.get_or_init(|| RwLock::new(Vec::new()));
     if let Ok(held) = memo.read()
@@ -1093,81 +1562,7 @@ fn covering_path(request: Request, wanted: &[char]) -> Option<PathBuf> {
     {
         return found.clone();
     }
-
-    // Read straight from the filesystem rather than through `read_cached`: a coverage search
-    // touches most of the catalogue, and caching every face it rejects would hold the
-    // machine's entire font collection in memory to answer one question. Only the winner is
-    // read again through the cache, where the pages that use it will find it.
-    let found = catalogue()
-        .iter()
-        .filter_map(|candidate| {
-            let bytes: Arc<[u8]> = std::fs::read(&candidate.path).ok()?.into();
-            if !accept(&bytes) {
-                return None;
-            }
-            // **The widest repertoire among the faces that qualify**, which is a choice and
-            // is here because the first qualifying face is a worse one. This machine's
-            // catalogue offers `KanjiStrokeOrders.ttf` before `DroidSansFallback.ttf`, and
-            // it is a teaching font: it has 的 and 中 and not the characters
-            // `issue2128r.pdf` shows. Counting a `cmap`'s entries asks the question the
-            // sample is a proxy for — how likely is this face to have the *rest* of the
-            // document's characters — and it is computed only for faces that already
-            // cover the sample.
-            let font = skrifa::FontRef::new(&bytes).ok()?;
-            let mappings = skrifa::MetadataProvider::charmap(&font).mappings().count();
-            Some((mappings, &candidate.path))
-        })
-        .max_by_key(|(mappings, _)| *mappings)
-        .map(|(_, path)| path.clone());
-    if let Ok(mut held) = memo.write() {
-        held.push((key, found.clone()));
-    }
-    found
-}
-
-/// [`installed_covering`] for text this program sets itself — an interface's label — where the
-/// face should also look like the faces around it (ADR 1430).
-///
-/// The same two steps: the family's preferred faces first, kept only if they state every one of
-/// `wanted`, and then the machine's catalogue. What differs is how the catalogue's qualifying faces
-/// are ranked. [`installed_covering`] takes the widest repertoire, which is the right proxy for a
-/// document's other characters and says nothing about weight or width — on a machine with Noto
-/// Arabic the widest face stating an Urdu word is an extra-light condensed one, and a label set in
-/// it reads as a pale word among its neighbours. So here the face nearest the requested weight
-/// (400, or 700 for bold), then the requested slope, then normal width is taken, and the
-/// repertoire decides only between faces equal in those.
-///
-/// A function of its own rather than a change to [`installed_covering`], because that one decides
-/// the face a substituted composite font is drawn in on the page, which the raster gates hold, and
-/// this one decides only chrome. A process that cannot read a font file asks its broker exactly as
-/// [`installed_covering`] does.
-#[must_use]
-pub fn installed_covering_styled(request: Request, wanted: &[char]) -> Option<Arc<[u8]>> {
-    if wanted.is_empty() {
-        return installed(request);
-    }
-    if !machine_fonts() {
-        let (bytes, _name) = crate::provider::offered(request, wanted, 0)?;
-        return covers(&bytes, wanted).then_some(bytes);
-    }
-    for path in preferred_paths(request) {
-        if let Some(bytes) = read_cached(path)
-            && covers(&bytes, wanted)
-        {
-            return Some(bytes);
-        }
-    }
-    let key = (wanted.to_vec(), request.bold, request.italic);
-    let memo = COVERING_STYLED.get_or_init(|| RwLock::new(Vec::new()));
-    if let Ok(held) = memo.read()
-        && let Some((_, found)) = held.iter().find(|(cached, _)| *cached == key)
-    {
-        return found.as_deref().and_then(read_cached);
-    }
-    let weight = if request.bold { 700.0 } else { 400.0 };
-    // Read straight from the filesystem, for `covering_path`'s reason: the search touches most of
-    // the catalogue, and only the winner is read again through the cache.
-    let found = catalogue()
+    let found: Vec<Qualifying> = catalogue()
         .iter()
         .filter_map(|candidate| {
             let bytes: Arc<[u8]> = std::fs::read(&candidate.path).ok()?.into();
@@ -1175,42 +1570,20 @@ pub fn installed_covering_styled(request: Request, wanted: &[char]) -> Option<Ar
                 return None;
             }
             let font = skrifa::FontRef::new(&bytes).ok()?;
-            let attributes = skrifa::MetadataProvider::attributes(&font);
-            let slanted = !matches!(attributes.style, skrifa::attribute::Style::Normal);
             let mappings = skrifa::MetadataProvider::charmap(&font).mappings().count();
-            #[expect(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                reason = "a weight distance in 0..=900 and a width distance in thousandths of \
-                          normal, both small and non-negative"
-            )]
-            let rank = (
-                (attributes.weight.value() - weight).abs() as u32,
-                slanted != request.italic,
-                ((attributes.stretch.ratio() - 1.0).abs() * 1000.0) as u32,
-                std::cmp::Reverse(mappings),
-            );
-            Some((rank, &candidate.path))
+            Some((candidate.path.clone(), mappings, FaceStyle::read(&bytes)?))
         })
-        .min_by(|(one, _), (other, _)| one.cmp(other))
-        .map(|(_, path)| path.clone());
+        .collect();
     if let Ok(mut held) = memo.write() {
         held.push((key, found.clone()));
     }
-    found.as_deref().and_then(read_cached)
+    found
 }
 
-/// One remembered answer to [`installed_covering_styled`]'s catalogue search: the characters and
-/// the style asked for, and the file that answered.
-type CoveringStyled = ((Vec<char>, bool, bool), Option<PathBuf>);
+/// One remembered answer to [`qualifying`]'s catalogue search.
+type Covering = (Vec<char>, Vec<Qualifying>);
 
-/// Answers to [`installed_covering_styled`]'s catalogue search.
-static COVERING_STYLED: OnceLock<RwLock<Vec<CoveringStyled>>> = OnceLock::new();
-
-/// One remembered answer to [`covering_path`]'s catalogue search.
-type Covering = (Vec<char>, Option<PathBuf>);
-
-/// Answers to [`installed_covering`]'s catalogue search, by the characters asked for.
+/// Answers to [`qualifying`]'s catalogue search, by the characters asked for.
 static COVERING: OnceLock<RwLock<Vec<Covering>>> = OnceLock::new();
 
 /// Reads a font file, reusing the bytes if they have been read already.
@@ -1241,7 +1614,12 @@ fn read_cached(path: &Path) -> Option<Arc<[u8]>> {
 mod tests {
     use pdf_syntax::{Dictionary, Document, Name, Object};
 
-    use super::{Family, Language, Request, language, strip_subset_prefix};
+    use std::path::PathBuf;
+
+    use super::{
+        FaceStyle, Family, Language, Request, Style, best_covering, catalogue, language,
+        names_a_style, strip_subset_prefix, weight_from_stem,
+    };
 
     /// A font dictionary carrying the entries a case needs and nothing else.
     fn font(entries: &[(&str, &str)]) -> Dictionary {
@@ -1394,6 +1772,246 @@ mod tests {
         assert_eq!(
             strip_subset_prefix("abcdef+Times-Roman"),
             "abcdef+Times-Roman"
+        );
+    }
+
+    /// A simple font with no program, whose descriptor states `entries` and nothing that names a
+    /// style: the `/BaseFont` carries no weight, slope or width word, so what is read is Table 120's.
+    fn described(entries: &str) -> (Document, Dictionary) {
+        let font = format!(
+            "1 0 obj\n<< /Type /Font /Subtype /TrueType /BaseFont /ABCDEF+Corporate \
+             /Encoding /WinAnsiEncoding /FirstChar 32 /LastChar 126 \
+             /FontDescriptor << /Type /FontDescriptor /FontName /ABCDEF+Corporate \
+             /FontBBox [0 -200 1000 800] /Ascent 800 /Descent -200 /CapHeight 700 {entries} >> \
+             >>\nendobj\n"
+        );
+        crate::fixture::document_of(&[font.as_bytes()])
+    }
+
+    /// The face a fixture's font is drawn in, as the face states its own style.
+    fn chosen(entries: &str) -> Option<FaceStyle> {
+        let (document, dict) = described(entries);
+        let font = crate::LoadedFont::load(&document, &dict, "F1").expect("a substitute loads");
+        FaceStyle::read(font.substitute_program().expect("the font is substituted"))
+    }
+
+    /// Whether this machine offers a face of `family`'s preference list satisfying `test`, read
+    /// off the catalogue and the faces' own tables rather than off the ranking under test (ADR
+    /// 1154: the machine is asked, not the route).
+    fn machine_offers(family: Family, test: impl Fn(FaceStyle) -> bool) -> bool {
+        let Some((_, names)) = super::PREFERENCES.iter().find(|(f, _)| *f == family) else {
+            return false;
+        };
+        catalogue().iter().any(|candidate| {
+            names.iter().any(|name| {
+                candidate
+                    .stem
+                    .strip_prefix(&super::normalise(name))
+                    .is_some_and(names_a_style)
+            }) && std::fs::read(&candidate.path)
+                .ok()
+                .and_then(|bytes| FaceStyle::read(&bytes))
+                .is_some_and(&test)
+        })
+    }
+
+    /// Table 120's `/StemV`, where no name word, `/FontWeight` or PANOSE states a weight, decides
+    /// bold by ADR 1441's rule: a stem of 140 thousandths is Helvetica-Bold's, and the face chosen
+    /// states a weight class of 600 or more.
+    #[test]
+    fn a_stem_as_thick_as_a_bold_ones_is_drawn_in_a_bold_face() {
+        if !machine_offers(Family::SansSerif, |face| face.weight >= 600) {
+            println!("skipped: this machine offers no bold face of the sans-serif preference list");
+            return;
+        }
+        let face = chosen("/Flags 32 /ItalicAngle 0 /StemV 140").expect("an sfnt face");
+        assert!(face.weight >= 600, "{face:?}");
+        let face = chosen("/Flags 32 /ItalicAngle 0 /StemV 80").expect("an sfnt face");
+        assert!(face.weight < 600, "{face:?}");
+    }
+
+    /// `/ItalicAngle` other than zero asks for a sloped face: Table 120, "[t]he value shall be
+    /// negative for fonts that slope to the right, as almost all italic fonts do".
+    #[test]
+    fn an_italic_angle_is_drawn_in_a_sloped_face() {
+        if !machine_offers(Family::SansSerif, |face| face.italic) {
+            println!(
+                "skipped: this machine offers no sloped face of the sans-serif preference list"
+            );
+            return;
+        }
+        let face = chosen("/Flags 32 /ItalicAngle -12 /StemV 80").expect("an sfnt face");
+        assert!(face.italic, "{face:?}");
+    }
+
+    /// Table 121's `FixedPitch`, "[a]ll glyphs have the same width", asks for a face whose `post`
+    /// table states `isFixedPitch`.
+    #[test]
+    fn a_fixed_pitch_flag_is_drawn_in_a_fixed_pitch_face() {
+        if !machine_offers(Family::Monospace, |face| face.fixed_pitch) {
+            println!("skipped: this machine offers no fixed-pitch face of the monospace list");
+            return;
+        }
+        let face = chosen("/Flags 33 /ItalicAngle 0 /StemV 80").expect("an sfnt face");
+        assert!(face.fixed_pitch, "{face:?}");
+    }
+
+    /// Table 121's Serif asks for a serifed face, where the name says nothing; the face chosen
+    /// neither classes itself sans serif nor is fixed-pitch, which is the proportional serifed
+    /// design the flag and a clear `FixedPitch` describe.
+    #[test]
+    fn a_serif_flag_is_drawn_in_a_serifed_face() {
+        if !machine_offers(Family::Serif, |face| !face.fixed_pitch) {
+            println!("skipped: this machine offers no face of the serif preference list");
+            return;
+        }
+        let face = chosen("/Flags 34 /ItalicAngle 0 /StemV 80").expect("an sfnt face");
+        assert!(!face.fixed_pitch, "{face:?}");
+        assert_ne!(face.serif, Some(false), "{face:?}");
+        // And the flag is what chose it: the same descriptor without the bit asks for a sans.
+        let sans = chosen("/Flags 32 /ItalicAngle 0 /StemV 80").expect("an sfnt face");
+        assert_ne!(sans.serif, Some(true), "{sans:?}");
+    }
+
+    /// Table 120's `/FontStretch` asks for a width: a `Condensed` font is drawn in the family's
+    /// narrow member where the family has one.
+    #[test]
+    fn a_condensed_stretch_is_drawn_in_a_narrow_face() {
+        if !machine_offers(Family::SansSerif, |face| face.width < Style::NORMAL_WIDTH) {
+            println!("skipped: this machine offers no narrow face of the sans-serif list");
+            return;
+        }
+        let face = chosen("/Flags 32 /ItalicAngle 0 /StemV 80 /FontStretch /Condensed")
+            .expect("an sfnt face");
+        assert!(face.width < Style::NORMAL_WIDTH, "{face:?}");
+    }
+
+    /// One of §9.6.2.2's fourteen states its weight by its name: `Helvetica` is the regular
+    /// because it is not `Helvetica-Bold`, whatever stem its descriptor states.
+    #[test]
+    fn a_standard_name_states_its_own_weight() {
+        let document = Document::empty();
+        let mut descriptor = descriptor(32);
+        descriptor.insert(Name::new(b"StemV".to_vec()), Object::Integer(140));
+        let helvetica = font(&[("BaseFont", "Helvetica")]);
+        assert_eq!(
+            Style::derive(&document, &helvetica, Some(&descriptor)).weight,
+            400
+        );
+        let bold = font(&[("BaseFont", "Helvetica-Bold")]);
+        assert_eq!(
+            Style::derive(&document, &bold, Some(&descriptor)).weight,
+            700
+        );
+        let request = Request::derive(&document, &helvetica, Some(&descriptor));
+        assert!(!request.bold && request.standard);
+    }
+
+    /// `/FontWeight` is read on its nine classes, and outranked by a weight word in the name it is
+    /// "the weight (thickness) component of".
+    #[test]
+    fn a_font_weight_is_read_as_the_nearest_class() {
+        let document = Document::empty();
+        let with = |weight: i64| {
+            let mut d = descriptor(32);
+            d.insert(Name::new(b"FontWeight".to_vec()), Object::Integer(weight));
+            d
+        };
+        let plain = font(&[("BaseFont", "Corporate")]);
+        assert_eq!(
+            Style::derive(&document, &plain, Some(&with(300))).weight,
+            300
+        );
+        assert_eq!(
+            Style::derive(&document, &plain, Some(&with(649))).weight,
+            600
+        );
+        assert_eq!(Style::derive(&document, &plain, Some(&with(1))).weight, 100);
+        assert_eq!(
+            Style::derive(&document, &plain, Some(&with(1001))).weight,
+            400
+        );
+        let named = font(&[("BaseFont", "Corporate-Black")]);
+        assert_eq!(
+            Style::derive(&document, &named, Some(&with(400))).weight,
+            900
+        );
+    }
+
+    /// ADR 1441's stem rule, and Table 120's zero, "an unknown stem thickness".
+    #[test]
+    fn a_stem_is_bold_from_one_hundred_and_twenty() {
+        assert_eq!(weight_from_stem(0.0), None);
+        assert_eq!(weight_from_stem(f64::NAN), None);
+        assert_eq!(weight_from_stem(88.0), Some(400));
+        assert_eq!(weight_from_stem(119.9), Some(400));
+        assert_eq!(weight_from_stem(120.0), Some(700));
+        assert_eq!(weight_from_stem(140.0), Some(700));
+    }
+
+    /// A family's members are the files whose names add only style words to it.
+    #[test]
+    fn a_family_member_adds_only_style_words() {
+        for rest in [
+            "",
+            "regular",
+            "bolditalic",
+            "narrowboldoblique",
+            "extracondensedlight",
+        ] {
+            assert!(names_a_style(rest), "{rest}");
+        }
+        for rest in ["mono", "arabicregular", "display", "boldx"] {
+            assert!(!names_a_style(rest), "{rest}");
+        }
+    }
+
+    /// The covering search never trades characters for style: a face with fewer characters in the
+    /// right weight loses to a wider one in the wrong weight, and among faces equally wide the
+    /// nearest style wins. The first is this machine's `NotoTraditionalNushu-Bold` against
+    /// `DroidSansFallbackFull` for a bold Chinese font; the second, `NotoSansArabic`'s weights.
+    #[test]
+    fn repertoire_is_ranked_before_style() {
+        let face = |weight: u16, italic: bool| FaceStyle {
+            weight,
+            italic,
+            width: Style::NORMAL_WIDTH,
+            fixed_pitch: false,
+            serif: Some(false),
+        };
+        let request = Request {
+            family: Family::SansSerif,
+            bold: true,
+            italic: false,
+            standard: false,
+        };
+        let bold = Style::of(request);
+        let faces = vec![
+            (PathBuf::from("narrow-bold"), 300, face(700, false)),
+            (PathBuf::from("wide-regular"), 30_000, face(400, false)),
+        ];
+        assert_eq!(
+            best_covering(&faces, request, bold),
+            Some(PathBuf::from("wide-regular").as_path())
+        );
+        let family = vec![
+            (PathBuf::from("light"), 1250, face(300, false)),
+            (PathBuf::from("regular"), 1250, face(400, false)),
+            (PathBuf::from("bold-italic"), 1250, face(700, true)),
+            (PathBuf::from("bold"), 1250, face(700, false)),
+            (PathBuf::from("black"), 1250, face(900, false)),
+        ];
+        assert_eq!(
+            best_covering(&family, request, bold),
+            Some(PathBuf::from("bold").as_path())
+        );
+        let regular = Style::of(Request {
+            bold: false,
+            ..request
+        });
+        assert_eq!(
+            best_covering(&family, request, regular),
+            Some(PathBuf::from("regular").as_path())
         );
     }
 }

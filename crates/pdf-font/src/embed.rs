@@ -1,6 +1,7 @@
 //! A face from this machine written into a file: ISO 32000-2 §9.9.1's embedded `TrueType`
 //! program, §9.9.2's subset of it, and what the face's own licence permits. A face whose outlines
-//! are a `CFF ` table is written by [`cff`] instead, whole and under `/FontFile3` (ADR 1438).
+//! are a `CFF ` table is written by [`cff`] instead, under `/FontFile3` and a `CIDFontType0`: as a
+//! subset where the licence permits one (ADR 1449), whole where it does not (ADR 1438).
 //!
 //! A layout that sets a value no compiled-in face can draw sets it in a face the machine offers
 //! (ADR 1414), and drawing it asks nothing of the face's licence or size. Writing it into a
@@ -39,6 +40,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::sfnt::{be16, be32, checksummed, horizontal_metric, sfnt_tables};
 
 mod cff;
+mod reach;
 
 /// Offset of `indexToLocFormat` within `head`.
 const INDEX_TO_LOC_FORMAT: usize = 50;
@@ -148,11 +150,18 @@ pub enum Refusal {
 pub enum Outlines {
     /// `glyf` outlines: `/FontFile2` under a `CIDFontType2`.
     TrueType,
-    /// A `CFF ` table: `/FontFile3` with `/Subtype /OpenType`, under a `CIDFontType0`.
+    /// A `CFF ` table carried whole in an `OpenType` program: `/FontFile3` with
+    /// `/Subtype /OpenType`, under a `CIDFontType0` (ADR 1438).
     Cff {
         /// The character collection a CID-keyed program's `ROS` names, which §9.7.4.2 says
         /// "should be copied into the PDF `CIDFont` dictionary"; `None` for a name-keyed one.
         system: Option<SystemInfo>,
+    },
+    /// A subset written as a bare CID-keyed CFF program: `/FontFile3` with
+    /// `/Subtype /CIDFontType0C`, under a `CIDFontType0` whose CIDs its charset maps (ADR 1449).
+    CompactCid {
+        /// The character collection the program's `ROS` names, for `/CIDSystemInfo`.
+        system: SystemInfo,
     },
 }
 
@@ -191,6 +200,26 @@ impl Embedded {
     }
 }
 
+/// Whether a face's outlines are a `CFF ` table rather than `glyf`, which decides the `CIDFont`
+/// it is described by: Table 124 carries a `CFF ` program under a `CIDFontType0` and a `glyf` one
+/// under a `CIDFontType2`.
+#[must_use]
+pub fn has_cff_outlines(program: &[u8]) -> bool {
+    sfnt_tables(program).is_some_and(|tables| {
+        !tables.contains_key(b"glyf".as_slice()) && tables.contains_key(b"CFF ".as_slice())
+    })
+}
+
+/// Whether each of `glyphs`, shown as a CID equal to its index in the face, reaches that glyph
+/// under the `CIDFont` [`has_cff_outlines`] describes the face by — the question §9.7.4.2 answers
+/// differently for the two `CFF ` cases. Always for a `glyf` face (`/CIDToGIDMap /Identity`) and a
+/// name-keyed `CFF ` face ("[t]he CIDs shall be used directly as GID values"); for a CID-keyed one
+/// only where its charset gives each its own index as its CID.
+#[must_use]
+pub fn glyph_indices_reach(program: &[u8], glyphs: &BTreeSet<u16>) -> bool {
+    !has_cff_outlines(program) || cff::cids_reach_glyphs(program, glyphs)
+}
+
 /// The face written for a `CIDFontType2`'s `/FontFile2`, keeping `used` and what draws them.
 ///
 /// `used` are glyph indices of `program`. Glyph 0 is added (§9.9.2's `.notdef`), and every
@@ -207,8 +236,8 @@ impl Embedded {
 /// stream's CIDs still reach their glyphs, and [`Refusal::Malformed`] where a table this needs is
 /// absent or inconsistent.
 ///
-/// A `CFF ` program is written whole whatever `fsType` says about subsetting, since nothing of it
-/// is subset ([`cff`]); the licence's other two answers bind it as they bind a `glyf` one.
+/// A `CFF ` program is subset by [`cff`] under the same three answers of the licence: where
+/// `fsType` forbids subsetting it is written whole, as a `glyf` one keeps every glyph.
 pub fn for_embedding(program: &[u8], used: &BTreeSet<u16>) -> Result<Embedded, Refusal> {
     let permitted = permission(program);
     if permitted.licence == Licence::Restricted {
@@ -220,7 +249,7 @@ pub fn for_embedding(program: &[u8], used: &BTreeSet<u16>) -> Result<Embedded, R
     let tables = sfnt_tables(program).ok_or(Refusal::Malformed("table directory"))?;
     if !tables.contains_key(b"glyf".as_slice()) {
         return if tables.contains_key(b"CFF ".as_slice()) {
-            cff::for_embedding(program, used)
+            cff::for_embedding(program, used, permitted.subsetting)
         } else {
             Err(Refusal::NoOutlines)
         };

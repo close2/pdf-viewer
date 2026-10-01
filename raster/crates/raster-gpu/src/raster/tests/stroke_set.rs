@@ -165,15 +165,20 @@ pub(super) fn line_path(points: &[(f32, f32)], closed: bool) -> Vec<Segment> {
     path
 }
 
-/// A rung's ink against the set's area `want`: short of it by no more than the strip a
-/// flattening may cut off (`short`), and on either side by no more than the rung's byte
-/// rounding and a sixteenth of a pixel besides — the slack for a rim pixel whose coverage
-/// was within half a step of empty or full and so is not counted as partial.
-fn within(rung: &Rung, want: f32, short: f32, what: &str) {
+/// A rung's ink against the set's area `want`: off it by no more than the strip along the rim
+/// a flattening may move (`chords`), and by no more than the rung's byte rounding and a
+/// sixteenth of a pixel besides — the slack for a rim pixel whose coverage was within half a
+/// step of empty or full and so is not counted as partial.
+///
+/// The strip is two-sided: a flat piece's two chords (ADR 1443) run through its end points,
+/// which are on the curve, and the midpoint of its inner controls, which is within the
+/// flatness tolerance of its chord, as the curve is — so the flattened path stands within the
+/// tolerance of the curve on either side, and a stroke of it within that of the curve's set.
+fn within(rung: &Rung, want: f32, chords: f32, what: &str) {
     let slack = rung.rounding + 1.0 / 16.0;
     assert!(
-        rung.ink >= want - short - slack && rung.ink <= want + slack,
-        "{what} at {}×: {:.4} against the set's {want:.4} (chords {short:.4}, rounding {:.4})",
+        (rung.ink - want).abs() <= chords + slack,
+        "{what} at {}×: {:.4} against the set's {want:.4} (chords {chords:.4}, rounding {:.4})",
         rung.s,
         rung.ink,
         rung.rounding
@@ -196,7 +201,7 @@ fn within(rung: &Rung, want: f32, short: f32, what: &str) {
 ///
 /// A pixel whose centre is within `8 − √2/2 − 1/4` device units of the curve (scaled) lies
 /// wholly inside the set even after flattening, so it is fully covered; one beyond
-/// `8 + √2/2` is wholly outside it. Those two are checked at every pixel, from the curve's
+/// `8 + √2/2 + 1/4` is wholly outside it. Those two are checked at every pixel, from the curve's
 /// own points, and a sliver or a hole fails the first.
 #[test]
 fn the_hook_is_one_set_drawn_either_way() {
@@ -246,9 +251,11 @@ fn the_hook_is_one_set_drawn_either_way() {
                 let byte = m.coverage[(y * m.width + x) as usize];
                 // The sampled curve overstates a distance by at most half its spacing,
                 // 24 units / 2000 / 2 = 0.006 units, 0.024 device pixels here: that makes the
-                // inner test stricter and needs a twentieth of a pixel on the outer one.
+                // inner test stricter and needs a twentieth of a pixel on the outer one. The
+                // flattened path stands within the tolerance of the curve on either side, since a
+                // piece's two chords run through the midpoint of its inner controls (ADR 1443).
                 let inner = 8.0 * s - std::f32::consts::FRAC_1_SQRT_2 - FLATTEN_TOLERANCE;
-                let outer = 8.0 * s + std::f32::consts::FRAC_1_SQRT_2 + 0.05;
+                let outer = 8.0 * s + std::f32::consts::FRAC_1_SQRT_2 + FLATTEN_TOLERANCE + 0.05;
                 if d <= inner && byte != 255 {
                     holes += 1;
                 }
@@ -482,8 +489,8 @@ fn the_pieces_of_a_thin_stroke_tile_its_set() {
             let pieces =
                 stroke_polylines(&flatten_stroke(&drawn, scaled(1.0)), stroke, stroke.width);
             let areas: Vec<f64> = pieces.iter().map(signed_area).collect();
-            let negative = areas.iter().filter(|a| **a < -1e-9).count();
-            let positive = areas.iter().filter(|a| **a > 1e-9).count();
+            let negative = areas.iter().filter(|a| **a < 0.0).count();
+            let positive = areas.iter().filter(|a| **a > 0.0).count();
             assert!(
                 negative == 0 || positive == 0,
                 "{what}: {negative} pieces wound one way and {positive} the other"
@@ -626,8 +633,8 @@ fn the_pieces_of_a_tight_bend_tile_its_set() {
                 8.0,
             );
             let areas: Vec<f64> = pieces.iter().map(signed_area).collect();
-            let negative = areas.iter().filter(|a| **a < -1e-9).count();
-            let positive = areas.iter().filter(|a| **a > 1e-9).count();
+            let negative = areas.iter().filter(|a| **a < 0.0).count();
+            let positive = areas.iter().filter(|a| **a > 0.0).count();
             assert!(
                 negative == 0 || positive == 0,
                 "{join:?}: {negative} pieces wound one way and {positive} the other"
@@ -651,15 +658,15 @@ fn cross() -> (Vec<Segment>, [f64; 4], [f64; 4]) {
     (path, [20.3, 80.3, 47.6, 53.6], [47.3, 53.3, 20.6, 80.6])
 }
 
-/// The pieces' signed areas summed with no rasteriser: all of one sign but for rounding's
-/// slivers, and their total.
+/// The pieces' signed areas summed with no rasteriser: all of one sign, and their total.
+///
+/// Every sign is read, however small the area: a fragment cut between two crossing points
+/// that round to nearly one `f32` point is dropped by the tiling where it is no wider than
+/// that rounding (`convex::sliver`, ADR 1444), so no piece left is wound against the rest.
 fn pieces_sum(pieces: &[crate::raster::Polyline], what: &str) -> f64 {
     let areas: Vec<f64> = pieces.iter().map(signed_area).collect();
-    // A fragment cut between two crossing points that round to nearly one `f32` point can
-    // hold an area of that rounding's order, of either sign: a sliver of 1e-8 against a
-    // piece's tens. Its sign says nothing about the winding; its area still counts.
-    let negative = areas.iter().filter(|a| **a < -1e-6).count();
-    let positive = areas.iter().filter(|a| **a > 1e-6).count();
+    let negative = areas.iter().filter(|a| **a < 0.0).count();
+    let positive = areas.iter().filter(|a| **a > 0.0).count();
     assert!(
         negative == 0 || positive == 0,
         "{what}: {negative} pieces wound one way and {positive} the other"

@@ -51,7 +51,7 @@
               output is the point of the run"
 )]
 
-use std::io::Write as _;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -552,41 +552,15 @@ struct Held {
 /// left it, each by one backend moving onto the geometry the other already drew, are recorded in
 /// `doc/adr/` and `doc/history/`.
 ///
-/// **`issue2177.pdf` is read against a reference derived from the page's own geometry, and raster
-/// is the lane the clause puts further from it** (ADR 1435). The page is three circles painted `B`
-/// with a `/TilingType 2` pattern of stroked circles under a shearing `/Matrix`, a triangle painted
-/// `b` with the same pattern, and a black rule round each. §10.7.4 identifies a pixel with
-/// `[i, i+1) × [j, j+1)`, so each mark's coverage of a pixel is the area of the mark intersected
-/// with its clip there, composited in paint order; ADR 1435's reference samples 128 × 128 points
-/// a pixel and moves by 0.016 of 255 from 64 × 64, so it is converged. Against it the
-/// oracle is 0.71 of 255 away per channel and raster 2.05, raster 0.40 light on average; the page's
-/// ink reads 13013.8 in the reference, 13030.3 on the oracle and 12933.9 on raster.
-///
-/// - **Inside the circles the difference is raster's flattening.** Its path lane flattens a curve
-///   to chords a quarter of a device pixel from it, and chords are inscribed, so each small ring
-///   of the pattern loses area on its outer edge. Re-flattening the rings' outlines at 1/256 of a
-///   device pixel before raster sees them takes raster to 0.39 of the reference and this page's
-///   mean from 1.94 to 0.68. §10.7.2 leaves the tolerance to the processor — "PDF processors may
-///   choose to ignore any flatness tolerance specified within a PDF file" — and §10.7.4 says which
-///   side the error it leaves may fall on: "[t]he area covered by painted pixels shall always be
-///   at least as large as the area of the original shape." An inscribed polygon is on the other
-///   side; `doc/QUORRA_FEEDBACK.md` section 59 is the ask.
-/// - **The worst tile is where the pattern meets its circle**, at (32, 224): the raster's bottom
-///   row, one pixel tall (trap 26). The pattern's cells are clipped by the circle's own path, which
-///   raster applies as a residue it multiplies and the oracle as a `min`; against the reference's
-///   intersection in that tile the oracle is 8.5 of 255 heavy and raster 7.2 light, so neither lane
-///   states the intersection where a curved clip crosses a curved mark, and the two part in
-///   opposite directions from it.
-/// - **`/TilingType 2` is not what separates them.** Table 74 lets "the spacing between pattern
-///   cells" "vary by as much as 1 device pixel", and both lanes place every cell at its exact
-///   `/XStep` and `/YStep` multiple, so the latitude is taken by neither.
-///
-/// Held at mean 1.94 and worst tile 11.6 against the 1.9385 and 11.54 measured.
-const DIFFERS_AT_THE_EDGES: [Held; 1] = [Held {
-    name: "issue2177.pdf",
-    mean: 1.94,
-    worst_tile: 11.6,
-}];
+/// **Empty.** A page that arrives here is read against a per-pixel reference computed from the
+/// geometry it states — §10.7.4 identifies a pixel
+/// with `[i, i+1) × [j, j+1)`, so each mark's coverage there is the area of the mark intersected
+/// with its clip, composited in paint order (ADR 1435) — before either lane is called right.
+/// `issue2177.pdf`, a pattern of small stroked rings under a shearing `/Matrix` clipped by circles,
+/// is 0.20 of 255 from its reference on raster and 0.64 on the oracle: raster flattens a curve's
+/// piece as two chords that enclose its area rather than one chord inside it, and meets a residue
+/// clip by `min` (ADRs 1443 and 1444).
+const DIFFERS_AT_THE_EDGES: [Held; 0] = [];
 
 /// Pages where the difference is **structural**: similarity at or below 0.99.
 ///
@@ -636,8 +610,8 @@ const DIFFERS_IN_SHAPE: [Held; 0] = [];
 /// says what it is: a gap that halves at every rung is a cost paid per boundary pixel. What the
 /// ladder cannot say is *which* lane pays it, because its reference is the two lanes converging
 /// on each other. A per-pixel reference computed from the page's own geometry can, and that is how
-/// [`DIFFERS_AT_THE_EDGES`]'s page is read and how the clip met at a coincident edge was found to
-/// be raster's product (ADR 1435).
+/// the clip met at a coincident edge was found to be raster's product (ADR 1435) and a curve's
+/// flattening raster's inscribed chord (ADR 1443).
 fn differing_pages() -> Vec<&'static str> {
     let mut all: Vec<&'static str> = DIFFERS_AT_THE_EDGES
         .iter()
@@ -784,14 +758,7 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
             cpu_total = cpu_total.saturating_add(cpu_took);
             gpu_total = gpu_total.saturating_add(gpu_took);
             if let Some(times) = times.as_mut() {
-                // A file that cannot be written loses the column, not the run: the survey above
-                // it is the gate, and this is a side output for comparing two builds page by page.
-                let _ = writeln!(
-                    times,
-                    "{name}\t{:.3}\t{:.3}",
-                    cpu_took.as_secs_f64() * 1e3,
-                    gpu_took.as_secs_f64() * 1e3
-                );
+                write_time(times, &name, (cpu_took, gpu_took), &cpu, &ours);
             }
             if cpu_took > Duration::from_millis(1) {
                 // Below a millisecond the clock is measuring itself; a ratio taken there is
@@ -968,8 +935,10 @@ impl OneThread {
     }
 }
 
-/// Where each timed page's two clocks go, one `name, oracle ms, raster ms` line per page, when
-/// `PDFVIEWER_RASTER_TIMES` names a file.
+/// Where each timed page's two clocks go, one `name, oracle ms, raster ms, digest, mean` line per
+/// page, when `PDFVIEWER_RASTER_TIMES` names a file: the digest is [`frame_digest`] of raster's
+/// frame and the mean its error against the oracle's, so that two builds' files name the pages a
+/// change moved and say whether each moved toward the oracle (ADR 1443).
 ///
 /// A total and a median say how much a change costs and not where: comparing two builds page by
 /// page is what finds the pages a construction moved, which are the ones worth profiling (ADR
@@ -979,6 +948,36 @@ fn page_times() -> Option<std::io::BufWriter<std::fs::File>> {
     std::fs::File::create(path)
         .ok()
         .map(std::io::BufWriter::new)
+}
+
+/// One page's line in the [`page_times`] file. A file that cannot be written loses the column, not
+/// the run: the survey is the gate, and this is a side output for comparing two builds page by page.
+fn write_time(
+    times: &mut impl Write,
+    name: &str,
+    (cpu_took, gpu_took): (Duration, Duration),
+    cpu: &pdf_render::Raster,
+    ours: &Result<pdf_render::Raster, impl ToString>,
+) {
+    let (digest, mean) = ours.as_ref().map_or((0, f64::NAN), |frame| {
+        let mean = raster_compare::compare(cpu, frame).map_or(f64::NAN, |c| c.mean_error);
+        (frame_digest(&frame.data), mean)
+    });
+    let _ = writeln!(
+        times,
+        "{name}\t{:.3}\t{:.3}\t{digest:016x}\t{mean:.4}",
+        cpu_took.as_secs_f64() * 1e3,
+        gpu_took.as_secs_f64() * 1e3
+    );
+}
+
+/// A frame's bytes folded to 64 bits (FNV-1a): equal frames print equal digests, and two builds'
+/// digests differ on a page exactly where one of them drew it differently, to a collision's
+/// chance.
+fn frame_digest(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    })
 }
 
 /// Holds the run to whichever lists it is the measurement for.

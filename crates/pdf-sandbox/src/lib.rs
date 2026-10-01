@@ -58,6 +58,8 @@
 //! - a decoder panic aborts the viewer with the document open, rather than costing one image;
 //! - the address-space limit is gone, so a decompression bomb is bounded only by the
 //!   machine;
+//! - the deadline bounds the caller's wait and not the work: a decode that overruns it is
+//!   abandoned on its own thread rather than killed, and may never finish ([`in_process`]);
 //! - the no-filesystem, no-network property is gone with it.
 //!
 //! What it does not cost is memory safety: both decoders are `#![forbid(unsafe_code)]` with
@@ -72,12 +74,14 @@
 // platform without one gets no confinement rather than an `unsafe` block (ADR 0194).
 
 mod decode;
+pub mod in_process;
 pub mod lockdown;
 #[cfg(target_os = "linux")]
 mod lockdown_linux;
 mod protocol;
 mod worker;
 
+pub use in_process::{decode_here, decode_here_within};
 pub use protocol::{Bilevel, CcittParameters, Colour, Raster, Request};
 pub use worker::serve;
 
@@ -99,7 +103,8 @@ pub enum Isolation {
     /// In a confined worker process. The default.
     #[default]
     Sandboxed,
-    /// In this process, with no confinement and no bound but the machine's.
+    /// In this process, with no confinement, no memory bound but the machine's, and a deadline
+    /// on the caller's wait rather than on the decode ([`in_process`]).
     ///
     /// Faster by a process spawn and a pipe round trip, and appropriate for documents whose
     /// origin the reader trusts. See the crate documentation for what it gives up.
@@ -164,7 +169,12 @@ pub fn decode(request: &Request<'_>) -> Result<Decoded, SandboxError> {
             Sandbox::whole(*samples).decode(request)
         }
         (Isolation::Sandboxed, _) => Sandbox::shared().decode(request),
-        (Isolation::InProcess, _) => decode::here(request),
+        // A process behind its own filter decodes on its own thread: starting the kept thread
+        // asks for `prctl` (the thread's name), and a thread's first allocation may ask glibc's
+        // arena question of the kernel — both killed by the filter. Its time is bounded from
+        // outside instead, by whoever holds its `Canceller` (ADR 1447).
+        (Isolation::InProcess, _) if lockdown::is_confined() => decode_here(request),
+        (Isolation::InProcess, _) => decode_here_within(request, REQUEST_TIMEOUT),
     }
 }
 
@@ -278,10 +288,36 @@ pub enum SandboxError {
         /// How it stopped, as far as the parent can tell.
         detail: String,
     },
-    /// The worker did not answer within its time: [`REQUEST_TIMEOUT`], or the longer one a
-    /// worker for full-resolution decodes is given ([`Sandbox::whole`]).
+    /// The worker did not answer within its time: [`REQUEST_TIMEOUT`], the longer one a
+    /// worker for full-resolution decodes is given ([`Sandbox::whole`]), or the one a caller
+    /// stated ([`Sandbox::with_timeout`]). The worker is killed, and the decode with it.
     #[error("the sandbox worker did not answer within the time it was given")]
     TimedOut,
+    /// An in-process decode did not finish within its time, and was abandoned rather than
+    /// stopped: a thread cannot be killed, so it runs on until it ends ([`in_process`]).
+    #[error(
+        "the decode did not finish within {after:?} and was abandoned on its own thread, where \
+         it runs on until it ends: a decode in this process cannot be stopped, only left (ADR \
+         1447)"
+    )]
+    Overran {
+        /// The deadline it overran.
+        after: Duration,
+    },
+    /// An in-process decode was not started, because as many decodes that overran their
+    /// deadline as [`in_process::MAX_ABANDONED`] admits are still running.
+    #[error(
+        "{running} earlier decodes in this process overran their deadline and are still running, \
+         which is as many as it lets run at once, so this image is not decoded; the confined \
+         worker, which kills what overruns, has no such limit (ADR 1447)"
+    )]
+    TooManyOverran {
+        /// How many were still running.
+        running: usize,
+    },
+    /// The thread an in-process decode runs on could not be started.
+    #[error("starting the thread an in-process decode runs on failed: {0}")]
+    Thread(#[source] std::io::Error),
     /// The pipe to or from the worker failed.
     #[error("the sandbox worker connection failed: {0}")]
     Connection(#[source] std::io::Error),
@@ -332,6 +368,9 @@ pub struct Sandbox {
     /// The samples a full-resolution decode may produce, for a worker started for them
     /// ([`Sandbox::whole`]); `None` for the ordinary worker.
     whole: Option<u64>,
+    /// The deadline a caller stated ([`Sandbox::with_timeout`]); `None` for the one derived
+    /// from the worker's kind.
+    timeout: Option<Duration>,
 }
 
 impl Sandbox {
@@ -345,7 +384,23 @@ impl Sandbox {
         SHARED.get_or_init(|| Self {
             connection: Mutex::new(None),
             whole: None,
+            timeout: None,
         })
+    }
+
+    /// Returns a sandbox of its own whose worker is held to `timeout` for each request, without
+    /// starting anything.
+    ///
+    /// The ordinary worker's bounds otherwise. For a caller whose own budget is shorter than
+    /// thirty seconds — a thumbnail, a test that a deadline holds — and which is prepared to
+    /// start a worker of its own for it; dropping the sandbox ends that worker.
+    #[must_use]
+    pub fn with_timeout(timeout: Duration) -> Self {
+        Self {
+            connection: Mutex::new(None),
+            whole: None,
+            timeout: Some(timeout),
+        }
     }
 
     /// Returns the sandbox whose worker decodes a JPEG 2000 image at full resolution within
@@ -376,13 +431,14 @@ impl Sandbox {
             Arc::new(Self {
                 connection: Mutex::new(None),
                 whole: Some(samples),
+                timeout: None,
             })
         }))
     }
 
     /// The bounds the parent holds this sandbox's worker to.
     fn bounds(&self) -> Bounds {
-        match self.whole {
+        let derived = match self.whole {
             None => Bounds {
                 response: MAX_RESPONSE,
                 timeout: REQUEST_TIMEOUT,
@@ -397,6 +453,10 @@ impl Sandbox {
                     .unwrap_or(Duration::MAX);
                 Bounds { response, timeout }
             }
+        };
+        Bounds {
+            timeout: self.timeout.unwrap_or(derived.timeout),
+            ..derived
         }
     }
 

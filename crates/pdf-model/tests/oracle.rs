@@ -6269,13 +6269,14 @@ const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 10] = [
 /// - **The advances and the extent are the references'.** The ink's bounding box is x[10, 147]
 ///   y[15, 34] in ours, `poppler`'s and `mupdf`'s, so §9.2.4's advances and the cap height are
 ///   honoured and are not what differs.
-/// - **Inside that box the page's ink is ours 15.45 against `poppler`'s 15.52, `mupdf`'s 15.32,
-///   `hayro`'s 14.97 and `ghostscript`'s 12.71** (the gate's panels; ours re-taken after ADR 1082),
-///   so four of the five cover the box to within 0.55 of 255.
-/// - **At 576 dpi the modal dark run across the x-height band is 12 device pixels in ours and in
-///   `poppler`'s**, against the `/StemV 66` the file states, which at 20 pt and eight times is
-///   **10.56**. The scale comes from `/Widths` alone, so the stem landing 9% over the file's own
-///   statement is two of the file's numbers agreeing rather than a constant fitted to a page.
+/// - **The face is the condensed member of the preferred family where the machine has one.** The
+///   name's `Narrow` asks for a condensed width (ADR 1441), so on a machine with
+///   `NimbusSansNarrow` the line is drawn in that design and `/Widths` needs no scale; on one
+///   without it, a normal-width face is condensed to the widths (ADR 0358).
+/// - **At 576 dpi the whole page's ink is ours 15.69 against `poppler`'s 15.67 and `mupdf`'s
+///   15.42, and the modal dark run across the x-height band is 12 device pixels in all three**,
+///   against the `/StemV 66` the file states, which at 20 pt and eight times is **10.56** — the
+///   stem landing 9% over the file's own statement in every one of the three.
 /// - **`hayro` shares `skrifa` with this tree and nothing else**, so the choice of face is not a
 ///   rasteriser question.
 ///

@@ -419,28 +419,36 @@ fn held(state: &mut State, bytes: Arc<[u8]>) -> usize {
         })
 }
 
-/// The one search: ADR 1382's, for one character in one style of the sans-serif family, ranked
-/// by the style asked for before the repertoire because the face sits beside other text of this
-/// window's (ADR 1430).
+/// The one search: ADR 1382's, for one character in one style of the sans-serif family — the
+/// covering search a page's substituted composite font asks too (ADR 1441), handed what the chrome
+/// knows of its style: a weight of 400 or 700 and a slope, at normal width (ADR 1430).
 fn search(wanted: Wanted) -> Option<Arc<[u8]>> {
-    let request = pdf_font::substitute::Request {
-        family: pdf_font::substitute::Family::SansSerif,
-        bold: wanted.bold,
-        italic: wanted.italic,
-        standard: false,
-    };
-    pdf_font::substitute::installed_covering_styled(request, &[wanted.character])
+    let request = chrome_request(wanted.bold, wanted.italic);
+    pdf_font::substitute::installed_covering_styled(
+        request,
+        pdf_font::substitute::Style::of(request),
+        &[wanted.character],
+    )
 }
 
 /// The same search for one face stating every character of a word (ADR 1430).
 fn search_word(word: &Word) -> Option<Arc<[u8]>> {
-    let request = pdf_font::substitute::Request {
+    let request = chrome_request(word.bold, word.italic);
+    pdf_font::substitute::installed_covering_styled(
+        request,
+        pdf_font::substitute::Style::of(request),
+        word.characters(),
+    )
+}
+
+/// What the chrome asks the machine for: its own sans-serif family, in a weight and a slope.
+fn chrome_request(bold: bool, italic: bool) -> pdf_font::substitute::Request {
+    pdf_font::substitute::Request {
         family: pdf_font::substitute::Family::SansSerif,
-        bold: word.bold,
-        italic: word.italic,
+        bold,
+        italic,
         standard: false,
-    };
-    pdf_font::substitute::installed_covering_styled(request, word.characters())
+    }
 }
 
 /// Whether §9.6.2.2's compiled-in sans-serif face states no glyph for `character`, by either of the

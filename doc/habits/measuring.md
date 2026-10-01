@@ -654,3 +654,12 @@ host-side area reduction on one thread; the upload itself was 2 ms at 10 GB/s (A
 before a sweep or a grid replaces a box-prefiltered scan, count the scan's visits against the pairs
 that meet and the pairs actually asked: 31 M cheap box tests cost less than the sorting that would
 have avoided them, and the expensive questions were already limited to pairs that meet (ADR 1431).
+
+## 58. A ranking's candidates are listed on this machine before its order is chosen
+
+ADR 1430 ranked a chrome word's face by style first; listing the candidates (`fc-list` plus a
+`cmap` count) showed that order would hand a bold Chinese label to a face of 17 Han characters
+over one of 41 071, so the one search the page and chrome now share ranks repertoire first (ADR
+1441). And a batch's first build is timed by sampling every `cargo`'s children at one moment:
+that showed one lock per profile — `dev` builds queue behind each other while `release` and `gates`
+builds run beside and compile the same dependencies again (ADR 1451).

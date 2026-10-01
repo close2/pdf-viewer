@@ -43,7 +43,11 @@ nine shared entries. §12.7.4.3's variable text is constructed in any script: a 
 right-to-left, cursive one is joined by the Unicode Character Database's own tables, ordered by UAX
 #9 and set in a face from the machine where the compiled-in fourteen have no glyph (ADRs 1413,
 1414), which a save writes into the file where the face's licence permits: a `glyf` face subset
-(ADR 1425), a `CFF ` one whole under `/FontFile3` (ADR 1438). **Three rasterisers behind one display list**: `render-cpu` is the correctness
+(ADR 1425), a `CFF ` one subset as a bare CID-keyed program under `/FontFile3` (ADR 1449), whole
+where its licence forbids subsetting (ADR 1438). A font the document did not embed is stood in
+for by a machine face ranked by its descriptor — Table 120's weight, slope and width against each
+face's own `OS/2` — among the faces that draw as much of its script as any, which is one search
+for a page's font and an interface's label alike (ADR 1441). **Three rasterisers behind one display list**: `render-cpu` is the correctness
 oracle — and it is one because it computes a path's coverage of a pixel as the **exact integral of
 §8.5.3.3's winding number over §10.7.4's half-open pixel square** rather than sampling it on a
 lattice, leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
@@ -65,14 +69,20 @@ and dashes, so the one pixel §10.7.4 is departed on is a shape with no extent i
 over `test-scenes`' fixtures **and over real pages at a real window's resolution**, which is where
 they did not (ADR 0127) — and `render-raster` is the third, over the document renderer this project
 commissioned (`doc/RENDER_LIBRARY.md`), **what the window actually presents with**, held against the
-processor's raster over the whole corpus at the page's own scale and at four times it, with a
+processor's raster over the whole corpus at the page's own scale and at four times it — a page the
+two still differ on held by name to a bound measured against a per-pixel reference from its own
+geometry (ADR 1435) — with a
 stroke's pieces at a bend tighter than its half-width cut to tile the stroke's set rather than
 overlap inside it (ADR 1375), a pixel a fill winds two ways through covered by the set its rule
 declares, a butt cap squared to its curve's end tangent, and a ramp's coincident stops carried as
 exact bounds so that each step falls at its own parameter (ADR 1389), and a join where a curve meets
 another segment built on the curve's tangent there — that set asked for only where the integral
 cannot answer, so a stroke whose pieces tile keeps its integral (ADR 1397), and one whose every piece
-tiles or stands apart from the rest is asked nothing more by the fill (ADR 1421) — and a clipped mark's
+tiles or stands apart from the rest is asked nothing more by the fill (ADR 1421), a stroke of several
+subpaths tiled as one set wherever pieces of two of them overlap (ADR 1431), a stroke expanded
+under its linear part and translated, once for every placement of its shape in a frame (ADR 1445), and a clip rectangle
+meeting a mark's coverage as §10.7.4's intersection — the smaller of the two, not their product
+(ADR 1435) — and a clipped mark's
 coverage and a stroke's made off the walk's thread by the encoder's fan-out, a stroke's segment
 weighed at what it costs (ADR 1395), a rectangle or a repeated glyph behind a queued mark committed
 in its place and a zoom step's strokes fanned out on the compute lane as on the page-turn one (ADR
@@ -96,7 +106,10 @@ device fallback rather than a refusal (ADR 1383) — Group 3 and Group 4 fax the
 and T.6 decoder, which conceals the damaged rows §7.4.6's `/DamagedRowsBeforeError` tolerates as the
 clause states (ADR 1349), and Table 13's `/ColorTransform` read where the clause states it —
 the entry, the `APP14` segment that silences it, and the component count, ranked in the order
-§7.4.8 gives them (ADR 1183). Encryption at every revision Table 21 lists and every method Table 25 names, in both
+§7.4.8 gives them (ADR 1183); a baseline frame whose restart intervals begin on rows of blocks is
+decoded band by band on the pool, each band overlapping a row either side so that its upsampling
+sees what the whole frame's does, and `raster-gpu` divides the image's reduction to the page's
+scale by rows across the device's threads (ADR 1433). Encryption at every revision Table 21 lists and every method Table 25 names, in both
 directions — including revision 5, whose algorithm is the Adobe extension the table points at
 rather than a clause of the standard (ADR 0820). §12.3.2's destinations, §12.3.3's outline, §12.4.2's page labels, §12.5.6.5's links
 performing every one of Table 201's actions that is neither clause 13's media nor the excluded
@@ -124,7 +137,10 @@ confined worker runs them, the font programs and CMaps, §7.6's security handler
 XMP readers, a field value's shaping, Annex F's reader and writer, §12.8's ASN.1 and the confined
 transport's decoders — each seeded from what the disk's documents hold, and what a campaign found is
 fixed: a token past the content window's ceiling is stepped over by the grammar that ends it, and a
-composite glyph's cycle is found in time linear in the glyph graph (ADRs 1423, 1424, 1439).
+composite glyph's cycle is found in time linear in the glyph graph (ADRs 1423, 1424, 1439). A JBIG2
+symbol dictionary the codec decodes for minutes is ended at a deadline on either isolation — the
+in-process one abandons rather than kills, and says so — and its three unbounded loops are bounded
+in a patch the owner applies to the codec's fork (ADR 1447).
 
 It is **used**, which is a separate claim from the one above — and
 the first sentence of it is **measured** rather than asserted: a gate drags across `pdftotext`'s own word boxes on every corpus document and asks
@@ -332,7 +348,8 @@ answer the reader gave reaches the second document as it did the first. A tab sa
 its compiled-in faces lack from a face the machine offers rather than as a box (ADR 1382), searched
 for on a thread of its own so that no catalogue walk is on the launch path, while `quorra-qt` hands
 Qt the same file for its tabs and panels (ADRs 1406, 1418); an Arabic or Hebrew label is joined and
-read in its own direction in all three windows (ADR 1417).
+read in its own direction in all three windows (ADR 1417), a word of it set in one machine face at
+the requested weight and a wrapped line of it read in its paragraph's direction (ADR 1430).
 `quorra-confined` holds one
 document, on ADR 1190's rule. **A window is the front document's**: one opened behind obeys its
 `/PageMode` when it first comes to the front, so a presentation running when a second document
@@ -379,7 +396,11 @@ yellow comes out the product of the two inks rather than whichever was painted l
 composites under Normal where §11.7.4.2 forbids the mode, the GPU backend refuses the page by name,
 and an ink past the sixteen planes is named on the page's report (ADR 1317). A page whose group composites in one
 or three components is separated the same way, its spot inks passing through the group untouched and
-its process colours composited in the group's own space (ADR 1329).
+its process colours composited in the group's own space (ADR 1329). §10.3.2's one sentence that
+sends an ICC enabled processor back to a classic method — grey into a *native* CMYK space by
+§10.4.2.3 — is inapplicable on its own condition, because no output of this program is a CMYK
+device: the screen is RGB, print hands over an RGB raster, and `archive` writes CIE definitions
+(ADR 1437).
 
 **§10.5's transfer function reaches the screen, and it is applied where §11.7.5.2 says.** The
 clause chooses the function at a pixel by the topmost object whose shape there is nonzero, so the

@@ -147,14 +147,32 @@ fn strings_of(viewer: &Viewer) -> [Vec<String>; 5] {
     strings
 }
 
+/// The published passwords of the corpus's encrypted documents, read from the one table every
+/// corpus walk reads (`crates/pdf-model/tests/support/corpus_passwords.rs`, ADR 1377), so that an
+/// encrypted document's outline titles and `/Info` values are counted with the rest rather than
+/// the document being skipped as unopened.
+#[path = "../../pdf-model/tests/support/corpus_passwords.rs"]
+#[expect(
+    dead_code,
+    reason = "the references' spelling of a password is `pdf-model`'s oracle's; this census \
+              hands a password to this tree alone"
+)]
+mod corpus_passwords;
+
+/// The password on record for one file, or `None` for §7.6.4.1's empty default.
+fn password_for(path: &str) -> Option<&'static str> {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    corpus_passwords::corpus_password(name).map(|known| known.password)
+}
+
 /// Opens one document with no viewport at all, so that nothing is interpreted or rasterised.
-fn open(bytes: Vec<u8>) -> Option<Viewer> {
+fn open(bytes: Vec<u8>, password: Option<&str>) -> Option<Viewer> {
     let mut viewer = Viewer::new(0, 0, 1.0);
     let opened = viewer
         .handle(Command::Open {
             id: DocumentId(1),
             bytes: bytes.into(),
-            password: None,
+            password: password.map(|password| password.to_owned().into()),
             fragment: None,
         })
         .any(|event| matches!(event, viewer_core::Event::Opened { .. }));
@@ -177,7 +195,9 @@ fn main() {
         let Ok(bytes) = std::fs::read(&path) else {
             continue;
         };
-        let Some(viewer) = open(bytes) else { continue };
+        let Some(viewer) = open(bytes, password_for(&path)) else {
+            continue;
+        };
         opened = opened.saturating_add(1);
 
         for (population, stated) in POPULATIONS.into_iter().zip(strings_of(&viewer)) {

@@ -11,12 +11,26 @@
 //! ([`RELATIVE_FLATTEN_TOLERANCE`], ADR 0044) — and the tighter of the two binds.
 //! Subdivision is at `t = 1/2`, which is exact in `f32`, so a flattening is the same
 //! on every adapter and in every thread (ADR 0008's determinism, brief section 4.6).
+//!
+//! **Each flat piece is two chords, not one** (ADR 1443): from its start to the midpoint of
+//! its two inner control points, and on to its end. A single chord joins two points *on*
+//! the curve and so lies wholly on the curve's concave side — an inscribed polygon, which
+//! takes two thirds of the piece's height times its length out of every rim pixel. §10.7.4
+//! names the side an error may fall on — "[t]he area covered by painted pixels shall always
+//! be at least as large as the area of the original shape" — and §10.7.2's NOTE 2 says the
+//! tolerance is "not to draw inscribed polygons". The triangle through the inner controls'
+//! midpoint encloses the piece's own area wherever the piece's controls sit at the thirds
+//! of its chord (the area of a cubic over its chord is `(3/20)` of a sum of cross products,
+//! and at the thirds it is exactly the triangle's), and subdivision drives every piece
+//! toward the thirds; ADR 1443 has the arithmetic and the measured residue.
 
 use raster_scene::{Point, Segment};
 
-/// Maximum distance, in device pixels, between a cubic and its flattening. 0.25 px
-/// keeps the flattening error below half of one coverage step at the edge of a
-/// pixel; the choice is recorded in ADR 0008 with its cost.
+/// Maximum distance, in device pixels, between a cubic's control points and the chord of
+/// each flat piece — the test that ends the subdivision. 0.25 px was chosen with its cost
+/// in ADR 0008; the two chords each piece then leaves ([`flatten_cubic`]) lie closer to the
+/// curve than that one chord, a third of the piece's height at the most on an arc, and
+/// enclose its area (ADR 1443).
 ///
 /// This is the bound ISO 32000-2 §10.7.2 states:
 ///
@@ -43,11 +57,12 @@ pub(crate) const FLATTEN_TOLERANCE: f32 = 0.25;
 /// > unpredictable.
 ///
 /// 1/32 of the curve's own control-polygon diagonal holds any closed curve to at least
-/// 16 chords per full turn, whose area is `(16/2π)·sin(2π/16) = 0.9745` of the circle's
-/// — 2.55 % short at worst, against the 1–4 % that rounding coverage to a byte already
-/// costs a mark of that size. It never loosens the absolute bound and therefore never
-/// removes a segment: no circle of radius 2.4 device pixels or more changes at all.
-/// ADR 0044 has the arithmetic and the rejected alternative.
+/// 16 flat pieces per full turn (ADR 0044 has the arithmetic and the rejected
+/// alternative). Each piece is two chords that enclose its own area ([`flatten_cubic`],
+/// ADR 1443), so what the bound now holds is the polygon's *shape* — how far a chord may
+/// stand from the curve — rather than an inscribed polygon's shortfall. It never loosens
+/// the absolute bound and therefore never removes a segment: no circle of radius 2.4
+/// device pixels or more changes at all.
 pub(crate) const RELATIVE_FLATTEN_TOLERANCE: f32 = 0.031_25;
 
 /// A device-space transform applied during flattening: the composed
@@ -158,7 +173,9 @@ fn first_direction(candidates: [Point; 3]) -> Option<Point> {
 /// [`cubic_tolerance`] of the chord — the standard flatness bound: for a cubic,
 /// the curve deviates from the chord by at most 3/4 of the larger control-point
 /// distance, so testing the controls bounds the curve. Subdivision at t = 1/2 is
-/// exact f32 arithmetic (halving), keeping flattening deterministic everywhere.
+/// exact f32 arithmetic (halving), keeping flattening deterministic everywhere. Each
+/// flat piece then leaves two points, the midpoint of its inner controls and its end
+/// ([`flatten_cubic`], ADR 1443).
 pub(crate) fn flatten(segments: &[Segment], transform: DeviceTransform) -> Vec<Polyline> {
     flatten_keeping(segments, transform, false)
 }
@@ -316,6 +333,19 @@ pub(super) fn cubic_tolerance(p0: Point, p1: Point, p2: Point, p3: Point) -> f32
     FLATTEN_TOLERANCE.min(RELATIVE_FLATTEN_TOLERANCE * width.hypot(height))
 }
 
+/// One cubic's points, after its start, onto `out`: halved at `t = 1/2` until each piece is
+/// flat to `tolerance`, and each flat piece then written as the midpoint of its two inner
+/// control points followed by its end (ADR 1443).
+///
+/// **Why the midpoint of the inner controls.** Measured from the piece's start `p0`, the
+/// region between a cubic and its chord has the signed area
+/// `(3/20)·(p1×p2 + p1×p3 + 2·p2×p3)`; writing the controls as `p1 = c/3 + a·n` and
+/// `p2 = 2c/3 + b·n` (`c` the chord, `n` its unit normal) that is `−(a + b)·|c|/4`, which is
+/// the triangle `p0, (p1 + p2)/2, p3` exactly. So the two chords enclose the piece's own area
+/// where the controls sit at the thirds of the chord, and with the controls at `α·c` and
+/// `β·c` along it they miss it by `|c|·((3α − 1)·b − (3β − 2)·a)/20` — a second-order term
+/// that each halving shrinks. The point is a halving of a sum, so it is
+/// the same bits on every adapter, and it costs no division.
 fn flatten_cubic(
     p0: Point,
     p1: Point,
@@ -348,13 +378,14 @@ fn flatten_cubic(
     // chord than the control polygon's diagonal, and each split divides that distance
     // by about four, so 1/32 of the diagonal is reached in three levels whatever the
     // curve's size.
+    let mid = |a: Point, b: Point| Point::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
+    let q1 = mid(p1, p2);
     if flat || depth >= 16 {
+        out.push(q1);
         out.push(p3);
         return;
     }
-    let mid = |a: Point, b: Point| Point::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
     let q0 = mid(p0, p1);
-    let q1 = mid(p1, p2);
     let q2 = mid(p2, p3);
     let r0 = mid(q0, q1);
     let r1 = mid(q1, q2);

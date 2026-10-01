@@ -91,6 +91,7 @@ mod clips;
 mod coverage;
 mod device_space;
 mod encoded;
+mod expansion;
 mod fill;
 mod function;
 mod hull;
@@ -280,6 +281,9 @@ struct Encoder<'a> {
     /// points again — 21 % of the encode, and [`hull`] carries the benchmark and the
     /// argument that it changes no bit of any box.
     hulls: hull::HullMemo,
+    /// One expansion per stroked shape the scene places more than once, shared by its
+    /// placements (ADR 1445).
+    expansions: expansion::Expansions,
 }
 
 /// Walk the scene once: classify, count, rasterise, check the budget, lay out
@@ -541,6 +545,7 @@ fn encoder_for<'a>(
         scratch_charged: 0,
         clock: EncodeClock::new(instrument),
         hulls: hull::HullMemo::default(),
+        expansions: expansion::Expansions::of(scene, frame_budget_bytes),
         threads,
         queue: Vec::new(),
         queued_keys: FastSet::default(),

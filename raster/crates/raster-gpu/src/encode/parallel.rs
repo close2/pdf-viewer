@@ -90,6 +90,7 @@
 //! `doc/QUORRA_ENCODE_THREADS.md` asked for and the reason a reader can check the
 //! determinism claim at all.
 
+use std::sync::Arc;
 use std::thread;
 
 use raster_scene::{Color, OutlineId, Rect, Segment, Stroke};
@@ -99,6 +100,7 @@ use crate::raster::{self, CoverageMask, DeviceTransform, Rule};
 
 use super::DrawStyle;
 use super::clips::ResolvedClip;
+use super::expansion::{self, Expansion, Slot};
 use super::fill::SolidFill;
 
 mod commit;
@@ -174,6 +176,10 @@ pub(super) struct Job<'a> {
     /// that does keeps its integral without asking again (ADR 1389). `None` for a stroke,
     /// whose pieces are not the outline.
     outline: Option<&'a crate::resources::StoredOutline>,
+    /// Where a stroke the scene places more than once finds its expansion, made by
+    /// whichever placement asks first (ADR 1445); `None` for a fill and for a stroke placed
+    /// once.
+    expansion: Option<Arc<Slot>>,
 }
 
 /// The transform a job with no geometry carries, which nothing reads.
@@ -250,7 +256,7 @@ pub(super) struct Draw {
     clip: Rect,
     style: DrawStyle,
     mask: Option<u32>,
-    /// The chain whose residue the commit multiplies into the tile, where the mark's clip
+    /// The chain whose residue the commit meets the tile with, where the mark's clip
     /// has a non-rectangular link (ADR 1395).
     ///
     /// Carried to the commit rather than applied in [`rasterise`], because the residue is
@@ -272,7 +278,7 @@ impl Draw {
         }
     }
 
-    /// This draw under `resolved`, whose residue the commit multiplies in when the chain
+    /// This draw under `resolved`, whose residue the commit meets the tile with when the chain
     /// has one; a chain of rectangles alone leaves the draw as it was.
     pub(super) fn under(self, resolved: &ResolvedClip) -> Self {
         Self {
@@ -315,6 +321,7 @@ impl<'a> Job<'a> {
             weight: weight_of(segments, resident_already, false),
             held: held_by(tile_bound, resident_already),
             outline: None,
+            expansion: None,
         }
     }
 
@@ -339,6 +346,7 @@ impl<'a> Job<'a> {
             weight: weight_of(segments, false, stroke.is_some()),
             held: held_by(tile_bound, false),
             outline: None,
+            expansion: None,
         }
     }
 
@@ -349,6 +357,11 @@ impl<'a> Job<'a> {
             outline: Some(outline),
             ..self
         }
+    }
+
+    /// This stroke's expansion as the placements of its shape share it (ADR 1445).
+    pub(super) fn sharing(self, expansion: Option<Arc<Slot>>) -> Self {
+        Self { expansion, ..self }
     }
 
     fn weight(&self) -> u64 {
@@ -383,6 +396,7 @@ impl<'a> Job<'a> {
             weight: 0,
             held: held_by(0, true),
             outline: None,
+            expansion: None,
         }
     }
 
@@ -412,6 +426,7 @@ impl<'a> Job<'a> {
             weight: 0,
             held: held_by(0, true),
             outline: None,
+            expansion: None,
         }
     }
 
@@ -428,6 +443,7 @@ impl<'a> Job<'a> {
             weight: 0,
             held: held_by(0, true),
             outline: None,
+            expansion: None,
         }
     }
 
@@ -506,24 +522,22 @@ pub(super) fn rasterise(job: &Job<'_>) -> Rasterised {
     if !job.rasterises() {
         return None;
     }
-    let flattened = match job.stroke {
-        Some(_) => raster::flatten_stroke(job.segments, job.transform),
-        None => raster::flatten(job.segments, job.transform),
-    };
     // A stroke whose pieces tile its set by construction winds two values and keeps its
     // integral (ADR 1397); a fill of an outline known to, likewise — that question is asked
     // once per outline, of the outline's own flattening whoever asks first (ADR 1389,
-    // ADR 1419).
+    // ADR 1419). A stroke is expanded under its linear part and placed, once for every
+    // placement of its shape (ADR 1445).
     let (polylines, tiles) = match job.stroke {
-        Some(stroke) => {
-            let stroked = raster::stroke_pieces(
-                &flattened,
+        Some(stroke) => Expansion::placed(
+            expansion::expansion(
+                job.expansion.as_deref(),
+                job.segments,
+                job.transform,
                 stroke,
-                raster::resolve_width(stroke, job.transform),
-            );
-            (stroked.pieces, stroked.tiles)
-        }
-        None => (flattened, false),
+            ),
+            job.transform,
+        ),
+        None => (raster::flatten(job.segments, job.transform), false),
     };
     let (x0, y0, x1, y1) = raster::polyline_bounds(&polylines)?;
     let (vx0, vy0, vx1, vy1) = match job.extent {

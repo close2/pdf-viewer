@@ -64,6 +64,22 @@ open_batch() {
         git -C "$wt" update-index --skip-worktree -- "$path"
     done < <(git -C "$wt" ls-files --stage | awk '$1 == "160000" { print $2, $4 }')
     echo "$branch: $wt  (status: $(git -C "$wt" status --short | wc -l) changed; must be 0)"
+    warm
+}
+
+# The batch's first build, started by `open` and left running while the briefs are written, so
+# that the rounds find the build directory warm rather than six of them meeting it cold at once:
+# cargo's lock on a profile's directory queues every other `dev` build behind the first, and the
+# first is the whole workspace (ADR 1451 has the figures). Detached, because its cost is the
+# orchestrator's, paid while it writes; a round that arrives first waits on cargo's lock exactly as
+# it would wait on a sibling. Skipped where the tree has no workspace manifest (the throwaway
+# repository `tests/batch.rs` opens) or `BATCH_WARM=0`.
+warm() {
+    [ "${BATCH_WARM:-1}" = 0 ] || [ ! -f "$wt/Cargo.toml" ] && return 0
+    mkdir -p "$wt/scratchpad/open"
+    (cd "$wt" && setsid nohup cargo build --workspace --all-targets \
+        > "$wt/scratchpad/open/build.log" 2>&1 < /dev/null &
+     echo "warming the build directory: pid $!, scratchpad/open/build.log")
 }
 
 # One line per gate: name, exit, the gate's own summary line. A failure's last thirty lines go
@@ -150,7 +166,7 @@ check_batch() {
     # character) is excluded by its real directory rather than by the spelling of its quotes. A
     # workspace's `Cargo.lock` is admitted by name: every workspace here tracks its lock (ADR 1439).
     found=$(untracked_paths |
-        grep -vE '\.(rs|md|toml|tsv|txt|py|pem|der|crt|xfdf|j2k|jp2|sh|jpg)$' |
+        grep -vE '\.(rs|md|toml|tsv|txt|py|pem|der|crt|xfdf|j2k|jp2|sh|jpg|patch)$' |
         grep -vE '^data/icc/[^/]+\.icc$' | grep -vE '(^|/)Cargo\.lock$' || true)
     printf 'untracked, unexpected extension  %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) file(s)")"
     [ -z "$found" ] || { printf '%s\n' "$found" | sed 's/^/    /'; bad=1; }

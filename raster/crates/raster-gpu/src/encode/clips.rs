@@ -36,7 +36,7 @@ use crate::viewport::Viewport;
 pub(super) const OPEN_CLIP: [f32; 4] = [-1.0e9, -1.0e9, 1.0e9, 1.0e9];
 
 /// A resolved clip chain: the intersection of its rectangular links, plus the chain
-/// of non-rectangular links (the residue) that must multiply into a coverage mask.
+/// of non-rectangular links (the residue) that must meet a coverage mask (ADR 1444).
 #[derive(Debug, Clone)]
 pub(super) struct ResolvedClip {
     pub(super) rect: Rect,
@@ -61,7 +61,7 @@ impl ResolvedClip {
     /// Removing pixels outside the residue box removes nothing: ISO 32000-2 §8.5.4 makes
     /// the chain one region arrived at by intersection (ADR 0030), and outside a closed
     /// link's own bounds that link winds nothing — so the chain's coverage there is zero
-    /// and the product a tile carries is zero with it. Before this the pixels were
+    /// and the meet a tile carries is zero with it. Before this the pixels were
     /// rasterised, shelf-packed, uploaded and sampled to no effect: at 4× the caller's
     /// `bug1703683_page2_reduced.pdf` asked for 1 008 561 911 texels where its chains
     /// admit 2 297 897.
@@ -152,8 +152,8 @@ impl ClipResolver {
                     residues: current.residues.clone(),
                     residue_bounds: current.residue_bounds,
                 },
-                // Not a rectangle under this transform: a residue link, multiplied
-                // into coverage masks at draw time (M5). Its *rectangle* is untouched,
+                // Not a rectangle under this transform: a residue link, met with
+                // coverage masks at draw time (M5, ADR 1444). Its *rectangle* is untouched,
                 // because a curve is not one — but its own device box intersects into
                 // the bound every tile drawn under this chain is sized by (ADR 0057).
                 None => ResolvedClip {
@@ -230,7 +230,7 @@ impl Encoder<'_> {
                 let mask = region.map(|(l, t, w, h)| self.intersect_links(&links, l, t, w, h));
                 // The crop is inside the span at the *other* call site above and was
                 // outside it here, which is the same seam ADR 0023's 2026-08-17
-                // amendment moved for the residue product: cutting a tile out of a
+                // amendment moved for the residue's meet: cutting a tile out of a
                 // region is coverage being made. Once per chain rather than once per
                 // mark, so this is two clock reads on the rarer path.
                 let span = self.clock.start();
@@ -336,7 +336,7 @@ fn rect_link_box(to_device: &DeviceTransform, rect: Rect) -> Rect {
 ///
 /// Empty when the outline has no points at all — a link that winds nothing anywhere, and
 /// so a chain that admits nothing. That is a region, not a missing one: every mark under
-/// it draws nothing, which is what the residue product already computed for it.
+/// it draws nothing, which is what the residue's meet already computed for it.
 fn hull_box(
     hulls: &mut HullMemo,
     outline: OutlineId,

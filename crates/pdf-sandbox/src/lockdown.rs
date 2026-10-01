@@ -224,6 +224,20 @@ pub fn apply() -> Result<Confinement, LockdownError> {
     apply_for(Profile::Decoder)
 }
 
+/// Whether this process has installed its system-call filter.
+///
+/// Set once, by the confinement, and never cleared — the filter cannot be removed either. Read
+/// by [`crate::decode`], whose in-process deadline starts a thread: a confined process must not
+/// take that path, because the filter kills it (ADR 1447).
+pub(crate) static CONFINED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Whether this process is behind its own system-call filter ([`apply_for`] has succeeded).
+#[must_use]
+pub fn is_confined() -> bool {
+    CONFINED.load(std::sync::atomic::Ordering::Acquire)
+}
+
 /// Confines the calling thread for one kind of work. There is no way to undo this.
 ///
 /// [`apply`] is this with [`Profile::Decoder`], which is what `pdf-sandbox-worker` wants and what

@@ -559,9 +559,11 @@ fn composite_substitute(
 ) -> (substitute::Request, Option<Arc<[u8]>>) {
     let request = substitute::Request::derive(document, descendant, descriptor);
     // Characters the collection's own script requires, so that a face is chosen by what it can
-    // *draw* and not only by the family a descriptor implies.
+    // *draw* and not only by the family a descriptor implies; among the faces that draw as much,
+    // Table 120's weight, slope and width choose (ADR 1441).
     let wanted = script_sample(document, descendant);
-    let found = substitute::installed_covering(request, wanted);
+    let style = substitute::Style::derive(document, descendant, descriptor);
+    let found = substitute::installed_covering_styled(request, style, wanted);
     (request, found)
 }
 
@@ -646,7 +648,8 @@ fn class_faces(
             } else {
                 &[]
             };
-            let data = substitute::installed_covering(request, wanted)?;
+            let style = substitute::Style::derive(document, descendant, Some(&merged));
+            let data = substitute::installed_covering_styled(request, style, wanted)?;
             let (_, units_per_em) = parsed_program(Program::Sfnt, &data, name).ok()?;
             let downward = Downward::read(document, descendant, &data, vertical);
             Some(ClassFace {
@@ -1442,6 +1445,19 @@ impl LoadedFont {
     #[must_use]
     pub fn is_substituted(&self) -> bool {
         self.substituted
+    }
+
+    /// The program of the face that stands in, where the glyphs are a substitute; `None` for a
+    /// font whose program the document embedded.
+    ///
+    /// The face's own tables — its `OS/2` weight class and width class, its italic bit, its `post`
+    /// fixed-pitch flag — are what the stand-in *is*, and this is how a test or a census asks
+    /// whether [`crate::substitute`] chose it by what Table 120 describes (ADR 1441). The bytes
+    /// are an `sfnt` from the machine or one of §9.6.2.2's compiled-in faces
+    /// ([`crate::standard::face`]).
+    #[must_use]
+    pub fn substitute_program(&self) -> Option<&[u8]> {
+        self.substituted.then_some(&*self.data)
     }
 
     /// Whether the face this font draws from states vertical forms of its own glyphs.

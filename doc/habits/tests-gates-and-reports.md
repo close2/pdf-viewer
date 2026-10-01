@@ -440,3 +440,9 @@ merge" section, never only in its record**, and `tools/state.sh main-checkout` p
 checkout still owes (ADR 1440). And a crate or binary rename is followed by `cargo test -p
 conformance`: the ledger checker now sweeps note prose for program names, and ten rows had carried
 `render-quorra` since the rename (round 1301).
+
+**A subsetter is held by its outlines through the tree's own interpreter, then once over every face
+the machine has.** Every kept glyph of a CFF subset is drawn through `pdf_font::cff::draw` and
+compared byte for byte with the whole face's; then all 77 `CFF ` faces on the machine were subset to
+every glyph and to three, which exercised the subroutine-reachability walk against every charstring a
+real face holds, as no hand-built fixture could (ADR 1449).

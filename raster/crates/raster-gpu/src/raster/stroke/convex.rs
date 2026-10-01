@@ -83,7 +83,7 @@ impl Convex {
             if separated {
                 cut.push((fragment, bounds));
             } else {
-                self.subtract_from(fragment, inside, cut);
+                self.subtract_from(fragment, orientation, inside, cut);
                 cut_any = true;
             }
         }
@@ -92,13 +92,15 @@ impl Convex {
     }
 
     /// `fragment − self`, as convex fragments that are disjoint and keep `fragment`'s
-    /// winding, appended to `out` with their boxes: for each of this piece's edges in turn,
-    /// the part of what is left that lies outside the edge is emitted and the part inside is
-    /// carried on. What is carried past the last edge lies inside this piece and is dropped.
+    /// winding (`orientation`), appended to `out` with their boxes: for each of this piece's
+    /// edges in turn, the part of what is left that lies outside the edge is emitted and the
+    /// part inside is carried on. What is carried past the last edge lies inside this piece
+    /// and is dropped, and so is a part too thin to be told from rounding ([`sliver`]).
     /// `inside` is a buffer for what is carried, kept for the next call.
     fn subtract_from(
         &self,
         fragment: Vec<Point>,
+        orientation: f64,
         inside: &mut Vec<Point>,
         out: &mut Vec<(Vec<Point>, Bounds)>,
     ) {
@@ -111,7 +113,9 @@ impl Convex {
                 Split::Outside => {
                     if rest.len() >= 3 {
                         let bounds = Bounds::of(&rest);
-                        out.push((rest, bounds));
+                        if !sliver(&rest, bounds, orientation) {
+                            out.push((rest, bounds));
+                        }
                     }
                     *inside = carried;
                     return;
@@ -119,7 +123,9 @@ impl Convex {
                 Split::Across(outside) => {
                     if outside.len() >= 3 {
                         let bounds = Bounds::of(&outside);
-                        out.push((outside, bounds));
+                        if !sliver(&outside, bounds, orientation) {
+                            out.push((outside, bounds));
+                        }
                     }
                     std::mem::swap(&mut rest, &mut carried);
                     if rest.len() < 3 {
@@ -245,6 +251,32 @@ enum Split {
     Outside,
     /// On both sides: the part outside, the part inside having been written out.
     Across(Vec<Point>),
+}
+
+/// Whether a fragment is narrower than the rounding that made it (ADR 1444).
+///
+/// A side is taken in `f64` from `f32` points, where its rounding is far below the `f32`
+/// grid; but a crossing point is rounded back to `f32`, which moves it by at most half the
+/// `f32` spacing at its magnitude on each axis, less than one spacing `δ = m · f32::EPSILON`
+/// in all, `m` the fragment's largest coordinate. A fragment cut between crossing points that
+/// round to nearly one point can therefore hold an area of that rounding's order with either
+/// sign: a sliver along a cut, which is no part of the set and whose sign says nothing about
+/// its winding.
+///
+/// Its measure is its width, in the coordinates' own units: a fragment whose area taken with
+/// its piece's winding is at most `δ` times its box's perimeter — which a convex polygon's own
+/// perimeter never exceeds — is nowhere wider than the rounding could have made it, and is
+/// dropped. What that removes is at most `δ` along each side of the box, `6.1e-5` of a pixel
+/// at a coordinate of a thousand, and it is what keeps every fragment wound its piece's way.
+/// The box rather than the perimeter because the tiling asks this of every fragment it cuts,
+/// and a square root per edge cost `bug1743245.pdf` 14% of a frame's instructions (ADR 1444).
+/// Computed in `f64` (trap 67): in `f32` the product would round at the scale it measures.
+fn sliver(points: &[Point], bounds: Bounds, orientation: f64) -> bool {
+    let (x0, y0) = (f64::from(bounds.min.x), f64::from(bounds.min.y));
+    let (x1, y1) = (f64::from(bounds.max.x), f64::from(bounds.max.y));
+    let largest = x0.abs().max(y0.abs()).max(x1.abs()).max(y1.abs());
+    let spacing = largest * f64::from(f32::EPSILON);
+    orientation * signed_area(points) <= spacing * 2.0 * ((x1 - x0) + (y1 - y0))
 }
 
 /// The polygon's signed area, the shoelace sum halved — in `f64`, so that a piece's sign

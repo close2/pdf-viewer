@@ -159,7 +159,7 @@ pub enum Coverage {
     /// front of it, so a dense page of small text pays per glyph per frame.
     ///
     /// Commands under a non-rectangular clip still take the CPU lane, because the
-    /// residue multiply is CPU-side; both kinds of tile share one sheet.
+    /// residue meet is CPU-side; both kinds of tile share one sheet.
     ///
     /// # What sampled coverage costs, and the clause it does not meet (ADR 0076)
     ///

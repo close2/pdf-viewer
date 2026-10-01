@@ -359,7 +359,12 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   so the two users never fight over `target/`. Do not "fix" this. `pdfref` needs `--work-dir` for
   the same reason. A round that wants a build directory of its own — a worktree round does, so that
   parallel rounds do not queue on one build lock — asks for it with `--target-dir` and **not** with
-  an exported `CARGO_TARGET_DIR`; the `sccache` note below says what the export costs.
+  an exported `CARGO_TARGET_DIR`; the `sccache` note below says what the export costs. A batch's
+  worktree builds in `/home/AI/cargo-target/pdf-viewer-batch` (ADR 1440), and `tools/batch.sh open`
+  starts `cargo build --workspace --all-targets` there detached, logging to
+  `scratchpad/open/build.log`, so the rounds find it warm (`BATCH_WARM=0` skips it). Cargo locks a
+  profile's directory, so six rounds' `dev` builds queue behind one another rather than duplicating
+  work, while the `release` and `gates` profiles build beside it under locks of their own (ADR 1451).
 - **A build script's `env!("CARGO_MANIFEST_DIR")` is baked at *its* compile time, and the shared
   build directory outlives a checkout.** A binary compiled from a worktree or a scratchpad copy that
   no longer exists fails with an absurd message naming a path under `/tmp` — "data/cmaps is readable:
@@ -506,6 +511,14 @@ flock /home/AI/heavy-walk.lock fuzz/seeds.sh fuzz/corpus <target>...
 
 # 5. The owner's own answers, which no round writes or commits:
 git status --short doc/questions
+
+# 6. A question file is an instruction document, so its `§` is ISO 32000-2's (ADR 1452), and the
+#    main checkout's own `cargo test -p conformance` fails on one that is not — which no worktree
+#    run can see. `main-checkout` prints each; another standard's section is written in words:
+#    "ISO 19005-4 section 6.2.7.3", "ISO/TS 32002 section 5.1.3". On 2026-10-01 it named Q169 line
+#    18 (ISO 19005-4) and Q170 line 12 (ISO/TS 32002); Q169's line 18 also opens with the sign
+#    after ISO 19005-2, whose name ends line 17 — the scan does not look across a line break.
+cargo test -p conformance --test documents
 ```
 
 **Driving `quorra-qt` under Xvfb:** Qt ignores key presses there until it is run with

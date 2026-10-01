@@ -113,6 +113,7 @@ pub(crate) fn apply(profile: Profile, wider: Option<u64>) -> Result<Confinement,
     limit_resources(address_space_limit)?;
     let landlock = deny_filesystem_and_network();
     restrict_system_calls(profile)?;
+    crate::lockdown::CONFINED.store(true, std::sync::atomic::Ordering::Release);
     Ok(Confinement {
         landlock,
         address_space_limit,

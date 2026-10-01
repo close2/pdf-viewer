@@ -167,7 +167,7 @@ bound it violates (principle 3); `tools/state.sh fuzz` prints what `fuzz/artifac
 | `max_stream_len` 1 GiB + the Flate/LZW guards | turned 1.85 MB into 3.7 GB (measured); 1095 MB since ADR 0306 lowered the bound to fit the ceiling and made reaching it a refusal, and **exactly the bound** since ADR 0354 stopped the buffer doubling past it | **load-bearing, and still the weakest link** |
 | ~~`MAX_TILES` 4096~~ (retired by ADR 0810) | stated `/XStep 0.001` over 600 units — 3.6×10¹¹ empty cells, about four days; an empty cell executes no operator, so nothing else saw it (ADR 0271) — until an empty cell was not looped at all, which leaves every marking site a copy charged to `MAX_OPERATIONS` and to `MAX_TILE_COPIES`, 65 536 commands a tiling | **was load-bearing** for a loop that no longer runs; what bounds a tiling now is its cost in commands, and `MAX_OPERATIONS`'s row is below |
 | `MAX_TILE_COPIES` 65 536 commands a tiling, `MAX_REACH_SCAN` 4 194 304 edge tests a page (both ADR 0810) | the first is what `MAX_TILES` became once the unit was the cost rather than the count; the second is the price of asking which sites a fill reaches, which a row reaching none would otherwise scan for hours without spending a copy | **load-bearing**, and the second is the only one here whose exhaustion refuses nothing — it stops a *saving*, and the sites it stops saving are bounded by the first |
-| `pdf-sandbox`'s `MAX_PIXELS`/`MAX_SAMPLES`, `RLIMIT_AS`, seccomp, Landlock | unbounded decode in the historically worst attack surface | **load-bearing** |
+| `pdf-sandbox`'s `MAX_PIXELS`/`MAX_SAMPLES`, `RLIMIT_AS`, seccomp, Landlock | unbounded decode in the historically worst attack surface | **load-bearing** — and inside `hayro-jbig2`'s symbol dictionary three loops T.88 does not bound spend minutes on a few hundred bytes; `doc/patches/hayro-jbig2-symbol-dictionary-bounds.patch` bounds them for the owner to apply to the fork, and until then the deadline above is what ends them (ADR 1447) |
 | `xmp` ×5, `der`/`cms`/`x509`/`pkcs1`, `function.rs`'s `MAX_STITCH_DEPTH` (a 720-byte file overflowed every stack until session 425), `icc`, `mesh`, `image::MAX_SAMPLES`, every cycle guard | each turns a tiny file into unbounded work | **load-bearing** |
 | §8.9.6.3's and §11.6.5.2's mask chains — `explicit_entry`, `soft_mask_entry` | until ADR 0399, **nothing at all**: an image whose `/Mask` names an image mask stating a `/Mask` of its own recursed `decode_parts` → `apply_explicit_mask` → `decode` until the stack aborted the process, and Table 143's `/Mask` row was unread while its `/SMask` row was guarded | **load-bearing, and it is not a constant** — Table 87 and Table 143 both say the entry "shall not be present", so the standard's depth is one and the guard is a refusal rather than a number |
 | **`MAX_OPERATIONS` 4 M** | nothing a bomb needs: the memory is already spent, and the time is unbounded either way because one `sh` can paint the whole page | **caps an honest document** — and capped it seven times harder than it said, until ADR 0306 |
@@ -275,7 +275,10 @@ They were not architecture and did not wait for a decision, which is why they we
 ## 4. What exists to build on
 
 - **A real deadline with a clean error, already shipping**: `pdf-sandbox`'s `REQUEST_TIMEOUT`,
-  30 s, enforced by the *parent* with `poll` → `SandboxError::TimedOut`. For image codecs only.
+  30 s, enforced by the *parent* with `poll` → `SandboxError::TimedOut`, and in process by a wait
+  on a kept decoding thread → `SandboxError::Overran`, which *abandons* the decode rather than
+  ending it — a thread cannot be killed, so at most `in_process::MAX_ABANDONED` run on (ADR 1447).
+  For image codecs only.
 - **A budget as a constructor argument**: `TargetSpec::for_page(…, max_pixels)`,
   `Readbacks::with_budget`, `MaskCache::new`. As a user-facing flag: `safedocs --budget-mb`, the
   only one in the tree. As a *report* rather than a kill: `safedocs`'s `PER_DOCUMENT_BUDGET` →

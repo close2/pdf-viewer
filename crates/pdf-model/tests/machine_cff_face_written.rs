@@ -1,5 +1,5 @@
-//! A value set in a machine face whose outlines are a `CFF ` table, saved, and drawn from the file
-//! alone (ADR 1438) — `machine_face_written.rs`'s claim for Table 124's `OpenType` row.
+//! A value set in a machine face whose outlines are a `CFF ` table, saved as a subset, and drawn
+//! from the file alone (ADRs 1438, 1449) — `machine_face_written.rs`'s claim for Table 124's `OpenType` row.
 //!
 //! Its own binary because it turns the machine's fonts off for the whole process and hands the
 //! layout one face through `pdf_font::provider`'s port: which face `installed_covering` walks to
@@ -127,6 +127,24 @@ fn cff_face_covering(pattern: &str, text: &str) -> Option<Vec<u8>> {
         })
 }
 
+/// The length of the face's `CFF ` table, read from its table directory.
+fn cff_table_length(face: &[u8]) -> usize {
+    let at = |offset: usize, width: usize| {
+        face.get(offset..offset.saturating_add(width))
+            .expect("inside the directory")
+    };
+    let count = usize::from(u16::from_be_bytes(at(4, 2).try_into().expect("two bytes")));
+    (0..count)
+        .map(|index| index.saturating_mul(16).saturating_add(12))
+        .find(|entry| at(*entry, 4) == b"CFF ")
+        .map(|entry| {
+            let length = at(entry.saturating_add(12), 4);
+            usize::try_from(u32::from_be_bytes(length.try_into().expect("four bytes")))
+                .expect("a length")
+        })
+        .expect("a CFF face has a CFF table")
+}
+
 /// The one descendant font of the one `Type0` font the saved widget's appearance uses.
 fn saved_descendant(saved: &Document) -> pdf_syntax::Dictionary {
     let page = pdf_model::Pages::new(saved).get(0).expect("page one");
@@ -161,8 +179,58 @@ fn saved_descendant(saved: &Document) -> pdf_syntax::Dictionary {
     descendant.as_dict().expect("a CIDFont").clone()
 }
 
-/// A value saved in a `CFF ` machine face is written under `/FontFile3` `/OpenType` and a
-/// `CIDFontType0`, and draws from the file alone exactly as the viewer showed it.
+/// The descendant's program is §9.9.2's subset: `/FontFile3` `/CIDFontType0C` with no `/Length1`
+/// (Table 125), the tagged name in the `CIDFont` and its descriptor, and a small fraction of the
+/// face's `CFF ` table (ADR 1449).
+fn assert_written_as_a_subset(
+    saved: &Document,
+    descendant: &pdf_syntax::Dictionary,
+    whole_cff: usize,
+) {
+    let subtype = |dict: &pdf_syntax::Dictionary| {
+        dict.get("Subtype")
+            .and_then(Object::as_name)
+            .map(|name| name.as_bytes().to_vec())
+    };
+    let descriptor = saved.get_key(descendant, "FontDescriptor");
+    let descriptor = descriptor.as_dict().expect("a descriptor");
+    assert!(descriptor.get("FontFile2").is_none());
+    let file = saved.get_key(descriptor, "FontFile3");
+    let file = file.as_stream().expect("a font file stream");
+    assert_eq!(subtype(&file.dict), Some(b"CIDFontType0C".to_vec()));
+    assert!(file.dict.get("Length1").is_none());
+    // §9.9.2's name, the same in the CIDFont and the descriptor.
+    let base_font = descendant
+        .get("BaseFont")
+        .and_then(Object::as_name)
+        .expect("a /BaseFont")
+        .as_bytes()
+        .to_vec();
+    assert_eq!(base_font.get(6), Some(&b'+'));
+    assert!(base_font[..6].iter().all(u8::is_ascii_uppercase));
+    assert_eq!(
+        descriptor
+            .get("FontName")
+            .and_then(Object::as_name)
+            .map(|n| n.as_bytes().to_vec()),
+        Some(base_font)
+    );
+    let subset = saved
+        .decoded_stream_data(file)
+        .expect("the program decodes");
+    println!(
+        "the saved /FontFile3 holds {} bytes of CFF subset; the face's whole CFF table is {whole_cff}",
+        subset.len()
+    );
+    assert!(
+        subset.len().saturating_mul(10) < whole_cff,
+        "a subset of a few glyphs is a small fraction of the face"
+    );
+}
+
+/// A value saved in a `CFF ` machine face is written as §9.9.2's subset, a bare CID-keyed program
+/// under `/FontFile3` `/CIDFontType0C` and a `CIDFontType0` (ADR 1449), a small fraction of the
+/// face's `CFF ` table, and draws from the file alone exactly as the viewer showed it.
 #[test]
 fn a_value_saved_in_a_cff_machine_face_draws_from_the_file_alone() {
     let arabic = "\u{633}\u{644}\u{627}\u{645} \u{633}\u{644}\u{627}\u{645}";
@@ -177,6 +245,7 @@ fn a_value_saved_in_a_cff_machine_face_draws_from_the_file_alone() {
         );
         return;
     };
+    let whole_cff = cff_table_length(&face);
     FACE.set(face).expect("set once");
     pdf_font::substitute::no_machine_fonts();
     pdf_font::provider::faces_come_from(ask);
@@ -229,13 +298,7 @@ fn a_value_saved_in_a_cff_machine_face_draws_from_the_file_alone() {
         descendant.get("CIDToGIDMap").is_none(),
         "Table 117: Type 2 only"
     );
-    let descriptor = saved.get_key(&descendant, "FontDescriptor");
-    let descriptor = descriptor.as_dict().expect("a descriptor");
-    assert!(descriptor.get("FontFile2").is_none());
-    let file = saved.get_key(descriptor, "FontFile3");
-    let file = file.as_stream().expect("a font file stream");
-    assert_eq!(subtype(&file.dict), Some(b"OpenType".to_vec()));
-    assert!(file.dict.get("Length1").is_none());
+    assert_written_as_a_subset(&saved, &descendant, whole_cff);
 
     let from_the_file = draw(&saved, &ViewState::of(&saved));
     assert_eq!(

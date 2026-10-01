@@ -834,7 +834,10 @@ memory of the session the quota ended. `tools/batch.sh` is the command; this is 
 
 1. **Open one worktree for the whole batch**: `tools/batch.sh open batch-<first>-<last>`. Six
    rounds share it on one short-lived branch, gitignored data symlinked in, and every submodule
-   pinned `--skip-worktree` so no `git add` can stage a symlink over a gitlink.
+   pinned `--skip-worktree` so no `git add` can stage a symlink over a gitlink. `open` also starts
+   the batch's first `dev` build in the worktree's own build directory, detached, into
+   `scratchpad/open/build.log`: write the briefs while it runs, and the rounds find it warm rather
+   than six of them meeting it cold behind one lock (ADR 1451).
 2. **Brief each round with the ledger rows it must close — by number, never by topic.** A round
    briefed "work on partial rows" writes prose; one briefed "close §8.4.5 and §9.9.1" writes code.
    Over 58 sessions of topic briefs, one row of 875 changed status and it went backwards; over the

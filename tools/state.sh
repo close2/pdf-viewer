@@ -171,6 +171,48 @@ section_superlatives() {
         env PYTHONDONTWRITEBYTECODE=1 python3 tools/superlatives.py --count
 }
 
+# Whether the prose is true, as one answer: the seven sweeps that read what this tree writes about
+# itself, each run as its own section runs it, each reduced to the one line that is its count, and
+# each followed by the command that lists what it counted. No logic of its own — a round asked "is
+# the prose true" needs one command, and the sweeps stay where they are argued: comment history
+# (ADR 1403), superlatives (ADR 1427), overtaken page-list notes and unread-entry claims (the
+# navigation section's two ledger sweeps), a Rust path a doc comment names (ADR 1273), an
+# environment variable a document names (`tests/variables.rs`), and a crate or program a ledger
+# note names (ADR 1437, which is inside the ledger gate, so its line is that gate's verdict and
+# whatever the gate found prints beneath it). ADR 1451.
+prose_line() {
+    local label=$1 filter=$2 lists=$3 output code line
+    shift 3
+    output=$("$@" 2>&1)
+    code=$?
+    line=$(printf '%s\n' "$output" | grep -E "$filter" | head -1)
+    [ $code -ne 0 ] && status=$code
+    [ -z "$line" ] && { status=1; line="no line matched — run the command below"; }
+    printf '%-10s %s\n%-10s   lists: %s\n' "$label" "$line" "" "$lists"
+    # The ledger gate holds more than the program-name sweep, so a failure prints what it found:
+    # a line naming no program is another of the gate's problems, read before this line is.
+    [ $code -ne 0 ] && printf '%s\n' "$output" | grep -E '^  §' | head -10
+    return 0
+}
+
+section_prose() {
+    heading "whether the prose is true: seven sweeps, one count each" "tools/state.sh prose"
+    prose_line comments '^crates and tools: ' 'tools/state.sh comments' \
+        python3 tools/comment-history.py
+    prose_line superlat. '^[0-9]+ superlative' 'tools/state.sh superlatives' \
+        env PYTHONDONTWRITEBYTECODE=1 python3 tools/superlatives.py --count
+    prose_line overtaken '^[0-9]+ page-list note' 'cargo run -q --release -p conformance --bin overtaken' \
+        cargo run -q --release -p conformance --bin overtaken
+    prose_line unread '^[0-9]+ rows claim' 'cargo run -q --release -p conformance --bin unread' \
+        cargo run -q --release -p conformance --bin unread
+    prose_line names '^no doc comment names|path\(s\) whose prefix this tree declares' 'tools/state.sh names' \
+        cargo run -q --release -p conformance --bin names
+    prose_line variables 'variable\(s\) read by the code' 'cargo test -p conformance --test variables -- --nocapture' \
+        cargo test -p conformance --test variables -- --nocapture
+    prose_line programs '^test result' 'cargo test -p conformance --test conformance the_ledger_agrees_with_the_standard_and_with_the_tree' \
+        cargo test -p conformance --test conformance the_ledger_agrees_with_the_standard_and_with_the_tree -- --exact
+}
+
 # Every ledger note's opening and closing sentence, against the row's own `status` field. A note's
 # last sentence is the "what keeps this row `partial`" clause and every later round appends above
 # it; its first sentence is what a round that moves a status rewrites around. Both are inside the
@@ -606,7 +648,9 @@ section_fuzz() {
 # What the main checkout holds that a merge does not carry, read and never written: a local edit
 # the fast-forward would refuse over, whether `fuzz/Cargo.lock` agrees with the root lock, which
 # fuzz artefacts the tree has read (it names them) and which it has not, the targets with no seeds
-# there, and the owner's uncommitted answers. `doc/environment.md`'s *After a merge* is the
+# there, the owner's uncommitted answers, and every `§` after another standard's name in an
+# uncommitted instruction document there, which the main checkout's own `cargo test -p conformance`
+# fails on and no worktree's run can see (ADR 1452). `doc/environment.md`'s *After a merge* is the
 # commands; this is which of them has anything to do (ADR 1440).
 section_main_checkout() {
     heading "the main checkout: what a merge does not carry" "tools/main-checkout.py"
@@ -994,8 +1038,8 @@ section_ratchets() {
     done
 }
 
-all="ledger departures flags names cited last-sentences navigation superlatives comments conformance annex-o governing questions records counts fuzz main-checkout traps hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame dates xmp save actions on-disk jpeg2000 instruments"
-quick="ledger departures flags names cited last-sentences navigation superlatives comments conformance annex-o governing questions records counts fuzz main-checkout traps hosts windows binaries disk remedies instruments"
+all="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout traps hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame dates xmp save actions on-disk jpeg2000 instruments"
+quick="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout traps hosts windows binaries disk remedies instruments"
 
 # Sections another section already runs. Not in `all`, because a full run pays for every line
 # they run — `ratchets` through the gates it composes, `remedies` inside `archive` — and named by
@@ -1024,6 +1068,7 @@ for section in $sections; do
     navigation) section_navigation ;;
     comments) section_comments ;;
     superlatives) section_superlatives ;;
+    prose) section_prose ;;
     frontier) section_frontier ;;
     conformance) section_conformance ;;
     tests) section_tests ;;

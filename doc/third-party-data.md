@@ -944,6 +944,34 @@ and, as evidence, against `hayro-ccitt`'s tables, and agree with both; `codes.rs
 to being prefix-free. T.4 Figures 10 and 11's coding examples are encoded as fixtures in
 `crates/pdf-ccitt/tests/coding.rs` (ADR 1349).
 
+## ITU-T T.88, the identical text of ISO/IEC 14492 — JBIG2, which §7.4.7 hands its filter to
+
+ISO 32000-2 §7.4.7 defines `JBIG2Decode` by reference to ISO/IEC 14492, and this tree has cited that
+standard's clauses from `hayro-jbig2`'s comments and its own reading of section 7.2 without holding
+the text. ITU publishes the identical text as Recommendation T.88 free of charge; the 08/2018
+edition, the one in force, is offered only as a zip that also carries the Recommendation's
+conformance data and sample software. It was fetched on 2026-10-01, after the catalogue's direct
+PDF link had answered `500`, into a round's scratch directory; the PDF inside it is kept outside the
+tree at `/home/AI/specs/T.88.pdf` and prepared with `python3 tools/spec-md.py /home/AI/specs/T.88.pdf
+--out doc/md/T.88.md` into the ignored `doc/md/` (the structure tree's order, 180 pages):
+
+| text | fetched from | SHA-256 |
+|---|---|---|
+| **ITU-T T.88 (08/2018)**, *Information technology – Lossy/lossless coding of bi-level images* — the zip | `https://www.itu.int/rec/dologin_pub.asp?lang=e&id=T-REC-T.88-201808-I!!SOFT-ZST-E&type=items` | `e2a3c458c4d28d5a835c0815fd9b23e197dbc1b83fe81d8e8d8b2ac413d8f22f` |
+| the Recommendation's PDF inside it, `ITU-T_T_88__08_2018.pdf` | the zip above | `dff16153d2b959d78e0018bfc0a054bd4ba136b0a156021b03e4743bfa6af2d6` |
+
+**Free to obtain, not free to quote.** The text carries ITU's 2019 notice reserving all rights and
+permitting no reproduction without ITU's prior written permission — the position T.4, T.6 and T.801
+take above. So T.88 is cited by section, table and figure and paraphrased, in source, in patches and
+in the ledger alike, and nothing from it appears between quotation marks or after a `>`.
+
+**The conformance data and sample software are read, not taken.** Annex K's files come with a
+copyright notice of their own (ICT Link, `Software/Copyright Notice.txt` in the zip) licensing them
+for inclusion in, evaluation for, and conformance testing of an implementation of the
+Recommendation. The ten `.jb2` streams were decoded once, as evidence, through the pinned
+`hayro-jbig2`; eight of them it refuses, with or without ADR 1447's patch. Nothing of either is in
+the repository.
+
 ## IETF RFCs 5639, 7027 and 8032, the two curves this tree computes itself
 
 The owner's answer `doc/questions/A170` has the tree compute brainpoolP512r1 and Ed448 itself

@@ -217,7 +217,11 @@ pub(crate) fn substitute_face(
     names: &GlyphNames,
     name: &str,
 ) -> (Arc<[u8]>, substitute::Format) {
-    let (data, format) = substitute::find(request);
+    // Table 120's weight, slope and width rank the machine's faces within the request's family
+    // (ADR 1441); the request alone chooses a compiled-in face.
+    let descriptor = document.get_key(dict, "FontDescriptor");
+    let style = substitute::Style::derive(document, dict, descriptor.as_dict());
+    let (data, format) = substitute::find_styled(request, style);
     if matches!(
         request.family,
         substitute::Family::Symbol | substitute::Family::ZapfDingbats
@@ -280,7 +284,7 @@ pub(crate) fn substitute_face(
         }
         gains
     };
-    match substitute::installed_wider(request, wider) {
+    match substitute::installed_wider(request, style, wider) {
         // Every candidate in the preference list is an `sfnt`; the catalogue admits no other.
         Some(better) => (better, substitute::Format::Sfnt),
         None => (data, format),

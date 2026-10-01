@@ -98,13 +98,15 @@ permanent) or an owner decision to acquire a specification.
 
 ISO/TS 32002's brainpoolP512r1 and Ed448 are not in this bucket: they are the tree's own under the
 owner's answer A170 (ADRs 1385 and 1386), so an upstream release is their *swap* condition rather
-than a blocker, and `doc/stack.md`'s curve paragraph names it. **Re-checked on 2026-09-30** with
+than a blocker, and `doc/stack.md`'s curve paragraph names it. **Re-checked on 2026-10-01** with
 `cargo search bp512`, `cargo search brainpool` and `cargo search ed448`: RustCrypto has published no
 `bp512`, and `ed448-goldilocks` is still on `0.14.0-pre.15`; RustCrypto's `ed448` 0.5.0 is the
 signature and key-encoding types over it, not the arithmetic. Two packages that paragraph does not
 name are candidates to be judged on `doc/stack.md`'s terms. `bp512-nestler` 0.2.1 (from `Basty-devel/bp512-nestler`)
 is a brainpoolP512r1 over RustCrypto's `primeorder`, and its licence is PolyForm Noncommercial 1.0.0, which
-this tree's Apache-2.0 cannot take whatever its review. `ed448-goldilocks-plus` 0.18.1
+this tree's Apache-2.0 cannot take whatever its review; the same author's `aegis-crypto` 0.1.5
+names brainpoolP512r1 among its primitives under the same licence, and `krypteia-arcana` 0.2.0,
+which `brainpool` also finds, states no Brainpool curve and no Ed448. `ed448-goldilocks-plus` 0.18.1
 (BSD-3-Clause, from `mikelodder7/Ed448-Goldilocks`, on a stable version line) waits on the owner's
 open question `doc/questions/Q192` — whether it counts as reviewed, which its own README says it has
 not been — and this map does not decide it.

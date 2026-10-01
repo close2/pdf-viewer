@@ -338,6 +338,17 @@ list itself carries; starting coverage went from 437 to 841 edges and the first 
 defect in 38 seconds — a second `SEQUENCE` after `revokedCertificates` silently replacing the
 entries (ADR 1435). Read what `INITED` stops at, and let the input supply the subject.
 
+### 83. A thread started inside the filter asks for `prctl`, and the filter kills it
+
+Round 1306's in-process deadline ran each decode on a kept, named thread; `thread::Builder::name`
+calls `prctl`, which `lockdown_linux.rs` leaves off the allow-list on purpose, so the confined viewer
+died with SIGSYS on every JPEG 2000 and JBIG2 document. Tier 1 did not see it — the confined tests
+decode nothing under the filter; the tier-3 walks (`awkward_classes`, `pdf-vfs read_corpus`) did.
+A confined process is bounded from outside, by the host's canceller and its address-space ceiling
+(ADR 0241), so it owes no deadline of its own: once the filter is installed the decode runs on the
+caller's thread (ADR 1447 §3). Any new thread, timer or wait a decode path can reach is run through
+a confined probe, not reasoned about.
+
 ## Things worth knowing
 
 - **A recovery searches for something, and *where that thing can be* is a claim the standard

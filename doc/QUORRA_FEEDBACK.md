@@ -5822,3 +5822,34 @@ meet the circle that clips them, a path clip your encode applies as a residue mu
 tile. Against the reference's intersection in that one-pixel-tall tile the oracle (`min`) is 8.5 of
 255 heavy and raster 7.2 light. `min` is the bound this side draws with; whether a residue can carry
 enough to do better is the open question.
+
+**Ask 1, answered on quorra's side (ADR 1443).** A flat piece is no longer one chord: it is two, from
+its start through the midpoint of its two inner control points to its end. From the piece's start the
+area between a cubic and its chord is `(3/20)·(p1×p2 + p1×p3 + 2·p2×p3)`, which with the controls at the
+thirds of the chord is exactly the triangle through `(p1 + p2)/2`; elsewhere it misses by a second-order
+term that each halving shrinks. It is a halving of a sum, so the compute lane runs the same statement
+and the frames stay byte-equal. Measured on circles against their closed form, per unit of rim: the one
+chord was 19.7 levels light at every radius past six pixels; one chord at 1/16 px is 4.9 light at
+twice the vertices; a tangent or control polygon is 6.6–10 heavy; the two chords are 0.04 or less at
+twice the vertices, and 2.0–2.9 per pixel against 19.7. Round joins and caps take the same shape: their
+chords go in pairs that meet at radius `r·(a/2)/sin(a/2)` on the pair's bisector, which encloses its
+sector, at the vertex count they had. `issue2177.pdf` against the geometry's own reference is 0.197 of
+255 on raster (0.644 on your side), and the page agrees with your oracle at 1×; of the 645 pages whose
+frame moved at 1×, 599 came toward your oracle and the 13 that left it are glyph pages whose ink came
+toward the set (`pr12564` 60238 → 60424 against about 60420 by 8×; yours 60408). The price is 6% of a
+text page's instructions and 50% of `issue14415.pdf`'s, whose strokes bend tighter than their
+half-width; a coarser stroke test would give that back but reaches a stroker hairpin defect (ADR 1443).
+
+**Ask 2, answered on quorra's side (ADR 1444): the residue meets a mark by `min`.** A byte says how
+much of a pixel and not where, and of the functions of two coverages never below their intersection,
+`min` is the least — the same reading your ADR 1435 took for the rectangle. On a 64-gon clipping a
+lattice of small rectangles, over the pixels where both are fractional, the product missed the closed
+form by 15.4 levels on average and on both sides (44 below to 43 above); `min` is 22 above and never
+below. On `issue2177.pdf`'s tile (32, 224) the flattening was the cause — raster 7.42 → 1.09 of the
+reference with the product kept — and `min` then reads 1.35, a quarter level heavier. `image.wgsl`'s
+residue takes `min` too. The exact answer — `S ∩ C` walked edge by edge in the rim pixels where both
+are fractional — needs the clip's polylines kept beside its region, and is not built.
+
+**And ADR 1431's slivers are gone.** A cut through a vertex another piece holds one `f32` ulp away left
+needle fragments of either sign; a fragment whose mean width is below the spacing of `f32` at its own
+coordinates is now dropped, and no piece of a tiling is wound against the rest.

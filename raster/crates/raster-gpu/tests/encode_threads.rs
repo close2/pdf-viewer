@@ -737,3 +737,102 @@ fn the_page_after_a_refused_frame_is_the_same_bytes_at_every_thread_count() {
         );
     }
 }
+
+/// Where [`repeated_stroke`] places its `index`th copy: a lattice wide enough that no two
+/// copies meet, at offsets that are not whole pixels, so that no two placements share a
+/// sub-pixel phase.
+fn stroke_at(index: u32) -> (f32, f32) {
+    let step = f32::from(index as u16);
+    (
+        24.0 + f32::from((index % 6) as u16) * 32.0 + step * 0.37,
+        24.0 + f32::from((index / 6) as u16) * 32.0 + step * 0.21,
+    )
+}
+
+/// One curve stroked wider than it bends, so that its pieces are tiled (ADR 1375), placed at
+/// each of `placements` — or at the one `only` names.
+fn repeated_stroke(device: &mut Device, placements: u32, only: Option<u32>) -> Scene {
+    let outline = device.upload_outline(&blob(7, 6.0)).unwrap();
+    let mut builder = SceneBuilder::new();
+    for index in (0..placements).filter(|index| only.is_none_or(|only| only == *index)) {
+        let (x, y) = stroke_at(index);
+        builder
+            .stroke(
+                outline,
+                Affine::translate(x, y),
+                Stroke {
+                    width: 9.0,
+                    adjust: false,
+                    cap: LineCap::Butt,
+                    join: LineJoin::Round,
+                    miter_limit: 4.0,
+                },
+                ink(0.4),
+                None,
+                BlendMode::Normal,
+                None,
+            )
+            .unwrap();
+    }
+    builder.finish()
+}
+
+/// **A stroke placed many times draws, at each placement, what it draws placed alone**, at
+/// every thread count and whether or not the frame's share had room to keep its expansion
+/// (ADR 1445): the pieces are made under the linear part and moved into place, so a copy
+/// that read another placement's expansion and one that made its own are the same bytes.
+#[test]
+fn a_stroke_placed_many_times_draws_what_it_draws_placed_alone() {
+    const PLACEMENTS: u32 = 30;
+    // The default frame budget, whose share keeps the expansion, and one whose sixteenth
+    // is smaller than it, so that every placement makes its own.
+    for max_frame_bytes in [Options::default().max_frame_bytes, 250_000] {
+        let options = |threads: usize| Options {
+            adapter: Some("llvmpipe".into()),
+            encode_threads: threads,
+            max_frame_bytes,
+            ..Options::default()
+        };
+        let (page, _) = draw_with(&options(1), |device| {
+            repeated_stroke(device, PLACEMENTS, None)
+        });
+        for index in [0, 7, PLACEMENTS - 1] {
+            let (alone, _) = draw_with(&options(1), |device| {
+                repeated_stroke(device, PLACEMENTS, Some(index))
+            });
+            // Fourteen pixels up and left of the copy's placement, which `stroke_at` puts at
+            // whole cells plus a hundredth-exact fraction below eleven pixels.
+            let (column, row) = ((index % 6) as usize, (index / 6) as usize);
+            let (x0, y0) = (
+                10 + column * 32 + (index as usize * 37) / 100,
+                10 + row * 32 + (index as usize * 21) / 100,
+            );
+            let window = |pixels: &[u8]| -> Vec<u8> {
+                (y0..y0 + 30)
+                    .flat_map(|row| {
+                        let start = (row * SIDE as usize + x0) * 4;
+                        pixels[start..start + 30 * 4].to_vec()
+                    })
+                    .collect()
+            };
+            assert!(
+                window(&alone).iter().skip(3).step_by(4).any(|&a| a > 0),
+                "the copy at {index} draws something inside its window"
+            );
+            assert!(
+                window(&page) == window(&alone),
+                "the copy at {index} is not the stroke placed alone (budget {max_frame_bytes})"
+            );
+        }
+        for threads in COUNTS.into_iter().skip(1) {
+            let (divided, _) = draw_with(&options(threads), |device| {
+                repeated_stroke(device, PLACEMENTS, None)
+            });
+            assert!(
+                divided == page,
+                "the repeated stroke drawn on {threads} threads is not the one drawn on one \
+                 (budget {max_frame_bytes})"
+            );
+        }
+    }
+}

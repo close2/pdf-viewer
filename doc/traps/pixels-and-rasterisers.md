@@ -439,6 +439,24 @@ is zero-filled on the calling thread. `write_texture` is already one copy, and t
 table called "transfer" was 96% raster's host-side reduction — a column an instrument names is a
 phase's clock, not what its name says (ADR 1433).
 
+### 80. A flattening's error is read against the curve's own area, never against a renderer
+
+Raster flattened every curve with one chord on the curve, an inscribed polygon that loses area
+on every convex piece — 19.7 levels per unit of rim on a radius-6 circle — and nothing saw it,
+because the fixtures allowed a deficit and the oracle was a renderer with its own flattening.
+Measured against the four cubics' own closed-form area (Green's theorem), two chords through the
+midpoint of the inner controls enclose the piece's area to second order at the same vertex count
+(ADR 1443): `issue2177.pdf`, "differs" for a long time, agrees. Read §10.7.2's NOTE 2 and §10.7.4's
+"at least as large" before accepting any flattening's error.
+
+### 81. A cache served at several translations cannot be byte-identical to per-placement work
+
+The stroker's arithmetic rounds differently at the origin than six hundred pixels away, so an
+expansion made once and translated moves pixels against one made at each placement — 52 pages at
+1×. Define the uncached path as the same computation ("build at the origin, then translate"), so a
+cache hit and a miss are one construction, and hold every moved pixel to the exact area; they moved
+toward it wherever the pieces tile (ADR 1445).
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

@@ -305,15 +305,16 @@ and a window does not. `warm` is 3% to 11% of the refresh on every page and is l
 | | step | 5.88 (71%) | — | — | **4.41** | 0.21 | 1.11 | 0.15 |
 | `issue19802.pdf` p1, 1 032 commands | turn | 4.13 (50%) | 0.49 | 0.21 | **2.60** | 0.19 | 0.46 | 0.18 |
 | | step | 1.21 (15%) | — | — | 0.08 | 0.15 | 0.84 | 0.13 |
-| `ContentStreamNoCycleType3insideType3.pdf`, stroked Type 3 in a tiling | turn | 11.21 (135%) | 0.43 | 0.18 | **9.82** | 0.25 | 0.42 | 0.11 |
-| | step | 11.49 (138%) | — | — | **10.83** | 0.08 | 0.38 | 0.19 |
+| `ContentStreamNoCycleType3insideType3.pdf`, stroked Type 3 in a tiling | turn | 5.98 (72%) | 0.45 | 0.17 | **4.56** | 0.26 | 0.43 | 0.11 |
+| | step | 6.01 (72%) | — | — | **5.37** | 0.08 | 0.38 | 0.18 |
 
 The text and `issue19802.pdf` rows were re-taken the same day after ADR 1409, against a build of
 the tree before it in the same sitting: minimum of three runs of five rounds, pinned, load 1.9–2.1.
-The `issue14415.pdf` and Type 3 rows were re-taken on 2026-09-30 after ADR 1431, minimum of three
-runs of five rounds in one sitting, pinned, load 2.2–2.4: since ADR 1431 a stroke of several
-subpaths is tiled as one set, so the Type 3 page's turn includes tiling strokes whose subpaths
-cross (after ADR 1421 the same page read 9.38 and 10.88, and `issue14415.pdf` 11.24 and 5.44). The three image rows were re-taken on 2026-09-30 after ADR
+The `issue14415.pdf` row was re-taken on 2026-09-30 after ADR 1431, minimum of three runs of
+five rounds in one sitting, pinned, load 2.2–2.4. The Type 3 row was re-taken on 2026-10-01 after
+ADR 1445, the same way against the tree before it (load 5.2–6.4; that build read 11.48 and 11.65):
+each glyph's stroke is expanded once for all its placements in the tiling, where it was expanded
+and tiled at each; p101 and `issue14415.pdf` did not move beyond the runs' spread. The three image rows were re-taken on 2026-09-30 after ADR
 1433, the same way against the tree before it (load 16–20; that build read 126.04–129.90 and
 15.78 on the photograph, 128.0–131.6 and 49.2 on the plan, 156.0–157.9 and 22.6 on `images.pdf`).
 The rest are the re-baseline's.

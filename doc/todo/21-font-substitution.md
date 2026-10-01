@@ -246,7 +246,9 @@ alone; it condenses and never expands, because §9.2.4 makes a width a displacem
 ink from above and not from below. The witness's marked pixels go 983 → 861 against the four
 references' 844/825/812/702, its page ink 18.45 → 15.28 against their 15.52 to 12.71, and its modal
 stem at 576 dpi 14 px → 12 px against the `/StemV 66` the file states as 10.56 — a number nothing
-in the derivation touched, which is what makes it the check rather than the target.
+in the derivation touched, which is what makes it the check rather than the target. On a machine that
+offers a condensed member of the preferred family, the name's `Narrow` now chooses it and the
+scale is 1.0; the stem is 12 px there too, `poppler`'s and `mupdf`'s (ADR 1441).
 
 **And the pull request the owner supplied is answered by the standard rather than adopted.**
 `mozilla/pdf.js#12725` lets a document override the built-in widths of a standard font and

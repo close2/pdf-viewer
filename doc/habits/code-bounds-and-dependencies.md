@@ -416,3 +416,13 @@ instrument now counts a file over its bound as *not read* per corpus and says so
 (round 1296, `crates/pdf-model/examples/javascript_census.rs`). A walk that reads whole files
 states its size bound and reports what it skipped, or the bound kills the walk and the report is
 never written.
+
+## A loop whose only exit is a counter is bounded on the passes that do not advance it
+
+Three loops of `hayro-jbig2`'s symbol dictionary ran for minutes on a few hundred bytes, because
+T.88's arithmetic decoder feeds 1-bits once its data runs out and each loop ends only when a count
+is reached: an empty height class decodes no symbol, a zero-length export run advances no index, a
+symbol's size is bounded only by 32 bits (ADR 1447). T.88 bounds none of them; the census of 54 498
+real streams gave each bound its number. And a bound a brief proposes is run past the census before
+it is built — "a symbol no larger than its page" would have refused real striped pages whose shared
+dictionary is 474× a strip.

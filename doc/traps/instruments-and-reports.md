@@ -994,6 +994,14 @@ batch had checked main's ledger and `doc/todo/65`, not the worktree's — trap 5
 than a measurement. `tools/batch.sh open` now writes the worktree's own `.cargo/config.toml` (ADR
 1440); until a batch has built there once, check the path before trusting a clean run.
 
+### 82. A brief's clause or table number may be ISO 32000-1's
+
+Round 1303's brief named §9.6.6.4, Table 122 and Table 111 for font substitution; in ISO 32000-2
+those are nothing, the CIDFont descriptor additions, and the Type 3 operators. The sentences live at
+§9.8.1, Table 120 and nowhere (the standard has no alias table for the standard 14). Grep the
+heading in `doc/md/` before a number is cited or a sentence quoted under it, and name the
+correction in the report.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

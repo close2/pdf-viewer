@@ -75,6 +75,10 @@ pub(crate) fn resolve_width(stroke: Stroke, t: DeviceTransform) -> f32 {
 /// §10.7.5's adjustment applied at encode); dashing is already applied and degenerate
 /// subpaths pre-split upstream (section 4.5 of the brief); consecutive coincident points are
 /// skipped here so flattening artefacts cannot produce zero-length pieces.
+///
+/// The fixtures' form: the encoder reads [`stroke_pieces`], which says besides whether the
+/// pieces tile the set (ADR 1445).
+#[cfg(test)]
 pub(crate) fn stroke_polylines(
     polylines: &[Polyline],
     stroke: Stroke,
@@ -465,7 +469,8 @@ fn cap_at(out: &mut Vec<Polyline>, end: Point, dir: Point, hw: f32, cap: LineCap
 /// caller's ink-total instrument read a round cap as depositing exactly what a butt cap
 /// does (`QUORRA_FEEDBACK.md` section 21.1), which is the sum, not the picture.
 ///
-/// The step count is [`arc_steps`]', as for any other arc.
+/// The chords are [`arc_steps`]', as for any other arc, taken in pairs through
+/// [`arc_waist`]'s point, as for any other arc.
 ///
 /// Its two corners are `end ± n`, the very points the segment's own piece ends on,
 /// rather than the same points recomputed through `cos` and `sin`: a fan that meets
@@ -476,15 +481,18 @@ fn cap_fan(end: Point, dir: Point, n: Point, hw: f32) -> Polyline {
     // passes through `base`, which is what makes this the outward half — and gives the
     // fan the stroke body's own winding, so it adds rather than cancels.
     let base = dir.y.atan2(dir.x);
-    let steps = arc_steps(std::f32::consts::PI, hw);
-    let mut points = Vec::with_capacity(steps.saturating_add(2));
+    let pairs = arc_steps(std::f32::consts::PI, hw).div_ceil(2);
+    let waist = hw * arc_waist(std::f32::consts::PI, pairs);
+    let halves = pairs.saturating_mul(2);
+    let mut points = Vec::with_capacity(halves.saturating_add(2));
     points.push(end);
     points.push(Point::new(end.x + n.x, end.y + n.y));
-    for i in 1..steps {
-        #[expect(clippy::cast_precision_loss)] // steps is at most MAX_ARC_STEPS
-        let t =
-            base + std::f32::consts::FRAC_PI_2 - std::f32::consts::PI * (i as f32) / (steps as f32);
-        points.push(Point::new(end.x + hw * t.cos(), end.y + hw * t.sin()));
+    for i in 1..halves {
+        #[expect(clippy::cast_precision_loss)] // twice MAX_ARC_STEPS at the most
+        let t = base + std::f32::consts::FRAC_PI_2
+            - std::f32::consts::PI * (i as f32) / (halves as f32);
+        let r = if i % 2 == 1 { waist } else { hw };
+        points.push(Point::new(end.x + r * t.cos(), end.y + r * t.sin()));
     }
     points.push(Point::new(end.x - n.x, end.y - n.y));
     Polyline::polygon(points)
@@ -500,10 +508,12 @@ const ARC_STEP: f32 = 0.35;
 /// pixels; a wider one is drawn coarser than that, and no finer.
 const MAX_ARC_STEPS: usize = 256;
 
-/// How many chords an arc of `sweep` radians and radius `radius` is cut into, so that
-/// no chord falls further inside the arc than
+/// How many steps an arc of `sweep` radians and radius `radius` is cut into, so that no
+/// step's chord would fall further inside the arc than
 /// [`FLATTEN_TOLERANCE`](super::flatten::FLATTEN_TOLERANCE) — §10.7.2's bound, the one
-/// every other curve here is flattened to (ADR 1361).
+/// every other curve here is flattened to (ADR 1361). The chords are then taken in pairs, each
+/// pair a step of twice the angle drawn through [`arc_waist`]'s point, which encloses the
+/// step's sector where one chord a step fell inside it — the same vertex count (ADR 1443).
 ///
 /// A chord of angle `a` falls `r · (1 − cos(a / 2))` inside, which is at most
 /// `r · a² / 8`; so `a = sqrt(8 · tolerance / r)` is within the bound, and `sqrt` is
@@ -527,8 +537,26 @@ fn arc_steps(sweep: f32, radius: f32) -> usize {
     steps.max(1)
 }
 
+/// How far out, in units of the radius, the point halfway along one step of an arc stands,
+/// so that the two chords through it enclose the step's own sector (ADR 1443).
+///
+/// A step of angle `a` is a sector of area `r² · a / 2`. The triangles from the centre to
+/// its two ends and a point at radius `ρ` on its bisector hold `r · ρ · sin(a / 2)`, which is
+/// the sector's where `ρ = r · (a / 2) / sin(a / 2)` — a hair past the arc, `r · a² / 24` at
+/// the most, where the one chord fell `r · a² / 8` inside it. §10.7.4: "[t]he area covered by
+/// painted pixels shall always be at least as large as the area of the original shape", and
+/// one chord per step is an inscribed polygon that takes the arc's segments out of it.
+fn arc_waist(sweep: f32, steps: usize) -> f32 {
+    #[expect(clippy::cast_precision_loss)] // steps is at most MAX_ARC_STEPS
+    let half = sweep.abs() / (steps as f32) * 0.5;
+    let sin = half.sin();
+    if sin > 0.0 { half / sin } else { 1.0 }
+}
+
 /// A fan of points approximating the arc from `from` to `to` around `centre` (both on
-/// the circle of radius `radius`), as one closed polygon including the centre.
+/// the circle of radius `radius`), as one closed polygon including the centre: [`arc_steps`]'
+/// chords in pairs, each pair through [`arc_waist`]'s point, which encloses the pair's own
+/// sector (ADR 1443).
 ///
 /// **The caller must guarantee a sweep of less than pi**, because that is what makes
 /// "the shorter way round" below name one arc rather than two. [`join_at`] is the only
@@ -545,15 +573,17 @@ fn arc_fan(centre: Point, from: Point, to: Point, radius: f32) -> Polyline {
     } else if sweep < -std::f32::consts::PI {
         sweep += 2.0 * std::f32::consts::PI;
     }
-    let steps = arc_steps(sweep, radius);
-    let mut points = vec![centre, from];
-    for i in 1..steps {
-        #[expect(clippy::cast_precision_loss)]
-        let t = a0 + sweep * (i as f32) / (steps as f32);
-        points.push(Point::new(
-            centre.x + radius * t.cos(),
-            centre.y + radius * t.sin(),
-        ));
+    let pairs = arc_steps(sweep, radius).div_ceil(2);
+    let waist = radius * arc_waist(sweep, pairs);
+    let halves = pairs.saturating_mul(2);
+    let mut points = Vec::with_capacity(halves.saturating_add(2));
+    points.push(centre);
+    points.push(from);
+    for i in 1..halves {
+        #[expect(clippy::cast_precision_loss)] // twice MAX_ARC_STEPS at the most
+        let t = a0 + sweep * (i as f32) / (halves as f32);
+        let r = if i % 2 == 1 { waist } else { radius };
+        points.push(Point::new(centre.x + r * t.cos(), centre.y + r * t.sin()));
     }
     points.push(to);
     Polyline::polygon(points)

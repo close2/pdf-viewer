@@ -6,7 +6,8 @@
 A round works in a worktree and may not edit the main checkout, so what a batch leaves for the
 owner is a list of things on the owner's disk: a gitignored or untracked file a merge cannot
 update, a fuzz artefact whose defect is fixed, a corpus a campaign found stale, a local edit that
-will stop the fast-forward. `doc/environment.md`'s *After a merge* section is the commands; this
+will stop the fast-forward, an uncommitted question whose `§` the main checkout's own conformance
+run fails on. `doc/environment.md`'s *After a merge* section is the commands; this
 prints which of them has anything to do today. Every figure is read from the disk and from git,
 never written down (ADR 1440). It exits non-zero only when it cannot read the main checkout.
 
@@ -104,6 +105,26 @@ def uncommitted_answers(main):
     return f"doc/questions: {len(answers)} owner's answer file(s) uncommitted in the main checkout"
 
 
+def section_signs(main):
+    """The `§` rule over the main checkout's uncommitted instruction documents (ADR 1452).
+
+    A file no merge carries is checked by the main checkout's own `cargo test -p conformance` and
+    by no worktree's, so its finding reaches the owner only here. The scan is the conformance
+    crate's own (`--bin section_signs`), run from this checkout and reading the main one."""
+    status = git(main, "status", "--porcelain", "--untracked-files=all", "--", "doc") or ""
+    files = [line[3:] for line in status.splitlines() if line.endswith(".md")]
+    if not files:
+        return ["section signs: no uncommitted document in the main checkout's doc/"]
+    result = subprocess.run(["cargo", "run", "-q", "--release", "-p", "conformance", "--bin",
+                             "section_signs", "--", main, *files],
+                            cwd=HERE, capture_output=True, text=True)
+    if result.returncode != 0:
+        return [f"section signs: the scan failed: {result.stderr.strip()[-300:]}"]
+    lines = result.stdout.splitlines()
+    return [f"section signs, uncommitted: {lines[-1]}" if lines else "section signs: no output",
+            *lines[:-1]]
+
+
 def in_the_way(main):
     """Local edits in the main checkout to paths this branch changes: each stops `--ff-only`."""
     head = (git(main, "rev-parse", "HEAD") or "").strip()
@@ -127,6 +148,8 @@ def main():
         print(line)
     print(unseeded(main_dir))
     print(uncommitted_answers(main_dir))
+    for line in section_signs(main_dir):
+        print(line)
     return 0
 
 

@@ -57,7 +57,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 
-use crate::substitute::{Family, Request};
+use crate::substitute::{Family, Request, Style};
 
 /// Whether a host offers a confined worker the faces installed on this machine.
 ///
@@ -100,7 +100,8 @@ type Offered = (Vec<u8>, Option<(Arc<[u8]>, String)>);
 /// Offers already made, so a miss costs one round trip rather than one per page.
 ///
 /// **Bounded by the description rather than by a ceiling**, which is why there is no eviction: a
-/// key is a family (five), a weight and a slope (four combinations), a `skip` under
+/// key is a family (five), a style (nine weights, two slopes, nine widths — `substitute::Style`
+/// reads a `/FontWeight` as the nearest of Table 120's hundreds), a `skip` under
 /// `substitute::MAX_OFFERS`, and the characters a registered character collection samples. A
 /// document cannot invent a key outside that set, so what this holds is at most the machine's
 /// faces for the families a document names — the same population `substitute::LOADED` holds in a
@@ -139,11 +140,16 @@ pub fn armed() -> bool {
 /// did not decode. Each of those is the same thing to a caller: this machine offers no face, and
 /// [`crate::standard`]'s compiled-in one is what draws the text.
 #[must_use]
-pub fn offered(request: Request, wanted: &[char], skip: u32) -> Option<(Arc<[u8]>, String)> {
+pub fn offered(
+    request: Request,
+    style: Style,
+    wanted: &[char],
+    skip: u32,
+) -> Option<(Arc<[u8]>, String)> {
     if !armed() {
         return None;
     }
-    let asked = encode_request(request, wanted, skip);
+    let asked = encode_request(request, style, wanted, skip);
 
     let memo = OFFERS.get_or_init(|| RwLock::new(Vec::new()));
     if let Ok(held) = memo.read()
@@ -175,8 +181,8 @@ pub fn offered(request: Request, wanted: &[char], skip: u32) -> Option<(Arc<[u8]
 /// machine offers nothing* and answers from the compiled-in faces.
 #[must_use]
 pub fn open_a_face(request: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
-    let (request, wanted, skip) = decode_request(request)?;
-    let path = crate::substitute::machine_face(request, &wanted, skip)?;
+    let (request, style, wanted, skip) = decode_styled_request(request)?;
+    let path = crate::substitute::machine_face(request, style, &wanted, skip)?;
     let content = std::fs::read(&path).ok()?;
     let name = path
         .file_name()
@@ -185,7 +191,7 @@ pub fn open_a_face(request: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
 }
 
 /// This encoding's version byte, so a worker and a broker built apart refuse rather than guess.
-const VERSION: u8 = 1;
+const VERSION: u8 = 2;
 
 /// A family as one byte.
 fn family_byte(family: Family) -> u8 {
@@ -210,20 +216,27 @@ fn family_of(byte: u8) -> Option<Family> {
     })
 }
 
+/// Where the fixed-width head of a description ends and its characters begin.
+const HEAD: usize = 14;
+
 /// A description on the wire: what the document asked for, and nothing about this machine.
 ///
 /// Fixed-width and self-describing, for the reason `confined_transport::frame` gives about its
 /// own header: the side that wrote it is the untrusted side of some boundary, so every length is
-/// a claim to be checked before anything is sized from it.
+/// a claim to be checked before anything is sized from it. The style crosses beside the request
+/// so that the broker ranks a family's members as the worker would have (ADR 1441).
 #[must_use]
-pub fn encode_request(request: Request, wanted: &[char], skip: u32) -> Vec<u8> {
-    let mut out = Vec::with_capacity(11usize.saturating_add(wanted.len().saturating_mul(4)));
+pub fn encode_request(request: Request, style: Style, wanted: &[char], skip: u32) -> Vec<u8> {
+    let mut out = Vec::with_capacity(HEAD.saturating_add(wanted.len().saturating_mul(4)));
     out.push(VERSION);
     out.push(family_byte(request.family));
     let flags = u8::from(request.bold)
         | (u8::from(request.italic) << 1)
-        | (u8::from(request.standard) << 2);
+        | (u8::from(request.standard) << 2)
+        | (u8::from(style.italic) << 3);
     out.push(flags);
+    out.extend_from_slice(&style.weight.to_be_bytes());
+    out.push(u8::try_from(style.width).unwrap_or(u8::MAX));
     out.extend_from_slice(&skip.to_be_bytes());
     out.extend_from_slice(
         &u32::try_from(wanted.len())
@@ -236,20 +249,35 @@ pub fn encode_request(request: Request, wanted: &[char], skip: u32) -> Vec<u8> {
     out
 }
 
-/// Reads a description written by [`encode_request`], or `None` where it is not one.
+/// Reads a description written by [`encode_request`], without its style, or `None` where it is
+/// not one.
 #[must_use]
 pub fn decode_request(bytes: &[u8]) -> Option<(Request, Vec<char>, u32)> {
+    decode_styled_request(bytes).map(|(request, _, wanted, skip)| (request, wanted, skip))
+}
+
+/// Reads a description written by [`encode_request`], or `None` where it is not one.
+///
+/// A weight outside Table 120's 1..=1000 or a width outside its nine names is refused rather than
+/// ranked by, the same as a count the bytes do not carry.
+#[must_use]
+pub fn decode_styled_request(bytes: &[u8]) -> Option<(Request, Style, Vec<char>, u32)> {
     if bytes.first().copied()? != VERSION {
         return None;
     }
     let family = family_of(bytes.get(1).copied()?)?;
     let flags = bytes.get(2).copied()?;
-    let skip = u32::from_be_bytes(bytes.get(3..7)?.try_into().ok()?);
-    let count = u32::from_be_bytes(bytes.get(7..11)?.try_into().ok()?);
+    let weight = u16::from_be_bytes(bytes.get(3..5)?.try_into().ok()?);
+    let width = u16::from(bytes.get(5).copied()?);
+    if !(1..=1000).contains(&weight) || !(1..=9).contains(&width) {
+        return None;
+    }
+    let skip = u32::from_be_bytes(bytes.get(6..10)?.try_into().ok()?);
+    let count = u32::from_be_bytes(bytes.get(10..HEAD)?.try_into().ok()?);
     let count = usize::try_from(count).ok()?;
     // The count is a claim about a slice that is already in hand, so it is checked against the
     // slice rather than believed: `wanted` is sized from what arrived, never from the number.
-    let rest = bytes.get(11..)?;
+    let rest = bytes.get(HEAD..)?;
     if rest.len() != count.checked_mul(4)? {
         return None;
     }
@@ -264,6 +292,11 @@ pub fn decode_request(bytes: &[u8]) -> Option<(Request, Vec<char>, u32)> {
             bold: flags & 1 != 0,
             italic: flags & 2 != 0,
             standard: flags & 4 != 0,
+        },
+        Style {
+            weight,
+            italic: flags & 8 != 0,
+            width,
         },
         wanted,
         skip,
@@ -296,9 +329,10 @@ pub fn decode_identity(bytes: &[u8]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_identity, decode_request, encode_identity, encode_request, offered, open_a_face,
+        decode_identity, decode_request, decode_styled_request, encode_identity, encode_request,
+        offered, open_a_face,
     };
-    use crate::substitute::{Family, Request};
+    use crate::substitute::{Family, Request, Style};
 
     /// The description a worker sends is the description a broker reads.
     #[test]
@@ -309,27 +343,31 @@ mod tests {
             italic: false,
             standard: false,
         };
+        let style = Style {
+            weight: 300,
+            italic: true,
+            width: 3,
+        };
         let wanted = ['中', 'あ'];
-        let bytes = encode_request(request, &wanted, 3);
-        let (back, chars, skip) = decode_request(&bytes).expect("a description");
+        let bytes = encode_request(request, style, &wanted, 3);
+        let (back, back_style, chars, skip) = decode_styled_request(&bytes).expect("a description");
         assert_eq!(back, request);
+        assert_eq!(back_style, style);
         assert_eq!(chars, wanted.to_vec());
         assert_eq!(skip, 3);
+        assert_eq!(decode_request(&bytes), Some((request, wanted.to_vec(), 3)));
     }
 
     /// A version byte this build does not know is refused rather than guessed at.
     #[test]
     fn a_description_from_another_build_is_refused() {
-        let mut bytes = encode_request(
-            Request {
-                family: Family::SansSerif,
-                bold: false,
-                italic: false,
-                standard: false,
-            },
-            &[],
-            0,
-        );
+        let request = Request {
+            family: Family::SansSerif,
+            bold: false,
+            italic: false,
+            standard: false,
+        };
+        let mut bytes = encode_request(request, Style::of(request), &[], 0);
         bytes[0] = 99;
         assert!(decode_request(&bytes).is_none());
         assert!(open_a_face(&bytes).is_none());
@@ -339,18 +377,20 @@ mod tests {
     /// from it, which is `confined_transport::frame`'s rule one layer down.
     #[test]
     fn a_stated_count_the_bytes_do_not_carry_is_refused() {
-        let mut bytes = encode_request(
-            Request {
-                family: Family::Serif,
-                bold: false,
-                italic: false,
-                standard: false,
-            },
-            &['A'],
-            0,
-        );
-        bytes[7..11].copy_from_slice(&1000u32.to_be_bytes());
+        let request = Request {
+            family: Family::Serif,
+            bold: false,
+            italic: false,
+            standard: false,
+        };
+        let mut bytes = encode_request(request, Style::of(request), &['A'], 0);
+        bytes[10..14].copy_from_slice(&1000u32.to_be_bytes());
         assert!(decode_request(&bytes).is_none());
+
+        // And a style outside Table 120's scales is refused the same way.
+        let mut heavy = encode_request(request, Style::of(request), &['A'], 0);
+        heavy[3..5].copy_from_slice(&2000u16.to_be_bytes());
+        assert!(decode_request(&heavy).is_none());
     }
 
     /// A face's identity round trips, and it is a name rather than a path.
@@ -367,18 +407,12 @@ mod tests {
     #[test]
     fn nothing_is_offered_until_a_worker_arms_the_port() {
         assert!(!super::armed());
-        assert!(
-            offered(
-                Request {
-                    family: Family::Serif,
-                    bold: false,
-                    italic: false,
-                    standard: false,
-                },
-                &[],
-                0
-            )
-            .is_none()
-        );
+        let request = Request {
+            family: Family::Serif,
+            bold: false,
+            italic: false,
+            standard: false,
+        };
+        assert!(offered(request, Style::of(request), &[], 0).is_none());
     }
 }

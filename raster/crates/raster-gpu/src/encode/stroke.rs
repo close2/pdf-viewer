@@ -15,6 +15,7 @@
 use raster_scene::{Affine, BlendMode, ClipId, Command, MaskId, OutlineId, Paint};
 
 use super::device_space::compose;
+use super::expansion::{self, Expansion};
 use super::parallel::{Draw, Job};
 use super::{ChildOp, DrawStyle, Encoder, Op};
 use crate::error::RenderError;
@@ -79,6 +80,12 @@ impl Encoder<'_> {
             return Ok(());
         }
         self.distinct_outlines.insert(outline.0);
+        let shared = self.expansions.slot(
+            outline.0,
+            [transform.a, transform.b, transform.c, transform.d],
+            to_device,
+            stroke,
+        );
         self.segments = self.segments.saturating_add(stored.segments.len() as u64);
         // A solid stroke is expansion and a fill, both of them pure functions of this
         // command's own outline, so it takes the same seam a fill does (`parallel`).
@@ -93,21 +100,27 @@ impl Encoder<'_> {
                 .map_or(0, |(x0, y0, x1, y1)| {
                     self.tile_bound((x0 - reach, y0 - reach, x1 + reach, y1 + reach), &resolved)
                 });
-            return self.enqueue(Job::sheet(
-                &stored.segments,
-                to_device,
-                Some(stroke),
-                Rule::NonZero,
-                rect,
-                bound,
-                Draw::new(color, resolved.rect, self.style, mask).under(&resolved),
-            ));
+            return self.enqueue(
+                Job::sheet(
+                    &stored.segments,
+                    to_device,
+                    Some(stroke),
+                    Rule::NonZero,
+                    rect,
+                    bound,
+                    Draw::new(color, resolved.rect, self.style, mask).under(&resolved),
+                )
+                .sharing(shared),
+            );
         }
-        // Flatten under the full transform, then expand: the width arrived
-        // resolved (brief section 4.5), so our job is caps, joins and miters only.
+        // Flatten under the linear part, expand and place, as the fan-out does (ADR 1445):
+        // the width arrived resolved (brief section 4.5), so our job is caps, joins and
+        // miters only.
         let span = self.clock.start();
-        let polylines = raster::flatten_stroke(&stored.segments, to_device);
-        let stroked = raster::stroke_polylines(&polylines, stroke, device_width);
+        let (stroked, _) = Expansion::placed(
+            expansion::expansion(shared.as_deref(), &stored.segments, to_device, stroke),
+            to_device,
+        );
         self.clock.geometry(span);
         match paint {
             Paint::Solid(color) => {
