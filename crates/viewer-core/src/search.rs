@@ -132,13 +132,18 @@ impl Searching {
     /// The range indexes the text it was handed, which is what makes it usable as a selection:
     /// `Interpretation::text` for that page is the string every other offset in this crate is
     /// into. A step that finds something leaves the search finished — `remaining` is zero — so a
-    /// host that keeps pumping is told nothing more.
-    pub(crate) fn step(&mut self, text: &str) -> Option<(usize, usize)> {
+    /// host that keeps pumping is told nothing more. `order` is how that page stored its
+    /// right-to-left runs, which [`crate::select::find`] reads a needle's spellings against.
+    pub(crate) fn step(
+        &mut self,
+        text: &str,
+        order: &crate::select::Order,
+    ) -> Option<(usize, usize)> {
         if self.remaining == 0 {
             return None;
         }
         let page = self.next;
-        let found = self.matching(page, text);
+        let found = self.matching(page, text, order);
         if found.is_some() {
             self.remaining = 0;
             return found;
@@ -164,12 +169,17 @@ impl Searching {
     ///
     /// Forwards it is the earliest and backwards the latest, over all the needles at once, so a
     /// word list behaves as one search rather than as several run in the list's order.
-    fn matching(&self, page: usize, text: &str) -> Option<(usize, usize)> {
+    fn matching(
+        &self,
+        page: usize,
+        text: &str,
+        order: &crate::select::Order,
+    ) -> Option<(usize, usize)> {
         let first_visit = page == self.origin.0 && !self.passed_origin;
         let second_visit = page == self.origin.0 && self.passed_origin;
         let mut best: Option<(usize, usize)> = None;
         for needle in &self.needles {
-            for (from, to) in crate::select::find(text, needle) {
+            for (from, to) in crate::select::find(text, needle, order) {
                 let allowed = match (first_visit, second_visit, self.direction) {
                     (true, _, FindDirection::Forward) => from >= self.origin.1,
                     (true, _, FindDirection::Backward) => to <= self.origin.1,
@@ -241,7 +251,7 @@ mod tests {
             let page = search.page();
             steps = steps.saturating_add(1);
             let text = pages.get(page).copied().unwrap_or_default();
-            if let Some((from, to)) = search.step(text) {
+            if let Some((from, to)) = search.step(text, &crate::select::Order::default()) {
                 return (Some((page, from, to)), steps);
             }
         }

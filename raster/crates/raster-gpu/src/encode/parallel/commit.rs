@@ -19,8 +19,10 @@ use crate::startup::Coverage;
 
 use super::super::fill::SolidFill;
 use super::super::instance::CoverageSource;
+use super::super::meet::Mark;
 use super::super::{Encoder, ResolvedClip};
-use super::{Draw, Job, Place, Rasterised, fan_out, rasterise, rasterise_all};
+use super::{Draw, Job, Made, Place, Rasterised, fan_out, rasterise, rasterise_all};
+use crate::raster::Rule;
 
 impl<'a> Encoder<'a> {
     /// What the atlas would do for this placement, asked of an atlas the queue has
@@ -230,7 +232,9 @@ impl<'a> Encoder<'a> {
             Place::Resident { key, origin, entry } => {
                 self.commit_glyph(*key, *origin, Some(*entry), None, &job.draw)
             }
-            Place::Atlas { key, origin } => self.commit_glyph(*key, *origin, None, mask, &job.draw),
+            Place::Atlas { key, origin } => {
+                self.commit_glyph(*key, *origin, None, mask.map(|made| made.mask), &job.draw)
+            }
             Place::Follows {
                 key,
                 origin,
@@ -246,7 +250,7 @@ impl<'a> Encoder<'a> {
                     None => self.fill_solid(fill, clip),
                 }
             }
-            Place::Sheet => self.commit_sheet(mask, &job.draw),
+            Place::Sheet => self.commit_sheet(mask, job.rule, &job.draw),
             Place::Rect { rect } => {
                 self.drain_queue()?;
                 self.write_rect_instance(*rect, job.draw.color, job.draw.style, job.draw.mask);
@@ -367,6 +371,7 @@ impl<'a> Encoder<'a> {
         // One count per distinct key that reached an entry, however it reached it
         // (ADR 0050).
         if first_use && entry.is_some() {
+            self.atlas.note_used();
             self.atlas_entries_used = self.atlas_entries_used.saturating_add(1);
         }
         let Some(entry) = entry else { return Ok(()) };
@@ -396,16 +401,24 @@ impl<'a> Encoder<'a> {
     #[expect(clippy::cast_precision_loss)] // a tile's corner is an integer device pixel
     fn commit_sheet(
         &mut self,
-        tile: Option<crate::raster::CoverageMask>,
+        made: Rasterised,
+        rule: Rule,
         draw: &Draw,
     ) -> Result<(), RenderError> {
-        let Some(mut tile) = tile else { return Ok(()) };
+        let Some(Made {
+            mask: mut tile,
+            polylines,
+        }) = made
+        else {
+            return Ok(());
+        };
         self.charge_tile(tile.width, tile.height)?;
         // The clip meets the mark here, as it does in `Encoder::coverage_tile`, and after
         // the same charge: the walk would have charged, rasterised and met the residue, and
         // the rasterising is the only step that moved (ADR 1395).
         if let Some(resolved) = &draw.residue {
-            self.meet_residue(&mut tile, resolved)?;
+            let polylines = polylines.as_deref().unwrap_or_default();
+            self.meet_residue(&mut tile, resolved, Mark { polylines, rule })?;
         }
         let dest = Point::new(tile.left as f32, tile.top as f32);
         self.push_scratch_quad(&tile, dest, draw.color, draw.clip, draw.style, draw.mask)

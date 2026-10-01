@@ -8,6 +8,9 @@
 //! code with the range of the readback it produced and the quadrilateral it occupies, both
 //! derived from §9.4.4's text rendering matrix and Table 120's font metrics (ADR 0118).
 
+use std::ops::Range;
+
+use pdf_font::shaping;
 use pdf_model::content::Placed;
 
 /// The text position a point selects.
@@ -134,8 +137,8 @@ pub(crate) fn quads_for(placed: &[Placed], range: (usize, usize)) -> Vec<[f32; 8
 pub(crate) fn lines_for(
     placed: &[Placed],
     ranges: &[(usize, usize)],
-) -> Vec<Vec<(std::ops::Range<usize>, [f32; 8])>> {
-    let mut lines: Vec<Vec<(std::ops::Range<usize>, [f32; 8])>> = Vec::new();
+) -> Vec<Vec<(Range<usize>, [f32; 8])>> {
+    let mut lines: Vec<Vec<(Range<usize>, [f32; 8])>> = Vec::new();
     let mut last: Option<[f32; 8]> = None;
     for entry in placed {
         let within = ranges.iter().any(|(from, to)| {
@@ -198,12 +201,22 @@ fn joins(run: [f32; 8], quad: [f32; 8]) -> bool {
 
 /// Where a string occurs in the page's readback, as ranges of it.
 ///
-/// **Case-insensitively, and that is the only judgement in it.** A person searching for "the"
-/// means "The" as well, which every search interface in existence agrees about; anything beyond
-/// that — accent folding, ligature equivalence, the Unicode collation algorithm's tailorings — is
-/// a decision about a language rather than about a page, and the readback is what §9.10.2's three
-/// methods produced rather than normalised text. `char::to_lowercase` is Unicode's own simple
-/// mapping and is what "the same letter" means here.
+/// **Case-insensitively, and with presentation forms read as their letters.** A person searching
+/// for "the" means "The" as well, which every search interface in existence agrees about.
+/// `char::to_lowercase` is Unicode's own simple mapping and is what "the same letter" means here.
+/// A presentation form — an Arabic letter's initial, medial, final or isolated form, a lam-alef
+/// or Latin `ﬁ` ligature — is compared as the characters `UnicodeData.txt` decomposes it to
+/// ([`pdf_font::shaping::fold`]), because §9.10.2 hands a `/ToUnicode` that names the forms
+/// through as stated and nobody types them. Anything beyond that — accent folding, the Unicode
+/// collation algorithm's tailorings — is a decision about a language rather than about a page,
+/// and the readback is what §9.10.2's methods produced rather than normalised text (ADR 1465).
+///
+/// **A right-to-left word is looked for in the order the page stored it**, which is the fourth
+/// judgement and the subject of [`Order`] and [`spellings`]: the needle is typed in reading order,
+/// and a page that shows Arabic with show strings "whose character codes are given in reverse
+/// order" (§14.8.2.5.3 NOTE 1) stored the word in display order. So the needle is also spelled
+/// as Unicode Standard Annex #9 displays it, and each spelling is admitted only over the runs the
+/// glyphs' positions say were stored that way.
 ///
 /// Overlapping matches are not reported: after a match the scan continues past it, so "aa" in
 /// "aaa" is one match rather than two. That is what a person pressing *next* expects.
@@ -228,32 +241,274 @@ fn joins(run: [f32; 8], quad: [f32; 8]) -> bool {
 ///
 /// The ranges index [`pdf_model::Interpretation::text`], so [`quads_for`] turns each into the
 /// shapes to draw over it — which is why search cost nothing beyond this function.
-pub(crate) fn find(text: &str, needle: &str) -> Vec<(usize, usize)> {
-    if needle.is_empty() {
+pub(crate) fn find(text: &str, needle: &str, order: &Order) -> Vec<(usize, usize)> {
+    // Folded once, and the *byte offsets* of the folded text are not the original's: one
+    // character may lower or decompose to several, and a naive search over a folded string would
+    // report ranges that do not exist in the readback. So the scan walks the original's character
+    // boundaries and compares from each.
+    let mut out = Vec::new();
+    for spelling in spellings(needle) {
+        let mut from = 0;
+        while from < text.len() {
+            let Some(rest) = text.get(from..) else {
+                // Not a character boundary: step to the next one.
+                from = from.saturating_add(1);
+                continue;
+            };
+            let found = matches_at(rest, from, &spelling.characters, order).filter(|length| {
+                spelling.admitted(text, from..from.saturating_add(*length), order)
+            });
+            match found {
+                Some(length) => {
+                    out.push((from, from.saturating_add(length)));
+                    from = from.saturating_add(length.max(1));
+                }
+                None => from = from.saturating_add(rest.chars().next().map_or(1, char::len_utf8)),
+            }
+        }
+    }
+    // Two spellings may find the same characters — a word of one letter reads the same both ways
+    // — and a person pressing *next* expects each place once. Earliest first, and of two that
+    // start together the longer.
+    out.sort_unstable_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)));
+    let mut kept: Vec<(usize, usize)> = Vec::with_capacity(out.len());
+    for found in out {
+        if kept.last().is_none_or(|last| found.0 >= last.1) {
+            kept.push(found);
+        }
+    }
+    kept
+}
+
+/// One order of a needle's characters, and which stored orders it may be matched against.
+#[derive(Debug, PartialEq, Eq)]
+struct Spelling {
+    /// The needle, folded and lowered, in this order.
+    characters: Vec<char>,
+    /// Whether a right-to-left run the page stored in reading order may hold it.
+    reading: bool,
+    /// Whether a run the page stored in display order, left to right, may hold it.
+    display: bool,
+}
+
+impl Spelling {
+    /// Whether a match of this spelling over `range` sits where the page stored its order.
+    ///
+    /// Only the right-to-left characters are asked: a digit or a Latin word inside an Arabic line
+    /// is stored left to right in both orders, which is Unicode Standard Annex #9's rule L2 and
+    /// why the display spelling leaves them as they were typed. A run the positions could not
+    /// decide — one glyph, or glyphs on top of each other — admits either.
+    fn admitted(&self, text: &str, range: Range<usize>, order: &Order) -> bool {
+        let start = range.start;
+        text.get(range)
+            .unwrap_or_default()
+            .char_indices()
+            .filter(|(_, character)| shaping::right_to_left(*character))
+            .all(|(at, _)| match order.stored(start.saturating_add(at)) {
+                Some(Stored::Display) => self.display,
+                Some(Stored::Reading) => self.reading,
+                None => true,
+            })
+    }
+}
+
+/// The orders a needle is looked for in: as typed, and as Unicode Standard Annex #9 displays it.
+///
+/// A needle is typed in reading order. A page whose producer laid Arabic out itself stored it in
+/// the order it is *displayed*, left to right, and that is the order its readback is in — so the
+/// needle is spelled the same way, by the annex's rule L2 over the levels its resolution gives,
+/// which reverses the right-to-left letters and leaves an embedded number or Latin word reading
+/// left to right inside them. **Under both paragraph directions**, because the direction of the
+/// line a word sat in is a fact about the page the needle cannot know: "عربي PDF" displays as
+/// `PDF يبرع` in a right-to-left paragraph and as `يبرع PDF` in a left-to-right one, and an
+/// untagged page states neither. A needle with no right-to-left character has one spelling.
+///
+/// Folded first — a presentation form typed into the bar is its letters, as on the page — and
+/// lowered, which is [`find`]'s first judgement.
+fn spellings(needle: &str) -> Vec<Spelling> {
+    let folded: String = needle
+        .chars()
+        .flat_map(|character| match shaping::fold(character) {
+            Some(letters) => letters.to_vec(),
+            None => vec![character],
+        })
+        .flat_map(char::to_lowercase)
+        .collect();
+    if folded.is_empty() {
         return Vec::new();
     }
-    // Lowered once, and the *byte offsets* of the lowered text are not the original's: one
-    // character may lower to several, and a naive search over the lowered string would report
-    // ranges that do not exist in the readback. So the scan walks the original's character
-    // boundaries and compares from each.
-    let needle: Vec<char> = needle.chars().flat_map(char::to_lowercase).collect();
-    let mut out = Vec::new();
-    let mut from = 0;
-    while from < text.len() {
-        let Some(rest) = text.get(from..) else {
-            // Not a character boundary: step to the next one.
-            from = from.saturating_add(1);
+    let typed: Vec<char> = folded.chars().collect();
+    let right_to_left = typed.iter().copied().any(shaping::right_to_left);
+    let mut out = vec![Spelling {
+        characters: typed.clone(),
+        reading: true,
+        display: !right_to_left,
+    }];
+    if !right_to_left {
+        return out;
+    }
+    for paragraph in [false, true] {
+        let Some(paragraphs) = shaping::Paragraphs::with_direction(&folded, Some(paragraph)) else {
             continue;
         };
-        match matches_at(rest, &needle) {
-            Some(length) => {
-                out.push((from, from.saturating_add(length)));
-                from = from.saturating_add(length.max(1));
-            }
-            None => from = from.saturating_add(rest.chars().next().map_or(1, char::len_utf8)),
+        let levels = paragraphs.line_levels(0..folded.len());
+        let by_character: Vec<u8> = folded
+            .char_indices()
+            .map(|(at, _)| levels.get(at).copied().unwrap_or(0))
+            .collect();
+        let characters: Vec<char> = shaping::visual_order(&by_character)
+            .into_iter()
+            .filter_map(|index| typed.get(index).copied())
+            .collect();
+        match out
+            .iter_mut()
+            .find(|spelling| spelling.characters == characters)
+        {
+            Some(same) => same.display = true,
+            None => out.push(Spelling {
+                characters,
+                reading: false,
+                display: true,
+            }),
         }
     }
     out
+}
+
+/// How a page stored one run of right-to-left characters, as the positions of its glyphs say.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stored {
+    /// In reading order: each glyph placed to the left of the one before it, or §14.8.2.5.3's
+    /// `ReversedChars` read back the right way round.
+    Reading,
+    /// In display order: each glyph to the right of the one before it, which is the show strings
+    /// "whose character codes are given in reverse order" of §14.8.2.5.3 NOTE 1.
+    Display,
+}
+
+/// Which order the page stored each right-to-left run of its readback in.
+///
+/// **This is the page's own evidence and nothing else.** §14.8.2.5.1 defines page content order
+/// as "the sequencing of graphics objects within a page's content stream", and the readback is
+/// in that order; logical content order is the structure tree's, so an untagged page states none.
+/// What the page does state is where each glyph landed, and a run of right-to-left letters whose
+/// glyphs advance rightwards in the order they were shown was shown in display order. The
+/// direction is read off each glyph's own box — its ascent side is *up*, and *right* is a quarter
+/// turn from it in the display list's space, which `pdf_model::content::base_transform` keeps
+/// right-handed under every `/Rotate` — so a rotated page or a flipped `cm` reads the same. A
+/// glyph a text matrix *mirrored* would vote the other way; no clause or corpus document has
+/// asked for that case, and ADR 1465 records it.
+///
+/// A run is the right-to-left glyphs of one line, with whatever sits between them; each pair of
+/// neighbours votes and the majority decides. A run with no vote is not recorded, and every
+/// spelling is admitted over it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct Order {
+    /// Ranges of the readback, sorted by where they start, and how each was stored.
+    runs: Vec<(Range<usize>, Stored)>,
+}
+
+impl Order {
+    /// The stored order of every right-to-left run `placed` shows of `text`.
+    pub(crate) fn of(text: &str, placed: &[Placed]) -> Self {
+        /// One run being gathered: its range, its last glyph's box and its running vote.
+        struct Run {
+            span: Range<usize>,
+            last: [f32; 8],
+            votes: i64,
+        }
+        // Every page is asked this as it is drawn, and almost every page is all Latin: a strongly
+        // right-to-left character is at or above U+0590, so its UTF-8 lead byte is at or above
+        // 0xD6, and a readback with no such byte has no run to find. One pass over the bytes,
+        // which the compiler vectorises, keeps the walk below off the launch path (ADR 1465).
+        if !text.bytes().any(|byte| byte >= 0xd6) {
+            return Self::default();
+        }
+        let mut runs = Vec::new();
+        let finish = |run: Run, runs: &mut Vec<(Range<usize>, Stored)>| match run.votes.signum() {
+            1 => runs.push((run.span, Stored::Display)),
+            -1 => runs.push((run.span, Stored::Reading)),
+            _ => {}
+        };
+        let mut current: Option<Run> = None;
+        for entry in placed {
+            let right_to_left = text
+                .get(entry.span.clone())
+                .is_some_and(|piece| piece.chars().any(shaping::right_to_left));
+            if !right_to_left {
+                continue;
+            }
+            match current.as_mut() {
+                Some(run) if on_one_line(run.last, entry.quad) => {
+                    run.votes = run.votes.saturating_add(vote(run.last, entry.quad));
+                    run.span.start = run.span.start.min(entry.span.start);
+                    run.span.end = run.span.end.max(entry.span.end);
+                    run.last = entry.quad;
+                }
+                _ => {
+                    if let Some(run) = current.take() {
+                        finish(run, &mut runs);
+                    }
+                    current = Some(Run {
+                        span: entry.span.clone(),
+                        last: entry.quad,
+                        votes: 0,
+                    });
+                }
+            }
+        }
+        if let Some(run) = current {
+            finish(run, &mut runs);
+        }
+        runs.sort_by_key(|(span, _)| span.start);
+        Self { runs }
+    }
+
+    /// How the run holding byte `at` was stored, where a run holds it and its glyphs decided.
+    fn stored(&self, at: usize) -> Option<Stored> {
+        let after = self.runs.partition_point(|(span, _)| span.start <= at);
+        let (span, stored) = self.runs.get(after.checked_sub(1)?)?;
+        span.contains(&at).then_some(*stored)
+    }
+
+    /// The bytes this holds beyond its own size, for a cache that counts what it keeps.
+    pub(crate) fn heap_bytes(&self) -> usize {
+        self.runs
+            .len()
+            .saturating_mul(size_of::<(Range<usize>, Stored)>())
+    }
+}
+
+/// A glyph's *up* and *right*, from its box: the ascent side, and a quarter turn clockwise of it.
+fn axes(quad: [f32; 8]) -> ((f32, f32), (f32, f32)) {
+    let up = (quad[6] - quad[0], quad[7] - quad[1]);
+    (up, (up.1, -up.0))
+}
+
+/// Whether `quad` stands on the line `previous` stands on: its foot no further off that baseline
+/// than a twentieth of the line's height, which is [`continues`]'s tolerance.
+fn on_one_line(previous: [f32; 8], quad: [f32; 8]) -> bool {
+    let (up, _) = axes(previous);
+    let height = up.0.hypot(up.1).max(f32::EPSILON);
+    let off = ((quad[0] - previous[0]) * up.0 + (quad[1] - previous[1]) * up.1) / height;
+    off.abs() <= height / 20.0
+}
+
+/// `1` where `quad` was placed to the right of `previous`, `-1` to its left, `0` on top of it.
+///
+/// A glyph within a hundredth of the line's height of the one before casts no vote: a mark
+/// placed over its letter is neither order.
+fn vote(previous: [f32; 8], quad: [f32; 8]) -> i64 {
+    let (up, right) = axes(previous);
+    let height = up.0.hypot(up.1).max(f32::EPSILON);
+    let along = ((quad[0] - previous[0]) * right.0 + (quad[1] - previous[1]) * right.1) / height;
+    if along > height / 100.0 {
+        1
+    } else if along < -height / 100.0 {
+        -1
+    } else {
+        0
+    }
 }
 
 /// ISO 32000-2 §14.8.2.3's soft hyphen, U+00AD.
@@ -290,7 +545,7 @@ const SOFT_HYPHEN: char = '\u{00ad}';
 ///
 /// **A hard hyphen is untouched.** NOTE 1 makes U+002D a different character, and a reader that
 /// folded it would join two words the page keeps apart.
-fn matches_at(text: &str, needle: &[char]) -> Option<usize> {
+fn matches_at(text: &str, offset: usize, needle: &[char], order: &Order) -> Option<usize> {
     let mut wanted = needle.iter().copied().peekable();
     let mut characters = text.chars().peekable();
     let mut length = 0_usize;
@@ -325,13 +580,10 @@ fn matches_at(text: &str, needle: &[char]) -> Option<usize> {
             continue;
         }
         let character = characters.next()?;
-        for have in character.to_lowercase() {
-            match wanted.peek() {
-                Some(want) if *want == have => {
-                    wanted.next();
-                }
-                _ => return None,
-            }
+        let displayed = shaping::right_to_left(character)
+            && order.stored(offset.saturating_add(length)) == Some(Stored::Display);
+        if !compares(character, displayed, &mut wanted) {
+            return None;
         }
         length = length.saturating_add(character.len_utf8());
         if wanted.peek().is_none() {
@@ -340,10 +592,37 @@ fn matches_at(text: &str, needle: &[char]) -> Option<usize> {
     }
 }
 
+/// Whether one character of the page is the next of the needle's, consuming them if so.
+///
+/// Lowered and folded ([`find`]'s first judgement), and a presentation form standing for two
+/// letters — a lam-alef — is compared as its two **in the order the run was stored**: in a run
+/// stored in display order the alef is on the left, so it comes first.
+fn compares(
+    character: char,
+    displayed: bool,
+    wanted: &mut std::iter::Peekable<impl Iterator<Item = char>>,
+) -> bool {
+    let mut next = |letter: char| {
+        letter
+            .to_lowercase()
+            .all(|have| wanted.next_if_eq(&have).is_some())
+    };
+    match shaping::fold(character) {
+        Some(letters) if displayed => letters.iter().rev().all(|letter| next(*letter)),
+        Some(letters) => letters.iter().all(|letter| next(*letter)),
+        None => next(character),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{find, quads_for};
+    use super::{Order, find as find_ordered, quads_for};
     use pdf_model::content::Placed;
+
+    /// [`super::find`] over a page whose glyph positions decided nothing.
+    fn find(text: &str, needle: &str) -> Vec<(usize, usize)> {
+        find_ordered(text, needle, &Order::default())
+    }
 
     /// One line of an OCR layer: six glyph boxes, each `width` wide and `height` tall, abutting.
     fn line(width: f32, height: f32) -> Vec<Placed> {
@@ -480,5 +759,175 @@ mod tests {
             vec![],
             "and a separator is still required"
         );
+    }
+
+    /// A page's readback with one glyph per character, ten units wide, on one line: placed left
+    /// to right in the order shown when `display` is true, right to left otherwise.
+    fn page(text: &str, display: bool) -> (String, Order) {
+        let count = text.chars().count();
+        let placed: Vec<Placed> = text
+            .char_indices()
+            .enumerate()
+            .map(|(index, (at, character))| {
+                let slot = if display {
+                    index
+                } else {
+                    count.saturating_sub(1).saturating_sub(index)
+                };
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "test code: a few dozen glyphs, exact in f32"
+                )]
+                let left = slot as f32 * 10.0;
+                Placed {
+                    span: at..at.saturating_add(character.len_utf8()),
+                    quad: [left, 0.0, left + 10.0, 0.0, left + 10.0, 12.0, left, 12.0],
+                }
+            })
+            .collect();
+        (text.to_owned(), Order::of(text, &placed))
+    }
+
+    /// `ArabicCIDTrueType.pdf`'s own shape, by hand: "العربية" shown left to right as the
+    /// presentation forms its `/ToUnicode` names, so the readback is `ﺔﻴﺑﺮﻌﻟا`.
+    ///
+    /// Typed in reading order, as nominal letters, it is found, and the range is the whole of the
+    /// stored word — which is what the highlight is drawn over. The calibration is the reversed
+    /// spelling: typed as the stored order's letters, it is a different word, and the page's
+    /// positions say it is not there (ADR 1465).
+    #[test]
+    fn a_word_shown_in_display_order_as_presentation_forms_is_found_as_typed() {
+        let (text, order) = page(
+            "\u{fe94}\u{fef4}\u{fe91}\u{feae}\u{fecc}\u{fedf}\u{627}",
+            true,
+        );
+        let typed = "\u{627}\u{644}\u{639}\u{631}\u{628}\u{64a}\u{629}";
+        assert_eq!(find_ordered(&text, typed, &order), vec![(0, text.len())]);
+        let reversed: String = typed.chars().rev().collect();
+        assert_eq!(
+            find_ordered(&text, &reversed, &order),
+            vec![],
+            "the stored order typed as though it were the reading order is another word"
+        );
+        assert_eq!(
+            find_ordered(&text, "\u{639}\u{631}\u{628}", &order),
+            vec![(6, 15)],
+            "part of the word, from inside the stored range"
+        );
+    }
+
+    /// The same word stored in reading order — glyph by glyph to the left, or §14.8.2.5.3's
+    /// `ReversedChars` read back — is found as typed, and its reversal is not.
+    #[test]
+    fn a_word_stored_in_reading_order_is_found_as_typed_and_not_reversed() {
+        let typed = "\u{627}\u{644}\u{639}\u{631}\u{628}\u{64a}\u{629}";
+        let (text, order) = page(typed, false);
+        assert_eq!(find_ordered(&text, typed, &order), vec![(0, text.len())]);
+        let reversed: String = typed.chars().rev().collect();
+        assert_eq!(find_ordered(&text, &reversed, &order), vec![]);
+        // A page whose positions decided nothing admits both, which is the cost of no evidence.
+        assert_eq!(find(&text, &reversed), vec![(0, text.len())]);
+    }
+
+    /// A lam-alef ligature stored in display order: its alef is on the left, so it is compared
+    /// alef first, and "سلام" shown as `ﻡﻼﺳ` is found.
+    #[test]
+    fn a_ligature_in_a_display_order_run_is_read_in_that_order() {
+        let (text, order) = page("\u{fee1}\u{fefc}\u{feb3}", true);
+        assert_eq!(
+            find_ordered(&text, "\u{633}\u{644}\u{627}\u{645}", &order),
+            vec![(0, text.len())]
+        );
+        let (text, order) = page("\u{feb3}\u{fefc}\u{fee1}", false);
+        assert_eq!(
+            find_ordered(&text, "\u{633}\u{644}\u{627}\u{645}", &order),
+            vec![(0, text.len())],
+            "and in reading order, lam first"
+        );
+    }
+
+    /// Digits keep reading left to right inside a right-to-left line, which is Unicode Standard
+    /// Annex #9's rule L2: "سنة 2024" displays as `2024 ةنس`, and a page that stored that is
+    /// found by the reading order typed. A Latin word beside Arabic is found under both paragraph
+    /// directions, because an untagged page states neither.
+    #[test]
+    fn digits_and_latin_inside_a_right_to_left_line_keep_their_own_order() {
+        let (text, order) = page("2024 \u{629}\u{646}\u{633}", true);
+        assert_eq!(
+            find_ordered(&text, "\u{633}\u{646}\u{629} 2024", &order),
+            vec![(0, text.len())]
+        );
+        let (text, order) = page("2024\u{629}\u{646}\u{633}", true);
+        assert_eq!(
+            find_ordered(&text, "\u{633}\u{646}\u{629}2024", &order),
+            vec![(0, text.len())],
+            "digits joined to the word are displayed to its left, still left to right"
+        );
+        let typed = "\u{639}\u{631}\u{628}\u{64a} pdf";
+        for shown in [
+            "\u{64a}\u{628}\u{631}\u{639} PDF",
+            "PDF \u{64a}\u{628}\u{631}\u{639}",
+        ] {
+            let (text, order) = page(shown, true);
+            assert_eq!(
+                find_ordered(&text, typed, &order),
+                vec![(0, text.len())],
+                "{shown}"
+            );
+        }
+    }
+
+    /// A Latin ligature the readback states as one character is found by its two letters, and a
+    /// presentation form typed into the bar is its letter.
+    #[test]
+    fn a_presentation_form_on_either_side_is_its_letters() {
+        assert_eq!(find("\u{fb01}nd it", "find"), vec![(0, 5)]);
+        let (text, order) = page("\u{629}\u{64a}", true);
+        assert_eq!(
+            find_ordered(&text, "\u{fef3}\u{fe94}", &order),
+            vec![(0, text.len())]
+        );
+    }
+
+    /// Two right-to-left lines are two runs, each deciding its own order.
+    #[test]
+    fn each_line_decides_its_own_order() {
+        let text = "\u{628}\u{627}\n\u{628}\u{627}";
+        let quad = |left: f32, bottom: f32| {
+            [
+                left,
+                bottom,
+                left + 10.0,
+                bottom,
+                left + 10.0,
+                bottom + 12.0,
+                left,
+                bottom + 12.0,
+            ]
+        };
+        let placed = vec![
+            Placed {
+                span: 0..2,
+                quad: quad(0.0, 100.0),
+            },
+            Placed {
+                span: 2..4,
+                quad: quad(10.0, 100.0),
+            },
+            Placed {
+                span: 5..7,
+                quad: quad(10.0, 80.0),
+            },
+            Placed {
+                span: 7..9,
+                quad: quad(0.0, 80.0),
+            },
+        ];
+        let order = Order::of(text, &placed);
+        // Typed "اب": the first line shows it in display order, the second in reading order.
+        let typed = "\u{627}\u{628}";
+        assert_eq!(find_ordered(text, typed, &order), vec![(0, 4)]);
+        let other = "\u{628}\u{627}";
+        assert_eq!(find_ordered(text, other, &order), vec![(5, 9)]);
     }
 }

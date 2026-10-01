@@ -7898,6 +7898,143 @@ fn a_search_reads_the_document_one_page_at_a_time_and_lands_on_the_first_occurre
     );
 }
 
+/// `ArabicCIDTrueType.pdf`: four lines of "انواع الخطوط العربية", whose `/ToUnicode` names the
+/// Arabic presentation forms and whose show strings give the codes in display order — §14.8.2.5.3
+/// NOTE 1's "show strings … whose character codes are given in reverse order". So the readback is
+/// `ﺔﻴﺑﺮﻌﻟا طﻮﻄﳋا عاﻮﻧا`, and the words a person types are in neither its forms nor its order.
+///
+/// Found as typed, on every line, with the highlight over the word where the page draws it — the
+/// left end of each line, since the last word read is the first one shown — and the search's
+/// selection is the stored characters, untouched. The calibration is the reversal: the letters in
+/// stored order, typed as though they were the reading order, are another word (ADR 1465).
+#[test]
+fn an_arabic_word_shown_in_display_order_is_found_as_it_is_typed() {
+    let Some(bytes) = corpus_bytes("ArabicCIDTrueType.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    let events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: bytes.into(),
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    let request = request(&events).clone();
+    serve(&mut viewer, &request);
+
+    let word = "\u{627}\u{644}\u{639}\u{631}\u{628}\u{64a}\u{629}";
+    let phrase = "\u{627}\u{646}\u{648}\u{627}\u{639} \u{627}\u{644}\u{62e}\u{637}\u{648}\u{637} \
+                  \u{627}\u{644}\u{639}\u{631}\u{628}\u{64a}\u{629}";
+    let Answer::Found(words) = viewer.query(Query::Find(word)) else {
+        panic!("a search always answers");
+    };
+    let Answer::Found(lines) = viewer.query(Query::Find(phrase)) else {
+        panic!("a search always answers");
+    };
+    assert_eq!(words.len(), 4, "once a line: {words:?}");
+    assert_eq!(
+        lines.len(),
+        4,
+        "and the whole line, ligature and all: {lines:?}"
+    );
+    let extent = |quads: &Vec<[f32; 8]>| {
+        quads
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(low, high), quad| {
+                (
+                    low.min(quad[0]).min(quad[6]),
+                    high.max(quad[2]).max(quad[4]),
+                )
+            })
+    };
+    for (word, line) in words.iter().zip(&lines) {
+        let (word, line) = (extent(word), extent(line));
+        assert!(
+            (word.0 - line.0).abs() < 1.0 && word.1 < line.1 - 10.0,
+            "the word is highlighted at the left end of its line: {word:?} in {line:?}"
+        );
+    }
+
+    let reversed: String = word.chars().rev().collect();
+    let Answer::Found(none) = viewer.query(Query::Find(&reversed)) else {
+        panic!("a search always answers");
+    };
+    assert!(
+        none.is_empty(),
+        "the stored order is not the word: {none:?}"
+    );
+
+    let mut steps = 0_usize;
+    let found = run_search(&mut viewer, word, false, &mut steps);
+    assert!(found.is_some(), "the find bar's search finds it too");
+    let Answer::Selected(selection) = viewer.query(Query::Selection) else {
+        panic!("a found word is selected");
+    };
+    assert_eq!(
+        selection.text, "\u{fe94}\u{fef4}\u{fe91}\u{feae}\u{fecc}\u{fedf}\u{627}",
+        "the selection is what the page states, in the order it stored it"
+    );
+}
+
+/// A hand-built page showing "عرب" three ways, each a way §14.8.2.5.3 names: its codes in
+/// display order in one show string (NOTE 1's "reverse order"), each glyph placed leftwards of the
+/// one before by `TJ` in reading order (NOTE 1's "positioning each glyph individually"), and in
+/// display order inside `/ReversedChars`, which the readback reverses back. The word typed in
+/// reading order is found on all three lines, and its reversal — another spelling, here nonsense
+/// — on none, because each line's glyph positions say which order it was stored in (ADR 1465).
+#[test]
+fn a_right_to_left_word_is_found_however_its_line_stored_it() {
+    let cmap = "/CIDInit /ProcSet findresource begin 12 dict begin begincmap \
+                /CMapName /Arab def /CMapType 2 def 1 begincodespacerange <00> <FF> \
+                endcodespacerange 3 beginbfchar <01> <0628> <02> <0631> <03> <0639> endbfchar \
+                endcmap CMapName currentdict /CMap defineresource pop end end";
+    let glyph = "500 0 d0 0 0 450 700 re f";
+    let content = "BT /F1 20 Tf 50 150 Td <010203> Tj ET \
+                   BT /F1 20 Tf 90 100 Td [<03> 1000 <02> 1000 <01>] TJ ET \
+                   /ReversedChars BMC BT /F1 20 Tf 50 50 Td <010203> Tj ET EMC";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] \
+         /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /Font /Subtype /Type3 /FontBBox [0 0 500 700] \
+         /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << /g 6 0 R >> \
+         /Encoding << /Type /Encoding /Differences [1 /g /g /g] >> /FirstChar 1 /LastChar 3 \
+         /Widths [500 500 500] /Resources << >> /ToUnicode 7 0 R >>\nendobj\n\
+         6 0 obj\n<< /Length {} >>\nstream\n{glyph}\nendstream\nendobj\n\
+         7 0 obj\n<< /Length {} >>\nstream\n{cmap}\nendstream\nendobj\n",
+        content.len(),
+        glyph.len(),
+        cmap.len()
+    );
+    let mut viewer = Viewer::new(400, 400, 1.0);
+    let events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: assemble(&body).into(),
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    let request = request(&events).clone();
+    serve(&mut viewer, &request);
+
+    let typed = "\u{639}\u{631}\u{628}";
+    let Answer::Found(found) = viewer.query(Query::Find(typed)) else {
+        panic!("a search always answers");
+    };
+    assert_eq!(found.len(), 3, "on every line: {found:?}");
+    let reversed: String = typed.chars().rev().collect();
+    let Answer::Found(none) = viewer.query(Query::Find(&reversed)) else {
+        panic!("a search always answers");
+    };
+    assert!(none.is_empty(), "the reversal is on no line: {none:?}");
+}
+
 /// A word that is in no page of the document is reported as absent, after every page was read.
 #[test]
 fn a_search_for_a_word_the_document_does_not_hold_reads_every_page_and_says_so() {

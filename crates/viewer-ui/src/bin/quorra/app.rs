@@ -190,6 +190,14 @@ pub(crate) struct App {
     /// interrupt that reaches it (ADR 0725), so this window warns about what it can also stop and
     /// says nothing about what it cannot. `--cpu` is the path with the interruptible thread.
     pub(crate) still_drawing: Option<String>,
+    /// What the window says while the frame on it was drawn on the processor because the graphics
+    /// device refused it, or nothing.
+    ///
+    /// `CLAUDE.md` principle 2 has the processor draw a frame the device refuses, "reported out
+    /// loud", and a line on standard output is not out loud to a person looking at the window. So
+    /// it goes where [`Self::still_drawing`] goes, the title, and is written only when the answer
+    /// changes — a page the device refuses once is one sentence, not one per frame (ADR 1466).
+    pub(crate) on_the_processor: Option<String>,
     /// §12.9's measuring: whether a press is a point, and the points put down so far.
     ///
     /// `viewer_host::Measuring` is shared with the two native windows — when a press is a point,
@@ -352,9 +360,9 @@ pub(crate) struct App {
     /// Counted in **lines**, because neither device delivers a step per event: a touchpad sends a
     /// stream of pixels, and a high-resolution wheel sends a fraction of a line (sixteen pixels is
     /// one of this program's own text rows and means nothing to a magnification, so the pixel arm
-    /// converts at `WHEEL_ZOOM_PIXELS` instead). Carried rather than discarded — a truncation per
+    /// converts at `viewer_host::ZOOM_PIXELS` instead). Carried rather than discarded — a truncation per
     /// event threw away every sub-line notch a high-resolution wheel ever sent (ADR 1118).
-    pub(crate) zoom_carry: f32,
+    pub(crate) zoom_carry: viewer_host::ZoomWheel,
     /// Whether anything a person did is unsaved.
     pub(crate) dirty: bool,
     /// §7.6.4.1's attempts, counted by [`viewer_host::Asking`] so that three hosts count alike.
@@ -961,10 +969,14 @@ impl App {
     /// Appended by both of the places that write a title, because a warning erased by the next
     /// page turn would be a window offering a key it has stopped naming.
     fn said_about_the_drawing(&self) -> String {
-        let drawing = self
+        let mut drawing = self
             .still_drawing
             .as_ref()
             .map_or_else(String::new, |said| format!(" — {said}"));
+        if let Some(said) = &self.on_the_processor {
+            drawing.push_str(" — ");
+            drawing.push_str(said);
+        }
         if self.measured.is_empty() {
             drawing
         } else {

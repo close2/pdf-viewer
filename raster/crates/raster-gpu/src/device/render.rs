@@ -62,8 +62,12 @@ impl Device {
         // any allocation and regardless of target size, so refusals are identical
         // across targets.
         let encode_started = Instant::now();
+        let generation = self.atlas.generation;
         let encoded = self.encode_scene(scene, viewport)?;
         let encode_time = encode_started.elapsed();
+        // A reset the encode took for a stale atlas is a repack of this frame's (ADR 1467
+        // section 4), reported as one.
+        let reset_in_encode = self.atlas.generation != generation;
 
         let mut frame = self.draw_encoded(
             &encoded,
@@ -77,7 +81,7 @@ impl Device {
         // Reported on the frame that caused it rather than on the one that pays for it:
         // this is the frame whose atlas layout stopped being the layout, and a caller
         // holding a `RetainedScene` learns here that its encode is now stale.
-        frame.counters.atlas_repacked = self.settle_atlas(&encoded);
+        frame.counters.atlas_repacked = self.settle_atlas(&encoded) || reset_in_encode;
         Ok(frame)
     }
 
@@ -128,11 +132,13 @@ impl Device {
         let encode_started = Instant::now();
         // Borrowed from `retained`, which is not `self`: the encode and the device it
         // draws through are two objects, so nothing here needs a clone.
+        let generation = self.atlas.generation;
         let (source, encoded) = retained.prepare(key, |scene, list| match list {
             Some(list) => self.replay_scene(scene, viewport, list),
             None => self.encode_scene(scene, viewport),
         })?;
         let encode_time = encode_started.elapsed();
+        let reset_in_encode = self.atlas.generation != generation;
 
         let mut frame = self.draw_encoded(
             encoded,
@@ -149,13 +155,38 @@ impl Device {
         if let Ok(frame) = frame.as_mut()
             && source == EncodeSource::Encoded
         {
-            frame.counters.atlas_repacked = self.settle_atlas(encoded);
+            frame.counters.atlas_repacked = self.settle_atlas(encoded) || reset_in_encode;
         }
         frame
     }
 
     /// Phase 1: classify, rasterise coverage, and count (`encode.rs`).
+    ///
+    /// **A frame's lanes, and so its admission, are its own** (ADR 1467 section 4). The
+    /// atlas is a cache the pages before this one filled, and where the frame was refused
+    /// room in it while it holds entries this frame never used, the frame was decided by
+    /// those pages: glyphs that a fresh atlas takes went to the scratch sheet, the sheet's
+    /// extent moved, and a page that fits alone was refused after another. So such a
+    /// frame — drawn or refused — is encoded again on a reset atlas, which is the frame a
+    /// fresh device draws. It costs one encode on the frame after a change of working
+    /// set, and nothing where the atlas holds only what the frame uses.
     fn encode_scene(
+        &mut self,
+        scene: &Scene,
+        viewport: &Viewport<'_>,
+    ) -> Result<Encoded, RenderError> {
+        self.atlas.begin_frame();
+        let encoded = self.encode_once(scene, viewport);
+        if !self.atlas.stale_for_frame() {
+            return encoded;
+        }
+        self.atlas.reset();
+        self.atlas.begin_frame();
+        self.encode_once(scene, viewport)
+    }
+
+    /// One walk of the scene against the atlas as it stands.
+    fn encode_once(
         &mut self,
         scene: &Scene,
         viewport: &Viewport<'_>,

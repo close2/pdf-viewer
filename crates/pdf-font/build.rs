@@ -199,6 +199,7 @@ fn unicode_tables() {
     }
 
     presentation_tables(&mut out);
+    presentation_decompositions(&mut out);
     mirroring_table(&mut out);
 
     let target = std::path::PathBuf::from(
@@ -283,6 +284,84 @@ fn presentation_tables(out: &mut String) {
             literal(*second),
             literal(*point)
         );
+    }
+    out.push_str("];\n");
+}
+
+/// `UnicodeData.txt`'s decompositions of the presentation-form blocks, as the table
+/// `shaping::fold` reads.
+///
+/// Alphabetic Presentation Forms (U+FB00 to U+FB4F) and Arabic Presentation Forms-A and -B
+/// (U+FB50 to U+FDFF, U+FE70 to U+FEFF): every character there with a decomposition, under any
+/// tag or none, expanded through the table itself until no part of it is a presentation form. A
+/// decomposition holding U+0020 is left out — those are the isolated forms of the vowel marks,
+/// a space and a mark, and folding one would put a word break where the page shows none.
+fn presentation_decompositions(out: &mut String) {
+    let mut raw: std::collections::BTreeMap<char, Vec<char>> = std::collections::BTreeMap::new();
+    for fields in ucd("UnicodeData.txt") {
+        let number = u32::from_str_radix(&fields[0], 16)
+            .unwrap_or_else(|error| panic!("UnicodeData.txt: {}: {error}", fields[0]));
+        if !matches!(number, 0xfb00..=0xfdff | 0xfe70..=0xfeff) || fields[5].is_empty() {
+            continue;
+        }
+        let (point, _) = points(&fields[0]);
+        let parts = fields[5]
+            .split_once('>')
+            .map_or(fields[5].as_str(), |(_, rest)| rest);
+        let parts: Vec<char> = parts
+            .split_whitespace()
+            .map(|part| points(part).0)
+            .collect();
+        if parts.is_empty() || parts.contains(&' ') {
+            continue;
+        }
+        raw.insert(point, parts);
+    }
+    let expand = |parts: &[char]| {
+        let mut expanded: Vec<char> = parts.to_vec();
+        // The blocks' own canonical decompositions nest one deep (a Hebrew letter with two
+        // marks decomposes to the form with one); four rounds is more than the data needs.
+        for _ in 0..4 {
+            expanded = expanded
+                .iter()
+                .flat_map(|part| raw.get(part).cloned().unwrap_or_else(|| vec![*part]))
+                .collect();
+        }
+        expanded
+    };
+    // The letters in one pool and each form an offset and a length into it, rather than a
+    // `&str` per form: every pointer in a `static` is a relocation the dynamic loader applies
+    // before `main`, and nine hundred of them were measured on `launch_path`'s instruction count
+    // of an open (ADR 1465).
+    let mut letters: Vec<char> = Vec::new();
+    let mut entries: Vec<(char, usize, usize)> = Vec::new();
+    for (point, parts) in &raw {
+        let expanded = expand(parts);
+        entries.push((*point, letters.len(), expanded.len()));
+        letters.extend(expanded);
+    }
+    let _ = writeln!(
+        out,
+        "/// `UnicodeData.txt`: the letters the presentation forms decompose to, end to end.\n\
+         pub(crate) static PRESENTATION_LETTERS: [char; {}] = [{}];",
+        letters.len(),
+        letters
+            .iter()
+            .map(|letter| literal(*letter))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    let _ = writeln!(
+        out,
+        "/// `UnicodeData.txt`: a presentation form, and where its decomposition starts in\n\
+         /// `PRESENTATION_LETTERS` and how long it is, sorted.\n\
+         pub(crate) static PRESENTATION_DECOMPOSITIONS: [(char, u16, u8); {}] = [",
+        entries.len()
+    );
+    for (point, start, length) in &entries {
+        let start = u16::try_from(*start).expect("the pool is a few thousand letters");
+        let length = u8::try_from(*length).expect("a decomposition is at most eighteen letters");
+        let _ = writeln!(out, "    ({}, {start}, {length}),", literal(*point));
     }
     out.push_str("];\n");
 }

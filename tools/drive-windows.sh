@@ -15,14 +15,20 @@
 # with no window manager GTK's and Qt's popups are not on the root's picture. LOOK at them: a title
 # is a weaker witness than the picture (ADR 1453).
 #
-# Coordinates are the windows' own, measured on the fixtures this script writes, at Xvfb's
-# 1400x1100 — a change of layout moves them, and a step that clicks nothing says `wrong` with the
-# title it saw, which is the prompt to re-measure rather than a defect. The release binaries are
+# Coordinates are ASKED of the window where it can answer: the drive runs on a private session bus
+# with AT-SPI on it, and the outline rows, the pages tab and row, the check box and the choice are
+# found by role and name and clicked at the centre of `Component.GetExtents` — so a change of layout
+# moves the click with the widget. `quorra-gtk` and `quorra-qt` answer for all of them; `quorra`
+# draws its own panels and publishes bounds (accesskit) only for the document's nodes, so its form
+# controls are asked and its panel rows are not. What is not answered falls back to the coordinates
+# measured on the fixtures this script writes, at Xvfb's 1400x1100, and `$OUT/coordinates.tsv` says
+# which each click was. A step that clicks nothing says `wrong` with the title it saw. The release
+# binaries are
 # taken from `--bin` (default: this worktree's release directory); build them first:
 #   cargo build --release -p viewer-ui --bin quorra -p viewer-gtk --bin quorra-gtk \
 #                         -p viewer-qt --bin quorra-qt
 # Needs Xvfb, xdotool, xwd, ImageMagick's `magick` and python3 with pikepdf; the accessibility step
-# needs at-spi2-core and python3's `gi` Atspi. Nothing here is a gate: a test that skipped silently
+# and the asked coordinates need at-spi2-core and python3's `gi` Atspi. Nothing here is a gate: a test that skipped silently
 # would be worse than none (doc/environment.md).
 set -u
 
@@ -57,9 +63,25 @@ RESULTS="$OUT/results.tsv"
 : > "$RESULTS"
 XVFB=""
 APP=""
+BUS=""        # the private session bus's daemon, when AT-SPI is up
+A11Y=""       # the accessibility bus's address on it
+
+# Every process either bus has, by the pid the bus names — a service D-Bus activated for a window
+# (the registry, a portal) is nobody's child here — then the session bus itself.
+atspi_down() {
+    [ -z "$BUS" ] && return
+    local pid
+    for pid in $( { busctl --user list --no-legend; [ -n "$A11Y" ] && busctl --address="$A11Y" list --no-legend; } \
+                  2>/dev/null | awk '$2 ~ /^[0-9]+$/ {print $2}' | sort -u); do
+        [ "$pid" != $$ ] && [ "$pid" != "$BUS" ] && kill "$pid" 2>/dev/null
+    done
+    kill "$BUS" 2>/dev/null
+    BUS=""
+}
 
 finish() {
     [ -n "$APP" ] && kill "$APP" 2>/dev/null
+    atspi_down
     [ -n "$XVFB" ] && kill "$XVFB" 2>/dev/null
     wait 2>/dev/null
 }
@@ -169,6 +191,71 @@ Xvfb "$DISPLAY_NUMBER" -screen 0 1400x1100x24 -nolisten tcp >/dev/null 2>&1 &
 XVFB=$!
 sleep 1
 
+# A private session bus with AT-SPI enabled on it, so that every window driven below publishes its
+# widgets' extents (doc/verify.md's AT-SPI recipe, held for the whole drive).
+COORDINATES="$OUT/coordinates.tsv"
+: > "$COORDINATES"
+if command -v dbus-daemon >/dev/null && [ -x /usr/lib/at-spi-bus-launcher ] \
+        && python3 -c 'import gi; gi.require_version("Atspi", "2.0")' 2>/dev/null; then
+    read -r address BUS <<< "$(dbus-daemon --session --fork --print-address=1 --print-pid=1 | tr '\n' ' ')"
+    export DBUS_SESSION_BUS_ADDRESS=$address
+    /usr/lib/at-spi-bus-launcher --launch-immediately >/dev/null 2>&1 < /dev/null &
+    sleep 2
+    busctl --user set-property org.a11y.Bus /org/a11y/bus org.a11y.Status IsEnabled b true
+    A11Y=$(busctl --user call org.a11y.Bus /org/a11y/bus org.a11y.Bus GetAddress | cut -d'"' -f2)
+    /usr/lib/at-spi2-registryd >/dev/null 2>&1 < /dev/null &
+    sleep 1
+fi
+cat > "$OUT/asked.py" <<'PY'
+# asked.py PID ROLE NAME: the centre of the smallest showing widget of that role and name, in the
+# coordinates of the window it is in ("x y"), or nothing. "*" matches any role or any name. A
+# toolkit's own widget is preferred to the node the document's tree (a DocumentFrame) publishes for
+# the same field: the second is placed by this program's bridge and the first is what takes a click.
+import sys
+import gi
+gi.require_version("Atspi", "2.0")
+from gi.repository import Atspi
+pid, role, name = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+WINDOW = Atspi.CoordType.WINDOW
+def extents(node):
+    component = node.get_component_iface()
+    return component.get_extents(WINDOW) if component else None
+best = None
+def walk(node, depth, origin, document=False):
+    global best
+    if node is None or depth > 40:
+        return
+    try:
+        here = extents(node)
+        document = document or node.get_role() == Atspi.Role.DOCUMENT_FRAME
+        if (role in ("*", node.get_role_name()) and name in ("*", node.get_name())
+                and node.get_state_set().contains(Atspi.StateType.SHOWING)
+                and here and 0 < here.width < 5000 and 0 < here.height < 5000):
+            x, y = here.x + here.width // 2 - origin[0], here.y + here.height // 2 - origin[1]
+            # A hidden widget can still say it is showing; one whose centre is off its window is not.
+            if 0 <= x < origin[2] and 0 <= y < origin[3]:
+                rank = (document, here.width * here.height)
+                if best is None or rank < best[0]:
+                    best = (rank, x, y)
+        for index in range(node.get_child_count()):
+            walk(node.get_child_at_index(index), depth + 1, origin, document)
+    except gi.repository.GLib.Error:
+        return
+desktop = Atspi.get_desktop(0)
+for index in range(desktop.get_child_count()):
+    application = desktop.get_child_at_index(index)
+    if application is None or application.get_process_id() != pid:
+        continue
+    for at in range(application.get_child_count()):
+        frame = application.get_child_at_index(at)
+        whole = extents(frame) if frame else None
+        # A frame with no extents is a tree published beside the window rather than the window.
+        if whole and whole.width > 0 and whole.height > 0:
+            walk(frame, 0, (whole.x, whole.y, whole.width, whole.height))
+if best:
+    print(best[1], best[2])
+PY
+
 WINDOW=""     # which of the three is being driven
 LOG=""        # its standard output
 STEP=0
@@ -227,6 +314,18 @@ expect_title() { # step needle
     esac
 }
 said() { grep -c -- "$1" "$LOG" 2>/dev/null; }
+# asked VARIABLE ROLE NAME: replaces the measured coordinates in VARIABLE with the widget's own
+# centre where the window publishes it, and says which the click will be.
+asked() {
+    local seen=""
+    [ -n "$BUS" ] && seen=$(timeout 20 python3 "$OUT/asked.py" "$APP" "$2" "$3" 2>/dev/null)
+    if [ -n "$seen" ]; then
+        printf '%s\t%s\tasked\t%s %s at %s (measured %s)\n' "$WINDOW" "$1" "$2" "$3" "$seen" "${!1}" >> "$COORDINATES"
+        printf -v "$1" '%s' "$seen"
+    else
+        printf '%s\t%s\tmeasured\t%s\n' "$WINDOW" "$1" "${!1}" >> "$COORDINATES"
+    fi
+}
 
 # --- per-window coordinates, measured on the fixtures above ----------------------------------------
 # outline row 2, row 3; a point on the page; the popup icon; the link; the pages tab; pages row 3;
@@ -265,6 +364,7 @@ drive() {
     esac
 
     # §12.3.3: an outline item is activated by a click; a Chinese and an Arabic title.
+    asked ROW2 '*' "第二章 页面"; asked ROW3 '*' "الفصل 3: السلام"
     click $ROW2; shot 02-outline-chinese; expect_title 02-outline-chinese "page 2 of 3 — 第二章 页面"
     click $ROW3; shot 03-outline-arabic; expect_title 03-outline-arabic "page 3 of 3"
 
@@ -289,11 +389,25 @@ drive() {
     xdotool windowfocus --sync "$(main_window)"; xdotool keydown ctrl
     wheel $PAGE 4; xdotool keyup ctrl; sleep 1; shot 06-zoom-wheel
     [ "$(said 'Zoom\|zoom In')" -gt "$before" ] && verdict 06-zoom-wheel works "Control and the wheel zoomed" \
-        || verdict 06-zoom-wheel "not offered" "Control and the wheel scrolled"
+        || verdict 06-zoom-wheel wrong "Control and the wheel scrolled"
     key 0
 
     # Find: a word, the next and the previous occurrence.
-    key Home; key f; type_in drive; key Return
+    key Home; key f
+    local bar
+    case "$WINDOW" in
+        quorra-gtk) bar=entry ;;
+        quorra-qt) bar=text ;;
+        *) bar="" ;;
+    esac
+    # The find bar is the one text entry on this page in the two native windows; `quorra` draws its
+    # own and publishes nothing of it.
+    if [ -n "$bar" ] && [ -n "$BUS" ]; then
+        FIND_BAR=""; asked FIND_BAR "$bar" '*'
+        [ -n "$FIND_BAR" ] && verdict 07-find-bar works "the bar is showing, at $FIND_BAR" \
+            || verdict 07-find-bar wrong "f put no find bar on the accessibility bus"
+    fi
+    type_in drive; key Return
     shot 07-find; expect_title 07-find "page 1 of 3"
     key Return; expect_title 07-find-next "page 2 of 3"
     key shift+Return; shot 08-find-previous; expect_title 08-find-previous "page 1 of 3"
@@ -315,7 +429,8 @@ drive() {
     esac
 
     # §12.3.4: "navigate to a page by clicking its thumbnail image".
-    click $PAGES_TAB; click $PAGE_ROW3; shot 14-pages-panel; expect_title 14-pages-panel "page 3 of 3"
+    asked PAGES_TAB "page tab" Pages
+    click $PAGES_TAB; asked PAGE_ROW3 '*' "Page 3"; click $PAGE_ROW3; shot 14-pages-panel; expect_title 14-pages-panel "page 3 of 3"
 
     # The four levels (CLAUDE.md principle 3), and print.
     click $PAGE; key r; sleep 1; shot 15-restrictions
@@ -352,6 +467,7 @@ drive() {
     click 690 850
     key Tab; type_in 1; key Tab; type_in 2; key Tab; key Tab; type_in 3
     shot 20-tab-order
+    asked CHECK "check box" '*'; asked CHOICE "combo box" '*'
     click $CHECK; click $CHOICE; shot 21-choice-open
     if [ "$WINDOW" = quorra ]; then click $BLUE; else read -r bx by <<< "$BLUE"; xdotool mousemove "$bx" "$by" click 1; sleep 1.3; fi
     shot 22-choice-chosen
@@ -382,6 +498,39 @@ PY
             verdict 25-find-arabic works "found"
         fi
     fi
+
+    # Principle 2: a frame the graphics device refuses is drawn on the processor, "reported out
+    # loud" — on the terminal and in the window's title, the channel `quorra` reports what a page
+    # could not draw through (ADR 1466). The two native windows draw no page through a graphics
+    # device, so there is nothing for one to refuse (doc/ui-boundary.md).
+    CYCLE="$ROOT/doc/pdf.js/test/pdfs/ContentStreamCycleType3insideType3.pdf"
+    if [ -f "$CYCLE" ]; then
+        if [ "$WINDOW" = quorra ]; then
+            launch "$CYCLE"
+            for _ in $(seq 1 24); do
+                [ "$(said 'drawn on the processor instead')" -gt 0 ] && break
+                sleep 5
+            done
+            sleep 3
+            shot 27-processor-fallback
+            seen=$(title)
+            [ -n "$seen" ] || seen=$(xdotool getwindowname \
+                "$(xdotool search --name 'drawn on the processor' 2>/dev/null | head -1)" 2>/dev/null)
+            colours=$(magick "$OUT/shots/$WINDOW/27-processor-fallback.png" -unique-colors \
+                -format %w info: 2>/dev/null)
+            if [ "$(said 'drawn on the processor instead')" -eq 0 ]; then
+                verdict 27-processor-fallback wrong "no refusal on standard output: the device drew it?"
+            elif [[ "$seen" != *"drawn on the processor"* ]]; then
+                verdict 27-processor-fallback wrong "said on the terminal only; title: $seen"
+            elif [ "${colours:-0}" -le 3 ]; then
+                verdict 27-processor-fallback wrong "the page is blank ($colours colours)"
+            else
+                verdict 27-processor-fallback works "$seen"
+            fi
+        else
+            verdict 27-processor-fallback "not offered" "no page is drawn through a graphics device here"
+        fi
+    fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 
@@ -394,6 +543,34 @@ accessibility() {
         verdict 26-accessibility "not offered" "at-spi2-core is not installed"; return; }
     local answer="$OUT/$WINDOW.accessibility" found
     rm -f "$answer"
+    # On the drive's own bus where it is up: a second at-spi-bus-launcher on this display would
+    # take over the accessibility bus's socket, which is keyed by the display, and the windows
+    # driven after this one would publish nothing.
+    if [ -n "$BUS" ]; then
+        launch "$FIXTURES/drive.pdf"
+        timeout 30 python3 - "$APP" > "$answer" 2>/dev/null <<'PY'
+import sys
+import gi
+gi.require_version("Atspi", "2.0")
+from gi.repository import Atspi
+pid, frames = int(sys.argv[1]), 0
+def walk(node, depth):
+    global frames
+    if node is None or depth > 6:
+        return
+    if node.get_role() == Atspi.Role.DOCUMENT_FRAME:
+        frames += 1
+    for index in range(node.get_child_count()):
+        walk(node.get_child_at_index(index), depth + 1)
+desktop = Atspi.get_desktop(0)
+for index in range(desktop.get_child_count()):
+    application = desktop.get_child_at_index(index)
+    if application is not None and application.get_process_id() == pid:
+        walk(application, 0)
+print(frames)
+PY
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+    else
     QT_XCB_NO_XI2=1 timeout 60 dbus-run-session -- bash -c '
         /usr/lib/at-spi-bus-launcher --launch-immediately & sleep 2
         busctl --user set-property org.a11y.Bus /org/a11y/bus org.a11y.Status IsEnabled b true
@@ -424,6 +601,7 @@ PY
             [ "$pid" != $$ ] && [ "$(cat /proc/$pid/comm 2>/dev/null)" != dbus-daemon ] && kill "$pid"
         done
         wait' _ "$BIN/$WINDOW" "$FIXTURES/drive.pdf" "$answer" >/dev/null 2>&1 < /dev/null
+    fi
     found=$(tail -1 "$answer" 2>/dev/null)
     if [ "${found:-0}" -gt 0 ] 2>/dev/null; then
         verdict 26-accessibility works "$found DocumentFrame node(s) on the bus"

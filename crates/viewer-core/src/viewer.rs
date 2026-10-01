@@ -2520,19 +2520,27 @@ impl Viewer {
     /// `None` is a page this program could not interpret at all, which is not the same as a page
     /// with no text on it and is not cached: a failure costs nothing to reproduce and caching it
     /// would put a second meaning into a map whose entries are otherwise readbacks.
-    fn readback(&mut self, id: DocumentId, page: usize) -> Option<Arc<str>> {
+    fn readback(
+        &mut self,
+        id: DocumentId,
+        page: usize,
+    ) -> Option<(Arc<str>, Arc<crate::select::Order>)> {
         if let Some(open) = self.documents.get_mut(&id)
-            && let Some(text) = open.readbacks.get(page)
+            && let Some(held) = open.readbacks.get(page)
         {
-            return Some(text);
+            return Some(held);
         }
         let open = self.documents.get(&id)?;
         let read = crate::open::interpret(open, page)?;
+        let order = Arc::new(crate::select::Order::of(
+            &read.interpretation.text,
+            &read.interpretation.text_layer,
+        ));
         let text: Arc<str> = Arc::from(read.interpretation.text);
         if let Some(open) = self.documents.get_mut(&id) {
-            open.readbacks.put(page, &text);
+            open.readbacks.put(page, &text, &order);
         }
-        Some(text)
+        Some((text, order))
     }
 
     /// Reads the one page the search is on, and says what it found there.
@@ -2560,8 +2568,8 @@ impl Viewer {
         // A page this program cannot interpret is stepped over rather than treated as a page with
         // no text on it: the reports for it are the render path's business, and a search that
         // stopped at the first damaged page would be a worse answer than one that did not.
-        let found = if let Some(text) = text.as_deref() {
-            searching.step(text)
+        let found = if let Some((text, order)) = text.as_ref() {
+            searching.step(text, order)
         } else {
             searching.skip();
             None
@@ -2600,7 +2608,8 @@ impl Viewer {
         let Some(interpreted) = open.interpreted() else {
             return Vec::new();
         };
-        crate::select::find(&interpreted.text, needle)
+        let order = crate::select::Order::of(&interpreted.text, &interpreted.placed);
+        crate::select::find(&interpreted.text, needle, &order)
             .into_iter()
             .map(|range| self.device_quads(open, open.page_index, range))
             .collect()
@@ -3733,8 +3742,12 @@ impl Viewer {
             // item is exactly this: the same page read for a search and then again to draw it was
             // two interpretations. One 2.6 KB copy per page turn against 5.4 ms of the thing it
             // saves.
-            open.readbacks
-                .put(page, &Arc::from(interpretation.text.as_str()));
+            let order = crate::select::Order::of(&interpretation.text, &interpretation.text_layer);
+            open.readbacks.put(
+                page,
+                &Arc::from(interpretation.text.as_str()),
+                &Arc::new(order),
+            );
             let revision = open.revision;
             let on_screen = &mut open.on_screen[index];
             on_screen.object = object;

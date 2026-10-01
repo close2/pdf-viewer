@@ -125,7 +125,7 @@ sentence each uses verbatim: the flags "shall be set and **all others clear**", 
 parent row said the opposite. **Shape 7 is two rows about one mechanism, disagreeing** — cousins
 rather than parent and child, which is why the arithmetic sweep cannot see them — and the tell is
 that one row gives a *capability* reason where the other names *code*. ADR 0205. **The sweep that
-walks that population is `cargo run --release -p conformance --bin inapplicable` since the
+walks that population is `cargo run -p conformance --bin inapplicable` since the
 five-hundred-and-fifty-third**, and it prints the cousin beside the row rather than leaving a reader
 to find it (ADR 0388).
 

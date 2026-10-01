@@ -53,6 +53,7 @@
 #![allow(clippy::arithmetic_side_effects)] // test indices are tiny and literal
 
 mod curve_join;
+mod equal_tangents;
 mod fill;
 mod fill_set;
 mod flatten;

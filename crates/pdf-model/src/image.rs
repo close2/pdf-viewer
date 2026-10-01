@@ -41,6 +41,7 @@ use pdf_sandbox::{Decoded, Request};
 use pdf_syntax::{Dictionary, Document, ImageStream, Object, ObjectId, Stream};
 use rayon::iter::IndexedParallelIterator as _;
 use rayon::iter::ParallelIterator as _;
+use rayon::slice::ParallelSlice as _;
 use rayon::slice::ParallelSliceMut as _;
 
 use crate::colour::{Compositing, Conversion};
@@ -561,40 +562,42 @@ pub fn decode_parts(
     // Table 143 gives a `/Matte`'d mask the parent's own grid — `matte_colour` refuses one
     // that states another — so the two pair by position. ADR 1268.
     //
-    // The mask is decoded twice on this path, once for its samples here and once for the
-    // opacity below. That is the cost of the clause's ordering and it is paid only by an
-    // image that states a `/Matte`; the filter chain in front of the mask is memoised by the
-    // document, so what runs twice is the widening into a raster.
-    let premultiplied = match soft_mask_entry(document, dict, resources, (width, height)) {
-        SoftMaskEntry::Image {
-            stream,
-            matte: Some(matte),
-            ..
-        } => prematte_alpha(document, &stream, (width, height)).map(|alpha| (matte, alpha)),
-        _ => None,
-    };
+    // **The mask the eager route multiplies in is decoded once, and where it is large, beside the
+    // image's own samples** (ADR 1469). [`eager_soft_mask`] reads the dictionary's grid; where that
+    // is the grid read here, it is the same entry, the same stream and the same `decode` call that
+    // [`prematte_alpha`] makes, so a `/Matte`'s opacity is read off it rather than off a second
+    // decode — the clause's ordering puts that decode before the samples, so it cannot run beside
+    // them — and an image with no `/Matte` starts it on the pool before its own samples. What is
+    // made here answers [`apply_soft_mask`] only, and only if the routing below reaches it; a route
+    // that does not has decoded a mask for nothing, which is all a wrong guess costs. Where the two
+    // grids differ the mask is decoded for the inversion and again for the opacity, as before.
+    let entry = soft_mask_entry(document, dict, resources, (width, height));
+    let one_grid = stated_grid(document, dict) == (width, height);
+    let (premultiplied, eager_mask) = matte_before_samples(at, &entry, (width, height), one_grid);
     let prematte = premultiplied
         .as_ref()
         .map(|(matte, alpha)| Prematte { matte, alpha });
 
+    let painting = Painting {
+        is_mask,
+        fill,
+        colour_key,
+        into,
+        matte: prematte.as_ref(),
+    };
+    let (decoded, eager_mask) = samples_beside_the_mask(
+        at,
+        (&source, (width, height)),
+        painting,
+        (&entry, one_grid, eager_mask),
+    );
     let SamplesOnGrid {
         rgba,
         grid: (raster_width, raster_height),
         opacity_included: opacity_came_with_the_samples,
         stencil_opacity,
         shortfall,
-    } = samples_of(
-        at,
-        &source,
-        (width, height),
-        Painting {
-            is_mask,
-            fill,
-            colour_key,
-            into,
-            matte: prematte.as_ref(),
-        },
-    )?;
+    } = decoded?;
     // §7.4.8's disagreement is read off the grid the codec has just built on, rather than off a
     // second walk of the frame header: the arm that decoded the frame is the one that knows it.
     let contradiction = contradicted_frame(&source, (raster_width, raster_height), (width, height));
@@ -630,6 +633,7 @@ pub fn decode_parts(
         is_mask,
         (opacity_came_with_the_samples, stencil_opacity),
         masks,
+        eager_mask,
     );
     let mut shortfall =
         shortfall.or_else(|| mask_shortfall.map(|detail| format!("its /SMask: {detail}")));
@@ -666,17 +670,98 @@ pub fn decode_parts(
     })
 }
 
+/// Table 144's `/Matte` in the parent's components, and the mask's samples on the parent's grid:
+/// what [`Prematte`] borrows.
+type Premultiplied = (Vec<f32>, Vec<u8>);
+
+/// [`eager_soft_mask`]'s answer, where [`decode_parts`] asked it before the routing reached
+/// [`apply_soft_mask`] (ADR 1469).
+enum EagerMask {
+    /// Not asked: [`apply_soft_mask`] asks it, if the routing reaches it.
+    Unasked,
+    /// Asked, and this is what it answered — `None` being a mask that would not decode.
+    Asked(Option<Flattened>),
+}
+
+/// §11.6.5.2's `/Matte` and the opacity its inversion reads, where the parent states one, and
+/// the eager route's mask where the decode that read the opacity was that mask's.
+///
+/// `entry` is the parent's soft-mask entry on `grid`, the grid [`decode_parts`] read, and
+/// `one_grid` whether that is the dictionary's grid [`eager_soft_mask`] reads: only then is the
+/// entry, the stream and the `decode` call the eager route's own, and only then is its answer
+/// handed on rather than asked again.
+fn matte_before_samples(
+    at: Dictionaries,
+    entry: &SoftMaskEntry,
+    grid: (u32, u32),
+    one_grid: bool,
+) -> (Option<Premultiplied>, EagerMask) {
+    let SoftMaskEntry::Image {
+        stream,
+        matte: Some(matte),
+        ..
+    } = entry
+    else {
+        return (None, EagerMask::Unasked);
+    };
+    if !one_grid {
+        let alpha = prematte_alpha(at.document, stream, grid);
+        return (
+            alpha.map(|alpha| (matte.clone(), alpha)),
+            EagerMask::Unasked,
+        );
+    }
+    let mask = eager_soft_mask(at.document, at.dict, at.resources);
+    let alpha = mask.as_ref().map(|mask| alpha_of_mask(&mask.image, grid));
+    (
+        alpha.map(|alpha| (matte.clone(), alpha)),
+        EagerMask::Asked(mask),
+    )
+}
+
+/// [`samples_of`]'s answer, with the eager route's mask decoded beside it on the pool where that
+/// pays.
+///
+/// Where it pays is four conditions: [`matte_before_samples`] has not asked the mask already; the
+/// dictionary's grid is the one read, so the entry is the eager route's (`one_grid`); the image is
+/// at least [`PARALLEL_PIXELS`] samples, where a pool task costs nothing beside the decode; and
+/// the codec is not `JPXDecode`, whose `/SMaskInData` would carry the opacity itself (ADR 1469).
+/// Measured alone, pinned: `22060_A1_01_Plans.pdf`'s turn 94.4 → 80.0 ms, `issue13931.pdf`'s
+/// 66.8 → 55.8; it costs no instruction, only moves the mask's decode off the image's thread.
+fn samples_beside_the_mask(
+    at: Dictionaries,
+    (source, grid): (&ImageStream, (u32, u32)),
+    painting: Painting,
+    (entry, one_grid, eager_mask): (&SoftMaskEntry, bool, EagerMask),
+) -> (Result<SamplesOnGrid, ImageError>, EagerMask) {
+    let worth_it = matches!(eager_mask, EagerMask::Unasked)
+        && one_grid
+        && u64::from(grid.0).saturating_mul(u64::from(grid.1)) >= PARALLEL_PIXELS as u64
+        && !matches!(source.codec.as_deref(), Some(b"JPXDecode"))
+        && matches!(entry, SoftMaskEntry::Image { .. });
+    if !worth_it {
+        return (samples_of(at, source, grid, painting), eager_mask);
+    }
+    let (decoded, mask) = beside(
+        || samples_of(at, source, grid, painting),
+        || eager_soft_mask(at.document, at.dict, at.resources),
+    );
+    (decoded, mask.map_or(EagerMask::Unasked, EagerMask::Asked))
+}
+
 /// §11.6.5.2's soft mask on a decoded raster: multiplied in, or carried beside it for the device.
 ///
 /// `in_data` is what [`samples_of`] said about `/SMaskInData` — whether the opacity came with the
 /// samples, and for a stencil the plane it was read into — and `stencil` whether the raster is
 /// §8.9.6.2's. The shortfall is the mask's own filter's, where the eager route decoded it.
+/// `eager_mask` is [`eager_soft_mask`]'s answer where [`decode_parts`] already has it.
 fn soft_masked(
     at: Dictionaries,
     image: Image,
     stencil: bool,
     in_data: (bool, Option<SoftMaskAtDeviceScale>),
     masks: &mut MaskCache,
+    eager_mask: EagerMask,
 ) -> (Picture, Option<String>) {
     let Dictionaries {
         document,
@@ -723,7 +808,7 @@ fn soft_masked(
         shortfall,
         applied,
         apart,
-    } = apply_soft_mask(document, dict, resources, image, stencil);
+    } = apply_soft_mask(document, dict, resources, image, (stencil, eager_mask));
     image.sample_alpha = sample_alpha(stencil, applied);
     let picture = match apart {
         Some(opacity) => Picture::Masked {
@@ -1461,7 +1546,12 @@ fn unpack(data: &[u8], width: u32, height: u32, samples: &Samples) -> Result<Vec
     let mut cache = matches!(space, ColourSpace::Resolved(_))
         .then(|| palette.is_none() && components <= 4 && bits <= 8 && matte.is_none())
         .filter(|fits| *fits)
-        .map(|_| SampleMemo::for_pixels(width_usize.saturating_mul(height_usize)));
+        .map(|_| {
+            SampleMemo::for_pixels(
+                width_usize.saturating_mul(height_usize),
+                pdf_render::Color::BLACK,
+            )
+        });
 
     if let Some(tables) = matted_eight_bit_device_tables(samples, width_usize, height_usize) {
         return Ok(unpack_matted_eight_bit_device(
@@ -1767,31 +1857,44 @@ fn convert_three(
     into: &Conversion,
 ) {
     let convert = |chunk: &mut [u8], slots: usize| {
-        let mut cache = SampleMemo::for_pixels(slots.max(1));
-        for pixel in chunk.chunks_exact_mut(4) {
-            let Some(rgb) = pixel.get_mut(..3) else {
+        let mut cache = SampleMemo::for_pixels(slots.max(1), [0u8; 3]);
+        // The pixel before this one, as its three samples and its three converted bytes in the
+        // low bytes of a word; the sentinel has a fourth byte, so no sample tuple equals it.
+        let (mut seen, mut converted) = (u32::MAX, 0u32);
+        for pixel in chunk.as_chunks_mut::<4>().0 {
+            let word = u32::from_le_bytes(*pixel);
+            // A pixel the same as the one before it converts to the same bytes; see
+            // [`convert_four`] for why this is asked before the memo. The alpha byte is kept.
+            // With the memo holding bytes, `22060_A1_01_Plans.pdf`'s four photographs went from
+            // 2 143 M to 455 M instructions here, and its pinned turn from 94.4 to 76.0 ms with
+            // this lever alone (ADR 1469).
+            if word & 0x00FF_FFFF == seen {
+                *pixel = (converted | (word & 0xFF00_0000)).to_le_bytes();
                 continue;
-            };
-            let read = |index: usize| rgb.get(index).copied().unwrap_or(0);
+            }
+            let sample = [pixel[0], pixel[1], pixel[2]];
             let key = (1u64 << 32)
-                | (u64::from(read(0)) << 16)
-                | (u64::from(read(1)) << 8)
-                | u64::from(read(2));
-            let colour = if let Some(colour) = cache.get(key) {
-                colour
+                | (u64::from(sample[0]) << 16)
+                | (u64::from(sample[1]) << 8)
+                | u64::from(sample[2]);
+            let bytes = if let Some(bytes) = cache.get(key) {
+                bytes
             } else {
                 let colour = into.paint(
                     space,
                     &[
-                        decode.value(0, usize::from(read(0))),
-                        decode.value(1, usize::from(read(1))),
-                        decode.value(2, usize::from(read(2))),
+                        decode.value(0, usize::from(sample[0])),
+                        decode.value(1, usize::from(sample[1])),
+                        decode.value(2, usize::from(sample[2])),
                     ],
                 );
-                cache.put(key, colour);
-                colour
+                let bytes = [channel(colour.r), channel(colour.g), channel(colour.b)];
+                cache.put(key, bytes);
+                bytes
             };
-            rgb.copy_from_slice(&[channel(colour.r), channel(colour.g), channel(colour.b)]);
+            seen = word & 0x00FF_FFFF;
+            converted = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], 0]);
+            [pixel[0], pixel[1], pixel[2]] = bytes;
         }
     };
     match band {
@@ -1816,32 +1919,45 @@ fn convert_four(
     into: &Conversion,
 ) {
     let convert = |chunk: &mut [u8], slots: usize| {
-        let mut cache = SampleMemo::for_pixels(slots.max(1));
-        for pixel in chunk.chunks_exact_mut(4) {
-            let read = |index: usize| pixel.get(index).copied().unwrap_or(0);
+        let mut cache = SampleMemo::for_pixels(slots.max(1), [0u8; 4]);
+        let mut previous: Option<([u8; 4], [u8; 4])> = None;
+        for pixel in chunk.as_chunks_mut::<4>().0 {
+            let sample = *pixel;
+            // **A pixel the same as the one before it is answered before the memo is asked.**
+            // A scan's background is long runs of one sample, and the comparison is what a run
+            // costs instead of a hash, a probe and a key compare; the bytes are the ones the
+            // memo would have answered, because both are the conversion of the same tuple.
+            if let Some((seen, bytes)) = previous
+                && seen == sample
+            {
+                *pixel = bytes;
+                continue;
+            }
             // A tag of its own, so a four-component tuple cannot collide with a
             // three-component one in a memo shared by neither.
             let key = (1u64 << 33)
-                | (u64::from(read(0)) << 24)
-                | (u64::from(read(1)) << 16)
-                | (u64::from(read(2)) << 8)
-                | u64::from(read(3));
-            let colour = if let Some(colour) = cache.get(key) {
-                colour
+                | (u64::from(sample[0]) << 24)
+                | (u64::from(sample[1]) << 16)
+                | (u64::from(sample[2]) << 8)
+                | u64::from(sample[3]);
+            let bytes = if let Some(bytes) = cache.get(key) {
+                bytes
             } else {
                 let colour = into.paint(
                     space,
                     &[
-                        decode.value(0, usize::from(read(0))),
-                        decode.value(1, usize::from(read(1))),
-                        decode.value(2, usize::from(read(2))),
-                        decode.value(3, usize::from(read(3))),
+                        decode.value(0, usize::from(sample[0])),
+                        decode.value(1, usize::from(sample[1])),
+                        decode.value(2, usize::from(sample[2])),
+                        decode.value(3, usize::from(sample[3])),
                     ],
                 );
-                cache.put(key, colour);
-                colour
+                let bytes = [channel(colour.r), channel(colour.g), channel(colour.b), 255];
+                cache.put(key, bytes);
+                bytes
             };
-            pixel.copy_from_slice(&[channel(colour.r), channel(colour.g), channel(colour.b), 255]);
+            previous = Some((sample, bytes));
+            *pixel = bytes;
         }
     };
     match band {
@@ -2193,14 +2309,19 @@ fn palette(
 /// colour or a near one, so a fixed table with no chaining and no growth answers most of
 /// them. A collision costs one conversion, which is what the code did before, so the worst
 /// case is the old cost plus a bounded probe.
-struct SampleMemo {
+///
+/// `V` is what a tuple converted to, in whatever form its caller writes: a colour where the
+/// caller still has arithmetic to do on it, the three bytes of a pixel where it has none — which
+/// is what [`convert_three`] and [`convert_four`] keep, so that a hit is a copy rather than three
+/// roundings of a float (ADR 1469).
+struct SampleMemo<V = pdf_render::Color> {
     /// Packed sample tuple, with bit 32 set where the entry is occupied.
     keys: Vec<u64>,
     /// What that tuple converted to.
-    values: Vec<pdf_render::Color>,
+    values: Vec<V>,
 }
 
-impl SampleMemo {
+impl<V: Copy> SampleMemo<V> {
     /// Smallest and largest table, in entries.
     ///
     /// Sized from the image rather than fixed, because both ends cost. A 2^18-entry table
@@ -2218,12 +2339,12 @@ impl SampleMemo {
     /// A quarter of the pixel count, rounded up to a power of two: an image whose colours
     /// are all distinct cannot be helped by any table, and one with structure repeats long
     /// before a quarter of its pixels.
-    fn for_pixels(pixels: usize) -> Self {
+    fn for_pixels(pixels: usize, empty: V) -> Self {
         let wanted = pixels.next_power_of_two() / 4;
         let slots = wanted.clamp(Self::MIN_SLOTS, Self::MAX_SLOTS);
         Self {
             keys: vec![0; slots],
-            values: vec![pdf_render::Color::BLACK; slots],
+            values: vec![empty; slots],
         }
     }
 
@@ -2238,14 +2359,14 @@ impl SampleMemo {
         usize::try_from(mixed >> 40).unwrap_or(0) & (self.keys.len().saturating_sub(1))
     }
 
-    fn get(&self, key: u64) -> Option<pdf_render::Color> {
+    fn get(&self, key: u64) -> Option<V> {
         let at = self.slot(key);
         (self.keys.get(at) == Some(&key))
             .then(|| self.values.get(at).copied())
             .flatten()
     }
 
-    fn put(&mut self, key: u64, colour: pdf_render::Color) {
+    fn put(&mut self, key: u64, colour: V) {
         let at = self.slot(key);
         if let Some(slot) = self.keys.get_mut(at) {
             *slot = key;
@@ -5487,6 +5608,53 @@ fn combine_on_the_finer_grid(
     }
 }
 
+/// §11.6.5.2's opacity multiplied into a raster that is the only holder of its samples, where the
+/// mask is on the raster's own grid; `false`, and nothing touched, otherwise.
+///
+/// The same arithmetic [`apply_soft_mask`] asks of [`combine_on_the_finer_grid`] — the colour
+/// kept, the alpha the rounded product of the raster's own and the mask's sample — on the pair
+/// that function's paired walk takes, which is every corpus pair under a soft mask. What it
+/// does not do is build a second raster: [`decode_parts`] has just made this one and nothing
+/// else holds it, so the alpha bytes are rewritten where they are, and a large raster's rows
+/// are divided across the pool, since no pixel reads another (ADR 1469). Measured alone, pinned:
+/// `issue13931.pdf`'s turn 66.8 → 53.1 ms and `images.pdf`'s 51.3 → 40.7; `apply_soft_mask`
+/// 548 M → 170 M instructions on `22060_A1_01_Plans.pdf`.
+fn opacity_multiplied_in_place(image: &mut Image, mask: &Image) -> bool {
+    if image.width != mask.width
+        || image.height != mask.height
+        || image.data.len() != mask.data.len()
+    {
+        return false;
+    }
+    let Some(data) = Arc::get_mut(&mut image.data) else {
+        return false;
+    };
+    let multiply = |pixels: &mut [[u8; 4]], above: &[[u8; 4]]| {
+        for (pixel, above) in pixels.iter_mut().zip(above) {
+            // Read and written as one word, alpha in the top byte, so that the loop is the same
+            // arithmetic on every lane of a vector; the colour bytes pass through untouched.
+            let word = u32::from_le_bytes(*pixel);
+            // [`combine_on_the_finer_grid`]'s rounding, so a fully opaque pair stays opaque; at
+            // most 255 × 255 + 127, so nothing wraps.
+            let product = (word >> 24)
+                .wrapping_mul(u32::from(above[0]))
+                .wrapping_add(127)
+                / 255;
+            *pixel = ((word & 0x00FF_FFFF) | (product << 24)).to_le_bytes();
+        }
+    };
+    let (pixels, _) = data.as_chunks_mut::<4>();
+    let (above, _) = mask.data.as_chunks::<4>();
+    match band_pixels(pixels.len()) {
+        Some(band) => pixels
+            .par_chunks_mut(band)
+            .zip(above.par_chunks(band))
+            .for_each(|(pixels, above)| multiply(pixels, above)),
+        None => multiply(pixels, above),
+    }
+    true
+}
+
 /// Applies §8.9.6.3's explicit mask: where the stencil does not mark, the image is not drawn.
 ///
 /// The second half of the answer is the stencil's own [`Flattened::shortfall`], where its
@@ -5864,12 +6032,58 @@ fn prematte_alpha(document: &Document, mask: &Stream, parent: (u32, u32)) -> Opt
         &Conversion::device(),
     )
     .ok()?;
-    let alpha: Vec<u8> = image
+    Some(alpha_of_mask(&image, parent))
+}
+
+/// A decoded mask's samples, one byte each, carried onto the parent's grid: what
+/// [`prematte_alpha`] reads off its decode, and [`decode_parts`] off the eager route's.
+fn alpha_of_mask(mask: &Image, parent: (u32, u32)) -> Vec<u8> {
+    let alpha: Vec<u8> = mask
         .data
         .chunks_exact(4)
         .map(|sample| sample.first().copied().unwrap_or(0))
         .collect();
-    Some(alpha_on_grid(&alpha, (image.width, image.height), parent))
+    alpha_on_grid(&alpha, (mask.width, mask.height), parent)
+}
+
+/// `here` on this thread and `there` beside it on rayon's pool, and both answers.
+///
+/// `there` waits in a slot a pool task takes it from; if this thread finishes `here` first and
+/// finds it still waiting, it takes it back and runs it itself, so it never waits on work no
+/// thread has begun — [`DecodesAhead`]'s rule for a queued decode, for the same reason. What it
+/// can still wait for is a pool thread to reach the empty task, which on a pool whose every
+/// thread is decoding is the length of what they are decoding. The second answer is `None` only
+/// if `there` unwound, which the scope has already re-raised by then.
+fn beside<A, B: Send, There: FnOnce() -> B + Send>(
+    here: impl FnOnce() -> A,
+    there: There,
+) -> (A, Option<B>) {
+    let waiting = std::sync::Mutex::new(Some(there));
+    let answered = std::sync::Mutex::new(None);
+    let take = || {
+        waiting
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+    };
+    let answer = |job: Option<There>| {
+        if let Some(job) = job {
+            let made = job();
+            *answered
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(made);
+        }
+    };
+    let first = rayon::in_place_scope(|scope| {
+        scope.spawn(|_| answer(take()));
+        let first = here();
+        answer(take());
+        first
+    });
+    let second = answered
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    (first, second)
 }
 
 /// A mask's samples carried from the grid they are on to another one, each target cell the mean
@@ -6981,17 +7195,24 @@ struct Softened {
 /// stencil. §11.6.4.2 makes the stencil's painted areas its shape and §11.6.4.3 the mask its
 /// opacity, and a raster holding their product answers for neither (ADR 1218). Table 144's
 /// `/Matte` is no reason to combine, for the reason the stencil branch below gives. ADR 1279.
+///
+/// `made` is [`eager_soft_mask`]'s answer where the caller already has it — decoded beside the
+/// image's samples, or once for a `/Matte` (ADR 1469) — and it is asked here otherwise.
 fn apply_soft_mask(
     document: &Document,
     dict: &Dictionary,
     resources: &Dictionary,
     image: Image,
-    stencil: bool,
+    (stencil, made): (bool, EagerMask),
 ) -> Softened {
+    let made = match made {
+        EagerMask::Asked(made) => made,
+        EagerMask::Unasked => eager_soft_mask(document, dict, resources),
+    };
     let Some(Flattened {
         image: mask,
         shortfall,
-    }) = eager_soft_mask(document, dict, resources)
+    }) = made
     else {
         return Softened {
             image,
@@ -7011,6 +7232,15 @@ fn apply_soft_mask(
             shortfall,
             applied: true,
             apart: Some(SoftMaskAtDeviceScale::of_decoded(&mask)),
+        };
+    }
+    let mut image = image;
+    if opacity_multiplied_in_place(&mut image, &mask) {
+        return Softened {
+            image,
+            shortfall,
+            applied: true,
+            apart: None,
         };
     }
     let masked = combine_on_the_finer_grid(&image, &mask, |colour, sample| {
@@ -7170,6 +7400,124 @@ mod tests {
             );
             assert_eq!(split, serial, "band of {band} pixels");
         }
+    }
+
+    /// **A pixel's converted bytes are its own samples' conversion, whatever came before it.**
+    ///
+    /// [`convert_three`] and [`convert_four`] answer a pixel equal to the one before it from that
+    /// one, and every other from the memo or the conversion (ADR 1469); this asks the conversion
+    /// itself for every pixel of a raster of runs, single pixels and alphas that differ inside a
+    /// run, and demands the same bytes — the alpha byte kept by the first, written opaque by the
+    /// second, which is what each did before.
+    #[test]
+    fn a_converted_pixel_is_its_own_samples_conversion() {
+        let into = crate::colour::Conversion::device();
+        let pixels: Vec<[u8; 4]> = (0..4_000usize)
+            .map(|index| {
+                // Runs of 1 to 9 equal samples, under alphas that change inside them.
+                let run = index / (1 + index % 9);
+                let value = u8::try_from(run % 251).expect("under 256");
+                let alpha = u8::try_from(index % 256).expect("under 256");
+                [value, value.wrapping_mul(7), value.wrapping_add(90), alpha]
+            })
+            .collect();
+        let three = calibrated();
+        let decode =
+            super::Decode::from_pairs(&[], &super::ColourSpace::Resolved(three.clone()), 8);
+        let mut converted: Vec<u8> = pixels.iter().flatten().copied().collect();
+        convert_three(&three, &decode, &mut converted, None, &into);
+        let four = ColourSpace::Cmyk;
+        let decode_four =
+            super::Decode::from_pairs(&[], &super::ColourSpace::Resolved(four.clone()), 8);
+        let mut converted_four: Vec<u8> = pixels.iter().flatten().copied().collect();
+        super::convert_four(&four, &decode_four, &mut converted_four, None, &into);
+        for (index, pixel) in pixels.iter().enumerate() {
+            let value = |decode: &super::Decode, component: usize| {
+                decode.value(component, usize::from(pixel[component]))
+            };
+            let colour = into.paint(
+                &three,
+                &[value(&decode, 0), value(&decode, 1), value(&decode, 2)],
+            );
+            let wanted = [
+                super::channel(colour.r),
+                super::channel(colour.g),
+                super::channel(colour.b),
+                pixel[3],
+            ];
+            assert_eq!(converted[index * 4..index * 4 + 4], wanted, "pixel {index}");
+            let colour = into.paint(
+                &four,
+                &[
+                    value(&decode_four, 0),
+                    value(&decode_four, 1),
+                    value(&decode_four, 2),
+                    value(&decode_four, 3),
+                ],
+            );
+            let wanted = [
+                super::channel(colour.r),
+                super::channel(colour.g),
+                super::channel(colour.b),
+                255,
+            ];
+            assert_eq!(
+                converted_four[index * 4..index * 4 + 4],
+                wanted,
+                "pixel {index}"
+            );
+        }
+    }
+
+    /// **A soft mask multiplied in place is the combination [`apply_soft_mask`] would have built.**
+    ///
+    /// On a pair on one grid, at a size the pool divides and one it does not, every byte of
+    /// [`super::opacity_multiplied_in_place`]'s raster is [`super::combine_on_the_finer_grid`]'s
+    /// under the same closure; and a raster something else still holds, or a mask on another
+    /// grid, is left untouched for that function to combine (ADR 1469).
+    #[test]
+    fn a_mask_multiplied_in_place_is_the_combination() {
+        let raster = |width: u32, height: u32, seed: usize| pdf_render::Image {
+            width,
+            height,
+            data: (0..(width * height * 4) as usize)
+                .map(|index| u8::try_from((index * 53 + seed) % 256).expect("under 256"))
+                .collect::<Vec<u8>>()
+                .into(),
+            interpolate: false,
+            sample_alpha: pdf_render::SampleAlpha::Opacity,
+        };
+        for (width, height) in [(7, 5), (640, 512)] {
+            let (image, mask) = (raster(width, height, 1), raster(width, height, 7));
+            let wanted = super::combine_on_the_finer_grid(&image, &mask, |colour, sample| {
+                (colour, sample[0])
+            });
+            let mut multiplied = image.clone();
+            // The clone shares the samples, so nothing may be written through it.
+            assert!(!super::opacity_multiplied_in_place(&mut multiplied, &mask));
+            assert_eq!(multiplied.data, image.data);
+            drop(image);
+            assert!(super::opacity_multiplied_in_place(&mut multiplied, &mask));
+            assert_eq!(multiplied.data, wanted.data, "{width}x{height}");
+        }
+        let mut image = raster(6, 4, 1);
+        assert!(!super::opacity_multiplied_in_place(
+            &mut image,
+            &raster(3, 4, 7)
+        ));
+    }
+
+    /// [`super::beside`] answers with both closures' results, whichever thread ran the second.
+    #[test]
+    fn beside_answers_both() {
+        let (here, there) = super::beside(|| 6 * 7, || "beside");
+        assert_eq!((here, there), (42, Some("beside")));
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .expect("a pool");
+        let (here, there) = pool.install(|| super::beside(|| 1, || 2));
+        assert_eq!((here, there), (1, Some(2)));
     }
 
     /// Adobe's APP14 transform 2, arithmetic first — §7.4.8's codestream through ISO/IEC 10918.
@@ -7440,7 +7788,7 @@ mod tests {
     /// obvious on nothing.
     #[test]
     fn the_memo_answers_only_for_the_key_it_holds() {
-        let mut cache = SampleMemo::for_pixels(64);
+        let mut cache = SampleMemo::for_pixels(64, pdf_render::Color::BLACK);
         let colour = pdf_render::Color {
             r: 0.25,
             g: 0.5,

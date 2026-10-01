@@ -59,7 +59,8 @@ pub(crate) fn describe(item: &Unsupported) -> String {
         // sent to CID 0 (ADR 0963). The old sentence claimed the first of those for every
         // bound, which is trap 11 in a message rather than in a condition.
         Unsupported::LimitReached { limit } => format!(
-            "the page reached this program's {limit} bound, so part of what the document asked              for is not on it"
+            "the page reached this program's {limit} bound, so part of what the document asked \
+             for is not on it"
         ),
         Unsupported::NestingCycle { stream } => format!(
             "{stream} draws itself again from inside itself, so the page stopped it at this \

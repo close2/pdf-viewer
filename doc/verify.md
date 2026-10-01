@@ -184,7 +184,7 @@ PDFVIEWER_RASTER_COVERAGE=gpu PDFVIEWER_RASTER_SCALE=4 \
   # the lane exists for magnification: ADR 0283 took its refusals from 36 to 12 there.
 FIRST_FRAME_COVERAGE=gpu cargo run --release -p render-raster --example first_frame -- [page] [scale]
   # what the first frame costs that the tenth does not, on either lane (ADRs 0179, 0283)
-cargo run --release -p viewer-gtk --example outline_census -- [file.pdf]
+cargo run --release -p viewer-host --example outline_census -- [file.pdf]
   # how many rows §12.3.3's outline becomes and how many the document's own `/Count` signs ask to
   # be open, which is the number ADR 0244 quotes for the GTK host's tree
 cargo run --release -p viewer-ui --example chrome_ladder -- [file.pdf] [page] [out-dir]
@@ -700,9 +700,15 @@ tools/drive-windows.sh [--window quorra|quorra-gtk|quorra-qt]... [--out DIR]   #
   # `results.tsv` and photographs each step into `shots/<window>/<step>.png` — and every other
   # top-level window beside it, because with no window manager GTK's and Qt's popups and dialogs are
   # not on the root's picture. **Look at the pictures**: a title is a weaker witness than the page,
-  # and four of the steps are `manual` because only a picture says whether they worked. Its
-  # coordinates are measured on its own fixtures at 1400×1100; a layout change moves them, and a
-  # step that clicks nothing says `wrong` with the title it saw. About eleven minutes for the three.
+  # and four of the steps are `manual` because only a picture says whether they worked. Its clicks
+  # are **asked of the window**: the drive runs on one private AT-SPI bus, and the outline rows, the
+  # pages tab and row, the check box and the choice are found by role and name and clicked at the
+  # centre of `Component.GetExtents`, with the find bar's presence a step of its own. `quorra-gtk`
+  # and `quorra-qt` answer for all of them; `quorra` publishes bounds (accesskit) for the document's
+  # nodes only, so its form controls are asked and its own panels' rows are not. What no window
+  # answers falls back to coordinates measured on the fixtures at 1400×1100, and `coordinates.tsv`
+  # says which each click was. A step that clicks nothing says `wrong` with the title it saw. About
+  # eleven minutes for the three.
 # §14.7's tree on a real accessibility bus, which is the only way to check the AccessKit bridge
 # end to end from here. A session bus, at-spi's own bus and registry, Xvfb, and `busctl` walking
 # `org.a11y.atspi.Accessible` from the registry root — a real client rather than this program's

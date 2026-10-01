@@ -691,20 +691,25 @@ void ChromeOverlay::paintEvent(QPaintEvent*)
 
 PopupWindow::PopupWindow(const QtPopup& window, QWidget* parent) : QFrame(parent)
 {
-    setFrameShape(QFrame::StyledPanel);
     // §12.5.6.14: a popup has "no appearance stream or associated actions of its own", so there is
     // nothing on it to activate — and a widget over the page that swallowed a press would take the
     // selection, the link and the form control underneath it away from the reader. The same
     // sentence `gtk_widget_set_can_target(FALSE)` says in the other host.
     setAttribute(Qt::WA_TransparentForMouseEvents);
     setFocusPolicy(Qt::NoFocus);
+    // The paper and the one-pixel edge are the three windows' one choice (ADR 1466): opaque, so
+    // the page's words do not show through the note's, and not the page's white, so the window's
+    // extent can be seen. The edge is painted rather than asked of a frame shape, because a
+    // style's panel may draw no line at all and a plain box takes its colour from the text's.
+    edge_ = QColor::fromRgb(window.edge);
     setAutoFillBackground(true);
     QPalette paper = palette();
-    paper.setColor(QPalette::Window, paper.color(QPalette::Base));
+    paper.setColor(QPalette::Window, QColor::fromRgb(window.paper));
     setPalette(paper);
 
     auto* column = new QVBoxLayout(this);
-    column->setContentsMargins(0, 0, 0, 0);
+    // Inside the edge, so that the title bar does not paint over it.
+    column->setContentsMargins(1, 1, 1, 1);
     column->setSpacing(0);
 
     // Table 166's `/C` is "[t]he title bar of the annotation's popup window", so the colour is the
@@ -716,6 +721,9 @@ PopupWindow::PopupWindow(const QtPopup& window, QWidget* parent) : QFrame(parent
         QPalette bright = bar->palette();
         bright.setColor(QPalette::Window, QColor(window.red, window.green, window.blue));
         bar->setPalette(bright);
+    } else {
+        // The platform's own, rather than the paper the bar would inherit from the window.
+        bar->setPalette(QApplication::palette());
     }
     auto* row = new QHBoxLayout(bar);
     row->setContentsMargins(kPopupPadding, kPopupPadding / 2, kPopupPadding, kPopupPadding / 2);
@@ -764,6 +772,14 @@ PopupWindow::PopupWindow(const QtPopup& window, QWidget* parent) : QFrame(parent
         thread->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
         column->addWidget(thread, 1);
     }
+}
+
+void PopupWindow::paintEvent(QPaintEvent* event)
+{
+    QFrame::paintEvent(event);
+    QPainter painter(this);
+    painter.setPen(QPen(edge_, 0));
+    painter.drawRect(rect().adjusted(0, 0, -1, -1));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -830,6 +846,18 @@ void PageArea::wheelEvent(QWheelEvent* event)
     // same number `viewer-gtk` chose, because a wheel is not a fact about a toolkit.
     const QPoint pixels = event->pixelDelta();
     const qreal scale = devicePixelRatioF();
+    // Control is a magnification rather than a movement, as it is in the other two windows; the
+    // steps are counted on the Rust side by the one accumulator all three share.
+    if (event->modifiers().testFlag(Qt::ControlModifier)) {
+        const QPointF at = event->position();
+        const bool inPixels = !pixels.isNull();
+        const qreal amount = inPixels ? static_cast<qreal>(pixels.y())
+                                      : static_cast<qreal>(event->angleDelta().y()) / 120.0;
+        event->accept();
+        Q_EMIT wheelZoomed(static_cast<float>(amount), inPixels, static_cast<float>(at.x() * scale),
+                           static_cast<float>(at.y() * scale));
+        return;
+    }
     qreal dx = 0.0;
     qreal dy = 0.0;
     if (!pixels.isNull()) {
@@ -1091,6 +1119,14 @@ MainWindow::MainWindow(rust::Box<Host> host)
         }
         Busy guard(busy_);
         host_->scrolled(dx, dy);
+        applyUpdates();
+    });
+    connect(page_, &PageArea::wheelZoomed, this, [this](float amount, bool pixels, float x, float y) {
+        if (busy_) {
+            return;
+        }
+        Busy guard(busy_);
+        host_->wheel_zoom(amount, pixels, x, y);
         applyUpdates();
     });
 }
@@ -2369,6 +2405,10 @@ void MainWindow::rebuildControls()
         widget->setEnabled(!control.read_only);
         if (!control.tooltip.empty()) {
             widget->setToolTip(text(control.tooltip));
+            // §14.9.3's name is how the field is identified "in a user-interface", and an
+            // assistive technology is one: Qt gives a tooltip to the description and nothing to
+            // the name, where GTK takes the tooltip for both.
+            widget->setAccessibleName(text(control.tooltip));
         }
         widget->show();
         controls_.push_back(widget);

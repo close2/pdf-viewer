@@ -167,11 +167,11 @@ has the rounds.
   that is now this tree's own exact area rather than `tiny-skia`'s lattice, which is what makes the
   backend an oracle and not a second opinion (ADR 1082).
 - **The GPU backend renders headless**, with no window and no display server, and agrees with
-  `render-cpu` within measured tolerances — including the row-padding readback. The interactive
-  half is `cargo run --release --example spike-window -p viewer-ui`, which calls the same
-  `render_gpu::build_scene` the headless tests exercise, so the window cannot diverge from what CI
-  checks. The agent has no X authority cookie and cannot run it; `doc/environment.md` says what it
-  can do instead.
+  `render-cpu` within measured tolerances — including the row-padding readback
+  (`render-gpu/tests/headless_gpu.rs`). The interactive half is the viewer itself, `viewer-ui`'s
+  `quorra`, which draws through `raster` rather than `render-gpu`; the agent has no X authority
+  cookie for the owner's display, so `tools/drive-windows.sh` drives it, and the two other windows,
+  under Xvfb (ADR 1453).
 - **The Arlington TSVs generate `static` validation tables** with zero startup cost, verified
   against ISO 32000-2 Tables 29 and 31. §5 is the design.
 - **A confined worker is confined**, and the kernel says so rather than the source: `pdf-sandbox`
@@ -421,7 +421,7 @@ an argued exclusion, so the next clause left out is a build failure instead of a
 | `departed` | Every requirement of the clause is executed except the one the note names, which was decided against with its cost recorded. Nothing is owed. The note's first sentence says what was departed from and names the ADR that decided it and priced it; `tools/state.sh` counts it as its own figure, never folded into `implemented` or `partial`. The owner's word, added in answer to `doc/questions/Q63` (ADR 1119). |
 | `reported` | Deliberately not implemented *yet*; detected and reported at runtime rather than skipped silently. Still owed. |
 | `silent` | Not implemented, and **nothing says so**: a document exercising the clause is drawn wrong without a word. |
-| `inapplicable` | The requirement cannot reach this program: it describes a press rather than a screen (§10.6's halftones, on the standard's own condition — ADR 0204), or it is a permission this program declines and has no code to point at (§14.11.2.2's page-boundary guidelines). **Two situations under one word**, which ADR 0205 had to separate by hand; every such note says which it means. **Not** the same as excluded, and not the same as a permission *exercised*, which is `implemented` where there is code to name — §10.7.2's flatness is the standing example. |
+| `inapplicable` | The requirement cannot reach this program: it describes a press rather than a screen (§10.6's halftones, on the standard's own condition — ADR 0204), or it is a permission this program declines and has no code to point at (§14.11.2.2's page-boundary guidelines). **Two situations under one word**, which ADR 0205 had to separate by hand; every such note says which it means. **Not** the same as excluded, and not the same as a permission *exercised*, which is `implemented` where there is code to name — §10.7.2's flatness is the standing example. **The condition is the standard's, read in its clause, and it is asked of the whole program**: a row whose condition was this tree's own claim, or whose stated condition is false of a writer, the print path or the archive path this program has, is not `inapplicable` — a press, a PostScript printer or a capturing application is a condition; "this is a viewer" is not (ADR 1461). |
 | `writer-side` | The requirement addresses a PDF *generator*: what a file shall contain, laid out how. Principle 5 also lists this as an exclusion, but it gets its own status because it is a property of the clause rather than a choice about scope. **The exclusion is authoring, not writing** — §7.5.6's incremental update of what a person did is in scope and implemented (ADR 0121), and RFC 0002 §10's serializer emits structure and never content — so a row is `writer-side` only where the requirement falls on whoever *creates* the structure. §7.2.2 is `implemented` rather than `writer-side`, because a tree that writes has to write ASCII tokens. |
 | `out-of-scope` | **Only** for a clause covered by principle 5's closed exclusion list, and the row must name which entry covers it. |
 | `unreviewed` | Nobody has read this clause against this code. The initial state of every row, whenever the population grows. |
@@ -519,7 +519,9 @@ ADR 1274), and `tools/batch.sh commit` stages the whole population by name while
 worktree holding uncommitted work (`tests/batch.rs`, ADR 1313), and every row of the trap index has
 an entry of its number in the group file it names and every entry its row (`tests/traps.rs`,
 ADR 1379), an environment variable a live document names is one the code reads
-(`tests/variables.rs`), and the fuzz workspace's lock and targets are what `tools/fuzz.sh` and
+(`tests/variables.rs`), a command a live document writes names a package, target and `tools/`
+script the tree has and no `--release` `doc/verify.md` does not prescribe (`tests/commands.rs`,
+ADR 1475), and the fuzz workspace's lock and targets are what `tools/fuzz.sh` and
 `fuzz/seeds.sh` need (`tests/fuzz_workspace.rs`, ADR 1439). The sweeps under `src/bin/` —
 `pointers`, `overtaken`, `retired`, `unread`, `cited` and the rest — are reading lists and never
 gates, since each judges prose; `tools/state.sh` runs them by section. `tools/state.sh comments`
@@ -529,8 +531,8 @@ sorted into code, a session this program has, a round's session, and the lines n
 ranks a member of a growing population — the oracle's and the corpus gates' notes, the ledger's —
 listed so that a rank is read as a comparison with the member it names (`tools/superlatives.py`,
 ADR 1427). `tools/state.sh prose` runs the prose sweeps together — comment history, superlatives,
-overtaken notes, unread claims, doc-comment names, environment variables and the ledger's program
-names — one count and one listing command each, so "is the prose true" is one command (ADR 1451).
+overtaken notes, unread claims, doc-comment names, environment variables, document commands and
+the ledger's program names — one count and one listing command each, so "is the prose true" is one command (ADR 1451).
 
 Two ratchets, both in the gate and both two-directional. `UNREVIEWED_CEILING` may only fall.
 `REVIEW_OWED` names the clauses the code cites whose rows are still `unreviewed`, and a clause not

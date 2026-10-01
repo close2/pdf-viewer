@@ -257,3 +257,10 @@ the program sits under: §9.9.1 requires a `cmap` under a simple font and forbid
 `CIDFont`, and the brief for round 1294 had the `CIDFont` case backwards (ADR 1425). A brief's
 table numbers are checked the same way — batch forty-five's named Tables 217 and 195–199 for what
 the text prints as 221 and 197–200.
+
+Before asking raster for new scene vocabulary for a construction that ends in a function of the
+composited pixel — a group blending in a colour space of its own, a luminosity mask under a
+profile's own Y — ask whether the group is isolated: §11.4.5 composites an isolated group onto a
+fully transparent backdrop, so a frame of its own holds exactly its pixels, and the shared
+resolution keeps both backends on one arithmetic (ADR 1471). Four pages refused "before the scene"
+were one construction at two scopes.

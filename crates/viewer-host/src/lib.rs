@@ -105,6 +105,7 @@
 //!   windows asking the question two ways is where one of them draws boxes.
 //! - [`geometry`] — the axis-aligned bound of a quadrilateral. Both native hosts had written it,
 //!   identically, before [`popup`] wanted it a third and fourth time.
+//! - [`wheel`] — Control and the wheel: how much travel is one zoom step, in all three windows.
 //! - [`trace`] — `--trace=<topics>`, in the line format `viewer-ui` prints, so that two hosts'
 //!   launch timelines can be read side by side. `CLAUDE.md` makes the launch path a measured
 //!   thing and a host is a program a person runs.
@@ -142,6 +143,7 @@ pub mod restriction;
 pub mod status;
 pub mod submit;
 pub mod trace;
+pub mod wheel;
 
 pub use arrangement::next_layout;
 pub use clock::{Clock, face, face_target};
@@ -184,6 +186,7 @@ pub use status::{
     cannot_open, drew_after_all, no_pages, on_screen, still_drawing, stopped_drawing,
 };
 pub use trace::{Topic, Trace, parse_topics};
+pub use wheel::{ZOOM_PIXELS, ZoomWheel};
 
 /// The third-party notices every binary in this tree is obliged to carry with it.
 ///

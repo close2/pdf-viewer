@@ -367,62 +367,8 @@ fn quorra_refuses_a_knockout_group_on_its_own_backdrop() {
     );
 }
 
-/// §11.6.6's group compositing in a four-component space is refused **by name** here.
-///
-/// The page-level pair is drawn by two whole `Target::Readback` renders (ADR 0275), but a
-/// *group's* pair resolves per pixel after the group composites and before it is painted
-/// onto its parent, which a scene under composition has no lane for. Drawing either list
-/// alone would paint the group in ink complements — a plausible wrong picture — so the
-/// refusal is typed and this fails if it ever becomes silent.
-#[test]
-fn quorra_refuses_a_group_in_its_own_blending_space() {
-    let list = test_scenes::group_in_its_own_blending_space();
-    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("target fits the budget");
-    let refusal = raster()
-        .rasterize(&list, target)
-        .expect_err("a scene under composition cannot resolve a pair per pixel")
-        .to_string();
-    assert!(
-        refusal.contains("§11.6.6") && refusal.contains("four components"),
-        "the refusal names the clause and what it needs: {refusal}"
-    );
-}
-
-/// And the one-component shape of the same clause is refused by the same name.
-///
-/// A curve resolves per pixel after the group composites exactly as the pair does, and a
-/// group drawn without it would paint its components as light — a plausible wrong picture —
-/// so this fails if the refusal ever becomes silent.
-#[test]
-fn quorra_refuses_a_group_in_a_one_component_blending_space() {
-    let list = test_scenes::group_in_a_one_component_blending_space();
-    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
-    let refusal = raster()
-        .rasterize(&list, target)
-        .expect_err("a scene under composition cannot resolve a curve per pixel")
-        .to_string();
-    assert!(
-        refusal.contains("§11.6.6") && refusal.contains("one component"),
-        "the refusal names the clause and what it needs: {refusal}"
-    );
-}
-
-/// And the three-component shape, for the same reason: a cube resolves per pixel after the
-/// group composites, and a group drawn without it would paint a `CalRGB`'s components as
-/// light.
-#[test]
-fn quorra_refuses_a_group_in_a_three_component_blending_space() {
-    let list = test_scenes::group_in_a_three_component_blending_space();
-    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
-    let refusal = raster()
-        .rasterize(&list, target)
-        .expect_err("a scene under composition cannot resolve a cube per pixel")
-        .to_string();
-    assert!(
-        refusal.contains("§11.6.6") && refusal.contains("three CIE-based components"),
-        "the refusal names the clause and what it needs: {refusal}"
-    );
-}
+// A group in a blending colour space of its own is drawn, not refused: `own_space_groups.rs`
+// holds it to the clause's closed form (ADR 1471).
 
 /// One non-isolated group over a page, composited under `blend` — the geometry of
 /// [`test_scenes::non_isolated_group`] with the group's own blend mode made a parameter.

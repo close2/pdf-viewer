@@ -5874,3 +5874,51 @@ own merits: on stroked rings against the annulus it takes the rim error from 2�
 8.7. And the exact residue meet is priced, not built (ADR 1456): 13 340 pixels of the whole corpus at 1×
 have both coverages fractional, and `min` can be off by at most 2 275 pixels' worth of area across all
 of them; it needs the mark's polylines at the fan-out's commit and the clip's beside its region.
+
+## 60. Section 43 answered on this side: a group resolved after it composites is a frame of its own (ADR 1471), and a target past the side limit is tiles (ADR 1472)
+
+**Section 43's three asks are withdrawn as blockers.** Every group they concern is isolated, and
+§11.4.5 composites an isolated group onto "a fully transparent initial backdrop", so its result
+depends only on its own elements. `render-raster` now draws such a group's elements as a separate
+`Device::render` into a readback, on the same device and caches. It resolves the result with
+`pdf_render`'s shared arithmetic (the pair, the curve, the cube, or `SoftMask::values` for the
+mask's `Y`) and places it back as a `MeshSpec` at the target's origin, filled through `Paint::Mesh`
+inside a `GroupSpec` carrying the group's alpha, blend, clip and mask, or as the body of a
+`MaskKind::Alpha`. `REFUSED_BEFORE_THE_SCENE` is empty, and all four of its pages agree at 1× and
+4×. The vocabulary section 43 described would still be the better construction: it costs no
+second frame, and it would survive a view change where a device-pixel raster does not. It is now
+an optimisation, not a hole.
+
+**One measurement for you, from the page that left.** `bug1721218_reduced.pdf` (612 × 792) costs
+about 3.7 s of `encode: geometry` per frame on every coverage lane. That is 14 192 outlines and
+122 940 segments, mostly 3 518 shadings each under its own clip (`W n` then `sh`), against 84 ms
+on the CPU backend. Drawing the group as a plain group pays the same, so the cost is in the
+geometry phase on this content, not in the new construction. Repro:
+`ZOOM_FRAME_ENCODE_PHASES=1 cargo run --release -p render-raster --example zoom_frame --
+doc/pdf.js/test/pdfs/bug1721218_reduced.pdf 1 1 1`.
+
+**And section 44's whole-page target.** `issue19517.pdf` at 12 608 × 16 806 is no longer an ask:
+`QuorraRasterizer::render` draws a target past `Limits::max_target_size` as whole-pixel
+translations in tiles of 4 096 and stitches them, and the page agrees with the oracle.
+
+## 61. A residue clip meets a mark by the area of their intersection (ADR 1467), and equal tangents are no corner (ADR 1468)
+
+**Section 59's ask 2, finished on this side.** Where a mark's coverage and its residue clip's are both
+fractional in a pixel, raster now draws the area of the two sets' intersection, computed from both
+sets' edges under each one's rule, rather than `min` of the bytes; `min` stays wherever one set holds
+the other and on the image lane. On the 64-gon fixture and a stroked variant every pixel is within one
+rounding of the closed form, on the fan-out and the walk alike, at any thread count. At 1× it lowers
+43 066 corpus pixels by 23 levels on average; nine pages' frames move, eight of them a little further
+from your oracle (at most `bug1721218_reduced.pdf` 0.0054 → 0.0147), which is the direction expected
+of an oracle that meets two bytes. None crosses the gate.
+
+**And a join between segments that meet along one tangent is round** — the four cubics of a circle,
+a curve continued by a line along its tangent — since §8.4.3.4 makes join styles significant only
+"at points where consecutive segments of a path connect at an angle". Twelve pages moved at 1×, all
+equal to your oracle to four places.
+
+**One measurement for you.** `bug1721218_reduced.pdf` spends 97% of its 3.7 s frame flattening and
+rasterising residue chains per mark: each of its 3 518 clipped shadings arrives under its own clip id
+for one of two clipping paths, so raster's region cache (keyed by id) never sees a repeat. Keying that
+cache by the chain's content on this side was tried and did not recover the time, for a reason not yet
+established (ADR 1467 section 3); it is raster's to find.

@@ -121,7 +121,7 @@ defect in the standard. ADR 0252 has the argument.
    `--bin quotations` rather than a script somebody retypes. Its first committed run found three
    misquotations. ADR 0375.
 3a. ~~**Quotations of the standard in Markdown**~~ — **built and run, and the induction held.**
-   `conformance::prose` and `cargo run --release -p conformance --bin quotations` read every
+   `conformance::prose` and `cargo run -p conformance --bin quotations` read every
    Markdown document this project wrote under `doc/` against all fourteen specifications, with ADR
    0249's discriminator and the standard's own continuation printed under each divergence. Thirteen
    corrections on the first run, three of them sentences ISO 32000-2 does not contain, two of them

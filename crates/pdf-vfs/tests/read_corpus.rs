@@ -86,7 +86,8 @@
 //! - `attachments/NAME` is what `Plan::Attachments`'s `Save` writes for the name the document
 //!   files it under, and the listing is that inventory with §7.11.4's names made safe.
 //! - `meta/info.json` states exactly what `pdf_model::metadata::Information` answers, entry by
-//!   entry; `meta/xmp.xml` is the catalog's `/Metadata` stream decoded, byte for byte; and
+//!   entry, and where the dictionary is silent the packet property Table 349's NOTE names (ADR
+//!   1473 section 5); `meta/xmp.xml` is the catalog's `/Metadata` stream decoded, byte for byte; and
 //!   `meta/outline.json` is checked against `pdf_model::outline::Outline`'s own item count.
 //!
 //! # The transport is the confined one
@@ -1127,6 +1128,49 @@ fn attachment_names(name: &str, path: &Path) -> Result<Vec<String>, String> {
         .collect())
 }
 
+/// `meta/info.json`'s nine values as the comment at its one caller derives them.
+fn expected_information(document: &Document) -> [Value; 9] {
+    use pdf_model::xmp::{DC, PDF, XMP};
+    let information = pdf_model::metadata::Information::read(document);
+    let packet = pdf_model::xmp::Xmp::document(document).and_then(Result::ok);
+    let from_packet = |namespace: &str, local: &str| {
+        packet
+            .as_ref()
+            .and_then(|packet| packet.text(namespace, local))
+            .map(str::to_owned)
+    };
+    let either = |held: &Option<String>, namespace: &str, local: &str| {
+        Value::optional(held.clone().or_else(|| from_packet(namespace, local)))
+    };
+    let info = document.get_key(document.trailer(), "Info");
+    let trapped_held = info
+        .as_dict()
+        .is_some_and(|dict| document.get_key(dict, "Trapped").as_name().is_some());
+    let trapped = match (trapped_held, &information.trapped) {
+        (_, pdf_model::metadata::Trapped::Fully) => "True",
+        (_, pdf_model::metadata::Trapped::NotYet) => "False",
+        (true, pdf_model::metadata::Trapped::Unknown) => "Unknown",
+        (false, pdf_model::metadata::Trapped::Unknown) => {
+            match from_packet(PDF, "Trapped").as_deref() {
+                Some("True") => "True",
+                Some("False") => "False",
+                _ => "Unknown",
+            }
+        }
+    };
+    [
+        either(&information.title, DC, "title"),
+        either(&information.author, DC, "creator"),
+        either(&information.subject, DC, "description"),
+        either(&information.keywords, PDF, "Keywords"),
+        either(&information.creator, XMP, "CreatorTool"),
+        either(&information.producer, PDF, "Producer"),
+        Value::optional(information.created.clone()),
+        Value::optional(information.modified.clone()),
+        Value::text(trapped),
+    ]
+}
+
 /// `meta/`: §14.3.3's entries, §14.3.2's packet and §12.3.3's outline.
 ///
 /// The three files whose composition lives in `crate::worker` rather than in a plan, so the
@@ -1171,31 +1215,21 @@ fn meta(vfs: &Vfs, here: &Vfs, local: &mut Local, path: &Path, name: &str) {
     ) else {
         return;
     };
-    // §14.3.3, entry by entry: what the file states is what the model's reader answers.
+    // §14.3.3, entry by entry: each from the dictionary as the model's reader answers it, and
+    // where the dictionary is silent, from the packet property Table 349's own NOTE names for it —
+    // §14.3.1 makes the packet the home of every entry but the two dates in a PDF 2.0 file, whose
+    // packet spells a date in ISO 8601 and so is not asked for one (ADR 1473 section 5). Written
+    // here from the table rather than through `update::stated_information`, so the gate is not the
+    // code it checks.
     if let Ok(handle) = vfs.open("/meta/info.json") {
         let stated = String::from_utf8_lossy(handle.bytes()).into_owned();
-        let information = pdf_model::metadata::Information::read(&document);
-        let values = [
-            Value::optional(information.title.clone()),
-            Value::optional(information.author.clone()),
-            Value::optional(information.subject.clone()),
-            Value::optional(information.keywords.clone()),
-            Value::optional(information.creator.clone()),
-            Value::optional(information.producer.clone()),
-            Value::optional(information.created.clone()),
-            Value::optional(information.modified.clone()),
-            Value::text(match information.trapped {
-                pdf_model::metadata::Trapped::Fully => "True",
-                pdf_model::metadata::Trapped::NotYet => "False",
-                pdf_model::metadata::Trapped::Unknown => "Unknown",
-            }),
-        ];
+        let values = expected_information(&document);
         for (key, value) in INFORMATION_KEYS.iter().zip(values.iter()) {
             let line = format!("\"{key}\": {}", value.render().trim_end());
             if !stated.contains(&line) {
                 local.differ.push(format!(
                     "/meta/info.json: does not state {line} — §14.3.3's entry as \
-                     `pdf_model::metadata` reads it"
+                     `pdf_model::metadata` reads it, or Table 349's packet counterpart"
                 ));
             }
         }

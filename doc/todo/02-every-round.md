@@ -867,8 +867,11 @@ memory of the session the quota ended. `tools/batch.sh` is the command; this is 
    wrong clause, named a file that does not exist, and attributed their own lint errors to a
    sibling; the merge is where that is caught.
 4. **When all are in**: `cargo fmt --all` (now safe — nobody is editing), tier 1 in full, then
-   `tools/batch.sh gates` for tiers 2 and 3 (about twelve minutes; one line per gate in the log, a
-   failure's tail beside it). A moved ratchet is moved *with its reason above the constant*; a bare
+   `tools/batch.sh gates` for tiers 2 and 3 (one line per gate in the log with its `wall` and its
+   `wait` on the lock, a failure's tail beside it; `tools/state.sh gates-cost` prints which gate is
+   dear). The log's last line, and one line per round with the duration and tool uses its
+   notification reported, go into the batch commit's body — the one place a batch's clock is kept,
+   and `git log --grep 'ALL GATES DONE'` is what reads it back (ADR 1476). A moved ratchet is moved *with its reason above the constant*; a bare
    count that can only rise is replaced by a named population (`REFUSED_OPEN` is the shape).
 5. **Commit in the worktree, then fast-forward `main` — from the main checkout,
    `git merge --ff-only <branch>`, never from inside the

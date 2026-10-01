@@ -295,12 +295,14 @@ and a window does not. `warm` is 3% to 11% of the refresh on every page and is l
 | | step | 1.38 (17%) | — | — | 0.22 | 0.11 | 0.94 | 0.11 |
 | `personwithdog.pdf` p1, patch meshes | turn | 10.08 (121%) | 3.73 | 2.94 | 1.17 | 0.43 | 1.62 | 0.19 |
 | | step | 11.33 (136%) | — | **4.58** | 4.56 | 0.44 | 1.50 | 0.26 |
-| `issue12841_reduced.pdf` p1, one 5 280 × 3 792 photograph | turn | 42.28 (507%) | **28.41** | 0.02 | 0.01 | **12.48** | 1.27 | 0.08 |
-| | step | 13.43 (161%) | — | 0.00 | 0.01 | **10.64** | 2.59 | 0.19 |
-| `22060_A1_01_Plans.pdf` p1, 72 placed images | turn | 93.38 (1121%) | **76.61** | 0.18 | 3.33 | 8.13 | 4.07 | 1.07 |
-| | step | 22.96 (276%) | — | — | 5.20 | **15.14** | 1.56 | 1.05 |
-| `images.pdf` p1 | turn | 50.87 (610%) | **42.70** | 0.04 | 0.86 | 5.71 | 0.95 | 0.62 |
-| | step | 12.43 (149%) | — | — | 2.54 | **8.33** | 0.62 | 0.94 |
+| `issue12841_reduced.pdf` p1, one 5 280 × 3 792 photograph | turn | 39.96 (480%) | **26.85** | 0.01 | 0.01 | **11.27** | 1.22 | 0.08 |
+| | step | 12.60 (151%) | — | 0.00 | 0.01 | **9.81** | 2.60 | 0.18 |
+| `22060_A1_01_Plans.pdf` p1, four photographs under soft masks, 72 placements | turn | 52.91 (635%) | **36.97** | 0.16 | 4.44 | 7.98 | 2.57 | 0.32 |
+| | step | 20.88 (251%) | — | — | 5.44 | **13.62** | 0.97 | 0.33 |
+| `issue13931.pdf` p1, one photograph under a `/Matte`'d mask | turn | 38.76 (465%) | **33.85** | 0.04 | 0.35 | 3.83 | 0.62 | 0.06 |
+| | step | 7.63 (92%) | — | — | 0.05 | **6.82** | 0.59 | 0.12 |
+| `images.pdf` p1 | turn | 35.07 (421%) | **28.49** | 0.04 | 0.72 | 4.12 | 0.91 | 0.43 |
+| | step | 9.82 (118%) | — | — | 2.26 | **6.35** | 0.53 | 0.66 |
 | `issue14415.pdf` p1, strokes, 959 commands | turn | 11.14 (134%) | 2.49 | 0.63 | **6.28** | 0.84 | 0.76 | 0.14 |
 | | step | 5.88 (71%) | — | — | **4.41** | 0.21 | 1.11 | 0.15 |
 | `issue19802.pdf` p1, 1 032 commands | turn | 4.13 (50%) | 0.49 | 0.21 | **2.60** | 0.19 | 0.46 | 0.18 |
@@ -314,17 +316,17 @@ The `issue14415.pdf` row was re-taken on 2026-09-30 after ADR 1431, minimum of t
 five rounds in one sitting, pinned, load 2.2–2.4. The Type 3 row was re-taken on 2026-10-01 after
 ADR 1445, the same way against the tree before it (load 5.2–6.4; that build read 11.48 and 11.65):
 each glyph's stroke is expanded once for all its placements in the tiling, where it was expanded
-and tiled at each; p101 and `issue14415.pdf` did not move beyond the runs' spread. The three image rows were re-taken on 2026-09-30 after ADR
-1433, the same way against the tree before it (load 16–20; that build read 126.04–129.90 and
-15.78 on the photograph, 128.0–131.6 and 49.2 on the plan, 156.0–157.9 and 22.6 on `images.pdf`).
-The photograph's rows were re-taken on 2026-10-01 after ADR 1457, three runs of five rounds an
-arm against the tree before it in the same sitting (load 3.2–4.0; that build read 46.56–48.26 and
-13.26–13.53): an opaque band of the reduction is read off its column sums. The same ADR took
-`issue13931.pdf`'s turn, a photograph under a `/Matte`'d mask, from 178.8 to 64.3 ms; the plan and
-`images.pdf` did not move beyond the runs' spread. The rest are the re-baseline's.
+and tiled at each; p101 and `issue14415.pdf` did not move beyond the runs' spread.
+The four image rows were re-taken on 2026-10-01 after ADR 1469, three runs of five rounds against
+the tree before it in the same sitting (load 2.2–2.5; that build read 86.64 (71.26) on the plan,
+60.94 (55.47) on `issue13931.pdf`, 47.84 (41.01) on `images.pdf` and 39.32 on the photograph):
+a soft mask is decoded once, beside its image, and multiplied into the raster where it lies, and a
+converted pixel is copied from the one before it or from the memo's bytes. Unpinned the same day,
+the plan 80.14 → 53.10, `issue13931.pdf` 64.36 → 41.28, `images.pdf` 48.24 → 38.88. The rest are
+the re-baseline's.
 
 **A repaint of what is on the screen always fits**; **a page turn onto a page whose outlines the
-device has not seen fits on two of the eight** — the expensive end of that gesture, where
+device has not seen fits on three of the nine** — the expensive end of that gesture, where
 `launch_path`'s `turn_ms` inside one already-drawn document is the cheap end; and
 **`execute` — the device's own passes — is a few per cent of every row**, which is ADR 0387's 0.07%
 on one page found again across every class. A frame that misses the refresh is a host thread,
@@ -350,7 +352,11 @@ columns once and each cell read off the sums (ADR 1457). A frame with no restart
 one thread's Huffman pass: cutting it at rows an entropy pass finds was built, byte-identical, and
 measured not to pay (ADR 1457). On `images.pdf` and the plan the
 `interp` was this tree's own per-sample unpacking and soft-mask combination rather than a codec,
-and both are single passes now (ADR 1433).
+and both are single passes now (ADR 1433); the combination is a pass over the alpha bytes of the
+raster the decode has just made, divided across the pool, the mask decoded beside its image, and
+the plan's `ICCBased` conversion, which its memo already answered for 99.97% of its pixels, copies
+three bytes where it rounded three floats (ADR 1469). What is left of the plan's `interp` is
+`zune-jpeg`'s Huffman on eight frames with no restart interval, all eight cores busy.
 
 **The launch gate on the same day** (`PDFVIEWER_LAUNCH_CLOCKS=1`, calibration 0.702 ms): all 42
 banded figures judged and inside their bands. Cold graphics bring-up 31.7 ms; first page 39.5,

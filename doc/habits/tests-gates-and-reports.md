@@ -452,3 +452,7 @@ tree's guard**, so the day the owner bumps the `rev` the test fails with the ins
 the guard (`t88_conformance.rs`, ADR 1459). And a figure about a shared cache starts from its size
 against its ceiling before its hit rate is read: sccache sat at its 50 GiB ceiling evicting by age,
 which made an all-targets build read 918 misses against 11 hits (ADR 1463).
+
+**A sweep's rule "X is prescribed by document Y" is restricted to the line shapes where Y prescribes
+X.** The commands gate's first draft took every `check`/`build` line in `doc/verify.md` as a profile
+prescription and flagged three packages that run under `--release` legitimately (ADR 1475).

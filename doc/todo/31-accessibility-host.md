@@ -127,9 +127,11 @@ both named for the binary, one carrying the toolkit's widgets and one carrying ย
   method on `Bridge` and one line in each. Left because it is a fourth thing and this round had
   three; it is the cheapest item on this file.
 
-**And the walk is one command for all three windows**: `tools/drive-windows.sh` brings up a private
-AT-SPI bus per window, walks it with `gi`'s Atspi and counts the `DocumentFrame` nodes each window
-publishes for the same document, and stops by pid what the bus started (ADR 1453).
+**And the walk is one command for all three windows**: `tools/drive-windows.sh` brings up one private
+AT-SPI bus for the whole drive, asks each window where the widgets it clicks are
+(`Component.GetExtents`), walks it with `gi`'s Atspi and counts the `DocumentFrame` nodes each window
+publishes for the same document, and stops by pid what the bus started (ADR 1453). `quorra-qt`'s
+form controls carry ยง14.9.3's name as their accessible name, as `quorra-gtk`'s do.
 
 ## What is left
 

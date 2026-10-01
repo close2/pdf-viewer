@@ -31,7 +31,6 @@
 
 use std::collections::BTreeMap;
 
-use pdf_model::metadata::{Information, Trapped};
 use pdf_model::outline::{Item, Outline};
 use pdf_model::page_label::PageLabels;
 use pdf_model::{Pages, interpret};
@@ -807,7 +806,7 @@ impl InProcess {
         let document = self.document()?;
         match query {
             Query::Information => Ok(Answer::Bytes(
-                information_json(&Information::read(&document)).into_bytes(),
+                information_json(&update::stated_information(&document)).into_bytes(),
             )),
             Query::MetadataStream => {
                 Ok(metadata_stream(&document).map_or(Answer::Absent, Answer::Bytes))
@@ -992,62 +991,41 @@ fn metadata_stream(document: &Document) -> Option<Vec<u8>> {
         .map(|bytes| bytes.to_vec())
 }
 
-/// §14.3.3's document information dictionary, as JSON.
+/// Table 349's entries as the document states them, as JSON.
 ///
 /// ISO 32000-2 §14.3.3:
 ///
 /// > Where a document information dictionary contains keys other than CreationDate and ModDate ,
 /// > the value associated with any such key shall be a text string.
 ///
-/// Which is why every entry below is a JSON string or `null` and none is a number: the clause
-/// makes them text, `pdf_model::metadata` has already decoded §7.9.2.2's encodings, and the two
-/// date entries are handed back **as the file spells them** rather than reformatted — a §7.9.4
-/// date string is what the document said, and a mount that normalised it would be answering a
-/// question about this program.
-fn information_json(information: &Information) -> String {
-    Value::Object(vec![
-        (
-            "title".to_owned(),
-            Value::optional(information.title.clone()),
-        ),
-        (
-            "author".to_owned(),
-            Value::optional(information.author.clone()),
-        ),
-        (
-            "subject".to_owned(),
-            Value::optional(information.subject.clone()),
-        ),
-        (
-            "keywords".to_owned(),
-            Value::optional(information.keywords.clone()),
-        ),
-        (
-            "creator".to_owned(),
-            Value::optional(information.creator.clone()),
-        ),
-        (
-            "producer".to_owned(),
-            Value::optional(information.producer.clone()),
-        ),
-        (
-            "created".to_owned(),
-            Value::optional(information.created.clone()),
-        ),
-        (
-            "modified".to_owned(),
-            Value::optional(information.modified.clone()),
-        ),
-        (
-            "trapped".to_owned(),
-            Value::text(match information.trapped {
-                Trapped::Fully => "True",
-                Trapped::NotYet => "False",
-                Trapped::Unknown => "Unknown",
-            }),
-        ),
-    ])
-    .render()
+/// Which is why every entry below is a JSON string or `null` and none is a number. The values are
+/// [`update::stated_information`]'s: each entry from the dictionary where the file keeps it, and
+/// otherwise from its counterpart in §14.3.2's packet, because §14.3.1 sends every entry but the
+/// two dates into the packet in a PDF 2.0 file and a view of the dictionary alone would call a
+/// title the file states absent (ADR 1473 section 5). The write side compares against the same
+/// reading, so the file read and written straight back changes nothing. The two date entries are
+/// handed back **as the file spells them** rather than reformatted — a §7.9.4 date string is what
+/// the document said, and a mount that normalised it would be answering a question about this
+/// program. `trapped` is Table 349's default, `Unknown`, where nothing states it.
+fn information_json(stated: &[update::InfoEntry]) -> String {
+    let value = |key: &str| {
+        stated
+            .iter()
+            .find(|entry| entry.key == key)
+            .and_then(|entry| entry.value.clone())
+    };
+    let mut fields: Vec<(String, Value)> = INFORMATION_NAMES
+        .iter()
+        .filter(|(_, key)| *key != "Trapped")
+        .map(|(name, key)| ((*name).to_owned(), Value::optional(value(key))))
+        .collect();
+    let trapped = match value("Trapped").as_deref() {
+        Some("True") => "True",
+        Some("False") => "False",
+        _ => "Unknown",
+    };
+    fields.push(("trapped".to_owned(), Value::text(trapped)));
+    Value::Object(fields).render()
 }
 
 /// §12.3.3's outline, as JSON, with each item's page ordinal beside it.

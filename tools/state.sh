@@ -171,13 +171,14 @@ section_superlatives() {
         env PYTHONDONTWRITEBYTECODE=1 python3 tools/superlatives.py --count
 }
 
-# Whether the prose is true, as one answer: the seven sweeps that read what this tree writes about
+# Whether the prose is true, as one answer: the eight sweeps that read what this tree writes about
 # itself, each run as its own section runs it, each reduced to the one line that is its count, and
 # each followed by the command that lists what it counted. No logic of its own — a round asked "is
 # the prose true" needs one command, and the sweeps stay where they are argued: comment history
 # (ADR 1403), superlatives (ADR 1427), overtaken page-list notes and unread-entry claims (the
 # navigation section's two ledger sweeps), a Rust path a doc comment names (ADR 1273), an
-# environment variable a document names (`tests/variables.rs`), and a crate or program a ledger
+# environment variable a document names (`tests/variables.rs`), a cargo target or `tools/` script
+# a document's command names (`tests/commands.rs`, ADR 1475), and a crate or program a ledger
 # note names (ADR 1437, which is inside the ledger gate, so its line is that gate's verdict and
 # whatever the gate found prints beneath it). ADR 1451.
 prose_line() {
@@ -196,7 +197,7 @@ prose_line() {
 }
 
 section_prose() {
-    heading "whether the prose is true: seven sweeps, one count each" "tools/state.sh prose"
+    heading "whether the prose is true: eight sweeps, one count each" "tools/state.sh prose"
     prose_line comments '^crates and tools: ' 'tools/state.sh comments' \
         python3 tools/comment-history.py
     prose_line superlat. '^[0-9]+ superlative' 'tools/state.sh superlatives' \
@@ -209,6 +210,8 @@ section_prose() {
         cargo run -q -p conformance --bin names
     prose_line variables 'variable\(s\) read by the code' 'cargo test -p conformance --test variables -- --nocapture' \
         cargo test -p conformance --test variables -- --nocapture
+    prose_line commands 'cargo command\(s\) in' 'cargo test -p conformance --test commands -- --nocapture' \
+        cargo test -p conformance --test commands -- --nocapture
     prose_line programs '^test result' 'cargo test -p conformance --test conformance the_ledger_agrees_with_the_standard_and_with_the_tree' \
         cargo test -p conformance --test conformance the_ledger_agrees_with_the_standard_and_with_the_tree -- --exact
 }
@@ -645,6 +648,34 @@ section_fuzz() {
     done
 }
 
+# Which gate is dear: each gate's last run out of the merge's own log, dearest first, and the
+# total the log's last line states. The log is the orchestrator's — `tools/batch.sh gates` writes
+# it and nothing else does — so this section reads it and never writes it, and prints nothing of
+# its own beyond the order: `wall` is the gate's build and walk, `wait` its queue on the heavy-walk
+# lock, and the total is `batch.sh`'s sum, not this script's. A line from before the clocks were
+# recorded carries only the test's own "finished in", which leaves the build out and is said to.
+# ADR 1476.
+section_gates_cost() {
+    local log=${BATCH_GATES_LOG:-/home/AI/batch-gates.log}
+    heading "which gate is dear: the merge's last gate run, read-only" "$log"
+    [ -r "$log" ] || { printf 'no gate log at %s — no merge has run `tools/batch.sh gates` on this machine\n' "$log"; return 0; }
+    printf 'last run: %s\n' "$(date -r "$log" '+%Y-%m-%d %H:%M')"
+    if grep -q ' wall=' "$log"; then
+        grep -E '^[a-z0-9_-]+ +exit=' "$log" \
+            | sed -E 's/^([^ ]+) +exit=([^ ]+) +wall=([0-9]+)s +wait=([0-9]+)s.*/\3\t\4\t\2\t\1/' \
+            | sort -t$'\t' -k1,1nr \
+            | awk -F'\t' '{ printf "  %-24s wall %6ss  wait %6ss  exit %s\n", $4, $1, $2, $3 }'
+    else
+        printf 'this log predates the per-gate clocks (ADR 1476): the test-only time each line printed,\n'
+        printf 'which leaves out the build, dearest first\n'
+        grep -E '^[a-z0-9_-]+ +exit=' "$log" \
+            | sed -nE 's/^([^ ]+) +exit=([^ ]+) .*finished in ([0-9.]+)s.*/\3\t\2\t\1/p' \
+            | sort -t$'\t' -k1,1gr \
+            | awk -F'\t' '{ printf "  %-24s finished in %8ss  exit %s\n", $3, $1, $2 }'
+    fi
+    grep -E '^ALL GATES DONE' "$log" | tail -1
+}
+
 # What the main checkout holds that a merge does not carry, read and never written: a local edit
 # the fast-forward would refuse over, whether `fuzz/Cargo.lock` agrees with the root lock, which
 # fuzz artefacts the tree has read (it names them) and which it has not, the targets with no seeds
@@ -1038,8 +1069,8 @@ section_ratchets() {
     done
 }
 
-all="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout traps hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame dates xmp save actions on-disk jpeg2000 instruments"
-quick="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout traps hosts windows binaries disk remedies instruments"
+all="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost traps hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame dates xmp save actions on-disk jpeg2000 instruments"
+quick="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost traps hosts windows binaries disk remedies instruments"
 
 # Sections another section already runs. Not in `all`, because a full run pays for every line
 # they run — `ratchets` through the gates it composes, `remedies` inside `archive` — and named by
@@ -1100,6 +1131,7 @@ for section in $sections; do
     counts) section_counts ;;
     fuzz) section_fuzz ;;
     main-checkout) section_main_checkout ;;
+    gates-cost) section_gates_cost ;;
     traps) section_traps ;;
     instruments) section_instruments ;;
     hosts) section_hosts ;;

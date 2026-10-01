@@ -70,6 +70,8 @@
 //!   than once per mark (ADR 0049).
 //! - `coverage` — where a mark's coverage comes from, and the conditions that choose
 //!   between the two ways of making one.
+//! - `meet` — where a mark meets its residue: `min`, and the exact area where both sets
+//!   cut a pixel (ADR 1467).
 //! - `thin` — how thin a mark is, and the width below which the device lane can no
 //!   longer promise ISO 32000-2 §10.7.4 (ADR 0070).
 //! - `scratch` — the frame's coverage sheet, and the shelf packing that fills it
@@ -97,6 +99,7 @@ mod function;
 mod hull;
 mod instance;
 mod layer;
+mod meet;
 mod opacity;
 mod overprint;
 mod parallel;

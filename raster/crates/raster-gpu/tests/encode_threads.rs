@@ -677,8 +677,9 @@ fn long_text_page(device: &mut Device) -> Scene {
 /// a device keeps its atlas from frame to frame, a frame refused by its budget has committed
 /// every insert before the refusing charge, and the page after it is drawn on that atlas. So
 /// the refused frame, then a text page, is the same refusal and the same bytes at every thread
-/// count — and the text page does not take the lanes it takes on a fresh device, which is why a
-/// comparison of two devices must draw the refused frame on both.
+/// count. The text page then finds the atlas full of entries it never uses, is refused room,
+/// resets it and is encoded again (ADR 1467 section 4), so it is also the page a fresh device
+/// draws, and its counters say it repacked.
 #[test]
 fn the_page_after_a_refused_frame_is_the_same_bytes_at_every_thread_count() {
     let history = |threads: usize, refused_first: bool| {
@@ -712,18 +713,30 @@ fn the_page_after_a_refused_frame_is_the_same_bytes_at_every_thread_count() {
         )
     };
     let (refusal, alone, counters) = history(1, true);
-    let (_, _, fresh) = history(1, false);
+    let (_, fresh_pixels, fresh) = history(1, false);
     assert!(
         refusal
             .as_deref()
             .is_some_and(|r| r.contains("FrameBudgetExceeded")),
         "the long page must refuse on the budget: {refusal:?}"
     );
+    // The refused frame's inserts fill the atlas the next page finds; that page is refused
+    // room among entries it never uses, resets the atlas and is encoded again, so it is the
+    // page a fresh device draws, and says it repacked (ADR 1467 section 4).
     assert!(
-        fresh.atlas_overflow_tiles == 0 && counters.atlas_overflow_tiles > 0,
-        "the refused frame's inserts must fill the atlas the next page finds, or this fixture \
-         tests nothing: {fresh:?} against {counters:?}"
+        counters.atlas_repacked && !fresh.atlas_repacked,
+        "the page after the refused frame must find the atlas full of it and reclaim it, or \
+         this fixture tests nothing: {fresh:?} against {counters:?}"
     );
+    assert_eq!(
+        Counters {
+            atlas_repacked: false,
+            ..counters
+        },
+        fresh,
+        "and is otherwise the page a fresh device draws"
+    );
+    assert!(fresh_pixels == alone, "to the byte");
     for threads in COUNTS.into_iter().skip(1) {
         let (also_refused, divided, also) = history(threads, true);
         assert_eq!(

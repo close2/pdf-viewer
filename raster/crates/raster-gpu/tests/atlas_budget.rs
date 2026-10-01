@@ -178,7 +178,10 @@ fn a_frame_says_how_many_marks_the_full_atlas_cost_it() {
 /// **The two reasons a mark goes uncached, told apart by the pair of counters.**
 ///
 /// This is what ADR 0063 is for. `atlas_overflow_tiles` alone cannot distinguish them and
-/// neither can `atlas_working_set_bytes` alone; together they are exact.
+/// neither can `atlas_working_set_bytes` alone; together they are exact. The second reason
+/// no longer outlives its frame: a frame refused room among another page's entries resets
+/// the atlas and is encoded again, and `atlas_repacked` is what names it (ADR 1467
+/// section 4).
 #[test]
 fn a_page_too_large_and_an_atlas_holding_another_page_are_told_apart() {
     let atlas = 4 * 1024;
@@ -209,9 +212,8 @@ fn a_page_too_large_and_an_atlas_holding_another_page_are_told_apart() {
         shared.limits().atlas_bytes
     );
     assert!(
-        counters.atlas_overflow_tiles > 0,
-        "and is declined anyway, because the sheet is full of the page before it — no \
-         budget reaches this, and the repack that follows the frame is what clears it \
-         ({counters:?})"
+        counters.atlas_overflow_tiles == 0 && counters.atlas_repacked,
+        "and is not declined: refused room among another page's entries, the frame resets \
+         the atlas and is encoded again, and says so (ADR 1467 section 4) ({counters:?})"
     );
 }

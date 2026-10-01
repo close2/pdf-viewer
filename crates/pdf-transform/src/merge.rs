@@ -945,14 +945,7 @@ pub(crate) fn write(
         &mut warnings,
     )?;
 
-    // `Document::version` is already §7.5.2's header raised by Table 29's `/Version` where the
-    // catalog states a later one, so the highest of these is the highest any source claims —
-    // which is why the written catalog states no `/Version` of its own.
-    let version = documents
-        .iter()
-        .filter_map(Document::version)
-        .max()
-        .unwrap_or(Version { major: 1, minor: 7 });
+    let version = output_version(documents);
     let form = Form::of_all(documents.iter());
     let mut writer = sinks.open(&expanded.name).map_err(|error| Refusal::Sink {
         name: expanded.name.clone(),
@@ -1148,7 +1141,12 @@ fn assemble<'a>(
     // §14.3.3's entries are the caller's statement about the merged document, and §14.3.4's
     // packet goes in beside them: both after the catalog is built, because the packet is an
     // object of its own and the `/Metadata` entry naming it is the catalog's.
-    write_information(&mut merge.assembly, &mut root, information)?;
+    write_information(
+        &mut merge.assembly,
+        &mut root,
+        information,
+        output_version(documents),
+    )?;
 
     merge
         .assembly
@@ -1170,16 +1168,15 @@ fn assemble<'a>(
 /// document stating no `/Info` at all — `doc/questions/A55`'s rule that a derivation is never a
 /// default, applied to metadata (ADR 1212).
 ///
-/// **§14.3.4 is why the packet goes in beside it.** The clause's first rule binds a processor
-/// creating a new document, which a merge is: "[w]hen writing the time and date of creation for
-/// the first time, typically when a new document is created, a PDF processor shall ensure that
-/// the data in the document information dictionary and the document level metadata stream -if
-/// both are written -are fully equivalent", and its fourth says the same of the modification
-/// date. So where the stated entries carry a date, both sources are written and both say the same
-/// instant. The three keys the packet carries are the three whose Table 349 NOTE names a property
-/// of the XMP basic schema — `/CreationDate`, `/ModDate` and `/Creator`; the other six NOTEs name
-/// `dc:` and `pdf:` properties whose `rdf:Alt` and `rdf:Seq` shapes this packet writer does not
-/// write, and a NOTE is not a `shall`.
+/// **Where each entry goes is the output's version** ([`crate::update::deprecated_in`]): in a
+/// PDF 2.0 file every entry but the two dates is stated in §14.3.2's packet alone, because §14.3.1
+/// deprecates the rest in the dictionary, and in an earlier file the dictionary states every
+/// entry and the packet states each one's Table 349 counterpart beside it (ADR 1473). Both
+/// sources then say the same thing, which §14.3.4's first rule requires of the dates in a new
+/// document: "[w]hen writing the time and date of creation for the first time, typically when a
+/// new document is created, a PDF processor shall ensure that the data in the document
+/// information dictionary and the document level metadata stream -if both are written -are fully
+/// equivalent".
 ///
 /// # Errors
 ///
@@ -1189,6 +1186,7 @@ fn write_information(
     assembly: &mut Assembly<'_>,
     root: &mut Dictionary,
     entries: &[InfoEntry],
+    version: Version,
 ) -> Result<(), Refusal> {
     if entries.is_empty() {
         return Ok(());
@@ -1196,86 +1194,43 @@ fn write_information(
     for entry in entries {
         crate::update::validate(entry)?;
     }
-    let dict = crate::update::information_dictionary(Dictionary::new(), entries);
-    let info = assembly
-        .add(Object::Dictionary(dict))
-        .map_err(|error| Refusal::Assembly(error.to_string()))?;
-    assembly.set_info(Some(info));
+    let kept: Vec<InfoEntry> = entries
+        .iter()
+        .filter(|entry| !crate::update::deprecated_in(Some(version), &entry.key))
+        .cloned()
+        .collect();
+    let dict = crate::update::information_dictionary(Dictionary::new(), &kept);
+    if !dict.is_empty() {
+        let info = assembly
+            .add(Object::Dictionary(dict))
+            .map_err(|error| Refusal::Assembly(error.to_string()))?;
+        assembly.set_info(Some(info));
+    }
 
-    let properties = xmp_properties(entries);
-    if properties.is_empty() {
+    if entries.iter().all(|entry| entry.value.is_none()) {
         return Ok(());
     }
-    let packet = pdf_model::xmp::packet(&pdf_model::xmp::Schema {
-        namespace: XMP_BASIC,
-        prefix: "xmp",
-        properties: &properties,
-    });
-    let mut dict = Dictionary::new();
-    dict.insert(
-        Name::new(&b"Type"[..]),
-        Object::Name(Name::new(&b"Metadata"[..])),
-    );
-    dict.insert(
-        Name::new(&b"Subtype"[..]),
-        Object::Name(Name::new(&b"XML"[..])),
-    );
-    // Table 5's `/Length`, which §7.3.8.2 makes required; the serializer does not restate it.
-    let length = i64::try_from(packet.len()).map_err(|_| {
-        Refusal::Assembly("the metadata packet is longer than a PDF integer".to_owned())
-    })?;
-    dict.insert(Name::new(&b"Length"[..]), Object::Integer(length));
+    let packet = crate::update::restated_packet(&pdf_model::xmp::empty_packet(), entries)
+        .map_err(|error| Refusal::Assembly(format!("a fresh XMP packet: {error}")))?;
+    let stream = crate::update::metadata_stream(&Dictionary::new(), packet)?;
     let metadata = assembly
-        .add(Object::Stream(Arc::new(Stream {
-            dict,
-            data: packet.into(),
-            decryption_failed: false,
-        })))
+        .add(stream)
         .map_err(|error| Refusal::Assembly(error.to_string()))?;
     root.insert(Name::new(&b"Metadata"[..]), Object::Reference(metadata));
     Ok(())
 }
 
-/// The XMP basic schema's namespace, which §14.3.2's own EXAMPLE spells.
-const XMP_BASIC: &str = "http://ns.adobe.com/xap/1.0/";
-
-/// Table 349's entries that have a counterpart in the XMP basic schema, as that schema states it.
+/// The version the merged file states: the highest any source claims.
 ///
-/// Table 349's NOTE 5, NOTE 7 and NOTE 8 name the three: `xmp:CreatorTool` for `/Creator`,
-/// `xmp:CreateDate` for `/CreationDate` and `xmp:ModifyDate` for `/ModDate`. An entry the caller
-/// removes has no counterpart to write, and a date the caller states that §7.9.4 does not admit
-/// never reaches here — `update::validate` refused it first.
-fn xmp_properties(entries: &[InfoEntry]) -> Vec<(&'static str, String)> {
-    let mut out = Vec::new();
-    for entry in entries {
-        let Some(value) = entry.value.as_deref() else {
-            continue;
-        };
-        match entry.key.as_str() {
-            "Creator" => out.push(("CreatorTool", value.to_owned())),
-            "CreationDate" => {
-                if let Some(date) = as_xmp_date(value) {
-                    out.push(("CreateDate", date));
-                }
-            }
-            "ModDate" => {
-                if let Some(date) = as_xmp_date(value) {
-                    out.push(("ModifyDate", date));
-                }
-            }
-            _ => {}
-        }
-    }
-    out
-}
-
-/// §7.9.4's date spelled the way ISO 16684-1 spells one, so that §14.3.4's two sources agree.
-///
-/// "[F]ully equivalent" is about the instant, and [`pdf_model::xmp::spelled_date`] is where the
-/// two texts' spellings of one are reconciled; the archive converter writes its dates through the
-/// same function, so a merged file and a converted one cannot spell an instant two ways.
-fn as_xmp_date(value: &str) -> Option<String> {
-    pdf_syntax::date::Date::parse(value).map(|date| pdf_model::xmp::spelled_date(&date))
+/// `Document::version` is already §7.5.2's header raised by Table 29's `/Version` where the
+/// catalog states a later one, so the highest of these is the highest any source claims — which
+/// is why the written catalog states no `/Version` of its own.
+fn output_version(documents: &[Document]) -> Version {
+    documents
+        .iter()
+        .filter_map(Document::version)
+        .max()
+        .unwrap_or(Version { major: 1, minor: 7 })
 }
 
 /// The output's one page-tree node: §7.7.3.2's `/Kids` in output order, and its `/Count`.

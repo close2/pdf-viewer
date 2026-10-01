@@ -922,3 +922,87 @@ pub(crate) fn web_capture_trees(document: &Document) -> Vec<&'static str> {
         .filter(|tree| names.get(tree).is_some())
         .collect()
 }
+
+/// A one-page document of the stated `version`, with §14.3.3's dictionary and §14.3.2's packet
+/// as given — the shape the metadata tests vary, built rather than found because what they vary
+/// is the version and the presence of each source, which no committed document lets a test
+/// choose.
+pub(crate) fn with_metadata(version: &str, info: Option<&str>, packet: Option<&str>) -> Vec<u8> {
+    let metadata = if packet.is_some() {
+        " /Metadata 5 0 R"
+    } else {
+        ""
+    };
+    let mut body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R{metadata} >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> \
+         /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n"
+    );
+    match packet {
+        Some(packet) => {
+            let _ = write!(
+                body,
+                "5 0 obj\n<< /Type /Metadata /Subtype /XML /Length {} >>\nstream\n{packet}\n\
+                 endstream\nendobj\n",
+                packet.len().saturating_add(1)
+            );
+        }
+        None => body.push_str("5 0 obj\nnull\nendobj\n"),
+    }
+    let info_entry = match info {
+        Some(info) => {
+            let _ = write!(body, "6 0 obj\n<< {info} >>\nendobj\n");
+            " /Info 6 0 R"
+        }
+        None => "",
+    };
+    let mut out = format!("%PDF-{version}\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R{info_entry} /ID [<0102> <0304>] >>\nstartxref\n\
+         {xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// An XMP packet in §14.3.3's EXAMPLE's own wrapper, holding `properties` in one description
+/// that binds the three prefixes Table 349's NOTEs use.
+pub(crate) fn packet(properties: &str) -> String {
+    format!(
+        "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
+         <x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n\
+         <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n\
+         <rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" \
+         xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\">\n\
+         {properties}\n</rdf:Description>\n</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>"
+    )
+}
+
+/// The document's §14.3.2 packet, read back, or `None` where the catalog names none.
+pub(crate) fn document_packet(document: &Document) -> Option<pdf_model::xmp::Xmp> {
+    pdf_model::xmp::Xmp::document(document).map(|read| read.expect("the packet parses"))
+}
+
+/// One text entry of the trailer's §14.3.3 dictionary, decoded.
+pub(crate) fn info_text(document: &Document, key: &str) -> Option<String> {
+    let info = document.get_key(document.trailer(), "Info");
+    let info = info.as_dict()?;
+    match document.get_key(info, key) {
+        Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
+        Object::Name(name) => Some(String::from_utf8_lossy(name.as_bytes()).into_owned()),
+        _ => None,
+    }
+}

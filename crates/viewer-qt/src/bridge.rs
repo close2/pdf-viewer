@@ -301,6 +301,10 @@ pub mod ffi {
         green: u8,
         /// Its blue.
         blue: u8,
+        /// `viewer_host::popup::PAPER`, the body's ground, as `0xRRGGBB` (ADR 1466).
+        paper: u32,
+        /// `viewer_host::popup::EDGE`, the line round the window, as `0xRRGGBB`.
+        edge: u32,
     }
 
     /// Where a window is on the screen, in the screen's own pixels.
@@ -570,6 +574,9 @@ pub mod ffi {
         fn pointer(self: &mut Host, x: f32, y: f32, action: u8);
         /// The wheel turned, in device pixels of the viewport.
         fn scrolled(self: &mut Host, dx: f32, dy: f32);
+        /// Control and the wheel: `amount` turned away from the person, in notches or — where
+        /// `pixels` — in device pixels, about the pointer at `(x, y)` in device pixels.
+        fn wheel_zoom(self: &mut Host, amount: f32, pixels: bool, x: f32, y: f32);
         /// A row of panel `tree` was activated. The number is a place in `viewer_host::Tab::ALL`.
         fn activate_row(self: &mut Host, tree: u8, index: usize);
         /// §8.11.4.3's switch on row `index` of panel `tree` was moved.

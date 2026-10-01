@@ -349,6 +349,24 @@ A confined process is bounded from outside, by the host's canceller and its addr
 caller's thread (ADR 1447 §3). Any new thread, timer or wait a decode path can reach is run through
 a confined probe, not reasoned about.
 
+### 89. A writer that reconciles two sources treats an unchanged entry as no edit
+
+ADR 1473 keeps a PDF 2.0 file's information dictionary and its XMP packet in agreement by removing
+the old property before writing the new one. `pdf-vfs` writes `meta/info.json` back whole, and that
+file shows only the dictionary — so without the rule that an unchanged entry is no edit, an unchanged
+write-back would have removed every packet property the view does not show. A reconciling writer
+compares before it removes.
+
+### 90. A view and the writer behind it read the document the same way
+
+ADR 1473 sent a PDF 2.0 file's title into the XMP packet alone, and `pdf-vfs`'s `meta/info.json`
+went on reading the information dictionary: the view reported `null` for what the document stated,
+and the tier-3 write gate's sentence — "`meta/info.json` is the whole of Table 349, so what it
+states is what the document states" — caught it where tier 1 could not. One function,
+`update::stated_information`, now serves both the view and the writer's "is this a change" test,
+and the read gate derives its expected value from the model's own readers, never from the code
+under test (ADR 1473 §5). When an entry's home moves, grep every reader of the old home.
+
 ## Things worth knowing
 
 - **A recovery searches for something, and *where that thing can be* is a claim the standard

@@ -41,10 +41,12 @@
 //! The counters say which happened, and they count keys rather than lookups
 //! ([`crate::frame::Counters::clip_residue_regions`]).
 
+use std::sync::Arc;
+
 use raster_scene::{Command, Scene};
 
 use crate::keyhash::FastMap;
-use crate::raster::CoverageMask;
+use crate::raster::{CoverageMask, RowEdges};
 
 /// The share of the frame budget one frame's residue regions may hold: a quarter.
 ///
@@ -70,6 +72,16 @@ pub(super) enum Verdict<'a> {
     PerTile,
     /// Not yet seen this frame.
     Undecided,
+}
+
+/// What the frame has decided about one chain's edges ([`ResidueRegions::edges`]).
+pub(super) enum Edges {
+    /// Built and kept: every link's edges, bucketed by row over the chain's region.
+    Kept(Arc<[RowEdges]>),
+    /// Past the frame's edge budget, or no region: the chain meets by `min`.
+    Declined,
+    /// No meet has asked yet.
+    Unasked,
 }
 
 /// What this frame decided about one chain's region.
@@ -98,6 +110,14 @@ pub(super) struct ResidueRegions {
     /// Residue rasterisations charged to one command's tile — the work this module did
     /// not remove.
     pub(super) tiles: u32,
+    /// Each chain's links as the exact meet reads them (ADR 1467), built the first time a
+    /// mark under the chain has a pixel both sets cut; `None` is a chain whose edges would
+    /// pass what is left of [`ResidueRegions::edge_budget`], which meets by `min`.
+    edges: FastMap<u32, Option<Arc<[RowEdges]>>>,
+    /// What the frame's chain edges may hold, beside and equal to the regions' own budget:
+    /// a separate account, so that keeping edges never changes which regions are admitted.
+    edge_budget: u64,
+    edges_spent: u64,
 }
 
 impl ResidueRegions {
@@ -136,7 +156,34 @@ impl ResidueRegions {
             spent: 0,
             regions: 0,
             tiles: 0,
+            edges: FastMap::default(),
+            edge_budget: budget,
+            edges_spent: 0,
         }
+    }
+
+    /// The chain's edges, as decided the first time a meet asked.
+    pub(super) fn edges(&self, key: u32) -> Edges {
+        match self.edges.get(&key) {
+            Some(Some(kept)) => Edges::Kept(Arc::clone(kept)),
+            Some(None) => Edges::Declined,
+            None => Edges::Unasked,
+        }
+    }
+
+    /// What the chains' edges may still take, in bytes.
+    pub(super) fn edge_room(&self) -> u64 {
+        self.edge_budget.saturating_sub(self.edges_spent)
+    }
+
+    /// Keep a chain's edges, or remember that they were declined; charged once, in the
+    /// order meets ask, which is the walk's order whatever the thread count.
+    pub(super) fn keep_edges(&mut self, key: u32, edges: Option<Arc<[RowEdges]>>) {
+        if let Some(kept) = &edges {
+            let bytes = kept.iter().map(RowEdges::bytes).sum::<u64>();
+            self.edges_spent = self.edges_spent.saturating_add(bytes);
+        }
+        self.edges.insert(key, edges);
     }
 
     /// What this frame has already decided about this chain — one lookup, because two

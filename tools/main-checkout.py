@@ -7,8 +7,9 @@ A round works in a worktree and may not edit the main checkout, so what a batch 
 owner is a list of things on the owner's disk: a gitignored or untracked file a merge cannot
 update, a fuzz artefact whose defect is fixed, a corpus a campaign found stale, a local edit that
 will stop the fast-forward, an uncommitted question whose `§` the main checkout's own conformance
-run fails on, a patch a dependency's fork has not taken. `doc/environment.md`'s *After a merge* section is the commands; this
-prints which of them has anything to do today. Every figure is read from the disk and from git,
+run fails on, a patch a dependency's fork has not taken. This prints one line per kind, with its
+count; `doc/environment.md`'s *After a merge* section says what each line means and the command that
+clears it, in the order printed here, so a line added here owes its entry there. Every figure is read from the disk and from git,
 never written down (ADR 1440). It exits non-zero only when it cannot read the main checkout.
 
 The main checkout is the directory holding the repository's common git directory — the same

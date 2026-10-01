@@ -15,10 +15,33 @@
 //!
 //! **That is the whole of what is here.** The title bar's label and its timestamp, the body, and
 //! the upright box the window occupies — one reading of §12.5.6.2 and Table 166, made once. The
-//! *look* is deliberately absent: a title bar's height, its font and its border are the toolkit's
-//! and this crate has no widget in it.
+//! *look* is the toolkit's — a title bar's height, its font, its corners — and this crate has no
+//! widget in it, with two exceptions: the window's [`PAPER`] and its [`EDGE`].
 
 use viewer_core::PopupWindow;
+
+/// The ground of a popup window's body, under its text.
+///
+/// **Opaque, and not the page's white**, and both halves are the point. The clause gives a popup
+/// no appearance stream, so its window is drawn by this program and covers the page under its
+/// rectangle; a body the page showed through puts the note's words over the page's, and a body
+/// the colour of paper has no extent anybody can see. A note's colour is a choice — the clause
+/// states none — and it is the one `quorra` drew first; it is shared so that the three windows
+/// show one window rather than three (ADR 1466).
+pub const PAPER: pdf_render::Color = pdf_render::Color {
+    r: 1.0,
+    g: 0.99,
+    b: 0.90,
+    a: 1.0,
+};
+
+/// The one-pixel line round a popup window, which is where its rectangle ends (ADR 1466).
+pub const EDGE: pdf_render::Color = pdf_render::Color {
+    r: 0.78,
+    g: 0.78,
+    b: 0.80,
+    a: 1.0,
+};
 
 /// One of §12.5.6.14's windows, as a host is about to put it on the screen.
 ///

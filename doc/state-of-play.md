@@ -82,11 +82,15 @@ cannot answer, so a stroke whose pieces tile keeps its integral (ADR 1397), and 
 tiles or stands apart from the rest is asked nothing more by the fill (ADR 1421), a stroke of several
 subpaths tiled as one set wherever pieces of two of them overlap (ADR 1431), a stroke expanded
 under its linear part and translated, once for every placement of its shape in a frame (ADR 1445), a
+point that only one curve's flattening added joined round rather than by the stroke's join, because
+§8.4.3.4's join belongs where two segments of the path meet, and so is a point where two segments
+meet along one tangent (ADRs 1455, 1468), a
 curve flattened into pieces of two chords through the midpoint of each piece's inner control points,
 so that the polygon encloses the curve's own area rather than falling inside it, round joins and caps
 built the same way (ADR 1443), and a clip — a rectangle or a residue held as a coverage byte —
 meeting a mark's coverage as §10.7.4's intersection: the smaller of the two, not their product
-(ADRs 1435, 1444) — and a clipped mark's
+(ADRs 1435, 1444), and where a residue and a mark both cut a pixel, the area of their intersection
+computed from both sets' edges (ADR 1467) — and a clipped mark's
 coverage and a stroke's made off the walk's thread by the encoder's fan-out, a stroke's segment
 weighed at what it costs (ADR 1395), a rectangle or a repeated glyph behind a queued mark committed
 in its place and a zoom step's strokes fanned out on the compute lane as on the page-turn one (ADR
@@ -131,7 +135,8 @@ everything a document says *about itself*: §14.7's logical structure, §14.8's
 tagged-PDF vocabulary, §7.11.4's embedded files, §14.13's associated files in **both** of
 §14.13.2's forms — the embedded one listed, and the one that lives outside the document named
 out loud when it opens, since following it is refused and naming it never needed a filesystem
-(ADR 0918), with §14.13.4's files of the page a reader is *on* listed beside the document's own,
+(ADR 0918), §14.13.10's form whose named resource is the array itself read beside the dictionary
+forms (ADR 1461), with §14.13.4's files of the page a reader is *on* listed beside the document's own,
 which is where the clause puts them and as far as a panel may reach without walking the page tree
 at launch (ADR 1186) — §12.2's viewer
 preferences, §12.11's requirements, §7.12's extensions and §14.3.2's XMP.
@@ -564,7 +569,7 @@ raised by the pointer. Four clauses closed on the sidebar without anybody pickin
 and three of the four had a ledger row whose reason was "this program has no ___" — which is the
 lesson in [`doc/habits.md`](habits.md)'s ledger section rather than a fact about the sidebar.
 
-**And what a reader does is driven in all three windows by one command**: `tools/drive-windows.sh` takes them under `Xvfb` through open, the outline, page turns, zoom, find, a popup, a link, a markup and a form saved and reopened, the restriction levels, print, a password and AT-SPI, and photographs each step (ADR 1453).
+**And what a reader does is driven in all three windows by one command**: `tools/drive-windows.sh` takes them under `Xvfb` through open, the outline, page turns, zoom, find, a popup, a link, a markup and a form saved and reopened, the restriction levels, print, a password and AT-SPI, and photographs each step (ADR 1453). The find bar finds a right-to-left word typed in reading order on a page that shows it as presentation forms in display order, folding the forms and reading the order off the glyphs' positions (ADR 1465).
 
 **All of it sits behind `viewer-core`**: `Command` in, `Event` out, `Query` → `Answer` beside
 them, with no type from a windowing or graphics library anywhere in its API.
@@ -989,7 +994,9 @@ forbidden, because "[t]he tree shall include a value for page index 0" and a pie
 its own, so the labels are recomputed one entry per page; and §12.3.2.4's named destinations are
 subsetted to those that resolve inside the piece, because a name is not an indirect reference and
 §7.3.10's null cannot stand in for one. `/Metadata` and the seven document-level constructs beside
-it are still left behind, each named in the report rather than dropped in silence. **`merge` is
+it are still left behind, each named in the report rather than dropped in silence; a page's §14.12
+`/DPart` goes with the hierarchy it points into, so neither verb carries one whose `/DPartRoot`
+stays behind, and §14.10's web-capture `/IDS` and `/URLS` cross neither, each named (ADR 1461). **`merge` is
 the second verb on the serializer, and its substance is the document-level reconciliations rather
 than the machinery**: §8.11's optional content groups concatenated with their initial states
 rewritten as one default configuration, §7.9.6's name trees merged with a colliding key renamed
@@ -1002,8 +1009,11 @@ where two sources claim it with a different `/FT`, `/V` or `/DV`. A signature cr
 `/V`, because §12.8.1's digest was computed over bytes the merged file is not. §14.3.3's entries
 are the operator's statement and no input's — `--info Key=value`, repeated, with Table 349's keys
 and types the only ones accepted and nothing derived, so a merge told nothing states no `/Info` —
-and where a date is among them §14.3.2's packet is written beside the dictionary saying the same
-instant, which is what §14.3.4 requires of a processor creating a new document. **`pages` is the
+and §14.3.2's packet is written beside the dictionary under Table 349's NOTEs, saying the same
+thing — a date the same instant, which §14.3.4 requires of a processor creating a new document. In
+a PDF 2.0 output the packet alone carries every entry but the two dates, which §14.3.1 deprecates in
+the dictionary, and an in-place update obeys the same rule (ADR 1473). A merged structure tree whose
+sources each held a PDF 2.0 `Document` holds them inside one, Annex L's Table L.2 (ADR 1474). **`pages` is the
 third, and it is the same engine given one document's own page list to edit**: §7.7.3.3's
 `/Rotate` written as an integer — absolute where the angle is unsigned, and where it is signed
 composed with the value §7.7.3.4 gives the page rather than with what the page states — a
@@ -1219,7 +1229,9 @@ device pixels a pointer already works in, so the boundary gained no message and 
 click serves the mouse and the bus alike (ADR 0425) — **in all three of this project's windows, and
 one definition for the three of them** (ADRs 0623, 0630): a click on §12.7.5.2's check box or radio
 button is decided once, by `viewer_host::form::Clicked`, so a person using a screen reader ticks the
-same boxes and is refused the same read-only ones whichever window they opened the file in. The one
+same boxes and is refused the same read-only ones whichever window they opened the file in, and a
+box ticked is saved as §12.7.5.2.3's name in the field's `/V` and each widget's `/AS`, so the file
+reopens ticked in every window (ADR 1453). The one
 async runtime this tree has is confined
 to that crate, it is Linux-only in its own manifest, and the adapter is created **after** the first
 frame is presented. ADR 0214.

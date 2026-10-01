@@ -256,6 +256,14 @@ class PopupWindow : public QFrame
 public:
     /// Builds one window from what the host answered. Placed by the caller with `setGeometry`.
     PopupWindow(const QtPopup& window, QWidget* parent);
+
+protected:
+    /// The paper is the palette's; the one-pixel edge is drawn here, over it (ADR 1466).
+    void paintEvent(QPaintEvent* event) override;
+
+private:
+    /// `viewer_host::popup::EDGE`.
+    QColor edge_;
 };
 
 /// The page's pixels, the form's controls, and the chrome over both.
@@ -285,6 +293,9 @@ Q_SIGNALS:
     void pointerAt(float x, float y, unsigned char action);
     /// The wheel turned, in device pixels of the viewport.
     void scrolledBy(float dx, float dy);
+    /// Control and the wheel: `amount` turned away from the person, in notches or — where
+    /// `pixels` — in pixels, about the pointer at `(x, y)` in device pixels of the viewport.
+    void wheelZoomed(float amount, bool pixels, float x, float y);
 
 protected:
     void paintEvent(QPaintEvent* event) override;

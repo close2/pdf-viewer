@@ -671,3 +671,10 @@ codec the brief named: its soft mask's `/Matte` inversion ran per sample, and a 
 entries per component took the turn from 180 to 65 ms (ADR 1457). The lever the brief named —
 cutting the entropy data into bands — was built byte-identical and measured as a loss on every
 page with other decodes in flight, and was not kept.
+
+## 60. A memo's hit rate and the cost of a hit are read before a bigger table is built
+
+Plans' ICC memo already answered 99.97% of pixels; the cost was the hit itself, 82 instructions per
+pixel, and copying the previous pixel's output where the input repeats removed most of it (ADR
+1469). And a corpus `grep -r` misses `doc/corpora/*`, which are symlinks — `grep -R`; a first count
+of public-key witnesses missed four that way (round 1319).

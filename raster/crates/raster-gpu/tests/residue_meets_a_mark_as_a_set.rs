@@ -1,6 +1,7 @@
 //! A clip that is not a rectangle — a **residue**, rasterised to coverage bytes — meets a
-//! mark's coverage as a set, by `min`, on the path lane and on the image lane (the caller's
-//! ADR 1444).
+//! mark's coverage as a set: on the path lane by the intersection's own area where both sets
+//! cut a pixel and by `min` where one holds the other (ADR 1467), and on the image lane by
+//! `min` (ADR 1444).
 //!
 //! # Where the expected values come from
 //!
@@ -18,10 +19,12 @@
 //!
 //! In one pixel, with the mark covering `s` of it and the clip `c`, the intersection's area
 //! lies in `[max(0, s + c − 1), min(s, c)]`, and is `min(s, c)` wherever one set holds the
-//! other there. Two bytes say how much and not where, so no function of them is the area; of
-//! those never below it, `min` is the least. A product is below the area wherever a mark
-//! stands on its clip's own edge (`0.6 × 0.6` where the area is `0.6`) and above it where the
-//! two sets miss each other inside a pixel (`0.3 × 0.3` where the area is `0`).
+//! other there. Two bytes say how much and not where, so no function of them is the area: a
+//! product is below it wherever a mark stands on its clip's own edge (`0.6 × 0.6` where the
+//! area is `0.6`) and above it where the two sets miss each other inside a pixel (`0.3 × 0.3`
+//! where the area is `0`), and `min` is above it wherever both edges cross the pixel apart.
+//! The path lane has both sets' edges and computes the area; the image lane has the image's
+//! samples, not a polygon, and keeps `min`, the least function of the bytes never below it.
 //!
 //! # The tiling, and what it measures
 //!
@@ -29,9 +32,9 @@
 //! of small rectangles with a regular 64-gon — nothing curved, so every expected value is
 //! a polygon's area in a pixel, computed here in `f64` by clipping each polygon to the pixel.
 //! Over the pixels where both coverages are fractional, against that area, a product misses
-//! by 15 levels of 255 on average and by up to 44 on either side; `min` is 22 above on
-//! average and never below. The test holds every pixel to `min` of the two closed-form
-//! coverages, and to at least the intersection.
+//! by 15 levels of 255 on average and by up to 44 on either side, and `min` is 22 above on
+//! average. The test holds every pixel to the intersection's area to within the half level
+//! one rounding leaves, and a stroke's pieces to the same.
 
 // Test-file lint policy as in m1.rs; the arithmetic below is the clause's, over rasters
 // this file just drew.
@@ -47,10 +50,10 @@
 
 use std::sync::Arc;
 
-use raster_gpu::{Device, Target, Viewport};
+use raster_gpu::{Coverage, Device, Options, Target, Viewport};
 use raster_scene::{
-    Affine, BlendMode, ClipId, Compose, FillRule, ImageFilter, ImageSpec, Point, Scene,
-    SceneBuilder, Segment,
+    Affine, BlendMode, ClipId, Compose, FillRule, ImageFilter, ImageSpec, LineCap, LineJoin, Point,
+    Scene, SceneBuilder, Segment, Stroke,
 };
 
 mod common;
@@ -275,70 +278,211 @@ fn in_pixel(polygon: &[(f64, f64)], x: u32, y: u32) -> f64 {
     ))
 }
 
-/// **A residue clip over a tiling of small rectangles meets every pixel as a set.**
+/// The device a fixture is drawn on: the walk's own lane (`Coverage::Gpu`, which keeps
+/// every residue-clipped mark on the walk's thread) or the fan-out's (`Coverage::Cpu`), at a
+/// thread count.
+fn device_with(coverage: Coverage, threads: usize) -> Device {
+    Device::headless(&Options {
+        adapter: Some("llvmpipe".into()),
+        coverage,
+        encode_threads: threads,
+        ..Options::default()
+    })
+    .expect("llvmpipe is present wherever this suite runs")
+}
+
+/// Every arm the exact meet must agree on: the fan-out's commit at one and four threads,
+/// and the walk's own tile.
+const ARMS: [(Coverage, usize); 3] = [(Coverage::Cpu, 1), (Coverage::Cpu, 4), (Coverage::Gpu, 1)];
+
+/// Every pixel of `pixels` against the closed form: the intersection's area `met(x, y)` to
+/// within the half level one rounding leaves, and the counts of pixels both sets cut where a product and `min` of
+/// the two closed-form coverages miss it by more than a level.
+fn held_to_the_intersection(
+    pixels: &[u8],
+    (width, height): (u32, u32),
+    mark: impl Fn(u32, u32) -> f64,
+    clip: impl Fn(u32, u32) -> f64,
+    met: impl Fn(u32, u32) -> f64,
+) -> (usize, usize, usize, usize) {
+    let (mut both, mut product_below, mut product_above, mut min_above) = (0, 0, 0, 0);
+    for y in 0..height {
+        for x in 0..width {
+            let (s, c, i) = (mark(x, y), clip(x, y), met(x, y));
+            if s > 0.0 && s < 1.0 && c > 0.0 && c < 1.0 {
+                both += 1;
+                product_below += usize::from(255.0 * s * c < 255.0 * i - 1.0);
+                product_above += usize::from(255.0 * s * c > 255.0 * i + 1.0);
+                min_above += usize::from(255.0 * s.min(c) > 255.0 * i + 1.0);
+            }
+            let drawn = f64::from(alpha(pixels, width, x, y));
+            assert!(
+                (drawn - 255.0 * i).abs() <= 0.5 + 1e-6,
+                "pixel ({x}, {y}): {drawn} against the intersection's {:.2} (s {s:.4}, c {c:.4})",
+                255.0 * i
+            );
+        }
+    }
+    (both, product_below, product_above, min_above)
+}
+
+/// **A residue clip over a tiling of small rectangles meets every pixel as a set** (ADR 1467).
 ///
 /// Per pixel, from the geometry alone: the marks' coverage `s` (the rectangles are disjoint,
 /// so their areas add), the clip's `c`, and the intersection's `i` (each rectangle clipped to
-/// the 64-gon, then to the pixel). Every pixel is drawn at `min(s, c)` to within the one
-/// level two roundings leave, which is never below `i`; and where one set holds the other in
-/// the pixel, `min(s, c)` *is* `i`. The fixture discriminates: the product of the same two
-/// values is more than a level below `i` in some pixel and more than a level above it in
-/// another, and both counts are asserted from the closed form before the device is asked.
+/// the 64-gon, then to the pixel). Every pixel is drawn at `i` to within half a level, on the
+/// walk's lane and the fan-out's at one thread and four, and the three draw the same bytes.
+/// Under `min` it failed on the pixels both sets cut, up to 43 levels (`(6, 2)`: 55 against
+/// 12.06).
+/// The fixture discriminates: a product of `s` and `c` is more than a level below `i` in some
+/// pixel and above it in another, and `min(s, c)` — ADR 1444's bound — is more than a level
+/// above it in some; all three counts are asserted from the closed form.
 #[test]
 fn a_polygon_clip_over_a_tiling_of_rectangles_meets_each_pixel_as_a_set() {
     let clip = clip_polygon();
     let marks = rectangles();
-    let flat: Vec<(f64, f64)> = marks.iter().flatten().copied().collect();
     let mark_path: Vec<Segment> = marks
         .iter()
         .flat_map(|rectangle| polygon_path(rectangle))
         .collect();
-    assert_eq!(flat.len(), 4 * 99);
     let met: Vec<Vec<(f64, f64)>> = marks
         .iter()
         .map(|rectangle| clip_convex(rectangle, &clip))
         .filter(|piece| piece.len() >= 3)
         .collect();
 
-    let mut device = common::headless::device();
-    let scene = path_scene(&mut device, &mark_path, &polygon_path(&clip));
-    let pixels = rendered(&mut device, &scene, TILING.0, TILING.1);
-
-    let (mut product_below, mut product_above, mut both_fractional) = (0, 0, 0);
-    for y in 0..TILING.1 {
-        for x in 0..TILING.0 {
-            let s: f64 = marks.iter().map(|r| in_pixel(r, x, y)).sum();
-            let c = in_pixel(&clip, x, y);
-            let i: f64 = met.iter().map(|piece| in_pixel(piece, x, y)).sum();
-            if s > 0.0 && s < 1.0 && c > 0.0 && c < 1.0 {
-                both_fractional += 1;
-                product_below += usize::from(255.0 * s * c < 255.0 * i - 1.0);
-                product_above += usize::from(255.0 * s * c > 255.0 * i + 1.0);
-            }
-            let drawn = f64::from(alpha(&pixels, TILING.0, x, y));
-            let bound = 255.0 * s.min(c);
-            assert!(
-                (drawn - bound).abs() <= 1.0,
-                "pixel ({x}, {y}): {drawn} against min(s, c) = {bound:.2} (s {s:.4}, c {c:.4})"
-            );
-            assert!(
-                drawn >= 255.0 * i - 1.0,
-                "pixel ({x}, {y}): {drawn} is below the intersection's {:.2}",
-                255.0 * i
-            );
-            if s.min(c) - i < 1e-9 {
-                assert!(
-                    (drawn - 255.0 * i).abs() <= 1.0,
-                    "pixel ({x}, {y}): one set holds the other, so {drawn} should be the \
-                     intersection's {:.2}",
-                    255.0 * i
-                );
-            }
-        }
+    let mut drawn = Vec::new();
+    for (coverage, threads) in ARMS {
+        let mut device = device_with(coverage, threads);
+        let scene = path_scene(&mut device, &mark_path, &polygon_path(&clip));
+        let pixels = rendered(&mut device, &scene, TILING.0, TILING.1);
+        let (both, below, above, min_above) = held_to_the_intersection(
+            &pixels,
+            TILING,
+            |x, y| marks.iter().map(|r| in_pixel(r, x, y)).sum(),
+            |x, y| in_pixel(&clip, x, y),
+            |x, y| met.iter().map(|piece| in_pixel(piece, x, y)).sum(),
+        );
+        assert!(
+            both > 0 && below > 0 && above > 0 && min_above > 0,
+            "the fixture must hold pixels a product gets wrong on both sides and `min` above: \
+             {both} cut by both, {below} below, {above} above, {min_above} above under `min`"
+        );
+        drawn.push(pixels);
     }
     assert!(
-        both_fractional > 0 && product_below > 0 && product_above > 0,
-        "the fixture must hold pixels a product gets wrong on both sides: {both_fractional} \
-         fractional, {product_below} below, {product_above} above"
+        drawn.windows(2).all(|pair| pair[0] == pair[1]),
+        "the walk's lane and the fan-out's at one thread and four draw the same bytes"
+    );
+}
+
+/// The stroked lines' half-width, and the direction they run in.
+const HALF_WIDTH: f64 = 0.65;
+const RUN: (f64, f64) = (0.8, 0.6);
+
+/// Five parallel lines at a slant, three units apart, as one outline of five open subpaths.
+fn slanted_lines() -> Vec<((f64, f64), (f64, f64))> {
+    (0..5)
+        .map(|k| {
+            let offset = 3.0 * f64::from(k);
+            let from = (1.3 + offset * RUN.1, 2.1 - offset * RUN.0 + 9.0);
+            let to = (from.0 + 14.0 * RUN.0, from.1 + 14.0 * RUN.1 - 6.0);
+            (from, to)
+        })
+        .collect()
+}
+
+/// A line stroked with butt caps, as §8.4.3.3 squares it off at its ends: the rectangle of
+/// the half-width either side of it, wound as the clip is.
+fn stroked_rectangle(((x0, y0), (x1, y1)): ((f64, f64), (f64, f64))) -> [(f64, f64); 4] {
+    let length = (x1 - x0).hypot(y1 - y0);
+    let (nx, ny) = (
+        -(y1 - y0) / length * HALF_WIDTH,
+        (x1 - x0) / length * HALF_WIDTH,
+    );
+    let corners = [
+        (x0 + nx, y0 + ny),
+        (x1 + nx, y1 + ny),
+        (x1 - nx, y1 - ny),
+        (x0 - nx, y0 - ny),
+    ];
+    // Wound counter-clockwise in device space, as `clip_convex` wants its subject.
+    let signed: f64 = (0..4)
+        .map(|i| {
+            let (a, b) = (corners[i], corners[(i + 1) % 4]);
+            a.0 * b.1 - b.0 * a.1
+        })
+        .sum();
+    if signed < 0.0 {
+        [corners[3], corners[2], corners[1], corners[0]]
+    } else {
+        corners
+    }
+}
+
+/// **A stroke meets its residue clip as a set too** (ADR 1467): the stroke's own pieces are
+/// what the meet reads, on the fan-out's commit (a solid stroke) and on the walk's tile.
+///
+/// §8.4.3.2 paints "all points whose perpendicular distance from the path in user space is
+/// less than or equal to half the line width", and with butt caps a straight line's set is
+/// the rectangle of that half-width along it; five such lines three units apart do not
+/// overlap, so their areas add, and each meets the 64-gon as a convex polygon does.
+#[test]
+fn a_stroke_under_a_polygon_clip_meets_each_pixel_as_a_set() {
+    let clip = clip_polygon();
+    let lines = slanted_lines();
+    let bodies: Vec<[(f64, f64); 4]> = lines.iter().map(|&l| stroked_rectangle(l)).collect();
+    let met: Vec<Vec<(f64, f64)>> = bodies
+        .iter()
+        .map(|body| clip_convex(body, &clip))
+        .filter(|piece| piece.len() >= 3)
+        .collect();
+    let path: Vec<Segment> = lines
+        .iter()
+        .flat_map(|&((x0, y0), (x1, y1))| {
+            [
+                Segment::MoveTo(Point::new(x0 as f32, y0 as f32)),
+                Segment::LineTo(Point::new(x1 as f32, y1 as f32)),
+            ]
+        })
+        .collect();
+    let mut drawn = Vec::new();
+    for (coverage, threads) in ARMS {
+        let mut device = device_with(coverage, threads);
+        let mut builder = SceneBuilder::new();
+        let clip_id = residue_clip(&mut device, &mut builder, &polygon_path(&clip));
+        let outline = device.upload_outline(&path).unwrap();
+        builder
+            .stroke(
+                outline,
+                Affine::IDENTITY,
+                Stroke {
+                    width: (2.0 * HALF_WIDTH) as f32,
+                    adjust: false,
+                    cap: LineCap::Butt,
+                    join: LineJoin::Miter,
+                    miter_limit: 10.0,
+                },
+                black(),
+                Some(clip_id),
+                BlendMode::Normal,
+                None,
+            )
+            .unwrap();
+        let scene = builder.finish();
+        let pixels = rendered(&mut device, &scene, TILING.0, TILING.1);
+        let (both, ..) = held_to_the_intersection(
+            &pixels,
+            TILING,
+            |x, y| bodies.iter().map(|b| in_pixel(b, x, y)).sum(),
+            |x, y| in_pixel(&clip, x, y),
+            |x, y| met.iter().map(|piece| in_pixel(piece, x, y)).sum(),
+        );
+        assert!(both > 0, "the strokes must cross the clip's rim");
+        drawn.push(pixels);
+    }
+    assert!(
+        drawn.windows(2).all(|pair| pair[0] == pair[1]),
+        "the walk's lane and the fan-out's at one thread and four draw the same bytes"
     );
 }

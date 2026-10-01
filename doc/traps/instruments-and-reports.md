@@ -137,7 +137,7 @@ the most comfortable possible wrong answer.
 
 Two rules:
 
-- **Take the path from the toolchain, not from memory**: `cargo run --release -p conformance --bin
+- **Take the path from the toolchain, not from memory**: `cargo run -p conformance --bin
   <name>` is what `doc/todo/01` states, and it cannot pick the wrong tree. If you invoke a binary
   directly, get its directory from `cargo metadata --format-version 1 --no-deps`.
 

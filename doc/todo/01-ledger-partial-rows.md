@@ -42,7 +42,7 @@ programs and run every round**, one was run once and declined
 (ADR 0265), a fourteenth built in the four-hundred-and-thirty-seventh, and **the fifteenth built
 in the four-hundred-and-sixtieth** — the first that ignores what a row says and asks instead who
 reads the entries the clause states (ADR 0295), and **the first of the fifteen to be a committed
-program rather than a description**, `cargo run --release -p conformance --bin entries` since the
+program rather than a description**, `cargo run -p conformance --bin entries` since the
 four-hundred-and-eighty-fourth (ADR 0319), with the second sweep following it as `--bin unread`
 in the four-hundred-and-eighty-ninth (ADR 0324) and the first as `--bin blockers` in the
 five-hundred-and-first (ADR 0336) — a `partial` row
@@ -119,7 +119,7 @@ immediately before the dance, or copy the files aside instead of trusting `check
 **The second method has the same premise and none of that risk, and it is what a *merge* round
 wants**: the binary follows `CARGO_MANIFEST_DIR`, so give the base commit a checkout of its own
 and **build the sweep binaries inside it** (`git worktree add --detach <dir> <base>`, then
-`cargo build --release -p conformance --bins --target-dir <its own>`). Nothing in the working tree
+`cargo build -p conformance --bins --target-dir <its own>`). Nothing in the working tree
 is touched at all, so no restore can throw an edit away. Two things it needs, because both are
 untracked or linked rather than committed: `doc/md/`, `doc/*.pdf` and the two submodules have to be
 symlinked in from the main tree, and the target directory has to be named on the command line
@@ -134,14 +134,14 @@ depends on nothing but `thiserror`.
   project invented shares no words with it and a misquotation shares most of them. ADR 0249, and
   it is not a gate for a reason the ADR prices.
 - **One asks who reads an *entry the clause states***, and it is the only sweep that reads no reason
-  at all: `cargo run --release -p conformance --bin entries`, seconds, over `ledger.toml`, the
+  at all: `cargo run -p conformance --bin entries`, seconds, over `ledger.toml`, the
   standard's own tables and the source roots. It exists for the refusal shape every other sweep
   passes — a row that retires its refusal by naming a capability that arrived, and then nobody asks
   whether the *entry* that turns the capability on was wired to it. **It was described here and not
   committed for twenty-four rounds**, so the round that wanted it rebuilt it from the description,
   which is `CLAUDE.md`'s own rule failing in the direction it was written for. Three findings so far
   (ADRs 0295, 0315, 0319); read the hits whose entry the row's own **note** does not name first.
-- **One asks who *quotes* an entry a note claims is unread**: `cargo run --release -p conformance
+- **One asks who *quotes* an entry a note claims is unread**: `cargo run -p conformance
   --bin unread`, seconds, over `ledger.toml` and the source roots — the second sweep as a program
   (ADR 0324). A hit is a key some source quotes as a lookup string while a note says nobody reads
   it, sharpest where the quoting file is in the row's own `code = [...]`; the dominant noise is
@@ -154,37 +154,34 @@ depends on nothing but `thiserror`.
   purpose — a writer carrying it, a table of keys a thumbnail may not hold. The two that were
   none of those (§12.5.6.7 and §12.5.6.9 calling `/IT` and `/Measure` unread beside sentences
   saying both are read) are corrected; the module doc names the shapes.
-- **One asks whether a stated *blocker* has expired**: `cargo run --release -p conformance
+- **One asks whether a stated *blocker* has expired**: `cargo run -p conformance
   --bin blockers`, seconds, over `ledger.toml` and the source roots — the first sweep as a program
   (ADR 0336). A blocker sentence naming a clause is judged against the ledger's own account of
   that clause, and the expired ones print first; the three noise shapes it prints rather than
   filters — a correction quoting the wording it retired, a past tense no grep can see, and a
   clause named as the route to something outside the standard — are in the module doc. Read the
   sentence before believing a hit.
-- **One asks whether the tree names a capability a note says is absent**: `cargo run --release
-  -p conformance --bin capabilities`, seconds, over `ledger.toml` and the source roots — the
+- **One asks whether the tree names a capability a note says is absent**: `cargo run -p conformance --bin capabilities`, seconds, over `ledger.toml` and the source roots — the
   third sweep as a program (ADR 0345). A hit carries the witness path where any source file
   names the lacking noun, and says whether the claim is about *the program* (the population
   that decays) or about *one crate* (usually a boundary it keeps on purpose); the dominant
   noise is a true boundary statement, which a witness does not disprove. Read the sentence
   before believing a hit.
-- **One asks the question from the other end — who *calls* it?**: `cargo run --release -p
+- **One asks the question from the other end — who *calls* it?**: `cargo run -p
   conformance --bin callers`, a fifth of a second, over every `pub fn` in `pdf-model` and every
   crate, tool and fuzz target whose manifest names it — the fifth sweep as a program (ADR 0360).
   **Its output is a delta rather than a level**: the finding has twice been that a whole new host
   program took no name off the bottom rungs. Read the rungs from the bottom, and know the two
   directions it is loose in — a short name shared with another type's method reads as named, and a
   name reached through a wrapper reads as unnamed.
-- **One asks where else a claim a round *retired* is still written**: `cargo run --release
-  -p conformance --bin retired -- <noun> …`, seconds, over `ledger.toml`, the source roots and
+- **One asks where else a claim a round *retired* is still written**: `cargo run -p conformance --bin retired -- <noun> …`, seconds, over `ledger.toml`, the source roots and
   every Markdown document under `doc/` bar `doc/history/` — the fourth sweep as a program (ADR
   0352). It is the one sweep that cannot derive its own population, because what was retired is
   what the last rounds decided, so the nouns are arguments and the rule is `doc/todo/01`'s: give
   it the *mechanism*, not the sentence. Each mention is printed as a correction or as a standing
   claim, and **a noun carrying both is the shape to read first** — somebody wrote the retirement
   here and not there.
-- **One asks whether the file — and the symbol — a note names still exists**: `cargo run --release
-  -p conformance --bin pointers`, a third of a second, over `ledger.toml`, the source roots and
+- **One asks whether the file — and the symbol — a note names still exists**: `cargo run -p conformance --bin pointers`, a third of a second, over `ledger.toml`, the source roots and
   every Markdown document under `doc/` bar `doc/history/` — the eighth sweep as a program (ADR
   0372). **A pointer is resolved from where it is written**, so a `tests/x.rs` in a doc comment
   means its own crate's tests and the same words in a document under `doc/` are *unrooted* rather
@@ -206,8 +203,7 @@ depends on nothing but `thiserror`.
   breakage and is fixed where it is written — the new path where the file moved, the ADR that
   retired it where it is gone. The oldest false positive is a correction quoting the pointer it
   retired, and it is marked rather than dropped. Read the sentence before believing a hit.
-- **One asks whether the table a sentence cites states the key it gives it**: `cargo run --release
-  -p conformance --bin tables`, seconds, over `ledger.toml`, the source roots and every Markdown
+- **One asks whether the table a sentence cites states the key it gives it**: `cargo run -p conformance --bin tables`, seconds, over `ledger.toml`, the source roots and every Markdown
   document under `doc/` bar `doc/history/` — the ninth sweep as a program (ADR 0380). It counts a
   key only where the sentence **attributes** it, prints which table *does* state it, and reads a
   **denial** as a claim in the other direction, so "Table 119 gives a Type 0 dictionary no
@@ -219,7 +215,7 @@ depends on nothing but `thiserror`.
   a key nor continues a list; and a citation whose attributed noun is a *value* rather than an entry
   has no key beside it at all, so it lands in the keyless count — 0611's finding reached by a second
   route, and this time with a wrong number underneath it.
-- **One reads the status nobody expects to come back to**: `cargo run --release -p conformance
+- **One reads the status nobody expects to come back to**: `cargo run -p conformance
   --bin inapplicable`, a fraction of a second, over `ledger.toml` and the source roots — the
   seventh sweep as a program (ADR 0388). Every other sweep walks the rows that *owe* something; this
   one takes an `inapplicable` row's own title and note apart into `/Key`s and identifiers and asks
@@ -228,7 +224,7 @@ depends on nothing but `thiserror`.
   dozens of files and sorts last, a rare word sorts first. Read the **cousin** it prints before
   anything else — a row that is not `inapplicable` and says the same word is the seventh failure
   shape, and it is where all five of this sweep's defects have been.
-- **One asks whether the family a sentence counts holds that many rows**: `cargo run --release -p
+- **One asks whether the family a sentence counts holds that many rows**: `cargo run -p
   conformance --bin counts`, seconds, over `ledger.toml`, the source roots and every Markdown document
   under `doc/` bar `doc/history/` — the tenth sweep as a program (ADR 0400), and the last of the ten
   whose *level* moved with the session. A cardinal is a claim about a family only where it governs one
@@ -237,7 +233,7 @@ depends on nothing but `thiserror`.
   leaves out the `General` row is right, and so is one that counts the clause's own row in. Read the
   **contradictions** first: two numbers for one family in two sentences of one note are wrong whatever
   the ledger holds, which is where both of this sweep's largest findings were.
-- **One reads the status whose own definition promises a debt**: `cargo run --release -p
+- **One reads the status whose own definition promises a debt**: `cargo run -p
   conformance --bin owed`, seconds, over `ledger.toml` and the source roots — the fourteenth sweep
   as a program (ADR 0397), and the last of the four descriptions whose *level* moved with the
   session. A `partial` row must say which requirements are not executed; a note that names a debt
@@ -248,7 +244,7 @@ depends on nothing but `thiserror`.
   specific first. The noise is a debt named in prose with no identifier in it, printed rather than
   filtered.
 - **One reads *these documents'* quotation marks and the ledger's**, on the same discriminator and
-  for the same reason: `cargo run --release -p conformance --bin quotations`, seconds, over every
+  for the same reason: `cargo run -p conformance --bin quotations`, seconds, over every
   Markdown file this project wrote under `doc/` **and over `ledger.toml`'s notes**, which is the
   eleventh sweep and had been a hand-written script since the four-hundred-and-thirteenth. Its first
   run over the documents found three sentences quoted as the standard's that ISO 32000-2 does not
@@ -258,7 +254,7 @@ depends on nothing but `thiserror`.
   the commonest of them. It reads single-quoted spans as well as double since the
   five-hundred-and-fortieth, and it prints how many so that a clean run says what it was clean over.
   ADRs 0309 and 0375.
-- **One asks whether a parent's claim survives its own children**: `cargo run --release -p
+- **One asks whether a parent's claim survives its own children**: `cargo run -p
   conformance --bin overstated`, a fifth of a second, over `ledger.toml` **and over nothing else**
   — the eighteenth sweep, the thirteenth of them to be a program, and the only one that opens no
   source file (ADR 0475). Every other sweep
@@ -277,7 +273,7 @@ depends on nothing but `thiserror`.
   itself on its neighbour's keys. The noise it leaves is a partitive with no table to divide it
   ("three of the four locations a `/Lang` may occupy"), which is left to the reader on purpose.
   Its first run found two live defects, §9.9.1's and §9.7.6's, both below.
-- **One asks what verb governs the sentence a row's debt rests on**: `cargo run --release -p
+- **One asks what verb governs the sentence a row's debt rests on**: `cargo run -p
   conformance --bin permitted`, seconds, over `ledger.toml`, `doc/md/` and the standard's own
   tables — the twenty-fourth sweep and the eighteenth to be a program (ADR 0900). Every other
   sweep here reads a row that owes something and asks whether the owed thing exists in the tree;
@@ -308,7 +304,7 @@ depends on nothing but `thiserror`.
   silence** from the day it was written. ADR 0961. **The reading worth carrying is the method
   rather than the row**: a `partial` row whose debt is a named constant is a debt that can be
   *measured* in an afternoon, and measuring it is what found a defect the row was not about.
-- **One reads no row at all**: `cargo run --release -p conformance --bin
+- **One reads no row at all**: `cargo run -p conformance --bin
   overtaken`, a fraction of a second, over the tree's **page-list notes** and `doc/adr/` — the
   nineteenth sweep and the fourteenth to be a program (ADR 0491). A page-list note is the doc
   comment above a `const NAME: [&str; N]` of corpus pages: the oracle's contradicted and ambiguous
@@ -341,7 +337,7 @@ depends on nothing but `thiserror`.
   `AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY`, `AMBIGUOUS_STANDARD_FOURTEEN_FACE`,
   `AMBIGUOUS_SUBSTITUTED_FACE`, `CONTRADICTED_SUBPIXEL_IMAGE` and `REFUSED_BY_THE_DEVICE_AT_FOUR`)
   are re-taken and read; what the sweep prints now are notes whose pages a newer decision names.
-- **One reads no source at all and no row either**: `cargo run --release -p
+- **One reads no source at all and no row either**: `cargo run -p
   conformance --bin quoted -- <the oracle's log>`, under a second, over the oracle's page-list
   notes and **the oracle's own printed output** — the twentieth sweep and the fifteenth to be a
   program (ADR 0495). Every other sweep here compares two things this tree wrote *down*; this one
@@ -365,7 +361,7 @@ depends on nothing but `thiserror`.
   prose is right), another instrument's table borrowing the gate's words, and a range read as its
   first endpoint. Calibrated per trap 13 by planting a wrong worst tile in a confirmed sentence:
   named, with the gate's own value offered first, and gone when the plant was restored.
-- **One asks the twentieth's mirror question**: `cargo run --release -p
+- **One asks the twentieth's mirror question**: `cargo run -p
   conformance --bin unpriced -- <the oracle's log>`, under a second, over the same two sides — the
   twenty-first sweep and the sixteenth to be a program (ADR 0606). `quoted` checks a figure a note
   *quotes*; **its own closing sentence says it cannot ask for one that is missing**, and five
@@ -389,7 +385,7 @@ depends on nothing but `thiserror`.
   the gate's two decimals, so its own line cannot say what its verdict rests on; and a
   contradicted page sitting in no note at all.
 - **One asks a question about *this tree* rather than about the standard**:
-  `cargo run --release -p conformance --bin parts`, a fraction of a second, over `ledger.toml`, the
+  `cargo run -p conformance --bin parts`, a fraction of a second, over `ledger.toml`, the
   source roots and every Markdown document under `doc/` bar `doc/history/` — the twenty-second
   sweep and the seventeenth to be a program (ADR 0709). The tenth sweep reads a cardinal only where
   it governs one of the ledger's own words for a *row*; this reads one governing one of this tree's
@@ -416,8 +412,7 @@ depends on nothing but `thiserror`.
   of running it, which the ninth sweep has too. Calibrated per trap 13 against **767's live
   defect** rather than a plant: `Image::is_smoothed`'s doc comment is rung 1 today, and correcting
   it to name three takes it off the rung and moves the agreeing count by one.
-- **One asks which corpus a sentence counted over**: `cargo run --release
-  -p conformance --bin undenominated`, ten seconds, over `ledger.toml`, the source roots and every
+- **One asks which corpus a sentence counted over**: `cargo run -p conformance --bin undenominated`, ten seconds, over `ledger.toml`, the source roots and every
   Markdown document under `doc/` bar `doc/history/` — the twenty-third sweep and the eighteenth to
   be a program (ADR 0758). Ten seconds rather than a fraction of one because its **right-hand side
   is the disk**: it counts the PDFs under `doc/pdf.js/test/pdfs`, under each directory of
@@ -574,7 +569,7 @@ depends on nothing but `thiserror`.
   second test is the calibration and is not optional (trap 13): it plants a flag no program
   accepts into both paths and fails unless the sweep names both. ADR 1213.
 
-- **One asks whether the tree declares the item a doc comment names**: `cargo run --release -p
+- **One asks whether the tree declares the item a doc comment names**: `cargo run -p
   conformance --bin names`, a second, over every Rust source of the workspace — `tools/state.sh
   names` is the same run, and `cargo test -p conformance --test names` is the gate. Its subject is
   the pointer no instrument here could reach: a `§` is checked against the standard and a file path
@@ -592,7 +587,7 @@ depends on nothing but `thiserror`.
   finds and prints its file, line and sentence. Calibrated per trap 13 by a plant in the function,
   never in the tree: a module of `conformance` and a function nothing declares. ADR 1273.
 - **One asks whether a file that cites a clause is a file that clause's row names**: `cargo run
-  --release -p conformance --bin cited`, seconds, over the source roots and `ledger.toml` —
+  -p conformance --bin cited`, seconds, over the source roots and `ledger.toml` —
   `tools/state.sh cited` is the same run. A row's `code` array is the ledger's index into the tree
   and **it decays in one direction only**: a round adding a reader cites the clause beside the code
   because principle 5 requires it, and editing a row in another file is the step it forgets. Session
@@ -621,7 +616,7 @@ depends on nothing but `thiserror`.
   see is a misread `§` that spells an informative annex's number or a whole clause's; the printed
   numbers are how a new one shows.
 - **One asks whether a note's own sentence about the row agrees with the row's `status` field**, and
-  it is the only sweep here whose two sides are both inside one row: `cargo run --release -p
+  it is the only sweep here whose two sides are both inside one row: `cargo run -p
   conformance --bin last_sentences`, a fraction of a second, over `ledger.toml` and nothing else —
   `tools/state.sh last-sentences` is the same run. Its subject is
   `doc/habits/the-ledger-and-claims-about-this-tree.md`'s last decay shape: a note's **closing**
@@ -2472,7 +2467,7 @@ the same instrument twice, which is why this run's numbers are not the previous 
 `conformance::entries` now, with the invocation `doc/todo/02` §4 states:
 
 ```sh
-cargo run --release -p conformance --bin entries
+cargo run -p conformance --bin entries
 ```
 
 **And it gained the one filter the second run's lesson asks for.** That run ended by saying a hit is
@@ -2510,7 +2505,7 @@ Five rounds since the last full sweep, three of which were pure motion — `cont
 `Command::Present` (ADR 0316) and the entries sweep itself (ADR 0319). Over `ledger.toml`,
 `crates/`, `tools/`, `fuzz/` and, for the fourth sweep, `doc/adr/`:
 
-- **The second sweep, as a program** (`cargo run --release -p conformance --bin unread`, ADR
+- **The second sweep, as a program** (`cargo run -p conformance --bin unread`, ADR
   0324). First run: **62 rows claim an entry unread, 171 keys between them — 55 confirmed
   (quoted by no source), 116 quoted somewhere over 49 rows, 53 by the row's own code.** Most of
   the 116 are the two known shapes at machine scale: a note quoting its own retired wording, and
@@ -2602,7 +2597,7 @@ route (490), the interface font's character route (491), the knockout backdrop a
 press (492), two performance rounds (493, 495) and `/CL`'s callout (494). Over `ledger.toml`,
 `crates/`, `tools/`, `fuzz/` and, for the fourth sweep, `doc/adr/`:
 
-- **Expired blockers (sweep 1), as a program** (`cargo run --release -p conformance --bin
+- **Expired blockers (sweep 1), as a program** (`cargo run -p conformance --bin
   blockers`, ADR 0336). First run: **20 blocker sentences over the ledger (6 printed as expired,
   9 holding, 5 naming no clause) and 26 over the source roots (9, 10, 7)** — and 0 defects, every
   printed-expired hit being a correction quoting the wording it retired or a contrastive "while
@@ -2686,7 +2681,7 @@ answers (503), the function grid (504), the refused photograph (505), the borrow
 the map's two answers (507), the damaged prefix (508) and the rest of the wave. Over
 `ledger.toml`, `crates/`, `tools/`, `fuzz/` and, for the fourth sweep, `doc/adr/`:
 
-- **Capability reasons (sweep 3), as a program** (`cargo run --release -p conformance --bin
+- **Capability reasons (sweep 3), as a program** (`cargo run -p conformance --bin
   capabilities`, ADR 0345). First run: **ledger 47 sentences — 34 witnessed by the tree, 40
   about the program, 7 about one crate; source 142 — 116 witnessed, 78 program, 64 crate.**
   What the program adds over the grep is the two judgements each run redid by hand: the lacking
@@ -2801,7 +2796,7 @@ door that did not ask the signature (514) and the wave beside them. Over `ledger
 `tools/`, `fuzz/` and — for the fourth sweep, now wider than `doc/adr/` — every Markdown document
 under `doc/` this project wrote bar `doc/history/`:
 
-- **Retired claim (sweep 4), as a program** (`cargo run --release -p conformance --bin retired --
+- **Retired claim (sweep 4), as a program** (`cargo run -p conformance --bin retired --
   <noun> …`, ADR 0352). First run over seventeen nouns: **544 mentions, 7 nouns carrying both
   shapes, 2 defects and both in `doc/adr/`.** ADR 0235's consequence still read "`RadiosInUnison`
   crosses and is not obeyed" six rounds after the five-hundred-and-eleventh read that sentence out
@@ -2897,7 +2892,7 @@ hollow font, the door that did not ask the signature, three roads becoming three
 clip that contains a mark. Over `ledger.toml`, `crates/`, `tools/`, `fuzz/` and — for the fourth
 sweep — every Markdown document under `doc/` this project wrote bar `doc/history/`:
 
-- **Caller sweep (5), as a program** (`cargo run --release -p conformance --bin callers`, ADR
+- **Caller sweep (5), as a program** (`cargo run -p conformance --bin callers`, ADR
   0360). First run: **289 distinct `pub fn` names in `pdf-model`, 15 crates naming it in a
   manifest; 174 named by a dependent crate, 19 by a tool or a fuzz target, 73 only inside
   `pdf-model` itself, 21 only by a test or an example, 2 by nothing at all** — 115 that no crate
@@ -3003,7 +2998,7 @@ corrected ledger notes while one *deleted* a claim about `doc/todo/47`, which is
 condition these exist for. Over `ledger.toml`, `crates/`, `tools/`, `fuzz/` and every Markdown
 document under `doc/` this project wrote bar `doc/history/`:
 
-- **Pointers (8), as a program** (`cargo run --release -p conformance --bin pointers`, ADR 0372).
+- **Pointers (8), as a program** (`cargo run -p conformance --bin pointers`, ADR 0372).
   First run: **4609 path pointers — 2525 live, 104 absent, 14 in another crate, 1616 unrooted, 106
   a form, 244 not carried — and 48 symbol pointers, 9 undefined**, in a third of a second. 84 of
   the 104 absent are in `doc/adr/` and in this file's own records of earlier runs, which is the
@@ -3103,7 +3098,7 @@ deleted along the way, which is the condition the eighth sweep exists for. Over 
 `crates/`, `tools/`, `fuzz/` and every Markdown document under `doc/` this project wrote bar
 `doc/history/`:
 
-- **Table numbers (9), as a program** (`cargo run --release -p conformance --bin tables`, ADR 0380).
+- **Table numbers (9), as a program** (`cargo run -p conformance --bin tables`, ADR 0380).
   First run: **409 tables captioned, 305 stating entries; 4680 sentences name a table; 1830
   attributed key citations — 1706 the table agrees with, 75 absent, 3 a denial the table
   contradicts, 46 under a table that states no entries, 0 under no such table.** What the program
@@ -3196,7 +3191,7 @@ condition this file's fourth sweep exists for and the hazard this round was poin
 `ledger.toml`, `crates/`, `tools/`, `fuzz/` and every Markdown document under `doc/` this project
 wrote bar `doc/history/`:
 
-- **`inapplicable` (7), as a program** (`cargo run --release -p conformance --bin inapplicable`,
+- **`inapplicable` (7), as a program** (`cargo run -p conformance --bin inapplicable`,
   ADR 0388). First run: **80 `inapplicable` rows stating 305 terms — 60 named by no source, 245
   named over 72 rows, 231 of them carrying a cousin row that is not `inapplicable` and says the
   same word.** What the program adds over the grep is the two judgements each hand-run redid: the
@@ -3322,7 +3317,7 @@ the blame pointer without a stamp.
 Nine rounds since the last full sweep. Over `ledger.toml`, `crates/`, `tools/`, `fuzz/` and every
 Markdown document under `doc/` this project wrote bar `doc/history/`:
 
-- **Sweep 14, as a program** (`cargo run --release -p conformance --bin owed`, ADR 0397). The last
+- **Sweep 14, as a program** (`cargo run -p conformance --bin owed`, ADR 0397). The last
   of the four descriptions whose *level* moved with the session — nine hand-runs printed 16, 24, 5,
   15, 19, 10, 8, 9 and 19 hits over rounds that moved almost no rows, each under a debt vocabulary
   written that morning. **The discriminator is the seventh sweep's with the sign reversed**: there a
@@ -3430,7 +3425,7 @@ append, exactly as §Q's sentence was spliced in the five-hundred-and-fifty-thir
 Three rounds since the last full sweep. Over `ledger.toml`, `crates/`, `tools/`, `fuzz/` and every
 Markdown document under `doc/` this project wrote bar `doc/history/`:
 
-- **Sweep 10, as a program** (`cargo run --release -p conformance --bin counts`, ADR 0400) — a parent
+- **Sweep 10, as a program** (`cargo run -p conformance --bin counts`, ADR 0400) — a parent
   row's stated count against its children, and the last of the ten whose printed *level* moved with the
   session: ten hand-runs gave 16, 185, 124, 10, 160, 17, 70, 25, 41 and 4 counted claims over a ledger
   whose families barely move, because each round wrote the pattern that morning. **The obvious
@@ -3981,7 +3976,7 @@ has a command owes the command's name, not a new census.** Look for the gate bef
 ## An eighteenth sweep, built in the six-hundred-and-forty-fifth: **a parent's claim against its own children**
 
 The six-hundred-and-forty-first found §12.11 by reading and said outright that no sweep could have
-printed it. This is that sweep — `cargo run --release -p conformance --bin overstated`, ADR 0475 —
+printed it. This is that sweep — `cargo run -p conformance --bin overstated`, ADR 0475 —
 and it is the **first one that opens no source file at all**: a parent row saying an entry or a
 table *is read* makes a claim its descendants are the detail of, so both sides are sentences in
 `ledger.toml` written by this project about its own code. A contradiction is then a contradiction

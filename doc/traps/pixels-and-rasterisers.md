@@ -74,7 +74,7 @@ a round changes what a rasteriser draws, the contradicted groups holding the pag
 part of the diff**, exactly as the ink sweep is.
 
 **Something does point at them now, and its first run found the same claim in a second home.**
-`cargo run --release -p conformance --bin overtaken` compares a page-list note's newest cited ADR
+`cargo run -p conformance --bin overtaken` compares a page-list note's newest cited ADR
 against the newest ADR that names one of its own pages, which is *a decision taken after the note
 was last revised about a page the note explains* (ADR 0491). It named `CONTRADICTED_TIGHT_CONSENSUS`
 at the head of its first rung when 662's sentence was planted back, and at the head of its second
@@ -83,7 +83,7 @@ nineteen sessions **in the paragraph immediately below the ADR 0476 correction, 
 paragraph was unaffected**. A correction that scopes itself is a claim, and this one was wrong.
 
 **That tell has an instrument of its own now, and the argument for building one was a count.**
-`cargo run --release -p conformance --bin quoted -- <the oracle's log>` compares every figure a
+`cargo run -p conformance --bin quoted -- <the oracle's log>` compares every figure a
 note quotes in the gate's own vocabulary against what the gate prints for that note's pages, and
 prints the gate's value under each disagreement (ADR 0495). The round that measured the population
 before building it found the earlier estimate had been taken over two tokens of a five-token
@@ -466,6 +466,17 @@ half-width (ADR 1455). The miter limit and the folding inner side, the two cause
 both clause-correct shapes that did not apply. `Centre::inside_a_curve` records which points lie
 inside a curve; a fixture held per pixel to the distance set caught 13 wedge pixels at up to 255
 levels where the set is 0.
+
+### 87. A frame's admission is a function of that frame alone
+
+`issue1905.pdf` fit the frame budget drawn alone and was refused drawn after `bug1721218_reduced.pdf`:
+the glyph atlas still held the earlier page's entries, the room probe (ADR 0093) sent glyph tiles
+of 331 to 179 pixels to the scratch sheet instead, the sheet's packing grew by a thousand pixels a
+side, and a probe refusal never set the atlas-pressure flag that triggers the repack (ADR 0050).
+A frame refused room in an atlas holding entries it never used now resets the atlas and is encoded
+again (ADR 1467 §4), and `tests/frame_independence.rs` holds a page's verdict and bytes equal alone
+and in sequence. Before a refusal in a walk is attributed to a change, run the page alone and after
+its predecessor on both trees.
 
 ## Things worth knowing
 

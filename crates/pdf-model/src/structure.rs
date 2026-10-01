@@ -521,6 +521,24 @@ impl Tree {
         Namespace::read(document, space).map(|space| space.name)
     }
 
+    /// Whether the element ends, after §14.8.6.2's role mapping, in the standard structure
+    /// namespace for PDF 2.0.
+    ///
+    /// Annex L's population, which is why a writer asks it: "[e]lements in the standard structure
+    /// namespace for PDF 2.0 shall not have child or parent elements in the standard structure
+    /// namespace for PDF 2.0 that are not explicitly listed in Table L.2", and "[t]he containment
+    /// rules specified in Table L.2 shall also apply to structure elements that are role mapped
+    /// into the standard structure namespace for PDF 2.0". So the namespace asked about is the one
+    /// the role map *ends* in, which is [`Self::resolved`]'s second half — not the `/NS` the
+    /// element states, and never the default an element stating none is placed in.
+    #[must_use]
+    pub fn in_pdf_2_0_namespace(&self, document: &Document, element: &Dictionary) -> bool {
+        self.resolved(document, element)
+            .and_then(|(_, space)| space)
+            .and_then(|space| Namespace::read(document, &space))
+            .is_some_and(|space| space.name == STANDARD_NAMESPACE_2_0)
+    }
+
     /// §14.8.6.2's requirement on the *document*: which namespaces its elements end in that the
     /// clause does not permit.
     ///

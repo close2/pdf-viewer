@@ -370,6 +370,20 @@ pub(crate) struct AtlasStore {
     /// neither is any bind group — the stale pixels are simply never named again,
     /// because the entries that named them are gone.
     pub generation: u64,
+    /// What the frame being encoded has asked of this atlas ([`FrameAsk`]): whether it was
+    /// refused room, and how many distinct keys it used.
+    frame: FrameAsk,
+}
+
+/// What one frame has asked of the atlas, for [`AtlasStore::stale_for_frame`] (ADR 1467
+/// section 4).
+///
+/// A `Cell` for the refusal because [`AtlasStore::prospect`] answers through `&self`: it is
+/// a question, and this is the one fact about the answer the device must see afterwards.
+#[derive(Debug, Default)]
+struct FrameAsk {
+    refused_room: std::cell::Cell<bool>,
+    used: u32,
 }
 
 impl AtlasStore {
@@ -404,7 +418,30 @@ impl AtlasStore {
             sheet: Vec::new(),
             dirty: Vec::new(),
             generation: 0,
+            frame: FrameAsk::default(),
         }
+    }
+
+    /// Start a frame's account of what it asks of this atlas.
+    pub(crate) fn begin_frame(&mut self) {
+        self.frame = FrameAsk::default();
+    }
+
+    /// One more distinct key the frame reached an entry under, resident or inserted.
+    pub(crate) fn note_used(&mut self) {
+        self.frame.used = self.frame.used.saturating_add(1);
+    }
+
+    /// **Whether the frame just encoded was answered by what an earlier frame left here
+    /// rather than by its own needs** (ADR 1467 section 4): it was refused room — by the
+    /// room probe or by an insert — while the atlas holds entries it did not use. Such a
+    /// frame's lanes, its scratch sheet and so its admission against the frame budget
+    /// depend on the pages drawn before it; reset and encoded again, it is the frame a
+    /// fresh device draws. A frame whose own keys outgrow the atlas uses every entry it
+    /// holds and is not stale, which is ADR 0050's condition for keeping what fits.
+    pub(crate) fn stale_for_frame(&self) -> bool {
+        self.frame.refused_room.get()
+            && self.entries.len() > usize::try_from(self.frame.used).unwrap_or(usize::MAX)
     }
 
     pub(crate) fn dimensions(&self) -> (u32, u32) {
@@ -452,6 +489,7 @@ impl AtlasStore {
         // ADR 1407). Without the flag nothing changes, so the fall-through path keeps its
         // exact old behaviour.
         if probe_room && entry.is_none() && !self.would_fit(width, height) {
+            self.frame.refused_room.set(true);
             return CacheProspect::TooLarge;
         }
         CacheProspect::Admitted {
@@ -596,7 +634,10 @@ impl AtlasStore {
     // allocation: `allocate` returned a position, so `x + width ≤ self.width` and
     // `y + height ≤ self.height`, and the sheet is `width × height` bytes
     pub(crate) fn insert(&mut self, key: GlyphKey, mask: &CoverageMask) -> Option<AtlasEntry> {
-        let (x, y) = self.allocate(mask.width, mask.height)?;
+        let Some((x, y)) = self.allocate(mask.width, mask.height) else {
+            self.frame.refused_room.set(true);
+            return None;
+        };
         let entry = AtlasEntry {
             x,
             y,

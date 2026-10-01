@@ -1270,3 +1270,244 @@ fn a_merge_carries_no_web_capture_database() {
         report.warnings
     );
 }
+
+/// Entries every metadata test below states: one of each of Table 349's shapes.
+fn stated_entries() -> Vec<InfoEntry> {
+    [
+        ("Title", "A merged document"),
+        ("Author", "An operator"),
+        ("Producer", "This suite"),
+        ("CreationDate", "D:20261001120000+02'00"),
+    ]
+    .into_iter()
+    .map(|(key, value)| InfoEntry {
+        key: key.to_owned(),
+        value: Some(value.to_owned()),
+    })
+    .collect()
+}
+
+/// A merged file of an earlier version states each entry in both sources, and they agree.
+///
+/// The dictionary is not deprecated before PDF 2.0, so it carries every entry; §14.3.2's packet
+/// beside it states each one's Table 349 counterpart — NOTE 1's `dc:title`, NOTE 2's
+/// `dc:creator`, NOTE 6's `pdf:Producer`, NOTE 7's `xmp:CreateDate` — and §14.3.4's first rule
+/// makes the date "fully equivalent" in the two (ADR 1473).
+#[test]
+fn a_merged_files_information_dictionary_and_packet_agree() {
+    let one = support::with_metadata("1.7", None, None);
+    let (_, bytes) =
+        merge_stating(&[(&one, "1"), (&one, "1")], false, &stated_entries()).expect("merged");
+    let merged = Document::open(bytes.clone()).expect("the merge opens");
+    let packet = support::document_packet(&merged).expect("the catalog names a packet");
+    for (key, namespace, local) in [
+        ("Title", pdf_model::xmp::DC, "title"),
+        ("Author", pdf_model::xmp::DC, "creator"),
+        ("Producer", pdf_model::xmp::PDF, "Producer"),
+    ] {
+        let stated = support::info_text(&merged, key);
+        assert!(stated.is_some(), "/{key} is in the dictionary");
+        assert_eq!(stated.as_deref(), packet.text(namespace, local), "/{key}");
+    }
+    assert_eq!(
+        support::info_text(&merged, "CreationDate").as_deref(),
+        Some("D:20261001120000+02'00")
+    );
+    assert_eq!(
+        packet.text(pdf_model::xmp::XMP, "CreateDate"),
+        Some("2026-10-01T12:00:00+02:00")
+    );
+    if let Some(accepted) = qpdf_accepts(&bytes) {
+        assert!(accepted, "qpdf --check rejects the merged file");
+    }
+}
+
+/// A merged PDF 2.0 file states the deprecated entries in §14.3.2's packet alone.
+///
+/// §14.3.1: "Except for the `CreationDate` and `ModDate` entries, the use of the document
+/// information dictionary for document metadata is deprecated in PDF 2.0." The output states the
+/// highest version a source claims, so one 2.0 source makes it a 2.0 file, and the dictionary
+/// keeps the date alone.
+#[test]
+fn a_merged_pdf_2_0_file_states_the_deprecated_entries_in_the_packet_alone() {
+    let earlier = support::with_metadata("1.7", None, None);
+    let later = support::with_metadata("2.0", None, None);
+    let (_, bytes) =
+        merge_stating(&[(&earlier, "1"), (&later, "1")], false, &stated_entries()).expect("merged");
+    let merged = Document::open(bytes.clone()).expect("the merge opens");
+    assert_eq!(
+        merged.version(),
+        Some(pdf_syntax::Version { major: 2, minor: 0 })
+    );
+    for key in ["Title", "Author", "Producer"] {
+        assert_eq!(
+            support::info_text(&merged, key),
+            None,
+            "/{key} left the dictionary"
+        );
+    }
+    assert_eq!(
+        support::info_text(&merged, "CreationDate").as_deref(),
+        Some("D:20261001120000+02'00")
+    );
+    let packet = support::document_packet(&merged).expect("the catalog names a packet");
+    assert_eq!(
+        packet.text(pdf_model::xmp::DC, "title"),
+        Some("A merged document")
+    );
+    assert_eq!(
+        packet.text(pdf_model::xmp::DC, "creator"),
+        Some("An operator")
+    );
+    assert_eq!(
+        packet.text(pdf_model::xmp::PDF, "Producer"),
+        Some("This suite")
+    );
+    assert_eq!(
+        packet.text(pdf_model::xmp::XMP, "CreateDate"),
+        Some("2026-10-01T12:00:00+02:00")
+    );
+    if let Some(accepted) = qpdf_accepts(&bytes) {
+        assert!(accepted, "qpdf --check rejects the merged file");
+    }
+}
+
+/// A one-page tagged document in the standard structure namespace for PDF 2.0: a root listing
+/// the namespace, one `Document` and one `P` under it, each naming it through `/NS`.
+fn tagged_pdf_2_0(identifier: &str) -> Vec<u8> {
+    let content = "/P << /MCID 0 >> BDC\nEMC\n";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 5 0 R /MarkInfo << /Marked true \
+         >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> \
+         /Contents 4 0 R /StructParents 0 >>\nendobj\n\
+         4 0 obj\n<< /Length {len} >>\nstream\n{content}endstream\nendobj\n\
+         5 0 obj\n<< /Type /StructTreeRoot /K [6 0 R] /ParentTree << /Nums [0 [7 0 R]] >> \
+         /ParentTreeNextKey 1 /Namespaces [8 0 R] >>\nendobj\n\
+         6 0 obj\n<< /Type /StructElem /S /Document /NS 8 0 R /P 5 0 R /K [7 0 R] >>\nendobj\n\
+         7 0 obj\n<< /Type /StructElem /S /P /NS 8 0 R /P 6 0 R /Pg 3 0 R /K [0] \
+         /ID ({identifier}) >>\nendobj\n\
+         8 0 obj\n<< /Type /Namespace /NS (http://iso.org/pdf2/ssn) >>\nendobj\n",
+        len = content.len(),
+    );
+    let mut out = String::from("%PDF-2.0\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R /ID [<0102> <0304>] >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// The structure tree root's children, resolved, with each one's `/S`.
+fn root_children(document: &Document) -> Vec<pdf_syntax::Dictionary> {
+    let catalog = document.catalog().expect("a catalog");
+    let root = document.get_key(&catalog, "StructTreeRoot");
+    let root = root.as_dict().expect("a structure tree root");
+    match document.get_key(root, "K") {
+        Object::Array(items) => items
+            .iter()
+            .filter_map(|item| document.resolve(item).as_dict().cloned())
+            .collect(),
+        Object::Dictionary(one) => vec![one],
+        _ => Vec::new(),
+    }
+}
+
+/// Two sources each holding a PDF 2.0 `Document` merge into a root holding exactly one.
+///
+/// Annex L: "Elements in the standard structure namespace for PDF 2.0 shall not have child or
+/// parent elements in the standard structure namespace for PDF 2.0 that are not explicitly listed
+/// in Table L.2", and Table L.2's first row gives `StructTreeRoot` the child `Document` at `1`. The
+/// same table lists `Document` among a `Document`'s children at `0..n`, and Table 364's EXAMPLE 2
+/// is the shape — "the PDF at the top level is one document containing several documents" — so
+/// the two cross as the producers typed them, inside one `Document` of their namespace whose
+/// `/P` is the root and which is theirs (ADR 1474).
+#[test]
+fn two_pdf_2_0_documents_are_written_inside_one() {
+    let first = tagged_pdf_2_0("A");
+    let second = tagged_pdf_2_0("B");
+    let (report, bytes) = merge(&[(&first, "1"), (&second, "1")], false).expect("it merges");
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.detail.contains("Annex L")),
+        "the wrapping is said: {:?}",
+        report.warnings
+    );
+    let merged = Document::open(bytes.clone()).expect("the merge opens");
+    let tops = root_children(&merged);
+    assert_eq!(tops.len(), 1, "Table L.2: the root holds one Document");
+    let wrapper = &tops[0];
+    let tree = pdf_model::structure::Tree::of(&merged).expect("a structure tree");
+    assert_eq!(
+        tree.standard_role(&merged, wrapper),
+        Some(pdf_model::structure::StandardType::Document)
+    );
+    assert!(tree.in_pdf_2_0_namespace(&merged, wrapper));
+    let Object::Array(children) = merged.get_key(wrapper, "K") else {
+        panic!("the wrapper states its children");
+    };
+    assert_eq!(children.len(), 2);
+    let catalog = merged.catalog().expect("a catalog");
+    let root_ref = catalog.get("StructTreeRoot").cloned();
+    assert_eq!(wrapper.get("P").cloned(), root_ref, "its /P is the root");
+    for child in &children {
+        let element = merged.resolve(child);
+        let element = element.as_dict().expect("an element");
+        assert!(tree.in_pdf_2_0_namespace(&merged, element));
+        assert_eq!(
+            tree.standard_role(&merged, element),
+            Some(pdf_model::structure::StandardType::Document),
+            "a source's Document crosses as its producer typed it"
+        );
+        let parent = merged.resolve(element.get("P").expect("Table 355's /P"));
+        assert_eq!(parent.as_dict(), Some(wrapper), "and names the wrapper");
+    }
+    let check = support::check_structure(&merged);
+    assert!(check.faults.is_empty(), "{:?}", check.faults);
+    assert_eq!(check.resolved_pages, 2);
+
+    let judged = pdf_archive::check(&merged, pdf_archive::Target::Two(pdf_archive::Level::A));
+    for judgement in &judged.judgements {
+        if matches!(
+            judgement.id,
+            "logical-structure/structure-tree-root"
+                | "logical-structure/role-map-terminates-at-a-standard-type"
+        ) {
+            assert_eq!(
+                judgement.outcome,
+                pdf_archive::Outcome::Met,
+                "{}",
+                judgement.id
+            );
+        }
+    }
+    if let Some(accepted) = qpdf_accepts(&bytes) {
+        assert!(accepted, "qpdf --check rejects the merged file");
+    }
+}
+
+/// Elements in PDF 1.7's namespace are outside Annex L, and a merge of two such roots is
+/// left as the sources wrote them: one top-level element each.
+#[test]
+fn documents_outside_the_pdf_2_0_namespace_are_not_wrapped() {
+    let first = tagged_document("A", "H1", "Start");
+    let second = tagged_document("B", "H1", "Start");
+    let (_, bytes) = merge(&[(&first, "1"), (&second, "1")], false).expect("it merges");
+    let merged = Document::open(bytes).expect("the merge opens");
+    assert_eq!(root_children(&merged).len(), 2);
+}

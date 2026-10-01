@@ -12,14 +12,6 @@ use viewer_ui::chrome::{Content, Hit};
 use crate::app::{App, at};
 use crate::typing::Typing;
 
-/// How far a touchpad must be dragged under Ctrl for one zoom step.
-///
-/// A choice, not a derivation: a notch of a mouse wheel is one step by construction and a
-/// touchpad reports a stream of pixels instead, so something has to say how many of them a notch
-/// is worth. Fifty is about a finger's width on this machine's touchpad and gives roughly the
-/// same number of steps per gesture as the wheel does per flick.
-const WHEEL_ZOOM_PIXELS: f32 = 50.0;
-
 impl App {
     /// The panel's own display list for this frame, or `None` when there is nothing to draw.
     ///
@@ -455,48 +447,17 @@ impl App {
 /// How many whole zoom steps a Ctrl + wheel delta is worth, given what earlier deltas left
 /// unspent in `carry`.
 ///
-/// **A `LineDelta` is not a notch.** `winit`'s X11 backend divides an `XInput2` smooth-scroll
-/// valuator by that axis's increment, so a high-resolution wheel or a touchpad in line mode
-/// reports a *fraction* of a line per event. Truncating each event on its own therefore spent
-/// nothing at all: in the trace of 2026-09-15 the device's quantum was about a thirty-seventh of
-/// a line, and 579 Ctrl + wheel events carrying 146.4 lines of travel over seven gestures produced
-/// **one** zoom step. So the fraction is carried and spent when it completes a step — which is
-/// what the pixel arm has always done, and `carry` is in lines for both because a step is a step
-/// however the device measured it (ADR 1118).
-///
-/// `WHEEL_ZOOM_PIXELS` is what converts the one to the other, so a touchpad's fifty pixels stay
-/// one step exactly as before.
-fn zoom_steps(carry: &mut f32, delta: winit::event::MouseScrollDelta) -> i32 {
-    let lines = match delta {
-        winit::event::MouseScrollDelta::LineDelta(_, lines) => lines,
+/// `winit` reports lines or pixels; the arithmetic — the fraction carried, nonsense refused — is
+/// `viewer_host::ZoomWheel`'s, so that the three windows spend a gesture alike (ADR 1118).
+fn zoom_steps(carry: &mut viewer_host::ZoomWheel, delta: winit::event::MouseScrollDelta) -> i32 {
+    match delta {
+        winit::event::MouseScrollDelta::LineDelta(_, lines) => carry.lines(lines),
         #[expect(
             clippy::cast_possible_truncation,
             reason = "a scroll delta in pixels, which is tens"
         )]
-        winit::event::MouseScrollDelta::PixelDelta(position) => {
-            position.y as f32 / WHEEL_ZOOM_PIXELS
-        }
-    };
-    // An accumulator is poisoned permanently by one bad value, which a per-event truncation could
-    // not be, so a device reporting a NaN or an infinity is ignored here rather than added in.
-    if !lines.is_finite() {
-        return 0;
+        winit::event::MouseScrollDelta::PixelDelta(position) => carry.pixels(position.y as f32),
     }
-    *carry += lines;
-    let whole = carry.trunc();
-    // `ZOOM_RANGE` spans 0.02 to 64, which is thirty-six steps of 1.25 end to end, so a bound of
-    // sixty-four cannot hide a magnification anybody could have reached — it is there because a
-    // `f32` cast saturates and a device reporting nonsense would otherwise be a loop of two
-    // billion commands.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "clamped to ±64 on the line above"
-    )]
-    let steps = whole.clamp(-64.0, 64.0) as i32;
-    // The whole of what `whole` claimed leaves the carry, clamped or not: a nonsense delta is
-    // refused a magnification, not banked for the next event to spend.
-    *carry -= whole;
-    steps
 }
 
 /// The `/EmbeddedFiles` keys of the rows carrying one of §12.3.6's pictures of an attachment.
@@ -522,7 +483,8 @@ mod tests {
     use winit::dpi::PhysicalPosition;
     use winit::event::MouseScrollDelta;
 
-    use super::{WHEEL_ZOOM_PIXELS, zoom_steps};
+    use super::zoom_steps;
+    use viewer_host::ZOOM_PIXELS as WHEEL_ZOOM_PIXELS;
 
     /// The quantum the mouse in the trace of 2026-09-15 reported, in lines. Every Ctrl + wheel
     /// delta in that file is a multiple of it.
@@ -548,7 +510,7 @@ mod tests {
             .sum();
         assert_eq!(truncated_per_event, 0, "before: 4.0 lines bought nothing");
 
-        let mut carry = 0.0;
+        let mut carry = viewer_host::ZoomWheel::default();
         let carried: i32 = (0..events)
             .map(|_| zoom_steps(&mut carry, MouseScrollDelta::LineDelta(0.0, TRACE_QUANTUM)))
             .sum();
@@ -559,7 +521,7 @@ mod tests {
     /// made to wait for a second notch.
     #[test]
     fn a_whole_notch_is_still_one_step() {
-        let mut carry = 0.0;
+        let mut carry = viewer_host::ZoomWheel::default();
         assert_eq!(
             zoom_steps(&mut carry, MouseScrollDelta::LineDelta(0.0, 1.0)),
             1
@@ -574,7 +536,7 @@ mod tests {
     /// changed units.
     #[test]
     fn a_touchpad_still_takes_fifty_pixels_a_step() {
-        let mut carry = 0.0;
+        let mut carry = viewer_host::ZoomWheel::default();
         let tenth = f64::from(WHEEL_ZOOM_PIXELS) / 10.0;
         let steps: i32 = (0..25)
             .map(|_| {
@@ -591,7 +553,7 @@ mod tests {
     /// nor poisons the carry for the rest of the session.
     #[test]
     fn a_reversal_cancels_and_nonsense_does_not_poison_the_carry() {
-        let mut carry = 0.0;
+        let mut carry = viewer_host::ZoomWheel::default();
         assert_eq!(
             zoom_steps(&mut carry, MouseScrollDelta::LineDelta(0.0, 0.9)),
             0

@@ -2709,14 +2709,6 @@ const POPUP_TITLE: Color = Color {
     a: 1.0,
 };
 
-/// A popup window's paper.
-const POPUP_PAPER: Color = Color {
-    r: 1.0,
-    g: 0.99,
-    b: 0.90,
-    a: 1.0,
-};
-
 /// §12.5.6.14's windows, drawn over the page.
 ///
 /// **A window is not page content**, which is the whole reason this is here rather than in
@@ -2782,8 +2774,13 @@ fn draw_popup(
     let size = TEXT_SIZE * scale;
     let padding = POPUP_PADDING * scale;
     let bar = size * POPUP_TITLE_HEIGHT;
-    rectangle(list, (x, y, w, h), EDGE);
-    rectangle(list, (x + 1.0, y + 1.0, w - 2.0, h - 2.0), POPUP_PAPER);
+    // The paper and the edge are the three windows' one choice (ADR 1466); the bar is this one's.
+    rectangle(list, (x, y, w, h), viewer_host::popup::EDGE);
+    rectangle(
+        list,
+        (x + 1.0, y + 1.0, w - 2.0, h - 2.0),
+        viewer_host::popup::PAPER,
+    );
     rectangle(
         list,
         (x + 1.0, y + 1.0, w - 2.0, bar.min(h - 2.0)),

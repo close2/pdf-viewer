@@ -766,7 +766,11 @@ upstream and geometric rather than a vocabulary question — and
 [32](todo/32-presentation-player.md) a presentation player. **Ctrl + wheel zooming landed in the
 two-hundred-and-fourteenth session**, and the interesting half was in the core rather than in the
 host: a zoom anchored at the pointer has to hold a page point that `Open::origin` knows about and
-the scroll does not, because a page smaller than the viewport is *centred* (ADR 0166).
+the scroll does not, because a page smaller than the viewport is *centred* (ADR 0166). **All three
+windows offer it**: `quorra`, `quorra-gtk` (its `EventControllerScroll` reading Control) and
+`quorra-qt` (`wheelEvent` under `Qt::ControlModifier`) each send `Command::Zoom` anchored at the
+pointer, and each counts a gesture's travel with the one accumulator, `viewer_host::ZoomWheel`
+(ADR 1118).
 
 **The panels this file called "the largest single thing this project owes" for thirty sessions
 are drawn.** `viewer_ui::chrome` is a sidebar of four tabs and a modal card, in a `pdf-render`
@@ -821,7 +825,10 @@ reordered a second time.
 - `viewer-accessibility` — **exists** since the three-hundred-and-seventy-sixth. §14.7's tree onto
   AccessKit, and the only crate permitted to name `accesskit_unix` and therefore an async runtime.
   Depends on `viewer-core`, `pdf-model` and `accesskit`; nothing depends on it but `viewer-ui`.
-- `viewer-ui` — consumer #1 since session 132, and a tier-2 host.
+- `viewer-ui` — consumer #1 since session 132, and a tier-2 host. **A frame its graphics device
+  refuses is drawn on the processor and said in the title** as well as on the terminal, in `quorra`
+  and `quorra-confined` alike (ADR 1466); `quorra-gtk` and `quorra-qt` draw no page through a
+  graphics device, so they have no such refusal to say.
 - `viewer-host` — **exists** since the four-hundred-and-tenth, and it is what a second host
   discovered: five panel answers as one row shape and the list of panels itself (`Tab`, ADR 0564),
   §12.3.4's miniatures fetched a row at a time, §12.7.5's field as the control it is,

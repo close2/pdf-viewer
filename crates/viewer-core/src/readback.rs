@@ -10,8 +10,9 @@
 //! # What is kept, and what a bound is worth
 //!
 //! Only [`pdf_model::Interpretation::text`] — the readback, and not the display list, the text
-//! layer or the decoded images. That is what makes the number small: the whole of ISO 32000-2
-//! reads back as **2 658 697 bytes**, 2.6 KB a page, for the largest document this project owns.
+//! layer or the decoded images — and beside it the one thing a search needs from the text layer,
+//! [`crate::select::Order`]: which way each right-to-left run was stored, a few words a run.
+//! That is what makes the number small: the whole of ISO 32000-2 reads back as **2 658 697 bytes**, 2.6 KB a page, for the largest document this project owns.
 //! The display list for one page of it is larger than that.
 //!
 //! [`BUDGET`] is the ceiling and it is in one place. Above it the least recently used page's
@@ -30,6 +31,8 @@
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
+
+use crate::select::Order;
 
 /// How many bytes of readback one open document may hold.
 ///
@@ -53,8 +56,18 @@ struct Entry {
     /// holds it across a `&mut` borrow of the same document, and a 2.6 KB copy per step would be
     /// the whole cost of a hit.
     text: Arc<str>,
+    /// How that readback stored its right-to-left runs, which a search reads its spellings
+    /// against and which only the text layer this cache does not keep could say again.
+    order: Arc<Order>,
     /// The value of [`Readbacks::clock`] when this entry was last read or written.
     used: u64,
+}
+
+impl Entry {
+    /// The bytes this entry counts against the budget: the readback and its runs.
+    fn size(&self) -> usize {
+        self.text.len().saturating_add(self.order.heap_bytes())
+    }
 }
 
 /// The readbacks one open document is holding, under a byte budget.
@@ -100,7 +113,7 @@ impl Readbacks {
     }
 
     /// A page's readback, where it is held, marking it as the most recently used.
-    pub(crate) fn get(&mut self, page: usize) -> Option<Arc<str>> {
+    pub(crate) fn get(&mut self, page: usize) -> Option<(Arc<str>, Arc<Order>)> {
         self.clock = self.clock.saturating_add(1);
         let clock = self.clock;
         let Some(entry) = self.held.get_mut(&page) else {
@@ -109,21 +122,21 @@ impl Readbacks {
         };
         entry.used = clock;
         self.hits = self.hits.saturating_add(1);
-        Some(Arc::clone(&entry.text))
+        Some((Arc::clone(&entry.text), Arc::clone(&entry.order)))
     }
 
     /// Keeps a page's readback, dropping least-recently-used entries until it fits.
     ///
     /// A readback larger than the whole budget is not kept at all, rather than emptying the cache
     /// to hold one page that will be evicted by the next insertion.
-    pub(crate) fn put(&mut self, page: usize, text: &Arc<str>) {
-        let size = text.len();
+    pub(crate) fn put(&mut self, page: usize, text: &Arc<str>, order: &Arc<Order>) {
+        let size = text.len().saturating_add(order.heap_bytes());
         if size > self.budget {
             return;
         }
         self.clock = self.clock.saturating_add(1);
         if let Some(previous) = self.held.remove(&page) {
-            self.bytes = self.bytes.saturating_sub(previous.text.len());
+            self.bytes = self.bytes.saturating_sub(previous.size());
         }
         while self.bytes.saturating_add(size) > self.budget {
             if !self.evict() {
@@ -135,6 +148,7 @@ impl Readbacks {
             page,
             Entry {
                 text: Arc::clone(text),
+                order: Arc::clone(order),
                 used: self.clock,
             },
         );
@@ -157,7 +171,7 @@ impl Readbacks {
             return false;
         };
         if let Some(entry) = self.held.remove(&oldest) {
-            self.bytes = self.bytes.saturating_sub(entry.text.len());
+            self.bytes = self.bytes.saturating_sub(entry.size());
             self.evicted = self.evicted.saturating_add(1);
         }
         true
@@ -183,7 +197,7 @@ impl Readbacks {
     /// The counters are not touched, for the reason [`Self::clear`] gives.
     pub(crate) fn forget(&mut self, page: usize) {
         if let Some(entry) = self.held.remove(&page) {
-            self.bytes = self.bytes.saturating_sub(entry.text.len());
+            self.bytes = self.bytes.saturating_sub(entry.size());
         }
     }
 
@@ -240,9 +254,12 @@ mod tests {
     #[test]
     fn a_page_read_once_is_answered_without_being_read_again() {
         let mut cache = Readbacks::default();
-        assert_eq!(cache.get(7), None, "nothing has been put there");
-        cache.put(7, &text(10));
-        assert_eq!(cache.get(7).as_deref(), Some("xxxxxxxxxx"));
+        assert!(cache.get(7).is_none(), "nothing has been put there");
+        cache.put(7, &text(10), &Arc::default());
+        assert_eq!(
+            cache.get(7).map(|(text, _)| text).as_deref(),
+            Some("xxxxxxxxxx")
+        );
         assert_eq!(
             cache.report(),
             ReadbackCache {
@@ -261,12 +278,12 @@ mod tests {
     fn the_budget_drops_the_least_recently_used_page_rather_than_growing() {
         // Room for two of these three and not the third.
         let mut cache = Readbacks::with_budget(25);
-        cache.put(0, &text(10));
-        cache.put(1, &text(10));
+        cache.put(0, &text(10), &Arc::default());
+        cache.put(1, &text(10), &Arc::default());
         // Page 0 is now the more recently used of the two, so page 1 is what the third insertion
         // costs.
         assert!(cache.get(0).is_some());
-        cache.put(2, &text(10));
+        cache.put(2, &text(10), &Arc::default());
         assert!(cache.get(1).is_none(), "the least recently used one went");
         assert!(cache.get(0).is_some(), "and the one asked for stayed");
         assert!(cache.get(2).is_some());
@@ -280,8 +297,8 @@ mod tests {
     #[test]
     fn a_page_that_cannot_fit_does_not_empty_the_cache_on_its_way_out() {
         let mut cache = Readbacks::with_budget(25);
-        cache.put(0, &text(20));
-        cache.put(1, &text(30));
+        cache.put(0, &text(20), &Arc::default());
+        cache.put(1, &text(30), &Arc::default());
         assert!(cache.get(1).is_none(), "it never went in");
         assert!(cache.get(0).is_some(), "and it did not take page 0 with it");
         assert_eq!(cache.report().evicted, 0);
@@ -291,8 +308,8 @@ mod tests {
     #[test]
     fn a_page_read_again_replaces_itself_rather_than_being_counted_twice() {
         let mut cache = Readbacks::default();
-        cache.put(3, &text(100));
-        cache.put(3, &text(40));
+        cache.put(3, &text(100), &Arc::default());
+        cache.put(3, &text(40), &Arc::default());
         let held = cache.report();
         assert_eq!((held.pages, held.bytes), (1, 40));
     }
@@ -301,7 +318,7 @@ mod tests {
     #[test]
     fn clearing_forgets_the_pages_and_keeps_the_tally() {
         let mut cache = Readbacks::default();
-        cache.put(0, &text(10));
+        cache.put(0, &text(10), &Arc::default());
         assert!(cache.get(0).is_some());
         cache.clear();
         assert!(cache.get(0).is_none());

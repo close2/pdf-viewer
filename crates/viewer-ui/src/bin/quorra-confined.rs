@@ -217,6 +217,14 @@ struct Host {
     /// Once set, every later command is declined here rather than sent to a process that cannot
     /// answer: the worker's document died with it, so there is nothing to resume (ADR 0241).
     stopped: Option<String>,
+    /// What the title says while the pages on the screen were drawn on the processor because the
+    /// graphics device refused their frame, or nothing — principle 2's "reported out loud", in
+    /// the window as well as on standard error (ADR 1466).
+    on_the_processor: Option<String>,
+    /// Whether the device has refused a frame of the pages the screen took last. A device frame
+    /// that lands after a refusal draws the pages *beside* the ones handed to the processor, so it
+    /// withdraws the sentence only when nothing since the last take was refused.
+    refused_since_take: bool,
     window: Option<Arc<Window>>,
     /// What puts pixels on the window — the device, or the processor (`--cpu`, or a device
     /// that would not come up). Chosen once in `resumed` and never switched mid-life.
@@ -298,6 +306,8 @@ impl Host {
             canceller: Canceller::new(),
             confined: None,
             stopped: None,
+            on_the_processor: None,
+            refused_since_take: false,
             window: None,
             presentation: None,
             // Creating the instance *is* loading the driver, so `--cpu` must not spawn this
@@ -786,6 +796,7 @@ impl Host {
                     ),
                 );
                 self.screen.take(frames, &mut self.drawing);
+                self.refused_since_take = false;
                 // A frame crossed, so where the reader is now is where a resume goes back to —
                 // and the restart budget starts again from here, because what it bounds is a
                 // recovery that is not working rather than the length of the reading. The view is
@@ -924,12 +935,21 @@ impl Host {
                 "the graphics device refused the frame ({why}); {asked} page(s) fall back to \
                  the processor"
             );
+            self.refused_since_take = true;
+            let said = format!("drawn on the processor: the graphics device refused ({why})");
+            if self.on_the_processor.as_ref() != Some(&said) {
+                self.on_the_processor = Some(said);
+                self.retitle();
+            }
             if asked > 0 {
                 // The card and the pixel pages still want a frame, now without the refused
                 // marks; the fallback pages join it as each lands off the thread.
                 self.ask_frame();
             }
             return;
+        }
+        if !self.refused_since_take && self.on_the_processor.take().is_some() {
+            self.retitle();
         }
         self.trace.say(
             Topic::Frames,
@@ -1070,9 +1090,13 @@ impl Host {
 
     fn retitle(&self) {
         if let Some(window) = self.window.as_ref() {
+            let drawn = self
+                .on_the_processor
+                .as_ref()
+                .map_or_else(String::new, |said| format!(" — {said}"));
             let title = match &self.stopped {
-                Some(said) => format!("{} — {said} — confined", self.heading),
-                None => format!("{} — confined", self.heading),
+                Some(said) => format!("{} — {said}{drawn} — confined", self.heading),
+                None => format!("{}{drawn} — confined", self.heading),
             };
             window.set_title(&title);
         }

@@ -85,8 +85,13 @@ warm() {
      echo "warming the build directory: pid $!, scratchpad/open/build.log")
 }
 
-# One line per gate: name, exit, the gate's own summary line. A failure's last thirty lines go
-# beside the log under the gate's name, so a merge reads one file and opens one more.
+# One line per gate: name, exit, the seconds it ran, the seconds it queued for the lock before
+# that, and the gate's own summary line. A failure's last thirty lines go beside the log under the
+# gate's name, so a merge reads one file and opens one more. The two clocks are apart because they
+# answer different questions: `wall` is what the gate costs — its build and its walk, which the
+# test's own "finished in" leaves out — and `wait` is what the machine's other walks cost it; a
+# dear gate is read off the first and never the second. `tools/state.sh gates-cost` prints them
+# (ADR 1476).
 #
 # Every gate runs behind /home/AI/heavy-walk.lock with four rayon threads: the rounds take the
 # same lock for their own corpus walks, so at most one heavy walk is on the machine at a time
@@ -94,8 +99,14 @@ warm() {
 # process was killed (raster_golden alone peaks past 7 GiB at twelve threads); the lock costs
 # wall-clock and a kill costs the batch.
 run() {
-    local name=$1; shift; local out rc
-    out=$(RAYON_NUM_THREADS="${RAYON_NUM_THREADS:-4}" flock /home/AI/heavy-walk.lock "$@" 2>&1) && rc=0 || rc=$?
+    local name=$1; shift; local out rc asked began ended stamp
+    stamp=$(mktemp)
+    asked=$(date +%s)
+    out=$(RAYON_NUM_THREADS="${RAYON_NUM_THREADS:-4}" flock /home/AI/heavy-walk.lock \
+        sh -c 'date +%s > "$0"; exec "$@"' "$stamp" "$@" 2>&1) && rc=0 || rc=$?
+    ended=$(date +%s)
+    began=$(cat "$stamp" 2>/dev/null); rm -f "$stamp"
+    [ -n "$began" ] || began=$asked
     # A test line that ran nothing exits 0: `--ignored` over a file with no ignored test is green
     # while checking nothing. It is a failure here, and `tests/batch.rs` holds every line's flag
     # to its file's `#[ignore]` attributes before anything runs (ADR 1392).
@@ -103,7 +114,8 @@ run() {
         ! printf '%s\n' "$out" | grep -qE 'test result: [a-z]+\. [1-9][0-9]* passed'; then
         rc=98; out+=$'\nran zero tests — a green line that checked nothing (ADR 1392)'
     fi
-    printf '%-24s exit=%-4s %s\n' "$name" "$rc" \
+    printf '%-24s exit=%-4s wall=%-6s wait=%-6s %s\n' "$name" "$rc" \
+        "$((ended - began))s" "$((began - asked))s" \
         "$(printf '%s\n' "$out" | grep -iE 'test result|documents|pages|passed|FAILED|panicked|ran zero tests' | tail -1 | cut -c1-150)" >> "$log"
     [ "$rc" -ne 0 ] && printf '%s\n' "$out" | tail -30 > "$log.fail.$name"
     return 0
@@ -135,7 +147,9 @@ gates() {
     run t3-vfs_write      cargo test --profile gates -p pdf-vfs --test write_corpus -- --ignored --nocapture
     run t3-vfs_read       cargo test --profile gates -p pdf-vfs --test read_corpus -- --ignored --nocapture
     run t3-awkward        cargo test --profile gates -p viewer-confined --test awkward_classes -- --ignored --nocapture
-    echo "ALL GATES DONE — $(grep -c 'exit=0' "$log") of $(grep -cE 'exit=' "$log") green" >> "$log"
+    echo "ALL GATES DONE — $(grep -c 'exit=0' "$log") of $(grep -cE 'exit=' "$log") green," \
+        "$(awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^wall=/) { sub(/^wall=/, "", $i); sub(/s$/, "", $i); t += $i } }
+                END { print t + 0 }' "$log") s of gate wall time" >> "$log"
     tail -1 "$log"
 }
 

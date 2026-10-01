@@ -86,7 +86,8 @@ mod corpus_passwords;
 /// [`NotComparable`] found it.
 ///
 /// **What the raise changed, and it is one page at each scale.** At [`SCALE`] the page now reaches
-/// the device, which refuses it by a capability — see [`REFUSED_BY_THE_DEVICE`]. At [`MAGNIFIED`]
+/// the device, whose 16 384-pixel side it exceeds, and is drawn in tiles of the device's size and
+/// compared whole (ADR 1472). At [`MAGNIFIED`]
 /// the pages whose verdict can move are exactly those between the old bound and this one at that
 /// scale, which is 4 194 304 to 16 777 216 pixels at [`SCALE`]; the corpus holds three pages above
 /// the first of those figures, and they are `issue19517.pdf` (past this budget at 4x too, 3 390 240
@@ -265,31 +266,15 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// Held to equality in both directions: a page arriving here is a new hole in the backend,
 /// and a page leaving it is a hole closed. The reason each one gives is printed by the run.
 ///
-/// **`bug1721218_reduced.pdf` is a group compositing in four components.** Its whole artwork is
-/// one isolated `/CS /DeviceCMYK` group, which the oracle composites in ink as a pair of element
-/// lists resolved per pixel at its `Do` (§11.6.6, §11.7.2, ADR 0327). The page-level pair is two
-/// whole `Target::Readback` renders put together by `pdf_render::blending`; a scene under
-/// composition cannot be read back, and a `raster_scene::GroupSpec` carries no conversion to run
-/// over a group's composited result, so the group-scoped pair has no lane. The page also meets the
-/// adapter's 16384 × 16384 coverage sheet, a ceiling this refusal preempts rather than fixes.
-///
-/// **`issue16742.pdf` and `issue5044.pdf` are a group compositing in three CIE-based
-/// components** (ADR 0797): an isolated group whose `/CS` is a `CalRGB` or an RGB profile, drawn by
-/// the oracle in the space's own components and resolved through a cube — curves, a grid and the
-/// device's transfer function — per pixel at its `Do`. The page-level cube is one pass over a
-/// whole readback and has no group-scoped analogue here, for the reason the pair has none.
-///
-/// **`issue21346.pdf` is a luminosity mask whose group composites in an sRGB profile's
-/// components**, and §11.5.3's `Y` of that is three curves summed per pixel
-/// (`pdf_render::Luminance`), where `raster_scene::MaskKind::Luminosity` weighs the channels in its
-/// own shader — a different formula, refused rather than drawn to the wrong mask.
-///
-/// All four are `doc/QUORRA_FEEDBACK.md` section 43's: a `GroupSpec` carrying a conversion to run
-/// over the group's composited result (curves on either side of an N-axis grid), a second body for
-/// the four-component shape, and a curves-or-grid field beside the luminosity mask's backdrop.
-/// raster's vocabulary has grown none of the three, so none of the four can leave. Each frame goes
-/// to the CPU backend, which draws them; `headless_quorra.rs` holds the group refusal against the
-/// cross-backend scene.
+/// **It is empty, and what emptied it is ADR 1471.** The four pages it held were
+/// `doc/QUORRA_FEEDBACK.md` section 43's: an isolated group compositing in a blending colour space
+/// of its own (§11.6.6, §11.7.2) — four components in `bug1721218_reduced.pdf`, three CIE-based
+/// ones in `issue16742.pdf` and `issue5044.pdf` — and a luminosity mask whose `Y` is an sRGB
+/// profile's own (§11.5.3) in `issue21346.pdf`. Each ends in a function of the *composited*
+/// pixel that no scene construct states, and each is isolated, so §11.4.5 makes its result a
+/// function of its own elements alone: `render-raster`'s `own_space` draws the elements as a frame
+/// of their own, resolves it with the arithmetic the CPU backend runs, and places the result back
+/// through raster's device-pixel paint. All four agree with the oracle at both scales.
 ///
 /// **What a departure from *this* list means, which is why it is no longer mixed with the
 /// device's.** A name arriving is a construction the CPU oracle states and this translation
@@ -300,12 +285,7 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// or a driver. And because the stage is scale-free, this one array is what both scales are held
 /// to — so a second copy of these names living in the 4× list and going stale while nobody runs
 /// that lane cannot happen.
-const REFUSED_BEFORE_THE_SCENE: [&str; 4] = [
-    "bug1721218_reduced.pdf",
-    "issue16742.pdf",
-    "issue21346.pdf",
-    "issue5044.pdf",
-];
+const REFUSED_BEFORE_THE_SCENE: [&str; 0] = [];
 
 /// Documents whose first page **the device** refuses at [`SCALE`], by name.
 ///
@@ -335,15 +315,13 @@ const REFUSED_BEFORE_THE_SCENE: [&str; 4] = [
 /// cycle is doing what a budget is for — and what would take the name off is `doc/todo/49`'s
 /// standing item, a bound on the interpreter's *work* rather than on its count.
 ///
-/// **`issue19517.pdf` is here because of [`PIXEL_BUDGET`], not because of the page or the
-/// adapter.** The page is 12608x16806 and this adapter
-/// states 16384 pixels per side, so the frame is refused with *target 12608x16806 exceeds this
-/// adapter's limit of 16384 pixels per side* — a capability, like `issue1905.pdf`'s sheet ceiling
-/// and unlike the cycle's budget. It is this list's own sentence exactly: a page a person could
-/// open at 100% and not see. The CPU backend draws it and says so, which is `CLAUDE.md`
-/// principle 2's rule for a refusal, and `doc/QUORRA_FEEDBACK.md` section 44 carries the message
-/// upstream. What had been hiding it is that this gate's budget refused the page three stages
-/// earlier and counted the result as one of seventeen anonymous *not comparable*.
+/// **`issue19517.pdf` is not here, and the capability it met is answered by tiling (ADR 1472).**
+/// The page is 12608x16806 at this scale and the adapter renders 16384 pixels a side, so one frame
+/// cannot hold it. The window never asks for such a frame — it draws a viewport — but
+/// `Rasterizer::rasterize` promises a raster of the whole target, and this gate asks exactly that:
+/// so a target past the side limit is drawn as whole-pixel translations of the page, each a frame
+/// the device takes, and stitched before the passes that run over a readback. It agrees with the
+/// oracle.
 ///
 /// **And the cycle's message is a function of what the run drew before it, which is worth knowing
 /// before quoting one.** Run alone, `ContentStreamCycleType3insideType3.pdf` is refused for
@@ -354,8 +332,7 @@ const REFUSED_BEFORE_THE_SCENE: [&str; 4] = [
 /// its ceiling and the ceiling it meets first is that one. Both are budgets, both are reported
 /// out loud, and the name is on this list either way; what a round may not do is read the printed
 /// figure as this page's own cost.
-const REFUSED_BY_THE_DEVICE: [&str; 2] =
-    ["ContentStreamCycleType3insideType3.pdf", "issue19517.pdf"];
+const REFUSED_BY_THE_DEVICE: [&str; 1] = ["ContentStreamCycleType3insideType3.pdf"];
 
 /// The same at [`MAGNIFIED`], which is the population the zoom path actually draws.
 ///
@@ -414,8 +391,7 @@ const REFUSED_BY_THE_DEVICE: [&str; 2] =
 /// or a translation that grew a construction, and the ratchet could not say which; it would also
 /// write this tree's own refusals down **twice**, once per scale, and a second copy goes stale
 /// while no round runs the 4× lane. Those names are one scale-free array and this one holds only
-/// what the device refuses. (`bug1721218_reduced.pdf` meets the sheet ceiling too; it is refused
-/// before it can reach it, which is why it is not also named here.)
+/// what the device refuses.
 ///
 /// **What a departure from this list means.** A name arriving is a hole that only opens under
 /// magnification — a page a person can open and not zoom into — and it is raster's or this

@@ -153,16 +153,9 @@ document takes.
 The feature draws; the residue is a case the first build did not reach. **What would unblock them:**
 a normal round extending the existing code.
 
-- §14.3.1 — the preferred home for document metadata in a PDF 2.0 file. The `archive` conversion
-  moves the information dictionary's values into the packet; `update`'s `SetInformation` and
-  `merge`'s stated entries still write `/Title`, `/Author`, `/Subject`, `/Keywords`, `/Creator` and
-  `/Producer` into the dictionary alone, which §14.3.1 deprecates. Routing both verbs through
-  `xmp::supplement` is the build, a round with a test per verb (ADR 1461).
-- §L — Table L.2's root row, as a writer. `merge` places each source's top-level structure
-  elements directly under the root it writes, so two sources whose roots each hold a PDF 2.0
-  `Document` give a root holding two where the table gives it one. A `Document` of the shared
-  namespace wrapping them, each element's `/P` moved, is the build: a round with a two-source test
-  (ADR 1461).
+No row is here at present. §14.3.1 and Annex L were, and are `implemented`: `update` and `merge`
+state §14.3.3's deprecated entries in §14.3.2's packet alone in a PDF 2.0 file (ADR 1473), and a
+merged root holding PDF 2.0 `Document`s from several sources holds them inside one (ADR 1474).
 
 - **Beside this bucket and not in it** — §12.5.6.23 is `departed`: every content class the clause
   reaches is removed, a codec's output carried as the image's own samples in every colour space
@@ -239,7 +232,7 @@ These are `partial` only because something they carry is; each note says so and 
 They are not independently actionable — do not brief a round to *take* one. `tools/state.sh ledger`
 counts them among `partial`; they flip when the last binding row flips.
 
-§6.2, §7.6, §12.1, §12.8, §12.8.3, §12.8.3.4.
+§7.6, §12.1, §12.8, §12.8.3, §12.8.3.4.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap

@@ -246,3 +246,11 @@ string `/V` with `/AS` untouched reopened unticked in all three windows. After a
 or chrome, run `tools/drive-windows.sh`: it drives the key after an arrow and after a page click,
 and photographs each top-level window of the process, because without a window manager a popup
 is missing from the root capture and looks like a feature that did nothing.
+
+### 88. A generated table of pointers is relocated before `main`
+
+Round 1315's first fold table was `[(char, &str)]`; its roughly 900 string pointers are dynamic
+relocations the loader applies before any code runs, and `launch_path`'s open count on
+`xfa_filled_imm1344e.pdf` rose from under its 1 820 k ceiling to 1 826 k (ADR 1465). Rebuilt as a
+letter pool indexed by `(u16, u8)` it read 1 818.7 k. Any `build.rs` table is written as a pool plus
+integer indices; the launch gate is what notices when it is not.

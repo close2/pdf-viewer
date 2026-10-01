@@ -14,6 +14,7 @@ mod support;
 use pdf_model::Pages;
 use pdf_model::metadata::Information;
 use pdf_model::page_label::PageLabels;
+use pdf_model::xmp;
 use pdf_syntax::Document;
 use pdf_transform::update::{Edit, InfoEntry, UpdatePlan};
 use pdf_transform::{Budget, MemorySinks, Plan, Policy, Refusal, Source, apply};
@@ -206,7 +207,8 @@ fn a_position_past_one_past_the_end_is_refused() {
 /// where it is broken, and none of them is a value this writes anyway.
 #[test]
 fn the_information_dictionary_is_set_and_read_back() {
-    let source = std::fs::read(support::committed("PDF20_AN001-BPC.pdf")).expect("a document");
+    // PDF 1.7, where the dictionary is every entry's home; a 2.0 file's is the test after next.
+    let source = support::with_metadata("1.7", Some("/Author (Somebody)"), None);
     let (updated, _) = amend(
         &source,
         Edit::SetInformation {
@@ -277,35 +279,163 @@ fn table_349_is_a_closed_list_and_two_of_its_types_are_checked() {
     }
 }
 
-/// Setting a date on a document that also states §14.3.2's stream is the case §14.3.4 is about,
-/// and it is named rather than left to be found.
+/// In a PDF 2.0 file every entry but the two dates goes into §14.3.2's packet alone.
+///
+/// §14.3.1: "Except for the `CreationDate` and `ModDate` entries, the use of the document
+/// information dictionary for document metadata is deprecated in PDF 2.0", and §3.15 defines the
+/// word as "a part of ISO 32000 that should not be written into a PDF 2.0 document". So a title
+/// stated on a 2.0 file with no packet creates one, the catalog names it, the dictionary's old
+/// title goes, and the date — which the clause excepts — is stated in both, as the same instant
+/// (§14.3.4). An entry the operator did not state is the producer's and is left alone (ADR 1473).
 #[test]
-fn a_date_beside_a_metadata_stream_is_named() {
-    let source = std::fs::read(support::committed("PDF20_AN001-BPC.pdf")).expect("a document");
-    let has_stream = {
-        let document = read(&source);
-        document
-            .catalog()
-            .ok()
-            .map(|catalog| document.get_key(&catalog, "Metadata"))
-            .is_some_and(|object| object.as_stream().is_some())
-    };
-    let (_, warnings) = amend(
+fn in_a_pdf_2_0_file_the_deprecated_entries_go_into_the_packet_alone() {
+    let source = support::with_metadata(
+        "2.0",
+        Some("/Title (An old title) /Author (A producer's author)"),
+        None,
+    );
+    let (updated, _) = amend(
+        &source,
+        Edit::SetInformation {
+            entries: vec![
+                InfoEntry {
+                    key: "Title".to_owned(),
+                    value: Some("A new title".to_owned()),
+                },
+                InfoEntry {
+                    key: "Trapped".to_owned(),
+                    value: Some("False".to_owned()),
+                },
+                InfoEntry {
+                    key: "ModDate".to_owned(),
+                    value: Some("D:20261001120000Z".to_owned()),
+                },
+            ],
+        },
+        None,
+    )
+    .expect("set");
+    appended(&source, &updated);
+    let document = read(&updated);
+    assert_eq!(support::info_text(&document, "Title"), None);
+    assert_eq!(support::info_text(&document, "Trapped"), None);
+    assert_eq!(
+        support::info_text(&document, "Author").as_deref(),
+        Some("A producer's author"),
+        "an entry nobody stated is the producer's"
+    );
+    assert_eq!(
+        support::info_text(&document, "ModDate").as_deref(),
+        Some("D:20261001120000Z")
+    );
+    let packet = support::document_packet(&document).expect("the catalog names a packet");
+    assert_eq!(packet.text(xmp::DC, "title"), Some("A new title"));
+    assert_eq!(packet.text(xmp::PDF, "Trapped"), Some("False"));
+    assert_eq!(
+        packet.text(xmp::XMP, "ModifyDate"),
+        Some("2026-10-01T12:00:00Z"),
+        "§14.3.4: \"fully equivalent\""
+    );
+}
+
+/// In a file of an earlier version both sources state each entry, and say the same thing.
+///
+/// The dictionary is not deprecated before 2.0, so it keeps every entry; a packet the document
+/// already holds is restated beside it under Table 349's NOTEs — NOTE 1's `dc:title`, NOTE 4's
+/// `pdf:Keywords`, NOTE 5's `xmp:CreatorTool` — so the two never name two titles. The old title's
+/// other language alternative goes with it, an entry removed leaves both, and a date is one
+/// instant in each.
+#[test]
+fn in_an_earlier_file_both_sources_state_each_entry_and_agree() {
+    let source = support::with_metadata(
+        "1.7",
+        Some("/Title (Old) /Keywords (old, words)"),
+        Some(&support::packet(
+            "<dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">Old</rdf:li>\
+             <rdf:li xml:lang=\"de\">Alt</rdf:li></rdf:Alt></dc:title>\n\
+             <pdf:Keywords>old, words</pdf:Keywords>\n\
+             <xmp:CreatorTool>An old tool</xmp:CreatorTool>\n\
+             <pdf:Producer>Kept as it was</pdf:Producer>",
+        )),
+    );
+    let (updated, warnings) = amend(
+        &source,
+        Edit::SetInformation {
+            entries: vec![
+                InfoEntry {
+                    key: "Title".to_owned(),
+                    value: Some("New & <escaped>".to_owned()),
+                },
+                InfoEntry {
+                    key: "Creator".to_owned(),
+                    value: Some("A new tool".to_owned()),
+                },
+                InfoEntry {
+                    key: "Keywords".to_owned(),
+                    value: None,
+                },
+                InfoEntry {
+                    key: "ModDate".to_owned(),
+                    value: Some("D:20261001083000-05'00".to_owned()),
+                },
+            ],
+        },
+        None,
+    )
+    .expect("set");
+    appended(&source, &updated);
+    assert!(warnings.is_empty(), "nothing to say: {warnings:?}");
+    let document = read(&updated);
+    let packet = support::document_packet(&document).expect("the packet is still there");
+    for (key, namespace, local) in [
+        ("Title", xmp::DC, "title"),
+        ("Creator", xmp::XMP, "CreatorTool"),
+        ("Keywords", xmp::PDF, "Keywords"),
+    ] {
+        assert_eq!(
+            support::info_text(&document, key).as_deref(),
+            packet.text(namespace, local),
+            "/{key} and its Table 349 counterpart agree"
+        );
+    }
+    assert_eq!(packet.text(xmp::DC, "title"), Some("New & <escaped>"));
+    assert_eq!(packet.text_in(xmp::DC, "title", "de"), None);
+    assert_eq!(packet.text(xmp::PDF, "Keywords"), None);
+    assert_eq!(packet.text(xmp::PDF, "Producer"), Some("Kept as it was"));
+    // §14.3.4's fourth rule: "a PDF processor shall ensure that the data in the document
+    // information dictionary and the document level metadata stream -if both are written -are
+    // fully equivalent" — one instant in each text's own spelling.
+    assert_eq!(
+        support::info_text(&document, "ModDate").as_deref(),
+        Some("D:20261001083000-05'00")
+    );
+    assert_eq!(
+        packet.text(xmp::XMP, "ModifyDate"),
+        Some("2026-10-01T08:30:00-05:00")
+    );
+}
+
+/// An earlier file with no packet is given none: its dictionary is the version's own method.
+#[test]
+fn an_earlier_file_with_no_packet_is_given_none() {
+    let source = support::with_metadata("1.7", None, None);
+    let (updated, _) = amend(
         &source,
         Edit::SetInformation {
             entries: vec![InfoEntry {
-                key: "ModDate".to_owned(),
-                value: Some("D:20260903120000Z".to_owned()),
+                key: "Subject".to_owned(),
+                value: Some("A subject".to_owned()),
             }],
         },
         None,
     )
     .expect("set");
+    let document = read(&updated);
     assert_eq!(
-        warnings.iter().any(|detail| detail.contains("§14.3.4")),
-        has_stream,
-        "the warning fires exactly where both sources exist: {warnings:?}"
+        support::info_text(&document, "Subject").as_deref(),
+        Some("A subject")
     );
+    assert!(support::document_packet(&document).is_none());
 }
 
 /// §14.12's hierarchy in the document being edited: a page list edit that would make it false
@@ -341,4 +471,51 @@ fn a_carried_page_leaves_its_document_part_behind() {
         amend(&source, Edit::InsertPages { from: 1, at: 1 }, Some(&parts)).expect("it inserts");
     appended(&source, &updated);
     assert!(!support::states_document_parts(&read(&updated)));
+}
+
+/// An entry that changes nothing the document states touches neither source.
+///
+/// `pdf-vfs`'s `meta/info.json` is `update::stated_information`'s view, written back whole, so
+/// restating what it read has to leave the producer's packet byte for byte: here a title the
+/// packet states and the dictionary does not, and an `/Author` the dictionary states.
+#[test]
+fn restating_what_the_document_says_leaves_the_packet_alone() {
+    let source = support::with_metadata(
+        "2.0",
+        Some("/Author (Somebody)"),
+        Some(&support::packet(
+            "<dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">The producer's title</rdf:li>\
+             </rdf:Alt></dc:title>",
+        )),
+    );
+    let (updated, warnings) = amend(
+        &source,
+        Edit::SetInformation {
+            entries: vec![
+                InfoEntry {
+                    key: "Title".to_owned(),
+                    value: Some("The producer's title".to_owned()),
+                },
+                InfoEntry {
+                    key: "Author".to_owned(),
+                    value: Some("Somebody".to_owned()),
+                },
+            ],
+        },
+        None,
+    )
+    .expect("set");
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let document = read(&updated);
+    assert_eq!(
+        pdf_transform::update::stated_information(&document),
+        pdf_transform::update::stated_information(&read(&source))
+    );
+    let packet = support::document_packet(&document).expect("the packet");
+    assert_eq!(packet.text(xmp::DC, "title"), Some("The producer's title"));
+    assert_eq!(packet.text(xmp::DC, "creator"), None);
+    assert_eq!(
+        support::info_text(&document, "Author").as_deref(),
+        Some("Somebody")
+    );
 }

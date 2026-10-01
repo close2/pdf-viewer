@@ -167,12 +167,13 @@ fn stroke_subpath(centre: &Centre, stroke: Stroke, hw: f32) -> Subpath {
         at_a_tight_bend.push(tight[from] || tight[to]);
     }
     // A join at every corner, between the directions the two pieces end square to; inside a
-    // curve, where no segments meet, the disc that is the set there (ADR 1455).
+    // curve, where no segments meet, and where a curve meets a segment along its own tangent,
+    // where they meet at no angle, the disc that is the set there (ADR 1455, ADR 1468).
     for j in 0..n {
         let Some((before, after)) = meeting(j) else {
             continue;
         };
-        let join = if centre.inside_a_curve(j) {
+        let join = if centre.inside_a_curve(j) || centre.tangent_continuous(j) {
             LineJoin::Round
         } else {
             stroke.join

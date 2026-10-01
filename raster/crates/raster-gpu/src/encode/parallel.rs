@@ -96,7 +96,7 @@ use std::thread;
 use raster_scene::{Color, OutlineId, Rect, Segment, Stroke};
 
 use crate::atlas::{AtlasEntry, GlyphKey};
-use crate::raster::{self, CoverageMask, DeviceTransform, Rule};
+use crate::raster::{self, CoverageMask, DeviceTransform, Polyline, Rule};
 
 use super::DrawStyle;
 use super::clips::ResolvedClip;
@@ -290,7 +290,15 @@ impl Draw {
 
 /// What one job's geometry came to: `None` when the mark reaches no pixel, which is a
 /// command that legitimately draws nothing rather than an error.
-type Rasterised = Option<CoverageMask>;
+type Rasterised = Option<Made>;
+
+/// One job's coverage, and the polylines it was filled from where its commit meets a
+/// residue — the mark's half of the exact meet (ADR 1467), carried to the one site that
+/// meets it so that the walk's tiles and the fan-out's are met by the same arithmetic.
+pub(super) struct Made {
+    mask: CoverageMask,
+    polylines: Option<Vec<Polyline>>,
+}
 
 impl<'a> Job<'a> {
     /// A glyph-lane job: the tile is the shape's own bounds at the quantised phase.
@@ -509,7 +517,8 @@ fn held_by(tile_bound: u64, resident: bool) -> u64 {
 }
 
 /// One job's coverage: flatten, expand it if it is a stroke, and run the scanline pass
-/// over the rectangle its lane chose.
+/// over the rectangle its lane chose — keeping the polylines where the commit meets a
+/// residue with them.
 ///
 /// **This is the whole of the parallel phase.** It takes `&Job` and returns an owned
 /// mask; it reads no frame state, writes no frame state, and allocates only what it
@@ -564,12 +573,11 @@ pub(super) fn rasterise(job: &Job<'_>) -> Rasterised {
             && job
                 .outline
                 .is_some_and(crate::resources::StoredOutline::winds_two_values));
-    Some(raster::fill_mask_settled(
-        &polylines,
-        job.rule,
-        (left, top, width, height),
-        settled,
-    ))
+    let mask = raster::fill_mask_settled(&polylines, job.rule, (left, top, width, height), settled);
+    Some(Made {
+        mask,
+        polylines: job.draw.residue.is_some().then_some(polylines),
+    })
 }
 
 /// How many jobs each worker takes: balanced by [`Job::weight`], and contiguous.
@@ -902,7 +910,7 @@ mod tests {
             "a placement that asked first fixed a different answer"
         );
         assert_eq!(
-            tile_first.coverage, placed_after.coverage,
+            tile_first.mask.coverage, placed_after.mask.coverage,
             "and the tile drawn is the same whichever asked first"
         );
     }

@@ -31,6 +31,7 @@ mod cache;
 mod present;
 mod scene;
 mod stroke;
+mod tiles;
 mod uncaptured;
 
 pub use present::{FrameCost, PresentFrame, QuorraWindowRenderer, WindowTextures};
@@ -79,6 +80,14 @@ pub enum QuorraRasterError {
     /// one name whichever backend drew.
     #[error("{0}")]
     Target(#[from] pdf_render::BackendError),
+    /// The whole raster a tiled target is stitched into could not be allocated (ADR 1472).
+    #[error("cannot allocate the {width}x{height} raster a tiled frame is stitched into")]
+    Allocation {
+        /// The target's width in pixels.
+        width: u32,
+        /// The target's height in pixels.
+        height: u32,
+    },
 }
 
 /// raster's options as *this host* asks for them: [`raster_gpu::Options::default`] with the one
@@ -495,7 +504,29 @@ impl QuorraRasterizer {
         Ok(spots)
     }
 
-    /// One display list through the device, as straight-alpha RGBA8 with no medium under it.
+    /// One display list through the device, as straight-alpha RGBA8 with no medium under it —
+    /// in one frame, or in tiles where the target is wider or taller than the adapter renders
+    /// ([`tiles`], ADR 1472).
+    ///
+    /// # Errors
+    ///
+    /// As [`Rasterizer::rasterize`], and [`QuorraRasterError::Allocation`] where the target's
+    /// whole raster cannot be held to stitch the tiles into.
+    fn render(
+        &mut self,
+        list: &DisplayList,
+        target: TargetSpec,
+        cost: &mut FrameCost,
+    ) -> Result<Vec<u8>, QuorraRasterError> {
+        let limit = self.device.limits().max_target_size;
+        if target.width <= limit && target.height <= limit {
+            return self.render_whole(list, target, cost);
+        }
+        tiles::render_in_tiles(self, list, target, cost)
+    }
+
+    /// One display list through the device in **one** frame, as straight-alpha RGBA8 with no
+    /// medium under it.
     ///
     /// Separate from [`Rasterizer::rasterize`] because §11.4.7's four-component page is two
     /// lists over one page and both take exactly this path — the same device, the same
@@ -512,7 +543,7 @@ impl QuorraRasterizer {
     /// # Errors
     ///
     /// As [`Rasterizer::rasterize`].
-    fn render(
+    fn render_whole(
         &mut self,
         list: &DisplayList,
         target: TargetSpec,
@@ -603,7 +634,7 @@ impl QuorraRasterizer {
 
 /// Converts straight-alpha RGBA to premultiplied, in place ([`demultiply`]'s
 /// inverse; the same rounding as the other backends).
-fn premultiply(data: &mut [u8]) {
+pub(crate) fn premultiply(data: &mut [u8]) {
     for pixel in data.chunks_exact_mut(4) {
         let alpha = pixel[3];
         if alpha == u8::MAX {
@@ -620,7 +651,7 @@ fn premultiply(data: &mut [u8]) {
 }
 
 /// Converts premultiplied RGBA to straight alpha, in place.
-fn demultiply(data: &mut [u8]) {
+pub(crate) fn demultiply(data: &mut [u8]) {
     for pixel in data.chunks_exact_mut(4) {
         let alpha = pixel[3];
         if alpha == 0 || alpha == u8::MAX {

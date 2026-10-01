@@ -108,6 +108,12 @@
 //! edit is about the entries the table defines and a key it does not define is not this edit's
 //! business.
 //!
+//! **And §14.3.2's packet says the same thing.** §14.3.1 deprecates every entry but the two dates
+//! in a PDF 2.0 file, so there the others go into the packet alone — created, and named by a
+//! rewritten catalog, where the document has none — and in an earlier file a packet the document
+//! already holds is restated beside the dictionary, each entry under the property Table 349's
+//! NOTE names (`TABLE_349`, ADR 1473).
+//!
 //! # Determinism
 //!
 //! The output is a function of the sources and the plan, RFC 0002 section 9's first layer:
@@ -118,8 +124,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_model::Pages;
 use pdf_model::page_label::PageLabels;
+use pdf_model::xmp;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
-use pdf_syntax::{Document, text_string};
+use pdf_syntax::{Document, Version, text_string};
 
 use crate::merge::inherited;
 use crate::pattern::{Fill, Pattern};
@@ -1036,7 +1043,17 @@ impl<'a> Carry<'a> {
     }
 }
 
-/// §14.3.3's entries set to what the caller states, as §7.5.6's update.
+/// §14.3.3's entries set to what the caller states, as §7.5.6's update — and §14.3.2's packet
+/// kept saying the same thing.
+///
+/// Where each entry goes is [`deprecated_in`]'s answer: in a PDF 2.0 file everything but the two
+/// dates goes into the packet alone and leaves the dictionary, and in an earlier one both state
+/// it. §14.3.4 is why a packet the document already holds is restated whatever the version: "[w]hen
+/// writing the time and date of the most recent modification, typically when an existing document
+/// has been modified, a PDF processor shall ensure that the data in the document information
+/// dictionary and the document level metadata stream -if both are written -are fully equivalent",
+/// and a packet still naming the old title beside a dictionary naming the new one is the same
+/// disagreement about another entry (ADR 1473).
 fn set_information(
     document: &Document,
     at: usize,
@@ -1046,27 +1063,80 @@ fn set_information(
     for entry in entries {
         validate(entry)?;
     }
-    let stated = document.trailer().get("Info").cloned();
-    let dict = stated
-        .as_ref()
-        .map(|value| document.resolve(value))
-        .and_then(|value| value.as_dict().cloned())
-        .unwrap_or_else(Dictionary::new);
-    let changed_a_date = entries
-        .iter()
-        .any(|entry| entry.key == "CreationDate" || entry.key == "ModDate");
-    let dict = information_dictionary(dict, entries);
-
+    let version = document.version();
+    let mut next = next_object_number(document);
     let mut replacements: BTreeMap<ObjectId, Object> = BTreeMap::new();
     let mut additions = Dictionary::new();
+    let stated = document.trailer().get("Info").cloned();
+    let existing = stated
+        .as_ref()
+        .map(|value| document.resolve(value))
+        .and_then(|value| value.as_dict().cloned());
+
+    // Only an entry that changes what the document states is an edit, read the way
+    // [`stated_information`] reads it. A value equal to what is stated, or a removal of an entry
+    // stated nowhere, touches neither source — so a caller that restates every entry it read
+    // (`pdf-vfs`'s `meta/info.json`, written whole) changes nothing.
+    let now = stated_information(document);
+    let changes: Vec<InfoEntry> = entries
+        .iter()
+        .filter(|entry| {
+            let held = now
+                .iter()
+                .find(|stated| stated.key == entry.key)
+                .and_then(|stated| stated.value.as_deref());
+            // Table 349 gives `/Trapped` a "Default value: Unknown", so an absent entry and an
+            // `Unknown` one say the same thing and moving between them is no edit.
+            let trapped = entry.key == "Trapped";
+            let wanted = entry.value.as_deref().or(trapped.then_some("Unknown"));
+            wanted != held.or(trapped.then_some("Unknown"))
+        })
+        .cloned()
+        .collect();
+
+    let packet_written =
+        restate_metadata(document, at, &changes, &mut next, &mut replacements, report)?;
+
+    // An entry PDF 2.0 deprecates leaves the dictionary where the packet now states it; where the
+    // packet could not be written it stays, because a deprecated home is still a home and the
+    // operator's value is not to be lost (the warning above says which).
+    let mut dictionary_entries: Vec<InfoEntry> = Vec::with_capacity(changes.len());
+    for entry in &changes {
+        if packet_written && deprecated_in(version, &entry.key) {
+            if entry.value.is_some() {
+                report.warnings.push(Warning {
+                    source: at,
+                    page: None,
+                    detail: format!(
+                        "§14.3.1 deprecates /{} in a PDF 2.0 file's document information \
+                         dictionary, so it is written into §14.3.2's metadata packet alone",
+                        entry.key
+                    ),
+                });
+            }
+            dictionary_entries.push(InfoEntry {
+                key: entry.key.clone(),
+                value: None,
+            });
+        } else {
+            dictionary_entries.push(entry.clone());
+        }
+    }
+    let had_dictionary = existing.is_some();
+    let dict = information_dictionary(
+        existing.unwrap_or_else(Dictionary::new),
+        &dictionary_entries,
+    );
+
     // §7.5.5's Table 15 makes `/Info` "( Optional; shall be an indirect reference )", so a
     // document that states one inline has broken that `shall` and one that states none has
-    // nowhere to put one: both get an object of their own, named by the update's own trailer.
+    // nowhere to put one: both get an object of their own, named by the update's own trailer. A
+    // document that had none and whose entries all went into the packet gets none.
     if let Some(id) = stated.as_ref().and_then(Object::as_reference) {
         replacements.insert(id, Object::Dictionary(dict));
-    } else {
+    } else if had_dictionary || !dict.is_empty() {
         let id = ObjectId {
-            number: next_object_number(document),
+            number: next,
             generation: 0,
         };
         replacements.insert(id, Object::Dictionary(dict));
@@ -1084,24 +1154,6 @@ fn set_information(
         }
     }
 
-    // §14.3.4 is about exactly this edit, and its rule is conditioned on writing both sources:
-    // "[w]hen writing the time and date of the most recent modification … a PDF processor shall
-    // ensure that the data in the document information dictionary and the document level
-    // metadata stream — if both are written — are fully equivalent." This update writes one of
-    // the two, because §14.3.2's stream is a derived file this face refuses to write; so the
-    // inconsistency the clause is about is possible and is named rather than left to be found.
-    if changed_a_date && has_metadata_stream(document) {
-        report.warnings.push(Warning {
-            source: at,
-            page: None,
-            detail: String::from(
-                "this document also states §14.3.2's metadata stream, and this update writes a \
-                 date into §14.3.3's dictionary alone; §14.3.4 says the two should be fully \
-                 equivalent where both are written, and this writes one",
-            ),
-        });
-    }
-
     let bytes =
         pdf_syntax::write::incremental_update_extending(document, &replacements, &[], &additions)
             .map_err(|error| Refusal::Update { at, error })?;
@@ -1109,17 +1161,153 @@ fn set_information(
     Ok((
         bytes,
         pages,
-        format!("{} §14.3.3 entr(y|ies) set", entries.len()),
+        format!("{} §14.3.3 entr(y|ies) set", changes.len()),
     ))
 }
 
-/// Whether the catalog states §14.3.2's metadata stream.
-fn has_metadata_stream(document: &Document) -> bool {
-    document
-        .catalog()
-        .ok()
-        .map(|catalog| document.get_key(&catalog, "Metadata"))
-        .is_some_and(|object| object.as_stream().is_some())
+/// Table 349's nine entries as the document states them, in [`INFORMATION_KEYS`]' order.
+///
+/// Each from the dictionary where the file keeps it there, and otherwise — for every key but the
+/// two dates — from its counterpart in §14.3.2's packet, under the property `TABLE_349` names.
+/// §14.3.1 is why the second source is needed: in a PDF 2.0 file every entry but the dates belongs
+/// in the packet, so a reading of the dictionary alone would report a title the file states as
+/// absent. §14.3.4 is why the dictionary is asked first: where both sources speak, "it is at the
+/// discretion of the PDF processor how to use this data", and this writer keeps what both sources
+/// say the same, so the order matters only for a producer's file whose sources disagree. The dates
+/// are the dictionary's in every version and their packet spelling is ISO 8601's rather than
+/// §7.9.4's, so a date the dictionary does not state is reported as not stated (ADR 1473).
+///
+/// `None` is an entry stated nowhere; `/Trapped` is spelled as its name, and only a name states it.
+#[must_use]
+pub fn stated_information(document: &Document) -> Vec<InfoEntry> {
+    let info = document.get_key(document.trailer(), "Info");
+    let dictionary = info.as_dict();
+    let packet = xmp::Xmp::document(document).and_then(Result::ok);
+    INFORMATION_KEYS
+        .iter()
+        .map(|key| {
+            let held = dictionary.and_then(|dict| match document.get_key(dict, key) {
+                // Table 349 makes `/Trapped` "a name object" and says so twice — "This shall be
+                // the name True , not the boolean value true ." — so a string there states nothing.
+                Object::String(bytes) if *key != "Trapped" => Some(text_string(&bytes)),
+                Object::Name(name) if *key == "Trapped" => {
+                    Some(String::from_utf8_lossy(name.as_bytes()).into_owned())
+                }
+                _ => None,
+            });
+            let value = held.or_else(|| {
+                if *key == "CreationDate" || *key == "ModDate" {
+                    return None;
+                }
+                let (_, namespace, _, local, _) =
+                    TABLE_349.iter().find(|(name, ..)| name == key)?;
+                packet
+                    .as_ref()
+                    .and_then(|packet| packet.text(namespace, local))
+                    .map(str::to_owned)
+            });
+            InfoEntry {
+                key: (*key).to_owned(),
+                value,
+            }
+        })
+        .collect()
+}
+
+/// §14.3.2's document-level packet restated for `entries`, answering whether it was written.
+///
+/// A packet the catalog already names is edited in place, as the object it is. Where there is
+/// none, one is created only if the file needs it — a PDF 2.0 file stating an entry its
+/// dictionary may no longer carry — and the catalog is rewritten to name it. Anything that stops
+/// the packet being written is a warning naming why, and the caller then keeps the entries in the
+/// dictionary.
+///
+/// # Errors
+///
+/// [`Refusal::Assembly`] where the packet is longer than a PDF integer.
+fn restate_metadata(
+    document: &Document,
+    at: usize,
+    entries: &[InfoEntry],
+    next: &mut u32,
+    replacements: &mut BTreeMap<ObjectId, Object>,
+    report: &mut Report,
+) -> Result<bool, Refusal> {
+    let mut warn = |detail: String| {
+        report.warnings.push(Warning {
+            source: at,
+            page: None,
+            detail,
+        });
+    };
+    let needed = entries
+        .iter()
+        .any(|entry| deprecated_in(document.version(), &entry.key));
+    let root = document
+        .trailer()
+        .get("Root")
+        .and_then(Object::as_reference);
+    let Ok(catalog) = document.catalog() else {
+        return Ok(false);
+    };
+    let held = catalog.get("Metadata").and_then(Object::as_reference);
+    if let Some(id) = held {
+        let resolved = document.get(id);
+        let Some(stream) = resolved.as_stream() else {
+            warn(format!(
+                "the catalog's /Metadata names object {}, which is not §14.3.2's stream, so \
+                 §14.3.3's entries are written into the dictionary alone",
+                id.number
+            ));
+            return Ok(false);
+        };
+        let Some(packet) = document.decoded_stream_data(stream) else {
+            warn(
+                "§14.3.2's metadata stream could not be decoded, so §14.3.3's entries are \
+                 written into the dictionary alone and the two may now disagree"
+                    .to_owned(),
+            );
+            return Ok(false);
+        };
+        return match restated_packet(&packet, entries) {
+            Ok(restated) => {
+                replacements.insert(id, metadata_stream(&stream.dict, restated)?);
+                Ok(true)
+            }
+            Err(error) => {
+                warn(format!(
+                    "§14.3.2's metadata packet could not be edited in place ({error}), so \
+                     §14.3.3's entries are written into the dictionary alone and the two may now \
+                     disagree"
+                ));
+                Ok(false)
+            }
+        };
+    }
+    if !needed {
+        return Ok(false);
+    }
+    let Some(root) = root else {
+        warn(
+            "the trailer's /Root is not an indirect reference, so the catalog cannot be given \
+             §14.3.2's metadata stream and §14.3.3's entries are written into the dictionary, \
+             which §14.3.1 deprecates in PDF 2.0"
+                .to_owned(),
+        );
+        return Ok(false);
+    };
+    let packet = restated_packet(&xmp::empty_packet(), entries)
+        .map_err(|error| Refusal::Assembly(format!("a fresh XMP packet: {error}")))?;
+    let id = ObjectId {
+        number: *next,
+        generation: 0,
+    };
+    *next = next.saturating_add(1);
+    replacements.insert(id, metadata_stream(&Dictionary::new(), packet)?);
+    let mut catalog = catalog;
+    catalog.insert(Name::new(&b"Metadata"[..]), Object::Reference(id));
+    replacements.insert(root, Object::Dictionary(catalog));
+    Ok(true)
 }
 
 /// `base` with Table 349's entries set to what `entries` state, and its other keys untouched.
@@ -1147,6 +1335,154 @@ pub(crate) fn information_dictionary(mut base: Dictionary, entries: &[InfoEntry]
         }
     }
     base
+}
+
+/// §14.3.3's Table 349, key by key, with the XMP property its own NOTE names and the shape the
+/// XMP Specification's schema gives that property.
+///
+/// The property is the standard's: NOTE 1 names `dc:title` for `/Title`, NOTE 2 `dc:creator` for
+/// `/Author`, NOTE 3 `dc:description` for `/Subject`, NOTE 4 `pdf:Keywords`, NOTE 5
+/// `xmp:CreatorTool`, NOTE 6 `pdf:Producer`, NOTE 7 `xmp:CreateDate`, NOTE 8 `xmp:ModifyDate` and
+/// NOTE 10 `pdf:Trapped`. **The shape is not a choice either**: ISO 19005-2 section 6.6.2.3.1
+/// requires a property to use its predefined schema *as defined*, so a `dc:title` written as a
+/// simple value would fail `metadata/properties-use-known-schemas` on the archive converter's
+/// output — which is what `pdf_archive`'s predefined-schema table records and what its fixture
+/// proves. §14.3.3's own EXAMPLE prints both container shapes. One table for the three writers
+/// that state these entries — `archive`, `update` and `merge` — so that none of them can name an
+/// entry's counterpart differently from the others.
+pub(crate) const TABLE_349: &[(&str, &str, &str, &str, xmp::Form)] = &[
+    ("Title", xmp::DC, "dc", "title", xmp::Form::Alternative),
+    ("Author", xmp::DC, "dc", "creator", xmp::Form::Ordered),
+    (
+        "Subject",
+        xmp::DC,
+        "dc",
+        "description",
+        xmp::Form::Alternative,
+    ),
+    ("Keywords", xmp::PDF, "pdf", "Keywords", xmp::Form::Simple),
+    ("Creator", xmp::XMP, "xmp", "CreatorTool", xmp::Form::Simple),
+    ("Producer", xmp::PDF, "pdf", "Producer", xmp::Form::Simple),
+    (
+        "CreationDate",
+        xmp::XMP,
+        "xmp",
+        "CreateDate",
+        xmp::Form::Simple,
+    ),
+    ("ModDate", xmp::XMP, "xmp", "ModifyDate", xmp::Form::Simple),
+    ("Trapped", xmp::PDF, "pdf", "Trapped", xmp::Form::Simple),
+];
+
+/// Whether a file of this version keeps this Table 349 entry out of the dictionary.
+///
+/// ISO 32000-2 §14.3.1 states the rule for PDF 2.0:
+///
+/// > Except for the CreationDate and ModDate entries, the use of the document information
+/// > dictionary for document metadata is deprecated in PDF 2.0.
+///
+/// and §3.15 defines the word as "a part of ISO 32000 that should not be written into a PDF 2.0
+/// document". So in a file that states 2.0 or later every entry but the two dates goes into
+/// §14.3.2's packet alone — the clause's own words, "[m]etadata streams are the preferred method
+/// in PDF 2.0" — while a file of an earlier version, for which the dictionary is not deprecated,
+/// states both and keeps them the same (ADR 1473).
+pub(crate) fn deprecated_in(version: Option<Version>, key: &str) -> bool {
+    version.is_some_and(|version| version >= Version { major: 2, minor: 0 })
+        && key != "CreationDate"
+        && key != "ModDate"
+}
+
+/// `packet` with every entry's Table 349 counterpart stating what the entry states.
+///
+/// **Removed, then supplemented**, and both halves are needed. [`xmp::supplement`] is additive by
+/// design — §14.3.4's rule for a processor that has *not* been asked to change a value — so a
+/// property the packet already states would survive it, and the dictionary and the packet would
+/// then name two titles. What the operator states is the document's title now, so the packet's
+/// old one is taken out first: the whole property, every language alternative of a `dc:title`
+/// with it, since each of those is a rendering of the title being replaced. An entry stated with
+/// no value is removed and nothing is written in its place. Every other byte of the packet
+/// crosses unchanged, which is what both functions promise.
+///
+/// A date [`pdf_syntax::date::Date`] cannot read is not written, so the packet then states no
+/// date beside the dictionary's rather than a different one; [`validate`] has already held the
+/// value to §7.9.4's alphabet.
+///
+/// # Errors
+///
+/// [`xmp::WriteError`] where the packet cannot be edited in place, every variant of which leaves
+/// it untouched.
+pub(crate) fn restated_packet(
+    packet: &[u8],
+    entries: &[InfoEntry],
+) -> Result<Vec<u8>, xmp::WriteError> {
+    let mut stated: Vec<xmp::Name> = Vec::new();
+    let mut supplements: Vec<xmp::Supplement<'static>> = Vec::new();
+    for entry in entries {
+        let Some(&(_, namespace, prefix, local, form)) =
+            TABLE_349.iter().find(|(key, ..)| *key == entry.key)
+        else {
+            continue;
+        };
+        stated.push(xmp::Name {
+            namespace: namespace.to_owned(),
+            local: local.to_owned(),
+        });
+        let Some(value) = entry.value.as_deref() else {
+            continue;
+        };
+        let value = if entry.key == "CreationDate" || entry.key == "ModDate" {
+            match pdf_syntax::date::Date::parse(value) {
+                Some(date) => xmp::spelled_date(&date),
+                None => continue,
+            }
+        } else {
+            value.to_owned()
+        };
+        supplements.push(xmp::Supplement {
+            namespace,
+            prefix,
+            local,
+            value,
+            form,
+        });
+    }
+    let cleared = xmp::remove(packet, &stated)?;
+    xmp::supplement(&cleared, &supplements)
+}
+
+/// §14.3.2's metadata stream holding `packet`, under Table 347's two required entries.
+///
+/// Written unfiltered: a packet is text a person may want to read, and the stream it replaces —
+/// whose other entries are kept — may have been compressed with a filter this writer would then
+/// have to apply again.
+pub(crate) fn metadata_stream(base: &Dictionary, packet: Vec<u8>) -> Result<Object, Refusal> {
+    let mut dict = Dictionary::new();
+    for (key, value) in base.iter() {
+        if !matches!(
+            key.as_bytes(),
+            b"Filter" | b"DecodeParms" | b"DL" | b"Length"
+        ) {
+            dict.insert(key.clone(), value.clone());
+        }
+    }
+    dict.insert(
+        Name::new(&b"Type"[..]),
+        Object::Name(Name::new(&b"Metadata"[..])),
+    );
+    dict.insert(
+        Name::new(&b"Subtype"[..]),
+        Object::Name(Name::new(&b"XML"[..])),
+    );
+    // Table 5's `/Length`, which §7.3.8.2 makes required.
+    let length = i64::try_from(packet.len()).map_err(|_| {
+        Refusal::Assembly("the metadata packet is longer than a PDF integer".to_owned())
+    })?;
+    dict.insert(Name::new(&b"Length"[..]), Object::Integer(length));
+    Ok(Object::Stream(std::sync::Arc::new(Stream {
+        dict,
+        data: packet.into(),
+        decryption_failed: false,
+    })))
 }
 
 /// One entry held to Table 349, refused by name where it is not.

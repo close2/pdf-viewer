@@ -26,9 +26,9 @@ use raster_scene::{ClipId, FillRule, OutlineId, Point, Rect, Scene, Segment};
 use super::Encoder;
 use super::device_space::{apply, compose, transform_preserves_axes};
 use super::hull::HullMemo;
-use super::residue::Verdict;
+use super::residue::{Edges, Verdict};
 use crate::error::RenderError;
-use crate::raster::{self, DeviceTransform, Rule};
+use crate::raster::{self, DeviceTransform, RowEdges, Rule};
 use crate::resources::ResourceStore;
 use crate::viewport::Viewport;
 
@@ -242,6 +242,60 @@ impl Encoder<'_> {
         }
         self.residue.note_tile();
         Ok(Some(self.intersect_links(&links, left, top, width, height)))
+    }
+
+    /// The chain's links as the exact meet reads them — each link's edges bucketed by row —
+    /// or `None` where the chain admits no region or its edges would pass `limit` entries a
+    /// link over `rows`, and the meet keeps `min`.
+    ///
+    /// **Kept where the frame's edge budget allows, made again where it does not, and the
+    /// same edges either way** (ADR 1467): the first meet that asks builds them over the
+    /// chain's whole region and keeps them for the frame; a chain the budget declines is
+    /// flattened again for each meet and bucketed over that meet's `rows` alone, as a chain
+    /// with no region is rasterised again over each tile (ADR 0049). A row's bucket holds
+    /// every edge that reaches it whichever rows were built, so a kept chain and a remade one
+    /// meet a mark to the same bytes, and a budget changes only what a frame spends.
+    pub(super) fn residue_edges(
+        &mut self,
+        resolved: &ResolvedClip,
+        rows: (i32, u32),
+        limit: usize,
+    ) -> Result<Option<Arc<[RowEdges]>>, RenderError> {
+        let Some(leaf) = resolved.residues.clone() else {
+            return Ok(None);
+        };
+        let key = leaf.clip.0;
+        let decided = match self.residue.edges(key) {
+            Edges::Kept(kept) => return Ok(Some(kept)),
+            Edges::Declined => true,
+            Edges::Unasked => false,
+        };
+        let links = self.flatten_chain(&leaf)?;
+        if !decided {
+            let room = self.residue.edge_room();
+            let kept = chain_region(&links, self.visible).and_then(|(_, top, _, height)| {
+                let mut left = room;
+                let mut sets = Vec::with_capacity(links.len());
+                for link in &links {
+                    // An entry is one `u32`; the edges themselves are charged after the build.
+                    let room = usize::try_from(left / 4).unwrap_or(usize::MAX);
+                    let set = RowEdges::of(&link.polylines, link.rule, top, height, room)?;
+                    left = left.checked_sub(set.bytes())?;
+                    sets.push(set);
+                }
+                Some(Arc::<[RowEdges]>::from(sets))
+            });
+            self.residue.keep_edges(key, kept.clone());
+            if kept.is_some() {
+                return Ok(kept);
+            }
+        }
+        let (top, height) = rows;
+        let remade: Option<Vec<RowEdges>> = links
+            .iter()
+            .map(|link| RowEdges::of(&link.polylines, link.rule, top, height, limit))
+            .collect();
+        Ok(remade.map(Arc::from))
     }
 
     /// Every link of a chain, flattened into device space once.

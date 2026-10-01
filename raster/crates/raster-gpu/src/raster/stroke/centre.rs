@@ -118,6 +118,53 @@ impl Centre {
         self.inside.get(j).copied().unwrap_or(false)
     }
 
+    /// Whether point `j` is where a curve meets another segment along the same direction —
+    /// two curves with equal tangents, or a curve and a line along its tangent — so that the
+    /// path turns there by nothing and only its flattening's chords do.
+    ///
+    /// ISO 32000-2 §8.4.3.4: "Join styles shall be significant only at points where
+    /// consecutive segments of a path connect at an angle". Segments whose directions agree
+    /// connect at none, and §8.4.3.2's set round the point between their chords is the disc,
+    /// as it is inside one curve (ADR 1468).
+    ///
+    /// **Equal to what `f32` can state of the two directions.** A curve's tangent is the
+    /// difference of two device points, each the image of a user-space point rounded to `f32`
+    /// and moved by the transform's two products and two sums, so each lies within a few units
+    /// in the last place of the largest coordinate `m` the three points hold. Two directions
+    /// `v1` and `v2` known that well agree when `|v1 × v2| ≤ k · ε · m · (|v1| + |v2|)`, the
+    /// sine of their angle bounded by the sum of both directions' uncertainty; `k` is
+    /// [`DIRECTION_ULPS`]. A turn the arithmetic can resolve is a corner and keeps the
+    /// stroke's join, however small.
+    pub(super) fn tangent_continuous(&self, j: usize) -> bool {
+        let (arrives, leaves) = (
+            self.arriving.get(j).copied().flatten(),
+            self.leaving.get(j).copied().flatten(),
+        );
+        if arrives.is_none() && leaves.is_none() {
+            return false;
+        }
+        let Some((before, after)) = self.meeting(j) else {
+            return false;
+        };
+        let p = self.points[j];
+        let chord = |a: Point, b: Point| Point::new(b.x - a.x, b.y - a.y);
+        let v1 = arrives.unwrap_or_else(|| chord(self.segment(before).0, p));
+        let v2 = leaves.unwrap_or_else(|| chord(p, self.segment(after).1));
+        let (v1, v2) = (
+            (f64::from(v1.x), f64::from(v1.y)),
+            (f64::from(v2.x), f64::from(v2.y)),
+        );
+        let p = (f64::from(p.x), f64::from(p.y));
+        let m = [p.0, p.1, p.0 - v1.0, p.1 - v1.1, p.0 + v2.0, p.1 + v2.1]
+            .into_iter()
+            .fold(0.0_f64, |m, c| m.max(c.abs()));
+        let cross = v1.0 * v2.1 - v1.1 * v2.0;
+        let dot = v1.0 * v2.0 + v1.1 * v2.1;
+        let uncertainty =
+            DIRECTION_ULPS * f64::from(f32::EPSILON) * m * (v1.0.hypot(v1.1) + v2.0.hypot(v2.1));
+        dot > 0.0 && cross.abs() <= uncertainty
+    }
+
     /// How many segments the subpath has: one fewer than its points when open, one per
     /// point when closed.
     #[expect(clippy::arithmetic_side_effects)] // at least two points
@@ -197,6 +244,12 @@ impl Centre {
         }
     }
 }
+
+/// How many units in the last place of its largest coordinate a device point's direction
+/// may be off by, per point: the user-space point's own rounding to `f32` and the
+/// transform's two products and two sums, each half a unit, rounded up to the power of two
+/// above (ADR 1468).
+const DIRECTION_ULPS: f64 = 4.0;
 
 /// The angle between two unit directions, from `0` to `π`.
 fn angle(d1: Point, d2: Point) -> f32 {

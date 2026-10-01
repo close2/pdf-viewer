@@ -326,6 +326,13 @@ pub struct Host {
     /// A count rather than a flag because it is also what the status line says: a person watching
     /// a thousand-page document wants to see it come down.
     pages_left: usize,
+    /// Where the pointer last was over the page, in logical pixels of the page area.
+    ///
+    /// GTK puts no position in a scroll event, so the point a Control + wheel zoom keeps still is
+    /// the last one the motion controller reported; `None` before the pointer has entered.
+    pointer_at: Option<(f64, f64)>,
+    /// The travel a Control + wheel gesture has made and not yet spent on a zoom step.
+    zoom_wheel: viewer_host::ZoomWheel,
     /// The documents this window has open, in the order the strip shows them.
     ///
     /// One of these until something opens a second — a `/NewWindow true` on a remote go-to, or a
@@ -393,7 +400,7 @@ pub struct Host {
     /// The controls over the page, and which fields they are for.
     placed: Vec<Placed>,
     /// §12.5.6.14's open popup windows, as the widgets placed for them.
-    popups: Vec<gtk4::Frame>,
+    popups: Vec<gtk4::Overlay>,
     /// The answer those widgets were built from, so that a repaint that changes nothing rebuilds
     /// nothing. `viewer_core::PopupWindow` is `PartialEq`, which is what makes the comparison the
     /// whole test.
@@ -617,6 +624,8 @@ impl Host {
                 warned: None,
                 needle: String::new(),
                 pages_left: 0,
+                pointer_at: None,
+                zoom_wheel: viewer_host::ZoomWheel::default(),
                 arrivals: viewer_host::Arrivals::new(),
                 panels_due: false,
                 rasterizer: CpuRasterizer::new(),
@@ -3877,6 +3886,33 @@ impl Host {
         self.dispatch(Command::Scroll { dx, dy });
     }
 
+    /// Control and the wheel: whole zoom steps about the point under the pointer.
+    ///
+    /// GTK reports a discrete wheel in notches, positive turned towards the person, and a notch is
+    /// one step out — `viewer_host::ZoomWheel` spends the travel, so the three windows count a
+    /// gesture alike (ADR 1118). The point kept still is the pointer's, in device pixels of the
+    /// page area, which is the one rule `quorra` keeps; before the pointer has entered there is
+    /// no such point and the core holds the centre.
+    fn wheel_zoom(&mut self, dy: f64) {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a notch count, which is a handful"
+        )]
+        let steps = self.zoom_wheel.lines(-dy as f32);
+        let zoom = if steps > 0 { Zoom::In } else { Zoom::Out };
+        let scale = f64::from(self.scale);
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a pointer position inside a window is far inside f32's exact integer range"
+        )]
+        let at = self
+            .pointer_at
+            .map(|(x, y)| ((x * scale) as f32, (y * scale) as f32));
+        for _ in 0..steps.unsigned_abs() {
+            self.dispatch(Command::Zoom { zoom, at });
+        }
+    }
+
     /// A step of the search reported. Says what it found, and how much is left to read.
     fn searched(&mut self, found: Option<viewer_core::Found>, remaining: usize, wrapped: bool) {
         self.pages_left = remaining;
@@ -3953,6 +3989,7 @@ impl Host {
 
     /// The pointer, in logical pixels of the overlay.
     fn pointer(&mut self, x: f64, y: f64, action: PointerAction) {
+        self.pointer_at = Some((x, y));
         let scale = f64::from(self.scale);
         #[expect(
             clippy::cast_possible_truncation,
@@ -4375,8 +4412,31 @@ fn write_back(placed: &Placed, field: &FormField, widget: &viewer_core::FormWidg
 /// this is a real [`gtk4::Frame`] rather than a rectangle painted on the chrome layer. What is
 /// this host's is only the *look*: the border, the fonts and the two style classes below.
 /// The three texts and the box are `viewer_host::popup`'s, shared with the other two hosts.
-fn popup_window(window: &viewer_host::Window<'_>) -> gtk4::Frame {
-    let frame = gtk4::Frame::new(None);
+fn popup_window(window: &viewer_host::Window<'_>) -> gtk4::Overlay {
+    // The paper and the one-pixel edge are the three windows' one choice (ADR 1466): opaque, so
+    // the page's words do not show through the note's, and not the page's white, so the window's
+    // extent can be seen. Painted under the content rather than asked of a `GtkFrame`, whose theme
+    // draws a line and no ground at all.
+    let frame = gtk4::Overlay::new();
+    let paper = gtk4::DrawingArea::new();
+    paper.set_draw_func(|_, cr, width, height| {
+        let (edge, ground) = (viewer_host::popup::EDGE, viewer_host::popup::PAPER);
+        cr.set_source_rgb(f64::from(edge.r), f64::from(edge.g), f64::from(edge.b));
+        if let Err(error) = cr.paint() {
+            eprintln!("note: cannot draw a popup window's edge: {error}");
+            return;
+        }
+        cr.set_source_rgb(
+            f64::from(ground.r),
+            f64::from(ground.g),
+            f64::from(ground.b),
+        );
+        cr.rectangle(1.0, 1.0, f64::from(width) - 2.0, f64::from(height) - 2.0);
+        if let Err(error) = cr.fill() {
+            eprintln!("note: cannot draw a popup window's paper: {error}");
+        }
+    });
+    frame.set_child(Some(&paper));
     // §12.5.6.14: a popup has "no appearance stream or associated actions of its own", so there is
     // nothing on it to activate — and a widget over the page that swallowed a press would take the
     // selection, the link and the form control underneath it away from the reader.
@@ -4387,6 +4447,11 @@ fn popup_window(window: &viewer_host::Window<'_>) -> gtk4::Frame {
     frame.set_overflow(gtk4::Overflow::Hidden);
 
     let column = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    // Inside the edge, so that the title bar does not paint over it.
+    column.set_margin_start(1);
+    column.set_margin_end(1);
+    column.set_margin_top(1);
+    column.set_margin_bottom(1);
     let bar = gtk4::Box::new(gtk4::Orientation::Horizontal, POPUP_PADDING);
     bar.set_margin_start(POPUP_PADDING);
     bar.set_margin_end(POPUP_PADDING);
@@ -4475,7 +4540,8 @@ fn popup_window(window: &viewer_host::Window<'_>) -> gtk4::Frame {
         column.append(&comment);
     }
 
-    frame.set_child(Some(&column));
+    frame.add_overlay(&column);
+    frame.set_measure_overlay(&column, true);
     frame
 }
 
@@ -4846,8 +4912,18 @@ fn listen(
         gtk4::EventControllerScrollFlags::BOTH_AXES | gtk4::EventControllerScrollFlags::DISCRETE,
     );
     let listener = me.clone();
-    scrolling.connect_scroll(move |_, dx, dy| {
-        with(&listener, |host| host.scrolled(dx, dy));
+    scrolling.connect_scroll(move |controller, dx, dy| {
+        // Control is a magnification rather than a movement, as it is in the other two windows.
+        let control = controller
+            .current_event_state()
+            .contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+        with(&listener, |host| {
+            if control {
+                host.wheel_zoom(dy);
+            } else {
+                host.scrolled(dx, dy);
+            }
+        });
         glib::Propagation::Stop
     });
     overlay.add_controller(scrolling);

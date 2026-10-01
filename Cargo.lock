@@ -5114,6 +5114,7 @@ name = "viewer-core"
 version = "0.1.0"
 dependencies = [
  "gate-ratchet",
+ "pdf-font",
  "pdf-model",
  "pdf-render",
  "pdf-signature",

@@ -22,6 +22,7 @@
     reason = "test code: a fixture that cannot exercise the rule must fail loudly"
 )]
 
+use std::fmt::Write as _;
 use std::sync::Arc;
 
 use pdf_vfs::worker::InProcessWorkers;
@@ -234,6 +235,90 @@ fn writing_info_json_back_unchanged_changes_nothing_it_states() {
     );
     assert!(after.contains("\"trapped\": \"False\""), "{after}");
     assert!(after.contains("\"producer\": null"), "{after}");
+}
+
+/// A PDF 2.0 file whose title is in §14.3.2's packet and not in its dictionary: one page, an
+/// `/Info` stating only a modification date, and a packet stating `dc:title`.
+fn titled_in_its_packet() -> Vec<u8> {
+    let packet = "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
+                  <x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n\
+                  <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n\
+                  <rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\n\
+                  <dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">The packet's title</rdf:li>\
+                  </rdf:Alt></dc:title>\n</rdf:Description>\n</rdf:RDF>\n</x:xmpmeta>\n\
+                  <?xpacket end=\"w\"?>";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /Metadata 5 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> \
+         /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /Metadata /Subtype /XML /Length {} >>\nstream\n{packet}\nendstream\n\
+         endobj\n\
+         6 0 obj\n<< /ModDate (D:20261001120000Z) >>\nendobj\n",
+        packet.len().saturating_add(1)
+    );
+    let mut out = String::from("%PDF-2.0\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R /Info 6 0 R /ID [<0102> <0304>] >>\nstartxref\n\
+         {xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// The document's §14.3.2 packet, decoded, as the file on disk holds it now.
+fn packet_on_disk(backing: &MemoryBacking) -> Vec<u8> {
+    let document = pdf_syntax::Document::open(on_disk(backing)).expect("the file opens");
+    let catalog = document.catalog().expect("a catalog");
+    let stream = document.get_key(&catalog, "Metadata");
+    let stream = stream.as_stream().expect("§14.3.2's stream");
+    document
+        .decoded_stream_data(stream)
+        .expect("the packet decodes")
+        .to_vec()
+}
+
+/// `meta/info.json` presents Table 349 as the document states it, packet included.
+///
+/// §14.3.1 sends every entry but the two dates into the packet in a PDF 2.0 file, so a title
+/// stated only there is the document's title and the view reads it back; and §14.3.3's view
+/// written straight back is no edit, so the packet is the producer's byte for byte (ADR 1473
+/// section 5).
+#[test]
+fn info_json_reads_a_pdf_2_0_files_title_from_its_packet_and_writing_it_back_leaves_the_packet() {
+    let (backing, vfs) = mounted_bytes("titled.pdf", titled_in_its_packet());
+    let before = read(&vfs, "/meta/info.json");
+    let text = String::from_utf8(before.clone()).expect("UTF-8");
+    assert!(text.contains("\"title\": \"The packet's title\""), "{text}");
+    assert!(
+        text.contains("\"modified\": \"D:20261001120000Z\""),
+        "{text}"
+    );
+    let packet = packet_on_disk(&backing);
+    vfs.write("/meta/info.json", &before).expect("set");
+    assert_eq!(read(&vfs, "/meta/info.json"), before);
+    assert_eq!(packet_on_disk(&backing), packet, "the packet is untouched");
+
+    // A changed title goes where §14.3.1 sends it in a 2.0 file, and is what the view reads.
+    let changed = text.replace("The packet's title", "A new title");
+    vfs.write("/meta/info.json", changed.as_bytes())
+        .expect("set");
+    let after = String::from_utf8(read(&vfs, "/meta/info.json")).expect("UTF-8");
+    assert!(after.contains("\"title\": \"A new title\""), "{after}");
+    let packet = String::from_utf8(packet_on_disk(&backing)).expect("an XMP packet is text");
+    assert!(packet.contains("A new title"), "{packet}");
 }
 
 /// A file this file is not: refused by name rather than coerced into an entry.

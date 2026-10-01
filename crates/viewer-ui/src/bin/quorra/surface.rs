@@ -518,12 +518,22 @@ impl App {
             );
         }
         // A page drawn by the slower of two backends is a fact about this build worth saying out
-        // loud: said, it makes a report a sentence rather than a mystery (ADR 0125).
+        // loud: said, it makes a report a sentence rather than a mystery (ADR 0125). Said on the
+        // terminal for every frame, and in the title once, while it holds (ADR 1466).
         if let Some(problem) = &landed.fell_back {
             println!(
                 "note: the graphics device {problem}, so the page was drawn on the processor \
                  instead"
             );
+        }
+        let on_the_processor = landed
+            .fell_back
+            .as_ref()
+            .map(|problem| format!("drawn on the processor: the graphics device {problem}"));
+        if on_the_processor != self.on_the_processor {
+            self.on_the_processor = on_the_processor;
+            self.retitle();
+            self.retitle_incomplete();
         }
         if let Some(problem) = &landed.refused {
             eprintln!("note: this page could not be drawn: {problem}");

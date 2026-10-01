@@ -9,6 +9,10 @@ repository.workspace = true
 
 [dependencies]
 pdf-model.workspace = true
+# A search compares a page's presentation forms as the letters a person types, and reads a
+# right-to-left word in the order a page could have stored it — `pdf_font::shaping`'s compiled-in
+# decompositions and its Unicode Standard Annex #9 (ADR 1465).
+pdf-font.workspace = true
 # §12.8 was extracted from `pdf-model` into its own crate in the thousandth session (ADR 1020);
 # this crate reads signatures, so it names it directly.
 pdf-signature.workspace = true

@@ -436,6 +436,8 @@ pub struct Host {
     needle: String,
     /// How many pages a search still has to read. Zero when nothing is being searched for.
     pages_left: usize,
+    /// The travel a Control + wheel gesture has made and not yet spent on a zoom step.
+    zoom_wheel: viewer_host::ZoomWheel,
     /// The magnification at which every control on this page would fit its `/Rect`, where they do
     /// not fit now.
     ///
@@ -572,6 +574,7 @@ impl Host {
             access_pending: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             needle: String::new(),
             pages_left: 0,
+            zoom_wheel: viewer_host::ZoomWheel::default(),
             fit_magnification: None,
             clock: None,
             arming: None,
@@ -1332,6 +1335,27 @@ impl Host {
     /// is the message, so that the two hosts differ in the toolkit and in nothing else.
     pub(crate) fn scrolled(&mut self, dx: f32, dy: f32) {
         self.dispatch(Command::Scroll { dx, dy });
+    }
+
+    /// Control and the wheel: whole zoom steps about the point under the pointer.
+    ///
+    /// `amount` is Qt's travel turned away from the person, in notches, or in pixels where
+    /// `pixels` says the device reported those; `viewer_host::ZoomWheel` spends it, so the three
+    /// windows count a gesture alike (ADR 1118). `(x, y)` is the pointer in device pixels of the
+    /// viewport, the point `quorra` and `quorra-gtk` keep still too.
+    pub(crate) fn wheel_zoom(&mut self, amount: f32, pixels: bool, x: f32, y: f32) {
+        let steps = if pixels {
+            self.zoom_wheel.pixels(amount)
+        } else {
+            self.zoom_wheel.lines(amount)
+        };
+        let zoom = if steps > 0 { Zoom::In } else { Zoom::Out };
+        for _ in 0..steps.unsigned_abs() {
+            self.dispatch(Command::Zoom {
+                zoom,
+                at: Some((x, y)),
+            });
+        }
     }
 
     /// The pointer moved or a button changed.
@@ -2887,6 +2911,8 @@ impl Host {
                     red: colour.map_or(0, |rgb| rgb.0),
                     green: colour.map_or(0, |rgb| rgb.1),
                     blue: colour.map_or(0, |rgb| rgb.2),
+                    paper: packed(viewer_host::popup::PAPER),
+                    edge: packed(viewer_host::popup::EDGE),
                 }
             })
             .collect()
@@ -4194,6 +4220,11 @@ fn narrow(value: i64) -> i32 {
 )]
 fn level(component: f32) -> u8 {
     (component.clamp(0.0, 1.0) * 255.0 + 0.5) as u8
+}
+
+/// A colour as Qt's `QRgb` takes it, `0xRRGGBB`.
+fn packed(colour: pdf_render::Color) -> u32 {
+    u32::from(level(colour.r)) << 16 | u32::from(level(colour.g)) << 8 | u32::from(level(colour.b))
 }
 
 /// What to call the document in a title bar: its file name, or the whole path where it has none.

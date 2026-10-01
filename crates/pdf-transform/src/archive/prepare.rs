@@ -21,6 +21,9 @@ use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
 use pdf_syntax::serialize::flate_encode;
 
 use crate::json::Value;
+// §14.3.3's Table 349, key by key, shared with the `update` and `merge` verbs so that the three
+// writers cannot name an entry's XMP counterpart two ways.
+use crate::update::TABLE_349;
 
 use super::decision::{Because, REMEDIES};
 use super::fonts::{self, Directions, Metrics, Substitutes};
@@ -4270,41 +4273,6 @@ const DROPPED: &str = "Table 349 names no XMP property for this key and the conf
 /// The one entry the clause leaves in the dictionary.
 const KEPT: &str = "kept in the dictionary, which ISO 19005-4 section 6.1.3 admits beside the \
      catalog's PieceInfo";
-
-/// §14.3.3's Table 349, key by key, with the XMP property its own NOTE names and the shape the
-/// XMP Specification's schema gives that property.
-///
-/// The property is the standard's: NOTE 1 names `dc:title` for `/Title`, NOTE 2 `dc:creator` for
-/// `/Author`, NOTE 3 `dc:description` for `/Subject`, NOTE 4 `pdf:Keywords`, NOTE 5
-/// `xmp:CreatorTool`, NOTE 6 `pdf:Producer`, NOTE 7 `xmp:CreateDate`, NOTE 8 `xmp:ModifyDate` and
-/// NOTE 10 `pdf:Trapped`. **The shape is not a choice either**: ISO 19005-2 section 6.6.2.3.1
-/// requires a property to use its predefined schema *as defined*, so a `dc:title` written as a
-/// simple value would fail `metadata/properties-use-known-schemas` on this converter's own
-/// output — which is what `pdf_archive`'s predefined-schema table records and what the fixture
-/// proves. §14.3.3's own EXAMPLE prints both container shapes.
-const TABLE_349: &[(&str, &str, &str, &str, xmp::Form)] = &[
-    ("Title", xmp::DC, "dc", "title", xmp::Form::Alternative),
-    ("Author", xmp::DC, "dc", "creator", xmp::Form::Ordered),
-    (
-        "Subject",
-        xmp::DC,
-        "dc",
-        "description",
-        xmp::Form::Alternative,
-    ),
-    ("Keywords", xmp::PDF, "pdf", "Keywords", xmp::Form::Simple),
-    ("Creator", xmp::XMP, "xmp", "CreatorTool", xmp::Form::Simple),
-    ("Producer", xmp::PDF, "pdf", "Producer", xmp::Form::Simple),
-    (
-        "CreationDate",
-        xmp::XMP,
-        "xmp",
-        "CreateDate",
-        xmp::Form::Simple,
-    ),
-    ("ModDate", xmp::XMP, "xmp", "ModifyDate", xmp::Form::Simple),
-    ("Trapped", xmp::PDF, "pdf", "Trapped", xmp::Form::Simple),
-];
 
 /// ISO 19005-4 section 6.1.3's two rows, whose `unmapped` answer is one answer for both.
 const INFORMATION_REQUIREMENTS: [&str; 2] = [

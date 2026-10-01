@@ -136,3 +136,161 @@ fn a_short_cpu_frame_after_a_tall_one_draws_its_own_coverage() {
 
     assert_eq!(after, alone);
 }
+
+/// The atlas side this section's devices are given: room for a few dozen small glyph tiles.
+const SMALL_ATLAS: u64 = 160 * 160;
+
+fn atlas_device(max_frame_bytes: u64) -> Device {
+    Device::headless(&Options {
+        adapter: Some("llvmpipe".into()),
+        atlas_budget: SMALL_ATLAS,
+        max_frame_bytes,
+        ..Options::default()
+    })
+    .expect("llvmpipe is present wherever this suite runs")
+}
+
+/// A scene of `count` distinct small outlines, each a lobed curve about 20 pixels across,
+/// placed twice on a lattice — glyph tiles the atlas admits and would keep — over one large
+/// square where `backdrop` asks, whose tile no atlas this size admits and which therefore
+/// sets the scratch sheet. `seed` makes the outlines differ from another scene's, so two
+/// scenes share no atlas key.
+fn glyph_page(device: &mut Device, count: u32, seed: f32, backdrop: bool) -> Scene {
+    let mut builder = SceneBuilder::new();
+    if backdrop {
+        let square = [
+            (-100.0, -100.0),
+            (100.0, -100.0),
+            (100.0, 100.0),
+            (-100.0, 100.0),
+        ];
+        let mut path: Vec<Segment> = square
+            .iter()
+            .enumerate()
+            .map(|(k, &(x, y))| {
+                let p = Point::new(x, y);
+                if k == 0 {
+                    Segment::MoveTo(p)
+                } else {
+                    Segment::LineTo(p)
+                }
+            })
+            .collect();
+        path.push(Segment::Close);
+        let outline = device.upload_outline(&path).unwrap();
+        builder
+            .fill(
+                outline,
+                Affine {
+                    a: 0.9,
+                    b: 0.3,
+                    c: -0.3,
+                    d: 0.9,
+                    e: 120.5,
+                    f: 120.5,
+                },
+                FillRule::NonZero,
+                black(),
+                None,
+                BlendMode::Normal,
+                Compose::SrcOver,
+                None,
+            )
+            .unwrap();
+    }
+    for i in 0..count {
+        let r = 8.0 + seed + (i % 7) as f32 * 0.13;
+        let lobes = 5 + i % 4;
+        let point =
+            |angle: f32, radius: f32| Point::new(radius * angle.cos(), radius * angle.sin());
+        let mut path = vec![Segment::MoveTo(point(0.0, r))];
+        for step in 0..lobes {
+            let to = (step + 1) as f32 / lobes as f32 * std::f32::consts::TAU;
+            let mid = (step as f32 + 0.5) / lobes as f32 * std::f32::consts::TAU;
+            path.push(Segment::CubicTo {
+                c1: point(mid, r * 1.2),
+                c2: point(mid, r * 1.2),
+                to: point(to, r),
+            });
+        }
+        path.push(Segment::Close);
+        let outline = device.upload_outline(&path).unwrap();
+        for copy in 0..2 {
+            let x = 12.0 + ((i * 2 + copy) % 11) as f32 * 21.0;
+            let y = 12.0 + ((i * 2 + copy) / 11) as f32 * 21.0;
+            builder
+                .fill(
+                    outline,
+                    Affine::translate(x, y),
+                    FillRule::NonZero,
+                    black(),
+                    None,
+                    BlendMode::Normal,
+                    Compose::SrcOver,
+                    None,
+                )
+                .unwrap();
+        }
+    }
+    builder.finish()
+}
+
+/// Draw `scene`'s builder on `device` at the target this section uses, or say why not.
+fn try_draw(device: &mut Device, scene: &Scene) -> Result<Vec<u8>, String> {
+    device
+        .render(
+            scene,
+            &Viewport::full(LARGE, LARGE, Affine::IDENTITY),
+            Target::Readback,
+        )
+        .map(|frame| frame.into_raster().unwrap().into_pixels())
+        .map_err(|error| error.to_string())
+}
+
+/// **A frame's admission against the frame budget is its own** (ADR 1467 section 4).
+///
+/// A page of glyphs that fills a small atlas, then a page of other glyphs at the least
+/// frame budget it is drawn under alone. Answered by the full atlas, the second page's
+/// glyphs fell through to the scratch sheet, the sheet grew, and the page was refused —
+/// a verdict decided by the page before it. Its verdict and its bytes must be the ones a
+/// fresh device gives it.
+#[test]
+fn a_page_after_one_that_filled_the_atlas_is_admitted_as_it_is_alone() {
+    let fits_alone = |budget: u64| {
+        let mut device = atlas_device(budget);
+        let page = glyph_page(&mut device, 40, 0.0, true);
+        try_draw(&mut device, &page).is_ok()
+    };
+    // The least budget the page is drawn under alone, by bisection.
+    let (mut refused, mut drawn) = (0_u64, 64 << 20);
+    assert!(fits_alone(drawn), "the page draws at a generous budget");
+    while drawn - refused > 1 {
+        let mid = refused + (drawn - refused) / 2;
+        if fits_alone(mid) {
+            drawn = mid;
+        } else {
+            refused = mid;
+        }
+    }
+    let mut fresh = atlas_device(drawn);
+    let page = glyph_page(&mut fresh, 40, 0.0, true);
+    let alone = try_draw(&mut fresh, &page).expect("drawn alone at its own least budget");
+
+    let mut used = atlas_device(drawn);
+    let filler = glyph_page(&mut used, 52, 0.5, false);
+    let page = glyph_page(&mut used, 40, 0.0, true);
+    assert!(
+        try_draw(&mut used, &filler).is_ok(),
+        "the filling page is drawn at this budget and leaves the atlas nearly full"
+    );
+    let after = try_draw(&mut used, &page);
+    assert_eq!(
+        after.as_ref().map(Vec::len),
+        Ok(alone.len()),
+        "the page after the filling one was refused at the budget it is drawn under alone: {after:?}"
+    );
+    assert!(
+        after.unwrap() == alone,
+        "and its pixels are the ones a fresh device draws"
+    );
+}

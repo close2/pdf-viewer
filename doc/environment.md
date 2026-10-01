@@ -489,51 +489,59 @@ a pull request from a fork gets no secret, and the step says so rather than fail
 ## After a merge: the commands the owner runs in the main checkout
 
 A round works in a worktree and never edits `/home/cl/projects/pdf-viewer`, so what a batch cannot
-carry is left on the owner's disk: an ignored or untracked file no merge updates, a fuzz artefact
-whose defect is fixed, a corpus a campaign found stale, the owner's own answers. The commands are
-here; **which of them has anything to do today is printed, not written down** —
-`tools/state.sh main-checkout` reads the main checkout without touching it (ADR 1440).
+carry is left on the owner's disk. `tools/state.sh main-checkout` (`tools/main-checkout.py`) reads
+the main checkout without touching it and prints one line per kind of thing, with its count; this
+section is what each line means and the command that clears it, in the order it prints them, and
+nothing a count could say (ADR 1440). A line whose count is zero has nothing to do.
 
 ```sh
 tools/state.sh main-checkout             # first, from the main checkout or the worktree
 
-# 1. A local edit to a path the batch changes stops `git merge --ff-only`. Set it aside and put it
-#    back around the fast-forward — never commit it on main first, which ends the fast-forward.
+# `local edits the fast-forward would refuse over: N (paths)` — a local edit to a path the batch
+#   changes stops `git merge --ff-only`. Set it aside and put it back around the fast-forward; never
+#   commit it on main first, which ends the fast-forward.
 git diff -- <path> > /tmp/owner.patch && git checkout -- <path>
 git merge --ff-only <batch branch>
 git apply --3way /tmp/owner.patch
 
-# 2. The fuzz workspace's lock is tracked (ADR 1439); an ignored copy on disk is replaced by the
-#    merge. It then agrees with the root lock or this fails, naming the package:
+# `fuzz/Cargo.lock: tracked|untracked, agrees with Cargo.lock | pins N version(s) …` — the fuzz
+#   workspace's lock is tracked (ADR 1439), so a merge replaces an ignored copy; a version the root
+#   lock does not pin is cleared by the merge or by the `doc/patches` line's commands below; this
+#   names it:
 cargo test -p conformance --test fuzz_workspace
 
-# 3. An artefact the tree names is one a round read, fixed and turned into a test; it may go.
-#    An unread one stays until a round reads it.
+# `fuzz/artifacts: N read, M unread, K slow-unit warning(s)` — a `read, removable:` line is an
+#   artefact the tree names, so a round read it, fixed it and turned it into a test: it may go.
+#   An `unread:` line stays until a round reads it (doc/verify.md's fuzz block). A slow-unit warning
+#   is libFuzzer's clock under the sanitiser, read in a release binary before it is believed, and
+#   not removed by this:
 PYTHONDONTWRITEBYTECODE=1 python3 tools/main-checkout.py \
     | awk '$1 == "read," { print $3 }' | xargs -r rm --
 
-# 4. Seed what is unseeded or stale — the targets `main-checkout` names, and any a campaign's record
-#    calls stale — behind the lock, because it walks the corpus:
+# `fuzz/corpus: N of M target(s) unseeded: <targets>` — seed the targets it names, and any a
+#   campaign's record calls stale, behind the lock, because it walks the corpus:
 flock /home/AI/heavy-walk.lock fuzz/seeds.sh fuzz/corpus <target>...
 
-# 5. The owner's own answers, which no round writes or commits:
+# `doc/questions: N owner's answer file(s) uncommitted` — the owner's own answers, which no round
+#   writes or commits; the owner commits them:
 git status --short doc/questions
 
-# 6. A question file is an instruction document, so its `§` is ISO 32000-2's (ADR 1452), and the
-#    main checkout's own `cargo test -p conformance` fails on one that is not — which no worktree
-#    run can see. `main-checkout` prints each; another standard's section is written in words:
-#    "ISO 19005-4 section 6.2.7.3", "ISO/TS 32002 section 5.1.3". The scan reads a paragraph, not
-#    a line, so a standard's name ending the line above a sign owns it (ADR 1464).
-cargo test -p conformance --test documents
-
-# 7. A fix to a dependency this tree pins from a fork is a patch under doc/patches/, whose preamble
-#    names the repository and the `rev` it was written against; a round cannot push to the fork.
-#    `main-checkout` lists each patch whose base the manifest still pins. Apply it on that base in
-#    a clone of the fork and push; then every `rev` the root Cargo.toml pins to that repository
-#    moves to the new commit together, and both locks follow:
+# `doc/patches: N owed …, M whose base it no longer pins, K stating no base` — an `owed:` line is a
+#   fix to a dependency this tree pins from a fork, written against the `rev` its `Base:` names;
+#   a round cannot push to the fork. Apply it on that base in a clone of the fork and push; then
+#   every `rev` the root Cargo.toml pins to that repository moves to the new commit together, and
+#   both locks follow. The line goes when the manifest no longer pins the base (ADRs 1447, 1463):
 git -C <fork clone> checkout <Base> && git -C <fork clone> apply doc/patches/<name>.patch
 cargo update -p hayro-jbig2 -p hayro-jpeg2000 -p hayro-ccitt
 cargo update --manifest-path fuzz/Cargo.toml -p hayro-jbig2 && cargo test -p conformance --test fuzz_workspace
+
+# `section signs, uncommitted: N `§` after another standard's name …` — a question file is an
+#   instruction document, so its `§` is ISO 32000-2's (ADR 1452), and the main checkout's own
+#   `cargo test -p conformance` fails on each line printed beneath, which no worktree run can see.
+#   Write the other standard's section in words — "ISO 19005-4 section 6.2.7.3", "ISO/TS 32002
+#   section 5.1.3"; the scan reads a paragraph, so a standard named at the end of the line above
+#   a sign owns it (ADR 1464). Then:
+cargo test -p conformance --test documents
 ```
 
 **Driving `quorra-qt` under Xvfb:** Qt ignores key presses there until it is run with

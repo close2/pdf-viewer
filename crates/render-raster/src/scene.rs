@@ -27,6 +27,8 @@ use raster_scene::{ResourceId, SceneBuilder};
 use crate::QuorraRasterError;
 use crate::cache::ResourceCaches;
 
+mod own_space;
+
 /// The factor pair that stands for an image uploaded whole, as its own key in the
 /// resource cache: one source sample per output sample, in both axes.
 const WHOLE: (u32, u32) = (1, 1);
@@ -249,7 +251,7 @@ const MAX_CLIP_DEPTH: usize = 4096;
 /// A struct rather than seven arguments because two callers state them: the page's own
 /// groups, and §11.4.6's staged halves, which differ from the first only in the operator
 /// the finished group composites with.
-/// Refuses the two shapes of `Command::Group` raster's vocabulary cannot state.
+/// Refuses the shapes of `Command::Group` raster's vocabulary cannot state.
 ///
 /// - **A non-isolated knockout group** (`isolated: false` beside `knockout: true`):
 ///   §11.4.6 composites each element with the group's *initial* backdrop — here the
@@ -258,15 +260,12 @@ const MAX_CLIP_DEPTH: usize = 4096;
 ///   per-element backdrop, and raster's staged `DestOut`/`Plus` pair is written on the
 ///   transparent start §11.4.5 gives (its ADRs 0025, 0032). Passing the flags through
 ///   would substitute one backdrop for the other in silence.
-/// - **A group compositing in a blending colour space of its own** (§11.6.6, §11.7.2,
-///   `blending: Some`): the pair's colours are ink complements, or a curve's components,
-///   resolved per pixel after the group composites, and a scene under composition cannot be
-///   read back. The page-level pair is drawn by two whole `render` passes and the
-///   page-level curve by one pass over the readback (ADR 0275); a group-scoped one has no
-///   lane.
+/// - **A non-isolated group carrying a blending colour space of its own**, which `pdf-model`
+///   never builds: §11.6.6 gives a non-isolated group its parent's space, and the CPU backend
+///   refuses the same combination. An isolated one is drawn by `own_space` (ADR 1471).
 ///
-/// Both go to the CPU backend, which draws them; refusing here is what keeps either from
-/// becoming a wrong picture in silence, which is trap 5.
+/// Both go to the CPU backend; refusing here is what keeps either from becoming a wrong
+/// picture in silence, which is trap 5.
 fn refuse_untranslatable_group(
     isolated: bool,
     knockout: bool,
@@ -280,32 +279,14 @@ fn refuse_untranslatable_group(
                 .to_owned(),
         ));
     }
-    match own_space {
-        Some(pdf_render::GroupBlending::FourComponents { .. }) => {
-            Err(QuorraRasterError::Unsupported(
-                "a group compositing in a blending colour space of four components: the pair \
-                 resolves per pixel after the group composites (ISO 32000-2 §11.6.6, §11.7.2)"
-                    .to_owned(),
-            ))
-        }
-        Some(pdf_render::GroupBlending::OneComponent { .. }) => {
-            Err(QuorraRasterError::Unsupported(
-                "a group compositing in a blending colour space of one component through a \
-                 curve: the curve resolves per pixel after the group composites (ISO 32000-2 \
-                 §11.6.6, §11.7.2)"
-                    .to_owned(),
-            ))
-        }
-        Some(pdf_render::GroupBlending::ThreeComponents { .. }) => {
-            Err(QuorraRasterError::Unsupported(
-                "a group compositing in a blending colour space of three CIE-based components \
-                 through a cube: the cube resolves per pixel after the group composites \
-                 (ISO 32000-2 §11.6.6, §11.7.2)"
-                    .to_owned(),
-            ))
-        }
-        None => Ok(()),
+    if own_space.is_some() && !isolated {
+        return Err(QuorraRasterError::Unsupported(
+            "a non-isolated group carrying a blending colour space of its own: a non-isolated \
+             group inherits its parent's space (ISO 32000-2 §11.6.6)"
+                .to_owned(),
+        ));
     }
+    Ok(())
 }
 
 #[derive(Clone, Copy)]
@@ -324,6 +305,9 @@ struct GroupParts<'a> {
     isolated: bool,
     /// Whether the group is a knockout group (§11.4.6).
     knockout: bool,
+    /// The blending colour space the group composites in, where it states one of its own
+    /// (§11.6.6, §11.7.2).
+    blending: Option<&'a pdf_render::GroupBlending>,
 }
 
 impl<'a> Encoder<'a> {
@@ -564,6 +548,7 @@ impl<'a> Encoder<'a> {
                             mask: *mask,
                             isolated: *isolated,
                             knockout: *knockout,
+                            blending: blending.as_deref(),
                         },
                         raster_scene::Compose::SrcOver,
                     )?;
@@ -583,8 +568,9 @@ impl<'a> Encoder<'a> {
 
     /// One transparency group, composited by `compose` (ISO 32000-2 §11.4.1).
     ///
-    /// See [`refuse_untranslatable_group`] for the two shapes of the command every caller
-    /// screens out before building a [`raster_scene::GroupSpec`].
+    /// See [`refuse_untranslatable_group`] for the shapes of the command every caller
+    /// screens out before building a [`raster_scene::GroupSpec`], and `own_space` for the group
+    /// that composites in a blending colour space of its own (ADR 1471).
     ///
     /// `compose` is [`raster_scene::Compose::SrcOver`] for every group a page states, and one
     /// of §11.4.6's two staged operators where this group is one half of a
@@ -618,6 +604,9 @@ impl<'a> Encoder<'a> {
                 ));
             }
         };
+        if let Some(blending) = parts.blending {
+            return self.group_in_own_space(builder, (parts, clip, mask), compose, blending);
+        }
         let spec = raster_scene::GroupSpec {
             alpha: parts.alpha,
             blend: blend_mode(parts.blend),
@@ -744,6 +733,7 @@ impl<'a> Encoder<'a> {
                     mask: *mask,
                     isolated: *isolated,
                     knockout: *knockout,
+                    blending: blending.as_deref(),
                 },
                 compose,
             );
@@ -760,6 +750,7 @@ impl<'a> Encoder<'a> {
                 mask: None,
                 isolated: true,
                 knockout: false,
+                blending: None,
             },
             compose,
         )
@@ -1733,35 +1724,15 @@ impl<'a> Encoder<'a> {
             .soft_mask(id)
             .ok_or(QuorraRasterError::UnknownSoftMask(id))?;
         // §11.5.3's `Y` of a group composited in a CIE-based space, or in `DeviceCMYK`'s four
-        // components, is read off that space's own arithmetic per pixel (`pdf_render::Luminance`:
-        // three curves summed, a grid interpolated over three components or four, or EXAMPLE 2's
-        // formula of four inks), and raster's luminosity mask computes
-        // §10.4.2.2's weights of the channels in its own shader — a different formula, so the
-        // mask is refused by name and the frame goes to the CPU backend rather than being
-        // drawn to the wrong luminosity in silence.
-        //
-        // The four-component shape — an `ICCBased` space of four, or `DeviceCMYK` whose group
-        // blends (ADR 1342) — is refused twice over: the group is §11.4.7's *pair* of rasters
-        // (`pdf_render::BlackHalf`) and `raster_scene::MaskKind::Luminosity` names one body.
-        // `QUORRA_FEEDBACK.md` section 43 asks for both — the curves-or-grid vocabulary beside
-        // the backdrop, and a second body for the black component.
-        if def.black.is_some() {
-            return Err(QuorraRasterError::Unsupported(
-                "a luminosity soft mask whose group composites in four components — an \
-                 ICCBased space of four, or DeviceCMYK where the group blends — is a pair of \
-                 rasters, chromatic and black, that a scene's mask cannot state: the mask names \
-                 one body, and its luminosity is §11.5.3's `Y` of all four components where the \
-                 scene weighs the channels of one (ISO 32000-2 §11.5.3, §11.3.4, §11.4.7)"
-                    .to_owned(),
-            ));
-        }
-        if def.luminance.is_some() {
-            return Err(QuorraRasterError::Unsupported(
-                "a luminosity soft mask whose group composites in a CIE-based space of three \
-                 components: its luminosity is the space's own `Y` per pixel, while the scene's \
-                 mask weighs the channels it holds (ISO 32000-2 §11.5.3, §11.3.4)"
-                    .to_owned(),
-            ));
+        // components, is read off that space's own arithmetic per pixel (`pdf_render::Luminance`),
+        // where raster's luminosity mask weighs §10.4.2.2's coefficients in its own shader, and
+        // the four-component shape is §11.4.7's pair of rasters where a scene's mask names one
+        // body. Both are drawn as frames of their own and reduced by the shared arithmetic
+        // (`own_space`, ADR 1471).
+        if def.black.is_some() || def.luminance.is_some() {
+            let mapped = self.mask_in_own_space(builder, def)?;
+            self.masks.insert(id.index(), mapped);
+            return Ok(Some(mapped));
         }
         let kind = match def.kind {
             SoftMaskKind::Alpha => raster_scene::MaskKind::Alpha,
