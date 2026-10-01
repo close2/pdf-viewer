@@ -1,3 +1,9 @@
+Repository: https://github.com/close2/hayro
+Base: 64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2
+
+The owner applies this to the fork and bumps the `rev` the root Cargo.toml pins for
+hayro-jbig2, hayro-jpeg2000 and hayro-ccitt; `tools/state.sh main-checkout` lists it until then.
+
 diff -ru a/hayro-jbig2/src/decode/symbol.rs b/hayro-jbig2/src/decode/symbol.rs
 --- a/hayro-jbig2/src/decode/symbol.rs
 +++ b/hayro-jbig2/src/decode/symbol.rs

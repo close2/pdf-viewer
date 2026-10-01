@@ -931,6 +931,12 @@ impl Image {
         // reduced image.
         let columns = Bands::new(self.width, width);
         let spans: Vec<(u32, u32)> = (0..width).map(|out_x| columns.at(out_x)).collect();
+        // No band is longer than its samples divided by its cells, rounded up, so this is the
+        // largest block any cell gathers (ADR 1457).
+        let reciprocals = Reciprocals::new(
+            u64::from(self.width.div_ceil(width.max(1)))
+                .saturating_mul(u64::from(self.height.div_ceil(height.max(1)))),
+        );
 
         // `row_bytes` cannot be zero, which is what the two `chunks_exact_mut` below need:
         // `is_consistent` has already refused a zero dimension, and `Self::reduction` clamps
@@ -943,19 +949,18 @@ impl Image {
         // property that made `pdf-model`'s colour conversion divisible (ADR 0147) and that
         // a rasterisation deliberately does not have (ADR 0138). [`PARALLEL_FLOOR`] carries
         // the crossover and the argument for putting the threshold above it.
-        let fill = |out_y: usize, row: &mut [u8]| {
-            let (y0, y1) = rows.at(u32::try_from(out_y).unwrap_or(u32::MAX));
-            for (cell, &(x0, x1)) in row.chunks_exact_mut(4).zip(&spans) {
-                cell.copy_from_slice(&self.average_block(x0, y0, x1, y1));
-            }
+        let fill = |out_y: usize, row: &mut [u8], sums: &mut Vec<u32>| {
+            let rows = rows.at(u32::try_from(out_y).unwrap_or(u32::MAX));
+            self.reduce_row(rows, &spans, &reciprocals, sums, row);
         };
         if u64::from(self.width).saturating_mul(u64::from(self.height)) >= PARALLEL_FLOOR {
             data.par_chunks_exact_mut(row_bytes)
                 .enumerate()
-                .for_each(|(out_y, row)| fill(out_y, row));
+                .for_each_init(Vec::new, |sums, (out_y, row)| fill(out_y, row, sums));
         } else {
+            let mut sums = Vec::new();
             for (out_y, row) in data.chunks_exact_mut(row_bytes).enumerate() {
-                fill(out_y, row);
+                fill(out_y, row, &mut sums);
             }
         }
 
@@ -968,6 +973,92 @@ impl Image {
             // stencil, with fractional coverage where its edges fell inside a block.
             sample_alpha: self.sample_alpha,
         })
+    }
+
+    /// One output row: where the source rows `y0..y1` are opaque throughout, summed down each
+    /// column once and every cell read off those sums — or, where [`Reciprocals`] holds nothing
+    /// or one sample of the band is not opaque, [`Self::average_block`] for every cell. A band
+    /// is asked whole rather than a cell at a time because a soft-masked photograph's bands are
+    /// rarely opaque, and paying the column sums and then the per-block arithmetic for every
+    /// cell measured a third slower than the per-block arithmetic alone (ADR 1457).
+    ///
+    /// **An opaque block's premultiplied mean is its plain mean, rounded the same way.** With
+    /// every alpha 255 a colour channel is `round_div(255·s, 255·c)` for the plain sum `s` of
+    /// `c` samples, which is `⌊(255·s + ⌊255·c/2⌋) ÷ 255·c⌋`. For an even `c` the half is exact
+    /// and the 255 cancels to `⌊(s + c/2) ÷ c⌋`. For an odd one it is `⌊(N + ½ − 1/510) ÷ c⌋`
+    /// with `N = s + (c − 1)/2` a whole number, and adding less than one to a whole numerator
+    /// cannot carry its floor by `c` past `⌊N ÷ c⌋`. Both are `⌊(s + ⌊c/2⌋) ÷ c⌋`, which
+    /// [`Reciprocals`] computes without a division; and the alpha is `round_div(255·c, c)`,
+    /// 255. So a cell is the byte [`Self::average_block`] writes, by arithmetic rather than by
+    /// test — `examples/area_bench` asserts it on every size it times all the same.
+    ///
+    /// **What it buys.** A page turn reduces a 5 280 × 3 792 photograph twofold, a block of
+    /// four samples a cell, and per cell the general arithmetic pays two row slices, four
+    /// multiplications a sample and four 64-bit divisions: 54 ms on one thread. Summing whole
+    /// source rows at once is a loop the compiler vectorises, and the cell is then three
+    /// multiplications. ADR 1457 has the measurement.
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "bounded by `SMALL_BLOCK`, which `Reciprocals` is empty past: a column sums at \
+                  most 4 095 rows of at most 255, a cell at most 4 095 samples, so every sum is \
+                  under 2^20 and its product with a reciprocal of at most 2^32 under 2^52. The \
+                  index arithmetic is bounded by the dimensions `is_consistent` checked"
+    )]
+    fn reduce_row(
+        &self,
+        (y0, y1): (u32, u32),
+        spans: &[(u32, u32)],
+        reciprocals: &Reciprocals,
+        sums: &mut Vec<u32>,
+        row: &mut [u8],
+    ) {
+        let line = (self.width as usize) * 4;
+        let band = if reciprocals.is_empty() || line == 0 {
+            None
+        } else {
+            self.data
+                .get((y0 as usize) * line..(y1 as usize) * line)
+                .filter(|band| opaque_band(band))
+        };
+        let Some(band) = band else {
+            for (cell, &(x0, x1)) in row.chunks_exact_mut(4).zip(spans) {
+                cell.copy_from_slice(&self.average_block(x0, y0, x1, y1));
+            }
+            return;
+        };
+        sums.clear();
+        sums.resize(line, 0);
+        for source in band.chunks_exact(line) {
+            for (sum, &byte) in sums.iter_mut().zip(source) {
+                *sum += u32::from(byte);
+            }
+        }
+        let lines = y1 - y0;
+        for (cell, &(x0, x1)) in row.chunks_exact_mut(4).zip(spans) {
+            let count = (x1 - x0) * lines;
+            // Four lanes written out rather than zipped: the compiler keeps them in registers,
+            // which the zipped form measured a fifth slower than (ADR 1457).
+            let mut block = [0u32; 4];
+            let columns = sums
+                .get((x0 as usize) * 4..(x1 as usize) * 4)
+                .unwrap_or_default();
+            for column in columns.chunks_exact(4) {
+                block[0] += column[0];
+                block[1] += column[1];
+                block[2] += column[2];
+                block[3] += column[3];
+            }
+            match reciprocals.get(count) {
+                Some(reciprocal) if count > 0 && block[3] == 255 * count => {
+                    let mean = |sum: u32| {
+                        let rounded = (u64::from(sum + count / 2) * reciprocal) >> 32;
+                        u8::try_from(rounded).unwrap_or(u8::MAX)
+                    };
+                    cell.copy_from_slice(&[mean(block[0]), mean(block[1]), mean(block[2]), 255]);
+                }
+                _ => cell.copy_from_slice(&self.average_block(x0, y0, x1, y1)),
+            }
+        }
     }
 
     /// The mean of one block of samples, as straight-alpha RGBA8.
@@ -1270,6 +1361,62 @@ impl ImageSource {
 impl From<Image> for ImageSource {
     fn from(image: Image) -> Self {
         Self::Decoded(image)
+    }
+}
+
+/// Whether every sample of a band of RGBA rows is opaque: eight bytes folded with `&` at a time
+/// and the two alpha lanes of the fold tested once, as `Image::is_opaque`'s blocks are.
+fn opaque_band(band: &[u8]) -> bool {
+    const ALPHAS: u64 = u64::from_le_bytes([0, 0, 0, 0xFF, 0, 0, 0, 0xFF]);
+    let mut words = band.chunks_exact(8);
+    let folded = words.by_ref().fold(u64::MAX, |all, word| {
+        let mut eight = [0u8; 8];
+        eight.copy_from_slice(word);
+        all & u64::from_le_bytes(eight)
+    });
+    folded & ALPHAS == ALPHAS
+        && words
+            .remainder()
+            .get(3)
+            .is_none_or(|&alpha| alpha == u8::MAX)
+}
+
+/// The largest block, in samples, whose opaque mean [`Image::area_averaged`] reads off column
+/// sums: its sums stay far inside `u32`, and [`Reciprocals`] is exact up to it.
+const SMALL_BLOCK: u64 = 4_095;
+
+/// `⌈2³² ÷ c⌉` for every sample count `c` up to a reduction's largest block, so that an opaque
+/// block's mean is a multiplication and a shift rather than a 64-bit division.
+///
+/// **The product is the quotient.** Write `⌈2³²/c⌉ = (2³² + e)/c` with `0 ≤ e < c`; then
+/// `n·⌈2³²/c⌉ ÷ 2³² = n/c + n·e ÷ (c·2³²)`. With `n = q·c + r` and `r ≤ c − 1` the floor stays
+/// `q` while `r + n·e ÷ 2³² < c`, which holds when `n·e < 2³²` — and a numerator here is a
+/// rounded opaque sum, under `256·c`, so `n·e < 256·c² < 2³²` for every `c` up to
+/// [`SMALL_BLOCK`]. Empty where the largest block is past that, and every cell then takes
+/// [`Image::average_block`].
+struct Reciprocals(Vec<u64>);
+
+impl Reciprocals {
+    /// The table up to `largest` samples, or an empty one past [`SMALL_BLOCK`].
+    fn new(largest: u64) -> Self {
+        if largest > SMALL_BLOCK {
+            return Self(Vec::new());
+        }
+        Self(
+            (0..=largest)
+                .map(|count| (1u64 << 32).div_ceil(count.max(1)))
+                .collect(),
+        )
+    }
+
+    /// Whether every cell takes the general arithmetic.
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// The reciprocal of `count`, where the table holds one.
+    fn get(&self, count: u32) -> Option<u64> {
+        self.0.get(usize::try_from(count).ok()?).copied()
     }
 }
 
@@ -1682,6 +1829,51 @@ mod resampling {
     /// reaches the arithmetic the test is about. Miri is here to check the code that parses
     /// untrusted input, and a job that fails inside a work-stealing deque checks nothing.
     /// ADR 0450 has the argument for the declination living here rather than on CI's line.
+    /// A row read off column sums is [`Image::average_block`]'s arithmetic, cell for cell: an
+    /// opaque grid and one whose every seventh alpha is below 255, reduced at factors whose
+    /// blocks are uneven, against the per-block arithmetic asked of each cell's block. Under
+    /// the parallel floor, so on this thread.
+    #[test]
+    fn a_row_of_column_sums_is_the_per_block_arithmetic() {
+        let (width, height) = (151_u32, 129_u32);
+        let mut state = 0x9E37_79B9_u32;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            state.to_le_bytes()
+        };
+        for opaque in [true, false] {
+            let data: Vec<u8> = (0..width * height)
+                .flat_map(|index| {
+                    let v = next();
+                    let alpha = if opaque || index % 7 != 0 { 255 } else { v[3] };
+                    [v[0], v[1], v[2], alpha]
+                })
+                .collect();
+            let image = Image {
+                width,
+                height,
+                data: data.into(),
+                interpolate: false,
+                sample_alpha: SampleAlpha::Shape,
+            };
+            for (across, down) in [(75.0, 64.0), (50.0, 35.0), (7.0, 5.0)] {
+                let reduced = image
+                    .area_averaged(Transform::scale(across, down))
+                    .expect("a reduction");
+                let rows = Bands::new(height, reduced.height);
+                let columns = Bands::new(width, reduced.width);
+                for (index, cell) in reduced.data.chunks_exact(4).enumerate() {
+                    let index = index as u32;
+                    let (x, y) = (index % reduced.width, index / reduced.width);
+                    let ((x0, x1), (y0, y1)) = (columns.at(x), rows.at(y));
+                    assert_eq!(cell, image.average_block(x0, y0, x1, y1), "cell ({x}, {y})");
+                }
+            }
+        }
+    }
+
     #[cfg_attr(
         miri,
         ignore = "crossbeam-epoch's retag under rayon, not this tree's — see the doc comment"

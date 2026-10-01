@@ -955,13 +955,10 @@ impl Interpreter<'_> {
                     // therefore cannot be used with the AF key." The *tag* is `AF`; the key
                     // inside the property list is `/MCAF` since Errata Collection 3, and the
                     // two are not the same word by accident — see
-                    // `attachment::associated_in_property_list`.
+                    // `attachment::associated_in_property_list`. A named resource that is the
+                    // array itself is the clause's own example's form (ADR 1461).
                     let associated = if tag == b"AF" {
-                        self.property_list(resources, operands.get(1))
-                            .map(|list| {
-                                crate::attachment::associated_in_property_list(self.document, &list)
-                            })
-                            .unwrap_or_default()
+                        self.associated_files(resources, operands.get(1))
                     } else {
                         Vec::new()
                     };

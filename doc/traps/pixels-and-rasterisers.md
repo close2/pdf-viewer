@@ -457,6 +457,16 @@ expansion made once and translated moves pixels against one made at each placeme
 cache hit and a miss are one construction, and hold every moved pixel to the exact area; they moved
 toward it wherever the pieces tile (ADR 1445).
 
+### 85. A corner of the flattening is not a corner of the path
+
+The wedge on `inks.pdf` at 4× was a correct miter at the wrong place: a point inside one cubic's
+flattening, where §8.4.3.4 says a join style is significant only where "consecutive segments of a
+path connect at an angle", and §8.4.3.2's set round a point between two chords is the disc of the
+half-width (ADR 1455). The miter limit and the folding inner side, the two causes offered, were
+both clause-correct shapes that did not apply. `Centre::inside_a_curve` records which points lie
+inside a curve; a fixture held per pixel to the distance set caught 13 wedge pixels at up to 255
+levels where the set is 0.
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

@@ -73,7 +73,10 @@ open_batch() {
 # first is the whole workspace (ADR 1451 has the figures). Detached, because its cost is the
 # orchestrator's, paid while it writes; a round that arrives first waits on cargo's lock exactly as
 # it would wait on a sibling. Skipped where the tree has no workspace manifest (the throwaway
-# repository `tests/batch.rs` opens) or `BATCH_WARM=0`.
+# repository `tests/batch.rs` opens) or `BATCH_WARM=0`. Only `dev`: the directory persists, so the
+# `release` and `gates` profiles already hold their dependencies, and what they would rebuild here
+# is the merge's workspace crates, which the first sibling to edit a low crate rebuilds again
+# (ADR 1463 has the figures).
 warm() {
     [ "${BATCH_WARM:-1}" = 0 ] || [ ! -f "$wt/Cargo.toml" ] && return 0
     mkdir -p "$wt/scratchpad/open"

@@ -288,11 +288,19 @@ pub fn scan(source: &str) -> Scan {
     let mut attributed: Option<String> = None;
     let mut quoting: Option<Quotation> = None;
     let mut fenced = false;
+    let mut paragraph = Paragraph::default();
 
     for (index, line) in source.lines().enumerate() {
         let line_number = index.saturating_add(1);
-        read_citations(line, line_number, &mut scan);
-        read_tables(line, line_number, cited.as_ref(), &mut scan);
+        let comment = comment_prose(line);
+        let carried = paragraph
+            .advance(comment.map(|(kind, start)| (kind, line.get(start..).unwrap_or_default())));
+        let prose = Prose {
+            start: comment.map_or(0, |(_, start)| start),
+            carried: &carried,
+        };
+        read_citations(line, line_number, &prose, &mut scan);
+        read_tables(line, line_number, cited.as_ref(), &prose, &mut scan);
 
         let doc = doc_comment_body(line);
         if let Some(body) = doc {
@@ -417,17 +425,174 @@ fn nearest_document(documents: Vec<String>) -> Option<String> {
 /// Quotations are deliberately not read. A ledger note quotes the standard constantly and also
 /// quotes this project's own past conclusions, and it has no blockquote syntax to tell the two
 /// apart — so a checker here would either report the second kind or have to guess.
+///
+/// **The unit a name is read in is the paragraph, not the line** (ADR 1464). Prose is wrapped
+/// wherever the line runs out, so the standard a `§` belongs to can end the line above it — a
+/// question file wrote ISO 19005-2's name at the end of one line and its section sign at the start
+/// of the next, and read line by line that sign was a clause of ISO 32000-2. [`Paragraph`] says
+/// where a paragraph ends; every finding is still reported on the line its sign is on.
 #[must_use]
 pub fn scan_prose(text: &str) -> Scan {
     let mut scan = Scan::default();
+    let mut paragraph = Paragraph::default();
     for (index, line) in text.lines().enumerate() {
         let line_number = index.saturating_add(1);
-        read_citations(line, line_number, &mut scan);
+        let carried = paragraph.advance(Some((Marker::Prose, line)));
+        let prose = Prose {
+            start: 0,
+            carried: &carried,
+        };
+        read_citations(line, line_number, &prose, &mut scan);
         // `read_tables` reads the comment part of a source line; prose is all comment.
         let commented = format!("//{line}");
-        read_tables(&commented, line_number, None, &mut scan);
+        let prose = Prose {
+            start: "//".len(),
+            carried: &carried,
+        };
+        read_tables(&commented, line_number, None, &prose, &mut scan);
     }
     scan
+}
+
+/// Where a line's prose starts, and the paragraph text before the line it continues.
+///
+/// The two readers that ask who a `§` or a `Table` belongs to read the words in front of it, and
+/// [`Paragraph`] is what lets those words come from the line above.
+struct Prose<'carried> {
+    /// The byte offset on the line where its prose begins: after a comment's marker, so that the
+    /// `///` of a wrapped doc comment is not a word between a standard's name and its sign.
+    start: usize,
+    /// The earlier lines of the paragraph this line continues, joined by spaces; empty where the
+    /// line opens one.
+    carried: &'carried str,
+}
+
+impl Prose<'_> {
+    /// The text in front of byte `position` of `line`, read across the paragraph's earlier lines.
+    fn before(&self, line: &str, position: usize) -> String {
+        let here = line.get(..position).unwrap_or_default();
+        if self.carried.is_empty() {
+            return here.to_owned();
+        }
+        let own = line.get(self.start..position).unwrap_or(here);
+        format!("{} {own}", self.carried)
+    }
+}
+
+/// The kind of text a line is, for deciding whether it continues the line above it.
+///
+/// A `//` comment and the `///` comment under it are two pieces of writing even when nothing
+/// separates them, so a paragraph runs only across lines of one kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Marker {
+    /// A line of a prose document or a ledger note.
+    Prose,
+    /// A `//` comment.
+    Comment,
+    /// A `///` doc comment on the item below it.
+    OuterDoc,
+    /// A `//!` doc comment on the enclosing module.
+    InnerDoc,
+}
+
+/// The kind of a source line that is nothing but a comment, and the byte offset its prose starts
+/// at; `None` for a line of code, whose trailing comment does not continue into the next line.
+fn comment_prose(line: &str) -> Option<(Marker, usize)> {
+    let trimmed = line.trim_start();
+    let indent = line.len().saturating_sub(trimmed.len());
+    let (marker, width) = if trimmed.starts_with("///") {
+        (Marker::OuterDoc, 3)
+    } else if trimmed.starts_with("//!") {
+        (Marker::InnerDoc, 3)
+    } else if trimmed.starts_with("//") {
+        (Marker::Comment, 2)
+    } else {
+        return None;
+    };
+    Some((marker, indent.saturating_add(width)))
+}
+
+/// The paragraph being read, as far as it has been read.
+///
+/// **A Markdown paragraph is the unit, and a table row, a heading and a fenced line are each a
+/// unit of one line.** A paragraph ends at a blank line, and a new one opens at a line that opens
+/// a block of its own — a list item, a heading, a table row, a fence, or the first line of a
+/// blockquote — so a name ending one list item is never read as standing in front of the sign
+/// that opens the next. Lines inside a fence are code and continue nothing.
+#[derive(Default)]
+struct Paragraph {
+    /// The paragraph's lines read so far, trimmed and joined by spaces.
+    text: String,
+    /// The kind of line the paragraph is made of, or `None` where no paragraph is open — after a
+    /// blank line, a line of code, or a unit of one line.
+    open: Option<Marker>,
+    /// Whether the open paragraph is a blockquote's.
+    quoted: bool,
+    /// Whether the reader is inside a fenced block.
+    fenced: bool,
+}
+
+impl Paragraph {
+    /// Reads one line, given as its kind and its prose, and returns the text of the paragraph it
+    /// continues: empty where the line opens a new one, or is not prose at all.
+    fn advance(&mut self, line: Option<(Marker, &str)>) -> String {
+        let Some((marker, body)) = line else {
+            self.close();
+            return String::new();
+        };
+        let trimmed = body.trim();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            self.fenced = !self.fenced;
+            self.close();
+            return String::new();
+        }
+        if self.fenced || trimmed.is_empty() {
+            self.close();
+            return String::new();
+        }
+        let quoted = trimmed.starts_with('>');
+        let continues =
+            self.open == Some(marker) && self.quoted == quoted && !opens_a_block(trimmed);
+        if !continues {
+            self.text.clear();
+        }
+        let carried = std::mem::take(&mut self.text);
+        self.text = if carried.is_empty() {
+            trimmed.to_owned()
+        } else {
+            format!("{carried} {trimmed}")
+        };
+        self.quoted = quoted;
+        // A heading and a table row end where their line does.
+        self.open = (!trimmed.starts_with('#') && !trimmed.starts_with('|')).then_some(marker);
+        carried
+    }
+
+    /// Ends the open paragraph, keeping whether the reader is inside a fence.
+    fn close(&mut self) {
+        self.text.clear();
+        self.open = None;
+        self.quoted = false;
+    }
+}
+
+/// Whether a trimmed line opens a block of its own rather than continuing the paragraph above it:
+/// a heading, a table row, or a list item, bulleted or numbered.
+fn opens_a_block(trimmed: &str) -> bool {
+    if trimmed.starts_with('#') || trimmed.starts_with('|') {
+        return true;
+    }
+    if ["- ", "* ", "+ "]
+        .iter()
+        .any(|bullet| trimmed.starts_with(bullet))
+    {
+        return true;
+    }
+    let digits = trimmed.chars().take_while(char::is_ascii_digit).count();
+    digits > 0
+        && trimmed
+            .get(digits..)
+            .is_some_and(|rest| rest.starts_with(". ") || rest.starts_with(") "))
 }
 
 /// The text of a doc comment line, or `None` if the line is not one.
@@ -439,7 +604,7 @@ fn doc_comment_body(line: &str) -> Option<&str> {
 }
 
 /// Reads every `§` on one line into `scan`.
-fn read_citations(line: &str, line_number: usize, scan: &mut Scan) {
+fn read_citations(line: &str, line_number: usize, prose: &Prose<'_>, scan: &mut Scan) {
     for (position, _) in line.match_indices('\u{a7}') {
         let after = line
             .get(position.saturating_add('\u{a7}'.len_utf8())..)
@@ -469,7 +634,8 @@ fn read_citations(line: &str, line_number: usize, scan: &mut Scan) {
         // its number against ISO 32000-2's clauses is how it would pass unnoticed. Another
         // standard's section is a finding; one of this project's own documents' sections is
         // what this tree writes several hundred times and is classified rather than reported.
-        match another_document(before) {
+        // The name is read across the paragraph, because a wrapped line can end with it.
+        match another_document(&prose.before(line, position)) {
             Some(Named::Standard(document)) => {
                 scan.foreign.push(ForeignCitation {
                     document,
@@ -770,8 +936,17 @@ fn unwrapped(word: &str) -> Option<&str> {
 ///
 /// A reference another standard's name stands in front of goes to [`Scan::foreign_tables`] and
 /// to neither of the two ISO 32000-2 populations, for the reason [`ForeignTable`] states.
-fn read_tables(line: &str, line_number: usize, cited: Option<&ClauseNumber>, scan: &mut Scan) {
-    let Some(comment) = line.find("//").and_then(|at| line.get(at..)) else {
+fn read_tables(
+    line: &str,
+    line_number: usize,
+    cited: Option<&ClauseNumber>,
+    prose: &Prose<'_>,
+    scan: &mut Scan,
+) {
+    let Some(at) = line.find("//") else {
+        return;
+    };
+    let Some(comment) = line.get(at..) else {
         return;
     };
 
@@ -809,7 +984,7 @@ fn read_tables(line: &str, line_number: usize, cited: Option<&ClauseNumber>, sca
         // of ours; and no comment in this tree names one of our documents in front of a `Table`,
         // so there is no evidence here on which to decide what that would mean.
         if let Some(Named::Standard(document)) =
-            another_document(comment.get(..position).unwrap_or_default())
+            another_document(&prose.before(line, at.saturating_add(position)))
             && let Some(designation) = designation_at(rest)
         {
             scan.foreign_tables.push(ForeignTable {
@@ -1260,12 +1435,13 @@ mod tests {
     }
 
     /// A permissive character set is satisfied by a string made of nothing but its punctuation,
-    /// and both of `another_document`'s were.
+    /// and both of `another_document`'s are.
     ///
     /// `///` is every character a solidus, which `ISO/IEC` needs; `-` is every character a
-    /// hyphen, which `32000-2` needs. A doc comment wrapping between a standard's name and its
-    /// table put those two words in front of the word, and the reference went to a document
-    /// called `/// -`.
+    /// hyphen, which `32000-2` needs. So the words in front of a `Table` are read from the
+    /// comment's prose, after its marker, and a list item's bullet is not a number. A name wrapped
+    /// across two lines of one paragraph is that name, read across the wrap (ADR 1464): `ISO/TS`
+    /// ending one line and `32002 Table 3` opening the next is ISO/TS 32002's table.
     #[test]
     fn a_comment_marker_is_not_an_acronym_and_a_hyphen_is_not_a_number() {
         let scan = scan(
@@ -1273,13 +1449,19 @@ mod tests {
              /// something written about ISO/TS\n\
              /// 32002 Table 3, wrapped between the two.\n",
         );
-        assert!(scan.foreign_tables.is_empty(), "{:?}", scan.foreign_tables);
+        assert_eq!(
+            scan.foreign_tables
+                .iter()
+                .map(|table| (table.document.as_str(), table.designation.as_str()))
+                .collect::<Vec<(&str, &str)>>(),
+            vec![("ISO/TS 32002", "3")]
+        );
         assert_eq!(
             scan.tables
                 .iter()
                 .map(|reference| reference.table)
                 .collect::<Vec<u16>>(),
-            vec![172, 3]
+            vec![172]
         );
     }
 
@@ -1461,6 +1643,90 @@ mod tests {
                 .map(|citation| citation.number.to_string())
                 .collect::<Vec<String>>(),
             vec!["8.7.4.1"]
+        );
+    }
+
+    /// What one line says: its number, and a clause number or a document's name.
+    type Lined = Vec<(usize, String)>;
+
+    /// The citations a scan read, as their numbers, and the documents its foreign signs named,
+    /// each with its line.
+    fn read(scan: &Scan) -> (Lined, Lined) {
+        (
+            scan.citations
+                .iter()
+                .map(|citation| (citation.line, citation.number.to_string()))
+                .collect(),
+            scan.foreign
+                .iter()
+                .map(|foreign| (foreign.line, foreign.document.clone()))
+                .collect(),
+        )
+    }
+
+    /// **A standard's name that ends one line owns the sign that opens the next** (ADR 1464).
+    ///
+    /// The planted case is the one a question file wrote: ISO 19005-2's name at the end of a
+    /// line, its section sign at the start of the line below. Read line by line, that sign is
+    /// a clause of ISO 32000-2 — one this standard has — and the gate passes in silence. The
+    /// finding is reported on the sign's own line, and a name split across the wrap is still
+    /// one name.
+    #[test]
+    fn a_name_wrapped_onto_the_line_above_owns_the_sign() {
+        let prose = format!(
+            "The archival target is ISO 19005-2\n{SECTION}6.7 asks for the tree, and ISO\n\
+             19005-2 {SECTION}6.3.3 for the fonts.\n"
+        );
+        assert_eq!(
+            read(&scan_prose(&prose)),
+            (
+                vec![],
+                vec![(2, "ISO 19005-2".to_owned()), (3, "ISO 19005-2".to_owned())]
+            )
+        );
+        let source = format!(
+            "{DOC} The archival target is ISO 19005-2\n{DOC} {SECTION}6.7 asks for the tree.\n"
+        );
+        assert_eq!(
+            read(&scan(&source)),
+            (vec![], vec![(2, "ISO 19005-2".to_owned())])
+        );
+    }
+
+    /// **And the paragraph is the whole of the reach.** A blank line, a list item, a table row,
+    /// a heading, a fence, a line of code or a change of comment kind each puts the sign in a
+    /// unit of its own, so a name ending the unit above is not in front of it — and every sign
+    /// below is a clause of ISO 32000-2. Both halves are asserted, per trap 13.
+    #[test]
+    fn a_sign_that_opens_a_block_is_read_in_that_block() {
+        let prose = format!(
+            "after ISO 19005-2\n\n{SECTION}7.1 opens a paragraph\n\
+             - an item naming ISO 19005-2\n- {SECTION}7.2 opens the next item\n\
+             | ISO 19005-2 |\n| {SECTION}7.3 |\n\
+             # Heading naming ISO 19005-2\n{SECTION}7.4 under it\n\
+             ```\nISO 19005-2\n{SECTION}7.5 in a fence\n```\n"
+        );
+        let (citations, foreign) = read(&scan_prose(&prose));
+        assert!(foreign.is_empty(), "{foreign:?}");
+        assert_eq!(
+            citations
+                .iter()
+                .map(|(_, number)| number.as_str())
+                .collect::<Vec<&str>>(),
+            vec!["7.1", "7.2", "7.3", "7.4", "7.5"]
+        );
+        let source = format!(
+            "// a note naming ISO 19005-2\n{DOC} {SECTION}7.6 on the item\n\
+             {DOC} naming ISO 19005-2\nfn f() {{}}\n// {SECTION}7.7 after code\n"
+        );
+        let (citations, foreign) = read(&scan(&source));
+        assert!(foreign.is_empty(), "{foreign:?}");
+        assert_eq!(
+            citations
+                .iter()
+                .map(|(_, number)| number.as_str())
+                .collect::<Vec<&str>>(),
+            vec!["7.6", "7.7"]
         );
     }
 }

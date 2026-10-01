@@ -234,3 +234,15 @@ frame's layout. `Presenting::place` retries against the settled viewport, up to 
 first displayed page only (ADR 1429). And GTK 4 will not size a window below its natural size, which
 a `GtkFixed` computes from its children's positions: the page had to become an overlay child over
 an unmeasured ground before the window could shrink to the page.
+
+### 86. A panel list takes the page's keys, and a popup is missing from the root capture
+
+Driving the three windows end to end after two batches of layout changes (ADR 1453) found
+`quorra-gtk`'s outline list holding keyboard focus at launch, after a click on the page, and after
+an arrow key nobody claimed, so Home, End and the zoom keys never reached the key table — trap
+57's shape on every key but Tab; `MenuButton::popup` filled the restrictions menu while the host
+was borrowed and the fill was dropped, so the menu opened empty; and a check box saved as a
+string `/V` with `/AS` untouched reopened unticked in all three windows. After any change to focus
+or chrome, run `tools/drive-windows.sh`: it drives the key after an arrow and after a page click,
+and photographs each top-level window of the process, because without a window manager a popup
+is missing from the root capture and looks like a feature that did nothing.

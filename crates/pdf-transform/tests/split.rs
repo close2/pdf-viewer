@@ -657,3 +657,68 @@ fn a_sources_null_name_tree_key_does_not_cross_into_a_piece() {
         "the pairs either side of the null keep their own keys, and the null keeps nothing"
     );
 }
+
+/// §14.12's hierarchy does not cross into a piece, and neither does the back-pointer to it.
+///
+/// `/DPartRoot` is a catalog entry a piece does not carry, and Table 31 permits a page's `/DPart`
+/// only where the page is in some `DPart`'s range — "( Required, if this page is within the range
+/// of a `DPart`, not permitted otherwise; PDF 2.0 )" — so a piece whose catalog states no hierarchy
+/// may state no `/DPart` on any page. The warning names what was left behind (ADR 1461).
+#[test]
+fn a_pieces_pages_state_no_document_part_the_piece_does_not_carry() {
+    let source = support::document_parts();
+    let before = Document::open(source.clone()).expect("the fixture opens");
+    assert!(
+        support::states_document_parts(&before),
+        "the fixture states the hierarchy, or this test exercises nothing"
+    );
+    let (report, outputs) = split(&source, "1-end", Pieces::EachPage);
+    assert_eq!(outputs.len(), 2, "two pages make two pieces");
+    for (name, bytes) in &outputs {
+        let piece = Document::open(bytes.clone()).expect("the piece opens");
+        assert!(
+            !support::states_document_parts(&piece),
+            "{name} states a /DPart or /DPartRoot"
+        );
+    }
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.detail.contains("DPartRoot")),
+        "the report names the hierarchy it left behind: {:?}",
+        report.warnings
+    );
+}
+
+/// Web capture's content database does not cross into a piece, and the report says so.
+///
+/// §14.10.1 records the database in two structures, the catalog's `/SpiderInfo` and §14.10.3.1's
+/// name trees; a piece carries neither, because the family is deprecated with PDF 2.0 and §3.15
+/// makes that a part of the standard that should not be written into a PDF 2.0 document
+/// (ADR 1461).
+#[test]
+fn a_piece_carries_no_web_capture_database() {
+    let source = support::web_capture();
+    let before = Document::open(source.clone()).expect("the fixture opens");
+    assert_eq!(
+        support::web_capture_trees(&before),
+        ["IDS", "URLS"],
+        "the fixture states both trees, or this test exercises nothing"
+    );
+    let (report, outputs) = split(&source, "1", Pieces::EachPage);
+    let piece = Document::open(piece(&outputs, "piece-1.pdf")).expect("the piece opens");
+    assert!(support::web_capture_trees(&piece).is_empty());
+    let said: Vec<&str> = report
+        .warnings
+        .iter()
+        .map(|warning| warning.detail.as_str())
+        .collect();
+    for tree in ["/IDS", "/URLS"] {
+        assert!(
+            said.iter()
+                .any(|detail| detail.contains("§14.10.3.1") && detail.contains(tree)),
+            "the report names {tree}: {said:?}"
+        );
+    }
+}

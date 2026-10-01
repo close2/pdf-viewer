@@ -7,7 +7,7 @@ A round works in a worktree and may not edit the main checkout, so what a batch 
 owner is a list of things on the owner's disk: a gitignored or untracked file a merge cannot
 update, a fuzz artefact whose defect is fixed, a corpus a campaign found stale, a local edit that
 will stop the fast-forward, an uncommitted question whose `§` the main checkout's own conformance
-run fails on. `doc/environment.md`'s *After a merge* section is the commands; this
+run fails on, a patch a dependency's fork has not taken. `doc/environment.md`'s *After a merge* section is the commands; this
 prints which of them has anything to do today. Every figure is read from the disk and from git,
 never written down (ADR 1440). It exits non-zero only when it cannot read the main checkout.
 
@@ -115,7 +115,7 @@ def section_signs(main):
     files = [line[3:] for line in status.splitlines() if line.endswith(".md")]
     if not files:
         return ["section signs: no uncommitted document in the main checkout's doc/"]
-    result = subprocess.run(["cargo", "run", "-q", "--release", "-p", "conformance", "--bin",
+    result = subprocess.run(["cargo", "run", "-q", "-p", "conformance", "--bin",
                              "section_signs", "--", main, *files],
                             cwd=HERE, capture_output=True, text=True)
     if result.returncode != 0:
@@ -123,6 +123,74 @@ def section_signs(main):
     lines = result.stdout.splitlines()
     return [f"section signs, uncommitted: {lines[-1]}" if lines else "section signs: no output",
             *lines[:-1]]
+
+
+def pinned(main):
+    """Each git dependency the main checkout's `Cargo.toml` pins, by package name: (repository, rev)."""
+    try:
+        with open(os.path.join(main, "Cargo.toml"), "rb") as handle:
+            manifest = tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    found = {}
+
+    def walk(table):
+        for name, value in table.items():
+            if isinstance(value, dict):
+                if "git" in value and "rev" in value:
+                    found[name] = (value["git"], value["rev"])
+                else:
+                    walk(value)
+    walk(manifest)
+    return found
+
+
+def patch_header(path):
+    """A patch's `Repository:` and `Base:` lines, from the preamble `git apply` skips, and the
+    packages its paths touch — the first directory of each `+++ b/<package>/...` line."""
+    header, packages = {}, set()
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            found = re.match(r"(Repository|Base):\s*(\S+)", line)
+            if found and not packages:
+                header[found.group(1)] = found.group(2)
+            target = re.match(r"\+\+\+ b/([^/\s]+)/", line)
+            if target:
+                packages.add(target.group(1))
+    return header, packages
+
+
+def patches(main):
+    """The patches under `doc/patches/` the owner still owes a dependency's fork.
+
+    A round may not push to a fork, so a fix to a dependency is a patch beside the tree whose
+    preamble names the repository and the revision it was written against; the owner applies it
+    to the fork and bumps the `rev` the manifest pins. A patch is owed while the manifest still
+    pins its base: a bumped `rev` is the patch applied, and it drops off the list."""
+    directory = os.path.join(main, "doc/patches")
+    names = sorted(n for n in os.listdir(directory) if n.endswith(".patch")) if os.path.isdir(directory) else []
+    pins = pinned(main)
+    if pins is None:
+        return ["doc/patches: Cargo.toml not readable here"]
+    owed, applied, unstated = [], 0, []
+    for name in names:
+        header, packages = patch_header(os.path.join(directory, name))
+        base, repository = header.get("Base"), header.get("Repository")
+        if not base or not repository:
+            unstated.append(name)
+            continue
+        held = [package for package in sorted(packages)
+                if pins.get(package, (None, None)) == (repository, base)]
+        if held:
+            owed.append(f"  owed:             doc/patches/{name} — {repository} at {base[:12]}, "
+                        f"pinned by {' '.join(held)}; apply it to the fork and bump `rev`")
+        else:
+            applied += 1
+    lines = [f"doc/patches: {len(owed)} owed to a fork the manifest still pins at the patch's base, "
+             f"{applied} whose base it no longer pins, {len(unstated)} stating no base"]
+    lines += owed
+    lines += [f"  no Repository:/Base: preamble: doc/patches/{name}" for name in unstated]
+    return lines
 
 
 def in_the_way(main):
@@ -148,6 +216,8 @@ def main():
         print(line)
     print(unseeded(main_dir))
     print(uncommitted_answers(main_dir))
+    for line in patches(main_dir):
+        print(line)
     for line in section_signs(main_dir):
         print(line)
     return 0

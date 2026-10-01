@@ -479,6 +479,51 @@ fn the_catalog_reaches(
     )))
 }
 
+/// Refuses an in-place edit of the page list that would make §14.12's hierarchy false.
+///
+/// §14.12.2: "Each page object defined in the PDF file shall be included in the page range
+/// defined by one and only one `DPart` dictionary." An update appends rather than rewrites, so the
+/// document's own hierarchy stays — and a page carried in is then in no leaf's range, or inside
+/// one without the `/DPart` key §14.12.3 requires of it; a page taken out that a leaf names as its
+/// `/Start` or `/End` leaves that range naming nothing. Rebuilding the hierarchy is not built, so
+/// both are refused by name (trap 5). Deleting a page from the middle of a range keeps every
+/// range true, since a range is counted in the page tree's own order, and is allowed. ADR 1461.
+fn the_document_parts_survive(
+    document: &Document,
+    catalog: &Dictionary,
+    victim: Option<ObjectId>,
+    page: usize,
+) -> Result<(), Refusal> {
+    if catalog.get("DPartRoot").is_none() {
+        return Ok(());
+    }
+    let Some(victim) = victim else {
+        return Err(Refusal::Assembly(format!(
+            "this document states §14.12's /DPartRoot, and \"[e]ach page object defined in the \
+             PDF file shall be included in the page range defined by one and only one DPart \
+             dictionary\"; pages inserted at {page} would be in no leaf's range or in one without \
+             the /DPart key §14.12.3 requires, and an update does not rebuild the hierarchy"
+        )));
+    };
+    let leaf = document
+        .get(victim)
+        .as_dict()
+        .map(|dict| document.get_key(dict, "DPart"));
+    let names_it = leaf.as_ref().and_then(Object::as_dict).is_some_and(|leaf| {
+        ["Start", "End"]
+            .iter()
+            .any(|bound| leaf.get(bound).and_then(Object::as_reference) == Some(victim))
+    });
+    if names_it {
+        return Err(Refusal::Assembly(format!(
+            "page {page} is the /Start or /End of a §14.12 document part, so taking it out would \
+             leave that part's range naming a page the document no longer holds, and an update \
+             does not rebuild the hierarchy"
+        )));
+    }
+    Ok(())
+}
+
 /// One page taken out of §7.7.3.2's tree, as §7.5.6's update.
 fn delete_page(
     document: &Document,
@@ -504,6 +549,7 @@ fn delete_page(
         )));
     }
     the_catalog_reaches(&catalog, &chain, page)?;
+    the_document_parts_survive(document, &catalog, Some(victim), page)?;
 
     let tree_root = catalog.get("Pages").and_then(Object::as_reference);
 
@@ -694,6 +740,7 @@ fn insert_pages(
             count,
         });
     }
+    the_document_parts_survive(document, &catalog, None, position)?;
 
     // Which existing page the carried block sits beside, and on which side. Its `/Parent` is the
     // node the carried pages join, which is correct for any tree shape: Table 31 requires one
@@ -863,8 +910,10 @@ fn build_page(
     let mut stripped = false;
     for (key, value) in dict.iter() {
         match key.as_bytes() {
-            // Table 31's `/Parent` is this document's to state.
-            b"Parent" => {}
+            // Table 31's `/Parent` is this document's to state, and its `/DPart` is permitted
+            // only on a page "within the range of a DPart": the incoming hierarchy is not
+            // carried, and `the_document_parts_survive` has refused a holder that states one.
+            b"Parent" | b"DPart" => {}
             // §14.7.5.4's key indexes the *holder's* parent tree, and the incoming tree is not
             // carried, so a key left here would name elements of this document that belong to
             // another page.

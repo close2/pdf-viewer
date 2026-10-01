@@ -943,7 +943,11 @@ fn build_page(piece: &mut Piece<'_>, source: ObjectId, tree: ObjectId) -> Object
     };
     let mut out = Dictionary::new();
     for (key, value) in dict.iter() {
-        if key.as_bytes() == b"Parent" {
+        // Table 31 makes a page's `/DPart` "( Required, if this page is within the range of a
+        // DPart, not permitted otherwise; PDF 2.0 )", and §14.12.2's hierarchy is one of the
+        // catalog entries this output does not carry (`NOT_CARRIED`), so no page of it is in a
+        // DPart's range: the back-pointer goes with the tree it pointed into. ADR 1461.
+        if matches!(key.as_bytes(), b"Parent" | b"DPart") {
             continue;
         }
         let carried = piece.carry(value, 0);
@@ -1076,6 +1080,16 @@ fn carry_navigation(
     if let Some(dests) = carried.dests {
         root.insert(Name::new(&b"Dests"[..]), dests);
     }
+    for (category, entries) in &carried.web_capture {
+        warnings.push(Warning {
+            source: job.plan.source,
+            page: None,
+            detail: format!(
+                "{name}: {}",
+                crate::merge::web_capture_left_behind(category, *entries)
+            ),
+        });
+    }
     if carried.dropped > 0 {
         warnings.push(Warning {
             source: job.plan.source,
@@ -1137,6 +1151,8 @@ struct CarriedNames {
     dests: Option<Object>,
     /// How many entries were dropped because what they named is not in the piece.
     dropped: usize,
+    /// The web capture trees left behind whole, with how many entries each held.
+    web_capture: Vec<(&'static str, usize)>,
 }
 
 /// The name-tree entries this piece still reaches, in both of §12.3.2.4's homes.
@@ -1161,6 +1177,7 @@ fn carry_name_trees(piece: &mut Piece<'_>, job: &Job<'_>, held: &BTreeSet<usize>
         names: None,
         dests: None,
         dropped: 0,
+        web_capture: Vec::new(),
     };
     let mut catalog: BTreeMap<Vec<u8>, Object> = BTreeMap::new();
     for (key, value) in crate::merge::catalog_dests(document) {
@@ -1173,6 +1190,13 @@ fn carry_name_trees(piece: &mut Piece<'_>, job: &Job<'_>, held: &BTreeSet<usize>
     }
     let mut trees: Vec<(&'static str, BTreeMap<Vec<u8>, Object>)> = Vec::new();
     for category in crate::merge::NAME_TREES {
+        if crate::merge::is_web_capture(category) {
+            let entries = crate::merge::tree_entries(document, category).len();
+            if entries > 0 {
+                out.web_capture.push((category, entries));
+            }
+            continue;
+        }
         let mut kept: BTreeMap<Vec<u8>, Object> = BTreeMap::new();
         for (key, value) in crate::merge::tree_entries(document, category) {
             let keep = if category == "Dests" {

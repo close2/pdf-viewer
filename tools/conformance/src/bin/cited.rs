@@ -1,7 +1,7 @@
 //! Sweeps the tree's clause citations against the `code` list of the clause each one names.
 //!
 //! ```sh
-//! cargo run --release -p conformance --bin cited
+//! cargo run -p conformance --bin cited
 //! ```
 //!
 //! `doc/todo/01`'s twenty-seventh sweep. [`conformance::cited`] says what the rank is made of,

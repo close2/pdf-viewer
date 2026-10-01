@@ -1,7 +1,7 @@
 //! Sweeps the ledger for a clause whose own code names none of the entries the clause states.
 //!
 //! ```sh
-//! cargo run --release -p conformance --bin entries
+//! cargo run -p conformance --bin entries
 //! ```
 //!
 //! `doc/todo/01`'s fifteenth sweep, and the first of the fifteen to be a program rather than a

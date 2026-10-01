@@ -307,3 +307,38 @@ fn a_date_beside_a_metadata_stream_is_named() {
         "the warning fires exactly where both sources exist: {warnings:?}"
     );
 }
+
+/// §14.12's hierarchy in the document being edited: a page list edit that would make it false
+/// is refused by name, because an update appends and does not rebuild the hierarchy (ADR 1461).
+///
+/// "Each page object defined in the PDF file shall be included in the page range defined by one
+/// and only one `DPart` dictionary", so a page inserted is in no leaf's range; and a page a leaf
+/// names as its `/Start` cannot be taken out without that range naming nothing.
+#[test]
+fn an_edit_that_would_falsify_the_document_parts_is_refused() {
+    let parts = support::document_parts();
+    let other = std::fs::read(support::committed("PDF20_AN002-AF.pdf")).expect("a document");
+
+    match amend(&parts, Edit::InsertPages { from: 1, at: 2 }, Some(&other)) {
+        Err(Refusal::Assembly(reason)) => assert!(reason.contains("§14.12"), "{reason}"),
+        other => panic!("an insertion into a document with parts is refused: {other:?}"),
+    }
+    match amend(&parts, Edit::DeletePage { page: 1 }, None) {
+        Err(Refusal::Assembly(reason)) => assert!(reason.contains("/Start"), "{reason}"),
+        other => panic!("taking out a part's first page is refused: {other:?}"),
+    }
+}
+
+/// A page carried in from a document with parts states no `/DPart` in its new holder.
+///
+/// Table 31 permits the entry only "if this page is within the range of a `DPart`", and the
+/// incoming hierarchy does not come with the page.
+#[test]
+fn a_carried_page_leaves_its_document_part_behind() {
+    let source = std::fs::read(support::committed("PDF20_AN001-BPC.pdf")).expect("a document");
+    let parts = support::document_parts();
+    let (updated, _) =
+        amend(&source, Edit::InsertPages { from: 1, at: 1 }, Some(&parts)).expect("it inserts");
+    appended(&source, &updated);
+    assert!(!support::states_document_parts(&read(&updated)));
+}

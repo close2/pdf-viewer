@@ -2,7 +2,7 @@
 //! expired.
 //!
 //! ```sh
-//! cargo run --release -p conformance --bin capabilities
+//! cargo run -p conformance --bin capabilities
 //! ```
 //!
 //! `doc/todo/01`'s third sweep — "this program has no ___", "no panel", "which this is not" —

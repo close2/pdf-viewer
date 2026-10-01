@@ -410,3 +410,10 @@ whose second pass finishes — a form filled under a pattern whose cell draws th
 and building that file as a test showed it still draws whole, so identity now names the cycle in the
 report and refuses nothing the bound did not (ADR 1411). What survives the counter-example is done;
 the rest is not.
+
+**Before an `inapplicable` row is believed, the writers, the print path and the archive path are
+asked whether they reach the clause.** Nine rows whose stated condition — a printer, a generator, a
+producer of metadata — was false of this program today were found there (Annex Q, §8.10.4.2, §14.5,
+§14.12), and so were two writer defects: `/DPart` back-pointers carried without their root, and web
+capture's name trees carried by half (ADR 1461). An inapplicability is a claim about the standard
+AND about this program, and the second half decays as the writers grow.

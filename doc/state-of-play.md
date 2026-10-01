@@ -44,7 +44,8 @@ right-to-left, cursive one is joined by the Unicode Character Database's own tab
 #9 and set in a face from the machine where the compiled-in fourteen have no glyph (ADRs 1413,
 1414), which a save writes into the file where the face's licence permits: a `glyf` face subset
 (ADR 1425), a `CFF ` one subset as a bare CID-keyed program under `/FontFile3` (ADR 1449), whole
-where its licence forbids subsetting (ADR 1438). A font the document did not embed is stood in
+where its licence forbids subsetting (ADR 1438); in memory a `CFF ` face is described as the
+`CIDFontType0` Table 124 puts it under (ADR 1450). A font the document did not embed is stood in
 for by a machine face ranked by its descriptor — Table 120's weight, slope and width against each
 face's own `OS/2` — among the faces that draw as much of its script as any, which is one search
 for a page's font and an interface's label alike (ADR 1441). **Three rasterisers behind one display list**: `render-cpu` is the correctness
@@ -80,9 +81,12 @@ another segment built on the curve's tangent there — that set asked for only w
 cannot answer, so a stroke whose pieces tile keeps its integral (ADR 1397), and one whose every piece
 tiles or stands apart from the rest is asked nothing more by the fill (ADR 1421), a stroke of several
 subpaths tiled as one set wherever pieces of two of them overlap (ADR 1431), a stroke expanded
-under its linear part and translated, once for every placement of its shape in a frame (ADR 1445), and a clip rectangle
-meeting a mark's coverage as §10.7.4's intersection — the smaller of the two, not their product
-(ADR 1435) — and a clipped mark's
+under its linear part and translated, once for every placement of its shape in a frame (ADR 1445), a
+curve flattened into pieces of two chords through the midpoint of each piece's inner control points,
+so that the polygon encloses the curve's own area rather than falling inside it, round joins and caps
+built the same way (ADR 1443), and a clip — a rectangle or a residue held as a coverage byte —
+meeting a mark's coverage as §10.7.4's intersection: the smaller of the two, not their product
+(ADRs 1435, 1444) — and a clipped mark's
 coverage and a stroke's made off the walk's thread by the encoder's fan-out, a stroke's segment
 weighed at what it costs (ADR 1395), a rectangle or a repeated glyph behind a queued mark committed
 in its place and a zoom step's strokes fanned out on the compute lane as on the page-turn one (ADR
@@ -109,7 +113,8 @@ the entry, the `APP14` segment that silences it, and the component count, ranked
 §7.4.8 gives them (ADR 1183); a baseline frame whose restart intervals begin on rows of blocks is
 decoded band by band on the pool, each band overlapping a row either side so that its upsampling
 sees what the whole frame's does, and `raster-gpu` divides the image's reduction to the page's
-scale by rows across the device's threads (ADR 1433). Encryption at every revision Table 21 lists and every method Table 25 names, in both
+scale by rows across the device's threads, reading an opaque band off its column sums (ADRs 1433,
+1457). Encryption at every revision Table 21 lists and every method Table 25 names, in both
 directions — including revision 5, whose algorithm is the Adobe extension the table points at
 rather than a clause of the standard (ADR 0820). §12.3.2's destinations, §12.3.3's outline, §12.4.2's page labels, §12.5.6.5's links
 performing every one of Table 201's actions that is neither clause 13's media nor the excluded
@@ -139,8 +144,13 @@ transport's decoders — each seeded from what the disk's documents hold, and wh
 fixed: a token past the content window's ceiling is stepped over by the grammar that ends it, and a
 composite glyph's cycle is found in time linear in the glyph graph (ADRs 1423, 1424, 1439). A JBIG2
 symbol dictionary the codec decodes for minutes is ended at a deadline on either isolation — the
-in-process one abandons rather than kills, and says so — and its three unbounded loops are bounded
-in a patch the owner applies to the codec's fork (ADR 1447).
+in-process one abandons rather than kills, and says so, and a process behind its own seccomp filter
+decodes on its own thread instead, because a kept thread asks for `prctl` — and its three unbounded
+loops are bounded in a patch the owner applies to the codec's fork (ADR 1447). The filter is held to ITU-T T.88
+Annex K's conformance data, read from outside the tree: T.88's own Annex H datastream and Annex K's
+fax pages decode bit for bit, the streams that depart from the clauses they exercise are held by
+name with the clause, and a generic region on the extended template — which the codec reads as the
+ordinary one — is refused out loud until the fork takes the patch for it (ADR 1459).
 
 It is **used**, which is a separate claim from the one above — and
 the first sentence of it is **measured** rather than asserted: a gate drags across `pdftotext`'s own word boxes on every corpus document and asks
@@ -553,6 +563,8 @@ three windows (ADR 0564). §12.6.3's trigger events are
 raised by the pointer. Four clauses closed on the sidebar without anybody picking them off a list,
 and three of the four had a ledger row whose reason was "this program has no ___" — which is the
 lesson in [`doc/habits.md`](habits.md)'s ledger section rather than a fact about the sidebar.
+
+**And what a reader does is driven in all three windows by one command**: `tools/drive-windows.sh` takes them under `Xvfb` through open, the outline, page turns, zoom, find, a popup, a link, a markup and a form saved and reopened, the restriction levels, print, a password and AT-SPI, and photographs each step (ADR 1453).
 
 **All of it sits behind `viewer-core`**: `Command` in, `Event` out, `Query` → `Answer` beside
 them, with no type from a windowing or graphics library anywhere in its API.

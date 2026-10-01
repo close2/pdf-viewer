@@ -683,6 +683,26 @@ cd fuzz && cargo +nightly fuzz run sfnt          -- -runs=50000   # §9.6.3's tw
   # **seed its corpus with real fonts** — every embedded TrueType program the documents hold, by
   # `fuzz/seeds.sh`. Unseeded it never forms a table directory and tests nothing; seeded it
   # produced two crashers in its first minute (ADR 0175)
+tools/drive-windows.sh [--window quorra|quorra-gtk|quorra-qt]... [--out DIR]   # all three windows,
+  # driven end to end under Xvfb (ADR 1453). **The drive list**, each step with its observable:
+  # open with Table 147's `/DisplayDocTitle` (the title), `/FitWindow` and `/CenterWindow` (the
+  # geometry; GTK 4 places no window and says so); §12.3.3's outline clicked on a Chinese and an
+  # Arabic title; page turns by Home, Right, End, Left and the press after an arrow; zoom by keys
+  # and by Control and the wheel; find, next and Shift+Enter's previous; §12.5.6.14's popup opened
+  # and closed; §12.5.6.5's link; §12.5.6.10's highlight over everything selected and §7.5.6's save
+  # read back; §12.3.4's pages panel clicked; the restriction levels (`r`) and print (Shift+P);
+  # §7.6.4.1's password; a form whose page states `/Tabs /C` with `/Annots` reversed, so column, row
+  # and array order all differ — three values typed by Tab, §12.7.5.2.3's check box, §12.7.5.4's
+  # choice and §12.7.5.2.2's push button, the save's `/V` and `/AS` read back and the file reopened;
+  # an Arabic word typed at `ArabicCIDTrueType.pdf`; and §14.7's tree on a private AT-SPI bus.
+  # **Release binaries first** (the script names the command), and `pikepdf` for the fixtures it
+  # writes. It prints `step, window, works|wrong|not offered|manual, what was seen` into
+  # `results.tsv` and photographs each step into `shots/<window>/<step>.png` — and every other
+  # top-level window beside it, because with no window manager GTK's and Qt's popups and dialogs are
+  # not on the root's picture. **Look at the pictures**: a title is a weaker witness than the page,
+  # and four of the steps are `manual` because only a picture says whether they worked. Its
+  # coordinates are measured on its own fixtures at 1400×1100; a layout change moves them, and a
+  # step that clicks nothing says `wrong` with the title it saw. About eleven minutes for the three.
 # §14.7's tree on a real accessibility bus, which is the only way to check the AccessKit bridge
 # end to end from here. A session bus, at-spi's own bus and registry, Xvfb, and `busctl` walking
 # `org.a11y.atspi.Accessible` from the registry root — a real client rather than this program's
@@ -966,8 +986,8 @@ tools/state.sh remedies     # doc/todo/66's two halves: remedy sites not built, 
 tools/state.sh instruments  # the examples this catalogue does not name
 tools/state.sh main-checkout # what the main checkout holds that a merge does not carry — read
                             # only; doc/environment.md's *After a merge* is the commands (ADR 1440)
-cargo run --release -p conformance --bin unread   # the whole list navigation filters
-cargo run --release -p conformance --bin pointers # every path pointer, by rung; an owner's
+cargo run -p conformance --bin unread   # the whole list navigation filters
+cargo run -p conformance --bin pointers # every path pointer, by rung; an owner's
                             # uncommitted answer is its own rung, not an absent pointer
 ```
 

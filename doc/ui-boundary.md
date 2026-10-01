@@ -476,6 +476,10 @@ what `doc/todo/30` calls the proof the answers are enough for *somebody else's w
 `GtkListView` and a `QTreeView` over §12.3.3's outline, a `GtkEntry` and a `QLineEdit` over
 §12.7.5.3's text field, a `GtkCheckButton` and a `Qt::CheckStateRole` over §12.7.5.2.3's check box,
 and **three whole hosts that between them needed no new message**.
+The three windows are held to one list of what a reader does by `tools/drive-windows.sh`, which
+drives each under `Xvfb` and photographs every step; the defects it found when it was written were
+all a host's own — a toolkit's focus taking the keys, a wash covering its words — or the writer's,
+never a missing message (ADR 1453).
 
 **What the second host cost, and where.** Not the vocabulary: it cost one word in a crate root.
 `#[cxx::bridge]` expands to `unsafe` and a `forbid` cannot be lifted, so `viewer-qt` holds

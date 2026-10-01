@@ -127,6 +127,10 @@ both named for the binary, one carrying the toolkit's widgets and one carrying Â
   method on `Bridge` and one line in each. Left because it is a fourth thing and this round had
   three; it is the cheapest item on this file.
 
+**And the walk is one command for all three windows**: `tools/drive-windows.sh` brings up a private
+AT-SPI bus per window, walks it with `gi`'s Atspi and counts the `DocumentFrame` nodes each window
+publishes for the same document, and stops by pid what the bus started (ADR 1453).
+
 ## What is left
 
 - ~~The answer for any page but the first of a large tagged document is empty~~ â€” **closed in the

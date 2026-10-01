@@ -446,3 +446,9 @@ the machine has.** Every kept glyph of a CFF subset is drawn through `pdf_font::
 compared byte for byte with the whole face's; then all 77 `CFF ` faces on the machine were subset to
 every glyph and to three, which exercised the subroutine-reachability walk against every charstring a
 real face holds, as no hand-built fixture could (ADR 1449).
+
+**A test held to a dependency's pending patch asks the dependency directly as well as through the
+tree's guard**, so the day the owner bumps the `rev` the test fails with the instruction to delete
+the guard (`t88_conformance.rs`, ADR 1459). And a figure about a shared cache starts from its size
+against its ceiling before its hit rate is read: sccache sat at its 50 GiB ceiling evicting by age,
+which made an all-targets build read 918 misses against 11 hits (ADR 1463).

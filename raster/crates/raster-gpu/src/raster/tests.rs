@@ -36,6 +36,7 @@
 //! | [`stroke`](stroke) | §8.4.3 — caps, joins, and the expansion's arithmetic at the ends of the coordinate range |
 //! | [`stroke_set`](stroke_set) | §8.4.3.2 — the stroke as one set of points whichever way its path runs, on a 1× to 8× ladder (ADR 1361) |
 //! | [`curve_join`](curve_join) | §8.4.3.4 — a join where a curve meets a line, shaped by the curve's tangent, and the strokes whose pieces tile their set (ADR 1397) |
+//! | [`inside_a_curve`](inside_a_curve) | §8.4.3.4 — no join style inside a curve, where no segments meet: the set's disc, at a hairpin the flattening reaches (ADR 1455) |
 //!
 //! What stays here is what more than one of them builds: the identity transform every case
 //! rasterises under, the coverage probe, and the rectangle path. Everything used by exactly
@@ -55,6 +56,7 @@ mod curve_join;
 mod fill;
 mod fill_set;
 mod flatten;
+mod inside_a_curve;
 mod stroke;
 mod stroke_set;
 

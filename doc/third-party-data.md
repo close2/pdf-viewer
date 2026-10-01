@@ -968,9 +968,35 @@ in the ledger alike, and nothing from it appears between quotation marks or afte
 **The conformance data and sample software are read, not taken.** Annex K's files come with a
 copyright notice of their own (ICT Link, `Software/Copyright Notice.txt` in the zip) licensing them
 for inclusion in, evaluation for, and conformance testing of an implementation of the
-Recommendation. The ten `.jb2` streams were decoded once, as evidence, through the pinned
-`hayro-jbig2`; eight of them it refuses, with or without ADR 1447's patch. Nothing of either is in
-the repository.
+Recommendation — narrower than the terms this repository is offered under, so nothing of either is
+in it. The zip is kept at `/home/AI/specs/T.88-201808.zip` (the hash above) and unpacked under
+`/home/AI/specs/T.88/`, the conformance data to
+`Software/conf/JBIG2_ConformanceData-A20180829/` and the sample software to `Software/soft/`.
+`crates/pdf-sandbox/tests/t88_conformance.rs` reads the ten `.jb2` streams and their reference
+`.bmp` files from there, or from `$T88_CONFORMANCE_DATA`, and passes with a printed sentence where
+neither holds them (ADR 1459); `doc/questions/Q209` asks the owner whether to commit them beside
+their notice. The sample software's source was read as evidence about what the streams' encoder
+did — never as a definition of T.88 — and the test carries two bytes of Annex H.1's datastream,
+the place where the conformance file departs from it.
+
+## ITU-T T.81, the identical text of ISO/IEC 10918-1 — the JPEG process §7.4.8 hands `DCTDecode` to
+
+ISO 32000-2 §7.4.8 defines `DCTDecode` by reference to ISO/IEC 10918-1, and this tree's band
+decoders (`crates/pdf-model/src/image/restart.rs`, `mcu_rows.rs`) cut a codestream on that
+standard's entropy-coding rules. ITU publishes the identical text as Recommendation T.81 (09/92);
+its catalogue offers the PDF only behind a login, so the copy the W3C hosts was fetched on
+2026-10-01, kept outside the tree at `/home/AI/specs/T.81.pdf` and prepared with `python3
+tools/spec-md.py /home/AI/specs/T.81.pdf --out doc/md/T.81.md` into the ignored `doc/md/` (186
+pages):
+
+| text | fetched from | SHA-256 |
+|---|---|---|
+| **CCITT Rec. T.81 (09/92)**, *Information technology – Digital compression and coding of continuous-tone still images – Requirements and guidelines* | `https://www.w3.org/Graphics/JPEG/itu-t81.pdf` | `631031d4ba56b06abee3e312a0f235b9422da9c7267d1c8f7604418795768bf0` |
+
+**Free to obtain, not free to quote.** The text reserves all rights and permits no reproduction
+without the ITU's written permission, as T.4, T.6, T.88 and T.801 do above. So T.81 is cited by
+section, table and figure and paraphrased, and nothing from it appears between quotation marks or
+after a `>`.
 
 ## IETF RFCs 5639, 7027 and 8032, the two curves this tree computes itself
 

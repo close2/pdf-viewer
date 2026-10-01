@@ -663,3 +663,11 @@ over one of 41 071, so the one search the page and chrome now share ranks repert
 1441). And a batch's first build is timed by sampling every `cargo`'s children at one moment:
 that showed one lock per profile — `dev` builds queue behind each other while `release` and `gates`
 builds run beside and compile the same dependencies again (ADR 1451).
+
+## 59. The page is profiled before the brief's lever is built
+
+The largest photograph without restart intervals cost 4 823 M instructions, under 6% of them in the
+codec the brief named: its soft mask's `/Matte` inversion ran per sample, and a table of 65 536
+entries per component took the turn from 180 to 65 ms (ADR 1457). The lever the brief named —
+cutting the entropy data into bands — was built byte-identical and measured as a loss on every
+page with other decodes in flight, and was not kept.

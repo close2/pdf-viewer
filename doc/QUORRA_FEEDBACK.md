@@ -5583,7 +5583,15 @@ rather than staged from the host each time it changes?** A 20-megapixel image re
 of a zoom gesture is 80 MB a notch, and 8.23 ms of a 8.333 ms refresh is the whole budget for one
 picture. Since this tree's ADR 1433 the host reduction your `area_averaged` makes is divided by
 rows across the threads `Options::encode_threads` permits, which took a page turn's 53 ms of it to
-about 17; the ask to compute it on the device stays open.
+about 17; since ADR 1457 an opaque band of it is summed down its columns once and each cell read
+off the sums with a reciprocal — byte for byte the premultiplied arithmetic, proved beside your
+mirror and ours — and the turn's `transfer` is 12.2–12.8 ms with the 20 MB upload in it. **That
+prices the device route on this adapter**: the step row above is the upload of the full-size
+samples, 10.3–11.0 ms for 80 MB, which a device reduction must pay before its pass runs. So the
+most it can take off a turn here is about 2 ms less the pass, and nothing off a zoom step that
+draws the photograph at its own resolution. The ask stays open with that bound: worth building
+where the pass costs well under a millisecond, or on an adapter whose upload is cheaper than a
+copy.
 
 **Reproducing either.** `cargo run --release -p render-raster --example frame_budget`, or
 `tools/state.sh frame`. The example names its three documents, all committed here; the first is
@@ -5853,3 +5861,16 @@ are fractional — needs the clip's polylines kept beside its region, and is not
 **And ADR 1431's slivers are gone.** A cut through a vertex another piece holds one `f32` ulp away left
 needle fragments of either sign; a fragment whose mean width is below the spacing of `f32` at its own
 coordinates is now dropped, and no piece of a tiling is wound against the rest.
+
+**ADR 1443's hairpin, answered (ADR 1455): a point inside a curve is no corner.** The wedge on
+`inks.pdf` at 4× under a coarser stroke test was a miter join — the stroke's own style — at a point the
+flattening of one cubic added, where the curve turns 124° between a 0.8-px chord and a 2.8-px one. The
+miter was correct for two segments at that angle (ratio 2.1, under the default limit of 10); what was
+wrong is a join there at all, since §8.4.3.4 makes join styles "significant only at points where
+consecutive segments of a path connect at an angle", and a curve is one segment. Such points now take
+the round join, which is §8.4.3.2's set round them; 36 pages moved at 1×, none further from the
+geometry by the ink ladder. The coarser stroke flattening that exposed it is still declined, now on its
+own merits: on stroked rings against the annulus it takes the rim error from 2–3.4 levels a pixel to
+8.7. And the exact residue meet is priced, not built (ADR 1456): 13 340 pixels of the whole corpus at 1×
+have both coverages fractional, and `min` can be off by at most 2 275 pixels' worth of area across all
+of them; it needs the mark's polylines at the fan-out's commit and the clip's beside its region.

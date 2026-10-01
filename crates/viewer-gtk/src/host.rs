@@ -3446,9 +3446,15 @@ impl Host {
     /// and it disagreed with the other two about the arrow keys, about `f` and about Escape; what
     /// is left here is [`key_pressed`] turning a `gdk::Key` into a [`viewer_host::Key`] and
     /// [`Host::window_act`] doing the half of the table that is a widget's rather than a message.
-    fn key(&mut self, key: gtk4::gdk::Key, held: viewer_host::Modifiers) {
+    ///
+    /// Answers whether the press was taken, so that the window's own bindings do not act on it as
+    /// well: GTK moves the keyboard focus on an arrow key no widget used, and the Left that turned
+    /// the page also gave the keyboard to the outline, whose list then took Home, `+` and `-`
+    /// (ADR 1453). §12.5.1's Tab is the exception and answers `false`: GTK's focus move for it is
+    /// what [`Self::follow_focus`] corrects afterwards.
+    fn key(&mut self, key: gtk4::gdk::Key, held: viewer_host::Modifiers) -> bool {
         let Some(stated) = key_pressed(key) else {
-            return;
+            return false;
         };
         let mode = if self.presenting.full_screen() {
             viewer_host::Mode::Presenting
@@ -3462,11 +3468,11 @@ impl Host {
             && let Some(pressed) = viewer_host::pressed(&self.viewer, stated, held)
         {
             self.press(pressed);
-            return;
+            return true;
         }
         let waiting = self.waiting();
         let Some(meaning) = viewer_host::meaning(stated, held, mode, waiting) else {
-            return;
+            return false;
         };
         match meaning {
             viewer_host::Meaning::Send(command) => {
@@ -3476,15 +3482,19 @@ impl Host {
                 // key and saw no change has been told nothing at all.
                 if matches!(command, Command::Edit(Edit::Markup { .. })) && !self.has_selection() {
                     self.say("select some text first — §12.5.6.10's markups mark up text");
-                    return;
+                    return true;
                 }
                 let walked = matches!(command, Command::Focused(_));
                 self.dispatch(command);
                 if walked {
                     self.follow_focus();
                 }
+                !walked
             }
-            viewer_host::Meaning::Window(act) => self.window_act(act),
+            viewer_host::Meaning::Window(act) => {
+                self.window_act(act);
+                true
+            }
         }
     }
 
@@ -3512,6 +3522,20 @@ impl Host {
             }
             None => GtkWindowExt::set_focus(&window, None::<&gtk4::Widget>),
         });
+    }
+
+    /// Gives the keyboard to the page a person has just pressed on, unless the press went into one
+    /// of this host's controls or the find bar.
+    ///
+    /// The page area is not a GTK control, and a press on something GTK cannot focus hands its
+    /// keyboard to the outline's `GtkListView` — whose bindings take the arrow keys, Home and End
+    /// before this window's key table hears them. Driven under `Xvfb`: one click on the page, and
+    /// every page-turning key after it moved the outline's cursor instead (ADR 1453).
+    fn page_takes_the_keyboard(&mut self) {
+        if self.a_control_has_the_keyboard() || self.ui.find_entry.has_focus() {
+            return;
+        }
+        self.ui.page_area.grab_focus();
     }
 
     /// Whether the keyboard is in one of the §12.7 controls this host placed over the page.
@@ -3600,7 +3624,13 @@ impl Host {
                 self.say(&viewer_host::separations_note(self.separations));
             }
             viewer_host::WindowAct::Notices => self.show_notices(),
-            viewer_host::WindowAct::Restrictions => self.ui.menu.popup(),
+            // **From the idle queue**: `popup` runs the button's create-popup hook synchronously,
+            // and that hook fills the menu through the host this call is holding — so asked from
+            // here it found the host busy, the menu stayed empty and `r` opened nothing (ADR 1453).
+            viewer_host::WindowAct::Restrictions => {
+                let menu = self.ui.menu.clone();
+                glib::idle_add_local_once(move || menu.popup());
+            }
             viewer_host::WindowAct::Present | viewer_host::WindowAct::LeaveFullScreen => {
                 self.present_or_stop();
             }
@@ -4610,6 +4640,20 @@ fn build_window(
     find_entry.connect_activate(move |_| {
         with(&listener, |host| host.find(false));
     });
+    // Shift with Enter is the previous occurrence, as it is in the other two windows' find bars
+    // (ADR 1453). Taken in the capture phase because `GtkSearchEntry` activates on either.
+    let shifted = gtk4::EventControllerKey::new();
+    shifted.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    let listener = me.clone();
+    shifted.connect_key_pressed(move |_, key, _, held| {
+        let enter = matches!(key, gtk4::gdk::Key::Return | gtk4::gdk::Key::KP_Enter);
+        if !enter || !held.contains(gtk4::gdk::ModifierType::SHIFT_MASK) {
+            return glib::Propagation::Proceed;
+        }
+        with(&listener, |host| host.find(true));
+        glib::Propagation::Stop
+    });
+    find_entry.add_controller(shifted);
     let listener = me.clone();
     find_entry.connect_next_match(move |_| {
         with(&listener, |host| host.find(false));
@@ -4647,6 +4691,9 @@ fn build_window(
     listen(&window, &overlay, &chrome, me);
 
     window.present();
+    // The page has the keyboard as the window opens, for `Host::page_takes_the_keyboard`'s reason:
+    // otherwise GTK gives it to the first panel row, which takes Home and End (ADR 1453).
+    GtkWindowExt::set_focus(&window, Some(&overlay));
 
     Ui {
         window,
@@ -4729,6 +4776,10 @@ fn page_area(
     overlay.set_overflow(gtk4::Overflow::Hidden);
     overlay.set_hexpand(true);
     overlay.set_vexpand(true);
+    // Focusable so that a press on the page can give it the keyboard: the key table listens on
+    // the window, and only a focused widget that does not bind the key lets it reach there
+    // (`Host::page_takes_the_keyboard`, ADR 1453).
+    overlay.set_focusable(true);
 
     (fixed, popups, chrome, overlay)
 }
@@ -4755,8 +4806,13 @@ fn listen(
     // conventional bindings — a Control this program does not bind means nothing rather than the
     // unmodified row, which is why it has to cross rather than being dropped here (ADR 1192).
     keys.connect_key_pressed(move |_, key, _, held| {
-        with(&listener, |host| host.key(key, modifiers(held)));
-        glib::Propagation::Proceed
+        let mut taken = false;
+        with(&listener, |host| taken = host.key(key, modifiers(held)));
+        if taken {
+            glib::Propagation::Stop
+        } else {
+            glib::Propagation::Proceed
+        }
     });
     window.add_controller(keys);
 
@@ -4774,7 +4830,9 @@ fn listen(
         if !tab || !held.contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
             return glib::Propagation::Proceed;
         }
-        with(&listener, |host| host.key(key, modifiers(held)));
+        with(&listener, |host| {
+            host.key(key, modifiers(held));
+        });
         glib::Propagation::Stop
     });
     window.add_controller(tabs);
@@ -4807,6 +4865,9 @@ fn listen(
     let listener = me.clone();
     drag.connect_drag_begin(move |_, x, y| {
         with(&listener, |host| host.pointer(x, y, PointerAction::Pressed));
+        // After GTK's own handling of the same press, which is what moves its focus.
+        let listener = listener.clone();
+        glib::idle_add_local_once(move || with(&listener, Host::page_takes_the_keyboard));
     });
     let listener = me.clone();
     drag.connect_drag_update(move |gesture, dx, dy| {

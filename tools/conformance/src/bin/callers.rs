@@ -1,8 +1,8 @@
 //! Sweeps every `pub fn` in `pdf-model` against everything in this tree that could ask it.
 //!
 //! ```sh
-//! cargo run --release -p conformance --bin callers
-//! cargo run --release -p conformance --bin callers -- pdf-syntax
+//! cargo run -p conformance --bin callers
+//! cargo run -p conformance --bin callers -- pdf-syntax
 //! ```
 //!
 //! `doc/todo/01`'s fifth sweep — "who calls it?" — and the seventh of the fifteen to be a program

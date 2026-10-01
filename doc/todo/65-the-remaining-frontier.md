@@ -68,6 +68,10 @@ The reading is done; what is missing is a reviewed package on this tree's line, 
 project does not hold. **What would unblock them:** an upstream release (re-measurable, not
 permanent) or an owner decision to acquire a specification.
 
+- §7.4.7 — a generic region on ISO/IEC 14492's extended template is refused out loud: the pinned
+  `hayro-jbig2` reads EXTTEMPLATE and ignores it, and `doc/patches/hayro-jbig2-extended-template.patch`
+  waits on the owner's fork (ADR 1459); `crates/pdf-sandbox/tests/t88_conformance.rs` says the day the
+  codec takes it. No corpus stream uses it.
 - §12.10, §12.10.2 — a geospatial viewport's **projection**. Everything the file states is read and a
   person can trace a path in one: which system the map is in, how many `/GPTS`–`/LPTS` pairs register
   it, whether §12.10.2's `/Bounds` neatline covers the point (ADR 1191). Turning a projected
@@ -149,6 +153,17 @@ document takes.
 The feature draws; the residue is a case the first build did not reach. **What would unblock them:**
 a normal round extending the existing code.
 
+- §14.3.1 — the preferred home for document metadata in a PDF 2.0 file. The `archive` conversion
+  moves the information dictionary's values into the packet; `update`'s `SetInformation` and
+  `merge`'s stated entries still write `/Title`, `/Author`, `/Subject`, `/Keywords`, `/Creator` and
+  `/Producer` into the dictionary alone, which §14.3.1 deprecates. Routing both verbs through
+  `xmp::supplement` is the build, a round with a test per verb (ADR 1461).
+- §L — Table L.2's root row, as a writer. `merge` places each source's top-level structure
+  elements directly under the root it writes, so two sources whose roots each hold a PDF 2.0
+  `Document` give a root holding two where the table gives it one. A `Document` of the shared
+  namespace wrapping them, each element's `/P` moved, is the build: a round with a two-source test
+  (ADR 1461).
+
 - **Beside this bucket and not in it** — §12.5.6.23 is `departed`: every content class the clause
   reaches is removed, a codec's output carried as the image's own samples in every colour space
   (ADR 1371), and Table 195's overlay is the one decided departure (ADR 1124). Two refusals stay as
@@ -224,7 +239,7 @@ These are `partial` only because something they carry is; each note says so and 
 They are not independently actionable — do not brief a round to *take* one. `tools/state.sh ledger`
 counts them among `partial`; they flip when the last binding row flips.
 
-§7.6, §12.1, §12.8, §12.8.3, §12.8.3.4.
+§6.2, §7.6, §12.1, §12.8, §12.8.3, §12.8.3.4.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap

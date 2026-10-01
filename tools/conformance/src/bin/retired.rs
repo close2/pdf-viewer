@@ -1,7 +1,7 @@
 //! Sweeps the ledger, the tree's comments and this project's prose for a claim a round retired.
 //!
 //! ```sh
-//! cargo run --release -p conformance --bin retired -- knockout '/AIS' 'free text'
+//! cargo run -p conformance --bin retired -- knockout '/AIS' 'free text'
 //! ```
 //!
 //! `doc/todo/01`'s fourth sweep — the string a correction retired, grepped over every other row,
@@ -44,7 +44,7 @@ enum Error {
     /// No noun was given, so there is nothing to look for.
     #[error(
         "give the nouns the last rounds' corrections were about, one argument each — \
-         `cargo run --release -p conformance --bin retired -- knockout '/AIS' 'free text'`. \
+         `cargo run -p conformance --bin retired -- knockout '/AIS' 'free text'`. \
          The sweep cannot derive them: what was retired is what those rounds decided."
     )]
     NoNouns,

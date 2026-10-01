@@ -354,11 +354,13 @@ impl App {
 ///
 /// The quadrilaterals arrive from `viewer-core` in device pixels of this window, so nothing here
 /// composes a transform: that is the whole point of chrome crossing as geometry rather than as
-/// pixels. Drawn with `Multiply`, which darkens what is under it and leaves the glyphs readable —
-/// §11.3.5.2 makes it the one mode whose "result colour is always at least as dark as either of
-/// the two constituent colours", so the text under the wash survives it. A native host asks its
-/// platform for the colour; this one has nobody to ask, and a hard-coded blue that says so is
-/// better than one that pretends.
+/// pixels. **Washed rather than painted**: the colour is laid at [`WASH`] of its opacity, so the
+/// glyphs under it stay readable. A blend mode cannot do that here, because every overlay is drawn
+/// into a layer of its own over a transparent backdrop and only then composited over the page — a
+/// `Multiply` against nothing is the colour itself, and the selection, the find bar's matches and
+/// Annex O's rectangle all covered their words opaquely in both of this window's lanes until it was
+/// driven under `Xvfb` (ADR 1453). A native host asks its platform for the colour; this one has
+/// nobody to ask, and a hard-coded blue that says so is better than one that pretends.
 ///
 /// **One fill, one subpath per quad**, and the count matters rather than the shape: a compositor
 /// gives every non-`Over` blend its own layer and prices its internal textures before allocating
@@ -399,13 +401,23 @@ pub(crate) fn highlight_list(
         path: Arc::new(path),
         transform: Transform::IDENTITY,
         fill_rule: FillRule::NonZero,
-        paint: Paint::Solid(colour),
+        paint: Paint::Solid(Color {
+            a: colour.a * WASH,
+            ..colour
+        }),
         clip: None,
         mask: None,
-        blend: BlendMode::Multiply,
+        blend: BlendMode::Normal,
     });
     Some(list)
 }
+
+/// How much of a wash's colour covers the page under it.
+///
+/// A choice: the standard draws no selection. Under half, so that black text under the palest of
+/// the three colours stays darker than the wash beside it, and enough that the wash is still
+/// legible against a white page.
+const WASH: f32 = 0.45;
 
 impl App {
     /// §12.9's traced path — the rubber band a person draws while measuring.
@@ -613,5 +625,50 @@ impl Overlays {
     /// has them for the trace and for the processor's path, which takes them by reference.
     pub(crate) fn owned(&self) -> Vec<pdf_render::DisplayList> {
         self.lists().into_iter().cloned().collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pdf_render::{Raster, RasterFormat};
+
+    use super::{SELECTION, highlight_list};
+
+    /// The selection over a word leaves the word readable, which is the whole of what a wash owes.
+    ///
+    /// The page is black on its left half and white on its right — a glyph and the paper beside
+    /// it — and one quad covers both. Composed through the processor's path, which is the one
+    /// every overlay of this window goes through as a layer of its own; the device lane composes
+    /// the same layer the same way, which is why a `Multiply` that reached nothing under it hid
+    /// the selected words in both (ADR 1453).
+    #[test]
+    fn a_selection_over_a_glyph_leaves_the_glyph_darker_than_the_paper_beside_it() {
+        let (width, height) = (8_u32, 2_u32);
+        let mut data = Vec::new();
+        for _ in 0..height {
+            for x in 0..width {
+                let level = if x < width / 2 { 0 } else { 255 };
+                data.extend_from_slice(&[level, level, level, 255]);
+            }
+        }
+        let page = Raster {
+            width,
+            height,
+            format: RasterFormat::Rgba8,
+            data,
+        };
+        let quad = [0.0, 0.0, 8.0, 0.0, 8.0, 2.0, 0.0, 2.0];
+        let list = highlight_list(&[quad], SELECTION, width, height).expect("one quad is a list");
+        let composed = viewer_ui::software::compose(&page, &[&list]).expect("compose");
+        let glyph = &composed.data[0..4];
+        let paper = &composed.data[7 * 4..8 * 4];
+        assert!(
+            glyph.iter().take(3).all(|level| *level < 128),
+            "the glyph under the wash is still dark: {glyph:?}"
+        );
+        assert!(
+            paper[0] < 255 && paper[2] == 255,
+            "the paper under the wash is tinted blue: {paper:?}"
+        );
     }
 }

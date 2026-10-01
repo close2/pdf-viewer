@@ -535,6 +535,28 @@ impl Interpreter<'_> {
         }
     }
 
+    /// The files §14.13.5 associates with an `AF`-tagged section, in either form its named
+    /// resource takes.
+    ///
+    /// A property list — inline, or a dictionary under `/Properties` — is read by
+    /// `attachment::associated_in_property_list`; a named resource that is itself the array of
+    /// file specifications, which is §14.13.10's EXAMPLE 2, by `attachment::associated_in_array`.
+    pub(super) fn associated_files(
+        &self,
+        resources: &Dictionary,
+        operand: Option<&Object>,
+    ) -> Vec<crate::attachment::Attachment> {
+        if let Some(Object::Name(name)) = operand
+            && let Some(entry) = self.resource(resources, "Properties", name)
+            && let Some(items) = self.document.resolve(&entry).as_array()
+        {
+            return crate::attachment::associated_in_array(self.document, items);
+        }
+        self.property_list(resources, operand)
+            .map(|list| crate::attachment::associated_in_property_list(self.document, &list))
+            .unwrap_or_default()
+    }
+
     /// The property list a `BDC` operand names, inline or through `/Properties`.
     ///
     /// §14.6.2 gives the operand two forms, and which one a producer may use is decided by the

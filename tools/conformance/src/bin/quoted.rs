@@ -2,7 +2,7 @@
 //!
 //! ```sh
 //! cargo test --profile gates -p pdf-model --test oracle -- --ignored --nocapture > oracle.log
-//! cargo run --release -p conformance --bin quoted -- oracle.log
+//! cargo run -p conformance --bin quoted -- oracle.log
 //! ```
 //!
 //! `doc/todo/01`'s twentieth sweep — the fifteenth of them to be a program, and the first whose

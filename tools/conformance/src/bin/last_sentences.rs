@@ -1,7 +1,7 @@
 //! Sweeps the ledger for a note whose opening or closing sentence names another row's status.
 //!
 //! ```sh
-//! cargo run --release -p conformance --bin last_sentences
+//! cargo run -p conformance --bin last_sentences
 //! ```
 //!
 //! A `doc/todo/01` sweep (ADR 1249), and the only one whose two sides are both inside one row:

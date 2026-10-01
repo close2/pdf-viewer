@@ -12,6 +12,8 @@
               pass by doing nothing"
 )]
 
+use std::fmt::Write as _;
+
 use pdf_model::view::Entered;
 use pdf_model::view::ViewState;
 use pdf_syntax::object::ObjectId;
@@ -953,4 +955,93 @@ fn an_annotation_a_person_added_carries_the_date_a_host_stated() {
         Some("D:20260921081500-01'30'".to_owned()),
         "§7.9.4 writes the zone the host stated, in hours and minutes"
     );
+}
+
+/// A check box's `/V` and `/AS`, written by the update that changed it.
+///
+/// ISO 32000-2 §12.7.5.2.3: "The V entry in the field dictionary (see "Table 226 -Entries common
+/// to all field dictionaries") holds a name object representing the check box's appearance state",
+/// and "[t]he value of the V key shall also be the value of the AS key. If they are not equal,
+/// then the value of the AS key shall be used instead of the V key to determine which appearance
+/// to use." An update that wrote the value as a string and left `/AS` alone produced a file every
+/// reader draws in the old state — found by saving a ticked box in all three windows and opening
+/// the file again (ADR 1453).
+fn a_saved_check_box(on: &str, initially: &str) -> Document {
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R] >>".to_owned(),
+        format!(
+            "<< /Type /Annot /Subtype /Widget /FT /Btn /T (box) /Rect [10 10 30 30] \
+             /V /{initially} /AS /{initially} /AP << /N << /Yes 5 0 R /Off 6 0 R >> >> >>"
+        ),
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] /Length 14 >>\n\
+         stream\n0 0 20 20 re f\nendstream"
+            .to_owned(),
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] /Length 0 >>\nstream\n\nendstream"
+            .to_owned(),
+    ];
+    // A cross-reference table the writer can extend: §7.5.6 refuses to update a file whose table
+    // had to be rebuilt by scanning.
+    let mut body = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for (number, object) in (1_u32..).zip(&objects) {
+        offsets.push(body.len());
+        write!(body, "{number} 0 obj\n{object}\nendobj\n").expect("a String takes any write");
+    }
+    let table = body.len();
+    // Six objects and the free head of the list.
+    body.push_str("xref\n0 7\n0000000000 65535 f \n");
+    for offset in offsets {
+        writeln!(body, "{offset:010} 00000 n ").expect("a String takes any write");
+    }
+    write!(
+        body,
+        "trailer << /Root 1 0 R /Size 7 >>\nstartxref\n{table}\n%%EOF\n"
+    )
+    .expect("a String takes any write");
+    let document = Document::open(body.into_bytes()).expect("the fixture parses");
+    let mut view = ViewState::of(&document);
+    assert_eq!(
+        view.set_field(&document, "box", &Entered::Text(on.to_owned())),
+        1
+    );
+    let out = view
+        .save(&document)
+        .expect("the fixture can be written")
+        .bytes;
+    Document::open(out).expect("what was written can be read")
+}
+
+/// The name an entry of object 4 holds, or `None` where it is not a name.
+fn name_of(document: &Document, key: &str) -> Option<Vec<u8>> {
+    let widget = ObjectId {
+        number: 4,
+        generation: 0,
+    };
+    entry(document, widget, key)
+        .as_name()
+        .map(|name| name.as_bytes().to_vec())
+}
+
+#[test]
+fn a_ticked_check_box_is_saved_with_its_value_a_name_and_its_state_the_same() {
+    let document = a_saved_check_box("Yes", "Off");
+    assert_eq!(
+        name_of(&document, "V"),
+        Some(b"Yes".to_vec()),
+        "/V is a name"
+    );
+    assert_eq!(
+        name_of(&document, "AS"),
+        Some(b"Yes".to_vec()),
+        "/AS follows /V"
+    );
+}
+
+#[test]
+fn an_unticked_check_box_is_saved_off_in_both_entries() {
+    let document = a_saved_check_box("Off", "Yes");
+    assert_eq!(name_of(&document, "V"), Some(b"Off".to_vec()));
+    assert_eq!(name_of(&document, "AS"), Some(b"Off".to_vec()));
 }

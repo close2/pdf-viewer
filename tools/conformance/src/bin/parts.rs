@@ -2,7 +2,7 @@
 //! this tree's own parts that the workspace counts differently.
 //!
 //! ```sh
-//! cargo run --release -p conformance --bin parts
+//! cargo run -p conformance --bin parts
 //! ```
 //!
 //! `doc/todo/01`'s twenty-second sweep — the seventeenth of them to be a program.

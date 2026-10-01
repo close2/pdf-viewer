@@ -119,6 +119,11 @@ enum JpxBudget {
 ///
 /// Returns a description of what the decoder refused, which the page reports verbatim.
 pub(crate) fn jbig2(data: &[u8], globals: &[u8]) -> Result<Bilevel, String> {
+    if let Some(number) =
+        extended_template_region(globals).or_else(|| extended_template_region(data))
+    {
+        return Err(extended_template_refusal(number));
+    }
     let globals = (!globals.is_empty()).then_some(globals);
     let (image, short) = match hayro_jbig2::Image::new_embedded(data, globals) {
         Ok(image) => (image, None),
@@ -268,13 +273,36 @@ fn whole_segments(data: &[u8]) -> usize {
     }
 }
 
-/// The offset just past the segment beginning at `from`, or `None` where it is not whole.
+/// The offset just past the segment beginning at `from`, or `None` where it is not whole or its
+/// length is 7.2.7's unknown one.
+fn segment_end(data: &[u8], from: usize) -> Option<usize> {
+    let header = segment_header(data, from)?;
+    let length = header.length?;
+    let end = header
+        .data_start
+        .checked_add(usize::try_from(length).ok()?)?;
+    (end <= data.len()).then_some(end)
+}
+
+/// What [`segment_header`] reads of one segment header.
+struct SegmentHeader {
+    /// The segment number (14492 7.2.2).
+    number: u32,
+    /// The segment type, the low six bits of the header flags (7.2.3).
+    kind: u8,
+    /// Where the segment's data begins.
+    data_start: usize,
+    /// The data length, or `None` for 7.2.7's unknown length.
+    length: Option<u32>,
+}
+
+/// The header of the segment beginning at `from`, or `None` where `data` does not finish it.
 ///
 /// ISO/IEC 14492 7.2: the segment number (four bytes), the header flags — bit 6 widening the
 /// page association to four bytes, the low six bits being the type — the referred-to segment
 /// count and retain flags, the referred-to segment numbers (one, two or four bytes each,
 /// by 7.2.5's rule on this segment's own number), the page association, and the data length.
-fn segment_end(data: &[u8], from: usize) -> Option<usize> {
+fn segment_header(data: &[u8], from: usize) -> Option<SegmentHeader> {
     let take = |at: usize, count: usize| data.get(at..at.checked_add(count)?);
     let number = u32::from_be_bytes(take(from, 4)?.try_into().ok()?);
     let mut at = from.checked_add(4)?;
@@ -309,13 +337,60 @@ fn segment_end(data: &[u8], from: usize) -> Option<usize> {
 
     let length = u32::from_be_bytes(take(at, 4)?.try_into().ok()?);
     at = at.checked_add(4)?;
-    if length == u32::MAX {
+    Some(SegmentHeader {
+        number,
+        kind: flags & 0x3f,
+        data_start: at,
         // 7.2.7's unknown data length, delimited by a scan of the segment's own data. The
-        // codec does that; this walk does not, and says so by refusing to bound the segment.
-        return None;
+        // codec does that; these walks do not, and say so by not bounding the segment.
+        length: (length != u32::MAX).then_some(length),
+    })
+}
+
+/// The number of the first generic region segment in `data` that uses the extended template, or
+/// `None` where none does.
+///
+/// ISO/IEC 14492 7.4.6.2's bit 4, EXTTEMPLATE, gives a template-0 arithmetic-coded generic region
+/// twelve adaptive pixels (6.2.5.3 Figure 3(b), 6.2.5.4) and an AT field of twelve coordinate
+/// pairs (7.4.6.3 Figure 50) where the ordinary template has four. §7.4.7 admits it — the filter
+/// decodes ISO 14492:2019 "excluding colour palette coding", and the extended template is not
+/// colour — but the decoder this build carries reads the flag and ignores it: it takes four pairs,
+/// starts the arithmetic decoder sixteen bytes early and draws a wrong bitmap without a word.
+/// Refusing the image says so instead, until the fork takes
+/// `doc/patches/hayro-jbig2-extended-template.patch` and this check is deleted (ADR 1459).
+///
+/// The walk is [`whole_segments`]'s, and stops where it does; a generic region of 7.2.7's
+/// unknown length is the last segment it reads, and its flags are read all the same.
+fn extended_template_region(data: &[u8]) -> Option<u32> {
+    /// 14492 7.3's intermediate, immediate and immediate lossless generic region types.
+    const GENERIC_REGIONS: [u8; 3] = [36, 38, 39];
+    /// The region segment information field (7.4.1) precedes the flags: seventeen bytes.
+    const FLAGS_AT: usize = 17;
+    let mut at = 0;
+    while let Some(header) = segment_header(data, at) {
+        if GENERIC_REGIONS.contains(&header.kind) {
+            let flags = data
+                .get(header.data_start.checked_add(FLAGS_AT)?)
+                .copied()?;
+            // MMR in bit 0, GBTEMPLATE in bits 1-2, EXTTEMPLATE in bit 4 (7.4.6.2): the extended
+            // template exists only for an arithmetic-coded template 0.
+            if flags & 0b1_0111 == 0b1_0000 {
+                return Some(header.number);
+            }
+        }
+        let length = usize::try_from(header.length?).ok()?;
+        at = header.data_start.checked_add(length)?;
     }
-    let end = at.checked_add(usize::try_from(length).ok()?)?;
-    (end <= data.len()).then_some(end)
+    None
+}
+
+/// The refusal [`extended_template_region`] makes, worded for the page.
+fn extended_template_refusal(number: u32) -> String {
+    format!(
+        "JBIG2: generic region segment {number} uses the extended template of ISO/IEC 14492 \
+         6.2.5.3 (EXTTEMPLATE), which this build's decoder reads as the ordinary template and \
+         would draw wrongly, so the image is not drawn (ISO 32000-2 §7.4.7)"
+    )
 }
 
 /// Packs decoded pixels into the rows a bilevel filter delivers.
@@ -1171,6 +1246,48 @@ mod tests {
             assert!(
                 row[..445].iter().all(|byte| *byte == 0xFF) && row[445] == 0xC0,
                 "a row is not the page's default pixel value"
+            );
+        }
+    }
+
+    /// Where the generic region's flags byte sits in [`ONE_PAGE_AND_ONE_REGION`]: past the page
+    /// information segment, the region's eleven-byte header and its seventeen-byte region segment
+    /// information field (14492 7.4.1).
+    const GENERIC_REGION_FLAGS: usize = PAGE_INFORMATION + 11 + 17;
+
+    /// A generic region on the extended template is refused by name, and only that one.
+    ///
+    /// 14492 7.4.6.2: bit 4 is EXTTEMPLATE, and the extended template is template 0's alone
+    /// (6.2.5.4), so the same bit beside MMR or beside template 1 asks for nothing this decoder
+    /// lacks. The refusal is checked against the defect as well as the good case (trap 13): the
+    /// file's own stream, with its flags byte as written, is not refused.
+    #[test]
+    fn a_generic_region_on_the_extended_template_is_refused_by_name() {
+        assert_eq!(ONE_PAGE_AND_ONE_REGION[GENERIC_REGION_FLAGS], 0x00);
+        assert_eq!(extended_template_region(ONE_PAGE_AND_ONE_REGION), None);
+
+        let mut extended = ONE_PAGE_AND_ONE_REGION.to_vec();
+        extended[GENERIC_REGION_FLAGS] = 0b1_0000;
+        assert_eq!(extended_template_region(&extended), Some(1));
+        let refused = jbig2(&extended, b"").expect_err("the extended template is refused");
+        assert!(refused.contains("segment 1"), "{refused}");
+        assert!(refused.contains("EXTTEMPLATE"), "{refused}");
+        // In the globals, which Table 12's stream is parsed beside the image's.
+        assert_eq!(
+            jbig2(
+                &ONE_PAGE_AND_ONE_REGION[..PAGE_INFORMATION],
+                &extended[PAGE_INFORMATION..]
+            )
+            .expect_err("refused from the globals too"),
+            refused
+        );
+
+        for not_extended in [0b1_0001, 0b1_0010, 0b1_1000 | 0b10] {
+            extended[GENERIC_REGION_FLAGS] = not_extended;
+            assert_eq!(
+                extended_template_region(&extended),
+                None,
+                "{not_extended:#b}"
             );
         }
     }

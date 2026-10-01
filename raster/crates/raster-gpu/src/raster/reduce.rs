@@ -9,10 +9,11 @@
 //! placement is known — the same amendment pattern as the stroke width (ADR 0085) and
 //! the collapsed fill (ADR 0086), with the same containment: **every function here
 //! mirrors the caller's `pdf_render` statement for statement** (`smoothed`, `factor`,
-//! `Reduction`, `Bands`, `average_block`, `round_div` — their `paint.rs`), their CPU
-//! oracle keeps the originals, and the cross-backend gates compare the two
-//! continuously. The reduced samples are byte-identical by construction: the
-//! arithmetic is integer sums and divisions with no float in the data path.
+//! `Reduction`, `Bands`, `Reciprocals`, `reduce_row`, `average_block`, `round_div` —
+//! their `paint.rs`), their CPU oracle keeps the originals, and the cross-backend gates
+//! compare the two continuously. The reduced samples are byte-identical by construction:
+//! the arithmetic is integer sums, divisions and exact reciprocal multiplications with no
+//! float in the data path.
 //!
 //! Their row split is mirrored too, on the threads the host permits
 //! ([`Options::encode_threads`](crate::Options::encode_threads)) rather than on a pool
@@ -132,13 +133,15 @@ pub(crate) fn area_averaged(spec: &ImageSpec, reduced: Reduction, threads: usize
     let rows = Bands::new(spec.height, height);
     let columns = Bands::new(spec.width, width);
     let spans: Vec<(u32, u32)> = (0..width).map(|out_x| columns.at(out_x)).collect();
+    let reciprocals = Reciprocals::new(
+        u64::from(spec.width.div_ceil(width.max(1)))
+            .saturating_mul(u64::from(spec.height.div_ceil(height.max(1)))),
+    );
     let row_bytes = (width as usize).saturating_mul(4);
     let mut data: Vec<u8> = vec![0; row_bytes.saturating_mul(height as usize)];
-    let fill = |out_y: usize, row: &mut [u8]| {
-        let (y0, y1) = rows.at(u32::try_from(out_y).unwrap_or(u32::MAX));
-        for (cell, &(x0, x1)) in row.chunks_exact_mut(4).zip(&spans) {
-            cell.copy_from_slice(&average_block(spec, x0, y0, x1, y1));
-        }
+    let fill = |out_y: usize, row: &mut [u8], sums: &mut Vec<u32>| {
+        let rows = rows.at(u32::try_from(out_y).unwrap_or(u32::MAX));
+        reduce_row(spec, rows, &spans, &reciprocals, sums, row);
     };
     let take = row_bytes.saturating_mul(ROWS_PER_TAKE);
     let samples = u64::from(spec.width).saturating_mul(u64::from(spec.height));
@@ -149,6 +152,7 @@ pub(crate) fn area_averaged(spec: &ImageSpec, reduced: Reduction, threads: usize
             data.chunks_mut(take).map(std::sync::Mutex::new).collect();
         let next = std::sync::atomic::AtomicUsize::new(0);
         let work = || {
+            let mut sums = Vec::new();
             loop {
                 let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let Some(band) = bands.get(index) else {
@@ -159,7 +163,7 @@ pub(crate) fn area_averaged(spec: &ImageSpec, reduced: Reduction, threads: usize
                 };
                 let first = index.saturating_mul(ROWS_PER_TAKE);
                 for (offset, row) in band.chunks_exact_mut(row_bytes).enumerate() {
-                    fill(first.saturating_add(offset), row);
+                    fill(first.saturating_add(offset), row, &mut sums);
                 }
             }
         };
@@ -170,8 +174,9 @@ pub(crate) fn area_averaged(spec: &ImageSpec, reduced: Reduction, threads: usize
             work();
         });
     } else {
+        let mut sums = Vec::new();
         for (out_y, row) in data.chunks_exact_mut(row_bytes).enumerate() {
-            fill(out_y, row);
+            fill(out_y, row, &mut sums);
         }
     }
     ImageSpec {
@@ -228,6 +233,115 @@ impl Bands {
         let start = edge(u64::from(index));
         (start, edge(u64::from(index).saturating_add(1)).max(start))
     }
+}
+
+/// The largest block, in samples, whose opaque mean is read off column sums — the caller's
+/// `SMALL_BLOCK`, for their reason: the sums stay far inside `u32` and [`Reciprocals`] is
+/// exact up to it.
+const SMALL_BLOCK: u64 = 4_095;
+
+/// `⌈2³² ÷ c⌉` for every sample count `c` up to a reduction's largest block — the caller's
+/// `Reciprocals`, whose comment proves the product the quotient for a numerator under
+/// `256·c` and `c` up to [`SMALL_BLOCK`]. Empty past that, and every cell then takes
+/// [`average_block`].
+struct Reciprocals(Vec<u64>);
+
+impl Reciprocals {
+    fn new(largest: u64) -> Self {
+        if largest > SMALL_BLOCK {
+            return Self(Vec::new());
+        }
+        Self(
+            (0..=largest)
+                .map(|count| (1u64 << 32).div_ceil(count.max(1)))
+                .collect(),
+        )
+    }
+
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    fn get(&self, count: u32) -> Option<u64> {
+        self.0.get(usize::try_from(count).ok()?).copied()
+    }
+}
+
+/// The caller's `reduce_row`, statement for statement: a band of source rows `y0..y1` that is
+/// opaque throughout summed down each column once and every cell read off those sums by
+/// [`Reciprocals`], and any other band's cells [`average_block`]'s. Their comment has the proof that an opaque block's plain mean,
+/// rounded as `⌊(s + ⌊c/2⌋) ÷ c⌋`, is the premultiplied arithmetic's byte.
+#[expect(clippy::arithmetic_side_effects)] // bounded by `SMALL_BLOCK` as the caller's is
+// (every sum under 2^20, every product under 2^52), and mirrored
+fn reduce_row(
+    spec: &ImageSpec,
+    (y0, y1): (u32, u32),
+    spans: &[(u32, u32)],
+    reciprocals: &Reciprocals,
+    sums: &mut Vec<u32>,
+    row: &mut [u8],
+) {
+    let line = (spec.width as usize) * 4;
+    let band = if reciprocals.is_empty() || line == 0 {
+        None
+    } else {
+        spec.data
+            .get((y0 as usize) * line..(y1 as usize) * line)
+            .filter(|band| opaque_band(band))
+    };
+    let Some(band) = band else {
+        for (cell, &(x0, x1)) in row.chunks_exact_mut(4).zip(spans) {
+            cell.copy_from_slice(&average_block(spec, x0, y0, x1, y1));
+        }
+        return;
+    };
+    sums.clear();
+    sums.resize(line, 0);
+    for source in band.chunks_exact(line) {
+        for (sum, &byte) in sums.iter_mut().zip(source) {
+            *sum += u32::from(byte);
+        }
+    }
+    let lines = y1 - y0;
+    for (cell, &(x0, x1)) in row.chunks_exact_mut(4).zip(spans) {
+        let count = (x1 - x0) * lines;
+        let mut block = [0u32; 4];
+        let columns = sums
+            .get((x0 as usize) * 4..(x1 as usize) * 4)
+            .unwrap_or_default();
+        for column in columns.chunks_exact(4) {
+            block[0] += column[0];
+            block[1] += column[1];
+            block[2] += column[2];
+            block[3] += column[3];
+        }
+        match reciprocals.get(count) {
+            Some(reciprocal) if count > 0 && block[3] == 255 * count => {
+                let mean = |sum: u32| {
+                    let rounded = (u64::from(sum + count / 2) * reciprocal) >> 32;
+                    u8::try_from(rounded).unwrap_or(u8::MAX)
+                };
+                cell.copy_from_slice(&[mean(block[0]), mean(block[1]), mean(block[2]), 255]);
+            }
+            _ => cell.copy_from_slice(&average_block(spec, x0, y0, x1, y1)),
+        }
+    }
+}
+/// Whether every sample of a band of RGBA rows is opaque — the caller's `opaque_band`: eight
+/// bytes folded at a time, the two alpha lanes tested once.
+fn opaque_band(band: &[u8]) -> bool {
+    const ALPHAS: u64 = u64::from_le_bytes([0, 0, 0, 0xFF, 0, 0, 0, 0xFF]);
+    let mut words = band.chunks_exact(8);
+    let folded = words.by_ref().fold(u64::MAX, |all, word| {
+        let mut eight = [0u8; 8];
+        eight.copy_from_slice(word);
+        all & u64::from_le_bytes(eight)
+    });
+    folded & ALPHAS == ALPHAS
+        && words
+            .remainder()
+            .get(3)
+            .is_none_or(|&alpha| alpha == u8::MAX)
 }
 
 /// The caller's `average_block`: the mean of one block as straight-alpha RGBA8,
@@ -347,6 +461,74 @@ mod tests {
             1,
         );
         assert_eq!(&out.data[..], &[255, 0, 0, 128]);
+    }
+
+    /// A row read off column sums is the per-block arithmetic's, cell for cell: an opaque
+    /// grid and one whose every seventh alpha is not 255, each reduced at factors whose blocks
+    /// are uneven, against [`average_block`] asked of each cell's block.
+    #[test]
+    fn a_row_of_column_sums_is_the_per_block_arithmetic() {
+        let (width, height) = (301_u32, 257_u32);
+        let mut state = 0x9E37_79B9_u32;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            state.to_le_bytes()
+        };
+        for opaque in [true, false] {
+            let data: Vec<u8> = (0..width * height)
+                .flat_map(|index| {
+                    let v = next();
+                    let alpha = if opaque || index % 7 != 0 { 255 } else { v[3] };
+                    [v[0], v[1], v[2], alpha]
+                })
+                .collect();
+            let source = spec(width, height, data);
+            for placement in [
+                [150.0, 0.0, 0.0, 128.0, 0.0, 0.0],
+                [100.0, 0.0, 0.0, 70.0, 0.0, 0.0],
+                [7.0, 0.0, 0.0, 5.0, 0.0, 0.0],
+            ] {
+                let reduced = reduction(&source, false, &placement).expect("a reduction");
+                let out = area_averaged(&source, reduced, 1);
+                let rows = Bands::new(height, reduced.height);
+                let columns = Bands::new(width, reduced.width);
+                for (index, cell) in out.data.chunks_exact(4).enumerate() {
+                    let index = u32::try_from(index).expect("a small grid");
+                    let (x, y) = (index % reduced.width, index / reduced.width);
+                    let ((x0, x1), (y0, y1)) = (columns.at(x), rows.at(y));
+                    assert_eq!(
+                        cell,
+                        average_block(&source, x0, y0, x1, y1),
+                        "cell ({x}, {y})"
+                    );
+                }
+            }
+        }
+    }
+
+    /// [`Reciprocals`]' product is the quotient at every count it holds, checked at each
+    /// numerator where a floor changes — one below and at every multiple of the count — up to
+    /// past the largest an opaque block's rounded sum can be.
+    #[test]
+    fn a_reciprocal_is_the_quotient() {
+        let reciprocals = Reciprocals::new(SMALL_BLOCK);
+        for count in 1..=u32::try_from(SMALL_BLOCK).unwrap_or(0) {
+            let reciprocal = reciprocals.get(count).expect("a reciprocal");
+            for multiple in 0..=256u64 {
+                for numerator in [
+                    (multiple * u64::from(count)).saturating_sub(1),
+                    multiple * u64::from(count),
+                ] {
+                    assert_eq!(
+                        (numerator * reciprocal) >> 32,
+                        numerator / u64::from(count),
+                        "{numerator} / {count}"
+                    );
+                }
+            }
+        }
     }
 
     /// Dividing the rows among threads moves no byte: a grid above [`PARALLEL_FLOOR`]

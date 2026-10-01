@@ -1,7 +1,7 @@
 //! Sweeps the ledger for an entry a note claims is unread while the tree quotes it.
 //!
 //! ```sh
-//! cargo run --release -p conformance --bin unread
+//! cargo run -p conformance --bin unread
 //! ```
 //!
 //! `doc/todo/01`'s second sweep — "every `/Key` in a claim of unreadness, grepped against the

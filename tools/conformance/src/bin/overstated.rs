@@ -1,7 +1,7 @@
 //! Sweeps the ledger for a parent row asserting what its own children deny.
 //!
 //! ```sh
-//! cargo run --release -p conformance --bin overstated
+//! cargo run -p conformance --bin overstated
 //! ```
 //!
 //! `doc/todo/01`'s eighteenth sweep — the thirteenth of them to be a program — and the only one

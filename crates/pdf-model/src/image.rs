@@ -39,6 +39,7 @@ use std::sync::Arc;
 use pdf_render::{Image, SampleAlpha};
 use pdf_sandbox::{Decoded, Request};
 use pdf_syntax::{Dictionary, Document, ImageStream, Object, ObjectId, Stream};
+use rayon::iter::IndexedParallelIterator as _;
 use rayon::iter::ParallelIterator as _;
 use rayon::slice::ParallelSliceMut as _;
 
@@ -912,26 +913,34 @@ fn matte_through_unpack(
             space: format!("a {wanted}-component space on a JPEG of {components} components"),
         });
     }
+    let decode = Decode::read(at.document, at.dict, &space, 8);
+    let samples = Samples {
+        bits: 8,
+        space: &space,
+        decode: &decode,
+        colour_key: None,
+        fill: painting.fill,
+        into: painting.into,
+        matte: painting.matte,
+    };
+    let (width, height) = (grid.0 as usize, grid.1 as usize);
+    // Where the inversion is tabulated the frame's own four-byte pixels are read in place: the
+    // components are their first bytes, which is the layout the repacked rows below would
+    // hold, `stride` apart instead of `wanted`.
+    if let Some(tables) = matted_eight_bit_device_tables(&samples, width, height) {
+        return Ok(Ok(unpack_matted_eight_bit_device(
+            rgba,
+            (width, height),
+            (width.saturating_mul(4), 4),
+            &tables,
+            painting.matte.map_or(&[][..], |matte| matte.alpha),
+        )));
+    }
     let raw: Vec<u8> = rgba
         .chunks_exact(4)
         .flat_map(|pixel| pixel.iter().take(wanted).copied())
         .collect();
-    let decode = Decode::read(at.document, at.dict, &space, 8);
-    unpack(
-        &raw,
-        grid.0,
-        grid.1,
-        &Samples {
-            bits: 8,
-            space: &space,
-            decode: &decode,
-            colour_key: None,
-            fill: painting.fill,
-            into: painting.into,
-            matte: painting.matte,
-        },
-    )
-    .map(Ok)
+    unpack(&raw, grid.0, grid.1, &samples).map(Ok)
 }
 
 /// Decodes a `DCTDecode` image: §7.4.8's frame, converted from the space its dictionary names.
@@ -1335,16 +1344,28 @@ impl Prematte<'_> {
     fn restore(&self, values: &mut [f32], at: usize, permitted: &dyn Fn(usize) -> (f32, f32)) {
         let alpha = self.alpha.get(at).copied().unwrap_or(0);
         for (component, value) in values.iter_mut().enumerate() {
-            let matte = self.matte.get(component).copied().unwrap_or(0.0);
-            let (low, high) = permitted(component);
-            *value = if alpha == 0 {
-                matte
-            } else {
-                let opacity = f32::from(alpha) / 255.0;
-                (*value - matte).mul_add(1.0 / opacity, matte)
-            }
-            .clamp(low.min(high), low.max(high));
+            *value = self.restore_component(*value, alpha, component, permitted(component));
         }
+    }
+
+    /// [`Self::restore`] for one component of a sample whose mask value is `alpha`, which is
+    /// the whole of the inversion: a function of the pre-blended value, `α`, and the
+    /// component's matte and permitted range, and of nothing about where the pixel is.
+    fn restore_component(
+        &self,
+        value: f32,
+        alpha: u8,
+        component: usize,
+        (low, high): (f32, f32),
+    ) -> f32 {
+        let matte = self.matte.get(component).copied().unwrap_or(0.0);
+        if alpha == 0 {
+            matte
+        } else {
+            let opacity = f32::from(alpha) / 255.0;
+            (value - matte).mul_add(1.0 / opacity, matte)
+        }
+        .clamp(low.min(high), low.max(high))
     }
 }
 
@@ -1415,9 +1436,9 @@ fn unpack(data: &[u8], width: u32, height: u32, samples: &Samples) -> Result<Vec
     // A matte takes both of this function's shortcuts away, and for the same reason: the
     // colour of a sample is no longer a function of the sample alone — §11.6.5.2 makes it a
     // function of the sample *and* the mask value at that pixel — so a table indexed by the
-    // sample, and a memo keyed on it, would both answer for the wrong pixel. It costs one
-    // conversion per sample on the images that state one, which `issue13931.pdf` is the only
-    // corpus witness of.
+    // sample, and a memo keyed on it, would both answer for the wrong pixel. An eight-bit
+    // device image tabulates the pair instead ([`matted_eight_bit_device_tables`]); every other
+    // space pays one conversion per sample.
     let palette = match space {
         ColourSpace::Resolved(resolved)
             if resolved.components() == 1 && bits <= 8 && matte.is_none() =>
@@ -1442,6 +1463,15 @@ fn unpack(data: &[u8], width: u32, height: u32, samples: &Samples) -> Result<Vec
         .filter(|fits| *fits)
         .map(|_| SampleMemo::for_pixels(width_usize.saturating_mul(height_usize)));
 
+    if let Some(tables) = matted_eight_bit_device_tables(samples, width_usize, height_usize) {
+        return Ok(unpack_matted_eight_bit_device(
+            data,
+            (width_usize, height_usize),
+            (row_bytes, components),
+            &tables,
+            matte.map_or(&[][..], |matte| matte.alpha),
+        ));
+    }
     if let Some(tables) = eight_bit_device_tables(samples) {
         return Ok(unpack_eight_bit_device(
             data,
@@ -1538,6 +1568,131 @@ fn eight_bit_device_tables<'a>(samples: &Samples<'a>) -> Option<Vec<&'a [u8; 256
                 .and_then(|table| <&[u8; 256]>::try_from(table.as_slice()).ok())
         })
         .collect()
+}
+
+/// The fewest pixels an image carrying §11.6.5.2's pre-blending must have before its inversion
+/// is tabulated: a table is 65 536 evaluations of [`Prematte::restore_component`] a component,
+/// and below this many pixels the per-sample route does no more than that.
+const MATTE_TABLE_FLOOR: usize = 1 << 16;
+
+/// For an eight-bit `DeviceGray` or `DeviceRGB` image carrying §11.6.5.2's pre-blending, each
+/// component's channel as a table of `(α, sample)` — `table[α × 256 + sample]` — or `None` for
+/// every other shape of image, and for one smaller than [`MATTE_TABLE_FLOOR`].
+///
+/// **Each entry is what [`sample_rgba`]'s matte'd arm computes for that pair**, by the same
+/// calls in the same order: [`Decode::value`], then [`Prematte::restore_component`] with the
+/// space's permitted range, then [`channel`]. The inversion is a function of the sample, the
+/// mask value and the component, and nothing else — so evaluating it once for each of the
+/// 65 536 pairs a component can meet answers every pixel with the bytes the per-sample route
+/// writes. On `issue13931.pdf`, a 2 996 × 4 256 `DeviceRGB` photograph under a `/Matte`'d mask,
+/// the per-sample route was 38 million inversions with two allocations a pixel (ADR 1457).
+fn matted_eight_bit_device_tables(
+    samples: &Samples,
+    width: usize,
+    height: usize,
+) -> Option<Vec<MatteTable>> {
+    let &Samples {
+        bits,
+        space,
+        decode,
+        colour_key,
+        matte,
+        ..
+    } = samples;
+    let matte = matte?;
+    if bits != 8 || colour_key.is_some() || width.saturating_mul(height) < MATTE_TABLE_FLOOR {
+        return None;
+    }
+    let components = match space {
+        ColourSpace::Gray => 1,
+        ColourSpace::Rgb => 3,
+        _ => return None,
+    };
+    (0..components)
+        .map(|component| {
+            let permitted = space.permitted(component);
+            let table: Box<[u8]> = (0..=u16::MAX)
+                .map(|index| {
+                    let [raw, alpha] = index.to_le_bytes();
+                    let value = decode.value(component, usize::from(raw));
+                    channel(matte.restore_component(value, alpha, component, permitted))
+                })
+                .collect();
+            MatteTable::try_from(table).ok()
+        })
+        .collect()
+}
+
+/// One component's [`matted_eight_bit_device_tables`] entry for every `(α, sample)` pair,
+/// indexed `α × 256 + sample`: a fixed size, so that an index made of two bytes needs no check.
+type MatteTable = Box<[u8; 1 << 16]>;
+
+/// [`unpack`] for the images [`matted_eight_bit_device_tables`] admits: each sample one lookup
+/// by its own value and its pixel's mask value, read from rows of `row_bytes` whose pixels are
+/// `stride` bytes apart.
+///
+/// The same pixels as the per-sample route, by the tables' construction and by the layout
+/// [`unpack_eight_bit_device`] shares with it: a pixel past what its row carries stays
+/// `[0, 0, 0, 0]`, and a pixel past the mask's samples reads `α` as 0, as
+/// [`Prematte::restore`] does.
+fn unpack_matted_eight_bit_device(
+    data: &[u8],
+    (width, height): (usize, usize),
+    (row_bytes, stride): (usize, usize),
+    tables: &[MatteTable],
+    alpha: &[u8],
+) -> Vec<u8> {
+    let pixel_row = width.saturating_mul(4);
+    let mut out = vec![0u8; pixel_row.saturating_mul(height)];
+    if pixel_row == 0 || stride == 0 {
+        return out;
+    }
+    let entry = |table: &MatteTable, alpha: u8, sample: u8| {
+        table[usize::from(alpha) << 8 | usize::from(sample)]
+    };
+    // A row is a function of its own samples and mask values, so the rows divide across the pool
+    // and no byte depends on how (ADR 0147's argument for `convert_three`).
+    let fill = |y: usize, pixels: &mut [u8]| {
+        let start = y.saturating_mul(row_bytes);
+        let available = data.len().saturating_sub(start).min(row_bytes);
+        let row = data
+            .get(start..start.saturating_add(available))
+            .unwrap_or_default();
+        let first = y.saturating_mul(width);
+        let alphas = alpha
+            .get(first..first.saturating_add(width).min(alpha.len()))
+            .unwrap_or_default();
+        // A mask shorter than the image reads its missing values as 0, as `Prematte::restore`
+        // does.
+        let alphas = alphas.iter().copied().chain(std::iter::repeat(0));
+        let pixels = pixels
+            .chunks_exact_mut(4)
+            .zip(row.chunks_exact(stride))
+            .zip(alphas);
+        match tables {
+            [grey] => {
+                for ((pixel, sample), alpha) in pixels {
+                    let level = entry(grey, alpha, sample[0]);
+                    pixel.copy_from_slice(&[level, level, level, u8::MAX]);
+                }
+            }
+            [red, green, blue] => {
+                for ((pixel, sample), alpha) in pixels {
+                    pixel.copy_from_slice(&[
+                        entry(red, alpha, sample[0]),
+                        entry(green, alpha, sample[1]),
+                        entry(blue, alpha, sample[2]),
+                        u8::MAX,
+                    ]);
+                }
+            }
+            _ => {}
+        }
+    };
+    out.par_chunks_exact_mut(pixel_row)
+        .enumerate()
+        .for_each(|(y, pixels)| fill(y, pixels));
+    out
 }
 
 /// [`unpack`] for the images [`eight_bit_device_tables`] admits: each sample one table lookup,
@@ -3694,26 +3849,6 @@ struct DecodedJpeg {
     grid: (u32, u32),
 }
 
-/// The number of lines a codestream's first scan ends by defining, and where the frame header
-/// states it.
-///
-/// §7.4.8 puts a JPEG's dimensions in the encoded data — "[t]he values of these parameters,
-/// which include the dimensions of the image […] shall be stored in the encoded data" — and
-/// ISO/IEC 10918-1 gives the encoded data two places to state its number of lines: the frame
-/// header's `Y`, and a `DNL` marker segment at the end of the first scan, which section B.2.5 of that
-/// standard describes as defining *or redefining* `Y`. A frame header of `Y = 0` means the lines
-/// are the `DNL`'s to define; a scanner that does not know the page length when it writes the
-/// header writes `0` or `65535` there and the true count after the data. `zune-jpeg` reads the
-/// header only: it refuses a `DNL` it meets before the scan and, meeting one after the scan's
-/// data, pads the frame header's grid — so a 2480 × 3486 letter was drawn as the top five per
-/// cent of a 2480 × 65535 image with grey below it, and both reference renderers drew the letter
-/// (`poppler-61994-0.pdf`, `batch5/poppler`, ADR 0795).
-///
-/// Walks the markers without decoding — 10918-1's byte stuffing makes the end of entropy-coded
-/// data findable, exactly as `pdf_syntax`'s `jpeg_extent` finds `EOI` — and answers `None` for a
-/// codestream whose first scan is not followed by a `DNL`, which is nearly every one. `Some` is
-/// the offset of the frame header's two-byte `Y`, the `DNL`'s `NL`, and the byte range of the
-/// `DNL` segment itself, from the `FF` that opens it to the end of `NL`.
 /// The offset of the next `FF` at or after `from`, or `None` where the data ends without one.
 ///
 /// **This is where the walk over a codestream's entropy-coded data spends nearly all of its
@@ -3757,7 +3892,36 @@ fn next_ff_byte(data: &[u8], from: usize) -> Option<usize> {
     at.checked_add(offset)
 }
 
-fn defined_number_of_lines(data: &[u8]) -> Option<(usize, u16, std::ops::Range<usize>)> {
+/// One `FF` inside a scan, or the marker that ends it: where the `FF` stands, the code after
+/// any fill bytes, and the offset after that code.
+#[derive(Debug, Clone, Copy)]
+struct ScanMarker {
+    opens: usize,
+    code: u8,
+    resumes: usize,
+}
+
+/// What one walk over a codestream's first scan finds, which is everything its two readers
+/// need: the `DNL` that may end it ([`defined_number_of_lines`]) and its restart intervals
+/// (`restart::layout`). One walk serves both, so the 9.4 M instructions a walk over a
+/// five-megapixel photograph's entropy-coded data costs are paid once before any band starts
+/// rather than twice (ADR 1457).
+#[derive(Debug)]
+struct FirstScan {
+    /// Where the last frame header before the scan states `Y`.
+    y_at: Option<usize>,
+    /// Where the scan's entropy-coded data begins, after its header.
+    data_starts: usize,
+    /// Every stuffed byte and restart marker inside the data, in order.
+    inside: Vec<ScanMarker>,
+    /// The marker that ends the scan, or `None` where the data ends first.
+    ends: Option<ScanMarker>,
+}
+
+/// Walks a codestream's marker segments to its first scan and that scan's entropy-coded data
+/// to the marker that ends it, or `None` for a codestream with no scan, one whose `EOI` comes
+/// first, or one whose data ends inside a run of fill bytes.
+fn first_scan(data: &[u8]) -> Option<FirstScan> {
     if data.get(..2)? != [0xFF, 0xD8] {
         return None;
     }
@@ -3777,7 +3941,7 @@ fn defined_number_of_lines(data: &[u8]) -> Option<(usize, u16, std::ops::Range<u
         let code = *data.get(at)?;
         at = at.checked_add(1)?;
         match code {
-            // End of image, or a marker that cannot precede the first scan's `DNL`.
+            // End of image, before any scan.
             0xD9 => return None,
             // Markers 10918-1 gives no length: TEM, a second SOI, the restarts.
             0x01 | 0xD8 | 0xD0..=0xD7 => {}
@@ -3797,26 +3961,78 @@ fn defined_number_of_lines(data: &[u8]) -> Option<(usize, u16, std::ops::Range<u
                 }
                 // The first scan's entropy-coded data: inside it, `FF` is followed only by a
                 // stuffed `00` or a restart marker. The next marker is what ends the scan.
+                let data_starts = at;
+                let mut inside = Vec::new();
                 loop {
-                    let opens = next_ff_byte(data, at)?;
+                    let Some(opens) = next_ff_byte(data, at) else {
+                        return Some(FirstScan {
+                            y_at,
+                            data_starts,
+                            inside,
+                            ends: None,
+                        });
+                    };
                     at = opens.checked_add(1)?;
                     while data.get(at) == Some(&0xFF) {
                         at = at.checked_add(1)?;
                     }
-                    match *data.get(at)? {
-                        0x00 | 0xD0..=0xD7 => at = at.checked_add(1)?,
-                        0xDC => {
-                            // `DNL`: length 4, then `NL`, which 10918-1 bounds to 1..=65535.
-                            let lines = field(at.checked_add(3)?)?;
-                            let closes = at.checked_add(5)?;
-                            return (lines != 0).then_some((y_at?, lines, opens..closes));
-                        }
-                        _ => return None,
+                    let marker = ScanMarker {
+                        opens,
+                        code: *data.get(at)?,
+                        resumes: at.checked_add(1)?,
+                    };
+                    at = marker.resumes;
+                    if !matches!(marker.code, 0x00 | 0xD0..=0xD7) {
+                        return Some(FirstScan {
+                            y_at,
+                            data_starts,
+                            inside,
+                            ends: Some(marker),
+                        });
                     }
+                    inside.push(marker);
                 }
             }
         }
     }
+}
+
+/// The number of lines a codestream's first scan ends by defining, and where the frame header
+/// states it.
+///
+/// §7.4.8 puts a JPEG's dimensions in the encoded data — "[t]he values of these parameters,
+/// which include the dimensions of the image […] shall be stored in the encoded data" — and
+/// ISO/IEC 10918-1 gives the encoded data two places to state its number of lines: the frame
+/// header's `Y`, and a `DNL` marker segment at the end of the first scan, which section B.2.5 of that
+/// standard describes as defining *or redefining* `Y`. A frame header of `Y = 0` means the lines
+/// are the `DNL`'s to define; a scanner that does not know the page length when it writes the
+/// header writes `0` or `65535` there and the true count after the data. `zune-jpeg` reads the
+/// header only: it refuses a `DNL` it meets before the scan and, meeting one after the scan's
+/// data, pads the frame header's grid — so a 2480 × 3486 letter was drawn as the top five per
+/// cent of a 2480 × 65535 image with grey below it, and both reference renderers drew the letter
+/// (`poppler-61994-0.pdf`, `batch5/poppler`, ADR 0795).
+///
+/// Read off [`FirstScan`]'s walk — 10918-1's byte stuffing makes the end of entropy-coded data
+/// findable without decoding, exactly as `pdf_syntax`'s `jpeg_extent` finds `EOI` — and `None`
+/// for a codestream whose first scan is not followed by a `DNL`, which is nearly every one.
+/// `Some` is the offset of the frame header's two-byte `Y`, the `DNL`'s `NL`, and the byte range
+/// of the `DNL` segment itself, from the `FF` that opens it to the end of `NL`.
+fn defined_number_of_lines(
+    data: &[u8],
+    scan: &FirstScan,
+) -> Option<(usize, u16, std::ops::Range<usize>)> {
+    let ends = scan.ends?;
+    if ends.code != 0xDC {
+        return None;
+    }
+    // `DNL`: the code, a length of 4, then `NL`, which 10918-1 bounds to 1..=65535.
+    let code_at = ends.resumes.checked_sub(1)?;
+    let lines = u16::from_be_bytes([
+        *data.get(code_at.checked_add(3)?)?,
+        *data.get(code_at.checked_add(4)?)?,
+    ]);
+    let closes = code_at.checked_add(5)?;
+    (lines != 0).then_some((scan.y_at?, lines, ends.opens..closes))
 }
 
 /// The codestream as the decoder should read it: `Y` set to what the `DNL` defined, and the
@@ -3828,9 +4044,9 @@ fn defined_number_of_lines(data: &[u8]) -> Option<(usize, u16, std::ops::Range<u
 /// supported"), so once `Y` carries the count the segment that carried it is removed; a frame
 /// whose header and `DNL` already agree still needs that. Borrowed and untouched for the
 /// codestreams that state no `DNL`, which is nearly all of them; a copy six bytes shorter for
-/// the rest. See [`defined_number_of_lines`].
-fn frame_as_defined(data: &[u8]) -> std::borrow::Cow<'_, [u8]> {
-    let Some((y_at, lines, dnl)) = defined_number_of_lines(data) else {
+/// the rest. See [`defined_number_of_lines`], which reads `scan`, the walk of `data`.
+fn frame_as_defined<'a>(data: &'a [u8], scan: Option<&FirstScan>) -> std::borrow::Cow<'a, [u8]> {
+    let Some((y_at, lines, dnl)) = scan.and_then(|scan| defined_number_of_lines(data, scan)) else {
         return std::borrow::Cow::Borrowed(data);
     };
     let mut defined = Vec::with_capacity(data.len());
@@ -3951,7 +4167,14 @@ fn jpeg_options() -> zune_jpeg::zune_core::options::DecoderOptions {
 fn decode_jpeg(data: &[u8], stated: Option<i64>) -> Result<DecodedJpeg, ImageError> {
     use zune_jpeg::zune_core::colorspace::ColorSpace;
 
-    let data = frame_as_defined(data);
+    // One walk over the first scan serves the `DNL`, the restart intervals and the bands' bits;
+    // a `DNL` taken out moves what follows it, so its copy is walked again (ADR 1457).
+    let walked = first_scan(data);
+    let data = frame_as_defined(data, walked.as_ref());
+    let scan = match &data {
+        std::borrow::Cow::Borrowed(_) => walked,
+        std::borrow::Cow::Owned(defined) => first_scan(defined),
+    };
     // `ZCursor` is the reader `zune-jpeg` wants; a bare slice does not implement its
     // trait because the decoder needs to seek.
     let mut decoder = zune_jpeg::JpegDecoder::new_with_options(
@@ -4080,16 +4303,18 @@ fn decode_jpeg(data: &[u8], stated: Option<i64>) -> Result<DecodedJpeg, ImageErr
     // codestream is not one `restart` admits (ADR 1433).
     let mut pixels = if direct {
         let options = jpeg_options().jpeg_set_out_colorspace(ColorSpace::RGBA);
-        restart::decode(&data, options, 4).map_or_else(
-            || {
-                zune_jpeg::JpegDecoder::new_with_options(
-                    zune_jpeg::zune_core::bytestream::ZCursor::new(&*data),
-                    options,
-                )
-                .decode()
-            },
-            Ok,
-        )
+        scan.as_ref()
+            .and_then(|scan| restart::decode(&data, scan, options, 4))
+            .map_or_else(
+                || {
+                    zune_jpeg::JpegDecoder::new_with_options(
+                        zune_jpeg::zune_core::bytestream::ZCursor::new(&*data),
+                        options,
+                    )
+                    .decode()
+                },
+                Ok,
+            )
     } else {
         decoder.decode()
     }
@@ -7062,6 +7287,79 @@ mod tests {
                 &samples,
             )
             .expect("unpacked");
+            let mut expected = Vec::new();
+            for y in 0..height {
+                let start = (y * row_bytes).min(data.len());
+                let row = &data[start..(start + row_bytes).min(data.len())];
+                let carried = row.len() / components;
+                for x in 0..width {
+                    if x < carried {
+                        expected.extend_from_slice(&super::sample_rgba(
+                            &samples,
+                            None,
+                            &mut None,
+                            row,
+                            x,
+                            y * width + x,
+                        ));
+                    } else {
+                        expected.extend_from_slice(&[0, 0, 0, 0]);
+                    }
+                }
+            }
+            assert_eq!(tabled, expected, "{space:?}");
+        }
+    }
+
+    /// The tabulated inversion of §11.6.5.2's pre-blending writes the per-sample route's pixels:
+    /// grey and RGB under a `/Decode` that is not the identity, a matte inside and one at the
+    /// range's edge, every mask value from 0 to 255 met, a mask shorter than the image (whose
+    /// missing values are 0), and a stream that stops short of its last row (ADR 1457).
+    #[test]
+    fn the_matte_table_route_unpacks_the_per_sample_routes_pixels() {
+        for (space, stated, matte) in [
+            (super::ColourSpace::Gray, vec![1.0_f32, 0.0], vec![0.25_f32]),
+            (
+                super::ColourSpace::Rgb,
+                vec![0.2, 0.9, 1.0, 0.0, 0.0, 0.5],
+                vec![0.0, 1.0, 0.6],
+            ),
+        ] {
+            let decode = super::Decode::from_pairs(&stated, &space, 8);
+            let into = super::Conversion::device();
+            let (width, height) = (37_usize, 9_usize);
+            let alpha: Vec<u8> = (0..width * height - 5)
+                .map(|index| u8::try_from((index * 53 + 7) % 256).expect("under 256"))
+                .collect();
+            let prematte = super::Prematte {
+                matte: &matte,
+                alpha: &alpha,
+            };
+            let samples = super::Samples {
+                bits: 8,
+                space: &space,
+                decode: &decode,
+                colour_key: None,
+                fill: pdf_render::Color::BLACK,
+                into: &into,
+                matte: Some(&prematte),
+            };
+            let components = space.components();
+            let row_bytes = width * components;
+            let short = row_bytes * (height - 1) + components * 2 + 1;
+            let data: Vec<u8> = (0..short)
+                .map(|index| u8::try_from((index * 37 + 11) % 256).expect("under 256"))
+                .collect();
+            assert!(super::matted_eight_bit_device_tables(&samples, width, height).is_none());
+            let inversions = super::matted_eight_bit_device_tables(&samples, 256, 256)
+                .expect("an image at the floor is tabulated");
+            let tabled = super::unpack_matted_eight_bit_device(
+                &data,
+                (width, height),
+                (row_bytes, components),
+                &inversions,
+                &alpha,
+            );
             let mut expected = Vec::new();
             for y in 0..height {
                 let start = (y * row_bytes).min(data.len());

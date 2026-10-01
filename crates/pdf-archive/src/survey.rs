@@ -3485,6 +3485,114 @@ mod tests {
         );
     }
 
+    /// Annex Q.2's last paragraph: every annotation's appearance is processed as a form
+    /// `XObject`, so a translucent graphics state inside one puts transparency on a page whose
+    /// own content has none.
+    #[test]
+    fn annex_q_finds_transparency_inside_an_annotation_appearance() {
+        let marks = "/GS0 gs 0 0 5 5 re f";
+        let appearance = |state: &str| {
+            format!(
+                "<< /Type /XObject /Subtype /Form /BBox [0 0 5 5] \
+                 /Resources << /ExtGState << /GS0 << {state} >> >> >> /Length {} >>\n\
+                 stream\n{marks}\nendstream",
+                marks.len()
+            )
+        };
+        let annotation =
+            "<< /Type /Annot /Subtype /Square /Rect [0 0 5 5] /F 4 /AP << /N 6 0 R >> >>";
+        let translucent = appearance("/CA 0.25");
+        let document = page_with("", "/Annots [5 0 R]", &[annotation, &translucent]);
+        assert!(Survey::of(&document).page_is_transparent(0));
+
+        let opaque = appearance("/CA 1");
+        let document = page_with("", "/Annots [5 0 R]", &[annotation, &opaque]);
+        assert!(
+            !Survey::of(&document).page_is_transparent(0),
+            "an alpha of one is not below one, so the appearance adds no transparency"
+        );
+    }
+
+    /// Annex Q.2's pattern sentence: a Type 1 pattern is processed as a form `XObject`, so a
+    /// blend mode set inside a tiling cell's content is transparency on the page it fills.
+    #[test]
+    fn annex_q_processes_a_tiling_pattern_as_a_form() {
+        let cell = "/GS0 gs 0 0 1 1 re f";
+        for (mode, expected) in [("/Multiply", true), ("/Normal", false)] {
+            let pattern = format!(
+                "<< /Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 1 1] \
+                 /XStep 1 /YStep 1 /Resources << /ExtGState << /GS0 << /BM {mode} >> >> >> \
+                 /Length {} >>\nstream\n{cell}\nendstream",
+                cell.len()
+            );
+            let document = page_with(
+                "/Pattern cs /P0 scn 0 0 10 10 re f",
+                "/Resources << /Pattern << /P0 5 0 R >> >>",
+                &[&pattern],
+            );
+            assert_eq!(
+                Survey::of(&document).page_is_transparent(0),
+                expected,
+                "with {mode}"
+            );
+        }
+    }
+
+    /// Annex Q.4's two conditions on an image `XObject`: an `/SMask` that is a stream, and an
+    /// `/SMaskInData` greater than zero — and the zero that is not one.
+    #[test]
+    fn annex_q_finds_transparency_in_an_images_mask_and_its_codestream_alpha() {
+        let image = |extra: &str| {
+            format!(
+                "<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray \
+                 /BitsPerComponent 8 {extra} /Length 1 >>\nstream\n\x00\nendstream"
+            )
+        };
+        let mask = "<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray \
+                    /BitsPerComponent 8 /Length 1 >>\nstream\n\x00\nendstream";
+        let resources = "/Resources << /XObject << /Im0 5 0 R >> >>";
+        for (extra, expected) in [
+            ("/SMask 6 0 R", true),
+            ("/SMaskInData 1", true),
+            ("/SMaskInData 0", false),
+            ("", false),
+        ] {
+            let body = image(extra);
+            let document = page_with("/Im0 Do", resources, &[body.as_str(), mask]);
+            assert_eq!(
+                Survey::of(&document).page_is_transparent(0),
+                expected,
+                "with {extra:?}"
+            );
+        }
+    }
+
+    /// Annex Q.5: a Type 3 font's glyph procedures are processed as form `XObject`s, so a blend
+    /// mode set inside one is transparency on the page that shows the glyph.
+    #[test]
+    fn annex_q_processes_a_type_3_glyph_procedure_as_a_form() {
+        let glyph = "1 0 0 0 1 1 d1 /GS0 gs 0 0 1 1 re f";
+        let procedure = format!("<< /Length {} >>\nstream\n{glyph}\nendstream", glyph.len());
+        for (mode, expected) in [("/Screen", true), ("/Normal", false)] {
+            let font = format!(
+                "<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1 1] \
+                 /FontMatrix [1 0 0 1 0 0] /CharProcs << /a 6 0 R >> \
+                 /Encoding << /Differences [97 /a] >> /FirstChar 97 /LastChar 97 \
+                 /Widths [1] /Resources << /ExtGState << /GS0 << /BM {mode} >> >> >> >>"
+            );
+            let document = page_with(
+                "BT /F1 1 Tf (a) Tj ET",
+                "/Resources << /Font << /F1 5 0 R >> >>",
+                &[font.as_str(), &procedure],
+            );
+            assert_eq!(
+                Survey::of(&document).page_is_transparent(0),
+                expected,
+                "with {mode}"
+            );
+        }
+    }
+
     /// ISO 32000-2 §11.6.6: an isolated group's own `CS` becomes the blending space, and a
     /// non-isolated one inherits the page's instead.
     #[test]

@@ -365,6 +365,12 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   `scratchpad/open/build.log`, so the rounds find it warm (`BATCH_WARM=0` skips it). Cargo locks a
   profile's directory, so six rounds' `dev` builds queue behind one another rather than duplicating
   work, while the `release` and `gates` profiles build beside it under locks of their own (ADR 1451).
+  The directory persists from batch to batch, so a profile compiles its dependencies once per
+  directory, not once per batch: what each profile pays in a batch is the workspace crates the merge
+  and the siblings changed, and nothing in `open` can save it, because the first sibling's edit to a
+  low crate invalidates it again. `open` therefore warms only `dev`, and `tools/state.sh`'s
+  `conformance` sweeps run under `dev` rather than `release`: a release link of that crate's
+  binaries costs two minutes after every edit to it and buys tenths of a second a run (ADR 1463).
 - **A build script's `env!("CARGO_MANIFEST_DIR")` is baked at *its* compile time, and the shared
   build directory outlives a checkout.** A binary compiled from a worktree or a scratchpad copy that
   no longer exists fails with an absurd message naming a path under `/tmp` — "data/cmaps is readable:
@@ -395,7 +401,8 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   not. This costs nothing and needs no agreement from anyone else's round.
 
   `sccache --show-stats` is the instrument and its *categories* are the answer, not its headline
-  rate: `Cache hits (Rust)` against `Cache misses (Rust)`, and `Non-cacheable reasons` underneath —
+  rate — and its last two lines first: a `Cache size` at its `Max cache size` is a cache evicting
+  by age, so a miss there says the entry was pushed out, not that it could never hit (ADR 1463): `Cache hits (Rust)` against `Cache misses (Rust)`, and `Non-cacheable reasons` underneath —
   `crate-type` is every binary and every test harness, `multiple input files` is every
   workspace-member `clippy` check. `sccache --zero-stats` first, but only against a server of your
   own (`SCCACHE_DIR=… SCCACHE_SERVER_PORT=… sccache --start-server`): the default one is shared
@@ -515,10 +522,18 @@ git status --short doc/questions
 # 6. A question file is an instruction document, so its `§` is ISO 32000-2's (ADR 1452), and the
 #    main checkout's own `cargo test -p conformance` fails on one that is not — which no worktree
 #    run can see. `main-checkout` prints each; another standard's section is written in words:
-#    "ISO 19005-4 section 6.2.7.3", "ISO/TS 32002 section 5.1.3". On 2026-10-01 it named Q169 line
-#    18 (ISO 19005-4) and Q170 line 12 (ISO/TS 32002); Q169's line 18 also opens with the sign
-#    after ISO 19005-2, whose name ends line 17 — the scan does not look across a line break.
+#    "ISO 19005-4 section 6.2.7.3", "ISO/TS 32002 section 5.1.3". The scan reads a paragraph, not
+#    a line, so a standard's name ending the line above a sign owns it (ADR 1464).
 cargo test -p conformance --test documents
+
+# 7. A fix to a dependency this tree pins from a fork is a patch under doc/patches/, whose preamble
+#    names the repository and the `rev` it was written against; a round cannot push to the fork.
+#    `main-checkout` lists each patch whose base the manifest still pins. Apply it on that base in
+#    a clone of the fork and push; then every `rev` the root Cargo.toml pins to that repository
+#    moves to the new commit together, and both locks follow:
+git -C <fork clone> checkout <Base> && git -C <fork clone> apply doc/patches/<name>.patch
+cargo update -p hayro-jbig2 -p hayro-jpeg2000 -p hayro-ccitt
+cargo update --manifest-path fuzz/Cargo.toml -p hayro-jbig2 && cargo test -p conformance --test fuzz_workspace
 ```
 
 **Driving `quorra-qt` under Xvfb:** Qt ignores key presses there until it is run with

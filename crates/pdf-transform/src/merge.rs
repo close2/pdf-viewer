@@ -115,8 +115,9 @@
 //!
 //! So a key two sources share cannot appear twice, and the later source's is **renamed** — the
 //! first free `key (2)`, `key (3)` and so on, deterministically — and reported. Each category
-//! (`/EmbeddedFiles`, `/JavaScript`, `/AP`, `/Pages`, `/Templates`, `/IDS`, `/URLS`,
-//! `/Renditions`, `/AlternatePresentations`) is its own namespace. The merged tree is one root
+//! (`/EmbeddedFiles`, `/JavaScript`, `/AP`, `/Pages`, `/Templates`, `/Renditions`,
+//! `/AlternatePresentations`) is its own namespace. Web capture's `/IDS` and `/URLS` are not
+//! carried at all, and `is_web_capture` says why. The merged tree is one root
 //! node holding one `/Names` array, sorted by key bytes, which is what the clause's "[s]horter
 //! keys shall appear before longer ones beginning with the same byte sequence" describes and
 //! what `Ord` on a byte string already does.
@@ -1499,7 +1500,11 @@ fn build_page(
     }
     let mut out = Dictionary::new();
     for (key, value) in dict.iter() {
-        if key.as_bytes() == b"Parent" {
+        // Table 31 makes a page's `/DPart` "( Required, if this page is within the range of a
+        // DPart, not permitted otherwise; PDF 2.0 )", and §14.12.2's hierarchy is one of the
+        // catalog entries this output does not carry (`NOT_CARRIED`), so no page of it is in a
+        // DPart's range: the back-pointer goes with the tree it pointed into. ADR 1461.
+        if matches!(key.as_bytes(), b"Parent" | b"DPart") {
             continue;
         }
         let carried = merge.carry(from, value, 0);
@@ -2765,6 +2770,21 @@ fn merge_name_trees(
     let mut catalog_dictionary: BTreeMap<Vec<u8>, Object> = BTreeMap::new();
 
     for category in NAME_TREES {
+        if is_web_capture(category) {
+            for at in scope.contributing {
+                let entries = documents
+                    .get(*at)
+                    .map_or(0, |document| tree_entries(document, category).len());
+                if entries > 0 {
+                    warnings.push(Warning {
+                        source: scope.source(*at),
+                        page: None,
+                        detail: web_capture_left_behind(category, entries),
+                    });
+                }
+            }
+            continue;
+        }
         let mut merged: BTreeMap<Vec<u8>, Object> = BTreeMap::new();
         let mut taken: BTreeSet<Vec<u8>> = BTreeSet::new();
         for at in scope.contributing {
@@ -2838,6 +2858,27 @@ fn merge_name_trees(
         Object::Dictionary(out)
     });
     (names, dests)
+}
+
+/// Whether a §7.7.4 name tree is one of the two §14.10.3.1 hangs web capture's content database on.
+///
+/// §14.10.1 records the database in two structures, "[t]he Web Capture information dictionary"
+/// and "[t]he Web Capture content database", and the first is the catalog's `/SpiderInfo`, which
+/// `NOT_CARRIED` leaves behind — so carrying these trees would write half of a structure the
+/// clause states whole. The family is "deprecated with PDF 2.0", and §3.15 makes that "a part of
+/// ISO 32000 that should not be written into a PDF 2.0 document". So neither tree crosses a
+/// merge or a split, and each is named where a source states one (ADR 1461).
+pub(crate) fn is_web_capture(category: &str) -> bool {
+    matches!(category, "IDS" | "URLS")
+}
+
+/// The warning naming a web capture tree a derived document does not carry.
+pub(crate) fn web_capture_left_behind(category: &str, entries: usize) -> String {
+    format!(
+        "§14.10.3.1: /Names /{category}, {entries} entr(y|ies) of web capture's content \
+         database, is not carried: §14.10.1 records that database beside a /SpiderInfo this \
+         output does not carry either, and the family is deprecated with PDF 2.0"
+    )
 }
 
 /// The name a destination key ended up with in the merged document.

@@ -295,8 +295,8 @@ and a window does not. `warm` is 3% to 11% of the refresh on every page and is l
 | | step | 1.38 (17%) | — | — | 0.22 | 0.11 | 0.94 | 0.11 |
 | `personwithdog.pdf` p1, patch meshes | turn | 10.08 (121%) | 3.73 | 2.94 | 1.17 | 0.43 | 1.62 | 0.19 |
 | | step | 11.33 (136%) | — | **4.58** | 4.56 | 0.44 | 1.50 | 0.26 |
-| `issue12841_reduced.pdf` p1, one 5 280 × 3 792 photograph | turn | 49.31 (592%) | **31.27** | 0.02 | 0.02 | **16.53** | 1.27 | 0.20 |
-| | step | 14.01 (168%) | — | 0.00 | 0.01 | **10.75** | 2.84 | 0.41 |
+| `issue12841_reduced.pdf` p1, one 5 280 × 3 792 photograph | turn | 42.28 (507%) | **28.41** | 0.02 | 0.01 | **12.48** | 1.27 | 0.08 |
+| | step | 13.43 (161%) | — | 0.00 | 0.01 | **10.64** | 2.59 | 0.19 |
 | `22060_A1_01_Plans.pdf` p1, 72 placed images | turn | 93.38 (1121%) | **76.61** | 0.18 | 3.33 | 8.13 | 4.07 | 1.07 |
 | | step | 22.96 (276%) | — | — | 5.20 | **15.14** | 1.56 | 1.05 |
 | `images.pdf` p1 | turn | 50.87 (610%) | **42.70** | 0.04 | 0.86 | 5.71 | 0.95 | 0.62 |
@@ -317,7 +317,11 @@ each glyph's stroke is expanded once for all its placements in the tiling, where
 and tiled at each; p101 and `issue14415.pdf` did not move beyond the runs' spread. The three image rows were re-taken on 2026-09-30 after ADR
 1433, the same way against the tree before it (load 16–20; that build read 126.04–129.90 and
 15.78 on the photograph, 128.0–131.6 and 49.2 on the plan, 156.0–157.9 and 22.6 on `images.pdf`).
-The rest are the re-baseline's.
+The photograph's rows were re-taken on 2026-10-01 after ADR 1457, three runs of five rounds an
+arm against the tree before it in the same sitting (load 3.2–4.0; that build read 46.56–48.26 and
+13.26–13.53): an opaque band of the reduction is read off its column sums. The same ADR took
+`issue13931.pdf`'s turn, a photograph under a `/Matte`'d mask, from 178.8 to 64.3 ms; the plan and
+`images.pdf` did not move beyond the runs' spread. The rest are the re-baseline's.
 
 **A repaint of what is on the screen always fits**; **a page turn onto a page whose outlines the
 device has not seen fits on two of the eight** — the expensive end of that gesture, where
@@ -341,7 +345,10 @@ codestream whose restart intervals begin on MCU rows is decoded in bands beside 
 band a codestream of its own (ADR 1433 — 53 of the corpus's 168 baseline frames of a megasample
 or more). **The `transfer` of a photograph is not mostly bytes**: the queue moves the 20 MB a turn
 draws in about 2 ms, and what the column holds is raster's area-averaging reduction on the host,
-now divided among the device's threads by rows (ADR 1433). On `images.pdf` and the plan the
+divided among the device's threads by rows (ADR 1433), an opaque band of it summed down its
+columns once and each cell read off the sums (ADR 1457). A frame with no restart interval keeps
+one thread's Huffman pass: cutting it at rows an entropy pass finds was built, byte-identical, and
+measured not to pay (ADR 1457). On `images.pdf` and the plan the
 `interp` was this tree's own per-sample unpacking and soft-mask combination rather than a codec,
 and both are single passes now (ADR 1433).
 

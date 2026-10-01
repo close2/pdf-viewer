@@ -1,7 +1,7 @@
 //! Sweeps the ledger, the tree's comments and this project's prose for a pointer into this tree.
 //!
 //! ```sh
-//! cargo run --release -p conformance --bin pointers
+//! cargo run -p conformance --bin pointers
 //! ```
 //!
 //! `doc/todo/01`'s eighth sweep — does the file a note names still exist, and does the file hold

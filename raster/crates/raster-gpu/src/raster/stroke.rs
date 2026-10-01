@@ -166,17 +166,23 @@ fn stroke_subpath(centre: &Centre, stroke: Stroke, hw: f32) -> Subpath {
         pieces.push(segment_piece(pts[from], pts[to], hw, ends));
         at_a_tight_bend.push(tight[from] || tight[to]);
     }
-    // A join at every corner, between the directions the two pieces end square to.
+    // A join at every corner, between the directions the two pieces end square to; inside a
+    // curve, where no segments meet, the disc that is the set there (ADR 1455).
     for j in 0..n {
         let Some((before, after)) = meeting(j) else {
             continue;
+        };
+        let join = if centre.inside_a_curve(j) {
+            LineJoin::Round
+        } else {
+            stroke.join
         };
         join_at(
             &mut pieces,
             pts[j],
             (sides[before].end, sides[after].start),
             hw,
-            stroke.join,
+            join,
             stroke.miter_limit,
         );
         at_a_tight_bend.resize(pieces.len(), tight[j]);

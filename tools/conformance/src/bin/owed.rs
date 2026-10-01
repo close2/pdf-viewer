@@ -1,7 +1,7 @@
 //! Sweeps the ledger's `partial` rows for a note that names nothing owed.
 //!
 //! ```sh
-//! cargo run --release -p conformance --bin owed
+//! cargo run -p conformance --bin owed
 //! ```
 //!
 //! `doc/todo/01`'s fourteenth sweep — a description whose *level* moved with whoever ran it

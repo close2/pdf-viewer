@@ -604,8 +604,9 @@ share, the ones that break it, and the rule each of those leaves on a round:
 - **The rest are a catalogue rather than a rule**, and it lives with the reading:
   [`01-ledger-partial-rows.md`](01-ledger-partial-rows.md)'s *The sweeps as commands* holds every
   one of them unchanged — what it asks, the command that runs it, what its output's noise looks
-  like and which hits to read first. Most are `cargo run --release -p conformance --bin <name>` and
-  seconds apiece; the errata ones are `tools/spec-errata`'s `check`, `emit`, `moved`, `renumbered`
+  like and which hits to read first. Most are `cargo run -p conformance --bin <name>` and
+  seconds apiece — the default profile, because a release build of the crate's binaries costs two
+  minutes of linking per edit to it and buys a few tenths of a second a run (ADR 1463); the errata ones are `tools/spec-errata`'s `check`, `emit`, `moved`, `renumbered`
   and `applied`,
   and **a round implementing a clause runs `emit` on that document *before* it writes, rather than
   `check` afterwards alone**. `tools/state.sh counts` is where a population goes, not a sentence

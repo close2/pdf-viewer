@@ -1,7 +1,7 @@
 //! Sweeps this tree's doc comments for a Rust path naming an item nobody declares.
 //!
 //! ```sh
-//! cargo run --release -p conformance --bin names
+//! cargo run -p conformance --bin names
 //! ```
 //!
 //! `doc/todo/01`'s twenty-sixth sweep. [`conformance::names`] says what resolution means here,

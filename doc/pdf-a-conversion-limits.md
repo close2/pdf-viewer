@@ -1415,7 +1415,7 @@ decides its house profile once.
 **But "no profile" is not a dead end, and the standard supplies the way out** — and `A48` has
 since allowed the construction below, reported per document and recorded in `xmpMM:History`
 naming the clause. ISO 19005-2
-§6.2.4.3's NOTE 2 says that a **DeviceN-based `DefaultCMYK`** is subject to §6.2.4.4 and is
+section 6.2.4.3's NOTE 2 says that a **DeviceN-based `DefaultCMYK`** is subject to section 6.2.4.4 and is
 thereby device independent. So a `/DefaultCMYK` written as a DeviceN over
 `[/Cyan /Magenta /Yellow /Black]`, with an ICCBased sRGB alternate space and a tint transform, is
 conforming — and the tint transform does not have to be invented, because **ISO 32000-2 §10.4.2.5

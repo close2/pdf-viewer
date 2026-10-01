@@ -1217,3 +1217,56 @@ fn a_stated_date_is_written_into_both_of_the_clauses_two_sources() {
          describes; shall be XML .\""
     );
 }
+
+/// §14.12's hierarchy does not cross a merge, and neither does the back-pointer to it.
+///
+/// `tests/split.rs`'s reasoning at the other writer: Table 31 permits a page's `/DPart` only
+/// where the page is in some `DPart`'s range — "( Required, if this page is within the range of a
+/// `DPart`, not permitted otherwise; PDF 2.0 )" — and the merged catalog states no `/DPartRoot`.
+/// The warning names what was left behind (ADR 1461).
+#[test]
+fn a_merged_page_states_no_document_part_the_merge_does_not_carry() {
+    let parts = support::document_parts();
+    let first = std::fs::read(committed(FIRST)).expect("a committed document");
+    let (report, bytes) = merge(&[(&parts, "1-end"), (&first, "1")], false).expect("it merges");
+    let merged = Document::open(bytes).expect("the merged file opens");
+    assert_eq!(Pages::new(&merged).len(), 3);
+    assert!(
+        !support::states_document_parts(&merged),
+        "a merged page states a /DPart, or the catalog a /DPartRoot"
+    );
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.detail.contains("DPartRoot")),
+        "the report names the hierarchy it left behind: {:?}",
+        report.warnings
+    );
+}
+
+/// Web capture's content database does not cross a merge, and the report says so.
+///
+/// `tests/split.rs`'s reasoning at the other writer: §14.10.1 records the database beside a
+/// `/SpiderInfo` the merged catalog does not carry, and the family is deprecated with PDF 2.0
+/// (ADR 1461). A colliding digital identifier would otherwise be renamed `key (2)`, which is no
+/// longer §14.10.3.3's MD5 of anything.
+#[test]
+fn a_merge_carries_no_web_capture_database() {
+    let capture = support::web_capture();
+    let first = std::fs::read(committed(FIRST)).expect("a committed document");
+    let (report, bytes) =
+        merge(&[(&capture, "1"), (&capture, "1"), (&first, "1")], false).expect("it merges");
+    let merged = Document::open(bytes).expect("the merged file opens");
+    assert!(support::web_capture_trees(&merged).is_empty());
+    let named = report
+        .warnings
+        .iter()
+        .filter(|warning| warning.detail.contains("§14.10.3.1"))
+        .count();
+    assert_eq!(
+        named, 4,
+        "each of the two sources stating both trees is named once per tree: {:?}",
+        report.warnings
+    );
+}

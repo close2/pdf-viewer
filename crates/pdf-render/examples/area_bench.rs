@@ -251,4 +251,7 @@ fn main() {
     run("witness, alpha", &make(1374, 1374, false), 3, runs);
     run("witness, opaque", &make(2100, 1448, true), 3, runs);
     run("witness, page one", &make(2700, 3450, true), 3, runs);
+    // The page turn's photograph: `issue12841_reduced.pdf`'s 5 280 × 3 792 frame reduced twofold
+    // into a 1 600 × 1 000 window, every block four samples (ADR 1457).
+    run("photograph, turn", &make(5280, 3792, true), 2, runs);
 }

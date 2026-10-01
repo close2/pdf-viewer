@@ -66,6 +66,9 @@ pub(crate) fn page_list(
     // §12.3.4's own sentence: "allowing the user to navigate to a page by clicking its thumbnail
     // image". `activate` is GTK's name for that gesture, and it carries the row's position, which
     // *is* the page index — a thumbnail is not a destination to resolve, it is the page.
+    // GTK activates a row on a double click unless told otherwise, and the clause's gesture is one
+    // click — the other two windows take one (ADR 1453).
+    list.set_single_click_activate(true);
     let show = Rc::clone(show);
     list.connect_activate(move |_, position| {
         show(position as usize);

@@ -6256,7 +6256,7 @@ const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 10] = [
 /// there. **We take the first route only as far as `/Widths` states a shape** (ADR 0358), and
 /// these two pages are what the rest costs.
 ///
-/// # `bug1671312_ArialNarrow.pdf`, where a substitute is condensed to the widths the file states
+/// # `bug1671312_ArialNarrow.pdf`, where a substitute is held to the widths the file states
 ///
 /// The file is 1913 bytes and states a whole Table 120 descriptor for a non-embedded
 /// `/ArialNarrow`: `/StemV 66`, `/StemH 66`, `/AvgWidth 362`, `/MaxWidth 833`,

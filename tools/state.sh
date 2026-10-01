@@ -101,7 +101,7 @@ section_flags() {
 section_names() {
     run "a Rust path a doc comment names against the items this tree declares" \
         'path\(s\) in |name\(s\) this workspace declares|whose prefix this tree declares|^  [a-z]|^ *[0-9]+  ' \
-        cargo run -q --release -p conformance --bin names
+        cargo run -q -p conformance --bin names
 }
 
 # Every clause a source file cites, against the `code` list of the row for that clause. A `code`
@@ -119,7 +119,7 @@ section_names() {
 section_cited() {
     run "a clause a file cites against that clause's own code list" \
         'pair\(s\) over |a row claiming work|a checker cites|^  crates/|pair\(s\) the row already names|pair\(s\) cite |no class that says why|no-row pair\(s\) lie under|^  §' \
-        cargo run -q --release -p conformance --bin cited
+        cargo run -q -p conformance --bin cited
 }
 
 # Whether the four navigational documents — `doc/PLAN.md`, `doc/crate-map.md`,
@@ -134,13 +134,13 @@ section_cited() {
 section_navigation() {
     run "the four navigational documents' pointers into the tree" \
         '^[0-9]+ path pointer|— doc/(PLAN|crate-map|state-of-play|HANDOVER)\.md:[0-9]+$' \
-        cargo run -q --release -p conformance --bin pointers
+        cargo run -q -p conformance --bin pointers
     run "page-list notes a later decision overtook" \
         '^[0-9]+ page-list note' \
-        cargo run -q --release -p conformance --bin overtaken
+        cargo run -q -p conformance --bin overtaken
     run "ledger entries claimed unread that the tree quotes" \
         '^[0-9]+ rows claim|^confirmed: ' \
-        cargo run -q --release -p conformance --bin unread
+        cargo run -q -p conformance --bin unread
     # `grep -c` exits 1 when no file matches, which is the clean answer, so only 2 is a failure.
     run "history the comment rule keeps out of the four documents" \
         ':[0-9]+$' \
@@ -201,12 +201,12 @@ section_prose() {
         python3 tools/comment-history.py
     prose_line superlat. '^[0-9]+ superlative' 'tools/state.sh superlatives' \
         env PYTHONDONTWRITEBYTECODE=1 python3 tools/superlatives.py --count
-    prose_line overtaken '^[0-9]+ page-list note' 'cargo run -q --release -p conformance --bin overtaken' \
-        cargo run -q --release -p conformance --bin overtaken
-    prose_line unread '^[0-9]+ rows claim' 'cargo run -q --release -p conformance --bin unread' \
-        cargo run -q --release -p conformance --bin unread
+    prose_line overtaken '^[0-9]+ page-list note' 'cargo run -q -p conformance --bin overtaken' \
+        cargo run -q -p conformance --bin overtaken
+    prose_line unread '^[0-9]+ rows claim' 'cargo run -q -p conformance --bin unread' \
+        cargo run -q -p conformance --bin unread
     prose_line names '^no doc comment names|path\(s\) whose prefix this tree declares' 'tools/state.sh names' \
-        cargo run -q --release -p conformance --bin names
+        cargo run -q -p conformance --bin names
     prose_line variables 'variable\(s\) read by the code' 'cargo test -p conformance --test variables -- --nocapture' \
         cargo test -p conformance --test variables -- --nocapture
     prose_line programs '^test result' 'cargo test -p conformance --test conformance the_ledger_agrees_with_the_standard_and_with_the_tree' \

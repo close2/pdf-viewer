@@ -1,7 +1,7 @@
 //! Sweeps this project's own prose for quotations that misquote the standard.
 //!
 //! ```sh
-//! cargo run --release -p conformance --bin quotations
+//! cargo run -p conformance --bin quotations
 //! ```
 //!
 //! Two populations `doc/todo/48` named and nothing read. The first is every Markdown document

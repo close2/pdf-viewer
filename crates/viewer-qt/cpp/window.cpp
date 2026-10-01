@@ -1256,7 +1256,11 @@ void MainWindow::buildFindBar()
         host_->retype(rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
         applyUpdates();
     });
-    connect(needle_, &QLineEdit::returnPressed, this, [step] { step(false); });
+    // Shift with Enter is the previous occurrence, as it is in the other two windows' find bars
+    // (ADR 1453); QLineEdit signals both presses alike, so the modifier is read as it is signalled.
+    connect(needle_, &QLineEdit::returnPressed, this, [step] {
+        step(QGuiApplication::keyboardModifiers().testFlag(Qt::ShiftModifier));
+    });
 
     auto* open = new QAction(this);
     open->setShortcuts({QKeySequence::Find, QKeySequence(Qt::Key_Slash)});

@@ -2,7 +2,7 @@
 //! corpus the sentence does not name.
 //!
 //! ```sh
-//! cargo run --release -p conformance --bin undenominated
+//! cargo run -p conformance --bin undenominated
 //! ```
 //!
 //! `doc/todo/01`'s twenty-third sweep — the eighteenth of them to be a program.

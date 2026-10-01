@@ -3,11 +3,12 @@
 //!
 //! # Why a restart interval is where a codestream can be cut
 //!
-//! ISO/IEC 10918-1 section F.1.2.3 (paraphrased, since only ISO 32000-2 is quoted in this tree)
-//! makes a restart marker reset everything the entropy decoder carries from one MCU to the
-//! next: the DC predictions return to zero and the bit reader starts on the byte after the
-//! marker. So the entropy-coded data after a restart marker decodes with nothing from before
-//! it, which is the whole purpose the standard gives the marker. `zune-jpeg` decodes a scan on
+//! ISO/IEC 10918-1 section E.2.4 (paraphrased, since only ISO 32000-2 is quoted in this tree)
+//! resets the decoder at every restart marker, and what it carries from one MCU to the next is
+//! gone: the DC predictions return to zero (section F.2.1.3.1), and the bit reader starts on
+//! the byte after the marker, since section F.1.2.3 pads the segment before it to a whole byte.
+//! So the entropy-coded data after a restart marker decodes with nothing from before it, which
+//! is the whole purpose the standard gives the marker. `zune-jpeg` decodes a scan on
 //! one thread, and its Huffman pass is most of what a page of one photograph costs to interpret
 //! (ADR 1271 section 5) — but a codestream whose restart intervals begin at the start of an MCU
 //! row can be cut into several codestreams, each one the frame's own header segments with a
@@ -98,12 +99,15 @@ struct Band {
 /// `options` is what every band's decoder is built with; the caller's `RGBA` output is what
 /// this was measured and argued for. The result is the frame's whole raster, `width × lines ×
 /// channels` bytes, top row first.
+/// `scan` is the caller's walk of `data`'s first scan, which this reads instead of walking it
+/// again.
 pub(super) fn decode(
     data: &[u8],
+    scan: &super::FirstScan,
     options: zune_jpeg::zune_core::options::DecoderOptions,
     channels: usize,
 ) -> Option<Vec<u8>> {
-    let layout = layout(data)?;
+    let layout = layout(data, scan)?;
     let width = frame_width(data, &layout)?;
     let samples = u64::from(width).saturating_mul(u64::from(layout.lines));
     if samples < BANDED_FLOOR {
@@ -124,7 +128,7 @@ fn frame_width(data: &[u8], layout: &Layout) -> Option<u32> {
 
 /// Reads the marker segments up to the scan and the scan's restart structure, or `None` for any
 /// codestream the module comment declines.
-fn layout(data: &[u8]) -> Option<Layout> {
+fn layout(data: &[u8], scan: &super::FirstScan) -> Option<Layout> {
     if data.get(..2)? != [0xFF, 0xD8] {
         return None;
     }
@@ -191,7 +195,10 @@ fn layout(data: &[u8]) -> Option<Layout> {
                 let (mcu_width, mcu_lines) = (h.checked_mul(8)?, v.checked_mul(8)?);
                 let mcus_per_row = width.div_ceil(mcu_width);
                 let mcu_rows = lines.div_ceil(mcu_lines);
-                let intervals = restart_intervals(data, ends)?;
+                if scan.data_starts != ends {
+                    return None;
+                }
+                let intervals = restart_intervals(data, scan)?;
                 let total = u64::from(mcus_per_row).checked_mul(u64::from(mcu_rows))?;
                 if u64::try_from(intervals.len()).ok()? != total.div_ceil(u64::from(restart)) {
                     return None;
@@ -249,47 +256,34 @@ fn frame_header(data: &[u8], at: usize) -> Option<(usize, u32, u32, u8, u8, u8)>
     Some((at.checked_add(3)?, lines, width, count, first, rest))
 }
 
-/// The entropy-coded data from `from` to the scan's end, split at its restart markers — or
-/// `None` where a marker is out of sequence or the scan is ended by anything but `EOI` or the
-/// end of the data.
+/// The entropy-coded data of the walked `scan`, split at its restart markers — or `None` where
+/// a marker is out of sequence or the scan is ended by anything but `EOI` or the end of the
+/// data.
 ///
 /// Inside entropy-coded data an `FF` is followed by a stuffed `00`, by fill `FF`s, or by a
 /// marker; the restart markers cycle through `RST0` to `RST7` in order, so a marker out of that
 /// order is a codestream whose intervals cannot be trusted to be where the count puts them.
-fn restart_intervals(data: &[u8], from: usize) -> Option<Vec<Range<usize>>> {
+fn restart_intervals(data: &[u8], scan: &super::FirstScan) -> Option<Vec<Range<usize>>> {
     let mut intervals = Vec::new();
-    let mut starts = from;
-    let mut at = from;
-    loop {
-        let Some(opens) = super::next_ff_byte(data, at) else {
-            // A scan the data ends without `EOI` — which the decoder reads to the end as it is,
-            // and which the last band is therefore handed exactly as it stands.
-            intervals.push(starts..data.len());
-            return Some(intervals);
-        };
-        at = opens.checked_add(1)?;
-        while data.get(at) == Some(&0xFF) {
-            at = at.checked_add(1)?;
-        }
-        let code = *data.get(at)?;
-        at = at.checked_add(1)?;
-        match code {
-            0x00 => {}
-            0xD0..=0xD7 => {
-                let expected = u8::try_from(intervals.len() % 8).ok()?;
-                if code != 0xD0_u8.checked_add(expected)? {
-                    return None;
-                }
-                intervals.push(starts..opens);
-                starts = at;
+    let mut starts = scan.data_starts;
+    for marker in &scan.inside {
+        if let 0xD0..=0xD7 = marker.code {
+            let expected = u8::try_from(intervals.len() % 8).ok()?;
+            if marker.code != 0xD0_u8.checked_add(expected)? {
+                return None;
             }
-            0xD9 => {
-                intervals.push(starts..opens);
-                return Some(intervals);
-            }
-            _ => return None,
+            intervals.push(starts..marker.opens);
+            starts = marker.resumes;
         }
     }
+    match scan.ends {
+        // A scan the data ends without `EOI` — which the decoder reads to the end as it is, and
+        // which the last band is therefore handed exactly as it stands.
+        None => intervals.push(starts..data.len()),
+        Some(marker) if marker.code == 0xD9 => intervals.push(starts..marker.opens),
+        Some(_) => return None,
+    }
+    Some(intervals)
 }
 
 /// The bands a frame is cut into, each [`Band::kept`] at least `lines` tall where the frame
@@ -527,7 +521,8 @@ mod tests {
             )
             .decode()
             .expect("the whole frame decodes");
-            let layout = read_layout(data).unwrap_or_else(|| panic!("{name} is admitted"));
+            let scan = super::super::first_scan(data).expect("a scan");
+            let layout = read_layout(data, &scan).unwrap_or_else(|| panic!("{name} is admitted"));
             let width = super::frame_width(data, &layout).expect("a width");
             let mut cut = 0;
             for lines in [8, 16, 24, 40, 64] {

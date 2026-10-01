@@ -2849,7 +2849,14 @@ impl ViewState {
             // stale value inherited by the field's other widgets. The value goes where the
             // document already keeps one, or on the widget where the document keeps none.
             let (id, mut field) = holder(document, widget, dict.clone());
+            let toggling = toggles(document, &dict);
             match entered.value.as_ref() {
+                // §12.7.5.2.3 and §12.7.5.2.4 make a check box's and a radio button's `/V` a *name*:
+                // the edit carries the appearance-state name as text, and it is written as the
+                // name it is.
+                Some(object) if toggling => {
+                    field.insert(Name::new(&b"V"[..]), state_name(object));
+                }
                 // Already the object §12.7.5.4 and §12.7.5.3 say `/V` is — a string, or an array
                 // of strings for several selected items — because `set_field` resolved it against
                 // the field's own `/Opt`. Encoding it a second time here is how the file and the
@@ -2891,6 +2898,9 @@ impl ViewState {
             }
             update.put(id, Object::Dictionary(field));
             update.write_appearance(document, widget, &dict, value);
+            if toggling {
+                update.write_state(document, widget, entered.value.as_ref());
+            }
             // Table 166's `/M` is the *annotation's*, so it goes on the widget rather than on
             // whichever ancestor §12.7.4.1 keeps the value on.
             update.stamp_annotation(document, widget);
@@ -4279,6 +4289,42 @@ impl Update {
         }
     }
 
+    /// Writes a toggling button's `/AS`, the appearance state its new value selects.
+    ///
+    /// ISO 32000-2 §12.7.5.2.3, which §12.7.5.2.4 repeats for a radio button:
+    ///
+    /// > The value of the V key shall also be the value of the AS key. If they are not equal, then
+    /// > the value of the AS key shall be used instead of the V key to determine which appearance
+    /// > to use.
+    ///
+    /// So an update that wrote `/V` alone left a ticked box drawn unticked by every reader,
+    /// this one included, the moment the file was opened again (ADR 1453). The state is the value
+    /// where this widget's `/AP` `/N` holds an appearance of that name, and `Off` where it does not
+    /// — which is how one widget of a radio set is on and its siblings, sharing the field's
+    /// value, are off. A widget whose `/N` is not a dictionary of states has nothing to select
+    /// among and is left as it is.
+    fn write_state(&mut self, document: &Document, widget: ObjectId, value: Option<&Object>) {
+        let Some(mut widget_dict) = self.current(document, widget) else {
+            return;
+        };
+        let normal = document
+            .get_key(&widget_dict, "AP")
+            .as_dict()
+            .map(|appearances| document.get_key(appearances, "N"));
+        let Some(Object::Dictionary(states)) = normal else {
+            return;
+        };
+        let on = value
+            .map(state_name)
+            .and_then(|name| name.as_name().cloned())
+            .filter(|name| {
+                name.as_bytes() != b"Off" && states.iter().any(|(state, _)| state == name)
+            });
+        let state = on.unwrap_or_else(|| Name::new(&b"Off"[..]));
+        widget_dict.insert(Name::new(&b"AS"[..]), Object::Name(state));
+        self.put(widget, Object::Dictionary(widget_dict));
+    }
+
     /// Writes §12.7.4.3's appearance stream for a widget whose value this update changed.
     ///
     /// The clause states where it goes and nothing about who writes it out:
@@ -4619,6 +4665,39 @@ pub fn is_file_select(document: &Document, name: &str) -> bool {
         current = parent;
     }
     false
+}
+
+/// Whether a widget belongs to one of §12.7.5.2's two toggling buttons: Table 226's `/FT` `/Btn`,
+/// inherited, without Table 229 bit 17's `Pushbutton`, which "holds no value".
+fn toggles(document: &Document, widget: &Dictionary) -> bool {
+    let mut current = widget.clone();
+    let (mut kind, mut flags) = (None, None);
+    for _ in 0..MAX_FIELD_DEPTH {
+        if kind.is_none() {
+            kind = document
+                .get_key(&current, "FT")
+                .as_name()
+                .map(|name| name.as_bytes() == b"Btn");
+        }
+        if flags.is_none() {
+            flags = document.get_key(&current, "Ff").as_integer();
+        }
+        let Some(parent) = document.get_key(&current, "Parent").as_dict().cloned() else {
+            break;
+        };
+        current = parent;
+    }
+    kind == Some(true) && flags.unwrap_or(0) & (1 << 16) == 0
+}
+
+/// A toggling button's value as §12.7.5.2.3's name: the state name the edit carries as text.
+fn state_name(value: &Object) -> Object {
+    match value {
+        Object::String(bytes) => Object::Name(Name::new(
+            pdf_syntax::text_string::text_string(bytes).as_bytes(),
+        )),
+        other => other.clone(),
+    }
 }
 
 fn is_read_only(document: &Document, widget: ObjectId) -> bool {

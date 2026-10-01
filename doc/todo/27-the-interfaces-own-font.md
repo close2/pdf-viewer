@@ -95,3 +95,26 @@ by UAX #9 as one paragraph and laid out a line at a time (`Label::line_of`), so 
 with a word of the other direction still reads in its paragraph's. `quorra-qt` registers its faces
 from the same search; `quorra-qt` hands none to Qt before the first frame is on the screen (trap 70,
 ADR 1429).
+
+## What is not answered: a right-to-left word the find bar cannot find
+
+**A word typed into the find bar is not found on a page that shows it, in all three windows**
+(ADR 1453, `tools/drive-windows.sh`'s `25-find-arabic`). The bar sets the typed word correctly —
+joined, in its own direction, the caret at its end — and the search answers "not in this document"
+on `ArabicCIDTrueType.pdf`, whose four lines are that word's phrase. Two folds are missing, and
+they are separate questions:
+
+1. **Presentation forms.** The document's `/ToUnicode` maps its glyphs to the Arabic
+   Presentation Forms-B block (U+FE70–U+FEFF), and §9.10.2 hands the mapping through as stated, so
+   the readback holds the positional forms where a person types the nominal letters.
+   `viewer_core::select::find` compares character for character after lower-casing. The fold is
+   `UnicodeData.txt`'s `<isolated>`, `<final>`, `<initial>` and `<medial>` decompositions, which
+   `pdf-font`'s build already compiles in for shaping (`PRESENTATION_FORMS`,
+   `PRESENTATION_LIGATURES`) — so the table exists and the search does not ask it.
+2. **Order.** The glyphs are shown left to right, so the readback is in visual order. §14.8.2.3
+   gives a *tagged* document the means to say what the logical order is; an untagged page states
+   nothing, and the reading — UAX #9 over the readback's line, or the needle reversed into visual
+   order — is a choice nobody has made.
+
+Typing the presentation forms in stored order does not find it either, which is what says the
+second fold is needed beside the first.

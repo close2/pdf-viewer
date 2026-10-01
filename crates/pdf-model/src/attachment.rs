@@ -400,12 +400,17 @@ pub fn associated_in_property_list(document: &Document, dict: &Dictionary) -> Ve
     }
 }
 
-/// The array under one key, read as §14.13's file specifications.
-fn associated_under(document: &Document, dict: &Dictionary, key: &str) -> Vec<Attachment> {
-    let array = document.get_key(dict, key);
-    let Some(items) = array.as_array() else {
-        return Vec::new();
-    };
+/// §14.13.5's named resource when it *is* the array, rather than a dictionary holding one.
+///
+/// > The named resource in the Property List (see 14.6.2, "Property lists") shall specify an
+/// > array of file specification dictionaries to which the content is associated.
+///
+/// read in its plainest sense, and it is the form §14.13.10's EXAMPLE 2 writes:
+/// `/Properties <</NamedAF [12 0 R]>>` with `/AF /NamedAF BDC` in the stream. The dictionary form
+/// is [`associated_in_property_list`]'s; a section whose resource is this array is the same
+/// association written the way the clause's own example writes it (ADR 1461).
+#[must_use]
+pub fn associated_in_array(document: &Document, items: &[Object]) -> Vec<Attachment> {
     let mut out = Vec::new();
     for item in items.iter().take(MAX_ATTACHMENTS) {
         let resolved = document.resolve(item);
@@ -420,6 +425,14 @@ fn associated_under(document: &Document, dict: &Dictionary, key: &str) -> Vec<At
         }
     }
     out
+}
+
+/// The array under one key, read as §14.13's file specifications.
+fn associated_under(document: &Document, dict: &Dictionary, key: &str) -> Vec<Attachment> {
+    let array = document.get_key(dict, key);
+    array
+        .as_array()
+        .map_or_else(Vec::new, |items| associated_in_array(document, items))
 }
 
 /// The array under one key, read as the specifications that carry no embedded stream.

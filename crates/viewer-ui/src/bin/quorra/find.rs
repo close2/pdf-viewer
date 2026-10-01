@@ -176,8 +176,8 @@ impl App {
 
 /// The colour every occurrence of a search string is washed in.
 ///
-/// A paler yellow than [`overlays::SELECTION`](crate::overlays)'s blue and multiplied over the
-/// page for the same reason: the glyphs underneath have to stay readable. **The colour is a
+/// A paler yellow than [`overlays::SELECTION`](crate::overlays)'s blue, and washed over the page
+/// as it is so that the glyphs underneath stay readable. **The colour is a
 /// choice** — the standard describes no find bar and says nothing about what a match looks like —
 /// and it is chosen to be a different *hue* from the selection rather than a different weight of
 /// it, so that "where else the word is" and "which one you are on" cannot be confused at a glance.

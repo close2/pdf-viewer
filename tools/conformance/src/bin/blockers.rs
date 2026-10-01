@@ -1,7 +1,7 @@
 //! Sweeps the ledger's notes and the tree's comments for a blocker that may have expired.
 //!
 //! ```sh
-//! cargo run --release -p conformance --bin blockers
+//! cargo run -p conformance --bin blockers
 //! ```
 //!
 //! `doc/todo/01`'s first sweep — "while §X does not exist", "needs §Y", "until §Z" — and the

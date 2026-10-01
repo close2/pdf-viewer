@@ -10,6 +10,7 @@
 pub(crate) mod linearized;
 
 use std::collections::BTreeSet;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
@@ -828,4 +829,96 @@ fn check_level(
         }
         check_level(read, dict, Some(item.id), &item.children, out);
     }
+}
+
+/// A two-page document stating §14.12's document-part hierarchy: a `/DPartRoot` whose root node
+/// has two leaves, each page's range, and each page's `/DPart` pointing back at its own leaf as
+/// §14.12.3 requires.
+pub(crate) fn document_parts() -> Vec<u8> {
+    let body = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /DPartRoot 8 0 R >>\nendobj\n\
+                2 0 obj\n<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>\nendobj\n\
+                3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> \
+                /Contents 4 0 R /DPart 10 0 R >>\nendobj\n\
+                4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+                5 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> \
+                /Contents 4 0 R /DPart 11 0 R >>\nendobj\n\
+                6 0 obj\nnull\nendobj\n\
+                7 0 obj\nnull\nendobj\n\
+                8 0 obj\n<< /Type /DPartRoot /DPartRootNode 9 0 R >>\nendobj\n\
+                9 0 obj\n<< /Type /DPart /Parent 8 0 R /DParts [[10 0 R 11 0 R]] >>\nendobj\n\
+                10 0 obj\n<< /Type /DPart /Parent 9 0 R /Start 3 0 R >>\nendobj\n\
+                11 0 obj\n<< /Type /DPart /Parent 9 0 R /Start 5 0 R >>\nendobj\n";
+    let mut out = String::from("%PDF-2.0\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R /ID [<0102> <0304>] >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// Whether any object `document`'s pages or catalog reach states §14.12's `/DPart` or
+/// `/DPartRoot` — the two halves of the hierarchy a page list's edit leaves behind.
+pub(crate) fn states_document_parts(document: &Document) -> bool {
+    let catalog = document.catalog().ok();
+    catalog.is_some_and(|catalog| catalog.get("DPartRoot").is_some())
+        || page_dictionaries(document)
+            .iter()
+            .any(|page| page.get("DPart").is_some())
+}
+
+/// A one-page document stating §14.10's web capture structures: the catalog's `/SpiderInfo`, a
+/// page set filed in both of §14.10.3.1's name trees, and the page's `/ID` naming it.
+pub(crate) fn web_capture() -> Vec<u8> {
+    let body = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /SpiderInfo << /V 1.0 >> \
+                /Names << /IDS << /Names [<00112233445566778899AABBCCDDEEFF> 5 0 R] >> \
+                /URLS << /Names [(http://example.org/) 5 0 R] >> >> >>\nendobj\n\
+                2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+                3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> \
+                /Contents 4 0 R /ID <00112233445566778899AABBCCDDEEFF> >>\nendobj\n\
+                4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+                5 0 obj\n<< /Type /SpiderContentSet /S /SPS \
+                /ID <00112233445566778899AABBCCDDEEFF> /O [3 0 R] >>\nendobj\n";
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R /ID [<0102> <0304>] >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// Which of §14.10.3.1's two name trees `document`'s `/Names` dictionary states.
+pub(crate) fn web_capture_trees(document: &Document) -> Vec<&'static str> {
+    let Ok(catalog) = document.catalog() else {
+        return Vec::new();
+    };
+    let names = document.get_key(&catalog, "Names");
+    let Some(names) = names.as_dict() else {
+        return Vec::new();
+    };
+    ["IDS", "URLS"]
+        .into_iter()
+        .filter(|tree| names.get(tree).is_some())
+        .collect()
 }

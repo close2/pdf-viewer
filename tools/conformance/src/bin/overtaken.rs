@@ -1,7 +1,7 @@
 //! Sweeps the tree's page-list notes for one a later decision overtook.
 //!
 //! ```sh
-//! cargo run --release -p conformance --bin overtaken
+//! cargo run -p conformance --bin overtaken
 //! ```
 //!
 //! `doc/todo/01`'s nineteenth sweep — the fourteenth of them to be a program — and the first to

@@ -2,7 +2,7 @@
 //! the family contradicts.
 //!
 //! ```sh
-//! cargo run --release -p conformance --bin counts
+//! cargo run -p conformance --bin counts
 //! ```
 //!
 //! `doc/todo/01`'s tenth sweep — a parent row's stated count against its children — and the

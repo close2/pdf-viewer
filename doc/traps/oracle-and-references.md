@@ -683,6 +683,16 @@ rasterised to 15 rows, which dilutes every renderer's mean by the same factor, a
 mupdf all sit at the same place (round 1264). Check the raster height against the page height before
 attributing a deficit to a renderer.
 
+### 84. A standard's conformance data is not the standard
+
+ADR 1447 counted the codec's refusal of eight of T.88's ten Annex K streams as defects of the
+codec. Read against the clauses, seven of the streams break T.88 themselves — a wrong
+`SDHUFFBMSIZE`, export runs that never reach the symbol count, a text region referring to no
+dictionary, no OOB ending a height class — and the eighth uses colour, which §7.4.7 excludes; the
+annex is informative, and its reference bitmaps come from the same sample software that wrote the
+streams. The codec's one real defect was the extended template (ADR 1459). Hold a departing stream
+by name with its clause; patch a decoder only for a disagreement the clause decides against it.
+
 ## Things worth knowing
 
 - **The oracle's artefacts are the fastest diagnostic in the tree.** Every non-agreeing page leaves

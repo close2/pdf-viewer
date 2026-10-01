@@ -169,7 +169,9 @@ table back through `support::linearized`, a second reader written from Tables F.
   namespace is not taken, because a namespace name "should take the form of a uniform resource
   identifier" and this program has no basis for inventing one; and a piece still leaves `/Metadata`,
   `/Threads`, `/SpiderInfo`, `/Collection`, `/Perms`, `/Legal`, `/Requirements` and `/DPartRoot`
-  behind, each named in the report where the source states one.
+  behind, each named in the report where the source states one — with each page's `/DPart`, which
+  Table 31 permits only inside a carried hierarchy, and web capture's `/IDS` and `/URLS` trees, which
+  neither a piece nor a merge carries (ADR 1461).
 - **The aligned rotated comparison — the alignment is done and the assertion is not.** Session 915
   did what ADR 0831 §1 priced: `render` states the sub-pixel strip of raster the page does not
   reach (`Origin::Page`'s `overrun_across` and `overrun_down`), and `tests/pages_corpus.rs` derives

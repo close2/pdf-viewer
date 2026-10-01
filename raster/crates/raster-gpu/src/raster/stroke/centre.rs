@@ -32,6 +32,9 @@ pub(super) struct Centre {
     arriving: Vec<Option<Point>>,
     /// Per point, the direction a curve leaves along; empty where no curve does anywhere.
     leaving: Vec<Option<Point>>,
+    /// Per point, whether it lies inside one curve rather than where a segment of the path
+    /// begins or ends; empty where no curve does anywhere.
+    inside: Vec<bool>,
 }
 
 impl Centre {
@@ -41,23 +44,34 @@ impl Centre {
     /// pre-split upstream (§8.5.3.2).
     ///
     /// Where a run of coincident points becomes one, the direction arriving is the first
-    /// one's (where the path arrived) and the one leaving is the last one's (where it went on).
+    /// one's (where the path arrived) and the one leaving is the last one's (where it went on),
+    /// and the point is inside a curve only where every one of the run is.
+    ///
+    /// A curve records a [`Tangent`](super::super::flatten::Tangent) where it begins and where
+    /// it ends and nothing between, so the points after a leaving direction and before the
+    /// next arriving one are the one curve's own flattening ([`Centre::inside_a_curve`]).
     #[expect(clippy::arithmetic_side_effects)] // indices below the lengths just built
     pub(super) fn of(polyline: &Polyline) -> Option<Self> {
         let curved = !polyline.tangents.is_empty();
         let mut points: Vec<Point> = Vec::with_capacity(polyline.points.len());
-        let (mut arriving, mut leaving) = (Vec::new(), Vec::new());
+        let (mut arriving, mut leaving, mut inside) = (Vec::new(), Vec::new(), Vec::new());
         let mut tangents = polyline.tangents.iter().peekable();
+        let mut in_a_curve = false;
         for (i, &p) in polyline.points.iter().enumerate() {
+            let tangent = tangents.next_if(|t| t.at == i);
+            let within = in_a_curve && tangent.is_none();
             #[expect(clippy::float_cmp)] // exact: a zero-length piece, not a near one
             if points.last().is_none_or(|q| q.x != p.x || q.y != p.y) {
                 points.push(p);
                 if curved {
                     arriving.push(None);
                     leaving.push(None);
+                    inside.push(within);
                 }
+            } else if curved {
+                inside[points.len() - 1] &= within;
             }
-            if let Some(tangent) = tangents.next_if(|t| t.at == i) {
+            if let Some(tangent) = tangent {
                 let at = points.len() - 1;
                 if arriving[at].is_none() {
                     arriving[at] = tangent.arriving;
@@ -65,6 +79,7 @@ impl Centre {
                 if tangent.leaving.is_some() {
                     leaving[at] = tangent.leaving;
                 }
+                in_a_curve = tangent.leaving.is_some();
             }
         }
         #[expect(clippy::float_cmp)]
@@ -79,13 +94,28 @@ impl Centre {
                 arriving[0] = Some(back);
             }
             leaving.pop();
+            inside.pop();
         }
         (points.len() >= 2).then_some(Self {
             points,
             closed: polyline.closed,
             arriving,
             leaving,
+            inside,
         })
+    }
+
+    /// Whether point `j` lies inside one curve's flattening, where no two segments of the path
+    /// meet.
+    ///
+    /// ISO 32000-2 §8.4.3.4: "Join styles shall be significant only at points where
+    /// consecutive segments of a path connect at an angle". A curve is one segment, and the
+    /// points its flattening adds are no corner of the path; what is drawn there is
+    /// §8.4.3.2's set of points within the half-width of the chords, which at a point between
+    /// two chords is the disc round it — a round join, whatever join the stroke names
+    /// (ADR 1455).
+    pub(super) fn inside_a_curve(&self, j: usize) -> bool {
+        self.inside.get(j).copied().unwrap_or(false)
     }
 
     /// How many segments the subpath has: one fewer than its points when open, one per

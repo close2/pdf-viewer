@@ -1,7 +1,7 @@
 //! Sweeps the ledger, the tree's comments and this project's prose for a key under the wrong table.
 //!
 //! ```sh
-//! cargo run --release -p conformance --bin tables
+//! cargo run -p conformance --bin tables
 //! ```
 //!
 //! `doc/todo/01`'s ninth sweep — does the table a sentence cites state the key it attributes to it

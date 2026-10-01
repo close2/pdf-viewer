@@ -1,7 +1,7 @@
 //! Sweeps the ledger's `inapplicable` rows for vocabulary the tree names.
 //!
 //! ```sh
-//! cargo run --release -p conformance --bin inapplicable
+//! cargo run -p conformance --bin inapplicable
 //! ```
 //!
 //! `doc/todo/01`'s seventh sweep — the only one that reads the status nobody expects to come back

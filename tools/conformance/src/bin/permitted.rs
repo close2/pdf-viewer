@@ -1,7 +1,7 @@
 //! Sweeps the ledger's `partial` rows for a debt the standard states as a permission.
 //!
 //! ```sh
-//! cargo run --release -p conformance --bin permitted
+//! cargo run -p conformance --bin permitted
 //! ```
 //!
 //! `doc/todo/01`'s twenty-fourth sweep, and the first whose discriminator is neither side of the
