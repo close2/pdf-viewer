@@ -26,7 +26,7 @@ use raster_scene::{ClipId, FillRule, OutlineId, Point, Rect, Scene, Segment};
 use super::Encoder;
 use super::device_space::{apply, compose, transform_preserves_axes};
 use super::hull::HullMemo;
-use super::residue::{Edges, LinkKey, Verdict};
+use super::residue::{Edges, Fill, LinkKey, Verdict};
 use crate::error::RenderError;
 use crate::raster::{self, DeviceTransform, RowEdges, Rule};
 use crate::resources::ResourceStore;
@@ -224,9 +224,11 @@ impl Encoder<'_> {
         let links = self.flatten_chain(&leaf)?;
         if matches!(self.residue.verdict(key), Verdict::Undecided) {
             let region = chain_region(&links, self.visible);
-            let region_bytes = region.map_or(0, |(_, _, w, h)| area(w, h));
-            let tile_bytes = area(width, height);
-            if self.residue.admit(key, region_bytes, tile_bytes) {
+            let priced = region.map_or_else(Fill::default, |(_, top, w, h)| {
+                Fill::new(area(w, h), u64::from(h), row_pieces(&links, top, h))
+            });
+            let tile = Fill::new(area(width, height), u64::from(height), 0);
+            if self.residue.admit(key, priced, tile) {
                 let mask = region.map(|(l, t, w, h)| self.intersect_links(&links, l, t, w, h));
                 // The crop is inside the span at the *other* call site above and was
                 // outside it here, which is the same seam ADR 0023's 2026-08-17
@@ -350,18 +352,12 @@ impl Encoder<'_> {
         let span = self.clock.start();
         let mut combined: Option<raster::CoverageMask> = None;
         for link in links {
-            let mask = match &link.index {
-                Some(index) => raster::fill_mask_indexed(
-                    &link.polylines,
-                    index,
-                    link.rule,
-                    left,
-                    top,
-                    width,
-                    height,
-                ),
-                None => raster::fill_mask(&link.polylines, link.rule, left, top, width, height),
-            };
+            let mask = raster::clip_mask(
+                &link.polylines,
+                link.index.as_deref(),
+                link.rule,
+                (left, top, width, height),
+            );
             combined = Some(match combined {
                 None => mask,
                 Some(mut base) => {
@@ -383,6 +379,31 @@ impl Encoder<'_> {
 /// are scene-derived: a product that could not fit is one the budget below refuses.
 fn area(width: u32, height: u32) -> u64 {
     u64::from(width).saturating_mul(u64::from(height))
+}
+
+/// How many row pieces the links' edges hold inside the rows `top .. top + height`: each
+/// edge counts the device rows it crosses there, which is what a fill over those rows deposits
+/// (ADR 1491's price). One pass over the points, made once per chain a frame decides.
+#[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // rows held to the region
+#[expect(clippy::cast_precision_loss)] // a region's rows, bounded by the viewport
+fn row_pieces(links: &[FlatLink], top: i32, height: u32) -> u64 {
+    let (first, last) = (top as f32, top as f32 + height as f32);
+    let mut pieces = 0_u64;
+    for link in links {
+        for polyline in link.polylines.iter() {
+            let points = &polyline.points;
+            let ends = points.iter().zip(points.iter().cycle().skip(1));
+            for (a, b) in ends {
+                let lo = a.y.min(b.y).max(first);
+                let hi = a.y.max(b.y).min(last);
+                if hi > lo {
+                    let rows = (hi.ceil() - lo.floor()).max(1.0) as u64;
+                    pieces = pieces.saturating_add(rows);
+                }
+            }
+        }
+    }
+    pieces
 }
 
 /// The device rectangle a rectangular link marks, corners ordered.

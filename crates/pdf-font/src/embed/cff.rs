@@ -143,6 +143,13 @@ fn whole(program: &[u8], used: &BTreeSet<u16>) -> Result<Embedded, Refusal> {
     }
     let count = crate::cff::glyph_count(cff).map_err(|_| Refusal::Malformed("CFF "))?;
     let count = u16::try_from(count).map_err(|_| Refusal::Malformed("CFF "))?;
+    // Every glyph the stream shows is one the program holds, and glyph 0 — the `.notdef` a CFF
+    // program's CharStrings INDEX begins with — is among them: the rule `subset` and the `glyf`
+    // closure already apply, so a face that may not be subset is not the one face written with a
+    // CID that reaches nothing (ADR 1495).
+    if used.iter().chain([&0]).any(|glyph| *glyph >= count) {
+        return Err(Refusal::Malformed("CFF "));
+    }
 
     let cid_keyed = crate::cff::uses_cid_operators(cff).map_err(|_| Refusal::Malformed("CFF "))?;
     let system = if cid_keyed {
@@ -1254,6 +1261,33 @@ mod tests {
         assert_eq!(whole.name, "MachineFace");
         let subset = for_embedding(&wrapped(&cff, 0x0004), &used).expect("preview and print");
         assert!(matches!(subset.outlines, Outlines::CompactCid { .. }));
+    }
+
+    /// A face written whole holds every glyph the stream shows, as a subset does: one past the
+    /// face's last glyph is refused rather than written as a CID that reaches nothing (the `embed`
+    /// fuzz target's finding, ADR 1495).
+    #[test]
+    fn a_whole_face_is_refused_a_glyph_it_does_not_hold() {
+        let cff = name_keyed();
+        let count = u16::try_from(
+            Parts::read(&cff)
+                .expect("the fixture reads")
+                .charstrings
+                .len(),
+        )
+        .expect("a few glyphs");
+        let program = wrapped(&cff, 0x0100);
+        assert!(for_embedding(&program, &BTreeSet::from([count - 1])).is_ok());
+        assert_eq!(
+            for_embedding(&program, &BTreeSet::from([count])),
+            Err(Refusal::Malformed("CFF ")),
+            "one past the last glyph, written whole"
+        );
+        assert_eq!(
+            for_embedding(&wrapped(&cff, 0x0000), &BTreeSet::from([count])),
+            Err(Refusal::Malformed("CFF ")),
+            "the same glyph, subset: the rule the whole face now shares"
+        );
     }
 
     /// A `CFF ` face that forbids subsetting is written whole as an OpenType program: the

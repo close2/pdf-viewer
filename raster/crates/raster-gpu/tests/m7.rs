@@ -232,9 +232,10 @@ fn image_respects_rectangular_clips() {
     assert_eq!(pixel(&pixels, 8, 6, 4)[3], 0, "clipped half draws nothing");
 }
 
-/// An oblique placement paints exactly the fragments whose centres map inside the
-/// unit square — the diamond of a 45° rotation, hard-edged by ADR 0011's stated
-/// decision, with nothing outside the footprint.
+/// An oblique placement paints the unit square's image and nothing outside it — the
+/// diamond of a 45° rotation, whose centre is covered whole and whose bounding box's
+/// corners not at all; its edge pixels take the diamond's area in them (ADR 1492,
+/// `an_image_meets_its_residue_as_a_set.rs`).
 #[test]
 fn oblique_image_paints_inside_the_footprint_only() {
     let mut device = device();

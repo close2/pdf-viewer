@@ -12,8 +12,9 @@
 //!
 //! Pages are found by walking the tree on demand rather than by building a list at open
 //! time, because time-to-first-page is what a user perceives. The walk is bounded in both
-//! depth and total nodes visited: `/Kids` may contain a cycle, and a tree claiming a
-//! million nodes should cost a bounded amount of work rather than all available memory.
+//! depth and total nodes visited, and a node met again beneath itself is a cycle and walked no
+//! further: a tree claiming a million nodes should cost a bounded amount of work rather than all
+//! available memory.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -29,6 +30,52 @@ const MAX_TREE_DEPTH: usize = 64;
 ///
 /// Bounds the work a single lookup can cost regardless of what the tree claims.
 const MAX_NODES_VISITED: usize = 1 << 20;
+
+/// What one walk of the page tree has spent, and the nodes it is beneath.
+///
+/// §7.7.3.2 makes the page tree a *tree*: `/Kids` is "[a]n array of indirect references to the
+/// immediate children of this node", and each child names this node as its `/Parent`. So a node
+/// met again beneath itself is a cycle, which stands for no pages. Walked as though it were one
+/// more subtree it branched at every level it was named, until `MAX_NODES_VISITED`: two nodes of
+/// one file that named themselves and each other counted 449 367 pages, and every lookup among
+/// them cost a million visits (ADR 1496). The path is what tells the two apart, and it is at most
+/// `MAX_TREE_DEPTH` long, so asking it is a constant. A node named twice by *different* parents —
+/// a DAG rather than a cycle — is still walked twice, under the visit bound.
+#[derive(Debug, Default)]
+struct Walk {
+    /// Nodes visited, against `MAX_NODES_VISITED`.
+    visited: usize,
+    /// The identities of the nodes above the one being walked, root first.
+    path: Vec<ObjectId>,
+}
+
+impl Walk {
+    /// A walk whose root, given to it without its identity, is still known by `root`.
+    fn rooted(root: Option<ObjectId>) -> Self {
+        Self {
+            visited: 0,
+            path: root.into_iter().collect(),
+        }
+    }
+
+    /// Whether `kid`, named in `node`'s `/Kids`, is `node` itself or a node above it.
+    fn closes_a_cycle(&self, node: Node<'_>, kid: Node<'_>) -> bool {
+        kid.id()
+            .is_some_and(|id| node.id() == Some(id) || self.path.contains(&id))
+    }
+
+    /// Steps beneath `node`.
+    fn enter(&mut self, node: Node<'_>) {
+        self.path.extend(node.id());
+    }
+
+    /// Steps back out from beneath `node`, as [`Self::enter`] stepped in.
+    fn leave(&mut self, node: Node<'_>) {
+        if node.id().is_some() {
+            self.path.pop();
+        }
+    }
+}
 
 /// A node of the page tree, as the walk holds it: by name where the file named it.
 ///
@@ -757,8 +804,12 @@ impl<'a> Pages<'a> {
         let recovering = count == 0
             || (believed.is_some()
                 && !root.as_ref().is_some_and(|node| {
-                    let mut visited = 0usize;
-                    reaches_a_page(document, Node::Direct(node, root_id), &mut visited, 0)
+                    reaches_a_page(
+                        document,
+                        Node::Direct(node, root_id),
+                        &mut Walk::default(),
+                        0,
+                    )
                 }));
         let scanned = if recovering {
             scan_for_pages(document, &tree_named(document, root.as_ref(), root_id))
@@ -844,13 +895,12 @@ impl<'a> Pages<'a> {
         }
         let root = self.root.as_ref()?;
         let mut remaining = index;
-        let mut visited = 0usize;
         find_leaf(
             self.document,
             Node::Direct(root, self.root_id),
             &Inherited::default(),
             &mut remaining,
-            &mut visited,
+            &mut Walk::default(),
             0,
             self.boundaries,
         )
@@ -901,13 +951,12 @@ impl<'a> Pages<'a> {
     pub fn index_of(&self, id: ObjectId) -> Option<usize> {
         let root = self.root.as_ref()?;
         let mut counted = 0usize;
-        let mut visited = 0usize;
         locate(
             self.document,
             Node::Direct(root, self.root_id),
             id,
             &mut counted,
-            &mut visited,
+            &mut Walk::default(),
             0,
         )
     }
@@ -942,14 +991,14 @@ impl<'a> Pages<'a> {
             return out;
         };
         let mut counted = 0usize;
-        let mut visited = 0usize;
         collect(
             self.document,
-            // With no identity, deliberately: see the entry `collect` records.
+            // With no identity, deliberately: see the entry `collect` records. The walk is told
+            // the root's identity apart, so that a `/Kids` naming the root is still its cycle.
             Node::Direct(root, None),
             &mut out,
             &mut counted,
-            &mut visited,
+            &mut Walk::rooted(self.root_id),
             0,
         );
         out
@@ -1174,12 +1223,11 @@ fn tree_named(
     let Some(root) = root else {
         return named;
     };
-    let mut visited = 0usize;
     collect_named(
         document,
         Node::Direct(root, root_id),
         &mut named,
-        &mut visited,
+        &mut Walk::default(),
         0,
     );
     named
@@ -1190,16 +1238,16 @@ fn collect_named(
     document: &Document,
     node: Node<'_>,
     named: &mut BTreeSet<u32>,
-    visited: &mut usize,
+    walk: &mut Walk,
     depth: usize,
 ) {
-    if depth > MAX_TREE_DEPTH || *visited > MAX_NODES_VISITED {
+    if depth > MAX_TREE_DEPTH || walk.visited > MAX_NODES_VISITED {
         return;
     }
     let Some(kids) = node.key(document, "Kids") else {
         return;
     };
-    *visited = visited.saturating_add(1);
+    walk.visited = walk.visited.saturating_add(1);
     let Some(kids) = kids.as_array() else {
         return;
     };
@@ -1208,7 +1256,12 @@ fn collect_named(
             named.insert(id.number);
         }
         let Some(kid) = Node::of(entry) else { continue };
-        collect_named(document, kid, named, visited, depth.saturating_add(1));
+        if walk.closes_a_cycle(node, kid) {
+            continue;
+        }
+        walk.enter(node);
+        collect_named(document, kid, named, walk, depth.saturating_add(1));
+        walk.leave(node);
     }
 }
 
@@ -1218,15 +1271,15 @@ fn locate(
     node: Node<'_>,
     id: ObjectId,
     counted: &mut usize,
-    visited: &mut usize,
+    walk: &mut Walk,
     depth: usize,
 ) -> Option<usize> {
-    if depth > MAX_TREE_DEPTH || *visited > MAX_NODES_VISITED {
+    if depth > MAX_TREE_DEPTH || walk.visited > MAX_NODES_VISITED {
         return None;
     }
 
     let kids = node.key(document, "Kids")?;
-    *visited = visited.saturating_add(1);
+    walk.visited = walk.visited.saturating_add(1);
 
     let Some(kids) = kids.as_array() else {
         // A leaf, and not the one asked for, since a match is recognised at the reference in
@@ -1244,8 +1297,14 @@ fn locate(
             return Some(*counted);
         }
         let Some(kid) = Node::of(entry) else { continue };
-        if let Some(found) = locate(document, kid, id, counted, visited, depth.saturating_add(1)) {
-            return Some(found);
+        if walk.closes_a_cycle(node, kid) {
+            continue;
+        }
+        walk.enter(node);
+        let found = locate(document, kid, id, counted, walk, depth.saturating_add(1));
+        walk.leave(node);
+        if found.is_some() {
+            return found;
         }
     }
     None
@@ -1261,17 +1320,17 @@ fn collect(
     node: Node<'_>,
     out: &mut BTreeMap<ObjectId, usize>,
     counted: &mut usize,
-    visited: &mut usize,
+    walk: &mut Walk,
     depth: usize,
 ) {
-    if depth > MAX_TREE_DEPTH || *visited > MAX_NODES_VISITED {
+    if depth > MAX_TREE_DEPTH || walk.visited > MAX_NODES_VISITED {
         return;
     }
 
     let Some(kids) = node.key(document, "Kids") else {
         return;
     };
-    *visited = visited.saturating_add(1);
+    walk.visited = walk.visited.saturating_add(1);
 
     // A reference to a *leaf* is the entry; a reference to an intermediate node is recorded too,
     // answering with the first page beneath it — which is what `index_of` answers for such a
@@ -1295,28 +1354,26 @@ fn collect(
 
     for entry in kids {
         let Some(kid) = Node::of(entry) else { continue };
-        collect(
-            document,
-            kid,
-            out,
-            counted,
-            visited,
-            depth.saturating_add(1),
-        );
+        if walk.closes_a_cycle(node, kid) {
+            continue;
+        }
+        walk.enter(node);
+        collect(document, kid, out, counted, walk, depth.saturating_add(1));
+        walk.leave(node);
     }
 }
 
 /// Counts leaf nodes, for a tree whose `/Count` is missing or implausible.
 fn count_leaves(document: &Document, node: Node<'_>) -> usize {
-    fn walk(document: &Document, node: Node<'_>, depth: usize, visited: &mut usize) -> usize {
-        if depth > MAX_TREE_DEPTH || *visited > MAX_NODES_VISITED {
+    fn leaves(document: &Document, node: Node<'_>, depth: usize, walk: &mut Walk) -> usize {
+        if depth > MAX_TREE_DEPTH || walk.visited > MAX_NODES_VISITED {
             return 0;
         }
         // A `/Kids` entry naming something that is not a dictionary is no page and no node.
         let Some(kids) = node.key(document, "Kids") else {
             return 0;
         };
-        *visited = visited.saturating_add(1);
+        walk.visited = walk.visited.saturating_add(1);
 
         let Some(kids) = kids.as_array() else {
             // No `/Kids` means this is a leaf, whatever its `/Type` *omits*: trusting `/Type`
@@ -1326,14 +1383,19 @@ fn count_leaves(document: &Document, node: Node<'_>) -> usize {
             return usize::from(!declares_a_node(document, node));
         };
 
-        kids.iter()
-            .filter_map(Node::of)
-            .map(|kid| walk(document, kid, depth.saturating_add(1), visited))
-            .sum()
+        let mut count = 0usize;
+        for kid in kids.iter().filter_map(Node::of) {
+            if walk.closes_a_cycle(node, kid) {
+                continue;
+            }
+            walk.enter(node);
+            count = count.saturating_add(leaves(document, kid, depth.saturating_add(1), walk));
+            walk.leave(node);
+        }
+        count
     }
 
-    let mut visited = 0usize;
-    walk(document, node, 0, &mut visited)
+    leaves(document, node, 0, &mut Walk::default())
 }
 
 /// Whether the tree beneath `node` reaches a page object at all.
@@ -1349,22 +1411,31 @@ fn count_leaves(document: &Document, node: Node<'_>) -> usize {
 /// unless the node's own `/Type` says `Pages`, and both bounds are the same two constants. What
 /// it must not do is *build* the page — a probe that copied the leaf's dictionary and its
 /// `/Resources` would pay ADR 0330's cost twice on every launch, once here and once in `get(0)`.
-fn reaches_a_page(document: &Document, node: Node<'_>, visited: &mut usize, depth: usize) -> bool {
-    if depth > MAX_TREE_DEPTH || *visited > MAX_NODES_VISITED {
+fn reaches_a_page(document: &Document, node: Node<'_>, walk: &mut Walk, depth: usize) -> bool {
+    if depth > MAX_TREE_DEPTH || walk.visited > MAX_NODES_VISITED {
         return false;
     }
     let Some(kids) = node.key(document, "Kids") else {
         return false;
     };
-    *visited = visited.saturating_add(1);
+    walk.visited = walk.visited.saturating_add(1);
 
     let Some(kids) = kids.as_array() else {
         return !declares_a_node(document, node);
     };
 
-    kids.iter()
-        .filter_map(Node::of)
-        .any(|kid| reaches_a_page(document, kid, visited, depth.saturating_add(1)))
+    for kid in kids.iter().filter_map(Node::of) {
+        if walk.closes_a_cycle(node, kid) {
+            continue;
+        }
+        walk.enter(node);
+        let reached = reaches_a_page(document, kid, walk, depth.saturating_add(1));
+        walk.leave(node);
+        if reached {
+            return true;
+        }
+    }
+    false
 }
 
 /// Descends to the leaf at `remaining` pages from here, accumulating inherited attributes.
@@ -1378,11 +1449,11 @@ fn find_leaf(
     node: Node<'_>,
     inherited: &Inherited,
     remaining: &mut usize,
-    visited: &mut usize,
+    walk: &mut Walk,
     depth: usize,
     boundaries: Boundaries,
 ) -> Option<Page> {
-    if depth > MAX_TREE_DEPTH || *visited > MAX_NODES_VISITED {
+    if depth > MAX_TREE_DEPTH || walk.visited > MAX_NODES_VISITED {
         return None;
     }
 
@@ -1390,7 +1461,7 @@ fn find_leaf(
     // before the visit is counted, which is where resolving it and finding no dictionary left
     // it: it consumes none of `remaining` and none of the budget.
     let kids = node.key(document, "Kids")?;
-    *visited = visited.saturating_add(1);
+    walk.visited = walk.visited.saturating_add(1);
 
     let Some(kids) = kids.as_array() else {
         // A node whose own `/Type` says it is not a page has no page here to take, and none
@@ -1420,6 +1491,9 @@ fn find_leaf(
         // is: §7.7.3.2 makes `/Kids` "an array of indirect references to the immediate
         // children", and a child held by name is a child nothing has copied yet.
         let Some(kid) = Node::of(entry) else { continue };
+        if walk.closes_a_cycle(node, kid) {
+            continue;
+        }
 
         // Skip whole subtrees using `/Count` where it is trustworthy: for a hundred-thousand
         // page document this is the difference between a lookup costing six node reads and
@@ -1447,16 +1521,19 @@ fn find_leaf(
             continue;
         }
 
-        if let Some(page) = find_leaf(
+        walk.enter(node);
+        let page = find_leaf(
             document,
             kid,
             &inherited,
             remaining,
-            visited,
+            walk,
             depth.saturating_add(1),
             boundaries,
-        ) {
-            return Some(page);
+        );
+        walk.leave(node);
+        if page.is_some() {
+            return page;
         }
     }
 

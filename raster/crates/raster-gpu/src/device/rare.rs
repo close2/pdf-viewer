@@ -39,7 +39,7 @@ impl Device {
             Some((fx, fy)) => self.reduced_textures.get(&(op.image, fx, fy)),
             None => self.image_textures.get(&op.image),
         };
-        let Some((_, image_view)) = looked_up else {
+        let Some(image_view) = looked_up.map(|texture| &texture.view) else {
             return Err(RenderError::UnknownImage {
                 image: ImageId(op.image),
             });

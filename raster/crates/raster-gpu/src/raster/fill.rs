@@ -28,9 +28,11 @@ use super::flatten::Polyline;
 
 mod exact;
 mod overlap;
+mod real;
 mod rows;
 mod topology;
 
+use real::Real;
 pub(crate) use rows::RowIndex;
 
 /// A rasterised coverage tile: `width × height` bytes anchored at integer device
@@ -142,37 +144,37 @@ pub(crate) fn fill_mask_settled(
     region: (i32, i32, u32, u32),
     two_values: bool,
 ) -> CoverageMask {
-    fill_over(polylines, None, rule, region, two_values)
+    fill_over::<f32>(polylines, None, rule, region, two_values)
 }
 
-/// [`fill_mask`], reading only the edges and subpaths `index` lists for the region's rows:
-/// the same bytes, from the few edges that can reach a small region of a large fill
+/// A clip's residue over a region: [`fill_mask`]'s definition with its arithmetic in `f64`,
+/// reading only the edges and subpaths `index` lists for the region's rows where one is kept
 /// (ADR 1479, [`RowIndex`]).
-pub(crate) fn fill_mask_indexed(
+///
+/// **One set, one byte per pixel, whichever region asked** (ADR 1491). A chain's residue is
+/// filled over its own region when that region is kept and over the asking mark's tile when it
+/// is not (ADR 0049), and the two must agree for keeping a region to be a question of cost
+/// alone. In `f32` they disagree by a level where the area lies within a few units in the last
+/// place of a rounding boundary — the region's columns arrive one deposit at a time where a
+/// tile's arrive as one at its border, and two tiles over one pixel disagree in the same way.
+/// In `f64` from the same `f32` points both are the area to far below a level. A mark keeps
+/// `f32`, because its bytes are the compute lane's too ([`real`]).
+pub(crate) fn clip_mask(
     polylines: &[Polyline],
-    index: &RowIndex,
+    index: Option<&RowIndex>,
     rule: Rule,
-    left: i32,
-    top: i32,
-    width: u32,
-    height: u32,
+    (left, top, width, height): (i32, i32, u32, u32),
 ) -> CoverageMask {
-    fill_over(
-        polylines,
-        Some(index),
-        rule,
-        (left, top, width, height),
-        false,
-    )
+    fill_over::<f64>(polylines, index, rule, (left, top, width, height), false)
 }
 
-/// The one fill both entries share: every edge, or the ones `index` lists for the region,
-/// visited in the same order.
+/// The one fill every entry shares: every edge, or the ones `index` lists for the region,
+/// visited in the same order, accumulated in `R`.
 // The accumulation arithmetic below is bounded by construction: coordinates are
 // clamped into the region, whose dimensions were checked against the frame budget
 // before allocation. Stated once here rather than per line of a hot loop.
 #[expect(clippy::arithmetic_side_effects)]
-fn fill_over(
+fn fill_over<R: Real>(
     polylines: &[Polyline],
     index: Option<&RowIndex>,
     rule: Rule,
@@ -182,12 +184,11 @@ fn fill_over(
     let w = width as usize;
     let h = height as usize;
     // One spill column: a deposit at the right edge lands in it rather than wrapping.
-    let mut acc = vec![0.0_f32; (w + 1) * h];
+    let mut acc = vec![R::ZERO; (w + 1) * h];
 
-    #[expect(clippy::cast_precision_loss)] // region dims are bounded by target limits
-    let (fw, fh) = (w as f32, h as f32);
+    let (fw, fh) = (R::of_count(w), R::of_count(h));
     let mut deposit = |polyline: &Polyline, i: usize| {
-        let (x0, y0, x1, y1) = local_edge(polyline, i, left, top);
+        let (x0, y0, x1, y1) = local_edge::<R>(polyline, i, left, top);
         if let Some(edge) = Edge::cut(x0, y0, x1, y1, fh) {
             accumulate_edge(&mut acc, w, fw, &edge);
         }
@@ -209,23 +210,20 @@ fn fill_over(
     // rule maps winding to coverage; `round` quantises (our stated rule, ADR 0005).
     let mut coverage = vec![0_u8; w * h];
     for y in 0..h {
-        let mut running = 0.0_f32;
+        let mut running = R::ZERO;
         for x in 0..w {
             running += acc[y * (w + 1) + x];
             // Kept: the pixel's average winding is what fixes the winding's constant
             // where a complex pixel is recomputed.
             acc[y * (w + 1) + x] = running;
             let cov = match rule {
-                Rule::NonZero => running.abs().min(1.0),
+                Rule::NonZero => running.abs().min(R::ONE),
                 Rule::EvenOdd => {
-                    let m = running.abs().rem_euclid(2.0);
-                    1.0 - (m - 1.0).abs()
+                    let m = running.abs().rem_euclid(R::ONE + R::ONE);
+                    R::ONE - (m - R::ONE).abs()
                 }
             };
-            #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            {
-                coverage[y * w + x] = (cov * 255.0).round() as u8;
-            }
+            coverage[y * w + x] = (cov * R::LEVELS).round().byte();
         }
     }
     // Where the fill can wind a pixel more than two neighbouring values, the integral
@@ -297,51 +295,52 @@ fn complex_pixels(
 /// Edge `i` of `polyline` in the region's coordinates, the last one returning to the
 /// start: filling closes every subpath (§8.5.3.1).
 #[expect(clippy::arithmetic_side_effects)] // `i + 1` below `usize::MAX`, `% n` with n > i
-#[expect(clippy::cast_precision_loss)] // region origins are bounded by target limits
-fn local_edge(polyline: &Polyline, i: usize, left: i32, top: i32) -> (f32, f32, f32, f32) {
+fn local_edge<R: Real>(polyline: &Polyline, i: usize, left: i32, top: i32) -> (R, R, R, R) {
     let n = polyline.points.len();
     let (p0, p1) = (polyline.points[i], polyline.points[(i + 1) % n]);
+    let (left, top) = (R::of_corner(left), R::of_corner(top));
     (
-        p0.x - left as f32,
-        p0.y - top as f32,
-        p1.x - left as f32,
-        p1.y - top as f32,
+        R::of(p0.x) - left,
+        R::of(p0.y) - top,
+        R::of(p1.x) - left,
+        R::of(p1.y) - top,
     )
 }
 
 /// One edge cut to the region's rows, top to bottom, with the winding it carries.
 #[derive(Debug, Clone, Copy)]
-struct Edge {
-    top_x: f32,
-    top_y: f32,
-    bot_y: f32,
+struct Edge<R> {
+    top_x: R,
+    top_y: R,
+    bot_y: R,
     /// `x` per unit of `y`, finite by construction.
-    dxdy: f32,
+    dxdy: R,
     /// `+1` for an edge running down the rows, `−1` for one running up.
-    dir: f32,
+    dir: R,
 }
 
-impl Edge {
+impl<R: Real> Edge<R> {
     /// The edge from `(x0, y0)` to `(x1, y1)` cut to the rows `0..fh`, or `None` where it
     /// deposits nothing: a horizontal edge, one outside the rows, or one whose slope `f32`
     /// cannot state.
-    fn cut(x0: f32, y0: f32, x1: f32, y1: f32, fh: f32) -> Option<Self> {
+    // Floating-point arithmetic, which cannot wrap; named because the type is generic.
+    #[expect(clippy::arithmetic_side_effects)]
+    fn cut(x0: R, y0: R, x1: R, y1: R, fh: R) -> Option<Self> {
         // Exact comparison: a horizontal edge deposits nothing by definition, and a
         // nearly-horizontal one deposits its nearly-zero area correctly.
-        #[expect(clippy::float_cmp)]
         if y0 == y1 {
             return None;
         }
         let (dir, top_x, top_y, bot_x, bot_y) = if y0 < y1 {
-            (1.0_f32, x0, y0, x1, y1)
+            (R::ONE, x0, y0, x1, y1)
         } else {
-            (-1.0, x1, y1, x0, y0)
+            (-R::ONE, x1, y1, x0, y0)
         };
         // Clip vertically to the region; x interpolates along the clipped span.
-        let (top_x, top_y) = if top_y < 0.0 {
+        let (top_x, top_y) = if top_y < R::ZERO {
             (
-                top_x + (bot_x - top_x) * (0.0 - top_y) / (bot_y - top_y),
-                0.0,
+                top_x + (bot_x - top_x) * (R::ZERO - top_y) / (bot_y - top_y),
+                R::ZERO,
             )
         } else {
             (top_x, top_y)
@@ -379,7 +378,8 @@ impl Edge {
     }
 
     /// The edge's `x` at height `y`, by the one interpolation every user of it shares.
-    fn x_at(&self, y: f32) -> f32 {
+    #[expect(clippy::arithmetic_side_effects)] // floating-point, as `cut`
+    fn x_at(&self, y: R) -> R {
         self.top_x + (y - self.top_y) * self.dxdy
     }
 }
@@ -392,17 +392,16 @@ impl Edge {
 /// where `d` is the signed slab height and `xm` the piece's mean x within the cell —
 /// the exact trapezoid area to the right of the edge, plus the spill that keeps the
 /// running sum equal to the full winding beyond the crossing.
-#[expect(clippy::arithmetic_side_effects, clippy::cast_possible_truncation)]
-#[expect(clippy::cast_sign_loss)]
-fn accumulate_edge(acc: &mut [f32], w: usize, fw: f32, edge: &Edge) {
-    let mut y = edge.top_y.floor().max(0.0);
+#[expect(clippy::arithmetic_side_effects)]
+fn accumulate_edge<R: Real>(acc: &mut [R], w: usize, fw: R, edge: &Edge<R>) {
+    let mut y = edge.top_y.floor().max(R::ZERO);
     while y < edge.bot_y {
-        let row = y as usize;
+        let row = y.index();
         if row >= acc.len() / (w + 1) {
             break;
         }
         let entry_y = edge.top_y.max(y);
-        let exit_y = edge.bot_y.min(y + 1.0);
+        let exit_y = edge.bot_y.min(y + R::ONE);
         let (entry_x, exit_x) = (edge.x_at(entry_y), edge.x_at(exit_y));
         deposit_slab(
             &mut acc[row * (w + 1)..(row + 1) * (w + 1)],
@@ -413,7 +412,7 @@ fn accumulate_edge(acc: &mut [f32], w: usize, fw: f32, edge: &Edge) {
             exit_x,
             exit_y,
         );
-        y += 1.0;
+        y += R::ONE;
     }
 }
 
@@ -441,8 +440,8 @@ fn accumulate_edge(acc: &mut [f32], w: usize, fw: f32, edge: &Edge) {
 /// arithmetic it always did, to the bit, which is what keeps every tile that is not cut
 /// by a clip or by the page edge pixel-for-pixel where it was.
 #[expect(clippy::arithmetic_side_effects)]
-fn deposit_slab(row: &mut [f32], fw: f32, dir: f32, xs: f32, ys: f32, xe: f32, ye: f32) {
-    if xs >= 0.0 && xs <= fw && xe >= 0.0 && xe <= fw {
+fn deposit_slab<R: Real>(row: &mut [R], fw: R, dir: R, xs: R, ys: R, xe: R, ye: R) {
+    if xs >= R::ZERO && xs <= fw && xe >= R::ZERO && xe <= fw {
         deposit_inside(row, fw, dir, xs, ys, xe, ye);
         return;
     }
@@ -452,25 +451,24 @@ fn deposit_slab(row: &mut [f32], fw: f32, dir: f32, xs: f32, ys: f32, xe: f32, y
     // the column at that border and a zero beside it. That deposit, made directly, without
     // the two divisions and the walk that arrive at it (ADR 1479): a small tile of a large
     // clip meets most of the clip's edges in its rows on one side or the other.
-    if xs < 0.0 && xe < 0.0 {
-        deposit_at_border(row, 0, dir * (ye - ys), 0.0);
+    if xs < R::ZERO && xe < R::ZERO {
+        deposit_at_border(row, 0, dir * (ye - ys), R::ZERO);
         return;
     }
     if xs > fw && xe > fw {
         let last = row.len().saturating_sub(2);
-        #[expect(clippy::cast_precision_loss)] // a column index of a bounded region
-        deposit_at_border(row, last, dir * (ye - ys), fw - last as f32);
+        deposit_at_border(row, last, dir * (ye - ys), fw - R::of_count(last));
         return;
     }
     let (dx, dy) = (xe - xs, ye - ys);
     // At most two borders can be crossed, and `dx == 0` crosses neither: a vertical
     // piece is on one side for its whole height.
-    let mut cuts = [(0.0_f32, 0.0_f32); 2];
+    let mut cuts = [(R::ZERO, R::ZERO); 2];
     let mut count = 0;
-    if dx != 0.0 {
-        for border in [0.0_f32, fw] {
+    if dx != R::ZERO {
+        for border in [R::ZERO, fw] {
             let t = (border - xs) / dx;
-            if t > 0.0 && t < 1.0 {
+            if t > R::ZERO && t < R::ONE {
                 cuts[count] = (t, border);
                 count += 1;
             }
@@ -494,9 +492,9 @@ fn deposit_slab(row: &mut [f32], fw: f32, dir: f32, xs: f32, ys: f32, xe: f32, y
 /// What [`deposit_inside`] deposits for a piece both of whose ends it clamps onto one border
 /// column: `d · (1 − frac)` into `cell` and `d · frac` beside it, the same two products.
 #[expect(clippy::arithmetic_side_effects)] // `cell + 1` is the spill column at most
-fn deposit_at_border(row: &mut [f32], cell: usize, d: f32, frac: f32) {
-    if d != 0.0 {
-        row[cell] += d * (1.0 - frac);
+fn deposit_at_border<R: Real>(row: &mut [R], cell: usize, d: R, frac: R) {
+    if d != R::ZERO {
+        row[cell] += d * (R::ONE - frac);
         row[cell + 1] += d * frac;
     }
 }
@@ -506,19 +504,18 @@ fn deposit_at_border(row: &mut [f32], cell: usize, d: f32, frac: f32) {
 ///
 /// A piece wholly outside arrives here with both ends on the same side; the clamp then
 /// collapses it onto the border column, which is where its winding belongs.
-#[expect(clippy::arithmetic_side_effects, clippy::cast_possible_truncation)]
-#[expect(clippy::cast_sign_loss, clippy::cast_precision_loss)]
-fn deposit_inside(row: &mut [f32], fw: f32, dir: f32, xs: f32, ys: f32, xe: f32, ye: f32) {
-    let xs = xs.clamp(0.0, fw);
-    let xe = xe.clamp(0.0, fw);
+#[expect(clippy::arithmetic_side_effects)]
+fn deposit_inside<R: Real>(row: &mut [R], fw: R, dir: R, xs: R, ys: R, xe: R, ye: R) {
+    let xs = xs.clamp(R::ZERO, fw);
+    let xe = xe.clamp(R::ZERO, fw);
     let (mut px, mut py) = (xs, ys);
     loop {
         // The next vertical boundary in the direction of travel, or the slab's end.
         let boundary = if xe > px {
-            let b = px.floor() + 1.0;
+            let b = px.floor() + R::ONE;
             if b < xe { Some(b) } else { None }
         } else if xe < px {
-            let b = px.ceil() - 1.0;
+            let b = px.ceil() - R::ONE;
             if b > xe { Some(b) } else { None }
         } else {
             None
@@ -532,11 +529,15 @@ fn deposit_inside(row: &mut [f32], fw: f32, dir: f32, xs: f32, ys: f32, xe: f32,
         };
         // One single-cell piece: exact trapezoid deposit.
         let d = dir * (ny - py);
-        if d != 0.0 {
-            let xm = 0.5 * (px + nx);
-            let cell = (xm.floor().max(0.0) as usize).min(row.len().saturating_sub(2));
-            let frac = xm - cell as f32;
-            row[cell] += d * (1.0 - frac);
+        if d != R::ZERO {
+            let xm = R::HALF * (px + nx);
+            let cell = xm
+                .floor()
+                .max(R::ZERO)
+                .index()
+                .min(row.len().saturating_sub(2));
+            let frac = xm - R::of_count(cell);
+            row[cell] += d * (R::ONE - frac);
             row[cell + 1] += d * frac;
         }
         if boundary.is_none() {

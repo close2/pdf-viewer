@@ -417,3 +417,10 @@ producer of metadata — was false of this program today were found there (Annex
 §14.12), and so were two writer defects: `/DPart` back-pointers carried without their root, and web
 capture's name trees carried by half (ADR 1461). An inapplicability is a claim about the standard
 AND about this program, and the second half decays as the writers grow.
+
+**A test whose input is an optional checkout names a fixture beside it in the row.** A `#[test]`
+that reads `doc/pdf.js` prints "skipped" and passes on a machine without it; thirty-five
+`implemented` rows were held by nothing else, and `Problem::OnlyWalks` with `ONLY_WALKS_CEILING`
+now holds the count at the five that remain — a new row may not raise it (ADR 1497). A100's
+reading: a corpus present is a control, so the rows' statuses stand; what they owed was evidence
+from which the clause's expected value can be read.

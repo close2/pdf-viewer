@@ -488,6 +488,15 @@ had nothing to find. Flattening once per frame by `(outline, transform bits)` an
 device row took the frame from 7 248 to 556 ms with every corpus digest unchanged (ADR 1479).
 Count the asks per key and the cost of one ask before a cache is re-keyed.
 
+### 94. An image's transfer is priced by the share of it the frame samples
+
+The photograph's zoom step uploaded all 80 MB of its samples for a window that showed a fifth of
+the image; a `FillRecord` of 256-texel squares now fills a texture only where an image op's
+destination samples it, the photograph's step fell from 13.7 to 3.2 ms and its turn from 46 to 32,
+with no byte changed (ADR 1493). Before a device route is built for a "transfer", ask what share
+of the image the frame samples. And A/B arms are run interleaved, run by run: back-to-back arms at
+load 9–11 ranked `images.pdf` the wrong way round.
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

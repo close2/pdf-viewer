@@ -157,7 +157,10 @@ it cost `CEILING` bytes of lexing — a minute from a fourteen-kilobyte file, le
 `fuzz/artifacts/page/` as a timeout for six weeks. And `pdf_font::composite_cycle` visited each
 glyph once but scanned the whole path per component reference, 34.5 s for one code over a chain the
 file can make 65 534 deep. The question to ask of a skip is *does it end where the grammar ends the
-thing skipped*, and of a walk *is every per-step question constant*. Every crasher, timeout and
+thing skipped*, and of a walk *is every per-step question constant*. And a walk's bound is not its answer to a
+cycle: the page tree's six walks stopped a `/Kids` cycle only at `MAX_NODES_VISITED`, so six objects
+naming themselves and each other counted 449 367 pages at a million visits a lookup; a node met again
+beneath itself is now stepped over (ADR 1496), and the bound is left to what a path cannot see. Every crasher, timeout and
 memory refusal the fuzz targets leave is read in a release build and becomes a test named for the
 bound it violates (principle 3); `tools/state.sh fuzz` prints what `fuzz/artifacts/` holds.
 

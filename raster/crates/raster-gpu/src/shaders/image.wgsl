@@ -9,14 +9,17 @@
 // placement of one device pixel per sample maps every pixel centre onto a whole number
 // exactly and the nearest texel is the floor of it (§10.7.4).
 //
-// Coverage (ADR 0011):
+// Coverage (ADR 0011, ADR 1492): a pixel's shape is the area of the image's parallelogram
+// inside it, met with the clip rectangle — §10.7.4's departure (1), "a partly covered pixel
+// is partly painted", which the caller's ledger reads for an image's edge as for a fill's.
 // - An axis-preserving placement gets the analytic cell-overlap of the rectangle
-//   lane (ADR 0005) against `image_rect`, so its edges antialias exactly; the quad
-//   is the footprint expanded to pixel bounds.
-// - An oblique placement paints the fragments whose centres map inside the unit
-//   square — hard edges, stated as the deliberate cost of the rare case.
+//   lane (ADR 0005) against `image_rect`; the quad is the footprint expanded to pixel
+//   bounds.
+// - An oblique placement takes the same area of the parallelogram the unit square maps
+//   to (`oblique_area`), so both placements draw an edge one way.
 // - A residue clip arrives as a scratch tile met by `min`, like every lane (the caller's
-//   ADR 1444).
+//   ADR 1444); where both sets cut a pixel the encoder has already put their
+//   intersection's area there (ADR 1480, ADR 1492).
 //
 // Filtering is the placement's **resolved** decision (§4.5, integration note 1):
 // nearest goes through textureLoad (exact, adapter-invariant); linear goes through
@@ -108,16 +111,75 @@ fn to_texel(p: vec2f) -> vec2f {
     );
 }
 
+// One convex polygon of at most eight corners: the pixel's rectangle in texel space, as the
+// four sides of the image's square cut it.
+struct Polygon {
+    corner: array<vec2f, 8>,
+    count: u32,
+}
+
+// The part of `polygon` on the kept side of `axis = bound` (Sutherland–Hodgman): above it
+// when `above`, below otherwise. A convex polygon gains at most one corner per side.
+fn keep_side(polygon: Polygon, axis: u32, bound: f32, above: bool) -> Polygon {
+    var out: Polygon;
+    out.count = 0u;
+    for (var i = 0u; i < polygon.count; i++) {
+        let here = polygon.corner[i];
+        let next = polygon.corner[(i + 1u) % polygon.count];
+        let sh = select(bound - here[axis], here[axis] - bound, above);
+        let sn = select(bound - next[axis], next[axis] - bound, above);
+        if sh >= 0.0 && out.count < 8u {
+            out.corner[out.count] = here;
+            out.count += 1u;
+        }
+        if (sh >= 0.0) != (sn >= 0.0) && out.count < 8u {
+            out.corner[out.count] = here + (next - here) * (sh / (sh - sn));
+            out.count += 1u;
+        }
+    }
+    return out;
+}
+
+// The area of an oblique image inside the device rectangle `[lo, hi]` — a pixel, already
+// met with the clip rectangle — as a fraction of that pixel (ADR 1492). The rectangle is
+// mapped into texel space, where the image is the box `[0, dims]`, by the carried transform;
+// cut to the box there, and its area taken back to device space by the transform's
+// determinant. The corners are stated from the pixel's centre `centre` (whose texel point is
+// `st`), so the arithmetic is on offsets of a pixel's size rather than on page coordinates.
+fn oblique_area(lo: vec2f, hi: vec2f, centre: vec2f, st: vec2f, dims: vec2f) -> f32 {
+    if any(hi <= lo) {
+        return 0.0;
+    }
+    let across = params.texel0.xy;
+    let down = params.texel0.zw;
+    var polygon: Polygon;
+    polygon.count = 4u;
+    polygon.corner[0] = across * (lo.x - centre.x) + down * (lo.y - centre.y);
+    polygon.corner[1] = across * (hi.x - centre.x) + down * (lo.y - centre.y);
+    polygon.corner[2] = across * (hi.x - centre.x) + down * (hi.y - centre.y);
+    polygon.corner[3] = across * (lo.x - centre.x) + down * (hi.y - centre.y);
+    polygon = keep_side(polygon, 0u, -st.x, true);
+    polygon = keep_side(polygon, 0u, dims.x - st.x, false);
+    polygon = keep_side(polygon, 1u, -st.y, true);
+    polygon = keep_side(polygon, 1u, dims.y - st.y, false);
+    var twice = 0.0;
+    for (var i = 0u; i < polygon.count; i++) {
+        let a = polygon.corner[i];
+        let b = polygon.corner[(i + 1u) % polygon.count];
+        twice += a.x * b.y - b.x * a.y;
+    }
+    let determinant = abs(across.x * down.y - down.x * across.y);
+    return clamp(0.5 * abs(twice) / determinant, 0.0, 1.0);
+}
+
 // Geometric coverage met with the clip and the residue — the element's *shape* (§11.6.4.2: "For images
 // … the shape shall be 1.0 inside the image rectangle and 0.0 outside it", met with
 // §8.5.4's clip). The image's own alpha, the constant alpha and the soft mask are all
 // opacity, not shape, and stay out of this product on purpose (ADR 0011, ADR 0066).
 fn shape_at(p: vec2f, st: vec2f, dims: vec2f) -> f32 {
     // §10.7.4's intersection of the image's pixels with the clip rectangle's (the caller's
-    // ADR 1435): an axis-preserving image is a rectangle, and two rectangles meet in a
-    // rectangle, so that branch intersects them before taking the cell overlap; an oblique
-    // image's 0-or-1 sample meets the clip by `min`, which for a 0-or-1 value is the
-    // clip's overlap or nothing.
+    // ADR 1435): both placements cut the pixel by the clip rectangle first and take the
+    // image's area in what is left, so the clip's edge and the image's are each drawn once.
     var cov: f32;
     if params.coverage.w > 0.5 {
         let o_min = max(max(params.image_rect.xy, params.clip.xy), p);
@@ -125,11 +187,9 @@ fn shape_at(p: vec2f, st: vec2f, dims: vec2f) -> f32 {
         let e = max(o_max - o_min, vec2f(0.0, 0.0));
         cov = e.x * e.y;
     } else {
-        // Oblique: painted where the centre lands inside the image.
-        let overlap_min = max(params.clip.xy, p);
-        let overlap_max = min(params.clip.zw, p + vec2f(1.0, 1.0));
-        let extent = max(overlap_max - overlap_min, vec2f(0.0, 0.0));
-        cov = min(f32(all(st >= vec2f(0.0)) && all(st <= dims)), extent.x * extent.y);
+        let lo = max(params.clip.xy, p);
+        let hi = min(params.clip.zw, p + vec2f(1.0, 1.0));
+        cov = oblique_area(lo, hi, p + vec2f(0.5, 0.5), st, dims);
     }
     if params.coverage.z > 0.5 {
         let texel = vec2i(params.coverage.xy + (p - params.dest.xy));

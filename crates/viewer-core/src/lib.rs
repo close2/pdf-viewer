@@ -124,4 +124,5 @@ pub use query::{
 };
 pub use readback::ReadbackCache;
 pub use secret::Secret;
+pub use select::find_in_text;
 pub use viewer::{DocumentId, MAX_PIXELS, RenderToken, Viewer};

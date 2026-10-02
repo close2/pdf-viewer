@@ -143,11 +143,13 @@ pub struct Device {
     atlas: AtlasStore,
     atlas_texture: Option<(wgpu::Texture, wgpu::TextureView)>,
     /// Device-resident forms of uploaded paints, realised lazily on first use
-    /// (M2 owns the validated CPU copy; this lane owns the bytes on the GPU).
-    image_textures: HashMap<u32, (wgpu::Texture, wgpu::TextureView)>,
-    /// Area-averaged variants, keyed `(image, x factor, y factor)` (ADR 0089) —
-    /// realised once per key for the device's life, exactly as the base textures are.
-    reduced_textures: HashMap<(u32, u32, u32), (wgpu::Texture, wgpu::TextureView)>,
+    /// (M2 owns the validated CPU copy; this lane owns the bytes on the GPU) — an image's
+    /// filled where frames sample it (ADR 1493).
+    image_textures: HashMap<u32, textures::PaintTexture>,
+    /// Area-averaged variants, keyed `(image, x factor, y factor)` (ADR 0089) — each
+    /// cell reduced once for the device's life, on the first frame that samples it
+    /// (ADR 1493), and released with the image.
+    reduced_textures: HashMap<(u32, u32, u32), textures::PaintTexture>,
     ramp_textures: HashMap<u32, (wgpu::Texture, wgpu::TextureView)>,
     mesh_textures: HashMap<u32, (wgpu::Texture, wgpu::TextureView)>,
     /// The one filtering sampler (clamp-to-edge linear), for `ImageFilter::Linear`.

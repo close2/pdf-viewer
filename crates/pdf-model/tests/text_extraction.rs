@@ -1196,7 +1196,12 @@ const SELECTION_BELOW_FLOOR: [&str; 9] = [
 /// to be about. They are refused by name — `every unique match is a value §12.7.4.3 placed` — and
 /// counted in the printed refusal table like any other, which is what makes the fall legible as
 /// itself. A fall for any *other* reason is what this ratchet is still for.
-const JUDGED_FLOOR: usize = 503;
+///
+/// **It rose from 503 to 509** when the readback's word gaps came to be measured in §9.4.4's text
+/// space (ADR 1490): words a scaling `Tm` had split at kerning steps, and words a font stating no
+/// space had run together, read whole, and six more documents have a word the reference matches
+/// uniquely.
+const JUDGED_FLOOR: usize = 509;
 
 /// The smallest cross-axis population [`VERTICAL_CENTRE_BOUND`] may be applied to.
 ///
@@ -1226,7 +1231,10 @@ const JUDGED_FLOOR: usize = 503;
 /// key and answered *yes* to a question it had not asked anything. The verdict printed above was
 /// the same before the fall and after it, which is what says this took a claim off the instrument
 /// rather than a failure off the tree.
-const CROSS_AXIS_FLOOR: usize = 8266;
+///
+/// **It rose from 8266 to 9597** with [`JUDGED_FLOOR`]'s rise, for the same reason: words the
+/// readback had split or run together now read whole and match (ADR 1490).
+const CROSS_AXIS_FLOOR: usize = 9597;
 
 /// One point per axis before two statements of the page's frame count as the same frame.
 ///

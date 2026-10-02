@@ -1013,6 +1013,16 @@ order moved on every run. Run in the owner's main checkout after a merge, it dir
 `tests/read_only.rs` reads the script for redirections, writing commands, lock-taking git and
 writing binaries. A section reads, and never writes.
 
+### 95. A threshold and its quantity are read in the same space, and a dormant fallback is A/B'd
+
+`separate_text` measured a glyph step in user-space x against a threshold in text space; under a
+mirroring or scaling `Tm` the two disagreed. Measuring the step in text space (§9.4.4: the
+displacement "shall be interpreted in text space") also made a long-dormant branch reachable — a
+font with no space glyph had been given 0.25 × `Tfs` as its gap, exactly the producer's word gap,
+so "Trace-basedJust-in-Time" had read as one word — and 1 205 of 2 809 corpus pages read back
+differently, while the word-agreement gate, which folds whitespace, moved by nothing (ADR 1490).
+A/B the readback over the corpus on one build behind a scratch switch before a gate is believed.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

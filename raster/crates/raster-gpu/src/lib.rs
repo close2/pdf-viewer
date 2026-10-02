@@ -41,6 +41,7 @@ pub mod error;
 pub mod frame;
 pub mod function;
 mod instrument;
+pub mod intersection;
 mod keyhash;
 mod layers;
 pub mod mask;

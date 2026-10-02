@@ -32,8 +32,7 @@
 //! holding every component, a `DRI` stating a nonzero interval, sampling factors of the shapes
 //! whose upsamplers the argument above was read against (a first component of 1×1, 2×1, 1×2
 //! or 2×2 and the others 1×1, or one component of 1×1), and restart markers found where the
-//! interval count puts them, numbered in order, with the scan ended by `EOI` or by the end of the
-//! data. Anything else —
+//! interval count puts them, numbered in order, with the scan ended by `EOI`. Anything else —
 //! a progressive or lossless frame, a second scan, a marker out of place, a count that does not
 //! add up — is declined, and so is any band the decoder refuses; the caller then decodes the
 //! frame whole exactly as before, so a damaged codestream is read by the one decoder it always
@@ -118,13 +117,30 @@ pub(super) fn decode(
     options: zune_jpeg::zune_core::options::DecoderOptions,
     channels: usize,
 ) -> Option<Vec<u8>> {
+    decode_at(data, scan, (options, channels), BANDED_FLOOR, BAND_LINES)
+}
+
+/// [`decode`] above a floor of `floor` samples, in bands of at least `band_lines` lines: the
+/// production pair, or the small ones the `jpeg_bands` fuzz target asks for so that a frame of a
+/// few hundred bytes is cut at all (`super::banded_decodes`, ADR 1495).
+pub(super) fn decode_at(
+    data: &[u8],
+    scan: &super::FirstScan,
+    (options, channels): (zune_jpeg::zune_core::options::DecoderOptions, usize),
+    floor: u64,
+    band_lines: u32,
+) -> Option<Vec<u8>> {
+    // A scan the data ends inside, with no `EOI` after it, is a damaged codestream: the whole
+    // decoder reads its tail one way and a band, ended and padded as a codestream of its own,
+    // another (ADR 1495). It is the whole decoder's.
+    scan.ends.as_ref()?;
     let layout = layout(data, scan)?;
     let width = frame_width(data, &layout)?;
     let samples = u64::from(width).saturating_mul(u64::from(layout.lines));
-    if samples < BANDED_FLOOR {
+    if samples < floor {
         return None;
     }
-    let bands = plan(&layout, BAND_LINES)?;
+    let bands = plan(&layout, band_lines)?;
     let lines = Geometry {
         width,
         lines: layout.lines,
@@ -500,9 +516,13 @@ fn decode_band(
     scratch: &mut Vec<u8>,
 ) -> Option<()> {
     let codestream = codestream?;
+    // Strict, so that a band whose data the decoder would read past an error — a code no table
+    // holds, data that ends inside an interval — is refused rather than delivered: a lenient
+    // decoder recovers from a damaged interval one way inside a band and another way inside the
+    // whole frame, and the frame is then the whole decoder's alone (ADR 1495).
     let mut decoder = zune_jpeg::JpegDecoder::new_with_options(
         zune_jpeg::zune_core::bytestream::ZCursor::new(codestream.as_slice()),
-        options,
+        options.set_strict_mode(true),
     );
     decoder.decode_headers().ok()?;
     let size = decoder.output_buffer_size()?;

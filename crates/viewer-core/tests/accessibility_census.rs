@@ -350,6 +350,14 @@ struct Census {
     /// an element whose content is a widget alone. An empty one is a control announced as nothing.
     forms: usize,
     forms_unnamed: Vec<(String, String)>,
+    /// Fields published with §12.7.4.3's value — a `Form` element's or an unreached widget's —
+    /// and how many of those hold any characters.
+    ///
+    /// ADR 1489's capability: a text field or a combo box crosses with what it shows, which a
+    /// host puts where AT-SPI's `Text` interface reads it. Every one of these crossed with no
+    /// value before it.
+    valued: usize,
+    valued_filled: usize,
     /// Elements named by their Table 355 `/T` for want of text of their own, by structure type.
     ///
     /// ADR 1405's capability: the title names every element with no text of its own, not a `Form`
@@ -430,6 +438,8 @@ impl Census {
         self.unread.extend(from.unread);
         self.forms = self.forms.saturating_add(from.forms);
         self.forms_unnamed.extend(from.forms_unnamed);
+        self.valued = self.valued.saturating_add(from.valued);
+        self.valued_filled = self.valued_filled.saturating_add(from.valued_filled);
         self.titled = self.titled.saturating_add(from.titled);
         for (role, count) in from.titled_roles {
             let entry = self.titled_roles.entry(role).or_default();
@@ -485,8 +495,15 @@ impl Census {
         }
     }
 
-    /// Counts the page's `Form` elements naming a widget, and records any crossing unnamed.
-    fn named_forms(&mut self, nodes: &[AccessibilityNode], where_: &str) {
+    /// Counts the page's `Form` elements naming a widget, and records any crossing unnamed; and
+    /// counts the fields among the elements and the unreached `widgets` that cross with a value.
+    fn named_forms(
+        &mut self,
+        nodes: &[AccessibilityNode],
+        widgets: &[AccessibilityNode],
+        where_: &str,
+    ) {
+        self.values(nodes.iter().chain(widgets));
         for node in nodes
             .iter()
             .filter(|node| node.role == "Form" && node.control.is_some())
@@ -497,6 +514,16 @@ impl Census {
                     where_.to_owned(),
                     format!("a Form element for {:?} with no name", node.annotation),
                 ));
+            }
+        }
+    }
+
+    /// Counts the fields among `nodes` that cross with §12.7.4.3's value (ADR 1489).
+    fn values<'a>(&mut self, nodes: impl Iterator<Item = &'a AccessibilityNode>) {
+        for value in nodes.filter_map(|node| node.value.as_ref()) {
+            self.valued = self.valued.saturating_add(1);
+            if !value.text.is_empty() {
+                self.valued_filled = self.valued_filled.saturating_add(1);
             }
         }
     }
@@ -852,7 +879,7 @@ fn sweep(
         let widgets = published.len();
         let where_ = format!("{name} p{}", index.saturating_add(1));
         census.tagging(&taggings, tree.is_some(), nodes.is_empty(), &where_);
-        census.named_forms(&nodes, &where_);
+        census.named_forms(&nodes, &published, &where_);
         census.titles(&nodes);
         let Some(tree) = tree else {
             census.untagged_pages = census.untagged_pages.saturating_add(1);
@@ -1176,6 +1203,10 @@ fn report_tagging(census: &Census) {
         &census.forms_unnamed,
     );
     println!(
+        "fields published with a value: {} ({} holding characters)",
+        census.valued, census.valued_filled
+    );
+    println!(
         "elements named by their /T: {} ({:?})",
         census.titled, census.titled_roles
     );
@@ -1384,13 +1415,15 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
             census.annotations,
             13_031,
         );
+        // ADR 1490: the readback's word gaps measured in text space, A/B on one build, gave 269
+        // more elements a line of their own text, 260 more lines and 5 more characters.
         gate_ratchet::floor(
             "elements a caret reaches, whole population",
             census.with_lines,
-            121_194,
+            121_463,
         );
-        gate_ratchet::floor("lines, whole population", census.lines, 209_705);
-        gate_ratchet::floor("characters, whole population", census.characters, 5_681_047);
+        gate_ratchet::floor("lines, whole population", census.lines, 209_965);
+        gate_ratchet::floor("characters, whole population", census.characters, 5_681_052);
         // `issue21579.pdf` opens with the password `corpus_passwords.rs` publishes (ADR 1377), so
         // its one untagged page is in this population as it is in the tracked one.
         gate_ratchet::floor(
@@ -1622,6 +1655,11 @@ fn widget_floors(tracked_census: &Census) {
     // and 3 `Formula`; no corpus `Sect` states a title over no text of its own, so the region it
     // becomes is held by `viewer-core`'s fixture rather than by this floor (trap 8).
     gate_ratchet::floor("elements named by their /T", tracked_census.titled, 20);
+    // ADR 1489's population, new with that decision: a text field or a combo box published with
+    // what it shows, whether an element names its widget or the page's list carries it. Every one
+    // crossed with no value before it, so a screen reader was told the field was empty.
+    // Measured at 545, 80 of them holding characters: most fields of the population are empty.
+    gate_ratchet::floor("fields with a value published", tracked_census.valued, 545);
 }
 
 /// The ratchet, which is what ADR 0323 called this instrument's verdict shape.

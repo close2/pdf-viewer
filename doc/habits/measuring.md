@@ -688,3 +688,11 @@ peak fell from 11.3 to 5.2 GiB (ADR 1481). And a signal that "the pool would oth
 includes the pool's size: callgrind runs at one thread, where every decode is alone and the cut is
 pure overhead. A speed-up is called byte-identical only after per-page digests from exported HEAD
 and change trees, each in its own target directory, agree (ADR 1479).
+
+## 62. A disputed pixel's closed form is taken to more digits than a level before an ordering is called wrong
+
+Admitting a cached clip region moved three pixels of `bug1721218` by one level; their exact areas
+were 65.500037, 135.500024 and 59.500014 levels — each within 1.5·10⁻⁷ of a rounding boundary that
+`f32` sums cannot decide, and two tiles over the same pixel disagreed with each other. The fix was
+precision (a residue filled in `f64` from the same points), not a choice between constructions,
+and admission then moved nothing (ADR 1491).

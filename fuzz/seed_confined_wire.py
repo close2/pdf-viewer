@@ -140,6 +140,9 @@ QUERIES = {
     "POPUPS": b"",
     "FIELDS": b"",
     "ACCESSIBILITY_TREE": b"",
+    "PRINT_PAGE": usize(0),
+    "MEASURE": usize(3) + point(100.0, 100.0) + point(200.0, 100.0) + point(200.0, 200.0),
+    "ATTACHMENT_PREVIEW": text("attachment"),
 }
 
 # The check that makes the paragraph above true rather than hopeful. A question the transport

@@ -36,7 +36,7 @@ use crate::worker::{Answer, Query, WorkerError};
 ///
 /// A host and a worker from different builds must not talk to each other, and the cheapest place
 /// to find that out is the first thing either says. It is also what keeps two protocols on one
-/// transport apart: `pdf-view-worker` greets with `PDFVCF05`, and a host that got the wrong
+/// transport apart: `pdf-view-worker` greets with a `PDFVCF` magic of its own, and a host that got the wrong
 /// program back refuses at nine bytes rather than at the first answer it misreads.
 pub(crate) const MAGIC: &[u8; 8] = b"PDFVFS01";
 

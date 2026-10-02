@@ -367,6 +367,17 @@ states is what the document states" — caught it where tier 1 could not. One fu
 and the read gate derives its expected value from the model's own readers, never from the code
 under test (ADR 1473 §5). When an entry's home moves, grep every reader of the old home.
 
+### 96. A partial decode equals the whole only in strict mode, and only to the whole's end
+
+The second fuzz campaign's differential target `jpeg_bands` found two readings that were each
+correct and differed: a band begun after a damaged restart interval drew black where the whole
+decoder's error recovery drew grey, and a scan with no `EOI` was decoded one MCU row short by the
+whole decoder while a Python decoder written to F.2.2.3 showed every block present. Band decoders
+now run in strict mode and a band that would need recovery, or a scan the data ends inside, is
+left to the whole decoder (ADR 1495). A partial decode is held to the whole by a differential
+target, not by a fixture; and a campaign passes `-artifact_prefix` to its INITED runs as well, or
+an OOM on a seed is written to the worktree root.
+
 ## Things worth knowing
 
 - **A recovery searches for something, and *where that thing can be* is a claim the standard

@@ -8015,6 +8015,26 @@ fn a_right_to_left_word_under_a_mirroring_text_matrix_is_found_as_typed() {
     assert_eq!(found(&viewer, &reversed), 0, "the reversal is on no line");
 }
 
+/// The same three lines under a mirroring *text* matrix, `-1 0 0 1 200 0 Tm`, in each text object.
+///
+/// §9.4.4: "Both the glyph's shape and its displacement (horizontal or vertical) shall be
+/// interpreted in text space." The `TJ` line places each glyph by an adjustment that moves the pen
+/// back by twice a glyph's width — in text space, against the advance — and the mirror turns that
+/// into a step rightwards across the page. Read along user-space x, each step was a word's gap and
+/// the readback held a space between every glyph, so the word was on two lines; read in text space
+/// it is a step back, and the word is on all three (ADR 1490).
+#[test]
+fn a_right_to_left_word_under_a_mirroring_tm_is_found_as_typed() {
+    let content = "BT /F1 20 Tf -1 0 0 1 200 0 Tm 50 150 Td <010203> Tj ET \
+                   BT /F1 20 Tf -1 0 0 1 200 0 Tm 90 100 Td [<03> 1000 <02> 1000 <01>] TJ ET \
+                   /ReversedChars BMC BT /F1 20 Tf -1 0 0 1 200 0 Tm 50 50 Td <010203> Tj ET EMC";
+    let viewer = boxes_page(&["0628", "0631", "0639"], &[500, 500, 500], content);
+    let typed = "\u{639}\u{631}\u{628}";
+    assert_eq!(found(&viewer, typed), 3, "on every line");
+    let reversed: String = typed.chars().rev().collect();
+    assert_eq!(found(&viewer, &reversed), 0, "the reversal is on no line");
+}
+
 /// "كَتَبَ" with its three fathas, each a glyph of no width, and "كتب" bare beneath it, both in
 /// reading order. ADR 1477's rule from a page: the bare word typed is found on both lines, the
 /// vowelled word only where its marks are printed, and a word with a damma on neither.

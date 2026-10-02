@@ -71,6 +71,17 @@ const UNREVIEWED_CEILING: usize = 0;
 /// arriving with a file for evidence now fails the build rather than raising a number.
 const FILE_ONLY_EVIDENCE_CEILING: usize = 0;
 
+/// How many `implemented` rows are held by no fixture — every test they name is a corpus
+/// witness, an ignored walk, a census or a whole file ([`ledger::Problem::OnlyWalks`]).
+///
+/// **This number may only fall.** Such a row's evidence is the robustness instrument: a walk
+/// passes when nothing crashed and the floors held, and a corpus witness on a machine without
+/// the checkout returns having read nothing. Under the owner's A100 the requirement still counts
+/// as executed — it runs, under the control that a corpus is present — so the status stands and
+/// what is owed is a fixture whose expected value the clause derives (principle 5). The count is
+/// `cargo run -p conformance --bin ledger`'s `held by` line; ADR 1497 is the argument.
+const ONLY_WALKS_CEILING: usize = 5;
+
 /// How many `partial` rows name a whole test *file* rather than a test.
 ///
 /// **This number may only fall**, and it exists because the ratchet above was never pointed at
@@ -517,7 +528,12 @@ fn the_ledger_agrees_with_the_standard_and_with_the_tree() {
     let problems = ledger::check(&ledger, &index, &conformance::citations(&scanned), &root);
     let mut report = String::new();
     let mut owed_and_still_owed = Vec::new();
+    let mut only_walks = Vec::new();
     for problem in &problems {
+        if let ledger::Problem::OnlyWalks { clause, .. } = problem {
+            only_walks.push(clause.to_string());
+            continue;
+        }
         if let ledger::Problem::CitedButUnreviewed { clause, .. } = problem
             && REVIEW_OWED.contains(&clause.to_string().as_str())
         {
@@ -539,6 +555,8 @@ fn the_ledger_agrees_with_the_standard_and_with_the_tree() {
         "REVIEW_OWED names {settled:?}, which no longer need reviewing. Delete those lines."
     );
     println!("{} cited clauses still owe a review", REVIEW_OWED.len());
+
+    only_walks_hold_their_ratchet(&only_walks);
 
     let counts = ledger.counts();
     let unreviewed = counts
@@ -618,6 +636,24 @@ fn the_ledger_agrees_with_the_standard_and_with_the_tree() {
          {UNREVIEWED_CEILING}. This number may only fall, and it has reached zero: a row that \
          arrives `unreviewed` — because the standard gained a subclause, or because `bin/ledger` \
          found one this file lacks — has to be read before the build is green again."
+    );
+}
+
+/// Rows whose every test is the robustness instrument are admitted by name up to a ratchet that
+/// may only fall. See `ONLY_WALKS_CEILING`.
+fn only_walks_hold_their_ratchet(only_walks: &[String]) {
+    println!(
+        "  {} implemented rows are held by no fixture, only by walks or corpus witnesses: {}",
+        only_walks.len(),
+        only_walks.join(" ")
+    );
+    assert!(
+        only_walks.len() == ONLY_WALKS_CEILING,
+        "{} implemented rows name no fixture, against the ratchet of {ONLY_WALKS_CEILING}: \
+         {only_walks:?}. This number may only fall. A row that rose into it needs the fixture \
+         whose expected value its clause derives; a row that left it lowers the ceiling to the \
+         count printed here (ADR 1497).",
+        only_walks.len()
     );
 }
 

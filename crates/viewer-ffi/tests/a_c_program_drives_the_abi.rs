@@ -198,7 +198,7 @@ fn a_c_program_opens_a_document_turns_a_page_asks_a_query_and_gets_pixels() {
 /// The numbers the C program printed, checked here rather than in the C.
 ///
 /// So that a change to the ABI that still *runs* cannot pass by printing something else. The
-/// application note is five pages, its outline is fourteen rows, its third page is where a search
+/// application note is five pages, its outline is fourteen rows, its first page is where a search
 /// for "black point" lands, and the page after it draws.
 fn what_it_printed(said: &str) {
     for expected in [
@@ -206,14 +206,17 @@ fn what_it_printed(said: &str) {
         "Opened says document 1 has 5 page(s)",
         "page 1 of 5 (5 page(s) in the document)",
         "outline: 14 row(s)",
-        // Annex O's `search`, pumped one page at a time by the C loop. Three steps for three
-        // pages — the phrase is not on the first two — and the view moves to the page the
-        // occurrence is on, which is the annex's "selecting the first matching word in the
-        // document" as far as a C caller can see it.
-        "search: found on page 3, bytes 63..74, after 3 step(s)",
-        "after the search: page 3 of 5",
-        "after the turn: page 4 of 5, drawn in ",
-        "frame: page 4, 708x1000, format 0, 2832000 byte(s)",
+        // Annex O's `search`, pumped one page at a time by the C loop, and the view moves to the
+        // page the occurrence is on, which is the annex's "selecting the first matching word in
+        // the document" as far as a C caller can see it. The first occurrence is page one's title,
+        // set as `[(B) -5 (la) 1 (c)] TJ` in a `1 Tf` font under `32 0 0 32 Tm`: §9.4.4's
+        // displacement is in text space, where `-5` is 0.005 em and no word gap, so the readback
+        // is "Black Point" at bytes 57..68 after "Application Note\n2018-09\nPDF 2.0 Application
+        // Note 001: \n\n" (ADR 1490). One step, for the one page searched.
+        "search: found on page 1, bytes 57..68, after 1 step(s)",
+        "after the search: page 1 of 5",
+        "after the turn: page 2 of 5, drawn in ",
+        "frame: page 2, 708x1000, format 0, 2832000 byte(s)",
         // ADR 0346's enumerations, each line read off the library. The two counted enumerations,
         // the name it gives a number it does not define, and the refusal an enumeration this ABI
         // *takes* answers with are the whole of what C has in place of a build failure — so they
@@ -272,7 +275,7 @@ fn what_it_printed(said: &str) {
     // page, because the viewer has no clock (rule 3).
     for measured in [
         "first page drawn and handed back at ",
-        "after the turn: page 4 of 5, drawn in ",
+        "after the turn: page 2 of 5, drawn in ",
     ] {
         assert!(
             said.contains(measured),

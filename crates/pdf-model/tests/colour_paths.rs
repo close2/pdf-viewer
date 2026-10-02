@@ -273,6 +273,50 @@ fn a_grey_is_the_same_however_it_is_drawn() {
     assert_eq!(by_operator, by_image, "0x40 is exactly 0.25 of 255");
 }
 
+/// §8.6.4.2's own numbers: "0.0 corresponds to black, 1.0 to white, and intermediate values to
+/// different gray levels" — one component, so a level of 0.2 is 51 of 255 in every channel and
+/// 0.6 is 153, both exact.
+///
+/// The clause's EXAMPLE is encoded as written for the stroking side — `/DeviceGray CS gray SC`
+/// against `gray G`, "[s]et both in one operation" — and its last sentence on both sides:
+/// "Setting either current colour space to DeviceGray shall initialise the corresponding current
+/// colour to 0.0", so a white set before the `CS` or `cs` does not survive it.
+#[test]
+#[expect(
+    clippy::doc_markdown,
+    reason = "the comment quotes §8.6.4.2 verbatim, and a quotation is not marked up"
+)]
+fn a_grey_level_is_its_fraction_of_white_and_selecting_the_space_starts_it_at_black() {
+    let fill = |content: &str| centre_colour(pdf_with("", "", content));
+    let stroke = |colour: &str| fill(&format!("{colour} 20 w 0 10 m 20 10 l S"));
+
+    assert_eq!(fill("0 g 0 0 20 20 re f"), (0, 0, 0), "0.0 is black");
+    assert_eq!(fill("1 g 0 0 20 20 re f"), (255, 255, 255), "1.0 is white");
+    assert_eq!(fill("0.2 g 0 0 20 20 re f"), (51, 51, 51));
+    assert_eq!(
+        fill("/DeviceGray cs 0.6 sc 0 0 20 20 re f"),
+        (153, 153, 153)
+    );
+
+    assert_eq!(
+        stroke("/DeviceGray CS 0.6 SC"),
+        (153, 153, 153),
+        "the EXAMPLE's first form"
+    );
+    assert_eq!(stroke("0.6 G"), (153, 153, 153), "and its second");
+
+    assert_eq!(
+        fill("1 g /DeviceGray cs 0 0 20 20 re f"),
+        (0, 0, 0),
+        "cs initialises the nonstroking colour to 0.0"
+    );
+    assert_eq!(
+        stroke("1 G /DeviceGray CS"),
+        (0, 0, 0),
+        "CS initialises the stroking colour to 0.0"
+    );
+}
+
 /// `/DefaultCMYK` replaces the device space, as the specification requires.
 ///
 /// ISO 32000-2 §8.6.5.6: when a device colour space is selected, the resources'

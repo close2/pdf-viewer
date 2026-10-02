@@ -1625,6 +1625,7 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             allocation,
             artifact,
             control,
+            value,
             annotation,
             headers,
             continues_a_list,
@@ -1696,6 +1697,9 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
                 writer.u8(control_kind::NONE);
             }
         }
+        // §12.7.4.3's text of that control's field, in the shape `Answer::Fields` gives it: the
+        // field's value is read through this view's state, which only this side holds (ADR 1489).
+        encode_shown(writer, value.as_ref());
         // §12.5's annotation the element's own object reference names, which is what says the
         // element *is* one — the fact an action request needs and neither the rectangle nor the
         // control carries.
@@ -1765,6 +1769,7 @@ pub(super) fn decode_accessibility(
             artifact: decode_artifact(reader)?,
             enclosed_a_refusal: reader.bool("a node's refusal flag")?,
             control: decode_optional_control(reader)?,
+            value: decode_shown(reader)?,
             annotation: reader.option_object("a node's annotation")?,
             // §14.8.4.8.3's header cells, checked the same way the parent link is: a header is a
             // cell the search walked *out to*, so it is always a node already read, and one that
@@ -1985,8 +1990,9 @@ fn read_scope(reader: &mut Reader<'_>) -> Result<Option<HeaderScope>, ProtocolEr
 /// depending on which side of the pipe it was on.
 /// §12.7.4.3's value, with Table 231 bit 14's answer to whether it *is* the value.
 ///
-/// One function for both places a field's value crosses — [`viewer_core::Answer::Field`] and this
-/// module's `Fields` — so that the two cannot come to disagree about the flag. ADR 0247.
+/// One function for every place a field's value crosses — [`viewer_core::Answer::Field`], this
+/// module's `Fields` and [`viewer_core::AccessibilityNode::value`] — so that they cannot come to
+/// disagree about the flag. ADRs 0247 and 1489.
 pub(super) fn encode_shown(writer: &mut Writer, value: Option<&ShownValue>) {
     match value {
         Some(shown) => {

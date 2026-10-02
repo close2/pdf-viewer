@@ -462,3 +462,9 @@ find step judged by the absence of "not in this document", which the window neve
 step now needs a found signal, a pixel count, a title, an AT-SPI value or a golden, and each new
 threshold was set by breaking the input on purpose (an erased digit gives 78 differing pixels
 against a threshold of 40, ADR 1478).
+
+**A record states its gates with a figure**, in a paragraph opening `**Gates.**` — nineteen records
+between 1284 and 1326 state none and three say "see the report", which is not in the tree;
+`records.rs` holds the rule from 1327 on (ADR 1499). And a script that splices a file at an anchor
+checks the anchor appears exactly once in the whole file: a record's own prose mentioning
+`**Gates.**` truncated it to nine lines until `wc -l` caught it.

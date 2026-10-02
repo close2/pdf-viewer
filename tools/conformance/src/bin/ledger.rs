@@ -33,7 +33,10 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use conformance::clause::ClauseIndex;
-use conformance::ledger::{Exclusion, Ledger, NORMATIVE_ANNEXES, NORMATIVE_CLAUSES, Row, Status};
+use conformance::ledger::{
+    Exclusion, HoldingCounts, Ledger, NORMATIVE_ANNEXES, NORMATIVE_CLAUSES, Row, Status,
+    TestClassifier,
+};
 
 /// Written above the rows, as `#` comments, every time the file is generated.
 const PREAMBLE: &str = "\
@@ -172,7 +175,24 @@ fn main() -> ExitCode {
             println!("  {status:<13} {count}");
         }
     }
+    print_holdings(&root, &generated);
     ExitCode::SUCCESS
+}
+
+/// What holds each row, beside how many there are: a fixture whose expected value the clause
+/// derives, only the robustness instrument — corpus witnesses, ignored walks, censuses — or no
+/// test at all. ADR 1497.
+fn print_holdings(root: &Path, ledger: &Ledger) {
+    println!("  held by: a fixture / only walks or corpus witnesses / no test");
+    let mut classifier = TestClassifier::new(root);
+    for (status, held) in classifier.holdings(ledger) {
+        if held != HoldingCounts::default() {
+            println!(
+                "  {status:<13} {} / {} / {}",
+                held.fixture, held.only_walks, held.empty
+            );
+        }
+    }
 }
 
 /// Writes the generated ledger over `path`: the one thing this program does only under `--write`.

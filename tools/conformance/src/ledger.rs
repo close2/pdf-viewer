@@ -831,6 +831,19 @@ pub enum Problem {
         /// What went wrong.
         why: String,
     },
+    /// An `implemented` row none of whose tests is a [`TestKind::Fixture`].
+    ///
+    /// Every test it names is a corpus witness, an ignored walk, a census or a whole file: the
+    /// robustness instrument, which passes when nothing crashed and the floors held, and which
+    /// on a machine without the corpus checkout passes having read nothing. A finding rather
+    /// than a failure — the gate admits the rows it names up to a ratchet that may only fall
+    /// (ADR 1497).
+    OnlyWalks {
+        /// The clause.
+        clause: ClauseNumber,
+        /// Each test the row names, with its kind.
+        tests: Vec<(String, TestKind)>,
+    },
     /// `doc/adr/` could not be listed, so no `departed` row's argument could be checked.
     ///
     /// Reported rather than passed over: a sweep that could not open its population and said
@@ -909,6 +922,20 @@ impl fmt::Display for Problem {
                  so the number has to name one.",
                 directory = crate::departures::ADR_DIRECTORY
             ),
+            Self::OnlyWalks { clause, tests } => {
+                write!(
+                    f,
+                    "§{clause} is `implemented` and no test it names is a fixture: "
+                )?;
+                for (index, (site, kind)) in tests.iter().enumerate() {
+                    let separator = if index == 0 { "" } else { ", " };
+                    write!(f, "{separator}{site} ({kind})")?;
+                }
+                write!(
+                    f,
+                    ". Write the fixture whose expected value the clause derives (ADR 1497)."
+                )
+            }
             Self::ArgumentsUnreadable { why } => {
                 write!(f, "no `departed` row's argument could be checked: {why}")
             }
@@ -1026,6 +1053,29 @@ pub fn check(
                 clause: row.clause.clone(),
                 status: row.status,
                 settled_below: below.len(),
+            });
+        }
+    }
+
+    // A row held only by the robustness instrument is a finding about its evidence, not its
+    // status: under the owner's A100 a requirement executed under a control is executed, so the
+    // status stands and the fixture is what is owed (ADR 1497).
+    let mut classifier = TestClassifier::new(root);
+    for row in &ledger.rows {
+        if row.status != Status::Implemented || row.test.is_empty() {
+            continue;
+        }
+        let tests: Vec<(String, TestKind)> = row
+            .test
+            .iter()
+            .map(|site| (site.clone(), classifier.classify(site)))
+            .collect();
+        let only_walks = tests.iter().all(|(_, kind)| *kind != TestKind::Fixture)
+            && tests.iter().any(|(_, kind)| *kind != TestKind::Missing);
+        if only_walks {
+            problems.push(Problem::OnlyWalks {
+                clause: row.clause.clone(),
+                tests,
             });
         }
     }
@@ -1405,6 +1455,310 @@ fn missing_site(root: &Path, site: &str, is_test: bool) -> Option<String> {
     } else {
         Some(format!("holds no `fn {function}`"))
     }
+}
+
+/// What kind of evidence one `test =` entry names.
+///
+/// The checker has always asked that a named test *exists*; this asks what it is. Principle 5
+/// wants a test's expected value derived from the clause, and `CLAUDE.md`'s two denominators
+/// keep the corpus for the robustness question — so a row whose only test is a walk over a
+/// corpus is held by the second instrument while claiming the first's answer. ADR 1497.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TestKind {
+    /// A `#[test]` without `#[ignore]` that reads no optional corpus: its input is in the tree,
+    /// so it runs on every machine and cannot pass by finding nothing to read.
+    Fixture,
+    /// A `#[test]` without `#[ignore]` that reads a document from an optional corpus checkout
+    /// ([`CORPUS_ROOTS`]), directly or through a helper in its own file. Its expected value may
+    /// well be the clause's, but where the checkout is absent it returns having checked nothing.
+    CorpusWitness,
+    /// A test marked `#[ignore]`: a walk or a census run on request, behind the heavy-walk lock.
+    Walk,
+    /// A function of a program rather than a test — under `src/bin/` or `examples/`.
+    Census,
+    /// A whole file rather than a function, which the file-only ratchets already count.
+    File,
+    /// A function the file does not hold, or a file that is not there — already a
+    /// [`Problem::MissingSite`].
+    Missing,
+}
+
+impl TestKind {
+    /// The word printed for this kind.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Fixture => "fixture",
+            Self::CorpusWitness => "corpus witness",
+            Self::Walk => "ignored walk",
+            Self::Census => "census",
+            Self::File => "whole file",
+            Self::Missing => "missing",
+        }
+    }
+}
+
+impl fmt::Display for TestKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// The optional corpus checkouts a test may read, as workspace-relative path prefixes.
+///
+/// Each is a submodule or a downloaded collection a machine may not have, which is what makes
+/// a test reading one a [`TestKind::CorpusWitness`]: `doc/corpora-own/` is tracked and is not
+/// on this list, so a test reading it is a fixture.
+pub const CORPUS_ROOTS: [&str; 3] = ["doc/pdf.js", "doc/corpora/", "doc/veraPDF-corpus"];
+
+/// How a row is held, read from the kinds of its `test =` entries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Holding {
+    /// At least one entry is a [`TestKind::Fixture`].
+    Fixture,
+    /// Entries exist and none is a fixture: every one is a corpus witness, an ignored walk, a
+    /// census or a whole file.
+    OnlyWalks,
+    /// The row names no test.
+    Empty,
+}
+
+/// Per status, how many rows are held by a fixture, only by walks, and by nothing.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HoldingCounts {
+    /// Rows holding at least one fixture.
+    pub fixture: usize,
+    /// Rows whose tests are all walks, witnesses, censuses or files.
+    pub only_walks: usize,
+    /// Rows naming no test.
+    pub empty: usize,
+}
+
+/// One source file's functions, read once however many rows name it.
+#[derive(Debug, Default)]
+struct SourceFunctions {
+    /// Function name to its kind, for the first definition of each name in the file.
+    kinds: std::collections::HashMap<String, TestKind>,
+}
+
+/// Classifies `test =` entries, reading each file once.
+#[derive(Debug)]
+pub struct TestClassifier {
+    root: PathBuf,
+    files: std::collections::HashMap<String, Option<SourceFunctions>>,
+}
+
+impl TestClassifier {
+    /// A classifier reading files under the workspace `root`.
+    #[must_use]
+    pub fn new(root: &Path) -> Self {
+        Self {
+            root: root.to_path_buf(),
+            files: std::collections::HashMap::new(),
+        }
+    }
+
+    /// What one `test =` entry names.
+    pub fn classify(&mut self, site: &str) -> TestKind {
+        let Some((path, function)) = site.split_once("::") else {
+            return if self.root.join(site).is_file() {
+                TestKind::File
+            } else {
+                TestKind::Missing
+            };
+        };
+        let root = &self.root;
+        let functions = self.files.entry(path.to_owned()).or_insert_with(|| {
+            std::fs::read_to_string(root.join(path))
+                .ok()
+                .map(|text| read_functions(&text))
+        });
+        let Some(functions) = functions else {
+            return TestKind::Missing;
+        };
+        let Some(kind) = functions.kinds.get(function).copied() else {
+            return TestKind::Missing;
+        };
+        // A program's function is evidence of a different kind whatever its attributes say.
+        if path.contains("/src/bin/") || path.contains("/examples/") {
+            return TestKind::Census;
+        }
+        kind
+    }
+
+    /// How `row` is held.
+    pub fn holding(&mut self, row: &Row) -> Holding {
+        if row.test.is_empty() {
+            return Holding::Empty;
+        }
+        if row
+            .test
+            .iter()
+            .any(|site| self.classify(site) == TestKind::Fixture)
+        {
+            Holding::Fixture
+        } else {
+            Holding::OnlyWalks
+        }
+    }
+
+    /// Per status, how the ledger's rows are held, in [`Status::all`]'s order.
+    pub fn holdings(&mut self, ledger: &Ledger) -> Vec<(Status, HoldingCounts)> {
+        let mut out: Vec<(Status, HoldingCounts)> = Status::all()
+            .into_iter()
+            .map(|status| (status, HoldingCounts::default()))
+            .collect();
+        for row in &ledger.rows {
+            let holding = self.holding(row);
+            if let Some((_, counts)) = out.iter_mut().find(|(status, _)| *status == row.status) {
+                let slot = match holding {
+                    Holding::Fixture => &mut counts.fixture,
+                    Holding::OnlyWalks => &mut counts.only_walks,
+                    Holding::Empty => &mut counts.empty,
+                };
+                *slot = slot.saturating_add(1);
+            }
+        }
+        out
+    }
+}
+
+/// One function definition found in a source file.
+struct Definition<'a> {
+    name: &'a str,
+    /// The attribute and comment lines directly above it, joined.
+    attributes: String,
+    /// From the signature line to the closing brace at the signature's own indentation.
+    body: String,
+}
+
+/// Every function of a rustfmt-formatted file, classified.
+///
+/// Deliberately a reading of the file's *layout* rather than a parse: rustfmt puts a function's
+/// closing brace at its signature's indentation, and its attributes on the lines directly above
+/// it, so both are found without a Rust parser — the checker's only dependency stays
+/// `thiserror` (PLAN.md §5a). The cost is that a corpus read through a helper in *another*
+/// file, a `support` module, is seen only if this file's own text names a corpus root.
+fn read_functions(text: &str) -> SourceFunctions {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut definitions = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        let Some(name) = function_name(line) else {
+            continue;
+        };
+        if line.trim_end().ends_with(';') {
+            continue;
+        }
+        let indent = line.strip_suffix(line.trim_start()).unwrap_or_default();
+        let closing = format!("{indent}}}");
+        let end = if line.trim_end().ends_with('}') {
+            index
+        } else {
+            lines
+                .iter()
+                .enumerate()
+                .skip(index.saturating_add(1))
+                .find(|(_, candidate)| **candidate == closing)
+                .map_or(lines.len().saturating_sub(1), |(end, _)| end)
+        };
+        let body = lines[index..=end].join("\n");
+        let mut above = Vec::new();
+        for candidate in lines[..index].iter().rev() {
+            let trimmed = candidate.trim();
+            let attribute_or_comment = trimmed.starts_with("#[") || trimmed.starts_with("//");
+            if trimmed.is_empty()
+                || (!attribute_or_comment
+                    && (trimmed.ends_with('{') || trimmed.ends_with('}') || trimmed.ends_with(';')))
+            {
+                break;
+            }
+            above.push(trimmed);
+        }
+        definitions.push(Definition {
+            name,
+            attributes: above.join(" "),
+            body,
+        });
+    }
+
+    // The functions that read a corpus, directly or through another function of this file that
+    // does: grown to a fixed point, so a helper two calls away is found.
+    let mut reads_corpus: std::collections::HashSet<&str> = definitions
+        .iter()
+        .filter(|definition| {
+            CORPUS_ROOTS
+                .iter()
+                .any(|root| definition.body.contains(root))
+        })
+        .map(|definition| definition.name)
+        .collect();
+    loop {
+        let grown: Vec<&str> = definitions
+            .iter()
+            .filter(|definition| !reads_corpus.contains(definition.name))
+            .filter(|definition| {
+                reads_corpus
+                    .iter()
+                    .any(|helper| calls(&definition.body, helper))
+            })
+            .map(|definition| definition.name)
+            .collect();
+        if grown.is_empty() {
+            break;
+        }
+        reads_corpus.extend(grown);
+    }
+
+    let mut kinds = std::collections::HashMap::new();
+    for definition in &definitions {
+        let is_test =
+            definition.attributes.contains("#[test]") || definition.attributes.contains("#[test ");
+        let kind = if definition.attributes.contains("#[ignore") {
+            TestKind::Walk
+        } else if !is_test {
+            TestKind::Census
+        } else if reads_corpus.contains(definition.name) {
+            TestKind::CorpusWitness
+        } else {
+            TestKind::Fixture
+        };
+        kinds.entry(definition.name.to_owned()).or_insert(kind);
+    }
+    SourceFunctions { kinds }
+}
+
+/// The name a line defines with `fn`, if it is a function's signature line.
+fn function_name(line: &str) -> Option<&str> {
+    let mut rest = line.trim_start();
+    for prefix in [
+        "pub(crate) ",
+        "pub(super) ",
+        "pub ",
+        "const ",
+        "async ",
+        "unsafe ",
+    ] {
+        rest = rest.strip_prefix(prefix).unwrap_or(rest);
+    }
+    let rest = rest.strip_prefix("fn ")?;
+    let end = rest
+        .find(|character: char| !(character.is_alphanumeric() || character == '_'))
+        .unwrap_or(rest.len());
+    let name = &rest[..end];
+    (!name.is_empty() && rest[end..].starts_with(['(', '<'])).then_some(name)
+}
+
+/// Whether `body` calls `name` — the name followed by `(` and not preceded by part of a longer
+/// identifier, so `corpus` is not found inside `pdfjs_corpus(`.
+fn calls(body: &str, name: &str) -> bool {
+    let pattern = format!("{name}(");
+    body.match_indices(&pattern).any(|(at, _)| {
+        body[..at]
+            .chars()
+            .next_back()
+            .is_none_or(|before| !(before.is_alphanumeric() || before == '_'))
+            && !body[..at].ends_with("fn ")
+    })
 }
 
 #[cfg(test)]
@@ -1871,5 +2225,83 @@ mod tests {
                 .iter()
                 .any(|problem| matches!(problem, Problem::WrongTitle { .. }))
         );
+    }
+
+    /// A tree of one test file holding each kind of function, under a fresh directory.
+    fn evidence_tree(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "conformance-evidence-{name}-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(root.join("tests")).unwrap();
+        std::fs::write(
+            root.join("tests/t.rs"),
+            "fn corpus(name: &str) -> Option<Vec<u8>> {\n    \
+             std::fs::read(format!(\"../../doc/pdf.js/test/pdfs/{name}\")).ok()\n}\n\n\
+             fn open(name: &str) -> Option<Vec<u8>> {\n    corpus(name)\n}\n\n\
+             fn pdfjs_corpus() {}\n\n\
+             /// Built here.\n#[test]\n#[expect(\n    clippy::float_cmp,\n    \
+             reason = \"exact\"\n)]\nfn a_fixture() {\n    pdfjs_corpus();\n}\n\n\
+             #[test]\nfn a_witness() {\n    let Some(_) = open(\"a.pdf\") else {\n        \
+             return;\n    };\n}\n\n\
+             #[test]\n#[ignore = \"a walk\"]\nfn a_walk() {}\n",
+        )
+        .unwrap();
+        root
+    }
+
+    #[test]
+    fn each_kind_of_test_is_told_apart() {
+        let root = evidence_tree("kinds");
+        let mut classifier = TestClassifier::new(&root);
+        assert_eq!(
+            classifier.classify("tests/t.rs::a_fixture"),
+            TestKind::Fixture
+        );
+        assert_eq!(
+            classifier.classify("tests/t.rs::a_witness"),
+            TestKind::CorpusWitness,
+            "a corpus read two helpers away is still a corpus read"
+        );
+        assert_eq!(classifier.classify("tests/t.rs::a_walk"), TestKind::Walk);
+        assert_eq!(classifier.classify("tests/t.rs::open"), TestKind::Census);
+        assert_eq!(classifier.classify("tests/t.rs"), TestKind::File);
+        assert_eq!(classifier.classify("tests/t.rs::gone"), TestKind::Missing);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Calibrated both ways (trap 13): the same row is a finding with a walk and a witness, and
+    /// stops being one the moment it names a fixture.
+    #[test]
+    fn an_implemented_row_held_only_by_walks_is_a_finding_and_a_fixture_ends_it() {
+        let root = evidence_tree("rows");
+        std::fs::write(root.join("a.rs"), "").unwrap();
+        let row = |tests: &str| {
+            ledger(&format!(
+                "[[clause]]\nclause = \"8.1\"\ntitle = \"General\"\nstatus = \"implemented\"\n\
+                 code = [\"a.rs\"]\ntest = [{tests}]\n"
+            ))
+        };
+        let only_walks = |ledger: &Ledger| {
+            check(ledger, &index(), &[], &root)
+                .into_iter()
+                .filter(|problem| matches!(problem, Problem::OnlyWalks { .. }))
+                .count()
+        };
+        let walks = row("\"tests/t.rs::a_walk\", \"tests/t.rs::a_witness\"");
+        assert_eq!(only_walks(&walks), 1);
+        let held = row("\"tests/t.rs::a_walk\", \"tests/t.rs::a_fixture\"");
+        assert_eq!(only_walks(&held), 0);
+        let mut classifier = TestClassifier::new(&root);
+        let counts = classifier.holdings(&walks);
+        assert!(counts.contains(&(
+            Status::Implemented,
+            HoldingCounts {
+                fixture: 0,
+                only_walks: 1,
+                empty: 0
+            }
+        )));
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

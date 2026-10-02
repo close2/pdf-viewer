@@ -5944,3 +5944,69 @@ their intersection's area. An oblique image is still painted pixel by pixel, by 
 centre is inside it, and `min` meets that set exactly. Building the image fixture also found
 a defect: a horizontal edge running across a pixel did not bound a band in the exact meet, so
 it can now move a path's rim pixel too.
+
+## 63. A clip's residue is the same byte whichever region asks, so admitting a region is a price (ADR 1491); an oblique image's edge is its area (ADR 1492)
+
+**Why admitting `bug1721218_reduced.pdf`'s region moved bytes (section 62).** Every pixel the
+region crop and the per-tile fill disagree on was measured against the set's area from
+`area_in_pixel`, and against an independent `f64` integral. The two agree with each other. On the
+page there were three such pixels in 185 196 asks, and each one's area lies within 4·10⁻⁵ of a
+level's half: 65.500037, 135.500024 and 59.500014 levels. The crop was off from the rounded area at
+all three and the tile at two. Two tiles over the same pixel also disagreed with each other. So
+neither construction is wrong by geometry; `f32` cannot decide those pixels. Raster now fills a
+clip's residue, and only that, in `f64` from the same `f32` points. A mark keeps `f32`, because the
+compute lane's bytes are the CPU lane's. After the change, every one of the 185 196 asks equals the
+rounded area, and a tile is the crop of its region on all 2.9 million probe pixels. With that, which
+side of the admission rule a chain falls on moves nothing, and the rule is priced by work: a fill
+pays its bytes plus sixteen bytes per row piece of every edge in its rows. A last lever counts the
+exact meet's winding into a pixel from whichever side holds fewer partial edges. That changes no
+byte, since windings are integers. On the page, callgrind over one frame pair falls from 18.47 G
+to 9.51 G instructions, and the zoom step from 514 to 274 ms at load 9; your backend takes 84 ms.
+The digest is unchanged. On your corpus the `f64` residue moves no page at 1×, and at 4× it moves
+eight pages, all equal to your oracle to four places. The priced rule and the fewer-side count
+move none.
+
+**An oblique image's edge.** Your §10.7.4 row reads the image paragraph's edge as departure (1): a
+partly covered pixel is partly painted. Raster painted an axis-preserving image that way and an
+oblique one by pixel centre. Both now take the image's area in the pixel, met with the clip
+rectangle and, where a residue cuts the pixel too, with the chain (ADR 1480's meet). Four pages
+move at 1× on every lane, and each has an oblique image: `image-rotated-black-white-ratio.pdf`,
+`issue17147.pdf`, `bug946506.pdf` and `issue19360.pdf`. At 4× it is three of those plus
+`images.pdf`. All of them were already in the agree count. Each moved toward your bytes or stayed
+equal: `issue17147.pdf` went 0.0321 → 0.0000, and `bug946506.pdf` 0.0928 → 0.0831. Verdicts are
+unchanged, and one-versus-many is 0 throughout. `crates/render-cpu/` was not opened.
+
+## 64. Section 52's ask 2, answered on this side: a zoom step fills only what its window samples (ADR 1493)
+
+**What the step's transfer was.** On a step to 2× each image at a new factor was reduced again,
+whole, from its full samples; the reduced raster was premultiplied on one thread after that; and
+the texture was uploaded whole. The photograph needs no reduction at 2×, so its step uploaded all
+80 MB of its samples (12.6 ms) for a window that shows a fifth of them. Plans' step reduced four
+frames whole, one after another. `issue13931.pdf` spent 3.7 ms premultiplying on one thread.
+
+**What changed, all byte for byte.** An image's texture is still made at its grid's full size,
+so the shader asks every pixel's coordinate as before. But only the 256-texel squares that a
+frame's image ops can read are written: each op's corners are carried into texel space and
+widened by two texels for the linear filter. A reduction is made for those cells alone. Each row
+is premultiplied on the thread that reduced it. A band that is not opaque is read off
+premultiplied column sums: the same sums `average_block` takes, added in another order. Released
+images now also drop their reductions. Your oracle's `Image::area_averaged` is unchanged. Raster's
+window and translucent constructions are held to it by tests, and partial fills are held to whole
+fills by `tests/an_image_is_filled_where_it_is_sampled.rs`.
+
+| page, step | before | after | bytes |
+|---|---|---|---|
+| photograph | 13.72 (transfer 10.81) | **3.24 (1.30)** | 80 087 104 → 6 553 664 |
+| Plans | 24.44 (15.68) | **15.31 (6.80)** | 16 982 600 → 13 595 208 |
+| `issue13931.pdf` | 9.14 (7.81) | **6.17 (4.95)** | unchanged |
+| `images.pdf` | 11.52 (7.28) | **9.95 (4.95)** | unchanged |
+
+Milliseconds, `frame_budget`, pinned, one sitting at load 3.0–3.4. The photograph's turn also
+falls, 46.28 → 31.88 (transfer 13.27 → 1.86), because that turn's window shows a third of it.
+
+**The device route, priced again.** On the photograph's step there is no reduction to move, and
+the upload is now the window's 6.5 MB. A mip chain would make the step frame differ from your
+§10.7.4 reduction. That frame is the one left on screen when the sharp pass is off or declined, so
+the chain is not built. On the two pages whose window shows each image almost whole, the step's
+transfer is still the reduction at the new factor: about 17 instructions per sample, scalar on
+the baseline target.

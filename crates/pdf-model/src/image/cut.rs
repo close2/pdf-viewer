@@ -34,8 +34,7 @@
 //! # What is admitted, and what is declined
 //!
 //! Admitted: what [`super::restart`] admits, with no `DRI` (or one stating no interval), entropy
-//! data in which every `FF` is a stuffed `FF 00`, and the scan ended by `EOI` or by the end of the
-//! data. Declined: a pass that meets a code no table holds, a DC category past eleven or an AC
+//! data in which every `FF` is a stuffed `FF 00`, and the scan ended by `EOI`. Declined: a pass that meets a code no table holds, a DC category past eleven or an AC
 //! category past ten (section F.1.2's bounds for eight-bit samples), a run past the 63rd
 //! coefficient, or the data's end before the last MCU; and a band whose first DC value has no code
 //! in its table. A declined frame is decoded whole, exactly as before, by the one decoder it always
@@ -324,12 +323,34 @@ pub(super) fn decode(
     options: zune_jpeg::zune_core::options::DecoderOptions,
     channels: usize,
 ) -> Option<Vec<u8>> {
+    decode_at(
+        data,
+        scan,
+        (options, channels),
+        restart::BANDED_FLOOR,
+        restart::BAND_LINES,
+    )
+}
+
+/// [`decode`] above a floor of `floor` samples, in bands of at least `band_lines` lines, as
+/// [`restart::decode_at`] is to [`restart::decode`] (ADR 1495).
+pub(super) fn decode_at(
+    data: &[u8],
+    scan: &FirstScan,
+    (options, channels): (zune_jpeg::zune_core::options::DecoderOptions, usize),
+    floor: u64,
+    band_lines: u32,
+) -> Option<Vec<u8>> {
+    // A scan the data ends inside, with no `EOI` after it, is a damaged codestream: the whole
+    // decoder reads its tail one way and a band, ended and padded as a codestream of its own,
+    // another (ADR 1495). It is the whole decoder's.
+    scan.ends.as_ref()?;
     let frame = read(data, scan)?;
     let samples = u64::from(frame.width).saturating_mul(u64::from(frame.lines));
-    if samples < restart::BANDED_FLOOR {
+    if samples < floor {
         return None;
     }
-    let bands = restart::plan_rows((frame.mcu_rows, frame.mcu_lines), 1, restart::BAND_LINES)?;
+    let bands = restart::plan_rows((frame.mcu_rows, frame.mcu_lines), 1, band_lines)?;
     let (rows, end) = pass(&frame)?;
     // Every band's first DC values are re-coded before any band is decoded, so that a table
     // without the code one needs declines the cut rather than wasting the bands begun before it.

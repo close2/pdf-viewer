@@ -120,7 +120,7 @@ readback keeps it. Three folds are the search's, all choices:
    is a letter. `25-find-vowelled` and `25-find-other-mark` drive it in all three windows.
 
 A glyph whose text rendering matrix mirrors it reads its stored order off its box's own turn
-(`select::axes`), so a mirrored line is read as its producer stored it. What the readback itself
-does under a mirroring `Tm` is `pdf-model`'s: `separate_text` measures a gap along user-space x
-rather than along the text matrix's axis, so a `TJ` in reading order under `-1 0 0 1 x y Tm` reads
-back with a space between every glyph and the word is not found there; under a mirroring `cm` it is.
+(`select::axes`), so a mirrored line is read as its producer stored it. The readback's inferred
+word gaps are measured in §9.4.4's text space, where the advance is (`separate_text`, ADR 1490), so
+a `TJ` in reading order reads back with no spurious space under a mirroring `Tm` as under a
+mirroring `cm`, and the word is found in both.

@@ -4669,6 +4669,78 @@ fn in_bands(
     })
 }
 
+/// One baseline `DCTDecode` codestream decoded three ways into RGBA: whole by the one decoder,
+/// in bands at its restart intervals (the `restart` module), and in bands at the rows an entropy
+/// pass finds (the `cut` module) — each band plan `None` where it declines the frame.
+///
+/// Both band plans claim the same thing, that a frame they admit decodes to the whole decoder's
+/// bytes, and each module's tests hold it on a handful of encoder outputs. This is the seam that
+/// lets the `jpeg_bands` fuzz target hold it on codestreams nobody chose: [`banded_decodes`]
+/// answers it below the production floor and at a band height the caller states, so that a frame
+/// of a few hundred bytes is cut into several bands at all (ADR 1495).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BandedDecodes {
+    /// The whole frame through the one decoder, or `None` where it refuses the codestream.
+    pub whole: Option<Vec<u8>>,
+    /// The frame in bands at its restart intervals, or `None` where `restart` declines it.
+    pub at_restarts: Option<Vec<u8>>,
+    /// The frame in bands at the rows the entropy pass finds, or `None` where `cut` declines.
+    pub at_rows: Option<Vec<u8>>,
+}
+
+/// [`BandedDecodes`] for `data`, with bands of at least `band_lines` lines and no sample floor.
+///
+/// The codestream is read as `decode_jpeg` reads it — a `DNL` segment's count moved into the
+/// frame header first, and a grid past `MAX_SAMPLES` answered with nothing — and every decode is
+/// asked for RGBA under the options that function uses, which is the output both band plans were
+/// argued and measured for.
+#[must_use]
+pub fn banded_decodes(data: &[u8], band_lines: u32) -> BandedDecodes {
+    use zune_jpeg::zune_core::colorspace::ColorSpace;
+
+    let walked = first_scan(data);
+    let data = frame_as_defined(data, walked.as_ref());
+    let scan = match &data {
+        std::borrow::Cow::Borrowed(_) => walked,
+        std::borrow::Cow::Owned(defined) => first_scan(defined),
+    };
+    let options = jpeg_options().jpeg_set_out_colorspace(ColorSpace::RGBA);
+    // The grid `decode_jpeg` bounds by `MAX_SAMPLES` before it decodes is bounded here too, so
+    // the seam allocates no more than the path it stands for.
+    let mut headers = zune_jpeg::JpegDecoder::new_with_options(
+        zune_jpeg::zune_core::bytestream::ZCursor::new(&*data),
+        options,
+    );
+    let within = headers.decode_headers().is_ok()
+        && headers.info().is_some_and(|info| {
+            u64::from(info.width).saturating_mul(u64::from(info.height)) <= MAX_SAMPLES
+        });
+    if !within {
+        return BandedDecodes {
+            whole: None,
+            at_restarts: None,
+            at_rows: None,
+        };
+    }
+    let whole = zune_jpeg::JpegDecoder::new_with_options(
+        zune_jpeg::zune_core::bytestream::ZCursor::new(&*data),
+        options,
+    )
+    .decode()
+    .ok();
+    let (at_restarts, at_rows) = scan.as_ref().map_or((None, None), |scan| {
+        (
+            restart::decode_at(&data, scan, (options, 4), 0, band_lines),
+            cut::decode_at(&data, scan, (options, 4), 0, band_lines),
+        )
+    });
+    BandedDecodes {
+        whole,
+        at_restarts,
+        at_rows,
+    }
+}
+
 /// `count` four-byte pixels built from `channels` channels each, with alpha set.
 ///
 /// The frames that reach this are the ones [`decode_jpeg`] could not have the decoder write

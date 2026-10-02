@@ -392,8 +392,9 @@ impl Through {
     }
 }
 
-/// An edge left of the pixel that spans only part of its row: it adds its winding to a ray
-/// at the heights it spans.
+/// An edge that spans only part of its row on the side the winding is counted from: it adds
+/// its winding to a ray at the heights it spans — negated when the count is taken from the
+/// right, where an edge through the pixel is one of them too (ADR 1491).
 #[derive(Debug, Clone, Copy)]
 struct Partial {
     ya: f64,
@@ -420,12 +421,13 @@ pub(crate) struct Work {
     partial: Vec<Partial>,
     cuts: Vec<f64>,
     boundaries: Vec<Boundary>,
-    /// Per set, the winding of the edges left of the pixel that span its whole row.
+    /// Per set, the winding entering the pixel from the edges beside it that span its whole
+    /// row.
     left: Vec<i32>,
     windings: Vec<i32>,
     /// Each band's middle height, in order.
     middles: Vec<f64>,
-    /// Per band and set, the winding of the partial edges left of the pixel
+    /// Per band and set, the winding of the partial edges beside the pixel
     /// ([`partial_windings`]).
     band_partials: Vec<i32>,
 }
@@ -434,9 +436,9 @@ pub(crate) struct Work {
 /// `(x, y)` — `[x, x + 1) × [y, y + 1)`, §10.7.4's pixel.
 ///
 /// One pass over the row's edges sorts them three ways: through the pixel (the bands'
-/// boundaries), left of it across the whole row (a constant winding for every band), and
-/// left of it across part of the row (a winding for the bands they span). An edge right of
-/// the pixel crosses no ray that ends at it.
+/// boundaries), beside it across the whole row (a constant winding for every band), and
+/// beside it across part of the row (a winding for the bands they span) — beside it on the
+/// left, or on the right where fewer partial edges stand there ([`sort_row`]).
 #[expect(clippy::arithmetic_side_effects)] // windings count edges of one row
 pub(crate) fn area_in_pixel(x: i32, y: i32, sets: &[&RowEdges], work: &mut Work) -> f64 {
     let (xl, xr) = (f64::from(x), f64::from(x) + 1.0);
@@ -456,65 +458,7 @@ pub(crate) fn area_in_pixel(x: i32, y: i32, sets: &[&RowEdges], work: &mut Work)
                 work.cuts.push(level.y);
             }
         }
-        // Every entry before `wholly_left` ends left of the pixel: the whole-row ones add
-        // their winding through the prefix sum, the partial ones one by one.
-        let wholly_left = row.reach.partition_point(|&furthest| furthest < xl);
-        work.left[index] += row.prefix[wholly_left];
-        // `partials` lists its entries by position in the row, so the ones left of the pixel
-        // are a prefix of it: a row of a long curved clip is almost all partial edges, and
-        // walking the ones right of the pixel to skip them was most of a meet (ADR 1479).
-        let left_partials = row
-            .partials
-            .partition_point(|&k| (k as usize) < wholly_left);
-        for &k in &row.partials[..left_partials] {
-            let k = k as usize;
-            {
-                let edge = &row.edges[row.entries[k].edge as usize];
-                let (ya, yz) = row_span(edge, yt);
-                work.partial.push(Partial {
-                    ya,
-                    yb: yz,
-                    set: index,
-                    dir: edge.dir,
-                });
-            }
-        }
-        for entry in &row.entries[wholly_left..] {
-            if entry.lo > xr {
-                break;
-            }
-            let edge = &row.edges[entry.edge as usize];
-            let (ya, yz) = row_span(edge, yt);
-            let (xa, xz) = (edge.x_at(ya), edge.x_at(yz));
-            if xa.max(xz) < xl {
-                #[expect(clippy::float_cmp)] // exact: the edge spans the row or it does not
-                if ya == yt && yz == yb {
-                    work.left[index] += edge.dir;
-                } else {
-                    work.partial.push(Partial {
-                        ya,
-                        yb: yz,
-                        set: index,
-                        dir: edge.dir,
-                    });
-                }
-                continue;
-            }
-            work.cuts.extend([ya, yz]);
-            for side in [xl, xr] {
-                if (xa - side) * (xz - side) < 0.0 {
-                    work.cuts.push(ya + (side - xa) / (xz - xa) * (yz - ya));
-                }
-            }
-            work.through.push(Through {
-                ya,
-                yb: yz,
-                xa,
-                xb: xz,
-                set: index,
-                dir: edge.dir,
-            });
-        }
+        sort_row(index, &row, (xl, xr), (yt, yb), work);
     }
     crossings(&work.through, &mut work.cuts, (yt, yb));
     work.cuts.sort_by(f64::total_cmp);
@@ -535,7 +479,101 @@ pub(crate) fn area_in_pixel(x: i32, y: i32, sets: &[&RowEdges], work: &mut Work)
     area.clamp(0.0, 1.0)
 }
 
-/// Each band's winding from the partial edges left of the pixel, per set, into
+/// Sort one set's row for pixel `[xl, xr) × [yt, yb)` into `work`: its edges through the
+/// pixel, and the winding entering the pixel from the left, counted from whichever side holds
+/// fewer partial edges.
+#[expect(clippy::arithmetic_side_effects)] // windings count edges of one row
+fn sort_row(
+    index: usize,
+    row: &Row<'_>,
+    (xl, xr): (f64, f64),
+    (yt, yb): (f64, f64),
+    work: &mut Work,
+) {
+    // Every entry before `wholly_left` ends left of the pixel, and every entry from
+    // `right_start` on starts right of it.
+    let wholly_left = row.reach.partition_point(|&furthest| furthest < xl);
+    let right_start = row.entries.partition_point(|entry| entry.lo <= xr);
+    // `partials` lists its entries by position in the row, so the ones left of the pixel
+    // are a prefix of it and the ones right of it a suffix: a row of a long curved clip is
+    // almost all partial edges (ADR 1479).
+    let left_partials = row
+        .partials
+        .partition_point(|&k| (k as usize) < wholly_left);
+    let right_partials = row
+        .partials
+        .partition_point(|&k| (k as usize) < right_start);
+    // **The winding entering the pixel is counted from whichever side holds fewer partial
+    // edges** (ADR 1491). Along a horizontal line every closed subpath's crossings sum to
+    // zero, so the winding left of the pixel is minus the crossings through it and right
+    // of it; both counts are integers, so the side changes nothing but the work.
+    let from_right = row.partials.len() - right_partials < left_partials;
+    let sign = if from_right { -1 } else { 1 };
+    let (prefix, partials) = if from_right {
+        let whole = row.prefix[row.entries.len()] - row.prefix[right_start];
+        (whole, &row.partials[right_partials..])
+    } else {
+        (row.prefix[wholly_left], &row.partials[..left_partials])
+    };
+    work.left[index] += sign * prefix;
+    for &k in partials {
+        let edge = &row.edges[row.entries[k as usize].edge as usize];
+        let (ya, yz) = row_span(edge, yt);
+        work.partial.push(Partial {
+            ya,
+            yb: yz,
+            set: index,
+            dir: sign * edge.dir,
+        });
+    }
+    for entry in &row.entries[wholly_left..right_start] {
+        let edge = &row.edges[entry.edge as usize];
+        let (ya, yz) = row_span(edge, yt);
+        let (xa, xz) = (edge.x_at(ya), edge.x_at(yz));
+        if xa.max(xz) < xl {
+            if from_right {
+                continue;
+            }
+            #[expect(clippy::float_cmp)] // exact: the edge spans the row or it does not
+            if ya == yt && yz == yb {
+                work.left[index] += edge.dir;
+            } else {
+                work.partial.push(Partial {
+                    ya,
+                    yb: yz,
+                    set: index,
+                    dir: edge.dir,
+                });
+            }
+            continue;
+        }
+        work.cuts.extend([ya, yz]);
+        for side in [xl, xr] {
+            if (xa - side) * (xz - side) < 0.0 {
+                work.cuts.push(ya + (side - xa) / (xz - xa) * (yz - ya));
+            }
+        }
+        work.through.push(Through {
+            ya,
+            yb: yz,
+            xa,
+            xb: xz,
+            set: index,
+            dir: edge.dir,
+        });
+        // Counted from the right, an edge through the pixel is crossed on the way in.
+        if from_right {
+            work.partial.push(Partial {
+                ya,
+                yb: yz,
+                set: index,
+                dir: -edge.dir,
+            });
+        }
+    }
+}
+
+/// Each band's winding from the partial edges beside the pixel, per set, into
 /// `work.band_partials` — band `b`'s windings at `b × sets .. (b + 1) × sets`.
 ///
 /// A partial edge adds its winding to a band whose middle height `ym` has
@@ -660,6 +698,44 @@ mod tests {
 
     fn set(polylines: &[Polyline], rule: Rule) -> RowEdges {
         RowEdges::of(polylines, rule, -4, 16, usize::MAX).expect("within the limit")
+    }
+
+    /// **The winding entering the pixel is the same counted from either side** (ADR 1491):
+    /// a wedge `x ≥ 2 + 0.5·(y − 2)` cuts pixel `(2, 2)` by a trapezoid of area `0.75`, and
+    /// eleven small squares spanning part of the row — partial edges — stand left of the pixel
+    /// in one arm, so the count is taken from the right, and right of it in the other, so it is
+    /// taken from the left. Wound both ways round, each square adds and removes nothing, and
+    /// both arms read the wedge's area, under either rule.
+    #[test]
+    fn the_winding_into_a_pixel_is_counted_from_the_side_with_fewer_partial_edges() {
+        let mut work = Work::default();
+        for left_of_pixel in [true, false] {
+            for rule in [Rule::NonZero, Rule::EvenOdd] {
+                let mut polylines =
+                    vec![polygon(&[(2.0, 2.0), (9.0, 2.0), (9.0, 12.0), (7.0, 12.0)])];
+                for k in 0..11_u8 {
+                    let x = if left_of_pixel {
+                        -10.0 + f32::from(k)
+                    } else {
+                        3.5 + f32::from(k) * 0.3
+                    };
+                    let square = [(x, 2.2), (x + 0.2, 2.2), (x + 0.2, 2.6), (x, 2.6)];
+                    let wound: Vec<(f32, f32)> = if k % 2 == 0 {
+                        square.to_vec()
+                    } else {
+                        square.iter().rev().copied().collect()
+                    };
+                    polylines.push(polygon(&wound));
+                }
+                let wedge = set(&polylines, rule);
+                let area = area_in_pixel(2, 2, &[&wedge], &mut work);
+                assert!(
+                    (area - 0.75).abs() < 1e-12,
+                    "{rule:?}, squares {}: {area}",
+                    if left_of_pixel { "left" } else { "right" }
+                );
+            }
+        }
     }
 
     /// A set whose horizontal edge crosses the pixel between two sides that lie outside it:

@@ -16,15 +16,25 @@
 //! million pixels to save nine thousand, and that is not a cache, it is a bomb with a
 //! cache's name on it.
 //!
+//! **What a fill costs is its bytes and the edges in its rows** (ADR 1491). A region pays
+//! every byte it holds and every row piece of every edge; a tile pays its own bytes and the
+//! row pieces of the edges in its rows — about the chain's pieces in proportion to the rows,
+//! since a tile reads every edge its rows hold whatever their columns. Counting bytes alone
+//! priced a declined tile at four bytes when it filled sixteen hundred row pieces, and so
+//! declined the one region `bug1721218_reduced.pdf` asks for three thousand times. A piece is
+//! [`PIECE_BYTES`] bytes' worth of work, measured.
+//!
 //! [`ResidueRegions::admit`] is the whole of the decision, and both halves of it are
 //! checked **before anything is allocated**:
 //!
-//! - **the region must not cost more than the tiles** — `region ≤ uses × tile`, where
-//!   `uses` is counted from the scene ([`ResidueRegions::of`]) and `tile` is the tile the
-//!   first command asked for. Conservative in the one direction that matters: the region
-//!   is rasterised once where the tiles pay a flattening each, so an admitted region is
-//!   cheaper than the comparison says, and a refused one is at worst as expensive as
-//!   today.
+//! - **the region must not cost more than the tiles** — `region + k·pieces ≤ uses × (tile +
+//!   k·pieces·tile_rows / region_rows)`, where `uses` is counted from the scene
+//!   ([`ResidueRegions::of`]), `tile` is the tile the first command asked for and `k` is
+//!   [`PIECE_BYTES`]. Conservative in the direction that matters: a tile also pays a
+//!   flattening and its rows' topology, which the right side leaves out, so an admitted
+//!   region is cheaper than the comparison says. **Which side of the rule a chain falls on
+//!   moves no byte**: a clip's residue is the same coverage over a region and over a tile
+//!   (ADR 1491), so this is a question of cost alone.
 //! - **the frame's regions must fit their budget** — a quarter of the caller's stated
 //!   `Options::max_frame_bytes` ([`budget`]).
 //!
@@ -61,9 +71,40 @@ pub(super) use flats::{LinkFlats, LinkKey};
 /// regions at 4× magnification.
 const RESIDUE_BUDGET_SHARE: u64 = 4;
 
+/// The cost of filling one row piece of an edge, in bytes of coverage filled at the same cost.
+///
+/// Measured on the fill this module chooses between: a 1000 × 1000 rectangle over its own
+/// region costs 6.4–6.6 ns a byte, and a 100 000-gon over a 210 × 210 region 103–143 ns a row
+/// piece once its bytes are taken away — sixteen to twenty-two bytes. The lower figure, so
+/// that the rule leans towards declining, which is what every frame did before ADR 1491.
+const PIECE_BYTES: u64 = 16;
+
 /// What one frame's residue regions may hold, given the frame's own budget.
 pub(super) fn budget(frame_budget_bytes: u64) -> u64 {
     frame_budget_bytes.saturating_div(RESIDUE_BUDGET_SHARE)
+}
+
+/// What one fill of a chain's residue would cover, for [`ResidueRegions::admit`]'s price.
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct Fill {
+    /// The coverage bytes it fills.
+    pub(super) bytes: u64,
+    /// The device rows it spans.
+    pub(super) rows: u64,
+    /// The row pieces of every edge of the chain inside those rows — the region's; zero on a
+    /// tile, whose share the rule takes in proportion to its rows.
+    pub(super) pieces: u64,
+}
+
+impl Fill {
+    /// A fill of `bytes` over `rows` rows, holding `pieces` row pieces.
+    pub(super) fn new(bytes: u64, rows: u64, pieces: u64) -> Self {
+        Self {
+            bytes,
+            rows,
+            pieces,
+        }
+    }
 }
 
 /// What the frame has decided about one chain, as a caller of
@@ -208,9 +249,17 @@ impl ResidueRegions {
     /// Decide, before anything is allocated, whether this chain's region is worth
     /// rasterising — and remember the answer, so that every command under one chain is
     /// served the same way and the decline is counted once rather than once per command.
-    pub(super) fn admit(&mut self, key: u32, region_bytes: u64, tile_bytes: u64) -> bool {
+    pub(super) fn admit(&mut self, key: u32, region: Fill, tile: Fill) -> bool {
         let uses = u64::from(self.uses.get(key as usize).copied().unwrap_or(0)).max(1);
-        let worth_it = region_bytes <= uses.saturating_mul(tile_bytes);
+        let pieces = region.pieces.saturating_mul(PIECE_BYTES);
+        let region_cost = region.bytes.saturating_add(pieces);
+        let tile_pieces = pieces
+            .saturating_mul(tile.rows)
+            .checked_div(region.rows)
+            .unwrap_or(pieces);
+        let tile_cost = tile.bytes.saturating_add(tile_pieces);
+        let worth_it = region_cost <= uses.saturating_mul(tile_cost);
+        let region_bytes = region.bytes;
         let fits = self.spent.saturating_add(region_bytes) <= self.budget;
         if worth_it && fits {
             self.spent = self.spent.saturating_add(region_bytes);
@@ -258,7 +307,7 @@ fn count(commands: &[Command], uses: &mut [u32]) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Held, ResidueRegions, Verdict};
+    use super::{Fill, Held, ResidueRegions, Verdict};
     use crate::raster::CoverageMask;
     use raster_scene::{
         Affine, BlendMode, Color, Compose, FillRule, OutlineId, Paint, Point, Scene, SceneBuilder,
@@ -304,11 +353,27 @@ mod tests {
         let mut regions = ResidueRegions::of(&scene_with(40), u64::MAX);
         // A page-sized region against forty tiles of 224 pixels: the shape of a real
         // page's `q W n` around a paragraph, and the case this rule exists for.
-        assert!(!regions.admit(0, 1191 * 1684, 224));
+        // Its curve crosses each of the page's rows twice.
+        let page = Fill::new(1191 * 1684, 1684, 2 * 1684);
+        assert!(!regions.admit(0, page, Fill::new(224, 14, 0)));
         assert!(matches!(regions.verdict(0), Verdict::PerTile));
         // The same region against forty tiles that are each a tenth of the page.
         let mut generous = ResidueRegions::of(&scene_with(40), u64::MAX);
-        assert!(generous.admit(0, 1191 * 1684, 1191 * 168));
+        assert!(generous.admit(0, page, Fill::new(1191 * 168, 168, 0)));
+    }
+
+    /// **A small tile of a long chain pays the chain's edges in its rows** (ADR 1491): the
+    /// shape of `bug1721218_reduced.pdf`'s clip — a 207 × 120 region of 111 677 edges, asked
+    /// for by 3 025 tiles of two pixels — is declined by bytes alone and admitted once the
+    /// tile's edges are priced.
+    #[test]
+    fn a_region_whose_tiles_pay_its_edges_is_kept() {
+        let mut regions = ResidueRegions::of(&scene_with(3_025), u64::MAX);
+        let region = Fill::new(207 * 120, 120, 111_677);
+        assert!(regions.admit(0, region, Fill::new(4, 2, 0)));
+        // With no edges, the rule is the bytes' rule it always was.
+        let mut bare = ResidueRegions::of(&scene_with(3_025), u64::MAX);
+        assert!(!bare.admit(0, Fill::new(207 * 120, 120, 0), Fill::new(4, 2, 0)));
     }
 
     /// **The budget is checked before the region exists**, and a frame whose regions
@@ -316,8 +381,9 @@ mod tests {
     #[test]
     fn the_budget_declines_rather_than_refuses() {
         let mut regions = ResidueRegions::of(&scene_with(40), 4_000);
-        assert!(regions.admit(0, 3_000, 3_000));
-        assert!(!regions.admit(0, 3_000, 3_000), "3 000 more is over 4 000");
+        let fill = Fill::new(3_000, 1, 0);
+        assert!(regions.admit(0, fill, fill));
+        assert!(!regions.admit(0, fill, fill), "3 000 more is over 4 000");
         assert!(matches!(regions.verdict(0), Verdict::PerTile));
         assert_eq!(
             regions.spent, 3_000,
@@ -348,7 +414,7 @@ mod tests {
             height: 1,
             coverage: vec![255],
         };
-        assert!(regions.admit(0, 1, 1));
+        assert!(regions.admit(0, Fill::new(1, 1, 0), Fill::new(1, 1, 0)));
         regions.insert(0, Some(mask));
         assert!(matches!(regions.verdict(0), Verdict::Region(Some(_))));
         assert!(matches!(regions.verdict(0), Verdict::Region(Some(_))));

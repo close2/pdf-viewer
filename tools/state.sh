@@ -28,6 +28,7 @@ set -u -o pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$root" || exit 1
+root_of_tree=$root
 
 status=0
 built_gate_binaries=
@@ -72,6 +73,8 @@ section_ledger() {
     # `partial` would go on counting a decision as debt. ADR 1119. The binary runs without `--write`,
     # so it counts and writes nothing: a state section is read-only, and this file is the one six
     # rounds edit at once (ADR 1487). Its first line says whether the ledger is in generated form.
+    # Its `held by` lines count, per status, the rows a fixture holds, the rows held only by walks
+    # or corpus witnesses, and the rows naming no test (ADR 1497).
     run "ledger" '.' cargo run -q -p conformance --bin ledger
 }
 
@@ -615,14 +618,16 @@ section_governing() {
     PYTHONDONTWRITEBYTECODE=1 python3 tools/governing-quotations.py || status=1
 }
 
-# The last twelve rounds' records, beside the budget `doc/todo/02` section 8 states.
+# The last twelve rounds' records, beside the budget `doc/todo/02` section 8 states, and every
+# record since the gates were first listed that does not state them (ADR 1499).
 #
 # A budget nothing counts is exceeded unnoticed, so the figure lives in the check rather than here:
-# there is one copy of it and it is the one that fails.
+# there is one copy of it and it is the one that fails. One test thread, so the two lists print
+# apart rather than interleaved.
 section_records() {
-    run "records (the last twelve, against doc/todo/02 section 8's budget)" \
-        'against a budget of|^  1[0-9]{3} |records, [0-9]+ of them counted' \
-        cargo test -q -p conformance --test records -- --nocapture
+    run "records (the last twelve against doc/todo/02 section 8's budget, and whose gates are unstated)" \
+        'against a budget of|do not state their gates|^  1[0-9]{3} |records, [0-9]+ of them counted' \
+        cargo test -q -p conformance --test records -- --nocapture --test-threads=1
 }
 
 # Every fuzz target, what this disk holds for it, and what its runs left behind. `fuzz/corpus` and
@@ -694,16 +699,20 @@ section_main_checkout() {
     PYTHONDONTWRITEBYTECODE=1 python3 tools/main-checkout.py || status=1
 }
 
-# Each batch's clock, out of the batch commits that carry it (ADR 1476): per commit since the
-# orchestrator began writing round durations into the body, the gates line's figure and the round
-# durations the body states. Read from `git log`, never from a document. The one sum here is of the
-# round durations the message writes as `<n> s`, with how many figures it summed, so a figure
-# written another way is visible as missing from the count rather than silently left out; the gate
-# figure is the message's own, the sum `tools/batch.sh gates` made (ADR 1487).
+# Each batch's clock, out of the batch commits that carry it (ADR 1476): one line per commit since
+# the orchestrator began writing round durations into the body — the gates line's figure, and the
+# round durations the body states. Read from `git log`, never from a document. The one sum here is
+# of the round durations the message writes as `<n> s`, beside how many figures it summed and how
+# many rounds the paragraph names (a session number opening a `;`-separated entry), so a cut round
+# reads as two figures for one round and a figure written another way is visible rather than
+# silently left out: a round entry with no `<n> s` is named, and so is a `<n> s + <m>` whose second
+# half carries no unit, which the sum cannot take. `doc/todo/02` section 8 item 4 is the shape the
+# orchestrator writes; the gate figure is the message's own, the sum `tools/batch.sh gates` made
+# (ADRs 1487, 1500).
 section_batches() {
-    heading "each batch's clock, from its commit message (ADR 1476)" \
+    heading "each batch's clock, from its commit message (ADRs 1476, 1500)" \
         "git log --grep 'Round durations'"
-    local commits commit body gates rounds seconds figures
+    local commits commit body gates rounds seconds figures named unsummed bare
     commits=$(git log --grep='Round durations' --format=%h)
     if [ -z "$commits" ]; then
         printf 'no batch commit carries round durations yet\n'
@@ -715,9 +724,15 @@ section_batches() {
         rounds=$(printf '%s' "$body" | sed -n 's/.*Round durations[^:]*: *//p' | sed 's/ *Co-Authored-By.*//')
         seconds=$(printf '%s' "$rounds" | grep -oE '[0-9]+ s\b' | awk '{ t += $1 } END { print t + 0 }')
         figures=$(printf '%s' "$rounds" | grep -oE '[0-9]+ s\b' | grep -c .)
-        printf '%s %s\n  gates:  %s\n  rounds: %s s over %s figure(s) written "<n> s"\n' \
+        named=$(printf '%s' "$rounds" | tr ';' '\n' | grep -cE '^ *[0-9]{3,5}\b')
+        bare=$(printf '%s' "$rounds" | tr ';' '\n' | grep -E '^ *[0-9]{3,5}\b' |
+            grep -vE '[0-9]+ s\b' | grep -oE '^ *[0-9]{3,5}' | tr -d ' ' | tr '\n' ' ')
+        unsummed=$(printf '%s' "$rounds" | grep -oE '[0-9]+ s \+ [0-9]+( [^s]|[,;.]|$)' |
+            sed -E 's/( [^s]|[,;.])$//' | paste -sd, -)
+        printf '%s %s  gates: %s  rounds: %s s over %s figure(s) for %s round(s)%s%s\n' \
             "$commit" "$(git log -1 --format=%cs "$commit")" "${gates:-no gate wall-time line}" \
-            "$seconds" "$figures"
+            "$seconds" "$figures" "$named" "${bare:+  no <n> s: $bare}" \
+            "${unsummed:+  not summed, no unit: $unsummed}"
     done
 }
 
@@ -1046,34 +1061,77 @@ section_binaries() {
     ls -l target/ 2>/dev/null | grep -vE '^total|^d' || printf 'nothing installed — doc/todo/02 §5\n'
 }
 
+# The disk the builds fill, read-only (ADR 1500): the round's own build directory and the root it
+# sits in, every directory under that root with its profiles, the main checkout's directory beside
+# the worktree's, `sccache`'s cache against its ceiling, the free space where the builds and the
+# checkout live, and `scratchpad/`. `doc/environment.md`'s build-directory entry says what to prune
+# when, written as the commands; this section prunes nothing.
 section_disk() {
-    heading "the build directory" "du -sh"
+    heading "the disk: build directories, sccache, free space, scratchpad" "du -sh; df -h"
     # Asked for rather than written down: a worktree round has a `target-dir` of its own, and the
     # literal path this used to carry reported the *main* tree's directory from inside every one of
     # them (trap 15). `tools/round.sh` has derived it all along.
-    local built root
+    local built root main main_built dir profile wrapper cache ceiling
     built=$(cargo metadata --no-deps --format-version 1 2>/dev/null |
             grep -oE '"target_directory":"[^"]+"' | head -1 | cut -d'"' -f4)
     [ -n "$built" ] || built=target
+    printf 'this tree builds in   %s\n' "$built"
     du -sh "$built" 2>/dev/null
     du -sh "$built/tmp/pdfref-cache" 2>/dev/null
-    # And the root all of them sit in, because that is what `doc/todo/02` §5a's hundred gigabytes
-    # is about and this section could not see it. The line above is deliberately the *round's own*
-    # directory and stays — from a worktree it is a few hundred megabytes, which answers "what did
-    # I build" and reads, wrongly, as an answer to "is the disk full". The two are one line apart
-    # now rather than two orders of magnitude apart in silence (ADR 0752).
-    #
-    # The root is the parent of the round's own directory, which is a convention rather than a
-    # derivation — so three things have to hold before it is worth printing, and in an ordinary
-    # clone none of them does: the build directory has to sit *outside* the checkout (otherwise
-    # the parent is the repository and its size is a fact about the source), and the parent has
-    # to hold more than the one directory. `tools/worktree.sh list` breaks the figure down by
-    # whose each directory is.
-    root=$(dirname "$built")
-    if [ "$root" != "." ] && [ "$root" != "$(git rev-parse --show-toplevel 2>/dev/null)" ] &&
-       [ "$(find "$root" -maxdepth 1 -mindepth 1 2>/dev/null | wc -l)" -gt 1 ]; then
-        du -sh "$root" 2>/dev/null
+    # The main checkout's directory is read from the configuration Cargo would read there — its own
+    # `.cargo/config.toml`, else this user's — rather than by running `cargo` in the owner's checkout.
+    main=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)")
+    if [ -n "$main" ] && [ "$main" != "$root_of_tree" ]; then
+        main_built=
+        for config in "$main/.cargo/config.toml" "$HOME/.cargo/config.toml"; do
+            [ -r "$config" ] || continue
+            main_built=$(sed -nE 's/^ *target-dir *= *"([^"]+)".*/\1/p' "$config" | head -1)
+            [ -n "$main_built" ] && break
+        done
+        [ -n "$main_built" ] || main_built=$main/target
+        printf 'the main checkout     %s builds in %s\n' "$main" "$main_built"
     fi
+    # And the root all of them sit in, because that is what `doc/todo/02` §5a's hundred gigabytes
+    # is about. The round's own line above stays — from a worktree it answers "what did I build",
+    # which reads, wrongly, as an answer to "is the disk full" when the root is not beside it
+    # (ADR 0752). The root is the parent of the round's own directory, a convention rather than a
+    # derivation, so it is printed only when the build directory sits outside the checkout and the
+    # parent holds more than the one directory. Each directory under it is printed with its
+    # profiles and the day it was last written, so a directory no live tree builds in is legible as
+    # one; `tools/worktree.sh list` says whose each is.
+    root=$(dirname "$built")
+    if [ "$root" != "." ] && [ "$root" != "$root_of_tree" ] &&
+       [ "$(find "$root" -maxdepth 1 -mindepth 1 2>/dev/null | wc -l)" -gt 1 ]; then
+        printf '\nthe root, and each directory under it (last written on the date shown):\n'
+        du -sh "$root" 2>/dev/null
+        for dir in "$root"/*/; do
+            dir=${dir%/}
+            printf '  %-7s %s  %s\n' "$(du -sh "$dir" 2>/dev/null | cut -f1)" \
+                "$(find "$dir" -maxdepth 2 -printf '%TF\n' 2>/dev/null | sort | tail -1)" "$dir"
+            for profile in debug release gates tmp; do
+                [ -d "$dir/$profile" ] || continue
+                printf '  %9s %-7s %s\n' '' "$(du -sh "$dir/$profile" 2>/dev/null | cut -f1)" "$profile"
+            done
+        done
+    fi
+    # `sccache` evicts by age once its cache reaches the ceiling, so a full cache is a cache that is
+    # forgetting (ADR 1463). Read off the disk rather than out of `sccache --show-stats`, which
+    # starts a server when none is running: the cache directory is `SCCACHE_DIR` or the default,
+    # the ceiling is `SCCACHE_CACHE_SIZE` or the configuration file's `size`, or sccache's default.
+    wrapper=$(sed -nE 's/^ *rustc-wrapper *= *"([^"]+)".*/\1/p' "$HOME/.cargo/config.toml" 2>/dev/null | head -1)
+    if [ -n "$wrapper" ]; then
+        cache=${SCCACHE_DIR:-$HOME/.cache/sccache}
+        ceiling=${SCCACHE_CACHE_SIZE:-$(sed -nE 's/^ *size *= *"([^"]+)".*/\1/p' \
+            "${SCCACHE_CONF:-$HOME/.config/sccache/config}" 2>/dev/null | head -1)}
+        printf '\nsccache (%s): %s in %s, ceiling %s\n' "$wrapper" \
+            "$(du -sh "$cache" 2>/dev/null | cut -f1)" "$cache" "${ceiling:-10G, the default}"
+    fi
+    printf '\nfree space (one line each, so two paths on one filesystem read as such):\n'
+    for dir in "$HOME" "${main:-$root_of_tree}"; do
+        printf '  %-32s %s\n' "$dir" "$(df -h --output=avail,size,pcent,target "$dir" 2>/dev/null |
+            sed -n '2{s/^ *//;s/  */ /g;s/^\([^ ]*\) \([^ ]*\) \([^ ]*\) \(.*\)/\1 free of \2 (\3 used) on \4/;p}')"
+    done
+    printf '\nscratchpad: %s\n' "$(du -sh scratchpad 2>/dev/null | cut -f1)"
 }
 
 section_questions() {

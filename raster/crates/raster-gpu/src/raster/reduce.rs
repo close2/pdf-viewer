@@ -7,23 +7,35 @@
 //! 0702's ledger). Under [`ImageFilter::Auto`](raster_scene::ImageFilter) the flag
 //! crosses the boundary instead, and this module answers the two questions where the
 //! placement is known — the same amendment pattern as the stroke width (ADR 0085) and
-//! the collapsed fill (ADR 0086), with the same containment: **every function here
-//! mirrors the caller's `pdf_render` statement for statement** (`smoothed`, `factor`,
-//! `Reduction`, `Bands`, `Reciprocals`, `reduce_row`, `average_block`, `round_div` —
-//! their `paint.rs`), their CPU oracle keeps the originals, and the cross-backend gates
-//! compare the two continuously. The reduced samples are byte-identical by construction:
+//! the collapsed fill (ADR 0086), with the same containment: **the functions here mirror
+//! the caller's `pdf_render` statement for statement** (`smoothed`, `factor`, `Reduction`,
+//! `Bands`, `Reciprocals`, `average_block`, `round_div` — their `paint.rs`), the two below
+//! that do not are held to those by tests, their CPU oracle keeps the originals, and the
+//! cross-backend gates compare the two continuously. The reduced samples are byte-identical by construction:
 //! the arithmetic is integer sums, divisions and exact reciprocal multiplications with no
 //! float in the data path.
 //!
 //! Their row split is mirrored too, on the threads the host permits
 //! ([`Options::encode_threads`](crate::Options::encode_threads)) rather than on a pool
-//! of this library's: a reduction here runs once per `(image, factors)` for the
+//! of this library's: each cell of a reduction is made once per `(image, factors)` for the
 //! device's life ([`crate::device`]'s cache), but that once is the first frame that
 //! minifies the image past a new integer factor, which is a page turn onto the
 //! photograph — a 5280×3792 one paid 53 ms of the turn's 55 ms of transfer on one
 //! thread. Every output row is a function of its own band of source rows, so dividing
 //! the rows moves no byte ([`PARALLEL_FLOOR`] and the caller's ADR 1433 have the
 //! numbers).
+//!
+//! **Two constructions of the caller's bytes that are not their statements** (ADR 1493).
+//! The device fills a reduced texture in the regions a frame samples rather than whole, so
+//! [`area_averaged_cells`] reduces any rectangle of the grid, and [`reduce_row`] works on the
+//! rectangle's source columns. Every cell is a function of its own block alone —
+//! [`average_block`]'s, or the column sums' that the caller's proof makes the same byte for an
+//! opaque block — so a window is the whole grid's cells, cropped. And a band that is not
+//! opaque is read off premultiplied column sums ([`translucent_row`]) rather than block by
+//! block: the same three sums and the same alpha sum, added in another order, which integer
+//! addition does not see.
+
+use std::ops::Range;
 
 use raster_scene::ImageSpec;
 
@@ -127,24 +139,65 @@ const ROWS_PER_TAKE: usize = 16;
 /// `Image::area_averaged`, statement for statement (premultiplied sums, proportional
 /// band boundaries, round-to-nearest), with its rows divided among up to `threads`
 /// threads as the module comment says. The bytes are theirs to the last one, at any
-/// value of `threads`.
+/// value of `threads`. The device asks [`area_averaged_cells`] for windows of it; the whole
+/// grid is what the tests hold every window to.
+#[cfg(test)]
 pub(crate) fn area_averaged(spec: &ImageSpec, reduced: Reduction, threads: usize) -> ImageSpec {
     let Reduction { width, height, .. } = reduced;
-    let rows = Bands::new(spec.height, height);
-    let columns = Bands::new(spec.width, width);
-    let spans: Vec<(u32, u32)> = (0..width).map(|out_x| columns.at(out_x)).collect();
+    ImageSpec {
+        width,
+        height,
+        data: area_averaged_cells(spec, reduced, 0..width, 0..height, threads, |_| ()).into(),
+    }
+}
+
+/// The cells `columns` × `rows` of [`area_averaged`]'s grid, row-major, four straight-alpha
+/// bytes each: the same bytes as the whole grid's cells at those places, because each cell
+/// reads only its own block (the module comment). A range past the grid is cut at its edge.
+///
+/// `finish` is handed each row as it is made, on the thread that made it — where the
+/// device premultiplies a texture's row, so that step is divided among the threads with the
+/// reduction instead of running on one thread after it (ADR 1493).
+pub(crate) fn area_averaged_cells(
+    spec: &ImageSpec,
+    reduced: Reduction,
+    columns: Range<u32>,
+    rows: Range<u32>,
+    threads: usize,
+    finish: impl Fn(&mut [u8]) + Sync,
+) -> Vec<u8> {
+    let Reduction { width, height, .. } = reduced;
+    let columns = columns.start.min(width)..columns.end.min(width);
+    let rows = rows.start.min(height)..rows.end.min(height);
+    let row_bands = Bands::new(spec.height, height);
+    let column_bands = Bands::new(spec.width, width);
+    let spans: Vec<(u32, u32)> = columns
+        .clone()
+        .map(|out_x| column_bands.at(out_x))
+        .collect();
     let reciprocals = Reciprocals::new(
         u64::from(spec.width.div_ceil(width.max(1)))
             .saturating_mul(u64::from(spec.height.div_ceil(height.max(1)))),
     );
-    let row_bytes = (width as usize).saturating_mul(4);
-    let mut data: Vec<u8> = vec![0; row_bytes.saturating_mul(height as usize)];
+    let row_bytes = (columns.len()).saturating_mul(4);
+    let mut data: Vec<u8> = vec![0; row_bytes.saturating_mul(rows.len())];
+    let first_row = rows.start as usize;
     let fill = |out_y: usize, row: &mut [u8], sums: &mut Vec<u32>| {
-        let rows = rows.at(u32::try_from(out_y).unwrap_or(u32::MAX));
-        reduce_row(spec, rows, &spans, &reciprocals, sums, row);
+        let at = u32::try_from(first_row.saturating_add(out_y)).unwrap_or(u32::MAX);
+        reduce_row(spec, row_bands.at(at), &spans, &reciprocals, sums, row);
+        finish(row);
     };
     let take = row_bytes.saturating_mul(ROWS_PER_TAKE);
-    let samples = u64::from(spec.width).saturating_mul(u64::from(spec.height));
+    // The window's own source samples decide whether threads pay, not the image's.
+    let source_columns = spans
+        .first()
+        .zip(spans.last())
+        .map_or(0, |(first, last)| last.1.saturating_sub(first.0));
+    let source_rows = row_bands
+        .at(rows.end)
+        .0
+        .saturating_sub(row_bands.at(rows.start).0);
+    let samples = u64::from(source_columns).saturating_mul(u64::from(source_rows));
     if threads > 1 && samples >= PARALLEL_FLOOR && take > 0 && data.len() > take {
         // Each thread takes the next band of rows from one counter; a band is written by
         // exactly the thread that took it, through the lock that hands it over.
@@ -179,11 +232,7 @@ pub(crate) fn area_averaged(spec: &ImageSpec, reduced: Reduction, threads: usize
             fill(out_y, row, &mut sums);
         }
     }
-    ImageSpec {
-        width,
-        height,
-        data: data.into(),
-    }
+    data
 }
 
 /// The caller's `factor`: how many source samples share a device pixel along one axis,
@@ -267,10 +316,13 @@ impl Reciprocals {
     }
 }
 
-/// The caller's `reduce_row`, statement for statement: a band of source rows `y0..y1` that is
-/// opaque throughout summed down each column once and every cell read off those sums by
-/// [`Reciprocals`], and any other band's cells [`average_block`]'s. Their comment has the proof that an opaque block's plain mean,
-/// rounded as `⌊(s + ⌊c/2⌋) ÷ c⌋`, is the premultiplied arithmetic's byte.
+/// The caller's `reduce_row`, over the source columns `spans` reaches rather than the whole
+/// width: a band of source rows `y0..y1` that is opaque throughout those columns summed down
+/// each of them once and every cell read off those sums by [`Reciprocals`], and any other
+/// band's cells [`average_block`]'s. Their comment has the proof that an opaque block's plain
+/// mean, rounded as `⌊(s + ⌊c/2⌋) ÷ c⌋`, is the premultiplied arithmetic's byte — which is
+/// also why the window may take the sums where the whole width would not: either path gives
+/// an opaque block that byte.
 #[expect(clippy::arithmetic_side_effects)] // bounded by `SMALL_BLOCK` as the caller's is
 // (every sum under 2^20, every product under 2^52), and mirrored
 fn reduce_row(
@@ -282,12 +334,21 @@ fn reduce_row(
     row: &mut [u8],
 ) {
     let line = (spec.width as usize) * 4;
-    let band = if reciprocals.is_empty() || line == 0 {
+    let (left, right) = spans
+        .first()
+        .zip(spans.last())
+        .map_or((0, 0), |(first, last)| (first.0 as usize, last.1 as usize));
+    // Each source row's part under the window, in order; `None` where the data is short.
+    let window: Option<Vec<&[u8]>> = (y0..y1)
+        .map(|y| {
+            let start = (y as usize) * line;
+            spec.data.get(start + left * 4..start + right * 4)
+        })
+        .collect();
+    let band = if reciprocals.is_empty() || line == 0 || right <= left {
         None
     } else {
-        spec.data
-            .get((y0 as usize) * line..(y1 as usize) * line)
-            .filter(|band| opaque_band(band))
+        window
     };
     let Some(band) = band else {
         for (cell, &(x0, x1)) in row.chunks_exact_mut(4).zip(spans) {
@@ -295,9 +356,13 @@ fn reduce_row(
         }
         return;
     };
+    if !band.iter().all(|row| opaque_band(row)) {
+        translucent_row(&band, left, spans, y1 - y0, sums, row);
+        return;
+    }
     sums.clear();
-    sums.resize(line, 0);
-    for source in band.chunks_exact(line) {
+    sums.resize((right - left) * 4, 0);
+    for source in band {
         for (sum, &byte) in sums.iter_mut().zip(source) {
             *sum += u32::from(byte);
         }
@@ -307,7 +372,7 @@ fn reduce_row(
         let count = (x1 - x0) * lines;
         let mut block = [0u32; 4];
         let columns = sums
-            .get((x0 as usize) * 4..(x1 as usize) * 4)
+            .get((x0 as usize - left) * 4..(x1 as usize - left) * 4)
             .unwrap_or_default();
         for column in columns.chunks_exact(4) {
             block[0] += column[0];
@@ -327,6 +392,74 @@ fn reduce_row(
         }
     }
 }
+/// A band that is not opaque throughout, its cells read off premultiplied column sums: each
+/// column's `Σ c·a` for the three components and `Σ a` taken once down the band, each cell's
+/// sums added across its columns, and the cell finished by [`average_block`]'s own last
+/// lines. Integer addition does not care about order, so every cell divides the same three
+/// sums by the same alpha sum as [`average_block`] would, and is its byte (ADR 1493); what
+/// changes is that a sample is read once per band rather than through a per-cell loop.
+///
+/// Bounded as the opaque path is: a block holds at most [`SMALL_BLOCK`] samples, so a column
+/// of one holds at most that many products of at most 255 · 255, under 2^28, and so does a
+/// cell.
+#[expect(clippy::arithmetic_side_effects)] // bounded as the line above states
+fn translucent_row(
+    band: &[&[u8]],
+    left: usize,
+    spans: &[(u32, u32)],
+    lines: u32,
+    sums: &mut Vec<u32>,
+    row: &mut [u8],
+) {
+    // The first row is written over the sums rather than added to zeros: clearing a row of
+    // sums per output row was a fifth of this function's instructions on a threefold
+    // reduction, whose band is three rows.
+    sums.resize(band.first().map_or(0, |source| source.len()), 0);
+    let mut sources = band.iter();
+    if let Some(first) = sources.next() {
+        for (sum, sample) in sums.chunks_exact_mut(4).zip(first.chunks_exact(4)) {
+            let alpha = u32::from(sample[3]);
+            sum[0] = u32::from(sample[0]) * alpha;
+            sum[1] = u32::from(sample[1]) * alpha;
+            sum[2] = u32::from(sample[2]) * alpha;
+            sum[3] = alpha;
+        }
+    }
+    for source in sources {
+        for (sum, sample) in sums.chunks_exact_mut(4).zip(source.chunks_exact(4)) {
+            let alpha = u32::from(sample[3]);
+            sum[0] += u32::from(sample[0]) * alpha;
+            sum[1] += u32::from(sample[1]) * alpha;
+            sum[2] += u32::from(sample[2]) * alpha;
+            sum[3] += alpha;
+        }
+    }
+    for (cell, &(x0, x1)) in row.chunks_exact_mut(4).zip(spans) {
+        let count = u64::from((x1 - x0) * lines);
+        let mut block = [0u32; 4];
+        let columns = sums
+            .get((x0 as usize - left) * 4..(x1 as usize - left) * 4)
+            .unwrap_or_default();
+        for column in columns.chunks_exact(4) {
+            block[0] += column[0];
+            block[1] += column[1];
+            block[2] += column[2];
+            block[3] += column[3];
+        }
+        let alpha_sum = u64::from(block[3]);
+        if count == 0 || alpha_sum == 0 {
+            cell.copy_from_slice(&[0, 0, 0, 0]);
+            continue;
+        }
+        cell.copy_from_slice(&[
+            round_div(u64::from(block[0]), alpha_sum),
+            round_div(u64::from(block[1]), alpha_sum),
+            round_div(u64::from(block[2]), alpha_sum),
+            round_div(alpha_sum, count),
+        ]);
+    }
+}
+
 /// Whether every sample of a band of RGBA rows is opaque — the caller's `opaque_band`: eight
 /// bytes folded at a time, the two alpha lanes tested once.
 fn opaque_band(band: &[u8]) -> bool {
@@ -508,6 +641,54 @@ mod tests {
         }
     }
 
+    /// A translucent band's cells read off premultiplied column sums are the per-block
+    /// arithmetic's (ADR 1493): every alpha drawn at random, a quarter of the samples
+    /// transparent and whole transparent rows, so that a cell with no alpha at all is met, at
+    /// uneven factors.
+    #[test]
+    fn a_translucent_row_is_the_per_block_arithmetic() {
+        let (width, height) = (211_u32, 173_u32);
+        let mut state = 0x6C07_8965_u32;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            state.to_le_bytes()
+        };
+        let data: Vec<u8> = (0..width * height)
+            .flat_map(|index| {
+                let v = next();
+                let alpha = if (index / width) % 9 == 4 || v[0] < 64 {
+                    0
+                } else {
+                    v[3]
+                };
+                [v[0], v[1], v[2], alpha]
+            })
+            .collect();
+        let source = spec(width, height, data);
+        for placement in [
+            [100.0, 0.0, 0.0, 70.0, 0.0, 0.0],
+            [30.0, 0.0, 0.0, 17.0, 0.0, 0.0],
+            [5.0, 0.0, 0.0, 3.0, 0.0, 0.0],
+        ] {
+            let reduced = reduction(&source, false, &placement).expect("a reduction");
+            let out = area_averaged(&source, reduced, 1);
+            let rows = Bands::new(height, reduced.height);
+            let columns = Bands::new(width, reduced.width);
+            for (index, cell) in out.data.chunks_exact(4).enumerate() {
+                let index = u32::try_from(index).expect("a small grid");
+                let (x, y) = (index % reduced.width, index / reduced.width);
+                let ((x0, x1), (y0, y1)) = (columns.at(x), rows.at(y));
+                assert_eq!(
+                    cell,
+                    average_block(&source, x0, y0, x1, y1),
+                    "cell ({x}, {y})"
+                );
+            }
+        }
+    }
+
     /// [`Reciprocals`]' product is the quotient at every count it holds, checked at each
     /// numerator where a floor changes — one below and at every multiple of the count — up to
     /// past the largest an opaque block's rounded sum can be.
@@ -526,6 +707,76 @@ mod tests {
                         numerator / u64::from(count),
                         "{numerator} / {count}"
                     );
+                }
+            }
+        }
+    }
+
+    /// A window of cells is the whole grid's cells at those places (ADR 1493): an opaque grid
+    /// and one whose every seventh alpha is not 255, at uneven factors, every window that
+    /// starts and ends on or beside an edge and some inside, on one thread and on four —
+    /// including windows whose source columns are opaque where the whole band is not, which
+    /// take the column sums where the whole grid takes the per-block arithmetic.
+    #[test]
+    fn a_window_of_cells_is_the_whole_grid_cropped() {
+        let (width, height) = (301_u32, 257_u32);
+        let mut state = 0x2545_F491_u32;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            state.to_le_bytes()
+        };
+        for opaque in [true, false] {
+            let data: Vec<u8> = (0..width * height)
+                .flat_map(|index| {
+                    let v = next();
+                    // Transparency only in the right third, so a window to its left has
+                    // opaque bands the whole grid does not.
+                    let alpha = if opaque || index % width < 200 || index % 7 != 0 {
+                        255
+                    } else {
+                        v[3]
+                    };
+                    [v[0], v[1], v[2], alpha]
+                })
+                .collect();
+            let source = spec(width, height, data);
+            for placement in [
+                [100.0, 0.0, 0.0, 70.0, 0.0, 0.0],
+                [7.0, 0.0, 0.0, 5.0, 0.0, 0.0],
+            ] {
+                let reduced = reduction(&source, false, &placement).expect("a reduction");
+                let whole = area_averaged(&source, reduced, 1);
+                let (w, h) = (reduced.width, reduced.height);
+                for (columns, rows) in [
+                    (0..w, 0..h),
+                    (0..1, 0..1),
+                    (w - 1..w, h - 1..h),
+                    (1..w / 2, 2..h - 1),
+                    (w / 3..w, 0..h / 2),
+                    (0..w / 2, h / 3..h + 5),
+                ] {
+                    for threads in [1, 4] {
+                        let cells = area_averaged_cells(
+                            &source,
+                            reduced,
+                            columns.clone(),
+                            rows.clone(),
+                            threads,
+                            |_| (),
+                        );
+                        let mut cropped = Vec::new();
+                        for y in rows.start..rows.end.min(h) {
+                            let start = ((y * w + columns.start) * 4) as usize;
+                            let end = ((y * w + columns.end.min(w)) * 4) as usize;
+                            cropped.extend_from_slice(&whole.data[start..end]);
+                        }
+                        assert_eq!(
+                            cells, cropped,
+                            "{columns:?} × {rows:?}, {threads} thread(s)"
+                        );
+                    }
                 }
             }
         }

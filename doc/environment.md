@@ -355,8 +355,8 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   (`/home/AI` is unreadable by `cl`), and write only under `tmp/`. `xdotool` cannot reach a
   Wayland client, so force XWayland with `env -u WAYLAND_DISPLAY`.
 
-- **Build directory**: `AI` builds into `/home/AI/cargo-target/quorra` via `~/.cargo/config.toml`,
-  so the two users never fight over `target/`. Do not "fix" this. `pdfref` needs `--work-dir` for
+- **Build directory**: `AI` builds the main checkout into `/home/AI/cargo-target/pdf-viewer` via
+  `~/.cargo/config.toml`'s `target-dir`, so the two users never fight over `target/`. Do not "fix" this. `pdfref` needs `--work-dir` for
   the same reason. A round that wants a build directory of its own — a worktree round does, so that
   parallel rounds do not queue on one build lock — asks for it with `--target-dir` and **not** with
   an exported `CARGO_TARGET_DIR`; the `sccache` note below says what the export costs. A batch's
@@ -371,6 +371,32 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   low crate invalidates it again. `open` therefore warms only `dev`, and `tools/state.sh`'s
   `conformance` sweeps run under `dev` rather than `release`: a release link of that crate's
   binaries costs two minutes after every edit to it and buys tenths of a second a run (ADR 1463).
+- **What fills the disk, and what to prune when.** `tools/state.sh disk` prints it and prunes
+  nothing: this tree's build directory, the main checkout's, every directory under the root
+  `/home/AI/cargo-target` with its profiles and the day it was last written, `sccache`'s cache
+  against its ceiling, the free space under `/home/AI` and the main checkout, and `scratchpad/`
+  (ADR 1500). Nearly all of it is `debug`: superseded artefacts of every crate the batches and
+  the merges changed, which stable Cargo has no command to collect (`cargo clean --gc` is
+  nightly-only) and `cargo clean -p <crate>` takes only for the one crate it names. The pruning
+  is the orchestrator's call, made from the main checkout with no round running, and it is these
+  commands, each a profile directory by name and never `tmp/` (`tmp/pdfref-cache` is the reference
+  renders, a thousand seconds to rebuild — `doc/todo/02` section 5a):
+
+  ```sh
+  # At a batch boundary — after `close`, before the next `open` — when the batch directory's
+  # `debug` passes 100 GB. Costs the next `open`'s warm build, which sccache mostly pays.
+  rm -rf /home/AI/cargo-target/pdf-viewer-batch/debug
+  # When the main checkout's directory passes 100 GB: its `debug` and `gates` profiles, which only
+  # the merge's own runs there rebuild. `release` holds what `doc/todo/02` section 5 installs; take it only then.
+  rm -rf /home/AI/cargo-target/pdf-viewer/{debug,gates}
+  # A directory under the root that no checkout's configuration names and no live round builds in
+  # — the line's date says when it was last written, `tools/worktree.sh list` whose it was.
+  rm -rf /home/AI/cargo-target/<that directory>
+  ```
+
+  `sccache`'s cache is never pruned by hand: at its ceiling it evicts by age, so a full cache
+  costs the oldest entries and nothing else. The free-space figure is what decides whether any of
+  this is urgent rather than hygiene; every path above is on the one filesystem.
 - **A build script's `env!("CARGO_MANIFEST_DIR")` is baked at *its* compile time, and the shared
   build directory outlives a checkout.** A binary compiled from a worktree or a scratchpad copy that
   no longer exists fails with an absurd message naming a path under `/tmp` — "data/cmaps is readable:

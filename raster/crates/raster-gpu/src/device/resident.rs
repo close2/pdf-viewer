@@ -21,8 +21,12 @@ use raster_scene::{
 
 use super::Device;
 use super::ramp::{RAMP_RESOLUTION, RAMP_ROWS, sample_ramp};
-use crate::encode::Encoded;
+use super::textures::{
+    TexelRect, opaque, paint_texture, premultiply_in_place, write_samples, write_texels,
+};
+use crate::encode::{Encoded, ImageOp, Op};
 use crate::error::{DeviceError, RenderError};
+use crate::raster::reduce::{Reduction, area_averaged_cells};
 
 impl Device {
     /// Upload an outline: validated, priced against the resource budget, resident
@@ -118,8 +122,12 @@ impl Device {
         // The device-resident form goes with the CPU copy, so the budget's word
         // stays true on the GPU side too.
         match id {
+            // Every reduction of it as well: ids are never reissued, so a reduction left
+            // behind could never be asked for again and would only hold device memory.
             ResourceId::Image(ImageId(raw)) => {
                 self.image_textures.remove(&raw);
+                self.reduced_textures
+                    .retain(|&(image, _, _), _| image != raw);
             }
             ResourceId::Ramp(RampId(raw)) => {
                 self.ramp_textures.remove(&raw);
@@ -179,50 +187,96 @@ impl Device {
             .map(|stored| &stored.analysis)
     }
 
+    /// Writes the texels one image op can read that no earlier frame wrote, and returns the
+    /// bytes written: the image's own samples where the op draws them, or the cells of the
+    /// reduction it names, reduced from the samples for those cells alone and premultiplied
+    /// row by row on the threads that made them (ADR 1493).
+    fn fill_sampled(&mut self, op: &ImageOp) -> Result<u64, RenderError> {
+        let Some(stored) = self.resources.image(ImageId(op.image)) else {
+            return Err(RenderError::UnknownImage {
+                image: ImageId(op.image),
+            });
+        };
+        let spec = &stored.spec;
+        let mut bytes = 0_u64;
+        let Some((fx, fy)) = op.reduced else {
+            let texture = self.image_textures.entry(op.image).or_insert_with(|| {
+                paint_texture(&self.gpu, "raster image", spec.width, spec.height)
+            });
+            let sampled = TexelRect::sampled(&op.texel, op.dest, spec.width, spec.height);
+            for rect in texture.record.claim(sampled) {
+                bytes = bytes.saturating_add(write_samples(&self.queue, texture, spec, rect));
+            }
+            return Ok(bytes);
+        };
+        // The encode resolved the factors from the same spec (ADR 0089), so the reduction
+        // here reproduces exactly the grid it named.
+        let reduced = Reduction {
+            factors: (fx, fy),
+            width: spec.width.div_ceil(fx.max(1)),
+            height: spec.height.div_ceil(fy.max(1)),
+            smoothed: false, // the op carries the resolved filter; unused here
+        };
+        let texture = self
+            .reduced_textures
+            .entry((op.image, fx, fy))
+            .or_insert_with(|| {
+                paint_texture(
+                    &self.gpu,
+                    "raster reduced image",
+                    reduced.width,
+                    reduced.height,
+                )
+            });
+        let sampled = TexelRect::sampled(&op.texel, op.dest, reduced.width, reduced.height);
+        for rect in texture.record.claim(sampled) {
+            let cells = area_averaged_cells(
+                spec,
+                reduced,
+                rect.x0..rect.x1,
+                rect.y0..rect.y1,
+                self.encode_threads,
+                |row| {
+                    if !opaque(row) {
+                        premultiply_in_place(row);
+                    }
+                },
+            );
+            write_texels(
+                &self.queue,
+                texture,
+                rect,
+                &cells,
+                rect.width().saturating_mul(4),
+            );
+            bytes = bytes.saturating_add(cells.len() as u64);
+        }
+        Ok(bytes)
+    }
+
     /// Realise the frame's referenced images, ramps and meshes as textures, once
     /// per resident resource — created here rather than at upload so startup and
     /// pages without them never pay (brief section 7). Returns the bytes written.
+    ///
+    /// **An image's texture is written where this frame's ops sample it** (ADR 1493): each
+    /// image op's footprint is carried into its texture's texels, and only the squares of
+    /// it no earlier frame wrote are produced and written — out of the image's own bytes,
+    /// or reduced from its samples for those cells alone. The texture is the grid's full
+    /// size, so the shader's coordinates are the ones a whole texture would be asked.
     ///
     /// The ids were validated during encode; a miss here still refuses by name
     /// rather than trusting that invariant silently.
     pub(super) fn ensure_paint_textures(&mut self, encoded: &Encoded) -> Result<u64, RenderError> {
         let mut bytes = 0_u64;
-        for &id in &encoded.used_images {
-            if self.image_textures.contains_key(&id) {
-                continue;
-            }
-            let Some(stored) = self.resources.image(ImageId(id)) else {
-                return Err(RenderError::UnknownImage { image: ImageId(id) });
-            };
-            let spec = stored.spec.clone();
-            let texels = super::textures::premultiplied(&spec.data);
-            let pair = self.rgba_texture("raster image", spec.width, spec.height, &texels);
-            bytes = bytes.saturating_add(spec.data.len() as u64);
-            self.image_textures.insert(id, pair);
-        }
-        for &(id, fx, fy) in &encoded.used_reductions {
-            if self.reduced_textures.contains_key(&(id, fx, fy)) {
-                continue;
-            }
-            let Some(stored) = self.resources.image(ImageId(id)) else {
-                return Err(RenderError::UnknownImage { image: ImageId(id) });
-            };
-            // The encode resolved the factors from the same spec (ADR 0089), so the
-            // reduction here reproduces exactly the grid it named. Once per
-            // `(image, factors)` for the device's life — the module comment on
-            // `raster::reduce` prices the one-time cost.
-            let reduced = crate::raster::reduce::Reduction {
-                factors: (fx, fy),
-                width: stored.spec.width.div_ceil(fx.max(1)),
-                height: stored.spec.height.div_ceil(fy.max(1)),
-                smoothed: false, // the op carries the resolved filter; unused here
-            };
-            let spec =
-                crate::raster::reduce::area_averaged(&stored.spec, reduced, self.encode_threads);
-            let texels = super::textures::premultiplied(&spec.data);
-            let pair = self.rgba_texture("raster reduced image", spec.width, spec.height, &texels);
-            bytes = bytes.saturating_add(spec.data.len() as u64);
-            self.reduced_textures.insert((id, fx, fy), pair);
+        let ops = std::iter::once(&encoded.root)
+            .chain(&encoded.layers)
+            .flat_map(|plan| &plan.ops)
+            .filter_map(|op| match op {
+                Op::Image(image) => Some(image),
+                _ => None,
+            });
+        for op in ops {
+            bytes = bytes.saturating_add(self.fill_sampled(op)?);
         }
         for &id in &encoded.used_ramps {
             if self.ramp_textures.contains_key(&id) {

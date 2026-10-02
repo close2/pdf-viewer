@@ -66,6 +66,30 @@ seed() {
         mkdir -p "$root/jbig2" "$root/jpx"
         documents | xargs -0 "$(built)/release/examples/image_codec_seeds" "$root/jbig2" "$root/jpx"
         ;;
+    # §7.4.8's frames: every `DCTDecode` stream of the documents, and the band modules' own
+    # fixtures under four band heights.
+    jpeg_bands)
+        documents | python3 "$here/seed_streams.py" "$t" "$root/$t" -
+        for f in "$tree"/crates/pdf-model/tests/cut/*.jpg "$tree"/crates/pdf-model/tests/restart/*.jpg; do
+            for b in 0 1 3 7; do
+                { printf "\\x0$b"; cat "$f"; } > "$root/$t/$(basename "$f" .jpg)-$b"
+            done
+        done
+        ;;
+    # The faces this machine offers, which is what `pdf_font::embed` writes into a document.
+    embed)
+        find /usr/share/fonts -size -128k \( -name '*.ttf' -o -name '*.otf' \) -print0 2>/dev/null \
+            | xargs -0 python3 "$here/seed_embed.py" "$root/$t" > /dev/null
+        ;;
+    # Readbacks that fold, decompose and carry marks, with needles typed against them.
+    find) python3 "$here/seed_find.py" "$root/$t" > /dev/null ;;
+    # The meet's own test shapes and polygons on a sixteenth-pixel grid.
+    meet) python3 "$here/seed_meet.py" "$root/$t" > /dev/null ;;
+    # Small documents under each of RFC 0003's five write verbs.
+    vfs_write)
+        find -L "$tree/doc/pdf.js/test/pdfs" -name '*.pdf' -size -32k -print0 2>/dev/null \
+            | xargs -0 python3 "$here/seed_vfs_write.py" "$root/$t" > /dev/null
+        ;;
     # The UCD's bidirectional cases and cursive words.
     shaping) python3 "$here/seed_shaping.py" "$root/$t" ;;
     # §12.7.8's FDF files, one per entry the reader handles, and §7.9.4's dates.

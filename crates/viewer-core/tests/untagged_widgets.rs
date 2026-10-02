@@ -395,3 +395,80 @@ fn a_tagged_documents_unreached_page_is_answered_as_that() {
     assert_eq!(second.tagging, viewer_core::Tagging::Untagged);
     assert!(first.nodes.is_empty() && second.nodes.is_empty());
 }
+
+/// A text field crosses with §12.7.4.3's value, on an untagged page and as a tagged page's `Form`
+/// element alike, and with what a person typed once they have typed (ADR 1489).
+///
+/// Table 226 makes `/V` the field's value, and a screen reader told nothing about it has been told
+/// the field is empty. The value is the view's, as [`viewer_core::FormField::value`] is: the edit
+/// log is read, not the file alone.
+#[test]
+fn a_text_fields_value_crosses_with_its_node() {
+    let objects = |structure: bool| -> Vec<u8> {
+        let catalog = if structure {
+            "/StructTreeRoot 8 0 R /MarkInfo << /Marked true >>"
+        } else {
+            ""
+        };
+        let tree: &[&str] = if structure {
+            &[ONE_FORM, TEXT_FIELD_ELEMENT]
+        } else {
+            &[]
+        };
+        let bytes = form(catalog, tree);
+        // The text field given a `/V`, and the file assembled again so every offset is its own.
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        let bodies: Vec<String> = text
+            .split("\nendobj\n")
+            .filter_map(|chunk| chunk.split_once(" 0 obj\n").map(|(_, body)| body))
+            .map(|body| body.replace("/T (name)", "/T (name) /V (Ada)"))
+            .collect();
+        let bodies: Vec<&str> = bodies.iter().map(String::as_str).collect();
+        assembled(&bodies)
+    };
+
+    let shown =
+        |node: &viewer_core::AccessibilityNode| node.value.as_ref().map(|value| value.text.clone());
+    let page = answered(objects(false));
+    let values: Vec<Option<String>> = page.widgets.iter().map(shown).collect();
+    assert_eq!(
+        values,
+        [Some("Ada".to_owned()), None],
+        "the text field's /V; a push button holds no text"
+    );
+
+    let page = answered(objects(true));
+    assert_eq!(page.nodes.len(), 1, "{:?}", page.nodes);
+    assert_eq!(
+        page.nodes.first().and_then(shown),
+        Some("Ada".to_owned()),
+        "the Form element naming the widget carries its field's value"
+    );
+
+    // Typed into: the answer is the view's.
+    let mut viewer = Viewer::new(400, 400, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: objects(false).into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    viewer
+        .handle(Command::Edit(viewer_core::Edit::SetField {
+            field: "name".to_owned(),
+            value: viewer_core::Entered::Text("Grace".to_owned()),
+        }))
+        .for_each(drop);
+    let Answer::Accessibility(pages) = viewer.query(Query::AccessibilityTree) else {
+        panic!("an open document answers the question");
+    };
+    assert_eq!(
+        pages
+            .first()
+            .and_then(|page| page.widgets.first())
+            .and_then(shown),
+        Some("Grace".to_owned())
+    );
+}

@@ -295,14 +295,14 @@ and a window does not. `warm` is 3% to 11% of the refresh on every page and is l
 | | step | 1.38 (17%) | — | — | 0.22 | 0.11 | 0.94 | 0.11 |
 | `personwithdog.pdf` p1, patch meshes | turn | 10.08 (121%) | 3.73 | 2.94 | 1.17 | 0.43 | 1.62 | 0.19 |
 | | step | 11.33 (136%) | — | **4.58** | 4.56 | 0.44 | 1.50 | 0.26 |
-| `issue12841_reduced.pdf` p1, one 5 280 × 3 792 photograph | turn | 37.03 (444%) | **24.46** | 0.01 | 0.01 | **11.23** | 1.18 | 0.13 |
-| | step | 12.78 (153%) | — | 0.00 | 0.01 | **10.01** | 2.58 | 0.18 |
+| `issue12841_reduced.pdf` p1, one 5 280 × 3 792 photograph | turn | 31.88 (383%) | **28.73** | 0.02 | 0.01 | 1.86 | 1.17 | 0.09 |
+| | step | 3.24 (39%) | — | 0.00 | 0.01 | 1.30 | **1.73** | 0.19 |
 | `22060_A1_01_Plans.pdf` p1, four photographs under soft masks, 72 placements | turn | 47.77 (573%) | **32.43** | 0.15 | 4.44 | 7.53 | 2.92 | 0.32 |
-| | step | 20.33 (244%) | — | — | 5.77 | **13.26** | 0.96 | 0.35 |
+| | step | 15.31 (184%) | — | — | 6.64 | **6.80** | 1.47 | 0.41 |
 | `issue13931.pdf` p1, one photograph under a `/Matte`'d mask | turn | 22.60 (271%) | **17.54** | 0.05 | 0.40 | 3.96 | 0.59 | 0.06 |
-| | step | 7.55 (91%) | — | — | 0.05 | **6.42** | 0.96 | 0.12 |
+| | step | 6.17 (74%) | — | — | 0.06 | **4.95** | 1.02 | 0.14 |
 | `images.pdf` p1 | turn | 31.09 (373%) | **24.62** | 0.03 | 0.83 | 4.20 | 0.96 | 0.45 |
-| | step | 9.76 (117%) | — | — | 2.31 | **6.19** | 0.63 | 0.63 |
+| | step | 9.95 (119%) | — | — | 3.20 | **4.95** | 0.63 | 1.17 |
 | `issue14415.pdf` p1, strokes, 959 commands | turn | 11.14 (134%) | 2.49 | 0.63 | **6.28** | 0.84 | 0.76 | 0.14 |
 | | step | 5.88 (71%) | — | — | **4.41** | 0.21 | 1.11 | 0.15 |
 | `issue19802.pdf` p1, 1 032 commands | turn | 4.13 (50%) | 0.49 | 0.21 | **2.60** | 0.19 | 0.46 | 0.18 |
@@ -323,7 +323,15 @@ the tree before it in the same sitting (load 1.5–2.0; that build read 51.38 (3
 soft mask is held one byte a sample, a `/Matte`'s frame decodes beside its mask and is inverted
 where it lies, and a frame with no restart interval, decoded with nothing else of its page beside
 it, is cut at the rows an entropy pass finds. Unpinned the same day, `issue13931.pdf` 39.78 →
-25.74, `images.pdf` 35.85 → 31.51, the plan 50.32 → 50.02. The rest are the re-baseline's.
+25.74, `images.pdf` 35.85 → 31.51, the plan 50.32 → 50.02. The four image pages' step rows and the
+photograph's turn were re-taken on 2026-10-01 after ADR 1493, three runs of five rounds interleaved
+page by page against the tree before it in the same sitting (load 3.0–3.4; that build read 13.72
+(10.81) on the photograph's step and 46.28 (13.27) on its turn, 24.44 (15.68) on the plan's step,
+9.14 (7.81) on `issue13931.pdf`'s and 11.52 (7.28) on `images.pdf`'s): an image's texture is
+filled only where the frame samples it, a reduction made for those cells alone with its rows
+premultiplied on the threads that made them, and a translucent band read off premultiplied column
+sums. The photograph's step uploads 6.5 MB where it uploaded the whole 80. The rest are the
+re-baseline's.
 
 **A repaint of what is on the screen always fits**; **a page turn onto a page whose outlines the
 device has not seen fits on three of the nine** — the expensive end of that gesture, where
@@ -348,7 +356,9 @@ band a codestream of its own (ADR 1433 — 53 of the corpus's 168 baseline frame
 or more). **The `transfer` of a photograph is not mostly bytes**: the queue moves the 20 MB a turn
 draws in about 2 ms, and what the column holds is raster's area-averaging reduction on the host,
 divided among the device's threads by rows (ADR 1433), an opaque band of it summed down its
-columns once and each cell read off the sums (ADR 1457). A frame with no restart interval is cut
+columns once and each cell read off the sums (ADR 1457), a translucent band off premultiplied sums
+the same way, and only the cells the window samples (ADR 1493) — so a zoom step's transfer is the
+part of the image the window shows, reduced at the new factor. A frame with no restart interval is cut
 at the rows one Huffman-only pass finds, each band's first DC re-coded from a prediction of zero —
 but only where nothing else of its page is decoding beside it, because the pass is serial and on a
 page whose other photographs already fill the pool it was measured a loss (ADRs 1457, 1481). On

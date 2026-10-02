@@ -96,12 +96,11 @@ pub const MEDIAN_PAGE: Archetype = Archetype {
 /// **40 tiles and 8 956 coverage texels are its two curve clips, cut around their
 /// marks.** Each clip takes a run of twenty consecutive marks, so its box is twenty
 /// cells wide and one tall — larger than any mark under it, a thirtieth of the page —
-/// and every one of the forty clipped commands rasterises a tile that the residue then
-/// multiplies into. **No region is kept**, and that is ADR 0049's admission rule working
-/// rather than failing: the chain's box costs more than the twenty small tiles it would
-/// serve, which is the clause of that ADR written for exactly this shape — a `q W n`
-/// around a line of text. (Before 2026-08-17 this row read 40 tiles and **2 regions** for
-/// a page whose clips met **0 of 40** marks; `raster/doc/notes-clipped-instrument.md` section 3.)
+/// and every one of the forty clipped commands takes a tile that the residue then meets.
+/// **Both chains keep a region** (2 regions, 0 per-tile fills): the box holds more bytes than
+/// the twenty small tiles, but each of those tiles would fill the curve's edges in its rows,
+/// and the admission rule prices those too (ADR 1491). Which way it decides moves no byte,
+/// because a clip's residue is the same coverage over a region and over a tile.
 pub const DENSE_TEXT: Archetype = Archetype {
     name: "dense text",
     commands: 4_320,
@@ -110,7 +109,7 @@ pub const DENSE_TEXT: Archetype = Archetype {
     side: 11.0,
     clips: 2,
     clipped: 40,
-    recorded: Some(row(4_320, 0, 818, 2_164, 1, 40, 0, 0, 40, 8_956)),
+    recorded: Some(row(4_320, 0, 818, 2_164, 1, 40, 0, 2, 0, 8_956)),
     ..BLANK
 };
 
@@ -125,10 +124,10 @@ pub const DENSE_TEXT: Archetype = Archetype {
 ///
 /// **600 tiles, 3 555 182 coverage texels, and both halves of ADR 0049 on one page.**
 /// Every one of the 600 curve-clipped commands meets its clip and rasterises a tile of
-/// about 5 900 texels; of the 185 chains, **67 keep a region** — cut around three or four
-/// marks in one line, it costs less than the tiles it serves — and the rest are refused
-/// one and rasterise per tile, **380** times, which is the wrapped runs whose box is the
-/// width of the page's grid. 67 + 380 = 447 rasterisations where the page has 600 clipped
+/// about 5 900 texels; of the 185 chains, **164 keep a region** — their box, with the edges
+/// in its rows, costs less than the tiles it serves (ADR 1491) — and the rest are refused one
+/// and rasterise per tile, **68** times: wrapped runs whose box is the width of the page's
+/// grid over few marks. 164 + 68 = 232 rasterisations where the page has 600 clipped
 /// commands, and that difference is what ADR 0049 buys. The strokes' tiles are the boxes of
 /// their expansions, whose pieces end square to each curve's tangent wherever two of its
 /// cubics meet (ADR 1397), and which marks share a region follows from those boxes.
@@ -143,7 +142,7 @@ pub const ARTWORK: Archetype = Archetype {
     clipped: 600,
     groups: 8,
     blended_groups: 4,
-    recorded: Some(row(684, 0, 300, 300, 1, 600, 3, 67, 380, 3_555_182)),
+    recorded: Some(row(684, 0, 300, 300, 1, 600, 3, 164, 68, 3_555_182)),
     ..BLANK
 };
 

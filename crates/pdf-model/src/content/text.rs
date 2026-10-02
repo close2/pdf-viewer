@@ -546,7 +546,7 @@ impl Interpreter<'_> {
         // `Td`, `T*` and `Tm` land.
         let codes = font.decode(bytes);
         if !codes.is_empty() {
-            self.separate_text(text.matrix, size, word_gap, vertical);
+            self.separate_text(text.matrix, size, scale, word_gap, vertical);
         }
 
         for code in codes {
@@ -940,13 +940,15 @@ impl Interpreter<'_> {
     /// Taken from the magnitude of the size because §9.3.1's NOTE says "Negative text font
     /// size is permitted", and a negative threshold is below every gap there is — which would
     /// have put a space between every pair of glyphs in the extracted text.
+    ///
+    /// **A font that states no space is given a quarter of an em for one, and the same 0.6 of
+    /// it** (ADR 1490): a subset carrying no code 32 is common, and its producer's word gaps are
+    /// then `TJ` adjustments of about a quarter em (`-250` in Times), which a threshold of the
+    /// whole quarter em would read as no gap at all once the gap is measured in text space.
     fn word_gap(font: &Font, size: f32) -> f32 {
-        let space_em = font.advance(Code::single_byte(32));
-        if space_em > 0.0 {
-            space_em * size.abs() * 0.6
-        } else {
-            size.abs() * 0.25
-        }
+        let stated = font.advance(Code::single_byte(32));
+        let space_em = if stated > 0.0 { stated } else { 0.25 };
+        space_em * size.abs() * 0.6
     }
 
     /// Adds a space or a newline to the readback where the glyphs' positions imply one.
@@ -973,16 +975,42 @@ impl Interpreter<'_> {
     /// **It is called once per show operation and not once per code**, because §9.4.4 leaves
     /// nothing inside one show string to read: see the comment at the call site for the
     /// decomposition, and `Font::text` for the one gap a show string *can* state.
-    fn separate_text(&mut self, matrix: Transform, size: f32, word_gap: f32, vertical: bool) {
+    ///
+    /// **The gap is read in text space, where the advance is stated** (ADR 1490). ISO 32000-2
+    /// §9.4.4:
+    ///
+    /// > Both the glyph's shape and its displacement (horizontal or vertical) shall be
+    /// > interpreted in text space.
+    ///
+    /// so the distance a show string moved from where the last glyph left the pen is compared
+    /// with `word_gap` — a fraction of a displacement — in the space that displacement is in:
+    /// [`Self::text_space_step`] takes it back through the text matrix's linear part and out of
+    /// `Th`, and the direction a glyph advances there is the sign of `Tfs`. Read along user-space
+    /// x instead, a mirroring `Tm` turns every `TJ` adjustment that closes a gap into one that
+    /// opens it, and a `Tm` that scales measures a gap in different units from the threshold.
+    fn separate_text(
+        &mut self,
+        matrix: Transform,
+        size: f32,
+        scale: f32,
+        word_gap: f32,
+        vertical: bool,
+    ) {
         // The text-space origin under the matrix is simply its translation.
         let here = (matrix.e, matrix.f);
         let Some((last_x, last_y)) = self.text_cursor else {
             return;
         };
+        let (x, y) = Self::text_space_step(matrix, scale, (here.0 - last_x, here.1 - last_y));
+        // §9.4.4's `tx` and `ty` both carry `Tfs` as a factor, so a negative size — which §9.3.1's
+        // NOTE permits — advances the other way, and "along" is measured in that direction. In
+        // vertical writing §9.7.4.3's `w1` is negative for a column running down the page, which
+        // is the direction the reading already takes as forward.
+        let forward = if size < 0.0 { -1.0 } else { 1.0 };
         let (along, across) = if vertical {
-            (last_y - here.1, here.0 - last_x)
+            (-y * forward, x)
         } else {
-            (here.0 - last_x, here.1 - last_y)
+            (x * forward, y)
         };
         if across.abs() > size.abs() * 0.5 {
             self.text.push('\n');
@@ -991,6 +1019,28 @@ impl Interpreter<'_> {
             self.text.push(' ');
             self.inferred_separators = self.inferred_separators.saturating_add(1);
         }
+    }
+
+    /// A step between two text positions, from the space the text matrix's translation is in
+    /// back into text space with `Th` taken out: the space `word_gap` and the font size measure.
+    ///
+    /// The translation is not part of a *step*, so only the matrix's linear part is undone. `Th`
+    /// multiplies §9.4.4's `tx` alone, so it is divided out of the horizontal component alone,
+    /// sign and all: a negative horizontal scaling mirrors the line and is undone with it. A
+    /// matrix or a scaling that collapses text space has nothing to undo, and the step is read
+    /// as it stands rather than divided by zero.
+    fn text_space_step(matrix: Transform, scale: f32, step: (f32, f32)) -> (f32, f32) {
+        let linear = Transform::new(matrix.a, matrix.b, matrix.c, matrix.d, 0.0, 0.0);
+        let Some(inverse) = linear.invert() else {
+            return step;
+        };
+        let back = inverse.apply(Point::new(step.0, step.1));
+        let x = if scale.abs() > f32::EPSILON {
+            back.x / scale
+        } else {
+            back.x
+        };
+        (x, back.y)
     }
 
     /// Glyph space to text space: the font size, the horizontal scaling, and the rise.
@@ -1581,5 +1631,155 @@ impl Interpreter<'_> {
         // than clearing is what lets an uncoloured glyph invoke another one without the
         // inner one's end re-enabling colour for the rest of the outer.
         self.uncoloured = saved_uncoloured;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! `separate_text`'s gap, read in §9.4.4's text space (ADR 1490).
+    //!
+    //! Each page is one `TJ` in Helvetica at 20 units, whose `a` and `b` are 556 thousandths wide
+    //! and whose space is 278, so `word_gap` is 278 × 20 / 1000 × 0.6 = 3.336 text-space units at
+    //! `20 Tf` and 0.1668 at `1 Tf`. Every expected readback follows from §9.4.4's `tx` and the
+    //! `Tm` written beside it.
+
+    #![expect(
+        clippy::arithmetic_side_effects,
+        reason = "test code: the fixture's offsets are computed from strings this module wrote"
+    )]
+
+    use std::fmt::Write as _;
+
+    use pdf_render::Transform;
+
+    use super::super::Interpreter;
+
+    /// The readback of a one-page document whose content stream is `content`, in Helvetica.
+    fn readback(content: &str) -> String {
+        readback_in(
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            content,
+        )
+    }
+
+    /// The readback of a one-page document whose content stream is `content`, in `font`.
+    fn readback_in(font: &str, content: &str) -> String {
+        let body = format!(
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+             2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+             3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] \
+             /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+             4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
+             5 0 obj\n{font}\nendobj\n",
+            content.len() + 1,
+        );
+        let mut out = String::from("%PDF-1.7\n");
+        let mut offsets = Vec::new();
+        let mut cursor = out.len();
+        for object in body.split_inclusive("endobj\n") {
+            offsets.push(cursor);
+            cursor += object.len();
+        }
+        out.push_str(&body);
+        let xref_at = out.len();
+        let size = offsets.len() + 1;
+        let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+        for offset in &offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            out,
+            "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+        );
+        let document =
+            pdf_syntax::Document::open(out.into_bytes()).expect("the fixture is a valid file");
+        let pages = crate::Pages::new(&document);
+        let page = pages.get(0).expect("one page");
+        crate::interpret(&document, &page).text
+    }
+
+    /// A `TJ` written in reading order under a mirroring `Tm`: each adjustment of 1000 moves the
+    /// pen back by 20 in text space, twice the 11.12 the glyph advanced, so there is no gap to
+    /// read — and along user-space x the mirror made each one a step of 8.88 rightwards, over the
+    /// 3.336 threshold.
+    #[test]
+    fn a_tj_under_a_mirroring_tm_reads_back_with_no_gaps() {
+        let mirrored =
+            readback("BT /F1 20 Tf -1 0 0 1 200 0 Tm 90 100 Td [(b) 1000 (a) 1000 (b)] TJ ET");
+        assert_eq!(mirrored, "bab");
+        // And without the mirror, the same string is the same word.
+        let upright = readback("BT /F1 20 Tf 90 100 Td [(b) 1000 (a) 1000 (b)] TJ ET");
+        assert_eq!(upright, "bab");
+    }
+
+    /// The sign is the advance's, not the page's: a gap that opens in text space is a word gap
+    /// whichever way the mirror turns it. `-300` adds 6 to the pen, over 3.336.
+    #[test]
+    fn a_gap_opened_under_a_mirroring_tm_is_still_a_word_gap() {
+        assert_eq!(
+            readback("BT /F1 20 Tf -1 0 0 1 200 0 Tm 50 100 Td [(a) -300 (b)] TJ ET"),
+            "a b"
+        );
+        assert_eq!(
+            readback("BT /F1 20 Tf 50 100 Td [(a) -300 (b)] TJ ET"),
+            "a b"
+        );
+        // A negative horizontal scaling mirrors the line as `Tm` does, and is undone with it.
+        assert_eq!(
+            readback("BT /F1 20 Tf -100 Tz 150 100 Td [(a) -300 (b) 1000 (a)] TJ ET"),
+            "a ba"
+        );
+    }
+
+    /// A `Tm` that scales: `1 Tf` under `20 0 0 20 Tm` is the same line as `20 Tf` under the
+    /// identity, and its gaps are measured in the units its threshold is. `-100` is 0.1 of a text
+    /// unit, under 0.1668, so it is tracking; `-300` is 0.3, over it, so it is a word gap.
+    #[test]
+    fn a_scaling_tm_measures_its_gap_in_text_space() {
+        assert_eq!(
+            readback("BT /F1 1 Tf 20 0 0 20 50 100 Tm [(a) -100 (b) -300 (a)] TJ ET"),
+            "ab a"
+        );
+        assert_eq!(
+            readback("BT /F1 20 Tf 50 100 Td [(a) -100 (b) -300 (a)] TJ ET"),
+            "ab a"
+        );
+    }
+
+    /// The step undone: through the linear part and out of `Th`, and read as it stands where
+    /// either collapses text space.
+    #[test]
+    fn a_step_is_taken_back_into_text_space() {
+        let mirror = Transform::new(-1.0, 0.0, 0.0, 1.0, 200.0, 0.0);
+        assert_eq!(
+            Interpreter::text_space_step(mirror, 1.0, (8.0, 2.0)),
+            (-8.0, 2.0)
+        );
+        let scaled = Transform::new(20.0, 0.0, 0.0, 20.0, 50.0, 100.0);
+        assert_eq!(
+            Interpreter::text_space_step(scaled, 0.5, (4.0, 10.0)),
+            (0.4, 0.5)
+        );
+        let collapsed = Transform::new(0.0, 0.0, 0.0, 0.0, 50.0, 100.0);
+        assert_eq!(
+            Interpreter::text_space_step(collapsed, 1.0, (4.0, 10.0)),
+            (4.0, 10.0)
+        );
+    }
+
+    /// A font stating no space is given a quarter em for one, and the same 0.6 of it: a `TJ`
+    /// adjustment of `-250` — a quarter em, the word gap a producer writes for such a subset —
+    /// is a word gap, where a threshold of the whole quarter em read it as none.
+    #[test]
+    fn a_font_with_no_space_still_has_a_word_gap() {
+        let boxes = "<< /Type /Font /Subtype /Type3 /FontBBox [0 0 500 700] \
+                     /FontMatrix [0.001 0 0 0.001 0 0] /FirstChar 97 /LastChar 98 \
+                     /Widths [500 500] /Encoding << /Differences [97 /a /b] >> \
+                     /CharProcs << /a 6 0 R /b 6 0 R >> /Resources << >> >>\nendobj\n\
+                     6 0 obj\n<< /Length 25 >>\nstream\n500 0 d0 0 0 450 700 re f\nendstream";
+        assert_eq!(
+            readback_in(boxes, "BT /F1 20 Tf 50 100 Td [(a) -250 (b) -50 (a)] TJ ET"),
+            "a ba"
+        );
     }
 }

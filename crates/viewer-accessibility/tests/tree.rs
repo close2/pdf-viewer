@@ -12,8 +12,9 @@
 )]
 
 use accesskit::{Action, Node, NodeId, Role, TextDirection, Toggled};
-use pdf_model::form::{ChoiceControl, Control, TextControl};
+use pdf_model::form::{Choice, ChoiceControl, Control, TextControl};
 use pdf_model::structure::HeaderScope;
+use pdf_model::view::ShownValue;
 use viewer_accessibility::{DocumentView, PageView, tree};
 use viewer_core::{AccessibilityNode, Character, TextLine};
 
@@ -35,6 +36,7 @@ fn element(parent: Option<usize>, role: &str, name: &str) -> AccessibilityNode {
         allocation: None,
         artifact: None,
         control: None,
+        value: None,
         annotation: None,
         headers: Vec::new(),
         continues_a_list: false,
@@ -1238,4 +1240,188 @@ fn a_tagged_pages_unreached_widget_follows_its_elements() {
     assert_eq!(button.role(), Role::Button);
     assert_eq!(button.label(), Some("go"));
     assert!(button.supports_action(Action::Click));
+}
+
+/// A field with a value, as `viewer_core` answers for one: `Form`, its control and §12.7.4.3's text.
+fn filled(control: Control, text: &str, obscured: bool) -> AccessibilityNode {
+    AccessibilityNode {
+        value: Some(ShownValue {
+            text: text.to_owned(),
+            obscured,
+        }),
+        ..widget("A", control, 12)
+    }
+}
+
+/// A text field's contents reach AT-SPI's `Text` interface (ADR 1489).
+///
+/// `accesskit_consumer::Node::supports_text_ranges` gives that interface to a text input with a
+/// [`Role::TextRun`] below it and to nothing else, and `accesskit_atspi_common` exposes a string
+/// `value` through no interface of its own — so the run is what makes the field's text readable,
+/// and an empty field still has one, saying it is empty.
+#[test]
+fn a_text_fields_value_is_a_run_below_the_control() {
+    let read = |field: AccessibilityNode| {
+        let widgets = [field];
+        let update = built(PageView {
+            widgets: &widgets,
+            ..view(&[], &[])
+        });
+        let control = node(&update, NodeId(100_016)).clone();
+        let runs: Vec<Node> = control
+            .children()
+            .iter()
+            .map(|id| node(&update, *id).clone())
+            .collect();
+        let page = node(&update, NodeId(2)).clone();
+        (control, runs, page)
+    };
+    let (control, runs, page) = read(filled(Control::Text(TextControl::default()), "1 2", false));
+    assert_eq!(control.role(), Role::TextInput);
+    assert_eq!(control.label(), Some("A"), "the name is still the field's");
+    assert_eq!(control.value(), Some("1 2"));
+    assert_eq!(runs.len(), 1, "one run");
+    assert_eq!(runs[0].role(), Role::TextRun);
+    assert_eq!(runs[0].value(), Some("1 2"));
+    assert_eq!(runs[0].character_lengths(), [1, 1, 1]);
+    assert_eq!(
+        runs[0].bounds(),
+        control.bounds(),
+        "placed where the widget is"
+    );
+    assert!(
+        page.supports_action(Action::SetTextSelection),
+        "the page now carries text a caret can be put in"
+    );
+
+    let (_, runs, _) = read(filled(Control::Text(TextControl::default()), "", false));
+    assert_eq!(runs[0].value(), Some(""), "an empty field says it is empty");
+    assert!(runs[0].character_lengths().is_empty());
+
+    let password = Control::Text(TextControl {
+        password: true,
+        ..TextControl::default()
+    });
+    let (control, runs, _) = read(filled(password, "\u{2022}\u{2022}", true));
+    assert_eq!(control.role(), Role::PasswordInput);
+    assert_eq!(
+        runs[0].value(),
+        Some("\u{2022}\u{2022}"),
+        "Table 231 bit 14's echo, as the field shows it"
+    );
+    assert_eq!(runs[0].character_lengths(), [3, 3], "bytes, per character");
+}
+
+/// A choice field's options are list items, the chosen ones selected, which is what AT-SPI's
+/// `Selection` reads off a combo box or a list box (ADR 1489); a combo box's shown text is also its
+/// value, and a list box's selection is its value.
+#[test]
+fn a_choice_fields_options_are_items_and_its_choice_is_selected() {
+    let options = ["Red", "Green", "Blue"]
+        .map(|label| Choice {
+            export: None,
+            label: label.to_owned(),
+        })
+        .to_vec();
+    let choice = |combo: bool, editable: bool, selected: Vec<usize>| {
+        Control::Choice(ChoiceControl {
+            combo,
+            editable,
+            options: options.clone(),
+            selected,
+            ..ChoiceControl::default()
+        })
+    };
+    let read = |field: AccessibilityNode| {
+        let widgets = [field];
+        let update = built(PageView {
+            widgets: &widgets,
+            ..view(&[], &[])
+        });
+        let control = node(&update, NodeId(100_016)).clone();
+        let below: Vec<Node> = control
+            .children()
+            .iter()
+            .map(|id| node(&update, *id).clone())
+            .collect();
+        (control, below)
+    };
+
+    let (control, below) = read(filled(choice(true, false, vec![2]), "Blue", false));
+    assert_eq!(control.role(), Role::ComboBox);
+    assert_eq!(control.value(), Some("Blue"));
+    let items: Vec<(Option<&str>, Option<bool>)> = below
+        .iter()
+        .map(|item| (item.label(), item.is_selected()))
+        .collect();
+    assert_eq!(
+        items,
+        [
+            (Some("Red"), Some(false)),
+            (Some("Green"), Some(false)),
+            (Some("Blue"), Some(true))
+        ]
+    );
+    assert!(below.iter().all(|item| item.role() == Role::ListBoxOption));
+
+    // An editable combo box is a text input as well: its run comes first, then the items.
+    let (control, below) = read(filled(choice(true, true, Vec::new()), "Teal", false));
+    assert_eq!(control.role(), Role::EditableComboBox);
+    assert_eq!(below[0].role(), Role::TextRun);
+    assert_eq!(below[0].value(), Some("Teal"));
+    assert_eq!(below.len(), 4);
+
+    // A list box has no text value; what is selected is its value.
+    let list = AccessibilityNode {
+        control: Some(choice(false, false, vec![0, 1])),
+        ..widget("A", Control::PushButton, 12)
+    };
+    let (control, below) = read(list);
+    assert_eq!(control.role(), Role::ListBox);
+    assert_eq!(control.value(), None);
+    assert_eq!(
+        below
+            .iter()
+            .filter(|item| item.is_selected() == Some(true))
+            .count(),
+        2
+    );
+}
+
+/// A page's own runs and a field's run below a widget never share an identifier, though the
+/// widget's band is the page's moved past the elements': the field's run continues the page's
+/// count (ADR 1489).
+#[test]
+fn a_fields_run_takes_no_identifier_a_lines_run_took() {
+    let mut paragraph = element(None, "P", "ab");
+    paragraph.lines = vec![TextLine {
+        text: "ab".to_owned(),
+        characters: vec![
+            Character {
+                bytes: 1,
+                bounds: [0.0, 0.0, 10.0, 10.0],
+            },
+            Character {
+                bytes: 1,
+                bounds: [10.0, 0.0, 20.0, 10.0],
+            },
+        ],
+    }];
+    let nodes = [paragraph];
+    let widgets = [filled(Control::Text(TextControl::default()), "1", false)];
+    let update = built(PageView {
+        widgets: &widgets,
+        ..view(&nodes, &[])
+    });
+    let mut ids: Vec<NodeId> = update.nodes.iter().map(|(id, _)| *id).collect();
+    let count = ids.len();
+    ids.sort_unstable();
+    ids.dedup();
+    assert_eq!(ids.len(), count, "no identifier twice");
+    let runs = update
+        .nodes
+        .iter()
+        .filter(|(_, node)| node.role() == Role::TextRun)
+        .count();
+    assert_eq!(runs, 2, "the paragraph's line and the field's value");
 }

@@ -630,7 +630,8 @@ a person would run has to be copied into the project's own `target/`. `tools/sta
 says what is there and how old it is; `tools/round.sh` says whether this round owes the rebuild.
 
 **Which directory that is has to be *asked for*, never written down**, and this section wrote it
-down — `/home/AI/cargo-target/quorra/` — for as long as it has existed. That is the main tree's,
+down, as one literal path under `/home/AI/cargo-target/`, for as long as it has existed. The main
+checkout builds where `~/.cargo/config.toml`'s `target-dir` says (`tools/state.sh disk` prints it),
 and a worktree round has its own (`.cargo/config.toml`'s `target-dir`), so the literal path installs
 a **neighbour's** binary over this round's: the seven-hundred-and-twenty-sixth session rebuilt the
 GTK host three times, installed it three times, ran a feature that was working, and saw nothing,
@@ -736,8 +737,11 @@ adds the root beside the round's own directory, and `tools/worktree.sh list` bre
 whose each directory is, which the sweep below needs because **the root holds directories this
 project's tools did not make and cannot judge** (ADR 0752).
 
+The commands, which directory each takes and when, are `doc/environment.md`'s build-directory
+entry; the shape of all of them is a profile directory by name and never `tmp/`:
+
 ```sh
-rm -rf /home/AI/cargo-target/quorra/{debug,release,gates}   # never tmp/ — see below
+rm -rf /home/AI/cargo-target/pdf-viewer-batch/debug   # at a batch boundary — never tmp/, see below
 ```
 
 `target/tmp/pdfref-cache` is the reference-render cache (ADR 0020), and deleting it costs the next
@@ -772,7 +776,8 @@ change.
 
 - The ADR, if the round made a decision. The argument goes there, not in the handover.
 - **The session's record is one new file in [`doc/history/`](../history/README.md)**, named
-  `<session>-<slug>.md`, and nowhere else. **Created, not appended to**: a round adds a file that
+  `<session>-<slug>.md`, and nowhere else, and it states the round's gates in a paragraph opening
+  `**Gates.**` with each one's exit status or pass count (ADR 1499). **Created, not appended to**: a round adds a file that
   did not exist, and edits no other round's — not `doc/history.md`, whose table is closed at 445,
   and not the neighbouring file. A number, a date or a session reference in any other document is
   bookkeeping and belongs in that file; a citation of an ADR for an *argument* is a pointer and
@@ -845,7 +850,9 @@ memory of the session the quota ended. `tools/batch.sh` is the command; this is 
    first 24 rounds of row briefs, 27 did (ADR 1036, `doc/reviews/1012`). The brief carries: read the
    **clause**, never the row's note (every real defect of those rounds came from a clause, and none
    from a sweep's count — `doc/habits/measuring.md`); tier 1 plus only the tier 2 lines the change
-   reaches; one record ≤40 lines (counted: `tools/state.sh records`); an ADR only for a decision a
+   reaches; one record ≤40 lines that states its gates in a paragraph opening `**Gates.**`, each
+   with its exit status or pass count — the report is never in the tree, so "see the report" is no
+   statement (both counted: `tools/state.sh records`, ADR 1499); an ADR only for a decision a
    later round must not re-litigate; ledger notes use only `\\ \" \n \t` (a `\uXXXX` blocks tier 1
    for the whole worktree); no `git stash`, no `git checkout -- .`, no unscoped `cargo fmt --all`,
    no whole-file `cp` restore; stop runs by pid. **Two lines the brief carries because six rounds
@@ -871,11 +878,21 @@ memory of the session the quota ended. `tools/batch.sh` is the command; this is 
    `wait` on the lock, a failure's tail beside it; `tools/state.sh gates-cost` prints which gate is
    dear). The log's last line, and one line per round with the duration and tool uses its
    notification reported, go into the batch commit's body — the one place a batch's clock is kept,
-   and `tools/state.sh batches` is what reads it back (ADR 1476): per commit carrying a paragraph
-   opening `Round durations`, the figure `N of M green, T s of gate wall time` and the sum of that
-   paragraph's figures written `<n> s`, with how many it summed — so write each round's wall time
-   as `<n> s` and nothing else in that paragraph that way, and the gates line as the log printed
-   it. A moved ratchet is moved *with its reason above the constant*; a bare
+   and `tools/state.sh batches` is what reads it back (ADR 1476): one line per commit carrying a
+   paragraph opening `Round durations`, with the figure `N of M green, T s of gate wall time`, the
+   sum of that paragraph's figures written `<n> s`, how many figures it summed and how many rounds
+   the paragraph names. **The paragraph's exact shape**, one `;`-separated entry per round opening
+   with its session number:
+
+   ```text
+   Round durations (wall, tool uses): 1327 4736 s, 161; 1328 1094 s + 2366 s, 17 + 59 (cut and resumed); 1329 9501 s, 219.
+   ```
+
+   Every wall-clock figure is `<n> s` and no other figure in the paragraph is; a cut round is two
+   figures, `<n> s + <n> s`, each with its unit, so the line reads one more figure than rounds and
+   says why. A round entry with no `<n> s`, or a `<n> s + <m>` whose second half has no unit, is
+   printed by the line as not summed rather than quietly left out of the sum (ADR 1500). The gates
+   line goes in as the log printed it. A moved ratchet is moved *with its reason above the constant*; a bare
    count that can only rise is replaced by a named population (`REFUSED_OPEN` is the shape).
 5. **Commit in the worktree, then fast-forward `main` — from the main checkout,
    `git merge --ff-only <branch>`, never from inside the

@@ -10,8 +10,9 @@ something a round cannot supply.
 membership; the categories and the reasons below are the content, and each row's own note is where
 the reason is argued in full. This is a sweep like `doc/todo/01`'s: membership is re-derived by
 reading the notes, and a row leaves a bucket the moment its note's residue changes. What does **not**
-decay is the shape — the six reasons a requirement stays open, plus two structural findings the six
-do not cover.
+decay is the shape — the six reasons a requirement stays open, plus the four shapes after them that
+the six do not cover: aggregate rows, not-owed rows, expired premises, and `implemented` rows held
+only by the robustness instrument.
 
 **The population is the ledger's `partial` and `reported` rows, and only those.** A `departed` row
 is a decision already taken and priced — `doc/HANDOVER.md` says what the word means — so it is not
@@ -114,6 +115,17 @@ which `brainpool` also finds, states no Brainpool curve and no Ed448. `ed448-gol
 (BSD-3-Clause, from `mikelodder7/Ed448-Goldilocks`, on a stable version line) waits on the owner's
 open question `doc/questions/Q192` — whether it counts as reviewed, which its own README says it has
 not been — and this map does not decide it.
+**Judged on 2026-10-01**, beside Q192 and on `doc/stack.md`'s terms, the two Ed448 packages
+`cargo search ed448` also finds; neither is a candidate. `cx448` 0.1.1 (`BSD-3-Clause` in its
+metadata, no licence file in its repository; one owner, `dignifiedquire/cx448`, five commits on
+2025-04-10 and none since) carries RFC 8032's verification with context and Ed448ph and the section
+7.4 vectors, but its README says it has not been audited or reviewed, it calls itself a temporary
+port to be retired once RustCrypto's stable releases land, and it is built on the previous RustCrypto
+generation (`elliptic-curve` 0.13, `crypto-bigint` 0.5, `digest` 0.10, `signature` 2), a second
+stack beside the tree's. `tiny_ed448_goldilocks` 0.2.0 (`MIT`, one owner, `Dustin-Ray/tiny-ed448-goldilocks`)
+has no signature scheme at all — no RFC 8032 verification and no 57-byte point encoding — and says
+it is unaudited. Both licences are on `deny.toml`'s list; neither is reviewed, and neither is
+RustCrypto's. Neither moves Q192's recommendation, and Q192 says so.
 
 ### 3. Hard rendering / architecture — a real build across several rounds
 
@@ -272,3 +284,19 @@ premise is a record and stays as written.
   merge, a split or an attach. `pdf-transform`'s `structure.rs` writes §14.7.5's `/IDTree` with the
   same key type and is under the same guarantee without calling that function; a round that touches it
   routes it through.
+
+### Held only by the robustness instrument — `implemented` rows that name no fixture
+
+An eighth shape, and like the seventh it is not a bucket of open rows: these rows are `implemented`,
+and under the owner's A100 a requirement executed under a control — here, the presence of a corpus
+checkout — counts as executed, so their status stands. What they lack is evidence of the other kind:
+every test they name is an ignored walk, a census, or a corpus witness that returns having read
+nothing where `doc/pdf.js`, `doc/corpora/` or `doc/veraPDF-corpus` is absent. What is owed is the
+fixture whose expected value the clause derives (principle 5), added to the row's `test` list.
+
+The membership is not written here. `cargo run -p conformance --bin ledger` prints, per status, the
+rows held by a fixture, held only by walks or witnesses, and naming no test; the ledger gate
+(`cargo test -p conformance --test conformance the_ledger_agrees_with_the_standard_and_with_the_tree
+-- --nocapture`) names each such `implemented` row and holds their number to a ratchet that may only
+fall (`ONLY_WALKS_CEILING`, ADR 1497). A row of clauses 7 to 9 or 11 comes first when a round takes
+one, because `CLAUDE.md` names them as the clauses that decide whether a page is correct.

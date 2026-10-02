@@ -378,3 +378,34 @@ fn the_handbuilt_witness_draws_its_page_rather_than_a_blank_one() {
         "the page found is the one the producer wrote, not the node above it"
     );
 }
+
+/// Two nodes that name themselves and each other among their `/Kids` — the `vfs_write` fuzz
+/// target's finding (ADR 1496). §7.7.3.2 makes the page tree a tree, so a node met again beneath
+/// itself is a cycle and stands for no pages; walked as if it were a subtree, every lookup
+/// branched until `MAX_NODES_VISITED` and the count ran to hundreds of thousands of pages, each
+/// lookup a million visits — a mount over a two-kilobyte file did not answer in five minutes.
+#[test]
+fn nodes_that_name_their_own_ancestors_stand_for_no_pages() {
+    let bytes = b"%PDF-1.7\n\
+         1 0 obj\n<< /Type /Pages /Kids [1 0 R 3 0 R 4 0 R 2 0 R] >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Parent 1 0 R /Kids [1 0 R 2 0 R 5 0 R] >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 1 0 R /MediaBox [0 0 100 100] >>\nendobj\n\
+         4 0 obj\n<< /Type /Page /Parent 1 0 R /MediaBox [0 0 200 200] >>\nendobj\n\
+         5 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] >>\nendobj\n\
+         6 0 obj\n<< /Type /Catalog /Pages 1 0 R >>\nendobj\n\
+         trailer\n<< /Root 6 0 R /Size 7 >>\n%%EOF\n"
+        .to_vec();
+    let document = Document::open(bytes).expect("the fixture opens");
+    let started = std::time::Instant::now();
+    let pages = pdf_model::Pages::new(&document);
+    assert_eq!(pages.len(), 3, "objects 3, 4 and 5, each once");
+    let sizes: Vec<_> = (0..pages.len())
+        .map(|index| pages.get(index).map(|page| page.media_box[2]))
+        .collect();
+    assert_eq!(sizes, [Some(100.0), Some(200.0), Some(300.0)]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(1),
+        "the walk is linear in the tree: {:?}",
+        started.elapsed()
+    );
+}

@@ -56,7 +56,7 @@ mod panels;
 /// question — and a host would discover that at the worst moment there is, in the middle of putting
 /// a reader back after a death, as a refusal of something the reader never asked for. The greeting
 /// is the cheap place to find it out instead.
-pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF05";
+pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF06";
 
 /// Length of the worker's greeting: the magic, the Landlock level, the address-space limit, and
 /// whether system calls are filtered — the same three facts `pdf_sandbox`'s own worker reports,
@@ -5514,6 +5514,7 @@ mod tests {
                 allocation: None,
                 artifact: None,
                 control: None,
+                value: None,
                 annotation: None,
                 headers: Vec::new(),
                 continues_a_list: false,
@@ -5541,6 +5542,7 @@ mod tests {
                 allocation: None,
                 artifact: None,
                 control: None,
+                value: None,
                 annotation: None,
                 headers: Vec::new(),
                 continues_a_list: false,
@@ -5567,6 +5569,7 @@ mod tests {
                 allocation: None,
                 artifact: None,
                 control: None,
+                value: None,
                 annotation: None,
                 headers: Vec::new(),
                 continues_a_list: false,
@@ -5610,6 +5613,7 @@ mod tests {
                 allocation: None,
                 artifact: None,
                 control: None,
+                value: None,
                 annotation: None,
                 headers: Vec::new(),
                 continues_a_list: false,
@@ -5638,6 +5642,7 @@ mod tests {
                 allocation: None,
                 artifact: None,
                 control: Some(pdf_model::form::Control::CheckBox { on: true }),
+                value: None,
                 annotation: Some(ObjectId::new(7, 0)),
                 headers: Vec::new(),
                 continues_a_list: false,
@@ -5664,6 +5669,7 @@ mod tests {
                 allocation: None,
                 artifact: None,
                 control: None,
+                value: None,
                 annotation: None,
                 headers: vec![3],
                 continues_a_list: false,
@@ -5709,6 +5715,7 @@ mod tests {
                 allocation: None,
                 artifact: None,
                 control: None,
+                value: None,
                 annotation: None,
                 headers: Vec::new(),
                 continues_a_list: false,
@@ -5733,6 +5740,7 @@ mod tests {
                 allocation: None,
                 artifact: None,
                 control: None,
+                value: None,
                 annotation: None,
                 headers: Vec::new(),
                 continues_a_list: true,
@@ -5766,7 +5774,41 @@ mod tests {
                     attached: [false, true, false, false],
                 }),
                 control: None,
+                value: None,
                 annotation: None,
+                headers: Vec::new(),
+                continues_a_list: false,
+                continued_from: None,
+                lines: Vec::new(),
+                drawn: None,
+                enclosed_a_refusal: false,
+            },
+            // A `Form` naming a text field, with §12.7.4.3's value beside its control: what a screen
+            // reader reads as the field's contents (ADR 1489). A wire that dropped it would publish
+            // a field filled on the confined side as an empty one on the host's.
+            AccessibilityNode {
+                parent: Some(0),
+                role: "Form".to_owned(),
+                name: "A".to_owned(),
+                substituted: false,
+                titled: false,
+                language: None,
+                quads: Vec::new(),
+                header_scope: None,
+                cell: None,
+                summary: None,
+                short: None,
+                bounds: Some([12.0, 30.0, 64.0, 42.0]),
+                allocation: None,
+                artifact: None,
+                control: Some(pdf_model::form::Control::Text(
+                    pdf_model::form::TextControl::default(),
+                )),
+                value: Some(pdf_model::view::ShownValue {
+                    text: "1".to_owned(),
+                    obscured: false,
+                }),
+                annotation: Some(ObjectId::new(9, 0)),
                 headers: Vec::new(),
                 continues_a_list: false,
                 continued_from: None,

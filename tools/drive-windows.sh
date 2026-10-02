@@ -4,12 +4,11 @@
 # one thing only it can show, a device refusal of a page its sandboxed worker sent as marks.
 #
 #   tools/drive-windows.sh [--out DIR] [--window NAME]... [--bin DIR] [--display :N]
-#                          [--goldens DIR] [--regolden REASON]
 #
 # The list is `doc/verify.md`'s "Driving the three windows": open, §12.2's Table 147 entries, the
-# outline, page turns by key and wheel, zoom, find (a Latin word, an Arabic word, and a word typed
-# without the marks printed on it), a popup, a link, a markup, §7.5.6's save read back, the pages
-# panel, the restrictions levels, print, §7.6.4's password, and a form's §12.5.1 tab order, check
+# outline, page turns by key and wheel, zoom, find (a Latin word, an Arabic word, a word typed
+# without the marks printed on it, and one placed under a mirroring text matrix), a popup, a link,
+# a markup, §7.5.6's save read back, the pages panel, the restrictions levels, print, §7.6.4's password, and a form's §12.5.1 tab order, check
 # box, choice and push button saved and re-read. Each step's observable is a title, a line the
 # window printed, the saved file's bytes, what AT-SPI reads off the window, or a count of pixels of
 # a colour the step draws, and the verdict is printed as
@@ -19,11 +18,9 @@
 # window manager GTK's and Qt's popups are not on the root's picture. A title is a weaker witness
 # than the picture (ADR 1453), so no step rests on one where the window says more.
 #
-# One step has no witness but its picture: `quorra`'s reopened form, whose drawn fields publish no
-# value. It is compared with a golden — the same crop kept from the first run, under `--goldens`
-# (default `scratchpad/drive-goldens`, this machine's, never committed) — and the first run writes
-# it and reports it `manual`, to be looked at once; `--regolden REASON` writes it again and keeps
-# the reason in `reasons.tsv` beside it (ADR 1478).
+# The reopened form is read off the bus in all three windows: the toolkits' widgets, and `quorra`'s
+# own form nodes, which carry §12.7.4.3's value as a text run and a choice's options as selectable
+# items (ADR 1489).
 #
 # Coordinates are ASKED of the window where it can answer: the drive runs on a private session bus
 # with AT-SPI on it, and the outline rows, the pages tab and row, the check box and the choice are
@@ -48,8 +45,6 @@ DISPLAY_NUMBER=":93"
 TARGET=$(cargo metadata --format-version 1 --no-deps --manifest-path "$ROOT/Cargo.toml" 2>/dev/null \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])' 2>/dev/null)
 BIN="${TARGET:-$ROOT/target}/release"
-GOLDENS="$ROOT/scratchpad/drive-goldens"
-REGOLDEN=""
 WINDOWS=()
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -57,8 +52,6 @@ while [ $# -gt 0 ]; do
         --window) WINDOWS+=("$2"); shift 2 ;;
         --bin) BIN=$2; shift 2 ;;
         --display) DISPLAY_NUMBER=$2; shift 2 ;;
-        --goldens) GOLDENS=$2; shift 2 ;;
-        --regolden) REGOLDEN=$2; shift 2 ;;
         *) echo "drive-windows: unknown argument $1" >&2; exit 2 ;;
     esac
 done
@@ -214,6 +207,26 @@ vowelled = page(pdf, helv(pdf), "Vowelled",
                 b"BT /F2 60 Tf 300 500 Td [<01> 1000 <04> <02> 1000 <04> <03> 1000 <04>] TJ ET\n")
 vowelled.obj.Resources.Font.F2 = type3
 pdf.save(f"{out}/drive-vowelled.pdf")
+
+# drive-mirrored.pdf: "عرب" placed glyph by glyph by TJ in reading order, each adjustment moving the
+# pen back against the advance, under a mirroring text matrix — §9.4.4's text space, which the
+# readback's word gaps are measured in (ADR 1490). The same Type 3 boxes, mapped to the three letters.
+pdf = pikepdf.new()
+cmap = (b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapName /Mirrored def "
+        b"/CMapType 2 def 1 begincodespacerange <00> <FF> endcodespacerange 3 beginbfchar "
+        b"<01> <0628> <02> <0631> <03> <0639> endbfchar endcmap "
+        b"CMapName currentdict /CMap defineresource pop end end")
+boxes = pdf.make_indirect(Dictionary(
+    Type=Name.Font, Subtype=Name.Type3, FontBBox=[0, 0, 950, 840],
+    FontMatrix=[0.001, 0, 0, 0.001, 0, 0],
+    CharProcs=Dictionary({"/l": pdf.make_stream(glyphs["l"])}),
+    Encoding=Dictionary(Type=Name.Encoding, Differences=[1, Name.l, Name.l, Name.l]),
+    FirstChar=1, LastChar=3, Widths=[500, 500, 500], Resources=Dictionary(),
+    ToUnicode=pdf.make_stream(cmap)))
+mirrored = page(pdf, helv(pdf), "Mirrored",
+                b"BT /F2 60 Tf -1 0 0 1 612 0 Tm 220 500 Td [<03> 1000 <02> 1000 <01>] TJ ET\n")
+mirrored.obj.Resources.Font.F2 = boxes
+pdf.save(f"{out}/drive-mirrored.pdf")
 
 # drive-coverage.pdf: a thousand fifteen-point stars over the whole page. A few kilobytes of marks,
 # so a confined worker sends them as a list rather than as pixels (ADR 0607), and more coverage than
@@ -377,50 +390,35 @@ yellow() {
     magick "$1" -fuzz 6% -fill "#ff0000" -opaque "#ffe633" -fuzz 0 -fill black +opaque "#ff0000" \
         -fill white -opaque "#ff0000" -colorspace gray -format "%[fx:round(mean*w*h)]" info: 2>/dev/null
 }
-# golden STEP NAME GEOMETRY WHAT: the main window's picture, cropped to GEOMETRY, against the one this
-# drive kept from its first run. A golden is a picture a person looked at once (ADR 1478): the first
-# run writes it and says so as a step to look at, every later run compares, and `--regolden REASON`
-# writes it again with the reason beside it, as `raster_golden` is regenerated.
-golden() {
-    local dir="$GOLDENS/$WINDOW" crop="$OUT/shots/$WINDOW/$2.golden.png" differing
-    mkdir -p "$dir"
-    xwd -id "$(main_window)" -silent -out "$OUT/window.xwd" \
-        && magick "xwd:$OUT/window.xwd" -crop "$3" +repage "$crop"
-    rm -f "$OUT/window.xwd"
-    if [ -n "$REGOLDEN" ] || [ ! -f "$dir/$2.png" ]; then
-        cp "$crop" "$dir/$2.png"
-        [ -n "$REGOLDEN" ] && printf '%s\t%s\t%s\t%s\n' "$(date -I)" "$WINDOW" "$2" "$REGOLDEN" >> "$GOLDENS/reasons.tsv"
-        verdict "$1" manual "golden written to $dir/$2.png: look at it once ($4); later runs compare"
-        return
-    fi
-    differing=$(magick compare -metric AE -fuzz 10% "$dir/$2.png" "$crop" null: 2>&1 | cut -d' ' -f1)
-    if [ "${differing%.*}" -le 40 ] 2>/dev/null; then
-        verdict "$1" works "$4: $differing pixel(s) off the golden"
-    else
-        verdict "$1" wrong "$4: ${differing:-no comparison} pixel(s) off the golden $dir/$2.png"
-    fi
-}
-# reopened PID: the form's toolkit widgets as AT-SPI reads them — each text field's text, the check
-# box's state and the combo box's name — on one line, A C B D E.
+# reopened PID WINDOW: the form's fields as AT-SPI reads them — each text field's text through
+# `Text`, the check box's `checked` state and the combo box's choice — on one line, A C B D E. The
+# two toolkits' are their own widgets, outside the document's frame, and a combo box says its choice
+# as its name; `quorra`'s are the document's own form nodes, inside the frame, and its combo box says
+# its choice as the item `Selection` holds (ADR 1489).
 cat > "$OUT/reopened.py" <<'PY'
 import sys
 import gi
 gi.require_version("Atspi", "2.0")
 from gi.repository import Atspi
 pid, seen = int(sys.argv[1]), {}
+own = sys.argv[2] == "quorra"
 def walk(node, depth, document=False):
     if node is None or depth > 40:
         return
     try:
         role, name = node.get_role_name(), node.get_name()
         document = document or node.get_role() == Atspi.Role.DOCUMENT_FRAME
-        if role == "text" and name in "ABC" and len(name) == 1 and not document:
+        ours = document if own else not document
+        if role in ("text", "entry") and name in "ABC" and len(name) == 1 and ours:
             text = node.get_text_iface()
             seen[name] = Atspi.Text.get_text(text, 0, Atspi.Text.get_character_count(text))
-        elif role == "check box" and name == "D":
+        elif role == "check box" and name == "D" and ours:
             seen.setdefault("D", node.get_state_set().contains(Atspi.StateType.CHECKED))
-        elif role == "combo box" and not document:
+        elif role == "combo box" and ours and not own:
             seen["E"] = name
+        elif role == "combo box" and ours and name == "E":
+            chosen = Atspi.Selection.get_selected_child(node.get_selection_iface(), 0)
+            seen["E"] = chosen.get_name() if chosen is not None else "-"
         for index in range(node.get_child_count()):
             walk(node.get_child_at_index(index), depth + 1, document)
     except gi.repository.GLib.Error:
@@ -633,14 +631,11 @@ PY
         "1 2 3 pikepdf.Name(\"/Yes\") pikepdf.Name(\"/Yes\") Blue") verdict 20-tab-order-and-save works "$seen" ;;
         *) verdict 20-tab-order-and-save wrong "A C B D/V D/AS E: $seen" ;;
     esac
-    # The saved values as the reopened window shows them: the two toolkits' widgets on the bus, and
-    # `quorra`'s drawn fields — which publish no value (ADR 1478) — against a golden.
+    # The saved values as the reopened window shows them, read off the bus in every window (ADR 1489).
     launch "${form%.pdf}.edited.pdf"; shot 24-reopened
     seen=""
-    [ -n "$BUS" ] && seen=$(timeout 30 python3 "$OUT/reopened.py" "$APP" 2>/dev/null)
-    if [ "$WINDOW" = quorra ]; then
-        golden 24-reopened 24-reopened 620x320+90+240 "1, 2, 3, the box ticked, Blue"
-    elif [ "$seen" = "1 2 3 True Blue" ]; then
+    [ -n "$BUS" ] && seen=$(timeout 30 python3 "$OUT/reopened.py" "$APP" "$WINDOW" 2>/dev/null)
+    if [ "$seen" = "1 2 3 True Blue" ]; then
         verdict 24-reopened works "A C B D E on the bus: $seen"
     else
         verdict 24-reopened wrong "A C B D E on the bus: ${seen:-nothing}"
@@ -673,6 +668,14 @@ PY
         verdict 25-find-other-mark wrong "a word with dammas found one with fathas"
     else
         verdict 25-find-other-mark works "a word with dammas did not find one with fathas"
+    fi
+    # ADR 1490: a TJ in reading order under a mirroring Tm reads back as one word, and is found.
+    launch "$FIXTURES/drive-mirrored.pdf"
+    click 400 600; key f; mark=$(lines); type_in "عرب"; key Return; shot 25-find-mirrored
+    if found_since "$mark"; then
+        verdict 25-find-mirrored works "the word under a mirroring Tm is found"
+    else
+        verdict 25-find-mirrored wrong "the word under a mirroring Tm is not found (doc/todo/27)"
     fi
 
     # Principle 2: a frame the graphics device refuses is drawn on the processor, "reported out

@@ -10,7 +10,7 @@
 //! The two lanes are one module because they answer in the same shape: the fragment
 //! shader maps device pixels back through an inverse transform carried in the op, so
 //! the quad only has to *cover* the footprint, and the coverage it is weighted by is
-//! either analytic — an axis-preserving image placement, a rect-hinted outline — or one
+//! either analytic — an image placement, a rect-hinted outline — or one
 //! tile of the frame's scratch sheet, rasterised by the same CPU rasteriser every other
 //! lane's coverage comes from.
 //!
@@ -33,6 +33,7 @@ use raster_scene::{
 use super::clips::ResolvedClip;
 use super::device_space::{apply, compose, transform_preserves_axes};
 use super::function::FunctionGeometry;
+use super::meet::{clip_to_rect, polygon_overlap, rectangle_overlap};
 use super::{ChildOp, DrawStyle, Encoder, Op};
 use crate::error::RenderError;
 use crate::raster::{DeviceTransform, Polyline, Rule};
@@ -40,9 +41,9 @@ use crate::raster::{DeviceTransform, Polyline, Rule};
 /// One image draw (ISO 32000-2 §8.9.5), executed as a single uniform-driven quad.
 ///
 /// The fragment shader maps device pixels back through `texel`, so the quad only has
-/// to cover the footprint; an axis-preserving placement gets analytic edge coverage
-/// from `image_rect`, an oblique one paints where centres land inside the image
-/// (ADR 0011 carries both decisions).
+/// to cover the footprint; either placement is weighted by the area of the unit square's
+/// image in each pixel — from `image_rect` where the placement keeps the axes, from `texel`
+/// where it does not (ADR 0011, ADR 1492).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ImageOp {
     /// The resident image's raw id.
@@ -61,7 +62,7 @@ pub(crate) struct ImageOp {
     /// Where a rasterised residue clip sits in the frame's scratch, if one applies;
     /// its tile spans exactly `dest`.
     pub residue_origin: Option<[f32; 2]>,
-    /// Whether the placement preserves axes (analytic edges).
+    /// Whether the placement preserves axes: its area is then taken against `image_rect`.
     pub axis_aligned: bool,
     /// The command's constant alpha (§11.6.4.4).
     pub alpha: f32,
@@ -288,10 +289,12 @@ impl Encoder<'_> {
         let top = vy0.floor() as i32;
         let width = (vx1.ceil() as i32 - left).max(1) as u32;
         let height = (vy1.ceil() as i32 - top).max(1) as u32;
+        // Round the unit square: (0, 0), (1, 0), (1, 1), (0, 1).
+        let around = [corners[0], corners[1], corners[3], corners[2]];
         let residue_origin = self.image_residue(
             &resolved,
             transform_preserves_axes(&to_device),
-            [bx0, by0, bx1, by1],
+            ([bx0, by0, bx1, by1], around),
             (left, top, width, height),
         )?;
         self.push_op(Op::Image(Box::new(ImageOp {
@@ -318,16 +321,16 @@ impl Encoder<'_> {
     /// The residue tile an image samples, packed into scratch, or `None` for a chain with
     /// no residue link.
     ///
-    /// An axis-preserving image is the rectangle `image.wgsl` takes each pixel's overlap of,
-    /// and a rectangle meets the residue as a set (ADR 1480). An oblique one is painted in
-    /// the pixels whose centre falls inside it (ADR 0011), a set that holds each pixel whole
-    /// or misses it, which `min` meets exactly.
+    /// Either placement is the set `image.wgsl` takes each pixel's area of, met with the
+    /// clip rectangle, and meets the residue as a set: an axis-preserving image's rectangle
+    /// (ADR 1480), an oblique one's parallelogram, whose `corners` are the unit square's in
+    /// order round it (ADR 1492).
     #[expect(clippy::cast_precision_loss)] // scratch positions far below 2^24
     fn image_residue(
         &mut self,
         resolved: &ResolvedClip,
         axis_aligned: bool,
-        [bx0, by0, bx1, by1]: [f32; 4],
+        ([bx0, by0, bx1, by1], corners): ([f32; 4], [Point; 4]),
         (left, top, width, height): (i32, i32, u32, u32),
     ) -> Result<Option<[f32; 2]>, RenderError> {
         if resolved.residues.is_none() {
@@ -338,14 +341,32 @@ impl Encoder<'_> {
         else {
             return Ok(None);
         };
+        let clip = resolved.rect;
         if axis_aligned {
             let shape = [
-                bx0.max(resolved.rect.min.x),
-                by0.max(resolved.rect.min.y),
-                bx1.min(resolved.rect.max.x),
-                by1.min(resolved.rect.max.y),
+                bx0.max(clip.min.x),
+                by0.max(clip.min.y),
+                bx1.min(clip.max.x),
+                by1.min(clip.max.y),
             ];
-            self.meet_residue_with_rectangle(&mut product, resolved, shape)?;
+            let [x0, y0, x1, y1] = shape;
+            if x0 < x1 && y0 < y1 {
+                let outline = vec![
+                    Point::new(x0, y0),
+                    Point::new(x1, y0),
+                    Point::new(x1, y1),
+                    Point::new(x0, y1),
+                ];
+                self.meet_residue_with_shape(&mut product, resolved, outline, |px, py| {
+                    rectangle_overlap(shape, px, py)
+                })?;
+            }
+        } else {
+            let outline = clip_to_rect(&corners, clip);
+            let shape = outline.clone();
+            self.meet_residue_with_shape(&mut product, resolved, outline, |px, py| {
+                polygon_overlap(&shape, px, py)
+            })?;
         }
         let (sx, sy) = self.pack_scratch(&product)?;
         Ok(Some([sx as f32, sy as f32]))

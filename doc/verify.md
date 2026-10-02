@@ -696,7 +696,8 @@ tools/drive-windows.sh [--window quorra|quorra-gtk|quorra-qt|quorra-confined]...
   # and array order all differ — three values typed by Tab, §12.7.5.2.3's check box, §12.7.5.4's
   # choice and §12.7.5.2.2's push button, the save's `/V` and `/AS` read back and the file reopened;
   # an Arabic word typed at `ArabicCIDTrueType.pdf`; "كتب" typed at a page printing "كَتَبَ", found, and
-  # "كُتُب" not (ADR 1477); §14.7's tree on a private AT-SPI bus; and `quorra-confined` on a page of
+  # "كُتُب" not (ADR 1477); "عرب" typed at a `TJ` in reading order under a mirroring `Tm`, found
+  # (ADR 1490); §14.7's tree on a private AT-SPI bus; and `quorra-confined` on a page of
   # stars its worker sends as marks and its device refuses, the refusal in the title (ADR 1478).
   # **Release binaries first** (the script names the command), and `pikepdf` for the fixtures it
   # writes. It prints `step, window, works|wrong|not offered|manual, what was seen` into
@@ -705,9 +706,8 @@ tools/drive-windows.sh [--window quorra|quorra-gtk|quorra-qt|quorra-confined]...
   # not on the root's picture. **No step rests on a title where the window says more** (ADR 1478):
   # the popup by the pixels of its `/C` colour open and closed, `quorra`'s restrictions card by the
   # level its second row sets, print by GTK's dialogue or the other two's "over 3 page(s)", the
-  # reopened form by AT-SPI's reading of the toolkits' widgets — and `quorra`'s drawn fields, which
-  # publish no value, by a golden kept under `--goldens` from the first run, which reports it
-  # `manual` to be looked at once (`--regolden REASON` writes it again). Its clicks
+  # reopened form by AT-SPI's reading of the fields — the toolkits' widgets, and `quorra`'s own form
+  # nodes, whose text runs and selected items carry the value (ADR 1489). Its clicks
   # are **asked of the window**: the drive runs on one private AT-SPI bus, and the outline rows, the
   # pages tab and row, the check box and the choice are found by role and name and clicked at the
   # centre of `Component.GetExtents`, with the find bar's presence a step of its own. `quorra-gtk`
@@ -950,6 +950,9 @@ cd fuzz && cargo +nightly fuzz run shaping      -- -max_total_time=600 -max_len=
   # Seed it with `python3 fuzz/seed_shaping.py fuzz/corpus/shaping` — the UCD's bidirectional cases
   # and generated Arabic words; `-max_len` is raised because joining and rule L1 are walks over the
   # whole text, and a quadratic one shows only on a long value.
+  # It reaches `Label` and the joining and bidirectional halves; `fold`, `decompose` and
+  # `mark_class` are table lookups over the code points, which only the find bar calls with a
+  # page's text, so the `find` target below is where they meet untrusted input (ADR 1495).
 cd fuzz && cargo +nightly fuzz run jbig2        -- -max_total_time=600 -rss_limit_mb=2048 -timeout=30
 cd fuzz && cargo +nightly fuzz run jpx          -- -max_total_time=600 -rss_limit_mb=2048 -timeout=30
   # §7.4.7's and §7.4.9's filters as the confined worker runs them — the codecs are `hayro-jbig2`
@@ -967,6 +970,31 @@ cd fuzz && cargo +nightly fuzz run linearize    -- -max_total_time=600 -rss_limi
   # Annex F both ways: `linearize::state` on the input, and `serialize_linearized`'s file opened
   # again and found linearised with `/L` its length and `/N` the plan's pages (ADRs 1293, 1309).
   # Seeded from whole documents, `serialize`'s recipe, by `fuzz/seeds.sh`.
+cd fuzz && cargo +nightly fuzz run embed        -- -max_total_time=600 -rss_limit_mb=2048 -timeout=20
+  # §9.9.1's `/FontFile2` program, §9.9.2's subset and the `CFF ` subsetter's charstring walk, over a
+  # face the machine offers (ADRs 1425, 1438, 1449): a re-embedded subset renumbers nothing, the
+  # kept glyphs are dense from `.notdef`, a subset carries the six-letter tag. Seeded by
+  # `fuzz/seeds.sh` with the faces under `/usr/share/fonts`, which is the population on this disk.
+cd fuzz && cargo +nightly fuzz run jpeg_bands   -- -max_total_time=600 -rss_limit_mb=2048 -timeout=20
+  # §7.4.8's frames cut into bands at their restart intervals (ADR 1433) and at an entropy pass's
+  # rows (ADR 1481), each against the whole frame's decoder through `pdf_model::image::
+  # banded_decodes`, below the production floor (ADR 1495). Differential: a byte a band moves, or a
+  # band decoded where the whole decoder refuses, is a finding. Seeded with every `DCTDecode`
+  # stream of 64 KiB or less and the two modules' fixtures.
+cd fuzz && cargo +nightly fuzz run find         -- -max_total_time=600 -rss_limit_mb=2048 -timeout=20
+  # the find bar's match over a page's readback through `viewer_core::find_in_text`: §9.10.2's
+  # presentation forms folded, canonical decompositions and marks a needle may leave off (ADRs
+  # 1465, 1477) — the one caller of `pdf_font::shaping`'s `fold`, `decompose` and `mark_class` with
+  # untrusted text. A literal occurrence of a lowercase needle is always found. Seeded by
+  # `fuzz/seed_find.py` from the UCD's bidirectional lines and the cases the matcher was built for.
+cd fuzz && cargo +nightly fuzz run meet         -- -max_total_time=600 -rss_limit_mb=2048 -timeout=20
+  # §10.7.4's intersection of fills inside one pixel as the device computes it (ADR 1467), through
+  # `raster_gpu::intersection`, against an exact piecewise integration in the target (ADR 1495).
+  # Seeded by `fuzz/seed_meet.py` with the meet's own test shapes on a sixteenth-pixel grid.
+cd fuzz && cargo +nightly fuzz run vfs_write    -- -max_total_time=600 -rss_limit_mb=2048 -timeout=20
+  # RFC 0003 section 5.2's five write verbs over a document in memory through the in-process
+  # worker: every commit begins with the file it replaces (§7.5.6), a deleted page is one page.
+  # Seeded by `fuzz/seed_vfs_write.py` from the pdf.js documents under 32 KiB.
 # **A campaign runs the targets without the sanitiser, under the lock and `tools/bounded.sh`.** The
 # crates a fuzz target reaches forbid `unsafe`, so what AddressSanitizer adds over Rust's own checks
 # is a dependency's unsafe code, and what it costs is the shadow memory that `tools/bounded.sh`'s
@@ -979,6 +1007,11 @@ cd fuzz && cargo +nightly fuzz run linearize    -- -max_total_time=600 -rss_limi
 #   RAYON_NUM_THREADS=4 flock /home/AI/heavy-walk.lock tools/bounded.sh --data 4 --tree 4 -- \
 #     <target dir>/x86_64-unknown-linux-gnu/release/<target> <scratch>/<target> fuzz/corpus/<target> \
 #     -max_total_time=600 -rss_limit_mb=2048 -timeout=20 -jobs=1 -artifact_prefix=<scratch>/<target>-
+# A target whose own line above states a larger ceiling runs under that one — `page`'s 4096 MB,
+# which `ContentStreamCycleType3insideType3.pdf` among its seeds needs — and `jbig2` runs past
+# `hayro-jbig2`'s known timeouts with its line's `-fork=1 -ignore_timeouts=1`. Read `INITED` for
+# the disk's corpus and for fresh seeds before spending the run: a corpus far below what fresh
+# seeds reach is a corpus to regenerate (ADRs 1423, 1495).
 # `tools/state.sh fuzz` prints what the disk holds of every target: its seeds, and the crashes,
 # timeouts and memory refusals sitting in `fuzz/artifacts/`.
 ```

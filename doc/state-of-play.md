@@ -46,8 +46,9 @@ right-to-left, cursive one is joined by the Unicode Character Database's own tab
 (ADR 1425), a `CFF ` one subset as a bare CID-keyed program under `/FontFile3` (ADR 1449), an
 accented character in it composed into the outline it draws (ADR 1486), whole
 where its licence forbids subsetting (ADR 1438); in memory a `CFF ` face is described as the
-`CIDFontType0` Table 124 puts it under (ADR 1450). A font the document did not embed is stood in
-for by a machine face ranked by its descriptor — Table 120's weight, slope and width against each
+`CIDFontType0` Table 124 puts it under (ADR 1450). A font the document did not embed, other than
+one of the standard 14 the tree compiles in and answers first (ADR 1483), is stood in for by a
+machine face ranked by its descriptor — Table 120's weight, slope and width against each
 face's own `OS/2` — among the faces that draw as much of its script as any, which is one search
 for a page's font and an interface's label alike (ADR 1441). **Three rasterisers behind one display list**: `render-cpu` is the correctness
 oracle — and it is one because it computes a path's coverage of a pixel as the **exact integral of
@@ -94,9 +95,12 @@ so that the polygon encloses the curve's own area rather than falling inside it,
 built the same way (ADR 1443), and a clip — a rectangle or a residue held as a coverage byte —
 meeting a mark's coverage as §10.7.4's intersection: the smaller of the two, not their product
 (ADRs 1435, 1444), and where a residue and a mark both cut a pixel, the area of their intersection
-computed from both sets' edges, a path's mark or an axis-preserving image's rectangle (ADRs 1467,
-1480), a residue link flattened once a frame and a small tile reading only its rows' edges (ADR
-1479) — and a clipped mark's
+computed from both sets' edges, a path's mark or an image's parallelogram (ADRs 1467, 1480,
+1492), an image's edge pixel painted by the image's area in it whatever its placement (ADR 1492), a
+residue link flattened once a frame and a small tile reading only its rows' edges (ADR 1479), a
+residue filled in `f64` so that its region and a tile give one byte per pixel, a region kept where
+the edges its tiles would fill cost more than it does, and the meet counting a pixel's winding
+from the side with fewer partial edges (ADR 1491) — and a clipped mark's
 coverage and a stroke's made off the walk's thread by the encoder's fan-out, a stroke's segment
 weighed at what it costs (ADR 1395), a rectangle or a repeated glyph behind a queued mark committed
 in its place and a zoom step's strokes fanned out on the compute lane as on the page-turn one (ADR
@@ -155,9 +159,14 @@ The parsers that read bytes a stranger chose are **fuzzed**, a target each — t
 file grammars, the interpreter over a whole page, the JBIG2, JPEG 2000 and fax filters as the
 confined worker runs them, the font programs and CMaps, §7.6's security handler, the FDF, XFDF and
 XMP readers, a field value's shaping, Annex F's reader and writer, §12.8's ASN.1 and the confined
-transport's decoders — each seeded from what the disk's documents hold, and what a campaign found is
-fixed: a token past the content window's ceiling is stepped over by the grammar that ends it, and a
-composite glyph's cycle is found in time linear in the glyph graph (ADRs 1423, 1424, 1439). A JBIG2
+transport's decoders, a machine face's embedding, the find bar's match, the file-system face's
+writes — and two targets are differential, a JPEG's band plans against its whole decode and the
+meet's area against an exact integration — each seeded from what the disk's documents hold, and
+what a campaign found is fixed: a token past the content window's ceiling is stepped over by the
+grammar that ends it, a composite glyph's cycle is found in time linear in the glyph graph, a face
+written whole holds every glyph it is asked for, a band is refused wherever the whole decoder reads
+the frame another way, and a page-tree node met beneath itself stands for no pages (ADRs 1423, 1424,
+1439, 1495, 1496). An overflow inside `zune-jpeg` waits on Q227. A JBIG2
 symbol dictionary the codec decodes for minutes is ended at a deadline on either isolation — the
 in-process one abandons rather than kills, and says so, and a process behind its own seccomp filter
 decodes on its own thread instead, because a kept thread asks for `prctl` — and its three unbounded
@@ -582,7 +591,7 @@ raised by the pointer. Four clauses closed on the sidebar without anybody pickin
 and three of the four had a ledger row whose reason was "this program has no ___" — which is the
 lesson in [`doc/habits.md`](habits.md)'s ledger section rather than a fact about the sidebar.
 
-**And what a reader does is driven in all three windows by one command**: `tools/drive-windows.sh` takes them under `Xvfb` through open, the outline, page turns, zoom, find, a popup, a link, a markup and a form saved and reopened, the restriction levels, print, a password and AT-SPI, and photographs each step (ADR 1453). The find bar finds a right-to-left word typed in reading order on a page that shows it as presentation forms in display order, folding the forms and reading the order off the glyphs' positions (ADR 1465), and a word typed without its vowel marks or accents finds one printed with them, while a mark typed is asked for (ADR 1477). No step of the drive rests on a person looking at a picture but the first run of `quorra`'s reopened form, kept as a golden, and `quorra-confined`'s device refusal is driven to its title (ADR 1478).
+**And what a reader does is driven in all three windows by one command**: `tools/drive-windows.sh` takes them under `Xvfb` through open, the outline, page turns, zoom, find, a popup, a link, a markup and a form saved and reopened, the restriction levels, print, a password and AT-SPI, and photographs each step (ADR 1453). The find bar finds a right-to-left word typed in reading order on a page that shows it as presentation forms in display order, folding the forms and reading the order off the glyphs' positions (ADR 1465), and a word typed without its vowel marks or accents finds one printed with them, while a mark typed is asked for (ADR 1477). No step of the drive rests on a person looking at a picture: the reopened form is read off AT-SPI in all three windows, `quorra`'s form nodes carrying each field's value (ADR 1489), and `quorra-confined`'s device refusal is driven to its title (ADR 1478).
 
 **All of it sits behind `viewer-core`**: `Command` in, `Event` out, `Query` → `Answer` beside
 them, with no type from a windowing or graphics library anywhere in its API.

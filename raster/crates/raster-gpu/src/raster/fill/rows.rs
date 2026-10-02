@@ -316,7 +316,7 @@ fn starts(counts: &[u32]) -> Option<Vec<u32>> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{Rule, fill_mask, fill_mask_indexed};
+    use super::super::{Rule, clip_mask};
     use super::RowIndex;
     use crate::raster::Polyline;
     use raster_scene::Point;
@@ -362,9 +362,9 @@ mod tests {
             for (width, height) in [(1, 1), (2, 2), (3, 1), (7, 5), (16, 3), (90, 100)] {
                 for top in (0..110).step_by(3) {
                     for left in (0..120).step_by(7) {
-                        let plain = fill_mask(&polylines, rule, left, top, width, height);
-                        let listed =
-                            fill_mask_indexed(&polylines, &index, rule, left, top, width, height);
+                        let region = (left, top, width, height);
+                        let plain = clip_mask(&polylines, None, rule, region);
+                        let listed = clip_mask(&polylines, Some(&index), rule, region);
                         assert_eq!(
                             plain.coverage, listed.coverage,
                             "{rule:?} tile {width}x{height} at ({left}, {top})"

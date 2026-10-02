@@ -259,6 +259,11 @@ pub fn for_embedding(program: &[u8], used: &BTreeSet<u16>) -> Result<Embedded, R
     let kept = if permitted.subsetting {
         face.closure(used)?
     } else {
+        // Written whole, the face still holds every glyph the stream shows and `.notdef` with
+        // them — the rule the closure applies to a subset (ADR 1495).
+        if used.iter().chain([&0]).any(|glyph| *glyph >= face.count) {
+            return Err(Refusal::Malformed("glyf"));
+        }
         (0..face.count).collect()
     };
     let glyphs: BTreeMap<u16, u16> = kept
@@ -778,5 +783,30 @@ mod tests {
         assert_eq!(embedded.glyphs.len(), 5);
         assert!(!embedded.renumbered());
         assert_eq!(embedded.name, "MachineFace");
+    }
+
+    /// A face written whole is refused a glyph it does not hold, as a subset is: one past its
+    /// last, and every glyph of a face holding none at all, which has no `.notdef` (the `embed`
+    /// fuzz target's finding, ADR 1495).
+    #[test]
+    fn a_face_written_whole_is_refused_a_glyph_it_does_not_hold() {
+        let glyphs: Vec<Vec<u8>> = (0..5).map(simple).collect();
+        assert_eq!(
+            for_embedding(&face(&glyphs, 0x0100), &BTreeSet::from([5])),
+            Err(Refusal::Malformed("glyf")),
+            "one past the last glyph, written whole"
+        );
+        assert_eq!(
+            for_embedding(&face(&glyphs, 0x0000), &BTreeSet::from([5])),
+            Err(Refusal::Malformed("glyf")),
+            "the same glyph, subset"
+        );
+        assert!(
+            matches!(
+                for_embedding(&face(&[], 0x0100), &BTreeSet::new()),
+                Err(Refusal::Malformed(_))
+            ),
+            "a face of no glyphs has no .notdef"
+        );
     }
 }

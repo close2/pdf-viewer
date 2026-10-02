@@ -9,7 +9,10 @@
 
 use raster_scene::{Point, Segment};
 
-use crate::raster::{Polyline, Rule, fill_mask, flatten, polyline_bounds};
+use crate::raster::{
+    CoverageMask, MeetWork, Polyline, RowEdges, Rule, area_in_pixel, clip_mask, fill_mask, flatten,
+    polyline_bounds,
+};
 
 use super::{IDENTITY, cov, rect_path};
 
@@ -108,74 +111,11 @@ fn geometry_outside_the_region_still_winds() {
 // A probe over generated geometry: the casts below are between pixel indices and
 // device coordinates that the loops keep inside the region, and the arithmetic is
 // the probe's own bookkeeping.
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    clippy::cast_sign_loss,
-    clippy::cast_possible_wrap
-)]
 #[test]
 fn a_tile_is_the_crop_of_the_region_that_contains_it() {
-    let mut state: u32 = 0x1234_5678;
-    let mut next = |bound: f32| -> f32 {
-        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        ((state >> 8) as f32 / 16_777_216.0) * bound
-    };
-    let mut worst = 0i32;
-    let mut differing = 0u64;
-    let mut total = 0u64;
-    for shape in 0..40 {
-        // A closed curve like the archetype's clip: 24 cubics about a centre.
-        let cx = 60.0 + next(1000.0);
-        let cy = 60.0 + next(1500.0);
-        let r = 30.0 + next(120.0);
-        let mut path = vec![Segment::MoveTo(Point::new(cx - r, cy))];
-        let steps = 24;
-        for step in 0..steps {
-            let from = (step as f32) / (steps as f32) * std::f32::consts::TAU;
-            let to = ((step + 1) as f32) / (steps as f32) * std::f32::consts::TAU;
-            let point = |angle: f32| Point::new(cx + r * angle.cos(), cy + r * angle.sin() * 1.3);
-            let (a, b) = (point(from), point(to));
-            path.push(Segment::CubicTo {
-                c1: Point::new(a.x + (b.x - a.x) * 0.35, a.y + (b.y - a.y) * 0.1),
-                c2: Point::new(a.x + (b.x - a.x) * 0.65, a.y + (b.y - a.y) * 0.9),
-                to: b,
-            });
-        }
-        path.push(Segment::Close);
-        let lines = flatten(&path, IDENTITY);
-        let (x0, y0, x1, y1) = polyline_bounds(&lines).unwrap();
-        let (rl, rt) = (x0.floor() as i32, y0.floor() as i32);
-        let (rw, rh) = (
-            (x1.ceil() as i32 - rl) as u32,
-            (y1.ceil() as i32 - rt) as u32,
-        );
-        let region = fill_mask(&lines, Rule::NonZero, rl, rt, rw, rh);
-        for _ in 0..20 {
-            let tl = rl + next(rw as f32) as i32 - 20;
-            let tt = rt + next(rh as f32) as i32 - 20;
-            let tw = 20 + next(80.0) as u32;
-            let th = 20 + next(80.0) as u32;
-            let direct = fill_mask(&lines, Rule::NonZero, tl, tt, tw, th);
-            for y in 0..th as i32 {
-                for x in 0..tw as i32 {
-                    let d = direct.coverage[(y * tw as i32 + x) as usize];
-                    let (gx, gy) = (tl + x - rl, tt + y - rt);
-                    let c = if gx < 0 || gy < 0 || gx >= rw as i32 || gy >= rh as i32 {
-                        0
-                    } else {
-                        region.coverage[(gy * rw as i32 + gx) as usize]
-                    };
-                    total += 1;
-                    if c != d {
-                        differing += 1;
-                        worst = worst.max((i32::from(c) - i32::from(d)).abs());
-                    }
-                }
-            }
-        }
-        let _ = shape;
-    }
+    let (differing, worst, total) = crop_probe(|lines, (left, top, width, height)| {
+        fill_mask(lines, Rule::NonZero, left, top, width, height)
+    });
     assert!(
         worst <= 1,
         "a tile differs from its region by {worst} of 255, which is not rounding: \
@@ -187,6 +127,147 @@ fn a_tile_is_the_crop_of_the_region_that_contains_it() {
          costs here, and an order of magnitude more than that is a structural \
          difference wearing rounding's clothes"
     );
+}
+
+/// **A clip's residue is the same byte whichever region asked for it** (ADR 1491): the
+/// same forty curves and eight hundred tiles as
+/// [`a_tile_is_the_crop_of_the_region_that_contains_it`], filled by
+/// [`clip_mask`]'s `f64` accumulation, differ from their regions on **no** pixel — where
+/// [`fill_mask`]'s `f32` differs on some, which the second assertion holds so that this test
+/// would see the `f32` arithmetic come back. And the byte is the set's area in the pixel,
+/// from [`area_in_pixel`], rounded: the closed form both constructions now meet (habit 53).
+#[test]
+fn a_clip_tile_is_the_crop_of_its_region_and_the_area_rounded() {
+    let clip = |lines: &[Polyline], region| clip_mask(lines, None, Rule::NonZero, region);
+    let (differing, _, total) = crop_probe(clip);
+    assert_eq!(differing, 0, "{differing} of {total} pixels differ");
+    let (in_f32, _, _) = crop_probe(|lines, (left, top, width, height)| {
+        fill_mask(lines, Rule::NonZero, left, top, width, height)
+    });
+    assert!(in_f32 > 0, "the f32 accumulation no longer differs here");
+    let mut compared = 0;
+    let mut next = stream(0x9e37_79b9);
+    for _ in 0..40 {
+        let lines = archetype_curve(&mut next);
+        let region = curve_region(&lines);
+        let (left, top, width, height) = region;
+        let mask = clip(&lines, region);
+        let set =
+            RowEdges::of(&lines, Rule::NonZero, top, height, usize::MAX).expect("an unbounded set");
+        let mut work = MeetWork::default();
+        for y in 0..height {
+            for x in 0..width {
+                let (px, py) = (
+                    left.saturating_add_unsigned(x),
+                    top.saturating_add_unsigned(y),
+                );
+                let exact = area_in_pixel(px, py, &[&set], &mut work) * 255.0;
+                let byte = f64::from(mask.coverage[(y * width + x) as usize]);
+                // A value within a millionth of a level of a half rounds either way honestly.
+                if (exact.fract() - 0.5).abs() > 1e-6 {
+                    assert!(
+                        (byte - exact.round()).abs() < 0.5,
+                        "pixel ({px}, {py}) reads {byte} where its area is {exact:.6} levels"
+                    );
+                    compared += 1;
+                }
+            }
+        }
+    }
+    assert!(compared > 100_000, "{compared} pixels held to their area");
+}
+
+/// The archetype's clip shape: a closed curve of 24 cubics about a random centre, flattened,
+/// its centre and radius drawn from `next`.
+#[expect(clippy::cast_precision_loss)] // a step count of 24
+fn archetype_curve(next: &mut impl FnMut(f32) -> f32) -> Vec<Polyline> {
+    let cx = 60.0 + next(1000.0);
+    let cy = 60.0 + next(1500.0);
+    let r = 30.0 + next(120.0);
+    let mut path = vec![Segment::MoveTo(Point::new(cx - r, cy))];
+    let steps = 24;
+    for step in 0..steps {
+        let from = (step as f32) / (steps as f32) * std::f32::consts::TAU;
+        let to = ((step + 1) as f32) / (steps as f32) * std::f32::consts::TAU;
+        let point = |angle: f32| Point::new(cx + r * angle.cos(), cy + r * angle.sin() * 1.3);
+        let (a, b) = (point(from), point(to));
+        path.push(Segment::CubicTo {
+            c1: Point::new(a.x + (b.x - a.x) * 0.35, a.y + (b.y - a.y) * 0.1),
+            c2: Point::new(a.x + (b.x - a.x) * 0.65, a.y + (b.y - a.y) * 0.9),
+            to: b,
+        });
+    }
+    path.push(Segment::Close);
+    flatten(&path, IDENTITY)
+}
+
+/// The probe's generator: a linear congruential stream of values below `bound`.
+#[expect(clippy::cast_precision_loss)] // 24 bits of state, exact in `f32`
+fn stream(seed: u32) -> impl FnMut(f32) -> f32 {
+    let mut state = seed;
+    move |bound: f32| -> f32 {
+        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        ((state >> 8) as f32 / 16_777_216.0) * bound
+    }
+}
+
+/// A curve's own bounds, rounded out to whole pixels.
+#[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounds of a page-sized curve
+fn curve_region(lines: &[Polyline]) -> (i32, i32, u32, u32) {
+    let (x0, y0, x1, y1) = polyline_bounds(lines).expect("a curve with points");
+    let (left, top) = (x0.floor() as i32, y0.floor() as i32);
+    (
+        left,
+        top,
+        (x1.ceil() as i32 - left) as u32,
+        (y1.ceil() as i32 - top) as u32,
+    )
+}
+
+/// Forty of [`archetype_curve`] filled by `fill` over its own region and over twenty tiles
+/// cut out of it — of random size and offset, including tiles that hang off every side — and
+/// every tile pixel compared with the region's at the same device pixel: how many differ, by
+/// how much at worst, and of how many.
+// A probe over generated geometry: the casts below are between pixel indices and
+// device coordinates that the loops keep inside the region.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap
+)]
+fn crop_probe(fill: impl Fn(&[Polyline], (i32, i32, u32, u32)) -> CoverageMask) -> (u64, i32, u64) {
+    let mut next = stream(0x1234_5678);
+    let (mut worst, mut differing, mut total) = (0_i32, 0_u64, 0_u64);
+    for _ in 0..40 {
+        let lines = archetype_curve(&mut next);
+        let (rl, rt, rw, rh) = curve_region(&lines);
+        let region = fill(&lines, (rl, rt, rw, rh));
+        for _ in 0..20 {
+            let tl = rl + next(rw as f32) as i32 - 20;
+            let tt = rt + next(rh as f32) as i32 - 20;
+            let tw = 20 + next(80.0) as u32;
+            let th = 20 + next(80.0) as u32;
+            let direct = fill(&lines, (tl, tt, tw, th));
+            for y in 0..th as i32 {
+                for x in 0..tw as i32 {
+                    let tile_byte = direct.coverage[(y * tw as i32 + x) as usize];
+                    let (gx, gy) = (tl + x - rl, tt + y - rt);
+                    let region_byte = if gx < 0 || gy < 0 || gx >= rw as i32 || gy >= rh as i32 {
+                        0
+                    } else {
+                        region.coverage[(gy * rw as i32 + gx) as usize]
+                    };
+                    total += 1;
+                    if region_byte != tile_byte {
+                        differing += 1;
+                        worst = worst.max((i32::from(region_byte) - i32::from(tile_byte)).abs());
+                    }
+                }
+            }
+        }
+    }
+    (differing, worst, total)
 }
 
 /// **A tile whose geometry enters from outside gets the area, not a smear of it**

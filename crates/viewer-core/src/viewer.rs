@@ -3115,6 +3115,7 @@ impl Viewer {
                     language: languages.get(annotation).cloned(),
                     bounds: self.device_rect(open, on_screen.page, widget.rect),
                     control: Some(this_widgets_control(&field.control, widget)),
+                    value: field.value.clone(),
                     annotation: Some(*annotation),
                     ..crate::AccessibilityNode::blank()
                 })
@@ -3174,6 +3175,7 @@ impl Viewer {
             languages: &referenced.languages,
             controls: &referenced.controls,
             fields: &referenced.fields,
+            values: &referenced.values,
         };
         let nodes = gathered
             .into_iter()
@@ -4253,8 +4255,12 @@ fn referenced_objects(open: &Open, shown: &pdf_model::Page) -> Referenced {
     let languages = pdf_model::structure::annotation_languages(&open.document, &shown.dict);
     let mut controls = BTreeMap::new();
     let mut fields = BTreeMap::new();
+    let mut values = BTreeMap::new();
     for field in pdf_model::form::fields(&open.document, shown, &open.view) {
         for widget in &field.widgets {
+            if let Some(value) = &field.value {
+                values.insert(widget.annotation, value.clone());
+            }
             controls.insert(
                 widget.annotation,
                 this_widgets_control(&field.control, widget),
@@ -4267,12 +4273,13 @@ fn referenced_objects(open: &Open, shown: &pdf_model::Page) -> Referenced {
         languages,
         controls,
         fields,
+        values,
     }
 }
 
-/// The four readings [`referenced_objects`] answers with, keyed by the annotation each is about.
+/// The five readings [`referenced_objects`] answers with, keyed by the annotation each is about.
 ///
-/// A value rather than a tuple because they are four different facts about one page and a caller
+/// A value rather than a tuple because they are five different facts about one page and a caller
 /// reading `.1` would have to remember which; `Default` is the answer for a page whose structure
 /// tree names no object at all, which is nearly every page.
 #[derive(Default)]
@@ -4285,6 +4292,8 @@ struct Referenced {
     controls: BTreeMap<ObjectId, pdf_model::form::Control>,
     /// The name §14.9.3 says a user interface shows for each such widget's field (ADR 1394).
     fields: BTreeMap<ObjectId, String>,
+    /// §12.7.4.3's text for each such widget whose field is a text field or a combo box (ADR 1489).
+    values: BTreeMap<ObjectId, pdf_model::view::ShownValue>,
 }
 
 /// The field's control with §12.7.5.2's on state replaced by **this widget's**.

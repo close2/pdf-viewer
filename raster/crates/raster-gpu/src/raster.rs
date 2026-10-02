@@ -62,7 +62,7 @@ pub(crate) mod reduce;
 mod stroke;
 
 pub(crate) use fill::{
-    CoverageMask, RowIndex, Rule, fill_mask, fill_mask_indexed, fill_mask_settled, winds_two_values,
+    CoverageMask, RowIndex, Rule, clip_mask, fill_mask, fill_mask_settled, winds_two_values,
 };
 pub(crate) use flatten::{DeviceTransform, Polyline, flatten, flatten_stroke, polyline_bounds};
 pub(crate) use meet::{RowEdges, Work as MeetWork, area_in_pixel};

@@ -42,3 +42,25 @@ does not. Keep the swap condition as written and keep checking RustCrypto's `ed4
 that crate reaches a stable line, this same question comes back about it, and its README carries the
 same sentence today. If the owner wants "reviewed" to mean something weaker, such as "stable, and
 from the supplier the tree already trusts", saying so here would settle both packages at once.
+
+## Two more packages, judged on 2026-10-01
+
+`cargo search ed448` finds two Ed448 packages this question did not name. Neither changes the
+recommendation, under either reading of "reviewed".
+
+- **`cx448` 0.1.1** (`dignifiedquire/cx448`, one owner, `BSD-3-Clause` in its metadata and no
+  licence file in its repository). It covers what `ed448.rs` does: RFC 8032 verification with a
+  context and Ed448ph, 57-byte point decoding, and the RFC's section 7.4 vectors among its tests.
+  But its README says, as the two above do, that the code has not been audited or reviewed. It
+  describes itself as a temporary port, to be retired once RustCrypto's stable releases land. It
+  has not been touched since 2025-04-10, and it depends on the previous RustCrypto generation
+  (`elliptic-curve` 0.13, `crypto-bigint` 0.5, `digest` 0.10). Its download count comes from the
+  OpenPGP crates that bundle it, not from any review.
+- **`tiny_ed448_goldilocks` 0.2.0** (`Dustin-Ray/tiny-ed448-goldilocks`, one owner, `MIT`). It has
+  group and field arithmetic only: no RFC 8032 signature scheme and no point encoding. Its README
+  says it is unaudited.
+
+Neither package is published by RustCrypto, so the weaker reading offered above settles them as
+well. The trigger to watch is still RustCrypto's `ed448-goldilocks`. On this date it is
+`0.14.0-pre.15`, and its last stable release is 0.9.0.
+

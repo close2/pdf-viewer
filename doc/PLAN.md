@@ -243,7 +243,9 @@ therefore metric 2's job, not metric 3's.
    *independently of rendering*, isolating a whole error class. **Now load-bearing, not
    optional:** measurement showed pixel comparison cannot police text at all (see below),
    so this is the only metric that can.
-3. **Structural similarity** — SSIM / blurred difference, per-corpus tolerance.
+3. **Structural similarity** — SSIM / blurred difference, per-corpus tolerance. The map is
+   computed a band of rows at a time with the window's margin either side, the same map to the
+   bit, so a comparison holds a band of the page rather than nine planes of it (ADR 1481).
 4. **Localized max error** — tile the page, report worst tile. Mean metrics average away a
    single missing glyph on a dense page; this is the one people forget.
 
@@ -264,7 +266,10 @@ the disagreement the consensus references show among themselves **on that page**
 cannot serve both a page of flat fills, where they agree to a worst tile of 0.4, and a page of
 small text, where they differ by 26 among themselves. Only pages we claim to draw completely are
 gated, every contradicted page is named in the source, and both a new disagreement and a stale
-entry fail the build. See ADR 0011. An encrypted corpus document whose password is published opens
+entry fail the build. See ADR 0011. Each group of contradicted pages states whose departure it
+holds — ours, the references', or a documented choice — in `WHOSE_DEPARTURE`, beside the clause
+its note decides it by and held to the groups both ways, and the ranking by the bound names the
+highest-ranked page held as a departure of ours (ADR 1483). An encrypted corpus document whose password is published opens
 with it — ours and the references' alike — from the one table every corpus gate reads,
 `crates/pdf-model/tests/support/corpus_passwords.rs`, so it is a page the rule holds rather than one
 it skips (ADR 1377).
@@ -524,7 +529,9 @@ script the tree has and no `--release` `doc/verify.md` does not prescribe (`test
 ADR 1475), the fuzz workspace's lock and targets are what `tools/fuzz.sh` and
 `fuzz/seeds.sh` need (`tests/fuzz_workspace.rs`, ADR 1439), every `tools/state.sh` section reads
 and none writes (`tests/read_only.rs`, ADR 1487), and `doc/environment.md`'s *After a merge* holds
-one entry per kind of line `tools/main-checkout.py` prints, in its order (`tests/owner_section.rs`). The sweeps under `src/bin/` —
+one entry per kind of line `tools/main-checkout.py` prints, in its order (`tests/owner_section.rs`),
+and a round's record fits its forty lines and states its gates in a `**Gates.**` paragraph with an
+exit status or a pass count (`tests/records.rs`, ADRs 1100, 1499). The sweeps under `src/bin/` —
 `pointers`, `overtaken`, `retired`, `unread`, `cited` and the rest — are reading lists and never
 gates, since each judges prose; `tools/state.sh` runs them by section. `tools/state.sh comments`
 is the same kind of list for `CLAUDE.md`'s comment rule: its grep, run as written, then each hit
@@ -536,8 +543,11 @@ ADR 1427). `tools/state.sh prose` runs the prose sweeps together — comment his
 overtaken notes, unread claims, doc-comment names, environment variables, document commands and
 the ledger's program names — one count and one listing command each, so "is the prose true" is one command (ADR 1451).
 A batch's clock is read, never written down: `tools/state.sh gates-cost` prints the merge's gate log
-dearest first and `tools/state.sh batches` each batch commit's gates figure and round durations
-(ADRs 1476, 1487).
+dearest first and `tools/state.sh batches` each batch commit's gates figure, the sum of its round
+durations, how many figures and rounds it read and any figure it could not sum (ADRs 1476, 1487,
+1500). The disk the builds fill is `tools/state.sh disk`: every build directory under the root with
+its profiles, `sccache` against its ceiling, the free space and `scratchpad/`, and
+`doc/environment.md` the commands that prune it (ADR 1500).
 
 Two ratchets, both in the gate and both two-directional. `UNREVIEWED_CEILING` may only fall.
 `REVIEW_OWED` names the clauses the code cites whose rows are still `unreviewed`, and a clause not

@@ -133,16 +133,17 @@ AT-SPI bus for the whole drive, asks each window where the widgets it clicks are
 publishes for the same document, and stops by pid what the bus started (ADR 1453). `quorra-qt`'s
 form controls carry §14.9.3's name as their accessible name, as `quorra-gtk`'s do.
 The reopened form is read off the same bus: each toolkit's text fields, check box and combo box
-answer with the values the saved file holds (ADR 1478).
+answer with the values the saved file holds (ADR 1478), and so do `quorra`'s own form nodes:
+`viewer_core::AccessibilityNode::value` carries §12.7.4.3's text across the confined pipe, a text
+field publishes it as a text run below the control (AT-SPI's `Text`), and a choice field its options
+as items, the chosen ones selected (AT-SPI's `Selection`) (ADR 1489).
 
 ## What is left
 
-- **`quorra`'s form nodes publish no value.** A text field's node is a `TextInput` with its
-  §14.9.3 name and nothing a screen reader can read as its contents, where the two toolkits' widgets
-  answer with their text; the drive compares `quorra`'s drawn fields against a golden for that
-  reason (ADR 1478). The value would be a field of `viewer_core::AccessibilityNode`, which crosses
-  the confined worker's pipe (`viewer-confined`'s `protocol/panels.rs`), so it is a wire change
-  as well as a bridge one.
+- **A field's characters have no place.** The run carrying a field's value states the widget's
+  rectangle and no character positions, because the characters are laid out in an appearance
+  stream rather than read back from a content stream; `GetCharacterExtents` on a field answers
+  nothing (ADR 1489).
 - ~~The answer for any page but the first of a large tagged document is empty~~ — **closed in the
   four-hundred-and-ninetieth session** (ADR 0325), and checked on a real bus. The page's elements
   are found through

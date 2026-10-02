@@ -193,8 +193,9 @@ impl Band {
     ///
     /// [`elements`] builds a widget exactly as it builds a `Form` element, and takes its
     /// identifiers from [`Self::element`]; moving the band by [`WIDGETS`] is what keeps the two
-    /// ranges apart without a second copy of that walk. A widget has no text of its own, so the
-    /// moved band's runs and reports are never taken.
+    /// ranges apart without a second copy of that walk. The moved band's reports are never taken,
+    /// and its runs — what a text field holds (ADR 1489) — continue the page's count rather than
+    /// restarting it, so they take no identifier the page's own runs took.
     fn widgets(self) -> Self {
         Self(self.0.saturating_add(WIDGETS))
     }
@@ -208,7 +209,8 @@ impl Band {
         )
     }
 
-    /// The identifier one line's run takes.
+    /// The identifier one node below an element takes: a line's run, or what a control holds
+    /// ([`held`]).
     fn run(self, allocated: u64) -> NodeId {
         NodeId(
             self.0
@@ -328,7 +330,8 @@ pub fn build(view: &DocumentView) -> TreeUpdate {
             y1: f64::from(shown.bounds[3]),
         });
         let before = nodes.len();
-        let roots = elements(shown, band, &mut nodes);
+        let mut allocated: u64 = 0;
+        let roots = elements(shown, band, &mut nodes, &mut allocated);
         // §14.8.2.5's order as somewhere a caret may be *put*, which is the other half of the
         // interface ADR 0394 gave this node: `accesskit_atspi_common`'s `set_caret_offset` and
         // `set_selection` both raise [`Action::SetTextSelection`] on whatever carries the text,
@@ -339,7 +342,7 @@ pub fn build(view: &DocumentView) -> TreeUpdate {
         if nodes
             .iter()
             .skip(before)
-            .any(|(id, _)| id.0 >= band.0.saturating_add(RUN_BASE))
+            .any(|(_, node)| node.role() == Role::TextRun)
         {
             page.add_action(Action::SetTextSelection);
         }
@@ -405,7 +408,17 @@ fn page_name(view: &PageView, of: usize) -> String {
 /// published at all — speaking both would speak the thing twice, once in the author's words and
 /// once in the file's. And **an element with nothing on this page never reaches here**, because
 /// `viewer_core` prunes it.
-fn elements(view: &PageView, band: Band, out: &mut Vec<(NodeId, Node)>) -> Vec<NodeId> {
+///
+/// `allocated` counts the nodes built *below* the elements — their text runs and what a control
+/// holds — for the whole page, the unreached widgets included: a widget is built in a band moved
+/// past the elements' identifiers, and continuing the page's count is what keeps that band's
+/// runs off the identifiers the elements' runs already took.
+fn elements(
+    view: &PageView,
+    band: Band,
+    out: &mut Vec<(NodeId, Node)>,
+    allocated: &mut u64,
+) -> Vec<NodeId> {
     let mut roots: Vec<NodeId> = Vec::new();
     // What each cell named as a header would be said as, built once for the whole page.
     let spoken = spoken_headers(view);
@@ -447,7 +460,6 @@ fn elements(view: &PageView, band: Band, out: &mut Vec<(NodeId, Node)>) -> Vec<N
     // `viewer_core::places`' three routes is a walk of the whole answer, so asking it per node
     // would be asking it n times over.
     let places = viewer_core::places(view.nodes);
-    let mut allocated: u64 = 0;
     for (index, node) in view.nodes.iter().enumerate() {
         if !published.get(index).copied().unwrap_or(false) {
             continue;
@@ -530,7 +542,10 @@ fn elements(view: &PageView, band: Band, out: &mut Vec<(NodeId, Node)>) -> Vec<N
         // and structure elements below it is rare: a `P` has text and no element children, a
         // `Sect` has element children and no text. Where a document does write both, a caret
         // crosses this element's own words before its children's rather than between them.
-        let mut below: Vec<NodeId> = runs(node, band, mapping.speaks, &mut allocated, out);
+        let mut below: Vec<NodeId> = runs(node, band, mapping.speaks, allocated, out);
+        // What a control holds, before any child element for the same reason the lines are: it is
+        // the control's own (ADR 1489).
+        below.extend(held(node, &mut built, band, allocated, out));
         if let Some(list) = children.get(index) {
             below.extend(list.iter().copied());
         }
@@ -541,27 +556,32 @@ fn elements(view: &PageView, band: Band, out: &mut Vec<(NodeId, Node)>) -> Vec<N
     }
 
     if view.nodes.is_empty() {
-        unstructured(view, band, out, &mut roots);
+        unstructured(view, band, out, &mut roots, allocated);
     } else if !view.widgets.is_empty() {
         // **A tagged page's widgets that no element names come after its elements** (ADR 1381).
         // Table 368 asks the producer for a `Form` element per widget of the real content; where
         // the structure left one out, the field is still §12.5.1's to click, and the place given
         // it is after everything the structure states, in §12.5.1's tab order — the one order the
         // page does state for it — rather than a place in a reading order the page never gave.
-        roots.extend(widget_nodes(view, band, out));
+        roots.extend(widget_nodes(view, band, out, allocated));
     }
     roots
 }
 
 /// The page's widgets no element reaches, built by the same walk as a `Form` element in their own
 /// band, and the identifiers of the ones at the top.
-fn widget_nodes(view: &PageView, band: Band, out: &mut Vec<(NodeId, Node)>) -> Vec<NodeId> {
+fn widget_nodes(
+    view: &PageView,
+    band: Band,
+    out: &mut Vec<(NodeId, Node)>,
+    allocated: &mut u64,
+) -> Vec<NodeId> {
     let widgets = PageView {
         nodes: view.widgets,
         widgets: &[],
         ..*view
     };
-    elements(&widgets, band.widgets(), out)
+    elements(&widgets, band.widgets(), out, allocated)
 }
 
 /// What a page with no elements publishes in place of §14.7's: one sentence saying why, and its
@@ -571,6 +591,7 @@ fn unstructured(
     band: Band,
     out: &mut Vec<(NodeId, Node)>,
     roots: &mut Vec<NodeId>,
+    allocated: &mut u64,
 ) {
     let id = band.element(0);
     let mut sentence = Node::new(Role::Label);
@@ -584,7 +605,7 @@ fn unstructured(
     // same walk as a `Form` element, in a band of their own so that no identifier meets the
     // sentence above or a tagged page's elements.
     if !view.widgets.is_empty() {
-        roots.extend(widget_nodes(view, band, out));
+        roots.extend(widget_nodes(view, band, out, allocated));
     }
 }
 
@@ -1053,6 +1074,93 @@ fn spoken_headers(view: &PageView) -> Vec<String> {
         }
     }
     out
+}
+
+/// What a form control holds, put where AT-SPI reads it, and the identifiers of any nodes that
+/// takes (ADR 1489).
+///
+/// # Three values, three interfaces
+///
+/// §12.7.4.1 makes a field's value its `/V`, and the platform reads each kind of value through a
+/// different door. `accesskit_atspi_common` 0.19 offers `org.a11y.atspi.Value` only for a
+/// *numeric* value and `org.a11y.atspi.Text` only to a text input that has [`Role::TextRun`]
+/// children (`accesskit_consumer::Node::supports_text_ranges`); a `value` string on the control
+/// node alone reaches no AT-SPI interface at all. So:
+///
+/// - **A text field and an editable combo box** — §12.7.5.3's text, which is
+///   [`AccessibilityNode::value`] — get one run carrying it, which is what puts `Text` on the
+///   control, and the same string as the node's own `value` for the platforms that read it there.
+///   A run of no characters for an empty field, because "this field is empty" is a statement and an
+///   absent interface is not one. Table 231 bit 14's field holds its echo, never its characters.
+/// - **A choice field** — §12.7.5.4's options, each a [`Role::ListBoxOption`] marked selected where
+///   [`pdf_model::form::ChoiceControl::selected`] says it is, which is what AT-SPI's `Selection`
+///   reads off a combo box or a list box. A non-editable combo box's shown text is also its `value`.
+/// - **A check box and a radio button** state their value as an appearance state, and the role's
+///   `toggled` already carries it as AT-SPI's `checked`.
+///
+/// # What the run does not say
+///
+/// Where each character is. The field's characters are laid out by §12.7.4.3 into an appearance
+/// stream this program draws, not by a content stream it reads back, so there is no glyph position
+/// to give them; the run carries the widget's rectangle and no character positions, and a client
+/// asking for one character's extents is told nothing rather than told a guess.
+///
+/// The run is under the control, so the page's own text — which `accesskit_consumer` gathers from
+/// every run below the page — includes the field's contents where the control sits, exactly as a
+/// sighted reader sees them drawn there.
+fn held(
+    node: &AccessibilityNode,
+    built: &mut Node,
+    band: Band,
+    allocated: &mut u64,
+    out: &mut Vec<(NodeId, Node)>,
+) -> Vec<NodeId> {
+    let mut ids = Vec::new();
+    if let Some(value) = &node.value {
+        built.set_value(value.text.as_str());
+        if matches!(
+            built.role(),
+            Role::TextInput
+                | Role::MultilineTextInput
+                | Role::PasswordInput
+                | Role::EditableComboBox
+        ) {
+            let mut run = Node::new(Role::TextRun);
+            run.set_value(value.text.as_str());
+            run.set_character_lengths(
+                value
+                    .text
+                    .chars()
+                    .map(|character| {
+                        // `char::len_utf8` is at most four.
+                        u8::try_from(character.len_utf8()).unwrap_or(u8::MAX)
+                    })
+                    .collect::<Vec<u8>>(),
+            );
+            if let Some(bounds) = built.bounds() {
+                run.set_bounds(bounds);
+            }
+            let id = band.run(*allocated);
+            *allocated = allocated.saturating_add(1);
+            out.push((id, run));
+            ids.push(id);
+        }
+    }
+    if let Some(pdf_model::form::Control::Choice(choice)) = &node.control {
+        if choice.multi_select {
+            built.set_multiselectable();
+        }
+        for (index, option) in choice.options.iter().enumerate() {
+            let mut item = Node::new(Role::ListBoxOption);
+            item.set_label(option.label.as_str());
+            item.set_selected(choice.selected.contains(&index));
+            let id = band.run(*allocated);
+            *allocated = allocated.saturating_add(1);
+            out.push((id, item));
+            ids.push(id);
+        }
+    }
+    ids
 }
 
 /// Puts a node's text where the platform will read it from.

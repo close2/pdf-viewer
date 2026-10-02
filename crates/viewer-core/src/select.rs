@@ -290,6 +290,17 @@ pub(crate) fn find(text: &str, needle: &str, order: &Order) -> Vec<(usize, usize
     kept
 }
 
+/// [`find`] over a readback with no glyph positions: every right-to-left run admits either stored
+/// order, as a run the positions could not decide does.
+///
+/// The seam the `find` fuzz target reads (ADR 1495). The text is a page's readback, which is the
+/// document's to state, so the folding, decomposition and mark ordering `find` compares by run
+/// over whatever a producer's `/ToUnicode` maps to; the ranges this answers index that text.
+#[must_use]
+pub fn find_in_text(text: &str, needle: &str) -> Vec<(usize, usize)> {
+    find(text, needle, &Order::of(text, &[]))
+}
+
 /// One order of a needle's characters, and which stored orders it may be matched against.
 #[derive(Debug, PartialEq, Eq)]
 struct Spelling {

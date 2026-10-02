@@ -438,6 +438,24 @@ pub struct AccessibilityNode {
     /// (`pdf-model --example element_bounds_census`) — and for a widget the field tree does not
     /// reach, which §12.7.4.2 makes "simply a Widget annotation" belonging to no field.
     pub control: Option<pdf_model::form::Control>,
+    /// What the field behind [`Self::control`] says now, for a text field and a combo box: §12.7.4.3's
+    /// variable text as the widget lays it out.
+    ///
+    /// The same [`pdf_model::view::ShownValue`] [`crate::FormField::value`] carries, read with the
+    /// same view state, so a field a person has just typed into answers with what they typed, and
+    /// Table 231 bit 14's password field answers with its echo and says so in
+    /// [`pdf_model::view::ShownValue::obscured`] rather than with its characters.
+    ///
+    /// **Only the one fact a host could not otherwise have.** §12.7.5.2's toggling buttons state
+    /// their value as an appearance state, which [`Self::control`] already carries as `on`, and a
+    /// list box's value is its selected options, which [`pdf_model::form::ChoiceControl`] carries
+    /// as `selected`. What a text field holds is a string neither of those says, and a host that
+    /// publishes a text field with no contents has told a screen reader the field is empty (ADR
+    /// 1489).
+    ///
+    /// `None` for every element that names no such field, and for a button, a list box, a
+    /// signature and a field stating no type, whose values are not text.
+    pub value: Option<pdf_model::view::ShownValue>,
     /// §12.5's annotation this element's **own** §14.7.5.3 object reference names, where the page
     /// lists one.
     ///
@@ -598,6 +616,7 @@ impl AccessibilityNode {
             drawn: None,
             enclosed_a_refusal: false,
             control: None,
+            value: None,
             annotation: None,
             headers: Vec::new(),
             continues_a_list: false,
@@ -1299,6 +1318,8 @@ pub(crate) struct Readback<'a> {
     /// The name §14.9.3 says a user interface shows for each such widget's field: Table 226's
     /// `/TU`, else §12.7.4.2's fully qualified name.
     pub(crate) fields: &'a BTreeMap<ObjectId, String>,
+    /// §12.7.4.3's text for each such widget whose field is a text field or a combo box.
+    pub(crate) values: &'a BTreeMap<ObjectId, pdf_model::view::ShownValue>,
 }
 
 /// Turns a gathered element into what crosses the boundary.
@@ -1372,6 +1393,11 @@ pub(crate) fn finish(
             .objects
             .iter()
             .find_map(|object| page.controls.get(object).cloned()),
+        // Found as the control is, through the element's own references (ADR 1489).
+        value: gathered
+            .objects
+            .iter()
+            .find_map(|object| page.values.get(object).cloned()),
         // The first of this element's own references that names an annotation this page lists:
         // see `AccessibilityNode::annotation` for why one rather than the union `bounds` takes.
         annotation: gathered
@@ -1680,6 +1706,7 @@ mod tests {
             allocation: None,
             artifact: None,
             control: None,
+            value: None,
             annotation: None,
             headers: Vec::new(),
             continues_a_list: false,

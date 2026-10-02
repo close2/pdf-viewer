@@ -116,3 +116,124 @@ fn a_quarter_turned_image_under_a_polygon_clip_meets_each_pixel_as_a_set() {
         "the walk's lane and the fan-out's at one thread and four draw the same bytes"
     );
 }
+
+/// An oblique placement (§8.3.3: a rotation with a shear) of the unit square: the
+/// parallelogram with corners `(6, 2.5)`, `(12.2, 5.6)`, `(9.5, 13)` and `(3.3, 9.9)`.
+fn oblique() -> Affine {
+    Affine {
+        a: 6.2,
+        b: 3.1,
+        c: -2.7,
+        d: 7.4,
+        e: 6.0,
+        f: 2.5,
+    }
+}
+
+/// The parallelogram [`oblique`] maps the unit square onto, round it.
+fn parallelogram() -> Vec<(f64, f64)> {
+    let placement = oblique();
+    let coefficient = |value: f32| f64::from(value);
+    [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
+        .into_iter()
+        .map(|(u, v)| {
+            (
+                coefficient(placement.a) * u
+                    + coefficient(placement.c) * v
+                    + coefficient(placement.e),
+                coefficient(placement.b) * u
+                    + coefficient(placement.d) * v
+                    + coefficient(placement.f),
+            )
+        })
+        .collect()
+}
+
+/// **An oblique image's edge is its area in the pixel, and under a polygon clip the area of
+/// the intersection** (ADR 1492). §10.7.4's departure (1) — "a partly covered pixel is partly
+/// painted" — is read for an image's edge as for a fill's, so an oblique placement is held to
+/// the parallelogram's area in each pixel exactly as [`quarter_turn`] is held to its
+/// rectangle's. Unclipped first, then under the 64-gon, on every arm, to the same bytes. The
+/// fixture discriminates: by pixel centre, as the lane drew before, the edge pixels read 0 or
+/// a whole level, and some sit more than a level from the area.
+#[test]
+fn an_oblique_images_edge_is_its_area_and_meets_a_polygon_clip_as_a_set() {
+    let shape = parallelogram();
+    let clip = clip_polygon();
+    let met = clip_convex(&shape, &clip);
+    let mut centre_misses = 0;
+    for y in 0..TARGET.1 {
+        for x in 0..TARGET.0 {
+            let s = in_pixel(&shape, x, y);
+            if s > 0.0 && s < 1.0 {
+                let inside = contains(&shape, f64::from(x) + 0.5, f64::from(y) + 0.5);
+                centre_misses += usize::from((f64::from(u8::from(inside)) - s).abs() * 255.0 > 1.0);
+            }
+        }
+    }
+    assert!(
+        centre_misses > 0,
+        "the centre rule must miss the area somewhere"
+    );
+    let mut drawn = Vec::new();
+    for clipped in [false, true] {
+        for (coverage, threads) in ARMS {
+            let mut device = device_with(coverage, threads);
+            let image = device
+                .upload_image(&ImageSpec {
+                    width: 1,
+                    height: 1,
+                    data: Arc::from(vec![0_u8, 0, 0, 255]),
+                })
+                .unwrap();
+            let mut builder = SceneBuilder::new();
+            let clip_id =
+                clipped.then(|| residue_clip(&mut device, &mut builder, &polygon_path(&clip)));
+            builder
+                .image(
+                    image,
+                    oblique(),
+                    1.0,
+                    ImageFilter::Auto { interpolate: false },
+                    clip_id,
+                    BlendMode::Normal,
+                    None,
+                )
+                .unwrap();
+            let scene = builder.finish();
+            let pixels = rendered(&mut device, &scene, TARGET.0, TARGET.1);
+            if clipped {
+                let (both, _, _, _) = held_to_the_intersection(
+                    &pixels,
+                    TARGET,
+                    |x, y| in_pixel(&shape, x, y),
+                    |x, y| in_pixel(&clip, x, y),
+                    |x, y| in_pixel(&met, x, y),
+                );
+                assert!(both > 0, "the image's edges must cross the clip's rim");
+            } else {
+                held_to_the_intersection(
+                    &pixels,
+                    TARGET,
+                    |x, y| in_pixel(&shape, x, y),
+                    |_, _| 1.0,
+                    |x, y| in_pixel(&shape, x, y),
+                );
+            }
+            drawn.push(pixels);
+        }
+        assert!(
+            drawn.windows(2).all(|pair| pair[0] == pair[1]),
+            "the walk's lane and the fan-out's at one thread and four draw the same bytes"
+        );
+        drawn.clear();
+    }
+}
+
+/// Whether the convex, counter-clockwise `polygon` holds the point `(x, y)`.
+fn contains(polygon: &[(f64, f64)], x: f64, y: f64) -> bool {
+    (0..polygon.len()).all(|k| {
+        let (from, to) = (polygon[k], polygon[(k + 1) % polygon.len()]);
+        (to.0 - from.0) * (y - from.1) - (to.1 - from.1) * (x - from.0) >= 0.0
+    })
+}

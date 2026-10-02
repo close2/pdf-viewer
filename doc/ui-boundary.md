@@ -94,6 +94,10 @@ list rather than in it, and crossing the confined wire as a second list. No mess
 full list is — a document with no structure, a page not read yet, a structure that reaches nothing
 on the page, or one that does — crossing the confined wire as one byte after the two lists; no
 message was added (ADR 1393).
+Each `AccessibilityNode` naming a text field or a combo box carries the field's §12.7.4.3 value in
+the shape `Answer::Fields` gives it, read through the view's state, which only the confined side
+holds; it crosses in the node's encoding, the greeting moved to `PDFVCF06`, and no message was added
+(ADR 1489).
 **And the six-hundred-and-thirty-eighth added nothing at all**, which is the second time that has
 been the whole answer and the strongest form of this section's claim: §12.4.4's presentation got the
 full-screen *window* it had never had, in all three hosts, and every channel it needed was already

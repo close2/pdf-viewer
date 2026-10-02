@@ -98,7 +98,15 @@ fuzz_target!(|data: &[u8]| {
                         "an entry answered for a serial number it does not carry"
                     );
                 }
-                Ok(None) => panic!("a serial number the list carries was reported as not listed"),
+                Ok(None) => {
+                    #[expect(
+                        clippy::panic,
+                        reason = "a fuzz target states its properties by failing, and this message names the property"
+                    )]
+                    {
+                        panic!("a serial number the list carries was reported as not listed")
+                    }
+                }
                 Err(_) => {}
             }
             // The status question put by a certificate this list *names*: its issuer is the

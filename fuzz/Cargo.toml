@@ -62,6 +62,10 @@ pdf-ccitt = { path = "../crates/pdf-ccitt" }
 # §7.4.7's and §7.4.9's filters as the confined worker runs them, reached in-process through
 # `pdf_sandbox::Isolation::InProcess`, which calls the very functions the worker does.
 pdf-sandbox = { path = "../crates/pdf-sandbox" }
+# RFC 0003's write side over a document in memory, through the in-process worker (`vfs_write`).
+pdf-vfs = { path = "../crates/pdf-vfs" }
+# The meet's polygon arithmetic, through `raster_gpu::intersection` (`meet`, ADR 1495).
+raster-gpu = { path = "../raster/crates/raster-gpu" }
 
 [profile.release]
 debug = true
@@ -224,6 +228,41 @@ bench = false
 [[bin]]
 name = "linearize"
 path = "fuzz_targets/linearize.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "embed"
+path = "fuzz_targets/embed.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "jpeg_bands"
+path = "fuzz_targets/jpeg_bands.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "meet"
+path = "fuzz_targets/meet.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vfs_write"
+path = "fuzz_targets/vfs_write.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "find"
+path = "fuzz_targets/find.rs"
 test = false
 doc = false
 bench = false

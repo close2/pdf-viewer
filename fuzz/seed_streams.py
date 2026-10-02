@@ -18,6 +18,8 @@ the target never looks at:
                    which is what `crypt.rs` places between `<<` and `>>`
     variable_text  a field's `/DA` and `/V` (§12.7.4.3), laid out as the two halves
                    `variable_text.rs` splits its input into
+    jpeg_bands     a `DCTDecode` stream's own bytes (§7.4.8) behind the band-height byte
+                   `jpeg_bands.rs` reads first
 
 The `-` reads the list of documents from standard input, one per NUL, for the reason
 `seed_x509.py` gives: one run counts everything, where `xargs` would print a summary per batch.
@@ -39,7 +41,10 @@ import zlib
 
 MAX_SEED = 256 * 1024
 MAX_DICTIONARY = 8 * 1024
-TARGETS = ("xmp", "sfnt", "cmap", "ccitt", "crypt", "variable_text")
+TARGETS = ("xmp", "sfnt", "cmap", "ccitt", "crypt", "variable_text", "jpeg_bands")
+# A `DCTDecode` frame past this is skipped for `jpeg_bands`: every execution decodes the frame
+# three times, and a frame of a few hundred lines is cut into bands as surely as a large one.
+MAX_JPEG = 64 * 1024
 
 OBJECT = re.compile(rb"\d+\s+\d+\s+obj\b")
 STREAM = re.compile(rb"stream\r?\n")
@@ -239,6 +244,10 @@ def seeds(target, data):
         yield from field_halves(data)
         return
     for dictionary, body in streams(data):
+        if target == "jpeg_bands":
+            if filters(dictionary) in ([b"DCTDecode"], [b"DCT"]) and len(body) <= MAX_JPEG:
+                yield bytes([1]) + body
+            continue
         if target == "ccitt":
             if filters(dictionary) == [b"CCITTFaxDecode"]:
                 head = ccitt_head(dictionary)

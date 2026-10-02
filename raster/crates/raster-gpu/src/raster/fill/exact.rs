@@ -34,7 +34,7 @@
 //!    area and never more than the pixel.
 
 use super::overlap::Complex;
-use super::{Polyline, Rule, deposit_slab, local_edge};
+use super::{Polyline, Real, Rule, deposit_slab, local_edge};
 
 /// Edges through one pixel past which it keeps its integral: the band construction is
 /// quadratic in them. A pixel crossed by more than this many edges of one path is past
@@ -43,38 +43,40 @@ use super::{Polyline, Rule, deposit_slab, local_edge};
 const MAX_LOCAL: usize = 32;
 
 /// How far the pixel's integral may sit from a whole winding before the pixel is declined:
-/// the accumulation's own `f32` rounding is several orders below it.
+/// the accumulation's own rounding is several orders below it.
 const WHOLE: f32 = 0.25;
 
 /// One edge through the pixel, in the region's coordinates, as the fill closed it.
 #[derive(Debug, Clone, Copy)]
-struct Local {
-    x0: f32,
-    y0: f32,
-    x1: f32,
-    y1: f32,
+struct Local<R> {
+    x0: R,
+    y0: R,
+    x1: R,
+    y1: R,
 }
 
-impl Local {
+// Floating-point arithmetic throughout, which cannot wrap; named because the type is generic.
+#[expect(clippy::arithmetic_side_effects)]
+impl<R: Real> Local<R> {
     /// `+1` for an edge running down the rows, `−1` for one running up, `0` flat.
-    fn dir(self) -> f32 {
+    fn dir(self) -> R {
         if self.y1 > self.y0 {
-            1.0
+            R::ONE
         } else if self.y1 < self.y0 {
-            -1.0
+            -R::ONE
         } else {
-            0.0
+            R::ZERO
         }
     }
 
     /// The edge's `x` at height `y`; only asked of an edge that is not flat.
-    fn x_at(self, y: f32) -> f32 {
+    fn x_at(self, y: R) -> R {
         self.x0 + (y - self.y0) * ((self.x1 - self.x0) / (self.y1 - self.y0))
     }
 
-    /// Whether the edge spans the whole of `ya .. yb`.
-    #[expect(clippy::float_cmp)] // exact: a flat edge spans no height at all
-    fn spans(self, ya: f32, yb: f32) -> bool {
+    /// Whether the edge spans the whole of `ya .. yb` — exactly: a flat edge spans no height
+    /// at all.
+    fn spans(self, ya: R, yb: R) -> bool {
         self.y0.min(self.y1) <= ya && self.y0.max(self.y1) >= yb && self.y0 != self.y1
     }
 }
@@ -82,16 +84,16 @@ impl Local {
 /// Rewrite the complex pixels of `coverage` with their set's area under `rule`.
 ///
 /// `averages` is the accumulation grid after its prefix sum — each pixel's average
-/// winding at `row · (width + 1) + column` — and `size` the region's `(width, height)`.
-#[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a coverage in 0..=1
+/// winding at `row · (width + 1) + column` — and `size` the region's `(width, height)`. The
+/// area is computed in the accumulation's own precision (ADR 1491).
 #[expect(clippy::arithmetic_side_effects)] // indices inside the region
-pub(super) fn correct(
+pub(super) fn correct<R: Real>(
     complex: &Complex,
     polylines: &[Polyline],
     rule: Rule,
     origin: (i32, i32),
     size: (usize, usize),
-    averages: &[f32],
+    averages: &[R],
     coverage: &mut [u8],
 ) {
     let (w, _) = size;
@@ -115,7 +117,7 @@ pub(super) fn correct(
         for x in run.from as usize..=run.to as usize {
             let average = averages[row * (w + 1) + x];
             if let Some(area) = pixel_area(&local, (x, row), average, rule, &mut work) {
-                coverage[row * w + x] = (area.clamp(0.0, 1.0) * 255.0).round() as u8;
+                coverage[row * w + x] = (area.clamp(R::ZERO, R::ONE) * R::LEVELS).round().byte();
             }
         }
     }
@@ -123,24 +125,23 @@ pub(super) fn correct(
 
 /// Buffers every pixel of one fill reuses.
 #[derive(Debug, Default)]
-struct Work {
-    heights: Vec<f32>,
-    turns: Vec<(f32, f32)>,
-    active: Vec<(f32, f32, f32)>,
+struct Work<R> {
+    heights: Vec<R>,
+    turns: Vec<(R, R)>,
+    active: Vec<(R, R, R)>,
 }
 
 /// The inside area of pixel `(i, j)`, whose average winding is `average`, from the edges
 /// through it; `None` where the edges and the average disagree about the winding.
-#[expect(clippy::cast_precision_loss)] // pixel indices are bounded by target limits
 #[expect(clippy::arithmetic_side_effects)]
-fn pixel_area(
-    local: &[Local],
+fn pixel_area<R: Real>(
+    local: &[Local<R>],
     (i, j): (usize, usize),
-    average: f32,
+    average: R,
     rule: Rule,
-    work: &mut Work,
-) -> Option<f32> {
-    let (fi, fj) = (i as f32, j as f32);
+    work: &mut Work<R>,
+) -> Option<R> {
+    let (fi, fj) = (R::of_count(i), R::of_count(j));
     let xi = reference_line(local, fi);
     let Work {
         heights,
@@ -152,35 +153,35 @@ fn pixel_area(
     // its slope, flat edges included (the ray may be taken in any direction).
     turns.clear();
     for e in local {
-        if (e.x0 - xi) * (e.x1 - xi) < 0.0 {
+        if (e.x0 - xi) * (e.x1 - xi) < R::ZERO {
             let y = e.y0 + (xi - e.x0) * (e.y1 - e.y0) / (e.x1 - e.x0);
-            if y > fj && y < fj + 1.0 {
-                turns.push((y, if e.x1 > e.x0 { -1.0 } else { 1.0 }));
+            if y > fj && y < fj + R::ONE {
+                turns.push((y, if e.x1 > e.x0 { -R::ONE } else { R::ONE }));
             }
         }
     }
     // Step 1's bands.
     heights.clear();
-    heights.extend([fj, fj + 1.0]);
+    heights.extend([fj, fj + R::ONE]);
     for (k, a) in local.iter().enumerate() {
         for y in [a.y0, a.y1] {
-            if y > fj && y < fj + 1.0 {
+            if y > fj && y < fj + R::ONE {
                 heights.push(y);
             }
         }
-        if a.dir() == 0.0 {
+        if a.dir() == R::ZERO {
             continue;
         }
-        for b in local[k + 1..].iter().filter(|b| b.dir() != 0.0) {
-            if let Some(y) = crossing(*a, *b).filter(|&y| y > fj && y < fj + 1.0) {
+        for b in local[k + 1..].iter().filter(|b| b.dir() != R::ZERO) {
+            if let Some(y) = crossing(*a, *b).filter(|&y| y > fj && y < fj + R::ONE) {
                 heights.push(y);
             }
         }
     }
-    heights.sort_unstable_by(f32::total_cmp);
+    heights.sort_unstable_by(R::total_cmp);
     heights.dedup();
     // Steps 2 and 3: the relative winding's integral, then the constant.
-    let mut relative = [0.0_f32; 2];
+    let mut relative = [R::ZERO; 2];
     for pair in heights.windows(2) {
         let (ya, yb) = (pair[0], pair[1]);
         let Some(far_left) = band(local, turns, (ya, yb), xi, active) else {
@@ -188,15 +189,15 @@ fn pixel_area(
         };
         relative[0] += far_left * (yb - ya);
         for &(xa, xb, dir) in active.iter() {
-            deposit_slab(&mut relative, 1.0, dir, xa - fi, ya, xb - fi, yb);
+            deposit_slab(&mut relative, R::ONE, dir, xa - fi, ya, xb - fi, yb);
         }
     }
     let constant = (average - relative[0]).round();
-    if (average - relative[0] - constant).abs() > WHOLE {
+    if (average - relative[0] - constant).abs() > R::of(WHOLE) {
         return None;
     }
     // Step 4: the set.
-    let mut inside_area = [0.0_f32; 2];
+    let mut inside_area = [R::ZERO; 2];
     for pair in heights.windows(2) {
         let (ya, yb) = (pair[0], pair[1]);
         let Some(far_left) = band(local, turns, (ya, yb), xi, active) else {
@@ -211,8 +212,8 @@ fn pixel_area(
             winding += dir;
             let after = inside(rule, winding);
             if before != after {
-                let step = if after { 1.0 } else { -1.0 };
-                deposit_slab(&mut inside_area, 1.0, step, xa - fi, ya, xb - fi, yb);
+                let step = if after { R::ONE } else { -R::ONE };
+                deposit_slab(&mut inside_area, R::ONE, step, xa - fi, ya, xb - fi, yb);
             }
         }
     }
@@ -221,17 +222,18 @@ fn pixel_area(
 
 /// The edges spanning band `ya .. yb` into `active`, left to right, and the relative
 /// winding to the left of all of them; `None` for a band of no height.
-fn band(
-    local: &[Local],
-    turns: &[(f32, f32)],
-    (ya, yb): (f32, f32),
-    xi: f32,
-    active: &mut Vec<(f32, f32, f32)>,
-) -> Option<f32> {
+#[expect(clippy::arithmetic_side_effects)] // floating-point, which cannot wrap
+fn band<R: Real>(
+    local: &[Local<R>],
+    turns: &[(R, R)],
+    (ya, yb): (R, R),
+    xi: R,
+    active: &mut Vec<(R, R, R)>,
+) -> Option<R> {
     if yb <= ya {
         return None;
     }
-    let middle = 0.5 * (ya + yb);
+    let middle = R::HALF * (ya + yb);
     active.clear();
     active.extend(
         local
@@ -242,10 +244,10 @@ fn band(
     active.sort_unstable_by(|a, b| (a.0 + a.1).total_cmp(&(b.0 + b.1)));
     // The winding on the line at this band, relative to the row's top; then back across
     // the edges that lie between the line and the band's left.
-    let on_line: f32 = turns.iter().filter(|t| t.0 < middle).map(|t| t.1).sum();
-    let behind: f32 = active
+    let on_line: R = turns.iter().filter(|t| t.0 < middle).map(|t| t.1).sum();
+    let behind: R = active
         .iter()
-        .filter(|a| 0.5 * (a.0 + a.1) < xi)
+        .filter(|a| R::HALF * (a.0 + a.1) < xi)
         .map(|a| a.2)
         .sum();
     Some(on_line - behind)
@@ -253,18 +255,21 @@ fn band(
 
 /// A vertical line through the pixel that no edge's end point lies on, so that the
 /// winding changes along it only where an edge crosses it.
-#[expect(clippy::float_cmp)] // exact: a vertex on the line is what is avoided
-fn reference_line(local: &[Local], fi: f32) -> f32 {
-    let clear = |x: f32| local.iter().all(|e| e.x0 != x && e.x1 != x);
+///
+/// The comparisons are exact: a vertex on the line is what is avoided.
+#[expect(clippy::arithmetic_side_effects)] // floating-point, which cannot wrap
+fn reference_line<R: Real>(local: &[Local<R>], fi: R) -> R {
+    let clear = |x: R| local.iter().all(|e| e.x0 != x && e.x1 != x);
     [0.5_f32, 0.375, 0.625, 0.3125, 0.6875, 0.4375, 0.5625]
         .into_iter()
-        .map(|f| fi + f)
+        .map(|f| fi + R::of(f))
         .find(|&x| clear(x))
-        .unwrap_or(fi + 0.531_25)
+        .unwrap_or(fi + R::of(0.531_25))
 }
 
 /// The height at which two edges that are not flat cross, where they do.
-fn crossing(a: Local, b: Local) -> Option<f32> {
+#[expect(clippy::arithmetic_side_effects)] // floating-point, which cannot wrap
+fn crossing<R: Real>(a: Local<R>, b: Local<R>) -> Option<R> {
     let (ya, yb) = (
         a.y0.min(a.y1).max(b.y0.min(b.y1)),
         a.y0.max(a.y1).min(b.y0.max(b.y1)),
@@ -273,7 +278,7 @@ fn crossing(a: Local, b: Local) -> Option<f32> {
         return None;
     }
     let (top, bottom) = (b.x_at(ya) - a.x_at(ya), b.x_at(yb) - a.x_at(yb));
-    if top * bottom >= 0.0 {
+    if top * bottom >= R::ZERO {
         return None;
     }
     let y = ya + (yb - ya) * (top / (top - bottom));
@@ -281,9 +286,10 @@ fn crossing(a: Local, b: Local) -> Option<f32> {
 }
 
 /// §8.5.3.3's two rules, on a whole winding number.
-fn inside(rule: Rule, winding: f32) -> bool {
+#[expect(clippy::arithmetic_side_effects)] // floating-point, which cannot wrap
+fn inside<R: Real>(rule: Rule, winding: R) -> bool {
     match rule {
-        Rule::NonZero => winding != 0.0,
-        Rule::EvenOdd => winding.rem_euclid(2.0) != 0.0,
+        Rule::NonZero => winding != R::ZERO,
+        Rule::EvenOdd => winding.rem_euclid(R::ONE + R::ONE) != R::ZERO,
     }
 }
