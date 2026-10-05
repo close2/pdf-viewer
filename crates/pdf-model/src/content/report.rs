@@ -1154,3 +1154,92 @@ impl Shortfall {
         }
     }
 }
+
+/// What one page could not be drawn as, each item once, in the order a report prints them.
+///
+/// **A repeat costs a lookup and nothing else** (ADR 1521). A hostile stream raises the same few
+/// hundred items millions of times: a Type 3 glyph whose description shows its own font runs that
+/// description once per code until `MAX_OPERATIONS`, and every malformed keyword in it is noted on
+/// every run. One of the `page` fuzz target's slow units is 4 000 001 operators and 3 794 874 notes
+/// of a few hundred distinct items, and building each sentence and inserting it into the ordered
+/// set was 18% of the page's instructions (ADR 1521).
+///
+/// So the two costs are taken apart. [`Notes::insert`] asks the ordered set before copying, which
+/// is what every item pays; and the three sentences a content stream's *keyword* produces — an
+/// operator this interpreter does not run, a keyword inside an array, an operator short of its
+/// operands — are first asked of [`Notes::keyword_is_new`] by the keyword's own bytes, so a repeat
+/// is one hash of a few bytes and the sentence is never built. Both halves live in one value
+/// because a checkpoint saves and restores them together: a memo that survived a rollback the set
+/// did not would silence an item the rebuilt page owes.
+#[derive(Debug, Clone, Default)]
+pub(super) struct Notes {
+    /// Every item, ordered so that the report is a function of the page and not of the order the
+    /// interpreter met them.
+    items: std::collections::BTreeSet<Unsupported>,
+    /// The keywords already noted, each with the sentences it was noted under as
+    /// [`KeywordNote::bit`]s — keyed by the bytes alone so that a lookup borrows them.
+    keywords: std::collections::HashMap<Box<[u8]>, u8>,
+}
+
+/// Which of a keyword's three sentences [`Notes::keyword_is_new`] is asked about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) enum KeywordNote {
+    /// An operator this interpreter does not run (§7.8.2).
+    Unknown,
+    /// A keyword between two elements of an array, which §7.3.6 admits only objects into.
+    InsideAnArray,
+    /// An operator dispatched with fewer operands than its table states, and how many it had.
+    Shortfall {
+        /// How many operands preceded it.
+        given: usize,
+    },
+}
+
+impl KeywordNote {
+    /// This sentence's place in a keyword's byte of sentences, or `None` for one too many
+    /// operands short to have one.
+    ///
+    /// Six bits are enough for the shortfalls: `count_of` states no operator past six operands,
+    /// and a shortfall is fewer than the operator takes, so `given` is at most five.
+    const fn bit(self) -> Option<u8> {
+        match self {
+            Self::Unknown => Some(1),
+            Self::InsideAnArray => Some(1 << 1),
+            Self::Shortfall { given } if given < 6 => Some(1 << given.saturating_add(2)),
+            Self::Shortfall { .. } => None,
+        }
+    }
+}
+
+impl Notes {
+    /// Adds `item` unless the page already holds it.
+    pub(super) fn insert(&mut self, item: Unsupported) {
+        if !self.items.contains(&item) {
+            self.items.insert(item);
+        }
+    }
+
+    /// Whether `keyword` has not yet been noted under `sentence` — and from now on, that it has.
+    ///
+    /// The caller builds and [`Notes::insert`]s the item only on `true`; the item is a function
+    /// of the two arguments, so a later `false` names an item the set already holds.
+    pub(super) fn keyword_is_new(&mut self, sentence: KeywordNote, keyword: &[u8]) -> bool {
+        let Some(bit) = sentence.bit() else {
+            return true;
+        };
+        // Looked up by the borrowed bytes, so that a repeat — the case this exists for —
+        // allocates nothing: the boxed key is made only for a keyword met for the first time.
+        if let Some(noted) = self.keywords.get_mut(keyword) {
+            let new = *noted & bit == 0;
+            *noted |= bit;
+            return new;
+        }
+        self.keywords.insert(keyword.into(), bit);
+        true
+    }
+
+    /// The items, in order.
+    pub(super) fn into_items(self) -> impl Iterator<Item = Unsupported> {
+        self.items.into_iter()
+    }
+}

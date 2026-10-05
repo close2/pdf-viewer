@@ -2661,6 +2661,7 @@ struct ReadbackMark {
     codes_without_a_character: super::UnnamedCodes,
     glyph_coverage: std::collections::BTreeMap<String, super::Coverage>,
     inferred_separators: usize,
+    word_gaps: usize,
     text_operations: usize,
     reversed_chars: usize,
     text_cursor: Option<(f32, f32)>,
@@ -2683,6 +2684,7 @@ impl<'a> Interpreter<'a> {
             codes_without_a_character: self.codes_without_a_character,
             glyph_coverage: self.glyph_coverage.clone(),
             inferred_separators: self.inferred_separators,
+            word_gaps: self.word_gaps.len(),
             text_operations: self.text_operations,
             reversed_chars: self.reversed_chars,
             text_cursor: self.text_cursor,
@@ -2692,6 +2694,7 @@ impl<'a> Interpreter<'a> {
     /// Puts the readback back where [`Interpreter::readback_mark`] recorded it.
     fn rewind_readback(&mut self, mark: ReadbackMark) {
         self.text.truncate(mark.text);
+        self.word_gaps.truncate(mark.word_gaps);
         self.text_layer.truncate(mark.text_layer);
         self.described.truncate(mark.described);
         self.artifacts.truncate(mark.artifacts);

@@ -141,6 +141,11 @@ pub struct Device {
     warm_up: Option<thread::JoinHandle<()>>,
     resources: ResourceStore,
     atlas: AtlasStore,
+    /// The residue meets the last render made and this one's, kept by what each was
+    /// computed from, so that a render of the same marks under the same chains — the black
+    /// half of a four-component group after its chromatic half (ADR 1471) — meets nothing
+    /// again (ADR 1517).
+    kept_meets: crate::encode::KeptMeets,
     atlas_texture: Option<(wgpu::Texture, wgpu::TextureView)>,
     /// Device-resident forms of uploaded paints, realised lazily on first use
     /// (M2 owns the validated CPU copy; this lane owns the bytes on the GPU) — an image's

@@ -303,8 +303,8 @@ in `tools/batch.sh gates`; a row that moves moves its band there with its reason
 | | step | 3.23 (39%) | — | 0.00 | 0.01 | 1.34 | **1.69** | 0.19 |
 | `22060_A1_01_Plans.pdf` p1, four photographs under soft masks, 72 placements | turn | 51.07 (613%) | **34.51** | 0.17 | 4.62 | 8.32 | 3.08 | 0.35 |
 | | step | 14.75 (177%) | — | — | 6.45 | **6.79** | 1.11 | 0.40 |
-| `issue13931.pdf` p1, one photograph under a `/Matte`'d mask | turn | 24.16 (290%) | **18.97** | 0.05 | 0.42 | 3.82 | 0.81 | 0.09 |
-| | step | 6.82 (82%) | — | — | 0.05 | **5.05** | 1.51 | 0.20 |
+| `issue13931.pdf` p1, one photograph under a `/Matte`'d mask | turn | 22.05 (265%) | **17.18** | 0.05 | 0.42 | 3.42 | 0.86 | 0.13 |
+| | step | 6.39 (77%) | — | — | 0.06 | **5.12** | 1.06 | 0.16 |
 | `images.pdf` p1 | turn | 34.51 (414%) | **26.38** | 0.04 | 1.19 | 5.17 | 1.03 | 0.70 |
 | | step | 9.56 (115%) | — | — | 3.26 | **4.61** | 0.62 | 1.07 |
 | `issue14415.pdf` p1, strokes, 959 commands | turn | 15.80 (190%) | 2.66 | 0.63 | **10.70** | 0.84 | 0.84 | 0.12 |
@@ -325,8 +325,18 @@ needed and no longer makes; `issue14415.pdf`'s 11.1 → 16 is ADR 1443's two cho
 and kept); and the Type 3 page's 6.0 → 12.4 is the same two chords (about 4.5 ms) and ADR 1467's
 exact meet of each glyph with its residue clip, whose mark edges were built on the walk's thread
 (3.6 ms) and are now built by the fan-out's jobs (1.1 ms back). The other two are costs paid for
-§10.7.4's area and are kept. The text page's two modes (7.2 and 8.9 ms, process to process, pinned)
-are the turn the gate's band spans.
+§10.7.4's area and are kept. `issue13931.pdf`'s rows were re-taken the same way after ADR 1519
+(load 3.4), whose inversion writes the mask's opacity and leaves the multiplication's pass out:
+interleaved process by process against the tree without it, the turn read 23.55 → 21.73 at the
+minimum and 24.3 → 22.4 at the median, all of it in `interp`.
+
+**The text page's turn is not two modes of the tree, but the processor's clock** (ADR 1519). Pinned
+and quiet (load 0.4–1.8), eight processes each way interleaved: 7.6 to 9.9 ms as measured, 7.4 to
+8.5 with a 30 ms spin on the pinned cores just before the turn, 8.8 to 10.8 with 1.5 s of idle
+before it, and 11.9 to 13.9 on one core, where the encode does not fan out. What moves is the
+fan-out's work per glyph, up to twice from round to round inside one process; the addresses
+(randomisation off), the allocator's trimming and the cores the threads land on do not move it.
+The band spans the spread.
 
 **How the rows before these were taken**, from 2026-09-29: the text and `issue19802.pdf` rows were re-taken that day after ADR 1409, against a build of
 the tree before it in the same sitting: minimum of three runs of five rounds, pinned, load 1.9–2.1.

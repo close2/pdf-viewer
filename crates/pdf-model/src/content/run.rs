@@ -14,8 +14,12 @@ use super::colour::{Intent, assign_colour};
 use super::font::Font;
 use super::marked::Marked;
 use super::path::{begin_subpath, close_subpath};
-use super::reader::{ContentReader, NestedContent, Word, inline_dictionary, token_to_object};
-use super::report::{ArtifactSource, ArtifactSpan, DamagedStream, MarkedSpan, Unsupported};
+use super::reader::{
+    ContentReader, NestedContent, Strings, Word, inline_dictionary, token_to_object,
+};
+use super::report::{
+    ArtifactSource, ArtifactSpan, DamagedStream, KeywordNote, MarkedSpan, Unsupported,
+};
 use super::text::TextObject;
 use super::{
     GraphicsState, Interpreter, MAX_FORM_DEPTH, MAX_OPERANDS, MAX_OPERATIONS, MAX_STATE_DEPTH,
@@ -29,7 +33,25 @@ impl Interpreter<'_> {
     /// that enclosed it — see [`Interpreter::notes_raised`] for why it is not the map's length.
     pub(super) fn note(&mut self, item: Unsupported) {
         self.notes_raised = self.notes_raised.saturating_add(1);
-        self.unsupported.insert(item.clone(), item);
+        self.unsupported.insert(item);
+    }
+
+    /// [`Interpreter::note`] for one of the three sentences a content stream's keyword produces,
+    /// which builds the sentence only the first time the page meets that keyword under it.
+    ///
+    /// A repeat is counted all the same, since a marked-content sequence asks whether anything
+    /// was raised inside it and a repeat was. [`super::report::Notes`] says what this saves and
+    /// why.
+    fn note_keyword(
+        &mut self,
+        sentence: KeywordNote,
+        keyword: &[u8],
+        item: impl FnOnce(&[u8]) -> Unsupported,
+    ) {
+        self.notes_raised = self.notes_raised.saturating_add(1);
+        if self.unsupported.keyword_is_new(sentence, keyword) {
+            self.unsupported.insert(item(keyword));
+        }
     }
 
     /// Decodes one of §7.8.2's self-contained content streams, saying so where it is damaged.
@@ -304,6 +326,7 @@ impl Interpreter<'_> {
         // Where the last `/ActualText` replacement ended in the readback, for §14.9.4's rule
         // that two consecutive ones have no word break between them.
         let mut replaced_ends_at: Option<usize> = None;
+        let empty_string: Arc<[u8]> = Arc::from(&[][..]);
 
         loop {
             // **The token is read inside the closure and nothing borrowed leaves it**, which
@@ -313,7 +336,18 @@ impl Interpreter<'_> {
             // goes straight into the list the operator will read it from, which is the same
             // work this loop did when it held the lexer itself. Only what the loop has to act
             // on afterwards comes out, and [`Step`] owns all of it.
-            let step = reader.with_token(|token| match token {
+            //
+            // §9.3.1's Table 103: with no font in force a show draws nothing and reads none of its
+            // string, so no string operand is read until a `Tf` (or a `gs` naming a font) sets
+            // one. Exact rather than a guess, because §7.8.2 makes an operator's operands the
+            // ones since the last operator and every operator clears them below: a string read
+            // now can only reach an operator dispatched under the state in force now (ADR 1521).
+            let strings = if state.text.font.is_none() {
+                Strings::StepOver
+            } else {
+                Strings::Read
+            };
+            let step = reader.with_operand(strings, |token| match token {
                 None => Step::End,
                 Some(pdf_syntax::Token::Keyword(word)) if array_depth == 0 => {
                     Step::Operator(Word::new(word))
@@ -346,7 +380,14 @@ impl Interpreter<'_> {
                     // Arrays are deliberately left flattened: `TJ` and `d` read their elements
                     // as separate operands and have since the beginning.
                     if pending.len() < MAX_OPERANDS {
-                        pending.push(token_to_object(other));
+                        pending.push(match other {
+                            // One shared value, so an empty string costs no allocation —
+                            // which is every string `with_operand` stepped over.
+                            pdf_syntax::Token::String(bytes) if bytes.is_empty() => {
+                                Object::String(Arc::clone(&empty_string))
+                            }
+                            other => token_to_object(other),
+                        });
                         Step::Operand
                     } else {
                         // An unclosed `[` would otherwise suppress every operator for the
@@ -362,11 +403,13 @@ impl Interpreter<'_> {
                 Step::End => break,
                 Step::Operand => continue,
                 Step::InsideAnArray(word) => {
-                    self.note(Unsupported::Operator {
-                        operator: format!(
-                            "{} inside an array, which §7.3.6 admits only objects into",
-                            String::from_utf8_lossy(word.as_slice())
-                        ),
+                    self.note_keyword(KeywordNote::InsideAnArray, word.as_slice(), |keyword| {
+                        Unsupported::Operator {
+                            operator: format!(
+                                "{} inside an array, which §7.3.6 admits only objects into",
+                                String::from_utf8_lossy(keyword)
+                            ),
+                        }
                     });
                     continue;
                 }
@@ -458,10 +501,13 @@ impl Interpreter<'_> {
             if let Some(takes) = count_of(operator)
                 && operands.len() < takes
             {
-                self.note(Unsupported::OperandShortfall {
-                    operator: String::from_utf8_lossy(operator).into_owned(),
-                    given: operands.len(),
-                    takes,
+                let given = operands.len();
+                self.note_keyword(KeywordNote::Shortfall { given }, operator, |keyword| {
+                    Unsupported::OperandShortfall {
+                        operator: String::from_utf8_lossy(keyword).into_owned(),
+                        given,
+                        takes,
+                    }
                 });
             }
 
@@ -1025,7 +1071,7 @@ impl Interpreter<'_> {
                         if let Some(replacement) = section.actual_text
                             && section.starts_at <= self.text.len()
                         {
-                            self.text.truncate(section.starts_at);
+                            self.truncate_readback(section.starts_at);
                             // "If each of two (or more) consecutive structure or marked-content
                             // sequences has an ActualText entry, they shall be treated as if no
                             // word break is present between them." The space between them is not
@@ -1039,9 +1085,9 @@ impl Interpreter<'_> {
                                     !between.is_empty() && between.chars().all(char::is_whitespace)
                                 })
                             {
-                                self.text.truncate(end);
+                                self.truncate_readback(end);
                             }
-                            self.text.push_str(&replacement);
+                            self.push_replacement(&replacement);
                             replaced_ends_at = Some(self.text.len());
                         } else if !replaced_here && self.text.len() > section.starts_at {
                             // Marks were made that no `/ActualText` replaced, so whatever came
@@ -1148,8 +1194,10 @@ impl Interpreter<'_> {
 
                 other => {
                     if compatibility == 0 {
-                        self.note(Unsupported::Operator {
-                            operator: String::from_utf8_lossy(other).into_owned(),
+                        self.note_keyword(KeywordNote::Unknown, other, |keyword| {
+                            Unsupported::Operator {
+                                operator: String::from_utf8_lossy(keyword).into_owned(),
+                            }
                         });
                     }
                 }

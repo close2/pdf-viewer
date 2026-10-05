@@ -382,6 +382,12 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   commands, each a profile directory by name and never `tmp/` (`tmp/pdfref-cache` is the reference
   renders, a thousand seconds to rebuild — `doc/todo/02` section 5a):
 
+  The batch directory's `debug` is the one that crosses the rule every batch, and its order is
+  fixed: **`close`, then the prune if `debug` is over the rule, then `open`** — `open` starts the
+  warm build that writes there again, so a prune after it deletes what the rounds are about to
+  read. Both commands print the directory's size and this line when it is over the rule (`open`
+  before it makes the worktree, `close` after it removes it) and neither runs it (ADR 1526).
+
   ```sh
   # At a batch boundary — after `close`, before the next `open` — when the batch directory's
   # `debug` passes 100 GB. Costs the next `open`'s warm build, which sccache mostly pays.

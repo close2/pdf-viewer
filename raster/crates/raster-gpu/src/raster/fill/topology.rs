@@ -19,6 +19,10 @@ use raster_scene::Point;
 
 use super::super::flatten::{Polyline, convex, polyline_bounds};
 
+mod count;
+
+use count::surely_past;
+
 /// Box comparisons per unit of the fill's own work — an edge, or a pixel of its region —
 /// past which the sweep stops: nothing about the fill is then vouched for, and it keeps its
 /// integral in every pixel, the answer every pixel had before ADR 1389. The sweep is
@@ -109,6 +113,9 @@ fn meeting_pairs(
     } else {
         (1, 0)
     };
+    if surely_past(boxes, along, (lo[along], hi[along]), budget) {
+        return false;
+    }
     // Each box's key and index packed into one integer, sorted as integers: the sweep's
     // order, without a comparison that looks each box up (ADR 1397). The answer does not
     // depend on how boxes with one start are ordered among themselves — every pair that

@@ -110,7 +110,7 @@
 //! which is AT-SPI's `StatusBar`: advisory, findable, and not an alert that interrupts.
 
 use accesskit::{
-    Action, Node, NodeId, Rect, Role, TextDirection, Toggled, Tree, TreeId, TreeUpdate,
+    Action, Affine, Node, NodeId, Rect, Role, TextDirection, Toggled, Tree, TreeId, TreeUpdate,
 };
 use pdf_model::structure::ArtifactKind;
 use viewer_core::AccessibilityNode;
@@ -252,6 +252,9 @@ pub struct DocumentView<'a> {
     pub pages: usize,
     /// The viewport, in device pixels — which is the space every `quads` is in.
     pub viewport: (f32, f32),
+    /// Where the viewport's top-left corner sits in the window, in device pixels: the document
+    /// node's transform, so that a client is told every node's place in the window (ADR 1516).
+    pub origin: (f32, f32),
     /// The pages Table 29's arrangement is showing, in page order.
     ///
     /// **One entry, and only one, under `SinglePage`** — and several under the five continuous
@@ -364,6 +367,12 @@ pub fn build(view: &DocumentView) -> TreeUpdate {
         x1: f64::from(view.viewport.0),
         y1: f64::from(view.viewport.1),
     });
+    if view.origin != (0.0, 0.0) {
+        document.set_transform(Affine::translate((
+            f64::from(view.origin.0),
+            f64::from(view.origin.1),
+        )));
+    }
     document.set_children(children);
     nodes.push((DOCUMENT, document));
 

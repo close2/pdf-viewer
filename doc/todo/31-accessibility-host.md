@@ -140,6 +140,11 @@ as items, the chosen ones selected (AT-SPI's `Selection`) (ADR 1489). The run ca
 character's place: `AccessibilityNode::value_lines` holds the boxes §12.7.4.3's layout gave the
 glyphs it wrote, one line of the field at a time in display order, so `GetCharacterExtents` and
 `GetOffsetAtPoint` answer on a field as on a paragraph (ADR 1501, `29-field-extents` in the drive).
+In `quorra-gtk` that node is the one that answers: GTK 4's own `GtkEntry` refuses the call in every
+coordinate space and its `GtkText` would answer with an empty box, so the document's node is placed
+in the window — the page area's origin as the document node's transform, the space GTK's own widgets
+answer in — and its character lies inside GTK's entry (ADR 1516). `quorra-qt` places its bridge by
+the window's client area rather than its page area, which ADR 1516 names as the same offset, unmeasured.
 
 ## What is left
 

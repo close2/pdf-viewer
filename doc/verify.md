@@ -702,7 +702,10 @@ tools/drive-windows.sh [--window quorra|quorra-gtk|quorra-qt|quorra-confined]...
   # an Arabic word typed at `ArabicCIDTrueType.pdf`; "كتب" typed at a page printing "كَتَبَ", found, and
   # "كُتُب" not (ADR 1477); "عرب" typed at a `TJ` in reading order under a mirroring `Tm`, found
   # (ADR 1490); a text field holding "123", whose second character AT-SPI's
-  # `GetCharacterExtents` places inside the field (`29-field-extents`, ADR 1501); §14.7's tree on a
+  # `GetCharacterExtents` places inside the field (`29-field-extents`, ADR 1501) — asked of the
+  # toolkit's field and of the document's node, in the screen's coordinates and then the window's,
+  # and in `quorra-gtk`, whose entry refuses, the document's box read against the entry's place
+  # (ADR 1516); §14.7's tree on a
   # private AT-SPI bus; and `quorra-confined` on a page of
   # stars its worker sends as marks and its device refuses, the refusal in the title (ADR 1478).
   # **Release binaries first** (the script names the command), and `pikepdf` for the fixtures it

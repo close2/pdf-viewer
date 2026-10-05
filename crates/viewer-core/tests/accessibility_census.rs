@@ -1452,14 +1452,17 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
             13_031,
         );
         // ADR 1490: the readback's word gaps measured in text space, A/B on one build, gave 269
-        // more elements a line of their own text, 260 more lines and 5 more characters.
+        // more elements a line of their own text, 260 more lines and 5 more characters. ADR 1515:
+        // a code inside §14.9.4's replacement reads back as the whole replacement rather than
+        // whatever bytes of it its cut readback had covered, A/B'd on one build — 13 965 more
+        // elements, 13 417 more lines, 14 081 more characters, the word gaps' own rule moving none.
         gate_ratchet::floor(
             "elements a caret reaches, whole population",
             census.with_lines,
-            121_463,
+            135_428,
         );
-        gate_ratchet::floor("lines, whole population", census.lines, 209_965);
-        gate_ratchet::floor("characters, whole population", census.characters, 5_681_052);
+        gate_ratchet::floor("lines, whole population", census.lines, 223_382);
+        gate_ratchet::floor("characters, whole population", census.characters, 5_695_133);
         // `issue21579.pdf` opens with the password `corpus_passwords.rs` publishes (ADR 1377), so
         // its one untagged page is in this population as it is in the tracked one.
         gate_ratchet::floor(
@@ -1806,9 +1809,11 @@ fn ratchet(
         tracked_census.annotations,
         415,
     );
-    gate_ratchet::floor("elements a caret reaches", tracked_census.with_lines, 1382);
-    gate_ratchet::floor("lines", tracked_census.lines, 2482);
-    gate_ratchet::floor("characters", tracked_census.characters, 31_433);
+    // ADR 1515: a code inside §14.9.4's replacement reads back as the whole replacement, A/B'd on
+    // one build — two more elements a line of their own text, one more line, three characters.
+    gate_ratchet::floor("elements a caret reaches", tracked_census.with_lines, 1384);
+    gate_ratchet::floor("lines", tracked_census.lines, 2483);
+    gate_ratchet::floor("characters", tracked_census.characters, 31_436);
     // §7.6.6's `/AuthEvent` is read against Table 25, whose next sentence is "if authorization
     // fails, the event shall fail". `encrypted-attachment.pdf` states no `/AuthEvent`, so Table
     // 25's default `DocOpen` requires the key before the document opens and its one page is

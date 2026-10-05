@@ -1,12 +1,14 @@
 # A fragment that says where to open
 
-Status: **done.** All eleven parameters are carried out since the five-hundred-and-twenty-second
+Status: **done** for the annex's rows. All eleven parameters are carried out since the five-hundred-and-twenty-second
 session and `Parameter::unhonoured` names none; **§O.2.1's last sentence — the parameters after `ef`
 — is carried out since the five-hundred-and-ninety-sixth**, so all four of Annex O's rows are
-`implemented` and nothing in the annex is reported. What is left is *not this annex's*: the two
-limits named below, and `doc/todo/38`'s ask level. ADRs 0209, 0250, 0310, 0357, 0431.
+`implemented` and nothing in the annex is reported. **One design is owed**: `fdf` naming an
+absolute URI, which is a fetch over the network and is refused out loud until it is built under
+`Submissions`' level (below). The rest is *not this annex's*: the two limits named below, and
+`doc/todo/38`'s ask level. ADRs 0209, 0250, 0310, 0357, 0431.
 Cited by: `CLAUDE.md`'s normative-annexes entry, beside `tools/state.sh annex-o` — the reason the file is kept whole rather than deleted (ADR 1416).
-Priority: 39 — closed; kept as the reading beside `tools/state.sh annex-o`
+Priority: 39 — one design owed (`fdf` over the network); kept as the reading beside `tools/state.sh annex-o`
 Clauses: Annex O (§O.2.1, §O.2.2), §12.7.8, §7.11.4
 Code: `crates/pdf-model/src/fragment.rs`, `crates/viewer-core/src/open.rs`,
 `crates/viewer-host/src/policy.rs`
@@ -47,16 +49,45 @@ or a dependency lost has somewhere to say so, and `tools/state.sh annex-o` reads
 whichever way it answers.
 
 Two limits are worth naming because they are *not* refusals of this annex and a later round should
-not read them as ones:
+not read them as ones, and one design is owed:
 
-- **XFDF.** `fdf`'s URI may name "an FDF or XFDF file", and ISO 19444-1's XML spelling is declined
-  by name for want of an XML parser — which is a dependency rather than a clause, is the decision
-  §12.7.6.4 already took, and is now taken once for both by `pdf_model::action::data_format`. It
-  belongs to §12.7.6.4's row.
-- **Where a host looks for the file.** `viewer_host::resolve_import` is the policy: a single path
-  component beside the open document, so a *relative* URI imports and an absolute one is refused
-  out loud. That is a statement about these three hosts rather than about the annex, and a host
-  with a network and a base URI would satisfy the same `Event::NeedsFile`.
+- **Eleven parameters, not seventeen.** `pagemode`, `toolbar`, `statusbar`, `scrollbar`,
+  `navpanes`, `messages` and `collab` are another vendor's open parameters, printed in no table of
+  ISO 32000-2, and `xfdf` is not a parameter at all — the annex's `fdf` names "an FDF or XFDF
+  file". A fragment carrying one is named and the rest still runs (`fragments.rs`'s
+  `a_parameter_this_program_cannot_read_is_named_and_the_others_still_run`). ADR 1523.
+- **A `zoom` outside 2% to 6400%** lands on the nearer bound and is named: "the percentage to
+  which the document should be zoomed" is a `should` with no bound, and the bound is the one a
+  person meets with the keys (ADR 1523).
+
+### Owed: `fdf` over the network — a design, not built
+
+Both formats are read: `pdf_model::xfdf` (ADR 1108) and §12.7.8's FDF, imported on one channel and
+tested end to end in `fragments.rs`. **What is not done is fetching an absolute URI.** "The URI
+shall be either a relative or absolute URI to an FDF or XFDF file", and `viewer_host::resolve_import`
+answers an absolute one with `ImportRefusal::OutsideTheDocumentsDirectory`, out loud. The build,
+when it is taken:
+
+1. **The act is the network, so the level is `viewer_host::Submissions`'.** A GET of a URL a
+   fragment named tells that server this document was opened here — the same act class as
+   §12.7.6.2's submission, a machine contacting a server on somebody else's word — and ADR 1291's
+   one level is read for it rather than a fifth level invented. `refuse` declines out loud, `ask`
+   (the default) puts the URL and its host to the person, `warn` fetches and says so, `send`
+   fetches. **The fragment's origin is not consulted**: a fragment can arrive from a person's
+   command line or from a document's own `ef` remainder, and a policy that trusted the first would
+   have to tell them apart where nothing does.
+2. **One function, in `viewer_host::policy`**, `may_fetch_import(url, level) -> Sending` on
+   `may_submit`'s shape and order: no scheme or a scheme outside `SUBMIT_SCHEMES` is refused at
+   every level, and `submit::check_url` runs before the TLS stack (ADR 1327); only then the level.
+   The four levels attach there and nowhere else (`CLAUDE.md` principle 3's shape).
+3. **The fetch is `viewer_host::submit`'s client**, a GET instead of a POST, with the response
+   bounded in bytes as a submission's answer is; the format is still `action::data_format`'s answer
+   off the URI's name, never the response's media type, so one opinion of what an `.xfdf` is holds.
+4. **The bytes cross as they do now**: `Command::Supply { purpose: Purpose::ImportData, .. }`, so
+   `viewer-core` gains nothing and stays without a network (`doc/ui-boundary.md`'s rule 2). The
+   confined window refuses at every level, as it refuses a submission.
+5. **The test is a local server**, `viewer-host/tests/submit.rs`'s, answering an FDF — and a
+   refusal test per level.
 
 ## What `ef` owed, and how the sentence was finally composed
 

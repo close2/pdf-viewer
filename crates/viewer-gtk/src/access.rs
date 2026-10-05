@@ -73,8 +73,8 @@ impl Host {
                     Topic::Access,
                     format_args!(
                         "accessibility: this window cannot report its own position — GTK4 \
-                         exposes none — so a node's extents are this window's pixels rather \
-                         than the screen's"
+                         exposes none — so a node's extents are this window's pixels, as GTK's \
+                         own widgets' are, rather than the screen's"
                     ),
                 );
             }
@@ -83,22 +83,23 @@ impl Host {
         let Some(showing) = Showing::of(&self.viewer, width, height) else {
             return;
         };
-        if self.spoken == Some(showing) {
+        let origin = self.viewport_origin();
+        if self.spoken == Some((showing, origin)) {
             self.pump_accessibility();
             return;
         }
-        self.spoken = Some(showing);
-        self.speak();
+        self.spoken = Some((showing, origin));
+        self.speak(origin);
         self.pump_accessibility();
     }
 
     /// Hands §14.7's structure for every page on the screen to AT-SPI.
     ///
-    /// The three things only a host knows — what the window is called, how large the viewport is,
-    /// and what the document is called — and nothing else: what to ask the viewer, and in what
+    /// The four things only a host knows — what the window is called, how large the viewport is,
+    /// where it sits in the window, and what the document is called — and nothing else: what to ask the viewer, and in what
     /// order, is [`Reading`]'s, shared with the other two windows so that a screen reader is told
     /// the same thing whichever of them a person opened the file in.
-    fn speak(&mut self) {
+    fn speak(&mut self, origin: (f32, f32)) {
         let document = self.named();
         let window = format!("{document} — {}", self.caption());
         #[expect(
@@ -106,7 +107,7 @@ impl Host {
             reason = "a viewport in device pixels; f32 is exact to 2^24 and no display is"
         )]
         let viewport = (self.viewport.0 as f32, self.viewport.1 as f32);
-        let reading = Reading::of(&self.viewer, &window, &document, viewport);
+        let reading = Reading::of(&self.viewer, &window, &document, viewport).at(origin);
         self.trace.say(
             Topic::Access,
             format_args!(

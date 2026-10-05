@@ -98,7 +98,10 @@ Each `AccessibilityNode` naming a text field or a combo box carries the field's 
 the shape `Answer::Fields` gives it, read through the view's state, which only the confined side
 holds; it crosses in the node's encoding, and no message was added (ADR 1489). Beside it,
 `value_lines` carries where §12.7.4.3's layout placed each character of that value, in the shape and
-under the invariant of the node's own `lines`; the greeting moved to `PDFVCF07` (ADR 1501).
+under the invariant of the node's own `lines`; the greeting moved to `PDFVCF07` (ADR 1501). Where the
+viewport sits in the window is a host's to say, and `quorra-gtk` says it to the bridge
+(`Reading::at`), never to the core: it is a fact about the toolkit's layout, and no message was added
+(ADR 1516).
 **And the six-hundred-and-thirty-eighth added nothing at all**, which is the second time that has
 been the whole answer and the strongest form of this section's claim: §12.4.4's presentation got the
 full-screen *window* it had never had, in all three hosts, and every channel it needed was already

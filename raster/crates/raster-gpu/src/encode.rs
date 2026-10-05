@@ -142,6 +142,7 @@ pub(crate) use instance::{
     Batch, BatchKind, DrawStyle, QUAD_INSTANCE_STRIDE, RECT_INSTANCE_STRIDE,
 };
 pub(crate) use layer::{ChildOp, MaskPlan};
+pub(crate) use meet::KeptMeets;
 pub(crate) use plan::{LayerPlan, Op};
 pub(crate) use rare::{ImageOp, PaintSource, ShadedOp};
 use residue::ResidueRegions;
@@ -177,6 +178,9 @@ struct Encoder<'a> {
     census: Census,
     resources: &'a ResourceStore,
     atlas: &'a mut AtlasStore,
+    /// The meets the render before this one made, and this render's, kept by what each was
+    /// computed from (ADR 1517).
+    kept: &'a mut KeptMeets,
     quantum: Option<u16>,
     clips: ClipResolver,
     /// A clip chain's residue coverage, rasterised once over the chain's own region
@@ -299,6 +303,7 @@ pub(crate) fn encode(
     max_dimension: u32,
     resources: &ResourceStore,
     atlas: &mut AtlasStore,
+    kept: &mut KeptMeets,
     quantum: Option<u16>,
     coverage: Coverage,
     compute_assist: bool,
@@ -328,6 +333,7 @@ pub(crate) fn encode(
         max_dimension,
         resources,
         atlas,
+        kept,
         quantum,
         coverage,
         compute_assist,
@@ -375,6 +381,7 @@ pub(crate) fn replay(
     max_dimension: u32,
     resources: &ResourceStore,
     atlas: &mut AtlasStore,
+    kept: &mut KeptMeets,
     quantum: Option<u16>,
     coverage: Coverage,
     compute_assist: bool,
@@ -399,6 +406,7 @@ pub(crate) fn replay(
         max_dimension,
         resources,
         atlas,
+        kept,
         quantum,
         coverage,
         compute_assist,
@@ -473,6 +481,7 @@ fn encoder_for<'a>(
     max_dimension: u32,
     resources: &'a ResourceStore,
     atlas: &'a mut AtlasStore,
+    kept: &'a mut KeptMeets,
     quantum: Option<u16>,
     coverage: Coverage,
     compute_assist: bool,
@@ -502,6 +511,7 @@ fn encoder_for<'a>(
         },
         resources,
         atlas,
+        kept,
         quantum,
         clips: ClipResolver::new(scene.clips().len()),
         residue: ResidueRegions::of(scene, residue::budget(frame_budget_bytes)),

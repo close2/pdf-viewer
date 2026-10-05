@@ -103,6 +103,8 @@ pub struct Reading {
     pages: usize,
     /// The viewport in device pixels, which is the space every quadrilateral is in.
     viewport: (f32, f32),
+    /// Where the viewport's top-left corner sits in the window; see [`Reading::at`].
+    origin: (f32, f32),
     /// The pages Table 29's arrangement is showing, in page order.
     shown: Vec<PageReading>,
 }
@@ -173,8 +175,22 @@ impl Reading {
             document: document.to_owned(),
             pages,
             viewport,
+            origin: (0.0, 0.0),
             shown,
         }
+    }
+
+    /// The same reading with the viewport placed at `origin` in the window, in device pixels.
+    ///
+    /// AT-SPI's window coordinates are the window's and every quadrilateral here is the
+    /// viewport's, which is the same space only where the page fills the window. A host whose page
+    /// area sits beside a panel or under a toolbar says where, and the document node carries the
+    /// offset as its transform — so a client is told where a node is in the window, while what a
+    /// request resolves to stays in the viewport, which is where the host acts (ADR 1516).
+    #[must_use]
+    pub fn at(mut self, origin: (f32, f32)) -> Self {
+        self.origin = origin;
+        self
     }
 
     /// How many pages this screen is publishing, which is what a host's trace line says.
@@ -242,6 +258,7 @@ impl Reading {
             document: &self.document,
             pages: self.pages,
             viewport: self.viewport,
+            origin: self.origin,
             shown: &shown,
         })
     }

@@ -497,6 +497,17 @@ with no byte changed (ADR 1493). Before a device route is built for a "transfer"
 of the image the frame samples. And A/B arms are run interleaved, run by run: back-to-back arms at
 load 9–11 ranked `images.pdf` the wrong way round.
 
+### 101. A turn that spreads with nothing in the tree moving is the processor's clock
+
+The text page's turn read 7.2 or 8.9 ms from process to process when pinned. Address layout
+(`setarch -R`), thread placement (a probe logging each job's core and wait) and the allocator
+(page faults, glibc's thresholds) were each ruled out; the decisive test was a 30 ms spin on the
+pinned cores before the turn (7.4–8.5 ms) against 1.5 s idle before it (8.8–10.8): `amd-pstate-epp`
+at `balance_performance` wakes a deep-idle core in 350 µs, and the fan-out's threads wake on cores
+that idled (ADR 1519). Nothing was built — spinning before a frame is work done to raise a clock —
+and the band keeps its width with that reason. And `turn_path`'s load ceiling counts processor load:
+a neighbour's GPU work failed step rows by 2.5× at a load the gate admits; check the device first.
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

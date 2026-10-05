@@ -50,6 +50,10 @@
 //! It draws on the real adapter without a window, as `frame_budget` does, and takes a few
 //! minutes: ten pages, three children each, five rounds a child.
 
+// no sandbox worker: none of `doc/checks/turn-path.toml`'s ten documents carries a `JPXDecode`,
+// `JBIG2Decode` or `CCITTFaxDecode` stream, and a stream is never stored inside an object stream,
+// so every figure is drawn without the worker; a page that adds one owes `require_the_sandbox`.
+
 #![expect(
     clippy::print_stdout,
     reason = "a gate whose output is the numbers a person reads to see what moved"
@@ -466,7 +470,7 @@ fn the_turn_path_stays_inside_its_bands() {
     assert!(!check.pages.is_empty(), "the check file names no page");
     let profile = profile_of_this_binary();
     let pinning = performance_cores();
-    let ceiling = load_ceiling();
+    let load_limit = load_ceiling();
     let mut declined: Vec<String> = Vec::new();
     if profile != check.profile {
         declined.push(format!(
@@ -479,7 +483,7 @@ fn the_turn_path_stays_inside_its_bands() {
     }
     println!(
         "turn path: {} page(s), {SAMPLES} children of {ROUNDS} rounds each, pinned to {}, load \
-         ceiling {ceiling}, profile {profile}",
+         ceiling {load_limit}, profile {profile}",
         check.pages.len(),
         pinning
             .as_ref()
@@ -492,7 +496,7 @@ fn the_turn_path_stays_inside_its_bands() {
             println!("  {} — absent, skipped", row.path);
             continue;
         }
-        let taken = take(row, &check, pinning.as_ref(), ceiling);
+        let taken = take(row, &check, pinning.as_ref(), load_limit);
         tally.row(row, &taken, &declined);
     }
     println!(

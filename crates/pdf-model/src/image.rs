@@ -616,9 +616,7 @@ fn decode_parts_in(
         (width, height),
         one_grid,
     );
-    let prematte = premultiplied
-        .as_ref()
-        .map(|(matte, alpha)| Prematte { matte, alpha });
+    let prematte = premultiplied.as_ref().map(Prematte::of);
 
     let painting = Painting {
         is_mask,
@@ -639,6 +637,7 @@ fn decode_parts_in(
         opacity_included: opacity_came_with_the_samples,
         stencil_opacity,
         shortfall,
+        mask_in_alpha,
     } = decoded?;
     // §7.4.8's disagreement is read off the grid the codec has just built on, rather than off a
     // second walk of the frame header: the arm that decoded the frame is the one that knows it.
@@ -675,7 +674,7 @@ fn decode_parts_in(
         is_mask,
         (opacity_came_with_the_samples, stencil_opacity),
         masks,
-        eager_mask,
+        (eager_mask, mask_in_alpha),
     );
     let mut shortfall =
         shortfall.or_else(|| mask_shortfall.map(|detail| format!("its /SMask: {detail}")));
@@ -712,9 +711,9 @@ fn decode_parts_in(
     })
 }
 
-/// Table 144's `/Matte` in the parent's components, and the mask's samples on the parent's grid:
-/// what [`Prematte`] borrows.
-type Premultiplied = (Vec<f32>, Arc<[u8]>);
+/// Table 144's `/Matte` in the parent's components, the mask's samples on the parent's grid, and
+/// whether those samples are the eager route's own plane: what [`Prematte`] borrows.
+type Premultiplied = (Vec<f32>, Arc<[u8]>, bool);
 
 /// A `DCTDecode` frame [`matte_before_samples`] decoded beside its `/Matte`'s mask, and its
 /// codec's answer — or `None` where it did not, and the samples are decoded as they always were.
@@ -727,6 +726,10 @@ enum EagerMask {
     Unasked,
     /// Asked, and this is what it answered — `None` being a mask that would not decode.
     Asked(Option<MaskPlane>),
+    /// Asked, and its opacity is already the samples' alpha: the `/Matte`'s inversion read this
+    /// plane on the raster's own grid and wrote each `α` beside the colour it restored, which is
+    /// the byte [`opacity_multiplied_in_place`] would have written (ADR 1519).
+    InTheSamples(MaskPlane),
 }
 
 /// §11.6.5.2's `/Matte` and the opacity its inversion reads, where the parent states one, and
@@ -766,7 +769,7 @@ fn matte_before_samples(
         let alpha = prematte_alpha(at.document, stream, grid);
         return (
             None,
-            alpha.map(|alpha| (matte.clone(), alpha)),
+            alpha.map(|alpha| (matte.clone(), alpha, false)),
             EagerMask::Unasked,
         );
     }
@@ -782,12 +785,15 @@ fn matte_before_samples(
     } else {
         (None, eager_soft_mask(at.document, at.dict, at.resources))
     };
-    let alpha = mask.as_ref().map(|mask| mask.on_grid(grid));
-    (
-        frame,
-        alpha.map(|alpha| (matte.clone(), alpha)),
-        EagerMask::Asked(mask),
-    )
+    // The inversion may write the opacity beside the colour where its `α` is the very plane the
+    // eager route would multiply in — the mask's own, on the raster's grid — which is
+    // [`Prematte::opacity`]'s condition (ADR 1519).
+    let premultiplied = mask.as_ref().map(|mask| {
+        let alpha = mask.on_grid(grid);
+        let opacity = Arc::ptr_eq(&mask.opacity, &alpha);
+        (matte.clone(), alpha, opacity)
+    });
+    (frame, premultiplied, EagerMask::Asked(mask))
 }
 
 /// [`samples_of`]'s answer, with the eager route's mask decoded beside it on the pool where that
@@ -833,15 +839,21 @@ fn samples_beside_the_mask(
 /// `in_data` is what [`samples_of`] said about `/SMaskInData` — whether the opacity came with the
 /// samples, and for a stencil the plane it was read into — and `stencil` whether the raster is
 /// §8.9.6.2's. The shortfall is the mask's own filter's, where the eager route decoded it.
-/// `eager_mask` is [`eager_soft_mask`]'s answer where [`decode_parts`] already has it.
+/// `eager_mask` is [`eager_soft_mask`]'s answer where [`decode_parts`] already has it, and
+/// `mask_in_alpha` [`SamplesOnGrid::mask_in_alpha`]: that mask's opacity is the samples' alpha
+/// already, written by the `/Matte`'s inversion (ADR 1519).
 fn soft_masked(
     at: Dictionaries,
     image: Image,
     stencil: bool,
     in_data: (bool, Option<SoftMaskAtDeviceScale>),
     masks: &mut MaskCache,
-    eager_mask: EagerMask,
+    (eager_mask, mask_in_alpha): (EagerMask, bool),
 ) -> (Picture, Option<String>) {
+    let eager_mask = match eager_mask {
+        EagerMask::Asked(Some(mask)) if mask_in_alpha => EagerMask::InTheSamples(mask),
+        other => other,
+    };
     let Dictionaries {
         document,
         dict,
@@ -920,6 +932,10 @@ struct SamplesOnGrid {
     /// The filter's sentence where it stopped short of the grid on damaged data; see
     /// [`Parts::shortfall`]. Only the `CCITTFaxDecode` arm produces one.
     shortfall: Option<String>,
+    /// §11.6.5.2's soft mask is already multiplied in: the `/Matte`'s inversion wrote its plane
+    /// as the alpha ([`Prematte::opacity`]), so [`apply_soft_mask`] has nothing left to multiply.
+    /// True only on [`samples_of_frame`]'s route, where [`invert_matte_in_place`] wrote it.
+    mask_in_alpha: bool,
 }
 
 /// The image's samples as straight-alpha RGBA8, the grid they are on, and whether the
@@ -966,6 +982,7 @@ fn samples_of(
                 opacity_included: false,
                 stencil_opacity: None,
                 shortfall,
+                mask_in_alpha: false,
             })
         }
         Some(b"JPXDecode") => decode_jpx(at, source, (width, height), painting),
@@ -977,6 +994,7 @@ fn samples_of(
                 opacity_included: false,
                 stencil_opacity: None,
                 shortfall,
+                mask_in_alpha: false,
             })
         }
         Some(other) => Err(ImageError::UnsupportedFilter {
@@ -1032,6 +1050,7 @@ fn samples_of(
                 opacity_included: false,
                 stencil_opacity: None,
                 shortfall: None,
+                mask_in_alpha: false,
             })
         }
     }
@@ -1052,14 +1071,15 @@ fn samples_of(
 /// The inner `Err` is the sentence for [`SamplesOnGrid::shortfall`] where the inversion could not
 /// be done: §7.4.8 puts a JPEG's dimensions in the data and Table 143 pairs a `/Matte`'d mask with
 /// the dictionary's, so where the two disagree there is no pairing to invert by. Said rather
-/// than guessed at. ADR 1268.
+/// than guessed at. ADR 1268. The inner `Ok` says whether the soft mask's opacity was written as
+/// the alpha in the same pass ([`Prematte::opacity`], ADR 1519).
 fn matte_through_unpack(
     at: Dictionaries,
     painting: &Painting,
     frame: (&mut Vec<u8>, usize),
     grid: (u32, u32),
     stated: (u32, u32),
-) -> Result<Result<(), String>, ImageError> {
+) -> Result<Result<bool, String>, ImageError> {
     if grid != stated {
         return Ok(Err(format!(
             "the /Matte could not be undone: the codestream is {}x{} where the dictionary says \
@@ -1095,24 +1115,27 @@ fn matte_through_unpack(
     // written back over itself, since an output pixel reads its own input pixel and nothing else
     // — so no second raster is allocated and faulted in beside the frame (ADR 1481).
     if let Some(tables) = matted_eight_bit_device_tables(&samples, width, height) {
-        let alpha = painting.matte.map_or(&[][..], |matte| matte.alpha);
-        if !invert_matte_in_place(rgba, (width, height), &tables, alpha) {
-            *rgba = unpack_matted_eight_bit_device(
-                rgba,
-                (width, height),
-                (width.saturating_mul(4), 4),
-                &tables,
-                alpha,
-            );
+        let (alpha, opacity) = painting
+            .matte
+            .map_or((&[][..], false), |matte| (matte.alpha, matte.opacity));
+        if invert_matte_in_place(rgba, (width, height), &tables, (alpha, opacity)) {
+            return Ok(Ok(opacity));
         }
-        return Ok(Ok(()));
+        *rgba = unpack_matted_eight_bit_device(
+            rgba,
+            (width, height),
+            (width.saturating_mul(4), 4),
+            &tables,
+            alpha,
+        );
+        return Ok(Ok(false));
     }
     let raw: Vec<u8> = rgba
         .chunks_exact(4)
         .flat_map(|pixel| pixel.iter().take(wanted).copied())
         .collect();
     *rgba = unpack(&raw, grid.0, grid.1, &samples)?;
-    Ok(Ok(()))
+    Ok(Ok(false))
 }
 
 /// [`unpack_matted_eight_bit_device`] over a frame of four-byte pixels that covers its grid, each
@@ -1123,11 +1146,16 @@ fn matte_through_unpack(
 /// grey table's entry three times) in both, read from the same four bytes before they are written,
 /// and with every sample and mask value present neither function meets the rows' short ends.
 /// `the_matte_table_route_unpacks_the_per_sample_routes_pixels` holds the three to one answer.
+///
+/// `opacity` writes `α` where the alpha byte is 255 otherwise: [`Prematte::opacity`]'s case, the
+/// soft mask's multiplication taken in the same pass, to the byte it would have written
+/// (`a_matte_inverted_with_its_opacity_is_the_inversion_then_the_multiplication`). On
+/// `issue13931.pdf` the multiplication was a second pass over 51 MB (ADR 1481 section 6, ADR 1519).
 fn invert_matte_in_place(
     rgba: &mut [u8],
     (width, height): (usize, usize),
     tables: &[MatteTable],
-    alpha: &[u8],
+    (alpha, opacity): (&[u8], bool),
 ) -> bool {
     let pixels = width.saturating_mul(height);
     if width == 0 || rgba.len() != pixels.saturating_mul(4) || alpha.len() < pixels {
@@ -1136,11 +1164,14 @@ fn invert_matte_in_place(
     let entry = |table: &MatteTable, alpha: u8, sample: u8| {
         table[usize::from(alpha) << 8 | usize::from(sample)]
     };
+    // `α | cover` is the alpha byte: 255 where the multiplication comes after, and `α` itself
+    // where it is taken here — one walk either way, the choice made once rather than per pixel.
+    let cover = if opacity { 0 } else { u8::MAX };
     let invert = |(pixels, alphas): (&mut [[u8; 4]], &[u8])| match tables {
         [grey] => {
             for (pixel, &alpha) in pixels.iter_mut().zip(alphas) {
                 let level = entry(grey, alpha, pixel[0]);
-                *pixel = [level, level, level, u8::MAX];
+                *pixel = [level, level, level, alpha | cover];
             }
         }
         [red, green, blue] => {
@@ -1149,7 +1180,7 @@ fn invert_matte_in_place(
                     entry(red, alpha, pixel[0]),
                     entry(green, alpha, pixel[1]),
                     entry(blue, alpha, pixel[2]),
-                    u8::MAX,
+                    alpha | cover,
                 ];
             }
         }
@@ -1233,7 +1264,7 @@ fn samples_of_frame(
     // §11.6.5.2's inversion, before the colour conversion as the clause orders it, and
     // computed where every other route computes it (`matte_through_unpack`).
     let mut shortfall = None;
-    let matted = match painting.matte {
+    let (matted, mask_in_alpha) = match painting.matte {
         Some(_) if !painting.is_mask => {
             match matte_through_unpack(
                 at,
@@ -1242,14 +1273,14 @@ fn samples_of_frame(
                 grid,
                 (width, height),
             )? {
-                Ok(()) => true,
+                Ok(mask_in_alpha) => (true, mask_in_alpha),
                 Err(sentence) => {
                     shortfall = Some(sentence);
-                    false
+                    (false, false)
                 }
             }
         }
-        _ => false,
+        _ => (false, false),
     };
     if !matted {
         convert_channels(at, painting.is_mask, components, &mut rgba, painting.into)?;
@@ -1269,6 +1300,7 @@ fn samples_of_frame(
         opacity_included: false,
         stencil_opacity: None,
         shortfall,
+        mask_in_alpha,
     })
 }
 
@@ -1584,9 +1616,40 @@ struct Prematte<'a> {
     matte: &'a [f32],
     /// The mask's samples, one byte each, on the parent image's grid: the clause's `α`.
     alpha: &'a [u8],
+    /// Whether [`Self::alpha`] is the very plane [`apply_soft_mask`] would multiply into the
+    /// raster, on the raster's own grid — so that an inversion writing every pixel may write `α`
+    /// as its alpha and leave the multiplication nothing to do (ADR 1519).
+    ///
+    /// The byte is the same: the inversion leaves every alpha at 255, and the multiplication
+    /// writes `(255 × α + 127) ÷ 255`, which is `α` for every `α` from 0 to 255 because 127 is
+    /// less than 255. No rounding is taken or saved, so this is a pass over the raster removed and
+    /// not an answer changed.
+    opacity: bool,
 }
 
-impl Prematte<'_> {
+impl<'a> Prematte<'a> {
+    /// The pre-blending [`matte_before_samples`] found, borrowed.
+    fn of((matte, alpha, opacity): &'a Premultiplied) -> Self {
+        Self {
+            matte,
+            alpha,
+            opacity: *opacity,
+        }
+    }
+
+    /// The same matte over `alpha`, a plane carried onto another grid, which is therefore not the
+    /// plane the eager route multiplies in.
+    fn carried<'b>(&self, alpha: &'b [u8]) -> Prematte<'b>
+    where
+        'a: 'b,
+    {
+        Prematte {
+            matte: self.matte,
+            alpha,
+            opacity: false,
+        }
+    }
+
     /// The original components of the pixel at `at`, from the pre-blended ones.
     ///
     /// `c = m + (c′ - m) ÷ α`, per component, clamped by §11.6.5.2's own closing requirement —
@@ -3082,8 +3145,7 @@ fn decode_jpx(
     // ([`alpha_on_grid`], ADR 1324), so the pre-blending is undone there too.
     let grid = (raster.width, raster.height);
     let carried = matte_alpha_on(painting.matte, (width, height), grid);
-    let on_grid =
-        (painting.matte.zip(carried.as_deref())).map(|(m, alpha)| Prematte { alpha, ..*m });
+    let on_grid = (painting.matte.zip(carried.as_deref())).map(|(m, alpha)| m.carried(alpha));
     Ok(SamplesOnGrid {
         rgba: jpx_samples_to_rgba(
             &raster,
@@ -3098,6 +3160,7 @@ fn decode_jpx(
         opacity_included: opacity_channel.use_opacity,
         stencil_opacity: None,
         shortfall,
+        mask_in_alpha: false,
     })
 }
 
@@ -3539,6 +3602,7 @@ fn jpx_stencil(
         opacity_included: use_opacity,
         stencil_opacity,
         shortfall: None,
+        mask_in_alpha: false,
     })
 }
 
@@ -7722,7 +7786,9 @@ struct Softened {
 /// `/Matte` is no reason to combine, for the reason the stencil branch below gives. ADR 1279.
 ///
 /// `made` is [`eager_soft_mask`]'s answer where the caller already has it — decoded beside the
-/// image's samples, or once for a `/Matte` (ADR 1469) — and it is asked here otherwise.
+/// image's samples, or once for a `/Matte` (ADR 1469) — and it is asked here otherwise. Where the
+/// `/Matte`'s inversion already wrote it as the alpha ([`EagerMask::InTheSamples`]) it is applied,
+/// and nothing is multiplied a second time (ADR 1519).
 fn apply_soft_mask(
     document: &Document,
     dict: &Dictionary,
@@ -7732,6 +7798,14 @@ fn apply_soft_mask(
 ) -> Softened {
     let made = match made {
         EagerMask::Asked(made) => made,
+        EagerMask::InTheSamples(mask) => {
+            return Softened {
+                image,
+                shortfall: mask.shortfall,
+                applied: true,
+                apart: None,
+            };
+        }
         EagerMask::Unasked => eager_soft_mask(document, dict, resources),
     };
     let Some(mask) = made else {
@@ -8312,6 +8386,7 @@ mod tests {
             let prematte = super::Prematte {
                 matte: &matte,
                 alpha: &alpha,
+                opacity: false,
             };
             let samples = super::Samples {
                 bits: 8,
@@ -8384,15 +8459,86 @@ mod tests {
                 &mut in_place,
                 (width, height - 1),
                 &inversions,
-                &alpha,
+                (&alpha, false),
             ));
             assert_eq!(in_place, expected[..whole * 4], "{space:?}, in place");
             assert!(!super::invert_matte_in_place(
                 &mut framed.clone(),
                 (width, height),
                 &inversions,
-                &alpha,
+                (&alpha, false),
             ));
+        }
+    }
+
+    /// §11.6.5.2's inversion with the soft mask's opacity written in the same pass is, byte for
+    /// byte, the inversion followed by the multiplication [`super::apply_soft_mask`] makes: every
+    /// mask value from 0 to 255 against every sample value, in grey and in RGB (ADR 1519). The
+    /// multiplication's `(255 × α + 127) ÷ 255` is `α` exactly, so no rounding is taken or saved.
+    #[test]
+    fn a_matte_inverted_with_its_opacity_is_the_inversion_then_the_multiplication() {
+        for (space, matte) in [
+            (super::ColourSpace::Gray, vec![0.25_f32]),
+            (super::ColourSpace::Rgb, vec![0.0, 1.0, 0.6]),
+        ] {
+            let decode = super::Decode::from_pairs(&[], &space, 8);
+            let into = super::Conversion::device();
+            let (width, height) = (256_usize, 256_usize);
+            let alpha: Vec<u8> = (0..width * height)
+                .map(|index| u8::try_from(index / width).expect("a row under 256"))
+                .collect();
+            let prematte = super::Prematte {
+                matte: &matte,
+                alpha: &alpha,
+                opacity: true,
+            };
+            let samples = super::Samples {
+                bits: 8,
+                space: &space,
+                decode: &decode,
+                colour_key: None,
+                fill: pdf_render::Color::BLACK,
+                into: &into,
+                matte: Some(&prematte),
+            };
+            let tables = super::matted_eight_bit_device_tables(&samples, width, height)
+                .expect("an image at the floor is tabulated");
+            // Each row one mask value, each column one sample value in every component.
+            let frame: Vec<u8> = (0..width * height)
+                .flat_map(|index| {
+                    let sample = u8::try_from(index % width).expect("a column under 256");
+                    [sample, sample.wrapping_add(85), sample.wrapping_add(170), 0]
+                })
+                .collect();
+            let mut fused = frame.clone();
+            assert!(super::invert_matte_in_place(
+                &mut fused,
+                (width, height),
+                &tables,
+                (&alpha, true),
+            ));
+            let mut inverted = frame;
+            assert!(super::invert_matte_in_place(
+                &mut inverted,
+                (width, height),
+                &tables,
+                (&alpha, false),
+            ));
+            let mut image = pdf_render::Image {
+                width: u32::try_from(width).expect("256"),
+                height: u32::try_from(height).expect("256"),
+                data: inverted.into(),
+                interpolate: false,
+                sample_alpha: pdf_render::SampleAlpha::Shape,
+            };
+            let plane = super::MaskSamples {
+                width: image.width,
+                height: image.height,
+                data: &alpha,
+                stride: 1,
+            };
+            assert!(super::opacity_multiplied_in_place(&mut image, plane));
+            assert_eq!(&fused[..], &image.data[..], "{space:?}");
         }
     }
 

@@ -29,7 +29,9 @@ use super::{GraphicsState, Interpreter};
 /// within a tenth of a space and word gaps from about three quarters of one up, with a flat trough
 /// from 0.3 to 0.75 between them; half sits in that trough, the fewest steps lie within a quarter
 /// of the threshold either side of it, and the threshold falls inside more fonts' own widest gap
-/// between the two clusters than 0.6 or 0.7 does.
+/// between the two clusters than 0.6 or 0.7 does. It is the threshold of every font a page shows
+/// too few steps of to decide by, and the ceiling of the one [`own_threshold`] reads off a font's
+/// own steps (ADR 1515).
 const WORD_GAP_SHARE: f32 = 0.5;
 
 /// The space, in ems, read for a font that states none at code 32.
@@ -40,6 +42,198 @@ const WORD_GAP_SHARE: f32 = 0.5;
 /// 0.278 em), and under [`WORD_GAP_SHARE`] it makes the threshold an eighth of an em, inside the
 /// trough between kerning and word gaps that such fonts' own steps show (ADR 1502).
 const NOMINAL_SPACE_EM: f32 = 0.25;
+
+/// The least share of a space a font's own threshold may take, and so the shortest gap
+/// [`Interpreter::separate_text`] keeps a provisional space for.
+///
+/// **A choice** (ADR 1515): the floor of the trough ADR 1502 measured between the kerning and the
+/// word-gap clusters — 0.3 of a stated space, 0.065 em of a font stating none, which is 0.26 of the
+/// quarter em [`NOMINAL_SPACE_EM`] reads it with. No font's threshold goes below it, however its
+/// own steps fall.
+const LEAST_WORD_GAP_SHARE: f32 = 0.25;
+
+/// How many steps along a line a font has to show on a page before its own steps decide its
+/// threshold; below it, [`WORD_GAP_SHARE`] does (ADR 1515).
+const STEPS_TO_DECIDE: usize = 40;
+
+/// How wide, as the ratio of its two edges, the empty interval below a font's word gaps has to be
+/// before it is read as the font's own threshold (ADR 1515): twice, so that a page's kerning and
+/// its word gaps are a factor apart rather than neighbours.
+const GAP_TO_DECIDE: f32 = 2.0;
+
+/// The steps along a line one page showed, per font, kept until the page is finished.
+///
+/// §9.4.4 places glyphs and states no quantity that separates words, so where a word ends is this
+/// program's choice (ADR 1502). ADR 1515 makes it per font: a font's steps between show operations
+/// fall into a kerning cluster and a word-gap cluster, and where the empty interval between the
+/// two lies differs from font to font — so the threshold is read off the page's own steps once
+/// the walk has seen them all. The walk keeps a provisional space for every step a threshold
+/// could call a word gap, and [`Interpreter::settle_word_gaps`] takes back the ones the font's own
+/// threshold does not.
+#[derive(Debug, Clone, Default)]
+pub(super) struct WordGaps {
+    /// The fonts the steps were shown in, each once, held so that its identity outlives the walk.
+    fonts: Vec<Font>,
+    /// Every step along a line, in the order the walk measured them.
+    steps: Vec<Step>,
+}
+
+/// One step [`Interpreter::separate_text`] measured along a line, in text space.
+#[derive(Debug, Clone, Copy)]
+struct Step {
+    /// Which of [`WordGaps::fonts`] the show operation after the step was in.
+    font: usize,
+    /// How far the pen moved forward between the two show operations.
+    along: f32,
+    /// The space the gap is measured against: the font's own, or [`NOMINAL_SPACE_EM`].
+    space: f32,
+    /// How many codes the show operation after the step holds.
+    run: usize,
+    /// The provisional space the walk put in for this step, if it put one in.
+    provisional: Provisional,
+}
+
+/// Whether a step left a space in the readback for [`Interpreter::settle_word_gaps`] to decide.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Provisional {
+    /// Too short for any threshold: no space.
+    None,
+    /// A space at this byte of the readback.
+    At(usize),
+    /// A space that was put in and then discarded with the text around it — an `/ActualText`
+    /// replaced it (§14.9.4) — still counted in [`Interpreter::inferred_separators`].
+    Discarded,
+}
+
+impl WordGaps {
+    /// The index of `font` in [`Self::fonts`], adding it the first time it is seen.
+    fn font_index(&mut self, font: &Font) -> usize {
+        // A line is usually one font, so the step before is asked first.
+        if let Some(last) = self.steps.last()
+            && self
+                .fonts
+                .get(last.font)
+                .is_some_and(|held| same_font(held, font))
+        {
+            return last.font;
+        }
+        let found = self.fonts.iter().rposition(|held| same_font(held, font));
+        found.unwrap_or_else(|| {
+            self.fonts.push(font.clone());
+            self.fonts.len().saturating_sub(1)
+        })
+    }
+
+    /// Forgets the provisional spaces at or after `len`, which the readback has just been cut to.
+    ///
+    /// Each one is still a step the page showed, so it stays in its font's steps; only its place
+    /// in the text is gone.
+    pub(super) fn discard_from(&mut self, len: usize) {
+        for step in self.steps.iter_mut().rev() {
+            match step.provisional {
+                Provisional::At(at) if at >= len => step.provisional = Provisional::Discarded,
+                Provisional::At(_) => break,
+                Provisional::None | Provisional::Discarded => {}
+            }
+        }
+    }
+
+    /// How many steps are held, for a rewind to come back to.
+    pub(super) fn len(&self) -> usize {
+        self.steps.len()
+    }
+
+    /// Takes back every step measured after the first `len`.
+    pub(super) fn truncate(&mut self, len: usize) {
+        self.steps.truncate(len);
+    }
+
+    /// Each font's threshold, as a share of the space its steps were measured against.
+    fn thresholds(&self) -> Vec<f32> {
+        let mut shares: Vec<Vec<(f32, usize)>> = vec![Vec::new(); self.fonts.len()];
+        for step in &self.steps {
+            let share = step.along / step.space;
+            if let Some(held) = shares.get_mut(step.font)
+                && share.is_finite()
+            {
+                held.push((share, step.run));
+            }
+        }
+        shares
+            .into_iter()
+            .map(|mut held| own_threshold(&mut held))
+            .collect()
+    }
+}
+
+/// Whether two loaded fonts are one: the page's font cache hands out one `Arc` per font object.
+fn same_font(a: &Font, b: &Font) -> bool {
+    match (a, b) {
+        (Font::Program(a), Font::Program(b)) => Arc::ptr_eq(a, b),
+        (Font::Type3(a), Font::Type3(b)) => Arc::ptr_eq(a, b),
+        (Font::Program(_), Font::Type3(_)) | (Font::Type3(_), Font::Program(_)) => false,
+    }
+}
+
+/// One font's threshold, read off the shares of a space its steps on this page moved, each with
+/// the number of codes the show operation after it held.
+///
+/// ADR 1515's rule, which only ever **lowers** [`WORD_GAP_SHARE`]: a font whose producer set its
+/// word gaps nearer its kerning than its own space is the one the constant reads as unbroken text
+/// ("Linktopage1."), and the reverse case had no gain on the corpus that was not paid for by a
+/// page number joined to its leader. Where the font shows at least [`STEPS_TO_DECIDE`] steps, the
+/// widest empty interval between neighbouring steps — the ratio of its edges, since the clusters are
+/// a factor apart rather than a distance — that reaches into
+/// [`LEAST_WORD_GAP_SHARE`]..[`WORD_GAP_SHARE`] is the font's gap below its word gaps, provided it
+/// is at least [`GAP_TO_DECIDE`] wide; its geometric middle, held inside that window, is the
+/// threshold. And the steps it reads differently from the constant must, more often than not,
+/// lead into a show operation of more than one code — a word — because a step before a single
+/// code is a letter set apart, and a threshold lowered on letter-spaced type would spell
+/// "Ta b l e". Otherwise the constant stands.
+fn own_threshold(shares: &mut [(f32, usize)]) -> f32 {
+    if shares.len() < STEPS_TO_DECIDE {
+        return WORD_GAP_SHARE;
+    }
+    shares.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
+    let mut widest: Option<(f32, f32, f32)> = None;
+    for pair in shares.windows(2) {
+        let [(low, _), (high, _)] = pair else {
+            continue;
+        };
+        if *low <= 0.0 || *high <= *low || *high < LEAST_WORD_GAP_SHARE {
+            continue;
+        }
+        if *low > WORD_GAP_SHARE {
+            break;
+        }
+        let ratio = high / low;
+        if widest.is_none_or(|(_, _, best)| ratio > best) {
+            widest = Some((*low, *high, ratio));
+        }
+    }
+    let Some((low, high, ratio)) = widest else {
+        return WORD_GAP_SHARE;
+    };
+    if ratio < GAP_TO_DECIDE {
+        return WORD_GAP_SHARE;
+    }
+    let threshold = (low * high)
+        .sqrt()
+        .clamp(LEAST_WORD_GAP_SHARE, WORD_GAP_SHARE);
+    let (moved, words) = shares
+        .iter()
+        .filter(|(share, _)| *share > threshold && *share <= WORD_GAP_SHARE)
+        .fold((0_usize, 0_usize), |(moved, words), (_, run)| {
+            (
+                moved.saturating_add(1),
+                words.saturating_add(usize::from(*run > 1)),
+            )
+        });
+    if words.saturating_mul(2) < moved {
+        return WORD_GAP_SHARE;
+    }
+    threshold
+}
 
 /// What a text object owns, as against what the graphics state does.
 ///
@@ -521,7 +715,7 @@ impl Interpreter<'_> {
         let size = state.text.size;
         let scale = state.text.horizontal_scale;
 
-        let word_gap = Self::word_gap(&font, size);
+        let space = Self::space(&font, size);
         let vertical = font.is_vertical();
 
         // §14.8.2.5.3: inside a `ReversedChars` sequence, "the sequence of the characters as
@@ -568,7 +762,7 @@ impl Interpreter<'_> {
         // `Td`, `T*` and `Tm` land.
         let codes = font.decode(bytes);
         if !codes.is_empty() {
-            self.separate_text(text.matrix, size, scale, word_gap, vertical);
+            self.separate_text(&font, text.matrix, size, scale, space, codes.len());
         }
 
         for code in codes {
@@ -952,9 +1146,9 @@ impl Interpreter<'_> {
         })
     }
 
-    /// How wide a gap has to be before it means a word break rather than kerning.
+    /// The space a gap is measured against before it means a word break rather than kerning.
     ///
-    /// Measured against the font's own space, because that is what a word break is made of.
+    /// The font's own space, because that is what a word break is made of.
     /// A fixed fraction of the font size cannot work: a title set with loose tracking moves
     /// each glyph further than a body-text space, and judging it by size alone spells
     /// "Clarification" as "Clar if ic at ion".
@@ -963,18 +1157,18 @@ impl Interpreter<'_> {
     /// size is permitted", and a negative threshold is below every gap there is — which would
     /// have put a space between every pair of glyphs in the extracted text.
     ///
-    /// **Both numbers are choices** (ADR 1502): §9.3 and §9.4.4 state no quantity that separates
-    /// words, and §14.8.2.6.2 calls any such reading a heuristic. [`WORD_GAP_SHARE`] says a gap
-    /// is a word break once it is nearer a space than no gap at all, and [`NOMINAL_SPACE_EM`] is
-    /// the space a font stating none is read with.
-    fn word_gap(font: &Font, size: f32) -> f32 {
+    /// **Both numbers are choices** (ADRs 1502, 1515): §9.3 and §9.4.4 state no quantity that
+    /// separates words, and §14.8.2.6.2 calls any such reading a heuristic. [`NOMINAL_SPACE_EM`] is
+    /// the space a font stating none is read with, and the share of it a gap has to exceed is the
+    /// font's own, decided by [`Self::settle_word_gaps`].
+    fn space(font: &Font, size: f32) -> f32 {
         let stated = font.advance(Code::single_byte(32));
         let space_em = if stated > 0.0 {
             stated
         } else {
             NOMINAL_SPACE_EM
         };
-        space_em * size.abs() * WORD_GAP_SHARE
+        space_em * size.abs()
     }
 
     /// Adds a space or a newline to the readback where the glyphs' positions imply one.
@@ -1009,19 +1203,27 @@ impl Interpreter<'_> {
     /// > interpreted in text space.
     ///
     /// so the distance a show string moved from where the last glyph left the pen is compared
-    /// with `word_gap` — a fraction of a displacement — in the space that displacement is in:
+    /// with `space` — a displacement — in the space that displacement is in:
     /// [`Self::text_space_step`] takes it back through the text matrix's linear part and out of
     /// `Th`, and the direction a glyph advances there is the sign of `Tfs`. Read along user-space
     /// x instead, a mirroring `Tm` turns every `TJ` adjustment that closes a gap into one that
     /// opens it, and a `Tm` that scales measures a gap in different units from the threshold.
+    ///
+    /// **A gap along the line is decided when the page is finished** (ADR 1515). Its threshold is
+    /// a share of `space` that the font's own steps on the page choose, so here every gap wider
+    /// than [`LEAST_WORD_GAP_SHARE`] of a space — the least that share can be — leaves a
+    /// provisional space, and every gap is recorded in [`Self::word_gaps`] for
+    /// [`Self::settle_word_gaps`] to keep or take back.
     fn separate_text(
         &mut self,
+        font: &Font,
         matrix: Transform,
         size: f32,
         scale: f32,
-        word_gap: f32,
-        vertical: bool,
+        space: f32,
+        run: usize,
     ) {
+        let vertical = font.is_vertical();
         // The text-space origin under the matrix is simply its translation.
         let here = (matrix.e, matrix.f);
         let Some((last_x, last_y)) = self.text_cursor else {
@@ -1041,14 +1243,122 @@ impl Interpreter<'_> {
         if across.abs() > size.abs() * 0.5 {
             self.text.push('\n');
             self.inferred_separators = self.inferred_separators.saturating_add(1);
-        } else if along > word_gap {
-            self.text.push(' ');
-            self.inferred_separators = self.inferred_separators.saturating_add(1);
+        } else if along > 0.0 {
+            let provisional = if along > space * LEAST_WORD_GAP_SHARE {
+                let at = self.text.len();
+                self.text.push(' ');
+                self.inferred_separators = self.inferred_separators.saturating_add(1);
+                Provisional::At(at)
+            } else {
+                Provisional::None
+            };
+            let font = self.word_gaps.font_index(font);
+            self.word_gaps.steps.push(Step {
+                font,
+                along,
+                space,
+                run,
+                provisional,
+            });
+        }
+    }
+
+    /// Cuts the readback to `len` bytes, and forgets the provisional spaces cut with it.
+    ///
+    /// The one way the readback is shortened, so that no provisional space of [`WordGaps`] can
+    /// name a byte that something else has since been written to.
+    pub(super) fn truncate_readback(&mut self, len: usize) {
+        self.text.truncate(len);
+        self.word_gaps.discard_from(len);
+    }
+
+    /// Writes §14.9.4's replacement where the enclosed operators' readback was cut away, and gives
+    /// each code they showed the whole of it.
+    ///
+    /// §14.9.4 makes `/ActualText` a replacement for the content rather than a description of it,
+    /// so a glyph inside the sequence reads back as the replacement and nothing narrower: its span
+    /// covers the replacement, rather than whatever bytes of it its own readback once occupied —
+    /// which would make what a selection or a caret finds there depend on how many spaces the cut
+    /// text happened to hold (ADR 1515).
+    pub(super) fn push_replacement(&mut self, replacement: &str) {
+        let from = self.text.len();
+        self.text.push_str(replacement);
+        let to = self.text.len();
+        for placed in self.text_layer.iter_mut().rev() {
+            if placed.span.start < from {
+                break;
+            }
+            placed.span = from..to;
+        }
+    }
+
+    /// Keeps or takes back each provisional space by its font's own threshold (ADR 1515).
+    ///
+    /// Run once, when the page's content and its annotations have all been walked, so that each
+    /// font's threshold is read off every step it showed. A space taken back is removed from the
+    /// readback and every range over it — the text layer's spans, §14.9's and §14.8.2.2's, the
+    /// marked-content sequences, the associated files and the structural annotations — is moved to
+    /// match; where every provisional space is kept, nothing is touched.
+    pub(super) fn settle_word_gaps(&mut self) {
+        let thresholds = self.word_gaps.thresholds();
+        let mut removed: Vec<usize> = Vec::new();
+        for step in &self.word_gaps.steps {
+            let share = thresholds.get(step.font).copied().unwrap_or(WORD_GAP_SHARE);
+            if step.along > step.space * share {
+                continue;
+            }
+            match step.provisional {
+                Provisional::None => {}
+                Provisional::At(at) => {
+                    removed.push(at);
+                    self.inferred_separators = self.inferred_separators.saturating_sub(1);
+                }
+                Provisional::Discarded => {
+                    self.inferred_separators = self.inferred_separators.saturating_sub(1);
+                }
+            }
+        }
+        self.word_gaps = WordGaps::default();
+        if removed.is_empty() {
+            return;
+        }
+        // The provisional spaces' bytes rise strictly through the walk — a cut forgets every one
+        // after it — so a position moves back by the number of removed bytes before it.
+        let mut kept = String::with_capacity(self.text.len().saturating_sub(removed.len()));
+        let mut from = 0;
+        for &at in &removed {
+            kept.push_str(self.text.get(from..at).unwrap_or_default());
+            from = at.saturating_add(1);
+        }
+        kept.push_str(self.text.get(from..).unwrap_or_default());
+        self.text = kept;
+        let moved =
+            |position: usize| position.saturating_sub(removed.partition_point(|&at| at < position));
+        let span = |range: &mut std::ops::Range<usize>| {
+            *range = moved(range.start)..moved(range.end);
+        };
+        for placed in &mut self.text_layer {
+            span(&mut placed.span);
+        }
+        for described in &mut self.described {
+            span(&mut described.range);
+        }
+        for artifact in &mut self.artifacts {
+            span(&mut artifact.range);
+        }
+        for marked in &mut self.marked {
+            span(&mut marked.range);
+        }
+        for (range, _) in &mut self.associated {
+            span(range);
+        }
+        for range in &mut self.structural_annotations {
+            span(range);
         }
     }
 
     /// A step between two text positions, from the space the text matrix's translation is in
-    /// back into text space with `Th` taken out: the space `word_gap` and the font size measure.
+    /// back into text space with `Th` taken out: the space `space` and the font size measure.
     ///
     /// The translation is not part of a *step*, so only the matrix's linear part is undone. `Th`
     /// multiplies §9.4.4's `tx` alone, so it is divided out of the horizontal component alone,
@@ -1665,9 +1975,9 @@ mod tests {
     //! `separate_text`'s gap, read in §9.4.4's text space (ADR 1490).
     //!
     //! Each page is one `TJ` in Helvetica at 20 units, whose `a` and `b` are 556 thousandths wide
-    //! and whose space is 278, so `word_gap` is 278 × 20 / 1000 × 0.5 = 2.78 text-space units at
-    //! `20 Tf` and 0.139 at `1 Tf`. Every expected readback follows from §9.4.4's `tx` and the
-    //! `Tm` written beside it.
+    //! and whose space is 278, so — with fewer steps than a font's own threshold is read off (ADR
+    //! 1515) — the threshold is 278 × 20 / 1000 × 0.5 = 2.78 text-space units at `20 Tf` and 0.139
+    //! at `1 Tf`. Every expected readback follows from §9.4.4's `tx` and the `Tm` written beside it.
 
     #![expect(
         clippy::arithmetic_side_effects,
@@ -1690,6 +2000,11 @@ mod tests {
 
     /// The readback of a one-page document whose content stream is `content`, in `font`.
     fn readback_in(font: &str, content: &str) -> String {
+        interpretation_in(font, content).text
+    }
+
+    /// The interpretation of a one-page document whose content stream is `content`, in `font`.
+    fn interpretation_in(font: &str, content: &str) -> crate::Interpretation {
         let body = format!(
             "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
              2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
@@ -1721,7 +2036,16 @@ mod tests {
             pdf_syntax::Document::open(out.into_bytes()).expect("the fixture is a valid file");
         let pages = crate::Pages::new(&document);
         let page = pages.get(0).expect("one page");
-        crate::interpret(&document, &page).text
+        crate::interpret(&document, &page)
+    }
+
+    /// A `TJ` of `words` words, each `(ab) -10 (ab)` and then `gap` before the next.
+    fn words_set_apart(gap: i32, words: usize) -> String {
+        let mut array = String::new();
+        for _ in 0..words {
+            let _ = write!(array, "(ab) -10 (ab) {gap} ");
+        }
+        format!("BT /F1 20 Tf 10 100 Td [{array}] TJ ET")
     }
 
     /// A `TJ` written in reading order under a mirroring `Tm`: each adjustment of 1000 moves the
@@ -1827,6 +2151,70 @@ mod tests {
             ),
             "a b ab"
         );
+    }
+
+    /// A font whose producer set its word gaps nearer its kerning than its own space: Helvetica,
+    /// kerned at 0.01 em (0.036 of its space) and its words set 0.09 em apart (0.32 of it), over
+    /// forty steps. Under the constant half a space every gap is kerning and the line reads as one
+    /// word; the font's own steps put the empty interval between 0.036 and 0.32, and a threshold
+    /// inside it reads each pair of strings as a word (ADR 1515).
+    #[test]
+    fn a_font_whose_word_gaps_sit_below_half_its_space_breaks_at_its_own_gap() {
+        assert_eq!(readback(&words_set_apart(-90, 21)), ["abab"; 21].join(" "));
+    }
+
+    /// The same steps with every string a single code are a letter-spaced line rather than words,
+    /// and the font's own gap does not decide: the constant reads it as one word (ADR 1515).
+    #[test]
+    fn letter_spaced_single_codes_keep_the_constant() {
+        let mut array = String::new();
+        for _ in 0..21 {
+            array.push_str("(a) -10 (b) -90 ");
+        }
+        let content = format!("BT /F1 20 Tf 10 100 Td [{array}] TJ ET");
+        assert_eq!(readback(&content), "ab".repeat(21));
+    }
+
+    /// A provisional space the constant takes back leaves every range over the readback where its
+    /// characters are: 0.1 em in Helvetica is 0.36 of its space, so `[(ab) -100 (cd)]` reads "abcd",
+    /// each code's span is its own character, and the `/MCID` sequence around it covers all four.
+    #[test]
+    fn a_space_taken_back_moves_the_ranges_over_the_text() {
+        let read = interpretation_in(
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            "/P << /MCID 0 >> BDC BT /F1 20 Tf 10 100 Td [(ab) -100 (cd)] TJ ET EMC",
+        );
+        assert_eq!(read.text, "abcd");
+        let spans: Vec<_> = read
+            .text_layer
+            .iter()
+            .map(|placed| placed.span.clone())
+            .collect();
+        assert_eq!(spans, [0..1, 1..2, 2..3, 3..4]);
+        assert_eq!(read.inferred_separators, 0);
+        let marked: Vec<(usize, usize)> = read
+            .marked
+            .iter()
+            .map(|span| (span.range.start, span.range.end))
+            .collect();
+        assert_eq!(marked, [(0, 4)]);
+    }
+
+    /// §14.9.4's replacement stands for every code it encloses: each of the four codes shown
+    /// inside the sequence reads back as "xy", whatever space the cut readback held between them.
+    #[test]
+    fn a_code_inside_a_replacement_reads_back_as_all_of_it() {
+        let read = interpretation_in(
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            "/Span << /ActualText (xy) >> BDC BT /F1 20 Tf 10 100 Td [(ab) -300 (cd)] TJ ET EMC",
+        );
+        assert_eq!(read.text, "xy");
+        let spans: Vec<_> = read
+            .text_layer
+            .iter()
+            .map(|placed| placed.span.clone())
+            .collect();
+        assert_eq!(spans, [0..2, 0..2, 0..2, 0..2]);
     }
 
     /// A gap of 0.15 em in Helvetica is 0.54 of its 278-thousandth space: nearer a space than no

@@ -4143,6 +4143,22 @@ const CONTRADICTED_LUMINOSITY_OF_A_CIE_BASED_MASK: [&str; 1] = ["issue21346.pdf 
 /// box, `/Rotate` or `/UserUnit` read differently means the comparison cannot even proceed.
 const GEOMETRY: [&str; 0] = [];
 
+/// The pages whose geometry we read differently from every reference **and report**.
+///
+/// All three state no page size the standard admits — `boundingBox_invalid.pdf` a `/MediaBox`
+/// enclosing no area, `operator_list_cycle.pdf` and `pdfbox/PDFBOX-6018-099267-p9-OrphanPopups.pdf`
+/// no `/MediaBox` anywhere in the ancestry, which Table 31 requires and §7.7.3.4 inherits — so
+/// each is drawn on this reader's default, A4, and the report says it is not the producer's; the
+/// references choose Letter. Neither is derived: where the file states no medium the standard
+/// states none either. Held by name, both directions, for the reason
+/// [`AMBIGUOUS_ON_A_PAGE_WE_REPORT`] is (ADR 1522): [`GEOMETRY`] holds complete pages only, and
+/// these were counted by the walk and held by nothing.
+const GEOMETRY_ON_A_PAGE_WE_REPORT: [&str; 3] = [
+    "boundingBox_invalid.pdf page 1",
+    "operator_list_cycle.pdf page 1",
+    "pdfbox/PDFBOX-6018-099267-p9-OrphanPopups.pdf page 1",
+];
+
 // ---------------------------------------------------------------------------------------
 // `no render`: the verdict this gate reaches without asking the references
 // ---------------------------------------------------------------------------------------
@@ -11525,6 +11541,54 @@ const AMBIGUOUS_PAGE_PLACED_A_ROW_APART: [&str; 4] = [
     "pdfbox/PDFBOX-3110-poems-beads.pdf page 2",
 ];
 
+/// The ambiguous pages this reader draws **and reports**, held by name because no other group can
+/// hold them.
+///
+/// The walk counts every ambiguous page and the groups above hold only the complete ones, because
+/// an incomplete page's picture is knowingly short and owes no diagnosis of its pixels (the module
+/// documentation, and the diagnosis of `comments.pdf` page 1 in
+/// [`AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE`]). So the run's ambiguous total stood above what
+/// `tools/state.sh oracle-held` could print by exactly these pages, and nothing watched them in
+/// either direction (ADR 1522).
+///
+/// **What they owe is said once, in `corpus.rs`.** Every document here is on that gate's
+/// `INCOMPLETE` list, beside the clause its report rests on — `issue15441.pdf` and its run are
+/// §9.7.5.2's Identity-H with a non-embedded font, `bug1050040.pdf` a damaged embedded font
+/// program, `ContentStreamCycleType3insideType3.pdf` a cycle, `checkbox_no_appearance.pdf` an
+/// annotation its own clause cannot draw — and
+/// `the_pages_ambiguous_on_a_page_we_report_are_on_the_corpus_incomplete_list` reads that list
+/// rather than copying it. What this group adds is the verdict: of the incomplete pages the walk
+/// judges, these are the ones no two references settle, and a page arriving here or leaving is a
+/// change to a page whose report says why it is short.
+const AMBIGUOUS_ON_A_PAGE_WE_REPORT: [&str; 26] = [
+    "ContentStreamCycleType3insideType3.pdf page 1",
+    "ThuluthFeatures.pdf page 1",
+    "bug1050040.pdf page 1",
+    "checkbox_no_appearance.pdf page 1",
+    "issue11242_reduced.pdf page 1",
+    "issue11578_reduced.pdf page 1",
+    "issue11651.pdf page 1",
+    "issue11915.pdf page 1",
+    "issue12418_reduced.pdf page 1",
+    "issue13316_reduced.pdf page 1",
+    "issue13916.pdf page 1",
+    "issue14165.pdf page 1",
+    "issue15441.pdf page 1",
+    "issue15443.pdf page 1",
+    "issue15594_reduced.pdf page 1",
+    "issue15977_reduced.pdf page 1",
+    "issue19550.pdf page 1",
+    "issue19695.pdf page 1",
+    "issue20453.pdf page 1",
+    "issue4722.pdf page 1",
+    "issue5801.pdf page 1",
+    "issue5954.pdf page 1",
+    "issue6127.pdf page 1",
+    "issue6127.pdf page 2",
+    "issue6621.pdf page 1",
+    "issue7835.pdf page 1",
+];
+
 /// The ambiguous pages that carry a written diagnosis, as one list.
 ///
 /// Held exactly like the contradicted groups, and for the same reason: which group a page
@@ -11688,6 +11752,46 @@ fn every_group_of_pages_carries_a_diagnosis_naming_one_of_them() {
             .map(|(name, line)| format!("  {name} at line {line}"))
             .collect::<Vec<String>>()
             .join("\n")
+    );
+}
+
+/// Every page of [`AMBIGUOUS_ON_A_PAGE_WE_REPORT`] is a first page of a document `corpus.rs`
+/// holds on its `INCOMPLETE` list, read from that file rather than copied from it, so the reason
+/// a page is short is written in one place (ADR 1522).
+///
+/// A page other than the first is admitted where its document is on the list, since the corpus
+/// gate reads page one only and the walk reads every page: `issue6127.pdf` page 2 is the same
+/// §9.7.5.2 font as its page 1.
+#[test]
+fn the_pages_ambiguous_on_a_page_we_report_are_on_the_corpus_incomplete_list() {
+    let corpus = include_str!("corpus.rs");
+    let start = corpus
+        .find("const INCOMPLETE: [&str;")
+        .expect("corpus.rs declares INCOMPLETE");
+    let incomplete: Vec<&str> = corpus[start..]
+        .lines()
+        .skip(1)
+        .take_while(|line| line.trim() != "];")
+        .map(str::trim)
+        .filter(|line| line.starts_with('"'))
+        .filter_map(|line| line.split('"').nth(1))
+        .collect();
+    assert!(
+        incomplete.len() > 50,
+        "the parse found only {} names in INCOMPLETE",
+        incomplete.len()
+    );
+    let unlisted: Vec<&str> = AMBIGUOUS_ON_A_PAGE_WE_REPORT
+        .iter()
+        .copied()
+        .filter(|page| {
+            let document = page.split(" page ").next().unwrap_or(page);
+            !incomplete.contains(&document)
+        })
+        .collect();
+    assert!(
+        unlisted.is_empty(),
+        "held as ambiguous on a page we report, and not on corpus.rs's INCOMPLETE: {unlisted:?}"
     );
 }
 
@@ -14317,6 +14421,30 @@ fn check_the_ratchets(results: &[Examined]) {
 
     check_the_no_render_bucket(results);
     check_the_buckets_reached_without_a_consensus(results);
+
+    // The two verdicts the groups above hold only on complete pages, held on the pages this tree
+    // reports as well, so that the run's totals and the held pages are one count (ADR 1522).
+    let reported = |predicate: &dyn Fn(&Examined) -> bool| -> Vec<&str> {
+        results
+            .iter()
+            .filter(|e| !e.complete && predicate(e))
+            .map(|e| e.name.as_str())
+            .collect()
+    };
+    assert_ratchet(
+        "ambiguous on a page this tree reports",
+        &reported(&|e| matches!(e.verdict, Verdict::Ambiguous(_))),
+        &AMBIGUOUS_ON_A_PAGE_WE_REPORT,
+        "Each is a page on corpus.rs's INCOMPLETE list that no two references settle. A page \
+         that joins is one whose picture changed while its report stood; read both, and put it \
+         on that list first if it is not there.",
+    );
+    assert_ratchet(
+        "disagreeing about page geometry on a page this tree reports",
+        &reported(&|e| matches!(e.verdict, Verdict::OurGeometry(_))),
+        &GEOMETRY_ON_A_PAGE_WE_REPORT,
+        "A page box read differently on a page whose report already names its geometry.",
+    );
 
     // A page this tree reports cannot fail the ratchet above — `named` filters on `complete`,
     // for the reason the module comment gives — so the diagnoses in

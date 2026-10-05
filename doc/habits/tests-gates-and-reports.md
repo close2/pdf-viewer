@@ -104,11 +104,12 @@ which gates a change actually needs.
   agents in one week lost time to this and none of the four suspected it first, because the
   failures look like findings: `cargo test -p conformance` reported this tree as holding more than
   one corpus, and reported the standard as unreadable, from test binaries compiled in worktrees
-  that had since been removed — `CARGO_MANIFEST_DIR` is baked in at compile time and the workspace
-  shares one `CARGO_TARGET_DIR`. A gate result that contradicts something you can see with `ls` is
+  that had since been removed — `CARGO_MANIFEST_DIR` is baked in at compile time and the
+  worktrees then shared one build directory. A gate result that contradicts something you can see with `ls` is
   a stale artefact until proven otherwise; `touch` the source and rebuild before believing it.
-  The same shape reaches the `--profile gates` worker, which `doc/todo/02` §5 rebuilds every fifth
-  round precisely because it goes quietly out of date.
+  The same shape reaches the `--profile gates` worker, which `doc/todo/02` section 2's tier-2 block
+  builds on its first line and `tools/batch.sh gates` on its `build-sandbox` line, ahead of every
+  gate that spawns it, precisely because it goes quietly out of date.
 - **A test asserted through the accessor that normalises the thing being tested is not a test.**
   §7.3.7's null-entry rule was checked through `Document::get_key`, which answers `Null` for an
   absent key. **And the accessor need not be one of ours**: `Object::as_dict` answers for a
@@ -468,3 +469,11 @@ between 1284 and 1326 state none and three say "see the report", which is not in
 `records.rs` holds the rule from 1327 on (ADR 1499). And a script that splices a file at an anchor
 checks the anchor appears exactly once in the whole file: a record's own prose mentioning
 `**Gates.**` truncated it to nine lines until `wc -l` caught it.
+
+**A ratchet that reads a page list reads it from the one file that owns it.** The oracle counted
+836 ambiguous pages and its groups held 810: the 26 were first pages `corpus.rs`'s `INCOMPLETE`
+names, and the oracle now reads that list with `include_str!` so the reason a page is short lives
+in one place and the two counts agree (ADR 1522). And a ranges-into-the-readback that nobody
+checked for years surfaced the day earlier bytes shifted: spans recorded inside an `/ActualText`
+replacement had always pointed at stale bytes (ADR 1515 §5) — a range into a buffer is held by a
+test that moves the buffer.

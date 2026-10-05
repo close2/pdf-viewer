@@ -14,12 +14,18 @@
 //! or from the job that made them, the chain's from the frame's cache — so what a frame
 //! draws does not depend on how many threads drew it.
 
+use std::sync::Arc;
+
 use super::Encoder;
 use super::clips::ResolvedClip;
 use crate::error::RenderError;
 use raster_scene::{Point, Rect};
 
 use crate::raster::{self, CoverageMask, MeetWork, Polyline, RowEdges, Rule};
+
+mod kept;
+
+pub(crate) use kept::KeptMeets;
 
 /// The mark a residue meets: the polylines its coverage was filled from, the rule, and the
 /// mark's edges bucketed over its tile's rows where the job that filled it built them.
@@ -38,6 +44,15 @@ pub(super) struct Mark<'p> {
     pub(super) edges: Option<&'p RowEdges>,
 }
 
+/// The longest key a meet is kept under, in words.
+///
+/// A key is built and hashed on every meet, and only a render that repeats the one before
+/// reads it again. On the stroked Type 3 page of `doc/performance.md`'s table, whose renders
+/// never repeat, keys of thousands of words for its 126 meets a pair cost 10.8 M instructions,
+/// about a millisecond and a half of its step; on `bug1721218_reduced.pdf`, the page the memo
+/// is for, 99% of keys are under 90 words (ADR 1517).
+const KEY_WORDS: usize = 1_024;
+
 /// How many row-bucket entries a set's edges may take in one meet, at least: they are
 /// bounded by the tile's own bytes or by this, whichever is larger, so a small tile with a
 /// tall thin edge is still answered.
@@ -46,26 +61,45 @@ const MARK_EDGE_FLOOR: usize = 4_096;
 impl Encoder<'_> {
     /// Meet a mark's coverage tile with the residue of `resolved`'s chain, or leave the tile
     /// as it is where the chain is rectangles alone.
+    ///
+    /// **A meet the render before made is not made again** ([`KeptMeets`], ADR 1517): the
+    /// tile it met is a function of the words [`Encoder::meet_words`] lists, so a tile under
+    /// the same words is handed the same bytes.
     pub(super) fn meet_residue(
         &mut self,
         tile: &mut CoverageMask,
         resolved: &ResolvedClip,
         mark: Mark<'_>,
     ) -> Result<(), RenderError> {
+        if resolved.residues.is_none() {
+            return Ok(());
+        }
+        // The queue drains here as [`Encoder::residue_intersection`] drains it, so that a
+        // kept meet leaves the walk's order — which marks commit before this one — as a
+        // computed one leaves it.
+        self.drain_queue()?;
+        let words = self.meet_words(tile, resolved, mark)?;
+        if let Some(met) = words.as_deref().and_then(|words| self.kept.find(words)) {
+            tile.coverage.copy_from_slice(&met);
+            return Ok(());
+        }
         let Some(clip) =
             self.residue_intersection(resolved, tile.left, tile.top, tile.width, tile.height)?
         else {
             return Ok(());
         };
         let cut = both_cut(tile, &clip);
-        let links = match cut_rows(tile, &cut) {
+        let chain = match cut_rows(tile, &cut) {
             Some(rows) => self.residue_edges(resolved, rows, edge_limit(tile))?,
             None => None,
         };
+        // A meet with no pixel both sets cut is `min` whatever the frame has spent; one with
+        // such pixels is kept only where no budget decided its chain's edges.
+        let unbounded = cut.is_empty() || chain.as_ref().is_some_and(|chain| chain.unbounded);
         // Its own span (ADR 0023): what it computes is the mark's coverage — geometry by the
         // phase's own definition.
         let span = self.clock.start();
-        let exact = links.and_then(|links| exact_areas(tile, &cut, &links, mark));
+        let exact = chain.and_then(|chain| exact_areas(tile, &cut, &chain.links, mark));
         residue_meet(tile, &clip);
         if let Some(exact) = exact {
             for (&index, value) in cut.iter().zip(exact) {
@@ -76,7 +110,82 @@ impl Encoder<'_> {
             }
         }
         self.clock.geometry(span);
+        if let Some(words) = words
+            && unbounded
+        {
+            self.kept.keep(
+                words.into_boxed_slice(),
+                &Arc::from(tile.coverage.as_slice()),
+            );
+        }
         Ok(())
+    }
+
+    /// The words that name what a meet computes from, or `None` for a meet whose words would
+    /// pass [`KEY_WORDS`] and which is neither looked up nor kept: the mark's tile — its place, its
+    /// extent and its bytes — the mark's rule and polylines, and the number its chain's
+    /// residue was named by ([`KeptMeets::chain`]). Each part leads with its length, so the
+    /// words read back one way only.
+    ///
+    /// The mark's own edges, where its job built them ([`Mark::edges`]), are not in the
+    /// words: they meet each row as edges built at the meet would (ADR 1513), so they decide
+    /// what a meet costs and not what it draws.
+    #[expect(clippy::cast_sign_loss)] // a corner's bits, read back as the same `i32`
+    fn meet_words(
+        &mut self,
+        tile: &CoverageMask,
+        resolved: &ResolvedClip,
+        mark: Mark<'_>,
+    ) -> Result<Option<Vec<u32>>, RenderError> {
+        let points: usize = mark.polylines.iter().map(|p| p.points.len()).sum();
+        let length = 16_usize
+            .saturating_add(points.saturating_mul(2))
+            .saturating_add(mark.polylines.len().saturating_mul(2))
+            .saturating_add(tile.coverage.len() / 4);
+        if length > KEY_WORDS {
+            return Ok(None);
+        }
+        let chain = self.chain_number(resolved)?;
+        let mut words = Vec::with_capacity(length);
+        words.extend([tile.left as u32, tile.top as u32, tile.width, tile.height]);
+        words.extend(tile.coverage.chunks(4).map(|chunk| {
+            chunk
+                .iter()
+                .rev()
+                .fold(0_u32, |word, &byte| (word << 8) | u32::from(byte))
+        }));
+        words.push(match mark.rule {
+            Rule::NonZero => 0,
+            Rule::EvenOdd => 1,
+        });
+        words.push(u32::try_from(mark.polylines.len()).unwrap_or(u32::MAX));
+        for polyline in mark.polylines {
+            words.push(u32::try_from(polyline.points.len()).unwrap_or(u32::MAX));
+            words.push(u32::from(polyline.closed));
+            words.extend(
+                polyline
+                    .points
+                    .iter()
+                    .flat_map(|point| [point.x.to_bits(), point.y.to_bits()]),
+            );
+        }
+        // The low half first: a number is two words.
+        #[expect(clippy::cast_possible_truncation)] // each half of a `u64`, kept
+        words.extend([chain as u32, (chain >> 32) as u32]);
+        Ok(Some(words))
+    }
+
+    /// The number `resolved`'s residue is named by in [`KeptMeets`], asked once a render for
+    /// each chain this scene states.
+    fn chain_number(&mut self, resolved: &ResolvedClip) -> Result<u64, RenderError> {
+        let Some(leaf) = resolved.leaf() else {
+            return Ok(0);
+        };
+        if let Some(number) = self.kept.chain_of(leaf) {
+            return Ok(number);
+        }
+        let content = self.residue_content(resolved)?;
+        Ok(self.kept.chain(leaf, content))
     }
 }
 
@@ -106,7 +215,7 @@ impl Encoder<'_> {
         let Some(rows) = cut_rows(tile, &cut) else {
             return Ok(());
         };
-        let Some(links) = self.residue_edges(resolved, rows, edge_limit(tile))? else {
+        let Some(chain) = self.residue_edges(resolved, rows, edge_limit(tile))? else {
             return Ok(());
         };
         let shape = [Polyline::polygon(outline)];
@@ -116,7 +225,7 @@ impl Encoder<'_> {
             rule: Rule::NonZero,
             edges: None,
         };
-        if let Some(exact) = exact_areas(tile, &cut, &links, mark) {
+        if let Some(exact) = exact_areas(tile, &cut, &chain.links, mark) {
             for (&index, value) in cut.iter().zip(exact) {
                 let met = &mut tile.coverage[index];
                 *met = value.min(*met);

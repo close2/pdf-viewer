@@ -706,3 +706,20 @@ it lost. And an A/B across commits compares the two binaries with `md5sum` even 
 has its own export: a bisect's builds came out identical because the export was rebuilt in place
 (round 1335). The pool's occupancy is read before a cut is shared into it: eight frames on eight
 CPUs were 66% busy, and dividing them further lost on every page (ADR 1505).
+
+## 64. A text rule is A/B'd by token agreement with a reference, and a slow unit's time by its operator count
+
+Word counts against `pdftotext` said a per-font word gap moved 12 pages away and 7 towards, where
+token F1 said 13 better and 1 worse — `pdftotext` joins leader dots, and a count cannot see which
+words match (ADR 1515). And a fuzz slow unit's time is divided by its operator count before its
+per-item cost is named: both "fontless show" units were `MAX_OPERATIONS`-bound Type 3 cycles, and
+the brief's 2.7 µs per show was a per-operator cost (ADR 1521).
+
+## 65. Repeats are counted per render, not per gesture, before a per-frame cache is built
+
+ADR 1503 counted 59% of `bug1721218`'s meets as repeating a pixel; a zoom step draws that page's
+group as two renders, chromatic then black, and the black repeats every meet of the chromatic —
+inside one render only 14% repeat, so the cache the brief aimed at a frame would have reached a
+fraction. The meet kept for the NEXT render, keyed word for word and never by id, hit on every
+black-render meet (ADR 1517). Count where the repeats actually are before choosing the cache's
+lifetime.

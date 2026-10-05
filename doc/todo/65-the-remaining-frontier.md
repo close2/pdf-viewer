@@ -127,12 +127,43 @@ has no signature scheme at all — no RFC 8032 verification and no 57-byte point
 it is unaudited. Both licences are on `deny.toml`'s list; neither is reviewed, and neither is
 RustCrypto's. Neither moves Q192's recommendation, and Q192 says so.
 The same search on 2026-10-02 found every version above unchanged and lists five Ed448 names neither
-judgement read, each still to be judged on `doc/stack.md`'s terms before it is called a candidate or
-not: `ed448-rust` 0.1.1 (MIT/Apache-2.0, `lolo32/ed448-rust`), `minimal-ed448` 0.4.2 (MIT, inside
-`serai-dex/serai`, whose description says unaudited), `frost-ed448` 3.0.0 (a FROST threshold
-Schnorr scheme by its description, which is not RFC 8032's verification), `oxicrypto-sig` 0.3.0
-(Apache-2.0, whose description names no Ed448) and `rs_ed448` 0.1.2 (GPL-2.0-only, a placeholder by
-its description, which this tree's licence cannot take).
+judgement read. **Judged on 2026-10-05**, on `doc/stack.md`'s terms from each package's crates.io
+record, its repository and its published source; none is a candidate, and Q192's dated section says
+why the one with an audit on record does not move its recommendation.
+
+`ed448-rust` 0.1.1 (`MIT/Apache-2.0`, one owner, `lolo32/ed448-rust`, published 2021-03-25 and its
+repository last pushed 2023-08-31) carries RFC 8032's Ed448 with a context and Ed448ph, but it is a
+port of the RFC's own Python, and its README repeats that code's warning that it is not meant for
+production, is slow and makes no attempt to resist side channels; its arithmetic is `num-bigint`
+and its hash `sha3` 0.9, two generations behind the tree's. No review is on record.
+
+`minimal-ed448` 0.4.2 (`MIT`, one owner, inside `serai-dex/serai`) describes itself as unaudited and
+inefficient; it is a group bound to the `ff`/`group` 0.13 traits over `crypto-bigint` 0.5, with no
+signature scheme, and it rejects torsion to be a prime-order group, which is not section 5.2.3's
+decoding.
+
+`frost-ed448` 3.0.0 (`MIT OR Apache-2.0`, the Zcash Foundation, `ZcashFoundation/frost`) is the one
+Ed448 package with a review on record: NCC Group's 2023 assessment of the repository's 0.6.0 took
+in `frost-ed448` and the curve operations it uses from `ed448-goldilocks` 0.9.0 (`BSD-3-Clause`,
+the package's last stable release, from `crate-crypto`). Its subject is RFC 9591's threshold
+scheme, and its single-signer verification is a by-product that refuses what section 5.2.7 accepts:
+the published 3.0.0 source decodes every point through a check that rejects the identity and any
+point with a torsion component, where the RFC's cofactored equation exists to admit them. It also
+sits on the previous RustCrypto generation (`sha3` 0.10, `rand_core` 0.6) beside the tree's.
+
+`oxicrypto-sig` 0.3.0 (`Apache-2.0`, one owner, `cool-japan/oxicrypto`, first published 2026-06-01)
+does name Ed448 in its description, and its README marks the crate *Alpha*, pre-1.0; its Ed448 is
+RustCrypto's `ed448-goldilocks` `0.14.0-pre.15`, so taking it would take the pre-release this tree
+declines through a wrapper. `rs_ed448` 0.1.2 (`GPL-2.0-only`, one owner) has no dependencies and no
+implementation — its description says it panics until one is written — and its licence is not on
+`deny.toml`'s list. Every licence but the last is.
+
+The three searches on 2026-10-05 found every version above unchanged — `ed448-goldilocks` still
+`0.14.0-pre.15` with 0.9.0 its newest stable, no RustCrypto `bp512`. Run with `--limit 20`, `cargo
+search ed448` lists names the default ten rows did not, none judged yet: `minimal-ed448-mirror`,
+`lit-frost-ed448`, `sodot-ed448`, `crrl`, `capycrypt`, `ciphersuite` and `krypteia-arcana`; and
+`cargo search --limit 20 brainpool` adds `purecrypto` and `static-dh-ecdh`, whose descriptions the
+search cuts off before naming a curve.
 
 ### 3. Hard rendering / architecture — a real build across several rounds
 
@@ -305,6 +336,5 @@ status, the rows held by a fixture, held only by walks or witnesses, and naming 
 gate (`cargo test -p conformance --test conformance the_ledger_agrees_with_the_standard_and_with_the_tree
 -- --nocapture`) names each such `implemented` row and holds their number to `ONLY_WALKS_CEILING` with
 an `==` assertion, so a row arriving with walks alone fails the build (ADRs 1497, 1509). The
-classifier reads a corpus root anywhere in a function's body, comments included, so a helper whose
-comment names `doc/pdf.js` makes every test calling it a witness: `viewer_core::notes::about` is one,
-which is why §14.8.6's notes test was read as a witness although it builds its own document.
+classifier reads a function's code and skips its `//` lines, so a helper whose only mention of
+`doc/pdf.js` is a comment leaves the tests calling it fixtures (`ledger.rs`'s `a_corpus_root_in_a_comment_reads_no_corpus`).

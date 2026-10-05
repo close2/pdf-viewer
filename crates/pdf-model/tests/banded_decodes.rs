@@ -143,21 +143,7 @@ fn a_scan_the_data_ends_inside_its_last_interval_is_never_cut_differently() {
 /// is cut, and is the whole frame.
 #[test]
 fn a_scan_the_data_ends_inside_is_left_to_the_whole_decoder() {
-    let hex = [
-    "ffd8ffe000104a46494600010100000100010000ffdb004300100b0c0e0c0a100e0d0e1211101318281a181616183123",
-    "251d283a333d3c3933383740485c4e404457453738506d51575f626768673e4d71797064785c656763ffc0000b08006b",
-    "006401011100ffc400190001000301010000000000000000000000000102030407ffc400191001010101010100000000",
-    "000000000000000102111203ffda0008010100003f00f3f0000000048701000253c4f0e1c388e23480129916917994f9",
-    "4f856e55b956c56a0131791a672d6656984f856e19eb2cf519d54168d331b6236ce5acc26e14d658ef2c3719695a8168",
-    "d72dfe6e8c46d989b19ea30dc73ed8e94a8168d32e8f9d7462b6cd5ad67bae7fa5736eb2d29502634cd6d8adf1a6b9da",
-    "6ed4d6986f4c3759d56a04c5a5699d34ceda4da7dabadb2d699eaa955013169569a5a693ed5ba56e95b508004a7a74e9",
-    "d47440000000000000037fd9",
-    ]
-    .concat();
-    let data: Vec<u8> = (0..hex.len())
-        .step_by(2)
-        .map(|at| u8::from_str_radix(&hex[at..at + 2], 16).expect("hexadecimal"))
-        .collect();
+    let data = grey_frame_without_its_eoi();
     for lines in [8, 16, 64] {
         let decodes = banded_decodes(&data, lines);
         assert!(decodes.whole.is_some(), "the whole decoder reads it");
@@ -171,4 +157,74 @@ fn a_scan_the_data_ends_inside_is_left_to_the_whole_decoder() {
         Some(&banded) == decodes.whole.as_ref(),
         "and the cut frame is the whole frame"
     );
+}
+
+/// The same frame decoded whole with and without the `EOI` its data lacks. Section E.2.3 ends the
+/// scan on its MCU count and all 182 blocks are in the data, so the two are one frame; `zune-jpeg`
+/// 0.5.15 instead fills the last MCU row — lines 104 to 106 — with 128, because its lookahead
+/// reached the end of the data while that row's bits were still unconsumed and it stops at the next
+/// row on having reached it. `doc/patches/zune-jpeg-scan-complete-without-eoi.patch` makes it stop
+/// only once it has consumed past the end, and `doc/questions/Q227` asks whether the tree carries
+/// it. **This holds the current bytes by name and waits on that patch: when the fork takes it the
+/// first assertion fails, and the guard is deleted for the frame's equality** (ADR 1520).
+#[test]
+fn a_complete_last_row_without_its_eoi_is_grey_until_the_fork_takes_the_patch() {
+    let data = grey_frame_without_its_eoi();
+    let mut ended = data.clone();
+    ended.extend_from_slice(&[0xFF, 0xD9]);
+    let bare = banded_decodes(&data, 16)
+        .whole
+        .expect("the whole decoder reads it");
+    let whole = banded_decodes(&ended, 16)
+        .whole
+        .expect("and reads it with its EOI");
+    let row = 100 * 4;
+    assert_eq!(
+        (bare.len(), whole.len()),
+        (107 * row, 107 * row),
+        "100 × 107, RGBA"
+    );
+    let first_of_the_last_row = 104 * row;
+    assert!(
+        bare[first_of_the_last_row..]
+            .chunks_exact(4)
+            .all(|pixel| pixel[..3] == [128, 128, 128]),
+        "the patch is in: delete this guard and assert the two decodes equal"
+    );
+    assert_eq!(
+        bare[..first_of_the_last_row],
+        whole[..first_of_the_last_row],
+        "every row above the last MCU row is the frame's"
+    );
+    assert_ne!(
+        bare[first_of_the_last_row..],
+        whole[first_of_the_last_row..],
+        "the frame's last row is not grey"
+    );
+}
+
+/// A grey frame of 100 × 107 whose entropy-coded data runs to the end of the stream with no `EOI`
+/// — the `jpeg_bands` fuzz target's second finding (ADR 1495), the codestream in hexadecimal.
+#[expect(
+    clippy::expect_used,
+    clippy::arithmetic_side_effects,
+    reason = "a fixture written out by hand: a pair of hexadecimal digits that is not one is a \
+              broken test, and an offset two past one inside a string of even length cannot wrap"
+)]
+fn grey_frame_without_its_eoi() -> Vec<u8> {
+    let hex = [
+    "ffd8ffe000104a46494600010100000100010000ffdb004300100b0c0e0c0a100e0d0e1211101318281a181616183123",
+    "251d283a333d3c3933383740485c4e404457453738506d51575f626768673e4d71797064785c656763ffc0000b08006b",
+    "006401011100ffc400190001000301010000000000000000000000000102030407ffc400191001010101010100000000",
+    "000000000000000102111203ffda0008010100003f00f3f0000000048701000253c4f0e1c388e23480129916917994f9",
+    "4f856e55b956c56a0131791a672d6656984f856e19eb2cf519d54168d331b6236ce5acc26e14d658ef2c3719695a8168",
+    "d72dfe6e8c46d989b19ea30dc73ed8e94a8168d32e8f9d7462b6cd5ad67bae7fa5736eb2d29502634cd6d8adf1a6b9da",
+    "6ed4d6986f4c3759d56a04c5a5699d34ceda4da7dabadb2d699eaa955013169569a5a693ed5ba56e95b508004a7a74e9",
+    "d47440000000000000037fd9",
+    ]
+    .concat();
+    (0..hex.len())
+        .step_by(2)
+        .map(|at| u8::from_str_radix(&hex[at..at + 2], 16).expect("hexadecimal"))
+        .collect()
 }

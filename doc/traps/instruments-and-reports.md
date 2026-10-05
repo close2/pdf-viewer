@@ -1052,6 +1052,14 @@ A drive or census run from a copied binary finds no `pdf-sandbox-worker` next to
 that decides what kind of evidence a test is skips comment lines: `viewer_core::notes::about` names
 `doc/pdf.js` in a comment, which classed every test calling it as a corpus witness (round 1337).
 
+### 100. A check that fails only for tracked files passes in every round and fails on the merge
+
+`crates/render-raster/tests/turn_path.rs` was untracked while round 1339 ran tier 1 and tracked
+once the batch was committed; `state_sections` names every tracked ignored test file in
+`doc/todo/02` §2 and prints the untracked ones, so it passed for every round and failed on the
+merged main for a batch (round 1345). The main checkout builds in its own directory now, so the
+conformance tests run there right after the fast-forward, before `install` and `close`.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

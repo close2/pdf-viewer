@@ -270,3 +270,8 @@ written to it: batch fifty-two's named §14.8.2.5.2 as content order (it is the 
 annotations), §14.8.2.6.2 as `Alt` (it is word breaks), §14.8.6 as attributes (it is namespaces) and
 put `/Version`'s precedence in §I.1 (it is §I.2); round 1337 wrote each fixture to the text and
 said so.
+
+A parameter list a brief names is checked against the tables the clause prints: a brief listed a
+vendor's open-parameter names (`pagemode`, `toolbar`, `navpanes`…) as Annex O's, and Annex O's
+own Tables O.3 and O.4 hold eleven (ADR 1523). Seven of the brief's seventeen are not in the
+standard, and under principle 5 they were not built.

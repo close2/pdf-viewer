@@ -1242,7 +1242,11 @@ const JUDGED_FLOOR: usize = 510;
 /// **It rose from 9597 to 9650** with the word gap's half a space (ADR 1502), and the matched
 /// pairs from 12 513 to 12 573: gaps nearer a space than none now part words a reference
 /// matches uniquely.
-const CROSS_AXIS_FLOOR: usize = 9650;
+///
+/// **It rose from 9650 to 9708** with each font's own word gap (ADR 1515), A/B'd on one build: a
+/// font whose producer set its word gaps below half its space now parts the words it ran
+/// together, and the matched pairs rose from 12 573 to 12 631.
+const CROSS_AXIS_FLOOR: usize = 9708;
 
 /// One point per axis before two statements of the page's frame count as the same frame.
 ///

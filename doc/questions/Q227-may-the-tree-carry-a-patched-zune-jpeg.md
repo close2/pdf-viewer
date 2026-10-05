@@ -30,3 +30,15 @@ patch the way the `hayro` patches are carried — applied to a fork the owner co
 release build's behaviour in every profile; it changes no sample any release build produces. Once
 it is in, the reproduction becomes a regression test in `crates/pdf-model/tests/banded_decodes.rs`
 (the whole decode of it returns rather than panics).
+
+## A second patch, 2026-10-05
+
+The same fork would carry `doc/patches/zune-jpeg-scan-complete-without-eoi.patch` (ADR 1520). A
+baseline scan whose data holds every MCU and ends with no `EOI` — complete by ITU-T T.81 section
+E.2.3's MCU count — is decoded whole except its last MCU row, which `zune-jpeg` 0.5.15 fills with
+128: its lookahead reaches the end of the data while that row's bits are still in the buffer, and
+the MCU loop stops at the next row on having reached it. The patch stops a row only once the
+decoder has consumed past the data. Unlike the first patch this one changes samples a release build
+produces, on such frames only: every frame with an `EOI` decodes as before, and no truncation
+decodes fewer correct rows. `crates/pdf-model/tests/banded_decodes.rs` holds the current grey row
+by name and fails the day the fork takes it. The recommendation above covers both.

@@ -100,9 +100,12 @@ computed from both sets' edges, a path's mark or an image's parallelogram (ADRs 
 residue link flattened once a frame and a small tile reading only its rows' edges (ADR 1479), a
 residue filled in `f64` so that its region and a tile give one byte per pixel, a region kept where
 the edges its tiles would fill cost more than it does, and the meet counting a pixel's winding
-from the side with fewer partial edges (ADR 1491) — and a clipped mark's
+from the side with fewer partial edges (ADR 1491), a run of short edges that abut in one direction
+crossing a row as one edge (ADR 1503) — and a clipped mark's
 coverage and a stroke's made off the walk's thread by the encoder's fan-out, a stroke's segment
-weighed at what it costs (ADR 1395), a rectangle or a repeated glyph behind a queued mark committed
+weighed at what it costs (ADR 1395), the fan-out's threads claiming its jobs in order rather than
+taking fixed shares (ADR 1505), a wide job building its mark's edges over its own tile (ADR 1513),
+a rectangle or a repeated glyph behind a queued mark committed
 in its place and a zoom step's strokes fanned out on the compute lane as on the page-turn one (ADR
 1409), and every frame the same bytes at every thread count — the atlas asked for room as one
 thread would find it, and the corpus gate drawing each page again at one thread and holding the
@@ -112,7 +115,11 @@ device may fuse the multiply-adds the processor rounds twice (ADR 1420). **A sha
 `/Extend` leaves off stops at that end's own position** — a hard transparent stop in every
 backend rather than a fade squeezed inside the ramp, which had moved every other stop of it along
 the axis, and within half a texel of Vello's fixed ramp (ADR 1387). A content stream that re-enters
-itself at the nesting bound is reported as the cycle it is, by the stream it re-entered, and a font
+itself at the nesting bound is reported as the cycle it is, by the stream it re-entered; the list a
+page's interpretation builds is bounded in bytes as well as in operators, its commands, dashes and
+clips charged as they are made, so a page whose tiling copies multiply its clips stops with a
+report rather than past the worker's memory, and the bound is a count rather than a clock, so the
+prefix drawn is a function of the file alone (ADR 1507); and a font
 program whose every glyph draws and draws nothing is what the file states rather than a report —
 which is §9.7.6.3's own route for a CID-keyed program holding CID 0 alone (ADR 1411). The Vello
 backend **bands a target the device cannot draw in one pass**, because its working buffers are fixed
@@ -126,15 +133,16 @@ clause states (ADR 1349), and Table 13's `/ColorTransform` read where the clause
 the entry, the `APP14` segment that silences it, and the component count, ranked in the order
 §7.4.8 gives them (ADR 1183); a baseline frame whose restart intervals begin on rows of blocks is
 decoded band by band on the pool, each band overlapping a row either side so that its upsampling
-sees what the whole frame's does, and `raster-gpu` divides the image's reduction to the page's
+sees what the whole frame's does — a scan that ends on its count of minimum coded units with no `EOI` after
+them, its last band read strict (ADR 1513) — and `raster-gpu` divides the image's reduction to the page's
 scale by rows across the device's threads, reading an opaque band off its column sums and a
 translucent one off its premultiplied column sums, and a zoom step writes and reduces only the
 texels its window can sample, each reduced row premultiplied on the thread that made it (ADRs 1433,
 1457, 1493), and one with no restart interval is cut at the rows a Huffman-only pass finds where nothing
 else of its page is decoding beside it (ADR 1481); a converted pixel equal to the one before it is
 copied rather than converted again, and a soft mask is decoded beside its image, held one byte a
-sample and multiplied into it where it lies, a `/Matte`'s frame decoded beside its mask (ADRs 1469,
-1481). Encryption at every revision Table 21 lists and every method Table 25 names, in both
+sample and multiplied into it where it lies, a `/Matte`'s frame decoded beside its mask and its
+opacity written by the inversion in the same pass (ADRs 1469, 1481, 1519). Encryption at every revision Table 21 lists and every method Table 25 names, in both
 directions — including revision 5, whose algorithm is the Adobe extension the table points at
 rather than a clause of the standard (ADR 0820). §12.3.2's destinations, §12.3.3's outline, §12.4.2's page labels, §12.5.6.5's links
 performing every one of Table 201's actions that is neither clause 13's media nor the excluded
@@ -188,7 +196,8 @@ them, because the pen's step between two show operations is taken back into text
 `Tm`'s linear part and out of the horizontal scaling — before it is compared with the space it would
 take to be a word gap, so a mirrored or scaled text matrix breaks no word, and a font that states no
 space is given a nominal quarter em as one (ADR 1490); a gap reads as a word break once it is more
-than half that space (ADR 1502). A
+than half that space (ADR 1502), or less where a font's own steps on the page show a wider empty
+interval below it, settled when the page is finished (ADR 1515). A
 locked document asks for its password (§7.6.4.1) — **in a window of the host's own in all three**,
 where `viewer-ui` stopped reading `stdin` and
 stopped leaving the process when there was no terminal (ADR 0545); the page zooms and scrolls; the cursor knows

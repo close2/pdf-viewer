@@ -1469,7 +1469,7 @@ impl<'a> Interpreter<'a> {
         Self {
             document,
             list: DisplayList::new(size),
-            unsupported: BTreeMap::new(),
+            unsupported: report::Notes::default(),
             notes_raised: 0,
             text_operations: 0,
             segments_without_a_current_point: 0,
@@ -1493,6 +1493,7 @@ impl<'a> Interpreter<'a> {
             marking: Vec::new(),
             clip_extents: Vec::new(),
             inferred_separators: 0,
+            word_gaps: text::WordGaps::default(),
             text_layer: Vec::new(),
             associated: Vec::new(),
             reversed_chars: 0,
@@ -1639,6 +1640,7 @@ impl<'a> Interpreter<'a> {
             text_cursor,
             text_layer,
             inferred_separators,
+            word_gaps,
             stream,
             hidden,
             glyph_depth,
@@ -1692,6 +1694,7 @@ impl<'a> Interpreter<'a> {
             text_cursor: *text_cursor,
             text_layer: text_layer.clone(),
             inferred_separators: *inferred_separators,
+            word_gaps: word_gaps.clone(),
             stream: *stream,
             hidden: *hidden,
             glyph_depth: *glyph_depth,
@@ -1742,6 +1745,7 @@ impl<'a> Interpreter<'a> {
             text_cursor,
             text_layer,
             inferred_separators,
+            word_gaps,
             stream,
             hidden,
             glyph_depth,
@@ -1784,6 +1788,7 @@ impl<'a> Interpreter<'a> {
         self.text_cursor = text_cursor;
         self.text_layer = text_layer;
         self.inferred_separators = inferred_separators;
+        self.word_gaps = word_gaps;
         self.stream = stream;
         self.hidden = hidden;
         self.glyph_depth = glyph_depth;
@@ -1824,7 +1829,7 @@ struct Checkpoint {
     /// The marks the content stream made.
     list: DisplayList,
     /// What it could not draw, keyed as [`Interpreter::unsupported`] keys it.
-    unsupported: BTreeMap<Unsupported, Unsupported>,
+    unsupported: report::Notes,
     /// [`Interpreter::notes_raised`], which a marked-content sequence brackets against.
     notes_raised: usize,
     /// The four counters `finished` turns into reports of their own.
@@ -1884,6 +1889,9 @@ struct Checkpoint {
     text_layer: Vec<Placed>,
     /// See [`Interpreter::inferred_separators`].
     inferred_separators: usize,
+    /// See [`Interpreter::word_gaps`]: the steps the content half measured, which the
+    /// annotation half adds to before the page's thresholds are read.
+    word_gaps: text::WordGaps,
     /// Which content stream was running, which is [`ContentStream::Page`] at every seam.
     stream: ContentStream,
     /// The graphics-state facts §11.6, §11.7 and §9.6.4 carry across a stream boundary, each of
@@ -2218,7 +2226,10 @@ fn complete(
 /// is held to a hundred lines.
 fn finished(document: &Document, mut interpreter: Interpreter<'_>) -> Interpretation {
     interpreter.settle_list_charge();
-    let mut unsupported: Vec<Unsupported> = interpreter.unsupported.into_values().collect();
+    // Each font's word gaps, read off every step the page showed (ADR 1515) — before anything
+    // below reads a range of the text.
+    interpreter.settle_word_gaps();
+    let mut unsupported: Vec<Unsupported> = interpreter.unsupported.into_items().collect();
     if interpreter.text_operations > 0 {
         unsupported.push(Unsupported::Text {
             operations: interpreter.text_operations,
@@ -2552,8 +2563,8 @@ struct Interpreter<'a> {
     document: &'a Document,
     list: DisplayList,
     /// Keyed so that a page drawing the same unsupported image a thousand times reports it
-    /// once rather than flooding the diagnostics.
-    unsupported: BTreeMap<Unsupported, Unsupported>,
+    /// once rather than flooding the diagnostics — and a repeat costs a lookup (ADR 1521).
+    unsupported: report::Notes,
     /// How many times [`Interpreter::note`] has been called, **before** the map deduplicates.
     ///
     /// Not a count of reports and never printed as one: [`Self::unsupported`] is keyed so that a
@@ -2823,6 +2834,9 @@ struct Interpreter<'a> {
     text_layer: Vec<Placed>,
     /// How many separators [`Interpreter::separate_text`] inferred from position.
     inferred_separators: usize,
+    /// The steps along a line the page has shown so far, and the provisional spaces they left,
+    /// which [`Interpreter::settle_word_gaps`] decides when the page is finished (ADR 1515).
+    word_gaps: text::WordGaps,
     /// The document's optional content configuration, if it has one (§8.11).
     ///
     /// Cloned from the viewer state rather than borrowed, because §12.6.4.13's action may

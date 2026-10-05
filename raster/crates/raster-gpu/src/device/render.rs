@@ -176,6 +176,9 @@ impl Device {
         viewport: &Viewport<'_>,
     ) -> Result<Encoded, RenderError> {
         self.atlas.begin_frame();
+        // Once a render, before either walk: a frame encoded again on a reset atlas reads
+        // the meets its first walk kept, which are the same bytes (ADR 1517).
+        self.kept_meets.begin_render(self.limits.max_frame_bytes);
         let encoded = self.encode_once(scene, viewport);
         if !self.atlas.stale_for_frame() {
             return encoded;
@@ -198,6 +201,7 @@ impl Device {
             self.limits.max_target_size,
             &self.resources,
             &mut self.atlas,
+            &mut self.kept_meets,
             self.glyph_quantum,
             self.coverage,
             self.compute_assist,
@@ -215,6 +219,7 @@ impl Device {
         viewport: &Viewport<'_>,
         list: &encode::ReplayList,
     ) -> Result<Encoded, RenderError> {
+        self.kept_meets.begin_render(self.limits.max_frame_bytes);
         encode::replay(
             scene,
             viewport,
@@ -222,6 +227,7 @@ impl Device {
             self.limits.max_target_size,
             &self.resources,
             &mut self.atlas,
+            &mut self.kept_meets,
             self.glyph_quantum,
             self.coverage,
             self.compute_assist,

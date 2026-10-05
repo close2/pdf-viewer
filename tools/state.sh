@@ -407,6 +407,15 @@ section_frame() {
         cargo run --release -q -p render-raster --example frame_budget
 }
 
+# The same rows held to bands: every `turn` and `step` figure of `doc/performance.md` section 3e
+# against `doc/checks/turn-path.toml`, out of either end, in `release` because the bands are a
+# claim about that profile (ADR 1513). A few minutes on the graphics device, so not in `quick`.
+section_turn() {
+    run "the turn path (doc/performance.md 3e's rows, doc/checks/turn-path.toml)" \
+        '^turn path:|figures banded' \
+        cargo test --release -p render-raster --test turn_path -- --ignored --nocapture
+}
+
 # RFC 0003 section 5.2's five write verbs and section 4's whole layout, over every corpus document
 # the core opens. The `--bins` build is trap 10: a `--profile gates --test` line builds one test
 # target and nothing else, so `pdf-vfs-worker` beside it would otherwise be whatever an earlier
@@ -1221,7 +1230,7 @@ section_ratchets() {
     done
 }
 
-all="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame dates xmp save actions on-disk jpeg2000 instruments"
+all="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame turn dates xmp save actions on-disk jpeg2000 instruments"
 quick="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held remedies instruments"
 
 # Sections another section already runs. Not in `all`, because a full run pays for every line
@@ -1269,6 +1278,7 @@ for section in $sections; do
     vfs) section_vfs ;;
     launch) section_launch ;;
     frame) section_frame ;;
+    turn) section_turn ;;
     dates) section_dates ;;
     xmp) section_xmp ;;
     save) section_save ;;

@@ -42,9 +42,25 @@ root=$(dirname "$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --path-forma
 wt=${BATCH_WORKTREE:-/home/AI/pdf-viewer-rounds}
 log=${BATCH_GATES_LOG:-/home/AI/batch-gates.log}
 
+# The batch directory's `debug` profile against `doc/environment.md`'s hundred-gigabyte rule.
+# Printed and never acted on: the prune is the orchestrator's, made between `close` and the next
+# `open` with no round running, and `open`'s warm build is the first thing to write there again,
+# so `open` says it before the worktree exists and `close` after the worktree is gone. The rule
+# is in KiB (`du -sk`) so a test can plant a tree over a smaller one (ADR 1526).
+debug_over_the_rule() {
+    local target=${BATCH_TARGET_DIR:-/home/AI/cargo-target/pdf-viewer-batch}
+    local rule=${BATCH_DEBUG_RULE_KIB:-104857600} size
+    [ -d "$target/debug" ] || return 0
+    size=$(du -sk "$target/debug" 2>/dev/null | cut -f1)
+    [ -n "$size" ] && [ "$size" -gt "$rule" ] || return 0
+    echo "$target/debug is $(du -sh "$target/debug" 2>/dev/null | cut -f1), over the 100 GB rule in doc/environment.md; the prune, between close and open with no round running:"
+    echo "    rm -rf $target/debug"
+}
+
 open_batch() {
     local branch=$1
     [ -e "$wt" ] && { echo "$wt exists — close the previous batch first"; return 1; }
+    debug_over_the_rule
     git -C "$root" worktree add -q -b "$branch" "$wt" HEAD
     # Only where the tree's own `.gitignore` says the file is a checkout's own, so that it can
     # never become part of a batch's population.
@@ -478,6 +494,7 @@ close_batch() {
     git -C "$root" branch -D "$1" 2>/dev/null || true
     git -C "$root" worktree prune
     echo "$1: worktree and branch gone"
+    debug_over_the_rule
 }
 
 case "${1:-}" in

@@ -6010,3 +6010,38 @@ the upload is now the window's 6.5 MB. A mip chain would make the step frame dif
 the chain is not built. On the two pages whose window shows each image almost whole, the step's
 transfer is still the reduction at the new factor: about 17 instructions per sample, scalar on
 the baseline target.
+
+## 65. `bug1721218_reduced.pdf`'s second render meets nothing again, and a sweep past its budget skips its sort (ADR 1517)
+
+**Where the repeated asks were.** ADR 1503 counted 59% of the page's meet asks as repeats of a
+pixel under another mark, and proposed keeping a clip's side of a pixel for one frame. Counted per
+render, the repeats are elsewhere. Your four-component group is drawn as two frames of the same
+elements (your ADR 1471): chromatic and black. Each is a render of its own. All of the black
+render's 6 769 meets ask exactly what the chromatic render asked. Inside one render only 14% of
+asks repeat. The black frame also uploads its clips again: the big clip is outline 17 in one
+render and outline 14 208 in the other.
+
+**What changed, byte for byte.** The device keeps each render's met residue tiles until the end
+of the next render. They are keyed by what the meet reads: the mark's tile, rule and polylines,
+and the chain's segments under their device transforms. A chain's content is compared whole once
+a render and named by a number that never names other content. A meet whose bytes the frame's
+edge budget could have decided is not kept. Every black-render meet now hits.
+
+Separately, the topology sweep's sort of 111 k boxes used to end with the sweep past its budget.
+That outcome is now counted before the sort, exactly.
+
+| `zoom_frame` pair, one thread | before | after |
+|---|---:|---:|
+| `encode_scene` | 4.17 G | 2.61 G |
+| `meet_residue` | 3.53 G | 1.79 G |
+| `Topology::of` | 0.29 G | 0.09 G |
+
+The 1.25× step on the GPU lane goes from 193.1 to **147.6 ms**, pinned minima of 3 × 5 interleaved
+on exported trees. That is within twice your CPU backend's 84 ms. Corpus digests: 0 pages moved
+on three lanes at 1× and 4×.
+
+**One thing your side could take further.** The black frame still fills every mark the chromatic
+frame filled, about 0.2 G a pair, and it still rebuilds the group residue for the big clip.
+Drawing the two halves as one frame with two outputs would remove that. So would a scene that
+names the black half's marks by the chromatic half's outlines. Either is a decision of yours under
+ADR 1471.

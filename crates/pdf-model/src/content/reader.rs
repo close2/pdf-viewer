@@ -492,6 +492,60 @@ impl<'a> ContentReader<'a> {
         }
     }
 
+    /// [`Self::with_token`] for the operand loop, which says whether a string's bytes will be read:
+    /// under [`Strings::StepOver`] a string at the cursor is stepped over by the grammar that ends
+    /// it and lent as an empty one.
+    ///
+    /// For §9.4.3's text-showing operators with no font in force, which §9.3.1's Table 103 makes
+    /// the file's defect — "they shall be specified explicitly by using Tf before any text is
+    /// shown" — and which show nothing: such a show is counted and its string is never looked at.
+    /// Reading it anyway cost a growing buffer while the lexer decoded its escapes, the shared
+    /// buffer an operand is held in, and both freed — an eighth of the instructions of the `page`
+    /// target's slow unit of 16 716 558 such shows (ADR 1521). What is stepped over is exactly what the
+    /// lexer would have read: §7.3.4.2's balancing parenthesis, the byte after a REVERSE SOLIDUS
+    /// escaped, and §7.3.4.3's `>` — [`LiteralStringEnd`] is the one statement of the first,
+    /// shared with `Window::drop_token`. Anything else, and a string whose end the buffer does
+    /// not yet hold, takes the ordinary road.
+    #[inline]
+    pub(super) fn with_operand<T>(
+        &mut self,
+        strings: Strings,
+        read: impl FnOnce(Option<Token<'_>>) -> T,
+    ) -> T {
+        if strings == Strings::StepOver && self.step_over_a_string() {
+            return read(Some(Token::String(Vec::new())));
+        }
+        self.with_token(read)
+    }
+
+    /// Steps over a string at the cursor where the bytes hold the whole of it, and says whether
+    /// it did; past white space and comments to the next token either way, where the bytes
+    /// hold them.
+    ///
+    /// Not generic and not inlined, so that [`Self::with_operand`] stays as small as
+    /// [`Self::with_token`] and inlines into the operand loop as that did: inlined, this body
+    /// stopped `with_token` inlining there and cost an ordinary page 0.18% of its instructions.
+    #[inline(never)]
+    fn step_over_a_string(&mut self) -> bool {
+        let ahead = match &mut self.held {
+            // A whole stream ends where its bytes do, so a string running to the end is ended
+            // there, as the lexer ends it.
+            Held::Whole { bytes, at } => (ahead(bytes, *at, true), at),
+            Held::Window(window) => (window.ahead(), &mut window.at),
+        };
+        match ahead {
+            (Ahead::String(end), at) => {
+                *at = end;
+                true
+            }
+            (Ahead::Token(start), at) => {
+                *at = start;
+                false
+            }
+            (Ahead::Unknown, _) => false,
+        }
+    }
+
     /// The bytes from the cursor onwards, at least `want` of them where the stream has them,
     /// and whether that is everything the stream has left.
     ///
@@ -750,6 +804,23 @@ impl Window {
         self.settle_then(read)
     }
 
+    /// [`ahead`] over what is buffered.
+    ///
+    /// Asked under the same condition the fast arm of [`Self::with_token`] lexes under, and for
+    /// the same reason: a string that ends before what is buffered is one no boundary cut, and a
+    /// token that begins inside it was reached past white space and comments that all ended
+    /// inside it — so moving the cursor to either leaves no comment open behind it.
+    fn ahead(&self) -> Ahead {
+        if self.in_comment || self.filled.saturating_sub(self.at) < SLACK {
+            return Ahead::Unknown;
+        }
+        ahead(
+            self.buffer.get(..self.filled).unwrap_or_default(),
+            self.at,
+            false,
+        )
+    }
+
     /// The rest of [`Self::with_token`]: refilling, growing and the two boundary cases.
     ///
     /// Split out so that the arm above stays a leaf, and cold because it runs once per refill.
@@ -834,27 +905,12 @@ impl Window {
     /// The depth and a pending escape carry across refills, which is what makes this one pass
     /// over the string however many buffers it spans.
     fn drop_literal_string(&mut self) {
-        let mut depth = 0usize;
-        let mut escaped = false;
+        let mut end = LiteralStringEnd::default();
         loop {
             let rest = self.buffer.get(self.at..self.filled).unwrap_or_default();
-            for (offset, &byte) in rest.iter().enumerate() {
-                if escaped {
-                    escaped = false;
-                    continue;
-                }
-                match byte {
-                    b'\\' => escaped = true,
-                    b'(' => depth = depth.saturating_add(1),
-                    b')' => {
-                        depth = depth.saturating_sub(1);
-                        if depth == 0 {
-                            self.at += offset + 1;
-                            return;
-                        }
-                    }
-                    _ => {}
-                }
+            if let Some(offset) = end.read(rest) {
+                self.at += offset;
+                return;
             }
             self.at = self.filled;
             if !self.pull() {
@@ -869,9 +925,9 @@ impl Window {
             let found = self
                 .buffer
                 .get(self.at..self.filled)
-                .and_then(|rest| rest.iter().position(|&byte| byte == b'>'));
+                .and_then(hexadecimal_string_end);
             if let Some(offset) = found {
-                self.at += offset + 1;
+                self.at += offset;
                 return;
             }
             self.at = self.filled;
@@ -1135,6 +1191,99 @@ impl Window {
 ///
 /// §7.2.4 ends a comment at "an EOL marker", so a `%` with no end of line after it is a
 /// comment the buffer cut rather than one that finished.
+/// §7.3.4.2's end of a literal string, found over one slice or several.
+///
+/// "Balanced pairs of parentheses within a string require no special treatment", and a REVERSE
+/// SOLIDUS makes the byte after it part of the string whatever it is — which is everything the
+/// lexer's own reading decides the end by: its octal digits and line continuations are bytes
+/// that are never a parenthesis. The depth and a pending escape carry from one slice to the
+/// next, so a string spanning refills is one pass.
+#[derive(Debug, Default)]
+struct LiteralStringEnd {
+    depth: usize,
+    escaped: bool,
+}
+
+impl LiteralStringEnd {
+    /// Reads `bytes`, the first of which is the string's opening parenthesis where this is the
+    /// first slice, and returns the offset just past the parenthesis that balances it.
+    fn read(&mut self, bytes: &[u8]) -> Option<usize> {
+        for (offset, &byte) in bytes.iter().enumerate() {
+            if self.escaped {
+                self.escaped = false;
+                continue;
+            }
+            match byte {
+                b'\\' => self.escaped = true,
+                b'(' => self.depth = self.depth.saturating_add(1),
+                b')' => {
+                    self.depth = self.depth.saturating_sub(1);
+                    if self.depth == 0 {
+                        return Some(offset.saturating_add(1));
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+}
+
+/// The offset just past §7.3.4.3's closing `>` in `bytes`, which begin at or after the opening
+/// one: the lexer ends a hexadecimal string at the first `>` whatever precedes it.
+fn hexadecimal_string_end(bytes: &[u8]) -> Option<usize> {
+    bytes
+        .iter()
+        .position(|&byte| byte == b'>')
+        .map(|offset| offset.saturating_add(1))
+}
+
+/// Whether the operand loop will read the bytes of the strings it is lent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Strings {
+    /// Every string is lexed and lent whole.
+    Read,
+    /// A string is stepped over and lent empty, because nothing that could take it will read it.
+    StepOver,
+}
+
+/// What follows white space and comments at the cursor, for [`ContentReader::with_operand`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ahead {
+    /// A string token, ending just before this offset.
+    String(usize),
+    /// Some other token, beginning at this offset.
+    Token(usize),
+    /// Nothing the bytes can answer: they end in white space, a comment, or a string they do
+    /// not end, and more may arrive.
+    Unknown,
+}
+
+/// What the token at `at` is, as far as a string's extent is concerned.
+///
+/// White space and comments before it are passed over as the lexer passes them, and the offset
+/// past them is handed back either way so that they are not read twice. A string the bytes do
+/// not end is ended at their end where `whole` says they are all there is, which is where the
+/// lexer ends it.
+fn ahead(bytes: &[u8], at: usize, whole: bool) -> Ahead {
+    let mut lexer = Lexer::at(bytes, at);
+    lexer.skip_whitespace();
+    let start = lexer.position();
+    let rest = bytes.get(start..).unwrap_or_default();
+    let end = match rest {
+        [] => return Ahead::Unknown,
+        [b'(', ..] => LiteralStringEnd::default().read(rest),
+        [b'<', second, ..] if *second != b'<' => hexadecimal_string_end(rest),
+        [b'<'] => hexadecimal_string_end(rest),
+        _ => return Ahead::Token(start),
+    };
+    match end {
+        Some(offset) => Ahead::String(start.saturating_add(offset)),
+        None if whole => Ahead::String(bytes.len()),
+        None => Ahead::Unknown,
+    }
+}
+
 /// The next token of a content stream: the lexer's, except where a salvage swallowed an operator.
 ///
 /// `5f` is one token under ISO 32000-2 §7.2.3 — `f` is a regular character and a token ends
@@ -1387,9 +1536,16 @@ mod tests {
 
     /// Every token of `content`, through the whole-buffer reader.
     fn tokens(content: &[u8]) -> Vec<Token<'static>> {
+        read_all(content, false)
+    }
+
+    /// The same, with every string read as [`ContentReader::with_operand`] reads it under
+    /// [`super::Strings::StepOver`] where
+    /// `unread` says so.
+    fn read_all(content: &[u8], unread: bool) -> Vec<Token<'static>> {
         let mut reader = ContentReader::over(content);
         let mut out = Vec::new();
-        while let Some(token) = reader.with_token(|token| {
+        let copy = |token: Option<Token<'_>>| {
             token.map(|token| match token {
                 // A keyword borrows from the buffer the closure lends; copied out into a
                 // static so the test can compare a whole stream's worth at once.
@@ -1403,10 +1559,55 @@ mod tests {
                 Token::DictOpen => Token::DictOpen,
                 Token::DictClose => Token::DictClose,
             })
-        }) {
+        };
+        let strings = if unread {
+            super::Strings::StepOver
+        } else {
+            super::Strings::Read
+        };
+        while let Some(token) = reader.with_operand(strings, copy) {
             out.push(token);
         }
         out
+    }
+
+    /// **A string stepped over ends where the lexer's reading of it ends**, which is the whole of
+    /// what makes stepping over it safe (ADR 1521): every other token comes out the same, and each
+    /// string comes out empty.
+    ///
+    /// The streams are the shapes §7.3.4 makes hard to end: a balanced pair inside a literal
+    /// string, an escaped parenthesis, an escaped REVERSE SOLIDUS before the closing one, an
+    /// octal escape, a line continuation, a `%` that §7.2.4 makes a comment everywhere but inside
+    /// a string, a hexadecimal string with white space and a stray byte in it, an empty one, a
+    /// dictionary opener beside it, a comment between operands, and both kinds left unterminated
+    /// at the end of the stream, which the lexer ends there.
+    #[test]
+    fn a_string_stepped_over_ends_where_the_lexer_ends_it() {
+        for content in [
+            &b"(a(b)c) Tj"[..],
+            b"(a\\) Tj) 5 w",
+            b"(a\\\\) Tj (b) Tj",
+            b"(\\101\\05x) Tj",
+            b"(line\\\ncontinued) Tj",
+            b"(not % a comment) Tj % but this is\n(x) Tj",
+            b"<41 42\n4z3> Tj <> Tj <</A 1>> BDC",
+            b"[(a) -250 (b(c)) 120 <4142>] TJ",
+            b"1 0 0 1 0 0 Tm % a comment\n (s) ' 1 2 (t) \"",
+            b"(never closed ) Tj",
+            b"<4142 never closed",
+            b"<",
+        ] {
+            let read = tokens(content);
+            let stepped = read_all(content, true);
+            let emptied: Vec<Token<'static>> = read
+                .into_iter()
+                .map(|token| match token {
+                    Token::String(_) => Token::String(Vec::new()),
+                    other => other,
+                })
+                .collect();
+            assert_eq!(stepped, emptied, "{}", String::from_utf8_lossy(content));
+        }
     }
 
     /// **The line between a unit a producer appended and an operator a run swallowed.**

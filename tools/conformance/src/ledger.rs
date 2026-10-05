@@ -1628,8 +1628,10 @@ struct Definition<'a> {
     name: &'a str,
     /// The attribute and comment lines directly above it, joined.
     attributes: String,
-    /// From the signature line to the closing brace at the signature's own indentation.
-    body: String,
+    /// From the signature line to the closing brace at the signature's own indentation, less
+    /// its comment lines: a helper whose only mention of a corpus root is a `//` line reads none,
+    /// and a function named in a comment is not called.
+    code: String,
 }
 
 /// Every function of a rustfmt-formatted file, classified.
@@ -1661,7 +1663,12 @@ fn read_functions(text: &str) -> SourceFunctions {
                 .find(|(_, candidate)| **candidate == closing)
                 .map_or(lines.len().saturating_sub(1), |(end, _)| end)
         };
-        let body = lines[index..=end].join("\n");
+        let code = lines[index..=end]
+            .iter()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .copied()
+            .collect::<Vec<_>>()
+            .join("\n");
         let mut above = Vec::new();
         for candidate in lines[..index].iter().rev() {
             let trimmed = candidate.trim();
@@ -1677,7 +1684,7 @@ fn read_functions(text: &str) -> SourceFunctions {
         definitions.push(Definition {
             name,
             attributes: above.join(" "),
-            body,
+            code,
         });
     }
 
@@ -1688,7 +1695,7 @@ fn read_functions(text: &str) -> SourceFunctions {
         .filter(|definition| {
             CORPUS_ROOTS
                 .iter()
-                .any(|root| definition.body.contains(root))
+                .any(|root| definition.code.contains(root))
         })
         .map(|definition| definition.name)
         .collect();
@@ -1699,7 +1706,7 @@ fn read_functions(text: &str) -> SourceFunctions {
             .filter(|definition| {
                 reads_corpus
                     .iter()
-                    .any(|helper| calls(&definition.body, helper))
+                    .any(|helper| calls(&definition.code, helper))
             })
             .map(|definition| definition.name)
             .collect();
@@ -2248,6 +2255,21 @@ mod tests {
         )
         .unwrap();
         root
+    }
+
+    /// A corpus root named only in a comment is not a corpus read: the helper and the test that
+    /// calls it are a fixture, while the same path in code makes both a witness (trap 13, both
+    /// ways in one file).
+    #[test]
+    fn a_corpus_root_in_a_comment_reads_no_corpus() {
+        let text = "fn helper() -> Vec<u8> {\n    // Built here rather than read from doc/pdf.js.\n    \
+                    vec![1]\n}\n\n#[test]\nfn uses_the_helper() {\n    // Unlike reader(), which opens a file.\n    helper();\n}\n\n\
+                    fn reader() -> Vec<u8> {\n    std::fs::read(\"doc/pdf.js/a.pdf\").unwrap()\n}\n\n\
+                    #[test]\nfn uses_the_reader() {\n    reader();\n}\n";
+        let kinds = read_functions(text).kinds;
+        assert_eq!(kinds.get("uses_the_helper"), Some(&TestKind::Fixture));
+        assert_eq!(kinds.get("uses_the_reader"), Some(&TestKind::CorpusWitness));
+        assert_eq!(kinds.get("helper"), Some(&TestKind::Census));
     }
 
     #[test]

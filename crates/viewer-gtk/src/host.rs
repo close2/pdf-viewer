@@ -419,8 +419,9 @@ pub struct Host {
     /// bridge spawns a thread that connects to the session bus, and page one may not wait behind
     /// a D-Bus round trip for a screen reader that is probably not there (ADR 0623).
     pub(crate) accessibility: Option<viewer_accessibility::Bridge>,
-    /// The page and viewport last published to it, so that a tree is not rebuilt per frame.
-    pub(crate) spoken: Option<viewer_accessibility::Showing>,
+    /// The page and viewport last published to it, and where the viewport sat in the window, so
+    /// that a tree is not rebuilt per frame.
+    pub(crate) spoken: Option<(viewer_accessibility::Showing, (f32, f32))>,
     /// Set from `accesskit_unix`'s own thread when a client asks for something.
     ///
     /// The only value in this host that crosses a thread boundary, and it carries no payload on
@@ -4060,6 +4061,29 @@ impl Host {
         self.ui
             .fixed
             .set_cursor_from_name(over.then_some("pointer"));
+    }
+}
+
+impl Host {
+    /// Where the page area's top-left corner sits in the window, in device pixels.
+    ///
+    /// The one place AT-SPI and this window agree on: GTK 4 reports its own widgets in the
+    /// window's coordinates and in no others, and the document's nodes are the viewport's until the
+    /// bridge is told this (ADR 1516). `(0, 0)` for a page area that is not in a window yet.
+    pub(crate) fn viewport_origin(&self) -> (f32, f32) {
+        let page = &self.ui.fixed;
+        let Some((x, y)) = page
+            .root()
+            .and_then(|root| page.translate_coordinates(&root, 0.0, 0.0))
+        else {
+            return (0.0, 0.0);
+        };
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a widget's place in its window, in device pixels; f32 is exact to 2^24 and \
+                      no window is that large"
+        )]
+        (x as f32, y as f32)
     }
 }
 

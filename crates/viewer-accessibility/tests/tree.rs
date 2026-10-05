@@ -97,6 +97,7 @@ fn shown(pages: &[PageView<'_>]) -> accesskit::TreeUpdate {
         document: "a document",
         pages: 3,
         viewport: (800.0, 1000.0),
+        origin: (0.0, 0.0),
         shown: pages,
     })
 }
@@ -1501,4 +1502,44 @@ fn a_fields_run_takes_no_identifier_a_lines_run_took() {
         .filter(|(_, node)| node.role() == Role::TextRun)
         .count();
     assert_eq!(runs, 2, "the paragraph's line and the field's value");
+}
+
+/// A viewport that sits beside a panel is placed in the window by the document node's transform,
+/// and only there: every node keeps the viewport's bounds, which is what a request resolves
+/// against, and a client reads them through the translation (ADR 1516).
+#[test]
+fn a_viewport_placed_in_its_window_is_the_document_nodes_transform() {
+    let nodes = [element(None, "P", "a paragraph")];
+    let pages = [view(&nodes, &[])];
+    let update = tree::build(&DocumentView {
+        window: "a window",
+        document: "a document",
+        pages: 3,
+        viewport: (800.0, 1000.0),
+        origin: (376.0, 41.0),
+        shown: &pages,
+    });
+    let (_, document) = update
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::PdfRoot)
+        .unwrap_or_else(|| panic!("the update holds the document node"));
+    assert_eq!(
+        document.transform().map(|placed| placed.as_coeffs()),
+        Some([1.0, 0.0, 0.0, 1.0, 376.0, 41.0])
+    );
+    let bounds = document
+        .bounds()
+        .unwrap_or_else(|| panic!("the document node has bounds"));
+    assert_eq!(
+        (bounds.x0, bounds.y0, bounds.x1, bounds.y1),
+        (0.0, 0.0, 800.0, 1000.0)
+    );
+    let unplaced = shown(&pages);
+    let (_, at_the_origin) = unplaced
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::PdfRoot)
+        .unwrap_or_else(|| panic!("the update holds the document node"));
+    assert!(at_the_origin.transform().is_none());
 }

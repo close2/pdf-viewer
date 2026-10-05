@@ -453,25 +453,38 @@ import sys
 import gi
 gi.require_version("Atspi", "2.0")
 from gi.repository import Atspi
-pid, own, found = int(sys.argv[1]), sys.argv[2] == "quorra", []
-SCREEN = Atspi.CoordType.SCREEN
+pid, own = int(sys.argv[1]), sys.argv[2] == "quorra"
+# The screen's coordinates first, which is what a client asks for; then the window's, because GTK 4
+# answers text extents in no other space and gives a component's screen origin as 0, 0 (ADR 1516).
+SPACES = ((Atspi.CoordType.SCREEN, ""), (Atspi.CoordType.WINDOW, " window"))
+# The field "N" as the toolkit publishes it and as the document's tree does (ADR 1501), each the
+# first answer in the first space that gave one, or the refusals.
+fields = {}
+def ask(node):
+    text = node.get_text_iface()
+    if text is None or Atspi.Text.get_character_count(text) < 2:
+        return None
+    refusals = []
+    for space, said in SPACES:
+        whole = node.get_component_iface().get_extents(space)
+        try:
+            box = Atspi.Text.get_character_extents(text, 1, space)
+        except gi.repository.GLib.Error as error:
+            refusals.append(error.message or "an error with no message")
+            continue
+        return ("%d %d %d %d" % (box.x, box.y, box.width, box.height), whole, said)
+    whole = node.get_component_iface().get_extents(Atspi.CoordType.WINDOW)
+    return ("refused: %s" % "; ".join(refusals), whole, " window")
 def walk(node, depth, document=False):
-    if node is None or depth > 40 or found:
+    if node is None or depth > 40:
         return
     try:
         document = document or node.get_role() == Atspi.Role.DOCUMENT_FRAME
-        ours = document if own else not document
-        if node.get_role_name() in ("text", "entry") and node.get_name() == "N" and ours:
-            text = node.get_text_iface()
-            if text is not None and Atspi.Text.get_character_count(text) >= 2:
-                try:
-                    box = Atspi.Text.get_character_extents(text, 1, SCREEN)
-                except gi.repository.GLib.Error as error:
-                    found.append("refused: %s" % (error.message or "an error with no message"))
-                    return
-                whole = node.get_component_iface().get_extents(SCREEN)
-                found.append("%d %d %d %d in %d %d %d %d" % (
-                    box.x, box.y, box.width, box.height, whole.x, whole.y, whole.width, whole.height))
+        key = "document" if document else "toolkit"
+        if node.get_role_name() in ("text", "entry") and node.get_name() == "N" and key not in fields:
+            asked = ask(node)
+            if asked is not None:
+                fields[key] = asked
         for index in range(node.get_child_count()):
             walk(node.get_child_at_index(index), depth + 1, document)
     except gi.repository.GLib.Error:
@@ -481,8 +494,21 @@ for index in range(desktop.get_child_count()):
     application = desktop.get_child_at_index(index)
     if application is not None and application.get_process_id() == pid:
         walk(application, 0)
-if found:
-    print(found[0])
+def place(whole):
+    return "%d %d %d %d" % (whole.x, whole.y, whole.width, whole.height)
+toolkit, document = fields.get("toolkit"), fields.get("document")
+if own and document:
+    print("%s in %s%s" % (document[0], place(document[1]), document[2]))
+elif toolkit and not toolkit[0].startswith("refused"):
+    print("%s in %s%s" % (toolkit[0], place(toolkit[1]), toolkit[2]))
+elif toolkit and document and not document[0].startswith("refused"):
+    # The toolkit's own field answers nothing, and the document's node for the same field does:
+    # its box is checked against the toolkit field's place in the window, which is where GTK puts
+    # the widget over the field's /Rect and the one space both answer in (ADR 1516).
+    print("%s in %s window, the document's node; the toolkit's %s" % (
+        document[0], place(toolkit[1]), toolkit[0]))
+elif toolkit:
+    print(toolkit[0])
 PY
 # asked VARIABLE ROLE NAME: replaces the measured coordinates in VARIABLE with the widget's own
 # centre where the window publishes it, and says which the click will be.
@@ -703,12 +729,25 @@ PY
         verdict 29-field-extents "not offered" "no accessibility bus on this machine"
     elif [[ "$seen" == refused:* ]]; then
         verdict 29-field-extents "not offered" "the toolkit's own field answers GetCharacterExtents with an error: $seen"
-    elif read -r cx cy cw ch _ fx fy fw fh <<< "$seen" && [ -n "$fh" ] && [ "$cw" -gt 0 ] \
+    elif read -r cx cy cw ch _ fx fy fw fh _ <<< "$seen" && [ -n "$fh" ] && [ "$cw" -gt 0 ] \
             && [ "$cx" -ge "$fx" ] && [ $((cx + cw)) -le $((fx + fw)) ] \
             && [ "$cy" -ge "$fy" ] && [ $((cy + ch)) -le $((fy + fh)) ]; then
         verdict 29-field-extents works "GetCharacterExtents(1): $seen"
     else
         verdict 29-field-extents wrong "GetCharacterExtents(1): ${seen:-nothing}"
+    fi
+
+    # Annex O: the text after `#` in a command-line word is the URI's fragment (ADR 0209), carried
+    # out left to right as §O.2 requires — `page` opens the page Table Annex O.3 names, and `search`
+    # (quoted, as Table Annex O.4 asks of a writer) selects "the first matching word in the
+    # document", which the window walks for page by page (ADR 0250).
+    launch "$FIXTURES/drive.pdf#page=3"; shot 30-fragment-page
+    expect_title 30-fragment-page "page 3 of 3"
+    launch "$FIXTURES/drive.pdf#page=3&search=%22drive%22"; sleep 2; shot 30-fragment-search
+    if found_since 0; then
+        verdict 30-fragment-search works "the fragment's word was searched for and found"
+    else
+        verdict 30-fragment-search wrong "the fragment's search found nothing in the trace"
     fi
 
     # A right-to-left word on a page whose text runs in visual order through presentation forms.

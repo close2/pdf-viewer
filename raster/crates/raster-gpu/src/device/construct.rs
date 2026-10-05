@@ -292,6 +292,7 @@ impl Device {
             warm_up,
             resources: ResourceStore::new(options.max_resource_bytes),
             atlas,
+            kept_meets: crate::encode::KeptMeets::default(),
             atlas_texture: None,
             image_textures: HashMap::new(),
             ramp_textures: HashMap::new(),

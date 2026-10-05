@@ -133,6 +133,12 @@ codegen (§5), and `crates/pdf-sandbox/build.rs` bakes the confined worker's pat
   high-water mark. ADR 0884 is the construction and ADR 0885 what it found. Page one goes to the
   graphics device by the owner's decision, so bring-up is *on* the critical path and is a number to
   keep small rather than a cost to move aside — `CLAUDE.md` principle 2 has the rules that follow.
+- **the turn-path gate**: the other end of a page turn — a turn onto a page the device has not
+  seen, and one notch of zoom on it, page by page as `doc/performance.md` section 3e tabulates them.
+  `crates/render-raster/tests/turn_path.rs` with its bands in `doc/checks/turn-path.toml`, over the
+  method `examples/frame_budget` prints the table with, so a band and a row are one quantity; a
+  figure out of either end of its band fails, and a row moved on purpose moves its band with the
+  reason written beside it (ADR 1513). `tools/batch.sh gates` runs it in `release`.
 - Miri on the pure-Rust core; ASan/UBSan on any FFI
 - `cargo-deny`, `cargo-audit`
 - **the conformance gate** (§5a) — citations checked against the standard's own clause index,
@@ -551,7 +557,9 @@ durations, how many figures and rounds it read and any figure it could not sum (
 groups by size, read from the test file's own constants without the walk, and the departure-of-ours
 candidates for the next page to take (`--bin held`, ADR 1512). The disk the builds fill is `tools/state.sh disk`: every build directory under the root with
 its profiles, `sccache` against its ceiling, the free space and `scratchpad/`, and
-`doc/environment.md` the commands that prune it (ADR 1500).
+`doc/environment.md` the commands that prune it (ADR 1500); `tools/batch.sh close` and `open` print
+the batch directory's `debug` and its prune when it is over the hundred-gigabyte rule, and run
+nothing (ADR 1526).
 
 Three ratchets, all in the gate and all two-directional. `UNREVIEWED_CEILING` may only fall.
 `REVIEW_OWED` names the clauses the code cites whose rows are still `unreviewed`, and a clause not
@@ -561,7 +569,8 @@ down is exactly the rubber stamp the ledger exists to prevent. `ONLY_WALKS_CEILI
 equality to the `implemented` rows whose every test is a corpus walk or a corpus witness — a
 `#[test]` that returns early where the corpus is absent — so a fixture added lowers it and a new
 row may not raise it: such a row keeps its status, because a requirement executed under a control
-is executed, and owes a fixture whose expected value is the clause's (ADR 1497).
+is executed, and owes a fixture whose expected value is the clause's (ADR 1497). The classifier reads a
+function's code and not its comments, so a corpus root a comment names makes nothing a witness.
 
 On quoting the standard: `doc/md/` is **not** committed — `/doc/*.pdf` and `/doc/md` are ignored
 and only the encrypted `doc/specifications.zip` is tracked (ADR 0187) — so a quotation in a source

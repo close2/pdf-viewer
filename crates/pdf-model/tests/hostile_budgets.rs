@@ -1146,3 +1146,70 @@ fn a_cmap_exactly_on_the_range_bound_reports_nothing_about_it() {
         "the control has to draw, or it reports nothing by loading nothing"
     );
 }
+
+/// One text-showing line with no font in force, in every string shape §7.3.4 makes hard to end,
+/// followed by a fill that only a correctly ended string leaves to be read as one.
+const FONTLESS_LINE: &str = "BT (a(b)c) Tj [(\\)) -250 <41 42\n43> 120 (\\\\)] TJ \
+                             (not % a comment) ' 1 2 <> \" ET 0 0 1 1 re f\n";
+
+/// The `page` fuzz target's slow units, generated: text shown with no font, the same malformed
+/// keywords again and again, and nothing drawn for it.
+///
+/// The two units are Type 3 glyph descriptions that invoke themselves until `MAX_OPERATIONS`
+/// and show text with no font in force: 553 483 and 16 716 558 such shows, and 3 794 874 reports
+/// of a few hundred distinct items in the first. ISO 32000-2 §9.3.1's Table 103 makes such a show
+/// the file's defect — "they shall be specified explicitly by using Tf before any text is shown"
+/// — so it is counted, once per page, and draws nothing; what this holds is that it costs only that (ADR 1521): no string a fontless show
+/// would discard is read, and a report the page already holds is not built again. A stream past
+/// the reader's window, so that the strings are stepped over in the window, across its refills,
+/// and in a form whose stream is held whole.
+///
+/// **The cost is held here by what it is made of rather than by a clock**, because a wall-clock
+/// bound in a test is a bound on the machine's load: the report and the marks would move if a
+/// string were ended anywhere but where the lexer ends it, and the instruction counts the change
+/// was measured by are in ADR 1521.
+fn fontless_text(lines: usize, unknown: usize) -> Document {
+    let form = FONTLESS_LINE.repeat(8);
+    let mut content = FONTLESS_LINE.repeat(lines);
+    content.push_str(&"0 0 m bogus ".repeat(unknown));
+    content.push_str("/X Do\n");
+    page(
+        &content,
+        "<< /XObject << /X 5 0 R >> >>",
+        &format!(
+            "5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] /Length {} >>\n\
+             stream\n{form}\nendstream\nendobj\n",
+            form.len()
+        ),
+    )
+}
+
+/// Every fontless show is counted, nothing else is reported but the one repeated keyword, and
+/// every fill after a string is drawn — so each string ended exactly where the lexer ends it.
+#[test]
+fn text_shown_with_no_font_is_counted_once_a_page_and_reads_none_of_its_strings() {
+    const LINES: usize = 2_000;
+    const UNKNOWN: usize = 10_000;
+    let document = fontless_text(LINES, UNKNOWN);
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("the fixture has a page");
+    let interpretation = pdf_model::interpret(&document, &page);
+    // Per line: `Tj`, the `TJ`'s three strings, `'` and `"` — six shows.
+    let shows = (LINES + 8) * 6;
+    assert_eq!(
+        interpretation.unsupported,
+        vec![
+            pdf_model::Unsupported::Text { operations: shows },
+            pdf_model::Unsupported::Operator {
+                operator: "bogus".to_owned()
+            },
+        ],
+        "one count for every show and one report for {UNKNOWN} unknown keywords"
+    );
+    assert_eq!(
+        interpretation.display_list.command_count(),
+        LINES + 8,
+        "every fill after a string is drawn"
+    );
+}

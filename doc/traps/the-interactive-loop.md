@@ -263,3 +263,13 @@ and alone it read 1 — the signature of a race, not of a defect in the logic un
 now calls the wake first and signals after, and `settle` waits while any answer's wake is still
 owed (ADR 1478 §5). A test that counts callbacks after a settle is only as good as the settle's
 definition; when one fails under load and passes alone, the code's ordering is what is fixed.
+
+### 102. A rare path inlined into a hot path de-inlines the hot path
+
+Stepping over a string no font would show was written inside the generic `with_token`; inlined, it
+stopped `with_token` inlining into the operand loop and every ordinary page paid +0.18%, visible as
+`FnOnce::call_once` and `with_token` appearing as separate functions in a by-function callgrind diff.
+`#[inline(never)]` on the rare path restored the hot one (ADR 1521). A/B an ordinary page by function,
+not by total. And a toolkit's accessible-text answer is checked for a nonzero size: GTK's bare
+`GtkText` answered `GetCharacterExtents` with a 0×0 box at the field's origin, which a drive step
+reading presence alone would have called "works" (ADR 1516).

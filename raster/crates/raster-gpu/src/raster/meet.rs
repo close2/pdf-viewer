@@ -481,7 +481,8 @@ impl RowEdges {
             .saturating_mul(size_of::<Edge>())
             .saturating_add(self.entries.len().saturating_mul(size_of::<Entry>()))
             .saturating_add(self.reach.len().saturating_mul(size_of::<f64>()))
-            .saturating_add(self.levels.len().saturating_mul(size_of::<Level>()));
+            .saturating_add(self.levels.len().saturating_mul(size_of::<Level>()))
+            .saturating_add(self.charged.len().saturating_mul(size_of::<u64>()));
         words.saturating_add(wide) as u64
     }
 

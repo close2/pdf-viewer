@@ -56,6 +56,10 @@ fn repository_root() -> &'static Path {
 /// script's own root, which it derives from where it lives, is this repository and not the tree.
 struct Sandbox {
     base: PathBuf,
+    /// `BATCH_DEBUG_RULE_KIB`, where a test plants a `debug` tree over a rule of its own.
+    debug_rule_kib: Option<u64>,
+    /// What `open` printed.
+    opened: String,
 }
 
 impl Sandbox {
@@ -65,13 +69,37 @@ impl Sandbox {
 
     /// As [`Sandbox::new`], with `files` committed on `main` before the batch opens.
     fn with_files(name: &str, files: &[(&str, &str)]) -> Self {
+        Self::build(name, files, None)
+    }
+
+    /// As [`Sandbox::new`], with `planted_kib` of real bytes in the build directory's `debug`
+    /// before the batch opens and `rule_kib` as the rule it is read against.
+    fn with_debug_tree(name: &str, planted_kib: usize, rule_kib: u64) -> Self {
+        Self::build(name, &[], Some((planted_kib, rule_kib)))
+    }
+
+    fn build(name: &str, files: &[(&str, &str)], debug: Option<(usize, u64)>) -> Self {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |elapsed| elapsed.as_nanos());
         let base =
             std::env::temp_dir().join(format!("batch-{name}-{}-{nanos}", std::process::id()));
         std::fs::create_dir_all(base.join("repo/tools")).expect("a temporary directory");
-        let sandbox = Self { base };
+        let mut sandbox = Self {
+            base,
+            debug_rule_kib: debug.map(|(_, rule)| rule),
+            opened: String::new(),
+        };
+        if let Some((planted, _)) = debug {
+            let tree = sandbox.target().join("debug/deps");
+            std::fs::create_dir_all(&tree).expect("a planted debug tree");
+            // Bytes that are not zero, so no filesystem stores the file sparse and `du` counts it.
+            std::fs::write(
+                tree.join("planted"),
+                vec![0x5a_u8; planted.saturating_mul(1024)],
+            )
+            .expect("a planted artefact");
+        }
         std::fs::copy(
             repository_root().join("tools/batch.sh"),
             sandbox.repo().join("tools/batch.sh"),
@@ -90,7 +118,14 @@ impl Sandbox {
         sandbox.git(&sandbox.repo(), &["commit", "-q", "-m", "base"]);
         let opened = sandbox.batch(&["open", "batch-test"]);
         assert!(opened.status.success(), "open failed: {}", text(&opened));
+        sandbox.opened = text(&opened);
         sandbox
+    }
+
+    /// The batch build directory `tools/batch.sh` is pointed at: inside the sandbox, so that no
+    /// test reads the machine's own (a hundred-gigabyte `du` per test, and a finding about it).
+    fn target(&self) -> PathBuf {
+        self.base.join("target")
     }
 
     fn repo(&self) -> PathBuf {
@@ -108,6 +143,7 @@ impl Sandbox {
             .env("BATCH_WORKTREE", self.worktree())
             // `open` warms a workspace it finds; a throwaway one is built by the test that needs it.
             .env("BATCH_WARM", "0")
+            .env("BATCH_TARGET_DIR", self.target())
             // The throwaway workspace names its own build directory; an inherited one would put a
             // stand-in called `quorra` beside the real one.
             .env_remove("CARGO_TARGET_DIR")
@@ -118,6 +154,9 @@ impl Sandbox {
             .env("GIT_AUTHOR_EMAIL", "test@invalid")
             .env("GIT_COMMITTER_NAME", "test")
             .env("GIT_COMMITTER_EMAIL", "test@invalid");
+        if let Some(rule) = self.debug_rule_kib {
+            command.env("BATCH_DEBUG_RULE_KIB", rule.to_string());
+        }
         command
     }
 
@@ -165,6 +204,40 @@ fn text(output: &Output) -> String {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     )
+}
+
+/// `open` and `close` print the batch directory's `debug` and the prune once it is over the rule,
+/// and nothing under it; neither prunes. Calibrated both ways (trap 13): the same planted tree
+/// under a rule above it is silent.
+#[test]
+fn open_and_close_print_the_prune_once_debug_is_over_the_rule_and_prune_nothing() {
+    let over = Sandbox::with_debug_tree("over", 2048, 1024);
+    let prune = format!("rm -rf {}/debug", over.target().display());
+    assert!(
+        over.opened.contains("over the 100 GB rule") && over.opened.contains(&prune),
+        "open did not print the prune for a debug tree over the rule: {}",
+        over.opened
+    );
+    let closed = over.batch(&["close", "batch-test"]);
+    let said = text(&closed);
+    assert!(closed.status.success(), "close failed: {said}");
+    assert!(
+        said.contains(&prune),
+        "close did not print the prune for a debug tree over the rule: {said}"
+    );
+    assert!(
+        over.target().join("debug/deps/planted").exists(),
+        "open or close pruned the tree it was only to report"
+    );
+
+    let under = Sandbox::with_debug_tree("under", 2048, 1024 * 1024);
+    let closed = under.batch(&["close", "batch-test"]);
+    for said in [under.opened.clone(), text(&closed)] {
+        assert!(
+            !said.contains("rm -rf"),
+            "a debug tree under the rule printed a prune: {said}"
+        );
+    }
 }
 
 #[test]

@@ -1644,6 +1644,19 @@ impl Open {
             // a percentage where `/XYZ` states a factor, and it measures its corner from the top
             // left of the page where `/XYZ` measures from default user space's own origin.
             Parameter::Zoom { percent, offset } => {
+                // "[T]he percentage to which the document should be zoomed" is a `should`, and a
+                // magnification outside `ZOOM_RANGE` is the one a person could not reach either:
+                // the view lands on the nearest bound and the fragment is told so rather than
+                // magnified to a number the page then does not show (ADR 1523).
+                let factor = percent / 100.0;
+                if factor > 0.0 && !(ZOOM_RANGE.0..=ZOOM_RANGE.1).contains(&factor) {
+                    notes.push(format!(
+                        "this URI's fragment asks for a zoom of {percent}%, and this reader \
+                         magnifies between {}% and {}%, so the page opens at the nearer of the two",
+                        ZOOM_RANGE.0 * 100.0,
+                        ZOOM_RANGE.1 * 100.0
+                    ));
+                }
                 let corner = offset.map(|(left, top)| self.in_default_user_space(left, top));
                 self.pending_views.push(pdf_model::destination::View::Xyz {
                     left: corner.map(|(left, _)| left),
@@ -1651,7 +1664,7 @@ impl Open {
                     // Table 149 makes a zoom of zero the same as none, and this is the same
                     // magnification stated as a percentage, so zero says "leave it alone" here
                     // too rather than magnifying a page to nothing.
-                    zoom: Some(percent / 100.0).filter(|zoom| *zoom > 0.0),
+                    zoom: Some(factor).filter(|zoom| *zoom > 0.0),
                 });
             }
             Parameter::View(view) => self.pending_views.push(*view),

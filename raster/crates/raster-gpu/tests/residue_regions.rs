@@ -243,6 +243,10 @@ fn the_counter_is_of_regions_and_not_of_the_commands_that_ask() {
     let shared = shared.finish();
     let many = many.finish();
     let (_, one_chain) = render(&mut device, &shared);
+    // A render between the two: the first chain of `many` is `one`, and its first mark the
+    // first mark under `one`, so a meet kept by the render just before would be met without
+    // a tile (ADR 1517). The counters here are the admission rule's, not that memo's.
+    let _ = render(&mut device, &SceneBuilder::new().finish());
     let (_, forty_chains) = render(&mut device, &many);
     assert_eq!(one_chain.clip_residue_regions, 1, "40 commands, one region");
     assert_eq!(one_chain.clip_residue_tiles, 0);

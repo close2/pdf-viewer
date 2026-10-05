@@ -264,6 +264,38 @@ fn a_zoom_is_a_percentage_and_a_view_is_a_factor() {
     );
 }
 
+/// A `zoom` no person could reach either lands on the nearer bound **and says so** (ADR 1523).
+///
+/// Table Annex O.4 gives "the percentage to which the document should be zoomed" — a `should`, and
+/// it states no largest or smallest. This reader magnifies between 2% and 6400% whoever asks, so
+/// 10000% opens at 6400% and 1% at 2%, and a fragment that asked for more than it got is told:
+/// trap 5's rule that a clamp nobody hears about is a silent substitution.
+#[test]
+fn a_zoom_beyond_the_readers_range_lands_on_the_bound_and_is_named() {
+    for (fragment, percent, scale) in [("zoom=10000", "10000%", 64.0), ("zoom=1", "1%", 0.02)] {
+        let Some((mut viewer, events)) = opened("vertical.pdf", fragment) else {
+            eprintln!("skipped: doc/pdf.js is not checked out");
+            return;
+        };
+        let notes = notes(&events);
+        assert!(
+            notes.iter().any(|note| note.contains(percent)),
+            "{fragment}: {notes:?}"
+        );
+        settle(&mut viewer, &events);
+        let landed = geometry(&viewer, 0).scale;
+        assert!((landed - scale).abs() < 0.001, "{fragment}: {landed}");
+    }
+
+    // Inside the range nothing is said: 200% is in `a_zoom_is_a_percentage_and_a_view_is_a_factor`.
+    let (_, events) = opened("vertical.pdf", "zoom=200").expect("the same document");
+    assert!(
+        !notes(&events).iter().any(|note| note.contains("zoom")),
+        "{:?}",
+        notes(&events)
+    );
+}
+
 /// §O.2.2's coordinates are default user space's units measured from the page's *top left*, and
 /// this is the test that can tell the two origins apart.
 ///
@@ -493,6 +525,38 @@ fn an_xfdf_a_fragment_names_is_asked_for_like_an_fdf() {
             } if name == "answers.xfdf"
         )),
         "the host is asked for the file the fragment named: {events:?}"
+    );
+}
+
+/// The XFDF the fragment named is **imported**, not only asked for: the same field, the same value,
+/// the annex's second format.
+///
+/// Table Annex O.4: "Open the document and then import the data from the specified FDF or XFDF
+/// file." The bytes below are the field half of an XFDF file as `pdf_model::xfdf` reads it (ADR
+/// 1108): one `field` element whose `name` is §12.7.4.2's fully qualified `Text1` and whose
+/// `value` is the text the field then holds — the FDF test's `/T` and `/V` in the other spelling.
+#[test]
+fn the_xfdf_a_fragment_names_is_imported_like_an_fdf() {
+    let Some((mut viewer, _)) = opened("form_two_pages.pdf", "fdf=answers.xfdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    assert_ne!(value_of(&viewer, "Text1"), "Grace Hopper");
+    let xfdf: &[u8] = b"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+        <xfdf xmlns=\"http://ns.adobe.com/xfdf/\" xml:space=\"preserve\">\n\
+        <fields><field name=\"Text1\"><value>Grace Hopper</value></field></fields>\n\
+        </xfdf>\n";
+    let events: Vec<Event> = viewer
+        .handle(Command::Supply {
+            purpose: viewer_core::Purpose::ImportData,
+            bytes: Some(xfdf.to_vec()),
+        })
+        .collect();
+    settle(&mut viewer, &events);
+    assert_eq!(
+        value_of(&viewer, "Text1"),
+        "Grace Hopper",
+        "the XFDF's value is what the field says now: {events:?}"
     );
 }
 

@@ -73,6 +73,12 @@ impl ResolvedClip {
     pub(super) fn mark_bounds(&self) -> Rect {
         self.rect.intersection(self.residue_bounds)
     }
+
+    /// The deepest residue link's clip, which names the chain within its scene, or `None`
+    /// where the chain is rectangles alone.
+    pub(super) fn leaf(&self) -> Option<u32> {
+        self.residues.as_ref().map(|leaf| leaf.clip.0)
+    }
 }
 
 #[derive(Debug)]
@@ -256,19 +262,25 @@ impl Encoder<'_> {
     /// flattened again for each meet and bucketed over that meet's `rows` alone, as a chain
     /// with no region is rasterised again over each tile (ADR 0049). A row's bucket holds
     /// every edge that reaches it whichever rows were built, so a kept chain and a remade one
-    /// meet a mark to the same bytes, and a budget changes only what a frame spends.
+    /// meet a mark to the same bytes.
+    ///
+    /// **Beside the edges, whether the budget decided nothing** ([`ChainEdges::unbounded`]):
+    /// only the remade build is held to `limit`, so where a link's edges over `rows` pass it
+    /// a kept chain meets exactly and a declined one by `min`. A meet whose chain is within
+    /// `limit` either way is one whose bytes no budget chose, which is what a meet kept for
+    /// the next render must be (ADR 1517).
     pub(super) fn residue_edges(
         &mut self,
         resolved: &ResolvedClip,
         rows: (i32, u32),
         limit: usize,
-    ) -> Result<Option<Arc<[RowEdges]>>, RenderError> {
+    ) -> Result<Option<ChainEdges>, RenderError> {
         let Some(leaf) = resolved.residues.clone() else {
             return Ok(None);
         };
         let key = leaf.clip.0;
         let decided = match self.residue.edges(key) {
-            Edges::Kept(kept) => return Ok(Some(kept)),
+            Edges::Kept(kept) => return Ok(Some(ChainEdges::kept(kept, rows, limit))),
             Edges::Declined => true,
             Edges::Unasked => false,
         };
@@ -281,15 +293,17 @@ impl Encoder<'_> {
                 for link in &links {
                     // An entry is one `u32`; the edges themselves are charged after the build.
                     let room = usize::try_from(left / 4).unwrap_or(usize::MAX);
-                    let set = RowEdges::of(&link.polylines, link.rule, top, height, room)?;
+                    // Charged row by row, so that a meet can ask what a build over its
+                    // own rows would have counted ([`ChainEdges::unbounded`]).
+                    let set = RowEdges::of_charged(&link.polylines, link.rule, top, height, room)?;
                     left = left.checked_sub(set.bytes())?;
                     sets.push(set);
                 }
                 Some(Arc::<[RowEdges]>::from(sets))
             });
             self.residue.keep_edges(key, kept.clone());
-            if kept.is_some() {
-                return Ok(kept);
+            if let Some(kept) = kept {
+                return Ok(Some(ChainEdges::kept(kept, rows, limit)));
             }
         }
         let (top, height) = rows;
@@ -297,7 +311,56 @@ impl Encoder<'_> {
             .iter()
             .map(|link| RowEdges::of(&link.polylines, link.rule, top, height, limit))
             .collect();
-        Ok(remade.map(Arc::from))
+        Ok(remade.map(|sets| ChainEdges {
+            links: Arc::from(sets),
+            unbounded: true,
+        }))
+    }
+
+    /// The words that state a chain's residue as a meet reads it: each link's outline
+    /// segments, its device transform's bits and its rule, leaf first, then the frame's
+    /// visible rectangle, which bounds the region a chain is filled over (ADR 1517). Each
+    /// link leads with its length, so the words read back one way only.
+    ///
+    /// The segments and not the outline's id: a group drawn as two frames uploads its clips
+    /// once for each, so the same chain arrives under two ids.
+    pub(super) fn residue_content(&self, resolved: &ResolvedClip) -> Result<Vec<u32>, RenderError> {
+        let mut words = Vec::new();
+        let mut residue = resolved.residues.as_deref();
+        while let Some(link) = residue {
+            let def = &self.scene.clips()[link.clip.0 as usize];
+            let stored =
+                self.resources
+                    .outline(def.outline)
+                    .ok_or(RenderError::UnknownOutline {
+                        outline: def.outline,
+                    })?;
+            let to_device = compose(def.transform, self.viewport);
+            words.push(u32::try_from(stored.segments.len()).unwrap_or(u32::MAX));
+            for segment in &stored.segments {
+                segment_words(segment, &mut words);
+            }
+            words.extend(
+                [
+                    to_device.a,
+                    to_device.b,
+                    to_device.c,
+                    to_device.d,
+                    to_device.e,
+                    to_device.f,
+                ]
+                .map(f32::to_bits),
+            );
+            words.push(match def.rule {
+                FillRule::NonZero => 0,
+                FillRule::EvenOdd => 1,
+            });
+            residue = link.parent.as_deref();
+        }
+        let visible = self.visible;
+        words
+            .extend([visible.min.x, visible.min.y, visible.max.x, visible.max.y].map(f32::to_bits));
+        Ok(words)
     }
 
     /// Every link of a chain, flattened into device space once.
@@ -406,6 +469,20 @@ fn row_pieces(links: &[FlatLink], top: i32, height: u32) -> u64 {
     pieces
 }
 
+/// One segment as words: which kind it is, then its points' bits.
+fn segment_words(segment: &Segment, words: &mut Vec<u32>) {
+    let mut points = |kind: u32, points: &[Point]| {
+        words.push(kind);
+        words.extend(points.iter().flat_map(|p| [p.x.to_bits(), p.y.to_bits()]));
+    };
+    match *segment {
+        Segment::MoveTo(to) => points(0, &[to]),
+        Segment::LineTo(to) => points(1, &[to]),
+        Segment::CubicTo { c1, c2, to } => points(2, &[c1, c2, to]),
+        Segment::Close => points(3, &[]),
+    }
+}
+
 /// The device rectangle a rectangular link marks, corners ordered.
 fn rect_link_box(to_device: &DeviceTransform, rect: Rect) -> Rect {
     let p0 = apply(to_device, rect.min);
@@ -445,6 +522,28 @@ fn hull_box(
 /// The rectangle that admits nothing.
 fn empty_rect() -> Rect {
     Rect::new(Point::new(0.0, 0.0), Point::new(0.0, 0.0))
+}
+
+/// A chain's links as one meet reads them ([`Encoder::residue_edges`]).
+pub(super) struct ChainEdges {
+    /// Each link's edges, bucketed by row.
+    pub(super) links: Arc<[RowEdges]>,
+    /// Whether every link's edges over the meet's rows are within the meet's own bound, so
+    /// that a kept chain and a remade one both meet exactly: the meet's bytes are then the
+    /// same whatever the frame's edge budget had left (ADR 1517).
+    pub(super) unbounded: bool,
+}
+
+impl ChainEdges {
+    /// The frame's kept edges, asked the bound a build over `rows` alone would have asked.
+    fn kept(links: Arc<[RowEdges]>, (top, rows): (i32, u32), limit: usize) -> Self {
+        let unbounded = links.iter().all(|set| {
+            set.charge(top, rows)
+                .and_then(|charge| usize::try_from(charge).ok())
+                .is_some_and(|charge| charge <= limit)
+        });
+        Self { links, unbounded }
+    }
 }
 
 /// One residue link, flattened into device space.

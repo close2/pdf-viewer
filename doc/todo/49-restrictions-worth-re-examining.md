@@ -245,9 +245,14 @@ change to *what* is bounded, and both need the argument before the code.
   (ADR 0241, a kill at 0.83–1.97 ms) and **not inside `interpret`, by decision** (ADR 1507): a
   clock there would make the prefix drawn depend on the machine's load, and the oracle, the fuzz
   target's purity check and `replace` all rest on `interpret` being a function of the bytes. The
-  memory half has its own unit now, `MAX_LIST_BYTES`; what is still owed is a page that does no
-  drawing for its time — the `page` target's slow unit of 553 483 text shows with no font set,
-  1.5 s in release, each charged one operator and nothing else.
+  memory half has its own unit now, `MAX_LIST_BYTES`. The `page` target's two slow units of text
+  shown with no font set (553 483 and 16 716 558 shows) are Type 3 glyph descriptions that invoke
+  themselves until `MAX_OPERATIONS`, so their time is the operator bound's and not the shows':
+  what the shows and the reports beside them cost beyond lexing is taken off (ADR 1521 — a
+  repeated report is one lookup, a fontless show reads none of its string), 15.34 → 12.61 G and
+  46.64 → 40.62 G instructions. What is left of the two is lexing and the glyph description's
+  stream being looked up again per code (`NestedContent::of`, a fifth of the second unit), which
+  is per-operator work every bound already counts.
 - **And it was counting the wrong quantity as well, which is a different fault from the one above
   and is fixed** (ADR 0306). Every "operators" in this file's budget rows means *lexer tokens*: the
   one increment site was the token loop, and §7.8.2 puts an operator after its operands, so a `c`

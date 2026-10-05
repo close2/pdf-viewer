@@ -64,3 +64,30 @@ Neither package is published by RustCrypto, so the weaker reading offered above 
 well. The trigger to watch is still RustCrypto's `ed448-goldilocks`. On this date it is
 `0.14.0-pre.15`, and its last stable release is 0.9.0.
 
+
+## Five more packages, judged on 2026-10-05
+
+Four of the five names `doc/todo/65` listed unjudged on 2026-10-02 leave the recommendation exactly
+where it was. `ed448-rust`, `minimal-ed448` and `rs_ed448` have no review on record, and the last has
+no code. `oxicrypto-sig` wraps RustCrypto's pre-release `ed448-goldilocks`. `doc/todo/65` has a
+paragraph on each.
+
+The fifth changes what the question is about, which is why this section exists. **`frost-ed448`
+3.0.0 is the first Ed448 package with an audit on record.** It is published by the Zcash Foundation
+under `MIT OR Apache-2.0`. NCC Group's 2023 assessment covered its 0.6.0, and also covered the curve
+operations it takes from `ed448-goldilocks` 0.9.0, that package's last stable release. So the strict
+reading of A170's "reviewed", meaning an audit names the code, is no longer met by nothing at all.
+
+It is still not the swap, and the reason is the API, not the audit. The package's subject is RFC
+9591's threshold scheme, and its single-signer verification is a by-product. In the published 3.0.0
+source, every point is decoded through a check that refuses the identity and any point with a torsion
+component. RFC 8032 section 5.2.7's cofactored equation, which `ed448.rs` takes on purpose, exists to
+accept those points. The package would therefore refuse signatures the RFC calls valid. It also sits
+on the previous RustCrypto generation (`sha3` 0.10, `rand_core` 0.6), beside the tree's. And the audit
+was of 0.6.0, not of the version that would be taken.
+
+**Recommendation, amended:** still no, for `ed448-goldilocks-plus` and for all eight packages judged
+so far. The trigger is still RustCrypto's `ed448-goldilocks` reaching a stable line that carries the
+signature scheme. One fact is new for the owner's reading of "reviewed". The curve arithmetic of that
+package's own last stable line, 0.9.0, has been inside an audit's scope. Whether that scope reaches
+the 0.14 line, which was reworked inside `RustCrypto/elliptic-curves`, is not established here.
