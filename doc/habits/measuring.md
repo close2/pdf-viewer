@@ -696,3 +696,13 @@ were 65.500037, 135.500024 and 59.500014 levels — each within 1.5·10⁻⁷ of
 `f32` sums cannot decide, and two tiles over the same pixel disagreed with each other. The fix was
 precision (a residue filled in `f64` from the same points), not a choice between constructions,
 and admission then moved nothing (ADR 1491).
+
+## 63. The inputs per pixel are counted before a per-pixel lever is built
+
+The brief named four levers for the exact meet; counting showed 226 partial edges beside each
+asked pixel against 20 through it, which pointed at a fifth — runs of short edges crossing a row
+as one edge — that halved the cost (ADR 1503); a merging lever needs a locality cap, since uncapped
+it lost. And an A/B across commits compares the two binaries with `md5sum` even when each commit
+has its own export: a bisect's builds came out identical because the export was rebuilt in place
+(round 1335). The pool's occupancy is read before a cut is shared into it: eight frames on eight
+CPUs were 66% busy, and dividing them further lost on every page (ADR 1505).

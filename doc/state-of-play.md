@@ -127,8 +127,10 @@ the entry, the `APP14` segment that silences it, and the component count, ranked
 §7.4.8 gives them (ADR 1183); a baseline frame whose restart intervals begin on rows of blocks is
 decoded band by band on the pool, each band overlapping a row either side so that its upsampling
 sees what the whole frame's does, and `raster-gpu` divides the image's reduction to the page's
-scale by rows across the device's threads, reading an opaque band off its column sums (ADRs 1433,
-1457), and one with no restart interval is cut at the rows a Huffman-only pass finds where nothing
+scale by rows across the device's threads, reading an opaque band off its column sums and a
+translucent one off its premultiplied column sums, and a zoom step writes and reduces only the
+texels its window can sample, each reduced row premultiplied on the thread that made it (ADRs 1433,
+1457, 1493), and one with no restart interval is cut at the rows a Huffman-only pass finds where nothing
 else of its page is decoding beside it (ADR 1481); a converted pixel equal to the one before it is
 copied rather than converted again, and a soft mask is decoded beside its image, held one byte a
 sample and multiplied into it where it lies, a `/Matte`'s frame decoded beside its mask (ADRs 1469,
@@ -181,7 +183,12 @@ sequence holds the codec's decoder register for register in a unit test a third 
 It is **used**, which is a separate claim from the one above — and
 the first sentence of it is **measured** rather than asserted: a gate drags across `pdftotext`'s own word boxes on every corpus document and asks
 what came back, which is the first thing in this tree that clicks, and it found a press that set
-no selection anchor at all (ADR 0421). A
+no selection anchor at all (ADR 0421). What it reads back is the page's words where the page shows
+them, because the pen's step between two show operations is taken back into text space — through
+`Tm`'s linear part and out of the horizontal scaling — before it is compared with the space it would
+take to be a word gap, so a mirrored or scaled text matrix breaks no word, and a font that states no
+space is given a nominal quarter em as one (ADR 1490); a gap reads as a word break once it is more
+than half that space (ADR 1502). A
 locked document asks for its password (§7.6.4.1) — **in a window of the host's own in all three**,
 where `viewer-ui` stopped reading `stdin` and
 stopped leaving the process when there was no terminal (ADR 0545); the page zooms and scrolls; the cursor knows
@@ -591,7 +598,7 @@ raised by the pointer. Four clauses closed on the sidebar without anybody pickin
 and three of the four had a ledger row whose reason was "this program has no ___" — which is the
 lesson in [`doc/habits.md`](habits.md)'s ledger section rather than a fact about the sidebar.
 
-**And what a reader does is driven in all three windows by one command**: `tools/drive-windows.sh` takes them under `Xvfb` through open, the outline, page turns, zoom, find, a popup, a link, a markup and a form saved and reopened, the restriction levels, print, a password and AT-SPI, and photographs each step (ADR 1453). The find bar finds a right-to-left word typed in reading order on a page that shows it as presentation forms in display order, folding the forms and reading the order off the glyphs' positions (ADR 1465), and a word typed without its vowel marks or accents finds one printed with them, while a mark typed is asked for (ADR 1477). No step of the drive rests on a person looking at a picture: the reopened form is read off AT-SPI in all three windows, `quorra`'s form nodes carrying each field's value (ADR 1489), and `quorra-confined`'s device refusal is driven to its title (ADR 1478).
+**And what a reader does is driven in all three windows by one command**: `tools/drive-windows.sh` takes them under `Xvfb` through open, the outline, page turns, zoom, find, a popup, a link, a markup and a form saved and reopened, the restriction levels, print, a password and AT-SPI, and photographs each step (ADR 1453). The find bar finds a right-to-left word typed in reading order on a page that shows it as presentation forms in display order, folding the forms and reading the order off the glyphs' positions (ADR 1465), and a word typed without its vowel marks or accents finds one printed with them, while a mark typed is asked for (ADR 1477). No step of the drive rests on a person looking at a picture: the reopened form is read off AT-SPI in all three windows, `quorra`'s form nodes carrying each field's value and each character's place in it (ADRs 1489, 1501), and `quorra-confined`'s device refusal is driven to its title (ADR 1478).
 
 **All of it sits behind `viewer-core`**: `Command` in, `Event` out, `Query` → `Answer` beside
 them, with no type from a windowing or graphics library anywhere in its API.
@@ -776,7 +783,7 @@ ambiguity by itself. The approved PDF Association errata are an input beside the
 which *withdraws* a rule from part 4. `tools/state.sh archive` prints where the comparison
 stands, and `doc/todo/02` §2 runs it every whole-sequence round (ADR 1015).
 
-**And a separate ledger says how much of the *standard* the viewer implements**, clause by clause, one row per subclause in `doc/conformance/ledger.toml`. Its statuses gained a word in answer to `doc/questions/Q63`: `departed`, for a clause every requirement of which is executed except one sentence decided against with its cost recorded, so a deliberate departure stops wearing `partial`'s word for unfinished work and `tools/state.sh` counts it as its own figure (ADR 1119). Three of that script's sections read the tree rather than the ledger: `departures` prints each `departed` row's deciding ADR and what has cited it since, `remedies` prints per profile and target how many answers sit at a site the target's own listing does not name, and `flags` holds at zero the rule that **every command-line flag a message names is one the program accepts** — both populations derived, the programs from the workspace's manifests and the flags from each binary's own source (ADRs 1166, 1213).
+**And a separate ledger says how much of the *standard* the viewer implements**, clause by clause, one row per subclause in `doc/conformance/ledger.toml`. Its statuses gained a word in answer to `doc/questions/Q63`: `departed`, for a clause every requirement of which is executed except one sentence decided against with its cost recorded, so a deliberate departure stops wearing `partial`'s word for unfinished work and `tools/state.sh` counts it as its own figure (ADR 1119). Three of that script's sections read the tree rather than the ledger: `departures` prints each `departed` row's deciding ADR and what has cited it since, `remedies` prints per profile and target how many answers sit at a site the target's own listing does not name, and `flags` holds at zero the rule that **every command-line flag a message names is one the program accepts** — both populations derived, the programs from the workspace's manifests and the flags from each binary's own source (ADRs 1166, 1213). The ledger's own count says per status how many rows a fixture holds, how many only corpus walks or corpus witnesses hold, and how many name no test; an `implemented` row of the second kind keeps its status and owes a fixture, and the gate admits exactly as many as it has named (ADR 1497).
 
 **And it can *make* one.** `pdf-transform`'s `archive` verb brings a document to a stated target in
 three stages — validate with `pdf-archive`, decide each failed requirement as a refusal, an

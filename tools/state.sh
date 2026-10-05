@@ -280,6 +280,15 @@ section_oracle() {
         cargo test --profile gates -p pdf-model --test oracle -- --ignored --nocapture
 }
 
+# The oracle's held pages, from its own constants and without the walk: per verdict the count, the
+# groups by size, and the candidates for the next page to take (ADRs 1483, 1512). The section above
+# is the walk and its verdicts are the gate's; this is the standing fact a robustness round reads
+# before it chooses a page, and it costs no corpus.
+section_oracle_held() {
+    run "the oracle's held pages, by verdict and group (its constants, not a run)" '.' \
+        cargo run -q -p conformance --bin held
+}
+
 section_text() {
     gate_binaries
     # Three gates in one binary since ADR 0333: two about which characters a page reads back as,
@@ -1055,10 +1064,34 @@ EOF
     done
 }
 
-# What a person can actually run, and how old it is. `doc/todo/02` §5 is what refreshes it.
+# What a person can actually run, and which commit it is. The main checkout's `target/` and never
+# this tree's: a worktree's `target/` is nobody's, and the main checkout's is where
+# `doc/running-the-viewer.md` sends a person. `tools/batch.sh install` fills it at a batch boundary
+# and writes `target/installed-from` beside the files — the commit and each file's SHA-256 — so this
+# says how far `main` has moved since and whether every file is still the one installed (ADR 1511).
 section_binaries() {
-    heading "binaries a person can run" "ls -l target/"
-    ls -l target/ 2>/dev/null | grep -vE '^total|^d' || printf 'nothing installed — doc/todo/02 §5\n'
+    local main record installed
+    main=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)")
+    record=$main/target/installed-from
+    heading "binaries a person can run" "ls -l $main/target/; $record"
+    ls -l "$main/target/" 2>/dev/null | grep -vE '^total|^d' || printf 'nothing installed\n'
+    if [ ! -r "$record" ]; then
+        printf '\nno %s — nothing there was installed by tools/batch.sh install, so no commit names it\n' "$record"
+        return 0
+    fi
+    installed=$(sed -n 's/^# commit //p' "$record" | head -1)
+    printf '\n'
+    sed -n 's/^# //p' "$record"
+    if git cat-file -e "$installed^{commit}" 2>/dev/null; then
+        printf 'main is %s commit(s) past it\n' "$(git rev-list --count "$installed..main" 2>/dev/null)"
+    else
+        printf 'the commit it names is not in this repository\n'
+    fi
+    if (cd "$main/target" && grep -v '^#' "$record" | sha256sum --quiet -c - 2>/dev/null); then
+        printf 'every file it lists is the one installed\n'
+    else
+        printf 'a file it lists has changed or gone since it was installed (above)\n'
+    fi
 }
 
 # The disk the builds fill, read-only (ADR 1500): the round's own build directory and the root it
@@ -1188,8 +1221,8 @@ section_ratchets() {
     done
 }
 
-all="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame dates xmp save actions on-disk jpeg2000 instruments"
-quick="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk remedies instruments"
+all="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame dates xmp save actions on-disk jpeg2000 instruments"
+quick="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held remedies instruments"
 
 # Sections another section already runs. Not in `all`, because a full run pays for every line
 # they run — `ratchets` through the gates it composes, `remedies` inside `archive` — and named by
@@ -1225,6 +1258,7 @@ for section in $sections; do
     corpus) section_corpus ;;
     golden) section_golden ;;
     oracle) section_oracle ;;
+    oracle-held) section_oracle_held ;;
     text) section_text ;;
     selection) section_selection ;;
     accessibility) section_accessibility ;;

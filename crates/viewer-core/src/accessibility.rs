@@ -456,6 +456,23 @@ pub struct AccessibilityNode {
     /// `None` for every element that names no such field, and for a button, a list box, a
     /// signature and a field stating no type, whose values are not text.
     pub value: Option<pdf_model::view::ShownValue>,
+    /// Where each character of [`Self::value`] is drawn, one line of the field at a time.
+    ///
+    /// §12.7.4.3 constructs the field's appearance from `/DA` and `/V`, and the layout that writes
+    /// it places every glyph — so the positions are this program's own facts rather than a reading
+    /// of a stream somebody else wrote, and a platform's text interface can be told where one
+    /// character of a field is exactly as it is told where one character of a paragraph is
+    /// (ADR 1501). The boxes are in the device pixels [`Self::quads`] are in.
+    ///
+    /// **Each line is in the order it is displayed**, left to right, which is the order a page's
+    /// own readback holds a right-to-left run in when its producer stored it so (ADR 1465): a
+    /// field whose value reads right to left has lines whose text is its characters reversed by
+    /// UAX #9's rule L2, and [`Self::value`] keeps the logical order. A line break draws nothing
+    /// and is in no line.
+    ///
+    /// Empty where [`Self::value`] is `None`, where the value is empty, and where the layout could
+    /// not be carried out — the case that makes the page report the field.
+    pub value_lines: Vec<TextLine>,
     /// §12.5's annotation this element's **own** §14.7.5.3 object reference names, where the page
     /// lists one.
     ///
@@ -617,6 +634,7 @@ impl AccessibilityNode {
             enclosed_a_refusal: false,
             control: None,
             value: None,
+            value_lines: Vec::new(),
             annotation: None,
             headers: Vec::new(),
             continues_a_list: false,
@@ -1320,6 +1338,8 @@ pub(crate) struct Readback<'a> {
     pub(crate) fields: &'a BTreeMap<ObjectId, String>,
     /// §12.7.4.3's text for each such widget whose field is a text field or a combo box.
     pub(crate) values: &'a BTreeMap<ObjectId, pdf_model::view::ShownValue>,
+    /// Where §12.7.4.3's layout placed each glyph of those values, in default user space.
+    pub(crate) glyphs: &'a BTreeMap<ObjectId, Vec<pdf_model::view::FieldGlyph>>,
 }
 
 /// Turns a gathered element into what crosses the boundary.
@@ -1372,6 +1392,10 @@ pub(crate) fn finish(
     let stated = gathered
         .bounds
         .or_else(|| referenced_rectangle(&gathered.objects, page.places));
+    let valued = gathered
+        .objects
+        .iter()
+        .find_map(|object| Some((object, page.values.get(object)?)));
     AccessibilityNode {
         parent,
         role: gathered.role,
@@ -1394,10 +1418,14 @@ pub(crate) fn finish(
             .iter()
             .find_map(|object| page.controls.get(object).cloned()),
         // Found as the control is, through the element's own references (ADR 1489).
-        value: gathered
-            .objects
-            .iter()
-            .find_map(|object| page.values.get(object).cloned()),
+        value: valued.map(|(_, value)| value.clone()),
+        // The same widget's glyphs, where its layout placed any (ADR 1501).
+        value_lines: valued
+            .and_then(|(object, value)| {
+                let glyphs = page.glyphs.get(object)?;
+                Some(value_lines(&value.text, glyphs, &place))
+            })
+            .unwrap_or_default(),
         // The first of this element's own references that names an annotation this page lists:
         // see `AccessibilityNode::annotation` for why one rather than the union `bounds` takes.
         annotation: gathered
@@ -1412,6 +1440,50 @@ pub(crate) fn finish(
         drawn: marked_extent(page.marked, &gathered.mcids).and_then(mark),
         enclosed_a_refusal: enclosed_a_refusal(page.marked, &gathered.mcids),
     }
+}
+
+/// A field's value as [`AccessibilityNode::value_lines`] states it: one [`TextLine`] per line of
+/// the layout, each character the glyph §12.7.4.3 placed and the bytes of `text` it shows.
+///
+/// `place` takes a rectangle in default user space to the device pixels the rest of the node is
+/// in. A glyph is left out, with its text, where it shows no whole characters of `text` or has no
+/// place on the page, so every line keeps [`TextLine`]'s invariant: its text is exactly its
+/// characters' bytes, in order.
+pub(crate) fn value_lines(
+    text: &str,
+    glyphs: &[pdf_model::view::FieldGlyph],
+    place: impl Fn([f32; 4]) -> Option<[f32; 4]>,
+) -> Vec<TextLine> {
+    let mut lines: Vec<(usize, TextLine)> = Vec::new();
+    for glyph in glyphs {
+        let Some(shown) = text
+            .get(glyph.bytes.clone())
+            .filter(|shown| !shown.is_empty())
+        else {
+            continue;
+        };
+        let Some(bounds) = quad_bounds(&[glyph.quad]).and_then(&place) else {
+            continue;
+        };
+        let character = Character {
+            bytes: shown.len(),
+            bounds,
+        };
+        match lines.last_mut() {
+            Some((line, so_far)) if *line == glyph.line => {
+                so_far.text.push_str(shown);
+                so_far.characters.push(character);
+            }
+            _ => lines.push((
+                glyph.line,
+                TextLine {
+                    text: shown.to_owned(),
+                    characters: vec![character],
+                },
+            )),
+        }
+    }
+    lines.into_iter().map(|(_, line)| line).collect()
 }
 
 /// Where each element of one page's answer is, in the device pixels [`AccessibilityNode::quads`]
@@ -1707,6 +1779,7 @@ mod tests {
             artifact: None,
             control: None,
             value: None,
+            value_lines: Vec::new(),
             annotation: None,
             headers: Vec::new(),
             continues_a_list: false,

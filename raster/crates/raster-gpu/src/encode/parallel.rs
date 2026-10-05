@@ -71,18 +71,17 @@
 //! It is past the length CLAUDE.md's file-scale rule calls a smell (`wc -l` counts it),
 //! and it has already given up the seam it had: `commit` is step 3, in its own module.
 //! The division proposed for what is left — the [`Job`] record in one module and the
-//! fan-out (`partition`, `rasterise_all`, `fan_out`) in another — was looked for and is
-//! not there:
+//! fan-out (`rasterise_all`, `fan_out`) in another — was looked for and is not there:
 //!
 //! - **[`rasterise`] is the join, not a member of either half.** It is the pure function
 //!   of a [`Job`] that the whole design rests on, and it would have to be filed with the
 //!   record or with the threads while being the reason both exist.
-//! - **The fan-out balances by [`Job::weight`] and is bounded by [`Job::held`]**, so a
-//!   module holding `partition` without the record holds arithmetic over fields it
-//!   cannot see. The two constants are the same: `IN_FLIGHT_BUDGET_SHARE` bounds what
+//! - **The fan-out's floor is a sum of [`Job::weight`] and its queue is bounded by
+//!   [`Job::held`]**, so a module holding `fan_out` without the record holds arithmetic
+//!   over fields it cannot see. The two constants are the same: `IN_FLIGHT_BUDGET_SHARE` bounds what
 //!   jobs may sit queued and `PARALLEL_FLOOR_SEGMENTS` decides whether any go off-thread
 //!   at all, and neither means anything without the other side.
-//! - **The tests do not divide.** They are statements about the partition, the floor, a
+//! - **The tests do not divide.** They are statements about the claiming, the floor, a
 //!   job's weight and the queue's bound — none is a statement about a `Job` on its own,
 //!   which is the tell that the record is not a subject.
 //!
@@ -90,13 +89,14 @@
 //! `doc/QUORRA_ENCODE_THREADS.md` asked for and the reason a reader can check the
 //! determinism claim at all.
 
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 use raster_scene::{Color, OutlineId, Rect, Segment, Stroke};
 
 use crate::atlas::{AtlasEntry, GlyphKey};
-use crate::raster::{self, CoverageMask, DeviceTransform, Polyline, Rule};
+use crate::raster::{self, CoverageMask, DeviceTransform, Polyline, RowEdges, Rule};
 
 use super::DrawStyle;
 use super::clips::ResolvedClip;
@@ -156,7 +156,7 @@ pub(super) struct Job<'a> {
     place: Place<'a>,
     draw: Draw,
     /// What this job is expected to cost, in outline segments — the only size known
-    /// before the geometry exists, and the one [`partition`] balances by.
+    /// before the geometry exists, and the one [`fan_out`]'s floor is stated in.
     weight: u64,
     /// An **upper bound** on the host memory this job holds between the walk and the
     /// commit: the widest its coverage tile can be, plus the job record itself.
@@ -294,10 +294,13 @@ type Rasterised = Option<Made>;
 
 /// One job's coverage, and the polylines it was filled from where its commit meets a
 /// residue — the mark's half of the exact meet (ADR 1467), carried to the one site that
-/// meets it so that the walk's tiles and the fan-out's are met by the same arithmetic.
+/// meets it so that the walk's tiles and the fan-out's are met by the same arithmetic —
+/// with those polylines' edges bucketed over the tile's rows, built here on the job's thread
+/// rather than on the walk's (ADR 1513).
 pub(super) struct Made {
     mask: CoverageMask,
     polylines: Option<Vec<Polyline>>,
+    edges: Option<RowEdges>,
 }
 
 impl<'a> Job<'a> {
@@ -494,12 +497,12 @@ impl<'a> Job<'a> {
 /// fan-out's bytes are the one-threaded frame's (`tests/encode_threads.rs`).
 const STROKE_SEGMENT_WEIGHT: u64 = 21;
 
-/// A job's share of the fan-out, in the units [`partition`] balances: a filled outline's
-/// segments, with a stroke's counted at [`STROKE_SEGMENT_WEIGHT`].
+/// A job's weight towards the fan-out's floor ([`fan_out`]): a filled outline's segments,
+/// with a stroke's counted at [`STROKE_SEGMENT_WEIGHT`].
 ///
 /// Segments rather than tile area, because the tile does not exist until the job has run
-/// and a partition computed from the geometry would need the geometry. A resident tile
-/// rasterises nothing and weighs nothing.
+/// and the floor is decided before it. A resident tile rasterises nothing and weighs
+/// nothing.
 fn weight_of(segments: &[Segment], resident: bool, stroked: bool) -> u64 {
     let segments = segments.len() as u64;
     match (resident, stroked) {
@@ -574,39 +577,34 @@ pub(super) fn rasterise(job: &Job<'_>) -> Rasterised {
                 .outline
                 .is_some_and(crate::resources::StoredOutline::winds_two_values));
     let mask = raster::fill_mask_settled(&polylines, job.rule, (left, top, width, height), settled);
+    if job.draw.residue.is_none() {
+        return Some(Made {
+            mask,
+            polylines: None,
+            edges: None,
+        });
+    }
+    let point_rows = polylines
+        .iter()
+        .map(|polyline| polyline.points.len())
+        .sum::<usize>()
+        .saturating_mul(height as usize);
+    let edges = (point_rows >= super::meet::JOB_EDGE_WORK)
+        .then(|| {
+            RowEdges::of_charged(
+                &polylines,
+                job.rule,
+                top,
+                height,
+                super::meet::job_edge_limit(&mask),
+            )
+        })
+        .flatten();
     Some(Made {
         mask,
-        polylines: job.draw.residue.is_some().then_some(polylines),
+        polylines: Some(polylines),
+        edges,
     })
-}
-
-/// How many jobs each worker takes: balanced by [`Job::weight`], and contiguous.
-///
-/// **Static, and computed from a size the walk already knew**, so there is no queue, no
-/// atomic and no work stealing — the partition is a pure function of the job list, which
-/// is one fewer thing between a thread count and the bytes it draws. Contiguous because
-/// the results are reassembled in job order either way and adjacent jobs on a page are
-/// adjacent in memory.
-#[expect(clippy::arithmetic_side_effects)] // `taken + len` is bounded by `jobs.len()` by
-// the loop condition, and the target is `u64` arithmetic over a sum of `usize` lengths
-fn partition(jobs: &[Job<'_>], workers: usize) -> Vec<usize> {
-    let total: u64 = jobs.iter().map(Job::weight).sum();
-    let divisor = (workers as u64).max(1);
-    let mut lens = Vec::with_capacity(workers);
-    let (mut taken, mut carried) = (0_usize, 0_u64);
-    for worker in 1..=workers {
-        // Where this worker's share ends: `worker/workers` of the whole weight, in
-        // integer arithmetic that cannot drift, since the last share ends at `total`.
-        let target = total.saturating_mul(worker as u64) / divisor;
-        let mut len = 0;
-        while taken + len < jobs.len() && (worker == workers || carried < target) {
-            carried = carried.saturating_add(jobs[taken + len].weight());
-            len += 1;
-        }
-        taken += len;
-        lens.push(len);
-    }
-    lens
 }
 
 /// Rasterise every job, on `threads` threads.
@@ -614,32 +612,91 @@ fn partition(jobs: &[Job<'_>], workers: usize) -> Vec<usize> {
 /// The caller has already decided that the fan-out is worth taking; this decides only
 /// how the work is divided. One thread is a plain loop with no scope at all, which is
 /// what a page below the floor and a host that never asked both take.
+///
+/// **Each thread claims the next job not yet claimed**, in the order [`makers_first`] gives,
+/// and the masks are put back in job order when every thread has finished: [`rasterise`] is a
+/// pure function of its job, so which thread made a mask, and when, is no part of its bytes,
+/// and `tests/encode_threads.rs` holds the frame to the one-threaded frame's bytes at every
+/// count. A share fixed in advance by [`Job::weight`] could not be balanced where it
+/// mattered most: a tight bend's tiling is quadratic in its pieces (ADR 1375), so a stroke's
+/// work is not its segments times a constant — on `bug1743245.pdf` eight fixed shares of equal
+/// weight finished up to twice apart — and an equal share is not an equal time on this
+/// machine's two classes of core either (`doc/habits/measuring.md` 48). A claim is one atomic
+/// addition, against a job that costs microseconds for a glyph and milliseconds for a tight
+/// stroke (ADR 1505).
 pub(super) fn rasterise_all(jobs: &[Job<'_>], threads: usize) -> Vec<Rasterised> {
-    let mut results: Vec<Rasterised> = (0..jobs.len()).map(|_| None).collect();
     if threads <= 1 || jobs.len() < 2 {
-        run(jobs, &mut results);
-        return results;
+        return jobs.iter().map(rasterise).collect();
     }
-    let lens = partition(jobs, threads);
-    let mut rest_jobs = jobs;
-    let mut rest_out: &mut [Rasterised] = &mut results;
-    thread::scope(|scope| {
-        // Every share but the last is spawned and the last runs here, so `threads`
-        // threads is `threads - 1` spawns and the calling thread is not left waiting.
-        let spawned = lens.len().saturating_sub(1);
-        for &len in lens.iter().take(spawned) {
-            let take = len.min(rest_jobs.len());
-            let (mine, jobs_tail) = rest_jobs.split_at(take);
-            let (out, out_tail) = std::mem::take(&mut rest_out).split_at_mut(take);
-            rest_jobs = jobs_tail;
-            rest_out = out_tail;
-            if !mine.is_empty() {
-                scope.spawn(move || run(mine, out));
-            }
+    let order = makers_first(
+        jobs.iter()
+            .map(|job| job.expansion.as_ref().map(Arc::as_ptr)),
+    );
+    let next = AtomicUsize::new(0);
+    let made: Mutex<Vec<Vec<(usize, Rasterised)>>> = Mutex::new(Vec::with_capacity(threads));
+    let work = || {
+        let mut mine = Vec::new();
+        loop {
+            let claimed = next.fetch_add(1, Ordering::Relaxed);
+            let Some((index, job)) = order
+                .get(claimed)
+                .and_then(|&index| Some((index, jobs.get(index)?)))
+            else {
+                break;
+            };
+            mine.push((index, rasterise(job)));
         }
-        run(rest_jobs, rest_out);
+        made.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(mine);
+    };
+    thread::scope(|scope| {
+        // Every thread but this one is spawned and this one claims jobs too, so `threads`
+        // threads is `threads - 1` spawns and the calling thread is not left waiting.
+        for _ in 1..threads.min(jobs.len()) {
+            scope.spawn(work);
+        }
+        work();
     });
+    let mut results: Vec<Rasterised> = (0..jobs.len()).map(|_| None).collect();
+    for (index, mask) in made
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .into_iter()
+        .flatten()
+    {
+        if let Some(slot) = results.get_mut(index) {
+            *slot = mask;
+        }
+    }
     results
+}
+
+/// The order the jobs are claimed in, given beside each job the expansion it shares, if any:
+/// each shared expansion's first placement and every job with none, in job order, and then the
+/// later placements, in job order.
+///
+/// A placement whose expansion another thread is still making waits for it
+/// ([`expansion::expansion`], ADR 1445), so claiming in job order alone would let the threads
+/// pile up behind the few that are making: on the Type 3 page every fourth job is the next
+/// placement of one of two glyph strokes, and a turn claimed that way took half again as long
+/// as the fixed shares did. Claimed makers first, the later placements find their expansion
+/// made or nearly so (ADR 1505).
+fn makers_first<K: PartialEq>(shared: impl Iterator<Item = Option<K>>) -> Vec<usize> {
+    let mut seen: Vec<K> = Vec::new();
+    let (mut first, mut later) = (Vec::new(), Vec::new());
+    for (index, key) in shared.enumerate() {
+        match key {
+            Some(key) if seen.contains(&key) => later.push(index),
+            Some(key) => {
+                seen.push(key);
+                first.push(index);
+            }
+            None => first.push(index),
+        }
+    }
+    first.extend(later);
+    first
 }
 
 /// How many threads a run of this weight takes: what the host allowed, or one when the
@@ -657,25 +714,18 @@ fn fan_out(weight: u64, allowed: usize) -> usize {
     }
 }
 
-/// One worker's share.
-fn run(jobs: &[Job<'_>], out: &mut [Rasterised]) {
-    for (job, slot) in jobs.iter().zip(out) {
-        *slot = rasterise(job);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
         Draw, IN_FLIGHT_BUDGET_SHARE, Job, PARALLEL_FLOOR_SEGMENTS, STROKE_SEGMENT_WEIGHT, fan_out,
-        in_flight_limit, partition,
+        in_flight_limit, rasterise_all,
     };
     use crate::atlas::{GlyphKey, PhaseKey};
     use crate::encode::DrawStyle;
     use crate::raster::{DeviceTransform, Rule};
     use raster_scene::{Color, Point, Rect, Segment};
 
-    /// A job of `segments` segments, which is the only field [`partition`] reads.
+    /// A glyph job of `segments`, drawn where it lies.
     fn job(segments: &[Segment]) -> Job<'_> {
         Job::glyph(
             segments,
@@ -710,39 +760,82 @@ mod tests {
         vec![Segment::MoveTo(Point::new(0.0, 0.0)); count]
     }
 
-    /// **A partition is a partition**: every job is in exactly one share, and the shares
-    /// are in job order. Everything the fan-out promises about determinism rests on this
-    /// one property, so it is asserted rather than read off the loop.
+    /// A mask as its corner, its size and its bytes, which is everything a commit reads of it.
+    type Shape = Option<(i32, i32, u32, u32, Vec<u8>)>;
+
+    /// A triangle of side `side` at `(at, at)`, closed, so that each job's mask is its own.
+    fn triangle(side: f32, at: f32) -> Vec<Segment> {
+        vec![
+            Segment::MoveTo(Point::new(at, at)),
+            Segment::LineTo(Point::new(at + side, at)),
+            Segment::LineTo(Point::new(at, at + side * 0.75)),
+            Segment::Close,
+        ]
+    }
+
+    /// **Every job's mask comes back at its own place, whatever the count**: the threads
+    /// claim jobs as they come free, and the masks are put back in job order, so the run on
+    /// any number of threads is the run on one — a heavy job among light ones included,
+    /// which is what a claim is for (ADR 1505).
     #[test]
-    fn every_job_is_in_exactly_one_share() {
-        let sizes = [3_usize, 40, 1, 900, 7, 7, 7, 250, 2];
-        let held: Vec<Vec<Segment>> = sizes.iter().map(|n| segments(*n)).collect();
+    fn every_mask_is_its_own_jobs_at_every_thread_count() {
+        let held: Vec<Vec<Segment>> = [3.0_f32, 40.0, 1.5, 300.0, 7.0, 7.5, 8.0, 90.0, 2.0]
+            .iter()
+            .zip([0.0_f32, 0.37, 0.74, 1.11, 1.48, 1.85, 2.22, 2.59, 2.96])
+            .map(|(side, at)| triangle(*side, at))
+            .collect();
         let jobs: Vec<Job<'_>> = held.iter().map(|s| job(s)).collect();
-        for workers in 1..=12 {
-            let lens = partition(&jobs, workers);
-            assert_eq!(lens.len(), workers, "one share per worker");
+        let shape = |run: &[super::Rasterised]| -> Vec<Shape> {
+            run.iter()
+                .map(|made| {
+                    made.as_ref().map(|made| {
+                        let mask = &made.mask;
+                        (
+                            mask.left,
+                            mask.top,
+                            mask.width,
+                            mask.height,
+                            mask.coverage.clone(),
+                        )
+                    })
+                })
+                .collect()
+        };
+        let alone = shape(&rasterise_all(&jobs, 1));
+        assert!(
+            alone.iter().all(Option::is_some),
+            "every triangle reaches a pixel"
+        );
+        for threads in [2, 3, 7, 12, 64] {
             assert_eq!(
-                lens.iter().sum::<usize>(),
-                jobs.len(),
-                "{workers} workers between them take every job"
+                shape(&rasterise_all(&jobs, threads)),
+                alone,
+                "{threads} threads"
             );
         }
     }
 
-    /// The shares are balanced by **weight**, not by count: one enormous job does not
-    /// drag its neighbours along behind it.
+    /// **The placements that make a shared expansion are claimed before the ones that read it**,
+    /// each half in job order: the Type 3 page's shape, two glyph strokes placed alternately.
     #[test]
-    fn one_heavy_job_does_not_take_its_neighbours_with_it() {
-        let held: Vec<Vec<Segment>> = [1_usize, 1, 4_000, 1, 1]
-            .iter()
-            .map(|n| segments(*n))
-            .collect();
-        let jobs: Vec<Job<'_>> = held.iter().map(|s| job(s)).collect();
-        let lens = partition(&jobs, 2);
+    fn a_shared_expansion_is_made_before_its_later_placements_are_claimed() {
+        let shared = [
+            None,
+            Some('a'),
+            None,
+            Some('b'),
+            None,
+            Some('a'),
+            None,
+            Some('b'),
+        ];
         assert_eq!(
-            lens,
-            vec![3, 2],
-            "the first share ends at the heavy job, the second takes what is left"
+            super::makers_first(shared.into_iter()),
+            vec![0, 1, 2, 3, 4, 6, 5, 7]
+        );
+        assert_eq!(
+            super::makers_first([None::<char>, None].into_iter()),
+            vec![0, 1]
         );
     }
 

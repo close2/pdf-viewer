@@ -798,6 +798,111 @@ fn a_marking_cycle_through_a_tiling_cell_stays_inside_the_operator_budget() {
     );
 }
 
+/// Glyph `a` of a Type 3 font shows glyph `c` of a second one, whose description fills with a
+/// tiling pattern whose cell shows the first font again — `ContentStreamCycleType3insideType3.pdf`'s
+/// shape, generated rather than copied, with `cycle` deciding whether the cell names the first font
+/// (the cycle) or nothing (the control).
+fn type3_inside_type3_inside_a_tiling(cycle: bool) -> Document {
+    let cell = if cycle {
+        "BT /A 4 Tf 10 0 0 10 1 1 Tm 1 0 1 rg (ba) Tj ET"
+    } else {
+        "1 0 1 rg 1 1 8 8 re f"
+    };
+    let objects = format!(
+        "5 0 obj\n<< /Type /Font /Subtype /Type3 /FontBBox [0 0 750 750] \
+         /FontMatrix [0.01 0 0 0.01 0 0] /CharProcs << /rect 6 0 R /triangle 7 0 R >> \
+         /Encoding << /Type /Encoding /Differences [97 /rect /triangle] >> \
+         /FirstChar 97 /LastChar 98 /Widths [1000 1000] \
+         /Resources << /Font << /B 8 0 R >> >> >>\nendobj\n\
+         6 0 obj\n<< /Length 64 >>\nstream\n\
+         1000 0 d0 20 w 1 0 0 RG 0 0 750 750 re s BT /B 50 Tf (ccc) Tj ET\nendstream\nendobj\n\
+         7 0 obj\n<< /Length 49 >>\nstream\n\
+         1000 0 d0 20 w 0 1 0 RG 0 0 m 375 750 l 750 0 l s\nendstream\nendobj\n\
+         8 0 obj\n<< /Type /Font /Subtype /Type3 /FontBBox [0 0 750 750] \
+         /FontMatrix [0.004 0 0 0.004 0 0] /CharProcs << /inside 9 0 R >> \
+         /Encoding << /Type /Encoding /Differences [99 /inside] >> \
+         /FirstChar 99 /LastChar 99 /Widths [900] \
+         /Resources << /Pattern << /P 10 0 R >> >> >>\nendobj\n\
+         9 0 obj\n<< /Length 60 >>\nstream\n\
+         900 0 d0 10 w 0 0 1 RG /Pattern cs /P scn 15 15 720 720 re B\nendstream\nendobj\n\
+         10 0 obj\n<< /Type /Pattern /PatternType 1 /PaintType 1 /TilingType 2 \
+         /Matrix [0.9 0 0 0.9 0 0] /XStep 55 /YStep 32 /BBox [0 0 60 60] \
+         /Resources << /Font << /A 5 0 R >> >> /Length {} >>\nstream\n{cell}\nendstream\nendobj\n",
+        cell.len()
+    );
+    page(
+        "BT 1 0 0 1 100 500 Tm 2 Tr /A 20 Tf 20 20 Td (ab) Tj ET",
+        "<< /Font << /A 5 0 R >> >>",
+        &objects,
+    )
+}
+
+/// A cycle through two Type 3 fonts and a tiling cell is refused by the bytes its list holds,
+/// inside that bound, and says so with both numbers.
+///
+/// The fuzz target's 3.16 GiB was this shape: four million operators admitted, 3.93 million
+/// commands and 2.05 million clips built, 1.15 GiB of list for one interpretation, and the target
+/// keeps two alive to compare them. `MAX_OPERATIONS` cannot see a clip, and a tiling copy carries
+/// one per site — so the bound that stops it is in bytes (ADR 1507). Asserted as the bound states
+/// it: the charge passes `MAX_LIST_BYTES` by no more than a sixteenth, which is one tiling copy at
+/// most, and the run stops there rather than at four million operators.
+#[test]
+fn a_type3_cycle_through_a_tiling_cell_is_refused_by_its_list_bytes() {
+    let document = type3_inside_type3_inside_a_tiling(true);
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("the fixture has a page");
+    let interpretation = pdf_model::interpret(&document, &page);
+    let refused = interpretation
+        .unsupported
+        .iter()
+        .find_map(|item| match item {
+            pdf_model::Unsupported::ListBytes { charged, bound } => Some((*charged, *bound)),
+            _ => None,
+        });
+    let Some((charged, bound)) = refused else {
+        panic!(
+            "the cycle must be refused by MAX_LIST_BYTES: {:?}",
+            interpretation.unsupported
+        );
+    };
+    assert_eq!(bound, pdf_model::MAX_LIST_BYTES);
+    assert!(
+        charged > bound,
+        "the refusal names a charge past the bound: {charged}"
+    );
+    assert!(
+        interpretation.list_bytes <= bound + bound / 16,
+        "the list stops within one copy of the bound: {}",
+        interpretation.list_bytes
+    );
+    assert!(
+        interpretation.display_list.command_count() > 0,
+        "the prefix before the bound is drawn"
+    );
+}
+
+/// The same fonts and pattern with a cell that names no font draw whole and report nothing about
+/// the list's bytes: the bound refuses the cycle, not the construction.
+#[test]
+fn a_type3_inside_a_type3_inside_a_tiling_without_the_cycle_draws_whole() {
+    let document = type3_inside_type3_inside_a_tiling(false);
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("the fixture has a page");
+    let interpretation = pdf_model::interpret(&document, &page);
+    assert!(
+        !interpretation
+            .unsupported
+            .iter()
+            .any(|item| matches!(item, pdf_model::Unsupported::ListBytes { .. })),
+        "{:?}",
+        interpretation.unsupported
+    );
+    assert!(interpretation.list_bytes < pdf_model::MAX_LIST_BYTES / 64);
+    assert!(interpretation.display_list.command_count() > 0);
+}
+
 /// An image whose `/DecodeParms` states a predictor row wider than every byte of its data.
 ///
 /// §7.4.4.4's `/Columns` is the file's to state, and `pdf_syntax::filter::apply_predictor` sized

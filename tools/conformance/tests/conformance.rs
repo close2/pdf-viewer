@@ -80,7 +80,10 @@ const FILE_ONLY_EVIDENCE_CEILING: usize = 0;
 /// as executed — it runs, under the control that a corpus is present — so the status stands and
 /// what is owed is a fixture whose expected value the clause derives (principle 5). The count is
 /// `cargo run -p conformance --bin ledger`'s `held by` line; ADR 1497 is the argument.
-const ONLY_WALKS_CEILING: usize = 5;
+///
+/// **At zero**, a new `implemented` row whose every test reads a corpus fails the build rather
+/// than raising a number (ADR 1509).
+const ONLY_WALKS_CEILING: usize = 0;
 
 /// How many `partial` rows name a whole test *file* rather than a test.
 ///

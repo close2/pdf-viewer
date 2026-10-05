@@ -88,6 +88,53 @@ fn a_grid_past_the_sample_budget_is_decoded_by_none_of_the_three() {
     );
 }
 
+/// A frame of restart intervals whose closing `EOI` was removed — `restart`'s own fixture of a
+/// scan the data ends without one, its last interval complete. ISO/IEC 10918-1 section E.2.3
+/// ends a scan when its intervals are decoded, so the scan is whole without the marker, and
+/// the restart plan's last band reads the tail as the whole decoder does: the frame is cut and
+/// is the whole frame (ADR 1513).
+#[test]
+fn a_scan_of_restart_intervals_without_its_eoi_is_cut_and_is_the_whole_frame() {
+    let data = include_bytes!("restart/hv_truncated.jpg");
+    assert_ne!(
+        data.get(data.len() - 2..),
+        Some(&[0xFF, 0xD9][..]),
+        "no EOI"
+    );
+    for lines in [8, 16, 64] {
+        let decodes = banded_decodes(data, lines);
+        let whole = decodes.whole.as_ref().expect("the whole frame decodes");
+        let banded = decodes
+            .at_restarts
+            .as_ref()
+            .unwrap_or_else(|| panic!("cut in bands of {lines} lines"));
+        assert!(banded == whole, "bands of {lines} lines moved a byte");
+    }
+}
+
+/// The same frame with its data ended inside its last interval, at every byte of that interval:
+/// a scan whose data does not hold its last MCU is not complete by section E.2.3's count, and
+/// the restart plan never answers other than the whole decoder — refused, wherever the decoder
+/// ran out of data before a row of the band began (ADR 1513).
+#[test]
+fn a_scan_the_data_ends_inside_its_last_interval_is_never_cut_differently() {
+    let data = include_bytes!("restart/hv_truncated.jpg");
+    let last = data
+        .windows(2)
+        .rposition(|pair| pair[0] == 0xFF && (0xD0..=0xD7).contains(&pair[1]))
+        .expect("a restart marker");
+    let mut refused = 0;
+    for end in last + 2..data.len() {
+        let decodes = banded_decodes(&data[..end], 16);
+        match (&decodes.at_restarts, &decodes.whole) {
+            (None, _) => refused += 1,
+            (Some(banded), Some(whole)) => assert!(banded == whole, "ended at {end}"),
+            (Some(_), None) => panic!("cut where the whole decoder refuses, ended at {end}"),
+        }
+    }
+    assert!(refused > 0, "some truncation is refused");
+}
+
 /// A grey frame of 100 × 107 whose entropy-coded data runs to the end of the stream with no `EOI`
 /// — the `jpeg_bands` fuzz target's second finding (ADR 1495). Section F.2.2.3's decoding finds all
 /// 182 blocks inside the data, which is what the entropy pass found; the whole decoder stops short

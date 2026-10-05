@@ -62,6 +62,12 @@ pub(crate) fn describe(item: &Unsupported) -> String {
             "the page reached this program's {limit} bound, so part of what the document asked \
              for is not on it"
         ),
+        // The run stopped, so the sentence says so; the two numbers are what tell a bomb from a
+        // page that wanted a little more than the bound (ADR 1507).
+        Unsupported::ListBytes { charged, bound } => format!(
+            "the page built {charged} bytes of drawing where this program allows {bound} \
+             (MAX_LIST_BYTES), so it stopped and part of what the document asked for is not on it"
+        ),
         Unsupported::NestingCycle { stream } => format!(
             "{stream} draws itself again from inside itself, so the page stopped it at this \
              program's MAX_FORM_DEPTH bound and part of what it asked for is not on it"

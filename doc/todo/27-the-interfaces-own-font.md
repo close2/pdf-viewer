@@ -123,4 +123,6 @@ A glyph whose text rendering matrix mirrors it reads its stored order off its bo
 (`select::axes`), so a mirrored line is read as its producer stored it. The readback's inferred
 word gaps are measured in §9.4.4's text space, where the advance is (`separate_text`, ADR 1490), so
 a `TJ` in reading order reads back with no spurious space under a mirroring `Tm` as under a
-mirroring `cm`, and the word is found in both.
+mirroring `cm`, and the word is found in both. A gap is a word break once it is more than half the
+font's space, and a font stating no space is read with a quarter em — two choices, the standard stating
+no number, set where the corpus's gaps between kerning and word breaks thin out (ADR 1502).

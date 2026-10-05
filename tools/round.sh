@@ -5,9 +5,9 @@
 # `tools/state.sh` answers "what are the numbers"; this one answers the questions a round asks
 # *before* it has done anything: which session is next, what to read for the kind of work it is
 # about, which of `doc/todo/02` §2's gates that kind of change actually needs, and whether this
-# round owes the full sequence and §5's binaries. Then it checks the things a round has
+# round owes the full sequence. Then it checks the things a round has
 # actually got wrong here — an uninitialised submodule, a build script baked against a checkout
-# that no longer exists, installed binaries older than `HEAD`, an exported `CARGO_TARGET_DIR`, and
+# that no longer exists, installed binaries of a commit `main` has moved past, an exported `CARGO_TARGET_DIR`, and
 # a pipeline on `main` that has been failing since a push no round watched (ADR 0450).
 #
 # **It changes nothing.** Every command below reads: `ls`, `git`, `grep`, `test`, `gh`. A round that
@@ -80,7 +80,7 @@ kind_reading() {
         printf 'doc/habits/measuring.md                  A/B in one sitting, and which number to quote\n'
         printf 'doc/performance.md                       the timeline and what is already known\n'
         printf 'doc/traps/instruments-and-reports.md     what a gate is about to lie to you about\n'
-        printf 'doc/todo/02-every-round.md               §5 — the binaries, which a measurement owes first\n' ;;
+        printf 'doc/todo/02-every-round.md               section 5 — a measurement builds its own release binary first\n' ;;
     host)
         printf 'doc/ui-boundary.md                       Command/Event/Query/Answer, and the freeze\n'
         printf 'doc/traps/the-interactive-loop.md        the group for a press, a space or a toolkit loop\n'
@@ -104,8 +104,8 @@ kind_gates() {
     loop)        printf 'the core, selection_census and accessibility_census\n' ;;
     instruments) printf 'the core, plus whichever gate the instrument is\n' ;;
     clause)      printf 'the core and cargo test -p conformance; everything if code changed\n' ;;
-    measure)     printf 'the core — and §5 first, always, because a stale binary measures the past\n' ;;
-    host)        printf 'the core, which builds and tests every host; §5 for what a person runs\n' ;;
+    measure)     printf 'the core — and a --release build of what is measured first, always, because a stale binary measures the past\n' ;;
+    host)        printf 'the core, which builds and tests every host, and a drive under Xvfb with more than one document\n' ;;
     dependency)  printf 'everything, plus cargo deny (doc/verify.md)\n' ;;
     docs)        printf 'the core and cargo test -p conformance, plus --bin quotations and --bin pointers\n' ;;
     esac
@@ -167,9 +167,9 @@ esac
 heading "the round"
 printf '  session %s, after %s (from %s)\n' "$session" "$last" "$from"
 if [ $((session % 5)) -eq 0 ]; then
-    printf '  **a fifth round**: doc/todo/02 §2 runs whole, and §5 rebuilds and installs the binaries\n'
+    printf '  **a fifth round**: doc/todo/02 §2 runs whole\n'
 else
-    printf '  not a fifth round: §2 by the change→gate map, §5 only before a measurement\n'
+    printf '  not a fifth round: §2 by the change→gate map\n'
     printf '  (%s more rounds until the next full sequence)\n' "$((5 - session % 5))"
 fi
 printf '  and whatever the change: tier 1 every round, tier 2 by the map, tier 3 at the merge (ADR 1036)\n'
@@ -261,18 +261,18 @@ fi
 [ "$superseded" -gt 0 ] &&
     printf '    (%s superseded build scripts also name gone checkouts — other rounds, not this one)\n' "$superseded"
 
-# 3. What a person can run, against what HEAD is. `doc/todo/02` §5 owns the fix; a stale binary
-#    is a measurement of the past, which is the whole reason that section exists.
-head_time=$(git log -1 --format=%ct 2>/dev/null)
-oldest=$(ls -t target/quorra target/quorra-gtk target/quorra-qt target/quorra-retrieve \
-             target/quorra-transform target/pdf-sandbox-worker target/pdf-view-worker \
-             target/libviewer_ffi.so 2>/dev/null | tail -1)
-if [ -z "$oldest" ]; then
-    fail "target/ holds none of §5's binaries — nothing a person can run"
-elif [ -n "$head_time" ] && [ "$(stat -c %Y "$oldest" 2>/dev/null || echo 0)" -lt "$head_time" ]; then
-    fail "$oldest is older than HEAD — doc/todo/02 §5, and always before a measurement"
+# 3. What a person can run, against what `main` is. The main checkout's `target/` is the one a person
+#    runs from, `tools/batch.sh install` fills it at a batch boundary, and `target/installed-from`
+#    names the commit (ADR 1511). A round never installs there and never measures from there: a
+#    measurement builds its own `--release` binary first (`doc/todo/02` section 5).
+main_checkout=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)")
+installed=$(sed -n 's/^# commit //p' "$main_checkout/target/installed-from" 2>/dev/null | head -1)
+if [ -z "$installed" ]; then
+    fail "$main_checkout/target/ names no commit — no tools/batch.sh install has run since ADR 1511"
+elif [ "$(git rev-list --count "$installed..main" 2>/dev/null || echo unknown)" != 0 ]; then
+    fail "$main_checkout/target/ is $(git rev-list --count "$installed..main" 2>/dev/null || echo an unknown number of) commit(s) behind main — the merge's tools/batch.sh install"
 else
-    pass "target/'s binaries are at least as new as HEAD"
+    pass "$main_checkout/target/ holds main's own commit"
 fi
 
 # 4. sccache folds every CARGO_* variable into its Rust cache key, so an *exported*

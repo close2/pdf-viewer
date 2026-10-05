@@ -408,6 +408,7 @@ impl<'a> Encoder<'a> {
         let Some(Made {
             mask: mut tile,
             polylines,
+            edges,
         }) = made
         else {
             return Ok(());
@@ -418,7 +419,12 @@ impl<'a> Encoder<'a> {
         // the rasterising is the only step that moved (ADR 1395).
         if let Some(resolved) = &draw.residue {
             let polylines = polylines.as_deref().unwrap_or_default();
-            self.meet_residue(&mut tile, resolved, Mark { polylines, rule })?;
+            let mark = Mark {
+                polylines,
+                rule,
+                edges: edges.as_ref(),
+            };
+            self.meet_residue(&mut tile, resolved, mark)?;
         }
         let dest = Point::new(tile.left as f32, tile.top as f32);
         self.push_scratch_quad(&tile, dest, draw.color, draw.clip, draw.style, draw.mask)

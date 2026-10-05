@@ -363,5 +363,12 @@ peak_anon_mib = 15.0 .. 19.5
 open_peak_mib = 4 .. 9
 read_kib = 97 .. 102
 read_calls = 24 .. 28
-open_kinstructions = 1783 .. 1820
+# The ceiling rose by five thousand for a cost that is not the open's (ADR 1507 section 2). The
+# batch that added `MAX_LIST_BYTES` put this figure at 1821.5 thousand with that bound compiled out
+# and 1819.4 at its base, and callgrind names the whole 2.06 thousand: `pthread_getattr_np`, which
+# std's main-thread stack guard calls before `main`, parses `/proc/self/maps` one `sscanf` a line,
+# and the binary's process had 49 lines where it had 48. A mapping count is the linker's layout of
+# the test binary rather than anything the open does; the other four rows moved by under three
+# thousand with it and stay inside their bands, and this one's ceiling sat 0.6 thousand away.
+open_kinstructions = 1783 .. 1825
 why = "the population's missing case: large **and** signed. Three megabytes, one page, and a §12.8 signature — so opening it used to read 1304 KiB in 118 calls and execute 47.6 M instructions, against the 99 KiB, 26 calls and 1.80 M that page one actually needs. None of the other four rows is signed, so none of them could see it (round 1027, ADR 1044)"

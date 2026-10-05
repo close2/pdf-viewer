@@ -472,3 +472,141 @@ fn a_text_fields_value_crosses_with_its_node() {
         Some("Grace".to_owned())
     );
 }
+
+/// Where §12.7.4.3's layout placed each character of a field, as a node states it (ADR 1501).
+///
+/// The boxes of one line of `node`'s value, in the order the line is displayed, with the text each
+/// covers.
+fn placed(node: &viewer_core::AccessibilityNode) -> Vec<(String, [f32; 4])> {
+    let mut out = Vec::new();
+    for line in &node.value_lines {
+        let mut at = 0_usize;
+        for character in &line.characters {
+            let end = at.saturating_add(character.bytes);
+            out.push((
+                line.text.get(at..end).unwrap_or_default().to_owned(),
+                character.bounds,
+            ));
+            at = end;
+        }
+    }
+    out
+}
+
+/// Whether each box ends where or before the next begins, and all of them lie inside `widget`.
+fn left_to_right_inside(boxes: &[(String, [f32; 4])], widget: [f32; 4]) -> bool {
+    let inside = boxes.iter().all(|(_, b)| {
+        b[0] >= widget[0] - 0.01
+            && b[2] <= widget[2] + 0.01
+            && b[1] >= widget[1] - 0.01
+            && b[3] <= widget[3] + 0.01
+            && b[2] > b[0]
+    });
+    let ordered = boxes
+        .windows(2)
+        .all(|pair| matches!(pair, [(_, a), (_, b)] if a[2] <= b[0] + 0.01));
+    inside && ordered
+}
+
+/// A field's characters have places, and the places are the layout's (ADR 1501).
+///
+/// §12.7.4.3 constructs the appearance from `/DA` and `/V`, and the layout writing it puts each
+/// glyph with a `Tm` whose translation the clause hands to the processor — so the boxes are the
+/// tree's own facts. `123` in a single-line text field: three boxes, each to the right of the one
+/// before and none overlapping it, all inside the widget's rectangle. A value read right to left
+/// (U+05D0 U+05D1 U+05D2, stored in reading order) comes in display order, as a page's own readback
+/// of a run stored for display does (ADR 1465): its line's text is the three letters reversed by
+/// UAX #9's rule L2, still left to right on the page. A comb's characters are its cells. The
+/// right-to-left value needs a face covering Hebrew,
+/// which a `/DA` naming a font `/DR` lacks is set in from the machine (ADR 1414); a machine
+/// offering none draws nothing and is said to.
+#[test]
+fn a_fields_characters_have_places_inside_its_widget() {
+    let bytes = assembled(&[
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 5 0 R 6 0 R] \
+         /DA (/Helv 12 Tf 0 g) >> >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R 5 0 R 6 0 R] >>",
+        "<< /Type /Annot /Subtype /Widget /FT /Tx /T (digits) /V (123) \
+         /Rect [10 150 190 170] /P 3 0 R >>",
+        "<< /Type /Annot /Subtype /Widget /FT /Tx /T (letters) /V <FEFF05D005D105D2> \
+         /Rect [10 100 190 120] /P 3 0 R >>",
+        "<< /Type /Annot /Subtype /Widget /FT /Tx /T (cells) /Ff 16777216 /MaxLen 6 /V (abc) \
+         /Rect [10 50 190 70] /P 3 0 R >>",
+    ]);
+    let page = answered(bytes);
+    let [digits, letters, cells] = page.widgets.as_slice() else {
+        panic!("two fields: {:?}", page.widgets);
+    };
+    let widget = digits.bounds.expect("the widget is placed");
+    let boxes = placed(digits);
+    let said: Vec<&str> = boxes.iter().map(|(text, _)| text.as_str()).collect();
+    assert_eq!(said, ["1", "2", "3"], "{boxes:?}");
+    assert!(
+        left_to_right_inside(&boxes, widget),
+        "{boxes:?} in {widget:?}"
+    );
+
+    // Table 231 bit 25's comb: each character is the cell it stands in, a sixth of the box inside
+    // the border — so the three are as wide as each other, abut, and six of them fit the widget.
+    let boxes = placed(cells);
+    let widget = cells.bounds.expect("the widget is placed");
+    let said: Vec<&str> = boxes.iter().map(|(text, _)| text.as_str()).collect();
+    assert_eq!(said, ["a", "b", "c"], "{boxes:?}");
+    let cell = boxes.first().map(|(_, b)| b[2] - b[0]).unwrap_or_default();
+    assert!(
+        boxes
+            .iter()
+            .all(|(_, b)| ((b[2] - b[0]) - cell).abs() < 0.01)
+            && boxes
+                .windows(2)
+                .all(|pair| matches!(pair, [(_, a), (_, b)] if (a[2] - b[0]).abs() < 0.01))
+            && cell * 6.0 <= widget[2] - widget[0] + 0.01
+            && cell * 6.0 > (widget[2] - widget[0]) * 0.9,
+        "{boxes:?} in {widget:?}"
+    );
+    assert!(
+        left_to_right_inside(&boxes, widget),
+        "{boxes:?} in {widget:?}"
+    );
+
+    let boxes = placed(letters);
+    if boxes.is_empty() {
+        println!("skipped: no face on this machine covers the Hebrew value");
+        return;
+    }
+    let said: String = boxes.iter().map(|(text, _)| text.as_str()).collect();
+    assert_eq!(said, "\u{5d2}\u{5d1}\u{5d0}", "display order: {boxes:?}");
+    let widget = letters.bounds.expect("the widget is placed");
+    assert!(
+        left_to_right_inside(&boxes, widget),
+        "{boxes:?} in {widget:?}"
+    );
+}
+
+/// A tagged page's `Form` element carries its field's places as an untagged widget does: the
+/// element is found through §14.7.5.3's object reference, and so are the glyphs (ADR 1501).
+#[test]
+fn a_form_elements_field_has_places_too() {
+    let bytes = form(
+        "/StructTreeRoot 8 0 R /MarkInfo << /Marked true >>",
+        &[ONE_FORM, TEXT_FIELD_ELEMENT],
+    );
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    let bodies: Vec<String> = text
+        .split("\nendobj\n")
+        .filter_map(|chunk| chunk.split_once(" 0 obj\n").map(|(_, body)| body))
+        .map(|body| body.replace("/T (name)", "/T (name) /V (Ada) /DA (/Helv 10 Tf 0 g)"))
+        .collect();
+    let bodies: Vec<&str> = bodies.iter().map(String::as_str).collect();
+    let page = answered(assembled(&bodies));
+    let element = page.nodes.first().expect("the Form element");
+    let boxes = placed(element);
+    let said: Vec<&str> = boxes.iter().map(|(text, _)| text.as_str()).collect();
+    assert_eq!(said, ["A", "d", "a"], "{boxes:?}");
+    let widget = element.bounds.expect("the element is placed by its widget");
+    assert!(
+        left_to_right_inside(&boxes, widget),
+        "{boxes:?} in {widget:?}"
+    );
+}

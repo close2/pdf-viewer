@@ -646,7 +646,9 @@ fn whose_defect(report: &Unsupported) -> Option<(Whose, &'static str)> {
             Whose::TheFile,
             "a token §7.8.2 admits neither as an operand nor as an operator",
         ),
-        Unsupported::LimitReached { .. } | Unsupported::SpotColourantsWithoutAPlane { .. } => {
+        Unsupported::LimitReached { .. }
+        | Unsupported::ListBytes { .. }
+        | Unsupported::SpotColourantsWithoutAPlane { .. } => {
             (Whose::NeitherOne, "a bound this program set")
         }
         // §9.6.4's Errata Collection 3 paragraph makes a Type 3 glyph that "refers to itself

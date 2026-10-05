@@ -3558,9 +3558,44 @@ pub(crate) fn selection(
     )
 }
 
+/// Where each glyph of a widget's value was placed, in **default user space**.
+///
+/// The glyphs [`variable_text`] positions while it writes §12.7.4.3's appearance, each carried
+/// onto the page by the same map [`selection`]'s shapes take — Table 192's `/R`, the appearance's
+/// `/Matrix` and §12.5.5's placement onto `/Rect` — so a character's box is where it is drawn.
+/// Line by line and in display order, as [`variable_text::LaidOut::glyphs`] states them (ADR 1501).
+///
+/// `None` in the cases [`caret`] answers `None` in, and for the same reasons.
+pub(crate) fn glyphs(
+    document: &Document,
+    annotation: &Dictionary,
+    view: crate::view::AnnotationView<'_>,
+) -> Option<Vec<variable_text::Glyph>> {
+    let asked = Asked {
+        glyphs: true,
+        ..Asked::default()
+    };
+    let (laid_out, onto_page) = ask(document, annotation, view, asked)?;
+    Some(
+        laid_out
+            .glyphs
+            .into_iter()
+            .map(|glyph| {
+                let mut quad = [0.0_f32; 8];
+                for (corner, place) in glyph.quad.chunks_exact(2).zip(quad.chunks_exact_mut(2)) {
+                    let point = onto_page.apply(Point::new(corner[0], corner[1]));
+                    place[0] = point.x;
+                    place[1] = point.y;
+                }
+                variable_text::Glyph { quad, ..glyph }
+            })
+            .collect(),
+    )
+}
+
 /// Lays a widget's value out to answer a question, with the map onto the page beside it.
 ///
-/// One function rather than three copies of it: [`caret`], [`offset_at`] and [`selection`] differ
+/// One function rather than four copies of it: [`caret`], [`offset_at`], [`selection`] and [`glyphs`] differ
 /// only in what they ask for and in what they do with the answer, and a second reading of which
 /// space the value is laid out in would be a second chance to read it differently.
 fn ask(

@@ -81,8 +81,8 @@ places: `MASK_BUDGET` (32 MB), the confined worker's address-space ceiling (4 Gi
   `viewer-ffi` lift it; neither parses a document).
 - **The sandbox, and `--no-sandbox` as the flag that trades it.** Already a flag, already the safe
   default, already prints what it gave up.
-- **The resource budgets** (`MAX_OPERATIONS` 4 M, `MAX_FORM_DEPTH`, `MAX_TILES` until ADR 0810, the
-  decode deadline). These are what stand between a decompression bomb and the machine. A "trusted
+- **The resource budgets** (`MAX_OPERATIONS` 4 M, `MAX_LIST_BYTES` 512 MiB, `MAX_FORM_DEPTH`,
+  `MAX_TILES` until ADR 0810, the decode deadline). These are what stand between a decompression bomb and the machine. A "trusted
   document" flag that lifted them is *plausible* but should be argued as a whole, not per constant.
   **What they cost is measured, over 65 944 crawled documents** (ADR 0269): 48 reach `MAX_TILES`,
   31 `MAX_OPERATIONS`, 4 `MAX_FORM_DEPTH` and 1 `MAX_STATE_DEPTH` — **84 refusals over 83
@@ -216,11 +216,13 @@ change to *what* is bounded, and both need the argument before the code.
   `MAX_OPERATIONS` stops it at four million operators; twelve deep fails its allocation past
   4 GiB. The count that stops it is right and the cost of the count is two gibibytes, which is
   this item's sentence with a witness a few kilobytes long. **The corpus has one**:
-  `ContentStreamCycleType3insideType3.pdf` spends the whole four million on a cycle through a
-  tiling cell — 3 995 603 commands, 1.46 GiB, 3.8 s — where sixteen's fixed cell depth refused it
-  for nothing, and where `repeat_cell` charging the copy *after* making it let the enclosing
-  tilings multiply the budget ninefold apiece (25 GB, fixed in the same ADR by asking before the
-  copy). A budget on commands that priced them would refuse it in milliseconds. What the bound is really for is the *loop* — an empty cell at 0.89 µs
+  `ContentStreamCycleType3insideType3.pdf` cycles through a tiling cell, and every copy of the cell
+  carries its clip, which no count of operators sees — 3.93 million commands and 2.05 million
+  clips, a 1.8 GiB peak, and 3.16 GiB in the `page` fuzz target, which keeps two interpretations
+  alive. **`MAX_LIST_BYTES` bounds it in its own unit** (ADR 1507): 512 MiB of display list per
+  interpretation, charged as commands, copies and clips are made, 2.4 times the largest list a
+  first page of 90 150 builds inside every other bound (`examples/display_list_census`), and
+  moving no refusal a page of the five corpora had. The cycle now stops at 0.81 GiB and 2.4 s. What the bound is really for is the *loop* — an empty cell at 0.89 µs
   a tile is four days at the trip count a file may state — so the shape wanted is a budget over
   cells replayed *and* operators executed, checked as the loop runs, with the same refusal by
   name at the end. The empty-cell measurement is the one that says the count cannot simply be
@@ -239,9 +241,13 @@ change to *what* is bounded, and both need the argument before the code.
 - **`MAX_OPERATIONS` has the same defect one layer up**, and its population says so: 30 of the 31
   documents it stops are legitimate drawings wanting 4.1–53.6 M tokens, and the thirty-first
   produces 495 marks from 53.6 M. A count cannot tell them apart because one operator's cost is
-  unbounded. The honest instrument is a *deadline*, which this tree already has in the confined
-  worker (ADR 0241, a kill at 0.83–1.97 ms) — so the question is whether `interpret` should carry
-  one of its own for the unconfined path, and what a host that is not the viewer does with it.
+  unbounded. The honest instrument is a *deadline*, which this tree has in the confined worker
+  (ADR 0241, a kill at 0.83–1.97 ms) and **not inside `interpret`, by decision** (ADR 1507): a
+  clock there would make the prefix drawn depend on the machine's load, and the oracle, the fuzz
+  target's purity check and `replace` all rest on `interpret` being a function of the bytes. The
+  memory half has its own unit now, `MAX_LIST_BYTES`; what is still owed is a page that does no
+  drawing for its time — the `page` target's slow unit of 553 483 text shows with no font set,
+  1.5 s in release, each charged one operator and nothing else.
 - **And it was counting the wrong quantity as well, which is a different fault from the one above
   and is fixed** (ADR 0306). Every "operators" in this file's budget rows means *lexer tokens*: the
   one increment site was the token loop, and §7.8.2 puts an operator after its operands, so a `c`

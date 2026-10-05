@@ -59,6 +59,7 @@ pub mod entries;
 pub mod flags;
 pub mod frontier;
 pub mod gitignore;
+pub mod held;
 pub mod inapplicable;
 pub mod last_sentences;
 pub mod ledger;

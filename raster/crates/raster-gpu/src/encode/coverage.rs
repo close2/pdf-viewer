@@ -143,7 +143,15 @@ impl Encoder<'_> {
         let mut tile = raster::fill_mask(polylines, rule, left, top, width, height);
         self.clock.geometry(span);
 
-        self.meet_residue(&mut tile, resolved, Mark { polylines, rule })?;
+        self.meet_residue(
+            &mut tile,
+            resolved,
+            Mark {
+                polylines,
+                rule,
+                edges: None,
+            },
+        )?;
         Ok(Some(tile))
     }
 

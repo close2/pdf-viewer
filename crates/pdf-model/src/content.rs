@@ -48,6 +48,7 @@ mod ext_gstate;
 mod font;
 mod image;
 pub mod ledger;
+mod list_budget;
 mod marked;
 mod overprint;
 mod path;
@@ -62,6 +63,7 @@ mod xobject;
 
 pub use font::{FONT_BUDGET, FontCache, FontCacheReport};
 pub use ledger::Ledger;
+pub use list_budget::MAX_LIST_BYTES;
 pub use report::{
     ArtifactSource, ArtifactSpan, ContentStream, DamagedStream, Interpretation, MarkedSpan, Placed,
     Shortfall, UnnamedCodes, Unsupported, named_sequences,
@@ -1479,6 +1481,7 @@ impl<'a> Interpreter<'a> {
             codes_without_a_character: UnnamedCodes::default(),
             operations: 0,
             reach_scanned: 0,
+            list_budget: list_budget::ListBudget::default(),
             fonts: BTreeMap::new(),
             across: Some(across),
             references,
@@ -1623,6 +1626,7 @@ impl<'a> Interpreter<'a> {
             codes_without_a_character,
             operations,
             reach_scanned,
+            list_budget,
             text,
             described,
             artifacts,
@@ -1675,6 +1679,7 @@ impl<'a> Interpreter<'a> {
             codes_without_a_character: *codes_without_a_character,
             operations: *operations,
             reach_scanned: *reach_scanned,
+            list_budget: *list_budget,
             text: text.clone(),
             described: described.clone(),
             artifacts: artifacts.clone(),
@@ -1724,6 +1729,7 @@ impl<'a> Interpreter<'a> {
             codes_without_a_character,
             operations,
             reach_scanned,
+            list_budget,
             text,
             described,
             artifacts,
@@ -1765,6 +1771,7 @@ impl<'a> Interpreter<'a> {
         self.codes_without_a_character = codes_without_a_character;
         self.operations = operations;
         self.reach_scanned = reach_scanned;
+        self.list_budget = list_budget;
         self.text = text;
         self.described = described;
         self.artifacts = artifacts;
@@ -1843,6 +1850,8 @@ struct Checkpoint {
     operations: usize,
     /// See [`Interpreter::reach_scanned`].
     reach_scanned: usize,
+    /// See [`Interpreter::list_budget`].
+    list_budget: list_budget::ListBudget,
     /// The readback so far, which every span below is an offset into.
     text: String,
     /// See [`Interpretation::described`].
@@ -2208,6 +2217,7 @@ fn complete(
 /// Split out because it is bookkeeping rather than interpretation, and because `interpret_with`
 /// is held to a hundred lines.
 fn finished(document: &Document, mut interpreter: Interpreter<'_>) -> Interpretation {
+    interpreter.settle_list_charge();
     let mut unsupported: Vec<Unsupported> = interpreter.unsupported.into_values().collect();
     if interpreter.text_operations > 0 {
         unsupported.push(Unsupported::Text {
@@ -2312,6 +2322,7 @@ fn finished(document: &Document, mut interpreter: Interpreter<'_>) -> Interpreta
         presses_named: interpreter.presses.named(),
         separation,
         text: interpreter.text,
+        list_bytes: interpreter.list_budget.charged(),
         glyphs: interpreter.glyphs,
         codes_without_a_glyph: interpreter.codes_without_a_glyph,
         codes_reaching_a_blank_glyph: interpreter.codes_reaching_a_blank_glyph,
@@ -2585,6 +2596,8 @@ struct Interpreter<'a> {
     /// Edge tests spent proving which sites of a tiling its fill can reach; see
     /// [`Interpreter::MAX_REACH_SCAN`], which is the page-wide bound on this.
     reach_scanned: usize,
+    /// Bytes charged to [`Self::list`], against `list_budget::MAX_LIST_BYTES` (ADR 1507).
+    list_budget: list_budget::ListBudget,
     /// Fonts already loaded during *this* interpretation, by the object each dictionary is.
     ///
     /// A page names the same font on every `Tf`, and parsing a font program is expensive,

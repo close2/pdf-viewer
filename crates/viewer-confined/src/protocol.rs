@@ -56,7 +56,7 @@ mod panels;
 /// question — and a host would discover that at the worst moment there is, in the middle of putting
 /// a reader back after a death, as a refusal of something the reader never asked for. The greeting
 /// is the cheap place to find it out instead.
-pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF06";
+pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF07";
 
 /// Length of the worker's greeting: the magic, the Landlock level, the address-space limit, and
 /// whether system calls are filtered — the same three facts `pdf_sandbox`'s own worker reports,
@@ -5515,6 +5515,7 @@ mod tests {
                 artifact: None,
                 control: None,
                 value: None,
+                value_lines: Vec::new(),
                 annotation: None,
                 headers: Vec::new(),
                 continues_a_list: false,
@@ -5543,6 +5544,7 @@ mod tests {
                 artifact: None,
                 control: None,
                 value: None,
+                value_lines: Vec::new(),
                 annotation: None,
                 headers: Vec::new(),
                 continues_a_list: false,
@@ -5570,6 +5572,7 @@ mod tests {
                 artifact: None,
                 control: None,
                 value: None,
+                value_lines: Vec::new(),
                 annotation: None,
                 headers: Vec::new(),
                 continues_a_list: false,
@@ -5614,6 +5617,7 @@ mod tests {
                 artifact: None,
                 control: None,
                 value: None,
+                value_lines: Vec::new(),
                 annotation: None,
                 headers: Vec::new(),
                 continues_a_list: false,
@@ -5643,6 +5647,7 @@ mod tests {
                 artifact: None,
                 control: Some(pdf_model::form::Control::CheckBox { on: true }),
                 value: None,
+                value_lines: Vec::new(),
                 annotation: Some(ObjectId::new(7, 0)),
                 headers: Vec::new(),
                 continues_a_list: false,
@@ -5670,6 +5675,7 @@ mod tests {
                 artifact: None,
                 control: None,
                 value: None,
+                value_lines: Vec::new(),
                 annotation: None,
                 headers: vec![3],
                 continues_a_list: false,
@@ -5716,6 +5722,7 @@ mod tests {
                 artifact: None,
                 control: None,
                 value: None,
+                value_lines: Vec::new(),
                 annotation: None,
                 headers: Vec::new(),
                 continues_a_list: false,
@@ -5741,6 +5748,7 @@ mod tests {
                 artifact: None,
                 control: None,
                 value: None,
+                value_lines: Vec::new(),
                 annotation: None,
                 headers: Vec::new(),
                 continues_a_list: true,
@@ -5775,6 +5783,7 @@ mod tests {
                 }),
                 control: None,
                 value: None,
+                value_lines: Vec::new(),
                 annotation: None,
                 headers: Vec::new(),
                 continues_a_list: false,
@@ -5808,6 +5817,14 @@ mod tests {
                     text: "1".to_owned(),
                     obscured: false,
                 }),
+                // ADR 1501: where the layout placed the character crosses beside the value.
+                value_lines: vec![TextLine {
+                    text: "1".to_owned(),
+                    characters: vec![Character {
+                        bytes: 1,
+                        bounds: [14.0, 31.0, 20.0, 41.0],
+                    }],
+                }],
                 annotation: Some(ObjectId::new(9, 0)),
                 headers: Vec::new(),
                 continues_a_list: false,

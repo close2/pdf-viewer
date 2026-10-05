@@ -1,5 +1,6 @@
-//! `tools/batch.sh commit` stages the whole population, and `tools/batch.sh close` refuses a
-//! worktree holding work nobody committed.
+//! `tools/batch.sh commit` stages the whole population, `tools/batch.sh close` refuses a worktree
+//! holding work nobody committed, and `tools/batch.sh install` puts what a person runs into the
+//! main checkout's `target/` and nowhere else.
 //!
 //! Not a conformance question, and it lives here for `bounded.rs`'s reason: this is the crate
 //! whose gates read the repository's own tools, and a guard broken by an edit should fail the
@@ -25,6 +26,12 @@
 //! - Every `cargo test … --test` line of `gates()` and of `doc/todo/02` names a file whose
 //!   `#[ignore]` attributes match the flag the line gives it, so no gate is green having run zero
 //!   tests (ADR 1392).
+//! - `install` refuses a worktree with uncommitted work and a batch `main` has not been
+//!   fast-forwarded to, then builds the programs and libraries a person runs, installs them into
+//!   the main checkout's `target/` — the one path outside the worktree this script writes — and
+//!   writes the commit they were built from beside them (ADR 1511). Its names are every program of
+//!   a package under `crates/`, `quorra-retrieve`, and every C library, held against the
+//!   workspace's own manifests.
 
 #![expect(
     clippy::expect_used,
@@ -53,6 +60,11 @@ struct Sandbox {
 
 impl Sandbox {
     fn new(name: &str) -> Self {
+        Self::with_files(name, &[])
+    }
+
+    /// As [`Sandbox::new`], with `files` committed on `main` before the batch opens.
+    fn with_files(name: &str, files: &[(&str, &str)]) -> Self {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |elapsed| elapsed.as_nanos());
@@ -66,8 +78,15 @@ impl Sandbox {
         )
         .expect("tools/batch.sh copies");
         std::fs::write(sandbox.repo().join("a.txt"), "a\n").expect("a tracked file");
+        for (relative, contents) in files {
+            let path = sandbox.repo().join(relative);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).expect("a directory in the repository");
+            }
+            std::fs::write(path, contents).expect("a file in the repository");
+        }
         sandbox.git(&sandbox.repo(), &["init", "-q", "-b", "main"]);
-        sandbox.git(&sandbox.repo(), &["add", "a.txt", "tools/batch.sh"]);
+        sandbox.git(&sandbox.repo(), &["add", "-A"]);
         sandbox.git(&sandbox.repo(), &["commit", "-q", "-m", "base"]);
         let opened = sandbox.batch(&["open", "batch-test"]);
         assert!(opened.status.success(), "open failed: {}", text(&opened));
@@ -87,6 +106,12 @@ impl Sandbox {
         command
             .current_dir(directory)
             .env("BATCH_WORKTREE", self.worktree())
+            // `open` warms a workspace it finds; a throwaway one is built by the test that needs it.
+            .env("BATCH_WARM", "0")
+            // The throwaway workspace names its own build directory; an inherited one would put a
+            // stand-in called `quorra` beside the real one.
+            .env_remove("CARGO_TARGET_DIR")
+            .env_remove("CARGO_BUILD_TARGET_DIR")
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GIT_AUTHOR_NAME", "test")
@@ -451,4 +476,245 @@ fn a_test_files_shape_counts_the_ignore_attribute_and_nothing_that_mentions_it()
     let text = "#[test]\n#[ignore = \"corpus\"]\nfn walk() {\n}\n\n/// Not `#[ignore]`d.\n#[test]\n\
                 #[cfg_attr(miri, ignore = \"files\")]\nfn unit() {\n    let x = 1;\n}\n";
     assert_eq!(test_shape(text), (1, 1));
+}
+
+/// The words of `tools/batch.sh`'s `<variable>="…"` line.
+fn batch_list(variable: &str) -> Vec<String> {
+    let script = std::fs::read_to_string(repository_root().join("tools/batch.sh"))
+        .expect("tools/batch.sh is in the tree");
+    let prefix = format!("{variable}=\"");
+    script
+        .lines()
+        .find_map(|line| line.strip_prefix(prefix.as_str()))
+        .and_then(|rest| rest.split_once('"'))
+        .map(|(words, _)| words.split_whitespace().map(str::to_owned).collect())
+        .unwrap_or_default()
+}
+
+/// A workspace whose targets carry `install`'s names, built into its own `target/` — never the
+/// build directory `~/.cargo/config.toml` names, where a stand-in called `quorra` would sit
+/// beside the real one.
+fn stand_in_workspace() -> Vec<(String, String)> {
+    let libraries = batch_list("install_libraries");
+    let mut members = vec!["\"programs\"".to_owned()];
+    members.extend(libraries.iter().map(|name| format!("\"{name}\"")));
+    let mut files = vec![
+        (
+            "Cargo.toml".to_owned(),
+            format!(
+                "[workspace]\nmembers = [{}]\nresolver = \"3\"\n",
+                members.join(", ")
+            ),
+        ),
+        (
+            ".cargo/config.toml".to_owned(),
+            "[build]\ntarget-dir = \"target\"\n".to_owned(),
+        ),
+        (".gitignore".to_owned(), "/target\nCargo.lock\n".to_owned()),
+        (
+            "programs/Cargo.toml".to_owned(),
+            "[package]\nname = \"programs\"\nversion = \"0.1.0\"\nedition = \"2024\"\n".to_owned(),
+        ),
+    ];
+    for name in batch_list("install_binaries") {
+        files.push((
+            format!("programs/src/bin/{name}.rs"),
+            "fn main() {}\n".to_owned(),
+        ));
+    }
+    for name in &libraries {
+        files.push((
+            format!("{name}/Cargo.toml"),
+            format!(
+                "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n\
+                 [lib]\ncrate-type = [\"cdylib\"]\n"
+            ),
+        ));
+        files.push((
+            format!("{name}/src/lib.rs"),
+            "pub fn stand_in() {}\n".to_owned(),
+        ));
+    }
+    files
+}
+
+/// `install` refuses until `main` names the batch's commit, then installs every file into the main
+/// checkout's `target/`, records the commit beside them, and leaves the main checkout otherwise
+/// exactly as it was.
+#[test]
+fn install_refuses_until_main_names_the_batch_then_writes_only_main_s_target() {
+    let owned = stand_in_workspace();
+    let files: Vec<(&str, &str)> = owned
+        .iter()
+        .map(|(path, contents)| (path.as_str(), contents.as_str()))
+        .collect();
+    let sandbox = Sandbox::with_files("install", &files);
+
+    sandbox.write("b.txt", "b\n");
+    let dirty = sandbox.batch(&["install"]);
+    assert!(
+        !dirty.status.success() && text(&dirty).contains("1 uncommitted path(s)"),
+        "install built from uncommitted work: {}",
+        text(&dirty)
+    );
+
+    sandbox.write("scratchpad/message", "the batch\n");
+    let message = sandbox.worktree().join("scratchpad/message");
+    let committed = sandbox.batch(&["commit", message.to_str().expect("a UTF-8 temporary path")]);
+    assert!(
+        committed.status.success(),
+        "commit failed: {}",
+        text(&committed)
+    );
+    let early = sandbox.batch(&["install"]);
+    assert!(
+        !early.status.success() && text(&early).contains("fast-forward main first"),
+        "install ran before main named the batch: {}",
+        text(&early)
+    );
+    assert!(
+        !sandbox.repo().join("target").exists(),
+        "a refusal wrote into the main checkout"
+    );
+
+    sandbox.git(&sandbox.repo(), &["merge", "-q", "--ff-only", "batch-test"]);
+    let installed = sandbox.batch(&["install"]);
+    let said = text(&installed);
+    assert!(installed.status.success(), "install failed: {said}");
+
+    let head = sandbox.git(&sandbox.repo(), &["rev-parse", "main"]);
+    let head = String::from_utf8_lossy(&head.stdout).trim().to_owned();
+    let record = std::fs::read_to_string(sandbox.repo().join("target/installed-from"))
+        .expect("install writes target/installed-from");
+    assert!(
+        record.starts_with(&format!("# commit {head}\n")),
+        "the record does not name main's commit {head}:\n{record}"
+    );
+    let mut expected: Vec<String> = batch_list("install_binaries");
+    expected.extend(
+        batch_list("install_libraries")
+            .iter()
+            .map(|name| format!("lib{}.so", name.replace('-', "_"))),
+    );
+    for name in &expected {
+        let path = sandbox.repo().join("target").join(name);
+        assert!(path.is_file(), "{name} was not installed: {said}");
+        assert!(
+            record
+                .lines()
+                .any(|line| line.ends_with(&format!("  {name}"))),
+            "the record carries no checksum for {name}:\n{record}"
+        );
+        assert!(
+            said.contains(&format!("target/{name}")),
+            "{name} is not printed: {said}"
+        );
+    }
+
+    // The main checkout's status, ignored files included: the only new thing is `target/`.
+    let status = sandbox.git(
+        &sandbox.repo(),
+        &[
+            "status",
+            "--porcelain",
+            "--ignored",
+            "--untracked-files=normal",
+        ],
+    );
+    let status = String::from_utf8_lossy(&status.stdout);
+    assert_eq!(
+        status.trim(),
+        "!! target/",
+        "install wrote into the main checkout outside target/"
+    );
+}
+
+/// The binary targets of the packages directly under `directory`, and the packages that build a C
+/// library, read from each manifest the way Cargo discovers them in this tree: a `[[bin]]` table's
+/// `name`, every `src/bin/<name>.rs`, and `src/main.rs` as the package's own name.
+fn programs_and_libraries(directory: &str) -> (Vec<String>, Vec<String>) {
+    let (mut programs, mut libraries) = (Vec::new(), Vec::new());
+    let Ok(entries) = std::fs::read_dir(repository_root().join(directory)) else {
+        return (programs, libraries);
+    };
+    for entry in entries.flatten() {
+        let Ok(manifest) = std::fs::read_to_string(entry.path().join("Cargo.toml")) else {
+            continue;
+        };
+        let value = |line: &str| {
+            line.split_once('=')
+                .map(|(_, value)| value.trim().trim_matches('"').to_owned())
+        };
+        let package = manifest
+            .lines()
+            .skip_while(|line| line.trim() != "[package]")
+            .find(|line| line.trim_start().starts_with("name"))
+            .and_then(value)
+            .unwrap_or_default();
+        let mut tables = 0usize;
+        let mut in_bin = false;
+        for line in manifest.lines().map(str::trim) {
+            if line.starts_with('[') {
+                in_bin = line == "[[bin]]";
+                tables = tables.saturating_add(usize::from(in_bin));
+            } else if in_bin
+                && line.starts_with("name")
+                && let Some(name) = value(line)
+            {
+                programs.push(name);
+            }
+        }
+        if manifest.contains("\"cdylib\"") {
+            libraries.push(package.clone());
+        }
+        if let Ok(bins) = std::fs::read_dir(entry.path().join("src/bin")) {
+            for bin in bins.flatten() {
+                let path = bin.path();
+                if path.extension().is_some_and(|extension| extension == "rs")
+                    && let Some(stem) = path.file_stem()
+                {
+                    programs.push(stem.to_string_lossy().into_owned());
+                }
+            }
+        }
+        if tables == 0 && entry.path().join("src/main.rs").is_file() {
+            programs.push(package);
+        }
+    }
+    (programs, libraries)
+}
+
+/// `install`'s names against the workspace: every program of a package under `crates/` — the
+/// programs a person runs, each worker among them — is installed, every name installed is a
+/// binary target, and every C library is installed. A program added under `crates/` and not
+/// here fails this rather than going stale under `target/` (`doc/todo/02` section 5).
+#[test]
+fn install_names_every_program_and_library_the_workspace_builds_for_a_person() {
+    let (person_programs, libraries) = programs_and_libraries("crates");
+    let (tool_programs, _) = programs_and_libraries("tools");
+    let installed = batch_list("install_binaries");
+    let installed_libraries = batch_list("install_libraries");
+    assert!(
+        installed.len() >= 6 && person_programs.len() >= 6 && tool_programs.len() >= 20,
+        "a list was not read: installed {installed:?}, crates/ {person_programs:?}, tools/ \
+         {tool_programs:?}"
+    );
+    let not_programs: Vec<&String> = installed
+        .iter()
+        .filter(|name| !person_programs.contains(name) && !tool_programs.contains(name))
+        .collect();
+    let not_installed: Vec<&String> = person_programs
+        .iter()
+        .filter(|name| !installed.contains(name))
+        .collect();
+    let libraries_missed: Vec<&String> = libraries
+        .iter()
+        .filter(|name| !installed_libraries.contains(name))
+        .collect();
+    assert!(
+        not_programs.is_empty() && not_installed.is_empty() && libraries_missed.is_empty(),
+        "tools/batch.sh install_binaries/install_libraries against the workspace:\n  installed and \
+         no binary target: {not_programs:?}\n  a program under crates/ not installed: \
+         {not_installed:?}\n  a C library not installed: {libraries_missed:?}"
+    );
 }

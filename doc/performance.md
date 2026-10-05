@@ -283,34 +283,52 @@ this round made before it made the measurement (ADR 1260):
   font loading as though every page paid it. On ISO 32000-2's page 101 that is 12.45 ms against
   **1.37**, in the stage the question was about.
 
-**The figures, taken on 2026-09-29** on the machine `doc/checks/launch-path.toml` names (Ryzen AI 9
-HX 370, the 890M through RADV, Linux 7.1), into a 1 600 × 1 000 window, minimum of five rounds each on
-a device of its own, pinned to the performance cores, load average 1.4–2.7 — milliseconds, and the
+**The figures, re-taken on 2026-10-05** on the machine `doc/checks/launch-path.toml` names (Ryzen
+AI 9 HX 370, the 890M through RADV), into a 1 600 × 1 000 window, minimum of three runs of five
+rounds each on a device of its own, pinned to the performance cores, load average 1.4–2.0, the tree
+of ADR 1513 interleaved run by run with the same tree without it (trap 94) — milliseconds, and the
 share is of one 120 Hz refresh (8.333 ms). `budget` excludes the readback, which this example pays
-and a window does not. `warm` is 3% to 11% of the refresh on every page and is left out:
+and a window does not. `warm` is a few per cent of the refresh on every page and is left out.
+**`crates/render-raster/tests/turn_path.rs` holds every `turn` and `step` row to a band in
+`doc/checks/turn-path.toml`**, by this method (`tests/support/frame_cost.rs` is the one copy of it),
+in `tools/batch.sh gates`; a row that moves moves its band there with its reason:
 
 | page | row | budget | interp | scene | encode | transfer | elsewhere | execute |
 |---|---|---|---|---|---|---|---|---|
-| ISO 32000-2 p101, text, 3 007 commands | turn | 6.78 (81%) | 1.47 | 0.42 | **4.07** | 0.20 | 0.45 | 0.15 |
-| | step | 1.38 (17%) | — | — | 0.22 | 0.11 | 0.94 | 0.11 |
-| `personwithdog.pdf` p1, patch meshes | turn | 10.08 (121%) | 3.73 | 2.94 | 1.17 | 0.43 | 1.62 | 0.19 |
-| | step | 11.33 (136%) | — | **4.58** | 4.56 | 0.44 | 1.50 | 0.26 |
-| `issue12841_reduced.pdf` p1, one 5 280 × 3 792 photograph | turn | 31.88 (383%) | **28.73** | 0.02 | 0.01 | 1.86 | 1.17 | 0.09 |
-| | step | 3.24 (39%) | — | 0.00 | 0.01 | 1.30 | **1.73** | 0.19 |
-| `22060_A1_01_Plans.pdf` p1, four photographs under soft masks, 72 placements | turn | 47.77 (573%) | **32.43** | 0.15 | 4.44 | 7.53 | 2.92 | 0.32 |
-| | step | 15.31 (184%) | — | — | 6.64 | **6.80** | 1.47 | 0.41 |
-| `issue13931.pdf` p1, one photograph under a `/Matte`'d mask | turn | 22.60 (271%) | **17.54** | 0.05 | 0.40 | 3.96 | 0.59 | 0.06 |
-| | step | 6.17 (74%) | — | — | 0.06 | **4.95** | 1.02 | 0.14 |
-| `images.pdf` p1 | turn | 31.09 (373%) | **24.62** | 0.03 | 0.83 | 4.20 | 0.96 | 0.45 |
-| | step | 9.95 (119%) | — | — | 3.20 | **4.95** | 0.63 | 1.17 |
-| `issue14415.pdf` p1, strokes, 959 commands | turn | 11.14 (134%) | 2.49 | 0.63 | **6.28** | 0.84 | 0.76 | 0.14 |
-| | step | 5.88 (71%) | — | — | **4.41** | 0.21 | 1.11 | 0.15 |
-| `issue19802.pdf` p1, 1 032 commands | turn | 4.13 (50%) | 0.49 | 0.21 | **2.60** | 0.19 | 0.46 | 0.18 |
-| | step | 1.21 (15%) | — | — | 0.08 | 0.15 | 0.84 | 0.13 |
-| `ContentStreamNoCycleType3insideType3.pdf`, stroked Type 3 in a tiling | turn | 5.98 (72%) | 0.45 | 0.17 | **4.56** | 0.26 | 0.43 | 0.11 |
-| | step | 6.01 (72%) | — | — | **5.37** | 0.08 | 0.38 | 0.18 |
+| ISO 32000-2 p101, text, 3 007 commands | turn | 7.20 (86%) | 1.48 | 0.42 | **4.26** | 0.22 | 0.49 | 0.33 |
+| | step | 1.67 (20%) | — | — | 0.28 | 0.12 | 1.17 | 0.10 |
+| `personwithdog.pdf` p1, patch meshes | turn | 8.72 (105%) | 3.47 | 1.77 | 1.24 | 0.47 | 1.59 | 0.19 |
+| | step | 10.20 (122%) | — | **3.27** | 4.62 | 0.53 | 1.50 | 0.29 |
+| `issue12841_reduced.pdf` p1, one 5 280 × 3 792 photograph | turn | 32.45 (389%) | **28.77** | 0.02 | 0.01 | 2.46 | 1.11 | 0.09 |
+| | step | 3.23 (39%) | — | 0.00 | 0.01 | 1.34 | **1.69** | 0.19 |
+| `22060_A1_01_Plans.pdf` p1, four photographs under soft masks, 72 placements | turn | 51.07 (613%) | **34.51** | 0.17 | 4.62 | 8.32 | 3.08 | 0.35 |
+| | step | 14.75 (177%) | — | — | 6.45 | **6.79** | 1.11 | 0.40 |
+| `issue13931.pdf` p1, one photograph under a `/Matte`'d mask | turn | 24.16 (290%) | **18.97** | 0.05 | 0.42 | 3.82 | 0.81 | 0.09 |
+| | step | 6.82 (82%) | — | — | 0.05 | **5.05** | 1.51 | 0.20 |
+| `images.pdf` p1 | turn | 34.51 (414%) | **26.38** | 0.04 | 1.19 | 5.17 | 1.03 | 0.70 |
+| | step | 9.56 (115%) | — | — | 3.26 | **4.61** | 0.62 | 1.07 |
+| `issue14415.pdf` p1, strokes, 959 commands | turn | 15.80 (190%) | 2.66 | 0.63 | **10.70** | 0.84 | 0.84 | 0.12 |
+| | step | 8.33 (100%) | — | — | **6.58** | 0.23 | 1.38 | 0.15 |
+| `issue19802.pdf` p1, 1 032 commands | turn | 6.19 (74%) | 0.62 | 0.20 | **4.36** | 0.23 | 0.43 | 0.34 |
+| | step | 1.38 (17%) | — | — | 0.08 | 0.15 | 1.01 | 0.14 |
+| `ContentStreamNoCycleType3insideType3.pdf`, stroked Type 3 in a tiling | turn | 10.50 (126%) | 0.46 | 0.18 | **9.03** | 0.31 | 0.41 | 0.11 |
+| | step | 11.04 (132%) | — | — | **10.39** | 0.08 | 0.40 | 0.17 |
+| `bug1743245.pdf` p1, tight bends | turn | 40.24 (483%) | 3.15 | 0.45 | **35.77** | 0.39 | 0.36 | 0.13 |
+| | step | 38.33 (460%) | — | — | **37.44** | 0.13 | 0.50 | 0.26 |
 
-The text and `issue19802.pdf` rows were re-taken the same day after ADR 1409, against a build of
+The tree without ADR 1513 read, in the same sitting: the photograph's turn 69.40 (interp 65.24),
+the Type 3 page's 12.24 (encode 10.84); every other row inside its runs' spread. **What took three
+rows away from their recorded figures, bisected by commit and by hunk (ADR 1513)**: the
+photograph's 32 → 76 ms was ADR 1495's decline of a scan with no `EOI`, which the restart plan never
+needed and no longer makes; `issue14415.pdf`'s 11.1 → 16 is ADR 1443's two chords a flat piece
+(16.1 → 11.6 with that one line taken out, a cost ADR 1443 priced at +50% and ADR 1455 re-measured
+and kept); and the Type 3 page's 6.0 → 12.4 is the same two chords (about 4.5 ms) and ADR 1467's
+exact meet of each glyph with its residue clip, whose mark edges were built on the walk's thread
+(3.6 ms) and are now built by the fan-out's jobs (1.1 ms back). The other two are costs paid for
+§10.7.4's area and are kept. The text page's two modes (7.2 and 8.9 ms, process to process, pinned)
+are the turn the gate's band spans.
+
+**How the rows before these were taken**, from 2026-09-29: the text and `issue19802.pdf` rows were re-taken that day after ADR 1409, against a build of
 the tree before it in the same sitting: minimum of three runs of five rounds, pinned, load 1.9–2.1.
 The `issue14415.pdf` row was re-taken on 2026-09-30 after ADR 1431, minimum of three runs of
 five rounds in one sitting, pinned, load 2.2–2.4. The Type 3 row was re-taken on 2026-10-01 after
@@ -334,7 +352,7 @@ sums. The photograph's step uploads 6.5 MB where it uploaded the whole 80. The r
 re-baseline's.
 
 **A repaint of what is on the screen always fits**; **a page turn onto a page whose outlines the
-device has not seen fits on three of the nine** — the expensive end of that gesture, where
+device has not seen fits on two of the ten** — the expensive end of that gesture, where
 `launch_path`'s `turn_ms` inside one already-drawn document is the cheap end; and
 **`execute` — the device's own passes — is a few per cent of every row**, which is ADR 0387's 0.07%
 on one page found again across every class. A frame that misses the refresh is a host thread,
@@ -344,9 +362,11 @@ every time.
 artwork it is raster's `encode`: ADR 1375's tiling of a tight bend and ADR 1389's fill set are the
 cost (ADR 1395 has the per-commit table; ADR 1421 prices the tiling against its off arm), ADR 1395
 takes a clipped mark and a stroke off the walk's thread, and ADR 1409 lets a repeated glyph, a rectangle and a compute tile queue behind the
-marks before them, so a text page's glyphs and a zoom step's strokes are divided too. What is left
-is the walk and the commit, which are ordered by construction, and the stroke construction's own
-cost. On the mesh page the scene walk divides `MeshRaster`'s rows across rayon's pool — byte-
+marks before them, so a text page's glyphs and a zoom step's strokes are divided too; and ADR 1505
+lets each of the fan-out's threads claim the next job rather than take a share fixed by weight in
+advance, the first placement of a shared expansion before the placements that read it. What is
+left is the walk and the commit, which are ordered by construction, and the stroke construction's
+own cost. On the mesh page the scene walk divides `MeshRaster`'s rows across rayon's pool — byte-
 identical by construction, since a mesh is point-sampled, and held to that by a calibrated test
 (ADR 1259). On a photograph `interp` is the codec's own Huffman and IDCT: the decoder is asked for
 the four-byte raster directly and the `DNL` walk reads a word at a time (ADR 1271, which also says
@@ -370,7 +390,10 @@ the plan's `ICCBased` conversion, which its memo already answered for 99.97% of 
 three bytes where it rounded three floats (ADR 1469). A soft mask is held one byte a sample, the
 codec asked for a grey frame's one channel, and a `/Matte`'s frame is decoded beside its mask and
 inverted where it lies (ADR 1481). What is left of the plan's `interp` is `zune-jpeg`'s Huffman on
-eight frames with no restart interval, all eight cores busy.
+eight frames with no restart interval — four photographs and four `DCTDecode` masks, so all eight of
+the pinned cores' threads are busy until the masks end. Dividing the pool among a page's frames and
+cutting where a frame's share is two threads or more was built and measured a loss: a frame's bands
+cost half again its whole decode in total, so the cut pays only with most of a pool idle (ADR 1505).
 
 **The launch gate on the same day** (`PDFVIEWER_LAUNCH_CLOCKS=1`, calibration 0.702 ms): all 42
 banded figures judged and inside their bands. Cold graphics bring-up 31.7 ms; first page 39.5,

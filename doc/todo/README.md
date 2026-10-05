@@ -92,7 +92,7 @@ a reading nobody else holds is the one thing a deletion cannot give back (ADR 14
 |---|---|
 | [00](00-ambiguous-bucket.md) | Empty the oracle's ambiguous bucket — emptied, so the item is the ratchet plus step 7's ink sweep, which a round that changes pixels re-runs. All seven of the gate's verdicts are held by name |
 | [01](01-ledger-partial-rows.md) | Read the ledger's `partial` rows against the code — and the sweeps, which that file catalogues and counts, each with an ordinal and none with a superlative |
-| [02](02-every-round.md) | **What every round does** — the gates, the sweeps, the binaries, the commit |
+| [02](02-every-round.md) | **What every round does** — the gates, the sweeps, the commit, and the batch loop whose merge installs the binaries a person runs (`tools/batch.sh install`, ADR 1511) |
 | [03](03-more-corpora.md) | More corpora, the fetcher and the survey. What is left is *taking* a chunk a round and the oracle over the new corpora; the rule for adding one is the owner's — include unless a licence clearly forbids |
 | [05](05-an-instrument-for-the-interactive-surface.md) | An instrument for the interactive surface — all three are built and two of them gate; what is left is the save round-trip's ratchet and each item's named remainder |
 | [10](10-bounds-that-cap-size.md) | Bounds that cap size rather than guard against a bomb, asked for by the project owner. The three defects owed on any road are carried out; what is open is which of the four roads to take, with each road's price, and that choice is the owner's |

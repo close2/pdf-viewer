@@ -264,3 +264,9 @@ profile's own Y — ask whether the group is isolated: §11.4.5 composites an is
 fully transparent backdrop, so a frame of its own holds exactly its pixels, and the shared
 resolution keeps both backends on one arithmetic (ADR 1471). Four pages refused "before the scene"
 were one construction at two scopes.
+
+A brief's description of a clause is checked against the heading in `doc/md/` before a fixture is
+written to it: batch fifty-two's named §14.8.2.5.2 as content order (it is the sequencing of
+annotations), §14.8.2.6.2 as `Alt` (it is word breaks), §14.8.6 as attributes (it is namespaces) and
+put `/Version`'s precedence in §I.1 (it is §I.2); round 1337 wrote each fixture to the text and
+said so.

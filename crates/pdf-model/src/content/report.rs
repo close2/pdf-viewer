@@ -83,6 +83,19 @@ pub enum Unsupported {
         /// The stream the chain re-entered, as the interpreter names it.
         stream: String,
     },
+    /// The display list reached the bytes one interpretation may build, and the run stopped.
+    ///
+    /// The memory half of principle 3's budgets: a count of operators does not bound what one
+    /// operator allocates, and a tiling's replication of a cell that holds a Type 3 glyph showing
+    /// another is a few kilobytes of file and gibibytes of list (ADR 1507). Both numbers are
+    /// carried so the sentence a host words can say how far past the bound the page reached.
+    ListBytes {
+        /// The bytes charged when the run stopped, with the tiling copy it was refused where that
+        /// is what stopped it — so it is past `bound` either way.
+        charged: usize,
+        /// The bound, `MAX_LIST_BYTES`.
+        bound: usize,
+    },
     /// A text object whose glyphs should have knocked one another out (§9.3.8).
     ///
     /// `Tk`'s initial value is true, which makes a text object a non-isolated knockout
@@ -524,6 +537,13 @@ pub struct Interpretation {
     /// does a glyph on a hidden optional-content layer. It is a count rather than a flag
     /// because "a page with three glyphs on it" and "a page of text" are different pages.
     pub glyphs: usize,
+    /// The bytes this interpretation charged to its display list, the quantity
+    /// [`Unsupported::ListBytes`]'s bound is asked against (ADR 1507).
+    ///
+    /// A cost rather than a statement about the page, and a function of the document like every
+    /// other field: a page rebuilt from a checkpoint charges what the whole interpretation did
+    /// (`tests/replacement.rs` holds the two equal).
+    pub list_bytes: usize,
     /// Codes this page showed that reached no glyph at all, over every font it used.
     ///
     /// The complement of [`Self::glyphs`] for a `Font::Program`: a code whose font resolved it

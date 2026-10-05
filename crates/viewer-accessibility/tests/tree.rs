@@ -37,6 +37,7 @@ fn element(parent: Option<usize>, role: &str, name: &str) -> AccessibilityNode {
         artifact: None,
         control: None,
         value: None,
+        value_lines: Vec::new(),
         annotation: None,
         headers: Vec::new(),
         continues_a_list: false,
@@ -1310,6 +1311,82 @@ fn a_text_fields_value_is_a_run_below_the_control() {
         "Table 231 bit 14's echo, as the field shows it"
     );
     assert_eq!(runs[0].character_lengths(), [3, 3], "bytes, per character");
+}
+
+/// A field's characters carry their places, so AT-SPI's `GetCharacterExtents` and
+/// `GetOffsetAtPoint` answer on a field as on a paragraph (ADR 1501).
+///
+/// `viewer_core` hands over where §12.7.4.3's layout placed each glyph; the run below the control is
+/// built from those lines exactly as a paragraph's is, so each character has a length, a position
+/// from the run's own edge and a width, and the run's rectangle is the union of the characters'.
+#[test]
+fn a_fields_characters_carry_their_places() {
+    let boxes = [
+        [20.0, 32.0, 27.0, 44.0],
+        [27.0, 32.0, 34.0, 44.0],
+        [34.0, 32.0, 41.0, 44.0],
+    ];
+    let field = AccessibilityNode {
+        bounds: Some([12.0, 30.0, 120.0, 46.0]),
+        value_lines: vec![TextLine {
+            text: "123".to_owned(),
+            characters: boxes
+                .iter()
+                .map(|bounds| Character {
+                    bytes: 1,
+                    bounds: *bounds,
+                })
+                .collect(),
+        }],
+        ..filled(Control::Text(TextControl::default()), "123", false)
+    };
+    let widgets = [field];
+    let update = built(PageView {
+        widgets: &widgets,
+        ..view(&[], &[])
+    });
+    let control = node(&update, NodeId(100_016));
+    assert_eq!(control.value(), Some("123"));
+    let [run] = control.children() else {
+        panic!("one run below the control: {:?}", control.children());
+    };
+    let run = node(&update, *run);
+    assert_eq!(run.role(), Role::TextRun);
+    assert_eq!(run.value(), Some("123"));
+    assert_eq!(run.character_lengths(), [1, 1, 1]);
+    assert_eq!(
+        run.character_positions(),
+        Some([0.0, 7.0, 14.0].as_slice()),
+        "each from the run's left edge, left to right"
+    );
+    assert_eq!(run.character_widths(), Some([7.0, 7.0, 7.0].as_slice()));
+    let bounds = run.bounds().expect("the run is placed");
+    let widget = control.bounds().expect("the control is placed");
+    assert!(
+        bounds.x0 >= widget.x0
+            && bounds.x1 <= widget.x1
+            && bounds.y0 >= widget.y0
+            && bounds.y1 <= widget.y1,
+        "the characters are inside the widget: {bounds:?} in {widget:?}"
+    );
+    assert_eq!(run.text_direction(), Some(TextDirection::LeftToRight));
+}
+
+/// A field whose layout placed nothing keeps the run that says what it holds, with no places.
+#[test]
+fn a_field_with_no_places_still_says_what_it_holds() {
+    let widgets = [filled(Control::Text(TextControl::default()), "12", false)];
+    let update = built(PageView {
+        widgets: &widgets,
+        ..view(&[], &[])
+    });
+    let control = node(&update, NodeId(100_016));
+    let [run] = control.children() else {
+        panic!("one run below the control: {:?}", control.children());
+    };
+    let run = node(&update, *run);
+    assert_eq!(run.value(), Some("12"));
+    assert_eq!(run.character_positions(), None);
 }
 
 /// A choice field's options are list items, the chosen ones selected, which is what AT-SPI's

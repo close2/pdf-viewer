@@ -228,6 +228,18 @@ mirrored = page(pdf, helv(pdf), "Mirrored",
 mirrored.obj.Resources.Font.F2 = boxes
 pdf.save(f"{out}/drive-mirrored.pdf")
 
+# drive-field.pdf: one text field holding "123", whose characters §12.7.4.3's layout places (ADR 1501).
+pdf = pikepdf.new()
+font = helv(pdf)
+f1 = page(pdf, font, "Field")
+held = pdf.make_indirect(Dictionary(
+    Type=Name.Annot, Subtype=Name.Widget, T=String("N"), Rect=[72, 500, 372, 540], F=4, P=f1.obj,
+    FT=Name.Tx, DA=String("/Helv 18 Tf 0 g"), V=String("123"),
+    MK=Dictionary(BC=[0, 0, 0], BG=[0.9, 0.95, 1])))
+f1.obj.Annots = Array([held])
+pdf.Root.AcroForm = Dictionary(Fields=Array([held]), DR=Dictionary(Font=Dictionary(Helv=font)))
+pdf.save(f"{out}/drive-field.pdf")
+
 # drive-coverage.pdf: a thousand fifteen-point stars over the whole page. A few kilobytes of marks,
 # so a confined worker sends them as a list rather than as pixels (ADR 0607), and more coverage than
 # a device's scratch sheet holds, so the device refuses the frame (ADR 1478).
@@ -429,6 +441,48 @@ for index in range(desktop.get_child_count()):
     if application is not None and application.get_process_id() == pid:
         walk(application, 0)
 print(" ".join(str(seen.get(key, "-")) for key in "ACBDE"))
+PY
+# extents PID WINDOW: where AT-SPI's `GetCharacterExtents` puts the second character of the text
+# field N, and the field's own extents, both on the screen ("x y w h in X Y W H"), or "refused: …"
+# where the widget answers the call with an error — GTK 4's own text widget does, in every
+# coordinate space, so that window does not offer the step. `quorra`'s field is
+# the document's own node, inside the frame, whose characters are §12.7.4.3's placed glyphs (ADR
+# 1501); the two toolkits' are their own entries, outside it.
+cat > "$OUT/extents.py" <<'PY'
+import sys
+import gi
+gi.require_version("Atspi", "2.0")
+from gi.repository import Atspi
+pid, own, found = int(sys.argv[1]), sys.argv[2] == "quorra", []
+SCREEN = Atspi.CoordType.SCREEN
+def walk(node, depth, document=False):
+    if node is None or depth > 40 or found:
+        return
+    try:
+        document = document or node.get_role() == Atspi.Role.DOCUMENT_FRAME
+        ours = document if own else not document
+        if node.get_role_name() in ("text", "entry") and node.get_name() == "N" and ours:
+            text = node.get_text_iface()
+            if text is not None and Atspi.Text.get_character_count(text) >= 2:
+                try:
+                    box = Atspi.Text.get_character_extents(text, 1, SCREEN)
+                except gi.repository.GLib.Error as error:
+                    found.append("refused: %s" % (error.message or "an error with no message"))
+                    return
+                whole = node.get_component_iface().get_extents(SCREEN)
+                found.append("%d %d %d %d in %d %d %d %d" % (
+                    box.x, box.y, box.width, box.height, whole.x, whole.y, whole.width, whole.height))
+        for index in range(node.get_child_count()):
+            walk(node.get_child_at_index(index), depth + 1, document)
+    except gi.repository.GLib.Error:
+        return
+desktop = Atspi.get_desktop(0)
+for index in range(desktop.get_child_count()):
+    application = desktop.get_child_at_index(index)
+    if application is not None and application.get_process_id() == pid:
+        walk(application, 0)
+if found:
+    print(found[0])
 PY
 # asked VARIABLE ROLE NAME: replaces the measured coordinates in VARIABLE with the widget's own
 # centre where the window publishes it, and says which the click will be.
@@ -641,6 +695,22 @@ PY
         verdict 24-reopened wrong "A C B D E on the bus: ${seen:-nothing}"
     fi
 
+    # ADR 1501: a field's second character has a box, inside the field, where AT-SPI asks for it.
+    launch "$FIXTURES/drive-field.pdf"; shot 29-field-extents
+    seen=""
+    [ -n "$BUS" ] && seen=$(timeout 30 python3 "$OUT/extents.py" "$APP" "$WINDOW" 2>/dev/null)
+    if [ -z "$BUS" ]; then
+        verdict 29-field-extents "not offered" "no accessibility bus on this machine"
+    elif [[ "$seen" == refused:* ]]; then
+        verdict 29-field-extents "not offered" "the toolkit's own field answers GetCharacterExtents with an error: $seen"
+    elif read -r cx cy cw ch _ fx fy fw fh <<< "$seen" && [ -n "$fh" ] && [ "$cw" -gt 0 ] \
+            && [ "$cx" -ge "$fx" ] && [ $((cx + cw)) -le $((fx + fw)) ] \
+            && [ "$cy" -ge "$fy" ] && [ $((cy + ch)) -le $((fy + fh)) ]; then
+        verdict 29-field-extents works "GetCharacterExtents(1): $seen"
+    else
+        verdict 29-field-extents wrong "GetCharacterExtents(1): ${seen:-nothing}"
+    fi
+
     # A right-to-left word on a page whose text runs in visual order through presentation forms.
     if [ -f "$FIXTURES/arabic.pdf" ]; then
         launch "$FIXTURES/arabic.pdf"
@@ -681,11 +751,14 @@ PY
     # Principle 2: a frame the graphics device refuses is drawn on the processor, "reported out
     # loud" — on the terminal and in the window's title, the channel `quorra` reports what a page
     # could not draw through (ADR 1466). The two native windows draw no page through a graphics
-    # device, so there is nothing for one to refuse (doc/ui-boundary.md).
-    CYCLE="$ROOT/doc/pdf.js/test/pdfs/ContentStreamCycleType3insideType3.pdf"
-    if [ -f "$CYCLE" ]; then
+    # device, so there is nothing for one to refuse (doc/ui-boundary.md). The page is
+    # `drive-coverage.pdf`, whose coverage outgrows the device's scratch sheet (ADR 1478) — the
+    # corpus's Type 3 cycle was the page once, and since `MAX_LIST_BYTES` bounds its list the device
+    # draws it (ADR 1507).
+    REFUSED="$FIXTURES/drive-coverage.pdf"
+    if [ -f "$REFUSED" ]; then
         if [ "$WINDOW" = quorra ]; then
-            launch "$CYCLE"
+            launch "$REFUSED"
             for _ in $(seq 1 24); do
                 [ "$(said 'drawn on the processor instead')" -gt 0 ] && break
                 sleep 5
@@ -801,11 +874,17 @@ confined() {
         [[ "$(title)" == *"drawn on the processor"* ]] && break
         sleep 5
     done
-    sleep 3
-    shot 28-confined-refusal
+    # The title is set when the device refuses, before the processor's page lands off its thread,
+    # so the photograph is retaken until the page is on it or a minute has passed: a shot taken in
+    # between is blank for a reason that is the clock's, not the window's.
     local seen colours
+    for _ in $(seq 1 12); do
+        sleep 5
+        shot 28-confined-refusal
+        colours=$(magick "$OUT/shots/$WINDOW/28-confined-refusal.png" -unique-colors -format %w info: 2>/dev/null)
+        [ "${colours:-0}" -gt 3 ] && break
+    done
     seen=$(title)
-    colours=$(magick "$OUT/shots/$WINDOW/28-confined-refusal.png" -unique-colors -format %w info: 2>/dev/null)
     if [ "$(said 'the graphics device refused the frame')" -eq 0 ]; then
         verdict 28-confined-refusal wrong "no refusal on standard error: the device drew it? $seen"
     elif [[ "$seen" != *"drawn on the processor"*"confined" ]]; then

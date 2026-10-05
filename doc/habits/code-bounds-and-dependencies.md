@@ -433,3 +433,13 @@ T.88's Annex H.2 test sequence was to be a `pdf-sandbox` fixture against `hayro-
 decoder; the decoder and its context are `pub(crate)`, and a second decoder written in the test
 would test only itself, so the fixture went into the fork as a patch, verified by applying it to a
 scratch clone at the pinned revision (ADR 1485). Read the `pub` before the plan.
+
+## A list a producer can grow is bounded in bytes, and `interpret` takes no clock
+
+`MAX_OPERATIONS` counted operators and saw nothing of the clips every tiling copy carried; the
+unmutated Type 3 cycle built a 1.8 GiB display list inside every other bound. `MAX_LIST_BYTES`
+(512 MiB, 2.4× the largest list any corpus first page builds) is asked inside the comparison the
+operator loop already makes, at no cost on the launch path, and reported once with both numbers
+(ADR 1507). No deadline sits inside `interpret`: a clock there would make the drawn prefix depend
+on machine load, and the oracle, the fuzz target's purity check and `replace` rely on `interpret`
+being a function of the bytes — time is bounded by work budgets and the confined worker's kill.

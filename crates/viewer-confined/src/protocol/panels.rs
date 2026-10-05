@@ -1626,6 +1626,7 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             artifact,
             control,
             value,
+            value_lines,
             annotation,
             headers,
             continues_a_list,
@@ -1716,15 +1717,21 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
         for quad in quads {
             writer.quad(*quad);
         }
-        // Each line's text, then one character at a time: how many bytes of that text it produced
-        // and where it is. The invariant the far side checks is that the two agree — see
-        // `read_lines`.
-        writer.usize(lines.len());
-        for line in lines {
-            writer.str(&line.text).usize(line.characters.len());
-            for character in &line.characters {
-                writer.usize(character.bytes).numbers(&character.bounds);
-            }
+        encode_lines(writer, lines);
+        // Where §12.7.4.3's layout placed each character of the value above, in the same shape
+        // and under the same invariant as the element's own lines (ADR 1501).
+        encode_lines(writer, value_lines);
+    }
+}
+
+/// Each line's text, then one character at a time: how many bytes of that text it produced and
+/// where it is. The invariant the far side checks is that the two agree — see `read_lines`.
+fn encode_lines(writer: &mut Writer, lines: &[TextLine]) {
+    writer.usize(lines.len());
+    for line in lines {
+        writer.str(&line.text).usize(line.characters.len());
+        for character in &line.characters {
+            writer.usize(character.bytes).numbers(&character.bounds);
         }
     }
 }
@@ -1800,6 +1807,7 @@ pub(super) fn decode_accessibility(
             },
             quads: super::read_quads(reader, "a node's shapes")?,
             lines: read_lines(reader)?,
+            value_lines: read_lines(reader)?,
         })
     })
 }

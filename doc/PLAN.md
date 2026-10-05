@@ -521,7 +521,9 @@ standard**, because that is the crate whose gates already read the repository's 
 a doc comment names is one the tree declares (`tests/names.rs`, ADR 1273), a record is at most forty
 lines (`tests/records.rs`), `--bin cited`'s rank is calibrated by a planted pair (`tests/cited.rs`,
 ADR 1274), and `tools/batch.sh commit` stages the whole population by name while `close` refuses a
-worktree holding uncommitted work (`tests/batch.rs`, ADR 1313), and every row of the trap index has
+worktree holding uncommitted work and `install` writes what a person runs into the main checkout's
+`target/` and nowhere else, with the commit it was built from beside it (`tests/batch.rs`, ADRs
+1313, 1511), and every row of the trap index has
 an entry of its number in the group file it names and every entry its row (`tests/traps.rs`,
 ADR 1379), an environment variable a live document names is one the code reads
 (`tests/variables.rs`), a command a live document writes names a package, target and `tools/`
@@ -545,15 +547,21 @@ the ledger's program names — one count and one listing command each, so "is th
 A batch's clock is read, never written down: `tools/state.sh gates-cost` prints the merge's gate log
 dearest first and `tools/state.sh batches` each batch commit's gates figure, the sum of its round
 durations, how many figures and rounds it read and any figure it could not sum (ADRs 1476, 1487,
-1500). The disk the builds fill is `tools/state.sh disk`: every build directory under the root with
+1500). The oracle's held pages are `tools/state.sh oracle-held`: per verdict the count and the
+groups by size, read from the test file's own constants without the walk, and the departure-of-ours
+candidates for the next page to take (`--bin held`, ADR 1512). The disk the builds fill is `tools/state.sh disk`: every build directory under the root with
 its profiles, `sccache` against its ceiling, the free space and `scratchpad/`, and
 `doc/environment.md` the commands that prune it (ADR 1500).
 
-Two ratchets, both in the gate and both two-directional. `UNREVIEWED_CEILING` may only fall.
+Three ratchets, all in the gate and all two-directional. `UNREVIEWED_CEILING` may only fall.
 `REVIEW_OWED` names the clauses the code cites whose rows are still `unreviewed`, and a clause not
 on the list fails immediately, while a clause on it that *has* been reviewed must be deleted from
 it. **It is a list rather than a count**, because filling rows in one sitting to make a number go
-down is exactly the rubber stamp the ledger exists to prevent.
+down is exactly the rubber stamp the ledger exists to prevent. `ONLY_WALKS_CEILING` is held by
+equality to the `implemented` rows whose every test is a corpus walk or a corpus witness — a
+`#[test]` that returns early where the corpus is absent — so a fixture added lowers it and a new
+row may not raise it: such a row keeps its status, because a requirement executed under a control
+is executed, and owes a fixture whose expected value is the clause's (ADR 1497).
 
 On quoting the standard: `doc/md/` is **not** committed — `/doc/*.pdf` and `/doc/md` are ignored
 and only the encrypted `doc/specifications.zip` is tracked (ADR 0187) — so a quotation in a source

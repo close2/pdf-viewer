@@ -26,7 +26,7 @@ use super::transparency::{
     AlphaSourcesSeen, Painted, any_command, command_blends, command_composites,
     group_alpha_is_shape,
 };
-use super::{GraphicsState, Interpreter, KnockoutKind, MAX_OPERATIONS};
+use super::{GraphicsState, Interpreter, KnockoutKind, MAX_OPERATIONS, list_budget};
 
 mod reach;
 
@@ -976,6 +976,9 @@ impl Interpreter<'_> {
         let columns = (first_column, last_column);
         let mut rows_laid = 0usize;
         let mut spent = 0usize;
+        // What the next copy will charge to the list's bytes: the last copy's charge, clips
+        // included, and before the first a command's own size for each of the cell's.
+        let mut copy_bytes = cell.len().saturating_mul(list_budget::COMMAND_BYTES);
         for row in first_row..=last_row {
             // The sites of this row the fill's interior can reach at all (`reach.rs`); a
             // stroke's hull is taken whole, and so is every row once the page has spent its
@@ -1050,8 +1053,20 @@ impl Interpreter<'_> {
                         });
                         return;
                     }
+                    // The same question in bytes, asked before the copy for the same reason
+                    // (ADR 1507): a copy also carries the cell's clips, which no count of
+                    // commands sees.
+                    if self.list_past(copy_bytes) {
+                        return;
+                    }
+                    let before = self.list_budget.charged();
                     match cell.repeat(&mut self.list, by) {
                         Ok(copied) => {
+                            self.charge_copied(copied);
+                            if self.list_spent(0) {
+                                return;
+                            }
+                            copy_bytes = self.list_budget.charged().saturating_sub(before);
                             spent = spent.saturating_add(copied);
                             self.operations = self.operations.saturating_add(copied);
                             if self.operations > MAX_OPERATIONS {

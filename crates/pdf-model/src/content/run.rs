@@ -414,11 +414,20 @@ impl Interpreter<'_> {
             // few megabytes in, and stops there.
             let operator = word.as_slice();
             self.operations = self.operations.saturating_add(1);
-            if self.operations > MAX_OPERATIONS {
-                self.note(Unsupported::LimitReached {
-                    limit: "MAX_OPERATIONS",
-                });
-                return;
+            // One comparison asks both budgets: `next_check` is never past `MAX_OPERATIONS`, so
+            // the count's bound is reached here exactly as before, and the list's is asked every
+            // few dozen operators in the same branch (ADR 1507). Either stops the run the same
+            // way: no operator after it is dispatched, here or in any stream enclosing this one.
+            if self.operations >= self.list_budget.next_check() {
+                if self.operations > MAX_OPERATIONS {
+                    self.note(Unsupported::LimitReached {
+                        limit: "MAX_OPERATIONS",
+                    });
+                    return;
+                }
+                if self.list_spent(state.stroke.dash_array.len()) {
+                    return;
+                }
             }
             if let Some(ledger) = self.ledger {
                 ledger.borrow_mut().operator(operator);

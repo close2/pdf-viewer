@@ -3109,6 +3109,20 @@ impl Viewer {
                         .find(|widget| widget.annotation == *annotation)
                         .map(|widget| (field, widget))
                 })?;
+                // Where §12.7.4.3's layout placed each character, for the platform's text
+                // interface (ADR 1501).
+                let value_lines = field
+                    .value
+                    .as_ref()
+                    .and_then(|value| {
+                        let glyphs = open.view.field_glyphs(&open.document, *annotation)?;
+                        Some(crate::accessibility::value_lines(
+                            &value.text,
+                            &glyphs,
+                            |rect| self.device_rect(open, on_screen.page, rect),
+                        ))
+                    })
+                    .unwrap_or_default();
                 Some(crate::AccessibilityNode {
                     role: "Form".to_owned(),
                     name: field.name.shown().to_owned(),
@@ -3116,6 +3130,7 @@ impl Viewer {
                     bounds: self.device_rect(open, on_screen.page, widget.rect),
                     control: Some(this_widgets_control(&field.control, widget)),
                     value: field.value.clone(),
+                    value_lines,
                     annotation: Some(*annotation),
                     ..crate::AccessibilityNode::blank()
                 })
@@ -3176,6 +3191,7 @@ impl Viewer {
             controls: &referenced.controls,
             fields: &referenced.fields,
             values: &referenced.values,
+            glyphs: &referenced.glyphs,
         };
         let nodes = gathered
             .into_iter()
@@ -4256,10 +4272,14 @@ fn referenced_objects(open: &Open, shown: &pdf_model::Page) -> Referenced {
     let mut controls = BTreeMap::new();
     let mut fields = BTreeMap::new();
     let mut values = BTreeMap::new();
+    let mut glyphs = BTreeMap::new();
     for field in pdf_model::form::fields(&open.document, shown, &open.view) {
         for widget in &field.widgets {
             if let Some(value) = &field.value {
                 values.insert(widget.annotation, value.clone());
+                if let Some(placed) = open.view.field_glyphs(&open.document, widget.annotation) {
+                    glyphs.insert(widget.annotation, placed);
+                }
             }
             controls.insert(
                 widget.annotation,
@@ -4274,10 +4294,11 @@ fn referenced_objects(open: &Open, shown: &pdf_model::Page) -> Referenced {
         controls,
         fields,
         values,
+        glyphs,
     }
 }
 
-/// The five readings [`referenced_objects`] answers with, keyed by the annotation each is about.
+/// The six readings [`referenced_objects`] answers with, keyed by the annotation each is about.
 ///
 /// A value rather than a tuple because they are five different facts about one page and a caller
 /// reading `.1` would have to remember which; `Default` is the answer for a page whose structure
@@ -4294,6 +4315,9 @@ struct Referenced {
     fields: BTreeMap<ObjectId, String>,
     /// §12.7.4.3's text for each such widget whose field is a text field or a combo box (ADR 1489).
     values: BTreeMap<ObjectId, pdf_model::view::ShownValue>,
+    /// Where §12.7.4.3's layout placed each glyph of those values, in default user space
+    /// (ADR 1501).
+    glyphs: BTreeMap<ObjectId, Vec<pdf_model::view::FieldGlyph>>,
 }
 
 /// The field's control with §12.7.5.2's on state replaced by **this widget's**.

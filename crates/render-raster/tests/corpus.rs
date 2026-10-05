@@ -323,16 +323,14 @@ const REFUSED_BEFORE_THE_SCENE: [&str; 0] = [];
 /// the device takes, and stitched before the passes that run over a readback. It agrees with the
 /// oracle.
 ///
-/// **And the cycle's message is a function of what the run drew before it, which is worth knowing
-/// before quoting one.** Run alone, `ContentStreamCycleType3insideType3.pdf` is refused for
-/// *frame needs 377221152 scene-derived bytes, over the stated budget of 268435456*; run in its
-/// place in the corpus it is refused for *uploading would hold 536871684 resource bytes
-/// (536870452 already resident), over the stated budget of 536870912* — one `QuorraRasterizer`
-/// serves all 974 documents, so by the time the walk reaches this page the resource cache is at
-/// its ceiling and the ceiling it meets first is that one. Both are budgets, both are reported
-/// out loud, and the name is on this list either way; what a round may not do is read the printed
-/// figure as this page's own cost.
-const REFUSED_BY_THE_DEVICE: [&str; 1] = ["ContentStreamCycleType3insideType3.pdf"];
+/// **The list is empty, and the page that used to be on it says why.**
+/// `ContentStreamCycleType3insideType3.pdf` was refused by the device's frame budget (377 M
+/// scene-derived bytes) or, in its place in the walk, by the resource ceiling; since `MAX_LIST_BYTES`
+/// bounds a display list at 512 MiB per interpretation (ADR 1507) the interpreter stops the cycle
+/// first, reports it once with both numbers, and hands the device a list it draws. The budget
+/// nearest the producer's defect is the one that fires; the device's stay for the pages below at
+/// four times the scale.
+const REFUSED_BY_THE_DEVICE: [&str; 0] = [];
 
 /// The same at [`MAGNIFIED`], which is the population the zoom path actually draws.
 ///
@@ -420,12 +418,8 @@ const REFUSED_BY_THE_DEVICE: [&str; 1] = ["ContentStreamCycleType3insideType3.pd
 /// predicted it: `pdfinfo` over the corpus answered for 953 of 974 documents, the 21 silences
 /// were read as the documents that do not open, and this was not one of them (trap 25). The
 /// bound, the page and the adapter were all unchanged; only the list was wrong.
-const REFUSED_BY_THE_DEVICE_AT_FOUR: [&str; 4] = [
-    "ContentStreamCycleType3insideType3.pdf",
-    "issue12810.pdf",
-    "issue1905.pdf",
-    "issue9418.pdf",
-];
+const REFUSED_BY_THE_DEVICE_AT_FOUR: [&str; 3] =
+    ["issue12810.pdf", "issue1905.pdf", "issue9418.pdf"];
 
 /// The stage-free refusals and the device's, as one list sorted the way the run produces them.
 ///

@@ -2740,6 +2740,34 @@ impl ViewState {
         crate::appearance::selection(document, &dict, self.annotation(id), range)
     }
 
+    /// Where each character of a field's value is drawn, in **default user space**.
+    ///
+    /// The positions §12.7.4.3's layout gave the glyphs while it wrote the widget's appearance — the
+    /// same walk [`Self::caret_at`] and [`Self::field_selection`] are answered from — so a
+    /// platform's text interface can say where one character is without laying the value out a
+    /// second time. One [`FieldGlyph`] per glyph, line by line and in the order each line is
+    /// displayed: a right-to-left run comes left to right, as a page's own readback does (ADR 1501).
+    ///
+    /// `widget` names the widget annotation, which is what an accessibility node holds rather than
+    /// a point. `None` for a widget whose field §12.7.4.3 lays no characters out for — a button, a
+    /// list box, a signature — and for a value that could not be laid out at all.
+    #[must_use]
+    pub fn field_glyphs(&self, document: &Document, widget: ObjectId) -> Option<Vec<FieldGlyph>> {
+        let object = document.get(widget);
+        let dict = object.as_dict()?;
+        let glyphs = crate::appearance::glyphs(document, dict, self.annotation(widget))?;
+        Some(
+            glyphs
+                .into_iter()
+                .map(|glyph| FieldGlyph {
+                    line: glyph.line,
+                    bytes: glyph.bytes,
+                    quad: glyph.quad,
+                })
+                .collect(),
+        )
+    }
+
     /// Forgets what a person typed into one field, leaving whatever the file and the actions say.
     ///
     /// Deliberately not "set it back to the old value": the old value may have been the file's
@@ -4896,6 +4924,24 @@ pub struct ShownValue {
     /// password control draws its own echo from the characters it holds, so there is nothing it
     /// needs this string for.
     pub obscured: bool,
+}
+
+/// One glyph of a field's value as §12.7.4.3's layout placed it: [`ViewState::field_glyphs`]'s
+/// answer.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldGlyph {
+    /// Which line of the field the glyph is on, counted from the first drawn.
+    pub line: usize,
+    /// The byte range of the value [`ViewState::field_value`] answers with that the glyph shows.
+    ///
+    /// From the byte its code came from to the byte the next code came from, so a character the
+    /// font states no code for, or a pair drawn as one joined form, belongs to the glyph before it.
+    pub bytes: std::ops::Range<usize>,
+    /// The glyph's box in default user space, four corners anticlockwise from the top left —
+    /// corners rather than a rectangle because `/R`, the appearance's `/Matrix` and a `/DA`'s `Tm`
+    /// can each turn it. As tall as a caret and as wide as the glyph's advance; a comb's glyph is
+    /// as wide as its cell.
+    pub quad: [f32; 8],
 }
 
 /// What a form field is called: the name that identifies it, and the name to show a person.

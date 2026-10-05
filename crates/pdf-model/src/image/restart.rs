@@ -32,11 +32,31 @@
 //! holding every component, a `DRI` stating a nonzero interval, sampling factors of the shapes
 //! whose upsamplers the argument above was read against (a first component of 1×1, 2×1, 1×2
 //! or 2×2 and the others 1×1, or one component of 1×1), and restart markers found where the
-//! interval count puts them, numbered in order, with the scan ended by `EOI`. Anything else —
-//! a progressive or lossless frame, a second scan, a marker out of place, a count that does not
-//! add up — is declined, and so is any band the decoder refuses; the caller then decodes the
-//! frame whole exactly as before, so a damaged codestream is read by the one decoder it always
-//! was.
+//! interval count puts them, numbered in order, with the scan ended by `EOI` or by the end of
+//! the data. Anything else — a progressive or lossless frame, a second scan, a marker out of
+//! place, a count that does not add up — is declined, and so is any band the decoder refuses;
+//! the caller then decodes the frame whole exactly as before, so a damaged codestream is read
+//! by the one decoder it always was.
+//!
+//! # Why a scan the data ends without `EOI` is still cut
+//!
+//! ISO/IEC 10918-1 section B.2.1 ends compressed image data with `EOI`, so a codestream
+//! without one is not in the interchange format — but what is missing is a marker *after* the
+//! scan, not anything in it. Section E.2.3 ends the decoding of a scan when the expected
+//! number of restart intervals has been decoded, section E.2.4 decodes an interval MCU by MCU
+//! and only then looks for the next marker, making what a decoder does when it cannot find one
+//! its own choice, and that section's note says the last interval holds just the MCUs that
+//! remain. So a scan is complete when its data holds every MCU of its last interval, whether or
+//! not `EOI` follows (ADR 1513).
+//!
+//! The last band is therefore handed its intervals exactly as the codestream carries them, with
+//! nothing appended, and decoded strict as every band is. Its reader starts at a restart marker,
+//! reset, on the same bytes the whole decoder reads from that marker on, so the two read the
+//! tail alike; where the data runs out before an MCU row of it begins, the whole decoder fills
+//! the rows left and a strict band is refused instead, and the frame is then decoded whole. A
+//! band that is delivered is therefore the whole decoder's lines. `super::cut` stays declined on
+//! a scan with no `EOI`, for the reason its own comment gives: its last band is re-coded and
+//! ended by `EOI`, so its reader does not see the tail the whole decoder sees (ADR 1495).
 //!
 //! **What the bands are is a function of the codestream alone**, never of how many threads
 //! there are: [`BAND_LINES`] sizes them, and the pool only decides who decodes which.
@@ -130,10 +150,6 @@ pub(super) fn decode_at(
     floor: u64,
     band_lines: u32,
 ) -> Option<Vec<u8>> {
-    // A scan the data ends inside, with no `EOI` after it, is a damaged codestream: the whole
-    // decoder reads its tail one way and a band, ended and padded as a codestream of its own,
-    // another (ADR 1495). It is the whole decoder's.
-    scan.ends.as_ref()?;
     let layout = layout(data, scan)?;
     let width = frame_width(data, &layout)?;
     let samples = u64::from(width).saturating_mul(u64::from(layout.lines));

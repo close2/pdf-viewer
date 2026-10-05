@@ -81,6 +81,6 @@ pub mod xfdf;
 pub mod xmp;
 
 pub use content::{
-    FONT_BUDGET, FontCache, FontCacheReport, Interpretation, Unsupported, interpret,
+    FONT_BUDGET, FontCache, FontCacheReport, Interpretation, MAX_LIST_BYTES, Unsupported, interpret,
 };
 pub use page::{MediaBoxSubstitution, Page, Pages};

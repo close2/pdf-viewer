@@ -150,6 +150,30 @@ pub(crate) struct Asked {
     /// Multiline flag lets [`wrap`] break a line where a caller cannot see, so the lines between
     /// the two ends are this module's to name. See [`LaidOut::selection`].
     pub selection: Option<(usize, usize)>,
+    /// Whether to answer with where each glyph was placed. See [`LaidOut::glyphs`].
+    ///
+    /// What a platform's text interface asks of a field: AT-SPI's `GetCharacterExtents` wants
+    /// one character's box, and only the walk that positioned the glyph knows it (ADR 1501).
+    pub glyphs: bool,
+}
+
+/// One glyph the layout placed, and the part of the value it shows.
+///
+/// **The positions are §12.7.4.3's own**: the appearance stream this module writes places every
+/// glyph with a `Tm` whose translation the clause hands to the processor, so where a glyph is is
+/// a fact of this layout rather than a reading of a stream someone else wrote (ADR 1501).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Glyph {
+    /// Which line of the layout the glyph is on, counted from the first drawn.
+    pub line: usize,
+    /// The byte range of the value the glyph shows: from the byte its code came from to the byte
+    /// the next code in the value's own order came from, so a character the font states no code
+    /// for, or a pair joined into one form, is carried by the glyph before it.
+    pub bytes: std::ops::Range<usize>,
+    /// The glyph's box, four corners anticlockwise from the top left, between the same descent
+    /// and ascent a caret stands between, and as wide as the advance the layout placed it by — a
+    /// comb's glyph as wide as its cell, because Table 231 bit 25 makes the cell the position.
+    pub quad: [f32; 8],
 }
 
 /// One layout job: the text, the box, and the entries §12.7.4.3 reads.
@@ -352,6 +376,10 @@ pub(crate) struct LaidOut {
     /// and the caller turns them again for §12.5.5's placement. Empty where nothing was asked
     /// for, and where the range covers no glyph.
     pub selection: Vec<[f32; 8]>,
+    /// Each glyph placed, line by line and in the order each line is displayed — left to right,
+    /// so a right-to-left run reads backwards here (UAX #9's rule L2, ADR 1413) — where
+    /// [`Asked::glyphs`] asked for them; in the appearance's own coordinates. Empty otherwise.
+    pub glyphs: Vec<Glyph>,
     /// How wide the widest line came out, at the size the layout chose.
     ///
     /// The sum of the advances [`write_lines`] positions each line by, so it is the same number
@@ -1252,6 +1280,7 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         caret: runs.caret,
         selection: runs.selection,
         point: request.asked.point.map(|point| frame.shrink_point(point)),
+        glyphs: request.asked.glyphs,
         offsets: &runs.offsets,
         paragraphs: paragraphs.as_ref(),
         frame,
@@ -1276,6 +1305,7 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         caret: marks.caret,
         offset: marks.offset,
         selection: marks.selection,
+        glyphs: marks.glyphs,
         advance: marks.advance,
         overflows: overflows(&measure, &runs.codes, &lines, size, request, stack),
         // The invented dictionary has to reach the appearance's `/Resources` under the name
@@ -1654,6 +1684,17 @@ impl Frame {
         a.hypot(b)
     }
 
+    /// Four corners, each carried by [`Self::place`].
+    fn place_quad(self, shape: [f32; 8]) -> [f32; 8] {
+        let mut quad = [0.0_f32; 8];
+        for (corner, place) in shape.chunks_exact(2).zip(quad.chunks_exact_mut(2)) {
+            let placed = self.place([corner[0], corner[1]]);
+            place[0] = placed[0];
+            place[1] = placed[1];
+        }
+        quad
+    }
+
     /// The layout's answers, back in the space the marks land in.
     fn grow(self, marks: Marks) -> Marks {
         Marks {
@@ -1673,6 +1714,14 @@ impl Frame {
                         place[1] = placed[1];
                     }
                     quad
+                })
+                .collect(),
+            glyphs: marks
+                .glyphs
+                .into_iter()
+                .map(|glyph| Glyph {
+                    quad: self.place_quad(glyph.quad),
+                    ..glyph
                 })
                 .collect(),
             // A length along the line, so it is the line's own direction that scales it. Which
@@ -1835,8 +1884,9 @@ struct Encoded {
     ///
     /// The mapping the other two run backwards: a point lands between two codes and the answer
     /// owed is a byte offset, and a right-to-left line is reordered by the levels of the bytes
-    /// its codes came from. Built **only** where [`Asked::point`] asked for one or the value has
-    /// a level other than 0, so that nothing that draws a left-to-right value pays for it.
+    /// its codes came from. Built **only** where [`Asked::point`] or [`Asked::glyphs`] asked for
+    /// one or the value has a level other than 0, so that nothing that draws a left-to-right value
+    /// pays for it.
     offsets: Vec<usize>,
 }
 
@@ -1874,7 +1924,7 @@ fn encode(
     let mut marks: [Option<usize>; 3] = [None; 3];
     // Collected where a question needs them and where the value has a right-to-left level, whose
     // lines are reordered by the levels of the bytes each code came from.
-    let keep_offsets = asked.point.is_some() || paragraphs.is_some();
+    let keep_offsets = asked.point.is_some() || asked.glyphs || paragraphs.is_some();
     let mut offsets = Vec::new();
     let characters: Vec<(usize, char)> = text.char_indices().collect();
     let letters: Vec<char> = characters.iter().map(|(_, character)| *character).collect();
@@ -2173,6 +2223,27 @@ fn write_lines(
                 }
             }
         }
+        // Each glyph of the line, where a platform asked where its characters are (ADR 1501): the
+        // advances the line was positioned by, summed as they are shown, between the descent and
+        // ascent the caret stands between — so a character's box and a caret at its edge agree.
+        if written.glyphs {
+            let (bottom, top) = (baseline + descent, baseline + ascent);
+            let mut x0 = x;
+            for (shown_at, placed) in shown.iter().enumerate() {
+                let x1 = x0 + measure.width(std::slice::from_ref(placed), size);
+                if placed.code().is_some()
+                    && let Some(at) = order.visual.get(shown_at)
+                {
+                    let code = line.start.saturating_add(*at);
+                    marks.glyphs.push(Glyph {
+                        line: index,
+                        bytes: written.byte(code)..written.byte(code.saturating_add(1)),
+                        quad: [x0, top, x1, top, x1, bottom, x0, bottom],
+                    });
+                }
+                x0 = x1;
+            }
+        }
         if let Some([px, py]) = written.point {
             // Vertically first and horizontally within the line, which is the order the two
             // questions are asked in: a point below every line belongs to the last one, and a
@@ -2369,6 +2440,8 @@ struct Marks {
     /// rectangle sheared is a parallelogram; a bounding box would be a silent overstatement of
     /// what a host highlights.
     selection: Vec<[f32; 8]>,
+    /// Each glyph placed, as [`LaidOut::glyphs`] states them.
+    glyphs: Vec<Glyph>,
     advance: f32,
 }
 
@@ -2383,6 +2456,8 @@ struct Written<'a> {
     caret: Option<usize>,
     selection: Option<(usize, usize)>,
     point: Option<[f32; 2]>,
+    /// Whether [`Asked::glyphs`] asked where each glyph went.
+    glyphs: bool,
     /// Which byte of the value each code came from, from [`Encoded::offsets`].
     offsets: &'a [usize],
     /// UAX #9's resolution of the value, `None` where every character is left to right.
@@ -2651,6 +2726,18 @@ fn comb(
             }
         }
     }
+    // Each glyph as the cell it stands in, which is what Table 231 bit 25 makes its position.
+    let glyphs = if written.glyphs {
+        comb_glyphs(&displayed, &order, written, |cell_at| {
+            let (x0, x1) = (
+                edge(first + count(cell_at)),
+                edge(first + count(cell_at.saturating_add(1))),
+            );
+            [x0, top, x1, top, x1, bottom, x0, bottom]
+        })
+    } else {
+        Vec::new()
+    };
     let mut offset = None;
     if let Some([point, _]) = written.point {
         // The nearest cell edge, and then the code that cell holds. A comb is single-line by the
@@ -2673,10 +2760,39 @@ fn comb(
         caret,
         offset,
         selection,
+        glyphs,
         // A comb occupies the cells Table 231 bit 25 divides the box into rather than the sum of
         // its advances, so the width it fills is the box's own up to the last cell it reached.
         advance: edge(slot_of(codes.len())) - start,
     }
+}
+
+/// A comb's glyphs, each the cell `cell` gives for its count of drawn characters before it.
+///
+/// `displayed` is the value in display order, line breaks included because [`Order`] indexes
+/// them; a break takes no cell, as [`comb`] lays none out for it.
+fn comb_glyphs(
+    displayed: &[Placed],
+    order: &Order,
+    written: Written,
+    cell: impl Fn(usize) -> [f32; 8],
+) -> Vec<Glyph> {
+    let mut glyphs = Vec::new();
+    let mut cell_at = 0_usize;
+    for (shown_at, placed) in displayed.iter().enumerate() {
+        if placed.code().is_none() {
+            continue;
+        }
+        if let Some(at) = order.visual.get(shown_at) {
+            glyphs.push(Glyph {
+                line: 0,
+                bytes: written.byte(*at)..written.byte(at.saturating_add(1)),
+                quad: cell(cell_at),
+            });
+        }
+        cell_at = cell_at.saturating_add(1);
+    }
+    glyphs
 }
 
 /// Writes one run of codes as a `Tj` with a literal string operand.

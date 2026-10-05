@@ -17,7 +17,7 @@
 90ms_rksj_h_sample.pdf p1	drawn	612x792	db5c15d404b31a45	8b01e1e381443856	4f53cda18c2baa0c
 ArabicCIDTrueType.pdf p1	drawn	595x842	505fe1d02e9cc6c2	8b92f276eb198bdf	4f53cda18c2baa0c
 Brotli-Prototype-FileA.pdf p1	no-page	-	-	-	-
-ContentStreamCycleType3insideType3.pdf p1	drawn	600x840	f2156307726a1393	f88f3a2cbe4fe12a	6d2944e007b206be
+ContentStreamCycleType3insideType3.pdf p1	drawn	600x840	f2156307726a1393	96bb5728772ccd2b	e069176f48673e10
 ContentStreamNoCycleType3insideType3.pdf p1	drawn	600x840	aaa02dd132254fb9	0b8faf6a20dfa31b	4f53cda18c2baa0c
 Embedded_font.pdf p1	drawn	792x612	d0cabc8b271d239e	d5e990028d117858	4f53cda18c2baa0c
 GHOSTSCRIPT-698804-1-fuzzed.pdf p1	drawn	612x792	5dff3922f8ab64ac	255c29f222ec54f6	4f53cda18c2baa0c

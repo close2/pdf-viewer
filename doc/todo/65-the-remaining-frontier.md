@@ -103,7 +103,7 @@ permanent) or an owner decision to acquire a specification.
 
 ISO/TS 32002's brainpoolP512r1 and Ed448 are not in this bucket: they are the tree's own under the
 owner's answer A170 (ADRs 1385 and 1386), so an upstream release is their *swap* condition rather
-than a blocker, and `doc/stack.md`'s curve paragraph names it. **Re-checked on 2026-10-01** with
+than a blocker, and `doc/stack.md`'s curve paragraph names it. **Re-checked on 2026-10-02** with
 `cargo search bp512`, `cargo search brainpool` and `cargo search ed448`: RustCrypto has published no
 `bp512`, and `ed448-goldilocks` is still on `0.14.0-pre.15`; RustCrypto's `ed448` 0.5.0 is the
 signature and key-encoding types over it, not the arithmetic. Two packages that paragraph does not
@@ -126,6 +126,13 @@ stack beside the tree's. `tiny_ed448_goldilocks` 0.2.0 (`MIT`, one owner, `Dusti
 has no signature scheme at all — no RFC 8032 verification and no 57-byte point encoding — and says
 it is unaudited. Both licences are on `deny.toml`'s list; neither is reviewed, and neither is
 RustCrypto's. Neither moves Q192's recommendation, and Q192 says so.
+The same search on 2026-10-02 found every version above unchanged and lists five Ed448 names neither
+judgement read, each still to be judged on `doc/stack.md`'s terms before it is called a candidate or
+not: `ed448-rust` 0.1.1 (MIT/Apache-2.0, `lolo32/ed448-rust`), `minimal-ed448` 0.4.2 (MIT, inside
+`serai-dex/serai`, whose description says unaudited), `frost-ed448` 3.0.0 (a FROST threshold
+Schnorr scheme by its description, which is not RFC 8032's verification), `oxicrypto-sig` 0.3.0
+(Apache-2.0, whose description names no Ed448) and `rs_ed448` 0.1.2 (GPL-2.0-only, a placeholder by
+its description, which this tree's licence cannot take).
 
 ### 3. Hard rendering / architecture — a real build across several rounds
 
@@ -285,18 +292,19 @@ premise is a record and stays as written.
   same key type and is under the same guarantee without calling that function; a round that touches it
   routes it through.
 
-### Held only by the robustness instrument — `implemented` rows that name no fixture
+### Held only by the robustness instrument — rows that name no fixture
 
-An eighth shape, and like the seventh it is not a bucket of open rows: these rows are `implemented`,
-and under the owner's A100 a requirement executed under a control — here, the presence of a corpus
-checkout — counts as executed, so their status stands. What they lack is evidence of the other kind:
-every test they name is an ignored walk, a census, or a corpus witness that returns having read
-nothing where `doc/pdf.js`, `doc/corpora/` or `doc/veraPDF-corpus` is absent. What is owed is the
-fixture whose expected value the clause derives (principle 5), added to the row's `test` list.
+An eighth shape, and it holds no row: every `implemented` and `partial` row names a test whose input
+a fixture builds and whose expected value its clause derives. A row held only by an ignored walk, a
+census, or a corpus witness that returns having read nothing where `doc/pdf.js`, `doc/corpora/` or
+`doc/veraPDF-corpus` is absent still counts as executed under the owner's A100, the corpus being a
+control; what it owes is that fixture, added to its `test` list (principle 5).
 
-The membership is not written here. `cargo run -p conformance --bin ledger` prints, per status, the
-rows held by a fixture, held only by walks or witnesses, and naming no test; the ledger gate
-(`cargo test -p conformance --test conformance the_ledger_agrees_with_the_standard_and_with_the_tree
--- --nocapture`) names each such `implemented` row and holds their number to a ratchet that may only
-fall (`ONLY_WALKS_CEILING`, ADR 1497). A row of clauses 7 to 9 or 11 comes first when a round takes
-one, because `CLAUDE.md` names them as the clauses that decide whether a page is correct.
+The membership is printed, never written here. `cargo run -p conformance --bin ledger` prints, per
+status, the rows held by a fixture, held only by walks or witnesses, and naming no test; the ledger
+gate (`cargo test -p conformance --test conformance the_ledger_agrees_with_the_standard_and_with_the_tree
+-- --nocapture`) names each such `implemented` row and holds their number to `ONLY_WALKS_CEILING` with
+an `==` assertion, so a row arriving with walks alone fails the build (ADRs 1497, 1509). The
+classifier reads a corpus root anywhere in a function's body, comments included, so a helper whose
+comment names `doc/pdf.js` makes every test calling it a witness: `viewer_core::notes::about` is one,
+which is why §14.8.6's notes test was read as a witness although it builds its own document.

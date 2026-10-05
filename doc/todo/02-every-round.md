@@ -216,7 +216,7 @@ merely upstream of it does not. Everything else in tier 3 is the merge's.
 
 | a change in | is under | so run, beyond tier 1 |
 |---|---|---|
-| `render-raster` | the third rasteriser only | the quorra gate, and its second coverage lane where the change is a quorra release or the zoom path |
+| `render-raster` | the third rasteriser only | the quorra gate, and its second coverage lane where the change is a quorra release or the zoom path; and `--test turn_path` (release) where the change is in raster's encode, an image decode or anything a page turn crosses — `doc/performance.md`'s turn and step rows, banded (ADR 1513) |
 | `render-gpu` | no gate at all | the workspace tests are the only judge — `cargo test -p render-gpu --test headless_gpu`, **without** `--ignored`: none of its tests is ignored, so that flag runs zero of them and exits 0; say so, and consider `doc/verify.md`'s cross-backend runs |
 | `viewer-core`, `viewer-accessibility` | the two censuses | `selection_census`, `accessibility_census` |
 | `viewer-ui`, `viewer-gtk`, `viewer-qt`, `viewer-ffi`, `viewer-host`, `viewer-confined`, `confined-transport`, `pdf-fuse`, `pdf-vfs-ffi`, `kio/` | the launch-path gate for the first of them, and the awkward-class sweep for `viewer-confined` | the core, which builds and tests them; §5 rebuilds what a person runs. **And `--test awkward_classes`, with its `--bins` line, where the change is in `viewer-confined`, `confined-transport` or anything `pdf-view-worker` links** — the sweep of the other confined program, in the sequence since session 995 (ADR 1015). **And `--test launch_path` where the change is in `viewer-ui`, `viewer-core` or anything the launch path crosses**, which is `CLAUDE.md` principle 2's four numbers and is the only gate in this sequence that can see them. **`confined-transport` is under two crates**, so a change there is a change to `viewer-confined` *and* `pdf-vfs`, and both of their worker binaries have to be rebuilt before their tests are believed — trap 10 twice. **`pdf-fuse` and `pdf-vfs-ffi` are the two faces and neither has a gate of its own**: the workspace lines build and test both, and `pdf-vfs-ffi`'s own tests need `pdf-vfs`'s worker beside them, which `cargo nextest run --workspace` and `cargo test -p pdf-vfs-ffi` both produce (they build a package's bin targets) — the trap-10 shape would bite only if a `--profile gates --test` line were added for this crate, as it did for `pdf-vfs`. **`kio/` is not in the workspace at all** and no `cargo` line reaches it; what builds it is `crates/pdf-vfs-ffi/tests/the_kio_worker.rs`, which runs CMake and a KIO client and **skips, printing what is missing**, on a machine with no `cmake`, ECM, Qt 6 or KF6 — so this sequence stays green with no KDE installed, which is the whole reason that directory is outside the workspace (ADR 0869) |
@@ -623,104 +623,72 @@ share, the ones that break it, and the rule each of those leaves on a round:
   the merge that runs it, one wants the nouns the round retired, and `--bin ledger` already runs
   inside `tools/state.sh`.
 
-## 5. Put the binaries where a person can run them — every fifth round, and before any measurement
+## 5. The binaries a person runs are installed by the merge, and a measurement builds its own
 
-**The agent builds outside the tree, into a directory the human's shell never looks at.** So what
-a person would run has to be copied into the project's own `target/`. `tools/state.sh binaries`
-says what is there and how old it is; `tools/round.sh` says whether this round owes the rebuild.
+**What a person runs is in the main checkout's `target/`**, because that is where
+`doc/running-the-viewer.md` sends them and the agent's build directories are somewhere their shell
+never looks. **One command puts it there: `tools/batch.sh install`**, run by the orchestrator at
+the batch boundary — after the fast-forward, before `close` (section 8 step 5). It refuses a worktree
+holding uncommitted work and a branch whose HEAD is not `main`'s, so that nothing is installed that
+no commit describes; it builds in the batch's own build directory, installs every file into the main
+checkout's `target/` — the one place outside the worktree that script writes, and gitignored — and
+writes `target/installed-from` beside them: the commit, and each file's SHA-256, because the
+binaries carry no hash of their own (`quorra --version` opens a file called `--version`).
+`tools/state.sh binaries` reads that record back, says how many commits `main` is past it and
+whether every file is still the one installed; `tools/round.sh` fails while `main` is past it
+(ADR 1511).
 
-**Which directory that is has to be *asked for*, never written down**, and this section wrote it
-down, as one literal path under `/home/AI/cargo-target/`, for as long as it has existed. The main
-checkout builds where `~/.cargo/config.toml`'s `target-dir` says (`tools/state.sh disk` prints it),
-and a worktree round has its own (`.cargo/config.toml`'s `target-dir`), so the literal path installs
-a **neighbour's** binary over this round's: the seven-hundred-and-twenty-sixth session rebuilt the
-GTK host three times, installed it three times, ran a feature that was working, and saw nothing,
-because every run was of another branch's program. It is trap 15's own subject — a binary from a
-neighbour's build directory — reached through an instruction rather than through a habit.
-
-**Its cadence is stated as a *rule about staleness* rather than as a habit**, and the rule is the
-one this section has always argued from: **a stale binary is a measurement of the past.** The
+**A round installs nothing and measures nothing from there.** It may not write in the main
+checkout, and a binary of the last merge is a measurement of the past — the
 hundred-and-forty-second session was reported as "still lags" against a binary three hours and six
-commits old, one of which was the 40× page-turn fix. So:
-
-- **before any measurement, always** — of the launch path, a page turn, a frame, a memory
-  high-water, anything §2's gates do not print. There is no round that may measure against
-  whatever was last linked;
-- **every fifth round otherwise**, which is the same cadence as §2's full sequence and is bounded
-  by the same argument: what a person picks up should never be more than a handful of rounds
-  behind `HEAD`, and the link is the single largest item in a round (`doc/todo/43` §1).
-
-A round in between may still run it and nothing goes wrong if it does — Cargo skips what did not
-change. What is no longer required is paying for a whole-graph fat link at the end of a round that
-moved a document.
+commits old, one of which was the 40x page-turn fix. So **before any measurement** — of the launch
+path, a page turn, a frame, a memory high-water, anything section 2's gates do not print — a round
+builds `--release` what it measures, in its own build directory, and runs it from there:
 
 ```sh
 built=$(cargo metadata --no-deps --format-version 1 | jq -r .target_directory)/release
-cargo build --release --bin quorra --bin pdf-sandbox-worker --bin pdf-view-worker \
-                     --bin quorra-gtk --bin quorra-qt --bin quorra-confined \
-                     --bin quorra-retrieve --bin quorra-transform \
-                     --bin quorrafs --bin pdf-vfs-worker
-for binary in quorra pdf-sandbox-worker pdf-view-worker quorra-gtk quorra-qt \
-              quorra-confined quorra-retrieve quorra-transform quorrafs pdf-vfs-worker
-do install -Dm755 "$built/$binary" "target/$binary"; done
+cargo build --release --bin quorra --bin pdf-sandbox-worker   # what the measurement runs, and its workers
+"$built/quorra" --trace=launch doc/PDF20_AN001-BPC.pdf
 ```
 
-**The loop's names must be the *binary target* names, and three of them were not.** Until session
-945 it installed three pre-rename names, and that could not fail: the pre-rename artefacts were
-still in the shared build directory, because `cargo` removes nothing it no longer produces, so
-`install` found them, copied them, and every fifth round put a months-old binary under `target/`
-while the renamed one did not exist there at all. `cargo metadata --no-deps --format-version 1 | jq
--r '.packages[].targets[] | select(.kind[]=="bin") | .name'` is the authority on this list; the
-names in a document are a copy of it and drift the way copies do.
+**Which directory that is has to be *asked for*, never written down.** The main checkout builds
+where `~/.cargo/config.toml`'s `target-dir` says, a batch worktree where its `.cargo/config.toml`
+says (`tools/state.sh disk` prints both), and a literal path installs or runs a **neighbour's**
+binary: the seven-hundred-and-twenty-sixth session rebuilt the GTK host three times, installed it
+three times, ran a feature that was working and saw nothing, because every run was of another
+branch's program. It is trap 15's own subject, reached through an instruction rather than a habit,
+and `install` asks Cargo in the worktree for the same reason.
 
-```sh
-cargo build --release -p viewer-ffi -p pdf-vfs-ffi   # libraries, so not in the invocation above
-install -Dm755 "$built/libviewer_ffi.so" target/libviewer_ffi.so
-install -Dm755 "$built/libpdf_vfs_ffi.so" target/libpdf_vfs_ffi.so
-```
+**The names are written once, in `tools/batch.sh`** (`install_binaries`, `install_libraries`), and
+`tests/batch.rs` holds them against the workspace's own manifests: every program of a package under
+`crates/` is installed, every name installed is a binary target — `quorra-retrieve` is the one from
+`tools/`, because a person runs it — and every package that builds a C library is installed. A copy
+of a name list in a document drifts the way copies do: until session 945 this section's loop
+installed three pre-rename names, and that could not fail, because Cargo removes nothing it no
+longer produces, so `install` found months-old artefacts under the old names and copied them while
+the renamed programs never reached `target/` at all.
 
-**`quorrafs` brought `pdf-vfs-worker` with it, and the second of them is the reason to say so
-rather than to add a name**: `quorrafs` is RFC 0003's mount and a person runs it, and it will not
-open a document without its confined worker *beside the running executable* — the same relationship
-`quorra-confined` has with `pdf-view-worker`, and the same trap 10 one directory over. The worker
-had been built by no line of this file since the round that wrote it.
+**All of them, beside each other.** Each worker is looked for beside the running executable, and a
+program that cannot find its worker refuses the work: `pdf_sandbox::WORKER_PROGRAM` is the
+executable the viewer spawns for JBIG2 and JPEG 2000, with deliberately no in-process fallback;
+`pdf-view-worker` is the whole viewer confined, which `viewer_confined::Confined` spawns and
+`quorra-confined` is the window around it (ADR 0713), while `quorra` does not (ADR 0218); `quorrafs`
+is RFC 0003's mount, and it opens no document without `pdf-vfs-worker` — the same relationship, and
+trap 10 one directory over. `quorra-retrieve` is not a window but a program whose whole output is
+text a caller pipes (ADR 0257).
 
-**One invocation, not three.** Each of these is a whole-graph fat link and Cargo runs three of
-them beside each other where three commands run them one after another — measured both ways after
-touching one file in `pdf-model` (ADR 0222). `--release` here is deliberate and is the one place
-in a round that still pays for `lto = "fat"`: these are what a person runs and what every launch
-measurement is taken from, and `--profile gates` above exists so that the *gates* stop paying for
-it.
+**`libviewer_ffi.so` and `libpdf_vfs_ffi.so` are there because a person links against them**: a C
+program with `include/quorra.h` and no `-L` pointing at `/home/AI` is the only way somebody outside
+this tree can try the ABI, and `kio/`'s CMake build takes the path to the second as a *required*
+variable rather than searching — a `find_library` would pick up a copy of another revision, which is
+what `quorra_vfs_abi_check` exists to make loud (ADR 0869).
 
-**`libviewer_ffi.so` is the exception that proves what this section is for**: it is not something
-a person *runs*, and it is here because it is what a person *links against* — a C program with
-`include/quorra.h` and no `-L` pointing at `/home/AI` is the only way somebody outside this
-tree can try the ABI at all. It is a separate `cargo build` because it is a library and the
-invocation above names binaries. **`libpdf_vfs_ffi.so` is there** for the same reason and with one
-addition: it is also what
-`kio/`'s CMake build links the KIO plugin against, and that build takes the path to it as a
-*required* variable rather than searching — a `find_library` there would pick up a copy of another
-revision, which is precisely what `quorra_vfs_abi_check` exists to make loud (ADR 0869).
-
-All the rest beside each other: `pdf_sandbox::WORKER_PROGRAM` is a separate executable the viewer
-spawns for JBIG2 and JPEG 2000, and a viewer that cannot find it refuses those images rather than
-falling back (there is deliberately no in-process fallback — see "the sandbox is a flag and the
-default is the safe one"); `pdf-view-worker` is the whole viewer confined, which
-`viewer_confined::Confined` spawns — `quorra-confined` is the window that spawns it (ADR
-0713), searched for beside the executable, and `quorra` still does not (ADR 0218);
-`quorra-retrieve` is not
-a window but a program a person runs, and the only one whose whole output is text a caller pipes
-(ADR 0257). It was `pdf-retrieve` in this sentence until session 967, which is the paragraph above
-happening to prose instead of to a shell loop.
-
-Build them first, in release: `cargo test` only ever builds the debug binaries, which is why the
-cadence above exists at all.
-
-**`viewer-confined`'s two binaries used to be built in release *before* the gates**, on a note
-saying the gates needed them. They do not: those tests run under `cargo test --workspace`, which
-builds the debug worker itself, and no release or gates binary in this tree names
-`viewer-confined` — checked by grep over `pdf-model`'s and `render-raster`'s manifests and test
-sources. That was half a minute a round in the wrong section.
+**One invocation for the programs, a second for the libraries.** Each program is a whole-graph fat
+link, and Cargo runs them beside each other where separate commands run them one after another —
+measured both ways after touching one file in `pdf-model` (ADR 0222); `--bin` cannot name a
+library, so those are the second. `--release` is deliberate and is the one place that still pays
+for `lto = "fat"`: these are what a person runs and what every launch measurement is taken from,
+and `--profile gates` exists so that the gates stop paying for it.
 
 ## 5a. Sweep the build directory when it passes a hundred gigabytes
 
@@ -910,6 +878,9 @@ memory of the session the quota ended. `tools/batch.sh` is the command; this is 
    uncommitted file there refuses the fast-forward. A fast-forward makes `main` byte-identical to
    the tree the gates ran on, so no second sequence is owed. Check `git show --raw HEAD | grep -E
    '^:1[26]0000'` prints nothing, and `git log --oneline -1` on `main` names the batch commit.
+   Then `tools/batch.sh install`, from the main checkout and as its own command: it builds what a
+   person runs from the commit `main` now names and installs it into the main checkout's `target/`
+   with `target/installed-from` beside it (section 5, ADR 1511); its last line names the commit.
    Then `tools/batch.sh close`, from the main checkout.
 6. **Commit only, never push** (owner, 2026-09-07). Then the next batch.
 7. **When a quota kills a batch mid-flight**, the notification's last visible line ("I'll start by

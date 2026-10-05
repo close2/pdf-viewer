@@ -692,8 +692,19 @@ fn runs(
     if !speaks {
         return Vec::new();
     }
+    line_runs(&node.lines, band, allocated, out)
+}
+
+/// The runs of some lines of text, each line one run or more joined along it — [`runs`]'s body,
+/// which a field's characters take as well (ADR 1501).
+fn line_runs(
+    lines: &[viewer_core::TextLine],
+    band: Band,
+    allocated: &mut u64,
+    out: &mut Vec<(NodeId, Node)>,
+) -> Vec<NodeId> {
     let mut ids = Vec::new();
-    for line in &node.lines {
+    for line in lines {
         let direction = direction(line);
         let mut on_line: Vec<NodeId> = Vec::new();
         for characters in chunked(line) {
@@ -1098,12 +1109,18 @@ fn spoken_headers(view: &PageView) -> Vec<String> {
 /// - **A check box and a radio button** state their value as an appearance state, and the role's
 ///   `toggled` already carries it as AT-SPI's `checked`.
 ///
-/// # What the run does not say
+/// # Where each character is
 ///
-/// Where each character is. The field's characters are laid out by §12.7.4.3 into an appearance
-/// stream this program draws, not by a content stream it reads back, so there is no glyph position
-/// to give them; the run carries the widget's rectangle and no character positions, and a client
-/// asking for one character's extents is told nothing rather than told a guess.
+/// §12.7.4.3's layout places every glyph of the appearance it writes, so the positions are this
+/// program's own (ADR 1501): [`AccessibilityNode::value_lines`] carries them, and the field's runs
+/// are built from those lines exactly as a paragraph's are from its own — one run per line, each
+/// character's length, position and width — so `GetCharacterExtents` and `GetOffsetAtPoint`
+/// answer on a field as they do on a page. A line is in the order it is displayed, so a
+/// right-to-left value's run reads left to right, as a page's stored run does (ADR 1465).
+///
+/// Where the layout placed nothing — an empty field, or a value it could not lay out — the run
+/// carries the value and the widget's rectangle and no character positions, and a client asking
+/// for one character's extents is told nothing rather than told a guess.
 ///
 /// The run is under the control, so the page's own text — which `accesskit_consumer` gathers from
 /// every run below the page — includes the field's contents where the control sits, exactly as a
@@ -1118,13 +1135,16 @@ fn held(
     let mut ids = Vec::new();
     if let Some(value) = &node.value {
         built.set_value(value.text.as_str());
-        if matches!(
+        let typed = matches!(
             built.role(),
             Role::TextInput
                 | Role::MultilineTextInput
                 | Role::PasswordInput
                 | Role::EditableComboBox
-        ) {
+        );
+        if typed && !node.value_lines.is_empty() {
+            ids.extend(line_runs(&node.value_lines, band, allocated, out));
+        } else if typed {
             let mut run = Node::new(Role::TextRun);
             run.set_value(value.text.as_str());
             run.set_character_lengths(

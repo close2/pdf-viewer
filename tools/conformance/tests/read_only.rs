@@ -36,6 +36,12 @@
 //! which an `strace` of every `quick` section confirmed when ADR 1487 was written), and a binary of
 //! another package is read only through rule 2's words. The walks outside `quick` write what their
 //! gates write, and are the merge's.
+//!
+//! **`tools/batch.sh install` is not a state section and is not read here.** It is a batch
+//! subcommand, run once by the orchestrator after the fast-forward, and it writes by design —
+//! exactly the main checkout's gitignored `target/`, the programs and `target/installed-from` —
+//! which `tests/batch.rs` holds against a throwaway repository (ADR 1511). `tools/state.sh
+//! binaries` reads what it wrote and writes nothing.
 
 #![expect(
     clippy::expect_used,

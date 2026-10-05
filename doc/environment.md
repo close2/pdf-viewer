@@ -387,7 +387,8 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   # `debug` passes 100 GB. Costs the next `open`'s warm build, which sccache mostly pays.
   rm -rf /home/AI/cargo-target/pdf-viewer-batch/debug
   # When the main checkout's directory passes 100 GB: its `debug` and `gates` profiles, which only
-  # the merge's own runs there rebuild. `release` holds what `doc/todo/02` section 5 installs; take it only then.
+  # the merge's own runs there rebuild. `tools/batch.sh install` builds in the batch directory's
+  # `release`, not here, so pruning this one costs no install.
   rm -rf /home/AI/cargo-target/pdf-viewer/{debug,gates}
   # A directory under the root that no checkout's configuration names and no live round builds in
   # — the line's date says when it was last written, `tools/worktree.sh list` whose it was.

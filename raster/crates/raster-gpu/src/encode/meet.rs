@@ -21,11 +21,21 @@ use raster_scene::{Point, Rect};
 
 use crate::raster::{self, CoverageMask, MeetWork, Polyline, RowEdges, Rule};
 
-/// The mark a residue meets: the polylines its coverage was filled from, and the rule.
+/// The mark a residue meets: the polylines its coverage was filled from, the rule, and the
+/// mark's edges bucketed over its tile's rows where the job that filled it built them.
+///
+/// **The edges are built beside the fill, on the fan-out's threads, where a job's draw
+/// carries a residue** (ADR 1513). The meet reads a mark's edges in the rows where both sets
+/// cut a pixel, and building them was most of what the walk's thread spent on a meet. A row's
+/// bucket holds every edge that reaches the row whichever rows were built (ADR 1467), so
+/// edges over the whole tile meet each of those rows to the same bytes as edges built over
+/// those rows alone; where the whole tile's edges pass the bound, `edges` is `None` and the
+/// meet builds over its own rows, which the bound may still admit.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Mark<'p> {
     pub(super) polylines: &'p [Polyline],
     pub(super) rule: Rule,
+    pub(super) edges: Option<&'p RowEdges>,
 }
 
 /// How many row-bucket entries a set's edges may take in one meet, at least: they are
@@ -104,6 +114,7 @@ impl Encoder<'_> {
         let mark = Mark {
             polylines: &shape,
             rule: Rule::NonZero,
+            edges: None,
         };
         if let Some(exact) = exact_areas(tile, &cut, &links, mark) {
             for (&index, value) in cut.iter().zip(exact) {
@@ -260,6 +271,29 @@ fn edge_limit(tile: &CoverageMask) -> usize {
     tile.coverage.len().max(MARK_EDGE_FLOOR)
 }
 
+/// How many row-bucket entries the edges a fan-out job builds over its whole tile may take
+/// ([`Mark::edges`]): four times what one meet over that tile may read. A meet reads only
+/// the rows where both sets cut a pixel, and the job cannot know which rows those are, so it
+/// buckets every row; on the stroked Type 3 page of `doc/performance.md`'s table the largest
+/// whole tile charged 2.07 times its meet's bound (ADR 1513). Past this the job keeps no
+/// edges and the meet builds over its own rows, as it does for the walk's tiles.
+const JOB_EDGE_REACH: usize = 4;
+
+/// The fewest point-rows — a mark's polyline points times its tile's rows, a bound on the
+/// edge parts a build buckets — for which a fan-out job builds its mark's edges itself.
+///
+/// A smaller mark's edges cost the walk's thread little to build at the meet, and only where
+/// its tile has a pixel both sets cut; built in every job they cost more than they save. On
+/// `bug1721218_reduced.pdf` 19 536 residue jobs averaged 66 point-rows and none reached a
+/// thousand, and building all of them took its turn from 270 to 274 ms; the stroked Type 3
+/// page's 189 were all above a thousand (ADR 1513).
+pub(super) const JOB_EDGE_WORK: usize = 1_024;
+
+/// [`edge_limit`] for a job's build over the whole of `tile` ([`JOB_EDGE_REACH`]).
+pub(super) fn job_edge_limit(tile: &CoverageMask) -> usize {
+    edge_limit(tile).saturating_mul(JOB_EDGE_REACH)
+}
+
 /// The intersection's area in each of the `cut` pixels of `tile`, as bytes, or `None`
 /// where the mark's edges would pass their bound and the tile keeps `min`.
 #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // an area in 0..=1,
@@ -278,8 +312,22 @@ fn exact_areas(
     }
     let width = tile.width as usize;
     let (top, rows) = cut_rows(tile, cut)?;
-    let edges = RowEdges::of(mark.polylines, mark.rule, top, rows, edge_limit(tile))?;
-    let sets: Vec<&RowEdges> = std::iter::once(&edges).chain(links).collect();
+    let limit = edge_limit(tile);
+    let built;
+    // The job's edges over the whole tile, asked the bound the meet's own rows would ask
+    // (ADR 1513): past it the meet keeps `min`, as a build over those rows would have.
+    let edges = if let Some((edges, Some(charge))) =
+        mark.edges.map(|edges| (edges, edges.charge(top, rows)))
+    {
+        if usize::try_from(charge).map_or(true, |charge| charge > limit) {
+            return None;
+        }
+        edges
+    } else {
+        built = RowEdges::of(mark.polylines, mark.rule, top, rows, limit)?;
+        &built
+    };
+    let sets: Vec<&RowEdges> = std::iter::once(edges).chain(links).collect();
     let mut work = MeetWork::default();
     Some(
         cut.iter()

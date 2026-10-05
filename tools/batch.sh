@@ -19,6 +19,7 @@
 #   tools/batch.sh gates                   # tiers 2 and 3, one line per gate, into batch-gates.log
 #   tools/batch.sh check                   # the six things a merge looks at by hand, one line each
 #   tools/batch.sh commit /path/message    # stage the whole population by name, count it, commit
+#   tools/batch.sh install                 # after the fast-forward: what a person runs, into main's target/
 #   tools/batch.sh close batch-1038-1043   # after `git merge --ff-only` on main: remove both
 #
 # `commit`, the fast-forward and `close` are three commands, run one at a time with each one's
@@ -132,6 +133,9 @@ gates() {
     run t2-jpeg2000       cargo test --profile gates -p pdf-model --test jpeg2000 -- --nocapture
     run t2-transform-gate cargo test --profile gates -p pdf-transform --test gate -- --ignored --nocapture
     run t2-on_disk        cargo test --profile gates -p pdf-syntax --test on_disk -- --ignored --nocapture
+    # `release`, not `gates`: the bands in `doc/checks/turn-path.toml` are a claim about the
+    # profile a person runs, and the gate prints without judging under any other (ADR 1513).
+    run t2-turn_path      cargo test --release -p render-raster --test turn_path -- --ignored --nocapture
     run t3-oracle         cargo test --profile gates -p pdf-model --test oracle -- --ignored --nocapture
     run t3-text_extract   cargo test --profile gates -p pdf-model --test text_extraction -- --ignored --nocapture
     run t3-selection      cargo test --profile gates -p viewer-core --test selection_census -- --ignored --nocapture
@@ -350,6 +354,84 @@ commit_batch() {
         "$root" "$(git rev-parse --abbrev-ref HEAD)" "$(git rev-parse --abbrev-ref HEAD)"
 }
 
+# What a person runs, built once from the commit `main` now names and installed into the main
+# checkout's own `target/` — the one place this script writes outside the worktree, because it is
+# where `doc/running-the-viewer.md` tells a person to look and it is gitignored. Run at the batch
+# boundary, after the fast-forward and before `close` (`doc/todo/02` section 8 step 5, ADR 1511).
+#
+# **It refuses rather than install a binary of a commit `main` does not name**: a worktree holding
+# anything uncommitted, or a branch whose HEAD is not `main`'s, would put a program under `target/`
+# that no commit describes. The binaries carry no hash of their own (`quorra --version` opens a file
+# called `--version`), so the commit they were built from is written beside them, in
+# `target/installed-from`, with each file's SHA-256 — `tools/state.sh binaries` reads it back and
+# says how far `main` has moved since.
+#
+# The names are `doc/todo/02` section 5's, and `tests/batch.rs` holds the two lists equal: the
+# programs a person runs, each worker beside the program that looks for it there (a viewer that
+# cannot find `pdf-sandbox-worker` refuses JBIG2 and JPEG 2000 rather than decoding them in
+# process), and the two C libraries a person links against. One invocation for the programs,
+# because each is a whole-graph fat link and Cargo runs them beside each other where separate
+# commands run them one after another (ADR 0222); a second for the libraries, which `--bin` cannot
+# name. The build directory is asked of Cargo in the worktree, never written down (trap 15).
+install_binaries="quorra quorra-confined quorra-gtk quorra-qt pdf-sandbox-worker pdf-view-worker quorra-retrieve quorra-transform quorrafs pdf-vfs-worker"
+install_libraries="viewer-ffi pdf-vfs-ffi"
+
+install_batch() {
+    [ -d "$wt" ] || { echo "$wt does not exist — install runs while the batch is open, before close"; return 1; }
+    local dirty head on_main
+    dirty=$(population | tr '\0' '\n') || { echo "cannot read $wt's status — nothing installed"; return 1; }
+    [ -z "$dirty" ] || {
+        echo "$wt holds $(printf '%s\n' "$dirty" | grep -c .) uncommitted path(s) outside scratchpad/ — a binary built from them is of no commit; commit first (tools/batch.sh commit), then fast-forward main:"
+        printf '%s\n' "$dirty" | head -20 | sed 's/^/    /'
+        return 1
+    }
+    head=$(git -C "$wt" rev-parse HEAD)
+    on_main=$(git -C "$root" rev-parse main)
+    [ "$head" = "$on_main" ] || {
+        echo "main is at $(git -C "$root" rev-parse --short main) and the batch at $(git -C "$wt" rev-parse --short HEAD) — fast-forward main first (from $root: git merge --ff-only $(git -C "$wt" rev-parse --abbrev-ref HEAD)), so that what is installed is what main names"
+        return 1
+    }
+    cd "$wt" || return 1
+    local built name source target="$root/target" programs=() packages=() sums
+    built=$(cargo metadata --no-deps --format-version 1 |
+            grep -oE '"target_directory":"[^"]+"' | head -1 | cut -d'"' -f4)
+    [ -n "$built" ] || { echo "cargo metadata named no target directory — nothing installed"; return 1; }
+    built=$built/release
+    for name in $install_binaries; do programs+=(--bin "$name"); done
+    for name in $install_libraries; do packages+=(-p "$name"); done
+    echo "building ${install_binaries// /, } and the libraries of ${install_libraries// /, } (--release) in $built"
+    cargo build --release "${programs[@]}" || { echo "the release build of the programs failed (above) — nothing installed"; return 1; }
+    cargo build --release "${packages[@]}" --lib || { echo "the release build of the libraries failed (above) — nothing installed"; return 1; }
+    local -a files=()
+    for name in $install_binaries; do files+=("$name"); done
+    for name in $install_libraries; do files+=("lib${name//-/_}.so"); done
+    for name in "${files[@]}"; do
+        [ -f "$built/$name" ] || { echo "$built/$name was not produced — nothing installed"; return 1; }
+    done
+    # Mode 775: the main checkout is shared through the `coders` group, and a file only its
+    # installer could replace would stop the owner rebuilding over it.
+    for name in "${files[@]}"; do
+        install -Dm775 "$built/$name" "$target/$name" || { echo "install of $name into $target failed — target/ is part-installed; run install again"; return 1; }
+    done
+    sums=$(cd "$target" && sha256sum "${files[@]}")
+    {
+        printf '# commit %s\n' "$head"
+        printf '# subject %s\n' "$(git -C "$wt" log -1 --format=%s | cut -c1-120)"
+        printf '# installed %s from %s by tools/batch.sh install\n' "$(date -Iseconds)" "$built"
+        printf '%s\n' "$sums"
+    } > "$target/installed-from"
+    source=$(git -C "$wt" log -1 --format='%h %cs')
+    for name in "${files[@]}"; do
+        printf '%-44s %10s bytes  built from %s\n' "$target/$name" "$(stat -c %s "$target/$name")" "$source"
+    done
+    # What `target/` holds that this did not put there: a program a person may still run, and
+    # older than what was just installed.
+    local left; left=$(find "$target" -maxdepth 1 -type f -perm -u+x ! -newer "$target/installed-from" -printf '%f\n' |
+        grep -vxF -f <(printf '%s\n' "${files[@]}") | sort || true)
+    [ -z "$left" ] || printf 'also in %s and not installed by this (older): %s\n' "$target" "$(printf '%s\n' "$left" | paste -sd' ')"
+    printf 'installed %s file(s) from %s into %s; the record is %s/installed-from\n' "${#files[@]}" "$source" "$target" "$target"
+}
+
 close_batch() {
     # There is no `--force`, and a spelling of one is refused rather than read as a branch name.
     # The fix for a refusal is to commit the work or to move it; discarding it blind is the one
@@ -403,6 +485,7 @@ case "${1:-}" in
     gates) gates ;;
     check) check_batch ;;
     commit) commit_batch "${2:?a commit message file}" ;;
+    install) install_batch ;;
     close) close_batch "${2:?branch name}" ;;
     *) awk 'NR < 3 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "${BASH_SOURCE[0]}"; exit 1 ;;
 esac

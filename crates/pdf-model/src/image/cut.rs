@@ -341,9 +341,11 @@ pub(super) fn decode_at(
     floor: u64,
     band_lines: u32,
 ) -> Option<Vec<u8>> {
-    // A scan the data ends inside, with no `EOI` after it, is a damaged codestream: the whole
-    // decoder reads its tail one way and a band, ended and padded as a codestream of its own,
-    // another (ADR 1495). It is the whole decoder's.
+    // A scan with no `EOI` after it: the whole decoder reads the end of the data one way and
+    // this module's last band, re-coded and ended by `EOI` as a codestream of its own, another —
+    // even where the data holds every MCU, which is ADR 1495's fixture. It is the whole
+    // decoder's; `super::restart`, whose last band reads the tail as it stands, cuts it
+    // (ADR 1513).
     scan.ends.as_ref()?;
     let frame = read(data, scan)?;
     let samples = u64::from(frame.width).saturating_mul(u64::from(frame.lines));

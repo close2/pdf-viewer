@@ -1023,6 +1023,35 @@ so "Trace-basedJust-in-Time" had read as one word — and 1 205 of 2 809 corpus 
 differently, while the word-agreement gate, which folds whitespace, moved by nothing (ADR 1490).
 A/B the readback over the corpus on one build behind a scratch switch before a gate is believed.
 
+### 97. A table nobody gates is a table that drifts
+
+`doc/performance.md`'s turn and step rows were measured by whichever round re-took them and held
+by no gate; two merges doubled three of them — the photograph's turn from 32 to 76 ms when ADR 1495
+declined every scan without an `EOI` (a defect: the restart plan never needed it), `issue14415`
+by ADR 1443's two chords per piece (a cost chosen for §10.7.4's area rule, kept), the Type 3 page
+by both — and nothing failed until round 1335 re-took the table a batch later; round 1339
+bisected them by hunk across six exported commits. Principle 2 says a
+page-turn regression fails the build; `turn_path` (ADR 1513) bands every row in
+`doc/checks/turn-path.toml` the way `launch_path` bands the open. A row re-taken for a cost paid on
+purpose carries its reason beside it; a slowdown nobody chose is a failing gate.
+
+### 98. A ceiling that moves with no function of the tree moving is the binary's layout
+
+Three rounds found the launch gate's `open_kinstructions` on `xfa_filled_imm1344e.pdf` at 1821–1823 k
+against a ceiling of 1820 k, and each callgrind diff by function showed no function of this tree
+moving: the whole difference was `pthread_getattr_np` — std's main-thread stack guard parsing
+`/proc/self/maps` before `main` — reading 49 map lines where the base read 48. The band was raised
+to 1825 k with that reason beside it (round 1336). A/B the change compiled out and diff by function
+before a ceiling is moved or a change is blamed.
+
+### 99. A copied binary looks for its worker beside itself, and a greeting bump needs a fresh one
+
+A drive or census run from a copied binary finds no `pdf-sandbox-worker` next to it and panics;
+`quorra-confined` after a `MAGIC` bump (`PDFVCF06` to `PDFVCF07` in one batch) needs
+`viewer-confined --bins` rebuilt or the worker refuses the greeting (round 1333). And a source scan
+that decides what kind of evidence a test is skips comment lines: `viewer_core::notes::about` names
+`doc/pdf.js` in a comment, which classed every test calling it as a corpus witness (round 1337).
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

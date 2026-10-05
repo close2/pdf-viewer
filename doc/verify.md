@@ -163,6 +163,10 @@ cargo run --release -p render-raster --example frame_budget -- [file.pdf] [page]
   # where one refresh's 8.333 ms goes on the shipped path — interpretation, scene, encode, transfer,
   # the device's passes — for a page turn, a warm repaint and a zoom step, each on the lane the
   # window gives it; `FRAME_BUDGET_ROUNDS`, `FRAME_BUDGET_WINDOW=WxH` (ADR 1260)
+cargo test --release -p render-raster --test turn_path -- --ignored --nocapture
+  # that table's turn and step rows held to `doc/checks/turn-path.toml`'s bands, by the same method
+  # (`tests/support/frame_cost.rs`): three pinned children of five rounds a page, each with the
+  # launch gate's calibration probe, judged under `release` only; twenty seconds. ADR 1513
 cargo run --release -p render-raster --example ink_ladder -- <stem>...
   # each backend's total ink on a pdf.js page at four resolutions, against §10.7.4's area rule:
   # a total that walks toward the other backend's as the scale rises is a per-boundary cost, a flat
@@ -697,7 +701,9 @@ tools/drive-windows.sh [--window quorra|quorra-gtk|quorra-qt|quorra-confined]...
   # choice and §12.7.5.2.2's push button, the save's `/V` and `/AS` read back and the file reopened;
   # an Arabic word typed at `ArabicCIDTrueType.pdf`; "كتب" typed at a page printing "كَتَبَ", found, and
   # "كُتُب" not (ADR 1477); "عرب" typed at a `TJ` in reading order under a mirroring `Tm`, found
-  # (ADR 1490); §14.7's tree on a private AT-SPI bus; and `quorra-confined` on a page of
+  # (ADR 1490); a text field holding "123", whose second character AT-SPI's
+  # `GetCharacterExtents` places inside the field (`29-field-extents`, ADR 1501); §14.7's tree on a
+  # private AT-SPI bus; and `quorra-confined` on a page of
   # stars its worker sends as marks and its device refuses, the refusal in the title (ADR 1478).
   # **Release binaries first** (the script names the command), and `pikepdf` for the fixtures it
   # writes. It prints `step, window, works|wrong|not offered|manual, what was seen` into
@@ -1032,6 +1038,10 @@ tools/state.sh remedies     # doc/todo/66's two halves: remedy sites not built, 
 tools/state.sh instruments  # the examples this catalogue does not name
 tools/state.sh main-checkout # what the main checkout holds that a merge does not carry — read
                             # only; doc/environment.md's *After a merge* is the commands (ADR 1440)
+tools/state.sh oracle-held  # the oracle's held pages per verdict and group, from its constants and
+                            # without the walk, and the next page's candidates (ADR 1512)
+tools/state.sh binaries     # the main checkout's target/, the commit `install` built it from, and
+                            # whether every file is still the one installed (ADR 1511)
 cargo run -p conformance --bin unread   # the whole list navigation filters
 cargo run -p conformance --bin pointers # every path pointer, by rung; an owner's
                             # uncommitted answer is its own rung, not an absent pointer
@@ -1039,7 +1049,10 @@ cargo run -p conformance --bin pointers # every path pointer, by rung; an owner'
 
 **`tools/batch.sh commit <message-file>`** is the merge's, not a round's: it stages a batch's whole
 population by name, counts it, and commits, so a refused `git add` cannot let a partial commit
-through (ADR 1313). A round commits nothing.
+through (ADR 1313). A round commits nothing. **`tools/batch.sh install`** is the merge's too, run
+after the fast-forward: it builds what a person runs from the commit `main` names and installs it
+into the main checkout's `target/`, the commit and each file's SHA-256 beside it in
+`target/installed-from` (ADR 1511). A round installs nothing there.
 
 **Two measurements that are not gates, and each says why in its own header.**
 
@@ -1251,6 +1264,8 @@ cargo run --release -p pdf-model --example indexed_all_census -- <file.pdf>…
   # How the corpus states §8.6.6.3's `Indexed` spaces and §8.6.6.4's `/All` colourant.
 cargo run --release -p pdf-model --example jpx_dump -- doc/pdf.js/test/pdfs/issue5475.pdf /tmp/jpx
   # Writes one document's `/JPXDecode` codestreams out as files, for work outside this tree.
+cargo run --release -p pdf-model --example jpx_colour_census -- --list <paths.txt>
+  # Every `JPXDecode` image's `colr` boxes by T.801 method and enumeration, and which decide (§7.4.9).
 cargo run --release -p pdf-model --example kidless_node_census -- <file.pdf>…
   # How many documents state a page tree node with no `/Kids`, and what is beside it.
 cargo run --release -p pdf-model --example list_continuation_census -- \

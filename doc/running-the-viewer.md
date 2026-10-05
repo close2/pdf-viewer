@@ -1,12 +1,19 @@
 # Run it
 
 Status: **standing** — what the program does when a person starts it.
-Read by: whoever is running the viewer rather than the gates. `doc/todo/02-every-round.md` §5 is
-what puts the binaries where a person can reach them; `doc/verify.md` is the instruments.
+Read by: whoever is running the viewer rather than the gates. `tools/batch.sh install` is what
+puts the binaries where a person can reach them, and `doc/todo/02-every-round.md` section 5 says why
+each is there; `doc/verify.md` is the instruments.
+
+**A person runs `target/quorra`**, in the main checkout, and the eleven other files beside it are
+what it and its siblings need: every merge of a batch ends with `tools/batch.sh install`, which
+builds them `--release` from the commit `main` names and writes `target/installed-from` — that
+commit and each file's SHA-256 — beside them. `tools/state.sh binaries` says which commit that is
+and how far `main` has moved since (ADR 1511).
 
 `doc/HANDOVER.md`'s reading table is the pointer to this file.
 
-**One of the six binaries `doc/todo/02` §5 installs is not a viewer at all**: `target/quorra-retrieve`
+**One of the programs `tools/batch.sh install` puts there is not a viewer at all**: `target/quorra-retrieve`
 answers a *program*'s questions about a document as JSON on stdout — a page, a section addressed by
 its clause number, and the annotations over either — and nothing here applies to it. `doc/todo/63`
 and ADR 0257 are its two files, and `pdf-retrieve` with no arguments prints what it takes.
@@ -103,25 +110,37 @@ document that felt slow). Four things changed:
   time was 5.51/4.87/4.89 s with no flag against 5.17/4.68/4.90 with `--trace`, which is inside
   the spread of either.
 
-**Put the binaries where a person can run them, at the end of every round.** The agent builds
-into `/home/AI/cargo-target/quorra/`, which the human's shell never looks at, so the last step
-of a round copies what a person would run into the project's own `target/`:
+**The binaries a person runs are the merge's to install, and one command does it.** At a batch
+boundary — after the fast-forward, before `close` — the orchestrator runs, from the main checkout:
 
 ```sh
-cargo build --release --bin quorra --bin pdf-sandbox-worker --bin pdf-view-worker
-  # one invocation, not three: each is a whole-graph fat link and Cargo runs three of them beside
-  # each other where three commands run them one after another — 109.7 s to 79.3 s (ADR 0222)
-install -Dm755 /home/AI/cargo-target/quorra/release/quorra         target/quorra
-install -Dm755 /home/AI/cargo-target/quorra/release/pdf-sandbox-worker target/pdf-sandbox-worker
-install -Dm755 /home/AI/cargo-target/quorra/release/pdf-view-worker    target/pdf-view-worker
+tools/batch.sh install
 ```
 
-All three, and all three beside each other: `pdf-sandbox-worker` is a separate executable the
-viewer spawns for JBIG2 and JPEG 2000, and a viewer that cannot find it refuses those images rather
-than falling back. **`pdf-view-worker` is the third and is new in the three-hundred-and-eighty-first**
-— the whole viewer confined, which `quorra` does not yet spawn and which
-`viewer_confined::Confined` and the example below do. `doc/todo/02-every-round.md` is the rest of
-what a round does.
+It refuses a batch worktree holding uncommitted work or a branch `main` has not been fast-forwarded
+to; otherwise it builds every program of `tools/batch.sh`'s `install_binaries` in one `--release`
+invocation (each is a whole-graph fat link, and one invocation runs them beside each other — ADR
+0222) and the two C libraries in a second, in the batch's own build directory, which it asks Cargo
+for in the worktree — `/home/AI/cargo-target/pdf-viewer-batch`, named by the worktree's
+`.cargo/config.toml` (ADR 1440). Then it installs each into the main checkout's `target/`, prints
+each path with the commit it was built from, and names anything older there that it did not put
+there. `doc/todo/02-every-round.md` section 5 says why each file is there; the short of it is that
+every worker is looked for beside the running executable, and a program that cannot find its worker
+refuses the work rather than falling back.
+
+**To rebuild by hand with no batch open**, as the agent user in the main checkout, which builds
+where `~/.cargo/config.toml`'s `target-dir` says (`/home/AI/cargo-target/pdf-viewer`):
+
+```sh
+names=$(sed -n 's/^install_binaries="\(.*\)"$/\1/p' tools/batch.sh)   # the one list, never a copy
+built=$(cargo metadata --no-deps --format-version 1 | jq -r .target_directory)/release
+cargo build --release $(printf -- '--bin %s ' $names)
+for binary in $names; do install -Dm775 "$built/$binary" "target/$binary"; done
+```
+
+— and `target/installed-from` then names a commit those files are not of, which `tools/state.sh
+binaries` reports as a changed file; that is the record telling the truth, and the next merge's
+`install` makes the two agree again.
 
 **A page drawn where it cannot be read from**, which is the confined path end to end and needs no
 window:
@@ -166,7 +185,7 @@ structure. Try `doc/PDF-Declarations.pdf` for two embedded files,
 88 233 bytes. ADR 0223.
 
 **And rebuild before saying anything about speed**: `cargo test` only ever builds the *debug*
-binaries, and a stale executable is a measurement of the past. `doc/todo/02` §5 owns that rule and
+binaries, and a stale executable is a measurement of the past. `doc/todo/02` section 5 owns that rule and
 the incident it is argued from; this was a second copy of both.
 
 **`p` runs §12.4.4's presentation**: the window drives the clock, a page with a `/Dur` advances by
@@ -380,7 +399,7 @@ which was not true. Nothing moved: 856 agree, 68 contradicted, 749 ambiguous, to
 
 **And since the three-hundred-and-eleventh session a person can get it without a toolchain.** Every
 push to `main` that passes `check` and `test` retags a rolling `snapshot` pre-release carrying
-**every program §5 above installs that the target can build**, with `LICENSE` and `NOTICE` beside
+**every program `tools/batch.sh install` puts in `target/` that the target can build**, with `LICENSE` and `NOTICE` beside
 them because both vendored-font licences oblige a *binary* distribution to carry their notices (ADR
 0188), and a generated `MANIFEST` saying what each file is. **The archive is flat and stays that
 way**: each worker is looked for beside the running binary, and a program that cannot find its

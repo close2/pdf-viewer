@@ -96,8 +96,9 @@ on the page, or one that does — crossing the confined wire as one byte after t
 message was added (ADR 1393).
 Each `AccessibilityNode` naming a text field or a combo box carries the field's §12.7.4.3 value in
 the shape `Answer::Fields` gives it, read through the view's state, which only the confined side
-holds; it crosses in the node's encoding, the greeting moved to `PDFVCF06`, and no message was added
-(ADR 1489).
+holds; it crosses in the node's encoding, and no message was added (ADR 1489). Beside it,
+`value_lines` carries where §12.7.4.3's layout placed each character of that value, in the shape and
+under the invariant of the node's own `lines`; the greeting moved to `PDFVCF07` (ADR 1501).
 **And the six-hundred-and-thirty-eighth added nothing at all**, which is the second time that has
 been the whole answer and the strongest form of this section's claim: §12.4.4's presentation got the
 full-screen *window* it had never had, in all three hosts, and every channel it needed was already

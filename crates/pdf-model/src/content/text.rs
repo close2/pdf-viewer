@@ -19,6 +19,28 @@ use super::report::{Placed, Unsupported};
 use super::transparency::{AlphaSourcesSeen, Painted, implicit_knockout_group, outline_bounds};
 use super::{GraphicsState, Interpreter};
 
+/// The share of a space a gap along the line has to exceed before it reads as a word break.
+///
+/// **A choice, and the standard is why one is needed**: §9.4.4 states where each glyph goes and
+/// nothing about words, and §14.8.2.6.2 names what is left to an untagged page's reader as
+/// "heuristics based on information such as glyph positioning on the page". Half is the point at
+/// which a gap is nearer a space than no gap at all. Over the readback of 2808 pages (ADR 1502),
+/// the steps between show operations in fonts that state a space fall into two clusters, kerning
+/// within a tenth of a space and word gaps from about three quarters of one up, with a flat trough
+/// from 0.3 to 0.75 between them; half sits in that trough, the fewest steps lie within a quarter
+/// of the threshold either side of it, and the threshold falls inside more fonts' own widest gap
+/// between the two clusters than 0.6 or 0.7 does.
+const WORD_GAP_SHARE: f32 = 0.5;
+
+/// The space, in ems, read for a font that states none at code 32.
+///
+/// **A choice**, stood in where §9.3.3's single-byte code 32 has no width: a subset carrying no
+/// space is common, and its producer's word gaps are then `TJ` adjustments. A quarter em sits
+/// between the lower quartile and the median of the spaces the corpus's fonts do state (0.226 and
+/// 0.278 em), and under [`WORD_GAP_SHARE`] it makes the threshold an eighth of an em, inside the
+/// trough between kerning and word gaps that such fonts' own steps show (ADR 1502).
+const NOMINAL_SPACE_EM: f32 = 0.25;
+
 /// What a text object owns, as against what the graphics state does.
 ///
 /// ISO 32000-2 §9.4.1 draws the line:
@@ -941,14 +963,18 @@ impl Interpreter<'_> {
     /// size is permitted", and a negative threshold is below every gap there is — which would
     /// have put a space between every pair of glyphs in the extracted text.
     ///
-    /// **A font that states no space is given a quarter of an em for one, and the same 0.6 of
-    /// it** (ADR 1490): a subset carrying no code 32 is common, and its producer's word gaps are
-    /// then `TJ` adjustments of about a quarter em (`-250` in Times), which a threshold of the
-    /// whole quarter em would read as no gap at all once the gap is measured in text space.
+    /// **Both numbers are choices** (ADR 1502): §9.3 and §9.4.4 state no quantity that separates
+    /// words, and §14.8.2.6.2 calls any such reading a heuristic. [`WORD_GAP_SHARE`] says a gap
+    /// is a word break once it is nearer a space than no gap at all, and [`NOMINAL_SPACE_EM`] is
+    /// the space a font stating none is read with.
     fn word_gap(font: &Font, size: f32) -> f32 {
         let stated = font.advance(Code::single_byte(32));
-        let space_em = if stated > 0.0 { stated } else { 0.25 };
-        space_em * size.abs() * 0.6
+        let space_em = if stated > 0.0 {
+            stated
+        } else {
+            NOMINAL_SPACE_EM
+        };
+        space_em * size.abs() * WORD_GAP_SHARE
     }
 
     /// Adds a space or a newline to the readback where the glyphs' positions imply one.
@@ -1639,8 +1665,8 @@ mod tests {
     //! `separate_text`'s gap, read in §9.4.4's text space (ADR 1490).
     //!
     //! Each page is one `TJ` in Helvetica at 20 units, whose `a` and `b` are 556 thousandths wide
-    //! and whose space is 278, so `word_gap` is 278 × 20 / 1000 × 0.6 = 3.336 text-space units at
-    //! `20 Tf` and 0.1668 at `1 Tf`. Every expected readback follows from §9.4.4's `tx` and the
+    //! and whose space is 278, so `word_gap` is 278 × 20 / 1000 × 0.5 = 2.78 text-space units at
+    //! `20 Tf` and 0.139 at `1 Tf`. Every expected readback follows from §9.4.4's `tx` and the
     //! `Tm` written beside it.
 
     #![expect(
@@ -1701,7 +1727,7 @@ mod tests {
     /// A `TJ` written in reading order under a mirroring `Tm`: each adjustment of 1000 moves the
     /// pen back by 20 in text space, twice the 11.12 the glyph advanced, so there is no gap to
     /// read — and along user-space x the mirror made each one a step of 8.88 rightwards, over the
-    /// 3.336 threshold.
+    /// 2.78 threshold.
     #[test]
     fn a_tj_under_a_mirroring_tm_reads_back_with_no_gaps() {
         let mirrored =
@@ -1713,7 +1739,7 @@ mod tests {
     }
 
     /// The sign is the advance's, not the page's: a gap that opens in text space is a word gap
-    /// whichever way the mirror turns it. `-300` adds 6 to the pen, over 3.336.
+    /// whichever way the mirror turns it. `-300` adds 6 to the pen, over 2.78.
     #[test]
     fn a_gap_opened_under_a_mirroring_tm_is_still_a_word_gap() {
         assert_eq!(
@@ -1733,7 +1759,7 @@ mod tests {
 
     /// A `Tm` that scales: `1 Tf` under `20 0 0 20 Tm` is the same line as `20 Tf` under the
     /// identity, and its gaps are measured in the units its threshold is. `-100` is 0.1 of a text
-    /// unit, under 0.1668, so it is tracking; `-300` is 0.3, over it, so it is a word gap.
+    /// unit, under 0.139, so it is tracking; `-300` is 0.3, over it, so it is a word gap.
     #[test]
     fn a_scaling_tm_measures_its_gap_in_text_space() {
         assert_eq!(
@@ -1767,7 +1793,7 @@ mod tests {
         );
     }
 
-    /// A font stating no space is given a quarter em for one, and the same 0.6 of it: a `TJ`
+    /// A font stating no space is given a quarter em for one, and the same half of it: a `TJ`
     /// adjustment of `-250` — a quarter em, the word gap a producer writes for such a subset —
     /// is a word gap, where a threshold of the whole quarter em read it as none.
     #[test]
@@ -1779,6 +1805,36 @@ mod tests {
                      6 0 obj\n<< /Length 25 >>\nstream\n500 0 d0 0 0 450 700 re f\nendstream";
         assert_eq!(
             readback_in(boxes, "BT /F1 20 Tf 50 100 Td [(a) -250 (b) -50 (a)] TJ ET"),
+            "a ba"
+        );
+    }
+
+    /// `issue1453.pdf`'s title in miniature: a display face stating no space whose producer set
+    /// its word gaps at `-169` and `-140` and kerned one pair at `-31`. At `20 Tf` the threshold
+    /// is half a quarter em, 2.5 units; `-140` moves the pen 2.8 and is a word gap, `-31` moves it
+    /// 0.62 and is not (ADR 1502).
+    #[test]
+    fn a_display_face_with_no_space_breaks_at_an_eighth_of_an_em() {
+        let boxes = "<< /Type /Font /Subtype /Type3 /FontBBox [0 0 500 700] \
+                     /FontMatrix [0.001 0 0 0.001 0 0] /FirstChar 97 /LastChar 98 \
+                     /Widths [500 500] /Encoding << /Differences [97 /a /b] >> \
+                     /CharProcs << /a 6 0 R /b 6 0 R >> /Resources << >> >>\nendobj\n\
+                     6 0 obj\n<< /Length 25 >>\nstream\n500 0 d0 0 0 450 700 re f\nendstream";
+        assert_eq!(
+            readback_in(
+                boxes,
+                "BT /F1 20 Tf 50 100 Td [(a) -169 (b) -140 (a) -31 (b)] TJ ET"
+            ),
+            "a b ab"
+        );
+    }
+
+    /// A gap of 0.15 em in Helvetica is 0.54 of its 278-thousandth space: nearer a space than no
+    /// gap, so a word break; 0.12 em is 0.43 of one, and is not.
+    #[test]
+    fn a_gap_nearer_a_space_than_none_is_a_word_break() {
+        assert_eq!(
+            readback("BT /F1 20 Tf 50 100 Td [(a) -150 (b) -120 (a)] TJ ET"),
             "a ba"
         );
     }

@@ -136,14 +136,13 @@ The reopened form is read off the same bus: each toolkit's text fields, check bo
 answer with the values the saved file holds (ADR 1478), and so do `quorra`'s own form nodes:
 `viewer_core::AccessibilityNode::value` carries §12.7.4.3's text across the confined pipe, a text
 field publishes it as a text run below the control (AT-SPI's `Text`), and a choice field its options
-as items, the chosen ones selected (AT-SPI's `Selection`) (ADR 1489).
+as items, the chosen ones selected (AT-SPI's `Selection`) (ADR 1489). The run carries each
+character's place: `AccessibilityNode::value_lines` holds the boxes §12.7.4.3's layout gave the
+glyphs it wrote, one line of the field at a time in display order, so `GetCharacterExtents` and
+`GetOffsetAtPoint` answer on a field as on a paragraph (ADR 1501, `29-field-extents` in the drive).
 
 ## What is left
 
-- **A field's characters have no place.** The run carrying a field's value states the widget's
-  rectangle and no character positions, because the characters are laid out in an appearance
-  stream rather than read back from a content stream; `GetCharacterExtents` on a field answers
-  nothing (ADR 1489).
 - ~~The answer for any page but the first of a large tagged document is empty~~ — **closed in the
   four-hundred-and-ninetieth session** (ADR 0325), and checked on a real bus. The page's elements
   are found through

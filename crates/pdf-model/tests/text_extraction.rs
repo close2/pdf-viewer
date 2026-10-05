@@ -1201,7 +1201,11 @@ const SELECTION_BELOW_FLOOR: [&str; 9] = [
 /// space (ADR 1490): words a scaling `Tm` had split at kerning steps, and words a font stating no
 /// space had run together, read whole, and six more documents have a word the reference matches
 /// uniquely.
-const JUDGED_FLOOR: usize = 509;
+///
+/// **It rose from 509 to 510** when the word gap's share of a space moved from 0.6 to a half
+/// (ADR 1502): a document whose words had no unique match now has one, measured against the
+/// old share on the same build.
+const JUDGED_FLOOR: usize = 510;
 
 /// The smallest cross-axis population [`VERTICAL_CENTRE_BOUND`] may be applied to.
 ///
@@ -1234,7 +1238,11 @@ const JUDGED_FLOOR: usize = 509;
 ///
 /// **It rose from 8266 to 9597** with [`JUDGED_FLOOR`]'s rise, for the same reason: words the
 /// readback had split or run together now read whole and match (ADR 1490).
-const CROSS_AXIS_FLOOR: usize = 9597;
+///
+/// **It rose from 9597 to 9650** with the word gap's half a space (ADR 1502), and the matched
+/// pairs from 12 513 to 12 573: gaps nearer a space than none now part words a reference
+/// matches uniquely.
+const CROSS_AXIS_FLOOR: usize = 9650;
 
 /// One point per axis before two statements of the page's frame count as the same frame.
 ///

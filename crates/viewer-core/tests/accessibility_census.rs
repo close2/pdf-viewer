@@ -358,6 +358,16 @@ struct Census {
     /// value before it.
     valued: usize,
     valued_filled: usize,
+    /// Characters of those values with a place, and the filled fields none of whose characters has
+    /// one.
+    ///
+    /// ADR 1501's capability: §12.7.4.3's layout places every glyph it writes, and the place crosses
+    /// with the value, so AT-SPI's `GetCharacterExtents` answers on a field. Every one of these
+    /// crossed with no place before it. A filled field with none is a value the layout could not
+    /// carry out — the condition that makes the page report the field — or one whose every glyph
+    /// lies off the page.
+    field_characters: usize,
+    filled_unplaced: Vec<(String, String)>,
     /// Elements named by their Table 355 `/T` for want of text of their own, by structure type.
     ///
     /// ADR 1405's capability: the title names every element with no text of its own, not a `Form`
@@ -440,6 +450,8 @@ impl Census {
         self.forms_unnamed.extend(from.forms_unnamed);
         self.valued = self.valued.saturating_add(from.valued);
         self.valued_filled = self.valued_filled.saturating_add(from.valued_filled);
+        self.field_characters = self.field_characters.saturating_add(from.field_characters);
+        self.filled_unplaced.extend(from.filled_unplaced);
         self.titled = self.titled.saturating_add(from.titled);
         for (role, count) in from.titled_roles {
             let entry = self.titled_roles.entry(role).or_default();
@@ -503,7 +515,7 @@ impl Census {
         widgets: &[AccessibilityNode],
         where_: &str,
     ) {
-        self.values(nodes.iter().chain(widgets));
+        self.values(nodes.iter().chain(widgets), where_);
         for node in nodes
             .iter()
             .filter(|node| node.role == "Form" && node.control.is_some())
@@ -519,11 +531,26 @@ impl Census {
     }
 
     /// Counts the fields among `nodes` that cross with §12.7.4.3's value (ADR 1489).
-    fn values<'a>(&mut self, nodes: impl Iterator<Item = &'a AccessibilityNode>) {
-        for value in nodes.filter_map(|node| node.value.as_ref()) {
+    fn values<'a>(&mut self, nodes: impl Iterator<Item = &'a AccessibilityNode>, where_: &str) {
+        for node in nodes {
+            let Some(value) = node.value.as_ref() else {
+                continue;
+            };
             self.valued = self.valued.saturating_add(1);
+            let placed: usize = node
+                .value_lines
+                .iter()
+                .map(|line| line.characters.len())
+                .sum();
+            self.field_characters = self.field_characters.saturating_add(placed);
             if !value.text.is_empty() {
                 self.valued_filled = self.valued_filled.saturating_add(1);
+                if placed == 0 {
+                    self.filled_unplaced.push((
+                        where_.to_owned(),
+                        format!("the field {:?} holding {:?}", node.name, value.text),
+                    ));
+                }
             }
         }
     }
@@ -1207,6 +1234,15 @@ fn report_tagging(census: &Census) {
         census.valued, census.valued_filled
     );
     println!(
+        "field characters with extents: {} ({} filled fields with none)",
+        census.field_characters,
+        census.filled_unplaced.len()
+    );
+    print_witnesses(
+        "a filled field whose characters have no place",
+        &census.filled_unplaced,
+    );
+    println!(
         "elements named by their /T: {} ({:?})",
         census.titled, census.titled_roles
     );
@@ -1660,6 +1696,15 @@ fn widget_floors(tracked_census: &Census) {
     // crossed with no value before it, so a screen reader was told the field was empty.
     // Measured at 545, 80 of them holding characters: most fields of the population are empty.
     gate_ratchet::floor("fields with a value published", tracked_census.valued, 545);
+    // ADR 1501's population, new with that decision: a character of a field's value with the box
+    // §12.7.4.3's layout gave its glyph, which is what AT-SPI's `GetCharacterExtents` answers with.
+    // Every one crossed with no place before it. Measured at 1568, over 79 of the 80 filled fields;
+    // the eightieth is `PDFBOX-3148-2-fuzzed.pdf`'s, named by the census each run.
+    gate_ratchet::floor(
+        "field characters with extents",
+        tracked_census.field_characters,
+        1568,
+    );
 }
 
 /// The ratchet, which is what ADR 0323 called this instrument's verdict shape.

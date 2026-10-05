@@ -130,6 +130,77 @@ fn row_span(edge: &Edge, y: f64) -> (f64, f64) {
     (edge.y0.max(y), edge.y1.min(y + 1.0))
 }
 
+/// How wide across its row a run may grow: a pixel a run reaches reads the run edge by edge,
+/// so a run wider than a pixel or two would hand a pixel edges that stand well beside it.
+const RUN_WIDTH: f64 = 1.0;
+
+/// Every edge's part in each row it reaches, gathered into runs ([`Entry`]) and listed as
+/// `(row, run)` in the order the runs were begun; `span` gives the rows an edge reaches, and
+/// `pairs` — the edge-row pairs, an upper bound on the runs — sizes the list.
+///
+/// An edge continues the run its row last began when it follows that run's last edge in the
+/// set's edges ([`Entry::continued_by`]); the set's edges are each subpath's in path order, so
+/// a curve flattened into short pieces is gathered row by row as the walk crosses it.
+#[expect(clippy::cast_possible_truncation)] // an edge index below the edge count, a `u32`
+#[expect(clippy::arithmetic_side_effects)] // a run's count is at most the edge count
+fn runs_by_row(
+    edges: &[Edge],
+    first: f64,
+    rows: u32,
+    pairs: usize,
+    span: impl Fn(&Edge) -> (u32, u32),
+) -> Vec<(u32, Entry)> {
+    let mut runs: Vec<(u32, Entry)> = Vec::with_capacity(pairs);
+    // Per row, the run it last began, or `usize::MAX` before its first.
+    let mut open = vec![usize::MAX; rows as usize];
+    for (index, edge) in edges.iter().enumerate() {
+        let (from, to) = span(edge);
+        for r in from..to {
+            let (ya, yb) = row_span(edge, first + f64::from(r));
+            let (xa, xb) = (edge.x_at(ya), edge.x_at(yb));
+            let (lo, hi) = (xa.min(xb), xa.max(xb));
+            let last = &mut open[r as usize];
+            match runs.get_mut(*last) {
+                Some((_, run))
+                    if run.continued_by(edges, index, (ya, yb))
+                        && run.hi.max(hi) - run.lo.min(lo) <= RUN_WIDTH =>
+                {
+                    run.count += 1;
+                    run.lo = run.lo.min(lo);
+                    run.hi = run.hi.max(hi);
+                    run.ya = run.ya.min(ya);
+                    run.yb = run.yb.max(yb);
+                }
+                _ => {
+                    *last = runs.len();
+                    runs.push((
+                        r,
+                        Entry {
+                            edge: index as u32,
+                            count: 1,
+                            lo,
+                            hi,
+                            ya,
+                            yb,
+                        },
+                    ));
+                }
+            }
+        }
+    }
+    // Bucketed by row, each row's runs in the order they were begun.
+    runs.sort_by_key(|&(row, _)| row);
+    runs
+}
+
+/// `starts[r] .. starts[r + 1]` indexes the runs of row `r` in `runs`, which are sorted by row.
+#[expect(clippy::cast_possible_truncation)] // a run count below the edge-row pairs, a `u32`
+fn row_starts(runs: &[(u32, Entry)], rows: u32) -> Vec<u32> {
+    (0..=rows)
+        .map(|r| runs.partition_point(|&(row, _)| row < r) as u32)
+        .collect()
+}
+
 /// One set's edges bucketed by device row: every edge that reaches into a row is listed
 /// under it, so a ray along that row meets no edge the bucket does not hold.
 ///
@@ -159,13 +230,50 @@ pub(crate) struct RowEdges {
     /// `level_starts[r] .. level_starts[r + 1]` indexes `levels` for row `top + r`.
     level_starts: Vec<u32>,
     levels: Vec<Level>,
+    /// `charged[r]` is what the bound in [`RowEdges::of`] counts for the rows `top .. top + r`:
+    /// each edge once for every one of them it reaches, and each level in them. Empty unless
+    /// the set was built by [`RowEdges::of_charged`].
+    charged: Vec<u64>,
 }
 
-/// One edge as one row lists it: which edge, and where it starts across the row.
+/// A run of edges as one row lists it: `count` edges from `edge` on, consecutive in the set's
+/// edges, of one direction, whose parts in the row abut end to start — so between them they
+/// span `ya .. yb` of the row with no gap and no overlap — and how far across the row they
+/// reach, `lo ..= hi`.
+///
+/// **A run adds to a ray beside it what one edge over its span would** (ADR 1503). A ray at
+/// height `ym` meets an edge where `ya ≤ ym < yb` (§8.5.3.3.2's count, half-open as a ray
+/// through a vertex counts one of its two edges), and abutting half-open spans partition their
+/// union, so a ray at any height of the union meets exactly one of the run's edges. A curve
+/// flattened into short pieces crosses a row as one run, and where that run spans the whole
+/// row its winding is the row's prefix sum rather than a partial edge counted per band.
 #[derive(Debug, Clone, Copy)]
 struct Entry {
     edge: u32,
+    count: u32,
     lo: f64,
+    hi: f64,
+    ya: f64,
+    yb: f64,
+}
+
+impl Entry {
+    /// Whether `edge`, the set's edge at `index` spanning `ya .. yb` of this run's row,
+    /// continues this run: it follows the run's last edge, runs the same way, and starts its
+    /// part of the row where the run's part ends, in the path's own direction.
+    #[expect(clippy::float_cmp)] // exact: two edges meet at one `f32` vertex or they do not
+    #[expect(clippy::arithmetic_side_effects)] // an edge index below the edge count, a `u32`
+    fn continued_by(&self, edges: &[Edge], index: usize, (ya, yb): (f64, f64)) -> bool {
+        let last = &edges[self.edge as usize];
+        let follows = self.edge as usize + self.count as usize == index;
+        follows
+            && last.dir == edges[index].dir
+            && if last.dir > 0 {
+                self.yb == ya
+            } else {
+                yb == self.ya
+            }
+    }
 }
 
 /// One row of a [`RowEdges`].
@@ -185,16 +293,42 @@ impl RowEdges {
     /// would hold more than `limit` entries — a page-tall clip of many long edges — which
     /// the caller answers by keeping its bound rather than by allocating past it
     /// (principle 3).
-    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    // rows are clamped
-    // into `0 .. rows`, a tile's height, and an entry count below `u32::MAX` is a tile's
-    #[expect(clippy::arithmetic_side_effects)] // indices inside the row range
     pub(crate) fn of(
         polylines: &[Polyline],
         rule: Rule,
         top: i32,
         rows: u32,
         limit: usize,
+    ) -> Option<Self> {
+        Self::build(polylines, rule, (top, rows), limit, false)
+    }
+
+    /// [`RowEdges::of`], keeping beside the buckets what its bound counts row by row, so that
+    /// [`RowEdges::charge`] can answer for any run of these rows (ADR 1513).
+    ///
+    /// Kept only where it is asked for: the per-row count is a pass over every edge part, and
+    /// a set built for one meet never asks it.
+    pub(crate) fn of_charged(
+        polylines: &[Polyline],
+        rule: Rule,
+        top: i32,
+        rows: u32,
+        limit: usize,
+    ) -> Option<Self> {
+        Self::build(polylines, rule, (top, rows), limit, true)
+    }
+
+    /// [`RowEdges::of`] and [`RowEdges::of_charged`]: `charges` says which.
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // rows are clamped
+    // into `0 .. rows`, a tile's height, and an entry count below `u32::MAX` is a tile's
+    #[expect(clippy::arithmetic_side_effects)] // indices inside the row range
+    fn build(
+        polylines: &[Polyline],
+        rule: Rule,
+        (top, rows): (i32, u32),
+        limit: usize,
+        charges: bool,
     ) -> Option<Self> {
         let first = f64::from(top);
         let last = first + f64::from(rows);
@@ -204,23 +338,27 @@ impl RowEdges {
             let to = ((edge.y1.min(last) - first).ceil() as u32).min(rows);
             (from, to)
         };
-        let mut counts = vec![0_u32; rows as usize + 1];
+        // The bound counts an edge once for every row it reaches, whether or not a run
+        // gathers it with its neighbours: what a set may cost is decided before its runs are.
+        // Kept row by row as well, so that a meet over some of these rows asks the bound a
+        // build over those rows alone would have asked ([`RowEdges::charge`]).
         let mut total = 0_usize;
+        let mut reached = if charges {
+            vec![0_u64; rows as usize + 1]
+        } else {
+            Vec::new()
+        };
         for edge in &edges {
             let (from, to) = span(edge);
             total = total.saturating_add(to.saturating_sub(from) as usize);
             if total > limit {
                 return None;
             }
-            for count in &mut counts[from as usize..to as usize] {
-                *count += 1;
+            if let Some(row) = reached.get_mut(from as usize..to as usize) {
+                for count in row {
+                    *count += 1;
+                }
             }
-        }
-        let mut starts = Vec::with_capacity(rows as usize + 1);
-        let mut running = 0_u32;
-        for count in &counts {
-            starts.push(running);
-            running += count;
         }
         let mut levels = levels_between(polylines, first, last);
         total = total.saturating_add(levels.len());
@@ -228,6 +366,19 @@ impl RowEdges {
             return None;
         }
         levels.sort_by_key(|&(row, _)| row);
+        let mut by_row = Vec::new();
+        if charges {
+            for &(row, _) in &levels {
+                reached[row as usize] += 1;
+            }
+            by_row.reserve(rows as usize + 1);
+            let mut running = 0_u64;
+            for count in &reached[..rows as usize] {
+                by_row.push(running);
+                running += count;
+            }
+            by_row.push(running);
+        }
         let mut level_starts = Vec::with_capacity(rows as usize + 1);
         let mut at = 0_usize;
         for r in 0..=rows {
@@ -238,20 +389,9 @@ impl RowEdges {
         }
         let levels: Vec<Level> = levels.into_iter().map(|(_, level)| level).collect();
         let total = total - levels.len();
-        let mut fill = starts.clone();
-        let mut entries = vec![Entry { edge: 0, lo: 0.0 }; total];
-        for (index, edge) in edges.iter().enumerate() {
-            let (from, to) = span(edge);
-            for r in from..to {
-                let (ya, yb) = row_span(edge, first + f64::from(r));
-                let slot = &mut fill[r as usize];
-                entries[*slot as usize] = Entry {
-                    edge: index as u32,
-                    lo: edge.x_at(ya).min(edge.x_at(yb)),
-                };
-                *slot += 1;
-            }
-        }
+        let entries = runs_by_row(&edges, first, rows, total, span);
+        let starts = row_starts(&entries, rows);
+        let entries: Vec<Entry> = entries.into_iter().map(|(_, entry)| entry).collect();
         let mut sets = Self {
             rule,
             top,
@@ -264,9 +404,27 @@ impl RowEdges {
             partials: Vec::new(),
             level_starts,
             levels,
+            charged: by_row,
         };
         sets.order_rows(first, rows);
         Some(sets)
+    }
+
+    /// What [`RowEdges::of`]'s bound counts for the device rows `top .. top + rows`, or `None`
+    /// where they are not all bucketed here.
+    ///
+    /// **A build over more rows than a meet asks holds that meet's rows exactly**: a row's
+    /// bucket lists every edge part reaching it, gathered into runs of edges that follow one
+    /// another in the set, and an edge between two such edges reaches the row too, so it is in
+    /// either build's list (ADR 1503's runs, ADR 1513). What a narrower build adds is only this
+    /// bound's question, and the per-row counts answer it: the narrower build is `None`
+    /// exactly where this charge passes its limit.
+    pub(crate) fn charge(&self, top: i32, rows: u32) -> Option<u64> {
+        let start = usize::try_from(top.checked_sub(self.top)?).ok()?;
+        let end = start.checked_add(usize::try_from(rows).ok()?)?;
+        self.charged
+            .get(end)?
+            .checked_sub(*self.charged.get(start)?)
     }
 
     /// Sort each row by where its edges start across it, and record beside the entries the
@@ -293,13 +451,11 @@ impl RowEdges {
             self.prefix.push(0);
             self.partial_starts.push(self.partials.len() as u32);
             for (k, entry) in row.iter().enumerate() {
-                let edge = &self.edges[entry.edge as usize];
-                let (ya, yb) = row_span(edge, y);
-                furthest = furthest.max(edge.x_at(ya).max(edge.x_at(yb)));
+                furthest = furthest.max(entry.hi);
                 self.reach[from + k] = furthest;
-                #[expect(clippy::float_cmp)] // exact: the edge spans the row or it does not
-                if ya == y && yb == y + 1.0 {
-                    sum += edge.dir;
+                #[expect(clippy::float_cmp)] // exact: the run spans the row or it does not
+                if entry.ya == y && entry.yb == y + 1.0 {
+                    sum += self.edges[entry.edge as usize].dir;
                 } else {
                     self.partials.push(k as u32);
                 }
@@ -517,34 +673,45 @@ fn sort_row(
     };
     work.left[index] += sign * prefix;
     for &k in partials {
-        let edge = &row.edges[row.entries[k as usize].edge as usize];
-        let (ya, yz) = row_span(edge, yt);
+        let run = &row.entries[k as usize];
         work.partial.push(Partial {
-            ya,
-            yb: yz,
+            ya: run.ya,
+            yb: run.yb,
             set: index,
-            dir: sign * edge.dir,
+            dir: sign * row.edges[run.edge as usize].dir,
         });
     }
-    for entry in &row.entries[wholly_left..right_start] {
-        let edge = &row.edges[entry.edge as usize];
+    // A run that reaches the pixel is read edge by edge: its edges beside the pixel count as
+    // the side they stand on, and the ones through it bound its bands.
+    let near = row.entries[wholly_left..right_start]
+        .iter()
+        .flat_map(|run| &row.edges[run.edge as usize..(run.edge + run.count) as usize]);
+    for edge in near {
         let (ya, yz) = row_span(edge, yt);
         let (xa, xz) = (edge.x_at(ya), edge.x_at(yz));
-        if xa.max(xz) < xl {
-            if from_right {
-                continue;
-            }
+        let beside = if xa.max(xz) < xl {
+            !from_right
+        } else if xa.min(xz) > xr {
+            from_right
+        } else {
+            false
+        };
+        if beside {
+            let dir = sign * edge.dir;
             #[expect(clippy::float_cmp)] // exact: the edge spans the row or it does not
             if ya == yt && yz == yb {
-                work.left[index] += edge.dir;
+                work.left[index] += dir;
             } else {
                 work.partial.push(Partial {
                     ya,
                     yb: yz,
                     set: index,
-                    dir: edge.dir,
+                    dir,
                 });
             }
+            continue;
+        }
+        if xa.max(xz) < xl || xa.min(xz) > xr {
             continue;
         }
         work.cuts.extend([ya, yz]);
@@ -810,6 +977,64 @@ mod tests {
         assert!((area_in_pixel(0, 0, &[&all, &non_zero], &mut work) - 1.0).abs() < 1e-12);
     }
 
+    /// **A set built over more rows than a meet asks meets each of those rows to the same
+    /// area, and charges them what a build over them alone counts** (ADR 1513): a curve
+    /// flattened into short pieces crossing the band's boundaries — so that runs begin and
+    /// end at them, and a level and a vertex sit on a whole row — met against a slanted
+    /// half-plane, every pixel of every narrower band read from the wide build and from its
+    /// own, to the bit; and the narrower build is `None` exactly where the charge passes its
+    /// limit.
+    #[test]
+    fn a_wider_build_meets_and_charges_a_band_as_the_band_alone() {
+        let mut points = Vec::new();
+        for k in 0..=96_u8 {
+            let t = f32::from(k) / 96.0 * std::f32::consts::TAU;
+            points.push((6.0 + 5.5 * t.cos(), 6.0 + 5.0 * t.sin()));
+        }
+        points.extend([(3.0, 4.0), (1.5, 4.0), (1.5, 9.0)]);
+        let curve = vec![polygon(&points)];
+        let plane = set(
+            &[polygon(&[
+                (-3.0, -3.0),
+                (4.0, -3.0),
+                (9.0, 13.0),
+                (-3.0, 13.0),
+            ])],
+            Rule::NonZero,
+        );
+        let wide = RowEdges::of_charged(&curve, Rule::EvenOdd, -4, 20, usize::MAX)
+            .expect("within the limit");
+        let mut work = Work::default();
+        for top in -2..12 {
+            for rows in 1..6_u32 {
+                let charge = wide.charge(top, rows).expect("inside the wide build");
+                let alone = RowEdges::of(&curve, Rule::EvenOdd, top, rows, usize::MAX)
+                    .expect("within the limit");
+                for y in top..top + rows.cast_signed() {
+                    for x in -1..13 {
+                        let from_wide = area_in_pixel(x, y, &[&wide, &plane], &mut work);
+                        let from_alone = area_in_pixel(x, y, &[&alone, &plane], &mut work);
+                        assert_eq!(
+                            from_wide.to_bits(),
+                            from_alone.to_bits(),
+                            "pixel ({x}, {y}) of the rows {top} + {rows}"
+                        );
+                    }
+                }
+                let limit = usize::try_from(charge).expect("a small charge");
+                assert!(RowEdges::of(&curve, Rule::EvenOdd, top, rows, limit).is_some());
+                if let Some(under) = limit.checked_sub(1) {
+                    assert!(
+                        RowEdges::of(&curve, Rule::EvenOdd, top, rows, under).is_none(),
+                        "the rows {top} + {rows} charge {charge}"
+                    );
+                }
+            }
+        }
+        assert_eq!(wide.charge(-5, 2), None, "a row above the build");
+        assert_eq!(wide.charge(15, 2), None, "a row below it");
+    }
+
     /// The winding of `(x, y)` by §8.5.3.3.2's ray, counted over every edge of `polylines`.
     fn winding(polylines: &[Polyline], px: f64, py: f64) -> i32 {
         let mut count = 0;
@@ -879,6 +1104,87 @@ mod tests {
             }
         }
         assert!(worst < 0.01, "a pixel {worst} from the sampled predicate");
+    }
+
+    /// The convex polygon `polygon` cut to where `keep` is not negative (Sutherland–Hodgman,
+    /// one side).
+    fn clip_convex(polygon: &[(f64, f64)], keep: impl Fn((f64, f64)) -> f64) -> Vec<(f64, f64)> {
+        let mut out = Vec::new();
+        for (k, &here) in polygon.iter().enumerate() {
+            let next = polygon[(k + 1) % polygon.len()];
+            let (sh, sn) = (keep(here), keep(next));
+            if sh >= 0.0 {
+                out.push(here);
+            }
+            if (sh >= 0.0) != (sn >= 0.0) {
+                let t = sh / (sh - sn);
+                out.push((
+                    here.0 + t * (next.0 - here.0),
+                    here.1 + t * (next.1 - here.1),
+                ));
+            }
+        }
+        out
+    }
+
+    /// **A curve flattened into short pieces meets as its pieces do** (ADR 1503): a 3000-gon
+    /// of radius 6, whose pieces each span part of a row and gather into runs — tall ones
+    /// where the curve is steep, ones cut at a pixel's width where it is shallow — met with
+    /// the half-plane `x ≤ 6.3`, wound both ways and under both rules. The closed form is the
+    /// convex polygon cut to the half-plane and to the pixel, its shoelace area; every pixel of
+    /// the disc's bounding rows is asked, so runs stand left of, right of and through each.
+    #[test]
+    fn a_finely_flattened_curve_meets_as_its_pieces_do() {
+        const N: u16 = 3000;
+        let ring: Vec<(f32, f32)> = (0..N)
+            .map(|k| {
+                let a = std::f32::consts::TAU * f32::from(k) / f32::from(N);
+                (6.1 + 6.0 * a.cos(), 6.2 + 6.0 * a.sin())
+            })
+            .collect();
+        let half = polygon(&[(-3.0, -3.0), (6.3, -3.0), (6.3, 16.0), (-3.0, 16.0)]);
+        let mut work = Work::default();
+        for reversed in [false, true] {
+            let wound: Vec<(f32, f32)> = if reversed {
+                ring.iter().rev().copied().collect()
+            } else {
+                ring.clone()
+            };
+            let exact_ring: Vec<(f64, f64)> = ring
+                .iter()
+                .map(|&(x, y)| (f64::from(x), f64::from(y)))
+                .collect();
+            for rule in [Rule::NonZero, Rule::EvenOdd] {
+                let disc = set(&[polygon(&wound)], rule);
+                let plane = set(std::slice::from_ref(&half), Rule::NonZero);
+                let mut worst = 0.0_f64;
+                for py in 0..12 {
+                    for px in 0..12 {
+                        let (x0, y0) = (f64::from(px), f64::from(py));
+                        let mut cut = clip_convex(&exact_ring, |p| f64::from(6.3_f32) - p.0);
+                        for keep in [
+                            &(|p: (f64, f64)| p.0 - x0) as &dyn Fn((f64, f64)) -> f64,
+                            &|p: (f64, f64)| x0 + 1.0 - p.0,
+                            &|p: (f64, f64)| p.1 - y0,
+                            &|p: (f64, f64)| y0 + 1.0 - p.1,
+                        ] {
+                            cut = clip_convex(&cut, keep);
+                        }
+                        let closed: f64 = (0..cut.len())
+                            .map(|k| {
+                                let (a, b) = (cut[k], cut[(k + 1) % cut.len()]);
+                                a.0 * b.1 - b.0 * a.1
+                            })
+                            .sum::<f64>()
+                            .abs()
+                            * 0.5;
+                        let area = area_in_pixel(px, py, &[&disc, &plane], &mut work);
+                        worst = worst.max((area - closed).abs());
+                    }
+                }
+                assert!(worst < 1e-9, "{rule:?}, reversed {reversed}: {worst}");
+            }
+        }
     }
 
     /// A limit the buckets would pass declines rather than allocates.
