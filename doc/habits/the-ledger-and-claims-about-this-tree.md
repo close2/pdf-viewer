@@ -424,3 +424,10 @@ that reads `doc/pdf.js` prints "skipped" and passes on a machine without it; thi
 now holds the count by equality — a new row may not raise it (ADRs 1497, 1509). A100's
 reading: a corpus present is a control, so the rows' statuses stand; what they owed was evidence
 from which the clause's expected value can be read.
+
+**Three questions, in order, before an `inapplicable` row is believed** (ADR 1535): does the
+clause state any requirement at all — no `shall`, or no text of its own, makes it a heading that
+takes its subclauses' status; does it grant a permission some code here uses — then it is
+`implemented`; only then, does the stated condition hold — and the sentence stating it is quoted
+where the checker verifies it. Nine of fourteen rows that left `inapplicable` were caught by the
+first question, one by the second, one by grepping the clause's `/Key` names against the tree.

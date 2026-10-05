@@ -85,9 +85,14 @@ impl Host {
 
     /// Hands §14.7's structure for every page on the screen to AT-SPI.
     ///
-    /// The three things only a host knows — what the window is called, how large the viewport is,
-    /// and what the document is called — and nothing else: what to ask the viewer, and in what
-    /// order, is [`Reading`]'s, shared with the other two windows.
+    /// The four things only a host knows — what the window is called, how large the viewport is,
+    /// where it sits in the window, and what the document is called — and nothing else: what to
+    /// ask the viewer, and in what order, is [`Reading`]'s, shared with the other two windows.
+    ///
+    /// **Where it sits is the page area's place in the window's contents** (`page_placed`), not
+    /// the contents' corner: AccessKit adds the contents' screen origin (`window_placed`) to every
+    /// node's bounds, and the page area sits below the menu and the toolbar and beside the panel —
+    /// so without it every node was that far up and to the left of the page (ADR 1528).
     fn speak(&mut self) {
         let document = self.named();
         let window = format!("{document} — {}", self.caption());
@@ -96,7 +101,7 @@ impl Host {
             reason = "a viewport in device pixels; f32 is exact to 2^24 and no display is"
         )]
         let viewport = (self.viewport.0 as f32, self.viewport.1 as f32);
-        let reading = Reading::of(&self.viewer, &window, &document, viewport);
+        let reading = Reading::of(&self.viewer, &window, &document, viewport).at(self.page_at);
         self.trace.say(
             Topic::Access,
             format_args!(
@@ -122,6 +127,22 @@ impl Host {
     pub(crate) fn window_placed(&mut self, outer: QtPlace, inner: QtPlace) {
         self.window_at = Some((corners(outer), corners(inner)));
         self.tell_the_adapter_where_the_window_is();
+    }
+
+    /// Where the page area now sits in the window's contents, in device pixels, as Qt has just
+    /// reported it (ADR 1528).
+    ///
+    /// A move re-publishes the tree, as a change of page does, so a panel opened beside the page
+    /// moves every node with it; before the first frame there is no bridge and the value waits.
+    pub(crate) fn page_placed(&mut self, x: f32, y: f32) {
+        if self.page_at == (x, y) {
+            return;
+        }
+        self.page_at = (x, y);
+        if self.accessibility.is_some() {
+            self.spoken = None;
+            self.attend();
+        }
     }
 
     /// Passes that on, if there is an adapter and this platform wants it.

@@ -275,7 +275,11 @@ gated, every contradicted page is named in the source, and both a new disagreeme
 entry fail the build. See ADR 0011. Each group of contradicted pages states whose departure it
 holds — ours, the references', or a documented choice — in `WHOSE_DEPARTURE`, beside the clause
 its note decides it by and held to the groups both ways, and the ranking by the bound names the
-highest-ranked page held as a departure of ours (ADR 1483). An encrypted corpus document whose password is published opens
+highest-ranked page held as a departure of ours (ADR 1483). A page the references call
+ambiguous, or whose geometry the standard does not admit, is held by name too where it is a page
+this tree already reports — `AMBIGUOUS_ON_A_PAGE_WE_REPORT` and `GEOMETRY_ON_A_PAGE_WE_REPORT`,
+checked both ways and read against `corpus.rs`'s `INCOMPLETE` — so every page the oracle counts is
+one a constant holds (ADR 1522). An encrypted corpus document whose password is published opens
 with it — ours and the references' alike — from the one table every corpus gate reads,
 `crates/pdf-model/tests/support/corpus_passwords.rs`, so it is a page the rule holds rather than one
 it skips (ADR 1377).

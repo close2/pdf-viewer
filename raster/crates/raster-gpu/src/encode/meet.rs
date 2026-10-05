@@ -26,6 +26,7 @@ use crate::raster::{self, CoverageMask, MeetWork, Polyline, RowEdges, Rule};
 mod kept;
 
 pub(crate) use kept::KeptMeets;
+pub(in crate::encode) use kept::KeptRegion;
 
 /// The mark a residue meets: the polylines its coverage was filled from, the rule, and the
 /// mark's edges bucketed over its tile's rows where the job that filled it built them.
@@ -65,28 +66,39 @@ impl Encoder<'_> {
     /// **A meet the render before made is not made again** ([`KeptMeets`], ADR 1517): the
     /// tile it met is a function of the words [`Encoder::meet_words`] lists, so a tile under
     /// the same words is handed the same bytes.
+    ///
+    /// Answers whether the met bytes are a function of the mark and the chain alone — true
+    /// unless a budget decided the chain's edges — which is what a caller keeping the whole
+    /// tile for the next render must know (ADR 1529). Such a caller passes `own_words` false:
+    /// a tile it did not find kept is a mark whose meet was not kept either, since the meet's
+    /// words hold the tile's and more, so building them would only cost.
     pub(super) fn meet_residue(
         &mut self,
         tile: &mut CoverageMask,
         resolved: &ResolvedClip,
         mark: Mark<'_>,
-    ) -> Result<(), RenderError> {
+        own_words: bool,
+    ) -> Result<bool, RenderError> {
         if resolved.residues.is_none() {
-            return Ok(());
+            return Ok(true);
         }
         // The queue drains here as [`Encoder::residue_intersection`] drains it, so that a
         // kept meet leaves the walk's order — which marks commit before this one — as a
         // computed one leaves it.
         self.drain_queue()?;
-        let words = self.meet_words(tile, resolved, mark)?;
+        let words = if own_words {
+            self.meet_words(tile, resolved, mark)?
+        } else {
+            None
+        };
         if let Some(met) = words.as_deref().and_then(|words| self.kept.find(words)) {
             tile.coverage.copy_from_slice(&met);
-            return Ok(());
+            return Ok(true);
         }
         let Some(clip) =
             self.residue_intersection(resolved, tile.left, tile.top, tile.width, tile.height)?
         else {
-            return Ok(());
+            return Ok(true);
         };
         let cut = both_cut(tile, &clip);
         let chain = match cut_rows(tile, &cut) {
@@ -118,7 +130,7 @@ impl Encoder<'_> {
                 &Arc::from(tile.coverage.as_slice()),
             );
         }
-        Ok(())
+        Ok(unbounded)
     }
 
     /// The words that name what a meet computes from, or `None` for a meet whose words would
@@ -154,30 +166,40 @@ impl Encoder<'_> {
                 .rev()
                 .fold(0_u32, |word, &byte| (word << 8) | u32::from(byte))
         }));
-        words.push(match mark.rule {
-            Rule::NonZero => 0,
-            Rule::EvenOdd => 1,
-        });
-        words.push(u32::try_from(mark.polylines.len()).unwrap_or(u32::MAX));
-        for polyline in mark.polylines {
-            words.push(u32::try_from(polyline.points.len()).unwrap_or(u32::MAX));
-            words.push(u32::from(polyline.closed));
-            words.extend(
-                polyline
-                    .points
-                    .iter()
-                    .flat_map(|point| [point.x.to_bits(), point.y.to_bits()]),
-            );
+        mark_words(mark.polylines, mark.rule, chain, &mut words);
+        Ok(Some(words))
+    }
+
+    /// The words that name a whole coverage tile as [`Encoder::coverage_tile`] makes it, or
+    /// `None` past [`KEY_WORDS`]: the tile's place and extent, then the words
+    /// [`Encoder::meet_words`] ends with — the rule, the polylines and the chain's number. The
+    /// filled bytes are a function of the first three (`raster::fill_mask`) and the meet of
+    /// those bytes and the fourth, so the words name the tile without its bytes (ADR 1529).
+    #[expect(clippy::cast_sign_loss)] // a corner's bits, read back as the same `i32`
+    pub(super) fn tile_words(
+        &mut self,
+        (left, top, width, height): (i32, i32, u32, u32),
+        polylines: &[Polyline],
+        rule: Rule,
+        resolved: &ResolvedClip,
+    ) -> Result<Option<Vec<u32>>, RenderError> {
+        let points: usize = polylines.iter().map(|p| p.points.len()).sum();
+        let length = 8_usize
+            .saturating_add(points.saturating_mul(2))
+            .saturating_add(polylines.len().saturating_mul(2));
+        if length > KEY_WORDS {
+            return Ok(None);
         }
-        // The low half first: a number is two words.
-        #[expect(clippy::cast_possible_truncation)] // each half of a `u64`, kept
-        words.extend([chain as u32, (chain >> 32) as u32]);
+        let chain = self.chain_number(resolved)?;
+        let mut words = Vec::with_capacity(length);
+        words.extend([left as u32, top as u32, width, height]);
+        mark_words(polylines, rule, chain, &mut words);
         Ok(Some(words))
     }
 
     /// The number `resolved`'s residue is named by in [`KeptMeets`], asked once a render for
     /// each chain this scene states.
-    fn chain_number(&mut self, resolved: &ResolvedClip) -> Result<u64, RenderError> {
+    pub(super) fn chain_number(&mut self, resolved: &ResolvedClip) -> Result<u64, RenderError> {
         let Some(leaf) = resolved.leaf() else {
             return Ok(0);
         };
@@ -187,6 +209,29 @@ impl Encoder<'_> {
         let content = self.residue_content(resolved)?;
         Ok(self.kept.chain(leaf, content))
     }
+}
+
+/// A mark's rule, its polylines and its chain's number as key words, each part leading with
+/// its length so that the words read back one way only.
+fn mark_words(polylines: &[Polyline], rule: Rule, chain: u64, words: &mut Vec<u32>) {
+    words.push(match rule {
+        Rule::NonZero => 0,
+        Rule::EvenOdd => 1,
+    });
+    words.push(u32::try_from(polylines.len()).unwrap_or(u32::MAX));
+    for polyline in polylines {
+        words.push(u32::try_from(polyline.points.len()).unwrap_or(u32::MAX));
+        words.push(u32::from(polyline.closed));
+        words.extend(
+            polyline
+                .points
+                .iter()
+                .flat_map(|point| [point.x.to_bits(), point.y.to_bits()]),
+        );
+    }
+    // The low half first: a number is two words.
+    #[expect(clippy::cast_possible_truncation)] // each half of a `u64`, kept
+    words.extend([chain as u32, (chain >> 32) as u32]);
 }
 
 impl Encoder<'_> {

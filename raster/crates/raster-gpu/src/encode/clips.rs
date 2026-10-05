@@ -227,8 +227,29 @@ impl Encoder<'_> {
             self.clock.geometry(span);
             return Ok(Some(tile));
         }
+        let undecided = matches!(self.residue.verdict(key), Verdict::Undecided);
+        // A region the render before filled for the same content is asked the same
+        // admission at the same price and, admitted, handed over as it was filled (ADR 1529):
+        // its bytes are a function of the chain's content, which its number names.
+        if undecided {
+            let chain = self.chain_number(resolved)?;
+            if let Some(kept) = self.kept.region(chain) {
+                let tile = Fill::new(area(width, height), u64::from(height), 0);
+                if self.residue.admit(key, kept.priced, tile) {
+                    let mask = kept.mask.as_deref().cloned();
+                    let span = self.clock.start();
+                    let tile = window(mask.as_ref(), left, top, width, height);
+                    self.clock.geometry(span);
+                    self.residue.hold_kept(key, mask);
+                    return Ok(Some(tile));
+                }
+                self.residue.note_tile();
+                let links = self.flatten_chain(&leaf)?;
+                return Ok(Some(self.intersect_links(&links, left, top, width, height)));
+            }
+        }
         let links = self.flatten_chain(&leaf)?;
-        if matches!(self.residue.verdict(key), Verdict::Undecided) {
+        if undecided {
             let region = chain_region(&links, self.visible);
             let priced = region.map_or_else(Fill::default, |(_, top, w, h)| {
                 Fill::new(area(w, h), u64::from(h), row_pieces(&links, top, h))
@@ -244,6 +265,14 @@ impl Encoder<'_> {
                 let span = self.clock.start();
                 let tile = window(mask.as_ref(), left, top, width, height);
                 self.clock.geometry(span);
+                let chain = self.chain_number(resolved)?;
+                self.kept.keep_region(
+                    chain,
+                    super::meet::KeptRegion {
+                        priced,
+                        mask: mask.clone().map(Arc::new),
+                    },
+                );
                 self.residue.insert(key, mask);
                 return Ok(Some(tile));
             }

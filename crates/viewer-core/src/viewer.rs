@@ -712,10 +712,11 @@ impl Viewer {
             Command::Supply { purpose, bytes } => self.supply(purpose, bytes.as_deref(), events),
             Command::Respond {
                 document,
+                answers,
                 source,
                 format,
                 bytes,
-            } => self.respond(document, source, format, &bytes, events),
+            } => self.respond(document, answers, source, format, &bytes, events),
             Command::RenderReady { token, rendered } => self.rendered(token, rendered, events),
         }
     }
@@ -878,7 +879,7 @@ impl Viewer {
             // stream. The rest arrives per page, below.
             //
             // **What the document says about *itself* is not here, and that is principle 2.**
-            // `notes::about` answers eight clauses about the file, and §12.8's answer reads and
+            // `notes::about` answers nine clauses about the file, and §12.8's answer reads and
             // digests the signed byte ranges — on a signed document that is the whole file, and
             // none of it draws a page. `Command::Report` is what asks for it, and `Open::about`
             // is what makes asking twice cost once. ADR 1044.
@@ -1423,7 +1424,8 @@ impl Viewer {
         self.apply(id, outcome, events);
     }
 
-    /// Applies §12.7.8's form data a server answered a submission with — [`Command::Respond`].
+    /// Applies §12.7.8's form data a server answered a submission or a fetched import with —
+    /// [`Command::Respond`].
     ///
     /// The document in front takes the whole of [`Self::apply`], exactly as an import-data action's
     /// file does. One behind it takes the values and the sentences, and is drawn again when it next
@@ -1433,6 +1435,7 @@ impl Viewer {
     fn respond(
         &mut self,
         document: DocumentId,
+        answers: crate::Answered,
         source: String,
         format: pdf_model::action::DataFormat,
         bytes: &[u8],
@@ -1446,7 +1449,14 @@ impl Viewer {
             file: source,
             format,
         });
-        let outcome = interact::import(open, bytes, interact::Arrival::Answer);
+        // A fetched import reads as the import it is, whichever route asked for it, so that the
+        // same parameter says the same sentence whether its file was beside the document or on a
+        // server (ADR 1527).
+        let arrival = match answers {
+            crate::Answered::Submission => interact::Arrival::Answer,
+            crate::Answered::Import => interact::Arrival::Action,
+        };
+        let outcome = interact::import(open, bytes, arrival);
         if in_front {
             self.apply(document, outcome, events);
             return;
@@ -2403,7 +2413,7 @@ impl Viewer {
 
     /// [`Command::Report`]: what the focused document says about itself, in words.
     ///
-    /// **The one place `notes::about` is called, and it is not the open path.** Its eight clauses
+    /// **The one place `notes::about` is called, and it is not the open path.** Its nine clauses
     /// are claims about the *file* — §12.8's signatures above all, whose answer reads and digests
     /// the signed byte ranges — and `CLAUDE.md` principle 2 defers what page one does not need
     /// until something asks. This is the asking; [`crate::open::Open::about`] is the `OnceCell`
@@ -3729,6 +3739,16 @@ impl Viewer {
             open.selection = None;
         }
 
+        Self::interpret_arranged(open, id, events);
+    }
+
+    /// Interprets every page of the arrangement that is not interpreted yet.
+    ///
+    /// [`Self::arrange`]'s second half, and [`Self::anticipate`]'s whole: one description of what
+    /// interpreting an arranged page does — its reports, its readback, its revision — so that a
+    /// page interpreted ahead of the first viewport is the page the first arrangement would have
+    /// interpreted (ADR 1531).
+    fn interpret_arranged(open: &mut Open, id: DocumentId, events: &mut Vec<Event>) {
         for index in 0..open.on_screen.len() {
             if open.on_screen[index].interpreted.is_some() {
                 continue;
@@ -3796,6 +3816,49 @@ impl Viewer {
             open.pending_selection = None;
             open.selection = Some(chosen);
         }
+    }
+
+    /// Interprets the page the focused document stands at, before the host has a viewport.
+    ///
+    /// **The launch path's second overlap** (ADR 1531). A host that opens its document on a
+    /// thread of its own while the graphics device comes up on another (ADR 0182) calls this on
+    /// the document's thread, after [`Command::Open`] and any page it was asked to open at; the
+    /// first [`Command::Resize`] then finds the page interpreted and asks for its render at once.
+    /// Measured on the launch gate's five documents, the interpretation is 0.6 to 18.6 ms that
+    /// stood after the device was up and is now inside the time the device takes to come up.
+    ///
+    /// Nothing here is decided that the first `settle` does not ask again. The page is interpreted
+    /// under the view as it stands, with no magnification yet, and `settle` treats it as it treats
+    /// any interpretation: dropped by `Open::reinterpret` where the magnification it then learns is
+    /// one the page notices (§12.5.3's `NoZoom`), by `Open::stale` where the ink moves, and by the
+    /// arrangement where the page is not on the screen at all. So the frame the host draws is the
+    /// frame an interpretation at the first resize would have drawn.
+    pub fn anticipate(&mut self) -> impl Iterator<Item = Event> + use<> {
+        let mut events = Vec::new();
+        if let Some(id) = self.focused
+            && let Some(open) = self.documents.get_mut(&id)
+        {
+            let page = open.page_index;
+            if open.on(page).is_none()
+                && let Some(object) = open.page(page)
+            {
+                open.on_screen.push(crate::open::OnScreen {
+                    page,
+                    object,
+                    origin: (0.0, 0.0),
+                    raster: (0, 0),
+                    interpreted: None,
+                    replaceable: None,
+                    revision: 0,
+                    shown: None,
+                    frame: None,
+                    pending: None,
+                });
+                open.on_screen.sort_by_key(|on_screen| on_screen.page);
+            }
+            Self::interpret_arranged(open, id, &mut events);
+        }
+        events.into_iter()
     }
 
     /// Asks for a render of every page whose pixels are not the pixels it should have.
@@ -5116,6 +5179,7 @@ mod tests {
             viewer
                 .handle(Command::Respond {
                     document: DocumentId(1),
+                    answers: crate::Answered::Submission,
                     source: "http://127.0.0.1/submit".to_owned(),
                     format: pdf_model::action::DataFormat::Fdf,
                     bytes: fdf.to_vec(),

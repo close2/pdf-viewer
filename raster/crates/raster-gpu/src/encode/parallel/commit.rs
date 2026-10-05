@@ -424,7 +424,7 @@ impl<'a> Encoder<'a> {
                 rule,
                 edges: edges.as_ref(),
             };
-            self.meet_residue(&mut tile, resolved, mark)?;
+            self.meet_residue(&mut tile, resolved, mark, true)?;
         }
         let dest = Point::new(tile.left as f32, tile.top as f32);
         self.push_scratch_quad(&tile, dest, draw.color, draw.clip, draw.style, draw.mask)

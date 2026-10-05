@@ -508,6 +508,17 @@ that idled (ADR 1519). Nothing was built — spinning before a frame is work don
 and the band keeps its width with that reason. And `turn_path`'s load ceiling counts processor load:
 a neighbour's GPU work failed step rows by 2.5× at a load the gate admits; check the device first.
 
+### 105. A comparison figure older than a few rounds is re-taken before it decides anything
+
+ADR 1471 recorded the CPU backend drawing `bug1721218_reduced.pdf` in 84 ms; two rounds measured
+the GPU lane against it and one called the page "within 2×". Pinned to the fast cores with the same
+instrument, the CPU backend takes 56 ms, and the page is at 2.4× (ADR 1529). And amdgpu's
+`gpu_busy_percent` lags: read straight after another process's device work it gave 78% on one
+run and 1% on another, so `turn_path` brackets each child with readings and sets its threshold
+above a child's own tail (6–9%); on an APU a saturated device also pushes the processor's
+calibration probe out of its band, so the device figure is read before the processor is blamed
+(ADR 1537).
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

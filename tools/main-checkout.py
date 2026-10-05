@@ -173,18 +173,29 @@ def patches(main):
     A round may not push to a fork, so a fix to a dependency is a patch beside the tree whose
     preamble names the repository and the revision it was written against; the owner applies it
     to the fork and bumps the `rev` the manifest pins. A patch is owed while the manifest still
-    pins its base: a bumped `rev` is the patch applied, and it drops off the list."""
+    pins its base: a bumped `rev` is the patch applied, and it drops off the list. A patch whose
+    repository the manifest pins no fork of at all — `zune-jpeg`, taken from crates.io — is neither:
+    it waits on the decision to carry a fork, which its preamble names, and is listed as waiting
+    rather than counted as applied."""
     directory = os.path.join(main, "doc/patches")
     names = sorted(n for n in os.listdir(directory) if n.endswith(".patch")) if os.path.isdir(directory) else []
     pins = pinned(main)
     if pins is None:
         return ["doc/patches: Cargo.toml not readable here"]
-    owed, applied, unstated = [], 0, []
+    owed, applied, unstated, waiting = [], 0, [], []
+    forks = {repository for repository, _ in pins.values()}
     for name in names:
         header, packages = patch_header(os.path.join(directory, name))
         base, repository = header.get("Base"), header.get("Repository")
         if not base or not repository:
             unstated.append(name)
+            continue
+        if repository not in forks:
+            with open(os.path.join(directory, name), encoding="utf-8", errors="replace") as handle:
+                question = re.search(r"doc/questions/Q\d+", handle.read())
+            waiting.append(f"  waiting:          doc/patches/{name} — {repository}, which the manifest "
+                           f"pins no fork of; it waits on "
+                           f"{question.group(0) if question else 'a decision its preamble does not name'}")
             continue
         held = [package for package in sorted(packages)
                 if pins.get(package, (None, None)) == (repository, base)]
@@ -194,8 +205,10 @@ def patches(main):
         else:
             applied += 1
     lines = [f"doc/patches: {len(owed)} owed to a fork the manifest still pins at the patch's base, "
-             f"{applied} whose base it no longer pins, {len(unstated)} stating no base"]
+             f"{applied} whose base it no longer pins, {len(waiting)} waiting for a fork the manifest "
+             f"does not have, {len(unstated)} stating no base"]
     lines += owed
+    lines += waiting
     lines += [f"  no Repository:/Base: preamble: doc/patches/{name}" for name in unstated]
     return lines
 

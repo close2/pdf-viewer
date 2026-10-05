@@ -29,6 +29,12 @@
 //! - **A child is started only below a load average of one per physical core**, re-tried up to
 //!   [`LOAD_ATTEMPTS`] times, because above it a child shares a core with a neighbour and nothing
 //!   in a clock can subtract that (the launch gate's `the_load_ceiling`, ADR 0916).
+//! - **And only on a device nobody else is drawing on**: a processor's load average does not
+//!   count the graphics device, and a neighbour's GPU work stretches a step row 2.5× at a load
+//!   the ceiling admits (trap 101). So each child is also bracketed by [`device_busy`] — the
+//!   share of a short window the device's own counter says it was busy, read before the child
+//!   starts and again after it exits — and a child either reading finds above the check file's
+//!   `device_busy_percent` is printed with that figure and not judged (ADR 1537).
 //! - **Judged only under the profile the bands state**, pinned, with at least one fit child per
 //!   row. Anything else prints every figure and says why it judged none of them — the run is then
 //!   a measurement, not a verdict, and says so rather than passing or failing on a machine nobody
@@ -100,6 +106,21 @@ const SAMPLES: usize = 3;
 /// anyway and its figures are printed unjudged.
 const LOAD_ATTEMPTS: usize = 3;
 
+/// Readings of the device's busy counter [`device_busy`] averages over, and the gap between
+/// them: half a second, long enough that one idle or one busy instant does not decide it.
+const DEVICE_READINGS: u32 = 20;
+
+/// The gap between two of [`DEVICE_READINGS`].
+const DEVICE_READING_GAP: std::time::Duration = std::time::Duration::from_millis(25);
+
+/// How long a planted busy device keeps the device busy unless told otherwise.
+const BUSY_SECONDS: &str = "PDFVIEWER_TURN_BUSY_SECONDS";
+
+/// Held by each `#[ignore]`d test for its whole run, so that `-- --ignored` — which is how
+/// `tools/batch.sh gates` runs this file — never has the planted busy device of
+/// [`a_planted_busy_device_is_seen_as_busy`] running on a thread beside the gate it calibrates.
+static THE_DEVICE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// The calibration probe's passes: the launch gate's fifty.
 const CALIBRATION_PASSES: usize = 50;
 
@@ -117,7 +138,18 @@ fn turn_probe() {
     let Ok(phase) = std::env::var(PHASE) else {
         return;
     };
-    assert_eq!(phase, "measure", "the only phase a child runs");
+    if phase == "busy" {
+        let seconds = std::env::var(BUSY_SECONDS)
+            .ok()
+            .and_then(|text| text.parse().ok())
+            .unwrap_or(30);
+        keep_the_device_busy(std::time::Duration::from_secs(seconds));
+        return;
+    }
+    assert_eq!(
+        phase, "measure",
+        "a child measures or keeps the device busy"
+    );
     let document = std::env::var(DOCUMENT).expect("a document");
     let page: usize = std::env::var(PAGE)
         .expect("a page")
@@ -181,6 +213,117 @@ fn calibration_ms() -> f64 {
     quickest
 }
 
+/// The device's busy share over half a second, in percent: the mean of [`DEVICE_READINGS`] of
+/// the kernel's own counter, the busiest device where there are several, or `None` where no
+/// device offers one.
+///
+/// The counter is amdgpu's `gpu_busy_percent`, the driver's reading of how much of a recent
+/// interval the graphics engine was working. It is read from outside the gate's own work — before
+/// a child starts and after it exits — so the figure is a neighbour's and the compositor's, with
+/// at most the tail of the child's own work in the second reading, since the driver averages over
+/// an interval that lags. A device with no such file (another driver) is printed as unread and the
+/// child judged on the processor's figures alone, which the print says, so that it is never taken
+/// for a pass the device check gave (ADR 1537).
+fn device_busy() -> Option<f64> {
+    let counters: Vec<PathBuf> = std::fs::read_dir("/sys/class/drm")
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path().join("device/gpu_busy_percent"))
+        .filter(|path| path.is_file())
+        .collect();
+    let read =
+        |path: &PathBuf| -> Option<f64> { std::fs::read_to_string(path).ok()?.trim().parse().ok() };
+    if counters.iter().all(|path| read(path).is_none()) {
+        return None;
+    }
+    let mut sums = vec![0.0_f64; counters.len()];
+    for reading in 0..DEVICE_READINGS {
+        if reading > 0 {
+            std::thread::sleep(DEVICE_READING_GAP);
+        }
+        for (sum, path) in sums.iter_mut().zip(&counters) {
+            *sum += read(path).unwrap_or(0.0);
+        }
+    }
+    sums.into_iter()
+        .map(|sum| sum / f64::from(DEVICE_READINGS))
+        .reduce(f64::max)
+}
+
+/// A planted busy device, for calibrating [`device_busy`]: a compute shader of dependent
+/// multiply-adds, dispatched and waited for back to back on the adapter the gate draws on, until
+/// `for_how_long` has passed. One thread submits and waits, so it costs the processor about one
+/// core, which the load ceiling admits, and the device nearly all of its time — the neighbour
+/// trap 101 describes, made on purpose.
+fn keep_the_device_busy(for_how_long: std::time::Duration) {
+    use raster_gpu::wgpu;
+    const SPIN: &str = "
+        @group(0) @binding(0) var<storage, read_write> sink: array<f32>;
+        @compute @workgroup_size(64)
+        fn spin(@builtin(global_invocation_id) id: vec3<u32>) {
+            var x = f32(id.x) * 1e-6;
+            for (var i = 0u; i < 100000u; i = i + 1u) {
+                x = fma(x, 1.0000001, 1e-7);
+            }
+            sink[id.x % 1024u] = x;
+        }
+    ";
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::HighPerformance,
+        ..Default::default()
+    }))
+    .expect("an adapter to keep busy");
+    let (gpu, queue) =
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+            .expect("a device to keep busy");
+    let module = gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("turn_path busy device"),
+        source: wgpu::ShaderSource::Wgsl(SPIN.into()),
+    });
+    let pipeline = gpu.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("turn_path busy device"),
+        layout: None,
+        module: &module,
+        entry_point: Some("spin"),
+        compilation_options: wgpu::PipelineCompilationOptions::default(),
+        cache: None,
+    });
+    let sink = gpu.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("turn_path busy device"),
+        size: 4096,
+        usage: wgpu::BufferUsages::STORAGE,
+        mapped_at_creation: false,
+    });
+    let group = gpu.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("turn_path busy device"),
+        layout: &pipeline.get_bind_group_layout(0),
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: sink.as_entire_binding(),
+        }],
+    });
+    let began = Instant::now();
+    let mut dispatches = 0_u64;
+    while began.elapsed() < for_how_long {
+        let mut encoder = gpu.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &group, &[]);
+            pass.dispatch_workgroups(4096, 1, 1);
+        }
+        queue.submit([encoder.finish()]);
+        gpu.poll(wgpu::PollType::wait_indefinitely())
+            .expect("the busy device answers");
+        dispatches = dispatches.saturating_add(1);
+    }
+    println!(
+        "busy device: {dispatches} dispatches in {:.1} s",
+        began.elapsed().as_secs_f64()
+    );
+}
+
 /// A band, `low .. high`.
 #[derive(Debug, Clone, Copy)]
 struct Band {
@@ -210,6 +353,8 @@ struct Check {
     profile: String,
     calibration_document: String,
     calibration_ms: Option<Band>,
+    /// The busiest [`device_busy`] a child may be bracketed by and still be judged.
+    device_busy_percent: Option<f64>,
     pages: Vec<Row>,
 }
 
@@ -259,6 +404,13 @@ fn parse(text: &str) -> Check {
             (None, "profile") => check.profile = text(),
             (None, "calibration_document") => check.calibration_document = text(),
             (None, "calibration_ms") => check.calibration_ms = Some(band(value, at)),
+            (None, "device_busy_percent") => {
+                check.device_busy_percent = Some(
+                    value
+                        .parse()
+                        .unwrap_or_else(|_| panic!("line {at}'s threshold is not a number")),
+                );
+            }
             (Some(row), "path") => row.path = text(),
             (Some(row), "page") => row.page = count(),
             (Some(row), "commands") => row.commands = count(),
@@ -406,16 +558,19 @@ fn take(row: &Row, check: &Check, pinning: Option<&(String, usize)>, ceiling: f6
         commands: None,
         unfit: Vec::new(),
     };
+    let threshold = check.device_busy_percent.unwrap_or(f64::INFINITY);
+    let quiet = |busy: Option<f64>| busy.is_none_or(|busy| busy <= threshold);
     for _ in 0..SAMPLES {
-        let mut load = load_average();
+        let (mut load, mut before) = (load_average(), device_busy());
         for _ in 1..LOAD_ATTEMPTS {
-            if load <= ceiling {
+            if load <= ceiling && quiet(before) {
                 break;
             }
             std::thread::sleep(std::time::Duration::from_secs(10));
-            load = load_average();
+            (load, before) = (load_average(), device_busy());
         }
         let fields = child(row, check, pinning);
+        let after = device_busy();
         let figure = |key: &str| fields.get(key).copied().expect("the child printed it");
         let (turn, step, calibration) = (
             figure("turn_ms"),
@@ -428,15 +583,20 @@ fn take(row: &Row, check: &Check, pinning: Option<&(String, usize)>, ceiling: f6
                 .any
                 .map_or((turn, step), |(t, s)| (t.min(turn), s.min(step))),
         );
+        let device = match (before, after) {
+            (Some(before), Some(after)) => format!("device {before:.0}% / {after:.0}% busy"),
+            _ => "device busy unread".to_owned(),
+        };
         println!(
             "    child: turn {turn:.2} step {step:.2} ms, calibration {calibration:.3} ms, load \
-             {load:.2}"
+             {load:.2}, {device}"
         );
         let fit_load = load <= ceiling;
         let fit_probe = check
             .calibration_ms
             .is_some_and(|band| band.holds(calibration));
-        if fit_load && fit_probe {
+        let fit_device = quiet(before) && quiet(after);
+        if fit_load && fit_probe && fit_device {
             match &mut taken.best {
                 Some((best_turn, best_step, kept)) => {
                     *best_step = best_step.min(step);
@@ -448,9 +608,14 @@ fn take(row: &Row, check: &Check, pinning: Option<&(String, usize)>, ceiling: f6
                 None => taken.best = Some((turn, step, fields)),
             }
         } else {
-            taken.unfit.push(format!(
+            let busiest = [before, after].into_iter().flatten().fold(0.0, f64::max);
+            let mut why = vec![format!(
                 "load {load:.2} against {ceiling}, calibration {calibration:.3} ms"
-            ));
+            )];
+            if !fit_device {
+                why.insert(0, format!("device {busiest:.0}% busy against {threshold}%"));
+            }
+            taken.unfit.push(why.join(", "));
         }
     }
     taken
@@ -465,6 +630,9 @@ fn take(row: &Row, check: &Check, pinning: Option<&(String, usize)>, ceiling: f6
 #[ignore = "spawns a pinned process per sample on the real adapter and takes minutes; run it from \
             tools/batch.sh gates or doc/verify.md"]
 fn the_turn_path_stays_inside_its_bands() {
+    let _device = THE_DEVICE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let file = root().join("doc/checks/turn-path.toml");
     let check = parse(&std::fs::read_to_string(&file).expect("doc/checks/turn-path.toml reads"));
     assert!(!check.pages.is_empty(), "the check file names no page");
@@ -481,13 +649,18 @@ fn the_turn_path_stays_inside_its_bands() {
     if pinning.is_none() {
         declined.push("no faster class of core to pin to".to_owned());
     }
+    let device = device_busy().map_or_else(
+        || "unread on this machine, so a child is judged on the processor's figures".to_owned(),
+        |busy| format!("{busy:.0}% now"),
+    );
     println!(
         "turn path: {} page(s), {SAMPLES} children of {ROUNDS} rounds each, pinned to {}, load \
-         ceiling {load_limit}, profile {profile}",
+         ceiling {load_limit}, device ceiling {}% busy ({device}), profile {profile}",
         check.pages.len(),
         pinning
             .as_ref()
             .map_or("nothing", |(cores, _)| cores.as_str()),
+        check.device_busy_percent.unwrap_or(f64::INFINITY),
     );
     let mut tally = Tally::default();
     for row in &check.pages {
@@ -624,6 +797,12 @@ fn the_check_file_states_a_band_for_every_row() {
             .expect("doc/checks/turn-path.toml reads"),
     );
     assert!(check.calibration_ms.is_some(), "a calibration band");
+    assert!(
+        check
+            .device_busy_percent
+            .is_some_and(|busy| busy > 0.0 && busy < 100.0),
+        "a device threshold between idle and saturated"
+    );
     assert!(!check.pages.is_empty(), "a page");
     for row in &check.pages {
         assert!(
@@ -640,6 +819,51 @@ fn the_check_file_states_a_band_for_every_row() {
             );
         }
     }
+}
+
+/// A planted busy device reads above the check file's threshold, and the device it was planted on
+/// reads under it again once the plant has gone: the calibration of [`device_busy`] (ADR 1537).
+///
+/// `#[ignore]`d because it occupies the real adapter for seconds; `doc/verify.md` has the line.
+#[test]
+#[ignore = "occupies the real adapter for seconds; run it from doc/verify.md"]
+fn a_planted_busy_device_is_seen_as_busy() {
+    let _device = THE_DEVICE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let check = parse(
+        &std::fs::read_to_string(root().join("doc/checks/turn-path.toml"))
+            .expect("doc/checks/turn-path.toml reads"),
+    );
+    let threshold = check.device_busy_percent.expect("a device threshold");
+    let Some(idle) = device_busy() else {
+        println!("device busy: no device here offers a counter, so nothing to calibrate");
+        return;
+    };
+    let mut plant = Child::new(std::env::current_exe().expect("this binary"))
+        .args(["--exact", "turn_probe", "--nocapture", "--test-threads=1"])
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
+        .env(PHASE, "busy")
+        .env(BUSY_SECONDS, "6")
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .expect("the plant starts");
+    // The plant's own bring-up is a few hundred milliseconds of instance, adapter and pipeline;
+    // read after it, inside its six seconds.
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    let busy = device_busy().expect("the counter read a moment ago");
+    let status = plant.wait().expect("the plant ends");
+    let after = device_busy().expect("the counter read a moment ago");
+    println!(
+        "device busy: {idle:.1}% before, {busy:.1}% planted, {after:.1}% after; threshold \
+         {threshold}%"
+    );
+    assert!(status.success(), "the plant ran to its end");
+    assert!(
+        busy > threshold,
+        "a device kept busy read {busy:.1}%, under the {threshold}% the gate would judge at"
+    );
 }
 
 /// [`Stages`] is the table's quantity: the budget a window waits for, the readback left out.

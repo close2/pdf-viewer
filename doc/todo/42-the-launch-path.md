@@ -333,7 +333,9 @@ the corpus before it was trusted, and it corrected a ledger row that had called 
 
 ADR 0179's table said restricting the wgpu instance to Vulkan moves the cost from instance
 creation into `request_adapter` and the total does not move, and that what was left to try was
-**overlap** — an instance needs no window. That needed quorra's agreement, because
+**overlap** — an instance needs no window. On the real adapter the first half does not hold: GL's
+initialisation is a second driver nobody chooses, and leaving it out took about 9 ms off cold
+bring-up (ADR 1532). That needed quorra's agreement, because
 `Device::for_surface` created the instance itself.
 
 **It agreed** (`doc/QUORRA_FEEDBACK.md` §8, answered at `7d5dafb`, their ADR 0014): five startup

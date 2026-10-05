@@ -34,8 +34,8 @@ use std::process::ExitCode;
 
 use conformance::clause::ClauseIndex;
 use conformance::ledger::{
-    Exclusion, HoldingCounts, Ledger, NORMATIVE_ANNEXES, NORMATIVE_CLAUSES, Row, Status,
-    TestClassifier,
+    self, Exclusion, Grounding, HoldingCounts, Ledger, NORMATIVE_ANNEXES, NORMATIVE_CLAUSES, Row,
+    Status, TestClassifier,
 };
 
 /// Written above the rows, as `#` comments, every time the file is generated.
@@ -176,7 +176,44 @@ fn main() -> ExitCode {
         }
     }
     print_holdings(&root, &generated);
+    print_conditions(&index, &generated);
     ExitCode::SUCCESS
+}
+
+/// What each settled-by-the-standard row rests on: an `inapplicable` row's condition quoted from
+/// its clause and found there, and an `out-of-scope` row's named exclusion. ADR 1535.
+fn print_conditions(index: &ClauseIndex, ledger: &Ledger) {
+    let mut quoted = 0usize;
+    let mut unverified = 0usize;
+    let mut prose = 0usize;
+    for row in ledger
+        .rows
+        .iter()
+        .filter(|row| row.status == Status::Inapplicable)
+    {
+        match ledger::grounding(row, index) {
+            Grounding::Quoted => quoted = quoted.saturating_add(1),
+            Grounding::Unverified => unverified = unverified.saturating_add(1),
+            Grounding::ProseOnly => prose = prose.saturating_add(1),
+        }
+    }
+    println!(
+        "  inapplicable: {quoted} quote their condition from the clause / {unverified} quote \
+         nothing the clause holds / {prose} prose only"
+    );
+    let out_of_scope: Vec<&Row> = ledger
+        .rows
+        .iter()
+        .filter(|row| row.status == Status::OutOfScope)
+        .collect();
+    let named = out_of_scope
+        .iter()
+        .filter(|row| row.exclusion.is_some())
+        .count();
+    println!(
+        "  out-of-scope: {named} of {} name their exclusion",
+        out_of_scope.len()
+    );
 }
 
 /// What holds each row, beside how many there are: a fixture whose expected value the clause

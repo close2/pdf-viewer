@@ -26,12 +26,23 @@
 //! bound meets exactly when its edges were kept and by `min` when they were not. Such a meet is
 //! not kept, so a hit hands back what any render would have computed, whatever it had spent.
 //!
-//! What is held is bounded by a sixteenth of the frame budget per render; past it a meet is
-//! not kept and the next render computes it again, which costs time and changes no byte.
+//! **Two more answers are kept beside the meets, for the same pair of renders** (ADR 1529). A
+//! mark's whole coverage tile — the fill of its polylines over its tile and the meet with its
+//! chain — is a function of the tile, the rule, the polylines and the chain's number, so it is
+//! kept under exactly those words and the second render neither fills nor meets it. And a
+//! chain's region, which [`super::super::residue`] fills once a frame, is a function of the
+//! chain's content alone (the content's words end with the frame's visible rectangle, which
+//! bounds the region), so it is kept under the chain's number with the price its admission
+//! was asked at; the second render asks the same admission and is handed the same bytes.
+//!
+//! What is held is bounded by a sixteenth of the frame budget per render; past it an answer
+//! is not kept and the next render computes it again, which costs time and changes no byte.
 
 use std::sync::Arc;
 
+use crate::encode::residue::Fill;
 use crate::keyhash::FastMap;
+use crate::raster::CoverageMask;
 
 /// The share of the frame budget one render's kept meets may hold: a sixteenth, so that the
 /// two renders held at once stay under an eighth of what one frame may spend.
@@ -40,11 +51,27 @@ const KEPT_BUDGET_SHARE: u64 = 16;
 /// What an entry costs beside its words and bytes: the map's slot and the two boxes' headers.
 const ENTRY_OVERHEAD: u64 = 64;
 
-/// The met tiles of this render and of the one before it, and the chains they were met under.
+/// A chain's region as one render priced and filled it (ADR 1529).
+#[derive(Debug, Clone)]
+pub(in crate::encode) struct KeptRegion {
+    /// The fill [`super::super::residue::ResidueRegions::admit`] was asked to price.
+    pub(in crate::encode) priced: Fill,
+    /// The region itself; `None` is a chain whose links leave no region, which is a region.
+    pub(in crate::encode) mask: Option<Arc<CoverageMask>>,
+}
+
+/// The met tiles, whole coverage tiles and chain regions of this render and of the one before
+/// it, and the chains they were made under.
 #[derive(Debug, Default)]
 pub(crate) struct KeptMeets {
     current: FastMap<Box<[u32]>, Arc<[u8]>>,
     previous: FastMap<Box<[u32]>, Arc<[u8]>>,
+    /// Whole coverage tiles, filled and met, by [`super::super::Encoder::coverage_tile`]'s words.
+    tiles: FastMap<Box<[u32]>, Arc<[u8]>>,
+    previous_tiles: FastMap<Box<[u32]>, Arc<[u8]>>,
+    /// Chain regions by the number their chain's content was named by.
+    regions: FastMap<u64, KeptRegion>,
+    previous_regions: FastMap<u64, KeptRegion>,
     /// Each chain's content, as this render and the one before named it.
     chains: FastMap<Box<[u32]>, u64>,
     previous_chains: FastMap<Box<[u32]>, u64>,
@@ -61,6 +88,8 @@ impl KeptMeets {
     /// render before kept stay readable, and the ones before that are let go.
     pub(crate) fn begin_render(&mut self, frame_budget_bytes: u64) {
         self.previous = std::mem::take(&mut self.current);
+        self.previous_tiles = std::mem::take(&mut self.tiles);
+        self.previous_regions = std::mem::take(&mut self.regions);
         self.previous_chains = std::mem::take(&mut self.chains);
         self.by_leaf.clear();
         self.budget = frame_budget_bytes / KEPT_BUDGET_SHARE;
@@ -113,16 +142,64 @@ impl KeptMeets {
 
     /// Keep `met` under `key` where what is left of this render's budget holds it.
     pub(super) fn keep(&mut self, key: Box<[u32]>, met: &Arc<[u8]>) {
-        let words = u64::try_from(key.len()).unwrap_or(u64::MAX);
-        let bytes = u64::try_from(met.len()).unwrap_or(u64::MAX);
+        if self.afford(key.len(), met.len()) {
+            self.current.insert(key, Arc::clone(met));
+        }
+    }
+
+    /// The whole coverage tile kept under `key`, by this render or the one before; a hit from
+    /// the render before is kept again for this one, as [`KeptMeets::find`] keeps a meet.
+    pub(in crate::encode) fn find_tile(&mut self, key: &[u32]) -> Option<Arc<[u8]>> {
+        if let Some(tile) = self.tiles.get(key) {
+            return Some(Arc::clone(tile));
+        }
+        let tile = Arc::clone(self.previous_tiles.get(key)?);
+        self.keep_tile(key.into(), &tile);
+        Some(tile)
+    }
+
+    /// Keep a whole coverage tile under `key` where what is left of this render's budget
+    /// holds it.
+    pub(in crate::encode) fn keep_tile(&mut self, key: Box<[u32]>, tile: &Arc<[u8]>) {
+        if self.afford(key.len(), tile.len()) {
+            self.tiles.insert(key, Arc::clone(tile));
+        }
+    }
+
+    /// The region kept for the chain named `chain`, by this render or the one before; a hit
+    /// from the render before is kept again for this one.
+    pub(in crate::encode) fn region(&mut self, chain: u64) -> Option<KeptRegion> {
+        if let Some(kept) = self.regions.get(&chain) {
+            return Some(kept.clone());
+        }
+        let kept = self.previous_regions.get(&chain)?.clone();
+        self.keep_region(chain, kept.clone());
+        Some(kept)
+    }
+
+    /// Keep a chain's region under its number where what is left of this render's budget
+    /// holds it. The chain of no residue, `0`, has no region and is never kept.
+    pub(in crate::encode) fn keep_region(&mut self, chain: u64, kept: KeptRegion) {
+        let bytes = kept.mask.as_ref().map_or(0, |mask| mask.coverage.len());
+        if chain != 0 && self.afford(2, bytes) {
+            self.regions.insert(chain, kept);
+        }
+    }
+
+    /// Charge an entry of `words` key words and `bytes` held bytes to this render's budget,
+    /// answering whether it fits; nothing is charged for an entry that does not.
+    fn afford(&mut self, words: usize, bytes: usize) -> bool {
+        let words = u64::try_from(words).unwrap_or(u64::MAX);
+        let bytes = u64::try_from(bytes).unwrap_or(u64::MAX);
         let cost = words
             .saturating_mul(4)
             .saturating_add(bytes)
             .saturating_add(ENTRY_OVERHEAD);
-        if self.spent.saturating_add(cost) <= self.budget {
+        let fits = self.spent.saturating_add(cost) <= self.budget;
+        if fits {
             self.spent = self.spent.saturating_add(cost);
-            self.current.insert(key, Arc::clone(met));
         }
+        fits
     }
 }
 

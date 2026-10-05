@@ -1,8 +1,8 @@
 //! What a document says about itself, said out loud once when it opens.
 //!
-//! Eight clauses, and none of them is about a page. §12.11's requirements, §12.8's signatures,
+//! Nine clauses, and none of them is about a page. §12.11's requirements, §12.8's signatures,
 //! §7.11.4's embedded files, §14.13.2's associated files that are *not* embedded, §7.5's
-//! recovered cross-reference table, Annex I's version,
+//! recovered cross-reference table, §7.7.3's page tree recovered by scanning, Annex I's version,
 //! §14.8.6.2's namespaces and §14.8.6.3's unenclosed `MathML` are all
 //! claims about the *file*, and a person deciding whether to trust what they are looking at needs them before any
 //! page is drawn. That is why they are a [`crate::Event::Reported`] with no page rather than
@@ -51,6 +51,20 @@ pub(crate) fn about(document: &Document, trust: &crate::TrustPolicy) -> Vec<Stri
         };
         notes.push(format!(
             "this file's cross-reference table was broken and was rebuilt by scanning{compressed}"
+        ));
+    }
+
+    // §7.7.3.1's page tree "defines the ordering of pages in the document", and where it yields
+    // no page `pdf_model::Pages` finds them by Table 31's `/Type /Page` instead, in ascending
+    // object number. Every page shown is the file's; which pages and in what order is this
+    // reader's, and a scan shown as if it were a tree is a recovery said by nobody (trap 5).
+    // `Pages::new` is a catalogue lookup and, where the tree is believed, one descent, and this
+    // function is off the open path, so the question costs the launch nothing (ADR 1533).
+    if let Some(found) = pdf_model::Pages::new(document).found_by_scanning() {
+        notes.push(format!(
+            "this file's page tree leads to no page (§7.7.3), so its {found} page(s) were found by \
+             scanning for objects that declare themselves pages, and are shown in the order of \
+             their object numbers rather than an order the file states"
         ));
     }
 
@@ -2179,6 +2193,34 @@ mod tests {
             objects.len().saturating_add(1)
         );
         Document::open(out.into_bytes()).expect("a valid file")
+    }
+
+    /// Pages found by scanning are said out loud with their count, and a tree's pages are not.
+    ///
+    /// A pair differing in one entry: the catalogue's `/Pages` points at the node in the first and
+    /// at an object the file does not hold in the second, so the second's page is found by its
+    /// own `/Type /Page` and shown in an order the file never stated (ADR 1533).
+    #[test]
+    fn pages_found_by_scanning_are_said_with_their_count_and_a_tree_is_not() {
+        let page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>";
+        let tree = document(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            page,
+        ]);
+        let said = about(&tree, &crate::TrustPolicy::default()).join("\n");
+        assert!(!said.contains("found by scanning"), "{said}");
+
+        let scanned = document(&[
+            "<< /Type /Catalog /Pages 9 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            page,
+        ]);
+        let said = about(&scanned, &crate::TrustPolicy::default()).join("\n");
+        assert!(
+            said.contains("its 1 page(s) were found by scanning"),
+            "{said}"
+        );
     }
 
     /// A one-revision signed document whose `/ByteRange` names its own bytes, ending at `%%EOF`.

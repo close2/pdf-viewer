@@ -559,13 +559,16 @@ flock /home/AI/heavy-walk.lock fuzz/seeds.sh fuzz/corpus <target>...
 #   writes or commits; the owner commits them:
 git status --short doc/questions
 
-# `doc/patches: N owed …, M whose base it no longer pins, K stating no base` — an `owed:` line is a
+# `doc/patches: N owed …, M whose base it no longer pins, W waiting …, K stating no base` — an `owed:` line is a
 #   fix to a dependency this tree pins from a fork, written against the `rev` its `Base:` names;
 #   a round cannot push to the fork. Apply it on that base in a clone of the fork and push; then
 #   every `rev` the root Cargo.toml pins to that repository moves to the new commit together, and
 #   both locks follow. The line goes when the manifest no longer pins the base (ADRs 1447, 1463).
 #   A `no Repository:/Base: preamble:` line is a patch whose base cannot be read, so whether it is
-#   owed cannot be said: write those two lines at its head.
+#   owed cannot be said: write those two lines at its head. A `waiting:` line is a patch to a
+#   dependency the manifest takes from crates.io and pins no fork of (`zune-jpeg`): there is no fork
+#   to apply it to until the question it names is answered, and it is listed rather than counted
+#   as applied.
 git -C <fork clone> checkout <Base> && git -C <fork clone> apply doc/patches/<name>.patch
 cargo update -p hayro-jbig2 -p hayro-jpeg2000 -p hayro-ccitt
 cargo update --manifest-path fuzz/Cargo.toml -p hayro-jbig2 && cargo test -p conformance --test fuzz_workspace

@@ -230,19 +230,29 @@ calibration_ms = 0.62 .. 0.78
 # measured with the driver's loader already warm. The run names the adapter beside the figure,
 # because a machine that quietly fell back to a software rasteriser would otherwise report a
 # different measurement wearing the same number.
-bring_up_ms = 23.3 .. 41.9
+#
+# **The band is 14.5 .. 22.2 and was 23.3 .. 41.9, because the instance no longer loads GL on a
+# machine whose primary backend has the adapter** (`raster_gpu::create_launch_instance`, ADR
+# 1532): an all-backends instance initialised Mesa's EGL, a second driver, for an adapter
+# `request_adapter` passed over. Three runs of this gate on 2026-10-05 read 17.1, 18.5 and 18.1
+# against 25.2 to 28.3 the same morning; the band is this file's rule over the three, smallest ×
+# 0.85 and largest × 1.20, so that a launch that loaded GL again — about 25 ms — fails here as
+# itself rather than as a slower page.
+bring_up_ms = 14.5 .. 22.2
 
 # What the device costs in *allocated* memory, in the same process that has done nothing else.
 #
 # Principle 2 makes cold bring-up a gate of its own "so that a regression in the driver, the
 # adapter selection or the shader set is legible as itself rather than as a slower page", and
 # until session 935 the only thing that gate said was a duration. This is the driver's share of
-# every row's `peak_anon_mib` below — about eleven mebibytes of the twenty-seven a five-page
+# every row's `peak_anon_mib` below — about six mebibytes of the twenty-three a five-page
 # document's first page reaches — and it is judged on any machine, like the other memory figures.
+# It was eleven, and the four and a half that went are GL's: the band below is 5.5 .. 7.5 and was
+# 9.5 .. 12.5 for ADR 1532's reason, three runs reading 6.36 to 6.45 under the rule beneath.
 # Its own spread over eleven consecutive samples was 0.8%; the band is the observed range widened
 # by a tenth on each side and rounded outwards, which is the rule every `*_anon_mib` here uses and
 # which is a transparent huge page's worth of headroom on the smallest of them.
-bring_up_anon_mib = 9.5 .. 12.5
+bring_up_anon_mib = 5.5 .. 7.5
 
 # The disk's *latency*, where `io_ms` below is its throughput, timed beside every cold sample.
 #
@@ -269,9 +279,18 @@ path = "doc/PDF20_AN001-BPC.pdf"
 pages = 5
 cold_open_ms = 0.49 .. 0.80
 warm_open_ms = 0.35 .. 0.57
-first_page_ms = 30.3 .. 48.4
+# **Every row's `first_page_ms` and `peak_anon_mib` were re-taken on 2026-10-05, for two levers
+# (ADRs 1531 and 1532).** Page one is interpreted on the document's thread while the device comes
+# up (`Viewer::anticipate`), which took the interpretation — 0.6 ms here, 18.6 on
+# `bug1815476.pdf` — out from behind the device; and the device comes up without GL, about 9 ms
+# and 4.5 MiB less on every row. The frame is the same bytes: the run prints its hash, and every
+# row's read the same before and after both. Each band is this file's rule over three runs of the
+# gate that morning — clocks smallest × 0.85 to largest × 1.20, allocations the observed range
+# widened by a tenth and rounded outwards to half a mebibyte. Here the three read 24.7, 25.8 and
+# 26.2 ms against 33.0 to 36.9 before, and 21.9 to 23.1 MiB against 26.6 to 27.4.
+first_page_ms = 20.9 .. 31.5
 turn_ms = 3.4 .. 5.6
-peak_anon_mib = 24.0 .. 30.5
+peak_anon_mib = 19.5 .. 25.5
 open_peak_mib = 5 .. 9
 read_kib = 106 .. 112
 read_calls = 29 .. 33
@@ -291,9 +310,12 @@ path = "doc/Well-Tagged-PDF-WTPDF-1.0.pdf"
 pages = 57
 cold_open_ms = 1.95 .. 3.06
 warm_open_ms = 1.71 .. 2.66
-first_page_ms = 38.5 .. 61.4
+# Re-taken for ADRs 1531 and 1532 (see the first row): 28.9 to 30.6 ms against 45.5 to 46.6
+# before, and 25.6 to 26.5 MiB. This page's `ICCBased` page group is also converted on more than
+# one thread now (`pdf_render::resolve_cube`), which took about 2 ms off its first frame.
+first_page_ms = 24.5 .. 36.8
 turn_ms = 3.99 .. 6.6
-peak_anon_mib = 28.0 .. 35.0
+peak_anon_mib = 23.0 .. 29.5
 open_peak_mib = 6 .. 11
 read_kib = 343 .. 359
 read_calls = 87 .. 91
@@ -305,7 +327,9 @@ path = "doc/ISO_32000-2_sponsored_EC3.pdf"
 pages = 1023
 cold_open_ms = 19.2 .. 30.4
 warm_open_ms = 11.1 .. 17.2
-first_page_ms = 34.0 .. 57.3
+# Re-taken for ADRs 1531 and 1532 (see the first row): 28.1 to 30.0 ms against 37.4 to 40.2
+# before, and 28.4 to 28.9 MiB.
+first_page_ms = 23.9 .. 36.1
 # **The floor was 4.5 and is 3.8, because session 925 took 0.77 ms out of this document's page
 # turn** and a floor derived from a slower program is a floor a faster one falls through. What
 # went: `Viewer::announce_page` built a `Pages` and then the whole `Pages::indices` map — every
@@ -318,7 +342,7 @@ first_page_ms = 34.0 .. 57.3
 # The other two rows' floors are untouched: the same change is worth 0.06 ms on the 57-page
 # document and 0.03 on the five-page one, which is inside their own spread.
 turn_ms = 3.8 .. 7.2
-peak_anon_mib = 28.0 .. 35.5
+peak_anon_mib = 25.5 .. 32.0
 open_peak_mib = 16 .. 20
 read_kib = 4238 .. 4412
 read_calls = 1055 .. 1099
@@ -330,7 +354,12 @@ path = "doc/pdf.js/test/pdfs/bug1815476.pdf"
 pages = 1
 cold_open_ms = 0.32 .. 0.50
 warm_open_ms = 0.23 .. 0.35
-first_page_ms = 57.3 .. 85.4
+# Re-taken for ADRs 1531 and 1532 (see the first row): 34.1 to 34.6 ms against 52.3 to 62.7
+# before. **This is the one row whose document thread is now the longer of the two** — joined at
+# 26.6 to 27.4 ms against a device up at 22.0 to 24.0 — because page one's interpretation is 18.6
+# ms of a CCITT image and the machine's font catalogue. Its `peak_anon_mib` moved 1.2 MiB, inside
+# its band, which is left where it was.
+first_page_ms = 28.9 .. 41.6
 turn_ms = none
 peak_anon_mib = 39.0 .. 50.0
 open_peak_mib = 5 .. 9
@@ -343,7 +372,7 @@ read_calls = 23 .. 27
 # two rows keep theirs untouched: the saving is 89.4 and 359.3 thousand there, against figures
 # that sit 1.6% and 1.8% above their own floors after it.
 open_kinstructions = 3337 .. 3459
-why = "the launch path's expensive case, and the one the other three rows cannot see: this page names a font it does not embed, so drawing it walks the machine's font directories (ADR 0870) — 23 files opened under share/fonts and 47 more directory listings than a document whose fonts are its own, and time to first page about twice theirs. `CLAUDE.md` principle 2's first bullet says `[n]o system font enumeration` flat, and this row is where that sentence meets the clock"
+why = "the launch path's expensive case, and the one the other three rows cannot see: this page names a font it does not embed, so drawing it walks the machine's font directories (ADR 0870) — 23 files opened under share/fonts and 47 more directory listings than a document whose fonts are its own, and the one row whose page one takes longer to interpret than the device takes to come up. `CLAUDE.md` principle 2's first bullet says `[n]o system font enumeration` flat, and this row is where that sentence meets the clock"
 
 [[document]]
 path = "doc/pdf.js/test/pdfs/xfa_filled_imm1344e.pdf"
@@ -359,7 +388,9 @@ cold_open_ms = none
 warm_open_ms = none
 first_page_ms = none
 turn_ms = none
-peak_anon_mib = 15.0 .. 19.5
+# Re-taken for ADR 1532 (see the first row): 12.8 to 13.1 MiB against 17.4 to 17.7. Its first
+# page read 24.5 to 26.7 ms in the same runs and stays unbanded for the reason above.
+peak_anon_mib = 11.5 .. 14.5
 open_peak_mib = 4 .. 9
 read_kib = 97 .. 102
 read_calls = 24 .. 28

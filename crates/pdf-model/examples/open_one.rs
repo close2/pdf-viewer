@@ -32,6 +32,9 @@ fn main() {
         document.catalog().map(|c| format!("{c:?}"))
     );
     println!("  page count {}", pages.len());
+    if let Some(found) = pages.found_by_scanning() {
+        println!("  the page tree yields no page; {found} found by scanning for /Type /Page");
+    }
     let Some(page) = pages.get(0) else {
         println!("{path}: no first page ({:?})", started.elapsed());
         return;

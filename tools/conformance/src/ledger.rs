@@ -844,6 +844,20 @@ pub enum Problem {
         /// Each test the row names, with its kind.
         tests: Vec<(String, TestKind)>,
     },
+    /// An `inapplicable` row whose note does not quote, verbatim, the standard's sentence its
+    /// condition rests on.
+    ///
+    /// `doc/PLAN.md` §5a makes the condition the standard's, read in its clause (ADR 1461); a
+    /// condition written only in this tree's prose is a claim about the specification that
+    /// nothing re-reads, and it decays the way §10.5's did. A quotation is the one form of that
+    /// claim this crate can check, so [`grounding`] asks for one and checks it against
+    /// `doc/md/`. A finding admitted up to a ratchet in `tests/conformance.rs` (ADR 1535).
+    ConditionUnquoted {
+        /// The clause.
+        clause: ClauseNumber,
+        /// What the note offers instead of a verified quotation.
+        grounding: Grounding,
+    },
     /// `doc/adr/` could not be listed, so no `departed` row's argument could be checked.
     ///
     /// Reported rather than passed over: a sweep that could not open its population and said
@@ -939,6 +953,10 @@ impl fmt::Display for Problem {
             Self::ArgumentsUnreadable { why } => {
                 write!(f, "no `departed` row's argument could be checked: {why}")
             }
+            Self::ConditionUnquoted { clause, grounding } => write!(
+                f,
+                "§{clause} is `inapplicable` and its note {grounding}. {QUOTE_THE_CONDITION}"
+            ),
             Self::UnknownProgram { clause, name } => write!(
                 f,
                 "§{clause}'s note names `{name}`, which is no crate, program or corpus of this \
@@ -1080,11 +1098,109 @@ pub fn check(
         }
     }
 
+    problems.extend(check_conditions(ledger, index));
     problems.extend(check_arguments(ledger, root));
     problems.extend(check_named_programs(ledger, root));
     problems.extend(check_population(index));
 
     problems
+}
+
+/// What [`Problem::ConditionUnquoted`] asks for.
+const QUOTE_THE_CONDITION: &str = "Quote, in double quotation marks, the sentence of the clause \
+     (or of a clause the note cites) that states the condition the status rests on (ADR 1535).";
+
+/// How a row's note grounds the condition an `inapplicable` status rests on (ADR 1535).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Grounding {
+    /// A quotation in the note occurs verbatim in a clause [`grounding`] reads it against.
+    Quoted,
+    /// The note quotes, and nothing it quotes occurs in any of those clauses — a quotation of
+    /// some other text, or of none.
+    Unverified,
+    /// The note quotes nothing long enough to state a condition: its reason is prose only.
+    ProseOnly,
+}
+
+impl fmt::Display for Grounding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Quoted => "quotes its condition from the clause",
+            Self::Unverified => "quotes nothing the clauses it is read against hold",
+            Self::ProseOnly => "states its condition in prose only",
+        })
+    }
+}
+
+/// Whether `row`'s note quotes, verbatim, a sentence of the standard its status can rest on.
+///
+/// A quotation is a double-quoted span of at least [`crate::quote::MIN_WORDS`] words, which is
+/// shorter than any sentence that states a condition and longer than a quoted name. It counts
+/// when [`ClauseIndex::holds_quotation`] finds it in the row's own clause, in the row's parent
+/// below the top level, or in a clause the note cites with a `§` — the last being how a
+/// condition stated once for a family is quoted where it applies: §3.15's definition under each
+/// deprecated clause, §10.1's conditional step under §10.6.
+///
+/// What it cannot establish is that the quoted sentence *is* the condition rather than another
+/// sentence of the same clause; that stays a reading, and the quotation is what lets the reading
+/// be repeated against `doc/md/` rather than taken on trust.
+#[must_use]
+pub fn grounding(row: &Row, index: &ClauseIndex) -> Grounding {
+    let note = row.note.as_deref().unwrap_or_default();
+    let quotations: Vec<String> = crate::quote::quoted_spans(note)
+        .into_iter()
+        .filter(|(mark, _)| *mark == crate::quote::Mark::Double)
+        .map(|(_, text)| text)
+        .collect();
+    if quotations.is_empty() {
+        return Grounding::ProseOnly;
+    }
+    let mut sources: Vec<ClauseNumber> = vec![row.clause.clone()];
+    let depth = row.clause.depth();
+    sources.extend(
+        index
+            .headings()
+            .iter()
+            .map(|heading| &heading.number)
+            .filter(|number| {
+                number.is_ancestor_of(&row.clause)
+                    && number.depth() >= 2
+                    && number.depth().saturating_add(1) == depth
+            })
+            .cloned(),
+    );
+    sources.extend(
+        crate::citation::scan_prose(note)
+            .citations
+            .into_iter()
+            .map(|citation| citation.number),
+    );
+    let verified = quotations.iter().any(|quotation| {
+        sources
+            .iter()
+            .any(|source| index.holds_quotation(source, quotation))
+    });
+    if verified {
+        Grounding::Quoted
+    } else {
+        Grounding::Unverified
+    }
+}
+
+/// Every `inapplicable` row quotes the sentence its condition rests on ([`grounding`], ADR 1535).
+fn check_conditions(ledger: &Ledger, index: &ClauseIndex) -> Vec<Problem> {
+    ledger
+        .rows
+        .iter()
+        .filter(|row| row.status == Status::Inapplicable)
+        .filter_map(|row| {
+            let grounding = grounding(row, index);
+            (grounding != Grounding::Quoted).then(|| Problem::ConditionUnquoted {
+                clause: row.clause.clone(),
+                grounding,
+            })
+        })
+        .collect()
 }
 
 /// Every ADR a `departed` row names is a file in `doc/adr/`.
@@ -2143,6 +2259,58 @@ mod tests {
         assert_eq!(
             requirements_by_group(&standard),
             vec![("8".to_owned(), 1usize)]
+        );
+    }
+
+    /// An `inapplicable` row is grounded by a quotation its clause, its parent or a clause it
+    /// cites holds — and by nothing else. Calibrated per trap 13: the same note grounded, then
+    /// misquoted, then paraphrased, so each verdict is seen to change with the one thing it reads.
+    #[test]
+    fn an_inapplicable_rows_condition_is_a_quotation_its_clauses_hold() {
+        let standard = ClauseIndex::parse(
+            "## 10 Rendering\nx\n\n## 10.6 Halftones\n\n## 10.6.1 General\n\
+             Halftoning is not required for such devices.\n\n## 10.6.2 Screens\n\
+             A screen is defined by laying a grid.\n\n## 3.15\n\
+             a part that should be ignored by a PDF processor\n"
+                .to_owned(),
+        );
+        let row = |clause: &str, note: &str| Row {
+            note: Some(note.to_owned()),
+            status: Status::Inapplicable,
+            ..Row::unreviewed(number(clause), "t".to_owned())
+        };
+        let own = row(
+            "10.6.1",
+            "It says \"halftoning is not required for such devices\".",
+        );
+        assert_eq!(grounding(&own, &standard), Grounding::Quoted);
+        let parent = row("10.6.2", "\"Halftoning is not required for such devices.\"");
+        assert_eq!(grounding(&parent, &standard), Grounding::Quoted);
+        let cited = row("10.6.2", "§3.15: \"should be ignored by a PDF processor\".");
+        assert_eq!(grounding(&cited, &standard), Grounding::Quoted);
+        let uncited = row("10.6.2", "\"should be ignored by a PDF processor\".");
+        assert_eq!(grounding(&uncited, &standard), Grounding::Unverified);
+        let misquoted = row(
+            "10.6.1",
+            "\"halftoning is never required for such devices\".",
+        );
+        assert_eq!(grounding(&misquoted, &standard), Grounding::Unverified);
+        let prose = row("10.6.1", "Halftoning is not required for \"such devices\".");
+        assert_eq!(grounding(&prose, &standard), Grounding::ProseOnly);
+
+        let ledger = Ledger {
+            rows: vec![misquoted],
+        };
+        assert!(
+            check(&ledger, &standard, &[], Path::new("."))
+                .iter()
+                .any(|problem| matches!(
+                    problem,
+                    Problem::ConditionUnquoted {
+                        grounding: Grounding::Unverified,
+                        ..
+                    }
+                ))
         );
     }
 

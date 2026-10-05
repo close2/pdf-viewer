@@ -276,6 +276,13 @@ impl ResidueRegions {
         self.regions = self.regions.saturating_add(1);
     }
 
+    /// Hold a region [`ResidueRegions::admit`] said yes to that the render before filled
+    /// (ADR 1529): held as [`ResidueRegions::insert`] holds one, and not counted, because this
+    /// frame rasterised nothing for it.
+    pub(super) fn hold_kept(&mut self, key: u32, region: Option<CoverageMask>) {
+        self.held.insert(key, Held::Region(region));
+    }
+
     /// Count one residue rasterisation that a single command's tile paid for.
     pub(super) fn note_tile(&mut self) {
         self.tiles = self.tiles.saturating_add(1);

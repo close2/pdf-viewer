@@ -101,7 +101,10 @@ residue link flattened once a frame and a small tile reading only its rows' edge
 residue filled in `f64` so that its region and a tile give one byte per pixel, a region kept where
 the edges its tiles would fill cost more than it does, and the meet counting a pixel's winding
 from the side with fewer partial edges (ADR 1491), a run of short edges that abut in one direction
-crossing a row as one edge (ADR 1503) — and a clipped mark's
+crossing a row as one edge (ADR 1503), a met tile kept for the render after it — keyed word for
+word by the mark's tile, its rule and polylines and the chain's content, so that a group drawn as a
+chromatic and a black render meets nothing twice — and a sweep past its budget counted before it
+sorts (ADR 1517) — and a clipped mark's
 coverage and a stroke's made off the walk's thread by the encoder's fan-out, a stroke's segment
 weighed at what it costs (ADR 1395), the fan-out's threads claiming its jobs in order rather than
 taking fixed shares (ADR 1505), a wide job building its mark's edges over its own tile (ADR 1513),
@@ -119,7 +122,10 @@ itself at the nesting bound is reported as the cycle it is, by the stream it re-
 page's interpretation builds is bounded in bytes as well as in operators, its commands, dashes and
 clips charged as they are made, so a page whose tiling copies multiply its clips stops with a
 report rather than past the worker's memory, and the bound is a count rather than a clock, so the
-prefix drawn is a function of the file alone (ADR 1507); and a font
+prefix drawn is a function of the file alone (ADR 1507); text shown before any `Tf`, which §9.3.1
+says shall come first, reads none of its strings, each stepped over by §7.3.4's own
+grammar, and a report a page repeats is one lookup rather than a sentence built again (ADR 1521);
+and a font
 program whose every glyph draws and draws nothing is what the file states rather than a report —
 which is §9.7.6.3's own route for a CID-keyed program holding CID 0 alone (ADR 1411). The Vello
 backend **bands a target the device cannot draw in one pass**, because its working buffers are fixed
@@ -176,7 +182,9 @@ what a campaign found is fixed: a token past the content window's ceiling is ste
 grammar that ends it, a composite glyph's cycle is found in time linear in the glyph graph, a face
 written whole holds every glyph it is asked for, a band is refused wherever the whole decoder reads
 the frame another way, and a page-tree node met beneath itself stands for no pages (ADRs 1423, 1424,
-1439, 1495, 1496). An overflow inside `zune-jpeg` waits on Q227. A JBIG2
+1439, 1495, 1496). Two patches to `zune-jpeg` wait on Q227: an overflow in its DC prediction, and a
+scan whose data holds every minimum coded unit with no `EOI` after it, decoded whole rather than
+stopped a row short (ADR 1520). A JBIG2
 symbol dictionary the codec decodes for minutes is ended at a deadline on either isolation — the
 in-process one abandons rather than kills, and says so, and a process behind its own seccomp filter
 decodes on its own thread instead, because a kept thread asks for `prctl` — and its three unbounded
@@ -255,7 +263,8 @@ for, inside the widget's own §12.5.2 rectangle and behind the same policy funct
 request leaves from the host with `ureq` over `rustls`, never from the confined worker, at a level
 the restriction menu holds (`ask` until a person picks `refuse`, `warn` or `send`), and an FDF
 answer is imported into the form that sent it with its `/Status` shown while a PDF answer opens
-beside (ADRs 1291, 1292); a person can **choose an option
+beside (ADRs 1291, 1292), and Annex O's `fdf` naming a server is fetched by the same client at
+the same level and imported into the document that asked (ADR 1527); a person can **choose an option
 in §12.7.5.4's two controls in all three windows**, which is Table 233 bit 19 obeyed in both of the
 directions it states rather than in the one that reads as a permission: the flag set is an editable
 text box beside a drop-down list — composed in GTK4, which has no widget that is both — and the flag
@@ -381,7 +390,11 @@ replacement relabels its tab and moves the window's path whether or not a passwo
 named page's references are let go, each widget keeping its own appearance (ADR 1345).
 **§O.2.1's `ef` is a third
 such value**, `--embedded-documents=refuse|ask|warn|open`, `ask` by default, on the restriction
-menu's third group beside sending a form (ADR 1331).
+menu's third group beside sending a form (ADR 1331). **Every one of Annex O's open parameters is
+carried out** — the eleven Tables Annex O.3 and O.4 print, `fdf` naming an FDF or an XFDF file — and
+a fragment that names one the standard does not define says so while the rest of it runs; a `zoom`
+beyond this reader's range lands on the bound and is named (ADR 1523). `tools/state.sh annex-o`
+counts them.
 
 **Three windows hold more than one document, in a strip of tabs apiece.** A `gtk4::Notebook`, a
 `QTabWidget` and a strip `viewer-ui` draws for itself, with `viewer_host::Documents` as the
@@ -540,7 +553,10 @@ filter through `pread64` and nothing else, so the host holds no byte of it and t
 document opens through the confinement too (ADR 0812). A signature's `/ByteRange` is digested
 through 64 KiB windows of the file rather than held whole. **Page one goes to the graphics device**, decided
 by the project owner and written into `CLAUDE.md`'s startup rules. GPU bring-up is therefore *on* the critical path by choice, which
-makes what it costs a number to keep rather than a cost to hide. What each step of that timeline
+makes what it costs a number to keep rather than a cost to hide — and it is brought up on the
+platform's primary backends, GL loaded only where they have no hardware adapter (ADR 1532), while
+page one is interpreted on the document's thread beside it (`Viewer::anticipate`, ADR 1531), so
+the first resize goes straight to the render. What each step of that timeline
 costs is [`doc/performance.md`](performance.md)'s first section, and the open half is
 [todo 42](todo/42-the-launch-path.md).
 
@@ -602,7 +618,9 @@ hosts — four name a panel, `UseNone` names none and `FullScreen` is §12.4.4's
 sizes each to the first displayed page, and `/CenterWindow` centres `quorra` and `quorra-qt`, where
 GTK 4 has no call and `quorra-gtk` says so (ADR 1429). **A document this program
 cannot open, and one whose page tree has no leaves, are two sentences rather than an exit**, in all
-three windows (ADR 0564). §12.6.3's trigger events are
+three windows (ADR 0564); one whose pages were found by Table 31's `/Type /Page` because its tree
+yields none is shown with a note saying how many and that their order is the object numbers'
+(ADR 1533). §12.6.3's trigger events are
 raised by the pointer. Four clauses closed on the sidebar without anybody picking them off a list,
 and three of the four had a ledger row whose reason was "this program has no ___" — which is the
 lesson in [`doc/habits.md`](habits.md)'s ledger section rather than a fact about the sidebar.
@@ -1270,7 +1288,11 @@ one definition for the three of them** (ADRs 0623, 0630): a click on §12.7.5.2'
 button is decided once, by `viewer_host::form::Clicked`, so a person using a screen reader ticks the
 same boxes and is refused the same read-only ones whichever window they opened the file in, and a
 box ticked is saved as §12.7.5.2.3's name in the field's `/V` and each widget's `/AS`, so the file
-reopens ticked in every window (ADR 1453). The one
+reopens ticked in every window (ADR 1453). A field's characters are placed where its layout put
+them, so a client asking where a character of a value lies is answered by the document's own node
+(ADR 1501), and that node carries the page area's place in the window as its transform, so its
+answer lies inside the field a person types into — in GTK's window too, whose own entry answers no
+character's box at all (ADR 1516). The one
 async runtime this tree has is confined
 to that crate, it is Linux-only in its own manifest, and the adapter is created **after** the first
 frame is presented. ADR 0214.

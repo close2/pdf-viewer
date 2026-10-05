@@ -849,6 +849,14 @@ pub mod ffi {
         /// being asked for per page: `viewer-ui` measured the same two questions at 1.8 to 3.2 ms
         /// of synchronous X11 round trips when it asked them on every page turn (ADR 0228).
         fn window_placed(self: &mut Host, outer: QtPlace, inner: QtPlace);
+        /// The page area's top-left corner in the window's contents, in device pixels.
+        ///
+        /// What AccessKit adds to a node is the contents' origin, and the page area sits below
+        /// the menu and the toolbar and beside the panel, so its place is sent too and the
+        /// document node carries it as its transform — ADR 1516's construction for GTK, here
+        /// with the number sent from C++ (ADR 1528). Sent on a move or resize of the window and
+        /// of the page area.
+        fn page_placed(self: &mut Host, x: f32, y: f32);
         /// How long to wait before draining what an assistive technology has asked for, in
         /// milliseconds, or `-1` while nothing is listening.
         ///

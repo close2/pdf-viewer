@@ -379,7 +379,7 @@ pub(crate) struct Open {
     /// What the *document* says about itself, worded the first time somebody asks for it.
     ///
     /// **Off the launch path on purpose, and the reason is a measurement.** [`crate::notes::about`]
-    /// answers eight clauses about the file rather than about any page, and §12.8's is the
+    /// answers nine clauses about the file rather than about any page, and §12.8's is the
     /// expensive one: a signed document's report reads the signed byte ranges and digests them
     /// twice, which on `doc/pdf.js/test/pdfs/xfa_filled_imm1344e.pdf` — three megabytes, one page —
     /// took a `Command::Open` from 99 KiB and 26 read calls to 1304 KiB and 118, and from 1.80 M
@@ -906,7 +906,7 @@ impl Open {
 
     /// What this document says about itself, worded once and kept.
     ///
-    /// The eight clauses [`crate::notes::about`] answers, produced the first time
+    /// The nine clauses [`crate::notes::about`] answers, produced the first time
     /// [`crate::Command::Report`] asks and read from [`Self::about`] every time after. `&self`
     /// rather than `&mut self` because a [`OnceCell`] is what makes "once" a property of the
     /// value rather than of the caller's discipline — and because the document is immutable, so

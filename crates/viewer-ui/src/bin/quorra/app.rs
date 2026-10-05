@@ -46,6 +46,13 @@ pub(crate) enum Pending {
         /// The request exactly as `pdf_model::submission::compose` made it.
         submission: Box<pdf_model::submission::Submission>,
     },
+    /// An import's form data named by an absolute URI, answered by fetching it (ADR 1527).
+    Fetch {
+        /// The document that asked, which is where the answer is imported.
+        document: viewer_core::DocumentId,
+        /// The URI as the fragment or the action named it.
+        url: String,
+    },
     /// A file a document named, answered by reading it and supplying it (ADRs 1227, 1239).
     RemoteDocument {
         /// Which of the three purposes asked, so that the answer goes back to the right one.

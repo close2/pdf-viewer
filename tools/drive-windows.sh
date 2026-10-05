@@ -9,8 +9,9 @@
 # outline, page turns by key and wheel, zoom, find (a Latin word, an Arabic word, a word typed
 # without the marks printed on it, and one placed under a mirroring text matrix), a popup, a link,
 # a markup, §7.5.6's save read back, the pages panel, the restrictions levels, print, §7.6.4's password, and a form's §12.5.1 tab order, check
-# box, choice and push button saved and re-read. Each step's observable is a title, a line the
-# window printed, the saved file's bytes, what AT-SPI reads off the window, or a count of pixels of
+# box, choice and push button saved and re-read, and Annex O's fragment — a page, a search, and form
+# data fetched from the drive's own loopback server at two `--submissions=` levels. Each step's
+# observable is a title, a line the window printed, the saved file's bytes, what AT-SPI reads off the window, or a count of pixels of
 # a colour the step draws, and the verdict is printed as
 # `step<TAB>window<TAB>works|wrong|not offered|manual<TAB>what was seen`, one line each, into
 # `$OUT/results.tsv`; the photographs are `$OUT/shots/<window>/<step>.png`, and every other
@@ -72,6 +73,8 @@ XVFB=""
 APP=""
 BUS=""        # the private session bus's daemon, when AT-SPI is up
 A11Y=""       # the accessibility bus's address on it
+SERVER=""     # the loopback server Annex O's fetched `fdf` is served from
+PORT=""       # its port
 
 # Every process either bus has, by the pid the bus names — a service D-Bus activated for a window
 # (the registry, a portal) is nobody's child here — then the session bus itself.
@@ -88,6 +91,7 @@ atspi_down() {
 
 finish() {
     [ -n "$APP" ] && kill "$APP" 2>/dev/null
+    [ -n "$SERVER" ] && kill "$SERVER" 2>/dev/null
     atspi_down
     [ -n "$XVFB" ] && kill "$XVFB" 2>/dev/null
     wait 2>/dev/null
@@ -180,6 +184,14 @@ pdf.Root.AcroForm = Dictionary(Fields=Array([fields[n] for n in "ABCDEF"]), DA=t
                                DR=Dictionary(Font=Dictionary(Helv=font)))
 pdf.save(f"{out}/drive-form.pdf")
 
+# served/values.fdf: §12.7.8's form data for drive-form.pdf's field A, which Table Annex O.4's `fdf`
+# fetches from the drive's own loopback server (ADR 1527).
+import os
+os.makedirs(f"{out}/served", exist_ok=True)
+with open(f"{out}/served/values.fdf", "wb") as fdf:
+    fdf.write(b"%FDF-1.2\n1 0 obj\n<< /FDF << /Fields [<< /T (A) /V (Fetched) >>] >> >>\nendobj\n"
+              b"trailer\n<< /Root 1 0 R >>\n%%EOF\n")
+
 # drive-password.pdf: §7.6.4.1's user password, "drive".
 pdf = pikepdf.new()
 page(pdf, helv(pdf), "Behind a password")
@@ -261,6 +273,19 @@ ARABIC="$ROOT/doc/pdf.js/test/pdfs/ArabicCIDTrueType.pdf"
 [ -f "$ARABIC" ] && cp "$ARABIC" "$FIXTURES/arabic.pdf"
 
 # --- the instrument --------------------------------------------------------------------------------
+# A loopback HTTP server for the fetched `fdf` (step 31), on a port the kernel chose; every request
+# it answers is a line of `$SERVED`, which is how a `refuse` is checked to have sent nothing.
+SERVED="$OUT/served.log"
+: > "$SERVED"
+python3 -u - "$FIXTURES/served" > "$OUT/server.port" 2>> "$SERVED" <<'PY' &
+import functools, http.server, sys
+handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=sys.argv[1])
+server = http.server.HTTPServer(("127.0.0.1", 0), handler)
+print(server.server_address[1])
+server.serve_forever()
+PY
+SERVER=$!
+for _ in $(seq 1 20); do PORT=$(head -1 "$OUT/server.port" 2>/dev/null); [ -n "$PORT" ] && break; sleep 0.2; done
 # A display somebody else has would put this run's windows beside theirs, and its photographs too.
 if [ -e "/tmp/.X${DISPLAY_NUMBER#:}-lock" ]; then
     echo "drive-windows: display $DISPLAY_NUMBER is in use; pass --display :N" >&2
@@ -397,6 +422,15 @@ lines() { wc -l < "$LOG" 2>/dev/null || echo 0; }
 # found_since N: whether the window said, after line N of its log, that a search found something —
 # `quorra`'s trace of the core's answer, or the two native windows' "found" note.
 found_since() { tail -n "+$(($1 + 1))" "$LOG" 2>/dev/null | grep -q 'searched: page\|^note: found "'; }
+# inside_the_field SEEN FX FY FW FH: whether the document node's box the extents probe appended
+# ("… document x y w h") lies inside the field; true where it appended none.
+inside_the_field() {
+    [[ "$1" != *" document "* ]] && return 0
+    local dx dy dw dh
+    read -r dx dy dw dh <<< "${1##* document }"
+    [ -n "$dh" ] && [ "$dw" -gt 0 ] && [ "$dx" -ge "$2" ] && [ $((dx + dw)) -le $(($2 + $4)) ] \
+        && [ "$dy" -ge "$3" ] && [ $((dy + dh)) -le $(($3 + $5)) ]
+}
 # yellow PNG: how many pixels are the drive popup's /C colour, [1 0.9 0.2] — its title bar and icon.
 yellow() {
     magick "$1" -fuzz 6% -fill "#ff0000" -opaque "#ffe633" -fuzz 0 -fill black +opaque "#ff0000" \
@@ -500,7 +534,12 @@ toolkit, document = fields.get("toolkit"), fields.get("document")
 if own and document:
     print("%s in %s%s" % (document[0], place(document[1]), document[2]))
 elif toolkit and not toolkit[0].startswith("refused"):
-    print("%s in %s%s" % (toolkit[0], place(toolkit[1]), toolkit[2]))
+    # Qt's own field answers; the document's node for the same field is read beside it, in the same
+    # space, because the bridge places that node and nothing else checks where (ADR 1528).
+    beside = ""
+    if document and not document[0].startswith("refused") and document[2] == toolkit[2]:
+        beside = " document %s" % document[0]
+    print("%s in %s%s%s" % (toolkit[0], place(toolkit[1]), toolkit[2], beside))
 elif toolkit and document and not document[0].startswith("refused"):
     # The toolkit's own field answers nothing, and the document's node for the same field does:
     # its box is checked against the toolkit field's place in the window, which is where GTK puts
@@ -721,7 +760,9 @@ PY
         verdict 24-reopened wrong "A C B D E on the bus: ${seen:-nothing}"
     fi
 
-    # ADR 1501: a field's second character has a box, inside the field, where AT-SPI asks for it.
+    # ADR 1501: a field's second character has a box, inside the field, where AT-SPI asks for it —
+    # and where the toolkit's field answers and the document's node is read beside it (Qt), the
+    # node's box is inside the toolkit's field too (ADR 1528).
     launch "$FIXTURES/drive-field.pdf"; shot 29-field-extents
     seen=""
     [ -n "$BUS" ] && seen=$(timeout 30 python3 "$OUT/extents.py" "$APP" "$WINDOW" 2>/dev/null)
@@ -731,7 +772,8 @@ PY
         verdict 29-field-extents "not offered" "the toolkit's own field answers GetCharacterExtents with an error: $seen"
     elif read -r cx cy cw ch _ fx fy fw fh _ <<< "$seen" && [ -n "$fh" ] && [ "$cw" -gt 0 ] \
             && [ "$cx" -ge "$fx" ] && [ $((cx + cw)) -le $((fx + fw)) ] \
-            && [ "$cy" -ge "$fy" ] && [ $((cy + ch)) -le $((fy + fh)) ]; then
+            && [ "$cy" -ge "$fy" ] && [ $((cy + ch)) -le $((fy + fh)) ] \
+            && inside_the_field "$seen" "$fx" "$fy" "$fw" "$fh"; then
         verdict 29-field-extents works "GetCharacterExtents(1): $seen"
     else
         verdict 29-field-extents wrong "GetCharacterExtents(1): ${seen:-nothing}"
@@ -748,6 +790,29 @@ PY
         verdict 30-fragment-search works "the fragment's word was searched for and found"
     else
         verdict 30-fragment-search wrong "the fragment's search found nothing in the trace"
+    fi
+
+    # Table Annex O.4's `fdf` naming an absolute URI: "Open the document and then import the data
+    # from the specified FDF or XFDF file", fetched from the drive's loopback server at
+    # `--submissions=send` and imported into the form; at `refuse`, said and nothing sent (ADR 1527).
+    if [ -n "$PORT" ]; then
+        local fetched="http://127.0.0.1:$PORT/values.fdf" served
+        launch "$FIXTURES/drive-form.pdf#fdf=$fetched" --submissions=send; sleep 1; shot 31-fragment-fdf
+        if [ "$(said "import-data: 1 field(s) from $fetched, into 1 widget(s)")" -gt 0 ]; then
+            verdict 31-fragment-fdf works "$(grep -m1 "import-data: 1 field(s) from" "$LOG")"
+        else
+            verdict 31-fragment-fdf wrong "$(grep -m1 'import-data' "$LOG" || echo 'no import-data line')"
+        fi
+        served=$(grep -c 'GET /values.fdf' "$SERVED")
+        launch "$FIXTURES/drive-form.pdf#fdf=$fetched" --submissions=refuse; shot 31-fragment-fdf-refused
+        if [ "$(said "import-data: declined — $fetched was not fetched")" -gt 0 ] \
+                && [ "$(grep -c 'GET /values.fdf' "$SERVED")" -eq "$served" ]; then
+            verdict 31-fragment-fdf-refused works "said, and the server was not asked"
+        else
+            verdict 31-fragment-fdf-refused wrong "$(grep -m1 'import-data' "$LOG" || echo 'no import-data line')"
+        fi
+    else
+        verdict 31-fragment-fdf "not offered" "the loopback server did not start"
     fi
 
     # A right-to-left word on a page whose text runs in visual order through presentation forms.

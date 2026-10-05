@@ -450,18 +450,17 @@ fn refused_pages(by_the_device: &[&'static str]) -> Vec<&'static str> {
 /// `MAX_UNREADABLE_ENCRYPTION` and `MAX_PAGELESS`, and reads each document one at a time.) The
 /// mapping is one-to-one:
 ///
-/// - the two [`NotComparable::WouldNotOpen`] are its `NO_RENDER_NEEDS_A_PASSWORD`
-///   (`encrypted-attachment.pdf`, whose user password is not the empty one §7.6.4.3 defines and
-///   is published nowhere) and its `NO_RENDER_ENCRYPTION_THE_STANDARD_DOES_NOT_STATE`
-///   (`PDFBOX-4352-0.pdf`, whose fuzzed cross-reference table leaves the `/Encrypt` §7.6.2
-///   names resolving to nothing). The nine encrypted documents whose passwords are published
-///   are opened with them — `pdf-model`'s `tests/support/corpus_passwords.rs` is the one table
+/// - the one [`NotComparable::WouldNotOpen`] is its `NO_RENDER_ENCRYPTION_THE_STANDARD_DOES_NOT_STATE`
+///   (`PDFBOX-4352-0.pdf`, whose object 6 — the `/Encrypt` §7.6.2 names — opens with `E<` where
+///   §7.3.7 puts `<<`, so it resolves to nothing and no stream of the file can be decrypted). The
+///   ten encrypted documents whose passwords are published, `encrypted-attachment.pdf` among
+///   them (ADR 1534), are opened with them — `pdf-model`'s `tests/support/corpus_passwords.rs` is the one table
 ///   every corpus gate reads, [`page_one`] among them — and each compares like any other page
 ///   (ADR 1377);
 /// - the five [`NotComparable::NoFirstPage`] are its `NO_RENDER_NO_PAGE_IN_THE_TREE` less the one
 ///   entry that names a *second* page, which this gate never asks for.
 ///
-/// So what is owed here is not a second diagnosis but the names. Six of the seven are
+/// So what is owed here is not a second diagnosis but the names. Five of the six are
 /// `CLAUDE.md` principle 5's second case — the file broke it — and `Brotli-Prototype-FileA.pdf`
 /// is a file that keeps its page tree in object streams compressed by a filter §7.4.1's Table 6
 /// does not name. **Every one is a limit of the document, and none is a limit of either lane or
@@ -478,12 +477,11 @@ fn refused_pages(by_the_device: &[&'static str]) -> Vec<&'static str> {
 /// [`NotComparable::RastersCannotBeCompared`] are the other two silences. An empty cause is a claim
 /// about this tree made by an instrument nobody has watched work, so each of the four was planted
 /// in turn and the run named each one it was given (trap 13).
-const NOT_COMPARABLE: [(&str, NotComparable); 7] = [
+const NOT_COMPARABLE: [(&str, NotComparable); 6] = [
     ("Brotli-Prototype-FileA.pdf", NotComparable::NoFirstPage),
     ("PDFBOX-4352-0.pdf", NotComparable::WouldNotOpen),
     ("REDHAT-1531897-0.pdf", NotComparable::NoFirstPage),
     ("bug1020226.pdf", NotComparable::NoFirstPage),
-    ("encrypted-attachment.pdf", NotComparable::WouldNotOpen),
     ("poppler-85140-0.pdf", NotComparable::NoFirstPage),
     ("poppler-937-0-fuzzed.pdf", NotComparable::NoFirstPage),
 ];

@@ -139,6 +139,10 @@ pub(crate) struct Arguments {
     /// §O.2.1's `ef`: what this window does when a URI's fragment names an embedded document, from
     /// `--embedded-documents=` — `ask` unless a person said otherwise (ADR 1331).
     pub(crate) embedded_documents: viewer_host::EmbeddedDocuments,
+    /// §12.7.6.2's form and Table Annex O.4's fetched `fdf`: what this window sends to a server on
+    /// a document's behalf, from `--submissions=` — `ask` unless a person said otherwise (ADRs
+    /// 1291, 1527).
+    pub(crate) submissions: viewer_host::Submissions,
     /// §10.8.3: whether this window asks for the separation simulation, from `--separations=`.
     ///
     /// A preference rather than a level: the clause conditions itself on a request no file makes
@@ -229,6 +233,7 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
     let mut links = viewer_host::Links::default();
     let mut remote_documents = viewer_host::RemoteDocuments::default();
     let mut embedded_documents = viewer_host::EmbeddedDocuments::default();
+    let mut submissions = viewer_host::Submissions::default();
     let mut separations = false;
     let mut trust_anchors = None;
     let mut reference_files = None;
@@ -415,6 +420,19 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
                     std::process::exit(2);
                 }
             }
+        } else if let Some(level) = argument
+            .to_string_lossy()
+            .strip_prefix(viewer_host::SUBMISSIONS)
+            .map(str::to_owned)
+        {
+            // §12.7.6.2's and a fetched import's act, at four levels of its own (ADR 1527).
+            match viewer_host::submissions(&level) {
+                Ok(chosen) => submissions = chosen,
+                Err(complaint) => {
+                    eprintln!("{complaint}");
+                    std::process::exit(2);
+                }
+            }
         } else if let Some(word) = argument
             .to_string_lossy()
             .strip_prefix(viewer_host::SEPARATIONS)
@@ -486,6 +504,7 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
         links,
         remote_documents,
         embedded_documents,
+        submissions,
         separations,
         trust_anchors,
         accept_unknown_revocation,
@@ -672,6 +691,10 @@ fn policy_usage() {
     eprintln!("                what §O.2.1's ef does when a URI's fragment names a file carried");
     eprintln!("                inside the document: L is refuse, ask, warn or open; ask is the");
     eprintln!("                default, so nothing is unpacked and opened without a keypress.");
+    eprintln!("  {}L", viewer_host::SUBMISSIONS);
+    eprintln!("                what a document may send to a server: §12.7.6.2's form, and");
+    eprintln!("                Annex O's fdf naming an absolute URI, which is fetched. L is");
+    eprintln!("                refuse, ask, warn or send; ask is the default.");
     eprintln!("  {}S", viewer_host::SEPARATIONS);
     eprintln!("                §10.8.3's separation simulation: S is on or off. Off is what a");
     eprintln!("                screen does — §10.8.2's alternate space and tint transform — and");

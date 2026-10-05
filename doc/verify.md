@@ -166,7 +166,15 @@ cargo run --release -p render-raster --example frame_budget -- [file.pdf] [page]
 cargo test --release -p render-raster --test turn_path -- --ignored --nocapture
   # that table's turn and step rows held to `doc/checks/turn-path.toml`'s bands, by the same method
   # (`tests/support/frame_cost.rs`): three pinned children of five rounds a page, each with the
-  # launch gate's calibration probe, judged under `release` only; twenty seconds. ADR 1513
+  # launch gate's calibration probe, judged under `release` only; twenty seconds. ADR 1513. A child
+  # is judged only on a quiet device too: amdgpu's `gpu_busy_percent`, averaged over half a second
+  # before the child and after it, at or under the check file's `device_busy_percent`; above it the
+  # row prints "not judged (device N% busy against T%)" and the run exits 0, as it does over the
+  # load ceiling; a device with no such counter is printed unread (ADR 1537)
+cargo test --release -p render-raster --test turn_path -- --ignored --nocapture a_planted_busy_device_is_seen_as_busy
+  # the device check's calibration: this binary keeps the adapter busy with a compute loop for six
+  # seconds and the counter must read over the threshold while it runs, behind the heavy-walk lock
+  # because it occupies the device a sibling may be measuring on. ADR 1537
 cargo run --release -p render-raster --example ink_ladder -- <stem>...
   # each backend's total ink on a pdf.js page at four resolutions, against §10.7.4's area rule:
   # a total that walks toward the other backend's as the scale rises is a per-boundary cost, a flat
@@ -705,7 +713,10 @@ tools/drive-windows.sh [--window quorra|quorra-gtk|quorra-qt|quorra-confined]...
   # `GetCharacterExtents` places inside the field (`29-field-extents`, ADR 1501) — asked of the
   # toolkit's field and of the document's node, in the screen's coordinates and then the window's,
   # and in `quorra-gtk`, whose entry refuses, the document's box read against the entry's place
-  # (ADR 1516); §14.7's tree on a
+  # (ADR 1516), and in `quorra-qt`, whose field answers, the document's node read beside it and
+  # held inside the field too (ADR 1528); Annex O's `fdf` naming the drive's own loopback server,
+  # imported at `--submissions=send` and said with nothing sent at `refuse` (`31-fragment-fdf`,
+  # ADR 1527); §14.7's tree on a
   # private AT-SPI bus; and `quorra-confined` on a page of
   # stars its worker sends as marks and its device refuses, the refusal in the title (ADR 1478).
   # **Release binaries first** (the script names the command), and `pikepdf` for the fixtures it

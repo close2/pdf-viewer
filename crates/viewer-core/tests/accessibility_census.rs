@@ -1271,15 +1271,14 @@ fn require_the_sandbox() {
 }
 /// Every document in the corpus this program refuses to open, and why.
 ///
-/// Named rather than counted: a ceiling of two could not tell a document that started refusing
-/// from one that stopped, and both are findings. `encrypted-attachment.pdf` joined when §7.6.6's
-/// `/AuthEvent` was read against Table 25 — it states none, so the default `DocOpen` requires the
-/// key before the document opens (ADR 1040).
-const REFUSED_OPEN: [&str; 2] = [
+/// Named rather than counted: a ceiling of one could not tell a document that started refusing
+/// from one that stopped, and both are findings. `encrypted-attachment.pdf` states no §7.6.6
+/// `/AuthEvent`, so Table 25's default `DocOpen` requires the key before the document opens (ADR
+/// 1040), and it is not here because the key is published and `corpus_passwords.rs` holds it
+/// (ADR 1534).
+const REFUSED_OPEN: [&str; 1] = [
     // `/Encrypt` does not resolve to a dictionary, so §7.6.1's handler cannot be chosen.
     "PDFBOX-4352-0.pdf",
-    // Needs a password nobody has recorded (ADR 1040).
-    "encrypted-attachment.pdf",
 ];
 
 /// The instrument. Ignored: minutes over every document this project holds, every page of the
@@ -1463,12 +1462,13 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
         );
         gate_ratchet::floor("lines, whole population", census.lines, 223_382);
         gate_ratchet::floor("characters, whole population", census.characters, 5_695_133);
-        // `issue21579.pdf` opens with the password `corpus_passwords.rs` publishes (ADR 1377), so
-        // its one untagged page is in this population as it is in the tracked one.
+        // `issue21579.pdf` and `encrypted-attachment.pdf` open with the passwords
+        // `corpus_passwords.rs` publishes (ADRs 1377 and 1534), so each one's untagged page is in
+        // this population as it is in the tracked one.
         gate_ratchet::floor(
             "untagged pages answering honestly, whole population",
             census.untagged_honest,
-            890,
+            891,
         );
         // ADR 1369's two counts, new with it, over the whole population.
         gate_ratchet::floor(
@@ -1816,16 +1816,13 @@ fn ratchet(
     gate_ratchet::floor("characters", tracked_census.characters, 31_436);
     // §7.6.6's `/AuthEvent` is read against Table 25, whose next sentence is "if authorization
     // fails, the event shall fail". `encrypted-attachment.pdf` states no `/AuthEvent`, so Table
-    // 25's default `DocOpen` requires the key before the document opens and its one page is
-    // locked rather than drawn. A screen reader is told nothing about it because the file will
-    // not open without a password, which is the file's answer and not a regression in this
-    // program (ADR 1040). `issue21579.pdf` is the other side of the same sentence: its password is
-    // published and read from `corpus_passwords.rs`, so its one untagged page is counted here
-    // (ADR 1377's table, trap 43's bound beside the population it admits).
+    // 25's default `DocOpen` requires the key before the document opens (ADR 1040); the key is
+    // published, `corpus_passwords.rs` holds it, and its one untagged page is counted here like
+    // `issue21579.pdf`'s (ADRs 1377 and 1534, trap 43's bound beside the population it admits).
     gate_ratchet::floor(
         "untagged pages answering honestly",
         tracked_census.untagged_honest,
-        877,
+        878,
     );
     widget_floors(tracked_census);
 

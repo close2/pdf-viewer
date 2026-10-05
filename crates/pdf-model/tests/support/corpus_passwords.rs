@@ -9,9 +9,9 @@
 //! and a page nobody is holding any renderer to. The passwords are not secrets: each is published
 //! beside the file it opens, in the pdf.js issue or pull request the file is named after or in
 //! pdf.js's own test manifest (`doc/pdf.js/test/test_manifest.json`'s `"password"` entries hold
-//! seven of the nine), so supplying one answers the prompt the way every reader of that issue can.
-//! What stays out is a document whose password nobody has recorded — `encrypted-attachment.pdf` —
-//! and one whose `/Encrypt` does not resolve at all, `PDFBOX-4352-0.pdf`; each gate names both.
+//! seven of the ten) or in its unit tests, so supplying one answers the prompt the way every reader
+//! of that issue can. What stays out is a document whose `/Encrypt` does not resolve at all,
+//! `PDFBOX-4352-0.pdf`, which each gate names.
 //!
 //! # One place, keyed by file name
 //!
@@ -45,12 +45,21 @@ pub(crate) struct CorpusPassword {
 }
 
 /// Every encrypted pdf.js corpus document whose password is published, and where.
-pub(crate) const CORPUS_PASSWORDS: [CorpusPassword; 9] = [
+pub(crate) const CORPUS_PASSWORDS: [CorpusPassword; 10] = [
     // bug1782186 in pdf.js's manifest; `/V 4 /R 4`.
     CorpusPassword {
         name: "bug1782186.pdf",
         password: "Hello",
         for_the_references: "Hello",
+    },
+    // Not in the manifest: typed into pdf.js's own unit test of it (`test/unit/api_spec.js`, "gets
+    // encrypted attachments in password-protected documents"), and the same password
+    // `auth-event-ef-open.pdf`'s attachment takes in the test before it. `/V 5 /R 6`, and it
+    // matches as the **owner** password, which §7.6.4.1 accepts as well as the user one.
+    CorpusPassword {
+        name: "encrypted-attachment.pdf",
+        password: "000000",
+        for_the_references: "000000",
     },
     // issue15893_reduced in the manifest; `/V 2 /R 3`.
     CorpusPassword {

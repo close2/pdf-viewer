@@ -690,6 +690,11 @@ impl QuorraWindowRenderer {
     /// It must be *this* function rather than a `wgpu::Instance::new` of the host's own: the
     /// descriptor has to match the one raster's own constructors use, and a host that guessed it
     /// would find out at `create_surface`.
+    ///
+    /// **The primary backends, and GL only where they have no hardware adapter**
+    /// (`raster_gpu::create_launch_instance`, ADR 1532): initialising GL is a second driver
+    /// brought up for an adapter nobody chooses, and on this machine it was a third of cold
+    /// bring-up.
     /// **`WGPU_BACKEND` is honoured here and nowhere below.** The rasteriser consults no
     /// environment at all, deliberately (raster's ADR 0017), and says in the same breath that a
     /// host wanting the variable can say so in one line. This is that line, and this is the
@@ -704,19 +709,20 @@ impl QuorraWindowRenderer {
     #[must_use]
     pub fn instance() -> raster_gpu::wgpu::Instance {
         raster_gpu::wgpu::Backends::from_env().map_or_else(
-            raster_gpu::create_instance,
+            raster_gpu::create_launch_instance,
             raster_gpu::create_instance_with,
         )
     }
 
     /// [`Self::instance`], restricted to the driver stacks the host names.
     ///
-    /// **An escape hatch from a driver, not a speed knob**, and the distinction is raster's ADR
-    /// 0017 as much as this project's ADR 0221: restricting the instance to one backend halves
-    /// `wgpu::Instance::new` and gives every millisecond of it back in `request_adapter`, so the
-    /// total is unchanged. What it is for is a machine with two driver stacks and one of them
-    /// broken — the project owner's Windows machine, whose Intel Vulkan driver crashed while
-    /// wgpu's hub order was choosing Vulkan over DX12 (`doc/QUORRA_FEEDBACK.md` section 12).
+    /// **An escape hatch from a driver**, which is raster's ADR 0017 as much as this project's
+    /// ADR 0221. The speed half of the same choice — not loading GL where a primary backend has
+    /// the adapter — is [`Self::instance`]'s own, made by `raster_gpu::create_launch_instance`
+    /// (ADR 1532), so a host does not reach for this to be quick. What it is for is a machine
+    /// with two driver stacks and one of them broken — the project owner's Windows machine,
+    /// whose Intel Vulkan driver crashed while wgpu's hub order was choosing Vulkan over DX12
+    /// (`doc/QUORRA_FEEDBACK.md` section 12).
     ///
     /// Naming a set this machine cannot supply is not an error here; it becomes
     /// [`raster_gpu::DeviceError::NoAdapter`] with an **empty** `available` list at

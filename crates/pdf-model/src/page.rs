@@ -787,7 +787,7 @@ impl<'a> Pages<'a> {
         //
         // **Where the recovery declines is the other half of the reading.** It runs where the
         // tree yields *no page at all*, never where it yields fewer than `/Count` claims: a tree
-        // that produced one page of five has stated an order and a set, and §7.7.3.2's tree is
+        // that produced one page of five has stated an order and a set, and §7.7.3.1's tree is
         // what "defines the ordering of pages in the document", so replacing them with a scan's
         // ascending object numbers would substitute an invented order for a stated one. Reading
         // Table 31's `/Type` off an object adds a page the file declared and displaces nothing;
@@ -847,6 +847,23 @@ impl<'a> Pages<'a> {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.count == 0
+    }
+
+    /// How many pages were found by scanning, where the page tree yielded none; `None` where
+    /// the tree is what the pages came from.
+    ///
+    /// §7.7.3.1 makes the tree the statement of which pages a document has and in what order —
+    /// it "defines the ordering of pages in the document" — and a recovery that answers both
+    /// questions from Table 31's `/Type /Page` declarations instead has put this reader's order,
+    /// ascending object number, where the producer's stood. Every page it finds is the file's;
+    /// the order and the membership are not, and a host that shows the pages without saying so
+    /// shows a scan as if it were a tree (`doc/traps/parsers-and-streams.md` trap 5). So this is
+    /// the recovery's statement, read by the host's open notes and by the corpus gate's held
+    /// population, the way `pdf_syntax::Document::was_recovered` is the cross-reference
+    /// rebuild's. ADR 1533.
+    #[must_use]
+    pub fn found_by_scanning(&self) -> Option<usize> {
+        (!self.scanned.is_empty()).then_some(self.scanned.len())
     }
 
     /// Returns the page at a zero-based index.

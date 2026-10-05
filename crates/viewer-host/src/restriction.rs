@@ -76,6 +76,8 @@ pub enum Subject {
     Document,
     /// §12.7.6.2's submission, which would leave this machine.
     Submission,
+    /// Table Annex O.4's `fdf` naming an absolute URI, which would be fetched from a server.
+    Fetch,
     /// §O.2.1's `ef`, which would open a file carried inside the document.
     Embedded,
 }
@@ -89,6 +91,7 @@ impl Subject {
             Self::Link => "Open this link?",
             Self::Document => "Open this document?",
             Self::Submission => "Send this form?",
+            Self::Fetch => "Fetch this form data?",
             Self::Embedded => "Open this embedded document?",
         }
     }
@@ -146,14 +149,18 @@ pub const MACHINE: &str = "What a document may ask this machine to do";
 pub const MACHINE_NOTE: &str = "for every document in this window";
 
 /// The first act under [`MACHINE`], and the name the sentences about its level use.
-pub const SUBMITTING: &str = "sending a form";
+///
+/// Two clauses' requests under one level, and the name says both: §12.7.6.2's form, and Table Annex
+/// O.4's `fdf` fetched from a server, which tells that server the document was opened here
+/// (ADR 1527).
+pub const SUBMITTING: &str = "sending a form or fetching its data";
 
 /// One of the acts under [`MACHINE`].
 ///
 /// Closed, and **not** `#[non_exhaustive]`, for [`Scope`]'s reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Act {
-    /// §12.7.6.2's submission — [`SUBMITTING`].
+    /// §12.7.6.2's submission and a fetched import — [`SUBMITTING`].
     Submitting,
     /// §O.2.1's `ef` — `crate::policy::OPENING_EMBEDDED`.
     OpeningEmbedded,
@@ -176,7 +183,9 @@ impl Act {
     #[must_use]
     pub const fn note(self) -> &'static str {
         match self {
-            Self::Submitting => "ISO 32000-2 §12.7.6.2's submit-form action",
+            Self::Submitting => {
+                "ISO 32000-2 §12.7.6.2's submit-form action, and Table Annex O.4's fdf from a server"
+            }
             Self::OpeningEmbedded => "ISO 32000-2 §O.2.1's ef parameter",
         }
     }

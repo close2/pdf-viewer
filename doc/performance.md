@@ -95,9 +95,13 @@ the launch began to show it. **A third cost on
 that path turned out to be a clause nobody had read**: §12.8's signature walk spent 1.681 ms
 finding nothing on a document whose form could have said so in one integer, and §12.7.3's Table
 225 exists precisely so that a processor need not scan — 0.017 ms now, with the ledger row that
-called the entry "signature behaviour" corrected (ADR 0181). **Adapter selection is the largest part of bring-up and the backend set is not the
-lever**: `examples/bring_up` shows Vulkan-only moving the cost out of instance creation and into
-`request_adapter` with the total unchanged (ADR 0179). **On the machine's real adapter, headless,
+called the entry "signature behaviour" corrected (ADR 0181). **The backend set is the lever on bring-up, and GL is what it takes off**: on the Radeon
+890M through RADV, `examples/bring_up` puts an all-backends device usable in 28.8 to 35.2 ms and a
+Vulkan-only one in 18.5 to 21.4, six processes each, with `request_adapter` 3 to 8 ms in both —
+initialising GL is Mesa's EGL bringing up `radeonsi` for an adapter nobody chooses, and the
+instance a launch makes now loads it only where the primary backends have no hardware adapter
+(ADR 1532: the enumeration ADR 0179 found paying the saving back costs 3 to 8 ms either way on
+today's driver stack). **On the machine's real adapter, headless,
 the first frame costs 18.2 ms and the tenth 4.1** — and a one-second sleep before it changes
 nothing, so the ~12 ms difference is first-use allocation rather than warmth. `CLAUDE.md`'s ban on
 waiting for warmth therefore costs nothing measurable here; `examples/first_frame` is the
@@ -105,6 +109,26 @@ instrument and `doc/QUORRA_FEEDBACK.md` §9 is the ask. The same arithmetic puts
 real GPU at **75 to 90 ms** against `lavapipe`'s 145, and nobody has run that — the window half of
 it is the user's to measure. The CPU backend keeps its other two jobs:
 the correctness oracle, and the frame the device refuses.
+
+**Re-taken on 2026-10-05, and divided** (ADRs 1531 and 1532). The gate now prints when page one
+was interpreted and a hash of its frame, so the first page splits into the device's bring-up, what
+the document thread still owes after it, and the device's first frame. Before that day's two
+levers, minimum of nine children each: bring-up 25.2 to 28.3 ms; first page 33.0 to 36.9, 45.5 to
+46.6, 37.8 to 40.2, 52.3 to 62.7 and 33.1 to 35.3 ms over `launch-path.toml`'s five rows, of which
+page one's interpretation after the device was up was 1.0 to 1.2, 5.8 to 6.4, 3.5 to 4.3, 18.6 to
+20.6 and 0.6 to 0.7 ms. **Page one is now interpreted on the document's thread while the device
+comes up** (`Viewer::anticipate`, which `quorra` calls after the open), and **the device comes up
+without GL** (`raster_gpu::create_launch_instance`). Three runs after both: bring-up 17.1 to 18.5
+ms; first page 24.7 to 26.2, 28.9 to 30.6, 28.1 to 30.0, 34.1 to 34.6 and 24.5 to 26.7 ms; page
+turn 3.9 to 4.3, 4.5 to 4.6 and 4.8 to 4.9; every frame's hash unchanged; 4.5 MiB less allocated
+on every row and about 21 MiB less resident. What is left of each first page is the device's first
+frame, 3.8 to 10.5 ms against a later frame's 4.7 to 8.9 — the driver's first submission, a first
+encode, and on `Well-Tagged-PDF-WTPDF-1.0.pdf` a whole-raster `ICCBased` page-group conversion on
+every frame, now divided across the pool — except on `bug1815476.pdf`, whose document thread is
+the longer of the two by 3.4 to 4.6 ms: its page one is a CCITT image and the machine's font
+catalogue, 247 and 28 million instructions of an interpretation the device no longer hides
+entirely. ADR 1531 has the per-stage table under callgrind; `doc/checks/launch-path.toml` the
+bands, moved down with these figures.
 
 ### 3b. The quorra backend, and what a corpus-scale comparison found in it
 
@@ -405,10 +429,8 @@ the pinned cores' threads are busy until the masks end. Dividing the pool among 
 cutting where a frame's share is two threads or more was built and measured a loss: a frame's bands
 cost half again its whole decode in total, so the cut pays only with most of a pool idle (ADR 1505).
 
-**The launch gate on the same day** (`PDFVIEWER_LAUNCH_CLOCKS=1`, calibration 0.702 ms): all 42
-banded figures judged and inside their bands. Cold graphics bring-up 31.7 ms; first page 39.5,
-46.6, 43.1, 62.7 and 34.7 ms over `launch-path.toml`'s five rows in order; page turn 4.4, 5.1 and
-5.7 ms. **The raster corpus gate**, pdf.js page one, readback included: 3.9–4.1 s through raster
+**The launch gate's figures** are *The launch path*'s above, re-taken on 2026-10-05 after ADRs 1531
+and 1532 moved them. **The raster corpus gate**, pdf.js page one, readback included: 3.9–4.1 s through raster
 at 1× (median page 1.34–1.39× the CPU backend) and 19.1–19.6 s at 4× (median 2.2–2.35×), 959 agree
 and 2 differ at 1×, 958 and 0 at 4×; `PDFVIEWER_RASTER_SCALE` sets the scale. Its memory at 1× peaks
 on `issue19517.pdf` (12 608 × 16 806): 5.15 GiB on 2026-10-01, the three whole-page rasters the

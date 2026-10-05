@@ -223,9 +223,20 @@ check_batch() {
     # A record over budget. The count and the bound are the conformance crate's, so there is one
     # copy of the figure and it is the one that fails.
     local records
+    # The test fails for a record without its `**Gates.**` paragraph too, so the verdict says
+    # which, and the listing is every record line the test names — a grep that matched none would
+    # end the whole check under `set -e` with the lines after it never printed.
     records=$(cargo test -q -p conformance --test records -- --nocapture 2>&1) && found= || found=$records
-    printf 'records over budget              %s\n' "$([ -z "$found" ] && echo none || echo over)"
-    [ -z "$found" ] || { printf '%s\n' "$found" | grep -E 'over the budget' | sed 's/^/    /'; bad=1; }
+    local verdict=none
+    if [ -n "$found" ]; then
+        verdict="failing, not on the budget"
+        grep -q 'over the budget' <<<"$found" && verdict=over
+    fi
+    printf 'records over budget              %s\n' "$verdict"
+    [ -z "$found" ] || {
+        printf '%s\n' "$found" | grep -E '^doc/history/' | sed 's/^/    /' || true
+        bad=1
+    }
 
     # A record numbered behind one that is already committed. `doc/history/` is read by `ls`
     # order, so a record whose number a committed one already carries sorts into somebody else's

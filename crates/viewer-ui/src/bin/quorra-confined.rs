@@ -673,17 +673,24 @@ impl Host {
             // one clause over: this window has no dialogue, so it could not put the *ask* level's
             // question, and a window that opened a file a document named without being able to
             // ask would be the one face where that happens with nobody consulted (ADR 1227).
+            //
+            // An import named by an absolute URI is refused at every level here, whatever
+            // `--submissions=` would say elsewhere: this window has no network (ADR 1527).
             Event::NeedsFile { purpose, name, .. } => {
-                eprintln!(
-                    "{}",
-                    viewer_host::policy::supply_note(
-                        purpose,
-                        &format!(
-                            "this window supplies no file a document names, and has no dialogue \
-                             to ask you about one. The document asked for {name}"
-                        )
+                let why = if purpose == viewer_core::Purpose::ImportData
+                    && viewer_host::import_is_fetched(&name)
+                {
+                    format!(
+                        "this window has no network, so it fetches nothing a document names, at \
+                         any level. The document asked for {name}"
                     )
-                );
+                } else {
+                    format!(
+                        "this window supplies no file a document names, and has no dialogue to \
+                         ask you about one. The document asked for {name}"
+                    )
+                };
+                eprintln!("{}", viewer_host::policy::supply_note(purpose, &why));
                 self.dispatch(&Command::Supply {
                     purpose,
                     bytes: None,

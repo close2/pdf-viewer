@@ -654,9 +654,11 @@ impl Host {
                 access_interval: None,
                 access_draining: None,
                 widget_appearances,
-                restrictions: viewer_host::Restrictions::new(settings.restrictions).with(
-                    viewer_host::ActLevel::EmbeddedDocuments(settings.embedded_documents),
-                ),
+                restrictions: viewer_host::Restrictions::new(settings.restrictions)
+                    .with(viewer_host::ActLevel::EmbeddedDocuments(
+                        settings.embedded_documents,
+                    ))
+                    .with(viewer_host::ActLevel::Submissions(settings.submissions)),
                 links: settings.links,
                 remote_documents: settings.remote_documents,
                 submitter: viewer_host::submit::Submitter::new(),
@@ -791,16 +793,23 @@ impl Host {
     /// than in each of three windows (ADRs 1227, 1239).
     fn needs_file(
         &mut self,
+        document: DocumentId,
         purpose: Purpose,
-        name: &str,
+        name: String,
         beside: bool,
         queue: &mut VecDeque<Command>,
     ) {
         if viewer_host::under_remote_documents(purpose) {
-            self.remote(purpose, name, beside, queue);
+            self.remote(purpose, &name, beside, queue);
             return;
         }
-        let bytes = match viewer_host::policy::read_import(self.showing.directory.as_deref(), name)
+        // An import named by an absolute URI is fetched rather than read, under the level a
+        // submission is sent at (ADR 1527).
+        if purpose == Purpose::ImportData && viewer_host::import_is_fetched(&name) {
+            self.fetch_import(document, name, queue);
+            return;
+        }
+        let bytes = match viewer_host::policy::read_import(self.showing.directory.as_deref(), &name)
         {
             Ok(bytes) => Some(bytes),
             Err(refusal) => {
@@ -1037,6 +1046,58 @@ impl Host {
         }
     }
 
+    /// Table Annex O.4's `fdf` naming an absolute URI, under the level the menu holds — the one
+    /// answer `viewer_host::may_fetch_import` gives (ADR 1527). A refusal is said and supplied as
+    /// `None`, so the core says the import declined; a fetch arrives as `Command::Respond` by
+    /// document, whichever tab is in front by then.
+    fn fetch_import(&mut self, document: DocumentId, url: String, queue: &mut VecDeque<Command>) {
+        match viewer_host::may_fetch_import(&url, self.restrictions.submissions()) {
+            viewer_host::Sending::Send => self.start_fetch(document, url, None),
+            viewer_host::Sending::Warn(note) => self.start_fetch(document, url, Some(note)),
+            viewer_host::Sending::Ask(words) => self.put_a_question(
+                viewer_host::Subject::Fetch.title(),
+                &words,
+                Rc::new(move |host: &mut Self, proceed| {
+                    if proceed {
+                        host.start_fetch(document, url.clone(), None);
+                    } else {
+                        host.say(&viewer_host::fetch_note(
+                            &url,
+                            Some(&format!(
+                                "you answered \"{}\"",
+                                viewer_host::restriction::DO_NOT
+                            )),
+                        ));
+                        host.dispatch(Command::Supply {
+                            purpose: Purpose::ImportData,
+                            bytes: None,
+                        });
+                    }
+                }),
+            ),
+            viewer_host::Sending::Refuse(why) => {
+                self.say(&viewer_host::fetch_note(&url, Some(&why)));
+                queue.push_back(Command::Supply {
+                    purpose: Purpose::ImportData,
+                    bytes: None,
+                });
+            }
+        }
+    }
+
+    /// Puts the GET on a `fetch-import` thread of its own, looked for as a submission's answer is.
+    fn start_fetch(&mut self, document: DocumentId, url: String, warned: Option<String>) {
+        self.say(&viewer_host::fetch_note(&url, None));
+        let first = self.submitter.interval().is_none();
+        if let Err(sentence) = self.submitter.fetch(document, url, warned, None) {
+            self.say(&sentence);
+            return;
+        }
+        if first {
+            self.look_for_answers();
+        }
+    }
+
     /// Puts the request on a `submit-form` thread of its own and looks for the answer on GTK's
     /// main loop, at `viewer_host::submit::LOOK`, while one is out.
     fn send_form(
@@ -1052,20 +1113,25 @@ impl Host {
             return;
         }
         if first {
-            let me = self.me.clone();
-            glib::timeout_add_local(viewer_host::submit::LOOK, move || {
-                let mut more = false;
-                with(&me, |host| {
-                    host.take_the_answers();
-                    more = host.submitter.interval().is_some();
-                });
-                if more {
-                    glib::ControlFlow::Continue
-                } else {
-                    glib::ControlFlow::Break
-                }
-            });
+            self.look_for_answers();
         }
+    }
+
+    /// Looks for the answers on GTK's main loop, at `viewer_host::submit::LOOK`, until none is out.
+    fn look_for_answers(&self) {
+        let me = self.me.clone();
+        glib::timeout_add_local(viewer_host::submit::LOOK, move || {
+            let mut more = false;
+            with(&me, |host| {
+                host.take_the_answers();
+                more = host.submitter.interval().is_some();
+            });
+            if more {
+                glib::ControlFlow::Continue
+            } else {
+                glib::ControlFlow::Break
+            }
+        });
     }
 
     /// Every server's answer that has arrived: imported, opened beside, or said (ADR 1291).
@@ -1074,6 +1140,7 @@ impl Host {
             let (document, url) = (returned.document, returned.url.clone());
             match returned.reply() {
                 viewer_host::submit::Reply::Import {
+                    answers,
                     format,
                     bytes,
                     note,
@@ -1081,6 +1148,7 @@ impl Host {
                     self.say(&note);
                     self.dispatch(Command::Respond {
                         document,
+                        answers,
                         source: url,
                         format,
                         bytes,
@@ -1585,11 +1653,11 @@ impl Host {
                 submission,
             } => self.submit(document, *submission),
             Event::NeedsFile {
+                document,
                 purpose,
                 name,
                 beside,
-                ..
-            } => self.needs_file(purpose, &name, beside, queue),
+            } => self.needs_file(document, purpose, name, beside, queue),
             // §12.4.4.1: played since this host was given a clock, and named where it is not.
             //
             // A transition outside a presentation is not drawn at all — there is no clock to draw

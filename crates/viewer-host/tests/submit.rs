@@ -355,6 +355,7 @@ fn an_fdf_answer_is_imported_into_the_document_that_sent_the_form() {
     assert_eq!(returned.document, document);
     let source = returned.url.clone();
     let Reply::Import {
+        answers,
         format,
         bytes,
         note,
@@ -362,12 +363,14 @@ fn an_fdf_answer_is_imported_into_the_document_that_sent_the_form() {
     else {
         panic!("an FDF answer is an import");
     };
+    assert_eq!(answers, viewer_core::Answered::Submission);
     assert_eq!(format, DataFormat::Fdf);
     assert!(note.contains("answered 200"), "{note}");
 
     let notes: Vec<String> = viewer
         .handle(Command::Respond {
             document,
+            answers,
             source,
             format,
             bytes,

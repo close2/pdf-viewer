@@ -685,26 +685,15 @@ pub enum Sending {
 /// 1291 and 1327).
 #[must_use]
 pub fn may_submit(submission: &Submission, level: Submissions) -> Sending {
-    let Some(scheme) = scheme_of(&submission.url) else {
+    if scheme_of(&submission.url).is_none() {
         return Sending::Refuse(
             "Table 239's /F states no scheme this reader could read, so it names no Web server \
              (ISO 32000-2 §12.7.6.2, RFC 3986 section 3.1)"
                 .to_owned(),
         );
-    };
-    if !SUBMIT_SCHEMES.contains(&scheme.as_str()) {
-        return Sending::Refuse(format!(
-            "{scheme}: is not one of the schemes this reader sends a form to ({}), and a document \
-             does not get to choose where on this machine its fields are written",
-            SUBMIT_SCHEMES.join(", ")
-        ));
     }
-    if let Err(refusal) = crate::submit::check_url(&submission.url) {
-        return Sending::Refuse(format!(
-            "{} is not sent: {refusal}; a host is checked before it reaches the TLS stack \
-             (ADR 1327)",
-            submission.url
-        ));
+    if let Some(why) = unreachable_server(&submission.url, "sends a form to") {
+        return Sending::Refuse(why);
     }
     match level {
         Submissions::Refuse => Sending::Refuse(format!(
@@ -721,6 +710,30 @@ pub fn may_submit(submission: &Submission, level: Submissions) -> Sending {
         )),
         Submissions::Send => Sending::Send,
     }
+}
+
+/// Why a URL with a scheme is not one this machine sends anything to, or `None` where it is.
+///
+/// The two checks [`may_submit`] and [`may_fetch_import`] make before either reads the level, in
+/// their order: a scheme outside [`SUBMIT_SCHEMES`] names no Web server this reader talks to, and
+/// a URL that fails `crate::submit::check_url` is not handed to the TLS stack (ADR 1327). `act`
+/// is the verb phrase the first sentence uses — what this reader would have done with that server.
+fn unreachable_server(url: &str, act: &str) -> Option<String> {
+    let scheme = scheme_of(url)?;
+    if !SUBMIT_SCHEMES.contains(&scheme.as_str()) {
+        return Some(format!(
+            "{scheme}: is not one of the schemes this reader {act} ({}), and a document does not \
+             get to choose what on this machine is read or written in its name",
+            SUBMIT_SCHEMES.join(", ")
+        ));
+    }
+    if let Err(refusal) = crate::submit::check_url(url) {
+        return Some(format!(
+            "{url} is not sent: {refusal}; a host is checked before it reaches the TLS stack \
+             (ADR 1327)"
+        ));
+    }
+    None
 }
 
 /// What a window puts in front of a person at [`Submissions::Ask`].
@@ -777,6 +790,95 @@ pub fn submission_note(submission: &Submission, refused: Option<&str>) -> String
     match refused {
         Some(why) => format!("submit-form: declined — {why}. It would have been {what}"),
         None => format!("submit-form: {what}"),
+    }
+}
+
+/// Whether the file an import names is an **absolute URI**, which is fetched rather than read.
+///
+/// Table Annex O.4's `fdf`: "The URI shall be either a relative or absolute URI to an FDF or XFDF
+/// file." A relative one is a file beside the document and is [`resolve_import`]'s; an absolute one
+/// names its own scheme, which is RFC 3986 section 4.1's whole distinction and
+/// `pdf_model::uri::is_absolute`'s answer, and it goes to [`may_fetch_import`]. A scheme this reader
+/// does not fetch from is still routed there, so that `file:` or `ftp:` is refused by the sentence
+/// that names the scheme rather than by one about the document's directory (ADR 1527).
+#[must_use]
+pub fn import_is_fetched(name: &str) -> bool {
+    pdf_model::uri::is_absolute(name)
+}
+
+/// Whether the form data an import names by an absolute URI may be **fetched** from that server.
+///
+/// Table Annex O.4's `fdf` is "Open the document and then import the data from the specified FDF
+/// or XFDF file", and an absolute URI makes that a GET over the network. That tells the server this
+/// document was opened here, which is §12.7.6.2's act class — a machine contacting a server on a
+/// document's word — so **the level is [`Submissions`]'** rather than a fifth one invented, read
+/// here and nowhere else (`CLAUDE.md` principle 3's shape; ADR 1527).
+///
+/// [`may_submit`]'s order, for its reason: a URI with a scheme outside [`SUBMIT_SCHEMES`] and one
+/// that fails `crate::submit::check_url` are refused at every level, and only then is the level
+/// read. **Where the name came from is not consulted**: a fragment can arrive from a person's
+/// command line or from a document's own `ef` remainder, and an import-data action may name a URL
+/// too, and nothing here could tell them apart.
+#[must_use]
+pub fn may_fetch_import(url: &str, level: Submissions) -> Sending {
+    if scheme_of(url).is_none() {
+        return Sending::Refuse(format!(
+            "{url} states no scheme this reader could read, so it names no Web server (RFC 3986 \
+             section 3.1)"
+        ));
+    }
+    if let Some(why) = unreachable_server(url, "fetches form data from") {
+        return Sending::Refuse(why);
+    }
+    match level {
+        Submissions::Refuse => Sending::Refuse(format!(
+            "this reader is set to send nothing to a server on a document's behalf ({}: {}); {} \
+             puts the request to you first",
+            crate::restriction::SUBMITTING,
+            Submissions::Refuse.as_str(),
+            Submissions::Ask.as_str()
+        )),
+        Submissions::Ask => Sending::Ask(asked_to_fetch(url)),
+        Submissions::Warn => Sending::Warn(format!(
+            "it was fetched without asking you first, because this reader is set to {} ({})",
+            Submissions::Warn.as_str(),
+            crate::restriction::SUBMITTING
+        )),
+        Submissions::Send => Sending::Send,
+    }
+}
+
+/// What a window puts in front of a person when [`may_fetch_import`] answers
+/// [`Submissions::Ask`]: the URL whole, and what fetching it would do.
+#[must_use]
+pub fn asked_to_fetch(url: &str) -> crate::restriction::Question {
+    crate::restriction::Question {
+        reasons: format!(
+            "This document asks for its form data from a server: GET {url}. Fetching it tells \
+             that server this document was opened here, and what it answers is imported into the \
+             form."
+        ),
+        choice: format!(
+            "You have set this reader to ask before anything is sent to a server on a document's \
+             behalf ({submitting}: {}). \"{}\" fetches this one and leaves the level where it is; \
+             \"{}\" fetches nothing. Setting {submitting} to {} in the restrictions menu stops the \
+             question being asked, and {} stops anything being fetched at all.",
+            Submissions::Ask.as_str(),
+            crate::restriction::GO_AHEAD,
+            crate::restriction::DO_NOT,
+            Submissions::Send.as_str(),
+            Submissions::Refuse.as_str(),
+            submitting = crate::restriction::SUBMITTING,
+        ),
+    }
+}
+
+/// What a host says about a fetched import, whether it fetches it or declines.
+#[must_use]
+pub fn fetch_note(url: &str, refused: Option<&str>) -> String {
+    match refused {
+        Some(why) => format!("import-data: declined — {url} was not fetched: {why}"),
+        None => format!("import-data: fetching GET {url}"),
     }
 }
 
@@ -1246,6 +1348,8 @@ pub struct Settings {
     pub remote_documents: RemoteDocuments,
     /// What §O.2.1's `ef` does ([`EMBEDDED_DOCUMENTS`]).
     pub embedded_documents: EmbeddedDocuments,
+    /// What a submission or a fetched import sends to a server ([`SUBMISSIONS`]).
+    pub submissions: Submissions,
     /// Whether §10.8.3's separation simulation is asked for ([`SEPARATIONS`]).
     pub separations: bool,
 }
@@ -1528,6 +1632,28 @@ pub fn embedded_documents(word: &str) -> Result<EmbeddedDocuments, String> {
             EmbeddedDocuments::ALL
                 .map(EmbeddedDocuments::as_str)
                 .join(", ")
+        )
+    })
+}
+
+/// The word a person types to say what this reader does when a document asks it to send something
+/// to a server — [`Submissions`]' four words, for §12.7.6.2's form and Table Annex O.4's fetched
+/// `fdf` alike.
+///
+/// The menu's third group sets the same value while the window is up; the word is what a window is
+/// started at, as [`EMBEDDED_DOCUMENTS`] is (ADR 1527).
+pub const SUBMISSIONS: &str = "--submissions=";
+
+/// Reads [`SUBMISSIONS`]' word onto a level, or says what is wrong with it.
+///
+/// # Errors
+///
+/// The sentence to print, naming every word this option takes — [`links`]' shape.
+pub fn submissions(word: &str) -> Result<Submissions, String> {
+    Submissions::parse(word).ok_or_else(|| {
+        format!(
+            "{SUBMISSIONS}{word}: no such level. One of {}",
+            Submissions::ALL.map(Submissions::as_str).join(", ")
         )
     })
 }

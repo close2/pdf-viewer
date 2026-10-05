@@ -81,18 +81,19 @@ const MAX_UNOPENABLE: usize = 0;
 /// encrypted document using the padding string … (default user password)" and prompt when that
 /// fails, which is what a viewer with a window does and what this gate cannot do. Where the
 /// password is published beside the file, `corpus_passwords` answers the prompt, [`examine`] opens
-/// the document with it, and the document is walked like any other; nine are opened that way
-/// (ADR 1377). What is left here is a document nobody has a password for.
+/// the document with it, and the document is walked like any other; ten are opened that way
+/// (ADR 1377). What would be left here is a document nobody has a password for.
 ///
-/// `encrypted-attachment.pdf` states no `/AuthEvent`, so Table 25's default of `DocOpen` requires
-/// the key at the open; its twin `auth-event-ef-open.pdf` — the same bytes plus that one line — is
-/// the file that opens without one (ADR 1040). No password for it is recorded anywhere.
+/// **Empty.** `encrypted-attachment.pdf` states no `/AuthEvent`, so Table 25's default of
+/// `DocOpen` requires the key at the open (ADR 1040), and the key is published: pdf.js's own unit
+/// test of the file opens it with `000000`, which matches as its owner password. It is opened with
+/// it and walked like its twin `auth-event-ef-open.pdf` (ADR 1534).
 ///
 /// Named rather than counted, because a ceiling cannot tell a document that *started* needing a
 /// password from one that *stopped*, and both are findings — a file this reader stopped
 /// decrypting and a file whose password began working are the same number and opposite news (ADR
 /// 1081). A published password that stops opening its document lands here by name.
-const LOCKED: [&str; 1] = ["encrypted-attachment.pdf"];
+const LOCKED: [&str; 0] = [];
 
 /// Documents whose encryption this reader does not implement.
 ///
@@ -277,6 +278,34 @@ const PAGELESS: [&str; 5] = [
     // from a scan and its `/Pages` lives in the one object stream this reader cannot inflate.
     // `mupdf` and `ghostscript` draw it in full; nothing is owed until the filter is published.
     "Brotli-Prototype-FileA.pdf",
+];
+
+/// Documents whose pages were found by scanning, because the page tree yielded none.
+///
+/// §7.7.3.1's tree "defines the ordering of pages in the document", and `Pages::new`'s recovery
+/// answers a tree that yields nothing from Table 31's `/Type /Page` declarations instead, in
+/// ascending object number — every page the file's, the order and the membership this reader's.
+/// `Pages::found_by_scanning` is that statement and the host's open notes say it out loud; this is
+/// the population it is said for, held by name so that a document arriving here is a document
+/// whose page tree stopped being walked, which no other line of this gate would show while the
+/// page went on drawing (ADR 1533).
+///
+/// None of these is on [`PAGELESS`]: each is a document whose page one exists only because the
+/// recovery found it.
+const FOUND_BY_SCANNING: [&str; 5] = [
+    // Both: the RC4 key the file declares opens `/U` and not its streams (see `INCOMPLETE`), so
+    // the object stream holding `/Pages 13 0 R` does not inflate; the page object outside it is
+    // found by its own declaration, and its content reports what the wrong key made of it.
+    "issue19484_1.pdf",
+    "issue19484_2.pdf",
+    // The newest trailer's `/Root` is an object stating `/CreationDate`, `/Creator` and
+    // `/Producer` and no `/Pages`; object 5's `/Type /Page` is the page, judged against `gs`.
+    "issue9418.pdf",
+    // Fuzzed: `/Pages 2 0 R` names an object the file never defines (the node is written as a
+    // second `3 0 obj`), so §7.3.10 makes it null; object 5 declares itself the page.
+    "poppler-395-0-fuzzed.pdf",
+    // ADR 0784's witness: the page dictionary stops part-way and is taken on its prefix.
+    "poppler-742-0-fuzzed.pdf",
 ];
 
 /// Documents whose first page interprets with something reported as unsupported.
@@ -538,6 +567,10 @@ struct Tally {
     /// file whose page tree lives inside a filter this reader does not have are three different
     /// facts. [`why_no_page_one`] is what says which, and the gate prints it.
     pageless: Vec<(String, String)>,
+    /// Every document whose pages came from the recovery scan rather than from its page tree.
+    ///
+    /// [`FOUND_BY_SCANNING`] holds it by name, and its doc comment says why.
+    found_by_scanning: Vec<String>,
     /// Every document whose page one reports something, with the reports themselves.
     ///
     /// **Held as the values rather than as their `Debug` string**, because [`whose_defect`]
@@ -1173,7 +1206,7 @@ fn corpus() -> Option<Vec<PathBuf>> {
 /// refusal's wording is a measurement, and a word shared by two populations measures neither.
 ///
 /// The questions are asked in the order the standard makes them: the catalogue, then Table
-/// 28's `/Pages`, then Table 30's `/Kids`, then §7.3.10's meaning of a reference into nothing,
+/// 29's `/Pages`, then Table 30's `/Kids`, then §7.3.10's meaning of a reference into nothing,
 /// and last whether the scan §C.4 licenses found a page the tree did not. Each answer names
 /// the clause it comes from, and none of them consults another renderer.
 ///
@@ -1199,12 +1232,12 @@ fn why_no_page_one(document: &Document) -> String {
         }
     };
 
-    // §7.7.2's Table 28: "( Required; shall be an indirect reference ) The page tree node that
+    // §7.7.2's Table 29: "( Required; shall be an indirect reference ) The page tree node that
     // shall be the root of the document's page tree".
     let root = document.get_key(&catalog, "Pages");
     let Some(node) = root.as_dict() else {
         return format!(
-            "§7.7.2: the catalogue's /Pages resolves to {}, where Table 28 puts the root of \
+            "§7.7.2: the catalogue's /Pages resolves to {}, where Table 29 puts the root of \
              the page tree{}",
             root.type_name(),
             unreadable_object_streams(document)
@@ -1315,7 +1348,7 @@ fn the_page_tree_diagnosis_names_each_clause_it_can_stop_at() {
         // `Document::open`), so planting this answer means planting a file with no catalogue
         // object either — which is what `bug1020226.pdf` is.
         (assemble(&[(1, "<< /Colours 4 >>")], "/Size 2"), "§7.5.5:"),
-        // §7.7.2: Table 28's `/Pages` is "[t]he page tree node that shall be the root of the
+        // §7.7.2: Table 29's `/Pages` is "[t]he page tree node that shall be the root of the
         // document's page tree", and a reference into nothing is not one.
         (
             assemble(&[(1, "<< /Type /Catalog /Pages 99 0 R >>")], "/Root 1 0 R"),
@@ -1439,7 +1472,12 @@ fn examine(path: &Path, tally: &Mutex<Tally>) {
             return;
         }
     };
-    let Some(page) = pdf_model::Pages::new(&document).get(0) else {
+    let pages = pdf_model::Pages::new(&document);
+    if pages.found_by_scanning().is_some() {
+        let named = name.clone();
+        record(tally, |t| t.found_by_scanning.push(named));
+    }
+    let Some(page) = pages.get(0) else {
         let reason = why_no_page_one(&document);
         record(tally, |t| t.pageless.push((name, reason)));
         return;
@@ -1623,6 +1661,11 @@ fn the_corpus_opens_interprets_and_rasterises() {
         "documents with no reachable first page",
         tally.pageless.iter().map(|(name, _)| name.clone()),
         &PAGELESS,
+    );
+    gate_ratchet::population(
+        "documents whose pages were found by scanning, the page tree yielding none",
+        tally.found_by_scanning.iter().cloned(),
+        &FOUND_BY_SCANNING,
     );
     gate_ratchet::population(
         "documents that draw incompletely",

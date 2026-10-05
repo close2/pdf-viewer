@@ -56,6 +56,9 @@ struct Arguments {
     /// §O.2.1's `ef`: what this window does when a URI's fragment names an embedded document, per
     /// [`viewer_host::EMBEDDED_DOCUMENTS`] — `ask` unless a person said otherwise (ADR 1331).
     embedded_documents: viewer_host::EmbeddedDocuments,
+    /// §12.7.6.2's form and Table Annex O.4's fetched `fdf`, per [`viewer_host::SUBMISSIONS`] —
+    /// `ask` unless a person said otherwise (ADRs 1291, 1527).
+    submissions: viewer_host::Submissions,
     /// §10.8.3: whether this window asks for the separation simulation, per
     /// [`viewer_host::SEPARATIONS`].
     ///
@@ -72,6 +75,7 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
     let mut links = viewer_host::Links::default();
     let mut remote_documents = viewer_host::RemoteDocuments::default();
     let mut embedded_documents = viewer_host::EmbeddedDocuments::default();
+    let mut submissions = viewer_host::Submissions::default();
     let mut separations = false;
     for word in words {
         if word == "--draw-widget-appearances" {
@@ -90,6 +94,9 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
         } else if let Some(level) = word.strip_prefix(viewer_host::EMBEDDED_DOCUMENTS) {
             // §O.2.1's act, at four levels of its own (ADR 1331).
             embedded_documents = viewer_host::embedded_documents(level)?;
+        } else if let Some(level) = word.strip_prefix(viewer_host::SUBMISSIONS) {
+            // §12.7.6.2's and a fetched import's act, at four levels of its own (ADR 1527).
+            submissions = viewer_host::submissions(level)?;
         } else if let Some(setting) = word.strip_prefix(viewer_host::SEPARATIONS) {
             // §10.8.3's simulation, which is a preference and has two words (ADR 1228).
             separations = viewer_host::separations(setting)?;
@@ -114,7 +121,8 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
             "usage: quorra-gtk [--trace[=topics]] [--draw-widget-appearances] \
              [{IGNORE_RESTRICTIONS}] [--links=refuse|ask|warn|open] \
              [--remote-documents=refuse|ask|warn|open] \
-             [--embedded-documents=refuse|ask|warn|open] [--separations=on|off] <file.pdf>..."
+             [--embedded-documents=refuse|ask|warn|open] \
+             [--submissions=refuse|ask|warn|send] [--separations=on|off] <file.pdf>..."
         )
     })?;
     Ok(Arguments {
@@ -126,6 +134,7 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
         links,
         remote_documents,
         embedded_documents,
+        submissions,
         separations,
     })
 }
@@ -168,6 +177,7 @@ fn main() -> glib::ExitCode {
                 links: arguments.links,
                 remote_documents: arguments.remote_documents,
                 embedded_documents: arguments.embedded_documents,
+                submissions: arguments.submissions,
                 separations: arguments.separations,
             },
             trace,

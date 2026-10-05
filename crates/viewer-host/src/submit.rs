@@ -312,20 +312,7 @@ pub struct Response {
 /// [`TransmitError`], where nothing was answered. An answer with any status is a [`Response`]: a
 /// `404` is something the server *said*.
 pub fn transmit(submission: &Submission) -> Result<Response, TransmitError> {
-    let scheme = submission
-        .url
-        .split_once(':')
-        .map(|(scheme, _)| scheme.to_ascii_lowercase());
-    let secure = match scheme.as_deref() {
-        Some("https") => true,
-        Some("http") => false,
-        _ => return Err(TransmitError::Scheme(submission.url.clone())),
-    };
-    check_url(&submission.url).map_err(|refusal| TransmitError::Url {
-        url: submission.url.clone(),
-        refusal,
-    })?;
-    let agent = agent(secure)?;
+    let agent = checked_agent(&submission.url)?;
     let sent = match submission.method {
         Method::Get => agent.get(&submission.url).call(),
         Method::Post => agent
@@ -333,6 +320,46 @@ pub fn transmit(submission: &Submission) -> Result<Response, TransmitError> {
             .header("Content-Type", &submission.media_type)
             .send(&submission.body[..]),
     };
+    answered(sent)
+}
+
+/// Fetches the form data an import names by an absolute URI, blocking: Table Annex O.4's `fdf`
+/// (ADR 1527).
+///
+/// [`transmit`]'s client, scheme check, [`check_url`], [`TIMEOUT`] and [`RESPONSE_LIMIT`], with a
+/// GET and no body: the same act class under the same level (`crate::policy::may_fetch_import`), so
+/// the same bounds, and a server that answers more than a form's data could be is refused by name
+/// rather than read without end.
+///
+/// # Errors
+///
+/// [`TransmitError`], where nothing was answered or the answer was over the bound.
+pub fn fetch(url: &str) -> Result<Response, TransmitError> {
+    answered(checked_agent(url)?.get(url).call())
+}
+
+/// The agent for one URL, after the scheme and [`check_url`] — the last place either guarantee can
+/// be made, for `crate::policy::open_uri`'s reason.
+fn checked_agent(url: &str) -> Result<ureq::Agent, TransmitError> {
+    let scheme = url
+        .split_once(':')
+        .map(|(scheme, _)| scheme.to_ascii_lowercase());
+    let secure = match scheme.as_deref() {
+        Some("https") => true,
+        Some("http") => false,
+        _ => return Err(TransmitError::Scheme(url.to_owned())),
+    };
+    check_url(url).map_err(|refusal| TransmitError::Url {
+        url: url.to_owned(),
+        refusal,
+    })?;
+    agent(secure)
+}
+
+/// What came back, with the body read to at most [`RESPONSE_LIMIT`] bytes.
+fn answered(
+    sent: Result<ureq::http::Response<ureq::Body>, ureq::Error>,
+) -> Result<Response, TransmitError> {
     let mut answer = sent.map_err(|error| TransmitError::Network(error.to_string()))?;
     let status = answer.status().as_u16();
     let header = |name: &str| {
@@ -412,7 +439,10 @@ fn media_type_of(value: &str) -> String {
 pub enum Reply {
     /// §12.7.8's form data: hand it to `viewer_core::Command::Respond` in this format.
     Import {
-        /// FDF or XFDF, by the answer's media type.
+        /// Which request the bytes answer: a submission, or a fetched import.
+        answers: viewer_core::Answered,
+        /// FDF or XFDF: a submission's by the answer's media type, a fetched import's by the URI's
+        /// name (`pdf_model::action::data_format`).
         format: DataFormat,
         /// The body.
         bytes: Vec<u8>,
@@ -478,6 +508,7 @@ pub fn reply(url: &str, response: Response, warned: Option<&str>) -> Reply {
     };
     if let Some(format) = format {
         return Reply::Import {
+            answers: viewer_core::Answered::Submission,
             format,
             bytes: response.body,
             note,
@@ -501,11 +532,67 @@ pub fn reply(url: &str, response: Response, warned: Option<&str>) -> Reply {
     Reply::Say(note)
 }
 
-/// One submission's end, as it crosses back to the window.
+/// What a fetched import's answer comes to: the bytes to import, or a sentence.
+///
+/// **The format is the URI's name, never the answer's media type** — `pdf_model::action::data_format`
+/// answers both §12.7.6.4's file and Annex O's, and one opinion of what an `.xfdf` is holds for
+/// both routes. Only a 2xx is imported, for [`reply`]'s reason; a body that is not the format its
+/// name says is reported by the import that reads it (ADR 1527).
+#[must_use]
+pub fn fetched(url: &str, format: DataFormat, response: Response, warned: Option<&str>) -> Reply {
+    use std::fmt::Write as _;
+
+    let media = response.media_type.as_deref().unwrap_or("no media type");
+    let mut note = format!(
+        "import-data: {url} answered {} ({media}, {} byte(s))",
+        response.status,
+        response.body.len()
+    );
+    if let Some(warned) = warned {
+        note.push_str(" — ");
+        note.push_str(warned);
+    }
+    if !(200..300).contains(&response.status) {
+        if let Some(location) = &response.location {
+            // `fmt::Write for String` never answers `Err`: the discard is that infallibility.
+            let _ = write!(
+                note,
+                "; it points to {location}, which this reader does not follow on a document's \
+                 behalf"
+            );
+        }
+        note.push_str("; nothing was imported");
+        return Reply::Say(note);
+    }
+    if response.body.is_empty() {
+        note.push_str("; there is nothing to import");
+        return Reply::Say(note);
+    }
+    Reply::Import {
+        answers: viewer_core::Answered::Import,
+        format,
+        bytes: response.body,
+        note,
+    }
+}
+
+/// Which request a [`Returned`] answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Asked {
+    /// §12.7.6.2's submission, whose answer [`reply`] reads.
+    Submission,
+    /// A fetched import, in the format its URI's name says, whose answer [`fetched`] reads.
+    Import(DataFormat),
+}
+
+/// One request's end, as it crosses back to the window.
 #[derive(Debug)]
 pub struct Returned {
-    /// The document that sent the form, which is the one an FDF answer is imported into.
+    /// The document that sent the form or asked for the data, which is the one an FDF answer is
+    /// imported into.
     pub document: DocumentId,
+    /// Which request it was.
+    pub asked: Asked,
     /// Where it was sent.
     pub url: String,
     /// [`Submissions::Warn`](crate::policy::Submissions::Warn)'s sentence, where the level asked
@@ -519,10 +606,17 @@ impl Returned {
     /// What the window does about it — [`reply`] for an answer, a sentence for none.
     #[must_use]
     pub fn reply(self) -> Reply {
-        match self.answer {
-            Ok(response) => reply(&self.url, response, self.warned.as_deref()),
-            Err(error) => Reply::Say(format!(
+        match (self.asked, self.answer) {
+            (Asked::Submission, Ok(response)) => reply(&self.url, response, self.warned.as_deref()),
+            (Asked::Import(format), Ok(response)) => {
+                fetched(&self.url, format, response, self.warned.as_deref())
+            }
+            (Asked::Submission, Err(error)) => Reply::Say(format!(
                 "submit-form: {} was not answered — {error}",
+                self.url
+            )),
+            (Asked::Import(_), Err(error)) => Reply::Say(format!(
+                "import-data: {} was not fetched — {error}",
                 self.url
             )),
         }
@@ -585,6 +679,7 @@ impl Submitter {
                 // nobody is owed: the discard is the window's absence rather than a lost error.
                 let _ = sender.send(Returned {
                     document,
+                    asked: Asked::Submission,
                     url: submission.url,
                     warned,
                     answer,
@@ -594,6 +689,43 @@ impl Submitter {
                 }
             })
             .map_err(|error| format!("submit-form: no thread to send it on: {error}"))?;
+        self.outstanding = self.outstanding.saturating_add(1);
+        Ok(())
+    }
+
+    /// Fetches one import's form data on a `fetch-import` thread of its own — [`Self::send`]'s
+    /// shape, so the answer is collected on the same timer and imported into the document that
+    /// asked, whichever is in front when it arrives (ADR 1527).
+    ///
+    /// # Errors
+    ///
+    /// The sentence to say where no thread could be started, in which case nothing was fetched.
+    pub fn fetch(
+        &mut self,
+        document: DocumentId,
+        url: String,
+        warned: Option<String>,
+        wake: Option<Box<dyn Fn() + Send>>,
+    ) -> Result<(), String> {
+        let format = pdf_model::action::data_format(&url);
+        let sender = self.sender.clone();
+        std::thread::Builder::new()
+            .name("fetch-import".to_owned())
+            .spawn(move || {
+                let answer = fetch(&url);
+                // The window's absence, as in `send`.
+                let _ = sender.send(Returned {
+                    document,
+                    asked: Asked::Import(format),
+                    url,
+                    warned,
+                    answer,
+                });
+                if let Some(wake) = wake {
+                    wake();
+                }
+            })
+            .map_err(|error| format!("import-data: no thread to fetch it on: {error}"))?;
         self.outstanding = self.outstanding.saturating_add(1);
         Ok(())
     }

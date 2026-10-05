@@ -59,6 +59,11 @@ pub(crate) struct Encoder<'a> {
     transient: &'a mut Vec<ResourceId>,
     functions: &'a mut FunctionPaints,
     clips: HashMap<usize, ResolvedClip>,
+    /// Each clip's region as uploaded for this frame's target, by the list's clip id, and
+    /// handed to every frame of the group drawn as frames of their own on the same target
+    /// (ADR 1529): the region is a function of the clip and the target alone, so the second
+    /// frame of a four-component group states its clips by the first frame's outlines.
+    clip_outlines: HashMap<usize, ClipOutline>,
     /// The page-space rectangle each chain **admits**, where it is one — see
     /// [`Encoder::admitted_rect`], which is what decides whether a chain can be left off a
     /// mark it does not cut.
@@ -84,6 +89,16 @@ pub(crate) struct Encoder<'a> {
     /// by [`Encoder::admitted_rect`]: the outermost link of every chain, and the only link of
     /// a command that states none.
     root_rect: Option<Rect>,
+}
+
+/// One clip's region as [`Encoder::clip_outline`] uploaded it: the outline, the rule it is
+/// filled by, and whether building it read the view (ADR 0702), which a frame handed the
+/// outline must record as its own.
+#[derive(Debug, Clone, Copy)]
+struct ClipOutline {
+    outline: raster_scene::OutlineId,
+    rule: FillRule,
+    read_view: bool,
 }
 
 /// What this frame's §8.7.4.5.2 type 1 shadings did: how many the device evaluated, and the
@@ -348,6 +363,7 @@ impl<'a> Encoder<'a> {
             transient,
             functions,
             clips: HashMap::new(),
+            clip_outlines: HashMap::new(),
             admits: HashMap::new(),
             masks: HashMap::new(),
             knockouts: 0,
@@ -1668,6 +1684,28 @@ impl<'a> Encoder<'a> {
             // The outermost link of every chain hangs from the page's own boundary.
             None => self.root,
         };
+        let (outline, rule) = match self.clip_outlines.get(&id.index()).copied() {
+            Some(kept) => {
+                if kept.read_view {
+                    self.consume_view();
+                }
+                (kept.outline, kept.rule)
+            }
+            None => self.clip_outline(id.index(), def)?,
+        };
+        let link = builder.clip(outline, self.placed(def.transform), fill_rule(rule), parent)?;
+        let resolved = ResolvedClip::Chain(link);
+        self.clips.insert(id.index(), resolved);
+        Ok(resolved)
+    }
+
+    /// A clip's region uploaded for this target, and kept for every frame this one hands its
+    /// clips to ([`Encoder::clip_outlines`]).
+    fn clip_outline(
+        &mut self,
+        index: usize,
+        def: &pdf_render::Clip,
+    ) -> Result<(raster_scene::OutlineId, FillRule), QuorraRasterError> {
         // ISO 32000-2 §10.7.4: "For clipping, the clipping region consists of the set of pixels
         // that would be included by a fill operation", and the clause's own EXAMPLE says what a
         // fill of a flat rectangle includes — "[a] zero-width or zero-height rectangle paints a
@@ -1681,6 +1719,7 @@ impl<'a> Encoder<'a> {
             def.fill_rule,
             def.transform.then(self.target.transform),
         );
+        let read_view = matches!(region, Some(pdf_render::ClipRegion::One(..)));
         let (outline, rule) = match &region {
             Some(pdf_render::ClipRegion::One(region, rule)) => {
                 self.consume_view();
@@ -1701,10 +1740,15 @@ impl<'a> Encoder<'a> {
             }
             None => (self.transient_outline(&def.path)?, def.fill_rule),
         };
-        let link = builder.clip(outline, self.placed(def.transform), fill_rule(rule), parent)?;
-        let resolved = ResolvedClip::Chain(link);
-        self.clips.insert(id.index(), resolved);
-        Ok(resolved)
+        self.clip_outlines.insert(
+            index,
+            ClipOutline {
+                outline,
+                rule,
+                read_view,
+            },
+        );
+        Ok((outline, rule))
     }
 
     /// The raster soft mask for a display-list one, realised on first use through

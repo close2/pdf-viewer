@@ -412,7 +412,7 @@ impl Encryption {
         //
         // `auth-event-ef-open.pdf` and `encrypted-attachment.pdf` are the same shape but for that
         // entry — both write `/StmF /Identity /StrF /Identity` with a `StdCF` reaching only their
-        // attachment, and neither authenticates against any password anybody has — and the answer
+        // attachment, and neither authenticates against the default user password — and the answer
         // the clause gives is different for each: the first states `EFOpen` and opens, the second
         // states nothing and is a document waiting for a person. ADR 1040 argues it; the two files
         // are pdf.js's own pair for the distinction, which is why they differ in nothing else.

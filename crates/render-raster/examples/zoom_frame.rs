@@ -61,6 +61,13 @@
 //! a measurement of the load. Each round builds its own device, because a device that has drawn
 //! this pair already answers frame 1 from the atlas.
 //!
+//! **`ZOOM_FRAME_BACKEND=cpu` draws the same targets with `render-cpu` instead**, through
+//! `pdf_render::Rasterizer::rasterize` and nothing else, and prints each target's minimum. It is
+//! the figure a raster frame is compared against (ADR 1529), and it is taken here so that both
+//! sides of that comparison are the same page, the same display list, the same targets and the
+//! same statistic. The CPU backend keeps nothing between frames, so its first and second targets
+//! differ only by size.
+//!
 //! **`ZOOM_FRAME_WINDOW=900x1100` draws the window instead of the page**, which is what a viewer
 //! past the magnification at which the page fits actually rasterises — `viewer-ui`'s own surface
 //! builds exactly this target, and `examples/zoom_ladder.rs` has modelled it since it was written.
@@ -243,6 +250,11 @@ fn main() {
     assert!(!sequence.is_empty(), "a sequence needs a frame in it");
     let targets: Vec<TargetSpec> = sequence.iter().map(|zoom| placed(scale * zoom)).collect();
 
+    if variable("ZOOM_FRAME_BACKEND").as_deref() == Some("cpu") {
+        cpu_backend(&path, index, &list, &sequence, &targets, rounds);
+        return;
+    }
+
     let before = load_average();
     let mut best: Vec<Option<Sample>> = targets.iter().map(|_| None).collect();
     let mut adapter = String::new();
@@ -329,5 +341,42 @@ fn main() {
         for (phase, spent) in &sample.phases {
             println!("        {phase:<20}{spent:>9.3}");
         }
+    }
+}
+
+/// The same targets drawn by the CPU backend, the minimum of `rounds` round-robin rounds each.
+fn cpu_backend(
+    path: &str,
+    index: usize,
+    list: &pdf_render::DisplayList,
+    sequence: &[f32],
+    targets: &[TargetSpec],
+    rounds: usize,
+) {
+    use pdf_render::Rasterizer as _;
+    let before = load_average();
+    let mut backend = render_cpu::CpuRasterizer::new();
+    let mut best = vec![f64::INFINITY; targets.len()];
+    for _ in 0..rounds {
+        for (slot, target) in best.iter_mut().zip(targets.iter().copied()) {
+            let started = std::time::Instant::now();
+            backend
+                .rasterize(list, target)
+                .unwrap_or_else(|error| panic!("refused: {error}"));
+            *slot = slot.min(ms(started.elapsed()));
+        }
+    }
+    println!("{path} page {index}, the CPU backend");
+    println!(
+        "load average {} → {}, minima of {rounds} round(s)",
+        before.map_or_else(|| "?".to_owned(), |load| format!("{load:.2}")),
+        load_average().map_or_else(|| "?".to_owned(), |load| format!("{load:.2}"))
+    );
+    for (order, ((zoom, target), total)) in sequence.iter().zip(targets).zip(&best).enumerate() {
+        println!(
+            "{:<8}{:>10}{total:>9.1}",
+            format!("{}:{zoom}×", order.saturating_add(1)),
+            format!("{}x{}", target.width, target.height)
+        );
     }
 }

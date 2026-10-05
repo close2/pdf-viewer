@@ -164,12 +164,58 @@ impl App {
         }
     }
 
+    /// Table Annex O.4's `fdf` naming an absolute URI, under the level the menu holds — the one
+    /// answer `viewer_host::may_fetch_import` gives (ADR 1527). A refusal is said and supplied as
+    /// `None`, so the core says the import declined; a fetch arrives as `Command::Respond` by
+    /// document, whichever is in front by then.
+    fn fetch_import(
+        &mut self,
+        document: viewer_core::DocumentId,
+        url: String,
+        queue: &mut VecDeque<Command>,
+    ) {
+        match viewer_host::may_fetch_import(&url, self.restrictions.submissions()) {
+            viewer_host::Sending::Send => self.start_fetch(document, url, None),
+            viewer_host::Sending::Warn(note) => self.start_fetch(document, url, Some(note)),
+            viewer_host::Sending::Ask(words) => {
+                self.put_a_question(crate::app::Pending::Fetch { document, url }, &words);
+            }
+            viewer_host::Sending::Refuse(why) => {
+                println!("{}", viewer_host::fetch_note(&url, Some(&why)));
+                queue.push_back(Command::Supply {
+                    purpose: Purpose::ImportData,
+                    bytes: None,
+                });
+            }
+        }
+    }
+
+    /// Puts the GET on a `fetch-import` thread of its own, woken and collected as a submission is.
+    fn start_fetch(
+        &mut self,
+        document: viewer_core::DocumentId,
+        url: String,
+        warned: Option<String>,
+    ) {
+        println!("{}", viewer_host::fetch_note(&url, None));
+        let wake = self.waker.clone().map(|waker| -> Box<dyn Fn() + Send> {
+            Box::new(move || {
+                // A loop that has already exited has nobody to wake.
+                let _ = waker.send_event(());
+            })
+        });
+        if let Err(sentence) = self.submitter.fetch(document, url, warned, wake) {
+            println!("note: {sentence}");
+        }
+    }
+
     /// Every server's answer that has arrived: imported, opened beside, or said (ADR 1291).
     pub(crate) fn take_the_answers(&mut self) {
         for returned in self.submitter.collect() {
             let (document, url) = (returned.document, returned.url.clone());
             match returned.reply() {
                 viewer_host::submit::Reply::Import {
+                    answers,
                     format,
                     bytes,
                     note,
@@ -177,6 +223,7 @@ impl App {
                     println!("{note}");
                     self.dispatch(Command::Respond {
                         document,
+                        answers,
                         source: url,
                         format,
                         bytes,
@@ -330,14 +377,21 @@ answers in two places"
             // *values* into the document being read, while a remote go-to, a thread in another
             // file and a named page each make this program parse a second PDF — which is the act
             // a person may want to be asked about (ADRs 1227, 1239).
+            //
+            // An import named by an absolute URI is fetched rather than read, under the level a
+            // submission is sent at (ADR 1527).
             Event::NeedsFile {
+                document,
                 purpose,
                 name,
                 beside,
-                ..
             } => {
                 if viewer_host::under_remote_documents(purpose) {
                     self.remote(purpose, &name, beside, queue);
+                    return;
+                }
+                if purpose == Purpose::ImportData && viewer_host::import_is_fetched(&name) {
+                    self.fetch_import(document, name, queue);
                     return;
                 }
                 let bytes = self.supply(purpose, &name);
@@ -628,6 +682,28 @@ impl App {
                             )),
                         )
                     );
+                }
+            }
+            // Table Annex O.4's `fdf` from a server: a `no` fetches nothing, and the core is told
+            // so the import says it declined (ADR 1527).
+            crate::app::Pending::Fetch { document, url } => {
+                if proceed {
+                    self.start_fetch(document, url, None);
+                } else {
+                    println!(
+                        "{}",
+                        viewer_host::fetch_note(
+                            &url,
+                            Some(&format!(
+                                "you answered \"{}\"",
+                                viewer_host::restriction::DO_NOT
+                            ))
+                        )
+                    );
+                    self.dispatch(Command::Supply {
+                        purpose: Purpose::ImportData,
+                        bytes: None,
+                    });
                 }
             }
             // §12.6.4.3: the act is opening a document in place of this one, so a `no` supplies

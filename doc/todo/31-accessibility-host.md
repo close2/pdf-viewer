@@ -143,8 +143,9 @@ glyphs it wrote, one line of the field at a time in display order, so `GetCharac
 In `quorra-gtk` that node is the one that answers: GTK 4's own `GtkEntry` refuses the call in every
 coordinate space and its `GtkText` would answer with an empty box, so the document's node is placed
 in the window — the page area's origin as the document node's transform, the space GTK's own widgets
-answer in — and its character lies inside GTK's entry (ADR 1516). `quorra-qt` places its bridge by
-the window's client area rather than its page area, which ADR 1516 names as the same offset, unmeasured.
+answer in — and its character lies inside GTK's entry (ADR 1516). `quorra-qt` places it the same
+way, with the page area's place in the window's contents sent from C++ (`page_placed`); the drive
+reads Qt's document node beside its `QLineEdit` and holds it inside the field (ADR 1528).
 
 ## What is left
 

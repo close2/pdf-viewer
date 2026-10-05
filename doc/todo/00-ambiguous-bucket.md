@@ -1902,10 +1902,12 @@ and printed a count. They are named now, by cause, in `NOT_COMPARABLE`, held to 
 directions like the refusal lists beside it — and the reading is not new work: `oracle.rs`'s
 `NO_RENDER_*` groups and `pdf-model/tests/corpus.rs`'s `MAX_UNREADABLE_ENCRYPTION` and
 `MAX_PAGELESS` had read every one of these documents already, so what was owed here was the names
-and the mapping, not a second diagnosis. Two do not open (one wanting a password nobody has
-published, one whose `/Encrypt` resolves to nothing) and five yield no first page; the nine
-encrypted documents whose passwords are published are opened from one table,
-`pdf-model/tests/support/corpus_passwords.rs`, and compare like any other page (ADR 1377). **None is a
+and the mapping, not a second diagnosis. One does not open (its `/Encrypt` resolves to nothing)
+and five yield no first page; the ten encrypted documents whose passwords are published are opened
+from one table, `pdf-model/tests/support/corpus_passwords.rs`, and compare like any other page
+(ADRs 1377 and 1534). A document whose pages came from the recovery scan rather than its tree is
+said so at the open and held by name in `pdf-model/tests/corpus.rs`'s `FOUND_BY_SCANNING` (ADR
+1533). **None is a
 rasteriser's fault, and one of the six causes being empty is the finding**: not one page of the
 974 was refused by the *oracle*, so the backend `CLAUDE.md` makes the fallback drew every page the
 device would not.

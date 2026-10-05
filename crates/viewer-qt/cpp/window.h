@@ -449,6 +449,9 @@ private:
     /// differ about ISO 32000-2 §14.7, and it is a difference between two platforms rather than
     /// between two programs.
     void reportPlacement();
+    /// Tells the host where the page area sits in this window's contents, which is the document
+    /// node's transform on AT-SPI (ADR 1528).
+    void reportPageArea();
     /// One tree, built once and filled thereafter.
     QTreeView* buildTree(unsigned char which);
     /// §12.3.6's `FreeForm`, which is a surface with places on it rather than a list of rows.

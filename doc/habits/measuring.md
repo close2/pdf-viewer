@@ -723,3 +723,11 @@ inside one render only 14% repeat, so the cache the brief aimed at a frame would
 fraction. The meet kept for the NEXT render, keyed word for word and never by id, hit on every
 black-render meet (ADR 1517). Count where the repeats actually are before choosing the cache's
 lifetime.
+
+## 66. A recorded "not a lever" is re-measured when the driver stack changes
+
+ADR 0179 read the launch instance's backend set as no lever; a thousand sessions later, on this
+driver stack, an instance without GL brings the device up in 17 ms instead of 27 (ADR 1532). And a
+launch gate that prints "device up" and "document joined" at one instant hides the work done after
+the join; printing when the render request arrives made page one's interpretation behind the
+device a number, which is what ADR 1531 then moved onto the document thread.

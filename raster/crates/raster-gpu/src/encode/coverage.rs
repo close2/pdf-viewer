@@ -21,6 +21,8 @@
 //! Whichever branch ran, the tile is packed onto the frame's sheet in encounter order
 //! (ADR 0034) and drawn as one quad instance.
 
+use std::sync::Arc;
+
 use raster_scene::{Point, Rect};
 
 use super::clips::ResolvedClip;
@@ -124,6 +126,13 @@ impl Encoder<'_> {
 
     /// Rasterise the visible coverage of these polylines — shape ∩ clip ∩ target,
     /// residue clips met — or `None` when nothing is visible.
+    ///
+    /// **A tile the render before made is not made again** (ADR 1529): the filled and met
+    /// bytes are a function of the words [`Encoder::tile_words`] lists, so a tile under the
+    /// same words is handed the same bytes, neither filled nor met. The tile is charged
+    /// either way, so a frame refuses where it always refused; a clipped one drains the queue
+    /// first, as its meet would, so the walk's order is the same on a hit. A tile whose meet a
+    /// budget decided is not kept.
     pub(super) fn coverage_tile(
         &mut self,
         polylines: &[Polyline],
@@ -139,11 +148,27 @@ impl Encoder<'_> {
             return Ok(None);
         };
         self.charge_tile(width, height)?;
+        if resolved.residues.is_some() {
+            self.drain_queue()?;
+        }
+        let words = self.tile_words((left, top, width, height), polylines, rule, resolved)?;
+        if let Some(kept) = words
+            .as_deref()
+            .and_then(|words| self.kept.find_tile(words))
+        {
+            return Ok(Some(raster::CoverageMask {
+                left,
+                top,
+                width,
+                height,
+                coverage: kept.to_vec(),
+            }));
+        }
         let span = self.clock.start();
         let mut tile = raster::fill_mask(polylines, rule, left, top, width, height);
         self.clock.geometry(span);
 
-        self.meet_residue(
+        let unbounded = self.meet_residue(
             &mut tile,
             resolved,
             Mark {
@@ -151,7 +176,16 @@ impl Encoder<'_> {
                 rule,
                 edges: None,
             },
+            false,
         )?;
+        if let Some(words) = words
+            && unbounded
+        {
+            self.kept.keep_tile(
+                words.into_boxed_slice(),
+                &Arc::from(tile.coverage.as_slice()),
+            );
+        }
         Ok(Some(tile))
     }
 

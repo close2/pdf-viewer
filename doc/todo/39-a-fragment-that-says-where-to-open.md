@@ -3,15 +3,14 @@
 Status: **done** for the annex's rows. All eleven parameters are carried out since the five-hundred-and-twenty-second
 session and `Parameter::unhonoured` names none; **§O.2.1's last sentence — the parameters after `ef`
 — is carried out since the five-hundred-and-ninety-sixth**, so all four of Annex O's rows are
-`implemented` and nothing in the annex is reported. **One design is owed**: `fdf` naming an
-absolute URI, which is a fetch over the network and is refused out loud until it is built under
-`Submissions`' level (below). The rest is *not this annex's*: the two limits named below, and
-`doc/todo/38`'s ask level. ADRs 0209, 0250, 0310, 0357, 0431.
+`implemented` and nothing in the annex is reported. `fdf` naming an absolute URI is fetched under
+`Submissions`' level (below, ADR 1527). What is left is *not this annex's*: the two limits named
+below, and `doc/todo/38`'s ask level. ADRs 0209, 0250, 0310, 0357, 0431, 1527.
 Cited by: `CLAUDE.md`'s normative-annexes entry, beside `tools/state.sh annex-o` — the reason the file is kept whole rather than deleted (ADR 1416).
-Priority: 39 — one design owed (`fdf` over the network); kept as the reading beside `tools/state.sh annex-o`
+Priority: 39 — nothing owed; kept as the reading beside `tools/state.sh annex-o`
 Clauses: Annex O (§O.2.1, §O.2.2), §12.7.8, §7.11.4
 Code: `crates/pdf-model/src/fragment.rs`, `crates/viewer-core/src/open.rs`,
-`crates/viewer-host/src/policy.rs`
+`crates/viewer-host/src/policy.rs`, `crates/viewer-host/src/submit.rs`
 
 **Run `tools/state.sh annex-o` before reading any of this.** It reads
 `Parameter::unhonoured` — the program's own answer — and this file is a reading beside it.
@@ -49,7 +48,7 @@ or a dependency lost has somewhere to say so, and `tools/state.sh annex-o` reads
 whichever way it answers.
 
 Two limits are worth naming because they are *not* refusals of this annex and a later round should
-not read them as ones, and one design is owed:
+not read them as ones:
 
 - **Eleven parameters, not seventeen.** `pagemode`, `toolbar`, `statusbar`, `scrollbar`,
   `navpanes`, `messages` and `collab` are another vendor's open parameters, printed in no table of
@@ -60,34 +59,35 @@ not read them as ones, and one design is owed:
   which the document should be zoomed" is a `should` with no bound, and the bound is the one a
   person meets with the keys (ADR 1523).
 
-### Owed: `fdf` over the network — a design, not built
+### `fdf` over the network
 
 Both formats are read: `pdf_model::xfdf` (ADR 1108) and §12.7.8's FDF, imported on one channel and
-tested end to end in `fragments.rs`. **What is not done is fetching an absolute URI.** "The URI
-shall be either a relative or absolute URI to an FDF or XFDF file", and `viewer_host::resolve_import`
-answers an absolute one with `ImportRefusal::OutsideTheDocumentsDirectory`, out loud. The build,
-when it is taken:
+tested end to end in `fragments.rs`. "The URI shall be either a relative or absolute URI to an FDF or
+XFDF file": a relative one is `viewer_host::resolve_import`'s, and an absolute one —
+`viewer_host::import_is_fetched`, RFC 3986 section 4.1's scheme — is fetched (ADR 1527):
 
 1. **The act is the network, so the level is `viewer_host::Submissions`'.** A GET of a URL a
-   fragment named tells that server this document was opened here — the same act class as
-   §12.7.6.2's submission, a machine contacting a server on somebody else's word — and ADR 1291's
-   one level is read for it rather than a fifth level invented. `refuse` declines out loud, `ask`
-   (the default) puts the URL and its host to the person, `warn` fetches and says so, `send`
-   fetches. **The fragment's origin is not consulted**: a fragment can arrive from a person's
-   command line or from a document's own `ef` remainder, and a policy that trusted the first would
-   have to tell them apart where nothing does.
-2. **One function, in `viewer_host::policy`**, `may_fetch_import(url, level) -> Sending` on
-   `may_submit`'s shape and order: no scheme or a scheme outside `SUBMIT_SCHEMES` is refused at
-   every level, and `submit::check_url` runs before the TLS stack (ADR 1327); only then the level.
-   The four levels attach there and nowhere else (`CLAUDE.md` principle 3's shape).
-3. **The fetch is `viewer_host::submit`'s client**, a GET instead of a POST, with the response
-   bounded in bytes as a submission's answer is; the format is still `action::data_format`'s answer
-   off the URI's name, never the response's media type, so one opinion of what an `.xfdf` is holds.
-4. **The bytes cross as they do now**: `Command::Supply { purpose: Purpose::ImportData, .. }`, so
-   `viewer-core` gains nothing and stays without a network (`doc/ui-boundary.md`'s rule 2). The
-   confined window refuses at every level, as it refuses a submission.
-5. **The test is a local server**, `viewer-host/tests/submit.rs`'s, answering an FDF — and a
-   refusal test per level.
+   fragment named tells that server this document was opened here — the act class of §12.7.6.2's
+   submission — so ADR 1291's one level is read, and the act's menu name says both
+   (`restriction::SUBMITTING`). `refuse` declines out loud, `ask` (the default) puts the URL to the
+   person, `warn` fetches and says so, `send` fetches; `--submissions=` starts a window at one.
+   **The fragment's origin is not consulted**: a person's command line, a document's own `ef`
+   remainder and an import-data action naming a URL all reach the host as one `Event::NeedsFile`.
+2. **One function, `viewer_host::may_fetch_import`**, on `may_submit`'s order: no scheme, a scheme
+   outside `SUBMIT_SCHEMES` and a URL `submit::check_url` refuses are refused at every level, before
+   the TLS stack (ADR 1327); only then the level.
+3. **The fetch is `viewer_host::submit::fetch`**, the submit client's GET on a thread of its own,
+   the answer bounded at `submit::RESPONSE_LIMIT` bytes and `submit::TIMEOUT`, no redirect
+   followed. The format is still `action::data_format`'s answer off the URI's name, never the media
+   type; only a 2xx is imported, and a body that is not the format its name says is said by the
+   import that reads it.
+4. **The bytes cross as `Command::Respond { answers: Answered::Import, .. }`**, not `Supply`: an
+   answer arrives when the server sends it and the person may have changed tabs, so it is named by
+   document, and its sentences are the import's own (`import-data: …`). `viewer-core` gains no
+   network (`doc/ui-boundary.md`'s rule 2). `quorra-confined` has none and refuses at every level.
+5. **Tested** on a loopback listener (`viewer-host/tests/fetch_import.rs`: each level, the refused
+   schemes, an answer over the bound, a body that is not FDF, an error status) and driven in all
+   three windows (`31-fragment-fdf`, the drive's own server).
 
 ## What `ef` owed, and how the sentence was finally composed
 

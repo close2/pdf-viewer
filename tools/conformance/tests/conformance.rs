@@ -85,6 +85,19 @@ const FILE_ONLY_EVIDENCE_CEILING: usize = 0;
 /// than raising a number (ADR 1509).
 const ONLY_WALKS_CEILING: usize = 0;
 
+/// How many `inapplicable` rows do not quote, verbatim, the sentence of the standard their
+/// condition rests on ([`ledger::Problem::ConditionUnquoted`]).
+///
+/// **This number may only fall, and the assertion is `==`.** `doc/PLAN.md` §5a makes an
+/// `inapplicable` row's condition the standard's, read in its clause — a marking device, a
+/// PostScript printer, a capturing application, a feature §3.15 says should be ignored — and
+/// `CLAUDE.md` principle 5 says such a claim decays: §10.5's transfer functions sat under
+/// "inapplicable" on a condition this tree had written for itself. A condition in prose is
+/// re-read by nobody; a condition in quotation marks is re-read against `doc/md/` by every run of
+/// this gate. A row that rises into the count needs its sentence, and a row that leaves it lowers
+/// the ceiling to the figure printed here (ADR 1535).
+const CONDITION_UNQUOTED_CEILING: usize = 0;
+
 /// How many `partial` rows name a whole test *file* rather than a test.
 ///
 /// **This number may only fall**, and it exists because the ratchet above was never pointed at
@@ -529,6 +542,7 @@ fn the_ledger_agrees_with_the_standard_and_with_the_tree() {
     let ledger = Ledger::read(&root.join(conformance::LEDGER)).expect("the ledger");
 
     let problems = ledger::check(&ledger, &index, &conformance::citations(&scanned), &root);
+    let problems = conditions_hold_their_ratchet(problems);
     let mut report = String::new();
     let mut owed_and_still_owed = Vec::new();
     let mut only_walks = Vec::new();
@@ -658,6 +672,35 @@ fn only_walks_hold_their_ratchet(only_walks: &[String]) {
          count printed here (ADR 1497).",
         only_walks.len()
     );
+}
+
+/// `inapplicable` rows that do not quote their condition are admitted by name up to a ratchet
+/// that may only fall. See `CONDITION_UNQUOTED_CEILING`. Returns every other problem.
+fn conditions_hold_their_ratchet(problems: Vec<ledger::Problem>) -> Vec<ledger::Problem> {
+    let mut unquoted = Vec::new();
+    let mut rest = Vec::new();
+    for problem in problems {
+        match problem {
+            ledger::Problem::ConditionUnquoted { clause, grounding } => {
+                unquoted.push(format!("{clause} ({grounding})"));
+            }
+            other => rest.push(other),
+        }
+    }
+    println!(
+        "  {} inapplicable rows do not quote their condition: {}",
+        unquoted.len(),
+        unquoted.join(", ")
+    );
+    assert!(
+        unquoted.len() == CONDITION_UNQUOTED_CEILING,
+        "{} inapplicable rows do not quote the standard's sentence their condition rests on, \
+         against the ratchet of {CONDITION_UNQUOTED_CEILING}: {unquoted:?}. This number may only \
+         fall. Quote the clause's sentence verbatim in the note, or move the row if the clause \
+         states no such condition; a row that left the count lowers the ceiling (ADR 1535).",
+        unquoted.len()
+    );
+    rest
 }
 
 /// The per-clause breakdown, which is what says where the debt is rather than how much.

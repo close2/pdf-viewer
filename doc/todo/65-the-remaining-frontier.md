@@ -103,67 +103,60 @@ permanent) or an owner decision to acquire a specification.
 
 ISO/TS 32002's brainpoolP512r1 and Ed448 are not in this bucket: they are the tree's own under the
 owner's answer A170 (ADRs 1385 and 1386), so an upstream release is their *swap* condition rather
-than a blocker, and `doc/stack.md`'s curve paragraph names it. **Re-checked on 2026-10-02** with
-`cargo search bp512`, `cargo search brainpool` and `cargo search ed448`: RustCrypto has published no
-`bp512`, and `ed448-goldilocks` is still on `0.14.0-pre.15`; RustCrypto's `ed448` 0.5.0 is the
-signature and key-encoding types over it, not the arithmetic. Two packages that paragraph does not
-name are candidates to be judged on `doc/stack.md`'s terms. `bp512-nestler` 0.2.1 (from `Basty-devel/bp512-nestler`)
-is a brainpoolP512r1 over RustCrypto's `primeorder`, and its licence is PolyForm Noncommercial 1.0.0, which
-this tree's Apache-2.0 cannot take whatever its review; the same author's `aegis-crypto` 0.1.5
-names brainpoolP512r1 among its primitives under the same licence, and `krypteia-arcana` 0.2.0,
-which `brainpool` also finds, states no Brainpool curve and no Ed448. `ed448-goldilocks-plus` 0.18.1
-(BSD-3-Clause, from `mikelodder7/Ed448-Goldilocks`, on a stable version line) waits on the owner's
-open question `doc/questions/Q192` — whether it counts as reviewed, which its own README says it has
-not been — and this map does not decide it.
-**Judged on 2026-10-01**, beside Q192 and on `doc/stack.md`'s terms, the two Ed448 packages
-`cargo search ed448` also finds; neither is a candidate. `cx448` 0.1.1 (`BSD-3-Clause` in its
-metadata, no licence file in its repository; one owner, `dignifiedquire/cx448`, five commits on
-2025-04-10 and none since) carries RFC 8032's verification with context and Ed448ph and the section
-7.4 vectors, but its README says it has not been audited or reviewed, it calls itself a temporary
-port to be retired once RustCrypto's stable releases land, and it is built on the previous RustCrypto
-generation (`elliptic-curve` 0.13, `crypto-bigint` 0.5, `digest` 0.10, `signature` 2), a second
-stack beside the tree's. `tiny_ed448_goldilocks` 0.2.0 (`MIT`, one owner, `Dustin-Ray/tiny-ed448-goldilocks`)
-has no signature scheme at all — no RFC 8032 verification and no 57-byte point encoding — and says
-it is unaudited. Both licences are on `deny.toml`'s list; neither is reviewed, and neither is
-RustCrypto's. Neither moves Q192's recommendation, and Q192 says so.
-The same search on 2026-10-02 found every version above unchanged and lists five Ed448 names neither
-judgement read. **Judged on 2026-10-05**, on `doc/stack.md`'s terms from each package's crates.io
-record, its repository and its published source; none is a candidate, and Q192's dated section says
-why the one with an audit on record does not move its recommendation.
+than a blocker, and `doc/stack.md`'s curve paragraph names it. **What reopens the swap is one of two
+things and nothing else (ADR 1538)**: a release on RustCrypto's own line — `ed448-goldilocks`
+leaving `0.14.0-pre` for a stable version, or a `bp512` published from `RustCrypto/elliptic-curves`
+— or a package with an audit on record covering the curve's arithmetic and, for Ed448, RFC 8032
+section 5.2.7's cofactored verification. A package a search lists below that bar is not read again.
+The re-check is a round's command, not a `tools/state.sh` section, because it needs the network and
+a section may not wait on one (ADR 1538); it prints the two versions and any package whose crates.io
+description names an audit without denying one, and nothing else:
 
-`ed448-rust` 0.1.1 (`MIT/Apache-2.0`, one owner, `lolo32/ed448-rust`, published 2021-03-25 and its
-repository last pushed 2023-08-31) carries RFC 8032's Ed448 with a context and Ed448ph, but it is a
-port of the RFC's own Python, and its README repeats that code's warning that it is not meant for
-production, is slow and makes no attempt to resist side channels; its arithmetic is `num-bigint`
-and its hash `sha3` 0.9, two generations behind the tree's. No review is on record.
+```sh
+cargo info ed448-goldilocks | grep -m1 '^version:'
+cargo info bp512 2>&1 | grep -E '^(version|repository):|could not find'
+for q in ed448 brainpool bp512; do curl -s -A 'pdf-viewer curve re-check' \
+  "https://crates.io/api/v1/crates?q=$q&per_page=100" | PYTHONDONTWRITEBYTECODE=1 python3 -c '
+import json, re, sys
+for c in json.load(sys.stdin)["crates"]:
+    d = c.get("description") or ""
+    if re.search(r"audit", d, re.I) and not re.search(r"unaudit|not\W+(\w+\W+)?audit", d, re.I):
+        print(c["name"], c["max_version"], d)'; done
+```
 
-`minimal-ed448` 0.4.2 (`MIT`, one owner, inside `serai-dex/serai`) describes itself as unaudited and
-inefficient; it is a group bound to the `ff`/`group` 0.13 traits over `crypto-bigint` 0.5, with no
-signature scheme, and it rejects torsion to be a prime-order group, which is not section 5.2.3's
-decoding.
+**Last run on 2026-10-05**: `ed448-goldilocks` `0.14.0-pre.15` (0.9.0 its newest stable), no `bp512`
+in the registry, and no description naming an audit — `minimal-ed448` and its mirror say
+*unaudited* and `aegis-crypto` says it is not independently audited. `ed448-goldilocks-plus` 0.18.1
+(`BSD-3-Clause`, `mikelodder7/Ed448-Goldilocks`, a stable line) waits on the owner's open question
+`doc/questions/Q192`, which this rule does not answer: its README says it has not been reviewed, so
+it is below the bar unless the owner says it counts.
 
-`frost-ed448` 3.0.0 (`MIT OR Apache-2.0`, the Zcash Foundation, `ZcashFoundation/frost`) is the one
-Ed448 package with a review on record: NCC Group's 2023 assessment of the repository's 0.6.0 took
-in `frost-ed448` and the curve operations it uses from `ed448-goldilocks` 0.9.0 (`BSD-3-Clause`,
-the package's last stable release, from `crate-crypto`). Its subject is RFC 9591's threshold
-scheme, and its single-signer verification is a by-product that refuses what section 5.2.7 accepts:
-the published 3.0.0 source decodes every point through a check that rejects the identity and any
-point with a torsion component, where the RFC's cofactored equation exists to admit them. It also
-sits on the previous RustCrypto generation (`sha3` 0.10, `rand_core` 0.6) beside the tree's.
+**The packages judged, each once, on `doc/stack.md`'s terms from its crates.io record, its
+repository and its source** — none a candidate, and none re-read:
 
-`oxicrypto-sig` 0.3.0 (`Apache-2.0`, one owner, `cool-japan/oxicrypto`, first published 2026-06-01)
-does name Ed448 in its description, and its README marks the crate *Alpha*, pre-1.0; its Ed448 is
-RustCrypto's `ed448-goldilocks` `0.14.0-pre.15`, so taking it would take the pre-release this tree
-declines through a wrapper. `rs_ed448` 0.1.2 (`GPL-2.0-only`, one owner) has no dependencies and no
-implementation — its description says it panics until one is written — and its licence is not on
-`deny.toml`'s list. Every licence but the last is.
-
-The three searches on 2026-10-05 found every version above unchanged — `ed448-goldilocks` still
-`0.14.0-pre.15` with 0.9.0 its newest stable, no RustCrypto `bp512`. Run with `--limit 20`, `cargo
-search ed448` lists names the default ten rows did not, none judged yet: `minimal-ed448-mirror`,
-`lit-frost-ed448`, `sodot-ed448`, `crrl`, `capycrypt`, `ciphersuite` and `krypteia-arcana`; and
-`cargo search --limit 20 brainpool` adds `purecrypto` and `static-dh-ecdh`, whose descriptions the
-search cuts off before naming a curve.
+- **2026-10-01.** `cx448` 0.1.1 (`BSD-3-Clause` in its metadata, no licence file; one owner, five
+  commits on 2025-04-10): RFC 8032's verification with context and Ed448ph and the section 7.4
+  vectors, but unaudited by its README, a self-described temporary port, and on the previous
+  RustCrypto generation (`elliptic-curve` 0.13, `crypto-bigint` 0.5). `tiny_ed448_goldilocks` 0.2.0
+  (`MIT`, one owner): no signature scheme and no 57-byte encoding, unaudited.
+- **2026-10-02.** `ed448` 0.5.0: RustCrypto's signature and key-encoding types, no arithmetic.
+  `bp512-nestler` 0.2.1 (a brainpoolP512r1 over `primeorder`) and `aegis-crypto` 0.1.5: PolyForm
+  Noncommercial 1.0.0, which this tree's Apache-2.0 cannot take whatever their review.
+  `krypteia-arcana` 0.2.0: states no Brainpool curve and no Ed448.
+- **2026-10-05.** `ed448-rust` 0.1.1 (`MIT/Apache-2.0`, one owner, last pushed 2023): a port of the
+  RFC's Python with its not-for-production warning, over `num-bigint` and `sha3` 0.9.
+  `minimal-ed448` 0.4.2 (`MIT`, inside `serai-dex/serai`): unaudited by its description, a group with
+  no signature scheme that rejects torsion, which is not section 5.2.3's decoding. `frost-ed448`
+  3.0.0 (the Zcash Foundation): the one package with a review on record — NCC Group's 2023
+  assessment of 0.6.0 and the `ed448-goldilocks` 0.9.0 operations it uses — but RFC 9591's threshold
+  scheme, whose single-signer path rejects the identity and every torsion component that section
+  5.2.7's cofactored equation admits, on `sha3` 0.10. `oxicrypto-sig` 0.3.0 (*Alpha*, pre-1.0): a
+  wrapper over the `0.14.0-pre.15` this tree declines. `rs_ed448` 0.1.2 (`GPL-2.0-only`): no
+  implementation, and a licence not on `deny.toml`'s list.
+- **Listed by `--limit 20` searches and never judged, because the rule puts them below the bar
+  without a reading**: `minimal-ed448-mirror`, `lit-frost-ed448`, `sodot-ed448`, `crrl`,
+  `capycrypt`, `ciphersuite`, `purecrypto` and `static-dh-ecdh`. None is RustCrypto's and none
+  names an audit; the re-check above is what would bring one back.
 
 ### 3. Hard rendering / architecture — a real build across several rounds
 

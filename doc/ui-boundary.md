@@ -542,7 +542,11 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   `Undo`, `Redo`, `Save`, **`Extract { name }`**, **`Find(Find)`** — Annex O's `search` and a find
   bar's *next*, one page per step because rule 4 forbids blocking and rule 3 leaves no clock to
   budget with; 5.84 s is what a 1023-page sweep costs and no host may be blocked for it (ADR 0250) —
-  `Supply { purpose, bytes }`, **`Restrict(RestrictionLevel)`**, **`Answer { document, proceed }`** —
+  `Supply { purpose, bytes }`, **`Respond { document, answers, source, format, bytes }`** —
+  §12.7.8's form data a server answered with, a submission's or a fetched import's (`Answered`), and
+  named by document rather than applied to the one in front because it arrives when the server
+  answers; the network is a host's and nothing of it crosses (ADRs 1291, 1527) —
+  **`Restrict(RestrictionLevel)`**, **`Answer { document, proceed }`** —
   the second half of `RestrictionLevel::Ask`, and the only command whose whole content is one
   bit only a person can supply (ADR 0814) — **`Present(PresentationMode)`**,
   **`Layout(PageLayout)`**, `Tick { millis }`, `RenderReady { token, rendered }`.

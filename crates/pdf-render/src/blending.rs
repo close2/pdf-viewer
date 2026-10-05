@@ -51,6 +51,8 @@
 //! [`crate::Color`] gives: a backend never sees a colour space, and sixteen corners are a
 //! table rather than one.
 
+use rayon::prelude::*;
+
 /// The conversion out of a four-component blending colour space, as a sampled grid.
 ///
 /// A colour of four components becomes a device colour by multilinear interpolation over a
@@ -528,10 +530,49 @@ fn sample_curve<T>(samples: &[T], at: f32, read: impl Fn(&T) -> f32) -> f32 {
 /// colour the cube gives them. The alpha is divided out and multiplied back exactly as
 /// [`resolve`] does for four components, and the error bound is the same one level of 255.
 /// A pixel nothing painted is left alone.
+///
+/// **Divided across rayon's pool above `CUBE_PARALLEL_FLOOR`, and a pixel equal to the one
+/// converted before it takes that one's answer** — two changes with one argument: a pixel's
+/// answer is a function of its own four bytes and nothing else, so which thread converts it,
+/// and whether its neighbour's answer is copied rather than computed again, cannot change a
+/// byte (the property ADR 0147 divided `pdf-model`'s colour conversion on). An `ICCBased` page
+/// group brings every frame of its page here: on `Well-Tagged-PDF-WTPDF-1.0.pdf`'s first page
+/// the conversion was 72.3 million of the frame's 226.7 million instructions and about 5 ms of
+/// a 12 ms first frame, the copy took it to 55.2 million, and the division takes what is left
+/// off the thread that is drawing (ADR 1531). The cost is a block size, a floor and a loop
+/// that says less plainly than one conversion per pixel what it does.
 pub fn resolve_cube(pixels: &mut [u8], cube: &ColourCube) {
+    if pixels.len() >= CUBE_PARALLEL_FLOOR {
+        pixels
+            .par_chunks_mut(CUBE_BLOCK)
+            .for_each(|block| resolve_cube_in(block, cube));
+    } else {
+        resolve_cube_in(pixels, cube);
+    }
+}
+
+/// The bytes of raster below which [`resolve_cube`] stays on the calling thread: four blocks of
+/// [`CUBE_BLOCK`], so that a divided conversion has at least four pieces to hand out and a
+/// small raster — a group's, a thumbnail's — does not pay for the pool.
+const CUBE_PARALLEL_FLOOR: usize = 4 * CUBE_BLOCK;
+
+/// The bytes of raster one piece of a divided [`resolve_cube`] converts: sixteen thousand
+/// pixels, a whole number of them, so that no pixel is split between two pieces.
+const CUBE_BLOCK: usize = 4 * 16_384;
+
+/// [`resolve_cube`] over one piece of a raster, on the calling thread.
+fn resolve_cube_in(pixels: &mut [u8], cube: &ColourCube) {
+    let mut previous: Option<([u8; 4], [u8; 4])> = None;
     for pixel in pixels.chunks_exact_mut(4) {
         let alpha = f32::from(pixel[3]);
         if pixel[3] == 0 {
+            continue;
+        }
+        let before = [pixel[0], pixel[1], pixel[2], pixel[3]];
+        if let Some((converted, answer)) = previous
+            && converted == before
+        {
+            pixel.copy_from_slice(&answer);
             continue;
         }
         let component = |value: u8| (f32::from(value) / alpha).clamp(0.0, 1.0);
@@ -551,6 +592,7 @@ pub fn resolve_cube(pixels: &mut [u8], cube: &ColourCube) {
                 *channel = scaled as u8;
             }
         }
+        previous = Some((before, [pixel[0], pixel[1], pixel[2], pixel[3]]));
     }
 }
 
@@ -833,6 +875,61 @@ mod tests {
             &[7, 7, 7, 0],
             "an unpainted pixel is left alone"
         );
+    }
+
+    /// A raster of runs resolves to the bytes each of its pixels resolves to alone: the answer
+    /// a repeated pixel copies from the one before it is the answer converting it would give,
+    /// including after an unpainted pixel interrupts the run (ADR 1532).
+    #[test]
+    fn a_run_of_one_colour_resolves_to_what_each_pixel_resolves_to_alone() {
+        let cube = identity_cube();
+        let colours: [[u8; 4]; 4] = [
+            [200, 10, 90, 255],
+            [3, 250, 77, 128],
+            [7, 7, 7, 0],
+            [1, 2, 3, 4],
+        ];
+        let order = [0, 0, 0, 1, 1, 2, 1, 0, 3, 3, 2, 2, 0];
+        let mut raster: Vec<u8> = order.iter().flat_map(|&at| colours[at]).collect();
+        resolve_cube(&mut raster, &cube);
+        for (pixel, &at) in raster.chunks_exact(4).zip(&order) {
+            let mut alone = colours[at];
+            resolve_cube(&mut alone, &cube);
+            assert_eq!(
+                pixel, alone,
+                "colour {at} in a run against the same colour alone"
+            );
+        }
+    }
+
+    /// Above the floor the raster is divided across rayon's pool, and the bytes are the bytes
+    /// each pixel converts to alone — whichever piece a pixel falls in and whatever the piece
+    /// before it ended on (ADR 1531).
+    #[cfg_attr(
+        miri,
+        ignore = "crossbeam-epoch's retag under rayon, not this tree's — see `paint.rs`'s test of \
+                  the divided reduction"
+    )]
+    #[test]
+    fn a_divided_raster_resolves_to_what_each_pixel_resolves_to_alone() {
+        let cube = identity_cube();
+        let pixels = CUBE_PARALLEL_FLOOR / 4 + 4097;
+        let colour = |index: usize| -> [u8; 4] {
+            let run = index / 3;
+            #[expect(clippy::cast_possible_truncation, reason = "reduced modulo 256 first")]
+            let byte = |shift: usize| ((run.wrapping_mul(2_654_435_761) >> shift) % 256) as u8;
+            [byte(0), byte(8), byte(16), byte(24) | 1]
+        };
+        let mut raster: Vec<u8> = (0..pixels).flat_map(colour).collect();
+        resolve_cube(&mut raster, &cube);
+        for (index, pixel) in raster.chunks_exact(4).enumerate() {
+            let mut alone = colour(index);
+            resolve_cube(&mut alone, &cube);
+            assert_eq!(
+                pixel, alone,
+                "pixel {index} of a divided raster against itself alone"
+            );
+        }
     }
 
     /// A curve of two samples is the straight line between them, and a component lands on

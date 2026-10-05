@@ -273,3 +273,12 @@ stopped `with_token` inlining into the operand loop and every ordinary page paid
 not by total. And a toolkit's accessible-text answer is checked for a nonzero size: GTK's bare
 `GtkText` answered `GetCharacterExtents` with a 0×0 box at the field's origin, which a drive step
 reading presence alone would have called "works" (ADR 1516).
+
+### 104. An asynchronous answer through `Supply` goes to whichever tab is in front
+
+`doc/todo/39` designed the fetched form data to cross as `Command::Supply(ImportData)`; a fetch
+can arrive after the person has changed tabs, and `Supply` answers the front tab or, when no
+import is pending there, `interact::import` returns nothing and the data is dropped without a
+word. The fetch now crosses as `Command::Respond { answers: Answered::Import, .. }`, addressed to
+the document that asked (ADR 1527). Anything that answers later than it was asked names its
+document.

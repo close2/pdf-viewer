@@ -148,6 +148,13 @@ enum Pending {
         /// The request exactly as `pdf_model::submission::compose` made it.
         submission: Box<pdf_model::submission::Submission>,
     },
+    /// An import's form data named by an absolute URI, answered by fetching it (ADR 1527).
+    Fetch {
+        /// The document that asked, which is where the answer is imported.
+        document: DocumentId,
+        /// The URI as the fragment or the action named it.
+        url: String,
+    },
     /// A file a document named, answered by reading it and supplying it (ADRs 1227, 1239).
     RemoteDocument {
         /// Which of the three purposes asked, so that the answer goes back to the right one.
@@ -429,6 +436,10 @@ pub struct Host {
     /// than handed straight on because a `moveEvent` arrives before the first paint and the
     /// adapter does not exist until after it.
     pub(crate) window_at: Option<crate::access::WindowPlace>,
+    /// Where the page area's top-left corner sits in the window's contents, in device pixels, as Qt
+    /// last reported it — the document node's transform, so a node is placed where the page is
+    /// rather than at the contents' corner (ADR 1528).
+    pub(crate) page_at: (f32, f32),
     /// Set from `accesskit_unix`'s own thread when a client asks for something.
     pub(crate) access_pending: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// What the find bar is looking for, kept because the page's highlights are asked for on
@@ -544,9 +555,11 @@ impl Host {
             warned: None,
             trace,
             widget_appearances,
-            restrictions: viewer_host::Restrictions::new(settings.restrictions).with(
-                viewer_host::ActLevel::EmbeddedDocuments(settings.embedded_documents),
-            ),
+            restrictions: viewer_host::Restrictions::new(settings.restrictions)
+                .with(viewer_host::ActLevel::EmbeddedDocuments(
+                    settings.embedded_documents,
+                ))
+                .with(viewer_host::ActLevel::Submissions(settings.submissions)),
             links: settings.links,
             remote_documents: settings.remote_documents,
             submitter: viewer_host::submit::Submitter::new(),
@@ -571,6 +584,7 @@ impl Host {
             accessibility: None,
             spoken: None,
             window_at: None,
+            page_at: (0.0, 0.0),
             access_pending: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             needle: String::new(),
             pages_left: 0,
@@ -1609,12 +1623,43 @@ impl Host {
         }
     }
 
+    /// Table Annex O.4's `fdf` naming an absolute URI, under the level the menu holds — the one
+    /// answer `viewer_host::may_fetch_import` gives (ADR 1527). A refusal is said and supplied as
+    /// `None`, so the core says the import declined; a fetch arrives as `Command::Respond` by
+    /// document, whichever is in front by then.
+    fn fetch_import(&mut self, document: DocumentId, url: String, queue: &mut VecDeque<Command>) {
+        match viewer_host::may_fetch_import(&url, self.restrictions.submissions()) {
+            viewer_host::Sending::Send => self.start_fetch(document, url, None),
+            viewer_host::Sending::Warn(note) => self.start_fetch(document, url, Some(note)),
+            viewer_host::Sending::Ask(words) => {
+                self.put_the_question(Pending::Fetch { document, url }, &words);
+            }
+            viewer_host::Sending::Refuse(why) => {
+                self.say(&viewer_host::fetch_note(&url, Some(&why)));
+                queue.push_back(Command::Supply {
+                    purpose: Purpose::ImportData,
+                    bytes: None,
+                });
+            }
+        }
+    }
+
+    /// Puts the GET on a `fetch-import` thread of its own; the answer is looked for on the drawing
+    /// timer, as a submission's is.
+    fn start_fetch(&mut self, document: DocumentId, url: String, warned: Option<String>) {
+        self.say(&viewer_host::fetch_note(&url, None));
+        if let Err(sentence) = self.submitter.fetch(document, url, warned, None) {
+            self.say(&sentence);
+        }
+    }
+
     /// Every server's answer that has arrived: imported, opened beside, or said (ADR 1291).
     fn take_the_answers(&mut self) {
         for returned in self.submitter.collect() {
             let (document, url) = (returned.document, returned.url.clone());
             match returned.reply() {
                 viewer_host::submit::Reply::Import {
+                    answers,
                     format,
                     bytes,
                     note,
@@ -1622,6 +1667,7 @@ impl Host {
                     self.say(&note);
                     self.dispatch(Command::Respond {
                         document,
+                        answers,
                         source: url,
                         format,
                         bytes,
@@ -1747,6 +1793,7 @@ impl Host {
         let subject = match self.question.as_ref().map(|(about, _)| about) {
             Some(Pending::Link { .. }) => viewer_host::Subject::Link,
             Some(Pending::Submit { .. }) => viewer_host::Subject::Submission,
+            Some(Pending::Fetch { .. }) => viewer_host::Subject::Fetch,
             Some(Pending::RemoteDocument { .. }) => viewer_host::Subject::Document,
             Some(Pending::Embedded { .. }) => viewer_host::Subject::Embedded,
             Some(Pending::Restricted { .. }) | None => viewer_host::Subject::Restricted,
@@ -1820,6 +1867,25 @@ impl Host {
                             viewer_host::restriction::DO_NOT
                         )),
                     ));
+                }
+            }
+            // Table Annex O.4's `fdf` from a server: a `no` fetches nothing, and the core is told
+            // so the import says it declined (ADR 1527).
+            Pending::Fetch { document, url } => {
+                if proceed {
+                    self.start_fetch(document, url, None);
+                } else {
+                    self.say(&viewer_host::fetch_note(
+                        &url,
+                        Some(&format!(
+                            "you answered \"{}\"",
+                            viewer_host::restriction::DO_NOT
+                        )),
+                    ));
+                    self.dispatch(Command::Supply {
+                        purpose: Purpose::ImportData,
+                        bytes: None,
+                    });
                 }
             }
             // §12.6.4.3: the act is opening a document in place of this one, so a `no` supplies
@@ -3530,6 +3596,14 @@ impl Host {
             } if viewer_host::under_remote_documents(purpose) => {
                 self.remote(purpose, &name, beside, queue);
             }
+            // An import named by an absolute URI is fetched rather than read, under the level a
+            // submission is sent at (ADR 1527).
+            Event::NeedsFile {
+                document,
+                purpose: Purpose::ImportData,
+                name,
+                ..
+            } if viewer_host::import_is_fetched(&name) => self.fetch_import(document, name, queue),
             Event::NeedsFile { purpose, name, .. } => self.import(purpose, &name, queue),
             // §12.4.4.1: played since this host was given a clock, and named where it is not.
             //
@@ -4600,6 +4674,7 @@ mod tests {
                 links: viewer_host::Links::Refuse,
                 remote_documents: viewer_host::RemoteDocuments::Refuse,
                 embedded_documents: viewer_host::EmbeddedDocuments::Refuse,
+                submissions: viewer_host::Submissions::Refuse,
                 separations: false,
             },
             Trace::off(std::time::Instant::now()),

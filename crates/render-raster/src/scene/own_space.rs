@@ -163,7 +163,12 @@ impl Encoder<'_> {
             &mut *self.transient,
             &mut *self.functions,
         );
-        inner.group(&mut builder, parts, raster_scene::Compose::SrcOver)?;
+        // The frame states its clips by the outlines this frame's other frames uploaded for the
+        // same target, and hands back what it uploaded (ADR 1529).
+        inner.clip_outlines = std::mem::take(&mut self.clip_outlines);
+        let drawn = inner.group(&mut builder, parts, raster_scene::Compose::SrcOver);
+        self.clip_outlines = std::mem::take(&mut inner.clip_outlines);
+        drawn?;
         let scene = builder.finish();
         let viewport =
             raster_gpu::Viewport::full(target.width, target.height, raster_scene::Affine::IDENTITY);

@@ -457,9 +457,9 @@ pub fn create_instance() -> wgpu::Instance {
 /// instance, which is made before an [`Options`] exists, so it is an argument here and
 /// nowhere else (ADR 0017).
 ///
-/// **Not a speed knob**, and the measurement is in ADR 0014 section 3: restricting to Vulkan
-/// halves `Instance::new` and gives every millisecond of it back in `request_adapter`.
-/// A host with no driver to avoid should call [`create_instance`].
+/// **A host with no driver to avoid and a device to bring up should call
+/// [`create_launch_instance`]**, which makes this choice for it the one way that costs
+/// nothing where the choice is wrong.
 ///
 /// **The environment is not consulted**, here or in [`create_instance`] — this argument
 /// is the only route, deliberately (ADR 0017). A host that wants `WGPU_BACKEND` honoured
@@ -491,6 +491,39 @@ pub fn create_instance_with(backends: wgpu::Backends) -> wgpu::Instance {
         backends,
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     })
+}
+
+/// The instance a launch brings its device up on: the platform's primary backends, and
+/// every backend only where those offer no adapter on real hardware.
+///
+/// **The secondary backend is GL, and loading it is what most of [`create_instance`] costs
+/// on a Vulkan machine.** `wgpu` initialises every backend an instance holds when the
+/// instance is made, and GL's initialisation is EGL's — on this tree's measuring machine
+/// Mesa's `libEGL_mesa` bringing up a whole second driver, `radeonsi` through
+/// `libgallium`, for an adapter `request_adapter` then passes over for the Vulkan one.
+/// Measured on the Radeon 890M through RADV, one process per sample, six each: an
+/// instance of every backend 22.98 to 25.89 ms and of Vulkan alone 11.90 to 15.54, with
+/// `request_adapter` 3.28 to 8.23 ms against 2.88 to 5.83 — the Vulkan-only device usable
+/// in 18.49 ms at best against 28.83 (ADR 1532). The adapter enumeration that once gave
+/// that saving back in `request_adapter` costs the same with either set on this driver stack.
+///
+/// **What it gives up is nothing a machine with a working primary backend uses**: wgpu's
+/// own preference ranks a primary adapter first wherever there is one. Where the primary
+/// backends offer only a processor-emulated adapter, or none — a machine whose GPU has
+/// only a GL driver — the primary instance is dropped and every backend is loaded, so such
+/// a machine draws on the adapter it would have had and pays one extra enumeration for it.
+#[must_use]
+pub fn create_launch_instance() -> wgpu::Instance {
+    let primary = create_instance_with(wgpu::Backends::PRIMARY);
+    let on_hardware = pollster::block_on(primary.enumerate_adapters(wgpu::Backends::PRIMARY))
+        .iter()
+        .any(|adapter| adapter.get_info().device_type != wgpu::DeviceType::Cpu);
+    if on_hardware {
+        primary
+    } else {
+        drop(primary);
+        create_instance()
+    }
 }
 
 /// Choose the adapter: the [`Options::adapter`] filter when there is one, wgpu's own

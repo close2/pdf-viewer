@@ -1056,15 +1056,12 @@ fn every_corpus_document_saves_and_three_readers_see_the_edit() {
 /// pinned by commit and identical in every clone.
 const TRACKED_POPULATION: usize = 974;
 
-/// The two documents this reader cannot open at all: `PDFBOX-4352-0.pdf`, whose `/Encrypt` does
-/// not resolve, and `encrypted-attachment.pdf`, whose password nobody has recorded. Every other
-/// encrypted corpus document opens with the password `corpus_passwords` publishes for it.
-///
-/// **`encrypted-attachment.pdf` is a document waiting for a person, not one whose save was
-/// refused**: its crypt filter states no `/AuthEvent`, so §7.6.6 Table 25's default of `DocOpen`
-/// wants a key before the document is open. Its twin `auth-event-ef-open.pdf` states
-/// `/AuthEvent /EFOpen`, opens, and is saved and read back like any other document. ADR 1040.
-const REFUSED_OPEN: &[&str] = &["PDFBOX-4352-0.pdf", "encrypted-attachment.pdf"];
+/// The one document this reader cannot open at all: `PDFBOX-4352-0.pdf`, whose `/Encrypt` does
+/// not resolve. Every encrypted corpus document opens with the password `corpus_passwords`
+/// publishes for it — `encrypted-attachment.pdf` among them, whose crypt filter states no
+/// `/AuthEvent`, so §7.6.6 Table 25's default of `DocOpen` wants the key before the document is
+/// open, and whose key pdf.js's own unit test publishes (ADRs 1040 and 1534).
+const REFUSED_OPEN: &[&str] = &["PDFBOX-4352-0.pdf"];
 
 /// The documents with no page an update can put an annotation on — five with no reachable page
 /// one, and `issue9105_other.pdf`, whose page one is an inline dictionary in `/Kids`.
@@ -1107,12 +1104,9 @@ const NOTHING_TO_SAVE_ON: &[&str] = &[
     "xfa_filled_imm1344e.pdf",
 ];
 
-/// The saves §7.5.6 cannot honestly append, by name: twenty-two whose cross-reference table
+/// The saves §7.5.6 cannot honestly append, by name: twenty-three whose cross-reference table
 /// was rebuilt by scanning, and `scan-bad.pdf`, which states no `startxref`. A name that leaves
 /// this list is a document the writer began to chain to and is examined, not enjoyed.
-///
-/// **`encrypted-attachment.pdf` is not on it**: it is not opened at all, for §7.6.6 Table 25's
-/// reason, so it is in [`REFUSED_OPEN`] above and no save is attempted on it. ADR 1040.
 const SAVE_REFUSED_ON: &[&str] = &[
     "GHOSTSCRIPT-698804-1-fuzzed.pdf",
     "PDFBOX-3148-2-fuzzed.pdf",
@@ -1121,6 +1115,8 @@ const SAVE_REFUSED_ON: &[&str] = &[
     "bug1795263.pdf",
     "bug1980958.pdf",
     "close-path-bug.pdf",
+    // Opened with its published password (ADR 1534); its `startxref` finds no table.
+    "encrypted-attachment.pdf",
     "helloworld-bad.pdf",
     "issue10438_reduced.pdf",
     "issue15590.pdf",

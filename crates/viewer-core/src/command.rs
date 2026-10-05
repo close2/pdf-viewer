@@ -502,7 +502,7 @@ pub enum Command {
     Save,
     /// Ask the focused document what it says about *itself*, and be told in words.
     ///
-    /// Answered with [`crate::Event::Reported`] carrying [`crate::notes::about`]'s eight clauses
+    /// Answered with [`crate::Event::Reported`] carrying [`crate::notes::about`]'s nine clauses
     /// — §12.11's requirements, §12.8's signatures, §7.11.4's embedded files, §14.13.2's
     /// associated files that are not embedded, §7.5's rebuilt cross-reference table, Annex I's
     /// version, §14.8.6.2's namespaces and §14.8.6.3's unenclosed `MathML` — with no page on it,
@@ -630,9 +630,15 @@ pub enum Command {
     /// when the server sends it and a person may have changed tabs in between: the form that was
     /// sent is the form the answer is about. A document no longer open takes nothing. What reaches
     /// the network, and whether, is a host's (rule 2, ADR 1291).
+    ///
+    /// **A file an import names by an absolute URI arrives here too** ([`Answered::Import`]): it is
+    /// fetched over the network, so it arrives when the server answers, and the document that asked
+    /// is the one it is about for the same reason (ADR 1527).
     Respond {
         /// The document whose submission this answers.
         document: DocumentId,
+        /// Which request these bytes answer, which is the word the sentences begin with.
+        answers: Answered,
         /// Where the submission went, which the sentences name as the file an import names.
         source: String,
         /// FDF or XFDF, as the answer's media type said.
@@ -1353,6 +1359,20 @@ pub enum FocusMove {
     Previous,
     /// Nothing focused, which is what a click outside every annotation already does.
     None,
+}
+
+/// Which request the form data in [`Command::Respond`] answers.
+///
+/// Both end in §12.7.8's import; what differs is the word a person reads in front of every sentence
+/// the import says, because a server's answer to a form they sent is not a file a document asked to
+/// import (ADRs 1291, 1527).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Answered {
+    /// §12.7.6.2's submission, answered with FDF or XFDF.
+    Submission,
+    /// A file an import named by an absolute URI — Table Annex O.4's `fdf`, or §12.7.6.4's action
+    /// naming one — fetched by the host and arriving when the server answered.
+    Import,
 }
 
 /// What a file the viewer asks a host for is wanted for.

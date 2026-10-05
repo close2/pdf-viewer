@@ -21,7 +21,7 @@
 //! |---|---|---|
 //! | **cold open** | `FileBytes::on_disk`, `Viewer::new`, `Command::Restrict`, `Command::Open` — `quorra.rs`'s `open_document` exactly, on a file whose page cache has just been dropped | the process's own creation, the window, the device |
 //! | **warm open** | the same, second time, with the file in the page cache | — |
-//! | **time to first page** | the document opening on one thread while the graphics device comes up on this one, joined, given a viewport, and page one's pixels drawn on the device | winit's `EventLoop::new`, the window, the surface and the present |
+//! | **time to first page** | the document opening on one thread, and page one interpreted there (`Viewer::anticipate`, ADR 1531), while the graphics device comes up on this one, joined, given a viewport, and page one's pixels drawn on the device; the run prints when each of the three was done and a hash of the frame | winit's `EventLoop::new`, the window, the surface and the present |
 //! | **cold bring-up** | `QuorraRasterizer::new_headless` in a process that has done nothing else | everything else |
 //! | **page turn** | `Command::GoTo(Next)`, the interpretation it causes, and the frame drawn on the device | — |
 //! | **memory high-water** | `VmHWM` of the process that did all of the above for one document, less the resident pages of the files it has mapped — what the allocator asked the kernel for | every shared object the Vulkan loader brought in, which is nine tenths of the process's own `VmHWM` and is the kernel's decision rather than this program's (ADR 0910) |
@@ -461,7 +461,34 @@ fn draw_one(
     backend: &mut QuorraRasterizer,
     command: Command,
 ) -> Option<(usize, usize)> {
+    draw_one_timed(viewer, backend, command).map(|drawn| (drawn.commands, drawn.pixels))
+}
+
+/// What [`draw_one_timed`] drew, and when the request for it arrived.
+struct Drawn {
+    /// The display list's command count, the witness that a page was interpreted.
+    commands: usize,
+    /// The frame's pixel count, the witness that it was drawn.
+    pixels: usize,
+    /// The instant the viewer's request reached the host.
+    asked: Instant,
+    /// The frame's bytes, kept so that they can be hashed after the clock has stopped.
+    frame: Vec<u8>,
+}
+
+/// [`draw_one`], and the instant the viewer's request reached the host.
+///
+/// That instant divides a first page into the two halves principle 2 tells apart — what the
+/// document costs (the page interpreted, its fonts loaded, its display list built) and what the
+/// device costs (the scene, the encode, the frame) — so the run can say which half a slow first
+/// page is in without a profiler (ADR 1531).
+fn draw_one_timed(
+    viewer: &mut Viewer,
+    backend: &mut QuorraRasterizer,
+    command: Command,
+) -> Option<Drawn> {
     let events: Vec<Event> = viewer.handle(command).collect();
+    let asked = Instant::now();
     let request = events.into_iter().find_map(|event| match event {
         Event::NeedsRender(request) => Some(request),
         _ => None,
@@ -478,7 +505,12 @@ fn draw_one(
             rendered: Rendered::Presented,
         })
         .for_each(drop);
-    Some((commands, pixels))
+    Some(Drawn {
+        commands,
+        pixels,
+        asked,
+        frame: drawn.data,
+    })
 }
 
 /// The document this child was told to open.
@@ -618,7 +650,13 @@ fn phase_first_page() {
     // it should have failed.
     let scheduled = scheduling();
     let began = Instant::now();
-    let opening = std::thread::spawn(move || open_document(&path));
+    // `quorra.rs`'s document thread: the open, and then page one interpreted while the device is
+    // still coming up (ADR 1531).
+    let opening = std::thread::spawn(move || {
+        let (mut viewer, pages) = open_document(&path);
+        viewer.anticipate().for_each(drop);
+        (viewer, pages)
+    });
     let mut backend = match QuorraRasterizer::new_headless() {
         Ok(backend) => backend,
         Err(error) => {
@@ -632,7 +670,7 @@ fn phase_first_page() {
         std::process::exit(1);
     };
     let joined = ms(began);
-    let drawn = draw_one(
+    let drawn = draw_one_timed(
         &mut viewer,
         &mut backend,
         Command::Resize {
@@ -643,10 +681,27 @@ fn phase_first_page() {
     );
     let elapsed = ms(began);
     let waited = scheduling();
-    let Some((commands, pixels)) = drawn else {
+    let Some(Drawn {
+        commands,
+        pixels,
+        asked,
+        frame,
+    }) = drawn
+    else {
         println!("failed page one was not drawn");
         std::process::exit(1);
     };
+    let interpreted = asked.duration_since(began).as_secs_f64() * 1e3;
+    // Hashed after the clock, so that a change to the launch path can be shown to have drawn the
+    // same frame — the first page's bytes, which a lever that moves work earlier must not move
+    // (ADR 1531).
+    let frame_hash = {
+        use std::hash::{Hash as _, Hasher as _};
+        let mut hasher = std::hash::DefaultHasher::new();
+        frame.hash(&mut hasher);
+        hasher.finish()
+    };
+    drop(frame);
     let read = match (read_chars(), before) {
         (Some(after), Some(before)) => Some(after.saturating_sub(before)),
         _ => None,
@@ -658,6 +713,8 @@ fn phase_first_page() {
         ("first_page_runq_ms", runq),
         ("device_ms", format!("{device:.3}")),
         ("joined_ms", format!("{joined:.3}")),
+        ("interpreted_ms", format!("{interpreted:.3}")),
+        ("frame_hash", format!("{frame_hash:016x}")),
         ("pages", pages.to_string()),
         ("commands", commands.to_string()),
         ("pixels", pixels.to_string()),
@@ -2485,12 +2542,18 @@ fn the_launch_path_stays_inside_its_bands() {
             Ok((value, fields)) => {
                 let device = field(&fields, "device_ms").unwrap_or(0.0);
                 let joined = field(&fields, "joined_ms").unwrap_or(0.0);
+                let interpreted = field(&fields, "interpreted_ms").unwrap_or(0.0);
+                let frame = fields
+                    .iter()
+                    .find(|(name, _)| name == "frame_hash")
+                    .map_or("-", |(_, value)| value.as_str());
                 let commands = field(&fields, "commands").unwrap_or(0.0);
                 let peak = field(&fields, "peak_kib").unwrap_or(0.0) / 1024.0;
                 let allocated = anonymous_high_water_mib(&fields);
                 println!(
                     "launch-path:   first page {value:.1} ms{} (device up at {device:.1}, \
-                     document joined at {joined:.1}, {commands:.0} commands), \
+                     document joined at {joined:.1}, page one interpreted at \
+                     {interpreted:.1}, {commands:.0} commands, frame {frame}), \
                      {peak:.0} MiB resident, {allocated:.1} MiB of it allocated",
                     waiting(&fields, "first_page_runq_ms")
                 );

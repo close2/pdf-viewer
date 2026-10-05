@@ -1103,6 +1103,7 @@ MainWindow::MainWindow(rust::Box<Host> host)
         }
         Busy guard(busy_);
         host_->resized(width, height, scale);
+        reportPageArea();
         applyUpdates();
     });
     connect(page_, &PageArea::pointerAt, this, [this](float x, float y, unsigned char action) {
@@ -1500,7 +1501,18 @@ void MainWindow::reportPlacement()
         return at;
     };
     host_->window_placed(place(outer), place(inner));
+    reportPageArea();
     applyUpdates();
+}
+
+// Where the page area sits in this window's contents, which the document node's transform is: the
+// contents' corner is what AccessKit adds, and the page is below the menu and the toolbar and beside
+// the panel (ADR 1528). In device pixels, the space every node's bounds are in.
+void MainWindow::reportPageArea()
+{
+    const QPoint at = page_->mapTo(this, QPoint(0, 0));
+    const qreal ratio = page_->devicePixelRatioF();
+    host_->page_placed(static_cast<float>(at.x() * ratio), static_cast<float>(at.y() * ratio));
 }
 
 void MainWindow::moveEvent(QMoveEvent* event)

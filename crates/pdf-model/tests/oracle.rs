@@ -4190,16 +4190,15 @@ const GEOMETRY_ON_A_PAGE_WE_REPORT: [&str; 3] = [
 /// and where that fails, "the interactive PDF processor should prompt for a password". This gate
 /// has nobody to prompt, so it answers the prompt from `corpus_passwords` — the one table of the
 /// passwords published beside the pdf.js corpus's encrypted files — and hands each reference the
-/// same password ([`Work::password`], ADR 1377). The nine documents that table holds are judged
-/// like every other page; what is left here is a document no password is recorded for.
+/// same password ([`Work::password`], ADR 1377). The ten documents that table holds are judged
+/// like every other page; what would be left here is a document no password is recorded for.
 ///
-/// `encrypted-attachment.pdf` is `auth-event-ef-open.pdf` with one line deleted — the
+/// **Empty.** `encrypted-attachment.pdf` is `auth-event-ef-open.pdf` with one line deleted — the
 /// `/AuthEvent /EFOpen` in its crypt filter — so it takes §7.6.6 Table 25's default of `DocOpen`,
-/// where authorization is required when the document is opened and the clause's own sentence for
-/// a failure is that the event shall fail. `mutool` and `gs` refuse it, `pdftoppm` opens it and
-/// draws the page; what puts it here is the entry rather than the vote, and its `EFOpen` twin is
-/// still drawn and still compared below. ADR 1040.
-const NO_RENDER_NEEDS_A_PASSWORD: [&str; 1] = ["encrypted-attachment.pdf page 1"];
+/// where authorization is required when the document is opened (ADR 1040). Its password is
+/// published in pdf.js's own unit test of the file, `000000`, so the prompt is answered with it
+/// here and for each reference, and the page is judged like every other (ADR 1534).
+const NO_RENDER_NEEDS_A_PASSWORD: [&str; 0] = [];
 
 /// Pages refused because the file's encryption is not something §7.6 states an algorithm for.
 ///
@@ -4352,13 +4351,13 @@ fn reference_geometry_expected() -> Vec<&'static str> {
 /// against 0.269507** — 0.06 of 255 mean absolute difference, the same page. `mutool` answers
 /// *cannot authenticate password* and `gs` *This file requires a password for access*.
 ///
-/// **`encrypted-attachment.pdf` is in [`NO_RENDER_NEEDS_A_PASSWORD`] rather than here**: the two
-/// are the same bytes but for a
+/// **`encrypted-attachment.pdf` is not here**: the two are the same bytes but for a
 /// `/AuthEvent /EFOpen`, and Table 25 gives the one that states it and the one that defaults to
-/// `DocOpen` different answers. ADR 1040.
+/// `DocOpen` different answers — that one wants the key at the open, is opened with its published
+/// password, and is judged with it by every reference (ADRs 1040 and 1534).
 ///
-/// That is the mirror of [`NO_RENDER_NEEDS_A_PASSWORD`] and it is worth the distinction. There
-/// Table 25's default puts the key at the open and this tree refuses the document; here two
+/// That is the mirror of the twin and it is worth the distinction. There Table 25's default puts
+/// the key at the open; here two
 /// references say the empty user password opens the page and two say it does not, which `doc/HANDOVER.md`'s trap 9
 /// already records for a different pair of files — two against two is not a tie but a question,
 /// and §7.6.6 puts a refusal on the stream whose key is missing rather than on the document.
@@ -12507,8 +12506,8 @@ fn published_password(path: &Path) -> Option<&'static CorpusPassword> {
 /// one [`corpus_passwords`] holds for it.
 ///
 /// A document with no published password is refused exactly as [`Document::open`] refuses it,
-/// so what stays in [`NO_RENDER_NEEDS_A_PASSWORD`] is a document nobody can open rather than one
-/// this gate did not try.
+/// so what would stay in [`NO_RENDER_NEEDS_A_PASSWORD`] is a document nobody can open rather than
+/// one this gate did not try.
 fn open_document(bytes: Vec<u8>, known: Option<&CorpusPassword>) -> Result<Document, SyntaxError> {
     match (Document::open(bytes.clone()), known) {
         (Err(SyntaxError::PasswordRequired), Some(known)) => {

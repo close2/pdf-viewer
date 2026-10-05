@@ -294,6 +294,7 @@ fn main() {
         links,
         remote_documents,
         embedded_documents,
+        submissions,
         separations,
         trust_anchors,
         accept_unknown_revocation,
@@ -307,7 +308,8 @@ fn main() {
     // with the window, which is what the menu edits and what the next document opened inherits
     // (ADR 1145).
     let standing = viewer_host::Restrictions::new(restrictions)
-        .with(viewer_host::ActLevel::EmbeddedDocuments(embedded_documents));
+        .with(viewer_host::ActLevel::EmbeddedDocuments(embedded_documents))
+        .with(viewer_host::ActLevel::Submissions(submissions));
     let policies = Policies {
         restrictions,
         trust_anchors,
@@ -331,7 +333,17 @@ fn main() {
     let opening = std::thread::spawn({
         let path = path.clone();
         let fragment = fragment.clone();
-        move || open_document(&path, opens_at, fragment.as_deref(), policies)
+        move || {
+            let (mut viewer, mut events) =
+                open_document(&path, opens_at, fragment.as_deref(), policies);
+            // **And page one interpreted on the same thread, before the window asks for it**
+            // (ADR 1531). The device takes 24 to 33 ms to come up and the document is ready long
+            // before it, so the page's interpretation — its fonts, its images, its display list —
+            // is done in time this thread would otherwise spend waiting to be joined, and the
+            // first `Resize` goes straight to the render.
+            events.extend(viewer.anticipate());
+            (viewer, events)
+        }
     });
 
     // **And the graphics instance on a second thread** (ADR 0185): a `wgpu::Instance` is the driver

@@ -409,3 +409,102 @@ fn nodes_that_name_their_own_ancestors_stand_for_no_pages() {
         started.elapsed()
     );
 }
+
+/// Whether the pages came from a scan, and how many, for one document.
+fn found_by_scanning(bytes: Vec<u8>) -> Option<usize> {
+    let document = Document::open(bytes).expect("the fixture opens");
+    pdf_model::Pages::new(&document).found_by_scanning()
+}
+
+/// The control for the four below: a tree that yields its page is not a scan's.
+///
+/// `Pages::found_by_scanning` is the recovery's statement to a host (ADR 1533), and a statement
+/// made of every document would say nothing about any of them.
+#[test]
+fn a_tree_that_yields_its_page_is_not_said_to_be_a_scan() {
+    assert_eq!(
+        found_by_scanning(tree("/Type /Pages /Count 1 /Kids [2 0 R]", "/Type /Page")),
+        None
+    );
+}
+
+/// A `/Kids` naming an object the file does not define: §7.3.10 makes the child the null object,
+/// the tree yields nothing, and object 2's own declaration is what the page is found by.
+#[test]
+fn a_kids_entry_naming_nothing_is_a_scan_and_says_how_many_it_found() {
+    assert_eq!(
+        found_by_scanning(tree("/Type /Pages /Count 1 /Kids [9 0 R]", "/Type /Page")),
+        Some(1)
+    );
+}
+
+/// A catalogue with no `/Pages`, which §7.7.2's Table 29 makes required: there is no tree to walk
+/// at all, and the page is found and drawn at its own size by the scan.
+#[test]
+fn a_catalogue_without_pages_is_a_scan_and_draws_the_page_it_found() {
+    let bytes = b"%PDF-1.7\n\
+         2 0 obj\n<< /Type /Page /MediaBox [0 0 200 100] /Contents 3 0 R >>\nendobj\n\
+         3 0 obj\n<< /Length 30 >>\nstream\n0 0 1 rg 10 10 100 50 re f\nendstream\nendobj\n\
+         4 0 obj\n<< /Type /Catalog >>\nendobj\n\
+         trailer\n<< /Root 4 0 R /Size 5 >>\n%%EOF\n"
+        .to_vec();
+    let document = Document::open(bytes).expect("the fixture opens");
+    let pages = pdf_model::Pages::new(&document);
+    assert_eq!(pages.found_by_scanning(), Some(1));
+    let page = pages.get(0).expect("object 2 declares itself a page");
+    assert_eq!(Some(page.media_box), Some([0.0, 0.0, 200.0, 100.0]));
+    let interpretation = pdf_model::interpret(&document, &page);
+    assert!(
+        !interpretation.display_list.commands().is_empty(),
+        "the producer's rectangle is drawn"
+    );
+    assert!(
+        interpretation.is_complete(),
+        "every mark on the page is the file's, so the page itself reports nothing: \
+         {:?}",
+        interpretation.unsupported
+    );
+}
+
+/// A trailer whose `/Root` names an object the file does not hold, in a file with no catalogue
+/// either: §7.5.5's Table 15 entrance leads nowhere, the rebuild finds no `/Type /Catalog` to
+/// enter by, and the page is still found by its own declaration.
+#[test]
+fn a_root_naming_nothing_over_a_file_with_no_catalogue_is_a_scan() {
+    let bytes = b"%PDF-1.7\n\
+         2 0 obj\n<< /Type /Page /MediaBox [0 0 200 100] /Contents 3 0 R >>\nendobj\n\
+         3 0 obj\n<< /Length 30 >>\nstream\n0 0 1 rg 10 10 100 50 re f\nendstream\nendobj\n\
+         trailer\n<< /Root 9 0 R /Size 10 >>\n%%EOF\n"
+        .to_vec();
+    let document = Document::open(bytes).expect("the fixture opens");
+    let pages = pdf_model::Pages::new(&document);
+    assert_eq!(pages.found_by_scanning(), Some(1));
+    assert_eq!(
+        pages.get(0).map(|page| page.media_box),
+        Some([0.0, 0.0, 200.0, 100.0])
+    );
+}
+
+/// Two pages found with no tree to order them come back in ascending object number — the
+/// documented choice ADR 0097 made, which is why the count is said out loud rather than shown
+/// as if a tree had stated it.
+#[test]
+fn pages_found_by_scanning_are_in_object_number_order_and_counted() {
+    let bytes = b"%PDF-1.7\n\
+         5 0 obj\n<< /Type /Page /MediaBox [0 0 300 400] >>\nendobj\n\
+         2 0 obj\n<< /Type /Page /MediaBox [0 0 200 100] >>\nendobj\n\
+         4 0 obj\n<< /Type /Catalog >>\nendobj\n\
+         trailer\n<< /Root 4 0 R /Size 6 >>\n%%EOF\n"
+        .to_vec();
+    let document = Document::open(bytes).expect("the fixture opens");
+    let pages = pdf_model::Pages::new(&document);
+    assert_eq!(pages.found_by_scanning(), Some(2));
+    let widths: Vec<_> = (0..pages.len())
+        .map(|index| pages.get(index).map(|page| page.media_box[2]))
+        .collect();
+    assert_eq!(
+        widths,
+        [Some(200.0), Some(300.0)],
+        "object 2 before object 5, whatever order the bytes are in"
+    );
+}

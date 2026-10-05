@@ -36,6 +36,12 @@ machine = "AMD Ryzen AI 9 HX 370 (4 Zen 5 + 8 Zen 5c cores, 24 threads), 61 GiB,
 profile = "release"
 calibration_document = "doc/PDF20_AN001-BPC.pdf"
 calibration_ms = 0.62 .. 0.78
+# The device's busy share, read before each child and after it (`device_busy`): above this a child
+# shares the graphics device with somebody else's work, which no processor load average counts
+# (trap 101), and it is printed with the figure and not judged (ADR 1537). Calibrated on
+# 2026-10-05 by `a_planted_busy_device_is_seen_as_busy`: the idle device and the compositor read
+# IDLE, a planted compute loop PLANTED.
+device_busy_percent = 20
 
 [[page]]
 path = "doc/ISO_32000-2_sponsored_EC3.pdf"

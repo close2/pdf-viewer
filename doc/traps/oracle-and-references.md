@@ -693,6 +693,16 @@ annex is informative, and its reference bitmaps come from the same sample softwa
 streams. The codec's one real defect was the extended template (ADR 1459). Hold a departing stream
 by name with its clause; patch a decoder only for a disagreement the clause decides against it.
 
+### 103. A list's reason can be a search nobody ran, and a recovery says so out loud
+
+`encrypted-attachment.pdf` was held as "needs a password published nowhere" by the corpus gate,
+the oracle, raster's gate and the save round trip for many rounds; the password is `000000`, in
+pdf.js's own `api_spec.js` (ADR 1534). And the page-tree recovery that scans a file for
+`/Type /Page` objects when the tree leads nowhere (ADR 0097) presented its pages as if a tree had
+stated them; `issue9418.pdf`'s newest trailer has no `/Pages` and nothing said so — trap 5's
+plausible render (ADR 1533). Before a reason is written into a list, run the search it implies;
+and a recovered page carries its report.
+
 ## Things worth knowing
 
 - **The oracle's artefacts are the fastest diagnostic in the tree.** Every non-agreeing page leaves

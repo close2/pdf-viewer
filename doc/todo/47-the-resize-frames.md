@@ -62,9 +62,11 @@ measured showed the person nothing.
 
 **The 1.3 s `resize` line in the owner's first Windows trace is not this item and never was**:
 `tmp/win/entwurf.2.trace.txt`'s `resize 1200x1500 … in 1.3014148s` at t=1.862 is the same instant
-and the same duration as that launch table's `interpreted, 58009 cmd … (+1302.964)` — the first
-resize is where page one is interpreted, which is the launch path's known largest step
-(`doc/todo/44` §6), not a per-step drag cost (ADR 0761 §1). §1 above is the general form of that:
+and the same duration as that launch table's `interpreted, 58009 cmd … (+1302.964)` — that first
+resize was where page one was interpreted, the launch path's known largest step (`doc/todo/44`
+§6), not a per-step drag cost (ADR 0761 §1). `quorra` interprets page one on the document's
+thread before the window exists (`Viewer::anticipate`, ADR 1531), so a first resize finds it done;
+a page longer to interpret than the device takes to come up still holds the join for the rest. §1 above is the general form of that:
 a resize *can* interpret, and when it does the line says so in milliseconds rather than
 microseconds.
 

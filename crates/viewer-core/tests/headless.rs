@@ -9686,3 +9686,49 @@ fn count_ink(raster: &pdf_render::Raster) -> usize {
         .filter(|pixel| pixel[0] < 250 || pixel[1] < 250 || pixel[2] < 250)
         .count()
 }
+
+/// A page interpreted ahead of the first viewport is asked to be drawn as the page the first
+/// viewport would have interpreted: the same display list into the same target, and nothing asked
+/// for while there is no viewport to draw into (ADR 1531).
+///
+/// What `quorra` does on its document thread while the graphics device comes up. The comparison
+/// is with a viewer that did not anticipate, so the test cannot be satisfied by a list that is
+/// merely plausible.
+#[test]
+fn a_page_interpreted_ahead_is_drawn_as_the_first_resize_would_draw_it() {
+    let resize = || Command::Resize {
+        width: 800,
+        height: 600,
+        scale: 1.0,
+    };
+    let (mut ahead, _) = opened(0, 0);
+    let anticipated: Vec<Event> = ahead.anticipate().collect();
+    assert!(
+        !anticipated
+            .iter()
+            .any(|event| matches!(event, Event::NeedsRender(_))),
+        "no render is asked for before there is a viewport"
+    );
+    let ahead_events: Vec<Event> = ahead.handle(resize()).collect();
+
+    let (mut plain, _) = opened(0, 0);
+    let plain_events: Vec<Event> = plain.handle(resize()).collect();
+
+    let (anticipated, interpreted) = (request(&ahead_events), request(&plain_events));
+    assert_eq!(anticipated.target, interpreted.target, "the same target");
+    assert!(
+        anticipated.list == interpreted.list,
+        "the display list interpreted ahead is the one the first resize interprets"
+    );
+    assert!(
+        anticipated.list.command_count() > 0,
+        "the page drew something, so the comparison compared something"
+    );
+}
+
+/// Anticipating with nothing open is nothing: no event, and the viewer still opens and draws.
+#[test]
+fn anticipating_with_no_document_open_does_nothing() {
+    let mut viewer = Viewer::new(0, 0, 1.0);
+    assert_eq!(viewer.anticipate().count(), 0, "nothing to interpret");
+}

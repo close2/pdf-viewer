@@ -6045,3 +6045,36 @@ frame filled, about 0.2 G a pair, and it still rebuilds the group residue for th
 Drawing the two halves as one frame with two outputs would remove that. So would a scene that
 names the black half's marks by the chromatic half's outlines. Either is a decision of yours under
 ADR 1471.
+
+## 66. The black frame of `bug1721218_reduced.pdf`'s group takes its tiles, its region and its clips from the chromatic frame (ADR 1529)
+
+**One frame with two outputs was not built, and why.** Your ADR 1471 draws the four-component
+group as two renders because a frame holds three components and an alpha. §11.3.3 composites per
+component, so two renders of the same geometry are exact. The conversion out is per pixel over all
+four, through a grid, so it runs once, after both. A render with four channels would be exact too,
+but the device has no such target. So the second render stays, and it now shares what is not a
+colour.
+
+**What changed, byte for byte.** The device keeps each render's finished coverage tiles, filled
+and met, for one more render. The key is the tile, the rule, the polylines and the chain's number
+(section 65), compared word for word. It also keeps each chain's region with the price it was
+admitted at. The black render asks the same admission and is handed the same bytes. On your side,
+the frames of one group state their clips by one set of uploaded outlines, so the black frame
+uploads none. The step's uploads go from 14 147 to 7 074.
+
+| black render of the 1.25× frame, one thread | before | after |
+|---|---:|---:|
+| the render | 0.443 G | 0.249 G |
+| `encode_scene` | 0.281 G | 0.111 G |
+| `plan_group_residue` | 0.091 G | 0.000 G |
+
+The 1.25× step on the GPU lane goes from 148.2 to **136.2 ms**, and the 1× frame from 153.1 to
+145.4. Both are pinned minima of 3 × 5, interleaved on exported trees. Your CPU backend, re-taken
+the same way through `zoom_frame`'s new `ZOOM_FRAME_BACKEND=cpu`, reads 47.2 and 56.3 ms. The old
+84 ms was an unpinned figure, so the step is 2.4× and not within 2×. Corpus digests: 0 pages moved
+on three lanes at 1× and 4×.
+
+**What is left is mostly ours.** Each render spends 0.115 G building bind groups and recording
+passes for 3 518 clipped shadings. The chromatic render's exact meet is 0.80 G. An encode that
+leaves colours out, replayed with the black half's colours, would save the black walk's last
+13 ms. That needs our encode to stop writing colours into instances as it walks.
