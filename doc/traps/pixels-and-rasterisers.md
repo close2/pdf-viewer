@@ -519,6 +519,16 @@ above a child's own tail (6–9%); on an APU a saturated device also pushes the 
 calibration probe out of its band, so the device figure is read before the processor is blamed
 (ADR 1537).
 
+### 108. Inputs a job already owns are moved, and a deferred read's consumer is profiled with it
+
+The exact meet's cut pixels now go to helper threads beside the walk (ADR 1541); the first version
+handed each fan-out job a copy of the polylines and edges the walk had built, and the stroked
+Type 3 page's turn read 13.3 ms against HEAD's 12.3, outside its band — the copy was the whole
+difference. `MarkInputs::Owned` moves them. And when the outline read was taken off the open
+(ADR 1543), callgrind by function showed the caption's section walking the whole page tree at
+65.1 M instructions for an outline read of 35.5 M: the consumer of an eager read can cost more than
+the read, and is deferred with it.
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

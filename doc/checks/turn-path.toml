@@ -132,3 +132,13 @@ commands = 269
 turn_ms = 34.2 .. 51.9
 step_ms = 32.5 .. 48.7
 why = "tight bends: the tiling's own cost, which ADR 1505 divided across the fan-out"
+
+[[page]]
+path = "doc/pdf.js/test/pdfs/bug1721218_reduced.pdf"
+page = 1
+commands = 1
+# observed 188.79 .. 194.97 ms (turn), 116.38 .. 118.47 ms (step): three interleaved frame_budget runs
+# and four runs of this gate on 2026-10-05, the bands from the first three
+turn_ms = 160.4 .. 228.2
+step_ms = 99.4 .. 141.3
+why = "a four-component group of 3 518 residue-clipped shadings, drawn as two frames of one geometry (ADRs 1471, 1529), whose exact meets are made beside the walk (ADR 1541): the tree before it read 215 and 134 ms, inside the step band's top, so the band holds a doubling and not that change"

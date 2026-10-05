@@ -94,6 +94,12 @@ seed() {
     shaping) python3 "$here/seed_shaping.py" "$root/$t" ;;
     # §12.7.8's FDF files, one per entry the reader handles, and §7.9.4's dates.
     forms_data) python3 "$here/seed_forms_data.py" "$root/$t" ;;
+    # A server's answer to the form in `fetched_import.rs`: FDF naming its fields, and every XFDF
+    # file the tests hold, each under the eight routes the first byte chooses (ADR 1527).
+    fetched_import)
+        python3 "$here/seed_fetched_import.py" "$root/$t" "$tree"/crates/pdf-model/tests/xfdf/*.xfdf \
+            > /dev/null
+        ;;
     # ISO 19444-1's files: every XFDF file the tests hold, one annotation subtype each.
     xfdf) cp --update=none "$tree"/crates/pdf-model/tests/xfdf/*.xfdf "$root/$t/" ;;
     # §12.8's ASN.1, by the routes each seeder's own header names.

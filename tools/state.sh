@@ -414,6 +414,52 @@ section_turn() {
     run "the turn path (doc/performance.md 3e's rows, doc/checks/turn-path.toml)" \
         '^turn path:|figures banded' \
         cargo test --release -p render-raster --test turn_path -- --ignored --nocapture
+    turn_provenance
+}
+
+# Beside each of `doc/performance.md` 3e's rows, the ADR that last took its figure — because a
+# comparison figure older than a few rounds is re-taken before it decides anything (trap 105), and
+# a band held against an old figure is the place that goes unnoticed. The table is read, never
+# judged: a column whose header names an ADR or a sitting is printed per row; with no such column,
+# the one sentence the section opens its figures with is printed instead, and the absence is said.
+# Only the section's first table is read: it is the one `turn_path` bands.
+turn_provenance() {
+    heading "where each 3e row's figure was taken (trap 105)" "doc/performance.md 3e"
+    awk '
+        /^### 3e\./ { inside = 1; next }
+        inside && /^### / { inside = 0 }
+        !inside { next }
+        /^\*\*The figures, re-taken on/ && sitting == "" { sitting = $0; collecting = 1; next }
+        collecting && /^$/ { collecting = 0 }
+        collecting && sitting !~ /ADR [0-9]+/ { sitting = sitting " " $0 }
+        rows && !/^\| / { inside = 0; next }
+        /^\| page \|/ {
+            for (i = 2; i < NF; i++) if ($i ~ /ADR|taken|sitting/) column = i
+            next
+        }
+        /^\|---/ { next }
+        /^\| / {
+            split($0, cell, "|")
+            if (cell[2] ~ /[^ ]/) page = cell[2]
+            gsub(/^ +| +$/, "", page); kind = cell[3]; gsub(/^ +| +$/, "", kind)
+            rows++
+            label[rows] = sprintf("  %-6s %s", kind, page)
+            if (column) { taken[rows] = cell[column] }
+        }
+        END {
+            if (rows == 0) { print "  no table found under 3e"; exit 1 }
+            if (column) {
+                for (r = 1; r <= rows; r++) printf "%s — %s\n", label[r], taken[r]
+                exit 0
+            }
+            adr = "no ADR named"
+            if (match(sitting, /ADR [0-9]+/)) adr = substr(sitting, RSTART, RLENGTH)
+            date = sitting; sub(/.*re-taken on /, "", date); sub(/\*\*.*/, "", date)
+            printf "  the table states no ADR per row: its %d rows share one sitting, %s (%s);\n", rows, date, adr
+            print  "  a row re-taken since is named in the prose under the table and not in it"
+            for (r = 1; r <= rows; r++) printf "%s — %s, %s (table-wide)\n", label[r], adr, date
+        }
+    ' doc/performance.md || status=1
 }
 
 # RFC 0003 section 5.2's five write verbs and section 4's whole layout, over every corpus document

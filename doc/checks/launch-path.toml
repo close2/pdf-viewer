@@ -277,8 +277,18 @@ io_ms = 2.0 .. 7.0
 [[document]]
 path = "doc/PDF20_AN001-BPC.pdf"
 pages = 5
-cold_open_ms = 0.49 .. 0.80
-warm_open_ms = 0.35 .. 0.57
+# **The open's counted figures and its clocks moved down for ADR 1543**: `Command::Open` no
+# longer reads §12.3.3's outline or places §7.7.3's whole page tree — the caption's section, which
+# page one does not need, is read after the join on a thread of its own. Callgrind by function,
+# the change compiled out against in: on this row 4963.8 → 4029.3 thousand instructions, 109 → 89
+# KiB in 30 → 25 calls; on ISO 32000-2 185137.9 → 70348.7, 4320 → 102 KiB, 1075 → 27 calls.
+# Three gate runs of each arm on 2026-10-05, every frame's hash unchanged; each band below is this
+# file's rule over the three after — clocks smallest × 0.85 to largest × 1.20, instructions the
+# observed range widened by one per cent, bytes and calls the figure plus and less the width the
+# old band had. `first_page_ms` does not move: the device is the longer thread on four rows
+# before and after, and ADR 1544's timeline prints by how much.
+cold_open_ms = 0.47 .. 0.83
+warm_open_ms = 0.27 .. 0.48
 # **Every row's `first_page_ms` and `peak_anon_mib` were re-taken on 2026-10-05, for two levers
 # (ADRs 1531 and 1532).** Page one is interpreted on the document's thread while the device comes
 # up (`Viewer::anticipate`), which took the interpretation — 0.6 ms here, 18.6 on
@@ -292,24 +302,20 @@ first_page_ms = 20.9 .. 31.5
 turn_ms = 3.4 .. 5.6
 peak_anon_mib = 19.5 .. 25.5
 open_peak_mib = 5 .. 9
-read_kib = 106 .. 112
-read_calls = 29 .. 33
-# **The floor is 4848 and was 4996, because round 1027 took 147.5 thousand instructions out of
-# every open**: `notes::about` left `Command::Open` for `Command::Report`, so the eight clauses a
-# document states about *itself* — §12.8's signatures above all — are no longer answered before
-# page one exists (ADR 1044). Measured as this figure is always measured, under callgrind, three
-# consecutive runs of each arm: 5089.8 before and 4942.3, 4942.3, 4942.2 after. The new floor is
-# the old one less that saving, rounded down, and **the ceiling did not move**, because nothing
-# about the expensive end of an open changed — the same shape `turn_ms` on ISO 32000-2 took in
-# session 925.
-open_kinstructions = 4848 .. 5098
+read_kib = 86 .. 92
+read_calls = 23 .. 27
+# ADR 1543's band over 4029.3 three times (see the clocks above); ADR 1044 took §12.8's signature
+# walk off the same open before it, for the same reason.
+open_kinstructions = 3989 .. 4070
 why = "the five-page end of principle 2's own claim that a 500-page document must open no slower than a five-page one"
 
 [[document]]
 path = "doc/Well-Tagged-PDF-WTPDF-1.0.pdf"
 pages = 57
-cold_open_ms = 1.95 .. 3.06
-warm_open_ms = 1.71 .. 2.66
+# Moved for ADR 1543 (see the first row): 26692.3 → 13183.7 thousand instructions, 350 → 118 KiB
+# in 88 → 30 calls, cold 2.34 to 2.77 ms → 1.31 to 1.61, warm 1.93 to 2.45 → 0.91 to 1.17.
+cold_open_ms = 1.11 .. 1.93
+warm_open_ms = 0.77 .. 1.40
 # Re-taken for ADRs 1531 and 1532 (see the first row): 28.9 to 30.6 ms against 45.5 to 46.6
 # before, and 25.6 to 26.5 MiB. This page's `ICCBased` page group is also converted on more than
 # one thread now (`pdf_render::resolve_cube`), which took about 2 ms off its first frame.
@@ -317,16 +323,19 @@ first_page_ms = 24.5 .. 36.8
 turn_ms = 3.99 .. 6.6
 peak_anon_mib = 23.0 .. 29.5
 open_peak_mib = 6 .. 11
-read_kib = 343 .. 359
-read_calls = 87 .. 91
-open_kinstructions = 26230 .. 26760
+read_kib = 115 .. 121
+read_calls = 28 .. 32
+open_kinstructions = 13051 .. 13316
 why = "a middling text-heavy document, so that the two ends of the set are not the only shape measured"
 
 [[document]]
 path = "doc/ISO_32000-2_sponsored_EC3.pdf"
 pages = 1023
-cold_open_ms = 19.2 .. 30.4
-warm_open_ms = 11.1 .. 17.2
+# Moved for ADR 1543 (see the first row): cold 21.97 to 26.75 ms → 5.43 to 6.13, warm 12.53 to
+# 15.94 → 4.38 to 5.41 — the outline's 988 items and the page tree's 1023 leaves were 4.2 of the
+# 4.3 MB a cold open read. What is left is §7.5's cross-reference, 57.2 M of 70.3 M.
+cold_open_ms = 4.6 .. 7.4
+warm_open_ms = 3.7 .. 6.5
 # Re-taken for ADRs 1531 and 1532 (see the first row): 28.1 to 30.0 ms against 37.4 to 40.2
 # before, and 28.4 to 28.9 MiB.
 first_page_ms = 23.9 .. 36.1
@@ -343,10 +352,11 @@ first_page_ms = 23.9 .. 36.1
 # document and 0.03 on the five-page one, which is inside their own spread.
 turn_ms = 3.8 .. 7.2
 peak_anon_mib = 25.5 .. 32.0
-open_peak_mib = 16 .. 20
-read_kib = 4238 .. 4412
-read_calls = 1055 .. 1099
-open_kinstructions = 181751 .. 185424
+# 18 → 11 to 12 MiB, of which 11.6 → 3.9 allocated: the outline and the placed tree are no longer held.
+open_peak_mib = 9 .. 14
+read_kib = 99 .. 105
+read_calls = 25 .. 29
+open_kinstructions = 69645 .. 71052
 why = "the other end of that claim at two hundred times its pages — 1023 of them and 19 MB, the document every launch measurement in doc/performance.md is taken on. Its cold open is 36 times the five-page document's, which is the claim not holding of the open; its time to first page is inside the same band, which is the claim holding of the launch, because the graphics device is longer than either"
 
 [[document]]
@@ -357,8 +367,21 @@ warm_open_ms = 0.23 .. 0.35
 # Re-taken for ADRs 1531 and 1532 (see the first row): 34.1 to 34.6 ms against 52.3 to 62.7
 # before. **This is the one row whose document thread is now the longer of the two** — joined at
 # 26.6 to 27.4 ms against a device up at 22.0 to 24.0 — because page one's interpretation is 18.6
-# ms of a CCITT image and the machine's font catalogue. Its `peak_anon_mib` moved 1.2 MiB, inside
-# its band, which is left where it was.
+# ms of a CCITT image and the machine's font catalogue.
+#
+# **ADR 1543 section 5 asked what that thread does that page one does not need, and the answer is
+# nothing.** ADR 1544's timeline, three runs: opened at 2.1 to 2.9 ms, page one interpreted at
+# 25.9 to 32.9 against a device up at 23.7 to 29.9. Callgrind on that thread alone: the open 2.3 M
+# instructions, page one 318 M — 246.5 M of it `image::unpack` turning the decoded one-bit samples
+# into RGBA one `sample_rgba` call at a time (the fax decode itself is under 1 M), 28.2 M the font
+# catalogue a non-embedded font needs, 20.7 M a JPEG. Every one is page one's own ink, so none can
+# be deferred; the one-bit unpack is the lever, and it is `pdf-model`'s (ADR 1543 section 5).
+#
+# **`peak_anon_mib` stays 39.0 .. 50.0, and the 50.73 MiB one run read in round 1346 is why it was
+# asked about.** That run was before ADR 1532 took GL's 4.5 MiB off every row; six runs on
+# 2026-10-05, both arms of ADR 1543, read 44.5 to 46.2, so the ceiling stands 3.8 MiB clear. This
+# file's rule over those six would put it at 51.0 — a ceiling raised for no cost anybody chose —
+# so it is left.
 first_page_ms = 28.9 .. 41.6
 turn_ms = none
 peak_anon_mib = 39.0 .. 50.0
@@ -392,14 +415,12 @@ turn_ms = none
 # page read 24.5 to 26.7 ms in the same runs and stays unbanded for the reason above.
 peak_anon_mib = 11.5 .. 14.5
 open_peak_mib = 4 .. 9
-read_kib = 97 .. 102
-read_calls = 24 .. 28
-# The ceiling rose by five thousand for a cost that is not the open's (ADR 1507 section 2). The
-# batch that added `MAX_LIST_BYTES` put this figure at 1821.5 thousand with that bound compiled out
-# and 1819.4 at its base, and callgrind names the whole 2.06 thousand: `pthread_getattr_np`, which
-# std's main-thread stack guard calls before `main`, parses `/proc/self/maps` one `sscanf` a line,
-# and the binary's process had 49 lines where it had 48. A mapping count is the linker's layout of
-# the test binary rather than anything the open does; the other four rows moved by under three
-# thousand with it and stay inside their bands, and this one's ceiling sat 0.6 thousand away.
-open_kinstructions = 1783 .. 1825
+# Moved for ADR 1543 (see the first row): 99 → 87 KiB in 26 → 24 calls, and 1821.4 → 1160.3
+# thousand instructions.
+read_kib = 85 .. 90
+read_calls = 22 .. 26
+# ADR 1543's band over 1160.3 three times. About two thousand instructions of any row here are the
+# test binary's own start (`pthread_getattr_np` parsing `/proc/self/maps`, ADR 1507 section 2), so a
+# ceiling that moves by that much with no function of the tree moving is the linker's (trap 98).
+open_kinstructions = 1148 .. 1172
 why = "the population's missing case: large **and** signed. Three megabytes, one page, and a §12.8 signature — so opening it used to read 1304 KiB in 118 calls and execute 47.6 M instructions, against the 99 KiB, 26 calls and 1.80 M that page one actually needs. None of the other four rows is signed, so none of them could see it (round 1027, ADR 1044)"

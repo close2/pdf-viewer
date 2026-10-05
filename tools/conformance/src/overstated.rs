@@ -632,7 +632,7 @@ mod tests {
     fn a_round_reading_the_row_is_not_the_tree_reading_the_entry() {
         assert!(is_an_assertion("Table 119's entries are read"));
         assert!(!is_an_assertion(
-            "**Read and kept in the five-hundred-and-sixty-fifth**: nothing in the tree names \
+            "**Read and kept by the tenth sweep (ADR 0397)**: nothing in the tree names \
              Table 225's `/CO`"
         ));
     }
@@ -696,8 +696,7 @@ mod tests {
         ));
         assert!(!read_in_part(
             &Term::Table(125),
-            "Table 125 states where an embedded program ends, read in the six-hundred-and-\
-             twenty-fifth session.",
+            "Table 125 states where an embedded program ends, read since ADR 0459.",
             "Table 125's `/Length1`, `/Length2` and `/Length3` are read by nobody."
         ));
     }

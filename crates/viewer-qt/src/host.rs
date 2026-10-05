@@ -66,6 +66,45 @@ pub enum HostError {
     },
 }
 
+/// The window's standing levels, from what the command line set (ADR 1145).
+fn standing(settings: viewer_host::Settings) -> viewer_host::Restrictions {
+    viewer_host::Restrictions::new(settings.restrictions)
+        .with(viewer_host::ActLevel::EmbeddedDocuments(
+            settings.embedded_documents,
+        ))
+        .with(viewer_host::ActLevel::Submissions(settings.submissions))
+}
+
+/// What an open sends, in the order it sends it: every policy before the document.
+///
+/// One statement for the open at launch, on the opening thread, and every open after it, on this
+/// one. A policy applied halfway through is not a policy: §6.3.2.2's instruction is a property of
+/// *this host* rather than of the document (ADR 0245), and `Restrict` is the reader's answer to
+/// what the *file* asserts, which `CLAUDE.md` says is always the reader's to give.
+fn opening_commands(
+    window: viewer_core::RestrictionPolicy,
+    widget_appearances: WidgetAppearances,
+    separations: bool,
+    bytes: pdf_syntax::FileBytes,
+    password: Option<viewer_core::Secret>,
+    fragment: Option<String>,
+) -> VecDeque<Command> {
+    VecDeque::from([
+        Command::Restrict(viewer_core::RestrictionScope::Window(window)),
+        Command::Delegate(widget_appearances),
+        // §10.8.3's simulation on the same argument: it decides what colour every mark of the
+        // first interpretation is, so a preference applied after the page had been drawn would
+        // have drawn the other picture first (ADR 1228).
+        Command::Separations(separations),
+        Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password,
+            fragment,
+        },
+    ])
+}
+
 /// How many panels this window has, which is `viewer_host::Tab`'s own count.
 ///
 /// §12.3.3's outline, §12.3.4's miniatures, §8.11.4.3's `/Order`, §7.11.4's embedded files,
@@ -482,6 +521,8 @@ pub struct Host {
     playing: Option<pdf_render::Raster>,
     /// The viewport in device pixels, which is the rectangle a transition's frames are drawn in.
     pub(crate) viewport: (u32, u32),
+    /// The document opening on its own thread, until the first resize joins it (ADR 1539).
+    anticipated: Option<std::thread::JoinHandle<(Viewer, Vec<Event>)>>,
     /// §14.8.2.5's text between the key that copied it and the C++ side taking it to `QClipboard`.
     ///
     /// Empty at every other moment, because `take_clipboard` clears it: this is a hand-over and
@@ -506,10 +547,12 @@ impl std::fmt::Debug for Host {
 impl Host {
     /// Reads the document's bytes and builds the host around them.
     ///
-    /// The document is **not** opened here: it is opened on the first resize, because the
-    /// viewport's size decides the resolution page one is rasterised at and a page drawn at a
-    /// guessed size would be drawn twice. That is `viewer-gtk`'s choice too, so the two hosts'
-    /// launch timelines measure the same thing.
+    /// **The document opens here, on a thread of its own, and page one is interpreted there**
+    /// (ADR 1539): Qt's application, its window and the first resize take longer than the open
+    /// does, and need nothing of it. The thread's `Viewer` has no viewport, so nothing is drawn
+    /// until the first resize joins it — the viewport's size decides the resolution page one is
+    /// rasterised at, and a page drawn at a guessed size would be drawn twice. That is
+    /// `viewer-gtk`'s shape too, so the two hosts' launch timelines measure the same thing.
     ///
     /// # Errors
     ///
@@ -532,6 +575,26 @@ impl Host {
             Topic::Launch,
             format_args!("opened {} bytes of {} on disk", bytes.len(), path.display()),
         );
+        let commands = opening_commands(
+            standing(settings).window(),
+            widget_appearances,
+            settings.separations,
+            bytes.clone(),
+            None,
+            fragment.clone(),
+        );
+        let anticipated = std::thread::spawn(move || {
+            // No viewport: the window does not exist yet, and the core renders nothing into one
+            // with no extent. The core is made here and moved back, so it is still
+            // single-threaded — `viewer-core`'s rule 4 as `quorra` keeps it (ADR 0182).
+            let mut viewer = Viewer::new(0, 0, 1.0);
+            let mut events = Vec::new();
+            for command in commands {
+                events.extend(viewer.handle(command));
+            }
+            events.extend(viewer.anticipate());
+            (viewer, events)
+        });
         Ok(Self {
             viewer: Viewer::new(1, 1, 1.0),
             showing: Showing::new(path.to_owned(), bytes, fragment),
@@ -555,11 +618,7 @@ impl Host {
             warned: None,
             trace,
             widget_appearances,
-            restrictions: viewer_host::Restrictions::new(settings.restrictions)
-                .with(viewer_host::ActLevel::EmbeddedDocuments(
-                    settings.embedded_documents,
-                ))
-                .with(viewer_host::ActLevel::Submissions(settings.submissions)),
+            restrictions: standing(settings),
             links: settings.links,
             remote_documents: settings.remote_documents,
             submitter: viewer_host::submit::Submitter::new(),
@@ -595,6 +654,7 @@ impl Host {
             shown: None,
             playing: None,
             viewport: (1, 1),
+            anticipated: Some(anticipated),
             // Table 147's and Table 29's own defaults, replaced by what the catalog states the
             // moment the document opens.
             presenting: viewer_host::Presenting::default(),
@@ -616,25 +676,57 @@ impl Host {
         // §12.4.4.1's transition is drawn in the viewport rather than in a page's own rectangle,
         // so the size the core is told is also the size a frame is shaped for.
         self.viewport = (width, height);
-        self.dispatch(Command::Resize {
+        let resize = Command::Resize {
             width,
             height,
             scale,
-        });
-        // A window asked to fit the first displayed page is measured again once it has taken
-        // the size it was asked for, because a frame is not always drawn for a viewport the page
-        // already fits the width of (ADR 1429).
-        if self.opened && self.presenting.owes_placing() {
-            self.update.placement = true;
-        }
+        };
         if !self.opened {
             self.opened = true;
             self.trace.say(
                 Topic::Launch,
                 format_args!("first resize {width}x{height} device px, scale {scale}"),
             );
-            self.open_document(None);
+            self.join_the_opening(resize);
+            return;
         }
+        self.dispatch(resize);
+        // A window asked to fit the first displayed page is measured again once it has taken
+        // the size it was asked for, because a frame is not always drawn for a viewport the page
+        // already fits the width of (ADR 1429).
+        if self.presenting.owes_placing() {
+            self.update.placement = true;
+        }
+    }
+
+    /// The first resize: the document the opening thread opened is taken in, and told its
+    /// viewport.
+    ///
+    /// The viewport goes in before any of the open's events is answered, so that each is answered
+    /// against the viewer a first open with a viewport would have left — the order this window
+    /// had when it opened the document here (ADR 1539). A thread that panicked is said, and the
+    /// document opened on this one instead.
+    fn join_the_opening(&mut self, resize: Command) {
+        let joined = self.anticipated.take().map(std::thread::JoinHandle::join);
+        let Some(Ok((viewer, opened))) = joined else {
+            if joined.is_some() {
+                eprintln!("the thread opening the document panicked; opening it here instead");
+            }
+            self.dispatch(resize);
+            self.open_document(None);
+            return;
+        };
+        self.viewer = viewer;
+        self.trace.say(
+            Topic::Launch,
+            format_args!("document joined, {} event(s)", opened.len()),
+        );
+        let resized: Vec<Event> = self.viewer.handle(resize).collect();
+        let mut queue = VecDeque::new();
+        for event in opened.into_iter().chain(resized) {
+            self.react(event, &mut queue);
+        }
+        self.drain(queue);
     }
 
     /// A key was pressed, as `Qt::Key`, with Qt's own modifier state beside it.
@@ -3172,28 +3264,14 @@ impl Host {
 
     /// §7.6.4.1: opens the document, with a password where one has been supplied.
     fn open_document(&mut self, password: Option<viewer_core::Secret>) {
-        let bytes = self.showing.bytes.clone();
-        let fragment = self.showing.fragment.clone();
-        // Both policy values go before the document, and for one reason: a policy applied halfway
-        // through is not a policy. §6.3.2.2's instruction is a property of *this host* rather than
-        // of the document (ADR 0245), and `Restrict` is the reader's answer to what the *file*
-        // asserts, which `CLAUDE.md` says is always the reader's to give.
-        self.pump(vec![
-            Command::Restrict(viewer_core::RestrictionScope::Window(
-                self.restrictions.window(),
-            )),
-            Command::Delegate(self.widget_appearances),
-            // §10.8.3's simulation on the same argument: it decides what colour every mark of the
-            // first interpretation is, so a preference applied after the page had been drawn
-            // would have drawn the other picture first (ADR 1228).
-            Command::Separations(self.separations),
-            Command::Open {
-                id: DOCUMENT,
-                bytes,
-                password,
-                fragment,
-            },
-        ]);
+        self.drain(opening_commands(
+            self.restrictions.window(),
+            self.widget_appearances,
+            self.separations,
+            self.showing.bytes.clone(),
+            password,
+            self.showing.fragment.clone(),
+        ));
     }
 
     /// One command, and everything it produces.
@@ -3208,7 +3286,12 @@ impl Host {
     /// — so the queue is drained again rather than the answer waiting for the next turn of the
     /// timer.
     fn pump(&mut self, queue: Vec<Command>) {
-        let mut queue: VecDeque<Command> = queue.into();
+        self.drain(queue.into());
+    }
+
+    /// [`Self::pump`] over a queue already made: the reactions to events answered outside it put
+    /// their commands on one.
+    fn drain(&mut self, mut queue: VecDeque<Command>) {
         loop {
             while let Some(command) = queue.pop_front() {
                 // Table 166's `/M` is what §7.5.6's update writes it into, so this window reads

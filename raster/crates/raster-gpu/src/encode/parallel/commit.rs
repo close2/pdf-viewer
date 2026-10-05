@@ -19,7 +19,7 @@ use crate::startup::Coverage;
 
 use super::super::fill::SolidFill;
 use super::super::instance::CoverageSource;
-use super::super::meet::Mark;
+use super::super::meet::MarkInputs;
 use super::super::{Encoder, ResolvedClip};
 use super::{Draw, Job, Made, Place, Rasterised, fan_out, rasterise, rasterise_all};
 use crate::raster::Rule;
@@ -116,7 +116,9 @@ impl<'a> Encoder<'a> {
     /// One condition: **[`Coverage::Gpu`]** asks [`Encoder::take_gpu_lane`] a second
     /// question about the *flattened* triangle count, so a job that skipped the flattening
     /// would be choosing its lane on one reading and drawing on another — the hazard ADR
-    /// 0029 names. [`Coverage::Compute`] asks it too and is answered no on sight
+    /// 0029 names. **Except under a residue clip**, which that question answers no on sight
+    /// ([`Encoder::gpu_lane_admissible`]): such a mark is rasterised by the processor on
+    /// every lane, so on this one too it leaves the thread (ADR 1541). [`Coverage::Compute`] asks it too and is answered no on sight
     /// ([`Encoder::gpu_lane_admissible`]), so a stroke or a fill the compute kernels do not
     /// take is rasterised by the processor on that lane as on this one, and leaves the
     /// thread the same way: a zoom step's strokes are the fan-out's (ADR 1409).
@@ -135,7 +137,7 @@ impl<'a> Encoder<'a> {
     /// `max(x0, max(clip, 0))` for every input, which is what makes this the same bound
     /// [`Encoder::coverage_tile`] computes in place.
     pub(in crate::encode) fn deferrable_bounds(&self, resolved: &ResolvedClip) -> Option<[f32; 4]> {
-        (self.coverage != Coverage::Gpu).then(|| {
+        (self.coverage != Coverage::Gpu || resolved.residues.is_some()).then(|| {
             if resolved.residues.is_some() {
                 self.folded(resolved.mark_bounds())
             } else {
@@ -364,7 +366,8 @@ impl<'a> Encoder<'a> {
                 self.atlas_overflow_tiles = self.atlas_overflow_tiles.saturating_add(1);
                 let dest = Point::new(ix + tile.left as f32, iy + tile.top as f32);
                 return self
-                    .push_scratch_quad(&tile, dest, draw.color, draw.clip, draw.style, draw.mask);
+                    .push_scratch_quad(&tile, dest, draw.color, draw.clip, draw.style, draw.mask)
+                    .map(|_| ());
             }
             inserted
         };
@@ -417,16 +420,20 @@ impl<'a> Encoder<'a> {
         // The clip meets the mark here, as it does in `Encoder::coverage_tile`, and after
         // the same charge: the walk would have charged, rasterised and met the residue, and
         // the rasterising is the only step that moved (ADR 1395).
-        if let Some(resolved) = &draw.residue {
-            let polylines = polylines.as_deref().unwrap_or_default();
-            let mark = Mark {
-                polylines,
-                rule,
-                edges: edges.as_ref(),
-            };
-            self.meet_residue(&mut tile, resolved, mark, true)?;
-        }
+        let exact = match &draw.residue {
+            Some(resolved) => {
+                let inputs =
+                    MarkInputs::Owned(polylines.unwrap_or_default(), rule, edges.map(Box::new));
+                self.meet_residue(&mut tile, resolved, inputs, true)?.exact
+            }
+            None => None,
+        };
         let dest = Point::new(tile.left as f32, tile.top as f32);
-        self.push_scratch_quad(&tile, dest, draw.color, draw.clip, draw.style, draw.mask)
+        let at =
+            self.push_scratch_quad(&tile, dest, draw.color, draw.clip, draw.style, draw.mask)?;
+        if let Some(exact) = exact {
+            self.place_exact(at, exact);
+        }
+        Ok(())
     }
 }

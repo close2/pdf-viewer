@@ -233,6 +233,9 @@ struct Host {
     /// for, started before the window exists (the flagship's arrangement, raster's ADR 0014).
     /// `None` under `--cpu`, where no driver may be loaded at all.
     instancing: Option<std::thread::JoinHandle<raster_gpu::wgpu::Instance>>,
+    /// The thread starting the worker and opening the document in it while the window and the
+    /// device come up (ADR 1539), until `resumed` joins it.
+    opening: Option<std::thread::JoinHandle<Result<Opened, String>>>,
     /// The drawing thread — `viewer_host::drawing`'s arrangement, on this side's own request
     /// shape. Under `--cpu` it draws every list payload; behind a device it draws the frames
     /// the device refused, which is `CLAUDE.md`'s second job for the CPU backend.
@@ -283,6 +286,28 @@ struct Host {
     resume: Option<Reopen>,
 }
 
+/// A worker started, confined, and holding the document with page one interpreted: what the
+/// opening thread hands `resumed` (ADR 1539).
+struct Opened {
+    /// The worker.
+    confined: Confined,
+    /// What the open said, to be answered on the window's thread.
+    events: Vec<Event>,
+}
+
+/// Starts a confined worker, and offers it the machine's faces where this host was asked to.
+///
+/// One function rather than two call sites, because the first worker and the one that replaces a
+/// dead one must be given the same thing: a window whose *second* worker lost the port would draw
+/// a page differently after a crash, which is the shape nobody would look for.
+fn start_worker(canceller: &Canceller, faces: bool) -> Result<Confined, ConfinedError> {
+    let mut confined = Confined::start_with(canceller)?;
+    if faces {
+        confined.offer_machine_faces();
+    }
+    Ok(confined)
+}
+
 /// What puts this window's pixels up (ADR 0725): the graphics device, or the processor.
 enum Presentation {
     /// A `render-raster` device on its own thread, presented through a `raster_gpu::Presenter`.
@@ -313,6 +338,7 @@ impl Host {
             // Creating the instance *is* loading the driver, so `--cpu` must not spawn this
             // thread — the flagship's rule (ADR 0221), kept here for the same crash.
             instancing: (!processor).then(|| std::thread::spawn(QuorraWindowRenderer::instance)),
+            opening: None,
             drawing: Drawing::new(),
             screen: if processor {
                 Screen::new()
@@ -338,11 +364,62 @@ impl Host {
     /// a dead one must be given the same thing: a window whose *second* worker lost the port would
     /// draw a page differently after a crash, which is the shape nobody would look for.
     fn start_confined(&self, canceller: &Canceller) -> Result<Confined, ConfinedError> {
-        let mut confined = Confined::start_with(canceller)?;
-        if self.faces {
-            confined.offer_machine_faces();
-        }
-        Ok(confined)
+        start_worker(canceller, self.faces)
+    }
+
+    /// Starts the worker and opens the document in it on a thread of its own, while the window
+    /// and the graphics device come up on this one (ADR 1539).
+    ///
+    /// **The launch path's overlap, in this window's shape.** The worker is a process, so what
+    /// the thread holds is a pipe: it starts the worker, tells it there is no viewport yet, and
+    /// sends `Command::Open`, and the worker interprets page one with nothing to render it into
+    /// (`viewer_confined::worker`'s `perform` calls `Viewer::anticipate` after an open). Decoding
+    /// stays where it was, inside the confined process; this thread is in the unconfined host and
+    /// reads only the file's descriptor and the worker's frames (trap 83 is about the other side).
+    /// The first `Resize` after the join then goes straight to the page's marks.
+    fn anticipate(&mut self) {
+        let (path, faces, canceller, trace) = (
+            self.path.clone(),
+            self.faces,
+            self.canceller.clone(),
+            self.trace,
+        );
+        self.opening = Some(std::thread::spawn(move || {
+            let starting = Instant::now();
+            let mut confined = start_worker(&canceller, faces).map_err(|e| e.to_string())?;
+            trace.say(
+                Topic::Launch,
+                format_args!(
+                    "worker started and confined in {:.1} ms",
+                    starting.elapsed().as_secs_f64() * 1e3
+                ),
+            );
+            // Opened rather than read: the file crosses to the worker as its descriptor beside
+            // `Command::Open`, and this side holds no byte of it (ADR 0812).
+            let bytes = pdf_syntax::FileBytes::on_disk(&path)
+                .map_err(|problem| format!("cannot open {}: {problem}", path.display()))?;
+            // No viewport until the window has one: the worker's own starting size would have
+            // page one drawn at a size nobody asked for.
+            let mut events = confined
+                .handle(&Command::Resize {
+                    width: 0,
+                    height: 0,
+                    scale: 1.0,
+                })
+                .map_err(|e| e.to_string())?;
+            events.extend(
+                confined
+                    .handle(&Command::Open {
+                        id: DOCUMENT,
+                        bytes,
+                        password: None,
+                        fragment: None,
+                    })
+                    .map_err(|e| e.to_string())?,
+            );
+            trace.say(Topic::Launch, format_args!("document opened in the worker"));
+            Ok(Opened { confined, events })
+        }));
     }
 
     /// The worker is gone or unusable; every later command is declined with this sentence.
@@ -1244,7 +1321,8 @@ impl ApplicationHandler for Host {
             && self.screen.draws_on_the_device()
         {
             // The device did not come up, so the screen must not hold pages for one: nothing
-            // has crossed yet — the worker starts below — so the replacement costs nothing.
+            // has crossed yet — the worker has no viewport until the `Resize` below — so the
+            // replacement costs nothing.
             self.screen = Screen::new();
         }
         let extent = window.inner_size();
@@ -1255,51 +1333,38 @@ impl ApplicationHandler for Host {
         let scale = window.scale_factor() as f32;
         self.window = Some(window);
 
-        // The worker starts when there is a document for it, not before: CLAUDE.md's launch
-        // rule, and the spawn-to-confined cost is the first thing the trace says.
-        let starting = Instant::now();
-        let confined = match self.start_confined(&self.canceller) {
-            Ok(confined) => confined,
-            Err(problem) => {
-                self.stop(problem.to_string());
+        // The worker and the document, from the thread `anticipate` started before the window:
+        // the worker starts when there is a document for it, which is at launch (ADR 1539).
+        let opened = match self.opening.take().map(std::thread::JoinHandle::join) {
+            Some(Ok(Ok(opened))) => opened,
+            Some(Ok(Err(problem))) => {
+                self.stop(problem);
+                return;
+            }
+            Some(Err(_)) => {
+                self.stop("the thread opening the document panicked".to_owned());
+                return;
+            }
+            None => {
+                self.stop("no document was opened for this window".to_owned());
                 return;
             }
         };
-        self.trace.say(
-            Topic::Launch,
-            format_args!(
-                "worker started and confined in {:.1} ms",
-                starting.elapsed().as_secs_f64() * 1e3
-            ),
-        );
+        self.trace
+            .say(Topic::Launch, format_args!("document joined"));
         // A kernel can refuse what a build offers, and a person relying on the sandbox is owed
         // the difference out loud (`Confined::confinement` is a report, not a promise).
-        if let Some(short) = confined.confinement().shortfall() {
+        if let Some(short) = opened.confined.confinement().shortfall() {
             eprintln!("confinement shortfall: {short}");
         }
-        self.confined = Some(confined);
-
-        // Opened rather than read: the file crosses to the worker as its descriptor beside
-        // `Command::Open`, and this side holds no byte of it (ADR 0812). What it costs this window
-        // is the `open` and the metadata's length; what a 6 GB document used to cost it was 6 GB
-        // resident here and a refusal from the worker, whose budget is half its ceiling.
-        let bytes = match pdf_syntax::FileBytes::on_disk(&self.path) {
-            Ok(bytes) => bytes,
-            Err(problem) => {
-                self.stop(format!("cannot open {}: {problem}", self.path.display()));
-                return;
-            }
-        };
+        self.confined = Some(opened.confined);
+        for event in opened.events {
+            self.event(event);
+        }
         self.dispatch(&Command::Resize {
             width: extent.width,
             height: extent.height,
             scale,
-        });
-        self.dispatch(&Command::Open {
-            id: DOCUMENT,
-            bytes,
-            password: None,
-            fragment: None,
         });
         // A window with nothing on the screen yet waits for page one instead of polling for it,
         // out of the launch's one-refresh budget (ADR 0678) — same rule, same numbers, third
@@ -1426,6 +1491,7 @@ fn main() {
         faces,
     } = arguments();
     let mut host = Host::new(path, topics, processor, faces, began);
+    host.anticipate();
     let event_loop = EventLoop::new().expect("an event loop");
     event_loop.set_control_flow(ControlFlow::Wait);
     event_loop.run_app(&mut host).expect("the event loop runs");

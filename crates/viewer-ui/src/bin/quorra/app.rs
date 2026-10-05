@@ -635,6 +635,12 @@ pub(crate) struct App {
     /// runs before `EventLoop::new`, and a bridge given a waker that does nothing still publishes
     /// its tree.
     pub(crate) waker: Option<winit::event_loop::EventLoopProxy<()>>,
+    /// The launch document's §12.3.3 outline and §7.7.3 page tree, being read on a thread of
+    /// their own while page one is drawn (`viewer_core::Preparation`, ADR 1543).
+    ///
+    /// `Some` from the join until the answer is taken; the panel's outline and the caption's
+    /// section arrive with it rather than in front of page one.
+    pub(crate) preparing: Option<std::sync::mpsc::Receiver<viewer_core::Prepared>>,
 }
 
 impl App {
@@ -1146,7 +1152,11 @@ impl App {
     /// The lists the panel shows and the dictionary the tab is named from, asked of the document
     /// in front: once when it opens and again whenever its tab is brought to the front.
     pub(crate) fn take_the_lists(&mut self) {
-        if let Answer::Outline(outline) = self.viewer.query(Query::Outline) {
+        // Not while the launch document's outline is being read off this thread: asking here
+        // would read it on the thread that draws, in front of page one (ADR 1543). The answer's
+        // arrival asks again.
+        let reading = self.preparing.is_some() && self.documents.focused() == crate::DOCUMENT;
+        if !reading && let Answer::Outline(outline) = self.viewer.query(Query::Outline) {
             self.outline = outline;
         }
         if let Answer::Attachments(files) = self.viewer.query(Query::Attachments) {
@@ -1178,7 +1188,10 @@ impl App {
     }
 
     /// The one line a terminal is told about what the panel holds, when a document opens.
-    fn say_what_the_panel_holds(&self) {
+    pub(crate) fn say_what_the_panel_holds(&self) {
+        if self.preparing.is_some() {
+            return;
+        }
         let layers = self.layers().len();
         if !self.outline.items.is_empty()
             || !self.attachments.is_empty()

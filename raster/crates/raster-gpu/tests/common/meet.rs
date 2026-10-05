@@ -106,9 +106,9 @@ pub fn in_pixel(polygon: &[(f64, f64)], x: u32, y: u32) -> f64 {
     ))
 }
 
-/// The device a fixture is drawn on: the walk's own lane (`Coverage::Gpu`, which keeps
-/// every residue-clipped mark on the walk's thread) or the fan-out's (`Coverage::Cpu`), at a
-/// thread count.
+/// The device a fixture is drawn on: a lane and a thread count. A residue-clipped mark is
+/// rasterised by the processor on every lane, made by a fan-out job where the host allowed
+/// threads and in place where it allowed one (ADR 1395, ADR 1541).
 pub fn device_with(coverage: Coverage, threads: usize) -> Device {
     Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
@@ -119,8 +119,8 @@ pub fn device_with(coverage: Coverage, threads: usize) -> Device {
     .expect("llvmpipe is present wherever this suite runs")
 }
 
-/// Every arm the exact meet must agree on: the fan-out's commit at one and four threads,
-/// and the walk's own tile.
+/// Every arm the exact meet must agree on: the processor's lane at one thread and four, and
+/// the device's lane, which hands a residue-clipped mark to the same commit.
 pub const ARMS: [(Coverage, usize); 3] =
     [(Coverage::Cpu, 1), (Coverage::Cpu, 4), (Coverage::Gpu, 1)];
 

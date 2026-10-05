@@ -474,7 +474,8 @@ pub enum Restriction {
 /// Every restriction this document asserts against this operation.
 ///
 /// Empty means nothing in the file withholds it — which is the answer for a document that is not
-/// encrypted and states no `/Perms`, which is 961 of the 968 corpus documents that open.
+/// encrypted and states no `/Perms`, and for 963 of the 973 corpus documents that open
+/// (`tests/restrictions.rs`'s census).
 ///
 /// # What is read
 ///

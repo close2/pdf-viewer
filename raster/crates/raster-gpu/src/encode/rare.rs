@@ -543,10 +543,13 @@ impl Encoder<'_> {
         style: DrawStyle,
         mask: Option<u32>,
     ) -> Result<Option<QuadPlacement>, RenderError> {
-        let Some(tile) = self.coverage_tile(polylines, rule, resolved)? else {
+        let Some((tile, exact)) = self.coverage_tile(polylines, rule, resolved)? else {
             return Ok(None);
         };
         let (sx, sy) = self.pack_scratch(&tile)?;
+        if let Some(exact) = exact {
+            self.place_exact((sx, sy), exact);
+        }
         Ok(Some(QuadPlacement {
             dest: [
                 tile.left as f32,

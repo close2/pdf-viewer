@@ -731,3 +731,9 @@ driver stack, an instance without GL brings the device up in 17 ms instead of 27
 launch gate that prints "device up" and "document joined" at one instant hides the work done after
 the join; printing when the render request arrives made page one's interpretation behind the
 device a number, which is what ADR 1531 then moved onto the document thread.
+
+## 67. A library's licence is read against `deny.toml` before anything else about it is measured
+
+Two engines in RFC 0008 and the one pure-Rust audio stack in RFC 0009 (`symphonia`, MPL-2.0) fell on
+the licence line before any other judgment; a timing table built before the registry's licence
+string is compared with `deny.toml`'s list is wasted work. Ask the registry first, then measure.

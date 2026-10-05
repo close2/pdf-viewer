@@ -130,6 +130,16 @@ catalogue, 247 and 28 million instructions of an interpretation the device no lo
 entirely. ADR 1531 has the per-stage table under callgrind; `doc/checks/launch-path.toml` the
 bands, moved down with these figures.
 
+**And the open no longer reads what page one does not need** (ADR 1543): §12.3.3's outline and
+§7.7.3's whole page tree, placed — which only the caption's section wanted — are read on a thread
+of their own after the join. Three runs of each arm the same day: ISO 32000-2's open 185.1 → 70.3 M
+instructions, 4320 → 102 KiB in 1075 → 27 reads, cold 22.0 to 26.8 ms → 5.4 to 6.1, warm 12.5 to
+15.9 → 4.4 to 5.4; WTPDF's 26.7 → 13.2 M and 2.3 to 2.8 ms cold → 1.3 to 1.6. Time to first page
+does not move, because the device is the longer thread on four rows, and the gate now prints which
+(ADR 1544): one line per milestone from the process's spawn, the two threads interleaved — on ISO
+32000-2 the document opened at 6.6 to 7.2 ms and page one was interpreted at 11.0 to 12.3, against
+a device up at 21.1 to 22.8.
+
 ### 3b. The quorra backend, and what a corpus-scale comparison found in it
 
 **A second GPU backend arrived in the hundred-and-eighty-sixth to -eighth sessions**, written
@@ -317,28 +327,36 @@ and a window does not. `warm` is a few per cent of the refresh on every page and
 `doc/checks/turn-path.toml`**, by this method (`tests/support/frame_cost.rs` is the one copy of it),
 in `tools/batch.sh gates`; a row that moves moves its band there with its reason:
 
-| page | row | budget | interp | scene | encode | transfer | elsewhere | execute |
-|---|---|---|---|---|---|---|---|---|
-| ISO 32000-2 p101, text, 3 007 commands | turn | 7.20 (86%) | 1.48 | 0.42 | **4.26** | 0.22 | 0.49 | 0.33 |
-| | step | 1.67 (20%) | — | — | 0.28 | 0.12 | 1.17 | 0.10 |
-| `personwithdog.pdf` p1, patch meshes | turn | 8.72 (105%) | 3.47 | 1.77 | 1.24 | 0.47 | 1.59 | 0.19 |
-| | step | 10.20 (122%) | — | **3.27** | 4.62 | 0.53 | 1.50 | 0.29 |
-| `issue12841_reduced.pdf` p1, one 5 280 × 3 792 photograph | turn | 32.45 (389%) | **28.77** | 0.02 | 0.01 | 2.46 | 1.11 | 0.09 |
-| | step | 3.23 (39%) | — | 0.00 | 0.01 | 1.34 | **1.69** | 0.19 |
-| `22060_A1_01_Plans.pdf` p1, four photographs under soft masks, 72 placements | turn | 51.07 (613%) | **34.51** | 0.17 | 4.62 | 8.32 | 3.08 | 0.35 |
-| | step | 14.75 (177%) | — | — | 6.45 | **6.79** | 1.11 | 0.40 |
-| `issue13931.pdf` p1, one photograph under a `/Matte`'d mask | turn | 22.05 (265%) | **17.18** | 0.05 | 0.42 | 3.42 | 0.86 | 0.13 |
-| | step | 6.39 (77%) | — | — | 0.06 | **5.12** | 1.06 | 0.16 |
-| `images.pdf` p1 | turn | 34.51 (414%) | **26.38** | 0.04 | 1.19 | 5.17 | 1.03 | 0.70 |
-| | step | 9.56 (115%) | — | — | 3.26 | **4.61** | 0.62 | 1.07 |
-| `issue14415.pdf` p1, strokes, 959 commands | turn | 15.80 (190%) | 2.66 | 0.63 | **10.70** | 0.84 | 0.84 | 0.12 |
-| | step | 8.33 (100%) | — | — | **6.58** | 0.23 | 1.38 | 0.15 |
-| `issue19802.pdf` p1, 1 032 commands | turn | 6.19 (74%) | 0.62 | 0.20 | **4.36** | 0.23 | 0.43 | 0.34 |
-| | step | 1.38 (17%) | — | — | 0.08 | 0.15 | 1.01 | 0.14 |
-| `ContentStreamNoCycleType3insideType3.pdf`, stroked Type 3 in a tiling | turn | 10.50 (126%) | 0.46 | 0.18 | **9.03** | 0.31 | 0.41 | 0.11 |
-| | step | 11.04 (132%) | — | — | **10.39** | 0.08 | 0.40 | 0.17 |
-| `bug1743245.pdf` p1, tight bends | turn | 40.24 (483%) | 3.15 | 0.45 | **35.77** | 0.39 | 0.36 | 0.13 |
-| | step | 38.33 (460%) | — | — | **37.44** | 0.13 | 0.50 | 0.26 |
+| page | row | budget | interp | scene | encode | transfer | elsewhere | execute | taken |
+|---|---|---|---|---|---|---|---|---|---|
+| ISO 32000-2 p101, text, 3 007 commands | turn | 7.20 (86%) | 1.48 | 0.42 | **4.26** | 0.22 | 0.49 | 0.33 | 2026-10-05, ADR 1513 |
+| | step | 1.67 (20%) | — | — | 0.28 | 0.12 | 1.17 | 0.10 | 2026-10-05, ADR 1513 |
+| `personwithdog.pdf` p1, patch meshes | turn | 8.72 (105%) | 3.47 | 1.77 | 1.24 | 0.47 | 1.59 | 0.19 | 2026-10-05, ADR 1513 |
+| | step | 10.20 (122%) | — | **3.27** | 4.62 | 0.53 | 1.50 | 0.29 | 2026-10-05, ADR 1513 |
+| `issue12841_reduced.pdf` p1, one 5 280 × 3 792 photograph | turn | 32.45 (389%) | **28.77** | 0.02 | 0.01 | 2.46 | 1.11 | 0.09 | 2026-10-05, ADR 1513 |
+| | step | 3.23 (39%) | — | 0.00 | 0.01 | 1.34 | **1.69** | 0.19 | 2026-10-05, ADR 1513 |
+| `22060_A1_01_Plans.pdf` p1, four photographs under soft masks, 72 placements | turn | 51.07 (613%) | **34.51** | 0.17 | 4.62 | 8.32 | 3.08 | 0.35 | 2026-10-05, ADR 1513 |
+| | step | 14.75 (177%) | — | — | 6.45 | **6.79** | 1.11 | 0.40 | 2026-10-05, ADR 1513 |
+| `issue13931.pdf` p1, one photograph under a `/Matte`'d mask | turn | 22.05 (265%) | **17.18** | 0.05 | 0.42 | 3.42 | 0.86 | 0.13 | 2026-10-05, ADR 1519 |
+| | step | 6.39 (77%) | — | — | 0.06 | **5.12** | 1.06 | 0.16 | 2026-10-05, ADR 1519 |
+| `images.pdf` p1 | turn | 34.51 (414%) | **26.38** | 0.04 | 1.19 | 5.17 | 1.03 | 0.70 | 2026-10-05, ADR 1513 |
+| | step | 9.56 (115%) | — | — | 3.26 | **4.61** | 0.62 | 1.07 | 2026-10-05, ADR 1513 |
+| `issue14415.pdf` p1, strokes, 959 commands | turn | 15.80 (190%) | 2.66 | 0.63 | **10.70** | 0.84 | 0.84 | 0.12 | 2026-10-05, ADR 1513 |
+| | step | 8.33 (100%) | — | — | **6.58** | 0.23 | 1.38 | 0.15 | 2026-10-05, ADR 1513 |
+| `issue19802.pdf` p1, 1 032 commands | turn | 6.19 (74%) | 0.62 | 0.20 | **4.36** | 0.23 | 0.43 | 0.34 | 2026-10-05, ADR 1513 |
+| | step | 1.38 (17%) | — | — | 0.08 | 0.15 | 1.01 | 0.14 | 2026-10-05, ADR 1513 |
+| `ContentStreamNoCycleType3insideType3.pdf`, stroked Type 3 in a tiling | turn | 10.50 (126%) | 0.46 | 0.18 | **9.03** | 0.31 | 0.41 | 0.11 | 2026-10-05, ADR 1513 |
+| | step | 11.04 (132%) | — | — | **10.39** | 0.08 | 0.40 | 0.17 | 2026-10-05, ADR 1513 |
+| `bug1743245.pdf` p1, tight bends | turn | 40.24 (483%) | 3.15 | 0.45 | **35.77** | 0.39 | 0.36 | 0.13 | 2026-10-05, ADR 1513 |
+| | step | 38.33 (460%) | — | — | **37.44** | 0.13 | 0.50 | 0.26 | 2026-10-05, ADR 1513 |
+| `bug1721218_reduced.pdf` p1, a four-component group of 3 518 clipped shadings, drawn as two frames | turn | 188.79 (2266%) | 67.59 | **118.14** | 1.43 | 0.37 | 0.69 | 0.56 | 2026-10-05, ADR 1541 |
+| | step | 117.04 (1405%) | — | **113.44** | 1.63 | 0.31 | 0.71 | 0.96 | 2026-10-05, ADR 1541 |
+
+**`bug1721218_reduced.pdf`'s rows were taken on 2026-10-05 after ADR 1541** (load 1.7–1.9, the
+device under 12% busy), interleaved process by process with the tree before it: turn 215.27 →
+188.79 and step 134.12 → 117.04 at the minimum, all of it in `scene`, which on this page is raster's
+walk of 3 518 residue-clipped shadings — the exact meets now made beside the walk. Its `scene` is
+two frames of one four-component group (ADRs 1471, 1529).
 
 The tree without ADR 1513 read, in the same sitting: the photograph's turn 69.40 (interp 65.24),
 the Type 3 page's 12.24 (encode 10.84); every other row inside its runs' spread. **What took three

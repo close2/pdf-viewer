@@ -23,8 +23,12 @@ use raster_scene::{Point, Rect};
 
 use crate::raster::{self, CoverageMask, MeetWork, Polyline, RowEdges, Rule};
 
+mod deferred;
+mod helpers;
 mod kept;
 
+pub(in crate::encode) use deferred::ExactMeet;
+pub(in crate::encode) use helpers::Helpers;
 pub(crate) use kept::KeptMeets;
 pub(in crate::encode) use kept::KeptRegion;
 
@@ -45,6 +49,33 @@ pub(super) struct Mark<'p> {
     pub(super) edges: Option<&'p RowEdges>,
 }
 
+/// A mark's inputs as a meet is handed them: borrowed from the walk, which keeps them, or owned,
+/// as a fan-out job's product is — a meet whose exact pixels are made later takes owned inputs
+/// rather than copies them (ADR 1541). A job's edges over its whole tile are up to four times
+/// the tile's own bound (`JOB_EDGE_REACH`), and copied for each of the stroked Type 3 page's
+/// meets they cost its turn about a millisecond.
+#[derive(Debug)]
+pub(super) enum MarkInputs<'p> {
+    /// Inputs the caller keeps.
+    Borrowed(Mark<'p>),
+    /// Inputs the caller hands over: the polylines, the rule and the job's edges.
+    Owned(Vec<Polyline>, Rule, Option<Box<RowEdges>>),
+}
+
+impl MarkInputs<'_> {
+    /// The mark these inputs describe, borrowed.
+    pub(super) fn mark(&self) -> Mark<'_> {
+        match self {
+            Self::Borrowed(mark) => *mark,
+            Self::Owned(polylines, rule, edges) => Mark {
+                polylines,
+                rule: *rule,
+                edges: edges.as_deref(),
+            },
+        }
+    }
+}
+
 /// The longest key a meet is kept under, in words.
 ///
 /// A key is built and hashed on every meet, and only a render that repeats the one before
@@ -59,6 +90,17 @@ const KEY_WORDS: usize = 1_024;
 /// tall thin edge is still answered.
 const MARK_EDGE_FLOOR: usize = 4_096;
 
+/// What a meet decided: whether its bytes are a function of the mark and the chain alone, and
+/// the pixels both sets cut, whose exact areas are made when the frame settles (ADR 1541).
+#[derive(Debug)]
+pub(super) struct Met {
+    /// True unless a budget decided the chain's edges, which is what a caller keeping the
+    /// whole tile for the next render must know (ADR 1529).
+    pub(super) unbounded: bool,
+    /// The meet's exact pixels, still to be made; `None` where the tile's bytes are final.
+    pub(super) exact: Option<ExactMeet>,
+}
+
 impl Encoder<'_> {
     /// Meet a mark's coverage tile with the residue of `resolved`'s chain, or leave the tile
     /// as it is where the chain is rectangles alone.
@@ -67,20 +109,29 @@ impl Encoder<'_> {
     /// tile it met is a function of the words [`Encoder::meet_words`] lists, so a tile under
     /// the same words is handed the same bytes.
     ///
-    /// Answers whether the met bytes are a function of the mark and the chain alone — true
-    /// unless a budget decided the chain's edges — which is what a caller keeping the whole
-    /// tile for the next render must know (ADR 1529). Such a caller passes `own_words` false:
-    /// a tile it did not find kept is a mark whose meet was not kept either, since the meet's
-    /// words hold the tile's and more, so building them would only cost.
+    /// **The pixels both sets cut are left at `min` and handed back** ([`Met::exact`]): their
+    /// areas are made when the frame settles its meets, beside each other, and written over
+    /// those bytes where the caller packs the tile ([`Encoder::place_exact`], ADR 1541). The
+    /// meet is kept for the next render then, with its finished bytes.
+    ///
+    /// Answers whether the met bytes are a function of the mark and the chain alone
+    /// ([`Met::unbounded`]). A caller keeping the whole tile passes `own_words` false: a tile
+    /// it did not find kept is a mark whose meet was not kept either, since the meet's words
+    /// hold the tile's and more, so building them would only cost.
     pub(super) fn meet_residue(
         &mut self,
         tile: &mut CoverageMask,
         resolved: &ResolvedClip,
-        mark: Mark<'_>,
+        inputs: MarkInputs<'_>,
         own_words: bool,
-    ) -> Result<bool, RenderError> {
+    ) -> Result<Met, RenderError> {
+        let mark = inputs.mark();
+        let settled = |unbounded| Met {
+            unbounded,
+            exact: None,
+        };
         if resolved.residues.is_none() {
-            return Ok(true);
+            return Ok(settled(true));
         }
         // The queue drains here as [`Encoder::residue_intersection`] drains it, so that a
         // kept meet leaves the walk's order — which marks commit before this one — as a
@@ -93,12 +144,12 @@ impl Encoder<'_> {
         };
         if let Some(met) = words.as_deref().and_then(|words| self.kept.find(words)) {
             tile.coverage.copy_from_slice(&met);
-            return Ok(true);
+            return Ok(settled(true));
         }
         let Some(clip) =
             self.residue_intersection(resolved, tile.left, tile.top, tile.width, tile.height)?
         else {
-            return Ok(true);
+            return Ok(settled(true));
         };
         let cut = both_cut(tile, &clip);
         let chain = match cut_rows(tile, &cut) {
@@ -111,26 +162,26 @@ impl Encoder<'_> {
         // Its own span (ADR 0023): what it computes is the mark's coverage — geometry by the
         // phase's own definition.
         let span = self.clock.start();
-        let exact = chain.and_then(|chain| exact_areas(tile, &cut, &chain.links, mark));
         residue_meet(tile, &clip);
-        if let Some(exact) = exact {
-            for (&index, value) in cut.iter().zip(exact) {
-                // Never above either set's own coverage: the bytes are each the set's area
-                // rounded, and the intersection is inside both.
-                let met = &mut tile.coverage[index];
-                *met = value.min(*met);
-            }
-        }
         self.clock.geometry(span);
+        // A tile with a fractional pixel was filled from polylines; a mark that reached its
+        // meet without them keeps `min` rather than meeting an empty set.
+        let filled = !cut.is_empty() && !mark.polylines.is_empty();
+        let mut exact = chain
+            .filter(|_| filled)
+            .map(|chain| ExactMeet::new(tile, cut, chain.links, inputs));
         if let Some(words) = words
             && unbounded
         {
-            self.kept.keep(
-                words.into_boxed_slice(),
-                &Arc::from(tile.coverage.as_slice()),
-            );
+            match exact.as_mut() {
+                Some(exact) => exact.keep_as_meet(words),
+                None => self.kept.keep(
+                    words.into_boxed_slice(),
+                    &Arc::from(tile.coverage.as_slice()),
+                ),
+            }
         }
-        Ok(unbounded)
+        Ok(Met { unbounded, exact })
     }
 
     /// The words that name what a meet computes from, or `None` for a meet whose words would
@@ -459,8 +510,6 @@ fn exact_areas(
     links: &[RowEdges],
     mark: Mark<'_>,
 ) -> Option<Vec<u8>> {
-    // A tile with a fractional pixel was filled from polylines; a mark that reached its
-    // meet without them keeps `min` rather than meeting an empty set.
     if mark.polylines.is_empty() {
         return None;
     }

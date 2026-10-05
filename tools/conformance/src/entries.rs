@@ -669,7 +669,7 @@ Table 31 -Entries in a page object
             code: vec!["crates/pdf-model/src/appearance.rs".to_owned()],
             test: Vec::new(),
             exclusion: None,
-            note: Some("drawn since the three-hundred-and-twelfth session".to_owned()),
+            note: Some("the popup window is drawn since ADR 0191".to_owned()),
             line: 1,
         };
         assert_eq!(where_named("Open", &row, &sources), Named::Elsewhere);
@@ -714,9 +714,7 @@ Table 31 -Entries in a page object
             code: vec!["crates/pdf-model/src/attachment.rs".to_owned()],
             test: Vec::new(),
             exclusion: None,
-            note: Some(
-                "all four are drawn since the two-hundred-and-sixty-sixth session".to_owned(),
-            ),
+            note: Some("all four are drawn since their names were read as objects".to_owned()),
             line: 1,
         };
         assert_eq!(where_named("FS", &row, &sources), Named::ByItsOwnCode);
@@ -727,7 +725,7 @@ Table 31 -Entries in a page object
     #[test]
     fn the_population_is_a_note_that_names_an_arrival() {
         assert!(is_an_arrival(
-            "the popup window /Open selects is drawn since the three-hundred-and-twelfth session"
+            "the popup window /Open selects is drawn since the window became a surface (ADR 0191)"
         ));
         assert!(is_an_arrival("Read since ADR 0295."));
         assert!(!is_an_arrival(

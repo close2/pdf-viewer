@@ -412,6 +412,12 @@ fn perform(
     command: Command,
 ) -> (u8, Vec<u8>) {
     let mut outgoing = Vec::new();
+    // **An open is followed by page one's interpretation, viewport or not** (ADR 1539). A host
+    // that opens before its window exists tells this process there is no viewport yet, so nothing
+    // is arranged and nothing drawn; `Viewer::anticipate` interprets the page the document stands
+    // at all the same, while the host's device comes up, and the first `Resize` finds it done.
+    // Behind a viewport the arrangement has already interpreted it, and the call does nothing.
+    let opens = matches!(command, Command::Open { .. });
     let mut pending: Vec<Command> = vec![command];
 
     // A render's answer can itself produce events — a page that finished drawing damages the
@@ -445,6 +451,10 @@ fn perform(
                 other => outgoing.push(other),
             }
         }
+    }
+
+    if opens {
+        outgoing.extend(viewer.anticipate());
     }
 
     // **Where the pages this store holds sit now, and which of them are still on the screen** —

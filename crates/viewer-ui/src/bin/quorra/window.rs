@@ -114,6 +114,8 @@ impl ApplicationHandler for App {
         self.act();
         // §12.7.6.2's `submit-form` thread wakes the loop the same way (ADR 1291).
         self.take_the_answers();
+        // And so does the thread reading what page one did not need (ADR 1543).
+        self.take_the_preparation();
         // A wake from another thread means somebody has news for the next tick — the
         // accessibility bridge's request, or the render thread's sharp picture (ADR 0699)
         // — and a loop at rest would otherwise sit on it until the next input.
@@ -303,6 +305,23 @@ impl ApplicationHandler for App {
             let (viewer, events) = opening.join().expect("the thread opening the document");
             self.viewer = viewer;
             self.launch.mark("document joined");
+            // **What page one does not need is read beside it** (ADR 1543): the outline and the
+            // placed page tree, which the open no longer reads, on a thread of their own while
+            // this one draws. Taken before `receive`, so that the panel's lists do not ask for
+            // the outline on this thread first.
+            self.preparing = self.viewer.preparation().map(|preparation| {
+                let (send, answer) = std::sync::mpsc::channel();
+                let waker = self.waker.clone();
+                std::thread::spawn(move || {
+                    // A window that has closed has nobody to give the answer to.
+                    if send.send(preparation.run()).is_ok()
+                        && let Some(waker) = waker
+                    {
+                        let _ = waker.send_event(());
+                    }
+                });
+                answer
+            });
             self.receive(events);
         }
         self.retitle();

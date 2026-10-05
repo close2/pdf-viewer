@@ -921,8 +921,8 @@ const DESTINATION_PROFILE_VALIDITY_NEEDS_AN_ICC_TEXT: &str = "both parts require
 /// profile against the two texts held of the four, whatever version it states, and this row keeps
 /// what that leaves: the rest of those two documents, and the two documents that are not here.
 const ICC_PERMITTED_EDITION_NEEDS_THE_TEXTS_IT_NAMES: &str = "part 2 names four ICC texts and this project now holds two of them: ICC.1:1998-09 and \
-     ICC.1:2001-12 arrived in the nine-hundred-and-fiftieth session, and the clause 6.3 \
-     required-tag lists of both are checked by the row below. ICC.1:2003-09 is not here — the \
+     ICC.1:2001-12 (ADR 0950), and the clause 6.3 required-tag lists of both are checked by \
+     the row below. ICC.1:2003-09 is not here — the \
      ICC supplies its past specifications on request only — and ISO 15076-1:2010 is a preview of \
      the front matter that stops before clause 7. What stays unchecked is therefore two things \
      rather than one: everything the two held texts require beyond those tag lists, which is most \

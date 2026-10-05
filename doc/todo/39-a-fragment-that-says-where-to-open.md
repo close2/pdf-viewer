@@ -87,7 +87,9 @@ XFDF file": a relative one is `viewer_host::resolve_import`'s, and an absolute o
    network (`doc/ui-boundary.md`'s rule 2). `quorra-confined` has none and refuses at every level.
 5. **Tested** on a loopback listener (`viewer-host/tests/fetch_import.rs`: each level, the refused
    schemes, an answer over the bound, a body that is not FDF, an error status) and driven in all
-   three windows (`31-fragment-fdf`, the drive's own server).
+   three windows (`31-fragment-fdf`, the drive's own server), at `send`, at `refuse`, and at `ask`
+   answered both ways (`31-fragment-fdf-ask-yes`, `-ask-no`; the toolkits' dialogue pressed through
+   AT-SPI's `Action`, `quorra`'s card by its keys, ADR 1540).
 
 ## What `ef` owed, and how the sentence was finally composed
 

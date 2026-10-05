@@ -266,3 +266,10 @@ path = "fuzz_targets/find.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "fetched_import"
+path = "fuzz_targets/fetched_import.rs"
+test = false
+doc = false
+bench = false

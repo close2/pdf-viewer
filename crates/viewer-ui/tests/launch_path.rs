@@ -21,7 +21,7 @@
 //! |---|---|---|
 //! | **cold open** | `FileBytes::on_disk`, `Viewer::new`, `Command::Restrict`, `Command::Open` — `quorra.rs`'s `open_document` exactly, on a file whose page cache has just been dropped | the process's own creation, the window, the device |
 //! | **warm open** | the same, second time, with the file in the page cache | — |
-//! | **time to first page** | the document opening on one thread, and page one interpreted there (`Viewer::anticipate`, ADR 1531), while the graphics device comes up on this one, joined, given a viewport, and page one's pixels drawn on the device; the run prints when each of the three was done and a hash of the frame | winit's `EventLoop::new`, the window, the surface and the present |
+//! | **time to first page** | the document opening on one thread, and page one interpreted there (`Viewer::anticipate`, ADR 1531), while the graphics device comes up on this one, joined, given a viewport, and page one's pixels drawn on the device; the run prints a timeline from the process's spawn — each thread's milestones, one line each (ADR 1544) — and a hash of the frame | the outline and the page tree, read on a thread of their own after the join (ADR 1543) and joined after the clock stops;  winit's `EventLoop::new`, the window, the surface and the present |
 //! | **cold bring-up** | `QuorraRasterizer::new_headless` in a process that has done nothing else | everything else |
 //! | **page turn** | `Command::GoTo(Next)`, the interpretation it causes, and the frame drawn on the device | — |
 //! | **memory high-water** | `VmHWM` of the process that did all of the above for one document, less the resident pages of the files it has mapped — what the allocator asked the kernel for | every shared object the Vulkan loader brought in, which is nine tenths of the process's own `VmHWM` and is the kernel's decision rather than this program's (ADR 0910) |
@@ -149,6 +149,13 @@ const PHASE: &str = "PDFVIEWER_LAUNCH_PHASE";
 
 /// Names the document a child process is to open.
 const DOCUMENT_PATH: &str = "PDFVIEWER_LAUNCH_DOCUMENT";
+
+/// When the parent spawned the child, in nanoseconds of the system clock since the epoch.
+///
+/// The one instant a child cannot take for itself: its own clock starts at the phase, after the
+/// process was created, `taskset` exec'd it and the test harness started. Given by the parent so
+/// that the first-page timeline begins where a launch begins (ADR 1544).
+const SPAWNED: &str = "PDFVIEWER_LAUNCH_SPAWNED_NS";
 
 /// Names the document every child's calibration probe opens.
 const CALIBRATION_PATH: &str = "PDFVIEWER_LAUNCH_CALIBRATION";
@@ -513,6 +520,27 @@ fn draw_one_timed(
     })
 }
 
+/// How long before this phase began its process was spawned, in milliseconds, where the parent
+/// said when.
+///
+/// The system clock on both sides, because an `Instant` does not cross a process boundary; a
+/// clock stepped between the two would show as a figure out of all proportion, which is why it
+/// is printed on the timeline and judged nowhere.
+fn spawned_before(began: Instant) -> Option<f64> {
+    let spawned: u128 = std::env::var(SPAWNED).ok()?.parse().ok()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_nanos();
+    let before_now = now.checked_sub(spawned)?;
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "nanoseconds of one process's start, far inside an f64's exact range"
+    )]
+    let before_now = before_now as f64 / 1e6;
+    Some(before_now - ms(began))
+}
+
 /// The document this child was told to open.
 fn document_of_the_child() -> PathBuf {
     let Ok(path) = std::env::var(DOCUMENT_PATH) else {
@@ -650,12 +678,15 @@ fn phase_first_page() {
     // it should have failed.
     let scheduled = scheduling();
     let began = Instant::now();
+    let spawned = spawned_before(began);
     // `quorra.rs`'s document thread: the open, and then page one interpreted while the device is
-    // still coming up (ADR 1531).
+    // still coming up (ADR 1531). Each of the two says when it finished, because the join says
+    // only when the longer of the two threads did (ADR 1544).
     let opening = std::thread::spawn(move || {
         let (mut viewer, pages) = open_document(&path);
+        let opened = Instant::now();
         viewer.anticipate().for_each(drop);
-        (viewer, pages)
+        (viewer, pages, opened, Instant::now())
     });
     let mut backend = match QuorraRasterizer::new_headless() {
         Ok(backend) => backend,
@@ -665,11 +696,19 @@ fn phase_first_page() {
         }
     };
     let device = ms(began);
-    let Ok((mut viewer, pages)) = opening.join() else {
+    let Ok((mut viewer, pages, opened, anticipated)) = opening.join() else {
         println!("failed the document thread panicked");
         std::process::exit(1);
     };
     let joined = ms(began);
+    // `quorra`'s window does this at the join: what page one does not need — the outline and the
+    // placed page tree — read on a thread of its own while this one draws (ADR 1543).
+    let preparing = viewer.preparation().map(|preparation| {
+        std::thread::spawn(move || {
+            let prepared = preparation.run();
+            (prepared, Instant::now())
+        })
+    });
     let drawn = draw_one_timed(
         &mut viewer,
         &mut backend,
@@ -691,7 +730,16 @@ fn phase_first_page() {
         println!("failed page one was not drawn");
         std::process::exit(1);
     };
-    let interpreted = asked.duration_since(began).as_secs_f64() * 1e3;
+    let since = |instant: Instant| instant.duration_since(began).as_secs_f64() * 1e3;
+    let requested = since(asked);
+    // Joined after the clock has stopped, so that it is a line on the timeline and never part of
+    // the figure; the answer is handed over as the window hands it over.
+    let prepared = preparing
+        .and_then(|thread| thread.join().ok())
+        .map(|(prepared, at)| {
+            viewer.prepared(prepared).for_each(drop);
+            since(at)
+        });
     // Hashed after the clock, so that a change to the launch path can be shown to have drawn the
     // same frame — the first page's bytes, which a lever that moves work earlier must not move
     // (ADR 1531).
@@ -711,9 +759,20 @@ fn phase_first_page() {
         ("first_page_ms", judged),
         ("first_page_wall_ms", wall),
         ("first_page_runq_ms", runq),
+        (
+            "spawned_ms",
+            spawned.map_or_else(|| "-".to_owned(), |at| format!("{at:.3}")),
+        ),
+        ("opened_ms", format!("{:.3}", since(opened))),
+        ("anticipated_ms", format!("{:.3}", since(anticipated))),
         ("device_ms", format!("{device:.3}")),
         ("joined_ms", format!("{joined:.3}")),
-        ("interpreted_ms", format!("{interpreted:.3}")),
+        ("requested_ms", format!("{requested:.3}")),
+        ("drawn_ms", format!("{elapsed:.3}")),
+        (
+            "prepared_ms",
+            prepared.map_or_else(|| "-".to_owned(), |at| format!("{at:.3}")),
+        ),
         ("frame_hash", format!("{frame_hash:016x}")),
         ("pages", pages.to_string()),
         ("commands", commands.to_string()),
@@ -748,6 +807,12 @@ fn phase_page_turn() {
     {
         println!("failed page one was not drawn");
         std::process::exit(1);
+    }
+    // What a window's preparation thread has read by the time a person turns a page (ADR 1543):
+    // without it the first turn would read the outline and the whole page tree for its caption,
+    // which no turn in `quorra` does.
+    if let Some(preparation) = viewer.preparation() {
+        viewer.prepared(preparation.run()).for_each(drop);
     }
     // As many turns as the document has pages to turn to, up to [`TURNS`]. A five-page document
     // has four `Next`s in it and the fifth draws nothing, which is not a defect and must not read
@@ -1257,6 +1322,58 @@ fn parse(text: &str) -> Result<Check, String> {
 type Fields = Vec<(String, String)>;
 
 /// One field of a child's line, as a number, or `None` where it said `-` or nothing.
+/// The first-page child's instants, one line each, from the process's start (ADR 1544).
+///
+/// **Habit 66: a gate that prints two events at one instant hides the work between them.** This
+/// printed "device up" and "document joined" and nothing of what the document's thread did, so
+/// which of the two threads a launch waited for — and for what — took a profiler to say. Each
+/// line is a milestone of `quorra`'s launch in the order it happened, the two threads
+/// interleaved, from the instant the process was spawned; the band is still judged from the
+/// phase's start. The last line is after the frame and outside every figure: when the outline
+/// and the page tree, which page one does not need, were read beside it (ADR 1543).
+fn print_timeline(fields: &Fields) {
+    // Where the parent's instant did not arrive the lines count from the phase instead.
+    let spawned = field(fields, "spawned_ms");
+    let began = spawned.unwrap_or(0.0);
+    let milestones = [
+        (
+            "phase_began",
+            "the phase begins — process, exec and the test harness before it",
+        ),
+        ("opened_ms", "document opened (document thread)"),
+        ("anticipated_ms", "page one interpreted (document thread)"),
+        ("device_ms", "graphics device up"),
+        ("joined_ms", "document joined"),
+        ("requested_ms", "first render requested"),
+        (
+            "drawn_ms",
+            "first frame drawn — read back headless; no window, no present",
+        ),
+        (
+            "prepared_ms",
+            "outline and page tree read (a thread of their own, after the frame's clock)",
+        ),
+    ];
+    let mut lines: Vec<(f64, &str)> = milestones
+        .iter()
+        .filter_map(|&(key, what)| {
+            let at = if key == "phase_began" {
+                Some(0.0)
+            } else {
+                field(fields, key)
+            };
+            at.map(|at| (at + began, what))
+        })
+        .collect();
+    lines.sort_by(|a, b| a.0.total_cmp(&b.0));
+    if spawned.is_some() {
+        println!("launch-path:     {:>7.1} ms  process spawned", 0.0);
+    }
+    for (at, what) in lines {
+        println!("launch-path:     {at:>7.1} ms  {what}");
+    }
+}
+
 fn field(fields: &Fields, key: &str) -> Option<f64> {
     fields
         .iter()
@@ -1465,6 +1582,9 @@ fn run_phase(phase: &str, document: Option<&Path>) -> Result<Fields, String> {
         .env(PHASE, phase);
     if let Some(path) = document {
         child.env(DOCUMENT_PATH, path);
+    }
+    if let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        child.env(SPAWNED, now.as_nanos().to_string());
     }
     let output = child
         .output()
@@ -2540,9 +2660,6 @@ fn the_launch_path_stays_inside_its_bands() {
         }
         match first {
             Ok((value, fields)) => {
-                let device = field(&fields, "device_ms").unwrap_or(0.0);
-                let joined = field(&fields, "joined_ms").unwrap_or(0.0);
-                let interpreted = field(&fields, "interpreted_ms").unwrap_or(0.0);
                 let frame = fields
                     .iter()
                     .find(|(name, _)| name == "frame_hash")
@@ -2551,12 +2668,11 @@ fn the_launch_path_stays_inside_its_bands() {
                 let peak = field(&fields, "peak_kib").unwrap_or(0.0) / 1024.0;
                 let allocated = anonymous_high_water_mib(&fields);
                 println!(
-                    "launch-path:   first page {value:.1} ms{} (device up at {device:.1}, \
-                     document joined at {joined:.1}, page one interpreted at \
-                     {interpreted:.1}, {commands:.0} commands, frame {frame}), \
-                     {peak:.0} MiB resident, {allocated:.1} MiB of it allocated",
+                    "launch-path:   first page {value:.1} ms{} ({commands:.0} commands, frame \
+                     {frame}), {peak:.0} MiB resident, {allocated:.1} MiB of it allocated",
                     waiting(&fields, "first_page_runq_ms")
                 );
+                print_timeline(&fields);
                 band_it(
                     &mut judged,
                     format!("{}: time to first page", row.path),

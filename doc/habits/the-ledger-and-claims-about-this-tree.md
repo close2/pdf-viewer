@@ -431,3 +431,12 @@ takes its subclauses' status; does it grant a permission some code here uses —
 `implemented`; only then, does the stated condition hold — and the sentence stating it is quoted
 where the checker verifies it. Nine of fourteen rows that left `inapplicable` were caught by the
 first question, one by the second, one by grepping the clause's `/Key` names against the tree.
+
+**A note states what is, and an `out-of-scope` row says why** (ADRs 1547, 1548). A ledger note is
+the clause's current reading, bound by `CLAUDE.md`'s comment rule: no session ordinal, no
+re-reading date, no "this row said X until …" — the reading, the code, the test, the quotation and
+the ADR. `tests/ledger_notes.rs` holds the ordinal count by equality and prints the families still
+carrying them, largest first; a round touching a row leaves it without one and lowers the bound.
+An `out-of-scope` note names its exclusion in words and quotes the clause's own sentence that puts
+it there — the one row this found was §13.4, whose poster the owner had already taken off the
+exclusion in A33 and nobody had built.

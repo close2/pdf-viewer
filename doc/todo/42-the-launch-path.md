@@ -295,17 +295,27 @@ that thread and moved back, single-threaded throughout.
 **So items 1, 3 and 5's second bullet are the only launch costs still on this list that are ours**,
 and item 1's is the design question rather than a number.
 
-### 2. `Outline::read` — **closed by ADR 0182's structure, in the two-hundred-and-eighty-ninth**
+### 2. `Outline::read` — **taken off the open, ADR 1543**
 
-The item was *eagerness*: 3 to 7 ms of a launch spent reading a panel nobody had opened, on a
-document tree whose §12.3.4 thumbnails are deferred with an argument and whose outline is not.
-**It costs the launch nothing now** — it happens on the thread that opens the document, which
-finishes while the main thread is still bringing the graphics device up, and the join costs 5 ms
-whether the outline has 988 items or 5. Deferring it would now buy zero milliseconds and cost the
-title bar its §12.3.3 section on the first frame.
+The open read §12.3.3's outline (35.5 M instructions on ISO 32000-2's 988 items) and, for the
+caption's section, placed §7.7.3's whole page tree (65.1 M) — 100.6 M of a 185.1 M open, and 4.2
+MB of the 4.3 MB a cold open read, for a section name page one does not need. Neither is read by
+`Command::Open` now: the opening caption names a section only where both are already read, and a
+host reads them off the thread that draws through `Viewer::preparation` / `Viewer::prepared`, which
+`quorra` runs on a thread of its own at the join and the gate mirrors. Every other reader is a
+first use.
 
-What is recorded rather than removed: the reason it is *allowed* to be eager is that something
-slower runs beside it. If the device ever became free, this would be back.
+**What is left of it is three hosts.** `quorra-gtk`, `quorra-qt` and `quorra-confined` (and the C
+ABI) take no preparation yet, so their first page turn or their panel's `Query::Outline` reads both
+on the toolkit's thread, and their opening caption has no section until then. Taking it is the same
+three steps `quorra`'s `window.rs` and `dispatch.rs` take: ask at the join, run it on a thread,
+hand the answer back and re-take the outline.
+
+**And the one row whose document thread is the longer, `bug1815476.pdf`, has its lever named.**
+Its thread finishes page one 2.2 to 3.0 ms after the device; of the 318 M instructions page one
+costs there, 246.5 M is `pdf_model::image::unpack` converting a CCITT image's one-bit samples to
+RGBA one `sample_rgba` call a pixel (the fax decode is under 1 M). An arm converting eight
+one-bit samples a byte at a time would take most of it; it is `pdf-model`'s (ADR 1543 section 5).
 
 ### 2a. What the item said before, and it was wrong twice
 
@@ -318,7 +328,8 @@ spent reading a panel nobody has opened. §12.3.4's thumbnails are already defer
 time their tab is shown, with the argument written down; the outline is not, and the reason it is
 not is a real one — `Open::around` needs it for the title bar's section (`Outline::section_at`)
 before the first frame. **The question to settle is whether the section is worth 3 to 7 ms at
-launch**, or whether it should arrive on the frame after the page.
+launch**, or whether it should arrive on the frame after the page. ADR 1543 settled it the second way, once the
+device came up in 17 ms and the walk the section needs turned out to be twice the outline.
 
 ### 3. `signature::signatures` — **taken in the two-hundred-and-seventy-seventh session**
 

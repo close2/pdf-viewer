@@ -1060,6 +1060,16 @@ once the batch was committed; `state_sections` names every tracked ignored test 
 merged main for a batch (round 1345). The main checkout builds in its own directory now, so the
 conformance tests run there right after the fast-forward, before `install` and `close`.
 
+### 107. A seeded fuzz corpus goes stale with nothing failing
+
+`fuzz/corpus/<target>` is generated data linked from the main checkout, and nothing compares it with
+what the seed scripts would write today. Round 1355 ran `forms_data` for twenty minutes from a disk
+corpus that reached coverage 270; fresh seeds reached 1 241 — `display_list` likewise, 105 against
+956 — and both campaigns were re-run. Before a campaign, run the target over the disk corpus and
+over fresh seeds and compare libFuzzer's `INITED cov`; when they differ, re-seed in the main
+checkout first. And a bounded campaign's one crash may be a known one: `jpeg_bands` stops on
+`zune-jpeg`'s overflow (Q227) unless run `-fork=1 -ignore_crashes=1`, which `doc/verify.md` says.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

@@ -484,6 +484,7 @@ fn main() {
         accessibility: None,
         spoken: None,
         waker: None,
+        preparing: None,
     };
 
     let event_loop = EventLoop::new().expect("an event loop requires a display server");

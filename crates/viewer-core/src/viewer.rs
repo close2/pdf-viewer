@@ -376,7 +376,7 @@ impl Viewer {
             // is 988 items and the whole answer takes **80.7 µs**; the five-page application
             // note's fourteen take **481 ns**. Against ADR 0246's 3.66 ms to build the three
             // panel models those 988 rows go into, the clone is 2% of what a host does with it.
-            Query::Outline => Answer::Outline(open.outline.clone()),
+            Query::Outline => Answer::Outline(open.outline().clone()),
             Query::Layers => Answer::Layers(layers(open)),
             // The log's view rather than the file's (ADR 0814): a file attached this sitting is
             // in the list before anything is saved, and
@@ -924,7 +924,7 @@ impl Viewer {
         {
             self.extract(&file.name, Extraction::Fragment, file.fragment, events);
         }
-        self.announce_page(events);
+        self.announce_page_reading(false, events);
         // §12.6.3 puts `/PO` "after … the OpenAction entry in the document Catalog",
         // and `Open::around` has already applied that entry's destination — the page it
         // names is `open.page_index` and its view is waiting in `pending_views` — so the
@@ -3818,6 +3818,45 @@ impl Viewer {
         }
     }
 
+    /// What the focused document still has to read that page one does not need, for a host to
+    /// run on a thread of its own.
+    ///
+    /// **The launch path's third overlap** (ADR 1543). [`Command::Open`] no longer reads
+    /// §12.3.3's outline or places §7.7.3's whole page tree — together 100.6 M of the 185.1 M
+    /// instructions ISO 32000-2's open executed — so the opening [`Event::PageChanged`] names no
+    /// section unless they are already read. A host takes this once it has asked for page one,
+    /// calls [`crate::Preparation::run`] on any thread, and hands the result to
+    /// [`Self::prepared`]; the core spawns nothing and blocks on nothing (rule 4). `None` where
+    /// there is nothing to read: no document, or both already read.
+    #[must_use]
+    pub fn preparation(&self) -> Option<crate::Preparation> {
+        let id = self.focused?;
+        self.documents.get(&id)?.preparation(id)
+    }
+
+    /// Takes in what a [`crate::Preparation`] read, and says the page again with its section.
+    ///
+    /// An answer for a document no longer open, or for another file opened since under the same
+    /// id, is dropped: it names its file as well as its id (trap 104). Where the document is the
+    /// one in front and its page has a section, [`Event::PageChanged`] is raised again with it —
+    /// the caption the opening announcement could not complete.
+    pub fn prepared(&mut self, prepared: crate::Prepared) -> impl Iterator<Item = Event> + use<> {
+        let mut events = Vec::new();
+        let id = prepared.id;
+        let taken = self
+            .documents
+            .get_mut(&id)
+            .is_some_and(|open| open.prepared(prepared));
+        if taken
+            && self.focused == Some(id)
+            && let Some(open) = self.documents.get(&id)
+            && open.section_at(open.page_index, false).is_some()
+        {
+            self.announce_page_reading(false, &mut events);
+        }
+        events.into_iter()
+    }
+
     /// Interprets the page the focused document stands at, before the host has a viewport.
     ///
     /// **The launch path's second overlap** (ADR 1531). A host that opens its document on a
@@ -3835,9 +3874,17 @@ impl Viewer {
     /// frame an interpretation at the first resize would have drawn.
     pub fn anticipate(&mut self) -> impl Iterator<Item = Event> + use<> {
         let mut events = Vec::new();
+        let delegated = self.delegated;
         if let Some(id) = self.focused
             && let Some(open) = self.documents.get_mut(&id)
         {
+            // §6.3.2.2's "unless otherwise instructed" is the host's word, and `settle` carries
+            // it into the view before it interprets; carried here too, or a host that delegates
+            // its widgets has the page interpreted ahead thrown away by the first `settle` and
+            // interpreted again behind the device — what the native windows measured (ADR 1539).
+            if open.view.set_widget_appearances(delegated) {
+                open.stale();
+            }
             let page = open.page_index;
             if open.on(page).is_none()
                 && let Some(object) = open.page(page)
@@ -4166,6 +4213,12 @@ impl Viewer {
     }
 
     fn announce_page(&mut self, events: &mut Vec<Event>) {
+        self.announce_page_reading(true, events);
+    }
+
+    /// [`Self::announce_page`], with `read` false for the opening announcement: a section only
+    /// from an outline already read (ADR 1543).
+    fn announce_page_reading(&mut self, read: bool, events: &mut Vec<Event>) {
         let (Some(id), Some(open)) = (self.focused, self.focused()) else {
             return;
         };
@@ -4174,15 +4227,10 @@ impl Viewer {
         // no `Pages` built here at all: both were per-turn costs that scale with the document —
         // 1023 pages of ISO 32000-2 cost about six milliseconds of walk and a further third of
         // one to construct the tree, on the path an arrow key takes. See `Open::page_indices`.
-        let section = open
-            .outline
-            .section_at_with(
-                &open.document,
-                open.page_indices
-                    .get_or_init(|| pdf_model::Pages::new(&open.document).indices()),
-                index,
-            )
-            .map(ToOwned::to_owned);
+        // **Read only where it is already read, when the document is opening**: the section is
+        // not worth the outline and the whole tree in front of page one, and
+        // `Viewer::prepared` announces the page again once they are read (ADR 1543).
+        let section = open.section_at(index, read);
         events.push(Event::PageChanged {
             document: id,
             index,
@@ -5088,6 +5136,53 @@ mod tests {
             format!("trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
         );
         out
+    }
+
+    /// A page interpreted ahead under a host's delegated widgets is the page the first `Resize`
+    /// draws, not one it interprets again (ADR 1539).
+    ///
+    /// **Written against the defect**: `anticipate` interpreted under the view's own default, the
+    /// first `settle` then applied `Command::Delegate`'s answer, found it changed and dropped the
+    /// interpretation — so `quorra-gtk` and `quorra-qt`, which delegate, interpreted page one twice.
+    /// The revision is what counts interpretations.
+    #[test]
+    fn a_delegating_host_keeps_the_page_it_interpreted_ahead() {
+        let mut viewer = Viewer::new(0, 0, 1.0);
+        for command in [
+            Command::Delegate(pdf_model::view::WidgetAppearances::Delegated),
+            Command::Open {
+                id: DocumentId(1),
+                bytes: one_page().into(),
+                password: None,
+                fragment: None,
+            },
+        ] {
+            viewer.handle(command).for_each(drop);
+        }
+        viewer.anticipate().for_each(drop);
+        let revision = |viewer: &Viewer| {
+            viewer
+                .documents
+                .get(&DocumentId(1))
+                .map(|open| open.revision)
+        };
+        let ahead = revision(&viewer);
+        viewer
+            .handle(Command::Resize {
+                width: 100,
+                height: 100,
+                scale: 1.0,
+            })
+            .for_each(drop);
+        assert_eq!(
+            revision(&viewer),
+            ahead,
+            "the first resize interpreted nothing the anticipation had not"
+        );
+        assert!(
+            ahead.is_some_and(|revision| revision > 0),
+            "the page was interpreted ahead"
+        );
     }
 
     /// Every document a host names gets this reader's answers, the second as well as the first.

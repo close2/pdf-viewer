@@ -10,7 +10,7 @@
 # without the marks printed on it, and one placed under a mirroring text matrix), a popup, a link,
 # a markup, §7.5.6's save read back, the pages panel, the restrictions levels, print, §7.6.4's password, and a form's §12.5.1 tab order, check
 # box, choice and push button saved and re-read, and Annex O's fragment — a page, a search, and form
-# data fetched from the drive's own loopback server at two `--submissions=` levels. Each step's
+# data fetched from the drive's own loopback server at three `--submissions=` levels, `ask` answered both ways. Each step's
 # observable is a title, a line the window printed, the saved file's bytes, what AT-SPI reads off the window, or a count of pixels of
 # a colour the step draws, and the verdict is printed as
 # `step<TAB>window<TAB>works|wrong|not offered|manual<TAB>what was seen`, one line each, into
@@ -360,6 +360,43 @@ if best:
     print(best[1], best[2])
 PY
 
+cat > "$OUT/press.py" <<'PY'
+# press.py PID ROLE NAME: performs the first action of the showing widget of that role and name in
+# any window of the process, and fails where there is none — a dialogue's button is pressed the way
+# an assistive technology presses it, without coordinates and without a window manager (ADR 1540).
+import sys
+import gi
+gi.require_version("Atspi", "2.0")
+from gi.repository import Atspi
+pid, role, name = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+def find(node, depth):
+    if node is None or depth > 40:
+        return None
+    try:
+        # Older AT-SPI says "push button" where this one says "button"; either names the one role.
+        said = node.get_role_name()
+        if (role in (said, "button" if said == "push button" else said) and node.get_name() == name
+                and node.get_state_set().contains(Atspi.StateType.SHOWING)):
+            return node
+        for index in range(node.get_child_count()):
+            found = find(node.get_child_at_index(index), depth + 1)
+            if found is not None:
+                return found
+    except gi.repository.GLib.Error:
+        return None
+    return None
+desktop = Atspi.get_desktop(0)
+for index in range(desktop.get_child_count()):
+    application = desktop.get_child_at_index(index)
+    if application is None or application.get_process_id() != pid:
+        continue
+    button = find(application, 0)
+    if button is not None and button.get_action_iface() is not None:
+        Atspi.Action.do_action(button.get_action_iface(), 0)
+        sys.exit(0)
+sys.exit(1)
+PY
+
 WINDOW=""     # which of the three is being driven
 LOG=""        # its standard output
 STEP=0
@@ -418,6 +455,37 @@ expect_title() { # step needle
     esac
 }
 said() { grep -c -- "$1" "$LOG" 2>/dev/null; }
+# asked_fetch_up yes|no: whether the `ask` level's question about a fetched `fdf` is up and holding
+# — no request at the server and no import-data line but the question's — and then answers it.
+# `quorra` draws its card and is answered by its two keys, Enter and Escape; the two toolkits' card
+# is a dialogue whose buttons AT-SPI finds by name and presses through their `Action` (ADR 1540).
+# A card that is not up, or a fetch that ran before the answer, is a `wrong` said here.
+asked_fetch_up() {
+    local step="31-fragment-fdf-ask-$1" word
+    if [ "$(grep -c 'GET /values.fdf' "$SERVED")" -ne "$served" ] \
+            || grep -q 'import-data: fetching\|import-data: 1 field' "$LOG"; then
+        verdict "$step" wrong "fetched before the question was answered"
+        return 1
+    fi
+    if [ "$WINDOW" = quorra ]; then
+        # The card is drawn rather than published, so its picture is the witness that it is up.
+        shot "$step-card"
+        if [ "$1" = yes ]; then key Return; else key Escape; fi
+        sleep 1
+        return 0
+    fi
+    [ "$1" = yes ] && word="Go ahead" || word="Do not"
+    if [ -z "$A11Y" ]; then
+        verdict "$step" "not offered" "no AT-SPI bus to find the dialogue's buttons on"
+        return 1
+    fi
+    if ! timeout 20 python3 "$OUT/press.py" "$APP" button "$word" > /dev/null 2>&1; then
+        shot "$step"
+        verdict "$step" wrong "no showing \"$word\" button: the question is not up"
+        return 1
+    fi
+    sleep 2
+}
 lines() { wc -l < "$LOG" 2>/dev/null || echo 0; }
 # found_since N: whether the window said, after line N of its log, that a search found something —
 # `quorra`'s trace of the core's answer, or the two native windows' "found" note.
@@ -811,6 +879,25 @@ PY
         else
             verdict 31-fragment-fdf-refused wrong "$(grep -m1 'import-data' "$LOG" || echo 'no import-data line')"
         fi
+        # And at `ask` (ADR 1540): the question is up and nothing has been sent while it stands;
+        # answered yes, the server is asked once and the data lands in the form that asked;
+        # answered no, nothing is sent and the window says so.
+        local answer
+        for answer in yes no; do
+            served=$(grep -c 'GET /values.fdf' "$SERVED")
+            launch "$FIXTURES/drive-form.pdf#fdf=$fetched" --submissions=ask
+            asked_fetch_up "$answer" || continue
+            shot "31-fragment-fdf-ask-$answer"
+            if [ "$answer" = yes ] && [ "$(said "import-data: 1 field(s) from $fetched, into 1 widget(s)")" -gt 0 ] \
+                    && [ "$(grep -c 'GET /values.fdf' "$SERVED")" -eq $((served + 1)) ]; then
+                verdict 31-fragment-fdf-ask-yes works "asked, held, answered yes: $(grep -m1 "import-data: 1 field(s) from" "$LOG")"
+            elif [ "$answer" = no ] && [ "$(said "import-data: declined — $fetched was not fetched: you answered")" -gt 0 ] \
+                    && [ "$(grep -c 'GET /values.fdf' "$SERVED")" -eq "$served" ]; then
+                verdict 31-fragment-fdf-ask-no works "asked, answered no, and the server was not asked"
+            else
+                verdict "31-fragment-fdf-ask-$answer" wrong "$(grep 'import-data' "$LOG" | tr '\n' ' ')"
+            fi
+        done
     else
         verdict 31-fragment-fdf "not offered" "the loopback server did not start"
     fi

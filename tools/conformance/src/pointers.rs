@@ -1027,7 +1027,7 @@ mod tests {
     fn a_template_and_a_rounds_scratch_are_not_citations() {
         let documents = vec![file(
             "doc/HANDOVER.md",
-            "Scratch goes under `scratchpad/r<round>/`; the ADR's was `scratchpad/r1242/`.\n",
+            "Scratch goes under `scratchpad/r<round>/`; the ADR's was `scratchpad/r0042/`.\n",
         )];
         let found = sweep(&tree(), &ledger(Vec::new()), &[], &documents);
         assert_eq!(

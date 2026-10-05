@@ -104,7 +104,9 @@ from the side with fewer partial edges (ADR 1491), a run of short edges that abu
 crossing a row as one edge (ADR 1503), a met tile kept for the render after it — keyed word for
 word by the mark's tile, its rule and polylines and the chain's content, so that a group drawn as a
 chromatic and a black render meets nothing twice — and a sweep past its budget counted before it
-sorts (ADR 1517) — and a clipped mark's
+sorts (ADR 1517), the black render handed the chromatic one's finished coverage tiles, residue
+regions and clip outlines rather than making them again (ADR 1529), a meet's exact pixels made
+beside the walk by helper threads and written onto the sheet where its tile lies (ADR 1541) — and a clipped mark's
 coverage and a stroke's made off the walk's thread by the encoder's fan-out, a stroke's segment
 weighed at what it costs (ADR 1395), the fan-out's threads claiming its jobs in order rather than
 taking fixed shares (ADR 1505), a wide job building its mark's edges over its own tile (ADR 1513),
@@ -174,7 +176,7 @@ preferences, §12.11's requirements, §7.12's extensions and §14.3.2's XMP.
 The parsers that read bytes a stranger chose are **fuzzed**, a target each — the lexer, the object and
 file grammars, the interpreter over a whole page, the JBIG2, JPEG 2000 and fax filters as the
 confined worker runs them, the font programs and CMaps, §7.6's security handler, the FDF, XFDF and
-XMP readers, a field value's shaping, Annex F's reader and writer, §12.8's ASN.1 and the confined
+XMP readers and a server's answer to a form as a host hands it over, a field value's shaping, Annex F's reader and writer, §12.8's ASN.1 and the confined
 transport's decoders, a machine face's embedding, the find bar's match, the file-system face's
 writes — and two targets are differential, a JPEG's band plans against its whole decode and the
 meet's area against an exact integration — each seeded from what the disk's documents hold, and
@@ -556,7 +558,12 @@ by the project owner and written into `CLAUDE.md`'s startup rules. GPU bring-up 
 makes what it costs a number to keep rather than a cost to hide — and it is brought up on the
 platform's primary backends, GL loaded only where they have no hardware adapter (ADR 1532), while
 page one is interpreted on the document's thread beside it (`Viewer::anticipate`, ADR 1531), so
-the first resize goes straight to the render. What each step of that timeline
+the first resize goes straight to the render. The other three windows do the same in their own
+shape (ADR 1539): `quorra-gtk` and `quorra-qt` open and interpret on a thread while the toolkit
+comes up, and `quorra-confined` starts its worker and opens the document in it before the window,
+the worker interpreting page one with no viewport. What page one does not need the open does not read: §12.3.3's outline
+and §7.7.3's placed page tree, which the caption's section needs, are read on a thread `quorra`
+hands them after the join (`Viewer::preparation`, ADR 1543), and at first use in the other windows. What each step of that timeline
 costs is [`doc/performance.md`](performance.md)'s first section, and the open half is
 [todo 42](todo/42-the-launch-path.md).
 
@@ -1292,7 +1299,8 @@ reopens ticked in every window (ADR 1453). A field's characters are placed where
 them, so a client asking where a character of a value lies is answered by the document's own node
 (ADR 1501), and that node carries the page area's place in the window as its transform, so its
 answer lies inside the field a person types into — in GTK's window too, whose own entry answers no
-character's box at all (ADR 1516). The one
+character's box at all (ADR 1516), and in Qt's, whose node is placed by the page area the window
+reports rather than by its frame (ADR 1528). The one
 async runtime this tree has is confined
 to that crate, it is Linux-only in its own manifest, and the adapter is created **after** the first
 frame is presented. ADR 0214.

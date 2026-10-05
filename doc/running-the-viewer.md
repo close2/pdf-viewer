@@ -308,7 +308,9 @@ cargo run --release -p viewer-gtk --bin quorra-gtk -- doc/PDF20_AN001-BPC.pdf
 
 `quorra-gtk` is the GTK4 host (ADR 0244, `doc/todo/30`). It takes one document, Annex O's
 `#fragment` after it, and `--trace[=launch,frames,events,panel]` in the same line format
-`quorra` uses, so the two hosts' launch timelines can be read side by side. It is deliberately a
+`quorra` uses, so the two hosts' launch timelines can be read side by side — `document joined` is
+where the first allocation takes in the document opened, and page one interpreted, on a thread
+while GTK came up (ADR 1539). It is deliberately a
 **separate binary** rather than a flag: the two differ in their toolkit and in nothing else, which
 is the claim `viewer-core` exists to make and which one binary linking both would stop making.
 

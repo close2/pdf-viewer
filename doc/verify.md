@@ -986,6 +986,11 @@ cd fuzz && cargo +nightly fuzz run jpx          -- -max_total_time=600 -rss_limi
   # meant to go on past one adds `-fork=1 -ignore_timeouts=1` and reads what it leaves behind.
 cd fuzz && cargo +nightly fuzz run xfdf         -- -max_total_time=600  # ISO 19444-1's XFDF and the
   # import it feeds, §12.7.6.4 (ADR 1297). Seeded from `crates/pdf-model/tests/xfdf/` by `fuzz/seeds.sh`.
+cd fuzz && cargo +nightly fuzz run fetched_import -- -max_total_time=1200 -rss_limit_mb=2048 -timeout=20
+  # a server's answer as a host hands it over, `Command::Respond` into `interact::import` (ADR
+  # 1527): Annex O's `fdf` fetched, or §12.7.6.2's submission answered, against a form with a field
+  # tree, a check box, a choice and a template, in front or behind. Every answer is said, and said
+  # about the document it names. Seeded by `fuzz/seed_fetched_import.py` under eight routes each.
 cd fuzz && cargo +nightly fuzz run linearize    -- -max_total_time=600 -rss_limit_mb=2048 -timeout=60
   # Annex F both ways: `linearize::state` on the input, and `serialize_linearized`'s file opened
   # again and found linearised with `/L` its length and `/N` the plan's pages (ADRs 1293, 1309).
@@ -1001,6 +1006,9 @@ cd fuzz && cargo +nightly fuzz run jpeg_bands   -- -max_total_time=600 -rss_limi
   # banded_decodes`, below the production floor (ADR 1495). Differential: a byte a band moves, or a
   # band decoded where the whole decoder refuses, is a finding. Seeded with every `DCTDecode`
   # stream of 64 KiB or less and the two modules' fixtures.
+  # Until `doc/questions/Q227`'s fork is in, a run stops within minutes on `zune-jpeg`'s DC
+  # multiply (`bitstream.rs` line 400, overflow checks on): a campaign adds `-fork=1
+  # -ignore_crashes=1` and reads each crash's panic location, and only another location is a finding.
 cd fuzz && cargo +nightly fuzz run find         -- -max_total_time=600 -rss_limit_mb=2048 -timeout=20
   # the find bar's match over a page's readback through `viewer_core::find_in_text`: §9.10.2's
   # presentation forms folded, canonical decompositions and marks a needle may leave off (ADRs

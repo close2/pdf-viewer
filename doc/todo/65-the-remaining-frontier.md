@@ -260,7 +260,12 @@ A normal round can advance or close each of these today; there is no missing sur
 package, no cross-round architecture. Membership is re-derived from the ledger rather than carried: a
 row is in this bucket when its note names none of those three.
 
-No row is here at present. §12.6.4.6 was, and is `departed`: a launch whose Table 207 `/F` is a
+- §13.4 — the stream form of Table 306's `/Poster`, which `doc/questions/A33` approved taking off the
+  clause 13 exclusion: one arm in `appearance::construct` reading `/Movie` → `/Poster` and drawing the
+  image `XObject` in `/Rect`, as `Stream::form` draws §12.5.6.19's icon. The boolean form and the
+  playing stay excluded (ADR 1548).
+
+§12.6.4.6 was here, and is `departed`: a launch whose Table 207 `/F` is a
 PDF opens under the reader's remote-documents level, and one that names an application is the one
 requirement withheld, by principle 3's sandbox (ADRs 1368, 1358).
 

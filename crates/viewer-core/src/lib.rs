@@ -111,6 +111,7 @@ pub use command::{
     Viewing, Zoom,
 };
 pub use event::{Event, Extraction, Found, RenderRequest};
+pub use open::{Preparation, Prepared};
 /// What [`Edit::SetField`] puts into a field: §12.7.5.3's characters, §12.7.5.4's chosen options,
 /// or nothing.
 ///

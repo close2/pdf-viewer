@@ -1456,9 +1456,8 @@ fn a_non_isolated_group_reports_only_where_the_backdrop_cannot_be_stated() {
             "/GS gs /Fm Do"
         )
         .contains("non-isolated"),
-        "§11.4.6 composites each element with the group's *initial* backdrop, and since the \
-         four-hundred-and-ninety-second session the display list states that backdrop: every \
-         element arrives shaped and the backends retain the page beside the accumulation \
+        "§11.4.6 composites each element with the group's *initial* backdrop, and the display \
+         list states that backdrop: every element arrives shaped and the backends retain the page beside the accumulation \
          (ADR 0327)"
     );
     assert!(

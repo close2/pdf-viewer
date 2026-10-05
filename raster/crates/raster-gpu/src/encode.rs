@@ -283,6 +283,16 @@ struct Encoder<'a> {
     queued_bytes: u64,
     /// What that sum may reach before the queue is drained (`parallel::in_flight_limit`).
     in_flight_limit: u64,
+    /// Meets whose exact pixels are made when the frame settles them, each beside the place
+    /// on the sheet its tile was packed at, in encounter order (`meet::ExactMeet`, ADR 1541).
+    exact_meets: Vec<((u32, u32), meet::ExactMeet)>,
+    /// Host memory those meets hold, settled before it passes `in_flight_limit`.
+    exact_held: u64,
+    /// Pixels both sets cut, over every meet this frame recorded, against the floor at which
+    /// helpers are started.
+    exact_pixels: usize,
+    /// The threads making the recorded meets' areas while the walk goes on, once started.
+    exact_helpers: Option<meet::Helpers>,
     /// One control-hull box per `(outline, linear part)`, so the 3 502 repeats of a
     /// dense page's 818 letterforms add a translation instead of transforming 37 control
     /// points again — 21 % of the encode, and [`hull`] carries the benchmark and the
@@ -566,6 +576,10 @@ fn encoder_for<'a>(
         queued_weight: 0,
         queued_bytes: 0,
         in_flight_limit: parallel::in_flight_limit(frame_budget_bytes),
+        exact_meets: Vec::new(),
+        exact_held: 0,
+        exact_pixels: 0,
+        exact_helpers: None,
     }
 }
 

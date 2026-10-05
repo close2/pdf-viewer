@@ -359,7 +359,7 @@ mod tests {
         let ledger = ledger(vec![
             row(
                 "11.6.4.3",
-                "This row said the soft mask was reported until the two-hundred-and-first.",
+                "This row said the soft mask was reported until ADR 0027 built it.",
             ),
             row(
                 "8.9.6.1",
@@ -469,10 +469,7 @@ mod tests {
             kind_of("The row used to say the mask was reported."),
             Kind::Correction
         );
-        assert_eq!(
-            kind_of("Retired by ADR 0234 in the three-hundred-and-ninety-seventh."),
-            Kind::Correction
-        );
+        assert_eq!(kind_of("Retired by ADR 0234."), Kind::Correction);
         assert_eq!(
             kind_of("The mask is built since ADR 0027."),
             Kind::Correction

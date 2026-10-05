@@ -74,6 +74,117 @@ pub enum HostError {
     },
 }
 
+/// The document named on the command line, opening — and its first page interpreted — on a thread
+/// of its own while GTK comes up (ADR 1539).
+///
+/// **The launch path's overlap, in this window's shape.** What GTK needs before a first allocation
+/// — the display, the theme, the window, its realisation — is 90 to 140 ms under Xvfb, and none of
+/// it needs the document; the open and page one's interpretation need none of it. So the open is
+/// started before `Application::run`, on a `Viewer` with no viewport, through the same commands
+/// [`Host::open_document`] sends, and [`viewer_core::Viewer::anticipate`] interprets the page it
+/// stands at (ADR 1531). The first allocation joins it and its `Resize` goes straight to the
+/// render. The core is still single-threaded: it is made on that thread and moved back, which is
+/// `viewer-core`'s rule 4 as `quorra` keeps it.
+#[derive(Debug)]
+pub struct Opening {
+    /// What was named.
+    path: PathBuf,
+    /// The open file, held here too for a password's second open.
+    bytes: pdf_syntax::FileBytes,
+    /// Annex O's fragment, as the command line carried it.
+    fragment: Option<String>,
+    /// The thread, until the first allocation joins it.
+    thread: std::thread::JoinHandle<(Viewer, Vec<Event>)>,
+}
+
+impl Opening {
+    /// Opens the file and starts the thread that opens the document in it.
+    ///
+    /// # Errors
+    ///
+    /// [`HostError::Unreadable`] where the file named cannot be read.
+    pub fn start(
+        path: &Path,
+        fragment: Option<String>,
+        widget_appearances: WidgetAppearances,
+        settings: viewer_host::Settings,
+    ) -> Result<Self, HostError> {
+        // Open on disk rather than read whole: the core reads what page one needs through the
+        // handle, and the file's size stops being the launch's cost (ADR 0809).
+        let bytes =
+            pdf_syntax::FileBytes::on_disk(path).map_err(|error| HostError::Unreadable {
+                path: path.to_owned(),
+                error: error.to_string(),
+            })?;
+        let commands = opening_commands(
+            standing(settings).window(),
+            widget_appearances,
+            settings.separations,
+            bytes.clone(),
+            None,
+            fragment.clone(),
+        );
+        let thread = std::thread::spawn(move || {
+            // No viewport: the window does not exist yet, and the core renders nothing into one
+            // with no extent.
+            let mut viewer = Viewer::new(0, 0, 1.0);
+            let mut events = Vec::new();
+            for command in commands {
+                events.extend(viewer.handle(command));
+            }
+            events.extend(viewer.anticipate());
+            (viewer, events)
+        });
+        Ok(Self {
+            path: path.to_owned(),
+            bytes,
+            fragment,
+            thread,
+        })
+    }
+}
+
+/// The window's standing levels, from what the command line set (ADR 1145).
+fn standing(settings: viewer_host::Settings) -> viewer_host::Restrictions {
+    viewer_host::Restrictions::new(settings.restrictions)
+        .with(viewer_host::ActLevel::EmbeddedDocuments(
+            settings.embedded_documents,
+        ))
+        .with(viewer_host::ActLevel::Submissions(settings.submissions))
+}
+
+/// What an open sends, in the order it sends it: every policy before the document.
+///
+/// One statement for the open at launch, on [`Opening`]'s thread, and every open after it, on
+/// this one. A policy applied halfway through is not a policy: §6.3.2.2's instruction is a
+/// property of *this host* rather than of the document, which is why it is not part of `Open` — a
+/// host that changes its mind sends it again and the page is rebuilt — and `Restrict` is the
+/// reader's answer to what the *file* asserts, which `CLAUDE.md` says is always the reader's to
+/// give.
+fn opening_commands(
+    window: viewer_core::RestrictionPolicy,
+    widget_appearances: WidgetAppearances,
+    separations: bool,
+    bytes: pdf_syntax::FileBytes,
+    password: Option<viewer_core::Secret>,
+    fragment: Option<String>,
+) -> VecDeque<Command> {
+    VecDeque::from([
+        Command::Restrict(viewer_core::RestrictionScope::Window(window)),
+        Command::Delegate(widget_appearances),
+        // §10.8.3's simulation on the same argument: it decides what colour every mark of the
+        // first interpretation is, so a preference applied after the page had been drawn would
+        // have drawn the other picture first (ADR 1228).
+        Command::Separations(separations),
+        Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password,
+            fragment,
+        },
+    ])
+}
+
 /// What the chrome layer draws, kept apart from the [`Host`] on purpose.
 ///
 /// GTK draws from its own main loop, so a draw function that reached into the host would borrow
@@ -527,6 +638,8 @@ pub struct Host {
     )>,
     /// The viewport in device pixels, which is the rectangle a transition's frames are drawn in.
     pub(crate) viewport: (u32, u32),
+    /// The document opening on [`Opening`]'s thread, until the first allocation joins it.
+    anticipated: Option<std::thread::JoinHandle<(Viewer, Vec<Event>)>>,
 }
 
 /// The next of Table 29's six arrangements, in the order that table states them.
@@ -578,34 +691,29 @@ impl std::fmt::Debug for Host {
 impl Host {
     /// Builds the window and everything hanging off it, and shows it.
     ///
-    /// The document is **not** opened here: it is opened on the first allocation, because the
-    /// viewport's size decides the resolution page one is rasterised at and a page drawn at a
-    /// guessed size would be drawn twice. What that costs the launch path is one GTK allocation,
-    /// and `--trace=launch` prints it.
-    ///
-    /// # Errors
-    ///
-    /// [`HostError::Unreadable`] where the file named cannot be read.
+    /// The document is opening on `opening`'s thread, and the first allocation joins it: the
+    /// viewport's size decides the resolution page one is rasterised at, and a page drawn at a
+    /// guessed size would be drawn twice (ADR 1539).
+    #[must_use]
     pub fn open(
         app: &gtk4::Application,
-        path: &Path,
-        fragment: Option<String>,
+        opening: Opening,
         widget_appearances: WidgetAppearances,
         settings: viewer_host::Settings,
         trace: Trace,
-    ) -> Result<Rc<RefCell<Self>>, HostError> {
-        // Open on disk rather than read whole: the core reads what page one needs through the
-        // handle, and the file's size stops being the launch's cost (ADR 0809).
-        let bytes =
-            pdf_syntax::FileBytes::on_disk(path).map_err(|error| HostError::Unreadable {
-                path: path.to_owned(),
-                error: error.to_string(),
-            })?;
+    ) -> Rc<RefCell<Self>> {
+        let Opening {
+            path,
+            bytes,
+            fragment,
+            thread,
+        } = opening;
+        let path = path.as_path();
         trace.say(
             Topic::Launch,
             format_args!("opened {} bytes of {} on disk", bytes.len(), path.display()),
         );
-        Ok(Rc::new_cyclic(|me| {
+        Rc::new_cyclic(|me| {
             let chrome = Rc::new(RefCell::new(Chrome {
                 scale: 1.0,
                 ..Chrome::default()
@@ -654,11 +762,7 @@ impl Host {
                 access_interval: None,
                 access_draining: None,
                 widget_appearances,
-                restrictions: viewer_host::Restrictions::new(settings.restrictions)
-                    .with(viewer_host::ActLevel::EmbeddedDocuments(
-                        settings.embedded_documents,
-                    ))
-                    .with(viewer_host::ActLevel::Submissions(settings.submissions)),
+                restrictions: standing(settings),
                 links: settings.links,
                 remote_documents: settings.remote_documents,
                 submitter: viewer_host::submit::Submitter::new(),
@@ -674,8 +778,9 @@ impl Host {
                 arming: None,
                 shown: None,
                 viewport: (1, 1),
+                anticipated: Some(thread),
             })
-        }))
+        })
     }
 
     /// The viewport changed size, in logical pixels.
@@ -704,52 +809,68 @@ impl Host {
         // §12.4.4.1's transition is drawn in the viewport rather than in a page's own rectangle,
         // so the size the core is told is also the size a frame is shaped for.
         self.viewport = (width, height);
-        self.dispatch(Command::Resize {
+        let resize = Command::Resize {
             width,
             height,
             scale,
-        });
-        // A window asked to fit the first displayed page is measured again once it has taken
-        // the size it was asked for, because a frame is not always drawn for a viewport the page
-        // already fits the width of (ADR 1429).
-        if self.opened && self.presenting.owes_placing() {
-            self.fit_the_window();
-        }
+        };
         if !self.opened {
             self.opened = true;
             self.trace.say(
                 Topic::Launch,
                 format_args!("first allocation {width}x{height} device px, scale {scale}"),
             );
-            self.open_document(None);
+            self.join_the_opening(resize);
+            return;
         }
+        self.dispatch(resize);
+        // A window asked to fit the first displayed page is measured again once it has taken
+        // the size it was asked for, because a frame is not always drawn for a viewport the page
+        // already fits the width of (ADR 1429).
+        if self.presenting.owes_placing() {
+            self.fit_the_window();
+        }
+    }
+
+    /// The first allocation: the document [`Opening`] opened is taken in, and told its viewport.
+    ///
+    /// The viewport goes in before any of the open's events is answered, so that each is answered
+    /// against the viewer a first open with a viewport would have left — the order this window
+    /// had when it opened the document here (ADR 1539). A thread that panicked is said, and the
+    /// document opened on this one instead.
+    fn join_the_opening(&mut self, resize: Command) {
+        let joined = self.anticipated.take().map(std::thread::JoinHandle::join);
+        let Some(Ok((viewer, opened))) = joined else {
+            if joined.is_some() {
+                eprintln!("the thread opening the document panicked; opening it here instead");
+            }
+            self.dispatch(resize);
+            self.open_document(None);
+            return;
+        };
+        self.viewer = viewer;
+        self.trace.say(
+            Topic::Launch,
+            format_args!("document joined, {} event(s)", opened.len()),
+        );
+        let resized: Vec<Event> = self.viewer.handle(resize).collect();
+        let mut queue = VecDeque::new();
+        for event in opened.into_iter().chain(resized) {
+            self.react(event, &mut queue);
+        }
+        self.pump(queue);
     }
 
     /// §7.6.4.1: opens the document, with a password where one has been supplied.
     fn open_document(&mut self, password: Option<viewer_core::Secret>) {
-        let bytes = self.showing.bytes.clone();
-        let fragment = self.showing.fragment.clone();
-        // Both policy values go before the document, and for one reason: a policy applied halfway
-        // through is not a policy. §6.3.2.2's instruction is a property of *this host* rather than
-        // of the document, which is why it is not part of `Open` — a host that changes its mind
-        // sends it again and the page is rebuilt — and `Restrict` is the reader's answer to what
-        // the *file* asserts, which `CLAUDE.md` says is always the reader's to give.
-        self.pump(VecDeque::from([
-            Command::Restrict(viewer_core::RestrictionScope::Window(
-                self.restrictions.window(),
-            )),
-            Command::Delegate(self.widget_appearances),
-            // §10.8.3's simulation on the same argument: it decides what colour every mark of the
-            // first interpretation is, so a preference applied after the page had been drawn
-            // would have drawn the other picture first (ADR 1228).
-            Command::Separations(self.separations),
-            Command::Open {
-                id: DOCUMENT,
-                bytes,
-                password,
-                fragment,
-            },
-        ]));
+        self.pump(opening_commands(
+            self.restrictions.window(),
+            self.widget_appearances,
+            self.separations,
+            self.showing.bytes.clone(),
+            password,
+            self.showing.fragment.clone(),
+        ));
     }
 
     /// `CLAUDE.md`'s *ask* level over what a document asserts, as a window a person answers.

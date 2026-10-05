@@ -160,6 +160,9 @@ impl Encoded {
 /// page draws, this prices what the walk placed — and because the two together read as
 /// one function only to someone who has already read both.
 pub(super) fn finish(mut encoder: Encoder<'_>, commands: usize) -> Result<Encoded, RenderError> {
+    // The meets whose exact pixels wait for every tile to be placed are made and written
+    // onto the sheet before anything below reads it, and their helpers let go (ADR 1541).
+    encoder.finish_exact();
     // The sheet's extent is only known once every tile has been placed, so the GPU
     // lane learns it here rather than carrying a guess: its triangles are already in
     // sheet coordinates, and what was missing was how large the sheet turned out to

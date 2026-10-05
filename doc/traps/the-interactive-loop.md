@@ -282,3 +282,12 @@ import is pending there, `interact::import` returns nothing and the data is drop
 word. The fetch now crosses as `Command::Respond { answers: Answered::Import, .. }`, addressed to
 the document that asked (ADR 1527). Anything that answers later than it was asked names its
 document.
+
+### 106. Two windows hold their own viewer, and a delegating host threw its anticipated page away
+
+The GTK and Qt windows each own a `viewer_core::Viewer`; neither passes through `viewer-ffi`'s
+session, and a brief that routed the anticipation through it was corrected by reading `host.rs`.
+Bringing `Viewer::anticipate` to them found a defect `quorra` could not show: `anticipate` ignored
+`Command::Delegate`, so a delegating host's first resize dropped the page interpreted ahead and
+interpreted it again, 18–25 ms on `bug1815476.pdf` (ADR 1539). A path on the launch route is tested
+under a delegating host and a plain one, and a window's launch is measured in that window.

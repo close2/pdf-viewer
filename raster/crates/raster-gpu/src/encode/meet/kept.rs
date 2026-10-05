@@ -140,9 +140,11 @@ impl KeptMeets {
         Some(met)
     }
 
-    /// Keep `met` under `key` where what is left of this render's budget holds it.
+    /// Keep `met` under `key` where what is left of this render's budget holds it. A key this
+    /// render already holds names the same bytes, and is not charged again: a meet asked twice
+    /// before its first asking settled is kept twice (ADR 1541).
     pub(super) fn keep(&mut self, key: Box<[u32]>, met: &Arc<[u8]>) {
-        if self.afford(key.len(), met.len()) {
+        if !self.current.contains_key(&key) && self.afford(key.len(), met.len()) {
             self.current.insert(key, Arc::clone(met));
         }
     }
@@ -159,9 +161,10 @@ impl KeptMeets {
     }
 
     /// Keep a whole coverage tile under `key` where what is left of this render's budget
-    /// holds it.
+    /// holds it; a key this render already holds is not charged again, as [`KeptMeets::keep`]
+    /// says.
     pub(in crate::encode) fn keep_tile(&mut self, key: Box<[u32]>, tile: &Arc<[u8]>) {
-        if self.afford(key.len(), tile.len()) {
+        if !self.tiles.contains_key(&key) && self.afford(key.len(), tile.len()) {
             self.tiles.insert(key, Arc::clone(tile));
         }
     }
@@ -257,6 +260,33 @@ mod tests {
         assert!(
             again != first && again != other,
             "a number is never handed out twice"
+        );
+    }
+
+    /// A key kept twice in one render — a meet asked again before its first asking settled
+    /// (ADR 1541) — is charged once: the budget that holds one entry still holds another.
+    #[test]
+    fn a_key_kept_twice_is_charged_once() {
+        let mut kept = KeptMeets::default();
+        // One entry of 8 key words and 8 bytes costs 32 + 8 + 64 = 104; the budget holds two.
+        kept.begin_render(16 * 208);
+        let key: Box<[u32]> = vec![1; 8].into();
+        kept.keep(key.clone(), &met(&[1; 8]));
+        kept.keep(key, &met(&[1; 8]));
+        let other: Box<[u32]> = vec![2; 8].into();
+        kept.keep(other.clone(), &met(&[2; 8]));
+        assert!(
+            kept.find(&other).is_some(),
+            "the second key fits beside the first"
+        );
+        let tile: Box<[u32]> = vec![3; 8].into();
+        kept.begin_render(16 * 208);
+        kept.keep_tile(tile.clone(), &met(&[3; 8]));
+        kept.keep_tile(tile, &met(&[3; 8]));
+        kept.keep_tile(vec![4; 8].into(), &met(&[4; 8]));
+        assert!(
+            kept.find_tile(&[4; 8]).is_some(),
+            "and so does a second tile"
         );
     }
 

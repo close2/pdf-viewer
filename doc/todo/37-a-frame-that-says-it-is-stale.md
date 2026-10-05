@@ -9,7 +9,7 @@ now shows the pixels already on the screen, moved to where the new view puts the
 frame replaces it — the frame line says `approximated`, the summary counts them **and counts what
 was refused**, and `crates/viewer-ui/src/bin/quorra/stale.rs` carries the five rules with the
 thing that enforces each.
-Cited by: comments in `crates/viewer-ui` and `crates/pdf-render`; §12.7's ledger note — the reason the file is kept whole rather than deleted (ADR 1416).
+Cited by: comments in `crates/viewer-ui` and `crates/pdf-render` — the reason the file is kept whole rather than deleted (ADR 1416).
 Priority: 37 — both surfaces, one policy, and the only thing they still differ in is what a
 stand-in costs the thread that presents.
 Witness: `tmp/Entwurf.pdf` — **not in the repository**, so no test may name that path. The costs

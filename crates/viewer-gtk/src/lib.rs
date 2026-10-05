@@ -59,4 +59,4 @@ mod page;
 mod pages;
 mod tree;
 
-pub use host::{Host, HostError};
+pub use host::{Host, HostError, Opening};

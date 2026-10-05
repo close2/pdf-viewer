@@ -28,7 +28,7 @@ use raster_scene::{Point, Rect};
 use super::clips::ResolvedClip;
 use super::device_space::tile_side;
 use super::instance::CoverageSource;
-use super::meet::Mark;
+use super::meet::{ExactMeet, Mark, MarkInputs};
 use super::thin::ThinAxis;
 use super::{DrawStyle, Encoder};
 use crate::atlas::CacheProspect;
@@ -117,15 +117,21 @@ impl Encoder<'_> {
                 },
             );
         }
-        let Some(tile) = self.coverage_tile(polylines, rule, resolved)? else {
+        let Some((tile, exact)) = self.coverage_tile(polylines, rule, resolved)? else {
             return Ok(());
         };
         let dest = Point::new(tile.left as f32, tile.top as f32);
-        self.push_scratch_quad(&tile, dest, color, resolved.rect, style, mask)
+        let at = self.push_scratch_quad(&tile, dest, color, resolved.rect, style, mask)?;
+        if let Some(exact) = exact {
+            self.place_exact(at, exact);
+        }
+        Ok(())
     }
 
     /// Rasterise the visible coverage of these polylines — shape ∩ clip ∩ target,
-    /// residue clips met — or `None` when nothing is visible.
+    /// residue clips met — or `None` when nothing is visible; beside the tile, its meet's
+    /// exact pixels where they are still to be made, which the caller places where it packs
+    /// the tile ([`Encoder::place_exact`], ADR 1541).
     ///
     /// **A tile the render before made is not made again** (ADR 1529): the filled and met
     /// bytes are a function of the words [`Encoder::tile_words`] lists, so a tile under the
@@ -138,7 +144,7 @@ impl Encoder<'_> {
         polylines: &[Polyline],
         rule: Rule,
         resolved: &ResolvedClip,
-    ) -> Result<Option<raster::CoverageMask>, RenderError> {
+    ) -> Result<Option<(raster::CoverageMask, Option<ExactMeet>)>, RenderError> {
         let Some(bounds) = raster::polyline_bounds(polylines) else {
             return Ok(None);
         };
@@ -156,37 +162,41 @@ impl Encoder<'_> {
             .as_deref()
             .and_then(|words| self.kept.find_tile(words))
         {
-            return Ok(Some(raster::CoverageMask {
+            let tile = raster::CoverageMask {
                 left,
                 top,
                 width,
                 height,
                 coverage: kept.to_vec(),
-            }));
+            };
+            return Ok(Some((tile, None)));
         }
         let span = self.clock.start();
         let mut tile = raster::fill_mask(polylines, rule, left, top, width, height);
         self.clock.geometry(span);
 
-        let unbounded = self.meet_residue(
+        let mut met = self.meet_residue(
             &mut tile,
             resolved,
-            Mark {
+            MarkInputs::Borrowed(Mark {
                 polylines,
                 rule,
                 edges: None,
-            },
+            }),
             false,
         )?;
         if let Some(words) = words
-            && unbounded
+            && met.unbounded
         {
-            self.kept.keep_tile(
-                words.into_boxed_slice(),
-                &Arc::from(tile.coverage.as_slice()),
-            );
+            match met.exact.as_mut() {
+                Some(exact) => exact.keep_as_tile(words),
+                None => self.kept.keep_tile(
+                    words.into_boxed_slice(),
+                    &Arc::from(tile.coverage.as_slice()),
+                ),
+            }
         }
-        Ok(Some(tile))
+        Ok(Some((tile, met.exact)))
     }
 
     /// The tile a shape with these device bounds occupies: shape ∩ clip ∩ target,
@@ -416,6 +426,7 @@ impl Encoder<'_> {
         packed.ok_or_else(|| self.scratch.exhausted(tile.width, tile.height))
     }
 
+    /// Pack `tile` on the sheet and draw it at `dest`, answering where on the sheet it lies.
     #[expect(clippy::cast_precision_loss)]
     // one draw's parameters, threaded once
     pub(super) fn push_scratch_quad(
@@ -426,7 +437,7 @@ impl Encoder<'_> {
         clip: Rect,
         style: DrawStyle,
         mask: Option<u32>,
-    ) -> Result<(), RenderError> {
+    ) -> Result<(u32, u32), RenderError> {
         let (sx, sy) = self.pack_scratch(tile)?;
         self.push_quad_instance(
             dest,
@@ -439,6 +450,7 @@ impl Encoder<'_> {
             clip,
             style,
             mask,
-        )
+        )?;
+        Ok((sx, sy))
     }
 }

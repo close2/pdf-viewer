@@ -209,7 +209,7 @@ fn row_starts(runs: &[(u32, Entry)], rows: u32) -> Vec<u32> {
 /// it by two searches, and the edges wholly left of that run add their winding from a prefix
 /// sum rather than one at a time — a row of a clip holding thousands of glyph edges is not
 /// walked again for every pixel a mark cuts in it.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct RowEdges {
     rule: Rule,
     /// The first row bucketed.

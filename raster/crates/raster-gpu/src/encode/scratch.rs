@@ -183,12 +183,21 @@ impl ScratchPacker {
         if self.data.len() < needed_rows * row_bytes {
             self.data.resize(needed_rows * row_bytes, 0);
         }
+        self.rewrite(position, mask);
+        Some(position)
+    }
+
+    /// Write `mask`'s bytes over the tile [`ScratchPacker::pack`] placed at `position` for a
+    /// tile of the same extent — a meet whose exact pixels were made after the walk packed
+    /// it (ADR 1541).
+    #[expect(clippy::arithmetic_side_effects)] // inside the tile `pack` placed
+    pub(super) fn rewrite(&mut self, position: (u32, u32), mask: &raster::CoverageMask) {
+        let row_bytes = self.width as usize;
         for row in 0..mask.height as usize {
             let src = &mask.coverage[row * mask.width as usize..(row + 1) * mask.width as usize];
             let dst_start = (position.1 as usize + row) * row_bytes + position.0 as usize;
             self.data[dst_start..dst_start + mask.width as usize].copy_from_slice(src);
         }
-        Some(position)
     }
 
     /// The packed sheet, or `None` when nothing was placed on it.

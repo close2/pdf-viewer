@@ -542,7 +542,7 @@ mod tests {
         let ledger = Ledger {
             rows: vec![row(
                 "12.6.3",
-                "This row said \"this crate has no events\" until the hundred-and-seventy-fourth.",
+                "This row said \"this crate has no events\" until something raised one.",
             )],
         };
         let report = sweep(&ledger, &[]);

@@ -17,7 +17,7 @@
 #
 #   tools/batch.sh open  batch-1038-1043   # worktree at /home/AI/pdf-viewer-rounds, guard on
 #   tools/batch.sh gates                   # tiers 2 and 3, one line per gate, into batch-gates.log
-#   tools/batch.sh check                   # the six things a merge looks at by hand, one line each
+#   tools/batch.sh check                   # what a merge would otherwise look at by hand, one line each
 #   tools/batch.sh commit /path/message    # stage the whole population by name, count it, commit
 #   tools/batch.sh install                 # after the fast-forward: what a person runs, into main's target/
 #   tools/batch.sh close batch-1038-1043   # after `git merge --ff-only` on main: remove both
@@ -252,7 +252,7 @@ check_batch() {
         sed -n 's|^doc/history/\([0-9]\{1,\}\)-.*\.md$|\1|p' | sort -n | tail -1)
     found=$(untracked_paths | grep '^doc/history/' |
         sed -n 's|^\(doc/history/\([0-9]\{1,\}\)-.*\.md\)$|\2 \1|p' |
-        awk -v newest="${newest:-0}" '$1 <= newest { printf "%s is numbered %s, behind the committed %s\n", $2, $1, newest }')
+        awk -v newest="${newest:-0}" '$1 <= newest { printf "%s is numbered %s, behind the committed %s\n", $2, $1, newest }' || true)
     printf 'record numbered behind a merged one %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) record(s)")"
     [ -z "$found" ] || { printf '%s\n' "$found" | sed 's/^/    /'; bad=1; }
 
@@ -287,6 +287,24 @@ check_batch() {
         awk '$1 != "160000" { print $4 }' || true)
     printf 'submodules staged as gitlinks    %s\n' "$([ -z "$found" ] && echo "all $(git config -f .gitmodules --get-regexp '\.path$' | wc -l)" || echo "$(printf '%s\n' "$found" | wc -l) staged as a blob")"
     [ -z "$found" ] || { printf '%s\n' "$found" | sed 's/^/    /'; bad=1; }
+
+    # A symlink at the worktree's root that is not one of the two the worktree is opened with. A
+    # round that links a scratch tree in to run something leaves a path every later round and the
+    # merge can follow into a directory that is about to be deleted; two were left last batch and
+    # removed by hand. `corpus-cache` and `tmp` are the standing set.
+    found=$(find "$wt" -mindepth 1 -maxdepth 1 -type l -printf '%f -> %l\n' 2>/dev/null |
+        grep -vE '^(corpus-cache|tmp) -> ' || true)
+    printf 'symlink at the root, not standing %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) link(s)")"
+    [ -z "$found" ] || { printf '%s\n' "$found" | sed 's/^/    /'; bad=1; }
+
+    # A round's scratch instrumentation left in a source a sibling builds: a `TMPFRAME`-shaped
+    # timer, or a name carrying a round's own number (`r1234`). One stayed in a sibling's path for
+    # a whole round last batch and broke three clippy runs. `TMPDIR` is the environment's own name
+    # and is not scratch; this function's source is left out, because it has to spell both shapes.
+    found=$(grep -rnIE '\bTMP[A-Z]+\b|\br1[0-9]{3}\b' crates raster tools --exclude-dir=target 2>/dev/null |
+        grep -v '^tools/batch\.sh:' | grep -vE '\bTMPDIR\b' || true)
+    printf 'scratch identifier in a source    %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) line(s)")"
+    [ -z "$found" ] || { printf '%s\n' "$found" | cut -c1-140 | sed 's/^/    /'; bad=1; }
 
     # And the one tier-1 line that fails after a commit rather than before it.
     local fmt

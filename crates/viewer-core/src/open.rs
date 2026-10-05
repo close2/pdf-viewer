@@ -47,7 +47,12 @@ const ZOOM_RANGE: (f32, f32) = (0.02, 64.0);
 #[derive(Debug)]
 pub(crate) struct Open {
     /// The file. Immutable, by rule 1, for as long as it is open.
-    pub(crate) document: Document,
+    ///
+    /// **Shared rather than owned, so that a host may read what page one does not need on a
+    /// thread of its own** — [`crate::Preparation`] holds a second handle, and `Document` is
+    /// `Sync` (ADR 0260). The core itself still runs on one thread (rule 4): what crosses is a
+    /// handle to an immutable file, and what comes back is a value (ADR 1543).
+    pub(crate) document: Arc<Document>,
     /// What §12.6.4's actions and §8.11's layer switches have changed since it opened.
     pub(crate) view: ViewState,
     /// §12.4.2's labelling ranges, read once when the document opened.
@@ -55,8 +60,16 @@ pub(crate) struct Open {
     /// Once rather than per page turn: the tree is a handful of ranges and reading it costs one
     /// walk, where doing it per page would put a number-tree walk on every arrow key.
     pub(crate) labels: PageLabels,
-    /// §12.3.3's outline, read once for the same reason.
-    pub(crate) outline: Outline,
+    /// §12.3.3's outline, read the first time something asks for it and never on the launch path.
+    ///
+    /// **Not read when the document opens, because page one does not need it** — `CLAUDE.md`
+    /// principle 2's "[a]nything not needed to show page one is deferred until first use". It is
+    /// 35.5 M instructions on ISO 32000-2's 988 items, and the title bar's §12.3.3 section, which
+    /// was the reason it was read at open, also needs [`Self::page_indices`] — 65.1 M more, the
+    /// whole page tree. [`crate::Preparation`] is how a host has both read off the thread that
+    /// draws; a host that does not ask has them read at first use instead — `Query::Outline`, or
+    /// the first page turn's section (ADR 1543).
+    pub(crate) outline: OnceCell<Outline>,
     /// §7.7.3's whole page tree, placed once: which page each object in it is.
     ///
     /// **The largest single item in a large document's open, and it was being paid again on
@@ -68,8 +81,9 @@ pub(crate) struct Open {
     ///
     /// A [`OnceCell`] rather than a field of [`Self::around`], because a document with no
     /// outline never needs it at all — and because the walk is exactly the "full page-tree walk"
-    /// `CLAUDE.md` principle 2 says is not on the launch path, so what remains of it there is
-    /// something to be able to point at (ADR 0890).
+    /// `CLAUDE.md` principle 2 says is not on the launch path. Nothing on that path builds it:
+    /// the opening announcement states a section only where the outline has already been read
+    /// (ADRs 0890, 1543).
     pub(crate) page_indices: OnceCell<BTreeMap<ObjectId, usize>>,
     /// How many pages, counting §12.7.8.3.3's imported template pages after the document's own.
     pub(crate) page_count: usize,
@@ -834,10 +848,13 @@ impl Open {
     /// was never a file: it comes out of §7.11.4's embedded file stream inside the document
     /// already open, and everything below it is the same.
     pub(crate) fn around(document: Document) -> Self {
+        let document = Arc::new(document);
         let pages = Pages::new(&document);
         let page_count = pages.len();
+        // Read here, unlike the outline, because the opening announcement names page one by its
+        // §12.4.2 label — the caption beside page one needs it — and it is one number tree of a
+        // handful of ranges: 1.6 M instructions on ISO 32000-2, against the outline's 35.5 M.
         let labels = PageLabels::read(&document);
-        let outline = Outline::read(&document, &pages);
         // §12.3.2.1: "the optional OpenAction entry in a document's catalog dictionary may
         // specify a destination that shall be displayed when the document is opened." Table 29
         // states the other half — an absent or unresolvable entry means the top of the first
@@ -859,7 +876,7 @@ impl Open {
             document,
             view,
             labels,
-            outline,
+            outline: OnceCell::new(),
             page_indices: OnceCell::new(),
             page_count,
             page_index,
@@ -902,6 +919,37 @@ impl Open {
             scan_refusal_said: false,
             about: OnceCell::new(),
         }
+    }
+
+    /// §12.3.3's outline, read now if nothing has read it yet.
+    ///
+    /// The first use pays for it, on whichever thread asks; [`crate::Preparation`] is how a host
+    /// makes that a thread other than the one that draws (ADR 1543).
+    pub(crate) fn outline(&self) -> &Outline {
+        self.outline
+            .get_or_init(|| Outline::read(&self.document, &Pages::new(&self.document)))
+    }
+
+    /// §7.7.3's page tree placed — which page each object is — built now if nothing has built it.
+    pub(crate) fn page_indices(&self) -> &BTreeMap<ObjectId, usize> {
+        self.page_indices
+            .get_or_init(|| Pages::new(&self.document).indices())
+    }
+
+    /// The §12.3.3 section covering `index`, where the outline names one.
+    ///
+    /// `read` false answers only from what is already read, which is what the opening
+    /// announcement asks: a section is not worth the outline and the whole page tree in front of
+    /// page one (ADR 1543).
+    pub(crate) fn section_at(&self, index: usize, read: bool) -> Option<String> {
+        let (outline, indices) = if read {
+            (self.outline(), self.page_indices())
+        } else {
+            (self.outline.get()?, self.page_indices.get()?)
+        };
+        outline
+            .section_at_with(&self.document, indices, index)
+            .map(ToOwned::to_owned)
     }
 
     /// What this document says about itself, worded once and kept.
@@ -2224,6 +2272,82 @@ pub(crate) fn interpret(open: &Open, index: usize) -> Option<Read> {
 /// where it would cost everything.
 fn text(bytes: &[u8]) -> String {
     format!("`{}`", String::from_utf8_lossy(bytes))
+}
+
+/// What a document reads after page one, packaged for a thread the host chooses.
+///
+/// **`CLAUDE.md` principle 2 defers it and `viewer-core`'s rule 4 forbids the core a thread of
+/// its own, and this is how both are kept.** §12.3.3's outline and §7.7.3's whole page tree,
+/// placed, are what the title bar's section needs and what page one does not: 100.6 M of the
+/// 185.1 M instructions a 1023-page open executed before they left it. A host takes this from
+/// [`crate::Viewer::preparation`] once page one is on its way, calls [`Self::run`] on any thread —
+/// a handle to the immutable file is all it holds — and hands what comes back to
+/// [`crate::Viewer::prepared`]. A host that never asks loses nothing but the timing: the first
+/// use reads both, on the thread that asked (ADR 1543).
+#[derive(Debug)]
+pub struct Preparation {
+    /// The document this was taken for, so that an answer names its document (trap 104).
+    pub(crate) id: crate::DocumentId,
+    /// The file, shared with the [`Open`] it came from.
+    pub(crate) document: Arc<Document>,
+}
+
+impl Preparation {
+    /// Reads the outline and places the page tree. The whole of the work, and none of it the
+    /// core's state: it touches only the file, so it may run beside anything the core does.
+    #[must_use]
+    pub fn run(self) -> Prepared {
+        let pages = Pages::new(&self.document);
+        let outline = Outline::read(&self.document, &pages);
+        let indices = pages.indices();
+        drop(pages);
+        Prepared {
+            id: self.id,
+            document: self.document,
+            outline,
+            indices,
+        }
+    }
+}
+
+/// What [`Preparation::run`] read, waiting to be handed to [`crate::Viewer::prepared`].
+#[derive(Debug)]
+pub struct Prepared {
+    /// The document it was read for.
+    pub(crate) id: crate::DocumentId,
+    /// The file it was read from: an answer for a document since closed, or for another file
+    /// opened under the same id, is told apart by this rather than by the id alone.
+    pub(crate) document: Arc<Document>,
+    /// §12.3.3's outline.
+    pub(crate) outline: Outline,
+    /// §7.7.3's page tree, placed.
+    pub(crate) indices: BTreeMap<ObjectId, usize>,
+}
+
+impl Open {
+    /// The work [`Preparation`] carries, where it is still to do.
+    pub(crate) fn preparation(&self, id: crate::DocumentId) -> Option<Preparation> {
+        (self.outline.get().is_none() || self.page_indices.get().is_none()).then(|| Preparation {
+            id,
+            document: Arc::clone(&self.document),
+        })
+    }
+
+    /// Takes in what a [`Preparation`] read, where it is this document's and still wanted.
+    ///
+    /// Returns whether it was this document's. A cell already filled — a first use that came
+    /// before the answer did — keeps what it holds: both are functions of one immutable file.
+    pub(crate) fn prepared(&mut self, prepared: Prepared) -> bool {
+        if !Arc::ptr_eq(&self.document, &prepared.document) {
+            return false;
+        }
+        let Prepared {
+            outline, indices, ..
+        } = prepared;
+        self.outline.get_or_init(|| outline);
+        self.page_indices.get_or_init(|| indices);
+        true
+    }
 }
 
 #[cfg(test)]

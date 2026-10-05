@@ -17,7 +17,7 @@ use pdf_model::view::WidgetAppearances;
 use gtk4::prelude::*;
 use gtk4::{gio, glib};
 use viewer_core::{RestrictionLevel, RestrictionPolicy};
-use viewer_gtk::Host;
+use viewer_gtk::{Host, Opening};
 use viewer_host::{IGNORE_RESTRICTIONS, Topic, Trace, parse_topics};
 
 /// What the command line asked for.
@@ -154,52 +154,50 @@ fn main() -> glib::ExitCode {
         Trace::of(arguments.topics, began)
     };
     trace.say(Topic::Launch, format_args!("arguments read"));
-
+    let settings = viewer_host::Settings {
+        restrictions: arguments.restrictions,
+        links: arguments.links,
+        remote_documents: arguments.remote_documents,
+        embedded_documents: arguments.embedded_documents,
+        submissions: arguments.submissions,
+        separations: arguments.separations,
+    };
+    // **The document opens, and page one is interpreted, before GTK is asked for anything**
+    // (ADR 1539): the display, the theme and the window take longer than the open does, and
+    // neither needs the other until the first allocation joins them.
+    let opening = match Opening::start(
+        &arguments.document.path,
+        arguments.document.fragment.clone(),
+        arguments.widget_appearances,
+        settings,
+    ) {
+        Ok(opening) => std::cell::Cell::new(Some(opening)),
+        Err(error) => {
+            eprintln!("{error}");
+            return glib::ExitCode::FAILURE;
+        }
+    };
     // `NON_UNIQUE` because this is a document viewer and two documents are two windows; without
     // it a second invocation would hand its file to the first process and exit, which is a
     // decision about how a desktop works rather than about how a PDF is read.
     let app = gtk4::Application::new(Some("org.pdfviewer.gtk"), gio::ApplicationFlags::NON_UNIQUE);
-    let failed = std::rc::Rc::new(std::cell::Cell::new(false));
-    let watched = std::rc::Rc::clone(&failed);
     // Every callback in the host holds itself *weakly*, so something has to hold it strongly for
     // as long as the application runs; this is that something.
     let held: std::cell::RefCell<Vec<std::rc::Rc<std::cell::RefCell<Host>>>> =
         std::cell::RefCell::new(Vec::new());
     app.connect_activate(move |app| {
         trace.say(Topic::Launch, format_args!("GTK ready"));
-        match Host::open(
-            app,
-            &arguments.document.path,
-            arguments.document.fragment.clone(),
-            arguments.widget_appearances,
-            viewer_host::Settings {
-                restrictions: arguments.restrictions,
-                links: arguments.links,
-                remote_documents: arguments.remote_documents,
-                embedded_documents: arguments.embedded_documents,
-                submissions: arguments.submissions,
-                separations: arguments.separations,
-            },
-            trace,
-        ) {
-            Ok(host) => {
-                host.borrow_mut().open_behind(arguments.also.clone());
-                held.borrow_mut().push(host);
-            }
-            Err(error) => {
-                eprintln!("{error}");
-                watched.set(true);
-                app.quit();
-            }
-        }
+        // A non-unique application is activated once, so the document is taken the one time.
+        let Some(opening) = opening.take() else {
+            return;
+        };
+        let host = Host::open(app, opening, arguments.widget_appearances, settings, trace);
+        host.borrow_mut().open_behind(arguments.also.clone());
+        held.borrow_mut().push(host);
     });
     // GTK's own argument parsing is deliberately not given ours: `--trace` is this program's and
     // a document is a path rather than a GTK option.
-    let code = app.run_with_args::<&str>(&[]);
-    if failed.get() {
-        return glib::ExitCode::FAILURE;
-    }
-    code
+    app.run_with_args::<&str>(&[])
 }
 
 #[cfg(test)]

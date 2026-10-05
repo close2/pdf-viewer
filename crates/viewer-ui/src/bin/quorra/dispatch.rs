@@ -46,6 +46,39 @@ impl App {
         self.pump(queue);
     }
 
+    /// The launch document's outline and page tree, if the thread reading them has answered.
+    ///
+    /// The caption's section comes back as an `Event::PageChanged` and the panel's outline is
+    /// asked for now, on this thread, from what has already been read (ADR 1543).
+    pub(crate) fn take_the_preparation(&mut self) {
+        let Some(answer) = self.preparing.as_ref() else {
+            return;
+        };
+        let prepared = match answer.try_recv() {
+            Ok(prepared) => prepared,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                // The thread ended without an answer; the first use reads it instead.
+                self.preparing = None;
+                return;
+            }
+        };
+        self.preparing = None;
+        let events: Vec<Event> = self.viewer.prepared(prepared).collect();
+        let mut queue = VecDeque::new();
+        for event in events {
+            self.react(event, &mut queue);
+        }
+        self.pump(queue);
+        // The other lists were taken when the document opened; only the outline waited.
+        if self.documents.focused() == crate::DOCUMENT
+            && let Answer::Outline(outline) = self.viewer.query(Query::Outline)
+        {
+            self.outline = outline;
+            self.say_what_the_panel_holds();
+        }
+    }
+
     /// Runs commands until nothing is left, reacting to what each produces.
     fn pump(&mut self, mut queue: VecDeque<Command>) {
         while let Some(command) = queue.pop_front() {

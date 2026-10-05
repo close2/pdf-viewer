@@ -831,9 +831,8 @@ mod tests {
     /// it invisible to a reader and to every other sweep: it looks maximally diligent.
     #[test]
     fn a_row_that_records_an_erratum_and_quotes_what_it_struck_is_named() {
-        let note = "The word was *association* until the four-hundred-and-eighteenth session and \
-                    Errata Collection 3 makes it enclosure (Issue #437). `Form` reaches a person \
-                    as a control since the five-hundred-and-third session, and that is this row's \
+        let note = "The word was *association* until Errata Collection 3 made it enclosure \
+                    (Issue #437). `Form` reaches a person as a control, and that is this row's \
                     one reader-side requirement: the type is \"[e]ither an association between \
                     content enclosed by the Form structure element and a corresponding widget \
                     annotation or a mechanism to include a widget annotation in the structure \
