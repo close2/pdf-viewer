@@ -477,3 +477,9 @@ in one place and the two counts agree (ADR 1522). And a ranges-into-the-readback
 checked for years surfaced the day earlier bytes shifted: spans recorded inside an `/ActualText`
 replacement had always pointed at stale bytes (ADR 1515 §5) — a range into a buffer is held by a
 test that moves the buffer.
+
+**A change under `raster/crates/raster-gpu/src/` runs every example `ci.yml` names with `--check`,
+under Xvfb, behind the lock.** Nothing in the merge recipe runs them, so their premises went stale
+until the owner's CI failed on two of them (`outline_upload`'s witness, `retained`'s cold-frame
+signature; ADR 1563). Until the examples are a gate of `tools/batch.sh gates`, the round that
+touches `raster-gpu` runs the loop itself and says so in its record.

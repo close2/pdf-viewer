@@ -9,7 +9,7 @@
 //! left `unreviewed` — but neither asks whether the files that cite a clause are the files its row
 //! names.
 //!
-//! Session 1210 found the shape by reading: §12.7.3, §7.9.6 and §14.13.2 are each read by
+//! ADR 1274 found the shape by reading: §12.7.3, §7.9.6 and §14.13.2 are each read by
 //! `pdf-transform`'s archive converter, which cites all three by number in its comments, and not
 //! one of the three rows named it. The converter had been there for batches. **A `code` list goes
 //! stale in one direction only** — a round that adds a reader cites the clause beside the code,
@@ -190,7 +190,7 @@ impl Unrowed {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Rung {
     /// A row claiming work whose `code` names **no file of this crate at all**, read
-    /// [`REPEATED`] times or more by a library source of it. Session 1210's own shape.
+    /// [`REPEATED`] times or more by a library source of it. ADR 1274's own shape.
     UnknownCrate,
     /// A row claiming work whose `code` names this crate and not this file, read [`REPEATED`]
     /// times or more by a library source of it.

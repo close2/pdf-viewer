@@ -88,7 +88,7 @@ const MOST_REFUSED: usize = 10;
 /// **Both runs are reported, because the two numbers answer different questions and one of them
 /// silently replacing the other would misstate the converter.** The authorised run says what this
 /// converter can reach; the default run says what a person who types the command and answers
-/// nothing actually gets, and that is the number a release note would have to carry. Session 952
+/// nothing actually gets, and that is the number a release note would have to carry. ADR 0952
 /// moved this sweep from the default to the authorised run and the converted count went from 98
 /// to 405 at PDF/A-2b — most of which is the *question* being answered rather than a gap being
 /// closed.

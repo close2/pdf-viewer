@@ -12,7 +12,7 @@
 //! > Ordinarily, the bytes making up the name are never treated as text to be presented to a
 //! > human user or to an application external to a PDF processor.
 //!
-//! A *report* is that need; a *lookup* is not. Session 603 found the sentence broken for a
+//! A *report* is that need; a *lookup* is not. ADR 0438 found the sentence broken for a
 //! resource name (ADR 0438) and this file is the sweep that followed it (ADR 0439): a pair per
 //! vocabulary, each pair differing only in the byte the rule is about.
 //!

@@ -410,7 +410,7 @@ fn parse(output: &str) -> Answer {
 
 /// Where poppler reports an annotation, measured rather than assumed (trap 3).
 ///
-/// Session 499 pinned poppler-glib's annotation-mapping area against hand-built fixtures whose
+/// ADR 0334 pins poppler-glib's annotation-mapping area against hand-built fixtures whose
 /// crop box differs from their media box, at every `/Rotate`: the area is the `/Rect`
 /// translated by the crop box's origin, y still upward, with the page's rotation then applied
 /// as a rotation of the *page*, not of the rectangle's corners. This function is that
@@ -1270,7 +1270,7 @@ fn ratchet(tally: &Tally, population: usize) {
         tally.off.fields_checked,
         2,
     );
-    println!("ratchet held: every floor and every named population as in session 499");
+    println!("ratchet held: every floor and every named population as ADR 0334 set them");
 }
 
 /// One document through the whole instrument, un-ignored, so the witness scripts cannot rot

@@ -20,7 +20,7 @@
 //! see the other's, and the collision reached `main` three rounds later in a merge with every gate
 //! green. Nothing dangled, because each reference cited a filename rather than a number; what broke
 //! is that **one of the two could never be answered** — an `A27` would have named a question and
-//! not said which. Session 934 renumbered one and wrote [ADR 0908]; this is the half that keeps it
+//! not said which. One was renumbered, and [ADR 0908] says why; this is the half that keeps it
 //! from happening again quietly.
 //!
 //! [ADR 0908]: ../../../doc/adr/0908-two-questions-called-q27.md

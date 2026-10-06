@@ -13,7 +13,7 @@
 //! printing a population rather than a verdict is `CLAUDE.md`'s two denominators: the grammar is
 //! implemented from the standard, and what a corpus can add is which of the standard's forms
 //! producers write, and whether any value the check refuses was written by a producer that meant
-//! a date by it. Session 993 ran it before and after widening the check; ADR 1013 has both
+//! a date by it. It was run before and after the check was widened, and ADR 1013 has both
 //! tables and names every value that moved.
 
 #![expect(

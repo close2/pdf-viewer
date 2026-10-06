@@ -384,7 +384,10 @@ address-space ceiling, and the window never parses a byte of the file. It takes 
 document cannot decline and takes back the window's own drawing thread, which is the marks arm's
 draw (ADRs 0241, 0650). It is deliberately the smallest complete host — no panels, no forms, no
 selection, no password prompt, each refused by name — and it is *not* one of `doc/todo/30`'s three
-level hosts; its scope and the argument are ADR 0713's.
+level hosts; its scope and the argument are ADR 0713's. Its worker rasterises a page that crosses as pixels on as
+many threads as the machine has, the pool built inside the confinement (ADR 1554), and reads the
+outline on a thread of its own after an open, so the caption names page one's section once the
+next answer arrives (ADR 1553).
 
 **The pipeline is a gate this project had stopped reading, and both its failures were real** (ADR
 0189). It had been red since 2026-08-02. `render-gpu`'s bounded wait was one second rather than the

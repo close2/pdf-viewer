@@ -205,6 +205,11 @@ fn what_it_printed(said: &str) {
         "abi 2 (header 2), 22 event kind(s) (header 22)",
         "Opened says document 1 has 5 page(s)",
         "page 1 of 5 (5 page(s) in the document)",
+        // The open read no outline, so its announcement had no section; the preparation, run and
+        // handed back through the ABI, announces page one again under §12.3.3's item whose
+        // destination is page one — the note's title item, whose `/Title` breaks the line after
+        // "001:" (ADR 1553).
+        "prepared: page 1 is in \"PDF 2.0 Application Note 001:",
         "outline: 14 row(s)",
         // Annex O's `search`, pumped one page at a time by the C loop, and the view moves to the
         // page the occurrence is on, which is the annex's "selecting the first matching word in

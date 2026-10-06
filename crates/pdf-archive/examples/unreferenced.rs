@@ -25,7 +25,7 @@
 //!
 //! A row that still fails on nothing but exempt objects is a row the applicable **carve-out
 //! keeps**: the exemption withdrew nothing there because the clause is one of the ones the part
-//! took back. Session 944 measured exactly that population before the exemption was implemented
+//! took back. ADR 0935 measured exactly that population before the exemption was implemented
 //! and found every one of it inside a carve-out (`doc/todo/62` section 3); the same count printed
 //! here after it is implemented is the check on that reading.
 //!

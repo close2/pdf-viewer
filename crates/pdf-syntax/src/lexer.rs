@@ -1481,7 +1481,7 @@ mod tests {
     /// position and absent. What is given up is the exhaustiveness — the claim that *no*
     /// five-digit string disagrees — which is a claim about arithmetic that the interpreter was
     /// never the instrument for, and which the same test makes in full on every other gate.
-    /// Session 630; ADR 0463.
+    /// ADR 0463.
     #[test]
     fn the_fixed_format_parse_agrees_with_the_standard_library() {
         let sampled = |value: &u32| !cfg!(miri) || *value < 100 || value.is_multiple_of(997);

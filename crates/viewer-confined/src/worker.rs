@@ -49,22 +49,26 @@ use crate::protocol;
 /// something sensible happens at rather than a size anything depends on.
 const INITIAL_VIEWPORT: (u32, u32) = (794, 1123);
 
-/// How many threads a confined process rasterises with.
+/// The variable whose being set is what makes a pool wider than one thread safe to build here.
 ///
-/// **One, and it is a finding rather than a preference.** `glibc`'s allocator sizes its arena
-/// count from `__get_nprocs`, which reads `/sys/devices/system/cpu/online` — so the first
-/// allocation in a thread of a many-threaded confined process is an `openat` the filter kills the
+/// **`glibc`'s allocator would otherwise kill a wide pool.** It creates a per-thread arena at a
+/// thread's first allocation and, past a count of its own, sizes the number of arenas from
+/// `__get_nprocs`, which reads `/sys/devices/system/cpu/online` — an `openat` the filter kills the
 /// process for. Found with `strace -k` on the twenty-fourth rayon worker of a page that had
-/// otherwise drawn (ADR 0218). It is `narenas > mp_.arena_test` that decides when the allocator
-/// asks, and a bound derived from another library's internal constant is not a bound — so this is
-/// one, which cannot reach it, rather than some number below it.
+/// otherwise drawn (ADR 0218). Where `MALLOC_ARENA_MAX` is set, `glibc` takes the limit from it
+/// and never asks; it is read at the process's start, so it is the spawner's to set, and
+/// `confined_transport::Host::start` sets it to one for every worker it starts. A process started
+/// any other way — a test calling [`confine`] in its own process — draws on one thread, which
+/// cannot reach the question at all (ADR 1554).
+const ARENA_LIMIT_VARIABLE: &str = "MALLOC_ARENA_MAX";
+
+/// The stack each rasterising thread is given, stated rather than defaulted.
 ///
-/// **It costs speed and not pixels.** ADR 0139's property is that "a machine with four cores and
-/// one with thirty-two draw the same bytes", which `tests/confined.rs` re-checks from the other
-/// side: what this one thread draws is byte-identical to what the unconfined viewer draws on
-/// every core. Making it more than one is `doc/todo/34`'s, with two candidate answers written
-/// there.
-const RASTERISING_THREADS: u32 = 1;
+/// The standard library's own default for a spawned thread, written here because it is what the
+/// pool costs the address-space ceiling — [`message_budget`] takes it off what a message may be.
+/// A strip's rasterisation recurses nowhere deep; the interpretation, which does, runs on the
+/// process's main thread.
+const RASTERISING_STACK: usize = 2 << 20;
 
 /// How many copies of a message live at once, at the moment the peak is reached.
 ///
@@ -95,7 +99,7 @@ const COPIES_OF_A_MESSAGE: std::num::NonZeroU64 = match std::num::NonZeroU64::ne
 pub struct WorkerLimits {
     /// What confinement was reached, which is what the greeting carries to the host.
     pub confinement: pdf_sandbox::lockdown::Confinement,
-    /// How many strips a page's raster may be cut into. See [`RASTERISING_THREADS`].
+    /// How many strips a page's raster may be cut into: the pool's width (ADR 1554).
     pub strips: u32,
     /// The largest message this process will read, in bytes.
     ///
@@ -118,12 +122,19 @@ pub struct WorkerLimits {
 /// - [`viewer_core::MAX_PIXELS`] × 4 is what a page's pixels may claim, in RGBA. It is subtracted
 ///   because the document is still held when the raster is allocated, and it is the same
 ///   arithmetic `INTERPRETER_ADDRESS_SPACE_LIMIT` was itself derived from.
+/// - `threads` × [`RASTERISING_STACK`] is what the pool's stacks claim. The pool is built after
+///   `already` was read, since it has to be built inside the confinement, so its stacks are not
+///   in that figure; the allocator adds no arena for them, because `MALLOC_ARENA_MAX` is one
+///   ([`ARENA_LIMIT_VARIABLE`]).
 /// - [`COPIES_OF_A_MESSAGE`] is how many copies of it live at once at the peak.
-fn message_budget(ceiling: u64, already: u64) -> u64 {
+fn message_budget(ceiling: u64, already: u64, threads: usize) -> u64 {
+    let stacks = u64::try_from(threads.saturating_mul(RASTERISING_STACK)).unwrap_or(u64::MAX);
     confined_transport::ceiling::message_budget(
         ceiling,
         already,
-        viewer_core::MAX_PIXELS.saturating_mul(4),
+        viewer_core::MAX_PIXELS
+            .saturating_mul(4)
+            .saturating_add(stacks),
         COPIES_OF_A_MESSAGE,
     )
 }
@@ -136,17 +147,17 @@ fn message_budget(ceiling: u64, already: u64) -> u64 {
 ///    **the machine's fonts are declared unreachable**, because after step 4 there is no
 ///    filesystem and `pdf_font::substitute` would otherwise walk `/usr/share/fonts` and be
 ///    *killed* rather than told no (ADR 0870).
-/// 2. **How many processors this machine has is asked now, and the answer is thrown away.**
+/// 2. **How many processors this machine has is asked now**, because
 ///    `std::thread::available_parallelism` reads `/proc/self/cgroup` on Linux, so a confined
 ///    process asking it is *killed* rather than told no — and this is the one place it can be
-///    asked. What is done with the answer is [`RASTERISING_THREADS`]'s subject: today the pool is
-///    one thread whatever the machine has, and the call stays because the *number* is what
-///    `doc/todo/34` is about and the place to ask for it is here.
+///    asked. The pool is that wide where the spawner limited the allocator's arenas, and one
+///    thread where it did not ([`ARENA_LIMIT_VARIABLE`], ADR 1554).
 /// 3. **How much address space this process already occupies is read**, for the same reason and
 ///    from the same impossibility: `/proc/self/status` is a file, and after step 4 there are none.
 /// 4. **The confinement itself.**
-/// 5. **`rayon`'s pool, with that number stated**, built *after* the confinement so that its
-///    thread inherits both the Landlock domain and the seccomp filter. Stated rather than
+/// 5. **`rayon`'s pool, with that number stated**, built *after* the confinement so that every
+///    thread of it inherits both the Landlock domain, which `landlock_restrict_self` gives only to
+///    the calling thread and its future children, and the seccomp filter. Stated rather than
 ///    defaulted because rayon's own default asks the machine, at step 2's syscall.
 ///
 /// # Errors
@@ -172,10 +183,19 @@ pub fn confine() -> Result<WorkerLimits, std::io::Error> {
     pdf_font::provider::faces_come_from(confined_transport::link::ask_the_host);
     confined_transport::link::requests_go_to_the_host(crate::WORKER_PROGRAM);
 
-    let machine = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
-    let threads = usize::try_from(RASTERISING_THREADS)
-        .unwrap_or(1)
-        .min(machine);
+    // **As wide as the machine, and the measurement is why** (ADR 1554): a page that crosses as
+    // pixels is rasterised here while the host waits for it, and on `bug1815476.pdf` the round
+    // trip of the first `Resize` fell from 0.039 s to 0.011 s at the median of fifteen launches.
+    // ADR 0139's split draws the same bytes on any number of strips, so this costs no pixel.
+    let arenas_limited = std::env::var(ARENA_LIMIT_VARIABLE)
+        .ok()
+        .and_then(|limit| limit.parse::<u32>().ok())
+        .is_some_and(|limit| limit > 0);
+    let threads = if arenas_limited {
+        std::thread::available_parallelism().map_or(1, std::num::NonZero::get)
+    } else {
+        1
+    };
     let already = confined_transport::ceiling::address_space_in_use();
 
     let confinement = pdf_sandbox::lockdown::apply_for(pdf_sandbox::lockdown::Profile::Interpreter)
@@ -183,13 +203,14 @@ pub fn confine() -> Result<WorkerLimits, std::io::Error> {
 
     rayon::ThreadPoolBuilder::new()
         .num_threads(threads)
+        .stack_size(RASTERISING_STACK)
         .build_global()
         .map_err(std::io::Error::other)?;
 
     Ok(WorkerLimits {
         confinement,
         strips: u32::try_from(threads).unwrap_or(1),
-        message_budget: message_budget(confinement.address_space_limit, already),
+        message_budget: message_budget(confinement.address_space_limit, already, threads),
     })
 }
 
@@ -216,6 +237,7 @@ pub fn serve() -> Result<(), std::io::Error> {
     let mut viewer = Viewer::new(INITIAL_VIEWPORT.0, INITIAL_VIEWPORT.1, 1.0);
     let mut rasterizer = CpuRasterizer::new().with_strips(limits.strips);
     let mut marks = protocol::Marks::default();
+    let mut preparing = Preparing::default();
 
     while let Some(incoming) = read_frame(&mut input, limits.message_budget)? {
         // Header and payload in two calls rather than one concatenated buffer: a raster is 4.1 MB
@@ -231,9 +253,8 @@ pub fn serve() -> Result<(), std::io::Error> {
                 &mut viewer,
                 &mut rasterizer,
                 &mut marks,
-                kind,
-                payload,
-                descriptors,
+                &mut preparing,
+                (kind, payload, descriptors),
             ),
             Incoming::NoRoom { length } => refuse(&unaffordable(length, &limits)),
         };
@@ -355,17 +376,17 @@ fn answer(
     viewer: &mut Viewer,
     rasterizer: &mut CpuRasterizer,
     marks: &mut protocol::Marks,
-    kind: u8,
-    payload: Vec<u8>,
-    mut descriptors: Vec<ReceivedDescriptor>,
+    preparing: &mut Preparing,
+    (kind, payload, mut descriptors): (u8, Vec<u8>, Vec<ReceivedDescriptor>),
 ) -> (u8, Vec<u8>) {
+    preparing.look(viewer);
     match kind {
         protocol::FRAME_COMMAND => {
             let decoded = protocol::decode_command_holding(&payload, &mut descriptors);
             drop(payload);
             drop(descriptors);
             match decoded {
-                Ok(command) => perform(viewer, rasterizer, marks, command),
+                Ok(command) => perform(viewer, rasterizer, marks, preparing, command),
                 Err(error) => refuse(&error.to_string()),
             }
         }
@@ -374,6 +395,11 @@ fn answer(
             drop(payload);
             match decoded {
                 Ok(query) => {
+                    // The outline is what the thread is reading: waiting for it costs less than
+                    // reading it a second time here, since that thread started first.
+                    if matches!(query.as_query(), viewer_core::Query::Outline) {
+                        preparing.wait(viewer);
+                    }
                     match protocol::encode_answer(&viewer.query(query.as_query()), marks) {
                         Ok(encoded) => (protocol::FRAME_ANSWER, encoded),
                         Err(uncarried) => refuse(&uncarried.to_string()),
@@ -409,9 +435,12 @@ fn perform(
     viewer: &mut Viewer,
     rasterizer: &mut CpuRasterizer,
     marks: &mut protocol::Marks,
+    preparing: &mut Preparing,
     command: Command,
 ) -> (u8, Vec<u8>) {
-    let mut outgoing = Vec::new();
+    // What the preparation said since the last events frame goes first: it is about the page as
+    // it stood before this command.
+    let mut outgoing = std::mem::take(&mut preparing.owed);
     // **An open is followed by page one's interpretation, viewport or not** (ADR 1539). A host
     // that opens before its window exists tells this process there is no viewport yet, so nothing
     // is arranged and nothing drawn; `Viewer::anticipate` interprets the page the document stands
@@ -455,6 +484,7 @@ fn perform(
 
     if opens {
         outgoing.extend(viewer.anticipate());
+        preparing.start(viewer);
     }
 
     // **Where the pages this store holds sit now, and which of them are still on the screen** —
@@ -471,6 +501,64 @@ fn perform(
     match protocol::encode_events(&outgoing) {
         Ok(encoded) => (protocol::FRAME_EVENTS, encoded),
         Err(uncarried) => refuse(&uncarried.to_string()),
+    }
+}
+
+/// What a document reads after page one, read on a thread of this process's own (ADRs 1543, 1553).
+///
+/// **The worker is the host here**, so it is the one that hands the core a thread: `viewer-core`'s
+/// rule 4 binds the core, which still spawns nothing and waits for nothing. The thread is started
+/// after an open's anticipation, inside the confinement, so it inherits the Landlock domain and the
+/// seccomp filter as the rasterising pool does; it holds a handle to the immutable file and none of
+/// the viewer's state. Nothing crosses to the host unasked — every frame is an answer — so what
+/// [`Viewer::prepared`] says is owed to the next events frame, where it is the caption's section.
+#[derive(Debug, Default)]
+struct Preparing {
+    /// The thread's answer, until it has been taken.
+    answer: Option<std::sync::mpsc::Receiver<viewer_core::Prepared>>,
+    /// What taking it raised, waiting for the next events frame.
+    owed: Vec<Event>,
+}
+
+impl Preparing {
+    /// Starts the thread for the document now in front, where it has anything left to read.
+    ///
+    /// An earlier document's answer still out is dropped with its receiver: the viewer would drop
+    /// it anyway, because a `Prepared` names its file.
+    fn start(&mut self, viewer: &Viewer) {
+        self.answer = viewer.preparation().map(|preparation| {
+            let (send, answer) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                // A worker whose loop has ended has nobody to give the answer to.
+                let _ = send.send(preparation.run());
+            });
+            answer
+        });
+    }
+
+    /// Takes the answer if it has arrived.
+    fn look(&mut self, viewer: &mut Viewer) {
+        let Some(answer) = self.answer.as_ref() else {
+            return;
+        };
+        match answer.try_recv() {
+            Ok(prepared) => {
+                self.answer = None;
+                self.owed.extend(viewer.prepared(prepared));
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            // The thread ended without an answer; the first use reads it instead.
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => self.answer = None,
+        }
+    }
+
+    /// Waits for the answer, for a question whose answer is what the thread is reading.
+    fn wait(&mut self, viewer: &mut Viewer) {
+        if let Some(answer) = self.answer.take()
+            && let Ok(prepared) = answer.recv()
+        {
+            self.owed.extend(viewer.prepared(prepared));
+        }
     }
 }
 
@@ -495,7 +583,7 @@ fn refuse(detail: &str) -> (u8, Vec<u8>) {
 mod tests {
     use confined_transport::ceiling::SETTLING_ALLOWANCE;
 
-    use super::{COPIES_OF_A_MESSAGE, Incoming, message_budget, read_frame};
+    use super::{COPIES_OF_A_MESSAGE, Incoming, RASTERISING_STACK, message_budget, read_frame};
     use crate::protocol;
 
     /// A ceiling of four gibibytes and a worker eighty mebibytes into it.
@@ -506,32 +594,35 @@ mod tests {
     const CEILING: u64 = 4 << 30;
     const ALREADY: u64 = 82_040 * 1024;
 
-    /// The budget is the ceiling less what is spent and less a page, halved.
+    /// The budget is the ceiling less what is spent, a page and the pool's stacks, halved.
     ///
     /// Written as the arithmetic rather than as a number, because a number here would be a second
-    /// copy of the derivation and the two would drift. What the test pins is that all four terms
-    /// take part: change any one of them and this fails.
+    /// copy of the derivation and the two would drift. What the test pins is that all five terms
+    /// take part: change any one of them and this fails. Twenty-four threads is this machine's
+    /// pool (ADR 1554).
     #[test]
-    fn a_message_budget_leaves_room_for_two_copies_and_a_page() {
+    fn a_message_budget_leaves_room_for_two_copies_a_page_and_the_pools_stacks() {
         let raster = viewer_core::MAX_PIXELS * 4;
+        let stacks = 24 * RASTERISING_STACK as u64;
         assert_eq!(
-            message_budget(CEILING, ALREADY),
-            (CEILING - ALREADY - SETTLING_ALLOWANCE - raster) / COPIES_OF_A_MESSAGE
+            message_budget(CEILING, ALREADY, 24),
+            (CEILING - ALREADY - SETTLING_ALLOWANCE - raster - stacks) / COPIES_OF_A_MESSAGE
         );
-        assert!(message_budget(CEILING, ALREADY) < confined_transport::frame::MAX_MESSAGE);
+        assert!(message_budget(CEILING, ALREADY, 24) < message_budget(CEILING, ALREADY, 1));
+        assert!(message_budget(CEILING, ALREADY, 24) < confined_transport::frame::MAX_MESSAGE);
     }
 
     /// No ceiling is no budget, which is what every platform `doc/todo/35` covers gets.
     #[test]
     fn a_worker_with_no_ceiling_has_no_message_budget() {
-        assert_eq!(message_budget(0, ALREADY), u64::MAX);
+        assert_eq!(message_budget(0, ALREADY, 24), u64::MAX);
     }
 
     /// A ceiling large enough stops at what the protocol carries anyway.
     #[test]
     fn a_generous_ceiling_stops_at_what_the_format_carries() {
         assert_eq!(
-            message_budget(u64::MAX, 0),
+            message_budget(u64::MAX, 0, 24),
             confined_transport::frame::MAX_MESSAGE
         );
     }
@@ -542,7 +633,7 @@ mod tests {
     /// from the ceiling and a decoder profile's gibibyte is smaller than one of them.
     #[test]
     fn a_ceiling_below_a_pages_pixels_admits_nothing() {
-        assert_eq!(message_budget(1 << 30, ALREADY), 0);
+        assert_eq!(message_budget(1 << 30, ALREADY, 1), 0);
     }
 
     /// **The discriminating one**: a frame over the budget is read past, not left in the pipe.

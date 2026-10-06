@@ -83,6 +83,7 @@ use crate::startup::Coverage;
 use crate::surface::SurfaceSlot;
 pub(crate) use crate::timing::PassQuery;
 use crate::timing::TimestampSupport;
+pub(crate) use rare::shading_params_bytes;
 
 /// What this adapter can actually do, discoverable before any frame (section 5 of the brief:
 /// a limit that must exist is discoverable, through this and `Scene::cost`).

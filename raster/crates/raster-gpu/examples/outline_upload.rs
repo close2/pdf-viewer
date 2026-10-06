@@ -101,8 +101,14 @@ const MARK_SIDE: f32 = 128.0;
 
 /// Section C's corpus, and `--check`'s: small enough to run in CI, large enough that a
 /// conversion's bytes are unmistakable next to the segments'.
+///
+/// **Its marks are section B's marks**, [`MARK_SEGMENTS`] cubics in a [`MARK_SIDE`] box, because
+/// the witness asserts that both lanes draw one picture, and that holds only while the triangle
+/// test declines every mark (ADR 0026). The decline is a margin: a box this size has 16 384 bytes
+/// of coverage, so a mark is declined only while its converted triangles cost more, and a wiggle
+/// of 32 cubics now converts to fewer than that.
 const WITNESS_OUTLINES: usize = 8;
-const WITNESS_SEGMENTS: usize = 32;
+const WITNESS_SEGMENTS: usize = MARK_SEGMENTS;
 
 /// A closed wiggle of `segments` cubic curves around a circle of radius `radius`,
 /// centred at `centre`, with `seed` moving every control point off the last one's.

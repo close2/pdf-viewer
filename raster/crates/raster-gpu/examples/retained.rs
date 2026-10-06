@@ -371,16 +371,23 @@ fn main() {
 
     // Two warm-up frames each: the first fills the atlas and compiles what a first frame
     // compiles, and neither variant is being measured on that.
+    //
+    // **The signature is the first frame's.** The recorded row is a cold device's first
+    // frame, as `tests/archetypes.rs` takes it, and a later frame on the same device reuses
+    // the residue meets the frame before it kept (ADR 1517) — so it rasterises none and
+    // counts none, which is the counter's meaning rather than a different page.
+    let mut cold: Option<Counters> = None;
     for _ in 0..2 {
-        device
+        let frame = device
             .render(&scene, &viewport, Target::Texture(&texture))
             .unwrap();
+        cold.get_or_insert_with(|| frame.counters());
         device
             .render_retained(&mut retained, &viewport, Target::Texture(&texture))
             .unwrap();
     }
 
-    let (encoded_runs, replayed_runs, counters) = round_robin(&mut RoundRobin {
+    let (encoded_runs, replayed_runs, _) = round_robin(&mut RoundRobin {
         device: &mut device,
         scene: &scene,
         retained: &mut retained,
@@ -393,7 +400,7 @@ fn main() {
     // page's own, and a change to what the page costs now moves the row this compares
     // against and the row `tests/archetypes.rs` compares against in the same edit.
     assert_eq!(
-        recorded(&counters),
+        recorded(&cold.expect("the warm-up drew a frame")),
         SHAPE.recorded.expect("dense text is a priced page"),
         "this is not `raster_pages::DENSE_TEXT` as that crate records it"
     );

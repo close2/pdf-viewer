@@ -42,7 +42,7 @@
 /// that has `lld` and appeared on every GitHub runner, which does not. `qt-build-utils` picks
 /// the first of `lld`, `ld.gold`, `mold` that it can run (`QtPlatformLinker::init`), so the
 /// runner gets `gold` and this tree got a link error in `test` while `check` passed — `clippy`
-/// links no binaries. Session 630 reproduced it here by removing `lld` from `PATH`.
+/// links no binaries. ADR 0463 reproduced it here by removing `lld` from `PATH`.
 ///
 /// `-u SYMBOL` enters the symbol as undefined at the start of the link, so the definition is
 /// pulled out of the rlib when it is read rather than skipped. It is a no-op under `lld`, where

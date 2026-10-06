@@ -77,16 +77,23 @@ impl Device {
         }))
     }
 
-    /// The shading quad's uniform + bind group for one `ShadedOp` (ISO 32000-2
-    /// §8.7.4.5; layout mirrored in `shading.wgsl`'s `Params`).
+    /// The shading quad's bind group for every `ShadedOp` of one pass that reads `paint`
+    /// under the mask `mask` (ISO 32000-2 §8.7.4.5; layout mirrored in `shading.wgsl`'s
+    /// `Params`).
+    ///
+    /// **Binding 0 is a window of `params`, the pass's one buffer of every shading's
+    /// numbers**, which the draw moves to each op's own with a dynamic offset (ADR 1555). A
+    /// buffer and a bind group made per op were each pass's largest host cost on a page of
+    /// many shadings: 9 to 10 ms of `bug1721218_reduced.pdf`'s 3 583 ops a render, against a
+    /// handful of distinct paints and one mask.
     pub(crate) fn shaded_bind(
         &self,
-        op: &ShadedOp,
-        region: Region,
+        paint: PaintSource,
+        params: &wgpu::Buffer,
         scratch: &wgpu::TextureView,
-        mask: (&wgpu::TextureView, MaskPlacement),
+        mask: &wgpu::TextureView,
     ) -> Result<wgpu::BindGroup, RenderError> {
-        let paint_view = match op.paint {
+        let paint_view = match paint {
             PaintSource::Ramp(id) => {
                 let Some((_, view)) = self.ramp_textures.get(&id) else {
                     return Err(RenderError::UnknownRamp { ramp: RampId(id) });
@@ -100,10 +107,6 @@ impl Device {
                 view
             }
         };
-        let uniform = self.quad_uniform(
-            "raster shading params",
-            &shading_params_bytes(op, region, mask.1),
-        );
         let layout = self.pipelines.shading_layout();
         Ok(self.gpu.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("raster shading"),
@@ -111,7 +114,11 @@ impl Device {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: uniform.as_entire_binding(),
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: params,
+                        offset: 0,
+                        size: wgpu::BufferSize::new(SHADING_PARAMS_BYTES),
+                    }),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -123,10 +130,33 @@ impl Device {
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: wgpu::BindingResource::TextureView(mask.0),
+                    resource: wgpu::BindingResource::TextureView(mask),
                 },
             ],
         }))
+    }
+
+    /// The bytes one shading's numbers take in a pass's buffer of them: its 176, rounded up
+    /// to the alignment the device asks of a dynamic offset.
+    pub(crate) fn shading_stride(&self) -> u64 {
+        let alignment = u64::from(self.gpu.limits().min_uniform_buffer_offset_alignment).max(1);
+        SHADING_PARAMS_BYTES
+            .div_ceil(alignment)
+            .saturating_mul(alignment)
+    }
+
+    /// The most bytes one buffer of a pass's shading numbers may hold: the device's largest
+    /// buffer, and no more than a dynamic offset can address.
+    pub(crate) fn shading_buffer_limit(&self) -> u64 {
+        self.gpu
+            .limits()
+            .max_buffer_size
+            .min(u64::from(u32::MAX).saturating_add(1))
+    }
+
+    /// One buffer of a pass's shading numbers, laid at [`Device::shading_stride`].
+    pub(crate) fn shading_params_buffer(&self, bytes: &[u8]) -> wgpu::Buffer {
+        self.quad_uniform("raster shading params", bytes)
     }
 }
 
@@ -172,10 +202,18 @@ fn image_params_bytes(op: &ImageOp, region: Region, mask: MaskPlacement) -> [u8;
     bytes
 }
 
+/// The size of `shading.wgsl`'s `Params`, which `pipeline/layouts.rs` states as the shading
+/// binding's `min_binding_size`.
+const SHADING_PARAMS_BYTES: u64 = 176;
+
 /// The 176 bytes `shading.wgsl`'s `Params` reads, in its order (§8.7.4.5).
 #[expect(clippy::arithmetic_side_effects)] // fixed-layout offsets in a 176-byte array
 #[expect(clippy::cast_precision_loss)] // extend bits ≤ 3; sizes far below 2^24
-fn shading_params_bytes(op: &ShadedOp, region: Region, mask: MaskPlacement) -> [u8; 176] {
+pub(crate) fn shading_params_bytes(
+    op: &ShadedOp,
+    region: Region,
+    mask: MaskPlacement,
+) -> [u8; 176] {
     let mut bytes = [0_u8; 176];
     let mut put = |at: usize, v: f32| bytes[at..at + 4].copy_from_slice(&v.to_le_bytes());
     for (i, v) in op.inv.iter().enumerate() {

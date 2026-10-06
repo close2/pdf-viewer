@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Drives the three windows — `quorra`, `quorra-gtk`, `quorra-qt` — through what a reader does with an
-# open document, headless under Xvfb, and photographs every step; then `quorra-confined` through the
-# one thing only it can show, a device refusal of a page its sandboxed worker sent as marks.
+# open document, headless under Xvfb, and photographs every step; then `quorra-confined` through its
+# opening caption's section and the one thing only it can show, a device refusal of a page its
+# sandboxed worker sent as marks.
 #
 #   tools/drive-windows.sh [--out DIR] [--window NAME]... [--bin DIR] [--display :N]
 #
@@ -657,6 +658,9 @@ drive() {
     launch "$copy"
     shot 01-open
     expect_title 01-display-doc-title "Drive 三窗口 عنوان — page 1 of 3"
+    # §12.3.3's section in the opening caption: the outline is read beside page one rather than by
+    # the open, and the window says the page again once it has been (ADRs 1543, 1553).
+    expect_title 01-section "page 1 of 3 — Chapter one"
     seen=$(xdotool getwindowgeometry "$(main_window)" | tr '\n' ' ')
     case "$WINDOW" in
         quorra-gtk) verdict 01-center-window "not offered" "GTK 4 places no window (ADR 1429): $seen" ;;
@@ -1060,6 +1064,11 @@ PY
 # stars whose coverage outgrows the device's scratch sheet (ADR 1478).
 confined() {
     [ -x "$BIN/quorra-confined" ] || { verdict 28-confined-refusal "not offered" "no $BIN/quorra-confined"; return; }
+    # The worker reads the outline on a thread of its own after the open, and its next answer
+    # carries page one's section to the caption (ADR 1553).
+    launch "$FIXTURES/drive.pdf"
+    expect_title 01-section "page 1 of 3 — Chapter one"
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
     launch "$FIXTURES/drive-coverage.pdf"
     for _ in $(seq 1 24); do
         [[ "$(title)" == *"drawn on the processor"* ]] && break

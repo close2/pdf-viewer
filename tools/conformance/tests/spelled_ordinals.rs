@@ -1,4 +1,4 @@
-//! No Rust source under `crates` or `tools` spells a round by ordinal.
+//! No Rust source under `crates` or `tools` names a round, by ordinal or by number.
 //!
 //! Not a conformance question; it lives here for `state_sections.rs`'s reason — this is the crate
 //! whose gates read the repository's own files rather than a PDF.
@@ -19,11 +19,12 @@
 //!
 //! This file is the one source the walk leaves out, so that its own wording can never be the hit.
 //!
-//! # What it prints
+//! # The second form
 //!
-//! The count, and beside it the capitalised digit form (`Session 944`), which `CLAUDE.md`'s grep
-//! cannot see because it is case-sensitive. That second figure is printed and not held: it is the
-//! next debt, named so that a round choosing work can find it.
+//! The capitalised digit form (`Session 944`) is held at zero beside it. `CLAUDE.md`'s grep cannot
+//! see it, because the grep is case-sensitive, and a viewer's, an FFI's and a desktop bus's
+//! `Session` are nouns of their own — so the form held is the word followed by a digit, which none
+//! of those nouns is.
 
 #![expect(
     clippy::expect_used,
@@ -38,6 +39,10 @@ use std::path::{Path, PathBuf};
 /// The most lines under `crates` and `tools` that may carry the spelled ordinal, held with `==`
 /// as `CONDITION_UNQUOTED_CEILING` is (ADR 1535), so that a fall is written down rather than banked.
 const CEILING: usize = 0;
+
+/// The most lines under `crates` and `tools` that may name a round as `Session <number>`, held
+/// with `==` for the same reason.
+const NUMBERED_CEILING: usize = 0;
 
 /// The string `CLAUDE.md`'s sweep searches for, assembled so that this file's own text does not
 /// carry it even outside the excluded path.
@@ -95,7 +100,7 @@ fn no_source_spells_a_round_by_ordinal() {
     sources.sort();
     let needle = spelled_ordinal();
     let mut spelled = Vec::new();
-    let mut numbered = 0usize;
+    let mut numbered = Vec::new();
     for path in &sources {
         let is_this_file = path.file_name() == Some(own)
             && path.parent().and_then(Path::file_name) == Some("tests".as_ref())
@@ -104,25 +109,22 @@ fn no_source_spells_a_round_by_ordinal() {
             continue;
         }
         let text = fs::read_to_string(path).expect("a source file of the tree is readable");
+        let relative = path.strip_prefix(root).unwrap_or(path);
         for (number, line) in text.lines().enumerate() {
+            let located = || format!("{}:{}: {}", relative.display(), number + 1, line.trim());
             if line.contains(&needle) {
-                let relative = path.strip_prefix(root).unwrap_or(path);
-                spelled.push(format!(
-                    "{}:{}: {}",
-                    relative.display(),
-                    number + 1,
-                    line.trim()
-                ));
+                spelled.push(located());
             }
             if names_a_round_in_digits(line) {
-                numbered += 1;
+                numbered.push(located());
             }
         }
     }
     println!(
-        "{} line(s) spell a round by ordinal (ceiling {CEILING}); {numbered} name one as \
-         `Session <number>`, printed and not held",
-        spelled.len()
+        "{} line(s) spell a round by ordinal (ceiling {CEILING}); {} name one as \
+         `Session <number>` (ceiling {NUMBERED_CEILING})",
+        spelled.len(),
+        numbered.len()
     );
     assert_eq!(
         spelled.len(),
@@ -130,6 +132,13 @@ fn no_source_spells_a_round_by_ordinal() {
         "a comment carries the current reason and the ADR that argued it, never the round that \
          changed it (ADR 1023); rewrite these as what is:\n{}",
         spelled.join("\n")
+    );
+    assert_eq!(
+        numbered.len(),
+        NUMBERED_CEILING,
+        "a comment carries the current reason and the ADR that argued it, never the round that \
+         changed it (ADR 1023); rewrite these as what is:\n{}",
+        numbered.join("\n")
     );
 }
 

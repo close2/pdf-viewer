@@ -196,8 +196,8 @@
 //! the reconciliation a merge needs: where one source states a catalog array it is carried to
 //! the merged catalog, and where **several** sources state arrays that are not all one, each
 //! source's array is written onto its own carried pages. A device colour on a page then means
-//! what it meant in the document the page came from. Session 888 taught this tree's own colour
-//! path to read the page-level home for the same clause's sake, so the construction is one this
+//! what it meant in the document the page came from. This tree's own colour path reads the
+//! page-level home for the same clause's sake (ADR 0821), so the construction is one this
 //! program can read back.
 //!
 //! ## What the merged catalog does not carry

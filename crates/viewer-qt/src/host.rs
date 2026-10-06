@@ -47,6 +47,10 @@ use crate::page;
 /// The identity this host gives the one document it opens.
 const DOCUMENT: DocumentId = DocumentId(1);
 
+/// What the contents panel says while the launch document's outline is read beside page one
+/// (ADR 1553): a sentence about this window, since the document's answer is not in yet.
+const READING_THE_OUTLINE: &str = "Reading the outline.";
+
 /// The window this host asks Qt for, in logical pixels.
 ///
 /// The same 1000×1100 `viewer-gtk` asks for, for the same reason: two hosts whose windows are the
@@ -523,6 +527,9 @@ pub struct Host {
     pub(crate) viewport: (u32, u32),
     /// The document opening on its own thread, until the first resize joins it (ADR 1539).
     anticipated: Option<std::thread::JoinHandle<(Viewer, Vec<Event>)>>,
+    /// The launch document's outline and placed page tree, being read on a thread of their own
+    /// from the join until they are handed back ([`viewer_core::Preparation`], ADR 1553).
+    preparing: Option<std::sync::mpsc::Receiver<viewer_core::Prepared>>,
     /// §14.8.2.5's text between the key that copied it and the C++ side taking it to `QClipboard`.
     ///
     /// Empty at every other moment, because `take_clipboard` clears it: this is a hand-over and
@@ -655,6 +662,7 @@ impl Host {
             playing: None,
             viewport: (1, 1),
             anticipated: Some(anticipated),
+            preparing: None,
             // Table 147's and Table 29's own defaults, replaced by what the catalog states the
             // moment the document opens.
             presenting: viewer_host::Presenting::default(),
@@ -721,10 +729,63 @@ impl Host {
             Topic::Launch,
             format_args!("document joined, {} event(s)", opened.len()),
         );
+        // Asked before the open's events are answered, so that the panels built from them do not
+        // read the outline on this thread first (ADR 1553).
+        self.prepare();
         let resized: Vec<Event> = self.viewer.handle(resize).collect();
         let mut queue = VecDeque::new();
         for event in opened.into_iter().chain(resized) {
             self.react(event, &mut queue);
+        }
+        self.drain(queue);
+    }
+
+    /// Reads what page one does not need beside it: §12.3.3's outline and §7.7.3's page tree,
+    /// placed, which the open no longer reads (ADRs 1543, 1553).
+    ///
+    /// The thread holds a handle to the immutable file and nothing of the core's. Its answer is
+    /// looked for on the drawing timer, which [`Host::drawing_wait`] keeps running until it lands.
+    fn prepare(&mut self) {
+        self.preparing = self.viewer.preparation().map(|preparation| {
+            let (send, answer) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                // A window that has closed has nobody to give the answer to.
+                let _ = send.send(preparation.run());
+            });
+            answer
+        });
+    }
+
+    /// The launch document's outline and page tree, if the thread reading them has answered.
+    ///
+    /// The caption's section comes back as an `Event::PageChanged`, and the contents panel is
+    /// built again from what has now been read.
+    fn take_the_preparation(&mut self) {
+        let Some(answer) = self.preparing.as_ref() else {
+            return;
+        };
+        let prepared = match answer.try_recv() {
+            Ok(prepared) => Some(prepared),
+            Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            // The thread ended without an answer; the first use reads it instead.
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => None,
+        };
+        self.preparing = None;
+        let mut queue = VecDeque::new();
+        if let Some(prepared) = prepared {
+            self.trace
+                .say(Topic::Launch, format_args!("outline and page tree read"));
+            let events: Vec<Event> = self.viewer.prepared(prepared).collect();
+            for event in events {
+                self.react(event, &mut queue);
+            }
+        }
+        if self.documents.focused() == DOCUMENT {
+            let rows = flatten(&self.panel_of(Tab::Contents));
+            if let Some(tree) = self.trees.get_mut(Tab::Contents.index()) {
+                *tree = rows;
+                self.update.panels = true;
+            }
         }
         self.drain(queue);
     }
@@ -3520,6 +3581,13 @@ impl Host {
             (Some(drawing), Some(submitting)) => Some(drawing.min(submitting)),
             (drawing, submitting) => drawing.or(submitting),
         };
+        // And for the launch document's outline while it is read beside page one (ADR 1553), at
+        // the interval chosen for a page's own latency.
+        let interval = match (interval, self.preparing.is_some()) {
+            (Some(interval), true) => Some(interval.min(viewer_host::drawing::POLL)),
+            (None, true) => Some(viewer_host::drawing::POLL),
+            (interval, false) => interval,
+        };
         interval.map_or(-1, |interval| {
             i32::try_from(interval.as_millis()).unwrap_or(i32::MAX)
         })
@@ -3533,6 +3601,7 @@ impl Host {
     /// picture that has not changed.
     pub(crate) fn drawing_pump(&mut self) {
         self.take_the_answers();
+        self.take_the_preparation();
         let mut queue = VecDeque::new();
         self.take_the_drawn(&mut queue);
         if queue.is_empty() {
@@ -3835,6 +3904,11 @@ impl Host {
             article_rows, attachment_rows, collection_rows, layer_rows, outline_rows, property_rows,
         };
         match tab {
+            // Not while the launch document's outline is being read off this thread: asking here
+            // would read it on Qt's, in front of page one. Its arrival builds this panel again.
+            Tab::Contents if self.preparing.is_some() && self.documents.focused() == DOCUMENT => {
+                vec![PanelRow::saying(READING_THE_OUTLINE)]
+            }
             Tab::Contents => match self.viewer.query(Query::Outline) {
                 Answer::Outline(outline) if !outline.items.is_empty() => outline_rows(&outline),
                 _ => vec![PanelRow::saying("This document states no outline.")],

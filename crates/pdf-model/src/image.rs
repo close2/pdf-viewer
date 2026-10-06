@@ -1802,6 +1802,14 @@ fn unpack(data: &[u8], width: u32, height: u32, samples: &Samples) -> Result<Vec
             &tables,
         ));
     }
+    if let Some(table) = packed_pixels(samples, palette.as_deref()) {
+        return Ok(unpack_packed(
+            data,
+            (width_usize, height_usize),
+            row_bytes,
+            &table,
+        ));
+    }
 
     let mut out = Vec::with_capacity(width_usize.saturating_mul(height_usize).saturating_mul(4));
 
@@ -2067,6 +2075,145 @@ fn unpack_eight_bit_device(
         }
     }
     out
+}
+
+/// The pixels each value of a byte of a one-component image unpacks to, as 256 runs of
+/// `8 ÷ bits` pixels — or `None` for every image whose pixel is not a function of its own sample
+/// alone, which keeps [`unpack`]'s per-sample route.
+///
+/// A one-component sample of at most eight bits takes at most 256 values, and **each pixel in
+/// the table is [`sample_rgba`]'s own answer** for a row holding that one sample: the table is
+/// built by calling it, which is what makes this route exact rather than a second reading of the
+/// colour. A pixel is a function of its sample alone wherever there is no §11.6.5.2 pre-blending
+/// (whose inversion reads the pixel's mask value) and no §8.9.6.4 colour key (which masks by the
+/// raw sample, and is answered per sample by the route that reads one). That covers a §8.9.6.2
+/// stencil, whose "Decode entry determines how the source samples shall be interpreted" through
+/// [`Decode::value`] and whose mark is the current colour; a `DeviceGray` image under §8.9.5.2's
+/// `/Decode` at one, two or four bits; and every one-component space [`palette`] tabulates —
+/// `Indexed`, `Separation`, `CalGray`, a one-component `ICCBased` — at any depth to eight.
+///
+/// §8.9.3's layout is what lets a byte stand for its pixels:
+///
+/// > Byte boundaries shall be ignored, except that each row of sample data shall begin on a byte
+/// > boundary. If the number of data bits per row is not a multiple of 8, the end of the row is
+/// > padded with extra bits to fill out the last byte. A PDF processor shall ignore these padding
+/// > bits.
+///
+/// So no byte holds samples of two rows, and Table 87's depths divide a byte exactly, so no sample
+/// straddles two; a row's last byte contributes only the pixels its row has, which
+/// [`unpack_packed`] copies, and the padding's pixels it never reads. ADR 1557.
+fn packed_pixels(samples: &Samples, palette: Option<&[pdf_render::Color]>) -> Option<PackedPixels> {
+    // Table 87's depths to eight, as how many samples a byte holds and how far right a byte's
+    // first sample is shifted to read it.
+    let (per_byte, shift) = match samples.bits {
+        1 => (8_usize, 7_u32),
+        2 => (4, 6),
+        4 => (2, 4),
+        8 => (1, 0),
+        _ => return None,
+    };
+    if samples.space.components() != 1 || samples.colour_key.is_some() || samples.matte.is_some() {
+        return None;
+    }
+    // A row whose first sample is `value` is that value in the byte's high-order bits, which is
+    // where §8.9.3 puts a row's first unit; `at` is read only by a matte, which is excluded above.
+    let answers: Vec<[u8; 4]> = (0..=u8::MAX.checked_shr(shift).unwrap_or(0))
+        .map(|value| {
+            let row = [value.checked_shl(shift).unwrap_or(0)];
+            sample_rgba(samples, palette, &mut None, &row, 0, 0)
+        })
+        .collect();
+    let mut runs = Vec::with_capacity(per_byte.saturating_mul(1024));
+    for byte in 0..=u8::MAX {
+        // Each sample in turn moved to the high-order end and read from there.
+        let mut rest = byte;
+        for _ in 0..per_byte {
+            let value = rest.checked_shr(shift).unwrap_or(0);
+            runs.extend_from_slice(answers.get(usize::from(value))?);
+            rest = rest.checked_shl(samples.bits).unwrap_or(0);
+        }
+    }
+    Some(PackedPixels {
+        runs,
+        run: per_byte.saturating_mul(4),
+    })
+}
+
+/// [`packed_pixels`]'s table: for each value of a byte, the RGBA pixels its samples stand for,
+/// `run` bytes apiece and laid end to end.
+struct PackedPixels {
+    /// 256 runs, the one for byte `b` at `b × run`.
+    runs: Vec<u8>,
+    /// The bytes of one run: four for each sample a byte holds.
+    run: usize,
+}
+
+/// [`unpack`] for the images [`packed_pixels`] admits: each byte of a row one copy of the
+/// pixels it stands for, read from rows of `row_bytes`.
+///
+/// **The same pixels as the per-sample route.** A carried byte's run is the answers
+/// [`sample_rgba`] gives for its samples, most significant first as §8.9.3 orders them; the row's
+/// last byte is cut to the pixels the row has; and a pixel past what the row carries stays the
+/// `[0, 0, 0, 0]` the buffer starts as, which is what [`unpack`] writes there for §7.3.8.2's
+/// reason. What goes is a call, a `match` on the space and a bit extraction a pixel: decoding
+/// `bug1815476.pdf`'s three one-bit stencils cost 244 M instructions by the per-sample route and
+/// 5.4 M by this one, and `issue9940.pdf`'s two eight-bit `Indexed` images 496 M and 34 M
+/// (ADR 1557).
+fn unpack_packed(
+    data: &[u8],
+    (width, height): (usize, usize),
+    row_bytes: usize,
+    table: &PackedPixels,
+) -> Vec<u8> {
+    let pixel_row = width.saturating_mul(4);
+    let mut out = vec![0u8; pixel_row.saturating_mul(height)];
+    if pixel_row == 0 {
+        return out;
+    }
+    // One copy per run of a size the compiler knows, rather than a `memcpy` call for each:
+    // on `issue9940.pdf`'s two eight-bit `Indexed` images the call was 72 M of the 162 M this
+    // route cost with a run whose length was read at run time (ADR 1557).
+    let fill = match table.run {
+        32 => fill_packed_rows::<32>,
+        16 => fill_packed_rows::<16>,
+        8 => fill_packed_rows::<8>,
+        4 => fill_packed_rows::<4>,
+        _ => return out,
+    };
+    for (y, row_pixels) in out.chunks_exact_mut(pixel_row).enumerate() {
+        let start = y.saturating_mul(row_bytes);
+        let available = data.len().saturating_sub(start).min(row_bytes);
+        let row = data
+            .get(start..start.saturating_add(available))
+            .unwrap_or_default();
+        fill(row, row_pixels, &table.runs);
+    }
+    out
+}
+
+/// One row of [`unpack_packed`]: each carried byte's `RUN` bytes of pixels copied from `runs`,
+/// the row's last byte cut to the pixels the row still has, and every pixel past the carried
+/// bytes left as it was.
+fn fill_packed_rows<const RUN: usize>(row: &[u8], pixels: &mut [u8], runs: &[u8]) {
+    let (runs, _) = runs.as_chunks::<RUN>();
+    let (whole, tail) = pixels.as_chunks_mut::<RUN>();
+    let carried = whole.len().min(row.len());
+    for (run, &byte) in whole.iter_mut().zip(row) {
+        if let Some(source) = runs.get(usize::from(byte)) {
+            *run = *source;
+        }
+    }
+    // A row whose width the byte's samples do not divide ends inside a byte; its padding is
+    // §8.9.3's, and only the pixels before it are copied.
+    if carried == whole.len()
+        && !tail.is_empty()
+        && let Some(source) = row
+            .get(carried)
+            .and_then(|&byte| runs.get(usize::from(byte)))
+        && let Some(prefix) = source.get(..tail.len())
+    {
+        tail.copy_from_slice(prefix);
+    }
 }
 
 /// Converts a three-component raster in place, optionally on more than one thread.
@@ -8360,6 +8507,185 @@ mod tests {
                 }
             }
             assert_eq!(tabled, expected, "{space:?}");
+        }
+    }
+
+    /// The per-sample route's pixels for a one-component image, built from
+    /// [`super::sample_rgba`] row by row with §7.3.8.2's unpainted tail — what the byte route
+    /// must reproduce.
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "a test helper over a grid of at most nineteen by five samples"
+    )]
+    fn per_sample(
+        samples: &super::Samples,
+        palette: Option<&[pdf_render::Color]>,
+        data: &[u8],
+        (width, height): (usize, usize),
+    ) -> Vec<u8> {
+        let bits = usize::try_from(samples.bits).expect("a depth");
+        let row_bytes = (width * bits).div_ceil(8);
+        let mut expected = Vec::new();
+        for y in 0..height {
+            let start = (y * row_bytes).min(data.len());
+            let row = &data[start..(start + row_bytes).min(data.len())];
+            for x in 0..width {
+                if x < row.len() * 8 / bits {
+                    expected.extend_from_slice(&super::sample_rgba(
+                        samples,
+                        palette,
+                        &mut None,
+                        row,
+                        x,
+                        y * width + x,
+                    ));
+                } else {
+                    expected.extend_from_slice(&[0, 0, 0, 0]);
+                }
+            }
+        }
+        expected
+    }
+
+    /// Whether the byte route takes `samples` and answers every width from one sample to past
+    /// two bytes with the per-sample route's pixels, over rows that end inside a byte (§8.9.3's
+    /// padding, which no pixel may be read from) and a stream that stops partway into its last
+    /// row.
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "a test helper over a grid of at most nineteen by five samples"
+    )]
+    fn the_byte_route_matches(
+        samples: &super::Samples,
+        palette: Option<&[pdf_render::Color]>,
+        what: &str,
+    ) {
+        assert!(
+            super::packed_pixels(samples, palette).is_some(),
+            "{what} takes the byte route"
+        );
+        let bits = usize::try_from(samples.bits).expect("a depth");
+        for width in 1..=19_usize {
+            let height = 5_usize;
+            let row_bytes = (width * bits).div_ceil(8);
+            let short = row_bytes * (height - 1) + row_bytes.div_ceil(2);
+            let data: Vec<u8> = (0..short)
+                .map(|index| u8::try_from((index * 89 + 23) % 256).expect("under 256"))
+                .collect();
+            let tabled = super::unpack(
+                &data,
+                u32::try_from(width).expect("small"),
+                u32::try_from(height).expect("small"),
+                samples,
+            )
+            .expect("unpacked");
+            assert_eq!(
+                tabled,
+                per_sample(samples, palette, &data, (width, height)),
+                "{what}, {width} wide"
+            );
+        }
+    }
+
+    /// ISO 32000-2 §8.9.6.2's stencil through the byte route: under the default `[0 1]` "a sample
+    /// value of 0 shall mark the page with the current colour, and a 1 shall leave the previous
+    /// contents unchanged", and `[1 0]` reverses the two — each pixel the per-sample route's, in a
+    /// current colour that is not opaque (ADR 1557).
+    #[test]
+    fn a_stencil_unpacks_a_byte_at_a_time_to_the_per_sample_routes_pixels() {
+        let space = super::ColourSpace::Mask;
+        let into = super::Conversion::device();
+        for stated in [vec![], vec![0.0_f32, 1.0], vec![1.0, 0.0]] {
+            let decode = super::Decode::from_pairs(&stated, &space, 1);
+            let samples = super::Samples {
+                bits: 1,
+                space: &space,
+                decode: &decode,
+                colour_key: None,
+                fill: pdf_render::Color {
+                    r: 0.8,
+                    g: 0.1,
+                    b: 0.3,
+                    a: 0.6,
+                },
+                into: &into,
+                matte: None,
+            };
+            the_byte_route_matches(&samples, None, &format!("a stencil under {stated:?}"));
+        }
+    }
+
+    /// ISO 32000-2 §8.9.5.2's `/Decode` on a `DeviceGray` image at one, two and four bits
+    /// through the byte route: the default, the inverting `[1 0]` and a general pair whose two
+    /// ends are neither black nor white each give the per-sample route's pixels. A §8.9.6.4
+    /// colour key keeps the image on the per-sample route, because its test is on the raw sample
+    /// (ADR 1557).
+    #[test]
+    fn a_grey_image_unpacks_a_byte_at_a_time_under_its_decode_array() {
+        let space = super::ColourSpace::Gray;
+        let into = super::Conversion::device();
+        for bits in [1, 2, 4] {
+            for stated in [vec![], vec![1.0_f32, 0.0], vec![0.2, 0.7]] {
+                let decode = super::Decode::from_pairs(&stated, &space, bits);
+                let samples = super::Samples {
+                    bits,
+                    space: &space,
+                    decode: &decode,
+                    colour_key: None,
+                    fill: pdf_render::Color::BLACK,
+                    into: &into,
+                    matte: None,
+                };
+                the_byte_route_matches(&samples, None, &format!("{bits}-bit grey, {stated:?}"));
+                let keyed = super::Samples {
+                    colour_key: Some(&[(1, 1)]),
+                    ..samples
+                };
+                assert!(super::packed_pixels(&keyed, None).is_none());
+            }
+        }
+    }
+
+    /// ISO 32000-2 §8.6.6.3's `Indexed` space through the byte route at each of Table 87's
+    /// depths to eight, over a table shorter than the depth can index — so that the samples past
+    /// `hival` meet [`super::palette`]'s answer for them on both routes — and under an inverting
+    /// `/Decode` (ADR 1557).
+    #[test]
+    fn an_indexed_image_unpacks_a_byte_at_a_time_at_every_depth_to_eight() {
+        let into = super::Conversion::device();
+        for bits in [1, 2, 4, 8] {
+            let high = (1_usize << bits) / 2 + 1;
+            let lookup: Vec<f32> = (0..=high)
+                .flat_map(|entry| {
+                    let at = f32::from(u8::try_from(entry % 256).expect("under 256")) / 255.0;
+                    [at, 1.0 - at, 0.5]
+                })
+                .collect();
+            let resolved = ColourSpace::Indexed {
+                base: Box::new(ColourSpace::Rgb),
+                lookup,
+                high,
+            };
+            let space = super::ColourSpace::Resolved(resolved.clone());
+            let top = f32::from(u16::try_from((1_u32 << bits) - 1).expect("at most 255"));
+            for stated in [vec![], vec![top, 0.0]] {
+                let decode = super::Decode::from_pairs(&stated, &space, bits);
+                let palette = super::palette(&resolved, bits, &decode, &into);
+                let samples = super::Samples {
+                    bits,
+                    space: &space,
+                    decode: &decode,
+                    colour_key: None,
+                    fill: pdf_render::Color::BLACK,
+                    into: &into,
+                    matte: None,
+                };
+                the_byte_route_matches(
+                    &samples,
+                    Some(&palette),
+                    &format!("{bits}-bit indexed, {stated:?}"),
+                );
+            }
         }
     }
 

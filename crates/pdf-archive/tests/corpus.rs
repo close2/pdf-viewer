@@ -132,14 +132,14 @@ static ADJUDICATED: &[(&str, Ruling, &str)] = &[
     ),
     // ISO 19005-2 section 6.6.2.3.3, two witnesses that were one argument and are now two.
     //
-    // **`TN 0009` is settled, by a different document.** Session 940 ruled both files against the
-    // corpus because the record said to be contrary — PDF Association TN 0009 section 4.3, on a
-    // field that may be absent where a schema defines no custom types — returned HTTP 403 and
-    // could not be read. `doc/TechNote0010.pdf` is now held, and its item A029 is that reading in
-    // an authoritative form: the ISO working group resolved that parts 1 to 3 are read as if an
-    // extension schema defining no custom value types may omit `pdfaSchema:valueType`, and a
-    // value type defining no structured fields may omit `pdfaType:field`, a validator allowing
-    // each absence and treating it as an empty array. `crate::clarification` carries it.
+    // **`TN 0009` is settled, by a different document.** Both files were ruled against the corpus
+    // (ADR 0931) because the record said to be contrary — PDF Association TN 0009 section 4.3, on a
+    // field that may be absent where a schema defines no custom types — returned HTTP 403 and could
+    // not be read. `doc/TechNote0010.pdf` is now held, and its item A029 is that reading in an
+    // authoritative form: the ISO working group resolved that parts 1 to 3 are read as if an
+    // extension schema defining no custom value types may omit `pdfaSchema:valueType`, and a value
+    // type defining no structured fields may omit `pdfaType:field`, a validator allowing each
+    // absence and treating it as an empty array. `crate::clarification` carries it.
     //
     // **It settles one of the two files and not the other**, which is the clarification's own
     // asymmetry rather than a compromise. `t01-pass-e` omits `pdfaSchema:valueType` and its one
@@ -251,9 +251,10 @@ static ADJUDICATED: &[(&str, Ruling, &str)] = &[
     //
     // **veraPDF implements neither subclause**: `PDFA-2B.xml` and `PDFA-4.xml` carry no rule
     // whose clause is `6.6.6` or `6.7.5`, which is why every witness in both directories is named
-    // a pass. Session 940 ruled all five against the corpus, on the reasoning that the resolution
-    // said to justify them reached this tree only through a third party's test fixture's outline
-    // and a conference summary that contradicted it — neither readable as a source of truth.
+    // a pass. All five were ruled against the corpus (ADR 0931), on the reasoning that the
+    // resolution said to justify them reached this tree only through a third party's test
+    // fixture's outline and a conference summary that contradicted it — neither readable as a
+    // source of truth.
     //
     // **Part 2's three are no longer disagreements at all.** `doc/TechNote0010.pdf` is held, and
     // its item A021 is the resolution in an authoritative form: the ISO working group resolved

@@ -52,6 +52,10 @@ use crate::{controls, page, pages, tree};
 /// The identity this host gives the one document it opens.
 const DOCUMENT: DocumentId = DocumentId(1);
 
+/// What the contents panel says while the launch document's outline is read beside page one
+/// (ADR 1553): a sentence about this window, since the document's answer is not in yet.
+const READING_THE_OUTLINE: &str = "Reading the outline.";
+
 /// What a window does with the word a person pressed on one of `Host::put_a_question`'s two
 /// buttons.
 ///
@@ -640,6 +644,9 @@ pub struct Host {
     pub(crate) viewport: (u32, u32),
     /// The document opening on [`Opening`]'s thread, until the first allocation joins it.
     anticipated: Option<std::thread::JoinHandle<(Viewer, Vec<Event>)>>,
+    /// The launch document's outline and placed page tree, being read on a thread of their own
+    /// from the join until they are handed back ([`viewer_core::Preparation`], ADR 1553).
+    preparing: Option<std::sync::mpsc::Receiver<viewer_core::Prepared>>,
 }
 
 /// The next of Table 29's six arrangements, in the order that table states them.
@@ -779,6 +786,7 @@ impl Host {
                 shown: None,
                 viewport: (1, 1),
                 anticipated: Some(thread),
+                preparing: None,
             })
         })
     }
@@ -853,12 +861,81 @@ impl Host {
             Topic::Launch,
             format_args!("document joined, {} event(s)", opened.len()),
         );
+        // Asked before the open's events are answered, so that the panel built from them does not
+        // read the outline on this thread first (ADR 1553).
+        self.prepare();
         let resized: Vec<Event> = self.viewer.handle(resize).collect();
         let mut queue = VecDeque::new();
         for event in opened.into_iter().chain(resized) {
             self.react(event, &mut queue);
         }
         self.pump(queue);
+    }
+
+    /// Reads what page one does not need beside it: §12.3.3's outline and §7.7.3's page tree,
+    /// placed, which the open no longer reads (ADRs 1543, 1553).
+    ///
+    /// The thread holds a handle to the immutable file and nothing of the core's, and GTK's main
+    /// loop looks for its answer at [`viewer_host::drawing::POLL`] — the interval chosen for a
+    /// page's own latency, here for the caption's — and stops looking once it has one.
+    fn prepare(&mut self) {
+        let Some(preparation) = self.viewer.preparation() else {
+            return;
+        };
+        let (send, answer) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            // A window that has closed has nobody to give the answer to.
+            let _ = send.send(preparation.run());
+        });
+        self.preparing = Some(answer);
+        let me = self.me.clone();
+        glib::timeout_add_local(viewer_host::drawing::POLL, move || {
+            let Some(host) = me.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            // A host busy with one of its own writes is asked again at the next look.
+            let Ok(mut host) = host.try_borrow_mut() else {
+                return glib::ControlFlow::Continue;
+            };
+            host.take_the_preparation();
+            if host.preparing.is_some() {
+                glib::ControlFlow::Continue
+            } else {
+                glib::ControlFlow::Break
+            }
+        });
+    }
+
+    /// The launch document's outline and page tree, if the thread reading them has answered.
+    ///
+    /// The caption's section comes back as an `Event::PageChanged`, and the contents panel is
+    /// built again from what has now been read.
+    fn take_the_preparation(&mut self) {
+        let Some(answer) = self.preparing.as_ref() else {
+            return;
+        };
+        let prepared = match answer.try_recv() {
+            Ok(prepared) => prepared,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                // The thread ended without an answer; the first use reads it instead.
+                self.preparing = None;
+                self.rebuild_panel(Tab::Contents);
+                return;
+            }
+        };
+        self.preparing = None;
+        self.trace
+            .say(Topic::Launch, format_args!("outline and page tree read"));
+        let events: Vec<Event> = self.viewer.prepared(prepared).collect();
+        let mut queue = VecDeque::new();
+        for event in events {
+            self.react(event, &mut queue);
+        }
+        self.pump(queue);
+        if self.documents.focused() == DOCUMENT {
+            self.rebuild_panel(Tab::Contents);
+        }
     }
 
     /// §7.6.4.1: opens the document, with a password where one has been supplied.
@@ -2224,6 +2301,11 @@ impl Host {
     /// [`viewer_host::Key`]: viewer_host::Key
     fn panel_of(&mut self, tab: Tab) -> Panel {
         match tab {
+            // Not while the launch document's outline is being read off this thread: asking here
+            // would read it on GTK's, in front of page one. Its arrival builds this panel again.
+            Tab::Contents if self.preparing.is_some() && self.documents.focused() == DOCUMENT => {
+                Panel::Rows(vec![panel::PanelRow::saying(READING_THE_OUTLINE)])
+            }
             Tab::Contents => Panel::Rows(match self.viewer.query(Query::Outline) {
                 Answer::Outline(outline) if !outline.items.is_empty() => {
                     panel::outline_rows(&outline)

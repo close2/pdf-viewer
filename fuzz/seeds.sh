@@ -4,6 +4,7 @@
 # `fuzz/corpus`, which is gitignored, so a clone starts with none).
 #
 #   fuzz/seeds.sh [<root> [<target>...]]      every target, or the ones named
+#   fuzz/seeds.sh check [<target>...]          is the corpus on disk stale? (below)
 #
 # A target fuzzed from nothing does not reach what it exists for — libFuzzer will not invent a
 # JPEG 2000 box, a JBIG2 segment header or a cross-reference table that agrees with its objects
@@ -16,14 +17,33 @@
 # It walks `corpus-cache`, `doc/corpora` and `doc/pdf.js/test/pdfs`, which is a census over the
 # corpus: run it behind the lock, `flock /home/AI/heavy-walk.lock fuzz/seeds.sh`. `-L` because a
 # worktree's corpora are symbolic links into the main checkout.
+#
+# **`check` says whether the corpus on disk is stale**, and writes nothing there. A seeded corpus
+# goes stale with nothing failing — a seeder learns a new route, a target grows a branch — and a
+# campaign started on it spends its clock rediscovering what fresh seeds hand over at once
+# (trap 107). So `check` seeds the target afresh into a scratch directory beside the build output,
+# asks libFuzzer for its `INITED cov` — the coverage the corpus gives before one mutation — once
+# over the disk corpus and once over the fresh seeds, each a `-runs=0` pass with the limits
+# `doc/verify.md` gives the target, and prints both. It says **stale** when the fresh seeds reach
+# more edges than the disk corpus by more than `STALE_MARGIN_PERCENT` of the fresh figure
+# (`margin` below says why that much), and then what a re-seed would add and where. Each pass
+# names the disk corpus *second*, behind an empty scratch directory, because libFuzzer writes what
+# it keeps into the first directory it is given: the owner's corpus is read and never written.
+# A census like the rest, so behind the lock. ADR 1559.
 
 set -eu -o pipefail
 
 here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 tree=$(cd -- "$here/.." && pwd)
-root=${1:-$here/corpus}
-[ $# -gt 0 ] && shift
-mkdir -p "$root"
+if [ "${1:-}" = check ]; then
+    mode=check
+    shift
+else
+    mode=seed
+    root=${1:-$here/corpus}
+    [ $# -gt 0 ] && shift
+    mkdir -p "$root"
+fi
 export PYTHONDONTWRITEBYTECODE=1
 
 targets() {
@@ -136,5 +156,106 @@ seed() {
     counted "$t"
 }
 
+# How far the fresh seeds may lead the disk corpus before it is called stale, as a share of the
+# fresh figure. A disk corpus that has been fuzzed holds what its campaigns found and is expected to
+# lead; it trails only when it is missing what the seeders now produce. Three `-runs=0` passes over
+# one corpus print one figure for a single-threaded target, but a target whose code iterates a
+# randomly seeded `HashMap` or splits work over threads can move a handful of edges between passes,
+# so two per cent of the figure is noise and is not called stale. The gaps trap 107 is about were
+# 4.6 and 9 times, so the margin cannot hide one. ADR 1559.
+STALE_MARGIN_PERCENT=2
+
+# The limits `doc/verify.md`'s line gives this target, without its run length or fork count: a
+# `-runs=0` pass under a different memory limit or input length would report a corpus the campaign
+# never loads, and a fork-mode parent prints no `INITED` at all.
+limits() {
+    grep -E "cargo \+nightly fuzz run +$1( |\$)" "$tree/doc/verify.md" | head -1 | sed -e 's/#.*$//' \
+        | grep -oE -- '-(rss_limit_mb|timeout|max_len|malloc_limit_mb)=[0-9]+' | tr '\n' ' ' || true
+}
+
+# libFuzzer's `INITED cov` over the corpus `$2` of target `$1`, or a word saying why there is none.
+# The pass is told to keep what it finds in `$3`, an empty scratch directory, so `$2` is only read;
+# a seed that crashes the target ends the pass before `INITED`, its input goes to `$3`'s artefacts
+# rather than to `fuzz/artifacts`, and the word is `crashed`.
+inited() {
+    local t=$1 corpus=$2 out=$3 log
+    if [ ! -d "$corpus" ] || [ -z "$(find -L "$corpus" -maxdepth 1 -type f -print -quit)" ]; then
+        echo absent
+        return
+    fi
+    mkdir -p "$out/kept" "$out/artefacts"
+    log="$out/libfuzzer.log"
+    # Built by `cargo fuzz build` and run by path rather than by `cargo fuzz run`, which creates
+    # `fuzz/artifacts/<target>` — a directory in the main checkout — whatever prefix it is given.
+    (cd "$here" && PATH="$HOME/.cargo/bin:$PATH" cargo +nightly fuzz build "$t") > "$log" 2>&1 || true
+    # shellcheck disable=SC2046 # the limits are separate words by design
+    "$(built)/$(rustc -vV | sed -n 's/^host: //p')/release/$t" -runs=0 $(limits "$t") \
+        -artifact_prefix="$out/artefacts/" "$out/kept" "$corpus" >> "$log" 2>&1 || true
+    if grep -qE 'INITED cov: [0-9]+' "$log"; then
+        grep -oE 'INITED cov: [0-9]+' "$log" | head -1 | grep -oE '[0-9]+$'
+    elif grep -qE 'out-of-memory|rss limit' "$log"; then
+        echo out-of-memory
+    elif grep -qE 'ERROR: (libFuzzer|AddressSanitizer)|panicked at|deadly signal' "$log"; then
+        echo crashed
+    else
+        echo failed
+    fi
+}
+
+# Seeds `$1` afresh into a scratch directory and compares the two corpora's `INITED cov`. The
+# scratch directory goes when the comparison is made; only a pass that gave no figure keeps its
+# libFuzzer log, which the line naming it points at.
+check() {
+    local t=$1 scratch disk fresh_cov disk_cov margin missing seeds_disk seeds_fresh
+    scratch=$(mktemp -d "${SEEDS_CHECK_DIR:-$(built)}/seeds-check-$t.XXXXXX")
+    disk=$here/corpus/$t
+    root=$scratch/seeds
+    seed "$t" > /dev/null
+    seeds_fresh=$(find "$root/$t" -maxdepth 1 -type f | wc -l)
+    seeds_disk=$( (find -L "$disk" -maxdepth 1 -type f 2>/dev/null || true) | wc -l)
+    disk_cov=$(inited "$t" "$disk" "$scratch/disk")
+    fresh_cov=$(inited "$t" "$root/$t" "$scratch/fresh")
+    echo "seeds.sh check $t: disk $seeds_disk seeds, INITED cov $disk_cov; fresh $seeds_fresh seeds," \
+         "INITED cov $fresh_cov"
+    case $fresh_cov in
+    *[!0-9]*)
+        echo "seeds.sh check $t: not judged — the fresh seeds give no figure ($fresh_cov) under" \
+             "doc/verify.md's limits; $scratch/fresh/libfuzzer.log says why"
+        rm -rf "$root"
+        return
+        ;;
+    esac
+    case $disk_cov in
+    *[!0-9]*)
+        echo "seeds.sh check $t: STALE — the disk corpus gives no figure ($disk_cov), so a campaign" \
+             "on it starts from less than a re-seed would give it"
+        ;;
+    *)
+        margin=$((fresh_cov * STALE_MARGIN_PERCENT / 100))
+        if [ $((fresh_cov - disk_cov)) -le "$margin" ]; then
+            echo "seeds.sh check $t: current — the disk corpus reaches $disk_cov edges to the fresh" \
+                 "seeds' $fresh_cov, inside a margin of $margin"
+            rm -rf "$scratch"
+            return
+        fi
+        echo "seeds.sh check $t: STALE — the fresh seeds reach $((fresh_cov - disk_cov)) edges more" \
+             "than the disk corpus, past a margin of $margin"
+        ;;
+    esac
+    # What a re-seed would do. The seeders only add, so it is the fresh seeds whose bytes the disk
+    # corpus does not already hold, written where the corpus link resolves.
+    missing=$(comm -13 \
+        <( (find -L "$disk" -maxdepth 1 -type f -exec sha1sum {} + 2>/dev/null || true) | cut -c1-40 | sort -u) \
+        <(find "$root/$t" -maxdepth 1 -type f -exec sha1sum {} + | cut -c1-40 | sort -u) | wc -l)
+    echo "seeds.sh check $t: a re-seed, \`fuzz/seeds.sh fuzz/corpus $t\` behind the lock, would add" \
+         "$missing of the $seeds_fresh fresh seeds to $(readlink -f "$here/corpus")/$t and remove nothing"
+    rm -rf "$scratch"
+}
+
 if [ $# -gt 0 ]; then chosen=$*; else chosen=$(targets); fi
+if [ "$mode" = check ]; then
+    for t in $chosen; do check "$t"; done
+    exit 0
+fi
+
 for t in $chosen; do seed "$t"; done

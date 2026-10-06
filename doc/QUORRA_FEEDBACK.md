@@ -6078,3 +6078,27 @@ on three lanes at 1× and 4×.
 passes for 3 518 clipped shadings. The chromatic render's exact meet is 0.80 G. An encode that
 leaves colours out, replayed with the black half's colours, would save the black walk's last
 13 ms. That needs our encode to stop writing colours into instances as it walks.
+
+## 67. `bug1721218_reduced.pdf`'s zoom step is inside twice your CPU backend (ADR 1555)
+
+**Where the time was, by the clock and not the count.** By instructions the two things left after
+section 66 were the same size: 0.23 G filling 3 515 small clip regions on the walk's thread and
+0.24 G in the two renders' pass recording. By the clock they were not. Skipping every small
+region's fill outright (a probe arm, wrong bytes) saved about 4.5 ms of the step, and making the
+regions on other threads ahead of the walk saved 1.6 ms, so that is not kept. Building the passes'
+bind groups took 9 to 10 ms of each render.
+
+**What changed, byte for byte.** A shading quad made a uniform buffer and a bind group of its
+own: 3 583 of each a render. A pass now lays every shading quad's 176 bytes into one buffer, makes
+one bind group per paint and mask, and draws each quad at its own dynamic offset. Your page has five
+ramps a render and no mask, so a render makes one buffer and five groups. The image and function
+quads are unchanged. Corpus digests: 0 pages moved on three lanes at 1× and 4×.
+
+| `zoom_frame`, GPU lane | before | after | your CPU backend |
+|---|---:|---:|---:|
+| the 1× frame | 116.0 ms | 89.2 ms | 47.0 ms |
+| the 1.25× step | 108.4 ms | **79.2 ms** | 56.0 ms |
+
+Pinned minima of 4 × 5, interleaved on exported trees, the CPU backend in the same sitting. **The
+step is 1.41× the CPU backend.** On your table the step row reads 84.44 ms against 117.04, and the
+turn 161.26 against 188.79.

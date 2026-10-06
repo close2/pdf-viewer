@@ -37,7 +37,7 @@
 //! **It is deterministic and the run says so.** One device draws every page, so the caches and
 //! the atlas carry across documents exactly as they do in the gate; what the residue rule reads
 //! is the scene's own uses and the *frame's* budget, neither of which depends on what was drawn
-//! before. Session 581 found a census whose answer moved between runs because a `static` table
+//! before. ADR 0416 found a census whose answer moved between runs because a `static` table
 //! was a process budget, and the rule that came out of it is that an instrument which cannot
 //! answer the same thing twice establishes nothing — so this one is run twice and the two
 //! outputs are compared.

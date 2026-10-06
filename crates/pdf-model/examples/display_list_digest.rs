@@ -34,8 +34,8 @@
 //! find one *refuses* the image rather than falling back in process — which is the security
 //! posture working, and which means the page's display list holds no command for it. So this
 //! artefact is a digest of what the program could decode as well as of what it interpreted, and
-//! it changes the moment `cargo build -p pdf-sandbox --bins` has run. Session 535 compared two
-//! pairs an hour apart and read the worker's arrival as a difference in the code.
+//! it changes the moment `cargo build -p pdf-sandbox --bins` has run. ADR 0370 records two
+//! pairs an hour apart whose worker's arrival read as a difference in the code.
 //!
 //! **The hash is [`std::collections::hash_map::DefaultHasher`]**, which the standard library
 //! documents as unspecified across releases. That is exactly good enough here and no more: both

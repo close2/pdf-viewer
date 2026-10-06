@@ -440,7 +440,7 @@ an argued exclusion, so the next clause left out is a build failure instead of a
 | `silent` | Not implemented, and **nothing says so**: a document exercising the clause is drawn wrong without a word. |
 | `inapplicable` | The requirement cannot reach this program: it describes a press rather than a screen (§10.6's halftones, on the standard's own condition — ADR 0204), or it is a permission this program declines and has no code to point at (§14.11.2.2's page-boundary guidelines). **Two situations under one word**, which ADR 0205 had to separate by hand; every such note says which it means. **Not** the same as excluded, and not the same as a permission *exercised*, which is `implemented` where there is code to name — §10.7.2's flatness is the standing example. **The condition is the standard's, read in its clause, and it is asked of the whole program**: a row whose condition was this tree's own claim, or whose stated condition is false of a writer, the print path or the archive path this program has, is not `inapplicable` — a press, a PostScript printer or a capturing application is a condition; "this is a viewer" is not (ADR 1461). **The note quotes that condition**, verbatim, from the row's clause, its parent or a clause it cites, or the build fails; and a clause that states no requirement of its own is a heading, `implemented` vacuously or as its subclauses are, never `inapplicable` (ADR 1535). |
 | `writer-side` | The requirement addresses a PDF *generator*: what a file shall contain, laid out how. Principle 5 also lists this as an exclusion, but it gets its own status because it is a property of the clause rather than a choice about scope. **The exclusion is authoring, not writing** — §7.5.6's incremental update of what a person did is in scope and implemented (ADR 0121), and RFC 0002 §10's serializer emits structure and never content — so a row is `writer-side` only where the requirement falls on whoever *creates* the structure. §7.2.2 is `implemented` rather than `writer-side`, because a tree that writes has to write ASCII tokens. |
-| `out-of-scope` | **Only** for a clause covered by principle 5's closed exclusion list, and the row must name which entry covers it. |
+| `out-of-scope` | **Only** for a clause covered by principle 5's closed exclusion list, and the row must name which entry covers it. **The note says which in words and quotes the clause's own sentence that puts its subject under that exclusion**, verbatim, or the build fails; a clause that states nothing takes its subclauses' status (ADR 1548). |
 | `unreviewed` | Nobody has read this clause against this code. The initial state of every row, whenever the population grows. |
 
 **`silent` is the status worth hunting.** Every missing *subsystem* in this tree reports —
@@ -458,7 +458,8 @@ reader hunting silence by status alone will miss it.
 **`out-of-scope` is the status that would rot first, so it is the one the checker
 constrains.** `CLAUDE.md` principle 5 fixes a closed list of exclusions — clause 13, XFA,
 script-driven form behaviour, writer-side requirements — and a row may carry `out-of-scope`
-only with an `exclusion` field naming one of them. The valid values are a closed enum in the
+only with an `exclusion` field naming one of them and a note quoting the clause's sentence that
+shows its subject is what that exclusion covers (`tests/ledger_notes.rs`, ADR 1548). The valid values are a closed enum in the
 checker, so widening the list means editing principle 5 and the checker together, in a commit
 that says so. Without that constraint the status becomes the graveyard every clause goes to
 once it turns out to be difficult, which is precisely the escape hatch principle 5 refuses.
@@ -544,7 +545,10 @@ ADR 1475), the fuzz workspace's lock and targets are what `tools/fuzz.sh` and
 `fuzz/seeds.sh` need (`tests/fuzz_workspace.rs`, ADR 1439), every `tools/state.sh` section reads
 and none writes (`tests/read_only.rs`, ADR 1487), and `doc/environment.md`'s *After a merge* holds
 one entry per kind of line `tools/main-checkout.py` prints, in its order (`tests/owner_section.rs`),
-and a round's record fits its forty lines and states its gates in a `**Gates.**` paragraph with an
+the ledger's session ordinals only fall, held by equality, because a note states what is, and an
+`out-of-scope` row names its exclusion and quotes its clause (`tests/ledger_notes.rs`, ADRs
+1547, 1548), no Rust source names a round, spelled out or as `Session <number>`
+(`tests/spelled_ordinals.rs`, ADR 1023), and a round's record fits its forty lines and states its gates in a `**Gates.**` paragraph with an
 exit status or a pass count (`tests/records.rs`, ADRs 1100, 1499). The sweeps under `src/bin/` —
 `pointers`, `overtaken`, `retired`, `unread`, `cited` and the rest — are reading lists and never
 gates, since each judges prose; `tools/state.sh` runs them by section. `tools/state.sh comments`

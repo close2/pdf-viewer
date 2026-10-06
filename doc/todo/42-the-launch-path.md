@@ -305,17 +305,31 @@ host reads them off the thread that draws through `Viewer::preparation` / `Viewe
 `quorra` runs on a thread of its own at the join and the gate mirrors. Every other reader is a
 first use.
 
-**What is left of it is three hosts.** `quorra-gtk`, `quorra-qt` and `quorra-confined` (and the C
-ABI) take no preparation yet, so their first page turn or their panel's `Query::Outline` reads both
-on the toolkit's thread, and their opening caption has no section until then. Taking it is the same
-three steps `quorra`'s `window.rs` and `dispatch.rs` take: ask at the join, run it on a thread,
-hand the answer back and re-take the outline.
+**Every host takes it** (ADR 1553). `quorra-gtk` and `quorra-qt` ask at the join, run it on a
+thread, look for the answer on GTK's main loop or on Qt's drawing timer, and build the contents
+panel again when it lands; the panel says it is reading the outline meanwhile rather than reading it
+on the toolkit's thread. The confined worker starts the thread itself after an open's anticipation,
+inside its confinement, and the section rides on its next events frame. The C ABI hands a caller
+the handle (`quorra_preparation_take`, `quorra_preparation_run`, `quorra_prepared_hand_back`) and
+reads the section off the event (`quorra_event_page_section`).
 
-**And the one row whose document thread is the longer, `bug1815476.pdf`, has its lever named.**
-Its thread finishes page one 2.2 to 3.0 ms after the device; of the 318 M instructions page one
-costs there, 246.5 M is `pdf_model::image::unpack` converting a CCITT image's one-bit samples to
-RGBA one `sample_rgba` call a pixel (the fax decode is under 1 M). An arm converting eight
-one-bit samples a byte at a time would take most of it; it is `pdf-model`'s (ADR 1543 section 5).
+**And the device is the longer thread on every row.** `bug1815476.pdf`'s page one was the one
+whose interpretation outlasted the device, and 246.5 M of its 318 M instructions were
+`pdf_model::image::unpack` turning three CCITT stencils' one-bit samples into RGBA a `sample_rgba`
+call at a time. A one-component image of at most eight bits is now unpacked a byte at a time from a
+table `sample_rgba` itself fills (ADR 1557): the stencils' decode is 5.4 M where it was 244 M, and
+page one is interpreted at 20.3 to 20.9 ms against a device up at 22.9 to 24.0.
+
+**What the device thread does between "device up" and "frame drawn" is the frame** (ADR 1558): the
+gate prints its stages, and on the five rows it is a scene of 0.1 to 0.3 ms and a device span of
+5.4 to 9.2 — encode 1.6 to 3.8, transfer 0.2 to 2.6, readback 0.6 to 1.0 (headless only), one
+pipeline compiled on first use (0.3 ms) on three rows, and the driver's own remainder. Nothing in
+it waits for warmth; a first frame drawn a hundred milliseconds after the device costs what one
+drawn at once does. **What did wait was a window's read of `Device::startup`**, 3.2 to 4.3 ms on
+the real adapter for the whole warm set, because the warm-up's state sat under the compile lock;
+it has a lock of its own now. Under `Xvfb` the window's first present still waits for the warm set
+on `llvmpipe` (31.7 ms from device to configured surface either way, the wait moved into the
+ground's present); on the real adapter through a real window that is the owner's to measure.
 
 ### 2a. What the item said before, and it was wrong twice
 

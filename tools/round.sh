@@ -295,11 +295,14 @@ fi
 #    the four it is — green, red, still running, or not asked — and none of the last three is
 #    ever read as green.
 #
-#    **The fourth and the third used to be one**, which the six-hundred-and-thirtieth session
-#    found on this check's first run against a live pipeline: a run that has not finished has an
-#    empty `conclusion`, and an empty `conclusion` was the same case as an empty *answer*. So the
-#    push the owner was waiting on printed "CI was not asked", which is the one sentence this
-#    check exists not to print about a run it can see. `status` is what tells them apart.
+#    **The fourth and the third are told apart by `status`**: a run that has not finished has an
+#    empty `conclusion`, and read alone that is the same case as an empty *answer*, which would
+#    print "CI was not asked" about a run this check can see — the one sentence it exists not to
+#    print (ADR 0463).
+#
+#    Which job failed, on which step, and whether GitHub ran it at all is `tools/state.sh
+#    main-checkout`'s, which reads the public interface and needs no token (ADR 1563): the token
+#    below is the owner's, and a round's shell has none of its own.
 if command -v gh > /dev/null 2>&1; then
     #    The token is a file beside the *main* worktree rather than inside the repository, which
     #    is what keeps it out of every commit — so it is found through git's common directory and
@@ -324,7 +327,7 @@ if command -v gh > /dev/null 2>&1; then
     elif [ "$run_conclusion" = success ]; then
         pass "CI's last run on main passed — $run_where"
     else
-        fail "CI's last run on main is $run_conclusion: gh run view $(printf '%s' "$run" | cut -f3) --log-failed"
+        fail "CI's last run on main is $run_conclusion: run $(printf '%s' "$run" | cut -f3); its jobs: tools/state.sh main-checkout"
     fi
 else
     printf '  ! CI was not asked (no gh on PATH) — its state here is unknown, not green\n'

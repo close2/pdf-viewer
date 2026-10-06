@@ -2268,7 +2268,7 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         Because::TheFence(UTF8_NAMES),
     ),
     // ---------------------------------------------------------------------------------------
-    // Session 954: the requirements the census found with no considered answer at all. Each is
+    // The requirements the census found with no considered answer at all (ADR 0955). Each is
     // one of four things and the sentence says which — a fence nothing closes, a target that
     // conforms where this one cannot, a caller's own refusal, or a rewrite named as owed. The
     // census that found them is `super::census`, and `tests/archive_unconsidered.txt` is the

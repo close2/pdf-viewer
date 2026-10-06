@@ -13,7 +13,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::encode::{Batch, BatchKind, DrawStyle, FunctionOp, ImageOp, Op, ShadedOp};
+use crate::device::shading_params_bytes;
+use crate::encode::{Batch, BatchKind, DrawStyle, FunctionOp, ImageOp, Op, PaintSource, ShadedOp};
 use crate::error::RenderError;
 use crate::pipeline::{Kind, Style};
 
@@ -57,6 +58,34 @@ enum Ready {
         pipelines: [Option<Arc<wgpu::RenderPipeline>>; 2],
         bind: wgpu::BindGroup,
     },
+    /// A shading quad: its pipelines, which of the run's shading bind groups it reads
+    /// ([`Shadings::binds`]), and where its numbers sit in that group's buffer (ADR 1555).
+    Shaded {
+        pipelines: [Option<Arc<wgpu::RenderPipeline>>; 2],
+        bind: usize,
+        offset: u32,
+    },
+}
+
+/// The shading quads of one run, gathered before any of their bindings exist: every quad's
+/// numbers laid into as few buffers as the device allows, and one bind group per paint, mask
+/// and buffer, which every quad reading them shares at its own offset (ADR 1555).
+///
+/// **Why one buffer and few groups.** A buffer and a bind group made per quad were the
+/// largest host cost of a pass on a page of many shadings: `bug1721218_reduced.pdf` draws
+/// 3 583 ops a render through five ramps and no mask, and making them took 9 to 10 ms of each
+/// of its two renders. The numbers each quad reads are the bytes it read from a buffer of its
+/// own; only where they sit has changed, so every draw shades what it shaded.
+#[derive(Default)]
+struct Shadings {
+    /// The closed buffers' bytes, every quad's numbers at a multiple of the device's stride.
+    buffers: Vec<Vec<u8>>,
+    /// The buffer being filled.
+    current: Vec<u8>,
+    /// Each bind group's paint, mask and buffer, in the order the run first asked.
+    keys: Vec<(PaintSource, Option<u32>, usize)>,
+    /// The bind groups, made once every buffer is whole; index for index with `keys`.
+    binds: Vec<wgpu::BindGroup>,
 }
 
 /// The drawable prefix of a plan's ops, unboxed for a pass. The caller guarantees
@@ -86,7 +115,7 @@ impl Executor<'_> {
         load: PassLoad,
         ops: &[RunOp],
     ) -> Result<(), RenderError> {
-        let (ready, needed) = self.prepare_run(ops, format)?;
+        let (ready, needed, shadings) = self.prepare_run(ops, format)?;
         // The attachment this pass writes is the current plan's region, and every lane
         // maps device space through it (ADR 0036).
         let globals = self.device.region_globals(self.region);
@@ -127,6 +156,21 @@ impl Executor<'_> {
                     for pipeline in pipelines.iter().flatten() {
                         pass.set_pipeline(pipeline);
                         pass.set_bind_group(0, bind, &[]);
+                        pass.draw(0..4, 0..1);
+                    }
+                    continue;
+                }
+                Ready::Shaded {
+                    pipelines,
+                    bind,
+                    offset,
+                } => {
+                    let Some(bind) = shadings.binds.get(*bind) else {
+                        continue;
+                    };
+                    for pipeline in pipelines.iter().flatten() {
+                        pass.set_pipeline(pipeline);
+                        pass.set_bind_group(0, bind, &[*offset]);
                         pass.draw(0..4, 0..1);
                     }
                     continue;
@@ -184,7 +228,7 @@ impl Executor<'_> {
         &mut self,
         ops: &[RunOp],
         format: wgpu::TextureFormat,
-    ) -> Result<(Vec<Ready>, Vec<Kind>), RenderError> {
+    ) -> Result<(Vec<Ready>, Vec<Kind>, Shadings), RenderError> {
         let mut needed: Vec<Kind> = Vec::new();
         let want = |needed: &mut Vec<Kind>, kind: Kind| {
             if !needed.contains(&kind) {
@@ -192,6 +236,9 @@ impl Executor<'_> {
             }
         };
         let mut ready: Vec<Ready> = Vec::with_capacity(ops.len());
+        let mut shadings = Shadings::default();
+        let stride = self.device.shading_stride();
+        let limit = self.device.shading_buffer_limit();
         for op in ops {
             match op {
                 RunOp::Batch(batch) => {
@@ -227,13 +274,15 @@ impl Executor<'_> {
                             dest_over: Kind::ShadedDestOver,
                         },
                     );
-                    let mask = self.mask_for(shaded.mask);
-                    let scratch = self.scratch_view.as_ref().unwrap_or(&self.dummy_view);
-                    let bind = self
-                        .device
-                        .shaded_bind(shaded, self.region, scratch, mask)?;
+                    let (_, placement) = self.mask_for(shaded.mask);
+                    let numbers = shading_params_bytes(shaded, self.region, placement);
+                    let (bind, offset) = shadings.place(shaded, &numbers, stride, limit);
                     let pipelines = self.lane_pipelines(kinds, format)?;
-                    ready.push(Ready::Single { pipelines, bind });
+                    ready.push(Ready::Shaded {
+                        pipelines,
+                        bind,
+                        offset,
+                    });
                 }
                 RunOp::Function(function) => {
                     let mask = self.mask_for(function.mask());
@@ -244,7 +293,21 @@ impl Executor<'_> {
                 }
             }
         }
-        Ok((ready, needed))
+        let buffers: Vec<wgpu::Buffer> = shadings
+            .finish()
+            .iter()
+            .map(|bytes| self.device.shading_params_buffer(bytes))
+            .collect();
+        let scratch = self.scratch_view.as_ref().unwrap_or(&self.dummy_view);
+        for &(paint, mask, buffer) in &shadings.keys {
+            let (mask, _) = self.mask_for(mask);
+            let Some(params) = buffers.get(buffer) else {
+                continue;
+            };
+            let bind = self.device.shaded_bind(paint, params, scratch, mask)?;
+            shadings.binds.push(bind);
+        }
+        Ok((ready, needed, shadings))
     }
 
     /// The pipelines one fixed-table single-quad op draws with, compiling on first use.
@@ -327,4 +390,131 @@ fn style_kinds(style: DrawStyle, family: Family) -> [Option<Kind>; 2] {
             Style::DestOver => family.dest_over,
         })
     })
+}
+
+impl Shadings {
+    /// Lay `numbers` into the run's current buffer at the next `stride`, closing it and
+    /// starting another where it would pass `limit` bytes, and name the bind group the quad
+    /// reads them through: the index of its paint, mask and buffer, and its offset there.
+    fn place(
+        &mut self,
+        shaded: &ShadedOp,
+        numbers: &[u8],
+        stride: u64,
+        limit: u64,
+    ) -> (usize, u32) {
+        let stride = usize::try_from(stride).unwrap_or(usize::MAX);
+        let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+        if self.current.len().saturating_add(stride) > limit {
+            self.buffers.push(std::mem::take(&mut self.current));
+        }
+        let buffer = self.buffers.len();
+        let at = self.current.len();
+        self.current.extend_from_slice(numbers);
+        self.current
+            .resize(at.saturating_add(stride.max(numbers.len())), 0);
+        // In range: the limit is at most `u32::MAX + 1` (`Device::shading_buffer_limit`)
+        // and `at` is below it by at least a stride.
+        let offset = u32::try_from(at).unwrap_or(u32::MAX);
+        let key = (shaded.paint, shaded.mask, buffer);
+        let same = |(paint, mask, at): &(PaintSource, Option<u32>, usize)| {
+            same_paint(*paint, key.0) && *mask == key.1 && *at == key.2
+        };
+        let bind = self.keys.iter().position(same).unwrap_or_else(|| {
+            self.keys.push(key);
+            self.keys.len().saturating_sub(1)
+        });
+        (bind, offset)
+    }
+
+    /// Every buffer's bytes, the current one last, once the run has placed every quad.
+    fn finish(&mut self) -> Vec<Vec<u8>> {
+        let mut buffers = std::mem::take(&mut self.buffers);
+        if !self.current.is_empty() {
+            buffers.push(std::mem::take(&mut self.current));
+        }
+        buffers
+    }
+}
+
+/// Whether two paints name one texture.
+fn same_paint(a: PaintSource, b: PaintSource) -> bool {
+    match (a, b) {
+        (PaintSource::Ramp(a), PaintSource::Ramp(b))
+        | (PaintSource::Mesh(a), PaintSource::Mesh(b)) => a == b,
+        _ => false,
+    }
+}
+
+/// Where a run's shading quads put their numbers, and which bind group each reads them by.
+#[cfg(test)]
+mod tests {
+    use super::{PaintSource, Shadings};
+    use crate::encode::{DrawStyle, ShadedOp};
+
+    /// A shading quad of `paint` under `mask`; nothing else about it is placed.
+    fn quad(paint: PaintSource, mask: Option<u32>) -> ShadedOp {
+        ShadedOp {
+            paint,
+            inv: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            kind_word: 0.0,
+            extend_bits: 0,
+            geo0: [0.0; 4],
+            geo1: [0.0; 4],
+            dest: [0.0; 4],
+            coverage_origin: None,
+            coverage_rect: [0.0; 4],
+            clip: [0.0; 4],
+            style: DrawStyle::Over,
+            mask,
+        }
+    }
+
+    /// **Every quad's numbers land at their own stride, and a quad that would pass the limit
+    /// starts the next buffer at offset 0** — so no offset is past what the binding can
+    /// address and every quad reads exactly the bytes it was given.
+    #[test]
+    fn numbers_are_laid_at_the_stride_and_roll_over_at_the_limit() {
+        let mut shadings = Shadings::default();
+        let numbers = |n: u8| [n; 176];
+        let ramp = PaintSource::Ramp(7);
+        let placed: Vec<(usize, u32)> = (0..5)
+            .map(|n| shadings.place(&quad(ramp, None), &numbers(n), 256, 768))
+            .collect();
+        assert_eq!(
+            placed,
+            vec![(0, 0), (0, 256), (0, 512), (1, 0), (1, 256)],
+            "three quads fill 768 bytes; the fourth opens a buffer and a group of its own"
+        );
+        let buffers = shadings.finish();
+        assert_eq!(buffers.iter().map(Vec::len).collect::<Vec<_>>(), [768, 512]);
+        for (n, (buffer, offset)) in placed.iter().enumerate() {
+            let at = *offset as usize;
+            let bytes = &buffers[*buffer][at..at + 176];
+            assert!(
+                bytes.iter().all(|&b| usize::from(b) == n),
+                "quad {n}'s own numbers"
+            );
+        }
+    }
+
+    /// **One bind group per paint, mask and buffer**: a quad of a paint and mask the run has
+    /// already bound reads that group, whatever was placed between.
+    #[test]
+    fn a_paint_and_mask_seen_before_share_their_group() {
+        let mut shadings = Shadings::default();
+        let numbers = [0_u8; 176];
+        let groups: Vec<usize> = [
+            (PaintSource::Ramp(1), None),
+            (PaintSource::Ramp(2), None),
+            (PaintSource::Ramp(1), Some(3)),
+            (PaintSource::Mesh(1), None),
+            (PaintSource::Ramp(1), None),
+        ]
+        .into_iter()
+        .map(|(paint, mask)| shadings.place(&quad(paint, mask), &numbers, 256, 1 << 20).0)
+        .collect();
+        assert_eq!(groups, [0, 1, 2, 3, 0]);
+        assert_eq!(shadings.keys.len(), 4);
+    }
 }

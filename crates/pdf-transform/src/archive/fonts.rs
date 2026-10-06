@@ -428,7 +428,7 @@ pub(super) fn restate_metrics(
 
 /// Reads the rewritten program back, and refuses it unless every glyph named actually moved.
 ///
-/// **Session 971's rule, and it is a rule because a rewrite that silently missed a site would
+/// **ADR 0988's rule, and it is a rule because a rewrite that silently missed a site would
 /// convert a document into one that still fails the requirement it was converted for.** The
 /// program is asked, through the same two readers a caller holding nothing but bytes has, what
 /// it now states for each glyph the restatement named; a number that is not the one asked for

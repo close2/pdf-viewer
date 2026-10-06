@@ -681,6 +681,35 @@ int main(int argc, char **argv)
     (void)quorra_current_page(viewer, &page, &of);
     printf("page %zu of %zu (%zu page(s) in the document)\n", page + 1, of, pages);
 
+    /* What page one did not need — the outline and the page tree — read the way a host reads it
+     * beside page one, then handed back. This program runs it on its own thread for brevity; the
+     * call may be made on any thread. The page is announced again with its section (ADR 1553). */
+    quorra_preparation *preparation = NULL;
+    if (check("quorra_preparation_take", quorra_preparation_take(viewer, &preparation))
+        && preparation != NULL) {
+        quorra_prepared *prepared = NULL;
+        quorra_events *announced = NULL;
+        if (check("quorra_preparation_run", quorra_preparation_run(preparation, &prepared))
+            && check("quorra_prepared_hand_back",
+                     quorra_prepared_hand_back(viewer, prepared, &announced))) {
+            for (size_t at = 0; at < quorra_events_len(announced); ++at) {
+                size_t needed = 0;
+                if (quorra_event_page_section(announced, at, NULL, 0, &needed)
+                        != QUORRA_BUFFER_TOO_SMALL) {
+                    continue;
+                }
+                char *section = malloc(needed);
+                if (section != NULL
+                    && quorra_event_page_section(announced, at, section, needed, &needed)
+                           == QUORRA_OK) {
+                    printf("prepared: page 1 is in \"%s\"\n", section);
+                }
+                free(section);
+            }
+            quorra_events_free(announced);
+        }
+    }
+
     /* Where the page sits and how large it is drawn — the other query a host asks per frame. */
     quorra_geometry geometry;
     memset(&geometry, 0, sizeof geometry);

@@ -701,15 +701,33 @@ section_records() {
 # a warning only — which principle 3 makes a regression test once it is read, and which the
 # campaign recipe in `doc/verify.md` writes to a scratch prefix instead (ADR 1423). `newest` is the
 # date of the latest artefact, so a count left from an old run reads as old.
+#
+# Beside the seed count, the corpus's size and its newest seed's date, so that a corpus
+# grown past what a campaign can read, or one no seeder has touched since its target grew, is
+# legible here rather than discovered by a campaign that rediscovers it. Both come out of the one
+# `find` pass that counts the seeds, the size in the bytes the seeds hold rather than the blocks the
+# disk spends on them. Neither says the corpus is *stale* — a date says when a seed
+# last arrived, not what the target now reaches; that is `fuzz/seeds.sh check`'s question, a census
+# over the corpora and therefore `fuzz-stale`'s section rather than this one's.
 section_fuzz() {
-    heading "fuzz targets: seeds, doc/verify.md line, and artefacts on this disk" \
-        "fuzz/Cargo.toml [[bin]]s; ls fuzz/corpus/<t> fuzz/artifacts/<t>"
-    local targets t seeds line kind counts newest
+    heading "fuzz targets: seeds, their size and newest date, doc/verify.md line, and artefacts on this disk" \
+        "fuzz/Cargo.toml [[bin]]s; find fuzz/corpus/<t> fuzz/artifacts/<t>"
+    local targets t seeds bytes seeded line kind counts newest
     targets=$(awk '/^\[\[bin\]\]/ { want = 1; next }
                    want && /^name *= *"/ { gsub(/^name *= *"|"$/, ""); print; want = 0 }' fuzz/Cargo.toml)
-    printf '%-14s %7s %-6s %6s %8s %4s %6s  %s\n' target seeds line crash timeout oom slow newest
+    printf '%-14s %7s %9s %-10s %-6s %6s %8s %4s %6s  %s\n' \
+        target seeds size seeded line crash timeout oom slow newest
     for t in $targets; do
-        seeds=$(find "fuzz/corpus/$t" -maxdepth 1 -type f 2>/dev/null | wc -l)
+        # One pass: the count, the bytes, and the newest modification time, which `-L` follows
+        # because the worktree's corpus is a symbolic link into the main checkout.
+        read -r seeds bytes seeded < <(find -L "fuzz/corpus/$t" -maxdepth 1 -type f -printf '%s %T@\n' \
+            2>/dev/null | awk '{ n++; b += $1; if ($2 > m) m = $2 }
+                               END { printf "%d %d %d\n", n, b, m }')
+        if [ "$seeds" -gt 0 ]; then
+            seeded=$(date -d "@$seeded" +%Y-%m-%d)
+        else
+            seeded=-
+        fi
         line=no
         grep -qE "cargo \+nightly fuzz run +${t}( |\$)" doc/verify.md && line=yes
         counts=
@@ -719,8 +737,31 @@ section_fuzz() {
         newest=$(find "fuzz/artifacts/$t" -maxdepth 1 -type f -printf '%TY-%Tm-%Td\n' 2>/dev/null \
             | sort | tail -1)
         # shellcheck disable=SC2086
-        printf '%-14s %7s %-6s %6s %8s %4s %6s  %s\n' "$t" "$seeds" "$line" $counts "${newest:--}"
+        printf '%-14s %7s %9s %-10s %-6s %6s %8s %4s %6s  %s\n' "$t" "$seeds" \
+            "$(human_bytes "$bytes")" "$seeded" "$line" $counts "${newest:--}"
     done
+    printf 'whether a corpus is stale is a coverage question: tools/state.sh fuzz-stale, behind the lock\n'
+}
+
+# A byte count as a reader takes it in, in binary units, one decimal.
+human_bytes() {
+    awk -v b="$1" 'BEGIN { split("B KiB MiB GiB TiB", unit, " "); i = 1
+                           while (b >= 1024 && i < 5) { b /= 1024; i++ }
+                           printf (i == 1 ? "%d %s" : "%.1f %s"), b, unit[i] }'
+}
+
+# Whether each target's corpus on disk is stale: `fuzz/seeds.sh check`'s answer, which seeds every
+# target afresh into a scratch directory and compares libFuzzer's `INITED cov` over the disk corpus
+# with the fresh seeds' (trap 107, ADR 1559). A census over the corpora, so it is in `all` and not
+# in `quick`, and is run behind the lock as every census is; it writes nothing under `fuzz/corpus`.
+section_fuzz_stale() {
+    heading "fuzz corpora: stale by coverage, fresh seeds against the disk (a census)" \
+        "fuzz/seeds.sh check"
+    if [ -x fuzz/seeds.sh ] && grep -q '"${1:-}" = check' fuzz/seeds.sh; then
+        fuzz/seeds.sh check || printf 'fuzz/seeds.sh check exited %s\n' "$?"
+    else
+        printf 'fuzz/seeds.sh has no check mode in this tree\n'
+    fi
 }
 
 # Which gate is dear: each gate's last run out of the merge's own log, dearest first, and the
@@ -761,6 +802,49 @@ section_gates_cost() {
 section_main_checkout() {
     heading "the main checkout: what a merge does not carry" "tools/main-checkout.py"
     PYTHONDONTWRITEBYTECODE=1 python3 tools/main-checkout.py || status=1
+    ci_on_main
+}
+
+# What CI's last run on `main` says, job by job, read from GitHub's public interface with no token:
+# the repository is public, so the runs, their jobs, each job's failed steps and each check run's
+# annotations are readable by anybody, and a round needs no credential to learn which job failed
+# and on what. The logs themselves are not public — the step's output is behind a token — which is
+# why the annotation is printed: it is the line that tells a step that failed (`Process completed
+# with exit code`) from a job GitHub never ran (`not acquired by Runner`), which is a runner, a
+# quota or a bill and therefore the owner's rather than the tree's (ADR 1563). A report like
+# `tools/round.sh`'s CI line, never a failure of this script: no network is said, not counted.
+ci_on_main() {
+    local remote
+    remote=$(git remote get-url origin 2>/dev/null)
+    PYTHONDONTWRITEBYTECODE=1 timeout 60 python3 - "$remote" <<'PY' ||
+import json, re, sys, urllib.request
+match = re.search(r"github\.com[:/]([^/]+)/([^/.]+)", sys.argv[1])
+if not match:
+    print("CI on main: origin is not a GitHub repository, so there is no run to read")
+    sys.exit(0)
+api = "https://api.github.com/repos/%s/%s" % match.groups()
+def get(path):
+    request = urllib.request.Request(api + path, headers={"Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(request, timeout=20) as answer:
+        return json.load(answer)
+runs = get("/actions/runs?branch=main&per_page=1")["workflow_runs"]
+if not runs:
+    print("CI on main: no run")
+    sys.exit(0)
+run = runs[0]
+print("CI on main: run %s, %s at %s, %s %s" % (run["id"], run["name"], run["head_sha"][:8],
+      run["status"], run["conclusion"] or "-"))
+for job in get("/actions/runs/%s/jobs?per_page=100" % run["id"])["jobs"]:
+    if job["conclusion"] in ("success", "skipped", None):
+        continue
+    steps = [s["name"] for s in job["steps"] if s["conclusion"] not in ("success", "skipped", None)]
+    notes = sorted({a["message"].splitlines()[0] for a in get("/check-runs/%s/annotations" % job["id"])
+                    if a["annotation_level"] == "failure"})
+    print("  %-22s %-10s step: %s" % (job["name"], job["conclusion"], "; ".join(steps) or "-"))
+    for note in notes:
+        print("  %-22s %-10s says: %s" % ("", "", note))
+PY
+        printf 'CI on main was not asked (no network, or GitHub refused) — unknown, not green\n'
 }
 
 # Each batch's clock, out of the batch commits that carry it (ADR 1476): one line per commit since
@@ -1276,7 +1360,7 @@ section_ratchets() {
     done
 }
 
-all="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame turn dates xmp save actions on-disk jpeg2000 instruments"
+all="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held fuzz-stale tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame turn dates xmp save actions on-disk jpeg2000 instruments"
 quick="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held remedies instruments"
 
 # Sections another section already runs. Not in `all`, because a full run pays for every line
@@ -1341,6 +1425,7 @@ for section in $sections; do
     batches) section_batches ;;
     drive) section_drive ;;
     fuzz) section_fuzz ;;
+    fuzz-stale) section_fuzz_stale ;;
     main-checkout) section_main_checkout ;;
     gates-cost) section_gates_cost ;;
     traps) section_traps ;;

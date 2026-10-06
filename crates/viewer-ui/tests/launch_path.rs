@@ -720,6 +720,8 @@ fn phase_first_page() {
     );
     let elapsed = ms(began);
     let waited = scheduling();
+    // Read after the clock, off what the backend kept of the frame it just drew.
+    let cost = frame_fields(&backend.last_frame(), backend.last_phases());
     let Some(Drawn {
         commands,
         pixels,
@@ -755,7 +757,7 @@ fn phase_first_page() {
         _ => None,
     };
     let (judged, wall, runq) = corrected(elapsed, scheduled, waited);
-    measured_beside_the_machine(&[
+    let mut fields = vec![
         ("first_page_ms", judged),
         ("first_page_wall_ms", wall),
         ("first_page_runq_ms", runq),
@@ -780,7 +782,9 @@ fn phase_first_page() {
         ("read_bytes", or_absent(read)),
         ("mapped_kib", or_absent(mapped_resident_kib())),
         ("peak_kib", or_absent(peak_resident_kib())),
-    ]);
+    ];
+    fields.extend(cost);
+    measured_beside_the_machine(&fields);
 }
 
 /// **Phase `page-turn`**: five arrow keys, each timed, on a viewer that has already drawn.
@@ -894,7 +898,7 @@ fn phase_count_open() {
 /// processor". It is a poor answer to the other half of the question this probe is asked, *and
 /// is it busy*, because by pass fifty the allocator, the caches, the branch predictors and the
 /// core's own clock have all been warmed by the forty-nine before it — while **every figure this
-/// gate judges is one first pass in a fresh process**. Session 931 measured the gap: over twelve
+/// gate judges is one first pass in a fresh process**. ADR 0902 measured the gap: over twelve
 /// consecutive runs the fifty-pass minimum moved 1.3% (0.703 to 0.749 ms) while the figures it
 /// guards moved by factors of two — a five-page document's *warm* open, which has no disk in it
 /// at all, read 0.45 ms in nine runs and 1.01 in another, with the probe at 0.705 in both. So the
@@ -1372,6 +1376,64 @@ fn print_timeline(fields: &Fields) {
     for (at, what) in lines {
         println!("launch-path:     {at:>7.1} ms  {what}");
     }
+}
+
+/// What the first frame was made of on the device thread — the span between "first render
+/// requested" and "first frame drawn" on the timeline, which is the frame and nothing else.
+///
+/// Read off the backend's own [`render_raster::FrameCost`] and the spans raster named inside it
+/// (ADR 1558): the scene's translation, the device's encode, transfer and drawing passes, the
+/// headless readback that stands in for a window's present, and every one-off the frame absorbed
+/// by name — a pipeline compiled on first use is one, and it is the thing `CLAUDE.md` principle 2
+/// forbids the launch path to wait for.
+fn print_first_frame(fields: &Fields) {
+    let at = |key: &str| field(fields, key).unwrap_or(0.0);
+    let device = at("frame_device_ms");
+    let parts = at("frame_encode_ms") + at("frame_upload_ms") + at("frame_execute_ms");
+    let readback = at("frame_readback_ms");
+    let named = fields
+        .iter()
+        .find(|(name, _)| name == "frame_named")
+        .map_or("-", |(_, value)| value.as_str());
+    println!(
+        "launch-path:   the first frame: scene {:.1} ms, device {device:.1} = encode {:.1} + \
+         transfer {:.1} + execute {:.1} + readback {readback:.1} + elsewhere {:.1}; named inside \
+         it: {}",
+        at("frame_scene_ms"),
+        at("frame_encode_ms"),
+        at("frame_upload_ms"),
+        at("frame_execute_ms"),
+        (device - parts - readback).max(0.0),
+        named.replace('_', " ").replace(',', ", ").replace('@', " "),
+    );
+}
+
+/// A frame's cost as the child's fields: each stage in milliseconds, and raster's named spans as
+/// `name@ms` pairs joined by commas, a name's spaces written as underscores so that the line stays
+/// one `key=value` per field.
+fn frame_fields(
+    cost: &render_raster::FrameCost,
+    named: &[(&'static str, std::time::Duration)],
+) -> Vec<(&'static str, String)> {
+    let ms = |duration: std::time::Duration| format!("{:.3}", duration.as_secs_f64() * 1e3);
+    let named = if named.is_empty() {
+        "-".to_owned()
+    } else {
+        named
+            .iter()
+            .map(|(name, spent)| format!("{}@{}", name.replace(' ', "_"), ms(*spent)))
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    vec![
+        ("frame_scene_ms", ms(cost.scene)),
+        ("frame_device_ms", ms(cost.device)),
+        ("frame_encode_ms", ms(cost.encode)),
+        ("frame_upload_ms", ms(cost.upload)),
+        ("frame_execute_ms", ms(cost.execute)),
+        ("frame_readback_ms", ms(cost.readback)),
+        ("frame_named", named),
+    ]
 }
 
 fn field(fields: &Fields, key: &str) -> Option<f64> {
@@ -1905,8 +1967,8 @@ const IO_LATENCY_BYTES: usize = 128 << 10;
 /// throughout — 2.6 GB/s, at which rate a hundred kibibytes would be 0.04 ms. Almost all of a
 /// small document's cold read is the round trip, and nothing in this gate could see it.
 ///
-/// Session 931 recorded the same measurement at **0.109 min, 0.127 median** on
-/// `PDF20_AN001-BPC.pdf`'s copy where this round reads 0.199 and 0.239 on sixty samples of a
+/// ADR 0902 recorded the same measurement at **0.109 min, 0.127 median** on
+/// `PDF20_AN001-BPC.pdf`'s copy where ADR 0916 reads 0.199 and 0.239 on sixty samples of a
 /// quiet machine, which is the size of the term that has been putting the smallest rows over
 /// their ceilings. ADR 0916.
 fn cold_latency_ms(probe: &Path) -> Result<f64, String> {
@@ -2083,10 +2145,9 @@ enum Declined {
 
 /// Why one figure was not judged, in the words of the probe that declined it.
 ///
-/// **A gate that declines has to say what declined it.** Session 926 read four runs of this gate
-/// in which one cold open was outside its band, could not tell a figure the processor declined
-/// from one the disk declined, and wrote three hypotheses into `doc/todo/42` for a later round to
-/// separate. The reading each probe took goes out beside the reason, because the reason alone
+/// **A gate that declines has to say what declined it** (ADR 0903). Read without it, four runs
+/// in which one cold open was outside its band could not tell a figure the processor declined
+/// from one the disk declined, and left three hypotheses rather than a finding. The reading each probe took goes out beside the reason, because the reason alone
 /// does not say by how much.
 fn why_not(declined: Declined, figure: &Judged) -> String {
     let reading = |what: &str, value: Option<f64>| match value {
@@ -2673,6 +2734,7 @@ fn the_launch_path_stays_inside_its_bands() {
                     waiting(&fields, "first_page_runq_ms")
                 );
                 print_timeline(&fields);
+                print_first_frame(&fields);
                 band_it(
                     &mut judged,
                     format!("{}: time to first page", row.path),
@@ -2797,8 +2859,8 @@ fn the_launch_path_stays_inside_its_bands() {
             } else {
                 Declined::TheRun
             };
-            // **Which probe declined it, and what it read.** Session 926 had four runs of this
-            // gate and no way to tell a figure declined by the processor from one declined by
+            // **Which probe declined it, and what it read** (ADR 0903). Four runs of this
+            // gate had no way to tell a figure declined by the processor from one declined by
             // the disk, which is most of why `doc/todo/42` carried three hypotheses instead of a
             // finding. One line answers it.
             println!(
@@ -2808,8 +2870,8 @@ fn the_launch_path_stays_inside_its_bands() {
         }
         if !held && (figure.steady || (judging && machine_was_right)) {
             // **A complaint carries the machine's readings too, and not only a declined figure
-            // does.** Session 931 read twenty-six runs of this gate in which eight figures failed
-            // and could not ask what their children's probes had said, because only the declined
+            // does** (ADR 0903). Twenty-six runs of this gate in which eight figures failed
+            // could not ask what their children's probes had said, because only the declined
             // ones printed any — so the question "would a tighter guard have declined this
             // instead of failing it" had no answer in the output. A figure with no clock in it
             // says so rather than printing three dashes.

@@ -106,7 +106,8 @@ word by the mark's tile, its rule and polylines and the chain's content, so that
 chromatic and a black render meets nothing twice — and a sweep past its budget counted before it
 sorts (ADR 1517), the black render handed the chromatic one's finished coverage tiles, residue
 regions and clip outlines rather than making them again (ADR 1529), a meet's exact pixels made
-beside the walk by helper threads and written onto the sheet where its tile lies (ADR 1541) — and a clipped mark's
+beside the walk by helper threads and written onto the sheet where its tile lies (ADR 1541), a
+pass's shading quads read from one buffer of their numbers at their own offsets (ADR 1555) — and a clipped mark's
 coverage and a stroke's made off the walk's thread by the encoder's fan-out, a stroke's segment
 weighed at what it costs (ADR 1395), the fan-out's threads claiming its jobs in order rather than
 taking fixed shares (ADR 1505), a wide job building its mark's edges over its own tile (ADR 1513),
@@ -562,8 +563,10 @@ the first resize goes straight to the render. The other three windows do the sam
 shape (ADR 1539): `quorra-gtk` and `quorra-qt` open and interpret on a thread while the toolkit
 comes up, and `quorra-confined` starts its worker and opens the document in it before the window,
 the worker interpreting page one with no viewport. What page one does not need the open does not read: §12.3.3's outline
-and §7.7.3's placed page tree, which the caption's section needs, are read on a thread `quorra`
-hands them after the join (`Viewer::preparation`, ADR 1543), and at first use in the other windows. What each step of that timeline
+and §7.7.3's placed page tree, which the caption's section needs, are read on a thread each host
+hands them after the join — in the confined window, on the worker's own, inside its confinement —
+and the C ABI hands a caller the same handle to run where it likes (`Viewer::preparation`, ADRs
+1543, 1553). What each step of that timeline
 costs is [`doc/performance.md`](performance.md)'s first section, and the open half is
 [todo 42](todo/42-the-launch-path.md).
 
@@ -632,7 +635,7 @@ raised by the pointer. Four clauses closed on the sidebar without anybody pickin
 and three of the four had a ledger row whose reason was "this program has no ___" — which is the
 lesson in [`doc/habits.md`](habits.md)'s ledger section rather than a fact about the sidebar.
 
-**And what a reader does is driven in all three windows by one command**: `tools/drive-windows.sh` takes them under `Xvfb` through open, the outline, page turns, zoom, find, a popup, a link, a markup and a form saved and reopened, the restriction levels, print, a password and AT-SPI, and photographs each step (ADR 1453). The find bar finds a right-to-left word typed in reading order on a page that shows it as presentation forms in display order, folding the forms and reading the order off the glyphs' positions (ADR 1465), and a word typed without its vowel marks or accents finds one printed with them, while a mark typed is asked for (ADR 1477). No step of the drive rests on a person looking at a picture: the reopened form is read off AT-SPI in all three windows, `quorra`'s form nodes carrying each field's value and each character's place in it (ADRs 1489, 1501), and `quorra-confined`'s device refusal is driven to its title (ADR 1478).
+**And what a reader does is driven in all three windows by one command**: `tools/drive-windows.sh` takes them under `Xvfb` through open, the outline, page turns, zoom, find, a popup, a link, a markup and a form saved and reopened, the restriction levels, print, a password and AT-SPI, and photographs each step (ADR 1453). The find bar finds a right-to-left word typed in reading order on a page that shows it as presentation forms in display order, folding the forms and reading the order off the glyphs' positions (ADR 1465), and a word typed without its vowel marks or accents finds one printed with them, while a mark typed is asked for (ADR 1477). No step of the drive rests on a person looking at a picture: the reopened form is read off AT-SPI in all three windows, `quorra`'s form nodes carrying each field's value and each character's place in it (ADRs 1489, 1501), and `quorra-confined`'s device refusal is driven to its title (ADR 1478). The `ask` level's question is answered both ways in all three windows — a toolkit dialogue's buttons pressed through their AT-SPI action, `quorra`'s drawn card by its two keys — and the answer read off the log and the drive's server (ADR 1540).
 
 **All of it sits behind `viewer-core`**: `Command` in, `Event` out, `Query` → `Answer` beside
 them, with no type from a windowing or graphics library anywhere in its API.

@@ -194,6 +194,52 @@ fn a_document_opens_in_the_confined_process_and_says_how_many_pages_it_has() {
     assert_eq!(pages, Some(5), "{events:?}");
 }
 
+/// The worker reads §12.3.3's outline and §7.7.3's page tree on a thread of its own after an open,
+/// and the section it finds for page one comes back with the next events frame (ADR 1553).
+///
+/// The open's own announcement names no section, because the open reads neither (ADR 1543). The
+/// question about the outline waits for that thread rather than reading the outline a second time,
+/// which also makes the order this test sees fixed rather than a race; the resize after it then
+/// carries page one again under the note's title item, the one whose destination is page one.
+#[test]
+fn the_worker_reads_the_outline_beside_page_one_and_its_next_answer_names_the_section() {
+    let (mut confined, opened) = opened();
+    assert!(
+        opened.iter().any(|event| matches!(
+            event,
+            Event::PageChanged {
+                index: 0,
+                section: None,
+                ..
+            }
+        )),
+        "{opened:?}"
+    );
+    match confined.query(Query::Outline).expect("a question crosses") {
+        Reply::Outline(outline) => assert!(!outline.items.is_empty()),
+        other => panic!("the note's outline came back as {other:?}"),
+    }
+    let events = confined
+        .handle(&Command::Resize {
+            width: VIEWPORT.0,
+            height: VIEWPORT.1.saturating_add(1),
+            scale: 1.0,
+        })
+        .expect("a resize crosses");
+    let section = events.iter().find_map(|event| match event {
+        Event::PageChanged {
+            index: 0,
+            section: Some(section),
+            ..
+        } => Some(section.as_str()),
+        _ => None,
+    });
+    assert!(
+        section.is_some_and(|section| section.starts_with("PDF 2.0 Application Note 001:")),
+        "{events:?}"
+    );
+}
+
 /// The whole point, in one assertion: **the confined process draws the same page**.
 ///
 /// Byte-identical rather than similar. Both sides run `render-cpu` over a display list built by
@@ -1198,9 +1244,10 @@ const WIDE: (u32, u32) = (900, 1200);
 ///
 /// A clock, and honestly so: what is being asserted is a *render that does not happen*, and the
 /// difference between happening and not is three orders of magnitude with nothing in between.
-/// Measured on this machine in release, one strip as the worker uses: the page draws in **26.5
-/// s** at [`WIDE`], and the open below is an interpretation and a pipe — tens of milliseconds.
-/// A debug worker, which is what this gate builds, is slower still on the side being excluded.
+/// Measured on this machine in release on one strip: the page draws in **26.5 s** at [`WIDE`],
+/// and the open below is an interpretation and a pipe — tens of milliseconds. The worker's pool
+/// divides the first by at most the strips ADR 0139's split grants (ADR 1554), and a debug worker,
+/// which is what this gate builds, is many times slower on the side being excluded.
 const UNDRAWN: Duration = Duration::from_secs(3);
 
 /// **The render that does not happen: a page whose marks cross is never drawn by the worker.**
@@ -1455,6 +1502,11 @@ const PROBE_VARIABLE: &str = "PDF_CONFINED_TEST_PROBE";
 /// The probe that asks whether the allocator's arena question can be answered in advance.
 #[cfg(target_os = "linux")]
 const WARM: &str = "warm";
+
+/// The probe that confines itself as the worker does, under the arena limit its spawner sets,
+/// and draws on the pool that builds.
+#[cfg(target_os = "linux")]
+const WIDE_POOL: &str = "wide-pool";
 
 /// Exit code from a probe whose forbidden operation was refused.
 #[cfg(target_os = "linux")]
@@ -1786,7 +1838,8 @@ fn a_confined_interpreter_cannot_duplicate_a_descriptor_it_holds() {
 ///
 /// The other half of the previous three: a filter that refused everything would pass them all and
 /// be useless. This one confines the process and then does the work, which is what the profile's
-/// four extra system calls are for — the one rasterising thread needs every one of them.
+/// four extra system calls are for — a rasterising thread needs every one of them. Started with no
+/// arena limit, as this test binary is, the pool is one thread.
 #[test]
 #[cfg(target_os = "linux")]
 fn a_confined_interpreter_can_still_draw_a_page() {
@@ -1809,10 +1862,12 @@ fn a_confined_interpreter_can_still_draw_a_page() {
 /// one, or measure it".
 ///
 /// **This measures it**, and it is a *precondition* rather than the arrangement this crate ships:
-/// [`viewer_confined::confine`] still builds a one-thread pool after the confinement, because a
-/// pool warmed first has the seccomp filter (it is installed with `TSYNC`) and **not** the
+/// a pool warmed first has the seccomp filter (it is installed with `TSYNC`) and **not** the
 /// Landlock domain, which `landlock_restrict_self` gives only to the calling thread and its
-/// future children. Closing that needs an entry point `pdf-sandbox` does not have. ADR 0241.
+/// future children (ADR 0241). [`viewer_confined::confine`] builds its pool after the confinement
+/// instead, as wide as the machine where the arena count is limited, which
+/// [`a_pool_built_inside_the_confinement_under_an_arena_limit_draws_on_every_thread`] pins
+/// (ADR 1554).
 ///
 /// What the probe does: 24 threads warmed before the filter, the filter, a real page drawn on 24
 /// strips, and then twenty rounds of four-mebibyte allocations broadcast to every one of them —
@@ -1892,6 +1947,34 @@ fn allocate() {
     std::hint::black_box(warm.len());
 }
 
+/// **The arrangement the worker ships**: confined first, then a pool as wide as the machine, under
+/// the `MALLOC_ARENA_MAX` its spawner sets (ADR 1554).
+///
+/// The probe is started with that variable, as `confined_transport::Host::start` starts every
+/// worker, calls [`viewer_confined::confine`] — which therefore builds the pool after the filter
+/// and the Landlock domain, so that every thread inherits both — draws a page on that many strips
+/// and then broadcasts twenty rounds of four-mebibyte allocations to every thread, because the
+/// allocator's question is asked on a later allocation and not the first. A pool whose threads
+/// asked it would be killed with `SIGSYS` here.
+#[test]
+#[cfg(target_os = "linux")]
+fn a_pool_built_inside_the_confinement_under_an_arena_limit_draws_on_every_thread() {
+    let status = std::process::Command::new(
+        std::env::current_exe().expect("a test binary knows where it is"),
+    )
+    .args(["--exact", "confined_probe", "--test-threads=1"])
+    .env(PROBE_VARIABLE, WIDE_POOL)
+    .env("MALLOC_ARENA_MAX", "1")
+    .output()
+    .expect("the probe runs")
+    .status;
+    assert_eq!(
+        status.code(),
+        Some(DREW),
+        "a pool built inside the confinement could not draw: {status:?}"
+    );
+}
+
 /// Whether a probe was stopped rather than served.
 ///
 /// Two outcomes count. `SIGSYS` is the seccomp filter firing, which is what happens when the
@@ -1958,6 +2041,8 @@ fn confined_probe() {
         });
     }
 
+    // Asked before the confinement, which would kill a process asking it: it reads a file.
+    let machine = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
     let limits =
         viewer_confined::confine().expect("a probe that cannot confine itself proves nothing");
     let strips = limits.strips;
@@ -2007,6 +2092,35 @@ fn confined_probe() {
         "say" => {
             eprintln!("{SAID}");
             true
+        }
+        // The pool is as wide as the machine because the arena count is limited; one strip would
+        // be a probe of the one-thread arrangement instead.
+        WIDE_POOL if u32::try_from(machine).is_ok_and(|machine| strips != machine) => {
+            std::process::exit(REFUSED)
+        }
+        WIDE_POOL => {
+            let mut viewer = Viewer::new(VIEWPORT.0, VIEWPORT.1, 1.0);
+            let mut rasterizer = CpuRasterizer::new().with_strips(strips);
+            let mut drew = false;
+            for event in viewer.handle(Command::Open {
+                id: DOCUMENT,
+                bytes: bytes.into(),
+                password: None,
+                fragment: None,
+            }) {
+                if let Event::NeedsRender(request) = event
+                    && rasterizer.rasterize(&request.list, request.target).is_ok()
+                {
+                    drew = true;
+                }
+            }
+            for _ in 0..20 {
+                rayon::broadcast(|_| {
+                    let more: Vec<u8> = vec![3u8; 4 << 20];
+                    std::hint::black_box(more.len());
+                });
+            }
+            std::process::exit(if drew { DREW } else { REFUSED });
         }
         "draw" => {
             let mut viewer = Viewer::new(VIEWPORT.0, VIEWPORT.1, 1.0);
@@ -2441,9 +2555,9 @@ fn a_face_this_host_can_look_up_reaches_a_worker_that_cannot() {
 /// waiting, and because the claim "nothing in this tree closes a document in a confined worker"
 /// was one nobody had run. The worker is alive afterwards, and *that* is the assertion.
 ///
-/// **It was `#[ignore]`d when it was written, because it failed.** Session 920 ran it both ways
+/// **It was `#[ignore]`d when it was written, because it failed.** ADR 0880 ran it both ways
 /// and the answer was exactly trap 32's — killed by `SIGSYS` under a debug worker, passing under a
-/// release one — and that round declined to fix it, because the only fix that leaks nothing is a
+/// release one — and declined to fix it, because the only fix that leaks nothing is a
 /// seccomp rule for `fcntl` narrowed by argument and widening the allow-list is `doc/todo/61`'s
 /// decision to take deliberately. **ADR 0888 took it**, so this runs. It is the end-to-end half of
 /// `a_confined_interpreter_can_close_a_descriptor_it_was_handed`, and the half that matters most

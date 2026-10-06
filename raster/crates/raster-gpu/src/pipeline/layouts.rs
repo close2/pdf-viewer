@@ -31,6 +31,25 @@ fn uniform_entry(
     }
 }
 
+/// [`uniform_entry`] read at an offset the draw names: one buffer holds every op's numbers of
+/// a pass and each draw moves the binding to its own (ADR 1555).
+fn dynamic_uniform_entry(
+    binding: u32,
+    size: u64,
+    visibility: wgpu::ShaderStages,
+) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            has_dynamic_offset: true,
+            min_binding_size: wgpu::BufferSize::new(size),
+        },
+        count: None,
+    }
+}
+
 /// A sampled texture read by `textureLoad` alone: exact fetches, no filtering (brief section 4.6).
 fn texture_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
@@ -227,7 +246,7 @@ fn bind_layouts(device: &wgpu::Device) -> BindLayouts {
         shading: make(
             "raster shading",
             &[
-                uniform_entry(0, 176, QUAD_UNIFORM),
+                dynamic_uniform_entry(0, 176, QUAD_UNIFORM),
                 texture_entry(1),
                 texture_entry(2),
                 texture_entry(3),

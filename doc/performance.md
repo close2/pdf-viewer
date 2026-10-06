@@ -331,8 +331,8 @@ in `tools/batch.sh gates`; a row that moves moves its band there with its reason
 |---|---|---|---|---|---|---|---|---|---|
 | ISO 32000-2 p101, text, 3 007 commands | turn | 7.20 (86%) | 1.48 | 0.42 | **4.26** | 0.22 | 0.49 | 0.33 | 2026-10-05, ADR 1513 |
 | | step | 1.67 (20%) | — | — | 0.28 | 0.12 | 1.17 | 0.10 | 2026-10-05, ADR 1513 |
-| `personwithdog.pdf` p1, patch meshes | turn | 8.72 (105%) | 3.47 | 1.77 | 1.24 | 0.47 | 1.59 | 0.19 | 2026-10-05, ADR 1513 |
-| | step | 10.20 (122%) | — | **3.27** | 4.62 | 0.53 | 1.50 | 0.29 | 2026-10-05, ADR 1513 |
+| `personwithdog.pdf` p1, patch meshes | turn | 8.81 (106%) | 3.45 | 1.72 | 1.28 | 0.47 | 1.69 | 0.19 | 2026-10-06, ADR 1556 |
+| | step | 10.09 (121%) | — | **3.22** | 4.69 | 0.56 | 1.36 | 0.27 | 2026-10-06, ADR 1556 |
 | `issue12841_reduced.pdf` p1, one 5 280 × 3 792 photograph | turn | 32.45 (389%) | **28.77** | 0.02 | 0.01 | 2.46 | 1.11 | 0.09 | 2026-10-05, ADR 1513 |
 | | step | 3.23 (39%) | — | 0.00 | 0.01 | 1.34 | **1.69** | 0.19 | 2026-10-05, ADR 1513 |
 | `22060_A1_01_Plans.pdf` p1, four photographs under soft masks, 72 placements | turn | 51.07 (613%) | **34.51** | 0.17 | 4.62 | 8.32 | 3.08 | 0.35 | 2026-10-05, ADR 1513 |
@@ -349,14 +349,18 @@ in `tools/batch.sh gates`; a row that moves moves its band there with its reason
 | | step | 11.04 (132%) | — | — | **10.39** | 0.08 | 0.40 | 0.17 | 2026-10-05, ADR 1513 |
 | `bug1743245.pdf` p1, tight bends | turn | 40.24 (483%) | 3.15 | 0.45 | **35.77** | 0.39 | 0.36 | 0.13 | 2026-10-05, ADR 1513 |
 | | step | 38.33 (460%) | — | — | **37.44** | 0.13 | 0.50 | 0.26 | 2026-10-05, ADR 1513 |
-| `bug1721218_reduced.pdf` p1, a four-component group of 3 518 clipped shadings, drawn as two frames | turn | 188.79 (2266%) | 67.59 | **118.14** | 1.43 | 0.37 | 0.69 | 0.56 | 2026-10-05, ADR 1541 |
-| | step | 117.04 (1405%) | — | **113.44** | 1.63 | 0.31 | 0.71 | 0.96 | 2026-10-05, ADR 1541 |
+| `bug1721218_reduced.pdf` p1, a four-component group of 3 518 clipped shadings, drawn as two frames | turn | 161.26 (1935%) | 68.87 | **89.52** | 1.36 | 0.36 | 0.60 | 0.55 | 2026-10-06, ADR 1555 |
+| | step | 84.44 (1013%) | — | **81.07** | 1.57 | 0.28 | 0.62 | 0.89 | 2026-10-06, ADR 1555 |
 
-**`bug1721218_reduced.pdf`'s rows were taken on 2026-10-05 after ADR 1541** (load 1.7–1.9, the
-device under 12% busy), interleaved process by process with the tree before it: turn 215.27 →
-188.79 and step 134.12 → 117.04 at the minimum, all of it in `scene`, which on this page is raster's
-walk of 3 518 residue-clipped shadings — the exact meets now made beside the walk. Its `scene` is
-two frames of one four-component group (ADRs 1471, 1529).
+**`bug1721218_reduced.pdf`'s rows were taken on 2026-10-06 after ADR 1555** (three runs, load
+2.0), and `turn_path`'s own children read the tree before it beside it: turn 191–203 → 167–172 and
+step 118–126 → 87–90, all of it in `scene`, which on this page is raster's walk of 3 518
+residue-clipped shadings and each render's pass — the exact meets made beside the walk (ADR 1541),
+and each pass's shading quads reading one buffer of their numbers at their own offsets rather than
+a buffer and a bind group each (ADR 1555). Its `scene` is two frames of one four-component group
+(ADRs 1471, 1529). `personwithdog.pdf`'s rows were re-taken the same evening: on a quiet machine
+they are where ADR 1513 put them, and a turn past its band's top is the processor's clock — after
+a second's idle on a quiet machine, or with the cores it is not pinned to busy (ADR 1556).
 
 The tree without ADR 1513 read, in the same sitting: the photograph's turn 69.40 (interp 65.24),
 the Type 3 page's 12.24 (encode 10.84); every other row inside its runs' spread. **What took three

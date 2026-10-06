@@ -166,15 +166,29 @@ to appeal to, because what is running is the document's own content stream.
 this reason and says so: four levels' marks are smaller than a window's pixels, so that document
 crossed as marks and there was nothing left for the cancel test to cancel.
 
-### 4. One rasterising thread — repriced, and the `glibc` claim is now measured
+### 4. ~~One rasterising thread~~ — the pool is as wide as the machine (ADR 1554)
 
 ADR 0218 section 2: `glibc`'s allocator sizes its arena count from `__get_nprocs()`, which reads
 `/sys/devices/system/cpu/online`, so a thread's first allocation in a many-threaded confined
-process is an `openat` the filter kills for.
+process is an `openat` the filter kills for. **What answers it is neither of the two ways this
+entry named.** `glibc` never asks where `MALLOC_ARENA_MAX` is set, and
+`confined_transport::Host::start` has set it to one for every worker it spawns since a
+`pdf-vfs-worker` was killed the same way. So `worker::confine` builds the pool after the
+confinement — every thread inherits the Landlock domain and the filter — as wide as
+`available_parallelism` said before it, wherever that variable is set, and one thread wherever it
+is not (a test confining its own process). `tests/confined.rs`'s
+`a_pool_built_inside_the_confinement_under_an_arena_limit_draws_on_every_thread` draws a page on
+every strip inside the confinement and then broadcasts twenty rounds of 4 MiB allocations to every
+thread; the pool's stacks are a term of the message budget.
 
-**What it is worth was wrong by an order of magnitude, and the reason is which page it was measured
-on.** This entry said "about 1 ms of the 7 ms this page takes". `pdf-model`'s `strip_spans`, run in
-the four-hundred-and-fourth session (ADR 0241 section 6):
+What it was worth, measured with `--trace` on `quorra-confined`, fifteen launches an arm, one
+binary, the arm chosen at spawn: `bug1815476.pdf`, whose page crosses as pixels, from the device to
+the first frame **0.054 → 0.026 s** at the median, its first `Resize`'s round trip **0.039 →
+0.011 s**. A page that crosses as marks is drawn by the host and does not move. The page's own
+costs, under callgrind on one thread: 121.8 M instructions to interpret (the anticipation, before
+the device is up) and 143.8 M to rasterise, 94.8 M of that `scan::fill_as` over the scan.
+
+The earlier pricing on two pages, which is why a dense page was the case to fear:
 
 | page | 1 strip | best | strips the geometry grants |
 |---|---|---|---|
@@ -183,24 +197,8 @@ the four-hundred-and-fourth session (ADR 0241 section 6):
 | ISO 32000-2 p101 at 1× (3007 commands) | **19.9 ms** | **7.2 ms** | 8, and 11 at 16 asked |
 | the same at 2× | **31.0 ms** | **12.7 ms** | 15 at 16 asked |
 
-So it is a millisecond on a sparse page — where ADR 0139's constrained split grants two strips and
-no thread count can beat that — and **twelve of twenty milliseconds** on a dense one. A page turn
-pays this every time, which puts it above item 5 for interactivity.
-
-The two ways to get the cores back:
-
-- **Per-thread Landlock plus an allocator warm-up.** Build the pool *before* seccomp with a
-  `start_handler` that puts each worker in its own Landlock domain and allocates once.
-  **The allocator half is measured and it holds**: `tests/confined.rs`'s
-  `an_allocator_warmed_before_the_filter_does_not_ask_the_kernel_again` warms 24 threads, confines,
-  draws a page on 24 strips and then broadcasts twenty rounds of 4 MiB allocations to every thread;
-  `strace` counts 25 `clone3` before the filter, none after, and **no `openat` after it at all**.
-  What is left is the Landlock half, and it is concrete: `pdf-sandbox` has no entry point that
-  applies Landlock alone to the calling thread, so a `start_handler` cannot put its worker in the
-  domain. Until it has one, a warmed pool has the seccomp filter (installed with `TSYNC`) and not
-  the depth layer, which is what ADR 0218 rejected and still rejects.
-- **An allocator that does not consult the filesystem.** Every candidate this project has looked
-  at contains `unsafe`, which is a separate decision.
+**An allocator that does not consult the filesystem** stays unneeded: every candidate looked at
+contains `unsafe`, and the variable makes the question one `glibc` does not ask.
 
 ### 5. The document crosses as bytes — and the pipe is a tenth of what it was blamed for
 

@@ -671,18 +671,23 @@ impl Host {
             | Event::Searched { .. }
             | Event::AttachmentsChanged { .. } => {}
             Event::PageChanged {
-                index, label, of, ..
+                index,
+                label,
+                of,
+                section,
+                ..
             } => {
                 self.page = index;
                 let name = self.name();
-                self.heading = match label {
-                    Some(label) => {
-                        format!(
-                            "{name} — page {label} ({} of {of})",
-                            index.saturating_add(1)
-                        )
-                    }
-                    None => format!("{name} — page {} of {of}", index.saturating_add(1)),
+                let page = match label {
+                    Some(label) => format!("page {label} ({} of {of})", index.saturating_add(1)),
+                    None => format!("page {} of {of}", index.saturating_add(1)),
+                };
+                // §12.3.3's section, which the worker reads beside page one and says again once
+                // it has (ADR 1553): the caption the other three windows show.
+                self.heading = match section {
+                    Some(section) if !section.is_empty() => format!("{name} — {page} — {section}"),
+                    _ => format!("{name} — {page}"),
                 };
                 self.retitle();
             }

@@ -437,6 +437,25 @@ impl Session {
         }
     }
 
+    /// What the focused document still reads after page one, for the caller to run on a thread
+    /// of its own: §12.3.3's outline and §7.7.3's page tree, placed (ADRs 1543, 1553).
+    ///
+    /// `None` where there is nothing left to read. The caller runs it with
+    /// [`viewer_core::Preparation::run`] wherever it likes and hands the answer to
+    /// [`Self::prepared`]; a caller that never asks loses only the timing, because the first use
+    /// reads both on the thread that asked.
+    #[must_use]
+    pub fn preparation(&self) -> Option<viewer_core::Preparation> {
+        self.viewer.preparation()
+    }
+
+    /// Takes in what a preparation read: `Event::PageChanged` again, with the page's section,
+    /// where the document is the one in front and its page has one.
+    #[must_use]
+    pub fn prepared(&mut self, prepared: viewer_core::Prepared) -> Events {
+        Events::new(self.viewer.prepared(prepared).collect::<Vec<Event>>())
+    }
+
     // ---------------------------------------------------------------------------------------
     // The pointer, the selection and §12.5.1's focus.
     // ---------------------------------------------------------------------------------------
@@ -1434,6 +1453,51 @@ mod tests {
             session.frame_copy(0, &mut small),
             Err(Status::BufferTooSmall)
         );
+    }
+
+    /// The open reads no outline, and the preparation read beside it gives page one its section.
+    ///
+    /// §12.3.3's outline item "Chapter one" names page one, so once the preparation has run on a
+    /// thread of its own the page is announced again with that section; the announcement the open
+    /// made had none, because neither the outline nor the page tree was read for it (ADR 1543).
+    /// A second preparation is `None`, since both are read, and an answer for a document closed
+    /// since is dropped rather than taken.
+    #[test]
+    fn a_preparation_read_on_another_thread_gives_page_one_its_section() {
+        let outlined = assembled(&[
+            "<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R >>",
+            "<< /Type /Pages /Count 2 /Kids [3 0 R 6 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+            "<< /Type /Outlines /First 5 0 R /Last 5 0 R /Count 1 >>",
+            "<< /Title (Chapter one) /Parent 4 0 R /Dest [3 0 R /Fit] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+        ]);
+        let mut session = Session::new(800, 1000, 1.0);
+        let opened = session.open(1, outlined.clone(), None, None);
+        let first = (0..opened.len())
+            .find(|index| opened.kind(*index) == Ok(EventKind::PageChanged))
+            .expect("the open announces its page");
+        assert_eq!(opened.page_section(first), Ok(None));
+
+        let preparation = session.preparation().expect("the outline is still to read");
+        let prepared = std::thread::spawn(move || preparation.run())
+            .join()
+            .expect("the preparation's thread finishes");
+        let said = session.prepared(prepared);
+        let again = (0..said.len())
+            .find(|index| said.kind(*index) == Ok(EventKind::PageChanged))
+            .expect("the page is announced again");
+        assert_eq!(said.page_changed(again), Ok((0, 2)));
+        assert_eq!(said.page_section(again), Ok(Some("Chapter one")));
+        assert!(session.preparation().is_none(), "both are read now");
+
+        // A preparation for a document since closed and opened again names the old file.
+        drop(session.close(1));
+        drop(session.open(1, outlined, None, None));
+        let stale = session.preparation().expect("the reopened file is unread");
+        drop(session.close(1));
+        drop(session.open(1, note(), None, None));
+        assert_eq!(session.prepared(stale.run()).len(), 0);
     }
 
     /// A randomness source that counts, so the locked fixture below is a function of its plan.

@@ -69,11 +69,11 @@
 //!   and §13.7.2 each require the annotation to "provide an appearance stream in its AP entry",
 //!   and what the inactive state displays *is* that stream. Without it there is only artwork a
 //!   media engine renders.
-//! - `Movie` and `Watermark` are each refused for a reason of their own, and neither is "no
-//!   geometry" — [`construct`]'s arms carry the readings. §12.5.6.17's movie dictionary states a
-//!   poster *image* (§13.4, Table 306), which is clause 13 rather than a silence; §12.5.6.22's
-//!   Table 194 states a transformation of the annotation rectangle, which is where an appearance
-//!   goes rather than what it contains.
+//! - `Watermark` is refused for a reason of its own, and it is not "no geometry" — [`construct`]'s
+//!   arm carries the reading: §12.5.6.22's Table 194 states a transformation of the annotation
+//!   rectangle, which is where an appearance goes rather than what it contains. `Movie` is drawn
+//!   from §13.4's Table 306 `/Poster` where that is an image stream, and refused only where the
+//!   poster would be a frame of the movie itself ([`movie_poster`], ADR 1561).
 //! - `Caret` is refused for a **third** reason, not the second one's sentence (ADR 0457).
 //!   §12.5.6.11's Table 183 states geometry and a symbol; what it does not state is the caret,
 //!   and its `/RD` row says the pilcrow is "displayed along with the caret" rather than instead
@@ -361,8 +361,9 @@ pub struct Written {
     /// Whether the construction put any mark at all into [`Self::stream`].
     ///
     /// `false` for the subtypes whose own clause states no artwork — a stamp's legend, a caret, an
-    /// unapplied redaction, a printer's mark, a trap network, a movie's poster, a watermark, 3D or
-    /// rich media artwork, an annotation stating no `/Subtype` — and `true` everywhere else,
+    /// unapplied redaction, a printer's mark, a trap network, a movie's poster taken from the movie
+    /// file, a watermark, 3D or rich media artwork, an annotation stating no `/Subtype` — and
+    /// `true` everywhere else,
     /// including for an annotation whose entries legitimately describe nothing to draw.
     ///
     /// **Read it with [`Self::owed`] rather than instead of it.** The pair distinguishes three
@@ -533,6 +534,9 @@ enum Refusal {
     /// departure is said out loud rather than shown in silence — the same answer
     /// [`rich_text_unformatted`] gives one clause over, for the field's own `/DS`. ADR 1224.
     DefaultStyleUnapplied,
+    /// Table 306's `/Poster` image is drawn in `/Rect` at a placement this program chose, since
+    /// §13.4 states none (ADR 1561).
+    PosterPlacementChosen,
     /// §12.7.4.3's variable text could not be laid out, or not entirely.
     Text(Owed),
 }
@@ -552,6 +556,10 @@ impl Refusal {
             Self::NotDerivable(why) => format!("no appearance stream, and {why}"),
             Self::DefaultStyleUnapplied => "its /DS states a default style in XFA 3.3's format, \
                  which is not applied; the text is laid out under /DA"
+                .to_owned(),
+            Self::PosterPlacementChosen => "no appearance stream, and Table 306's /Poster image \
+                 is drawn scaled proportionally and centred in /Rect — a placement this program \
+                 chose, since §13.4 states none"
                 .to_owned(),
             Self::CaptionShareChosen(code) => format!(
                 "no appearance stream, and Table 192's /TP {code} states which side of the icon \
@@ -667,26 +675,10 @@ pub(crate) fn construct(
             "its clause requires the appearance stream for the annotation's inactive state, and \
              the artwork behind it is clause 13's",
         )),
-        // **§12.5.6.17 is not the catch-all's case, and it is the fourth subtype to be told its
-        // clause states no geometry while a clause states some.** Table 189 makes `/Movie`
-        // required — "[a] movie dictionary that shall describe the movie's static
-        // characteristics" — and §13.4's Table 306 gives that dictionary a `/Poster`, whose
-        // stream form is stated as a *shape* rather than as a frame of film:
-        //
-        // > it shall contain an image XObject (see 8.9, "Images") to be displayed as the poster
-        //
-        // An image `XObject` is something this module's caller draws on every page it opens, so
-        // what refuses it is principle 5's clause 13 exclusion and not a silence — and the two
-        // are different findings, because only the first can be revisited by argument. The
-        // boolean form is the other reading and does need the media engine: "if it is the
-        // boolean value true, the poster image shall be retrieved from the movie file". The
-        // §12.5.6.17 ledger row asserted the second of those two about both, which is why the
-        // sentence a person reads said the clause states nothing. `doc/questions/Q33` asks the
-        // owner whether the stream form comes off the exclusion list.
-        b"Movie" => Err(Refusal::NotDerivable(
-            "its clause states a poster image in §13.4's movie dictionary, which principle 5 \
-             excludes with the rest of clause 13",
-        )),
+        // **§12.5.6.17 draws §13.4's poster**, the one entry of the movie dictionary that is a
+        // shape the file states rather than a frame of film. [`movie_poster`] has the reading and
+        // ADR 1561 the placement.
+        b"Movie" => movie_poster(document, annotation, &mut stream),
         // **§12.5.6.22 states geometry and it is not a mark.** Table 193's `/FixedPrint` and
         // Table 194's `/Matrix`, `/H` and `/V` describe what happens to the annotation's
         // *rectangle*, under a sentence that is a `shall` on rendering rather than on printing —
@@ -1221,6 +1213,100 @@ fn link(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
 /// note", and a window is not part of the page. `crate::popup`'s `opens_with_the_page` is what
 /// reads it (ADR 0294).
 /// A clause's mapping from an icon's name to its artwork.
+/// §12.5.6.17's movie annotation, drawn as §13.4's poster.
+///
+/// Table 189 makes the movie dictionary required — "A movie dictionary that shall describe the
+/// movie's static characteristics" — and Table 306's `/Poster` is the one entry of that dictionary
+/// that states a mark. Its value has three readings, and each is carried out as the table states
+/// it:
+///
+/// > If this value is a stream, it shall contain an image XObject (see 8.9, "Images") to be
+/// > displayed as the poster. If it is the boolean value true , the poster image shall be
+/// > retrieved from the movie file; if it is false , no poster shall be displayed. Default value:
+/// > false .
+///
+/// - **A stream** is an image `XObject`, painted by `Do` like any other, in `/Rect`.
+/// - **`false`, or no entry**, displays nothing, so nothing is drawn and nothing is owed.
+/// - **`true`** needs a frame decoded out of the movie file, which is playing the movie, and
+///   playing it is the media engine `CLAUDE.md` principle 5's clause 13 exclusion names
+///   (`doc/questions/A33`). It is refused and reported.
+///
+/// **Where in `/Rect` the image goes is this program's choice** (ADR 1561): neither table states a
+/// placement, so the image is fitted by Table 250's defaults — scaled proportionally until it
+/// meets the rectangle's width or height, and centred — and the report says so, under
+/// `doc/questions/A72`'s rule for a quantity the clause withholds. The image's own `/Width` and
+/// `/Height` are its aspect ratio, since §8.9.5 maps every image onto the unit square. Table
+/// 306's `/Rotate` and `/Aspect` describe the movie being played and are not read here.
+fn movie_poster(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Outcome {
+    let rect = rectangle(document, annotation)?;
+    let movie = document.get_key(annotation, "Movie");
+    let Some(movie) = movie.as_dict() else {
+        return Err(Refusal::NotDerivable(
+            "Table 189 makes /Movie required and this annotation states no movie dictionary, so \
+             no poster image is stated",
+        ));
+    };
+    let reference = match movie.get("Poster") {
+        None | Some(Object::Null) => return Ok(Painted::DRAWN),
+        Some(reference) => reference.clone(),
+    };
+    let poster = document.resolve(&reference);
+    let image = match &poster {
+        Object::Boolean(false) => return Ok(Painted::DRAWN),
+        Object::Boolean(true) => {
+            return Err(Refusal::NotDerivable(
+                "Table 306's /Poster true retrieves the poster image from the movie file, which \
+                 is playing the movie, and principle 5's clause 13 exclusion keeps that out",
+            ));
+        }
+        Object::Stream(image) => &image.dict,
+        _ => {
+            return Err(Refusal::NotDerivable(
+                "Table 306's /Poster is neither a boolean nor a stream, so no poster image is \
+                 stated",
+            ));
+        }
+    };
+    let subtype = document.get_key(image, "Subtype");
+    if subtype.as_name().map(Name::as_bytes) != Some(&b"Image"[..]) {
+        return Err(Refusal::NotDerivable(
+            "Table 306's /Poster stream is not an image XObject, which the table requires",
+        ));
+    }
+    let side = |key| {
+        let samples = document.get_key(image, key).as_integer()?;
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "only the ratio of the two sides is used, and an f32 keeps it to seven digits"
+        )]
+        let samples = samples as f32;
+        (samples > 0.0).then_some(samples)
+    };
+    let (Some(width), Some(height)) = (side("Width"), side("Height")) else {
+        return Err(Refusal::NotDerivable(
+            "Table 306's /Poster image states no positive /Width and /Height, so it has no \
+             aspect ratio to place by",
+        ));
+    };
+    let Some(fitted) = IconFit::DEFAULT.place([0.0, 0.0, width, height], rect) else {
+        return Err(Refusal::NotDerivable(
+            "/Rect has no area, so the poster image has nowhere to be displayed",
+        ));
+    };
+    // `place` scales the image's sample grid; `Do` paints the unit square, so the scale is
+    // carried over onto the grid's own size.
+    let placement = Transform::new(
+        width * fitted.a,
+        0.0,
+        0.0,
+        height * fitted.d,
+        fitted.e,
+        fitted.f,
+    );
+    stream.form(document, reference, placement);
+    Ok(Painted::partly(Refusal::PosterPlacementChosen))
+}
+
 type IconLookup = fn(&[u8]) -> Option<&'static [icon::Figure]>;
 
 /// §12.5.6.15's and §12.5.6.16's icons, on the same construction as §12.5.6.4's.
@@ -5223,7 +5309,7 @@ struct Stream {
     /// of the interpretation pass on a specification page full of link borders, none of which
     /// names a resource. Measured by callgrind on `examples/callgrind_interpret`.
     resources: Option<Dictionary>,
-    /// Table 192's `/I`, under the name [`Self::form`] gave it.
+    /// Table 192's `/I` or Table 306's `/Poster`, under the name [`Self::form`] gave it.
     ///
     /// Held apart from [`Self::resources`] rather than written into it, because the two are
     /// filled in at opposite ends of a widget's construction: the icon is drawn before the

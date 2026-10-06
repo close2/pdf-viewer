@@ -888,9 +888,9 @@ fn an_unknown_subtype_still_draws_its_normal_appearance() {
 /// type to this row and to §12.5.5 rather than to §12.5.2.
 ///
 /// **A standard subtype this program does not construct is the control**, because it must keep
-/// its report: `Movie` is Table 171's, and what refuses it is `CLAUDE.md`'s clause 13 exclusion
-/// rather than a silence — §13.4's Table 306 states a poster image (ADR 0906). A page
-/// that silently loses it is exactly what trap 5 exists to prevent. An annotation with no
+/// its report: `Movie` is Table 171's, and this one states none of the movie dictionary Table 189
+/// makes required, so the poster image §13.4's Table 306 would state is missing rather than
+/// silent (ADR 1561). A page that silently loses it is exactly what trap 5 exists to prevent. An annotation with no
 /// `/Subtype` at all keeps its own report too, for Table 166's reason — the entry is required —
 /// and `issue7446.pdf` is the corpus witness for that one.
 #[test]
@@ -1076,7 +1076,8 @@ fn a_screen_annotation_without_an_appearance_draws_nothing_and_is_not_a_gap() {
 /// | drawn from what the clause states | `Text` `Link` `FreeText` `Line` `Square` `Circle` `Polygon` `PolyLine` `Highlight` `Underline` `Squiggly` `StrikeOut` `Ink` `Widget` `FileAttachment` `Sound` |
 /// |---|---|
 /// | the clause states the outcome, so nothing is drawn and nothing owed | `Popup` (§12.5.6.14) `Projection` (§12.5.6.24) `Screen` (§12.5.6.18) |
-/// | refused in the clause's own terms | `Stamp` `Caret` `Redact` `Movie` `Watermark` `PrinterMark` `TrapNet` `3D` `RichMedia` |
+/// | refused in the clause's own terms | `Stamp` `Caret` `Redact` `Watermark` `PrinterMark` `TrapNet` `3D` `RichMedia` |
+/// | drawn where its table states the mark, refused where it does not | `Movie` (§13.4's `/Poster`, `tests/movie_poster.rs`) |
 ///
 /// `FileAttachment` and `Sound` are in the first group because §12.5.6.15's and §12.5.6.16's
 /// icon names — `Graph`, `PushPin`, `Paperclip`, `Tag`, `Speaker`, `Mic` — name **objects**, so

@@ -19,7 +19,7 @@ the target never looks at:
     variable_text  a field's `/DA` and `/V` (§12.7.4.3), laid out as the two halves
                    `variable_text.rs` splits its input into
     jpeg_bands     a `DCTDecode` stream's own bytes (§7.4.8) behind the band-height byte
-                   `jpeg_bands.rs` reads first
+                   `jpeg_bands.rs` reads first, one frame per shape (below)
 
 The `-` reads the list of documents from standard input, one per NUL, for the reason
 `seed_x509.py` gives: one run counts everything, where `xargs` would print a summary per batch.
@@ -31,9 +31,20 @@ Only unfiltered and `FlateDecode` streams are decoded; a seed whose target reads
 whose filter is anything else is skipped. Seeds are named by SHA-256, so a re-run adds only what
 is new, and nothing past `MAX_SEED` is written: `page.rs`'s ceiling, for the merge cost
 `doc/verify.md` records of that target.
+
+**`jpeg_bands` takes one frame per shape, not every frame.** The documents hold some two hundred
+thousand `DCTDecode` streams, and written whole they were 2.3 GB through a corpus link into the main
+checkout, most of them photographs from the same few cameras. What decides which branch of a band
+plan a frame reaches is its *shape* — the start-of-frame marker (baseline, extended, progressive),
+the sample precision, the component count and each component's sampling factors, the restart
+interval `DRI` states, and whether the height is left to a `DNL` marker — never what the picture
+shows, so `frame_shape` reads those out of the marker segments and the smallest frame of each shape
+is the one written: fewest bytes per execution, and the same plan. A stream whose markers do not
+parse is a shape of its own, so the decoder's refusals keep a seed. ADR 1559.
 """
 
 import hashlib
+import mmap
 import os
 import re
 import sys
@@ -45,6 +56,11 @@ TARGETS = ("xmp", "sfnt", "cmap", "ccitt", "crypt", "variable_text", "jpeg_bands
 # A `DCTDecode` frame past this is skipped for `jpeg_bands`: every execution decodes the frame
 # three times, and a frame of a few hundred lines is cut into bands as surely as a large one.
 MAX_JPEG = 64 * 1024
+# A document past this is not read for `jpeg_bands`. The 93% of the documents under it hold 44 of
+# the population's 126 GB, and a frame shape is a property of a producer's encoder rather than of
+# a document's length, so what the cap costs is a shape only a long document states. ADR 1559 says
+# how many shapes the population under the cap holds; a shape the cap loses is a sentence there.
+MAX_JPEG_DOCUMENT = 4 * 1024 * 1024
 
 OBJECT = re.compile(rb"\d+\s+\d+\s+obj\b")
 STREAM = re.compile(rb"stream\r?\n")
@@ -63,23 +79,44 @@ def filters(dictionary):
 def streams(data):
     """Each (dictionary, raw body) of a stream stated outside an object stream."""
     for found in OBJECT.finditer(data):
-        start = found.end()
-        opening = STREAM.search(data, start, start + MAX_DICTIONARY)
-        if not opening:
-            continue
-        dictionary = data[start:opening.start()]
-        if b"endobj" in dictionary or not dictionary.lstrip().startswith(b"<<"):
-            continue
-        body_start = opening.end()
-        length = DIRECT_LENGTH.search(dictionary)
-        if length and body_start + int(length.group(1)) <= len(data):
-            body = data[body_start:body_start + int(length.group(1))]
-        else:
-            end = data.find(b"endstream", body_start)
-            if end < 0:
-                continue
-            body = data[body_start:end].rstrip(b"\r\n")
-        yield dictionary, body
+        yield from streams_from(data, found.end())
+
+
+def dct_streams(data):
+    """`streams`, for `jpeg_bands`: each stream whose dictionary names `DCT`, found from the name.
+
+    Searching for the name and stepping back to its object is C's work over the bytes, where
+    `streams` runs a regular expression over every object of the document; the dictionaries
+    found are the ones `streams` would yield that mention `DCT`, which is all `seeds` keeps."""
+    at = data.find(b"/DCT")
+    seen = set()
+    while at >= 0:
+        opening = data.rfind(b"obj", max(0, at - MAX_DICTIONARY), at)
+        if opening >= 0 and opening not in seen:
+            seen.add(opening)
+            for dictionary, body in streams_from(data, opening + 3):
+                yield dictionary, body
+        at = data.find(b"/DCT", at + 4)
+
+
+def streams_from(data, start):
+    """The one stream whose dictionary opens at `start`, if one does; `streams`'s body."""
+    opening = STREAM.search(data, start, start + MAX_DICTIONARY)
+    if not opening:
+        return
+    dictionary = data[start:opening.start()]
+    if b"endobj" in dictionary or not dictionary.lstrip().startswith(b"<<"):
+        return
+    body_start = opening.end()
+    length = DIRECT_LENGTH.search(dictionary)
+    if length and body_start + int(length.group(1)) <= len(data):
+        body = data[body_start:body_start + int(length.group(1))]
+    else:
+        end = data.find(b"endstream", body_start)
+        if end < 0:
+            return
+        body = data[body_start:end].rstrip(b"\r\n")
+    yield dictionary, body
 
 
 def decoded(dictionary, body):
@@ -236,6 +273,62 @@ def field_halves(data):
         yield appearance.ljust(width, b" ") + value.ljust(width, b" ")
 
 
+def states_dct(path):
+    """Whether a document of at most `MAX_JPEG_DOCUMENT` bytes names the `DCTDecode` filter at all.
+
+    `jpeg_bands` reads only those, and the documents are 126 GB: a search through a memory map
+    is the operating system's and C's, where the regular expressions `streams` runs are Python's,
+    and on a document that names no `DCT` the regular expressions find nothing to keep. Past
+    `MAX_JPEG_DOCUMENT` a document is not read for this target at all."""
+    if os.path.getsize(path) > MAX_JPEG_DOCUMENT:
+        return False
+    with open(path, "rb") as handle:
+        try:
+            with mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ) as mapped:
+                return mapped.find(b"/DCT") >= 0
+        except ValueError:
+            return False
+
+
+def frame_shape(frame):
+    """What decides a band plan's branch for one JPEG frame (`jpeg_bands`), or `None` where the
+    marker segments do not parse.
+
+    The start-of-frame marker, precision, component count and each component's `(H, V)` sampling
+    factors, the first `DRI`'s restart interval (0 where none is stated) and whether a `DNL`
+    marker follows the first scan, which is how a frame of height 0 states its height (ISO/IEC
+    10918-1 section B.2.5)."""
+    if not frame.startswith(b"\xff\xd8"):
+        return None
+    at, sof, interval = 2, None, 0
+    while at + 4 <= len(frame):
+        if frame[at] != 0xFF:
+            return None
+        marker = frame[at + 1]
+        if marker == 0xFF:
+            at += 1
+            continue
+        length = int.from_bytes(frame[at + 2:at + 4], "big")
+        segment = frame[at + 4:at + 2 + length]
+        if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC) and len(segment) >= 6:
+            components = segment[5]
+            factors = tuple(
+                (segment[7 + 3 * i] >> 4, segment[7 + 3 * i] & 15)
+                for i in range(components)
+                if 8 + 3 * i <= len(segment)
+            )
+            height = int.from_bytes(segment[1:3], "big")
+            sof = (marker, segment[0], components, factors, height == 0)
+        elif marker == 0xDD and len(segment) >= 2 and not interval:
+            interval = int.from_bytes(segment[0:2], "big")
+        elif marker == 0xDA:
+            if sof is None:
+                return None
+            return sof + (interval, frame.find(b"\xff\xdc", at + 2 + length) >= 0)
+        at += 2 + length
+    return None
+
+
 def seeds(target, data):
     if target == "crypt":
         yield from standard_security_dictionaries(data)
@@ -243,7 +336,7 @@ def seeds(target, data):
     if target == "variable_text":
         yield from field_halves(data)
         return
-    for dictionary, body in streams(data):
+    for dictionary, body in dct_streams(data) if target == "jpeg_bands" else streams(data):
         if target == "jpeg_bands":
             if filters(dictionary) in ([b"DCTDecode"], [b"DCT"]) and len(body) <= MAX_JPEG:
                 yield bytes([1]) + body
@@ -275,8 +368,14 @@ def main(argv):
         sys.exit(__doc__)
     os.makedirs(directory, exist_ok=True)
     documents = with_seed = written = 0
+    # `jpeg_bands`: the smallest frame of each shape, chosen over every document before any is
+    # written, ties broken by name so that a re-run chooses the same seed.
+    shapes = {}
     for path in paths:
         try:
+            if target == "jpeg_bands" and not states_dct(path):
+                documents += 1
+                continue
             with open(path, "rb") as handle:
                 data = handle.read()
         except OSError:
@@ -287,13 +386,26 @@ def main(argv):
             if not seed or len(seed) > MAX_SEED:
                 continue
             found = True
-            name = os.path.join(directory, hashlib.sha256(seed).hexdigest())
+            digest = hashlib.sha256(seed).hexdigest()
+            if target == "jpeg_bands":
+                shape = frame_shape(seed[1:])
+                if shape not in shapes or (len(seed), digest) < shapes[shape][:2]:
+                    shapes[shape] = (len(seed), digest, seed)
+                continue
+            name = os.path.join(directory, digest)
             if not os.path.exists(name):
                 with open(name, "wb") as handle:
                     handle.write(seed)
                 written += 1
         with_seed += found
-    print(f"seed_streams.py {target}: {documents} documents read, {with_seed} held one, "
+    for _, digest, seed in shapes.values():
+        name = os.path.join(directory, digest)
+        if not os.path.exists(name):
+            with open(name, "wb") as handle:
+                handle.write(seed)
+            written += 1
+    shaped = f", {len(shapes)} frame shapes" if target == "jpeg_bands" else ""
+    print(f"seed_streams.py {target}: {documents} documents read, {with_seed} held one{shaped}, "
           f"{written} new seeds in {directory}")
 
 

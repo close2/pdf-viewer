@@ -630,6 +630,15 @@ cargo run --release -p hayro-compare --bin hayro-speed -- --per-document ...  # 
 # fuzz_workspace.rs` holds every target to beside its line here (ADR 1439); the prose under each
 # line says why its population is the one it is. A corpus is not recoverable from the history
 # because it was never in it.
+#
+# **A seeded corpus also goes stale with nothing failing** (trap 107), so before a campaign ask:
+# `flock /home/AI/heavy-walk.lock fuzz/seeds.sh check <target>` seeds the target afresh into a
+# scratch directory beside the build output, prints libFuzzer's `INITED cov` over the disk corpus
+# and over the fresh seeds — a `-runs=0` pass each, under the limits this file's line gives — and
+# says `STALE` when the fresh seeds lead by more than the margin the script states, with what a
+# re-seed would add and where. It reads the disk corpus and never writes it; the re-seed is a
+# separate, deliberate command. A target whose fresh seeds exceed its line's memory limit is "not
+# judged", which is a fact about the seeder's population rather than about the corpus. ADR 1559.
 tools/fuzz.sh lexer                               # or, without the two questions, by hand:
 cd fuzz && cargo +nightly fuzz run lexer         -- -runs=50000   # needs nightly
 cd fuzz && cargo +nightly fuzz run cmap          -- -runs=50000   # §9.7's CMap parser
@@ -1004,8 +1013,10 @@ cd fuzz && cargo +nightly fuzz run jpeg_bands   -- -max_total_time=600 -rss_limi
   # §7.4.8's frames cut into bands at their restart intervals (ADR 1433) and at an entropy pass's
   # rows (ADR 1481), each against the whole frame's decoder through `pdf_model::image::
   # banded_decodes`, below the production floor (ADR 1495). Differential: a byte a band moves, or a
-  # band decoded where the whole decoder refuses, is a finding. Seeded with every `DCTDecode`
-  # stream of 64 KiB or less and the two modules' fixtures.
+  # band decoded where the whole decoder refuses, is a finding. Seeded with the smallest
+  # `DCTDecode` stream of 64 KiB or less of each frame shape — marker, precision, components and
+  # their sampling, restart interval, `DNL` — out of documents of 4 MiB or less, and the two
+  # modules' fixtures; `fuzz/seed_streams.py` says why each bound is the one it is (ADR 1559).
   # Until `doc/questions/Q227`'s fork is in, a run stops within minutes on `zune-jpeg`'s DC
   # multiply (`bitstream.rs` line 400, overflow checks on): a campaign adds `-fork=1
   # -ignore_crashes=1` and reads each crash's panic location, and only another location is a finding.

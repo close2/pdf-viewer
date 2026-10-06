@@ -3082,13 +3082,13 @@ mod tests {
     /// No carried `CMap` read as a `/ToUnicode` loses a mapping to one of `tounicode.rs`'s
     /// bounds.
     ///
-    /// **The sibling of [`no_registered_cmap_is_cut_by_these_bounds`], over the second parser
-    /// that reads the same files.** Session 960 measured Adobe's 240 published `CMap`s against
+    /// **The sibling of [`no_registered_cmap_is_cut_by_these_bounds`], over the second parser that
+    /// reads the same files (ADR 0971).** ADR 0963 measured Adobe's 240 published `CMap`s against
     /// `cmap.rs`'s four bounds and found one of them below what the data states; the same files
-    /// also go through [`crate::tounicode`], which has three bounds of its own, and nothing
-    /// walked them. §9.10.2's third method reads `registry-ordering-UCS2` for every composite
-    /// font whose program is absent, and §9.10.3 lets a producer's `/ToUnicode` name any of the
-    /// rest in `/UseCMap` — so the population is the whole set, not the five collection tables.
+    /// also go through [`crate::tounicode`], which has three bounds of its own, and nothing walked
+    /// them. §9.10.2's third method reads `registry-ordering-UCS2` for every composite font whose
+    /// program is absent, and §9.10.3 lets a producer's `/ToUnicode` name any of the rest in
+    /// `/UseCMap` — so the population is the whole set, not the five collection tables.
     ///
     /// Measured: the widest is `UCS2-ETen-B5` at 13 291 `bfrange` entries against a bound of
     /// 16 384, and `Adobe-Japan1-UCS2` at 17 387 individual mappings against 65 536. Nothing is

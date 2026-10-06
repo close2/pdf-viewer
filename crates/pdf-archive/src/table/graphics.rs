@@ -2962,7 +2962,7 @@ fn device_cmyk_under_part_two(exam: &Examination<'_>, findings: &mut Findings) {
 /// `TechNote 0010` A026 resolves that parts 2 and 3 are read as if the sentence admitted a third
 /// licence: `DeviceGray` as the `ColorSpace` of a **soft-mask image dictionary**, needing neither
 /// a default space nor an output intent, because there the samples describe shape rather than
-/// colour and no device dependency is introduced. Session 941 flagged it as the item of the note
+/// colour and no device dependency is introduced. ADR 0931 flags it as the item of the note
 /// most likely to be costing a conforming file a false failure here. **It is not, and the reason
 /// is a boundary rather than a rule**: `crate::survey` records an image's `ColorSpace` only for an
 /// image a content stream draws — an `XObject` reached through `Do`, or §8.9.7's inline image —

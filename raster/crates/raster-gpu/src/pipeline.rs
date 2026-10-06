@@ -186,7 +186,6 @@ struct StoreState {
     /// every shader it generated.
     function_shaders: HashMap<ProgramHash, ProgramHash>,
     function_pipelines: HashMap<FunctionKey, Arc<wgpu::RenderPipeline>>,
-    warm_up: WarmUp,
 }
 
 /// The lazily-populated set of render pipelines, shared between the device and its
@@ -197,7 +196,16 @@ struct StoreState {
 pub(crate) struct PipelineStore {
     device: wgpu::Device,
     state: Mutex<StoreState>,
-    /// Released when `state.warm_up` stops being [`WarmUp::Running`]. **Every line that
+    /// Where the warm-up has got to, under a lock of its own rather than `state`'s.
+    ///
+    /// **Asking whether the device is warm must not wait for it to be.** `state` is held for
+    /// the whole of each compile, and the warm-up thread takes it again the moment it lets go,
+    /// so a reader queued behind it waited for the whole warm set: `Device::startup` read at
+    /// once after construction took 4.1 to 4.3 ms on RADV and about 22 on llvmpipe, which put
+    /// `CLAUDE.md`'s forbidden wait for warmth on a host's launch path through an instrument
+    /// read (the caller's ADR 1558).
+    warm_up: Mutex<WarmUp>,
+    /// Released when `warm_up` stops being [`WarmUp::Running`]. **Every line that
     /// waits on it or notifies it is in `warm.rs`**, which is what makes "exactly one
     /// notifier, and it notifies on every exit path" a property of one file rather than
     /// a habit spread over two.
@@ -209,7 +217,7 @@ impl std::fmt::Debug for PipelineStore {
         let state = self.lock();
         f.debug_struct("PipelineStore")
             .field("compiled", &state.pipelines.len())
-            .field("warm_up", &state.warm_up)
+            .field("warm_up", &self.warm_up())
             .finish_non_exhaustive()
     }
 }
@@ -227,8 +235,8 @@ impl PipelineStore {
                 function_modules: HashMap::new(),
                 function_shaders: HashMap::new(),
                 function_pipelines: HashMap::new(),
-                warm_up: WarmUp::Running,
             }),
+            warm_up: Mutex::new(WarmUp::Running),
             warmed: Condvar::new(),
         })
     }

@@ -1070,6 +1070,26 @@ over fresh seeds and compare libFuzzer's `INITED cov`; when they differ, re-seed
 checkout first. And a bounded campaign's one crash may be a known one: `jpeg_bands` stops on
 `zune-jpeg`'s overflow (Q227) unless run `-fork=1 -ignore_crashes=1`, which `doc/verify.md` says.
 
+### 109. The worker a gate spawns is as old as the last build, and a copied binary has none
+
+A corpus gate waits behind the heavy-walk lock while five siblings edit the tree; when its turn
+comes it spawns `pdf-sandbox-worker` from the last build, which no longer matches the library it
+links against, and fails at once (round 1363's first corpus attempt). Rebuild `pdf-sandbox --bins`
+for the gate's profile inside the same lock, then walk. And a measurement binary copied aside for an
+A/B has no worker beside it: it draws no CCITT, JBIG2 or JPX image and says nothing — round 1361
+read 157 M instructions for `bug1815476.pdf` with no fax decode in the profile. Copy the worker too,
+or set `PDF_SANDBOX_WORKER` (trap 99).
+
+### 111. `cargo fuzz run` writes into the main checkout, and the seed population is not 974 documents
+
+`fuzz/corpus` and `fuzz/artifacts` are symlinks into the owner's checkout. `cargo fuzz run` creates
+`fuzz/artifacts/<target>` there whatever `-artifact_prefix` it is given — round 1362 removed seven
+empty directories it had made; `cargo fuzz build` and the binary run by path write only where told.
+And `fuzz/seeds.sh`'s `documents` are every file under `corpus-cache`, 90 763 files and 126 GB today,
+so a recipe over the whole population writes about 46 000 seeds and 4.5 GB and takes an hour behind
+the lock; `jpeg_bands` keeps one seed per frame shape (1 125 seeds, 17 MB, ADR 1559) and the other
+whole-document recipes do not yet.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

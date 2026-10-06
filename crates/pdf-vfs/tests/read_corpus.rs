@@ -56,7 +56,7 @@
 //!
 //! A class is not a diagnosis: a document is in as many of them as it satisfies, and *plain* is
 //! in the list because a sweep that meets only awkward documents cannot say whether what it found
-//! is the class or the walk. Session 917 is why the matrix is printed rather than the total: with
+//! is the class or the walk. ADR 0877 is why the matrix is printed rather than the total: with
 //! `no_machine_fonts()` taken out of the worker, the control class died more often than the
 //! encrypted one, which is ADR 0876's misattribution reproduced at corpus scale.
 //!

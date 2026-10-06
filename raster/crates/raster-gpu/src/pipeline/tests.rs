@@ -88,6 +88,26 @@ fn a_running_warm_up_is_reported_as_running() {
     assert_eq!(store.warm_up(), WarmUp::Running);
 }
 
+/// Asking where the warm-up has got to does not wait for the compile lock, which the
+/// warm-up thread holds for as long as each pipeline compiles: with that lock held here,
+/// both readers still answer, and answer `Running` (the caller's ADR 1558, where a
+/// host's read of `Device::startup` at launch waited 4.1 to 4.3 ms on RADV for the warm set).
+#[test]
+fn the_warm_up_is_read_while_a_compile_holds_the_store() {
+    let device = device();
+    let (gpu, _) = device.wgpu();
+    let store = PipelineStore::new(gpu.clone());
+    let compiling = store.lock();
+    within_patience("warm_up and warm_duration while the store is held", {
+        let store = Arc::clone(&store);
+        move || {
+            assert_eq!(store.warm_up(), WarmUp::Running);
+            assert!(store.warm_duration().is_none());
+        }
+    });
+    drop(compiling);
+}
+
 /// A pipeline this adapter cannot build is an `Err` naming it, not a panic on
 /// whichever thread asked (brief section 5: refused, never survived).
 ///

@@ -811,10 +811,13 @@ mod tests {
             &intervals(&square, &style, ONTO_X_MINUS_Y),
             &[(-22.0, 22.0)],
         );
-        // `[50 30] 0 d`: on from (10,10) round to (30,30) and 10 along its third side, then off
-        // for 30, back onto the start — so the first vertex is a butt cap rather than a join, and
-        // the band that reached `x = 9` there is gone: `[10, 31]`.
-        style.dash_array = vec![50.0, 30.0];
+        // `[50 31] 0 d`: on from (10,10) round to (30,30) and 10 along its third side, then off
+        // for the rest of the 80 — so the first vertex is a butt cap rather than a join, and the
+        // band that reached `x = 9` there is gone: `[10, 31]`. The gap is one unit longer than
+        // the path needs, because a gap ending exactly at the start puts the answer on the last
+        // bit of four `hypot`s, which the standard library does not promise to round correctly
+        // and Miri, on purpose, does not.
+        style.dash_array = vec![50.0, 31.0];
         assert_close(&intervals(&square, &style, ONTO_X), &[(10.0, 31.0)]);
     }
 

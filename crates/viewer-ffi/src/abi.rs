@@ -718,6 +718,34 @@ pub unsafe extern "C" fn quorra_event_page_changed(
     }
 }
 
+/// [`viewer_core::Event::PageChanged`]'s section: the title of §12.3.3's outline item the page
+/// falls under, in the two-call idiom [`quorra_events_describe`] uses.
+///
+/// `QUORRA_NO_ANSWER` where it falls under none, or where the outline was not yet read when the
+/// page was announced — which is every announcement before [`quorra_prepared_hand_back`] or a
+/// first use.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_event_page_section(
+    events: *const Events,
+    index: usize,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(events) = events.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match events.page_section(index) {
+        Ok(Some(section)) => copy_out(section, out, cap, needed),
+        Ok(None) => Status::NoAnswer.code(),
+        Err(status) => status.code(),
+    }
+}
+
 /// [`viewer_core::Event::Searched`]: what a step of a document-wide search found.
 ///
 /// Every out-parameter may be null. `found` is what says whether `page`, `from` and `to` mean
@@ -876,6 +904,109 @@ pub unsafe extern "C" fn quorra_render_request_rasterise(
 pub unsafe extern "C" fn quorra_raster_free(raster: *mut Raster) {
     if !raster.is_null() {
         drop(Box::from_raw(raster));
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// What page one does not need, read on a thread the caller chooses (ADRs 1543, 1553).
+// ---------------------------------------------------------------------------------------------
+
+/// What the focused document still reads after page one — §12.3.3's outline and §7.7.3's page
+/// tree, placed — as an owning handle the caller may move to another thread.
+///
+/// Writes null where there is nothing left to read, which is not a failure. Run it with
+/// [`quorra_preparation_run`] and hand the answer back with [`quorra_prepared_hand_back`]; a
+/// caller that never asks loses only the timing, since the first use reads both on the thread that
+/// asked.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_preparation_take(
+    viewer: *const Session,
+    preparation: *mut *mut viewer_core::Preparation,
+) -> c_int {
+    let (Some(viewer), Some(preparation)) = (viewer.as_ref(), preparation.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *preparation = viewer.preparation().map_or(core::ptr::null_mut(), |found| {
+        Box::into_raw(Box::new(found))
+    });
+    Status::Ok.code()
+}
+
+/// Reads what a preparation names, on whichever thread calls it, and **consumes** the preparation.
+///
+/// It touches only the immutable file, never the viewer, so it may run while the viewer is being
+/// used on another thread. The answer is an owning handle: hand it back with
+/// [`quorra_prepared_hand_back`], or release it with [`quorra_prepared_free`].
+///
+/// # Safety
+///
+/// See the module documentation. `preparation` is not used again after this returns `QUORRA_OK`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_preparation_run(
+    preparation: *mut viewer_core::Preparation,
+    prepared: *mut *mut viewer_core::Prepared,
+) -> c_int {
+    let Some(prepared) = prepared.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    if preparation.is_null() {
+        return Status::NullArgument.code();
+    }
+    let read = Box::from_raw(preparation).run();
+    *prepared = Box::into_raw(Box::new(read));
+    Status::Ok.code()
+}
+
+/// Releases a preparation that will not be run. A null pointer is ignored.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_preparation_free(preparation: *mut viewer_core::Preparation) {
+    if !preparation.is_null() {
+        drop(Box::from_raw(preparation));
+    }
+}
+
+/// Hands back what a preparation read, and **consumes** it.
+///
+/// Where the document is the one in front and its page falls under a section of the outline, the
+/// events hold `QUORRA_EVENT_PAGE_CHANGED` again, whose section [`quorra_event_page_section`]
+/// reads. An answer for a document closed since is dropped, and the events are then empty.
+///
+/// # Safety
+///
+/// See the module documentation. `prepared` is not used again after this returns `QUORRA_OK`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_prepared_hand_back(
+    viewer: *mut Session,
+    prepared: *mut viewer_core::Prepared,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    if prepared.is_null() {
+        return Status::NullArgument.code();
+    }
+    *events = Box::into_raw(Box::new(viewer.prepared(*Box::from_raw(prepared))));
+    Status::Ok.code()
+}
+
+/// Releases a preparation's answer that will not be handed back. A null pointer is ignored.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_prepared_free(prepared: *mut viewer_core::Prepared) {
+    if !prepared.is_null() {
+        drop(Box::from_raw(prepared));
     }
 }
 

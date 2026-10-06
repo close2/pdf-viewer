@@ -530,6 +530,11 @@ typedef struct quorra_structure quorra_structure;
  * 155's columns in /O order and §12.3.5.2's folder tree. The files themselves are
  * `quorra_attachments_read`'s, and `quorra_collection_folder_of` is what puts one inside the other. */
 typedef struct quorra_collection quorra_collection;
+/* What a document reads after page one — §12.3.3's outline and §7.7.3's page tree — and what that
+ * read. Both may be MOVED to another thread: quorra_preparation_run touches only the immutable
+ * file, never the viewer (ADR 1553). */
+typedef struct quorra_preparation quorra_preparation;
+typedef struct quorra_prepared quorra_prepared;
 
 /* ------------------------------------------------------------------------------------------- */
 /* The structs passed by value.                                                                  */
@@ -897,6 +902,10 @@ int32_t quorra_event_opened(const quorra_events *events, size_t index, uint64_t 
                           size_t *pages);
 int32_t quorra_event_page_changed(const quorra_events *events, size_t index, size_t *page,
                                 size_t *of);
+/* The title of §12.3.3's outline item the page falls under, two-call idiom. QUORRA_NO_ANSWER where
+ * it falls under none, or where the outline was not yet read when the page was announced. */
+int32_t quorra_event_page_section(const quorra_events *events, size_t index, char *out, size_t cap,
+                                size_t *needed);
 /*
  * A step of a document-wide search. `found` says whether `page`, `from` and `to` mean anything;
  * `remaining` says whether to call quorra_find_continue again. `from` and `to` are byte offsets
@@ -952,6 +961,24 @@ int32_t quorra_render_request_page(const quorra_render_request *request, size_t 
 /* Draws it with the processor rasteriser. May be called on a thread of the caller's own. */
 int32_t quorra_render_request_rasterise(const quorra_render_request *request, quorra_raster **raster);
 void quorra_raster_free(quorra_raster *raster);
+
+/* ------------------------------------------------------------------------------------------- */
+/* What page one does not need, read on a thread you choose (ADRs 1543, 1553).                     */
+/* ------------------------------------------------------------------------------------------- */
+
+/*
+ * The open reads neither the outline nor the whole page tree, so the page it announces has no
+ * section. Ask for this once page one is on its way: NULL where there is nothing left to read. Run
+ * it on any thread (it is CONSUMED), then hand the answer back on the viewer's thread, which
+ * announces the page again with its section. A caller that never asks loses only the timing.
+ */
+int32_t quorra_preparation_take(const quorra_viewer *viewer, quorra_preparation **preparation);
+int32_t quorra_preparation_run(quorra_preparation *preparation, quorra_prepared **prepared);
+void    quorra_preparation_free(quorra_preparation *preparation);
+/* CONSUMES `prepared`. An answer for a document closed since is dropped: the events are empty. */
+int32_t quorra_prepared_hand_back(quorra_viewer *viewer, quorra_prepared *prepared,
+                                  quorra_events **events);
+void    quorra_prepared_free(quorra_prepared *prepared);
 
 /* ------------------------------------------------------------------------------------------- */
 /* Queries. Synchronous, and they produce no events.                                              */

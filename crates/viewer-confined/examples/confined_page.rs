@@ -234,10 +234,10 @@ fn main() {
     }
 
     // The same work in this process, so that what the confinement costs is a difference rather
-    // than a number on its own. **Twice**, because two things are folded into that difference and
-    // ADR 0218 names both: the pipe, and the one rasterising thread a confined process is held
-    // to. One strip isolates the second — it is what the worker does — so the gap between the two
-    // lines is `doc/todo/34`'s item 4 and the gap to the confined figure above is its item 5.
+    // than a number on its own. **Twice**: once on one strip and once on as many as the machine
+    // has, which is what the worker draws on where its spawner limited the allocator's arenas (ADR
+    // 1554) — so the gap between the two lines is what the pool's width buys, and the gap to the
+    // confined figure above is `doc/todo/34`'s item 5, the pipe.
     for strips in [1, 0] {
         let bytes = std::fs::read(&path).expect("the document is readable");
         let at = Instant::now();

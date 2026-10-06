@@ -58,9 +58,7 @@ impl<'a> WarmUpGuard<'a> {
 
 impl Drop for WarmUpGuard<'_> {
     fn drop(&mut self) {
-        let mut state = self.store.lock();
-        state.warm_up = self.outcome.take().unwrap_or(WarmUp::Abandoned);
-        drop(state);
+        *self.store.warm_state() = self.outcome.take().unwrap_or(WarmUp::Abandoned);
         self.store.warmed.notify_all();
     }
 }
@@ -165,15 +163,24 @@ impl PipelineStore {
         Ok(())
     }
 
+    /// The warm-up's state, under its own lock — never the compile lock, which the warm-up
+    /// thread holds for as long as it compiles (see `PipelineStore::warm_up`'s field).
+    fn warm_state(&self) -> std::sync::MutexGuard<'_, WarmUp> {
+        // Poisoned only by a panic while the state was being written, and the write is one
+        // assignment, so the value is whole either way.
+        self.warm_up
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     /// Where the background warm-up has got to.
     pub(crate) fn warm_up(&self) -> WarmUp {
-        self.lock().warm_up.clone()
+        self.warm_state().clone()
     }
 
     /// How long the warm set took to compile, once it has.
     pub(crate) fn warm_duration(&self) -> Option<Duration> {
-        let state = self.lock();
-        match state.warm_up {
+        match *self.warm_state() {
             WarmUp::Warm(duration) => Some(duration),
             _ => None,
         }
@@ -186,13 +193,13 @@ impl PipelineStore {
     /// Returns for every outcome, including a warm-up that panicked
     /// ([`WarmUp::Abandoned`]) — see [`WarmUpGuard`].
     pub(crate) fn wait_until_warm(&self) -> WarmUp {
-        let mut state = self.lock();
-        while matches!(state.warm_up, WarmUp::Running) {
+        let mut state = self.warm_state();
+        while matches!(*state, WarmUp::Running) {
             state = self
                 .warmed
                 .wait(state)
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
-        state.warm_up.clone()
+        state.clone()
     }
 }

@@ -529,6 +529,17 @@ difference. `MarkInputs::Owned` moves them. And when the outline read was taken 
 65.1 M instructions for an outline read of 35.5 M: the consumer of an eager read can cost more than
 the read, and is deferred with it.
 
+### 110. A light child on an idle machine runs at the idle clock, and a neighbour on other cores slows the pinned ones
+
+`personwithdog.pdf`'s turn read 11.4–11.7 ms in three rounds' runs against a band of 7.3–10.8 taken
+warm. Neither tree nor device: the banded commit and HEAD read the same interleaved, and the device
+was idle. After 1.5 s of idle the turn reads 11.5–11.7 ms, after a 30 ms spin 8.9–9.3, back to back
+9.1–9.8 — a child that lives its whole life at the idle clock reads a quarter high, and the
+calibration probe declines most such children but not all. At the other end, sixteen spinners on
+the cores the child is NOT pinned to give 13.3–13.9 ms on both trees at a load the ceiling admits:
+one package, one clock and power budget (ADR 1556). The band keeps its reason; a gate that warms the
+processor before measuring would be a decision of its own.
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

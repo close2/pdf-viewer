@@ -233,6 +233,19 @@ impl Events {
         }
     }
 
+    /// [`Event::PageChanged`]'s section: the title of §12.3.3's outline item the page falls under,
+    /// or `None` where it falls under none or the outline was not yet read when it was announced.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] or [`Status::WrongKind`], as [`Self::opened`].
+    pub fn page_section(&self, index: usize) -> Result<Option<&str>, Status> {
+        match self.events.get(index).ok_or(Status::OutOfRange)? {
+            Event::PageChanged { section, .. } => Ok(section.as_deref()),
+            _ => Err(Status::WrongKind),
+        }
+    }
+
     /// [`Event::Searched`]: what a step of a document-wide search found, and what is left.
     ///
     /// Four numbers rather than a struct, because C has no `Option`: `found` says whether the

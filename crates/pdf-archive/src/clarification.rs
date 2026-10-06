@@ -130,7 +130,7 @@
 //! - **A026** — `DeviceGray` is permitted as the `ColorSpace` of a soft-mask image dictionary with
 //!   no default space and no output intent, because there it describes shape rather than colour
 //!   (`graphics/device-gray-needs-a-default-or-an-output-intent`, whose entry names A028 beside it
-//!   because that row reads a `DefaultGray` too). Session 941 flagged this as the
+//!   because that row reads a `DefaultGray` too). ADR 0931 flags this as the
 //!   item most likely to be costing a conforming file a false failure, and it is not:
 //!   `crate::survey` records an image's colour space only for an image a content stream draws,
 //!   and never descends into an `SMask` entry, so no soft-mask image's colour space reaches the
@@ -168,7 +168,7 @@
 //!   part 4. `crate::check` applies it to a failing requirement.
 //!
 //!   **A010 is what makes the exemption safe rather than a refinement to add after it.**
-//!   Session 944 measured what part 2's published sentence *without* A010 would withdraw and the
+//!   ADR 0935 measured what part 2's published sentence *without* A010 would withdraw and the
 //!   answer was real failures this crate and the corpus agree on, every one of them under a
 //!   clause A010 keeps; so the two landed in one commit, as `doc/todo/62` section 3 says they
 //!   had to. With the carve-outs in place the corpus moves not at all — the same measurement

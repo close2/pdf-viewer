@@ -737,3 +737,13 @@ device a number, which is what ADR 1531 then moved onto the document thread.
 Two engines in RFC 0008 and the one pure-Rust audio stack in RFC 0009 (`symphonia`, MPL-2.0) fell on
 the licence line before any other judgment; a timing table built before the registry's licence
 string is compared with `deny.toml`'s list is wasted work. Ask the registry first, then measure.
+
+## 68. Two levers are ordered by the clock before one is built, and the spawner's environment is read before a blocker is called unsolved
+
+ADR 1541 ranked the small clip regions (0.230 G instructions) above the pass recording (0.115 G);
+by the clock the order was reversed — a probe skipping every region fill saved 4.5 ms, and
+`prepare_run`'s 7 138 buffer and bind-group calls took 9–10 ms per render (ADR 1555). An instruction
+count ranks work on one thread; a driver call's cost is on the clock. And before a confinement's
+blocker is called unsolved, grep the spawner for what it already sets in the child's environment:
+`MALLOC_ARENA_MAX=1` had been set by `confined_transport::Host::start` for every worker, which is
+what let the confined worker build a pool as wide as the machine (ADR 1554).

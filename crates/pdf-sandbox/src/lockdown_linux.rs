@@ -285,8 +285,8 @@ const PERMITTED_INTERPRETER_EXTRA: &[i64] = &[
 /// `Command::Close` drops it — `std::os::fd::OwnedFd::drop` asks `fcntl(fd, F_GETFD)` before
 /// `close`, under `core::ub_checks::check_library_ub()`, to catch a double close. There is no way
 /// to close a descriptor from safe Rust without that question being asked, so a worker that is
-/// handed a descriptor and forbidden `fcntl` can never give it back. Session 920 found it and
-/// declined to fix it (ADR 0880 section 6, trap 32); ADR 0888 is the decision and prices what else was
+/// handed a descriptor and forbidden `fcntl` can never give it back. ADR 0880 section 6 found it
+/// and declined to fix it (trap 32); ADR 0888 is the decision and prices what else was
 /// available. In short: the two alternatives both **leak**, and leaking is arithmetic rather than
 /// taste — [`DESCRIPTOR_LIMIT`] is 8, three are inherited, so the fifth document a viewer opens
 /// and closes would be the last it could open at all.

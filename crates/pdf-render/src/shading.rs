@@ -1208,8 +1208,10 @@ fn rasterise(device: &[Triangle], ramp: Option<&Ramp>, placed: Placed, divided: 
     let Placed { span, rows, .. } = placed;
     let row_bytes = (span as usize).saturating_mul(4);
     let mut data = vec![0u8; row_bytes.saturating_mul(rows as usize)];
-    let bands = rows_per_band(rows);
     if divided {
+        // Asked inside the branch: `rayon::current_num_threads` brings the global pool up, and a
+        // raster under the floor has no use for one.
+        let bands = rows_per_band(rows);
         // Which band each triangle reaches, decided once here. The alternative — every band
         // asking every triangle — is work that grows with the pool, and a patch mesh
         // tessellates into hundreds of triangles per shading.
@@ -2957,6 +2959,11 @@ mod tests {
     /// The corners are black at three of them and white at the fourth, so the centre of the
     /// patch is a quarter of the way to white — the bilinear mix, which is what the clause
     /// states and what no single triangle between three corners would give.
+    #[cfg_attr(
+        miri,
+        ignore = "crossbeam-epoch's retag under rayon, not this tree's: the raster is over \
+                  MESH_PARALLEL_FLOOR, so it is divided across the pool (ADR 0450)"
+    )]
     #[test]
     fn a_patch_mesh_is_rasterised_from_its_patches() {
         let patch = SurfacePatch {
@@ -2994,6 +3001,11 @@ mod tests {
     /// here as a byte. The mesh is two overlapping triangles — so the later one *must* win
     /// where they cross — over a raster comfortably above [`MESH_PARALLEL_FLOOR`], and the
     /// bands are many, because `rows_per_band` divides by the pool this machine has.
+    #[cfg_attr(
+        miri,
+        ignore = "crossbeam-epoch's retag under rayon, not this tree's: the raster is over \
+                  MESH_PARALLEL_FLOOR, so it is divided across the pool (ADR 0450)"
+    )]
     #[test]
     fn both_arms_of_the_division_paint_the_same_bytes() {
         let corner = |r: f32, g: f32, b: f32| Color { r, g, b, a: 1.0 };

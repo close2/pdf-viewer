@@ -3834,8 +3834,9 @@ const CONTRADICTED_UNEXPLAINED: [&str; 0] = [];
 ///
 /// Opened, all three pages turned out to be **§10.7.4**, in three different paragraphs of it: the
 /// shape paragraph for `colors.pdf`, the image paragraph for the reduced greyscale inside
-/// `issue7891_bc1.pdf`'s soft mask, and — the one that actually decides the verdict — the
-/// **clipping** paragraph, which is about sets where every renderer here is composing coverages.
+/// `issue7891_bc1.pdf`'s soft mask, which decides that page's verdict, and the **clipping**
+/// paragraph at the same mask's `/BBox`, which carries most of that page's mean and none of its
+/// worst tile (ADR 1560).
 ///
 /// # `issue7891_bc1.pdf` page 1: the note blamed the word, and the word is where we are right
 ///
@@ -4077,13 +4078,31 @@ const CONTRADICTED_UNEXPLAINED: [&str; 0] = [];
 /// arithmetic, and *which* third implementation happens to fall inside it is a fact about where it
 /// sits on the spread rather than about the clause. ADR 0772.
 ///
-/// # Whose departure this is (ADR 1483)
+/// # Whose departure this is (ADR 1560)
 ///
-/// Ours, on the clipping paragraph quoted above: a clip is "the set of pixels that would be
-/// included by a fill operation", and our 118 on device row 290 is §10.7.4 row's departure (1)
-/// painting the clip's partly covered row partly. The departure is recorded on that row and the
-/// tile that decides the verdict is the page's own arithmetic to a level, so the page stands as
-/// the departure's witness rather than as a defect. [`Whose::Ours`] in [`WHOSE_DEPARTURE`].
+/// The references', on the image paragraph. Our 118 on device row 290 is §10.7.4 row's departure
+/// (1) painting the clip's partly covered row partly, and it is on this page, but it is not what
+/// the page fails on. The verdict is the worst tile, and the tile is the word at device (224, 320),
+/// wholly inside the mask group's `/BBox` and the black fill, so no clip edge and no fill edge lies
+/// in it. Two rasters were written from the file's own arithmetic beside ours and put against the
+/// voting pair through `examples/compare_rasters`, worst tile and where, against a bound of 6.04:
+///
+/// ```text
+///                                                     vs mupdf          vs ghostscript
+///   ours                                              6.73 (224, 320)   5.72 (352, 288)
+///   ours, with the /BBox's rows 290 and 357 and
+///     column 362 drawn as the clause's set            6.73 (224, 320)   6.23 (224, 352)
+///   the clause throughout the /BBox: the clip a set,
+///     each pixel coloured by its centre's sample      6.80 (224, 320)   6.23 (224, 352)
+/// ```
+///
+/// So the clip's edge drawn as the clause says leaves the deciding tile where it was, and **the
+/// clause carried out exactly in our place is contradicted by more than we are**. On that tile the
+/// sentence is "[t]here shall not be averaging over the pixel area": ours is the box average to
+/// 0.16 of a level and 0.95 from the clause's form — §10.7.4 row's departure (3), ADR 0025 — and
+/// `mupdf` is 6.80 from it and `ghostscript` 4.68. The margin is the voting pair's distance from
+/// the sentence, and no departure of ours decides it. [`Whose::References`] in
+/// [`WHOSE_DEPARTURE`].
 const CONTRADICTED_TIGHT_CONSENSUS: [&str; 1] = ["issue7891_bc1.pdf page 1"];
 
 /// Contradicted because the three references take §11.5.3's device branch for a mask group
@@ -14225,7 +14244,8 @@ enum Whose {
     /// by such a group is where a defect of ours could still be, so the ranking names the highest
     /// of them as the next page to take.
     Ours,
-    /// The references depart from a sentence this tree carries out.
+    /// The references depart from a sentence this tree carries out — or departs from by less than
+    /// the margin, so that the clause's own form put in this tree's place is contradicted too.
     References,
     /// The clause leaves the answer to the processor — by a permission, by a NOTE licensing a
     /// source assumption, or by stating nothing for a file that contradicts itself — and the
@@ -14249,9 +14269,11 @@ impl Whose {
 /// The clause is the one whose sentence settles the verdict the group holds, which is not always
 /// the group's subject: [`CONTRADICTED_VISIBILITY_EXPRESSION`] is about `/VE`, and its note
 /// measures that the `DeviceCMYK` press owns the differing fraction it fails on, but the sentence
-/// the references depart from is §8.11.2.2's and that is the claim the group makes. The two
-/// [`Whose::Ours`] rows are §10.7.4 row's departure (1) — a partly covered pixel painted partly —
-/// met at an image's edge and at a clip's, and both notes measure that departure as the margin.
+/// the references depart from is §8.11.2.2's and that is the claim the group makes. The one
+/// [`Whose::Ours`] row is §10.7.4 row's departure (1) — a partly covered pixel painted partly —
+/// met at an image's edge, and its note measures that departure as the margin. The same departure
+/// met at a clip's edge is on [`CONTRADICTED_TIGHT_CONSENSUS`]'s page as well, and that page is
+/// the references' because its verdict is a tile the departure does not reach (ADR 1560).
 const WHOSE_DEPARTURE: &[(&str, Whose, &str)] = &[
     (
         "CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE",
@@ -14294,7 +14316,7 @@ const WHOSE_DEPARTURE: &[(&str, Whose, &str)] = &[
     ("CONTRADICTED_LINK_BORDER", Whose::References, "§12.5.4"),
     ("CONTRADICTED_GLYPH_EDGES", Whose::Choice, "§10.7.1"),
     ("CONTRADICTED_SUBSTITUTED_FONT", Whose::Choice, "§9.5"),
-    ("CONTRADICTED_TIGHT_CONSENSUS", Whose::Ours, "§10.7.4"),
+    ("CONTRADICTED_TIGHT_CONSENSUS", Whose::References, "§10.7.4"),
     (
         "CONTRADICTED_LUMINOSITY_OF_A_CIE_BASED_MASK",
         Whose::References,
