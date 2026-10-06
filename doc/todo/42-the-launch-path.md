@@ -375,10 +375,15 @@ graphics device     +13.2 to +19.2 ms   (was 33.4 to 45.1)
 start → first frame   110 to 119 ms     (was 145 to 152)
 ```
 
-**What is left of this item is not ours**: `surface 0.03 ms, adapter 5.3, device 8.4` is what
-bring-up now blocks for, and quorra's own headless numbers are 3.2–4.4 for adapter selection
-against our 5.3–6.8 with a `compatible_surface` — the difference is the surface, and it is the
-reason §8.1 asked for the field split.
+**What is left of this item is not ours**, and the launch gate names each step of it on the
+device thread (ADR 1569): the instance about 11 to 12 ms (the Vulkan loader opening both installed
+drivers), the adapter check 3 to 9 ms (the kernel driver answering for the GPU), `request_adapter`
+0.2, `request_device` about 1.7 to 2.1 since `wgpu`'s validation of indirect calls, two compute
+pipelines compiled for a call raster never makes, came off it, and about 1.2 of the device's
+assembly and the host's caches. `wgpu` offers no other lever that measured: the backend set,
+the adapter options, the features and the limits each read inside their spread. The loader's
+`lavapipe` costs about 2 ms and only the environment can leave it out, which raster's ADR 0017
+keeps out of raster.
 
 ### 5. The first frame pays ~12 ms of first-use allocation, and it is **not** the shaders
 

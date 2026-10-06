@@ -17,6 +17,7 @@
 #
 #   tools/batch.sh open  batch-1038-1043   # worktree at /home/AI/pdf-viewer-rounds, guard on
 #   tools/batch.sh gates                   # tiers 2 and 3, one line per gate, into batch-gates.log
+#   tools/batch.sh raster-examples         # CI's raster examples with --check under Xvfb (one gate of those)
 #   tools/batch.sh check                   # what a merge would otherwise look at by hand, one line each
 #   tools/batch.sh commit /path/message    # stage the whole population by name, count it, commit
 #   tools/batch.sh install                 # after the fast-forward: what a person runs, into main's target/
@@ -152,6 +153,10 @@ gates() {
     # `release`, not `gates`: the bands in `doc/checks/turn-path.toml` are a claim about the
     # profile a person runs, and the gate prints without judging under any other (ADR 1513).
     run t2-turn_path      cargo test --release -p render-raster --test turn_path -- --ignored --nocapture
+    # `release`, as CI's job builds them. The tree ceiling is a walk's 12 GiB, not a build's 8: the
+    # release build of `raster-gpu`'s examples peaked at 7.85 GiB over the tree when it was measured,
+    # inside a build's ceiling by too little to survive a heavier dependency (ADR 1575).
+    run t2-raster_examples tools/bounded.sh --tree 12 -- "$wt/tools/batch.sh" raster-examples
     run t3-oracle         cargo test --profile gates -p pdf-model --test oracle -- --ignored --nocapture
     run t3-text_extract   cargo test --profile gates -p pdf-model --test text_extraction -- --ignored --nocapture
     run t3-selection      cargo test --profile gates -p viewer-core --test selection_census -- --ignored --nocapture
@@ -171,6 +176,50 @@ gates() {
         "$(awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^wall=/) { sub(/^wall=/, "", $i); sub(/s$/, "", $i); t += $i } }
                 END { print t + 0 }' "$log") s of gate wall time" >> "$log"
     tail -1 "$log"
+}
+
+# The examples `.github/workflows/ci.yml` runs with `--check`, read out of that step's `for` loop
+# so that this gate and the owner's CI run one list; `raster-gpu`'s `tests/example_checks.rs` holds
+# the step to `examples/`, and `tests/batch.rs` holds this reading to the same directory.
+raster_example_names() {
+    awk '/for example in/ { want = 1; next } want && /^ *do *$/ { exit }
+         want { gsub(/\\/, ""); print }' "$wt/.github/workflows/ci.yml" | tr -s ' \t' '\n' | sed '/^$/d'
+}
+
+# Every raster example's `--check` under Xvfb, as CI's `raster-examples` job runs it: `cargo test`
+# builds no example, so an assertion in one is a comment until something executes it, and two had
+# gone stale where only the owner's CI ran them (ADR 1563). One line per example — its exit, its
+# seconds, its log — and a summary the gate log reads; a failing example's lines are what `run`
+# leaves in the `.fail.` file. The build is bounded apart from the runs, so a slow build is not read
+# as a hung example, and each run is bounded by `timeout`, which signals the whole process group:
+# `xvfb-run`, its server and the example go together. The exit status is the answer (ADR 1575).
+raster_examples() {
+    cd "$wt" || return 1
+    local logs=${RASTER_EXAMPLES_LOGS:-$log.raster-examples} names name rc began passed=0 failed=0
+    names=$(raster_example_names)
+    if [ "${1:-}" = --list ]; then printf '%s\n' "$names"; return 0; fi
+    [ -n "$names" ] || { echo "raster examples: no example read from ci.yml's --check step"; return 1; }
+    command -v xvfb-run > /dev/null || { echo "raster examples: no xvfb-run on this machine"; return 1; }
+    rm -rf "$logs"; mkdir -p "$logs"
+    began=$(date +%s)
+    timeout -k 30 "${RASTER_EXAMPLES_BUILD_SECONDS:-2400}" \
+        cargo build --release -p raster-gpu --examples > "$logs/build.log" 2>&1 && rc=0 || rc=$?
+    printf '%-18s exit=%-4s %5ss  %s\n' "(build)" "$rc" "$(($(date +%s) - began))" "$logs/build.log"
+    [ "$rc" -eq 0 ] || { echo "raster examples: the build FAILED, no example ran"; return 1; }
+    for name in $names; do
+        began=$(date +%s)
+        timeout -k 10 "${RASTER_EXAMPLE_SECONDS:-600}" \
+            xvfb-run -a cargo run --release -p raster-gpu --example "$name" -- --check \
+            > "$logs/$name.log" 2>&1 && rc=0 || rc=$?
+        printf '%-18s exit=%-4s %5ss  %s\n' "$name" "$rc" "$(($(date +%s) - began))" "$logs/$name.log"
+        if [ "$rc" -eq 0 ]; then passed=$((passed + 1)); else failed=$((failed + 1)); fi
+    done
+    if [ "$failed" -eq 0 ]; then
+        echo "raster examples: $passed passed, 0 failed"
+    else
+        echo "raster examples: $passed passed, $failed FAILED"
+        return 1
+    fi
 }
 
 # What a merge checks by hand before it commits, one line each, from inside the worktree.
@@ -529,6 +578,7 @@ close_batch() {
 case "${1:-}" in
     open)  open_batch "${2:?branch name}" ;;
     gates) gates ;;
+    raster-examples) raster_examples "${2:-}" ;;
     check) check_batch ;;
     commit) commit_batch "${2:?a commit message file}" ;;
     install) install_batch ;;

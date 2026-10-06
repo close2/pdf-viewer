@@ -690,7 +690,7 @@ impl App {
         let clicked = viewer_host::clicked(&self.viewer, at);
         // `false`: this host draws the page's own widget appearances, so a click on a text or
         // choice field is one it aims a caret or a list at rather than one it cannot reach.
-        if let Some(said) = clicked.note(false) {
+        if let Some(said) = clicked.note() {
             println!("note: {said}");
         }
         match clicked {

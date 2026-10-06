@@ -479,8 +479,12 @@ protected:
     void moveEvent(QMoveEvent* event) override;
     /// The window's frame changed size, which moves the contents' origin inside it.
     void resizeEvent(QResizeEvent* event) override;
+    /// The window gained or lost the keyboard, which a screen reader is told (ADR 1565).
+    void changeEvent(QEvent* event) override;
 
 private:
+    /// Tells the host whether the window has the keyboard, once no other call into it is running.
+    void reportActivation();
 
     rust::Box<Host> host_;
     QTabWidget* tabs_;

@@ -55,7 +55,8 @@ import os
 import re
 import sys
 
-from seed_der import definite, inflated_streams, paths, signature_values, stated, values
+from seed_der import definite, inflated_streams, paths, shape, signature_values, stated, values
+from seed_shape import Smallest, mapped, names_any
 
 
 def certificates(signature):
@@ -157,6 +158,19 @@ def stated_certificates(data):
 # states uncompressed is missed either way.
 COLLECTIONS = (b"/ByteRange", b"/DSS", b"/Cert", b"/VRI")
 
+# What a document must hold for any route to find a certificate in it: one of the names above, or
+# what every certificate `is_certificate` accepts states in the clear — RFC 5280 section 4.1.2.5's
+# `Validity`, a `SEQUENCE` of two times whose DER header is one of these four (UTCTime or
+# GeneralizedTime each side). A document holding none is passed over by a search through its map;
+# a certificate encoded with a long-form length its DER forbids is the cost (ADR 1571).
+NEEDLES = (
+    *COLLECTIONS,
+    b"\x30\x1e\x17\x0d",
+    b"\x30\x20\x17\x0d",
+    b"\x30\x20\x18\x0f",
+    b"\x30\x22\x18\x0f",
+)
+
 
 # A `fixtures` module's certificate, as this tree writes one: a `&str` of hexadecimal split
 # across lines with a trailing backslash. The name is what says it is a certificate rather than a
@@ -177,6 +191,8 @@ def fixture_certificates(source):
 
 
 def main(argv):
+    every = "--every" in argv
+    argv = [argument for argument in argv if argument != "--every"]
     if len(argv) < 3:
         sys.exit(__doc__)
     directory = argv[1]
@@ -185,22 +201,29 @@ def main(argv):
     # and a `/DSS` restates what the signature above it already carried, so a per-occurrence tally
     # would report tens of thousands of finds over a corpus that holds a thousand certificates.
     route_of = {}
+    # One certificate per `seed_der.shape` (ADR 1571), or with `--every` each under its own name.
+    # A fixture is kept whatever its shape: there are a handful, and each is the only input that
+    # reaches the curve its module verifies against.
+    chosen = Smallest(name=lambda certificate: hashlib.sha1(certificate).hexdigest())
 
     def keep(certificate, route):
         if len(certificate) < 50:
             return
         name = hashlib.sha1(certificate).hexdigest()
-        with open(os.path.join(directory, name), "wb") as handle:
-            handle.write(certificate)
         route_of.setdefault(name, route)
+        whole = every or route == "fixture"
+        chosen.offer(certificate if whole else shape(certificate), certificate)
 
     for path in paths(argv[2:]):
-        with open(path, "rb") as handle:
-            data = handle.read()
         if path.endswith(".rs"):
-            for certificate in fixture_certificates(data):
-                keep(certificate, "fixture")
+            with open(path, "rb") as handle:
+                for certificate in fixture_certificates(handle.read()):
+                    keep(certificate, "fixture")
             continue
+        with mapped(path) as mapping:
+            if not names_any(mapping, NEEDLES):
+                continue
+            data = bytes(mapping)
         if b"/ByteRange" in data:
             for value in signature_values(data):
                 for certificate in certificates(value.rstrip(b"\x00")):
@@ -213,9 +236,10 @@ def main(argv):
             for certificate in stated_certificates(buffer):
                 keep(certificate, "stated")
 
+    written = chosen.write(directory)
     routes = list(route_of.values())
     print(
-        f"{len(route_of)} distinct certificate(s) written to {directory}: "
+        f"{len(route_of)} distinct certificate(s), {chosen.summary()}, {written} new in {directory}: "
         f"{routes.count('signed')} first seen inside a signature, "
         f"{routes.count('stated')} stated by a document, "
         f"{routes.count('fixture')} out of a fixture"

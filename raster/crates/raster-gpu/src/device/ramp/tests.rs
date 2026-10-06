@@ -7,7 +7,10 @@
 
 use raster_scene::{Color, Stop};
 
-use super::{MAX_SEGMENTS, RAMP_RESOLUTION, RAMP_ROWS, ramp_color_at, sample_ramp, texel_for};
+use super::{
+    MAX_SEGMENTS, RAMP_RESOLUTION, RAMP_ROWS, lay_out, ramp_color_at, sample_ramp, sample_ramps,
+    segments, texel_byte, texel_for,
+};
 
 const RED: Color = Color {
     r: 1.0,
@@ -273,4 +276,136 @@ fn an_empty_ramp_samples_to_transparency() {
         RAMP_RESOLUTION as usize * RAMP_ROWS as usize * 4
     );
     assert!(bytes.iter().all(|byte| *byte == 0));
+}
+
+/// The colour row as [`sample_ramp`] states it: [`ramp_color_at`] asked at every texel's own
+/// `t`, and each component rounded by `f32::round` — the statement the cursor and
+/// [`texel_byte`] are held to (ADR 1567).
+#[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#[expect(clippy::cast_precision_loss)]
+fn colour_row_as_stated(stops: &[Stop]) -> Vec<u8> {
+    let mut row = vec![0_u8; RAMP_RESOLUTION as usize * 4];
+    let mut runs = segments(stops);
+    if runs.len() > MAX_SEGMENTS {
+        runs = vec![(0, stops.len() - 1)];
+    }
+    for segment in lay_out(stops, &runs) {
+        let own = &stops[segment.first..=segment.last];
+        let (lo, hi) = (stops[segment.first].offset, stops[segment.last].offset);
+        let last = (segment.texels.saturating_sub(1).max(1)) as f32;
+        for j in 0..segment.texels {
+            let t = lo + (hi - lo) * (j as f32 / last);
+            let color = ramp_color_at(own, t);
+            let at = (segment.base + j) as usize * 4;
+            for (c, component) in [color.r, color.g, color.b, color.a].into_iter().enumerate() {
+                row[at + c] = (component * 255.0).round() as u8;
+            }
+        }
+    }
+    row
+}
+
+/// A small deterministic generator, so that the ramps below are many and the same every run.
+struct Draws(u64);
+
+impl Draws {
+    #[expect(clippy::cast_precision_loss)]
+    fn unit(&mut self) -> f32 {
+        self.0 = self
+            .0
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        (self.0 >> 40) as f32 / (1_u64 << 24) as f32
+    }
+}
+
+/// Every ramp shape the table meets — two stops, many, coincident pairs and runs of them, stops
+/// that leave the ends uncovered, components at and between the levels' half-way points — makes
+/// the same colour row through the cursor and the byte rounding as through the per-texel
+/// statement (ADR 1567).
+#[test]
+fn the_table_is_the_per_texel_statement_byte_for_byte() {
+    let mut draws = Draws(0x1567);
+    for case in 0..600 {
+        let count = 1 + case % 23;
+        let mut offsets: Vec<f32> = (0..count).map(|_| draws.unit()).collect();
+        offsets.sort_by(f32::total_cmp);
+        if case % 3 == 0 && count > 2 {
+            offsets[count / 2] = offsets[count / 2 - 1];
+        }
+        if case % 5 == 0 {
+            offsets[0] = 0.0;
+            offsets[count - 1] = 1.0;
+        }
+        let stops: Vec<Stop> = offsets
+            .iter()
+            .map(|&offset| {
+                // Every fourth component sits exactly on a half level, where rounding decides.
+                let mut component = || {
+                    let value = draws.unit();
+                    if case % 4 == 0 {
+                        ((value * 255.0).floor() + 0.5) / 255.0
+                    } else {
+                        value
+                    }
+                };
+                stop(
+                    offset,
+                    Color::new(component(), component(), component(), component()),
+                )
+            })
+            .collect();
+        let row = RAMP_RESOLUTION as usize * 4;
+        assert_eq!(
+            &sample_ramp(&stops)[..row],
+            colour_row_as_stated(&stops).as_slice(),
+            "case {case}: {stops:?}"
+        );
+    }
+}
+
+/// [`texel_byte`] is `(x · 255).round()` saturated into a byte, at every half level, either
+/// side of it by an ulp, and outside `0..=1`.
+#[test]
+#[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn a_texel_byte_rounds_as_round_does() {
+    let mut probes = vec![-1.0_f32, -0.0, 0.0, 1.0, 1.5, f32::NAN, f32::INFINITY];
+    for level in 0..=255_u16 {
+        let half = (f32::from(level) + 0.5) / 255.0;
+        probes.extend([half, half.next_up(), half.next_down()]);
+    }
+    for component in probes {
+        assert_eq!(
+            texel_byte(component),
+            (component * 255.0).round() as u8,
+            "{component}"
+        );
+    }
+}
+
+/// Tables made on threads are the tables made one after another, in the order asked, at every
+/// thread count and either side of the floor.
+#[test]
+fn ramps_made_beside_each_other_are_made_in_order() {
+    let ramps: Vec<Vec<Stop>> = (0..19_u8)
+        .map(|k| {
+            let shade = f32::from(k) / 19.0;
+            vec![
+                stop(0.0, Color::new(shade, 0.0, 1.0 - shade, 1.0)),
+                stop(0.5, RED),
+                stop(1.0, Color::new(0.0, shade, 0.0, 1.0)),
+            ]
+        })
+        .collect();
+    let one_by_one: Vec<Vec<u8>> = ramps.iter().map(|stops| sample_ramp(stops)).collect();
+    for count in [1, 3, 19] {
+        let asked: Vec<&[Stop]> = ramps[..count].iter().map(Vec::as_slice).collect();
+        for threads in [1, 2, 8, 64] {
+            assert_eq!(
+                sample_ramps(&asked, threads),
+                one_by_one[..count].to_vec(),
+                "{count} ramps on {threads} threads"
+            );
+        }
+    }
 }

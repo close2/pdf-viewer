@@ -790,6 +790,25 @@ section_gates_cost() {
             | awk -F'\t' '{ printf "  %-24s finished in %8ss  exit %s\n", $3, $1, $2 }'
     fi
     grep -E '^ALL GATES DONE' "$log" | tail -1
+    # A gate `gates()` names that this log has no line for has no cost to rank yet — one added
+    # since the merge last ran, such as `t2-raster_examples` (ADR 1575) — and is said rather than
+    # left out, so the count above is read against the list it is a count of.
+    local named unrun=
+    named=$(gate_names)
+    for name in $named; do
+        grep -qE "^$name +exit=" "$log" || unrun="$unrun $name"
+    done
+    printf '%s gate(s) in tools/batch.sh gates(), %s with no line in this log%s\n' \
+        "$(printf '%s\n' "$named" | grep -c .)" "$(printf '%s' "$unrun" | wc -w)" "${unrun:+:$unrun}"
+}
+
+# Every gate name `tools/batch.sh`'s `gates()` runs, its two loops expanded, in its order.
+gate_names() {
+    awk '/^gates\(\) \{/ { in_g = 1; next } in_g && /^\}/ { exit }
+         in_g && /for t in / { l = $0; sub(/.*for t in /, "", l); sub(/;.*/, "", l); n = split(l, loop, " ") }
+         in_g && /^ +(for t in .*; do )?run / { sub(/.*run /, ""); name = $1; gsub(/"/, "", name)
+             if (name ~ /\$t/) { for (i = 1; i <= n; i++) { x = name; sub(/\$t/, loop[i], x); print x } }
+             else print name }' tools/batch.sh
 }
 
 # What the main checkout holds that a merge does not carry, read and never written: a local edit
@@ -1126,7 +1145,11 @@ Query:Offset|not a debt|the same delegation: a click placing the cursor inside a
 Query:FieldSelection|not a debt|the same delegation: a drag selecting inside a toolkit's own entry is the toolkit's, and Ctrl+C in it is the toolkit's binding (ADR 0519).
 Query:FreeTextAt|a debt, named and refused out loud|§12.5.6.6's free-text drag is `t` in viewer_host::keys and both native hosts refuse it by name (ADR 0526), because authoring that annotation is a drag mode plus an editor. doc/todo/33's, not this file's.
 Command:View|not a debt, and the reason is this section's own exclusion|a window that keeps the viewer in its own process never loses the view, so it has nothing to put back. The pair exists for a host whose worker can die under it: quorra-confined asks Query::View per frame and echoes the answer back as this, so that a restarted worker resumes where the reader was rather than at page one (ADRs 0734, 0737). That window is deliberately not in this section's population — it is a second window in viewer-ui's crate — which is why a variant one real window does reach reads here as reached by nobody. Closing this line means a *counted* window gaining a worker it can lose.
-Query:View|not a debt, and the same exclusion|the question half of the pair above, and not answerable from Query::PageGeometry: recovering a magnification from that answer's scale needs a division this crate refuses to round-trip in `f32`, and inverting its origin would be a host holding a second opinion about the layout arithmetic. Asked per frame by quorra-confined, which this section does not count.
+Command:Trust|a debt|§12.8.1's third question. quorra takes `--trust-anchors` and `--accept-unknown-revocation` (viewer_host::policy) and sends this before the document; the two native windows parse neither word, so every signature they show answers that no anchor was supplied (ADR 1039). The two words and the send, in each window's own argument list.
+Command:References|a debt|§8.10.4's target documents: quorra takes `--reference-files` and sends this before the document; the two native windows do not, so a reference XObject draws its proxy there whatever the reader has on disk (ADR 1101). The word and the send, as for Trust.
+Command:Audience|a debt|§8.11.4.4's User and Language categories: quorra takes `--reader-name`, `--reader-title`, `--reader-organisation` and `--interface-language` and sends this before the document; the two native windows do not, so both categories stay unanswered there (ADR 1106). The words and the send, as for Trust.
+Query:LogicalSelection|not a debt|a copy is Command::Copy, and Event::Copied carries both of §14.8.2.5's orders to all three windows (ADR 1144), which choose between them with viewer_host::copied. The query is asked by viewer-ffi, for a C caller that copies on its own.
+Query:PrintPage|a debt, named|quorra shows what would print and says it has no printer of its own (ADR 1180 section 6); quorra-gtk prints through GtkPrintOperation and quorra-qt through a QPrinter, each asking this per sheet.
 READING
 }
 

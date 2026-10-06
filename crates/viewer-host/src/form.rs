@@ -369,12 +369,15 @@ pub enum Clicked {
     ///
     /// §12.7.5.3's text field and both of §12.7.5.4's — what a click on one asks for is a caret at
     /// the point it landed, or Table 234's options on the screen. A host drawing the page's own
-    /// appearance does that itself; a host that sent `Command::Delegate` has a real `GtkEntry` or
-    /// `QComboBox` over the widget and a synthetic press at a page coordinate goes *past* it to the
-    /// page underneath, which is what [`Clicked::note`] says out loud rather than leaving silent.
+    /// appearance does that itself. A host that placed a real `GtkEntry` or `QComboBox` over the
+    /// widget gives the keyboard to the control placed over its `annotation`, because a
+    /// synthetic press at a page coordinate goes *past* that control to the page underneath —
+    /// which is how an assistive technology's click arrives (ADR 1566).
     Aimed {
         /// The control the click was aimed at.
         name: FieldName,
+        /// The widget annotation under the point, which names the control a host placed over it.
+        annotation: pdf_syntax::ObjectId,
     },
     /// No §12.7 widget under the point: the click belongs to the page.
     Page,
@@ -388,19 +391,13 @@ impl Clicked {
     /// discovers that two of them read it differently. Trap 5's rule — an input this program will
     /// not act on is named rather than dropped — with the clause number beside each.
     ///
-    /// `placed` is whether the caller puts a **real control** over the widget, and it changes
-    /// exactly one answer: [`Clicked::Aimed`]. A host drawing the page's own appearance puts a
-    /// caret in the value or opens Table 234's list itself and has nothing to report; a host whose
-    /// control is a `GtkEntry` or a `QComboBox` cannot reach it from a page coordinate at all,
-    /// which is the half of `doc/todo/31` a bus measurement found (ADR 0623).
-    ///
-    /// It is deliberately **not** [`viewer_core::Command::Delegate`]'s value: both native hosts
-    /// place their controls whether or not the page's own appearance is drawn underneath, so what
-    /// decides this is which host is asking rather than which picture it asked for.
+    /// [`Clicked::Aimed`] is not a refusal in any host: one drawing the page's own appearance puts
+    /// a caret in the value or opens Table 234's list itself, and one that placed a real control
+    /// gives that control the keyboard (ADR 1566).
     #[must_use]
-    pub fn note(&self, placed: bool) -> Option<String> {
+    pub fn note(&self) -> Option<String> {
         match self {
-            Self::Toggles { .. } | Self::Pointed { .. } | Self::Page => None,
+            Self::Toggles { .. } | Self::Pointed { .. } | Self::Aimed { .. } | Self::Page => None,
             Self::ReadOnly { name } => Some(format!(
                 "the field {} is read-only (Table 227), so a click gives it no value",
                 name.shown()
@@ -415,14 +412,6 @@ impl Clicked {
                  name to give it",
                 name.shown()
             )),
-            Self::Aimed { name } => placed.then(|| {
-                format!(
-                    "the field {} is a control this window places rather than a picture on the \
-                     page, so a click asked for at a page coordinate does not reach it \
-                     (§12.7.5.3, §12.7.5.4, doc/todo/31)",
-                    name.shown()
-                )
-            }),
         }
     }
 }
@@ -514,20 +503,16 @@ pub fn clicked(viewer: &Viewer, at: (f32, f32)) -> Clicked {
     };
     let no_toggle_to_off = match &field.control {
         // Table 229 bit 15 is "(Radio buttons only)", so a check box's flags cannot reach it.
-        Control::CheckBox { .. } => false,
+        Control::CheckBox { .. } => Some(false),
         Control::RadioButton {
             no_toggle_to_off, ..
-        } => *no_toggle_to_off,
+        } => Some(*no_toggle_to_off),
         Control::PushButton | Control::Signature | Control::Unstated => {
             return Clicked::Pointed {
                 name: field.name.clone(),
             };
         }
-        Control::Text(_) | Control::Choice(_) => {
-            return Clicked::Aimed {
-                name: field.name.clone(),
-            };
-        }
+        Control::Text(_) | Control::Choice(_) => None,
     };
     let Some(widget) = field
         .widgets
@@ -538,6 +523,12 @@ pub fn clicked(viewer: &Viewer, at: (f32, f32)) -> Clicked {
         // The model's hit test found the field and none of its widgets on *this* page covers the
         // point, which a column of pages can produce: the field is one and its widgets are many.
         return Clicked::Page;
+    };
+    let Some(no_toggle_to_off) = no_toggle_to_off else {
+        return Clicked::Aimed {
+            name: field.name.clone(),
+            annotation: widget.annotation,
+        };
     };
     toggling(
         &field.name,
@@ -582,7 +573,7 @@ impl Pressed {
     pub fn note(&self) -> Option<String> {
         match self {
             Self::Activates { .. } => None,
-            Self::ReadOnly { name } => Clicked::ReadOnly { name: name.clone() }.note(false),
+            Self::ReadOnly { name } => Clicked::ReadOnly { name: name.clone() }.note(),
         }
     }
 }
@@ -712,31 +703,34 @@ mod tests {
     /// The refusals say §14.9.3's name and the clause; a click that went through says nothing.
     #[test]
     fn every_refusal_is_named_and_nothing_else_is() {
-        for placed in [false, true] {
-            assert!(
-                Clicked::ReadOnly { name: named() }
-                    .note(placed)
-                    .is_some_and(
-                        |said| said.contains("Check box, unchecked") && said.contains("Table 227")
-                    )
-            );
-            assert!(Clicked::Stays { name: named() }.note(placed).is_some());
-            assert!(Clicked::Unnamed { name: named() }.note(placed).is_some());
-            assert!(
-                Clicked::Toggles {
-                    name: named(),
-                    value: "Yes".to_owned(),
-                }
-                .note(placed)
-                .is_none()
-            );
-            assert!(Clicked::Pointed { name: named() }.note(placed).is_none());
-            assert!(Clicked::Page.note(placed).is_none());
-        }
-        // The one answer that depends on who is asking: a host drawing the page's own appearance
-        // aims a caret at the value itself, and a host with a real `GtkEntry` over the widget
-        // cannot reach it from a page coordinate (ADR 0623).
-        assert!(Clicked::Aimed { name: named() }.note(false).is_none());
-        assert!(Clicked::Aimed { name: named() }.note(true).is_some());
+        assert!(
+            Clicked::ReadOnly { name: named() }
+                .note()
+                .is_some_and(
+                    |said| said.contains("Check box, unchecked") && said.contains("Table 227")
+                )
+        );
+        assert!(Clicked::Stays { name: named() }.note().is_some());
+        assert!(Clicked::Unnamed { name: named() }.note().is_some());
+        assert!(
+            Clicked::Toggles {
+                name: named(),
+                value: "Yes".to_owned(),
+            }
+            .note()
+            .is_none()
+        );
+        assert!(Clicked::Pointed { name: named() }.note().is_none());
+        assert!(Clicked::Page.note().is_none());
+        // A text field or a choice is carried out in every host — a caret or a list where the
+        // host draws the page, the keyboard given to the control where it placed one (ADR 1566).
+        assert!(
+            Clicked::Aimed {
+                name: named(),
+                annotation: pdf_syntax::ObjectId::new(7, 0),
+            }
+            .note()
+            .is_none()
+        );
     }
 }

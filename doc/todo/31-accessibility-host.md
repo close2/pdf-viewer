@@ -1,27 +1,9 @@
 # The AccessKit bridge: what is left of it
 
-Status: **built and verified on a real bus** in the three-hundred-and-seventy-sixth session
-(ADR 0214); a `TH`'s axis closed on one in the four-hundred-and-sixty-fifth (ADR 0300),
-Table 379's `/BBox` in the four-hundred-and-sixty-sixth (ADR 0301), a cell's `/Headers` in
-the four-hundred-and-seventy-seventh (ADR 0312), **the empty answer every page but the first
-few of a large tagged document got** in the four-hundred-and-ninetieth (ADR 0325), and
-**§14.7.5.3's object reference — a place and a control** in the five-hundred-and-third (ADR 0338),
-and **page one of ten tagged documents, answered against a page-tree node instead of the page**,
-in the five-hundred-and-seventh (ADR 0342) — found by the census that round built, which is what
-`tools/state.sh accessibility` now prints; and **a caret, with a third taken off what a page turn
-was paying for**, in the five-hundred-and-fifty-ninth (ADR 0394), and **the actions a client may
-request**, in the five-hundred-and-ninetieth (ADR 0425) — which also made the census a ratchet and
-so closed `doc/todo/05`'s third instrument — and **§14.8.3.3's content rectangle, the place an
-element's own marks give it**, in the six-hundred-and-fifty-eighth (ADR 0486), and **the content
-stream that identifier is only unique within**, in the six-hundred-and-sixty-first (ADR 0488),
-and **all three of this project's windows since the seven-hundred-and-thirty-first** (ADR 0623),
-which is what `tools/state.sh windows` had named as the largest debt on that boundary, and
-**§12.7.5.2's click carried out rather than refused, in all three, in the
-seven-hundred-and-thirty-fifth** (ADR 0630), and **Table 384's `/Summary` and `/Short` — the
-table's last two entries, the first witnessed only in the SafeDocs crawl and the second nowhere —
-in the seven-hundred-and-seventy-seventh** (ADR 0715), and **§14.8.5.4.5's other two derivations —
-the container's rectangle and the mixed element's — in the eight-hundred-and-forty-first**
-(ADR 0768), which closes both of the two remainders this file carried about where an element is.
+Status: **built, and read back on a real bus in all three windows** (ADRs 0214, 0623). What a
+screen reader is told is counted by `tools/state.sh accessibility`, a ratchet and a `doc/todo/02`
+§2 line (ADRs 0342, 0425). What is left below is a platform's, a toolkit's, or a population this
+tree holds no witness of.
 Priority: 31 — capability
 Clauses: §12.5.2, §12.7.5, §14.7, §14.7.5.2, §14.7.5.3, §14.7.5.4, §14.8.3.3, §14.8.4,
 §14.8.4.7.2, §14.8.4.8.3, §14.8.5.4.3, §14.8.5.4.5, §14.8.5.7, §14.9
@@ -32,366 +14,142 @@ Code: `crates/viewer-accessibility/` (`role.rs`, `tree.rs`, `bridge.rs`, `readin
 Code (continued): `crates/viewer-core/src/accessibility.rs`'s `places`, which is the one place the
 routes to an element's rectangle are composed and is what all three windows and the census ask.
 Instruments: `tools/state.sh accessibility` — the corpus-scale census of what a screen reader is
-told, a **ratchet** and a `doc/todo/02` §2 line since ADR 0425 (built by ADR 0342) — `pdf-model --example element_bounds_census`,
-`pdf-model --example cell_header_census`, `pdf-model --example mcid_stream_census`,
-`viewer-core --example accessibility_cost`
+told — `pdf-model --example element_bounds_census`, `pdf-model --example cell_header_census`,
+`pdf-model --example mcid_stream_census`, `pdf-model --example table_header_census`,
+`viewer-core --example accessibility_cost`, and `tools/drive-windows.sh`'s AT-SPI steps
 
-The item this file used to hold — "the answer exists and nothing asks" — is closed.
+## What the bridge publishes
+
 `viewer-accessibility` maps §14.8.4's forty-one standard structure types onto `accesskit::Role`,
-builds the tree, and `accesskit_unix` puts it on AT-SPI, where `busctl` reads it back off the bus:
-`Frame` → `DocumentFrame` → the page named by §12.4.2's label → the page's own elements, with
-§14.9.3's `/Alt` where the document states one, and a `StatusBar` group carrying what the page
-could not draw. The launch path is unmoved and the runtime is confined to one Linux-only crate.
+and `accesskit_unix` puts the tree on AT-SPI: `Frame` → one `DocumentFrame` per page the arrangement
+shows, named by §12.4.2's label → the page's own elements, found through §14.7.5.4's parent tree in
+§14.8.2.5's order (ADRs 0325, 0342, 0445). §14.9.3's `/Alt` substitutes where the document states
+one, and a `StatusBar` group carries what the page could not draw. A page's elements are matched per
+content stream, because §14.7.5.2 makes an identifier unique "within its content stream", and an
+appearance stream named by `/Stm` or `/StmOwn` is one of those streams (ADRs 0488, 0719).
 
-**And a `TH` says which axis it describes** — Table 384's `/Scope` where the document states one,
-§14.8.5.7's assumption from the cell's place in the grid where it does not, `RowHeader` or
-`ColumnHeader` on the bus. `examples/table_header_census` is what says it was worth doing: of the
-corpus's 5965 header cells, 3114 are a **row**'s and were all being announced as a column's.
+- **A `TH` says which axis it describes**: Table 384's `/Scope`, or §14.8.5.7's assumption from the
+  cell's place in the grid, published as `RowHeader` or `ColumnHeader` (ADR 0300).
+- **A cell says which header cells describe it**: Table 384's `/Headers` expanded by its own
+  recursion, else §14.8.4.8.3's search, published as the cell's AT-SPI description (ADR 0312). The
+  `labelled_by` relation reaches nobody on this platform, which is argued in `tree::headers`.
+- **An element has a place**: measured text quadrilaterals, then §14.8.3.3's content rectangle from
+  the element's own marks (`AccessibilityNode::drawn`), then Table 379's `/BBox`, then
+  §14.8.5.4.5's container rectangle from the elements it encloses; a mixed element takes the union
+  of its text and its other marks (ADRs 0301, 0486, 0768).
+- **An element whose content is an annotation** is placed by §12.5.2's `/Rect`, and a `Form`
+  element's widget is published as the control its §12.7.5 field type is — a check box, a radio
+  button, an entry or a list — with §12.7.5.2's toggling state (ADR 0338). A table's `/Summary` and
+  `/Short` are published too (ADR 0715).
+- **A caret**: `AccessibilityNode::lines` gives each line of an element's text with each character's
+  byte count and place, published as text runs on the page node (ADR 0394).
+- **Actions**: `ScrollIntoView` on an element with a place, `Click` on one whose content is an
+  annotation, `SetTextSelection` on the page node. Each resolves to a place in the viewport's device
+  pixels (`viewer_accessibility::Act`), so a host sends the `Command::Scroll` or `Command::Pointer`
+  it already has (ADR 0425).
+- **A click on a form field is what a person's click is, in every window.** §12.7.5.2's toggling is
+  `viewer_host::form::toggling`, and the widget under a point is found by `viewer_host::form::clicked`
+  (ADR 0630). On a text field or a choice, the two native windows give the keyboard to the control
+  they placed over the widget, and `quorra` puts its own caret or list there (ADR 1566).
+- **The window says whether it has the keyboard.** Each window tells the adapter when the bridge
+  comes up and on every change, so the frame is `ACTIVE` with the keyboard and the tree's focus is
+  `FOCUSED` (ADR 1565).
+- **A form field's value is published in all three windows.** `AccessibilityNode::value` carries
+  §12.7.4.3's text across the confined pipe too. A text field publishes it as a text run below the
+  control, with each character's box from §12.7.4.3's layout (`AccessibilityNode::value_lines`), and
+  a choice field publishes its options as items, the chosen ones selected (ADRs 1489, 1501). In
+  `quorra-gtk` and `quorra-qt` the document's node is placed in the window at the page area's origin.
+  So its characters lie inside the toolkit's own field, and in `quorra-gtk` it is the node that
+  answers `GetCharacterExtents` (ADRs 1516, 1528).
 
-**And an element whose content *is* an annotation has a place and, where it is a widget, a
-control.** §14.7.5.3's object reference is what names it; §12.5.2's `/Rect` says where the
-annotation is and §12.7.5 says which of the four field types the widget belongs to, so
-§14.8.4.7.2's `Form` reaches AT-SPI as a check box, a radio button, an entry or a list rather than
-as a group — with §12.7.5.2's toggling state beside it. `examples/element_bounds_census` is what
-says it was worth doing: 333 of the 1675 corpus elements that mark no text and state no `/BBox` are
-placed by the annotation, and **all 272 `Form` elements name a widget the field tree reaches**.
+`tools/drive-windows.sh` brings up one private AT-SPI bus for the whole drive (ADR 1453). It asks
+each window where the widgets it clicks are, counts the `DocumentFrame` nodes, reads the reopened
+form's values and a field's character boxes, reads whether the window is active, and clicks and
+types into a field through AT-SPI alone.
 
-**And a cell says which header cells describe it** — Table 384's `/Headers` where the producer
-wrote one, expanded by the entry's own recursion, and §14.8.4.8.3's search where it did not, in the
-clause's order: the row's headers, then the column's, most specific first. It reaches a person as
-the cell's AT-SPI **description** — `labelled_by` was the obvious relation and it reaches nobody,
-which is recorded below. `examples/cell_header_census` is what says it was worth doing: 17 431 of
-the corpus's 21 883 table cells end with at least one header and **17 152 of those get it from the
-search rather than from the array**.
-
-## And it is three windows since the seven-hundred-and-thirty-first, not one
-
-**`viewer-gtk` and `viewer-qt` publish this tree too** (ADR 0623), which closes
-`tools/state.sh windows`' largest debt — `Query::AccessibilityTree` and `Query::Readback` reached
-one window of three, so a screen reader on either native host was handed a picture. The decision
-that shaped it is *which* accessibility layer a native host publishes through, and it went to
-AccessKit rather than to `GtkAccessible` or `QAccessible` on the standard's own argument: §14.7.3's
-role map is a `shall` on this reader and §14.8.4's forty-one types are mapped onto a platform
-vocabulary **once**, where a toolkit route inserts a third vocabulary in the middle and does it
-differently in each of the two. `viewer_accessibility::Reading` is the six queries and the assembly
-of them, moved out of `viewer-ui`'s host code before it could become three copies.
-
-**What it costs, measured**: `accesskit_unix` embeds an application root of its own, so a native
-host's process publishes **two** applications on the accessibility desktop — walked with `busctl`,
-both named for the binary, one carrying the toolkit's widgets and one carrying §14.7's tree.
-
-**Three things it leaves, and the first is closed.**
-
-- ~~A click on a §12.7 widget does nothing in a host that delegates it~~ — **built in the
-  seven-hundred-and-thirty-fifth session** (ADR 0630), and checked on a real bus in all three
-  windows. It needed no message, exactly as this entry predicted: `viewer_host::form::toggling` is
-  §12.7.5.2's rule — Table 227 bit 1, Table 229 bit 15, §12.7.5.2.3's on-state name — and
-  `viewer_host::form::clicked` is the walk over `Query::FieldAt` and `Query::Fields` that finds the
-  widget under a point. `Clicked` is matched **exhaustively** in all three hosts and in both of the
-  two doors into the rule, which is one function where there were three copies. Six of
-  `annotation-button-widget.pdf`'s nine clicks give a value and three are refused on Table 227,
-  identically in every window; the two native windows' controls were photographed either side of
-  the walk. It still refutes `tools/state.sh windows`' standing reading of `Query::FieldAt` as a
-  delegation, for the same reason.
-
-  **What is left of it is the other two control kinds**, and it is the same item as `Action::Focus`
-  below: `Clicked::Aimed` is §12.7.5.3's text field and §12.7.5.4's two, where a click asks for a
-  caret at the point it landed or for Table 234's options on the screen — and *that* a synthetic
-  press cannot do to a real `GtkEntry` or `QComboBox`. Refused by name, which is what
-  `Clicked::note`'s one argument is for.
-
-  **Two defects came out of the measurement and neither was the thing being built** (ADR 0630).
-  §14.7.5.3's map was keyed by the annotation and stored the *field's* control under each widget of
-  a radio set, so a screen reader was told every button of a set was selected as soon as one was —
-  §12.7.5.2.4's "individual radio buttons have two states, on and off", disobeyed at the one
-  interface where the picture is no answer. And `viewer-gtk` never wrote a toggle back where
-  `viewer-qt` always did, so a `GtkCheckButton` showed the state it was *built* in for ever: trap 1
-  exactly, because with the write-back removed the bus still reports six of nine toggling and the
-  window's pixels do not move at all.
-- **Only Qt can place a node on the screen.** AT-SPI reports extents in screen coordinates,
-  `QWidget::frameGeometry` is one, and GTK4 exposes a toplevel's position **nowhere** — not on
-  `GtkWindow`, not on `GdkSurface`, not on `GdkToplevel`, and no symbol for one in `gtk4-sys`. So
-  `viewer-gtk` reports where an element is *in its own window* and says so on the `access` topic
-  when the bridge comes up. Nothing in this tree can fix it; a `gdk4-x11` dependency could, at the
-  price of a platform-specific dependency for a coordinate system Wayland does not have.
-- **Neither native host can be woken from the adapter's thread, so both poll.**
-  `Bridge::wait_millis` is the interval for both of them — slow until a client attaches and fast
-  after, which is the hole a fast-only poll would have hidden, because a client's *first* act is
-  itself an AT-SPI call. `viewer-ui` needs none of it: winit's `EventLoopProxy` is `Send`. What
-  would close it is a safe UNIX-descriptor source; neither `glib` nor `gio` offers one in the
-  versions this tree binds, and a `QSocketNotifier` is a Qt object.
-- **Window *focus* is told to no adapter, in any of the three.**
-  `accesskit_unix::Adapter::update_window_focus_state` exists and nothing calls it, so AT-SPI is
-  never told which of the desktop's windows is active. All three hosts can learn it —
-  `notify::is-active`, `QWidget::changeEvent`, winit's `WindowEvent::Focused` — and it is one
-  method on `Bridge` and one line in each. Left because it is a fourth thing and this round had
-  three; it is the cheapest item on this file.
-
-**And the walk is one command for all three windows**: `tools/drive-windows.sh` brings up one private
-AT-SPI bus for the whole drive, asks each window where the widgets it clicks are
-(`Component.GetExtents`), walks it with `gi`'s Atspi and counts the `DocumentFrame` nodes each window
-publishes for the same document, and stops by pid what the bus started (ADR 1453). `quorra-qt`'s
-form controls carry §14.9.3's name as their accessible name, as `quorra-gtk`'s do.
-The reopened form is read off the same bus: each toolkit's text fields, check box and combo box
-answer with the values the saved file holds (ADR 1478), and so do `quorra`'s own form nodes:
-`viewer_core::AccessibilityNode::value` carries §12.7.4.3's text across the confined pipe, a text
-field publishes it as a text run below the control (AT-SPI's `Text`), and a choice field its options
-as items, the chosen ones selected (AT-SPI's `Selection`) (ADR 1489). The run carries each
-character's place: `AccessibilityNode::value_lines` holds the boxes §12.7.4.3's layout gave the
-glyphs it wrote, one line of the field at a time in display order, so `GetCharacterExtents` and
-`GetOffsetAtPoint` answer on a field as on a paragraph (ADR 1501, `29-field-extents` in the drive).
-In `quorra-gtk` that node is the one that answers: GTK 4's own `GtkEntry` refuses the call in every
-coordinate space and its `GtkText` would answer with an empty box, so the document's node is placed
-in the window — the page area's origin as the document node's transform, the space GTK's own widgets
-answer in — and its character lies inside GTK's entry (ADR 1516). `quorra-qt` places it the same
-way, with the page area's place in the window's contents sent from C++ (`page_placed`); the drive
-reads Qt's document node beside its `QLineEdit` and holds it inside the field (ADR 1528).
+**Three windows publish one tree** (ADR 0623). `viewer_accessibility::Reading` is the six queries
+and their assembly. The native windows publish through AccessKit rather than `GtkAccessible` or
+`QAccessible`, on the standard's argument: §14.7.3's role map is a `shall` on this reader, and
+mapping §14.8.4's types onto a platform vocabulary once is what makes the three say the same thing.
+The cost is that `accesskit_unix` embeds an application root of its own. A native window's process
+therefore publishes **two** applications on the accessibility desktop, both named for the binary:
+one holds the toolkit's widgets and one holds §14.7's tree.
 
 ## What is left
 
-- ~~The answer for any page but the first of a large tagged document is empty~~ — **closed in the
-  four-hundred-and-ninetieth session** (ADR 0325), and checked on a real bus. The page's elements
-  are found through
-  §14.7.5.4's parent tree — `Tree::elements_on_page` for the three keyings the clause
-  distinguishes, `Tree::ancestry` for Table 355's `/P` above them — and the walk descends from the
-  root only into the subtree the page occupies, which keeps §14.8.2.5's order. Two things it
-  leaves, both stated in the ADR and neither a corpus witness: a page of a *large* document that
-  states no `/StructParents` still falls back to the whole-tree walk and so still answers empty,
-  and a `/StructParents` array shorter than the page's sequences loses what it does not name.
+Ranked by what a reader meets; none of it is a clause this tree has not read.
 
-  **Both had no number beside them until the five-hundred-and-seventh session, and the first now
-  has one** (ADR 0342): `tools/state.sh accessibility` classifies every empty answer, and every
-  page that takes the whole-tree fallback is a document whose *entire* tree is smaller than the
-  walk's bound — so each is the file naming nothing on that page rather than the bound running
-  out, and the residue has **no witness in this population**. The census names one the day a
-  document exhibits it, which is what a count is for. The `/StructParents`-array half is not
-  visible to that census and stays as recorded.
+- **`quorra-gtk` reports a node's place in its own window, not on the screen.** AT-SPI wants screen
+  coordinates, and GTK 4 exposes a toplevel's position nowhere: not on `GtkWindow`, `GdkSurface` or
+  `GdkToplevel`, and `gtk4-sys` has no symbol for one. The window says so on the `access` topic when
+  the bridge comes up. A `gdk4-x11` dependency could answer it, at the price of a platform-specific
+  dependency for a coordinate system Wayland does not have, which is a `doc/stack.md` question.
+- **The two native windows poll for a client's requests.** `Bridge::wait_millis` is slow until a
+  client attaches and fast after. `viewer-ui` is woken through winit's `EventLoopProxy`, which is
+  `Send`. A safe UNIX-descriptor source would close it, and neither `glib` nor `gio` offers one in
+  the versions this tree binds; a `QSocketNotifier` is a Qt object, which Rust does not call.
+- **The platform has no home for a table's grid or a cell's relations.** `accesskit_atspi_common`
+  implements `Accessible`, `Action`, `Component`, `Hyperlink`, `Selection`, `Text` and `Value`, and
+  not `Table` or `TableCell`. Its relation set holds `ControllerFor` alone. Its
+  `supports_text_ranges` admits a text input, `Label`, `Document` and `Terminal`, none of which
+  §14.8.4's types map to, so the text interface sits on the page node rather than on the paragraph.
+  `pdf_model::structure::TableStack` holds the grid. All four are one upstream question.
+- **A `Click` lands on the node's middle rather than on a hit test.** An element whose place is the
+  union of two far-apart quadrilaterals could be clicked between them; no corpus document has been
+  checked for one.
+- **An element with text of its own and structure elements below it publishes its lines before its
+  children**, because the flat answer does not record where its own content items sat among them.
+  Unmeasured.
+- **An answer cut at [`MAX_NODES`] does not say it was cut.** No page of any tagged document this
+  project holds reaches the bound, and the census counts it. A flag on the answer and a wire field
+  beside it would carry it, as `pdf_model::structure::Reading::truncated` already does one crate
+  down.
+- **A `/StructParents` array shorter than the page's sequences loses what it does not name.** The
+  census cannot see this case, and no witness is known.
+- **One recovery is an inference and nothing says so.** Where a page's own stream holds no
+  identifier and exactly one form does, that form is answered (a bare integer means the page's own
+  stream by §14.7.5.2). A caller cannot tell that attribution from a stated one: there is no channel
+  for a readback shortfall, and a report would cost the oracle a judged page (ADR 0152, trap 11).
+- **§12.7.5.5's signature field has no role in either vocabulary.** It keeps a group, with the loss
+  named in its description. §14.8.5.6's `PrintField` (`Tree::print_field`) is read by nobody, and no
+  corpus element states one.
+- **macOS and Windows have no bridge**, and `Bridge::shortfall` says so in the program's first
+  lines in all three windows. AccessKit has adapters for both, and nothing in this environment can
+  test one. `doc/todo/35` is the same shape one interface over.
 
-- **An answer cut at [`MAX_NODES`] says nothing about having been cut**, which is trap 5 inside a
-  bound rather than inside a feature: `Answer::Accessibility` is a `Vec` and a host cannot tell a
-  page of 8192 elements from a page truncated to them. **No page's answer reaches the bound**, over
-  every page of every tagged document this project holds — counted by the census since ADR 0342,
-  and the count is what will say when it stops being true. What it would cost is a flag on the
-  answer and a wire field beside it, the shape `pdf_model::structure::Reading::truncated` already
-  has one crate down.
+## Decided rather than owed
 
-- **The cell's coordinates cannot cross on this platform, and that is the platform's.**
-  `accesskit_atspi_common` implements `Accessible`, `Action`, `Component`, `Hyperlink`, `Selection`,
-  `Text` and `Value`, and **not** `org.a11y.atspi.Table` or `TableCell`. So a row index, a column
-  index and a `/RowSpan` set on a node would reach AccessKit and stop there. The grid that would
-  fill them exists (`pdf_model::structure::TableStack`); what is missing is somewhere for it to
-  arrive. Worth an upstream question rather than code here.
-
-  **And the same is true of `labelled_by`, which this file said the adapter exposes.** It does not:
-  `accesskit_atspi_common::Node::relation_set` builds exactly one relation, `ControllerFor`, out of
-  `Node::controls`, and no other. Worse than inert — `accesskit_consumer::Node::label` *falls back*
-  to the labelled-by nodes' text where a node has no label of its own, so an empty table cell would
-  be announced as its own headers. That is why §14.8.4.8.3's answer goes into the node's
-  description instead, which is a choice about a platform and is argued in `tree::headers`. The
-  upstream question is one question for all **four** since ADR 0394 found the fourth: `Table`,
-  `TableCell`, the relation set, and **which roles may carry a text interface** —
-  `supports_text_ranges` admits `Label`, `Document`, `Terminal` and a text input, and not one of
-  §14.8.4's forty-one types maps to any of them.
-
-- ~~An element that marks no text and states no `/BBox` still has no place~~ — **the third route
-  is taken** (ADR 0486), and the argument this entry asked for came out the other way round from
-  the way it was posed. It said a bound from the marks "is a different kind of answer" and one this
-  program would be inventing; it is not. §14.8.3.3 gives every block- and inline-level element a
-  *content rectangle* and makes it a `shall` — "derived from the shape of the enclosed content" —
-  and §14.8.5.4.5 states the derivation for the two cases that are marks rather than layout, a
-  table cell's and an illustration's, as "the bounding box of all graphics objects" in the content.
-  So the union is the standard's construction under its own name, carried beside Table 379's
-  rectangle rather than in place of it (`AccessibilityNode::drawn` against `::bounds`), and on the
-  bus the order is measured quadrilaterals, then the marks, then what the producer wrote.
-
-  It is accumulated in the *interpreter* rather than in the display list, and the entry's guess
-  about why — "the display list records no `/MCID`" — is right about the fact and wrong about the
-  fix: a range of command indices per sequence would cost nothing and would silently break the
-  moment `split_off_commands` collects a form `XObject`'s commands into a `Command::Group`, which
-  §14.7.5.2 explicitly permits. `Interpreter::draw` is the one moment both are in hand.
-
-  ~~**What is left is the residue and it is the largest of the four routes**~~ — **a quarter of it
-  was a clause nobody had read, and it is taken in the eight-hundred-and-forty-first session**
-  (ADR 0768). The entry said "[n]o clause derives a rectangle from no marks", which is true and is
-  not the question: §14.8.5.4.5's second bullet derives a *container's* rectangle from the elements
-  it contains — "the sum of the heights of all BLSEs it contains" — so an element whose own
-  sequences marked nothing has one whenever what it encloses is placed by any route. A `TD` holding
-  only a widget annotation, a `Div` around a `Figure` that states a `/BBox`. `viewer_core::places`
-  asks it last, after the element's own marks and after the producer's own rectangle, and the
-  accessibility census counts it: **245 elements of its 988 documents**, which is what took its
-  placeless count to 1091.
-
-  **What is left of the residue is an element that encloses nothing placed at all**, and that is an
-  answer rather than a debt: 253 of `element_bounds_census`'s 1082 are the enclosure route's and
-  the rest marked nothing anywhere below them. The count is that example and it is what will say if
-  it stops being true.
-
-  **An `XObject` object reference is refused rather than pending**: its place is the matrix in
-  force at the `Do` that painted it, and Table 358's NOTE 2 says one reference suffices however
-  many times the object is drawn — so the reference is not naming a position.
-
-- ~~A sequence inside a form `XObject` shares one numbering with the page's~~ — **measured and
-  closed in the six-hundred-and-sixty-first session** (ADR 0488), and the clause answered it
-  cleanly rather than leaving it ambiguous: §14.7.5.2 makes the identifier unique "within its
-  content stream", Table 357's `/Stm` names which stream and its *absence* is a `shall` that the
-  sequence is the page's, and §14.7.5.4 gives each content stream its own parent tree entry — so
-  the route back was per stream all along and this tree was flattening it.
-  `content::ContentStream` is the other half of the key, `content::named_sequences` the one place
-  the match is made, and `Tree::logical_text`, `Tree::logical_range` and both of
-  `viewer_core::accessibility`'s readers go through it.
-
-  **The population is `pdf-model --example mcid_stream_census`**, and it is what this entry asked
-  for: over the crawl's 65 944 documents — 65 703 opened, 23 447 tagged — **701 have a page marked
-  by two or more content streams and 42 have a page where two of them share an identifier**, 545
-  state a `/Stm` at all, and 635 have a form with its own `/StructParents`. Over pdf.js and
-  `doc/corpora`, one document of 153 tagged ones. **A negative here would have decayed and the
-  positive still might**: those are figures about one crawl on one day, and the example is what
-  re-derives them.
-
-  One thing it leaves.
-
-  ~~**An appearance stream is `ContentStream::Unnameable`**~~ — **taken in the
-  seven-hundred-and-eighty-second session, and the two were taken together as this entry asked**
-  (ADR 0719). `Appearance::source` carries the `/AP` reference through, so a stored appearance
-  is a stream `/Stm` can name and `Unnameable` is left for what no reference can reach — a
-  directly written stream, and a §12.7.4.3 construction. `/StmOwn` is read into
-  `Child::MarkedContent` and matched against the page's annotations the way §14.7.5.3's `/Obj`
-  is, and `Tree::appearance_owners` is the route that puts such an element in the page's
-  population at all, which the fixture found missing on the round's own test. Still true and
-  still measured: no document in either population closes a sequence in an appearance stream,
-  so the witnesses are the fixtures in `marked_content_scope.rs` and `headless.rs`.
-
-  **The one recovery is an inference and nothing says so.** Two of the corpus's 153 tagged
-  documents put every sequence in one form, state no `/StructParents` anywhere and name each
-  content item with a bare integer, which §14.7.5.2 says means the page's own stream; read strictly
-  they say nothing to a screen reader, and 61 elements lost their place when they were. So where
-  the page's own stream holds no such identifier and exactly one other stream does, that one is
-  answered — and a caller cannot tell that attribution from a stated one, for
-  `Interpretation::codes_without_a_character`'s reason (ADR 0152): there is no channel here for a
-  readback shortfall, and a *report* would cost the oracle a judged page (trap 11).
-
-- ~~**Whether a stated `/BBox` should win over the shapes that were drawn**~~ — **measured and
-  closed in the eight-hundred-and-forty-first session** (ADR 0768), and the standard settled it
-  without the precedence having to be argued again. The question was about the mixed element: a
-  `Figure` holding a caption *and* a picture had text quadrilaterals covering the caption alone, so
-  the presence of one glyph decided that nothing else the element enclosed counted. §14.8.5.4.5's
-  fifth bullet is that element — "[f]or an ILSE that contains a mixture of elements, the height of
-  the content rectangle shall be determined by … finding the extreme top and bottom for all
-  elements" — so the answer is the **union** of the two, and the stated rectangle's place in the
-  order never came into it.
-
-  **The price is `element_bounds_census`'s, as this entry predicted**: over the pdf.js corpus,
-  `doc/corpora/` and `doc/`, 3032 of the 119 530 elements that enclose both text and other marks
-  have marks reaching outside their text, **1885 of them by more than a tenth of the area** — and
-  the documents where it is worst are the specifications this project reads all day
-  (`ISO-14289-2-2024` 743, `ISO_32000-2_sponsored_EC3` 557). It moves no count in the accessibility
-  census, correctly: it changes which rectangle an element answers with rather than whether it has
-  one.
-
-- ~~A `Form` element's control role~~ — **closed in the five-hundred-and-third session**
-  (ADR 0338), and checked on a real bus against a document that labels its own answers.
-  `AccessibilityNode::control` carries `pdf_model::form::Control` for the widget behind
-  §14.7.5.3's `/OBJR`, and `viewer_accessibility::role` reads it for `Form` and nothing else, on
-  Table 368's own division of the annotations between `Link`, `Annot` and `Form`. Two things it
-  leaves: **§12.7.5.5's signature field has no role in either vocabulary** and keeps a group with
-  the loss named in its description; and `Tree::print_field`'s §14.8.5.6 `PrintField` — the
-  *printed* form of a field, for a form that was flattened — is still read by nobody, which is a
-  separate entry rather than this one, and 0 corpus elements state it.
-
-- ~~AT-SPI's `Text` interface~~ — **taken in the five-hundred-and-fifty-ninth session**
-  (ADR 0394), and checked on a real bus with `GetText`, `GetStringAtOffset` by word and by line,
-  and `GetCharacterExtents`. `AccessibilityNode::lines` carries the element's own text one line at
-  a time with each character's byte count and place, and `viewer-accessibility` turns each line
-  into a `Role::TextRun` — invisible on the bus, because `common_filter` excludes that role, so
-  what the change adds is an interface on the nodes that were already there rather than nodes.
-  `tools/state.sh accessibility` counts the elements a caret can move through.
-
-  **Three things it leaves, and the first is the platform's.**
-  `accesskit_consumer::supports_text_ranges` admits only a text input or `Label`, `Document`,
-  `Terminal`, so **no role §14.8.4 maps to can carry the interface**: a client asking a paragraph
-  for `org.a11y.atspi.Text` gets nothing, and the interface sits on the *page* node instead. That
-  is the same upstream question as `Table`, `TableCell` and the relation set above, and it should
-  be asked as one. Second: an element with text of its own *and* structure elements below it
-  publishes its lines before its children, because the flat answer does not record where its own
-  content items sat among them — rare, and unmeasured. Third: a run's text is the readback rather
-  than §14.9's speech, deliberately, because a substitution has no glyphs — so a document stating
-  `/ActualText` on a sequence inside a paragraph says one thing to a caret and another to a voice.
-
-- ~~Actions~~ — **taken in the five-hundred-and-ninetieth session** (ADR 0425), and checked on a
-  real bus by asking for each of the three and reading back what changed. `ScrollIntoView` is
-  declared on an element that has a place, `Click` on one whose content *is* §12.5's annotation —
-  which needed `AccessibilityNode::annotation` to cross, because neither a rectangle nor a control
-  says that an element is an annotation — and `SetTextSelection` on the page node that carries the
-  text interface. Each resolves to a **place** in the viewport's own device pixels
-  (`viewer_accessibility::Act`), so the host sends the `Command::Scroll` or `Command::Pointer` it
-  already had and the boundary gained no message. `App::click_page` is one definition of a click
-  for the mouse and for a client, so the two cannot drift apart.
-
-  **Three things it leaves.** A `Click` is refused politely where the point lands on nothing —
-  which is right, but it is the *node's* middle rather than a hit test, so an element whose place
-  is a union of two far-apart quadrilaterals could be clicked between them; no corpus document has
-  been checked for this. `Action::ScrollToPoint` is deliberately not carried out and is printed by
-  name: AT-SPI's `Component.ScrollToPoint` asks for the node to be moved *to a stated point*, which
-  is a different request. And the other five actions AccessKit defines that a client might raise —
-  `Focus`, `SetValue` and the rest — reach `Bridge::requested` with `means: None` and are printed;
-  `SetValue` on a text field is the one worth taking next, and it is `Edit::SetField`.
-
-- ~~The question costs tens of milliseconds on a thousand-page document~~ — **measured and taken
-  down by a third in the five-hundred-and-fifty-ninth session** (ADR 0394), and neither of the two
-  candidates this entry had named was the cost. 70.8% of the query was `Tree::identified_children`,
-  and inside it `Tree::child`, which read one `/K` entry with three deep copies of it; it resolves
-  once now, and a warm page turn on ISO 32000-2's page 700 went from 65.9 M instructions to 43.8 M
-  while gaining the caret. The skip ADR 0325 rejected stays rejected and has a second reason: the
-  narrowest sound variant of it would lose exactly the short-`/StructParents` case the residue
-  above is about.
-
-  **What is left is the instrument rather than the number.** `viewer-core --example
-  accessibility_cost` is the stopwatch, and `valgrind --tool=callgrind` over it is what to use — a
-  stopwatch is the wrong instrument for a small change on a busy machine, which ADR 0312 found the
-  hard way when the same binary read 56 ms and 151 ms for the same work. The actions added in the
-  five-hundred-and-ninetieth cost the *query* nothing: they are a declaration per node and a lookup
-  per request.
-
-  **And since the six-hundred-and-tenth the question is asked of a *screen* rather than of a page**
-  (ADR 0445), so the number to watch is the marginal page. The example takes `column` as a fourth
-  argument, which puts `OneColumn` at half magnification; on ISO 32000-2's page 700 three pages
-  cost 1.44× what one costs and carry 4.35× the nodes, because §14.7.5.4's expensive part is the
-  ancestry between a page and the root and neighbouring pages share it — and because
-  `Viewer::structure` takes each page out of `OnScreen::object` rather than walking the page tree
-  for it. An arrangement putting many more pages on the screen than three is what would make this
-  a question again; `viewer_core::layout::MOST` is the bound on how many that can be.
-
-## And two things that are decided rather than owed
-
-- **An untagged page is not given an invented structure.** 885 of the corpus's 974 state no
-  structure tree, and what crosses is one node saying so. Reading order is what §14.7 exists to
-  state; a guess presented where a person expects the author's answer is worse than the honest
-  sentence. Revisit by argument, not by attrition.
+- **An untagged page is not given an invented structure.** What crosses is one node saying the
+  document states none. Reading order is what §14.7 exists to state, and a guess presented where a
+  person expects the author's answer is worse than the honest sentence. Revisit by argument, not by
+  attrition.
 - **An untagged page's fields are published all the same** (ADR 1369): `PageStructure::widgets`
   carries each widget annotation §12.5.3 lets a person interact with, as the control its field type
   is, named by Table 226's `/TU` or its §12.7.4.2 name, in §12.5.1's tab order, with the click a
-  `Form` element declares. It is interactive content rather than a reading order, so the sentence
-  above still stands for the page's text. **A tagged page's widget that no element's `/OBJR` names
-  is published the same way, after the structure's own nodes** (ADR 1381): Table 368's `Form`
-  `shall` binds the producer, and an omitted field is still §12.5.1's to click. `tools/state.sh
-  accessibility` counts both populations, and a widget published both as an element and in the list
-  is a defect class held at zero.
+  `Form` element declares. **A tagged page's widget that no element's `/OBJR` names is published the
+  same way**, after the structure's own nodes (ADR 1381). The census holds a widget published twice
+  at zero.
 - **An empty page is one of three silences, and each says its own sentence** (ADR 1393):
-  `PageStructure::tagging` answers `viewer_core::Tagging` — the document states no
-  `/StructTreeRoot` (§14.7.2), the page is not read yet, or the document states a structure that
-  reaches none of this page's content, where a catalog claiming §14.8.1's `/Marked true` adds that
-  the producer left the page out. It crosses the confined wire as one byte. The census holds a page
-  answered as the wrong one of the four at zero and counts the unreached pages.
-- **A `Form` element whose content is its widget alone is named** (ADR 1394): Table 355's `/T` on
-  the element, else the field's §14.9.3 name (`/TU`, else §12.7.4.2's); `/Alt` stays a
-  substitution ahead of both. All 272 corpus `Form` elements crossed with an empty name before it,
-  and the census holds that class at zero.
-- **Any element with no text of its own is named by its `/T`** (ADR 1405), which Table 355 states
-  for every structure element, and a titled `Sect` is published as a region — AT-SPI's landmark,
-  which a screen reader can move to by name; a `Div` or a `Part` keeps its role and carries the
-  title as its name. The census counts the elements named this way (20 in the corpus: `Part`,
-  `TOCI`, `TOC`, `Formula`; no titled `Sect` without text, so the region rests on a fixture).
-- **macOS and Windows have no bridge**, and `Bridge::shortfall` says so in the program's first
-  lines rather than exposing nothing quietly — in all three windows since the
-  seven-hundred-and-thirty-first, because the sentence is the crate's rather than a host's. AccessKit has adapters for both; nothing in this
-  environment can test one. `doc/todo/35` is the same shape one interface over.
+  `PageStructure::tagging` answers `viewer_core::Tagging` — no `/StructTreeRoot` (§14.7.2), the page
+  not read yet, or a structure that reaches none of this page's content, where a catalog claiming
+  §14.8.1's `/Marked true` adds that the producer left the page out.
+- **A `Form` element whose content is its widget alone is named** by Table 355's `/T`, else the
+  field's §14.9.3 name; `/Alt` stays a substitution ahead of both (ADR 1394). **Any element with no
+  text of its own is named by its `/T`**, and a titled `Sect` is published as a region, AT-SPI's
+  landmark (ADR 1405).
+- **A text run carries the readback, not §14.9's substitutions**, because a substituted phrase has
+  no glyphs for a caret to move over. A document stating `/ActualText` inside a paragraph therefore
+  says one thing to a caret and another to a voice.
+- **An `XObject` object reference is refused rather than placed**: its place is the matrix in force
+  at the `Do` that painted it, and Table 358's NOTE 2 lets one reference stand for every drawing.
+- **`Action::ScrollToPoint` is not carried out and is printed by name**: AT-SPI's
+  `Component.ScrollToPoint` asks for the node to be moved to a stated point, which is a different
+  request from making it visible.
+- **`Action::SetValue` is not taken for a text field because it cannot arrive.** The adapter has no
+  `EditableText` interface and raises `SetValue` only with a number, from `Value`; a client types
+  after a click instead (ADR 1566). Other actions a client might raise reach `Bridge::requested`
+  with `means: None` and are printed.
+- **The question's cost is measured with callgrind over `viewer-core --example
+  accessibility_cost`**, not a stopwatch (ADR 0312), and per *screen*: neighbouring pages share the
+  ancestry that is §14.7.5.4's expensive part (ADRs 0394, 0445). `viewer_core::layout::MOST` bounds
+  how many pages a screen holds.

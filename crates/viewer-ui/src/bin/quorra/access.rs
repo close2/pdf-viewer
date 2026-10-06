@@ -59,6 +59,13 @@ impl App {
             // The one place a page turn used to pay for this: a bridge that has just come up has
             // never been told where the window is, and this is the frame that knows there is one.
             self.place_window();
+            // Nor whether the window has the keyboard, which winit has been tracking from the
+            // window system's own focus events since the window was made (ADR 1565).
+            let active = self
+                .state
+                .as_ref()
+                .is_some_and(|state| state.window.has_focus());
+            self.window_focused(active);
         }
         let Some((width, height, _)) = self.window() else {
             return;
@@ -132,6 +139,24 @@ impl App {
                 .say(Topic::Access, format_args!("carried out {:?}", one.action));
         }
         self.redraw();
+    }
+
+    /// Tells the bridge whether this window has the keyboard, which is what a screen reader follows
+    /// between applications (ADR 1565).
+    ///
+    /// Called from `WindowEvent::Focused` and once when the bridge comes up; before then there is
+    /// nobody to tell, and the bridge asks winit for the state it missed.
+    pub(crate) fn window_focused(&mut self, active: bool) {
+        if let Some(bridge) = self.accessibility.as_mut() {
+            bridge.focused(active);
+            self.trace.say(
+                Topic::Access,
+                format_args!(
+                    "accessibility: the window is {}",
+                    if active { "active" } else { "inactive" }
+                ),
+            );
+        }
     }
 
     /// Brings a rectangle of the page into the viewport, which is AT-SPI's `Component.ScrollTo`.

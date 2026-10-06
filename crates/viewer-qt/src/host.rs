@@ -479,6 +479,13 @@ pub struct Host {
     /// than handed straight on because a `moveEvent` arrives before the first paint and the
     /// adapter does not exist until after it.
     pub(crate) window_at: Option<crate::access::WindowPlace>,
+    /// Whether this window has the keyboard, as Qt last reported it — kept for `window_at`'s
+    /// reason: the window is activated before the first paint, and the adapter does not exist
+    /// until after it (ADR 1565).
+    pub(crate) window_active: bool,
+    /// The field and widget an assistive technology's click aimed the keyboard at, until C++
+    /// asks for it after the drain (ADR 1566).
+    pub(crate) aimed: Option<(pdf_model::view::FieldName, pdf_syntax::ObjectId)>,
     /// Where the page area's top-left corner sits in the window's contents, in device pixels, as Qt
     /// last reported it — the document node's transform, so a node is placed where the page is
     /// rather than at the contents' corner (ADR 1528).
@@ -650,6 +657,8 @@ impl Host {
             accessibility: None,
             spoken: None,
             window_at: None,
+            window_active: false,
+            aimed: None,
             page_at: (0.0, 0.0),
             access_pending: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             needle: String::new(),
@@ -1665,7 +1674,7 @@ impl Host {
         );
         // `false`: the click did reach the control — it *is* the control's signal — so there is
         // nothing about a page coordinate to report.
-        if let Some(said) = clicked.note(false) {
+        if let Some(said) = clicked.note() {
             self.say(&said);
         }
         match clicked {
@@ -1697,6 +1706,30 @@ impl Host {
             .position(|placed| placed.annotation == object)
             .and_then(|index| i32::try_from(index).ok())
             .unwrap_or(-1)
+    }
+
+    /// Which placed control an assistive technology's click aimed the keyboard at, as its index in
+    /// `placed`, or -1 for none; asked once after each drain, and answered once (ADR 1566).
+    ///
+    /// Resolved against the controls as they stand when C++ asks, after the drain's own updates
+    /// have been applied, so the index is one into the controls C++ now holds. A widget no control
+    /// stands over is said by name rather than dropped (trap 5).
+    pub(crate) fn aimed_control(&mut self) -> i32 {
+        let Some((name, annotation)) = self.aimed.take() else {
+            return -1;
+        };
+        let found = self
+            .placed
+            .iter()
+            .position(|placed| placed.annotation == annotation)
+            .and_then(|index| i32::try_from(index).ok());
+        if found.is_none() {
+            let said = format!("the field {} has no control placed over it", name.shown());
+            self.trace
+                .say(Topic::Access, format_args!("refused: {said}"));
+            eprintln!("note: {said}");
+        }
+        found.unwrap_or(-1)
     }
 
     /// Carries out a key's press on a push-button: its activation, or the refusal said by name.

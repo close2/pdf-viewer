@@ -708,9 +708,19 @@ impl QuorraWindowRenderer {
     /// say "use the one that works", and CI says it.
     #[must_use]
     pub fn instance() -> raster_gpu::wgpu::Instance {
+        Self::instance_timed().0
+    }
+
+    /// [`Self::instance`], and what making it cost step by step — `None` where `WGPU_BACKEND`
+    /// named the set, because no adapter check is made then (ADR 1569).
+    #[must_use]
+    pub fn instance_timed() -> (raster_gpu::wgpu::Instance, Option<raster_gpu::LaunchSteps>) {
         raster_gpu::wgpu::Backends::from_env().map_or_else(
-            raster_gpu::create_launch_instance,
-            raster_gpu::create_instance_with,
+            || {
+                let (instance, steps) = raster_gpu::create_launch_instance_timed();
+                (instance, Some(steps))
+            },
+            |backends| (raster_gpu::create_instance_with(backends), None),
         )
     }
 

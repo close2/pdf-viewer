@@ -159,21 +159,124 @@ pub(super) fn sample_ramp(stops: &[Stop]) -> Vec<u8> {
         table[slot..slot + 2].copy_from_slice(&base.to_le_bytes());
         table[slot + 2..slot + 4].copy_from_slice(&texels.to_le_bytes());
         let last = f32::from(texels.saturating_sub(1).max(1));
-        for j in 0..segment.texels {
-            #[expect(clippy::cast_precision_loss)] // j < 4096
-            let t = lo + (hi - lo) * (j as f32 / last);
-            let color = ramp_color_at(own, t);
-            let at = (segment.base.saturating_add(j) as usize).saturating_mul(4);
-            for (c, component) in [color.r, color.g, color.b, color.a].into_iter().enumerate() {
-                // Components were validated into 0..=1 at upload.
-                #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                {
-                    colours[at + c] = (component * 255.0).round() as u8;
-                }
-            }
-        }
+        let start = segment.base as usize * 4;
+        let run = &mut colours[start..start + segment.texels as usize * 4];
+        sample_segment(own, (lo, hi), last, run);
     }
     out
+}
+
+/// One segment's colour texels: texel `j` is [`ramp_color_at`] of `own` at
+/// `lo + (hi − lo) · j / last`, each component scaled to 255 and rounded half away from zero.
+///
+/// **The same bytes as asking [`ramp_color_at`] at every texel, in about a fifth less time**
+/// (ADR 1567): `t` never falls as `j` rises — the stops were validated ascending at upload, and
+/// a product by a non-negative constant and a sum with a constant are monotone in IEEE
+/// arithmetic — so the stop above `t` is found by a cursor that only moves forward rather than
+/// by a scan from the first stop each texel, and the interval arithmetic is
+/// [`ramp_color_at`]'s statement for statement. The rounding is [`texel_byte`]. `tests.rs`
+/// holds the table to the per-texel statement over every ramp shape it generates.
+// Every slot is inside `run`, which is four bytes a texel; `j` is below 4096.
+#[expect(clippy::arithmetic_side_effects, clippy::cast_precision_loss)]
+fn sample_segment(own: &[Stop], (lo, hi): (f32, f32), last: f32, run: &mut [u8]) {
+    let Some(first) = own.first() else {
+        return;
+    };
+    let mut above = 1_usize;
+    for (j, texel) in run.chunks_exact_mut(4).enumerate() {
+        let t = lo + (hi - lo) * (j as f32 / last);
+        let color = if t <= first.offset {
+            first.color
+        } else {
+            while own.get(above).is_some_and(|stop| t >= stop.offset) {
+                above += 1;
+            }
+            match (own.get(above.saturating_sub(1)), own.get(above)) {
+                (Some(previous), Some(stop)) => {
+                    let span = stop.offset - previous.offset;
+                    let u = (t - previous.offset) / span;
+                    let mix = |a: f32, b: f32| a + (b - a) * u;
+                    Color::new(
+                        mix(previous.color.r, stop.color.r),
+                        mix(previous.color.g, stop.color.g),
+                        mix(previous.color.b, stop.color.b),
+                        mix(previous.color.a, stop.color.a),
+                    )
+                }
+                (Some(previous), None) => previous.color,
+                (None, _) => first.color,
+            }
+        };
+        for (byte, component) in texel.iter_mut().zip([color.r, color.g, color.b, color.a]) {
+            *byte = texel_byte(component);
+        }
+    }
+}
+
+/// A colour component in `0..=1` as a texel byte: `(component · 255).round()`, saturated into
+/// a byte, computed without a call.
+///
+/// `f32::round` is a library call on the baseline x86-64 this crate is built for, which has no
+/// rounding instruction, and a table is four of them per texel: on `bug1721218_reduced.pdf`'s
+/// 132 ramps a frame that was 49 M instructions of its 150 M (ADR 1567). For `x` in
+/// `0 ≤ x < 2²³`, truncation is exact and so is `x − ⌊x⌋` (Sterbenz), so rounding half away from
+/// zero is the whole part plus one where that fraction is at least a half — the same integer
+/// `round` gives. A component below zero, above one or not a number becomes what the saturating
+/// cast of `round`'s answer gives it: 0, 255 and 0.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
+fn texel_byte(component: f32) -> u8 {
+    let scaled = component * 255.0;
+    let whole = scaled as u32;
+    let up = u32::from(scaled - whole as f32 >= 0.5);
+    u8::try_from(whole.saturating_add(up)).unwrap_or(u8::MAX)
+}
+
+/// The fewest ramps a frame realises at once before their tables are made on threads beside
+/// each other rather than on the frame's own: a table is about 30 µs of one thread, a thread's
+/// start tens of microseconds.
+const PARALLEL_FLOOR: usize = 8;
+
+/// [`sample_ramp`] of each of `ramps`, in order, made on up to `threads` threads where there are
+/// at least [`PARALLEL_FLOOR`] of them (ADR 1567).
+///
+/// A table is a pure function of its own stops, so which thread made it changes no byte. The
+/// threads are a scope inside the frame that asked, as the encode's fan-out is (ADR 0023's "take
+/// one rather than make one"): nothing outlives the call, and a host that allowed one thread
+/// starts none. A first sight of `bug1721218_reduced.pdf`'s group realises 132 ramps — 67 for its
+/// chromatic frame and 65 for its black one — and making them was 6 ms of the frame's own thread.
+pub(super) fn sample_ramps(ramps: &[&[Stop]], threads: usize) -> Vec<Vec<u8>> {
+    if threads <= 1 || ramps.len() < PARALLEL_FLOOR {
+        return ramps.iter().map(|stops| sample_ramp(stops)).collect();
+    }
+    let share = ramps.len().div_ceil(threads);
+    std::thread::scope(|scope| {
+        let made: Vec<_> = ramps
+            .chunks(share)
+            .map(|chunk| {
+                scope.spawn(move || {
+                    chunk
+                        .iter()
+                        .map(|stops| sample_ramp(stops))
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        made.into_iter()
+            .zip(ramps.chunks(share))
+            .flat_map(|(thread, chunk)| {
+                // A sampling thread runs arithmetic over a slice it was handed and cannot
+                // fail; were it ever to panic, its tables are made again here, so the frame
+                // still has every one in order.
+                thread
+                    .join()
+                    .unwrap_or_else(|_| chunk.iter().map(|stops| sample_ramp(stops)).collect())
+            })
+            .collect()
+    })
 }
 
 /// The colour texel the shader's `ramp_texel` reads for `t`, stated in Rust over the bytes
@@ -268,6 +371,11 @@ pub(super) fn texel_for(table: &[u8], t: f32) -> usize {
 /// case, if the first bound, Bounds0, is equal to Domain0 then x′ shall be defined to be
 /// Encode0." — `Encode0` being the *first* subfunction's pair and `Encode2(k-1)` the
 /// last's. ADR 0055 has the reasoning and the corpus round behind the comparison.
+///
+/// **The table asks this at no texel**: [`sample_segment`] walks a segment's texels with a
+/// cursor over the same intervals, and `tests.rs` holds the table to this function asked at
+/// every texel (ADR 1567), as [`texel_for`] states the shader's lookup.
+#[cfg(test)]
 fn ramp_color_at(stops: &[Stop], t: f32) -> Color {
     // Upload refused empty ramps; transparent black would still be an honest
     // answer for one, not an approximation of anything.

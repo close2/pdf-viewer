@@ -238,6 +238,16 @@ calibration_ms = 0.62 .. 0.78
 # against 25.2 to 28.3 the same morning; the band is this file's rule over the three, smallest ×
 # 0.85 and largest × 1.20, so that a launch that loaded GL again — about 25 ms — fails here as
 # itself rather than as a slower page.
+#
+# **The device's construction no longer compiles `wgpu`'s two indirect-call validation pipelines**
+# (`raster_gpu`'s `instance_flags`, ADR 1569): `request_device` read 2.54 / 2.96 ms (minimum /
+# median, thirty interleaved children) before and 1.67 / 2.07 after, and the bring-up child's
+# instructions 90.16 → 86.65 M. **The band did not move with it**, because the gate could not show
+# it the morning it was taken. Six runs, A and B interleaved, read 18.7 to 25.8 ms on both arms,
+# with `request_device` at 4 to 8 ms in each. Under `strace` the excess sat in the kernel driver's
+# ioctls, with about 1 GiB of memory free. That is the machine's state, not a launch's. A band
+# derived from those runs would be the machine's, so a quiet machine owes the re-take. The device thread's steps are printed
+# beneath this figure on every run, so a re-take can see which step moved.
 bring_up_ms = 14.5 .. 22.2
 
 # What the device costs in *allocated* memory, in the same process that has done nothing else.

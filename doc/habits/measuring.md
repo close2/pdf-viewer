@@ -747,3 +747,12 @@ count ranks work on one thread; a driver call's cost is on the clock. And before
 blocker is called unsolved, grep the spawner for what it already sets in the child's environment:
 `MALLOC_ARENA_MAX=1` had been set by `confined_transport::Host::start` for every worker, which is
 what let the confined worker build a pool as wide as the machine (ADR 1554).
+
+## 69. A clock that moves on both arms is the machine's, and a section reads another's finding from its record
+
+`request_device` read 4–10 ms on both arms of an A/B whose callgrind difference was 0.9 ms; `free`
+showed 1 GiB free under 43 GiB of page cache and strace put the excess in the kernel's GPU-memory
+ioctls (ADR 1569) — read `free` and strace the ioctls before believing a clock that moved on both
+arms alike. And a state section may not write (ADR 1487), so where one section needs a census's
+result it reads the newest record that carries it and names that record — `main-checkout`'s
+re-seed line reads the `**Stale today:**` sentence of the newest history record (round 1370).

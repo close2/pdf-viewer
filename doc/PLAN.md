@@ -97,8 +97,10 @@ eventually needs it — and contains none, the offscreen path needing none.
 **Foundation.** A git repository, with `rustup` and a `rust-toolchain.toml` pinning an exact
 stable version, nightly beside it for Miri, and `rustfmt.toml`, `clippy.toml`, `deny.toml` and
 `.gitignore` in the root. CI is GitHub Actions in `.github/workflows/ci.yml`: fmt, clippy, the
-tests with `mesa-vulkan-drivers` for a software Vulkan adapter, `cargo-deny`, and an advisory Miri
-job.
+tests with `mesa-vulkan-drivers` for a software Vulkan adapter, `cargo-deny`, every `raster-gpu` example's `--check` under Xvfb (which the merge also runs, as
+`tools/batch.sh gates`' `t2-raster_examples`, ADR 1575), an advisory Miri job, and the platform and snapshot builds.
+`tools/state.sh main-checkout` reads the last run on `main`, its failed jobs, steps and
+annotations from GitHub's public interface with no token (ADR 1563).
 
 **The crate graph.** Acyclic and layered, with the safety attributes of §2 in place: `pdf-render`
 defines the display list, the `Rasterizer` trait and `TargetSpec`, and the three rasterisers depend
@@ -122,7 +124,8 @@ codegen (§5), and `crates/pdf-sandbox/build.rs` bakes the confined worker's pat
   `tools/conformance/tests/fuzz_workspace.rs` fails on either missing (ADR 1439). A campaign runs
   each target without the sanitiser, behind the heavy-walk lock and `tools/bounded.sh`, from a
   scratch corpus first (ADR 1423); `tools/fuzz.sh` asks whether a run fuzzed anything, and
-  `tools/state.sh fuzz` prints what the disk holds of every target.
+  `tools/state.sh fuzz` prints what the disk holds of every target; `fuzz/seeds.sh check` — the
+  `fuzz-stale` section — says whether a corpus on disk is stale against fresh seeds (ADR 1559).
 - the reference-comparison harness (§4), and the self-golden beside it
 - **the launch-path gate**: cold open, time-to-first-page, page-turn latency, memory high-water,
   measured with a cold page cache, plus the cold graphics bring-up principle 2 makes a gate of its
@@ -561,7 +564,7 @@ ADR 1427). `tools/state.sh prose` runs the prose sweeps together — comment his
 overtaken notes, unread claims, doc-comment names, environment variables, document commands and
 the ledger's program names — one count and one listing command each, so "is the prose true" is one command (ADR 1451).
 A batch's clock is read, never written down: `tools/state.sh gates-cost` prints the merge's gate log
-dearest first and `tools/state.sh batches` each batch commit's gates figure, the sum of its round
+dearest first, and names any gate `gates()` runs that the log has no line for (ADR 1575), and `tools/state.sh batches` each batch commit's gates figure, the sum of its round
 durations, how many figures and rounds it read and any figure it could not sum (ADRs 1476, 1487,
 1500). The oracle's held pages are `tools/state.sh oracle-held`: per verdict the count and the
 groups by size, read from the test file's own constants without the walk, and the departure-of-ours

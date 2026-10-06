@@ -37,7 +37,9 @@ annotations both from
 stored appearance streams and
 constructed where the standard states one — including §12.5.6.4's seven icons, whose artwork is
 this processor's own because the clause requires one and draws none, and §12.5.6.15's four and
-§12.5.6.16's two, whose clauses only *recommend* one and whose names name objects — and a markup
+§12.5.6.16's two, whose clauses only *recommend* one and whose names name objects, and a `Movie`
+annotation's §13.4 `/Poster` image fitted into its rectangle, the playing itself withheld (ADR
+1561) — and a markup
 annotation drawn from **the group it belongs to** rather than from itself, which is §12.5.6.2's
 nine shared entries. §12.7.4.3's variable text is constructed in any script: a value in a
 right-to-left, cursive one is joined by the Unicode Character Database's own tables, ordered by UAX
@@ -151,7 +153,10 @@ texels its window can sample, each reduced row premultiplied on the thread that 
 else of its page is decoding beside it (ADR 1481); a converted pixel equal to the one before it is
 copied rather than converted again, and a soft mask is decoded beside its image, held one byte a
 sample and multiplied into it where it lies, a `/Matte`'s frame decoded beside its mask and its
-opacity written by the inversion in the same pass (ADRs 1469, 1481, 1519). Encryption at every revision Table 21 lists and every method Table 25 names, in both
+opacity written by the inversion in the same pass (ADRs 1469, 1481, 1519). An image of one
+component at one, two, four or eight bits with no colour key and no matte is unpacked a byte at a
+time, each byte copying one of 256 runs of pixels built from the per-sample route's own answers
+(ADR 1557). Encryption at every revision Table 21 lists and every method Table 25 names, in both
 directions — including revision 5, whose algorithm is the Adobe extension the table points at
 rather than a clause of the standard (ADR 0820). §12.3.2's destinations, §12.3.3's outline, §12.4.2's page labels, §12.5.6.5's links
 performing every one of Table 201's actions that is neither clause 13's media nor the excluded
@@ -180,8 +185,11 @@ confined worker runs them, the font programs and CMaps, §7.6's security handler
 XMP readers and a server's answer to a form as a host hands it over, a field value's shaping, Annex F's reader and writer, §12.8's ASN.1 and the confined
 transport's decoders, a machine face's embedding, the find bar's match, the file-system face's
 writes — and two targets are differential, a JPEG's band plans against its whole decode and the
-meet's area against an exact integration — each seeded from what the disk's documents hold, and
-what a campaign found is fixed: a token past the content window's ceiling is stepped over by the
+meet's area against an exact integration — each seeded from what the disk's documents hold,
+each recipe by the smallest seed of each shape its target branches on (ADRs 1559, 1571), and a
+corpus on disk is asked whether it is stale against fresh seeds before a campaign starts on it
+(`fuzz/seeds.sh check`, ADR 1559) — and what a campaign found is fixed: a token past the content
+window's ceiling is stepped over by the
 grammar that ends it, a composite glyph's cycle is found in time linear in the glyph graph, a face
 written whole holds every glyph it is asked for, a band is refused wherever the whole decoder reads
 the frame another way, and a page-tree node met beneath itself stands for no pages (ADRs 1423, 1424,
@@ -557,9 +565,13 @@ document opens through the confinement too (ADR 0812). A signature's `/ByteRange
 through 64 KiB windows of the file rather than held whole. **Page one goes to the graphics device**, decided
 by the project owner and written into `CLAUDE.md`'s startup rules. GPU bring-up is therefore *on* the critical path by choice, which
 makes what it costs a number to keep rather than a cost to hide — and it is brought up on the
-platform's primary backends, GL loaded only where they have no hardware adapter (ADR 1532), while
+platform's primary backends, GL loaded only where they have no hardware adapter (ADR 1532), and
+without `wgpu`'s validation of indirect calls, whose two compute pipelines `request_device` would
+otherwise compile for a call raster never makes (ADR 1569), while
 page one is interpreted on the document's thread beside it (`Viewer::anticipate`, ADR 1531), so
-the first resize goes straight to the render. The other three windows do the same in their own
+the first resize goes straight to the render. Nothing on the device's thread waits for warmth:
+the warm-up's state has a lock of its own rather than the pipeline store's compile lock, so a
+window reading its bring-up as it detaches its presenter is answered at once (ADR 1558). The other three windows do the same in their own
 shape (ADR 1539): `quorra-gtk` and `quorra-qt` open and interpret on a thread while the toolkit
 comes up, and `quorra-confined` starts its worker and opens the document in it before the window,
 the worker interpreting page one with no viewport. What page one does not need the open does not read: §12.3.3's outline
@@ -663,7 +675,10 @@ pass.
   document, the interpreter and the rasteriser in process. **One outcome in `viewer-core` had to
   change and nothing else did** — `Rendered::Listed`, ADR 0640, below: rules 2, 3 and 4 already
   forbid that crate a filesystem, a clock and threads it was not
-  handed, which is a description of a confined process. Verified by drawing a page byte-identical
+  handed, which is a description of a confined process. The worker itself rasterises on a pool as
+  wide as the machine, built after the confinement so every thread inherits it, wherever
+  `MALLOC_ARENA_MAX` keeps `glibc` from asking the kernel the processor count the filter kills
+  for — which `confined-transport` sets for every worker (ADR 1554). Verified by drawing a page byte-identical
   to this process's, and by asking the *kernel* rather than the source whether the worker can open
   a file, open a socket or start a program. **Every `Query` crosses**, including the eleven a
   panel is made of and §12.7's whole form — which is the thing that lets a confined host build
@@ -1285,7 +1300,7 @@ page could not draw**, because the person who cannot see the page is the one for
 the title bar is no answer. An untagged page says that it is one rather than being given an
 invented reading order, and its widget annotations cross as controls a client can press, named by
 Table 226's `/TU` and in §12.5.1's tab order (ADR 1369); a tagged page's widget its structure left
-out crosses the same way, after the structure's own nodes (ADR 1381). A tagged document's page its
+out crosses the same way, after the structure's own nodes (ADR 1381). A client's click on a text field or a choice gives the keyboard to that field in all three windows (ADR 1566), and each window tells the bridge whether it has the keyboard, so a client following the active window reaches the page (ADR 1565). A tagged document's page its
 structure reaches nothing on says that instead of the untagged sentence, and names the producer's
 omission where the catalog claims §14.8.1's tagged PDF (ADR 1393); a `Form` element with no text of
 its own is named by its `/T`, else its field's `/TU` or §12.7.4.2 name (ADR 1394), any element with

@@ -476,6 +476,9 @@ impl ApplicationHandler for App {
 
             WindowEvent::RedrawRequested => self.redraw_requested(),
 
+            // Whether a screen reader is told this is the window a person is in (ADR 1565).
+            WindowEvent::Focused(active) => self.window_focused(active),
+
             _ => {}
         }
         // Closing the last document is closing the window, and this is where that happens: the

@@ -639,6 +639,16 @@ cargo run --release -p hayro-compare --bin hayro-speed -- --per-document ...  # 
 # re-seed would add and where. It reads the disk corpus and never writes it; the re-seed is a
 # separate, deliberate command. A target whose fresh seeds exceed its line's memory limit is "not
 # judged", which is a fact about the seeder's population rather than about the corpus. ADR 1559.
+# Each pass runs the target built without the sanitiser, as a campaign is, so `check` runs under
+# `tools/bounded.sh` and compares the figure the campaign will see.
+#
+# **Every recipe over the documents keeps one seed per shape** (ADRs 1559, 1571): the population
+# is some ninety thousand files and 126 GB, and kept whole each recipe wrote tens of thousands of
+# seeds and gigabytes. Each seeder states, per target, the shape its target branches on — a CMap's
+# codespace ranges, a security handler's revision, an sfnt's tables, a file's structure, a DER
+# object's identifiers — reads only the documents whose memory map names what it needs, and keeps
+# the smallest seed of each shape; given `--every` it writes the population whole, which is what a
+# shape is proved against, and ADR 1571 has what each shape keeps and what it costs.
 tools/fuzz.sh lexer                               # or, without the two questions, by hand:
 cd fuzz && cargo +nightly fuzz run lexer         -- -runs=50000   # needs nightly
 cd fuzz && cargo +nightly fuzz run cmap          -- -runs=50000   # §9.7's CMap parser
@@ -658,7 +668,8 @@ cd fuzz && cargo +nightly fuzz run serialize     -- -runs=50000   # §7.5's stru
   # **Seed it from real documents**, for `document`'s reason and more sharply: the target returns
   # at the first `Document::open` failure, so from nothing it never reaches the serializer at all.
   #   find -L doc/corpora doc/pdf.js/test/pdfs -name '*.pdf' -print0 \
-  #     | xargs -0 python3 fuzz/seed_page.py fuzz/corpus/serialize
+  #     | python3 fuzz/seed_page.py serialize fuzz/corpus/serialize -
+  # which keeps the smallest document of each file structure (ADR 1571).
   # **This line is here because its absence was invisible.** The target arrived with the
   # serializer and this file never named it, so `tools/fuzz.sh serialize` refused to run it — and
   # `tools/fuzz.sh --list` printed the refusal in a row and exited 0, which is trap 25's shape
@@ -670,8 +681,8 @@ cd fuzz && cargo +nightly fuzz run page -- -runs=50000 -fork=6 -rss_limit_mb=409
   # the other thirteen binaries and it calls it on a page with no `/Resources` (ADR 0264).
   # **Seed its corpus first**, and from real documents, because libFuzzer will not invent a header,
   # a page tree, a content stream and a resource dictionary that agree with each other:
-  #   find corpus-cache/safedocs doc/corpora doc/pdf.js/test/pdfs -name '*.pdf' -print0 \
-  #     | xargs -0 python3 fuzz/seed_page.py fuzz/corpus/page
+  #   find -L corpus-cache doc/corpora doc/pdf.js/test/pdfs -name '*.pdf' -print0 \
+  #     | python3 fuzz/seed_page.py page fuzz/corpus/page -
   # **And a second seeder since the five-hundred-and-ninety-second**, for what no real document
   #   states: `python3 fuzz/seed_nested_content.py <dir>` builds 26 whole one-page documents whose
   #   drawing goes through one of §7.8.2's four *nested* content streams — a form XObject, a tiling
@@ -698,9 +709,9 @@ cd fuzz && cargo +nightly fuzz run page -- -runs=50000 -fork=6 -rss_limit_mb=409
   # libFuzzer called 15 s is 0.8 s in `target/quorra-retrieve`, which is ASan, the debug assertions
   # and six forks sharing 24 cores.
 cd fuzz && cargo +nightly fuzz run xmp           -- -runs=50000   # §14.3.2's XMP, the tree's
-  # only XML. Seeded by `fuzz/seeds.sh` with every metadata packet the documents decode to, which
-  # `fuzz/seed_streams.py` takes out of them with the CMap, font, fax, security-handler and field
-  # seeds of five other targets
+  # only XML. Seeded by `fuzz/seeds.sh` with one metadata packet per shape the documents decode
+  # to, which `fuzz/seed_streams.py` takes out of them with the CMap, font, fax, security-handler
+  # and field seeds of five other targets, each by its own shape (ADR 1571)
 cd fuzz && cargo +nightly fuzz run sfnt          -- -runs=50000   # §9.6.3's two glyph-table repairs
   # **seed its corpus with real fonts** — every embedded TrueType program the documents hold, by
   # `fuzz/seeds.sh`. Unseeded it never forms a table directory and tests nothing; seeded it
@@ -990,7 +1001,8 @@ cd fuzz && cargo +nightly fuzz run jpx          -- -max_total_time=600 -rss_limi
   # the same bytes with `pdf_model::jpeg2000`'s header reader. `-timeout=30` is the worker's own
   # request deadline, so a slow unit under it is a decode the viewer would have waited for and one
   # over it is one the worker would have been killed for. Seed both with `fuzz/seeds.sh`, which
-  # frames every codestream of the corpus the way each target reads it. libFuzzer stops at its first
+  # frames the codestreams of the documents naming either filter the way each target reads them
+  # and keeps the smallest of each shape `fuzz/seed_codecs.py` states (ADR 1571). libFuzzer stops at its first
   # timeout, and `hayro-jbig2` has inputs past the deadline (ADR 1424's third section), so a run
   # meant to go on past one adds `-fork=1 -ignore_timeouts=1` and reads what it leaves behind.
 cd fuzz && cargo +nightly fuzz run xfdf         -- -max_total_time=600  # ISO 19444-1's XFDF and the
@@ -1003,7 +1015,8 @@ cd fuzz && cargo +nightly fuzz run fetched_import -- -max_total_time=1200 -rss_l
 cd fuzz && cargo +nightly fuzz run linearize    -- -max_total_time=600 -rss_limit_mb=2048 -timeout=60
   # Annex F both ways: `linearize::state` on the input, and `serialize_linearized`'s file opened
   # again and found linearised with `/L` its length and `/N` the plan's pages (ADRs 1293, 1309).
-  # Seeded from whole documents, `serialize`'s recipe, by `fuzz/seeds.sh`.
+  # Seeded by `fuzz/seeds.sh` with the smallest document of each file structure and order of page
+  # count, `serialize`'s recipe with Annex F's plan beside it (ADR 1571).
 cd fuzz && cargo +nightly fuzz run embed        -- -max_total_time=600 -rss_limit_mb=2048 -timeout=20
   # §9.9.1's `/FontFile2` program, §9.9.2's subset and the `CFF ` subsetter's charstring walk, over a
   # face the machine offers (ADRs 1425, 1438, 1449): a re-embedded subset renumbers nothing, the

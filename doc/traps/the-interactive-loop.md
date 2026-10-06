@@ -291,3 +291,13 @@ Bringing `Viewer::anticipate` to them found a defect `quorra` could not show: `a
 `Command::Delegate`, so a delegating host's first resize dropped the page interpreted ahead and
 interpreted it again, 18–25 ms on `bug1815476.pdf` (ADR 1539). A path on the launch route is tested
 under a delegating host and a plain one, and a window's launch is measured in that window.
+
+### 113. A step that takes the keyboard away moves the pointer off the window first
+
+Drive step `32-window-active` gives the keyboard to the root window and expects the window to lose
+AT-SPI's `ACTIVE` state. Under X, keys go to the window under the pointer, and GTK then reports
+itself active, so the step reads `works` for the wrong reason or `wrong` for none: move the pointer
+off the window before the keyboard leaves it (ADR 1565). And a probe arm's ceiling covers only what
+it skips: ADR 1555 skipped every small region's fill and read 4.5 ms; ADR 1567 skipped the regions
+and everything they lead to and read 30 ms — the same lever, two ceilings. Name what the arm skips
+beside its figure.

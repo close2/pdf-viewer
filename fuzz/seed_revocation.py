@@ -31,7 +31,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from seed_der import definite, inflated_streams, paths, signature_values, stated, values
+from seed_der import definite, inflated_streams, paths, shape, signature_values, stated, values
+from seed_shape import Smallest, bucket, mapped, names_any
 
 
 def is_certificate_list(body):
@@ -104,8 +105,27 @@ def stated_material(data):
 # inflated — `seed_der.inflated_streams` documents that trade and what it costs.
 COLLECTIONS = (b"/ByteRange", b"/DSS", b"/CRL", b"/OCSP", b"/VRI")
 
+# What a document must hold for any route to find material in it: one of the names above, or what
+# every structure the raw scan accepts states in the clear — a revocation list's signature
+# algorithm, whose identifier opens with one of these arcs (PKCS #1, ANSI X9.62's ECDSA and DSA,
+# RFC 8410's Edwards curves), or an OCSP response's opening: `responseStatus`, an `ENUMERATED` of
+# length one, followed by `responseBytes [0]` when it is `successful` and alone in a `SEQUENCE` of
+# three octets when it is not. A document holding none is passed over by a search through its map
+# (ADR 1571).
+NEEDLES = (
+    *COLLECTIONS,
+    bytes([0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01]),
+    bytes([0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04]),
+    bytes([0x2A, 0x86, 0x48, 0xCE, 0x38, 0x04]),
+    bytes([0x06, 0x03, 0x2B, 0x65]),
+    b"\x0a\x01\x00\xa0",
+    b"\x30\x03\x0a\x01",
+)
+
 
 def main(argv):
+    every = "--every" in argv
+    argv = [argument for argument in argv if argument != "--every"]
     if len(argv) < 3:
         sys.exit(__doc__)
     directory = argv[1]
@@ -115,19 +135,24 @@ def main(argv):
     # over a corpus holding hundreds of structures.
     route_of = {}
     kind_of = {}
+    # One structure per kind, `seed_der.shape` and order of length (ADR 1571), or with `--every`
+    # each under its own name. A revocation list is a list: how many entries the reader walks is
+    # its length's order, and the proof found lists of one identifier set apart on it.
+    chosen = Smallest(name=lambda material: hashlib.sha1(material).hexdigest())
 
     def keep(material, kind, route):
         if len(material) < 50:
             return
         name = hashlib.sha1(material).hexdigest()
-        with open(os.path.join(directory, name), "wb") as handle:
-            handle.write(material)
         route_of.setdefault(name, route)
         kind_of.setdefault(name, kind)
+        chosen.offer(material if every else (kind, shape(material), bucket(len(material))), material)
 
     for path in paths(argv[2:]):
-        with open(path, "rb") as handle:
-            data = handle.read()
+        with mapped(path) as mapping:
+            if not names_any(mapping, NEEDLES):
+                continue
+            data = bytes(mapping)
         if b"/ByteRange" in data:
             for value in signature_values(data):
                 value = value.rstrip(b"\x00")
@@ -143,10 +168,11 @@ def main(argv):
             for kind, material in stated_material(buffer):
                 keep(material, kind, "stated")
 
+    written = chosen.write(directory)
     routes = list(route_of.values())
     kinds = list(kind_of.values())
     print(
-        f"{len(route_of)} distinct structure(s) written to {directory}: "
+        f"{len(route_of)} distinct structure(s), {chosen.summary()}, {written} new in {directory}: "
         f"{kinds.count('crl')} revocation list(s) and {kinds.count('ocsp')} OCSP response(s); "
         f"{routes.count('archived')} first seen inside a signature's attribute, "
         f"{routes.count('stated')} stated by a document"

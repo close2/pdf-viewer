@@ -78,6 +78,10 @@ impl Host {
                     ),
                 );
             }
+            // Whether the window has the keyboard, which GTK has known since the window was shown
+            // and the bridge was not there to be told (ADR 1565).
+            let active = self.window_active();
+            self.window_focused(active);
         }
         let (width, height) = self.viewport;
         let Some(showing) = Showing::of(&self.viewer, width, height) else {
@@ -91,6 +95,24 @@ impl Host {
         self.spoken = Some((showing, origin));
         self.speak(origin);
         self.pump_accessibility();
+    }
+
+    /// Tells the bridge whether this window has the keyboard, which is what a screen reader follows
+    /// between applications (ADR 1565).
+    ///
+    /// Called from `GtkWindow:is-active` and once when the bridge comes up; before then there is
+    /// nobody to tell, and the bridge asks GTK for the state it missed.
+    pub(crate) fn window_focused(&mut self, active: bool) {
+        if let Some(bridge) = self.accessibility.as_mut() {
+            bridge.focused(active);
+            self.trace.say(
+                Topic::Access,
+                format_args!(
+                    "accessibility: the window is {}",
+                    if active { "active" } else { "inactive" }
+                ),
+            );
+        }
     }
 
     /// Hands §14.7's structure for every page on the screen to AT-SPI.
@@ -256,9 +278,7 @@ impl Host {
     /// [`viewer_host::Clicked`] a compile error in three places rather than a silent no-op in two.
     fn click_page(&mut self, at: (f32, f32)) {
         let clicked = viewer_host::clicked(&self.viewer, at);
-        // `true`: this host places a real control over every widget, so a synthetic press at a
-        // page coordinate is exactly what cannot reach one. Trap 5 — the refusal is by name.
-        if let Some(said) = clicked.note(true) {
+        if let Some(said) = clicked.note() {
             self.trace
                 .say(Topic::Access, format_args!("refused: {said}"));
             eprintln!("note: {said}");
@@ -274,6 +294,7 @@ impl Host {
                     value: viewer_core::Entered::Text(value),
                 }));
             }
+            viewer_host::Clicked::Aimed { name, annotation } => self.aim(&name, annotation),
             // Said above, or the pointer's: §12.6.3's triggers and §12.5.5's appearance are what
             // a click on a push button, a signature or the page itself comes to, and the press
             // and release below carry those in every host.
@@ -281,7 +302,6 @@ impl Host {
             | viewer_host::Clicked::Stays { .. }
             | viewer_host::Clicked::Unnamed { .. }
             | viewer_host::Clicked::Pointed { .. }
-            | viewer_host::Clicked::Aimed { .. }
             | viewer_host::Clicked::Page => {}
         }
     }

@@ -18,6 +18,13 @@
 # corpus: run it behind the lock, `flock /home/AI/heavy-walk.lock fuzz/seeds.sh`. `-L` because a
 # worktree's corpora are symbolic links into the main checkout.
 #
+# **Every recipe over those documents keeps one seed per shape** (ADRs 1559, 1571): the population
+# is some ninety thousand files and 126 GB, and kept whole each recipe wrote tens of thousands of
+# seeds and gigabytes. A seeder searches a document's memory map for the name its target needs
+# before reading it, and keeps the smallest seed of each shape it states beside the reason — the
+# shape being what the target's code branches on. `--every`, given to a seeder, writes the
+# population whole, which is what a shape is proved against.
+#
 # **`check` says whether the corpus on disk is stale**, and writes nothing there. A seeded corpus
 # goes stale with nothing failing — a seeder learns a new route, a target grows a branch — and a
 # campaign started on it spends its clock rediscovering what fresh seeds hand over at once
@@ -69,9 +76,10 @@ seed() {
     local t=$1
     mkdir -p "$root/$t"
     case $t in
-    # Whole documents, `seed_page.py`'s recipe: each of these reads a file, or tokenises one.
+    # `seed_page.py`'s recipe: each of these reads a file, tokenises one or parses its objects,
+    # and each keeps the smallest document (or object) of each shape the script states.
     page | document | serialize | lexer | object | linearize)
-        documents | xargs -0 python3 "$here/seed_page.py" "$root/$t" > /dev/null
+        documents | python3 "$here/seed_page.py" "$t" "$root/$t" - > /dev/null
         # `page` alone has the second seeder, for the four nested content streams no document
         # states past the memo's allowance (`doc/verify.md` under `page`).
         if [ "$t" = page ]; then python3 "$here/seed_nested_content.py" "$root/$t" > /dev/null; fi
@@ -80,11 +88,19 @@ seed() {
     xmp | sfnt | cmap | ccitt | crypt | variable_text)
         documents | python3 "$here/seed_streams.py" "$t" "$root/$t" -
         ;;
-    # §7.4.7 and §7.4.9: every codestream the documents hold, in the framing each target reads.
+    # §7.4.7 and §7.4.9: the codestreams of the documents naming either filter, in the framing
+    # each target reads, written whole into a scratch directory beside the build output and then
+    # the smallest of each shape `seed_codecs.py` states kept.
     jbig2 | jpx)
         (cd "$tree" && cargo build -q --release -p pdf-model --example image_codec_seeds)
-        mkdir -p "$root/jbig2" "$root/jpx"
-        documents | xargs -0 "$(built)/release/examples/image_codec_seeds" "$root/jbig2" "$root/jpx"
+        local every
+        every=$(mktemp -d "$(built)/seeds-codecs.XXXXXX")
+        documents | python3 "$here/seed_shape.py" naming JBIG2Decode JPXDecode \
+            | xargs -0 -r "$(built)/release/examples/image_codec_seeds" "$every/jbig2" "$every/jpx" \
+            > /dev/null
+        python3 "$here/seed_codecs.py" jbig2 "$every/jbig2" "$root/jbig2"
+        python3 "$here/seed_codecs.py" jpx "$every/jpx" "$root/jpx"
+        rm -rf "$every"
         ;;
     # §7.4.8's frames: every `DCTDecode` stream of the documents, and the band modules' own
     # fixtures under four band heights.
@@ -187,7 +203,10 @@ inited() {
     log="$out/libfuzzer.log"
     # Built by `cargo fuzz build` and run by path rather than by `cargo fuzz run`, which creates
     # `fuzz/artifacts/<target>` — a directory in the main checkout — whatever prefix it is given.
-    (cd "$here" && PATH="$HOME/.cargo/bin:$PATH" cargo +nightly fuzz build "$t") > "$log" 2>&1 || true
+    # Without the sanitiser, as a campaign is (`doc/verify.md`): AddressSanitizer's shadow map is
+    # what `tools/bounded.sh`'s `RLIMIT_DATA` refuses, and the figure compared is the one the
+    # campaign that loads the corpus will see (ADR 1571).
+    (cd "$here" && PATH="$HOME/.cargo/bin:$PATH" cargo +nightly fuzz build -O -s none "$t") > "$log" 2>&1 || true
     # shellcheck disable=SC2046 # the limits are separate words by design
     "$(built)/$(rustc -vV | sed -n 's/^host: //p')/release/$t" -runs=0 $(limits "$t") \
         -artifact_prefix="$out/artefacts/" "$out/kept" "$corpus" >> "$log" 2>&1 || true

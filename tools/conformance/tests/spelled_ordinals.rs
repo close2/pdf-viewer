@@ -25,6 +25,14 @@
 //! see it, because the grep is case-sensitive, and a viewer's, an FFI's and a desktop bus's
 //! `Session` are nouns of their own — so the form held is the word followed by a digit, which none
 //! of those nouns is.
+//!
+//! # The third figure, printed and not held
+//!
+//! `doc/todo/`'s files carry the same ordinal in their prose, and ADR 1547's argument reaches them
+//! as it reaches a ledger note: a todo file states what is owed and why as of now, and
+//! `doc/history/` and `doc/adr/` keep the chronology (ADR 1576). Their lines are counted per file
+//! and printed beside the two figures above, with no ceiling yet — the rewrite is going file by
+//! file, and a ceiling held with `==` is written down when the count stops moving every batch.
 
 #![expect(
     clippy::expect_used,
@@ -146,4 +154,39 @@ fn no_source_spells_a_round_by_ordinal() {
 fn a_round_in_digits_is_told_from_the_noun() {
     assert!(names_a_round_in_digits("Session 944 measured it"));
     assert!(!names_a_round_in_digits("the Session bus answers"));
+}
+
+/// Every `doc/todo/*.md` file's count of lines spelling a round by ordinal, printed with the
+/// total and never asserted on: ADR 1576's figure, measured until it is held.
+#[test]
+fn the_todo_files_spelled_ordinals_are_counted() {
+    let directory = repository_root().join("doc").join("todo");
+    let needle = spelled_ordinal();
+    let mut counts: Vec<(usize, String)> = Vec::new();
+    for entry in fs::read_dir(&directory).expect("doc/todo is readable") {
+        let path = entry.expect("a directory entry is readable").path();
+        if path.extension().is_none_or(|extension| extension != "md") {
+            continue;
+        }
+        let text = fs::read_to_string(&path).expect("a todo file is readable");
+        let lines = text.lines().filter(|line| line.contains(&needle)).count();
+        if lines > 0 {
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default()
+                .to_owned();
+            counts.push((lines, name));
+        }
+    }
+    counts.sort_by(|a, b| b.cmp(a));
+    let total: usize = counts.iter().map(|(lines, _)| lines).sum();
+    println!(
+        "{total} line(s) under doc/todo spell a round by ordinal, in {} file(s), not held yet \
+         (ADR 1576):",
+        counts.len()
+    );
+    for (lines, name) in &counts {
+        println!("  {lines:>5}  doc/todo/{name}");
+    }
 }

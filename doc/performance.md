@@ -317,11 +317,11 @@ this round made before it made the measurement (ADR 1260):
   font loading as though every page paid it. On ISO 32000-2's page 101 that is 12.45 ms against
   **1.37**, in the stage the question was about.
 
-**The figures, re-taken on 2026-10-05** on the machine `doc/checks/launch-path.toml` names (Ryzen
+**The figures, re-taken on 2026-10-06** on the machine `doc/checks/launch-path.toml` names (Ryzen
 AI 9 HX 370, the 890M through RADV), into a 1 600 × 1 000 window, minimum of three runs of five
-rounds each on a device of its own, pinned to the performance cores, load average 1.4–2.0, the tree
-of ADR 1513 interleaved run by run with the same tree without it (trap 94) — milliseconds, and the
-share is of one 120 Hz refresh (8.333 ms). `budget` excludes the readback, which this example pays
+rounds each on a device of its own, each round on cores kept busy for 30 ms just before it (ADR
+1577), pinned to the performance cores, load average 1.8–2.2, on an export of the tree with ADRs
+1567 and 1577 — milliseconds, and the share is of one 120 Hz refresh (8.333 ms). `budget` excludes the readback, which this example pays
 and a window does not. `warm` is a few per cent of the refresh on every page and is left out.
 **`crates/render-raster/tests/turn_path.rs` holds every `turn` and `step` row to a band in
 `doc/checks/turn-path.toml`**, by this method (`tests/support/frame_cost.rs` is the one copy of it),
@@ -329,31 +329,42 @@ in `tools/batch.sh gates`; a row that moves moves its band there with its reason
 
 | page | row | budget | interp | scene | encode | transfer | elsewhere | execute | taken |
 |---|---|---|---|---|---|---|---|---|---|
-| ISO 32000-2 p101, text, 3 007 commands | turn | 7.20 (86%) | 1.48 | 0.42 | **4.26** | 0.22 | 0.49 | 0.33 | 2026-10-05, ADR 1513 |
-| | step | 1.67 (20%) | — | — | 0.28 | 0.12 | 1.17 | 0.10 | 2026-10-05, ADR 1513 |
-| `personwithdog.pdf` p1, patch meshes | turn | 8.81 (106%) | 3.45 | 1.72 | 1.28 | 0.47 | 1.69 | 0.19 | 2026-10-06, ADR 1556 |
-| | step | 10.09 (121%) | — | **3.22** | 4.69 | 0.56 | 1.36 | 0.27 | 2026-10-06, ADR 1556 |
-| `issue12841_reduced.pdf` p1, one 5 280 × 3 792 photograph | turn | 32.45 (389%) | **28.77** | 0.02 | 0.01 | 2.46 | 1.11 | 0.09 | 2026-10-05, ADR 1513 |
-| | step | 3.23 (39%) | — | 0.00 | 0.01 | 1.34 | **1.69** | 0.19 | 2026-10-05, ADR 1513 |
-| `22060_A1_01_Plans.pdf` p1, four photographs under soft masks, 72 placements | turn | 51.07 (613%) | **34.51** | 0.17 | 4.62 | 8.32 | 3.08 | 0.35 | 2026-10-05, ADR 1513 |
-| | step | 14.75 (177%) | — | — | 6.45 | **6.79** | 1.11 | 0.40 | 2026-10-05, ADR 1513 |
-| `issue13931.pdf` p1, one photograph under a `/Matte`'d mask | turn | 22.05 (265%) | **17.18** | 0.05 | 0.42 | 3.42 | 0.86 | 0.13 | 2026-10-05, ADR 1519 |
-| | step | 6.39 (77%) | — | — | 0.06 | **5.12** | 1.06 | 0.16 | 2026-10-05, ADR 1519 |
-| `images.pdf` p1 | turn | 34.51 (414%) | **26.38** | 0.04 | 1.19 | 5.17 | 1.03 | 0.70 | 2026-10-05, ADR 1513 |
-| | step | 9.56 (115%) | — | — | 3.26 | **4.61** | 0.62 | 1.07 | 2026-10-05, ADR 1513 |
-| `issue14415.pdf` p1, strokes, 959 commands | turn | 15.80 (190%) | 2.66 | 0.63 | **10.70** | 0.84 | 0.84 | 0.12 | 2026-10-05, ADR 1513 |
-| | step | 8.33 (100%) | — | — | **6.58** | 0.23 | 1.38 | 0.15 | 2026-10-05, ADR 1513 |
-| `issue19802.pdf` p1, 1 032 commands | turn | 6.19 (74%) | 0.62 | 0.20 | **4.36** | 0.23 | 0.43 | 0.34 | 2026-10-05, ADR 1513 |
-| | step | 1.38 (17%) | — | — | 0.08 | 0.15 | 1.01 | 0.14 | 2026-10-05, ADR 1513 |
-| `ContentStreamNoCycleType3insideType3.pdf`, stroked Type 3 in a tiling | turn | 10.50 (126%) | 0.46 | 0.18 | **9.03** | 0.31 | 0.41 | 0.11 | 2026-10-05, ADR 1513 |
-| | step | 11.04 (132%) | — | — | **10.39** | 0.08 | 0.40 | 0.17 | 2026-10-05, ADR 1513 |
-| `bug1743245.pdf` p1, tight bends | turn | 40.24 (483%) | 3.15 | 0.45 | **35.77** | 0.39 | 0.36 | 0.13 | 2026-10-05, ADR 1513 |
-| | step | 38.33 (460%) | — | — | **37.44** | 0.13 | 0.50 | 0.26 | 2026-10-05, ADR 1513 |
-| `bug1721218_reduced.pdf` p1, a four-component group of 3 518 clipped shadings, drawn as two frames | turn | 161.26 (1935%) | 68.87 | **89.52** | 1.36 | 0.36 | 0.60 | 0.55 | 2026-10-06, ADR 1555 |
-| | step | 84.44 (1013%) | — | **81.07** | 1.57 | 0.28 | 0.62 | 0.89 | 2026-10-06, ADR 1555 |
+| ISO 32000-2 p101, text, 3 007 commands | turn | 7.81 (94%) | 1.49 | 0.45 | **4.83** | 0.26 | 0.45 | 0.33 | 2026-10-06, ADR 1577 |
+| | step | 1.70 (20%) | — | — | 0.23 | 0.11 | 1.25 | 0.11 | 2026-10-06, ADR 1577 |
+| `personwithdog.pdf` p1, patch meshes | turn | 9.25 (111%) | 3.68 | 1.75 | 1.36 | 0.50 | 1.75 | 0.21 | 2026-10-06, ADR 1577 |
+| | step | 10.29 (123%) | — | **3.28** | 4.68 | 0.52 | 1.54 | 0.27 | 2026-10-06, ADR 1577 |
+| `issue12841_reduced.pdf` p1, one 5 280 × 3 792 photograph | turn | 31.50 (378%) | **28.13** | 0.02 | 0.01 | 2.01 | 1.16 | 0.17 | 2026-10-06, ADR 1577 |
+| | step | 3.02 (36%) | — | 0.00 | 0.01 | 1.27 | **1.55** | 0.19 | 2026-10-06, ADR 1577 |
+| `22060_A1_01_Plans.pdf` p1, four photographs under soft masks, 72 placements | turn | 51.41 (617%) | **34.99** | 0.20 | 4.75 | 8.02 | 3.08 | 0.37 | 2026-10-06, ADR 1577 |
+| | step | 14.57 (175%) | — | — | 6.41 | **6.61** | 1.15 | 0.39 | 2026-10-06, ADR 1577 |
+| `issue13931.pdf` p1, one photograph under a `/Matte`'d mask | turn | 22.38 (269%) | **17.07** | 0.05 | 0.42 | 3.94 | 0.82 | 0.07 | 2026-10-06, ADR 1577 |
+| | step | 6.25 (75%) | — | — | 0.06 | **4.98** | 1.07 | 0.13 | 2026-10-06, ADR 1577 |
+| `images.pdf` p1 | turn | 34.80 (418%) | **25.74** | 0.04 | 1.12 | 6.13 | 1.05 | 0.72 | 2026-10-06, ADR 1577 |
+| | step | 9.70 (116%) | — | — | 3.33 | **4.64** | 0.66 | 1.06 | 2026-10-06, ADR 1577 |
+| `issue14415.pdf` p1, strokes, 959 commands | turn | 15.95 (191%) | 2.43 | 0.61 | **11.06** | 0.89 | 0.84 | 0.12 | 2026-10-06, ADR 1577 |
+| | step | 7.86 (94%) | — | — | **6.18** | 0.22 | 1.31 | 0.15 | 2026-10-06, ADR 1577 |
+| `issue19802.pdf` p1, 1 032 commands | turn | 6.18 (74%) | 0.64 | 0.20 | **4.30** | 0.22 | 0.45 | 0.37 | 2026-10-06, ADR 1577 |
+| | step | 1.44 (17%) | — | — | 0.08 | 0.16 | 1.06 | 0.14 | 2026-10-06, ADR 1577 |
+| `ContentStreamNoCycleType3insideType3.pdf`, stroked Type 3 in a tiling | turn | 10.47 (126%) | 0.48 | 0.18 | **8.94** | 0.30 | 0.46 | 0.11 | 2026-10-06, ADR 1577 |
+| | step | 11.19 (134%) | — | — | **10.43** | 0.09 | 0.47 | 0.21 | 2026-10-06, ADR 1577 |
+| `bug1743245.pdf` p1, tight bends | turn | 37.95 (455%) | 3.38 | 0.44 | **33.25** | 0.34 | 0.41 | 0.12 | 2026-10-06, ADR 1577 |
+| | step | 34.96 (420%) | — | — | **34.12** | 0.12 | 0.48 | 0.24 | 2026-10-06, ADR 1577 |
+| `bug1721218_reduced.pdf` p1, a four-component group of 3 518 clipped shadings, drawn as two frames | turn | 159.23 (1911%) | 69.69 | **86.62** | 1.39 | 0.38 | 0.62 | 0.52 | 2026-10-06, ADR 1567 |
+| | step | 84.11 (1009%) | — | **81.03** | 1.57 | 0.28 | 0.61 | 0.62 | 2026-10-06, ADR 1577 |
 
-**`bug1721218_reduced.pdf`'s rows were taken on 2026-10-06 after ADR 1555** (three runs, load
-2.0), and `turn_path`'s own children read the tree before it beside it: turn 191–203 → 167–172 and
+**Warm cores move the light rows and not the heavy ones** (ADR 1577): the mesh page's turn reads
+9.25 where cold cores after a second's idle read 11.2 to 11.7 on alternate runs of the gate, and in
+the gate's interleaved runs the text and Type 3 pages read a few per cent quicker and every heavy
+row moved within 5% either way. **And
+`bug1721218_reduced.pdf`'s turn is 2 to 4 ms quicker** (161.26 → 159.23, its `scene` 89.52 →
+86.62): the first sight of its group samples 132 ramps, 67 for the chromatic frame and 65 for the
+black, and they are now made beside each other on the frame's threads by a cursor and a byte
+rounding without a library call (ADR 1567); its step draws on ramps already made and does not move.
+Its 1× frame on `zoom_frame`'s GPU lane is 81.5–83.9 ms against HEAD's 85.2–88.8 interleaved, the
+CPU backend 47.5–48.5 in the same sitting: 1.72×, and its 1.25× step 1.38×.
+
+**`bug1721218_reduced.pdf`'s rows before that were taken on 2026-10-06 after ADR 1555** (three
+runs, load 2.0), and `turn_path`'s own children read the tree before it beside it: turn 191–203 → 167–172 and
 step 118–126 → 87–90, all of it in `scene`, which on this page is raster's walk of 3 518
 residue-clipped shadings and each render's pass — the exact meets made beside the walk (ADR 1541),
 and each pass's shading quads reading one buffer of their numbers at their own offsets rather than

@@ -6102,3 +6102,29 @@ quads are unchanged. Corpus digests: 0 pages moved on three lanes at 1× and 4×
 Pinned minima of 4 × 5, interleaved on exported trees, the CPU backend in the same sitting. **The
 step is 1.41× the CPU backend.** On your table the step row reads 84.44 ms against 117.04, and the
 turn 161.26 against 188.79.
+
+## 68. `bug1721218_reduced.pdf`'s 1× frame samples its ramps beside each other (ADR 1567)
+
+**Where the 1× frame's time was, beside the step's.** The 1× frame is the step plus what a first
+sight of the group pays: the paint textures of 132 ramps, 67 for the chromatic frame and 65 for the
+black, 7 ms of the frame's own thread, of which sampling the tables was 5.4 to 6.4 ms and a third of
+those instructions `roundf`, a library call on the baseline target; and the outlines handed over
+the first time, about 4.5 ms. By the clock the residue regions are the larger lever — answering
+every region as a full tile (a probe arm, wrong bytes) took the frame from 88–92 to 59–60 ms — but
+what of them can be moved off the walk's thread is section 67's made-ahead regions, 1.6 ms, and the
+rest is each dot's own exact fill.
+
+**What changed, byte for byte.** A ramp's table is walked with a cursor over its stops rather than
+a scan per texel, and each component rounded by truncation and its fraction, which is `round`'s
+answer for every value a component can take. A frame's new ramps are sampled beside each other on
+up to its encode threads and made into textures in the order you named them. Corpus digests: 0
+pages moved on three lanes at 1× and 4×.
+
+| `zoom_frame`, GPU lane | before | after | your CPU backend |
+|---|---:|---:|---:|
+| the 1× frame | 85.2 ms | **81.5 ms** | 47.5 ms |
+| the 1.25× step | 78.8 ms | 77.7 ms | 56.2 ms |
+
+Pinned minima of 4 × 5, interleaved on exported trees, the CPU backend in the same sitting. **The
+1× frame is 1.72× the CPU backend**, from 1.79×; the step is 1.38×. On your table the turn row
+reads 159.23 ms, its `scene` 86.62 from 89.52.

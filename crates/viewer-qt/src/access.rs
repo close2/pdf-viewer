@@ -71,6 +71,9 @@ impl Host {
             // Whatever the window last told this side about its own place, which it may have done
             // before there was an adapter to hand it to.
             self.tell_the_adapter_where_the_window_is();
+            // And whether it has the keyboard, for the same reason (ADR 1565).
+            let active = self.window_active;
+            self.window_activated(active);
         }
         let (width, height) = self.viewport;
         let Some(showing) = Showing::of(&self.viewer, width, height) else {
@@ -142,6 +145,25 @@ impl Host {
         if self.accessibility.is_some() {
             self.spoken = None;
             self.attend();
+        }
+    }
+
+    /// Whether this window has the keyboard, as Qt has just reported it, which is what a screen
+    /// reader follows between applications (ADR 1565).
+    ///
+    /// Kept whether or not there is an adapter yet, for [`Self::window_placed`]'s reason, and
+    /// handed over when the bridge comes up.
+    pub(crate) fn window_activated(&mut self, active: bool) {
+        self.window_active = active;
+        if let Some(bridge) = self.accessibility.as_mut() {
+            bridge.focused(active);
+            self.trace.say(
+                Topic::Access,
+                format_args!(
+                    "accessibility: the window is {}",
+                    if active { "active" } else { "inactive" }
+                ),
+            );
         }
     }
 
@@ -252,9 +274,7 @@ impl Host {
     /// [`viewer_host::Clicked`] a compile error in three places rather than a silent no-op in two.
     fn click_page(&mut self, at: (f32, f32)) {
         let clicked = viewer_host::clicked(&self.viewer, at);
-        // `true`: this host places a real control over every widget, so a synthetic press at a
-        // page coordinate is exactly what cannot reach one. Trap 5 — the refusal is by name.
-        if let Some(said) = clicked.note(true) {
+        if let Some(said) = clicked.note() {
             self.trace
                 .say(Topic::Access, format_args!("refused: {said}"));
             eprintln!("note: {said}");
@@ -270,6 +290,16 @@ impl Host {
                     value: viewer_core::Entered::Text(value),
                 }));
             }
+            viewer_host::Clicked::Aimed { name, annotation } => {
+                // §12.7.5.3's text field or §12.7.5.4's choice: the keyboard goes to the control
+                // placed over the widget, which C++ gives it once this pump has returned, because
+                // Rust never calls a Qt object (ADR 1566).
+                self.trace.say(
+                    Topic::Access,
+                    format_args!("the keyboard goes to the field {}", name.shown()),
+                );
+                self.aimed = Some((name, annotation));
+            }
             // Said above, or the pointer's: §12.6.3's triggers and §12.5.5's appearance are what
             // a click on a push button, a signature or the page itself comes to, and the press
             // and release below carry those in every host.
@@ -277,7 +307,6 @@ impl Host {
             | viewer_host::Clicked::Stays { .. }
             | viewer_host::Clicked::Unnamed { .. }
             | viewer_host::Clicked::Pointed { .. }
-            | viewer_host::Clicked::Aimed { .. }
             | viewer_host::Clicked::Page => {}
         }
     }

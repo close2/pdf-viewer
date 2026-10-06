@@ -1087,8 +1087,19 @@ or set `PDF_SANDBOX_WORKER` (trap 99).
 empty directories it had made; `cargo fuzz build` and the binary run by path write only where told.
 And `fuzz/seeds.sh`'s `documents` are every file under `corpus-cache`, 90 763 files and 126 GB today,
 so a recipe over the whole population writes about 46 000 seeds and 4.5 GB and takes an hour behind
-the lock; `jpeg_bands` keeps one seed per frame shape (1 125 seeds, 17 MB, ADR 1559) and the other
-whole-document recipes do not yet.
+the lock; every recipe keeps the smallest seed of each shape it names (ADRs 1559, 1571); the four
+whole-document targets — `document`, `serialize`, `linearize`, `page` — are still about 1 GB each,
+because the coarser shape that would be megabytes lost 4.6–4.8% of coverage on the sample.
+
+### 112. A sanitiser build dies behind the lock, a pipe over `seeds.sh` never ends, and `mmap` lies about `in`
+
+Three things round 1368 lost hours to. A fuzz binary built with AddressSanitizer reserves its shadow
+memory before the first input and dies under `tools/bounded.sh --data`'s limit with a log that says
+only "failed": build `-s none` for anything run behind the lock. A pipeline that reads
+`fuzz/seeds.sh`'s output (`| grep`, `| tee`) never ends, because a recipe's `cargo build` starts an
+sccache server that inherits the pipe's write end — redirect to a file and read the file. And a
+Python `mmap` answers `b"/DCT" in m` with False for a multi-byte needle it holds; `m.find(b"/DCT")`
+is right.
 
 ## Things worth knowing
 

@@ -39,14 +39,14 @@ Code: `crates/pdf-model/src/restriction.rs`, `crates/viewer-core/src/viewer.rs`,
 **This is not about the sandbox.** Principle 3's confinement runs the other way — it protects the
 reader from the document — and nothing here is negotiable in that direction.
 
-## What the three-hundred-and-seventy-third session built
+## The reading and the one place a host supplies the policy (ADR 0212)
 
 | clause | what it does now | where |
 |---|---|---|
 | §12.8.2.2's `/DocMDP` | states which of Table 257's levels withholds which operation | `restriction::asserted` |
 | §7.6.4.2's Table 22 | **consulted at last**, for bit 6 and bit 9, with `/R` deciding bit 9 | `restriction::withheld` |
 
-**The population that reaches `withheld` grew in the eight-hundred-and-eighty-seventh session**, which is worth a line here because this file is about what a *document* asserts over a reader: `/R` 5 was refused by `pdf-syntax` and its Table 22 flags therefore reached nothing at all. 33 of the 41 `/R` 5 documents among the 90 535 in `doc/pdf.js`, `doc/corpora/` and `corpus-cache/` now open, 19 of them withholding at least one of the two operations this program has — and their flags arrive through §7.6.4.4.9's encrypted `/Perms` block, which outranks the plaintext `/P`, so what is obeyed for them is the copy a producer could not silently edit. ADR 0820.
+**The population that reaches `withheld` includes `/R` 5**, which is worth a line here because this file is about what a *document* asserts over a reader: `pdf-syntax` opens `/R` 5, so its Table 22 flags reach the question too: 33 of the 41 `/R` 5 documents among the 90 535 in `doc/pdf.js`, `doc/corpora/` and `corpus-cache/` now open, 19 of them withholding at least one of the two operations this program has — and their flags arrive through §7.6.4.4.9's encrypted `/Perms` block, which outranks the plaintext `/P`, so what is obeyed for them is the copy a producer could not silently edit. ADR 0820.
 | §12.8.6's `/Perms` | composes the two, because the clause says a permission needs *each* handler | `restriction::asserted` |
 | §12.8.2.3's `/UR3` | unchanged, and deliberately: a grant is not a restriction | `view::withdrawn_usage_rights` |
 
@@ -56,9 +56,7 @@ The reading is in `pdf-model` and decides nothing; the policy is one value a hos
 can become a question. The argument, the corpus measurement and the Table 22 revision finding are
 in ADR 0212.
 
-**All three windows supply the value since the seven-hundred-and-twenty-first session, and this
-paragraph said `viewer-ui` did and stopped there** (ADR 0604). It was true and it was half the
-sentence: `quorra-gtk` and `quorra-qt` sent `Command::Restrict` nowhere and could not be in
+**All three windows supply the value** (ADR 0604). Before that only `viewer-ui` did: `quorra-gtk` and `quorra-qt` sent `Command::Restrict` nowhere and could not be in
 any level but `On` — while both answered every refusal with a sentence naming
 `--ignore-restrictions`, and both argument parsers answered that word with *"is not an option this
 program has"* and exit 1. `CLAUDE.md`'s "**it shall always be possible to turn them off**" therefore
@@ -68,7 +66,7 @@ that names it, in one module so that they cannot drift apart again; three tests 
 each parser and the whole chain, because the defect lived exactly between two links that each had
 one.
 
-## What the eight-hundred-and-seventy-second session built
+## Every bit named and the four levels in one place (ADR 0803)
 
 `pdf_model::restriction::Level` is the four levels; `Level::verdict` is the policy applied, a
 pure function to an exhaustive `Verdict` (`Proceed`, `Warn`, `Ask`, `Refuse`, each carrying
@@ -80,7 +78,7 @@ a file written in, not only against the viewer's edits. `pdf-transform` consumes
 opening the file — and `viewer-core` supplies `Off` and `On` through `RestrictionLevel::level`
 and matches every verdict, the two it cannot produce in one arm that refuses visibly. ADR 0803.
 
-## What the eight-hundred-and-eighty-fifth session built
+## The event and the command that reach a window (ADR 0814)
 
 **The event and the command, which is what the section below called the whole of what was left.**
 `RestrictionLevel` has all four levels; `Viewer::standing` asks `decide` once per edit and matches
@@ -124,10 +122,9 @@ text annotations", because that clause makes the file part of the annotation and
 hands whatever bit 6 controls to bit 6, so `Operation::Annotate`. The consequence is pinned by a
 test: a certification at §12.8.2.2's level 3 admits a file on a page and withholds one in the tree.
 
-## What the nine-hundred-and-sixteenth session built
+## The *ask* level across the confinement (ADR 0874)
 
-**The *ask* level became askable, and this file's own claim that "nothing in the core has to change
-for it" was the thing that was wrong.** Round 913 found it by building the KIO face: RFC 0003 §6
+**The *ask* level is askable through the confinement, and the core had to change for it.** The KIO face showed why: RFC 0003 §6
 puts every byte of parsing in a confined process and the restriction decision is taken *inside* it,
 so the level degraded to a refusal in every face — including the one face with a real question
 channel. ADR 0869 §3 costed two ways out; ADR 0874 implemented the one it recommended.
@@ -157,7 +154,7 @@ And `Refusal::Declined` is a third sentence beside `Restricted` and `Unanswered`
 program is obeying the document", "a reader decided" and "nobody was asked" are three events and
 were two.
 
-## What the one-thousand-one-hundred-and-forty-seventh session built
+## A level per restriction, `off` by default, and the copy operation (ADR 1144)
 
 **A level per restriction, `off` as the default, a way to set one, and the copy operation.** ADR
 1144 has the argument and the census; the shape is:
@@ -182,7 +179,7 @@ in it would have to grow a message to fill it, and the day a window gains the ve
 already the reader's to set. That is what happened to `Print`: the level was settable before there
 was anything to set it about, and when `Command::Print` arrived it was already the reader's.
 
-## What the one-thousand-one-hundred-and-fifty-fifth session built
+## The menu, the prompt and the per-document scope (ADR 1145)
 
 **The menu, the prompt and the scope a viewer-wide policy could not express.** ADR 1145 has the
 argument; the shape is:
@@ -223,7 +220,7 @@ screen still takes the bar — that sentence is the reader asking rather than th
 - **The gestures that send `Edit::Attach` and `Edit::Detach`, and they wait on the mockups the
   owner asked for on 2026-09-03** — HTML, per platform, demonstrating the functionality rather than
   the look. None has been supplied, so no drag-and-drop, no command palette and no file dialog has
-  been built, which is the eight-hundred-and-eighty-fifth session's ruling standing unchanged. What each window gained is the *display* half:
+  been built, which is ADR 0814's ruling standing unchanged. What each window gained is the *display* half:
   the files tab is rebuilt from `Query::Attachments` when `Event::AttachmentsChanged` says the list
   moved. The C ABI has `quorra_attach` and `quorra_detach` already, because an ABI has no gestures.
 - **The payload's descriptor route across the confinement, and the route now exists.**
@@ -292,9 +289,7 @@ screen still takes the bar — that sentence is the reader asking rather than th
   is session 885's ruling unchanged. It binds that feature and not this one: the restriction menu
   and the *ask* prompt are chrome for a policy the reader sets, they name no file and open no file
   dialog, and the interface deferral over them was lifted on 2026-09-16 (ADR 1145).
-- **No level enum shipped with one caller**, which is why two of four were absent rather than
-  stubbed for five hundred sessions and arrived in the eight-hundred-and-eighty-fifth *with* the
-  event and the command. ADR 0178's lesson, and it is discharged rather than retired: the next
+- **No level enum shipped with one caller**, which is why two of four were absent rather than stubbed until they arrived *with* the event and the command (ADR 0814). ADR 0178's lesson, and it is discharged rather than retired: the next
   level-shaped thing here — a per-document override, `Operation` for bit 5 — is under it too.
 - **No weakening of what is written.** §7.5.6's incremental update, `Document`'s immutability and
   the signature-withdrawal rule are correctness, not policy: a save that exceeds a usage-rights

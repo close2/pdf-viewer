@@ -130,6 +130,8 @@ pub fn options() -> raster_gpu::Options {
 #[derive(Debug)]
 pub struct QuorraRasterizer {
     device: raster_gpu::Device,
+    /// What making the device's instance cost; see [`QuorraRasterizer::startup`].
+    launch: Option<raster_gpu::LaunchSteps>,
     medium: Medium,
     caches: cache::ResourceCaches,
     /// The window frame [`QuorraRasterizer::rasterize_frame`] last drew, kept for the next one.
@@ -184,11 +186,10 @@ impl QuorraRasterizer {
         // path every headless caller takes — see `Present::instance`, which explains why a
         // machine may have exactly one usable backend and why `wgpu` panics rather than saying
         // so. `Device::headless` would make its own over every backend there is.
+        let (instance, launch) = QuorraWindowRenderer::instance_timed();
         Ok(Self {
-            device: raster_gpu::Device::headless_with_instance(
-                &QuorraWindowRenderer::instance(),
-                options,
-            )?,
+            device: raster_gpu::Device::headless_with_instance(&instance, options)?,
+            launch,
             medium: Medium::PAGE_ONLY,
             caches: cache::ResourceCaches::new(),
             slot: present::FrameSlot::default(),
@@ -226,6 +227,15 @@ impl QuorraRasterizer {
     #[must_use]
     pub fn adapter_description(&self) -> &str {
         self.device.description()
+    }
+
+    /// What bringing this backend's device up cost, one number per step: the instance and its
+    /// adapter check where this host made them (`None` where `WGPU_BACKEND` named the set), then
+    /// the device's own steps. The launch gate prints them as the device thread's timeline
+    /// (ADR 1569).
+    #[must_use]
+    pub fn startup(&self) -> (Option<raster_gpu::LaunchSteps>, raster_gpu::StartupTimings) {
+        (self.launch, self.device.startup())
     }
 
     /// A whole *window's* frame — page, raster stand-in and overlays — drawn offscreen.

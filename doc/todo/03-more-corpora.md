@@ -1,12 +1,12 @@
 # More corpora, and the one that cannot be a submodule
 
-Status: **standing**, and it became standing rather than one-off in the four-hundred-and-twenty-second
-session, which built the three pieces `doc/test-docs.md` asked for. What is left is the *taking*:
+Status: **standing**: the three pieces `doc/test-docs.md` asked for are built (ADR 0258). What is
+left is the *taking*:
 a chunk a round, the way `doc/todo/00` takes a page off the ambiguous ranking.
 
 > **The SafeDocs crawl is finished.** All **65 944** documents of `CC-MAIN-2021-31` are ranked
-> against `pdftoppm`, `mutool` and `gs`, over nine chunks from the six-hundred-and-third session to
-> the six-hundred-and-forty-seventh; §27 took the last 3944 and says what the whole population
+> against `pdftoppm`, `mutool` and `gs`, over nine chunks, sections 16 to 27; §27 took the last 3944 and
+> says what the whole population
 > turns out to be. **No later round need re-derive that**, and a round looking for a chunk should
 > take a *different* corpus rather than more of this one — §1's note about which kind is worth a
 > round is the argument.
@@ -18,11 +18,10 @@ a chunk a round, the way `doc/todo/00` takes a page off the ambiguous ranking.
 > count are right and the *host* is gone.
 Priority: 03 — the standing band, deliberately.
 Corpus: 974 pdf.js documents **plus 275 in four submodules** — of which
-`pdfCabinetOfHorrors` and `govdocs1-error-pdfs` were taken as a chunk in the
-five-hundred-and-fifth, §8 below — and whatever `tools/safedocs` has
-been asked for — **65 944 as of the four-hundred-and-thirty-third**, 145 archives, 93 GB, the
-manifest below. The fourth submodule is three directories of `openpreserve/format-corpus`, taken in
-the four-hundred-and-seventieth (`doc/oracle-and-corpus.md` §2b, §2c; ADR 0305)
+`pdfCabinetOfHorrors` and `govdocs1-error-pdfs` are taken as a chunk, §8 below — and whatever
+`tools/safedocs` has been asked for — **65 944**, 145 archives, 93 GB, the manifest below. The
+fourth submodule is three directories of `openpreserve/format-corpus` (`doc/oracle-and-corpus.md`
+§2b, §2c; ADR 0305)
 Code: `tools/safedocs`, `doc/corpora/*`, `doc/oracle-and-corpus.md` §2
 
 ## What exists now (ADR 0258)
@@ -32,8 +31,8 @@ Code: `tools/safedocs`, `doc/corpora/*`, `doc/oracle-and-corpus.md` §2
 - **`doc/corpora/pdfbox`** — 64 files, Apache-2.0, a **partial sparse** checkout of
   `pdfbox/src/test/resources/input`. The recipe is in `doc/oracle-and-corpus.md` §2 because
   `.gitmodules` cannot hold it.
-- **`doc/corpora/format-corpus`** — 167 files in three directories, partial sparse again, added in
-  the four-hundred-and-seventieth on the owner's rule that a corpus is added unless its licence
+- **`doc/corpora/format-corpus`** — 167 files in three directories, partial sparse again, added on
+  the owner's rule that a corpus is added unless its licence
   clearly forbids it (ADR 0305). `pdf-handbuilt-test-corpus` is the instrument; the other two are
   populations. `doc/third-party-data.md` has each directory's terms and the two that were left.
 - **`tools/safedocs`** — `corpora`, `plan`, `fetch --download`, `list`, `survey [--dir …]`. It
@@ -52,16 +51,10 @@ on purpose, and a *corpus* still earns its place before it takes one.
 ## The data budget, stated by the owner on 2026-08-10
 
 **Up to 50 GB may be downloaded.** The owner checked their plan and said so outright, which
-replaces the "on mobile, short tests only" constraint the four-hundred-and-twenty-second session
-worked under. Disk is not the limit either: 1.1 TB free on this machine.
+replaces the earlier "on mobile, short tests only" constraint. Disk is not the limit either: 1.1 TB free on this machine.
 
-**That makes *how* to spend it the question rather than *whether*.** One fact decides it, and it
-is **not** the one this section carried until the four-hundred-and-twenty-fifth session.
-
-**This file used to say that "[f]iles inside one archive are correlated — they come from one
-neighbourhood of one crawl", and prescribed a stratified sample on the strength of it. That is
-false, and the four-hundred-and-twenty-fifth session's stratified sample is what disproved it**
-(ADR 0261). The corpus is the whole crawl **sorted by SHA-256** and cut into 7933 equal pieces: for
+**That makes *how* to spend it the question rather than *whether*.** One fact decides it: **files
+inside one archive are not correlated** (ADR 0261, measured on a stratified sample). The corpus is the whole crawl **sorted by SHA-256** and cut into 7933 equal pieces: for
 every one of the 1944 members now cached, the file's own number — its rank among all 7 932 878 —
 and its digest read as a fraction of 2²⁵⁶ agree to within **2.6 × 10⁻⁴**, which is the fluctuation
 7 932 878 uniform order statistics have by construction and nothing more. Nothing about a document
@@ -91,14 +84,14 @@ The instrument works and every chunk so far has produced a finding. A round's ch
 **somewhere nobody has been**, and `corpus-cache/safedocs/manifest.tsv` is the record of where
 that is.
 
-**Taken so far: 145 archives and 65 944 documents, 93 GB on disk.** The four-hundred-and-thirty-third
-session surveyed **all of it** and this section's job has changed with it: the fetching rule below is
+**Taken so far: 145 archives and 65 944 documents, 93 GB on disk**, all of it surveyed (ADR 0269),
+and this section's job has changed with it: the fetching rule below is
 spent, because there is no longer anywhere nobody has been in this corpus. What a round takes next is
 either a *different* corpus (SafeDocs' issue-tracker set, 31 GB in six archives) or a *population*
 out of the one on disk.
 
-**The four-hundred-and-sixty-seventh took a different corpus rather than more of this one, and the
-lesson is about which kind is worth a round.** `openpreserve/format-corpus`'s
+**A different corpus rather than more of this one, and the lesson is about which kind is worth a
+round.** `openpreserve/format-corpus`'s
 `pdf-handbuilt-test-corpus` is 89 files that each carry **one** deliberate structural defect and all
 draw the same *Hello PDF-world!*, so a blank render *is* the finding and no reference is needed to
 say so — 0.1 MB of files against 93 GB of crawl. **It produced three defects over three consecutive
@@ -109,23 +102,22 @@ round wants is a defect rather than a rate. `doc/oracle-and-corpus.md` §2b has 
 one-line ink assertion that reads it, and §7 below says why the instrument is now spent.
 
 **`manifest.tsv` holds 65 968 rows and the cache holds 65 944 documents**: archive `0050` was fetched
-twice, once by session 425's stride and once whole, so its 24 members are recorded twice. Every count
+twice, once by the stratified stride and once whole, so its 24 members are recorded twice. Every count
 here is over the distinct files.
 
 The record of how it was taken, for reproducibility:
-`0000` and `3500` in the four-hundred-and-twenty-second and -third, 24 members apiece; then in
-the four-hundred-and-twenty-fifth, **`50 + 100k` for k = 0 … 78** — `0050`, `0150`, … `7850` —
+`0000` and `3500` first, 24 members apiece; then **`50 + 100k` for k = 0 … 78** — `0050`, `0150`, … `7850` —
 24 members from the head of each, 2731.0 MiB of member ranges and 14.1 MiB of central
 directories, 79 fetches, 0 failures, every CRC-32 matched. **That stride is spent.**
 
-**And in the four-hundred-and-thirtieth, `0100 + 2000k` for k = 0 … 3** — `0100`, `2100`, `4100`,
+**Then `0100 + 2000k` for k = 0 … 3** — `0100`, `2100`, `4100`,
 `6100`, **every member of each**, which is 4000 documents for **four** directory reads where the
 stride paid 79 for 1896 (ADR 0266). 5409.6 MiB of member ranges and 728.7 KiB of directories,
 5.04 GiB in 438 s, 4 fetches, 0 failures, every CRC-32 matched. The offsets are ≡ 100 (mod 1000),
 which is disjoint from the stride and off the thousand-boundaries where the corpus changes
 directory. *Which* archives is immaterial and that was the point: an archive is a hash bucket, so
 the rule existed to stop two rounds fetching one archive twice and for no other reason. **The
-four-hundred-and-thirty-third then took the remaining 60 whole archives** — the corpus on disk is
+remaining 60 whole archives were then taken** — the corpus on disk is
 145 of the 7933 — **and the rule is spent with it**: there is nothing left to schedule inside
 `CC-MAIN-2021-31` that a round would want before it wants a different corpus.
 
@@ -136,8 +128,7 @@ What a chunk owes when it is taken:
   population `doc/todo/21` or `23` already names is worth nothing;
 - a **promotion** only where the problem is new and is named in the commit. The budget below.
 
-**The whole population, surveyed in the four-hundred-and-thirty-third, and it is a baseline rather
-than a ratchet** (ADR 0269): *65 944 documents in 1139.3 s: 173 unopenable, 45 locked, 23 encrypted
+**The whole population, surveyed, and it is a baseline rather than a ratchet** (ADR 0269): *65 944 documents in 1139.3 s: 173 unopenable, 45 locked, 23 encrypted
 beyond us, 52 pageless, **1144 incomplete**, 2 slow*, with 51 272 codes reaching no glyph in silence
 over 635 documents. **1148 s of wall clock**, 145 archives, one process each, 0 failures.
 
@@ -145,11 +136,10 @@ over 635 documents. **1148 s of wall clock**, 145 archives, one process each, 0 
 rasterises under `[profile.release]`'s `panic = "abort"`, and the survey runs documents through one
 rayon `par_iter`, so one document's abort takes every other verdict in the process. Five of the 145
 archives produced no report at all on the first pass — two aborted and three sat at the driver's
-600 s timeout — and **both of this round's defects are those five**. Surveying 65 944 documents in
+600 s timeout — and **both defects the whole survey found are those five** (ADR 0269). Surveying 65 944 documents in
 one process would have produced one traceback and no numbers.
 
-**And every process goes through `tools/bounded.sh`, at most four side by side, since the
-eight-hundred-and-sixty-sixth.** Eight shards of one directory, each with a rayon pool of one thread
+**And every process goes through `tools/bounded.sh`, at most four side by side.** Eight shards of one directory, each with a rayon pool of one thread
 per core, is what took the machine into a soft lockup on 2026-09-01 (ADR 0798): a shard's cost is
 not the documents it walks but the documents in flight, one fuzzed page can cost 11 GB on its own,
 and eight pools of 24 threads had 192 in flight. The wrapper divides the walk's 32 GiB and the
@@ -162,12 +152,13 @@ has surveyed nothing, and is re-run with more shards rather than recorded.
 
 | sample | documents | incomplete | rate |
 |---|---|---|---|
-| session 425, 79 archives × 24 | 1896 | 86 | 4.54% |
-| session 430, 4 whole archives | 4000 | 70 | 1.75% |
-| **session 433, all 145** | **65 944** | **1144** | **1.735%** |
+| the stride, 79 archives × 24 (ADR 0261) | 1896 | 86 | 4.54% |
+| 4 whole archives (ADR 0266) | 4000 | 70 | 1.75% |
+| **all 145** (ADR 0269) | **65 944** | **1144** | **1.735%** |
 | the pdf.js gate | 974 | 68 | **6.98%** |
 
-The first number moved because sessions 426 and 427 built §11.4.7's conversion. The second and third
+The first number is higher because §11.4.7's conversion was built between the first sample and the
+second. The second and third
 differ by 0.015 points over a sixteen-fold increase in sample size, so **1.7% is a fact about the web**
 rather than about a sample — and the 974 being four times that is what a corpus assembled from bug
 reports is *for*.
@@ -205,10 +196,9 @@ Four things to take away:
 
 - **The budgets are 0.127% of the web** — `MAX_TILES` 48, `MAX_OPERATIONS` 31, `MAX_FORM_DEPTH` 4,
   `MAX_STATE_DEPTH` 1 — against 0.2% of 4000 and 0.105% of 1896, so the rate is stable at three
-  sizes, and **none of the 84 is one of the two slow documents**. That is session 430's finding
+  sizes, and **none of the 84 is one of the two slow documents**. That is the four-archive sample's finding
   confirmed with ten times the evidence: the bound stops the work *inside* the per-document budget.
-  `doc/todo/49` keeps the constants where they are. **All 83 were opened in the
-  four-hundred-and-thirty-fifth** (ADR 0271) — 84 refusals over 83 documents, because `7680183.pdf`
+  `doc/todo/49` keeps the constants where they are. **All 83 were opened** (ADR 0271) — 84 refusals over 83 documents, because `7680183.pdf`
   reports two — with each bound lifted in a scratch build, one process apiece. None of the four
   moved, and the reason differs for each: `MAX_FORM_DEPTH`'s four documents are **all cycles**,
   `MAX_TILES` is the only bound on a loop an *empty* cell makes invisible to `MAX_OPERATIONS`
@@ -224,11 +214,9 @@ Four things to take away:
   `6081357.pdf` (archive `6081`, 4 390 859 bytes, SHA-256
   `c43ac28fd21d5d13201849d641346b9269582670c5b3ecdc0879228ec1964ab8`) at **68.0 s**, both measured
   again on their own rather than under 24 threads. They report nothing; they simply take that long
-  to draw page one — and this population had never produced a "slow" at all: sessions 425 and 430
-  both printed 0, over 1896 and 4000 documents.
-  ~~**Undiagnosed, and it is the next thing this file owes**: a profile of one of the two says whether
-  it is one construct or the size of the file.~~ **Diagnosed in the four-hundred-and-thirty-fifth,
-  and it is one construct** (ADR 0271). Neither is slow to parse — `Document::open` is 6.8 ms and
+  to draw page one — and neither smaller sample produced a "slow" at all: both printed 0, over 1896 and 4000
+  documents.
+  **It is one construct** (ADR 0271). Neither is slow to parse — `Document::open` is 6.8 ms and
   3.8 ms — and both spend the time in `render-cpu`'s `build_soft_mask`, which drew every mask group
   into a buffer the size of the *target* and then demultiplied and derived a luminosity for all of
   it. `6081357.pdf` states **912 distinct soft masks** on a 4.3-million-pixel page, so it ran that
@@ -275,11 +263,11 @@ Four things to take away:
   states no algorithm for (§7.6.4.2, Table 21) — 0.03% of the web, which is the number that says
   whether it would ever be worth implementing.
 
-**The four-hundred-and-thirtieth's 4000 new documents, for comparison:** *4000 documents in 53.3 s: 6 unopenable, 3 locked, 2 encrypted beyond us, 2 pageless,
+**The four whole archives' 4000 documents, for comparison:** *4000 documents in 53.3 s: 6 unopenable, 3 locked, 2 encrypted beyond us, 2 pageless,
 **70 incomplete**, 0 slow*, with 1161 codes reaching no glyph in silence over 33 documents — **64
-incomplete after that session's own two fixes** (ADR 0266). The rate is what moved: 86 of 1896 was
-4.5% and 70 of 4000 is **1.75%**, because sessions 426 and 427 closed §11.4.7's conversion into the
-page group's blending space and its population fell 67 → 24.
+incomplete after the two fixes it led to** (ADR 0266). The rate is what moved: 86 of 1896 was
+4.5% and 70 of 4000 is **1.75%**, because §11.4.7's conversion into the page group's blending space
+was built between the two and its population fell 67 → 24.
 
 **The residue, ranked by document count** — a document reporting two things is in two rows:
 
@@ -306,9 +294,9 @@ Two rows are worth taking away from this:
   constants under "not negotiable" and this changes none of that; what is owed is reading *one* of
   the eight pages to find out whether the bound cost it a mark.
 
-**The four-hundred-and-twenty-fifth's 1896, for comparison:** *1896 documents in 42.1 s: 4
+**The stride's 1896, for comparison:** *1896 documents in 42.1 s: 4
 unopenable, 1 locked, 0 encrypted beyond us, 3 pageless, 86 incomplete, 0 slow*, with 862 codes
-reaching no glyph in silence over 12 documents; 85 after that session's own fix. Two things it is
+reaching no glyph in silence over 12 documents; 85 after the fix it led to. Two things it is
 worth knowing before reading the next one:
 
 - **Nothing failed to open for a reason that is this tree's.** All seven unusable documents are
@@ -322,7 +310,7 @@ worth knowing before reading the next one:
   else together. 7 more are `doc/todo/21` §3's font-with-no-outline and 4 are §11.4.4's
   non-isolated group. The remaining 8 are singletons and are listed in ADR 0261.
 
-### 2. ~~`openpreserve/format-corpus` is owed a licence reading, not a decision~~ — **read in the four-hundred-and-sixty-seventh and decided in the four-hundred-and-seventieth**
+### 2. ~~`openpreserve/format-corpus` is owed a licence reading, not a decision~~ — **read and decided** (ADR 0305)
 
 **Done.** The reading is `doc/oracle-and-corpus.md` §2c and the decision is the project owner's,
 quoted in ADR 0305: add a corpus unless its licence *clearly* forbids it, because a submodule is a
@@ -351,32 +339,27 @@ Applied here it splits, and the split is the useful half:
   web pages under no grant anybody made (`doc/third-party-data.md`). A names-only entry is the
   archive, the member name and the SHA-256, which is what `manifest.tsv` records.
 - **A crasher is a different thing** — small, always committable, and `CLAUDE.md` requires one.
-  **The first one arrived in the four-hundred-and-twenty-fifth**, and it cost the budget nothing
-  either: §7.10.4's `/Functions` naming its own object overflows the stack, and the **696-byte**
-  witness is *generated* by `crates/pdf-model/tests/hostile_functions.rs` rather than committed —
-  720 until the four-hundred-and-twenty-eighth asked the fixture's own construction how long it is.
-  A crasher a test can write is better than a crasher a test has to store.
+  **The first one** cost the budget nothing either: §7.10.4's `/Functions` naming its own object overflows the stack, and the **696-byte**
+  witness is *generated* by `crates/pdf-model/tests/hostile_functions.rs` rather than committed,
+  its length read from the fixture's own construction. A crasher a test can write is better than a crasher a test has to store.
 
 ### 4. Two instruments the new populations make possible — one built, one not
 
 > **The heading's "one not" is spent, and the bullet below is about one corpus of the four.**
-> The six-hundred-and-ninety-second session put the oracle in front of all four and gated two of
+> The oracle is in front of all four and gates two of
 > them — `pdf20examples` and `pdfbox` — on the rule that a vote is evidence only where there is a
 > clause the references are both reading (ADR 0541, `doc/oracle-and-corpus.md` §2e).
 > `format-corpus` joins `pdf-differences` outside the vote, and for a different reason: every file
 > in its three pinned directories is deliberately damaged, and `CLAUDE.md` says the standard
 > "describes *valid* files and says nothing about the rest". Both exclusions are censused rather
-> than assumed. **What that round found is that "ranked" and "voted" are different things** — §§8,
+> than assumed. **"Ranked" and "voted" are different things** — §§8,
 > 12, 13 and 14 below each say a population was put in front of the three references, and each
 > means the ink ranking, which reaches no verdict and holds no page by name.
 
-- ~~**The oracle over the new corpora.**~~ **Decided in the five-hundred-and-fifty-eighth and the
-  answer is no** — **for `pdf-differences`**, which is the corpus this bullet is about; the other
-  three were decided in the six-hundred-and-ninety-second (ADR 0541), two of them yes. This bullet
-  said `pdf-differences` "exists *because* readers diverge
-  on its files, so it is the population where a reference comparison should be most informative",
-  and asked for a decision about the verdict vocabulary before anybody ran it. **Both halves were
-  wrong, and reading the corpus is what showed it.** Sixteen of its eighteen test cases quote a
+- ~~**The oracle over the new corpora.**~~ **Decided, and the answer is no** — **for
+  `pdf-differences`**, which is the corpus this bullet is about (ADR 0393); the other three are
+  decided by ADR 0541, two of them yes. `pdf-differences` is not the population where a reference
+  comparison is most informative, and the verdict vocabulary needs no new term for it. Sixteen of its eighteen test cases quote a
   normative sentence of ISO 32000-2 and then state which rendering is correct — the repository's
   README says so as a convention, "Correct renderings are always the _last_ image in the MarkDown"
   — so the corpus is about *implementations* differing and not about the standard permitting them
@@ -392,7 +375,7 @@ Applied here it splits, and the split is the useful half:
   held by a **named group quoting the permission**, which is the mechanism `oracle.rs` already has.
   What this corpus is for instead is a reading list today and a per-case gate later, wherever the
   clause supplies the expected value with no reference in it.
-- **`pdfbox`'s own expected text — done in the four-hundred-and-twenty-third** (ADR 0259).
+- **`pdfbox`'s own expected text — done** (ADR 0259).
   `text_extraction.rs::the_text_we_draw_agrees_with_pdfboxs_frozen_extraction`, **40** documents
   (that is how many of the 64 carry a `.pdf.txt`, not 64), whole documents rather than page one,
   both of PDFBox's orders read and the stream-ordered one gating. **0.4 s and no new line in
@@ -404,10 +387,9 @@ Applied here it splits, and the split is the useful half:
   text would not move it. `examples/readback.rs` is what a person reads for that, and pairing the
   two automatically is the next thing this instrument is owed.
 
-### 5. Two things this round diagnosed and did not take
+### 5. Two things the stride diagnosed, both taken
 
-- ~~**A zero-byte stream that names a filter.**~~ **Done in the four-hundred-and-thirtieth**
-  (ADR 0266), and the argument it was waiting for is §7.3.8.2 rather than §7.3.8.1. §7.3.8.1 makes
+- ~~**A zero-byte stream that names a filter.**~~ **Done** (ADR 0266), and the argument it was waiting for is §7.3.8.2 rather than §7.3.8.1. §7.3.8.1 makes
   "zero or more bytes" conforming and Table 5 has `/Filter` name what "shall be applied in
   processing the stream data found between the keywords stream and endstream ", so an empty stream
   decodes to nothing. What decides the objection — that a stream *truncated* to nothing arrives
@@ -418,22 +400,20 @@ Applied here it splits, and the split is the useful half:
   not on the image path, where §7.3.8.2's own "many objects from whose attributes a length can be
   inferred" makes a stated zero a contradiction. Two of 5944 members do it and two more are
   truncations.
-- ~~**No fuzz target reaches `pdf-model`'s interpreter.**~~ **Done in the
-  four-hundred-and-twenty-eighth** (ADR 0264), and both halves of the note above it were wrong.
-  **`cargo-fuzz` was installed all along** — `~/.cargo/bin/cargo-fuzz` 0.13.2, dated 26 July,
-  a fortnight before the round that said otherwise; it is simply not on `PATH`, so `which` reports
-  a false negative and both this note and ADR 0261 were written from one. And **`confined_wire`
+- ~~**No fuzz target reaches `pdf-model`'s interpreter.**~~ **Done** (ADR 0264). **`cargo-fuzz`
+  is installed** — `~/.cargo/bin/cargo-fuzz` — but not on `PATH`, so `which` reports a false
+  negative. And **`confined_wire`
   does not reach `pdf_model::interpret`** either: `nm` finds the symbol in exactly one of the
   thirteen binaries, `variable_text`, whose page has no `/Resources` — so it was one target rather
   than two, and twelve binaries did not contain the interpreter at all. `page` is the fourteenth
   target: a whole document through `interpret`, seeded from the 1944 SafeDocs documents, the 108
   in `doc/corpora` and the pdf.js submodule's 974 by `fuzz/seed_page.py`.
 
-### 6. What the four-hundred-and-thirtieth diagnosed and did not take
+### 6. What the four-archive chunk diagnosed and did not take
 
 - **Eight documents reach a budget.** `MAX_TILES` on `0100935`, `2100091`, `4100668`, `4100929`
   and `MAX_OPERATIONS` on `0100034`, `2100236`, `2100253`, `6100352` — 0.2% of the web, and the
-  same rate session 425 saw at one apiece in 1896. **This is a finding about the budget and not a
+  same rate the stride saw at one apiece in 1896. **This is a finding about the budget and not a
   reason to raise one.** What is owed is one page: interpret it with the bound lifted *in a
   scratch build*, compare the raster, and find out whether the constant costs a mark or stops a
   bomb. Until somebody does that, neither answer is known and the constants stay where
@@ -443,11 +423,10 @@ Applied here it splits, and the split is the useful half:
 - **The array-formed page groups are all four-component `ICCBased`**, which is `doc/todo/23`'s row
   and now has a number: 14 of 4000.
 
-### 7. What the four-hundred-and-sixty-seventh diagnosed, both of which are now taken
+### 7. What `format-corpus`'s first reading diagnosed, both of which are now taken
 
 - ~~**A page tree node with no `/Kids` becomes a leaf, and the blank page it yields is silent.**~~
-  **Taken in the four-hundred-and-seventieth** (ADR 0305), and the population this file said it
-  wanted was measured first: `examples/kidless_node_census` walks the tree with `pdf_syntax` alone
+  **Taken** (ADR 0305), and the population was measured first: `examples/kidless_node_census` walks the tree with `pdf_syntax` alone
   and finds **0 of the 65 703** SafeDocs documents that open with such a node, 1 of the 1025 pdf.js
   and specification documents, and 1 of the 165 in `format-corpus`. Zero on the web is what decided
   the shape: the construct is unreachable by any corpus, so the rule is pinned by five pairs of
@@ -456,8 +435,7 @@ Applied here it splits, and the split is the useful half:
   `Pages` is not one — and where that empties the tree the recovery scan finds the producer's page,
   which is what makes `T02-02_005_page-tree-no-kids.pdf` draw its *Hello PDF-world!*. One document
   of the 974 moved with it and `MAX_PAGELESS` went 5 → 6, argued at the constant.
-- ~~**A `Tf` whose size operand is a lone `.`**~~ — **read and taken in the
-  four-hundred-and-sixty-eighth** (ADR 0303). §7.3.3 writes both numeric forms as "one or more
+- ~~**A `Tf` whose size operand is a lone `.`**~~ — **read and taken** (ADR 0303). §7.3.3 writes both numeric forms as "one or more
   decimal digits", so a run holding none is no number at all; the lexer returns the `Keyword` it
   lexically is, and everything downstream was already written — the parser refuses a keyword where an
   object belongs, and the interpreter reports one it does not recognise. The population was counted
@@ -473,13 +451,13 @@ today and every one of them either reports or is right. A round wanting a findin
 direction should point the same ink assertion at `pdfCabinetOfHorrors` or `govdocs1-error-pdfs`,
 where the files do *not* share a page and the method therefore needs a reference again.
 
-### 8. Both of those were taken in the five-hundred-and-fifth, and the method transfers
+### 8. Both of those are taken, and the method transfers
 
 **Taken: `pdfCabinetOfHorrors` (24) and `govdocs1-error-pdfs` (54), 78 documents**, with page one
 rendered against `pdftoppm`, `mutool` and `gs` at 72 dpi — every one of them told to use the crop
 box, which is trap 3 and not optional — and ranked by **our ink minus the lightest live
 reference's**, which is `doc/todo/00` step 7's number applied to a population that has no
-ambiguous bucket. Both survey lines reproduce the four-hundred-and-sixty-seventh's exactly.
+ambiguous bucket. Both survey lines reproduce section 7's exactly.
 
 **The ranking separated one row from the rest by two orders of magnitude**, which is what makes
 the method worth repeating on a corpus whose files share nothing: `veraPDFHiResChangedHeight.pdf`
@@ -491,8 +469,7 @@ which is the second half of what the number is for: it says where to look **and*
 The defect is ADR 0340's and the reading is §7.4.8's. Two things it leaves for a later round:
 
 - ~~**A corrupt flate content stream, and whether a truncated recovery is ever right.**~~
-  **Settled in the five-hundred-and-eighth, and the question rested on a false premise about this
-  tree** (ADR 0343). It was posed as *should this tree start keeping the prefix?*, and **this tree
+  **Settled, and the question rested on a false premise about this tree** (ADR 0343). It was posed as *should this tree start keeping the prefix?*, and **this tree
   already kept it** — `FilterRefusal::Corrupt`'s own documentation said so and
   `stream_length_bound.rs` had a test asserting it since ADR 0306. So the decision was never
   whether to recover; it was whether a recovery that says nothing is one the principles permit,
@@ -527,7 +504,7 @@ The defect is ADR 0340's and the reading is §7.4.8's. Two things it leaves for 
   `/Contents`. **What is not spent is the instrument**: the ink ranking against three references
   found a whole-page defect in 78 files, and no survey line moved when it was fixed.
 
-### 9. The chunk the five-hundred-and-eighth took: damaged streams, over every corpus on this disk
+### 9. Damaged streams, over every corpus on this disk
 
 **Every figure in this section and the next was measured before ADR 0366**, which found that
 §7.3.8.2's indirect `/Length` was costing every affected stream its last byte and making it read as
@@ -556,7 +533,7 @@ Three things it says, and the second is the finding:
   and it was closed because a corpus document forced it, not on principle — see below.
 - **`govdocs1-error-pdfs` is where the witnesses are readable**, 29 of its 54 documents holding
   one: `507676.pdf` is the sharpest, 67 923 recovered bytes and **33 854 commands** this tree has
-  been drawing from a corrupt content stream in silence, and it is the document session 505's ink
+  been drawing from a corrupt content stream in silence, and it is the document section 8's ink
   ranking put at −1.719 without anyone asking why.
 
 **What is left, and it is a real item rather than a formality.** The other 96% of damaged streams
@@ -578,12 +555,12 @@ is the round's own lesson:
   questions: is a prefix of this a smaller one of the same kind, and are the marks it makes
   additive or substitutive? A round taking this should point the census at
   `govdocs1-error-pdfs` first, where 29 of 54 documents carry one and every file is small enough
-  to open by hand. **All three answered in the five-hundred-and-twenty-first** (§10 and ADR 0356),
-  and the *other* four content streams in the five-hundred-and-twenty-fourth (ADR 0359). What the
+  to open by hand. **All three are answered** (§10 and ADR 0356),
+  and the *other* four content streams too (ADR 0359). What the
   method left standing is the two questions themselves, which are now the ones §10's last paragraph
   asks of the roles nobody has read.
 
-### 10. The chunk the five-hundred-and-twenty-first took: the same population, by consumer
+### 10. The same population, by consumer
 
 **§9's own instruction, followed**: point the census at `govdocs1-error-pdfs` first, where 29 of 54
 documents carry a damaged stream and every file is small enough to open by hand. Taken as the
@@ -591,8 +568,8 @@ first step of a chunk that then ran over `format-corpus`'s 167, the 974 and all 
 documents — one process per archive, 145 archives, 0 failures. `examples/damaged_stream_census`
 gained a **role** per damaged stream, read off the entry the standard makes required of that
 object, and the two *extent* arithmetics §7.3.8.2 and §7.10.2 state. Its three older lines
-reproduce the five-hundred-and-eighth's numbers to the digit, which is what says the instrument
-did not move under this round's changes. A baseline for this population, never a ratchet.
+reproduce section 9's numbers to the digit, which is what says the instrument did not move under the
+role's addition. A baseline for this population, never a ratchet.
 
 **The 2260 damaged streams, by the consumer that reads them** (ADR 0356 has the table with what
 each does today): `/Contents` **841**, an image **529**, a font program **371**, unclassified 296,
@@ -608,7 +585,7 @@ Three answers, one per consumer §9 named, each in ADR 0356:
 
 - **An image** drew its missing samples as **zero** — black rows, and a *marked* page for an
   `/ImageMask`, whose §8.9.6.2 default paints where the sample is 0. `178360.pdf` is the witness
-  and it was already in this file: session 505's ink ranking put it in the positive tail as "ours
+  and it was already in this file: section 8's ink ranking put it in the positive tail as "ours
   40.7, `poppler` 26.2" without anyone asking why, and the why is a 133 × 2944 stencil corrupt 359
   bytes into the 50 048 its grid needs, **99.3% of it marked in the fill colour**. What the stream
   carries is drawn where it belongs, the rest of the grid is left unpainted, and
@@ -622,8 +599,7 @@ Three answers, one per consumer §9 named, each in ADR 0356:
   prefix is a directory describing bytes that are not there, and a missing `rTRC` reads as no curve
   at all rather than as a failure.
 
-~~**What this chunk leaves, and it is one report rather than a reading.**~~ **Taken in the
-five-hundred-and-twenty-fourth** (ADR 0359). A damaged **form `XObject`, tiling pattern, appearance
+~~**What this chunk leaves, and it is one report rather than a reading.**~~ **Taken** (ADR 0359). A damaged **form `XObject`, tiling pattern, appearance
 stream or Type 3 glyph description** was still silent, and §7.8.2's argument for a page's
 `/Contents` covers all of them word for word — they are content streams and this tree already draws
 their prefixes. 46 of the crawl's damaged streams and 7 of the pdf.js corpus's 57 are form
@@ -639,7 +615,7 @@ costs no mark and is correctly silent — its missing codes are already counted 
 `codes_without_a_character`. And the count of kinds is **five**, not four, because §11.6.5.1's `/G`
 is a form too and is the one of them whose answer had to be derived rather than carried over.
 
-### 11. ~~What the same census still leaves, one round later~~ — **taken in the five-hundred-and-thirty-first** (ADR 0366)
+### 11. ~~What the same census still leaves~~ — **taken** (ADR 0366)
 
 All three roles are answered, and the round that answered them found that most of the *population*
 sections 9 and 10 measured was this reader's own defect. What is left standing here is the method
@@ -648,8 +624,8 @@ and the correction; the numbers are `examples/damaged_stream_census`'s to print.
 - **unclassified was not a role and is now split.** `who_names_what` classifies a stream by the
   entry that names it, because the standard makes that entry the statement of the role — which is
   what a page's `/Contents` had always been doing and nothing else was. The answer is that the
-  bucket was mostly already decided: its majority is `/ToUnicode` CMaps, whose silence session 524
-  argued for on §9.10.3, and Type 3 glyph descriptions, which ADR 0359 made loud. The `form
+  bucket was mostly already decided: its majority is `/ToUnicode` CMaps, whose silence ADR 0359
+  argues for on §9.10.3, and Type 3 glyph descriptions, which ADR 0359 made loud. The `form
   XObject` row split the same way, into forms and annotation appearances.
 - **an object stream, §7.5.7, is a prefix rule the clause states outright** — NOTE 7's "ends prior
   to the byte offset of the next object or when the end of stream is encountered" — so every object
@@ -675,7 +651,7 @@ denominators moved.
 measurement of this reader as much as of the files (trap 8's fourth shape), and the way that was
 found was reading a single witness by hand rather than trusting a count.
 
-### 12. The chunk the five-hundred-and-forty-fourth took: the rest of `format-corpus`
+### 12. The rest of `format-corpus`
 
 §11 named no successor, so §1's rule decided it: **the 126 documents of
 `openpreserve/format-corpus` that the submodule's sparse checkout leaves behind** —
@@ -707,7 +683,7 @@ password. `tools/safedocs survey --dir` prints today's.
 - **The ink ranking found no second whole-page row**, which is the instrument saying so rather
   than a round saying nothing: page one at 72 dpi against `pdftoppm`, `mutool` and `gs`, every one
   explicit about the page box, and the entire negative tail is **−0.744 and shallower** — glyph
-  weight, with the largest opened side by side. Session 505's ranking separated its defect by two
+  weight, with the largest opened side by side. Section 8's ranking separated its defect by two
   orders of magnitude; this one separates nothing.
 - **Two documents render here and in no reference at all** — `PDF-HUL-29`'s pair, where poppler,
   mupdf and ghostscript each refuse the page tree for a `/Kids` entry that is not an indirect
@@ -721,7 +697,7 @@ fetchable into `corpus-cache/` for a round that wants the population. What is un
 after this chunk is `pdfbox`'s 64 and `pdf-differences`' 37; the second of those is §4's first
 bullet and still wants its decision about the verdict vocabulary before anybody runs it.
 
-### 13. The chunk the five-hundred-and-fifty-fourth took: `pdfbox`'s 64
+### 13. `pdfbox`'s 64
 
 §12 names its own successor and there was nothing to choose: **`doc/corpora/pdfbox`'s 64
 documents**, the larger of the two it leaves unranked and the one that needs no decision first.
@@ -778,7 +754,7 @@ and it is still §4's first bullet: an oracle run over files chosen for disagree
 `ambiguous` almost everywhere, so the verdict vocabulary wants deciding before anybody runs it.
 The other offer §1 still holds open is SafeDocs' 31 GB issue-tracker corpus.
 
-### 14. The chunk the five-hundred-and-fifty-eighth took: `pdf-differences`' 37, and the decision §4 held them behind
+### 14. `pdf-differences`' 37, and the decision §4 held them behind
 
 §13 named its own successor and §4 named the decision it wanted first, so this chunk is both:
 **`doc/corpora/pdf-differences`, 18 test cases in 37 documents, CC BY 4.0**, and the verdict-vocabulary
@@ -796,9 +772,9 @@ question. ADR 0393 has the argument; §4's bullet above carries the outcome. Thr
   `doc/oracle-and-corpus.md` §2's row and both moves are new reports on purpose (ADRs 0356, 0359).
   **Run it with `PDF_SANDBOX_WORKER` pointing at a built worker**, or two JPEG 2000 images are
   refused and the line reads two higher — the confinement working, not the files.
-- **The ranking's head is real for the first time since session 505.** Page one at 72 dpi against
+- **The ranking's head is real, as section 8's was.** Page one at 72 dpi against
   `pdftoppm`, `mutool` and `gs`, every invocation explicit about the page box, ranked by our ink
-  minus the lightest live reference's, with session 554's size column beside it:
+  minus the lightest live reference's, with section 13's size column beside it:
   `OverlappingGlyphClipping.pdf` at **−8.989** against a next-largest of −1.237, and the three
   references agreeing with each other to 0.32. And the size column found its second row in two
   chunks — `LineCap-Degenerate.pdf` is 4000 × 4000 here, in `mutool` and in `gs`, and 400 × 400 in
@@ -816,8 +792,7 @@ Four findings, three of them left with their witnesses:
   `w/(2·sin(φ/2))` says. The cause is `tiny-skia`'s `AngleType::Nearly180` shortcut, which bevels a
   join sharper than about 1.27° whatever the limit says — a ratio cutoff near 90 hiding inside an
   angle test.
-- **§9.3.6's non-zero winding over two substituted faces — `doc/todo/21` §6, and fixed in the
-  five-hundred-and-sixty-first (ADR 0396).** The ranking's head. Our compiled-in Helvetica is an
+- **§9.3.6's non-zero winding over two substituted faces — `doc/todo/21` §6, and fixed (ADR 0396).** The ranking's head. Our compiled-in Helvetica is an
   `sfnt` and our Times was a bare CFF wound the other way, and a text clip that overlaps a glyph of
   each cancelled where every reference unions. The permission is §9.5 NOTE 5's; the bad choice
   inside it was ours, and it was stateable with no reference at all — two substitutes for two of
@@ -835,10 +810,10 @@ disk is ranked. §1's other standing offer is SafeDocs' 31 GB issue-tracker corp
 is the one §4 now names — the per-case gates this corpus makes possible, one clause and one
 hand-built witness apiece, each with its expected value derived rather than voted.
 
-### 15. The chunk the five-hundred-and-eighty-first took: the survey itself
+### 15. The survey itself
 
 **Not a population but the instrument that measures them**, and it is the one chunk in this file
-whose subject is a previous chunk's tool. Session 580 reported that re-running `safedocs survey`
+whose subject is a previous chunk's tool. Re-running `safedocs survey`
 moved about ten documents in and out of §11.4.7's report and left it; this section is what that
 was. ADR 0416 has the reproduction, the attribution and the three roads; three things belong here.
 
@@ -870,13 +845,13 @@ was. ADR 0416 has the reproduction, the attribution and the three roads; three t
   wc -l`. The 974 name **0** and the four submodule corpora none, which is why no gate has ever
   moved for this.
 
-**What this chunk left** was the bound itself, and it was **taken in the five-hundred-and-eighty-second**
+**What this chunk left** was the bound itself, and it is **taken**
 (ADR 0417): the press budget is per interpretation, which is what every other budget in this tree
 already is, over a bounded process-wide cache of the *sampling*, which is a cache and may be shared
 because it changes how fast an answer is reached and never what it is. `doc/todo/49`'s third-bound
 section has the measurement that forced that split and the one number it leaves open.
 
-### 16. The chunk the six-hundred-and-third took: the crawl, in front of a reference for the first time
+### 16. The crawl, in front of a reference
 
 §14 said "[e]very population on this disk is ranked" and it was true of the *curated* corpora only.
 **The crawl had never been put beside another renderer at all** — 145 archives of surveys, which
@@ -916,16 +891,16 @@ nothing supplies an expected value and no file was chosen for anything, what doe
 Until somebody answers it, the ink ranking is what this corpus gets, and it has now produced a
 whole-page defect on its first 2000 documents.
 
-### 17. The chunk the six-hundred-and-thirteenth took: five more archives, and the tail 603 did not read
+### 17. Five more archives, and the tail section 16 did not read
 
-**Taken: `0300`, `1653`, `3252`, `4851` and `6327`, whole, 5000 documents**, on §16's instrument
+**Taken: `0300`, `1653`, `3252`, `4851` and `6327`, whole, 5000 documents**, on section 16's instrument
 unchanged — page one at 72 dpi against `pdftoppm`, `mutool` and `gs`, every invocation explicit
 about the page box, ranked by our ink minus the lightest live reference's. Two minutes an archive
 here.
 
-**The instrument was re-checked before it was trusted, because 612 had moved something under it.**
-Session 612 made this tree apply §14.11.2.1's crop on every target; archive `0100` re-ranked whole
-against 603's own artefacts differs in **exactly one row of 1000**, which is 603's own fix. A
+**The instrument was re-checked before it was trusted, because something had moved under it.**
+This tree applies §14.11.2.1's crop on every target; archive `0100` re-ranked whole against section 16's
+own artefacts differs in **exactly one row of 1000**, which is section 16's own fix. A
 page-sized target *is* the crop box, so that clause could not reach this measurement — trap 14 from
 the other side.
 
@@ -937,7 +912,7 @@ the other side.
   255 before the lookup, so a 256-entry grey ramp was addressed only at its two darkest entries.
   §7.4.5 and §8.6.6.3; ADR 0448.
 - **The reach is measured rather than argued**: all seven ranked archives re-ranked whole after the
-  fixes move **5 rows of 7000**, three of them in 603's archives, and every other panel — ours and
+  fixes move **5 rows of 7000**, three of them in section 16's archives, and every other panel — ours and
   each reference's — is identical to the thousandth.
 - **The positive tail above +10 is otherwise one reference.** 22 documents of the 5000 are pages
   where `poppler` alone draws almost nothing while this tree, `mupdf` and `ghostscript` agree; the
@@ -955,12 +930,12 @@ minutes each. Both of this chunk's defects were invisible to every gate — no d
 states either construct — which is the second round running that the crawl has answered a question
 no curated corpus can.
 
-### 18. The chunk the six-hundred-and-fifteenth took: seven archives, and a head that was ours from end to end
+### 18. Seven archives, and a head that was ours from end to end
 
 **Taken: `0423`, `1161`, `2268`, `3375`, `4482`, `5589` and `6696`, whole, 7000 documents**, on
-§16's instrument unchanged and *reused* rather than rewritten — page one at 72 dpi against
+section 16's instrument unchanged and *reused* rather than rewritten — page one at 72 dpi against
 `pdftoppm`, `mutool` and `gs`, every invocation explicit about the page box, ranked by our ink
-minus the lightest live reference's. It was checked against 613's own three documents before it
+minus the lightest live reference's. It was checked against section 17's own three documents before it
 was trusted, and reproduces them to the thousandth.
 
 - **The six deepest positive rows are three different defects of this tree**, each a page all
@@ -979,17 +954,17 @@ was trusted, and reproduces them to the thousandth.
 - **The reach is measured rather than argued**: all fourteen ranked archives re-ranked whole after
   the fixes, and the rows that move are the documents the three fixes are about and nothing else.
   ADR 0451; §8.7.4.2's, §11.6.4.2's, §8.9.6.3's and §8.6.5.9's rows.
-- **Below +20 the positive head is 613's finding and not ours** — `poppler` alone drawing almost
+- **Below +20 the positive head is section 17's finding and not ours** — `poppler` alone drawing almost
   nothing — which is now a note in `doc/traps/oracle-and-references.md` and was read there instead
   of being derived again. That is what a trap entry is for.
-- **What the head still held, and what the six-hundred-and-twenty-first session found there**: two
+- **What the head still held, and what was found there**: two
   silent rows below −8, called trap 9's family on sight. **One of the two was, and one was not, and
   the one that was not was a defect of this tree.** `6696954.pdf` is trap 9 exactly — a probe page
   of colour patches through the document's own embedded CMYK profile has `poppler`, `mupdf` and
   `ghostscript` agreeing to four levels because all three are Little CMS at its default
   *perceptual* intent, while Table 51, §8.6.5.8 and §11.4.7 each say the default is
   RelativeColorimetric; the page stays contradicted with the evidence beside it. `5589519.pdf`,
-  filed as "`/DeviceCMYK` JPEGs" and so as 613's `6327765.pdf` again, is **not** that: a probe of
+  filed as "`/DeviceCMYK` JPEGs" and so as section 17's `6327765.pdf` again, is **not** that: a probe of
   plain `DeviceCMYK` patches puts this tree and `poppler` on the same values, `hayro` agrees with
   the other three about the page, and the disagreement is one shading pattern inside a soft mask
   landing in the page's default space instead of the mask's (§8.7.2, ADR 0456). −8.212 → +0.713.
@@ -1003,16 +978,16 @@ was trusted, and reproduces them to the thousandth.
 rounds running, the crawl's head has been a defect no curated corpus states — and this is the
 first of the three where *every* row of the head was ours.
 
-### 19. The chunk the six-hundred-and-nineteenth took: eight archives, and four ceilings that were not ours
+### 19. Eight archives, and four ceilings that were not ours
 
 **Taken: `0546`, `1284`, `2022`, `2760`, `3498`, `4236`, `4974` and `5712`, whole, 8000
-documents**, on §16's instrument unchanged and *reused* — page one at 72 dpi against `pdftoppm`,
+documents**, on section 16's instrument unchanged and *reused* — page one at 72 dpi against `pdftoppm`,
 `mutool` and `gs`, every invocation explicit about the page box, ranked by our ink minus the
 lightest live reference's.
 
 - **Check the instrument, and check what the instrument needs.** Sixteen documents named by ADRs
   0438, 0448 and 0451 were re-measured before anything else, and seven came back *worse than
-  before their fix* — `3252105.pdf` at −156.436 against 615's −6.390. Nothing had regressed:
+  before their fix* — `3252105.pdf` at −156.436 against section 18's −6.390. Nothing had regressed:
   **`pdf-sandbox-worker` must be built into the same target directory as the example**, or every
   codec behind the sandbox refuses and the ranking measures a tree with no bilevel decoder. Two
   commands, not one: `cargo build --release -p pdf-model --example render_at` **and**
@@ -1031,7 +1006,7 @@ lightest live reference's.
 - **The reach is measured rather than argued**: all twenty-two ranked archives re-ranked whole
   after the fixes, and the rows that move are the documents the four fixes are about and nothing
   else. §7.4.6's, §7.4.8's, §8.9.7's and §9.9's rows.
-- **The positive head is 613's finding and not ours** — `poppler` alone drawing almost nothing —
+- **The positive head is section 17's finding and not ours** — `poppler` alone drawing almost nothing —
   read out of `doc/traps/oracle-and-references.md` rather than derived again. Two rows above it
   are the *other* half of that note: `1284136.pdf` +47.956 is `ghostscript` light, and
   `1284295.pdf` +28.502 is `ghostscript` rendering a different page box, which is trap 3 arriving
@@ -1040,10 +1015,10 @@ lightest live reference's.
 **What the head still holds**, each named so the next round does not re-derive it:
 
 - **`hayro-jbig2` 0.3.0's flat 10 000-instance cap now has five documents of 22 000 waiting on
-  it** — `0546561.pdf` −30.018 and `4974796.pdf` −15.417 join 613's `1653119.pdf` and 615's
+  it** — `0546561.pdf` −30.018 and `4974796.pdf` −15.417 join section 17's `1653119.pdf` and section 18's
   `3375154.pdf` and `3252105.pdf`. `doc/todo/_image-codecs-and-the-sandbox.md` §7.
 - **Four silent rows this round diagnosed and did not take.** `2022794.pdf` −12.743 states
-  **1451 `DCTDecode` images**, one of them 1400×2, which is `doc/todo/11`'s subject and 613's
+  **1451 `DCTDecode` images**, one of them 1400×2, which is `doc/todo/11`'s subject and section 17's
   aerial photograph again. `4236552.pdf` −10.930 is **one command** — a single `DCTDecode` under
   an `ICCBased` space with an `/SMask` — at 182.784 against 193.714 / 195.641 / 194.921, which is
   trap 9's family. `4236836.pdf` −10.001 is a **text-only page** of five Type 1 subsets at 20.414
@@ -1051,7 +1026,7 @@ lightest live reference's.
   silently — the one row of the head that is not about an image. `2022216.pdf` **+20.141** is
   twenty `/SMask`s and is the only positive row where the three references agree within 7 and we
   are 13 above the heaviest.
-- **615's two remain**: `6696954.pdf` −10.252 and `5589519.pdf` −8.212.
+- **section 18's two remain**: `6696954.pdf` −10.252 and `5589519.pdf` −8.212.
 - **44 rows of the 8000 produce no number**, the same three shapes 613 and 615 opened by hand.
 
 **What this chunk leaves: 43 944 crawled documents unranked**, in archive-sized pieces. Four
@@ -1062,8 +1037,7 @@ rounds running, the crawl's head has been a defect no curated corpus states.
 **A fix found by ranking this crawl is measured once**, by the round that makes it, in a tree that
 does not yet hold its neighbours' work. The corpus, oracle and quorra gates walk `doc/pdf.js` and
 name none of these documents, so two branches touching no common line can defeat each other with
-every gate green — which is what the six-hundred-and-twenty-third session found and the
-six-hundred-and-twenty-fourth attributed (ADR 0458). Two rules follow, and **they are a program
+every gate green (ADR 0458). Two rules follow, and **they are a program
 rather than a habit, because the round that first stated them recorded them in its own history
 file and in no other document, which is exactly the failure they are about**:
 
@@ -1086,12 +1060,12 @@ it costs seconds and cannot drift under `poppler` having a bad day.
 
 It is seeded with the documents sessions 603, 613, 615, 619 and 621 fixed, each *re-measured*
 rather than copied out of a history file.
-### 21. The chunk the six-hundred-and-twenty-fifth took: ten archives, and two extents
+### 21. Ten archives, and two extents
 
 **Taken: `0669`, `0915`, `1530`, `2391`, `3129`, `4113`, `5220`, `6204`, `7311` and `7926`, whole,
-10 000 documents**, on §16's instrument unchanged and *reused* — page one at 72 dpi against
+10 000 documents**, on section 16's instrument unchanged and *reused* — page one at 72 dpi against
 `pdftoppm`, `mutool` and `gs`, every invocation explicit about the page box, ranked by our ink
-minus the lightest live reference's. Both binaries built first, which is 619's note taken rather
+minus the lightest live reference's. Both binaries built first, which is section 19's note taken rather
 than re-learnt, and all **26** documents named by ADRs 0438, 0448, 0451, 0454 and 0456 reproduce
 to the thousandth before anything else was read.
 
@@ -1114,13 +1088,13 @@ to the thousandth before anything else was read.
   witness.
 - **The reach is measured rather than argued**: all thirty-two ranked archives ranked whole before
   and after, **39 rows of 32 000 move**, and **two of the six documents the font fix moves are in
-  archives an earlier chunk took** — `6696243.pdf` in 615's `6696` and `7680832.pdf` in 603's
+  archives an earlier chunk took** — `6696243.pdf` in section 18's `6696` and `7680832.pdf` in section 16's
   `7680`. That is the fourth round running that a fix has reached back. Four of the 39 are the head
   documents; **23 are tiling-pattern pages moving by at most 1.34**, eighteen toward agreement and
   five away by at most 0.64, every one silent and every one carrying more than one `PatternType 1`;
   and the other twelve are the instrument — nine with our own panel identical and a *reference*
   panel differing between runs, three with a panel absent from the earlier run.
-- **The positive head is 613's finding and not ours** — `poppler` alone drawing almost nothing —
+- **The positive head is section 17's finding and not ours** — `poppler` alone drawing almost nothing —
   read out of `doc/traps/oracle-and-references.md` rather than derived again; eight of the ten
   deepest positive rows are that shape, and `2391466.pdf` **+23.749** is the note's other half,
   `ghostscript` on a different page box (612 × 792 against 504 × 360).
@@ -1128,7 +1102,7 @@ to the thousandth before anything else was read.
 **What the head still holds**, each named so the next round does not re-derive it:
 
 - ~~**`7926872.pdf` −41.731 is a round of its own, and the clause has an answer nobody has used.**~~
-  **Taken in the six-hundred-and-thirty-third — §22 below, ADR 0466.** The paragraph is kept because
+  **Taken — §22 below, ADR 0466.** The paragraph is kept because
   its reading is what the fix rests on.
   Its inline image is `/W 1200 /H 1790 /CS /RGB /BPC 8 /F /FlateDecode` with no `/L`, so
   `inline_image`'s answer 3 runs — the forward search the module's own comment calls "the one
@@ -1146,7 +1120,7 @@ to the thousandth before anything else was read.
   never about who is right (trap 9).
 - **`1530064.pdf` −15.950 is `doc/todo/49`'s** — `MAX_TILES` reached, and a stroke whose colour is
   a tiling pattern, which §8.7.3's ledger row already prices.
-- **619's four and 615's two are still open**, and **65 rows of the 10 000 produce no number**, the
+- **section 19's four and section 18's two are still open**, and **65 rows of the 10 000 produce no number**, the
   same three shapes 613, 615 and 619 opened by hand.
 
 **The re-runnable check for each document this chunk fixed**, because a fix on a document no gate
@@ -1180,9 +1154,9 @@ must **stay** blank — it is a gate, and named here so the pair is read togethe
 running, the crawl's head has been a defect no curated corpus states.
 
 
-### 22. What the six-hundred-and-thirty-third took: §21's head, and the half of the population it leaves
+### 22. section 21's head, and the half of the population it leaves
 
-**`7926872.pdf` and `4605499.pdf`**, both fixed, and the defect is §21's diagnosis carried out:
+**`7926872.pdf` and `4605499.pdf`**, both fixed, and the defect is section 21's diagnosis carried out:
 an inline image whose data is *filtered* and which states no `/L` had its end **searched for**
 rather than **derived**, and a byte pair inside the compressed data that reads as a
 white-space-delimited `EI` ended the image there. §8.9.7 makes the bytes "a stream object's data"
@@ -1194,12 +1168,11 @@ ADR 0466; §8.9.7's and §7.3.8.2's ledger rows.
   over 65 967 crawled documents, **17 in 5 documents end early**, costing 13.45 MiB of encoded data
   taken for content operators. **The curated corpora carry none at all**, so no gate in this tree
   could see it — which is why the two rows below exist.
-- **`4605499.pdf` was not in §21's head**: its archive is in none of the ten that chunk took, and
+- **`4605499.pdf` was not in section 21's head**: its archive is in none of the ten that chunk took, and
   at ours 8.848 against 72.062 / 72.409 / 72.682 it is deeper than the row this round was sent
   after. Both now report nothing: 44.516 against 44.647 / 45.020 / 45.233, and 71.775 against
   72.062 / 72.409 / 72.682.
-- ~~**Half the population is untouched and the size of it is the finding.**~~ — **taken in the
-  six-hundred-and-thirty-fifth, §24 below.** The first filter of those 2 672 062 images is
+- ~~**Half the population is untouched and the size of it is the finding.**~~ — **taken, §24 below.** The first filter of those 2 672 062 images is
   `CCITTFaxDecode` **1 272 430** times against `FlateDecode`'s 1 367 073, with `ASCII85Decode`
   23 018, `ASCIIHexDecode` 4 104, `DCTDecode` 3 778 and `RunLengthDecode` 1 655 behind them — and
   only `FlateDecode` and `LZWDecode` have a resumable decoder in this tree, so everything else still
@@ -1208,19 +1181,19 @@ ADR 0466; §8.9.7's and §7.3.8.2's ledger rows.
   each. **A successor with a number attached**, and the number is above.
 - **The two rows are in `doc/checks/fixed-documents.toml`**, which is §20's rule and the only gate
   that sees either document.
-### 23. The chunk the six-hundred-and-thirty-first took: ten archives, and three ranges
+### 23. Ten archives, and three ranges
 
 **Taken: `0792`, `1038`, `1776`, `2145`, `2883`, `3621`, `4359`, `5097`, `5835` and `6573`, whole,
-10 000 documents**, on §16's instrument unchanged and *reused* — page one at 72 dpi against
+10 000 documents**, on section 16's instrument unchanged and *reused* — page one at 72 dpi against
 `pdftoppm`, `mutool` and `gs`, every invocation explicit about the page box, ranked by our ink
 minus the lightest live reference's. **Fifteen minutes** for the ten thousand at sixteen workers.
 Both binaries built first and §20's check run before anything was ranked (**25 checked, 0 absent,
-green**), with 625's three recorded documents reproduced to the thousandth.
+green**), with section 21's three recorded documents reproduced to the thousandth.
 
 - **Three defects of this tree, and all three are one question: what range does a sample run
   over?** ADR 0464. None of them is about decoding; every one is about the arithmetic between a
   decoded byte and a colour or an extent.
-  - **`5097148.pdf` −43.503**, the deepest row of the ten thousand, is 625's leftover with a
+  - **`5097148.pdf` −43.503**, the deepest row of the ten thousand, is section 21's leftover with a
     sharper clause than that note expected. Its inline image is `/F [/A85 /Fl]` with no `/L`, so
     the forward search ran and stopped at the first `EI` the base-85 spells, 69 598 bytes into
     1.29 MB: **one command drawn** at 0.092 against three references agreeing on 43.9, with 1.4 MB
@@ -1247,8 +1220,8 @@ green**), with 625's three recorded documents reproduced to the thousandth.
   exactly what a change to this tree can move and a reference's panel is not: **10 rows of 42 000
   move, six of them the fixes and four the instrument** — four renders that lost their budget while
   three other rounds were compiling, byte-identical under both binaries on a quiet machine.
-  **Three of the six are in archives an earlier chunk took** (`4482` and `0423` are 615's, `7311`
-  is 625's), which is the sixth round running that a fix has reached back, and all three move
+  **Three of the six are in archives an earlier chunk took** (`4482` and `0423` are section 18's, `7311`
+  is section 21's), which is the sixth round running that a fix has reached back, and all three move
   toward agreement — `4482885.pdf` **+11.288 → −0.840**.
 - **The first fix's population is one document of 65 944**, measured with a walk that reads each
   codestream's own SIZ marker (trap 8). The row says so; what makes it worth having is that the
@@ -1257,19 +1230,19 @@ green**), with 625's three recorded documents reproduced to the thousandth.
   −13.310 is `MAX_OPERATIONS`, `doc/todo/49`'s; `2883767.pdf` −7.159 reports §11.4.4's non-isolated
   group, `doc/todo/23`'s; **three silent rows** are `2883994.pdf` −10.134 (5236 commands),
   `1776488.pdf` −5.965 (198) and `5835193.pdf` −4.976 (120 513). Below +20 the positive head is
-  613's `poppler`-draws-nothing note, and `5097568.pdf` +26.596 and `4359131.pdf` +20.057 are that
+  section 17's `poppler`-draws-nothing note, and `5097568.pdf` +26.596 and `4359131.pdf` +20.057 are that
   note with **`mutool`** as the light one instead — ours within a level of the other two on both.
   **61 rows of the 10 000 produce no number.**
 - **`7926872.pdf` −41.731 is still open and is now a *different* question from `5097148.pdf`.** Its
   filter is `/FlateDecode`, which states no marker in its data, so a textual end-of-data cannot
-  reach it and what it needs is still `pdf_syntax::Pump`'s consumed-input count exposed. 625's five
+  reach it and what it needs is still `pdf_syntax::Pump`'s consumed-input count exposed. section 21's five
   silent rows and `1530064.pdf` remain as §21 records them.
 
 **What this chunk leaves: 23 944 crawled documents unranked**, in archive-sized pieces. Six rounds
 running, the crawl's head has been a defect no curated corpus states.
 
 
-### 24. What the six-hundred-and-thirty-fifth took: §22's other half, and the three that needed no decoder
+### 24. section 22's other half, and the three that needed no decoder
 
 **§8.9.7's filtered inline image now has a derived extent for every filter Table 92 admits.** §22
 left `CCITTFaxDecode`, `DCTDecode` and `RunLengthDecode` on the forward search for a token-delimited
@@ -1300,10 +1273,10 @@ it. ADR 0467; the ledger rows for §7.4.5, §7.4.6, §7.4.8, §7.3.8.2 and §8.9
 - **What is left to the search is now the standard's own boundary**: §7.4.6's `/EndOfBlock false`,
   where the clause puts the end outside the data; a fax stream whose producer wrote no end-of-block
   pattern (the crawl has none); and `FlateDecode` data corrupt before its marker (446).
-### 25. The chunk the six-hundred-and-thirty-sixth took: ten archives, and two entries a dictionary states
+### 25. Ten archives, and two entries a dictionary states
 
 **Taken: `1407`, `1899`, `2514`, `2637`, `3006`, `3744`, `3867`, `4728`, `5343` and `5958`, whole,
-10 000 documents**, on §16's instrument unchanged and *reused* — page one at 72 dpi against
+10 000 documents**, on section 16's instrument unchanged and *reused* — page one at 72 dpi against
 `pdftoppm`, `mutool` and `gs`, every invocation explicit about the page box, ranked by our ink
 minus the lightest live reference's. **13 minutes 28 seconds** at fourteen workers, at a load
 average of 23 to 33 on a 24-thread machine three other rounds were also using; 9966 of the 10 000
@@ -1311,7 +1284,7 @@ produce a number and 34 do not. Both binaries built first and §20's check run b
 ranked (**29 checked, 0 absent, green**).
 
 - **The negative head is the shallowest any chunk has produced** — deepest row −10.174, against
-  613's −20.3, 619's −84.2, 625's −112.6 and 631's −43.5 — and the sharpest row of the ten
+  section 17's −20.3, section 19's −84.2, section 21's −112.6 and section 23's −43.5 — and the sharpest row of the ten
   thousand is on the *positive* side for the second round running. **Two defects of this tree, and
   both are the same sentence in two clauses: a dictionary states something about its own data and
   this tree would not read it.** ADR 0468.
@@ -1334,12 +1307,12 @@ ranked (**29 checked, 0 absent, green**).
     `numGlyphs` and produces **no outline for any glyph at all**. `sfnt.rs` gains a third repair
     beside its two, on the same derivation: a file that states one fact twice can check itself.
     → **+0.059**.
-- **The reach is measured over our own panel** (631's rule), before and after, over all **52
+- **The reach is measured over our own panel** (section 23's rule), before and after, over all **52
   archives any chunk has ranked plus the 243 documents the two censuses name — 52 043 documents**.
   **Nine rows move and every one moves toward agreement**, put in front of the three references
-  afterwards. **Five are in archives an earlier chunk took** — `1530` and `3129` are 625's, `1038`
-  is 631's, `6696` and `3375` are 615's — which is the seventh round running that a fix has reached
-  back, and one more is in an archive no chunk has ranked at all. **One of the five is §21's own
+  afterwards. **Five are in archives an earlier chunk took** — `1530` and `3129` are section 21's, `1038`
+  is section 23's, `6696` and `3375` are section 18's — which is the seventh round running that a fix has reached
+  back, and one more is in an archive no chunk has ranked at all. **One of the five is section 21's own
   open lead**: `1530098.pdf`, listed there as a silent row "diagnosed no further than [its]
   numbers" at +47.699, is the `/Decode` defect and now sits at +0.487.
 - **Both populations were measured before the change** (trap 11), with instruments that are not
@@ -1373,22 +1346,22 @@ ranked (**29 checked, 0 absent, green**).
 - **`1899774.pdf` −4.904 is `doc/todo/49`'s** — `MAX_TILES` reached — as `1530064.pdf` was for 625.
 - **The positive head above +40 is three rows and none is ours.** `2637210.pdf` **+94.713** has
   `poppler` and this tree together at 130.8 and 127.8 while `mutool` sits at 33.1 and `gs` at 45.1,
-  which is 613's note with the light reference on the other side; `1899170.pdf` **+53.494** has all
+  which is section 17's note with the light reference on the other side; `1899170.pdf` **+53.494** has all
   four renderers disagreeing (7.4 / 60.9 / 144.3 / 190.1); `2514746.pdf` **+42.812** the same
-  (9.0 / 19.3 / 28.4 against ours at 51.8). Below +25 the head is 613's `poppler`-draws-nothing
+  (9.0 / 19.3 / 28.4 against ours at 51.8). Below +25 the head is section 17's `poppler`-draws-nothing
   note verbatim — a band of pages where `poppler` is at 1 to 3 while `mutool`, `gs` and this tree
   agree within 3 — read out of `doc/traps/oracle-and-references.md` rather than derived again.
-- **619's four, 615's two and 625's remaining silent rows are still open** as those sections record
+- **section 19's four, section 18's two and section 21's remaining silent rows are still open** as those sections record
   them.
 
 **What this chunk leaves: 13 944 crawled documents unranked**, in archive-sized pieces. Seven
 rounds running, the crawl's head has been a defect no curated corpus states.
 
 
-### 26. The chunk the six-hundred-and-fortieth took: ten archives, and a condition nothing states
+### 26. Ten archives, and a condition nothing states
 
 **Taken: `2100`, `3990`, `4100`, `4605`, `6081`, `6100`, `6942`, `7065`, `7188` and `7434`, whole,
-10 000 documents**, on §16's instrument unchanged and *reused* — page one at 72 dpi against
+10 000 documents**, on section 16's instrument unchanged and *reused* — page one at 72 dpi against
 `pdftoppm`, `mutool` and `gs`, every invocation explicit about the page box, ranked by our ink minus
 the lightest live reference's. **14 minutes 12 seconds** at fourteen workers; 9957 of the 10 000
 produce a number and 43 do not. Both binaries built first and §20's check run before anything was
@@ -1396,15 +1369,14 @@ ranked (**31 checked, 0 absent, green**), with six documents ADRs 0459, 0464 and
 reproduced to the thousandth. These are every remaining thousand-document archive but two.
 
 - **The negative head is the shallowest any chunk has produced, for the second round running, and
-  that is now a sequence** — deepest row **−8.860**, against 636's −10.174, 631's −43.503, 625's
-  −112.626, 619's −84.152 and 613's −20.341. 25 rows of the 9957 are below −3 and 48 below −2.
+  that is now a sequence** — deepest row **−8.860**, against section 25's −10.174, section 23's −43.503, section 21's
+  −112.626, section 19's −84.152 and section 17's −20.341. 25 rows of the 9957 are below −3 and 48 below −2.
   **What sits at the top of it is this tree's own scan conversion, documented and priced**, which is
   the first chunk of eight where that is true rather than a misread clause. ADR 0471.
 - **One defect of this tree, and it was a *condition* rather than a reading.** `1407194.pdf`
-  **−6.304**, silent, §25's own open lead: a book cover with a pale yellow sticky note **250 units
+  **−6.304**, silent, section 25's own open lead: a book cover with a pale yellow sticky note **250 units
   square** over its top-left quarter, from a `/Text` annotation with `/Rect [0 542 400 792]` and no
-  `/AP`. `annotation::anchored_icon` had made the right derivation in the two-hundred-and-sixty-fifth
-  session — its own comment says "a fixed size, which is by definition not `/Rect`'s" — and then
+  `/AP`. `annotation::anchored_icon` had made the right derivation — its own comment says "a fixed size, which is by definition not `/Rect`'s" — and then
   written it under `if subtype != b"Text" || !is_empty(rect)`. §12.5.6.4's "attached to a point" and
   its "shall behave as if the NoZoom and NoRotate annotation flags … were always set", §12.5.3's
   "shall always maintain the same fixed size on the screen" and Table 166's "defining the location of
@@ -1412,11 +1384,11 @@ reproduced to the thousandth. These are every remaining thousand-document archiv
   §12.5.5's algorithm, which does turn `/Rect` into a size, maps a **stored** appearance's `/BBox`
   and has nothing to map here. → **+0.032**. §12.5.6.15's and §12.5.6.16's icons are untouched
   because neither clause states either sentence.
-- **The reach is measured over our own panel** (631's rule), before and after, over all **62
+- **The reach is measured over our own panel** (section 23's rule), before and after, over all **62
   archives any chunk has ranked plus every document `doc/checks/fixed-documents.toml` and the
   annotation census name — 62 009 documents**. **Four rows differ and no row differs for any other
-  reason.** Three of the four are in archives an earlier chunk took — `1407` is 636's, `6573` and
-  `2145` are 631's — the **eighth round running** that a fix has reached back. The sharper of the two
+  reason.** Three of the four are in archives an earlier chunk took — `1407` is section 25's, `6573` and
+  `2145` are section 23's — the **eighth round running** that a fix has reached back. The sharper of the two
   visible ones is on the **positive** side: `6573247.pdf` **+8.264 → −0.172**, the same producer's
   note over a nearly blank page where the icon was most of the ink, against three references agreeing
   within 0.04. `7557734.pdf` +0.604 → +0.025; `2145632.pdf` moves by nine ten-thousandths, which is
@@ -1465,10 +1437,10 @@ spots, and this one produced the successor below.
 - **`7188579.pdf` +19.856 and `7188417.pdf` are not defects but the opposite**: truncated linearised
   files that all three references refuse or reduce to a 1×1 raster, where this tree draws what the
   bytes carry and reports the shortfall.
-- **Below +16 the positive head is 613's `poppler`-draws-nothing note verbatim** — 39 of the 49 rows
+- **Below +16 the positive head is section 17's `poppler`-draws-nothing note verbatim** — 39 of the 49 rows
   above +10 have `poppler` under a third of the heaviest reference. **43 rows of the 10 000 produce
   no number.**
-- **619's four, 615's two, 625's and 631's remaining silent rows and 636's seven are still open** as
+- **section 19's four, section 18's two, section 21's and section 23's remaining silent rows and section 25's seven are still open** as
   those sections record them.
 
 **What this chunk leaves: 3944 crawled documents unranked** — two thousand-document archives
@@ -1476,13 +1448,13 @@ spots, and this one produced the successor below.
 into an earlier chunk; this is the first where the crawl's head was *not* a defect no curated corpus
 states.
 
-**Those 3944 were taken in the six-hundred-and-forty-seventh and the crawl is finished**; §27.
+**Those 3944 are taken and the crawl is finished**; §27.
 
 
-### 27. The chunk the six-hundred-and-forty-seventh took: the rest of it, and what the whole crawl says
+### 27. The rest of the crawl, and what the whole of it says
 
 **Taken: everything that was left — archives `7557` and `7803` whole and all eighty-one
-twenty-four-member archives, 3944 documents**, on §16's instrument unchanged and reused: page one
+twenty-four-member archives, 3944 documents**, on section 16's instrument unchanged and reused: page one
 at 72 dpi against `pdftoppm`, `mutool` and `gs`, every invocation explicit about the page box,
 ranked by our ink minus the lightest live reference's. **5 minutes 10 seconds** at twelve workers
 on a machine whose load average was between 5 and 13; 3924 of the 3944 produce a number and 20 do
@@ -1494,8 +1466,8 @@ four-renderer instrument to the ten-thousandth before anything was read.
 form "n crawled documents unranked" and this file's header says so.
 
 - **The negative head is deeper than the last two chunks' and is still made of this tree's own
-  departures** — deepest row **−12.251**, against 640's −8.860, 636's −10.174, 631's −43.503,
-  625's −112.626, 619's −84.152 and 613's −20.341. 7 rows of the 3924 are below −3 and 17 below −2.
+  departures** — deepest row **−12.251**, against section 26's −8.860, section 25's −10.174, section 23's −43.503,
+  section 21's −112.626, section 19's −84.152 and section 17's −20.341. 7 rows of the 3924 are below −3 and 17 below −2.
   **Seven of the first eleven rows were read to a cause and four were placed but not settled**, and
   every cause found is a departure this project has already argued rather than a misread clause —
   which makes it two chunks running, and this one over the population's remainder rather than over a
@@ -1518,7 +1490,7 @@ form "n crawled documents unranked" and this file's header says so.
   replicated as far as it got — while the *lattice* threw its prefix away. Two things make a tiling
   and the rule had reached one of them.
 - **The rest of the head, each with its evidence**, and none of it new:
-  - **ADR 0308's abutting marks, on a witness far stronger than 640's hymn sheet.**
+  - **ADR 0308's abutting marks, on a witness far stronger than section 26's hymn sheet.**
     `7803184.pdf` **−6.381** and `7803350.pdf` **−6.639** are pages a producer states as thousands
     of thin image strips — **2217 `Do`s on the first, 1882 of them 0.96 units tall and stepped
     alternately 0.96 and 0.72**, each a 627-wide, 1- or 2-row `DCTDecode` band. Every strip covers a fraction of a device pixel row, §11.3.7.3 composites the
@@ -1538,16 +1510,15 @@ form "n crawled documents unranked" and this file's header says so.
   - **`Image::area_averaged` against a decimating filter**: `7557123.pdf` −2.526, a single 1200 ×
     1800 `DeviceCMYK` photograph under a Flate `/SMask` drawn into 288 × 432.
   - **A second `MAX_TILES` page**, `4650000.pdf` −2.456, which the fix above also moves.
-- **The positive head is 613's `poppler`-draws-nothing note and almost nothing else**: 18 rows are
+- **The positive head is section 17's `poppler`-draws-nothing note and almost nothing else**: 18 rows are
   above +10 and **10 of them have `poppler` under a third of the heaviest reference** while
   `mutool`, `gs` and this tree agree — `6150016.pdf` +20.192 with `poppler` at 3.148 against our
   23.339 is the shape. The exceptions are the other direction of the same question: `7557508.pdf`
   +16.686 and `7557287.pdf` +10.999 have **`mutool`** light while `poppler`, `gs` and this tree
   agree within 0.3. Read a positive gap as a question about which reference is light before reading
   it as ink of ours.
-- **The four rows this entry used to leave "placed but not settled" are settled** — taken in the
-  seven-hundred-and-ninety-second session with the instruments this bullet had named, and one of
-  the four was a defect of this tree that is now fixed (ADR 0727 holds all four diagnoses with
+- **Four rows placed but not settled are settled** — with the instruments this bullet named, and
+  one of the four was a defect of this tree that is now fixed (ADR 0727 holds all four diagnoses with
   their probes):
   - **`7803013.pdf` −2.606** was ours: an embedded DFKai-SB subset whose glyph shapes are
     *computed by its TrueType instruction programs*, drawn from the uninstructed skeleton because
@@ -1573,7 +1544,7 @@ form "n crawled documents unranked" and this file's header says so.
 - **The reach is bounded by the code and confirmed by measurement**, and the two are worth keeping
   apart. The diff is entirely inside the `total > MAX_TILES` branch, which is the branch that raises
   the report, so a page that can move is a page that reports `MAX_TILES` — and `examples/open_one`
-  over all **65 944** says that is **48 documents** over 35 archives. The confirming run is 631's
+  over all **65 944** says that is **48 documents** over 35 archives. The confirming run is section 23's
   rule over **8011** documents rather than the whole crawl, for that reason: this chunk's 3944, the
   four previously-ranked archives that hold such documents (`0100`, `1530`, `6204`, `7188`), all 48,
   and every row of `doc/checks/fixed-documents.toml`. **42 rows move and every one reports
@@ -1582,7 +1553,7 @@ form "n crawled documents unranked" and this file's header says so.
   626's lesson on our own instrument instead of a reference's. ADR 0477 and
   `doc/history/647-*.md`.
 
-### 42. What the eight-hundred-and-eightieth took: `batch5/FOP`, and a CID-keyed CFF whose Font DICTs are nowhere
+### 42. `batch5/FOP`, and a CID-keyed CFF whose Font DICTs are nowhere
 
 **The directory, surveyed whole under the four rules** — twelve rayon threads, `--data 8
 --tree 12`, 2.5 s, 0.99 GiB peak. The line, a baseline for this directory and never a ratchet:
@@ -1595,9 +1566,7 @@ form "n crawled documents unranked" and this file's header says so.
 — below `MOZILLA`'s 2.47% only, and below the pdf.js gate's 6.98% — because an Apache FOP issue
 attachment is most often a document FOP *produced* rather than one it could not read: the two
 unusable files are two members of one `.zip` with no usable cross-reference table and no object
-header anywhere, and the one encrypted file is `/R 5`. **That was recorded here as "which
-§7.6.4.2's Table 21 states no algorithm for", and the eight-hundred-and-eighty-seventh session
-implemented the revision** (ADR 0820): `FOP-2248-1.pdf` is one of 41 `/R 5` documents among the
+header anywhere, and the one encrypted file is `/R 5`. **The revision is implemented** (ADR 0820): `FOP-2248-1.pdf` is one of 41 `/R 5` documents among the
 90 535 in `doc/pdf.js`, `doc/corpora/` and `corpus-cache/`, of which 33 now open, and it is one of the 8 that want a password nobody here has. The
 line above is the survey as it was measured and stays as it was; what it would say today is *0
 encrypted beyond us, 1 locked*. Ranked by report, one document counted once per kind: 12 `Font`, 9 `Operator`, 5
@@ -1608,7 +1577,7 @@ the five `Annotation` documents are one file's five revisions, a `Widget` whose 
 its `/DR` does not define.
 
 **Ranked by ink** — ours flattened on white against `pdftoppm -cropbox` and `mutool draw` at
-72 dpi over all 34 incomplete pages, round 876's script — **the head is at the light end with both
+72 dpi over all 34 incomplete pages, section 40's script — **the head is at the light end with both
 references agreeing to a hundredth of a level**: `FOP-2736-4.pdf`, ours **0** against `poppler`
 4.35 and `mupdf` 4.36, reporting that `/F20`'s program had no outline for any of the 1816 codes the
 page shows. Then `FOP-304-2.pdf` at the dark end (ours 6.96, `poppler` 7.18, `mupdf` 2.65 — the
@@ -1644,10 +1613,10 @@ nothing can be replaced there because the subroutines the charstrings call are w
 — which `mupdf` and `poppler` draw at 0.6 to 1.1 levels of ink through FreeType's tolerance and
 this tree reports; and `FOP-2699-7.pdf`'s `MissingCharstrings`, a one-reference page.
 
-### 43. What the eight-hundred-and-eighty-second took: `batch5/PDFIUM`, and a count that was never a cost
+### 43. `batch5/PDFIUM`, and a count that was never a cost
 
 **The directory, surveyed whole under the four rules** — `--data 8 --tree 12`, 3.0 s, 1.30 GiB
-peak, on the tree with round 879 merged; **10.0 s and 1.36 GiB after this round's change**, which
+peak, on the tree with section 41's change merged; **10.0 s and 1.36 GiB after this round's change**, which
 is what drawing the hatching costs and is recorded because a survey line that moved for a reason
 is worth more than one that did not move. The line, a baseline for this directory and never a
 ratchet:
@@ -1670,7 +1639,7 @@ section 34's population again and not chased here. Ranked by report, one documen
 `TransparencyGroup`, `PageDictionary` and `DamagedContentStream`.
 
 **Ranked by ink** — ours flattened on white against `pdftoppm -cropbox` and `mutool draw` at
-72 dpi over all 66 incomplete pages, round 876's script — **the head is at the light end with both
+72 dpi over all 66 incomplete pages, section 40's script — **the head is at the light end with both
 references agreeing to a hundredth of a level**: `PDFIUM-1122-0.pdf`, ours **70.92** against
 `poppler` 80.51 and `mupdf` 80.52, reporting `MAX_TILES` and nothing else. Then `PDFIUM-407-0.pdf`
 (ours 4.15, `poppler` 7.85, `mupdf` 7.48: a JPEG whose samples stop 561 bytes short and a
@@ -1711,7 +1680,7 @@ reports a budget and reporting `MAX_TILE_COPIES` for it.
 reader; and [`49`](49-restrictions-worth-re-examining.md)'s budget on commands that prices them.
 In this tracker: `PDFIUM-1497-2.pdf`, the other `MAX_TILES` page, now `MAX_TILE_COPIES` on its two
 largest tilings and [`49`](49-restrictions-worth-re-examining.md)'s witness; `PDFIUM-407-0.pdf`, a short JPEG and a damaged
-`/FontFile2` where the two references disagree with each other by a third of a level; and — until the eight-hundred-and-eighty-ninth session —
+`/FontFile2` where the two references disagree with each other by a third of a level; and, taken (ADR 0823),
 `PDFIUM-1236-1.pdf`.
 
 **What that document turned out to be, and the reading above is corrected by it** (ADR 0823).
@@ -1731,7 +1700,7 @@ rather than the filter's**: a decoder's sentence names where it stopped, not wha
 `unexpected end of input` was read as a statement about the file.
 
 
-### 44. What the eight-hundred-and-ninetieth took: `batch5/sumatrapdf`, and a rectangle of no area that stopped marks it does not place
+### 44. `batch5/sumatrapdf`, and a rectangle of no area that stopped marks it does not place
 
 **The directory, surveyed whole under the four rules** — twelve rayon threads, `--data 8
 --tree 12`, 3.1 s, 1.83 GiB peak. The line, a baseline for this directory and never a ratchet:
@@ -1750,7 +1719,7 @@ Ranked by report, one document counted once per kind: 10 `Font`, 6 `Text`, 2 `Op
 2 `Annotation`, one `TransparencyGroup`, one `Content`.
 
 **Ranked by ink** — ours flattened on white against `pdftoppm -cropbox` and `mutool draw` at
-72 dpi over all 17 incomplete pages, round 876's script — **the head is two rows within a hundredth
+72 dpi over all 17 incomplete pages, section 40's script — **the head is two rows within a hundredth
 of each other, and the first of them was already answered**: `sumatrapdf-378-0.pdf`, ours **0**
 against `poppler` 3.298 and `mupdf` 3.310, a page of 339 text operations whose `/FontFile2` is
 `Corrupt` after 409 275 bytes. That is ADR 0459's decision exactly — Table 125's stated extent is
@@ -1801,7 +1770,7 @@ object the file does not define — ADR 0789's side of §7.3.10, and this round 
 and `sumatrapdf-1550-0.pdf`, where the substituted face this machine offers draws none of the 148
 characters asked of it, which is [`21`](21-font-substitution.md)'s question and not this file's.
 
-**That list had a third entry until the eight-hundred-and-ninety-fourth session took it**:
+**A third entry is taken**:
 `sumatrapdf-404-0.pdf`, a colour-key `/Mask` on a `DCTDecode` image, refused by name — and the
 refusal was not the standard's. §8.9.6.4 says of the lossy filters only that their use "can produce
 unexpected results", which warns a writer about a picture and states no exception to its own
@@ -1821,7 +1790,7 @@ moves 5384 of 386 019 pixels by at most 2 of 255, because its `/Mask [0 0 0 0 0 
 exactly-zero CMYK and a lossy encoder left almost none — NOTE 2's own phenomenon, observed. Three
 rows in `doc/checks/fixed-documents.toml`.
 
-### 45. What the eight-hundred-and-ninety-sixth took: `batch5/DSS`, a tracker with nothing in it, and a check value read as a corruption
+### 45. `batch5/DSS`, a tracker with nothing in it, and a check value read as a corruption
 
 **The directory, surveyed whole under the four rules** — twelve rayon threads, `--data 8
 --tree 12`, 0.5 s, 0.04 GiB peak. The line, a baseline for this directory and never a ratchet:
@@ -1838,7 +1807,7 @@ well formed when it was written. The one unusable file is **fifteen bytes**. Ran
 2 `Font`, 1 `Content`.
 
 **Ranked by ink** — ours flattened on white against `pdftoppm -cropbox` and `mutool draw` at
-72 dpi over all three incomplete pages, round 876's script — **there is no head, and that is the
+72 dpi over all three incomplete pages, section 40's script — **there is no head, and that is the
 finding**:
 
 | document | ours | poppler | mupdf |
@@ -1848,7 +1817,7 @@ finding**:
 | `DSS-1441-2.pdf` | 0 | 0 | 0 |
 
 Every row is within 0.04 of a level of both references. `DSS-1356-8.pdf` is **byte-identical** to
-`batch1/PDFBOX/PDFBOX-3631-15.pdf` (`md5sum`), which round 894 made a fixed-documents row, and
+`batch1/PDFBOX/PDFBOX-3631-15.pdf` (`md5sum`), which is a fixed-documents row, and
 `-4` is the same SignRequest template one revision earlier; both report §9.9's closed-by-decision
 population — a glyph the document's own program has no outline for, 8 codes each.
 `DSS-1441-2.pdf`'s `/Contents` is a `FlateDecode` stream nothing decodes, and the page is blank in
@@ -1926,7 +1895,7 @@ held with their reasons on the record rather than as intentions:
   census names the population a round revisiting it would need.
 - **`sumatrapdf-LINK-1532-1.pdf`'s `/Font` entry**, above.
 
-### 46. What the nine-hundred-and-first took: `batch5/ocrmypdf`, and a ranking head that is a clause working
+### 46. `batch5/ocrmypdf`, and a ranking head that is a clause working
 
 **The directory, surveyed whole under the four rules** — twelve rayon threads, `--data 8
 --tree 12`, 2.9 s, 0.85 GiB peak. The line, a baseline for this directory and never a ratchet:
@@ -2007,7 +1976,7 @@ held with its reason on the record:
   once `/SA` is true. `doc/checks/fixed-documents.toml` pins the page so that withdrawing it fails
   a gate rather than a memory.
 
-### 47. What the nine-hundred-and-eighth took: `batch5/cairo`, and a dictionary that walked out of its own object
+### 47. `batch5/cairo`, and a dictionary that walked out of its own object
 
 **The directory, surveyed whole under the four rules** — twelve rayon threads, `--data 8
 --tree 12`, 0.5 s, 0.04 GiB peak. The line, a baseline for this directory and never a ratchet:
@@ -2085,7 +2054,7 @@ by the survey's own census as one of this directory's three "codes reaching no g
 `pdftoppm` and `mutool draw` produce no raster for either, so the disagreement is about what a
 reconstruction may claim rather than about a page.
 
-**The consumer that was left here was taken by the nine-hundred-and-twelfth**, and it is the same
+**The consumer that was left here is taken**, and it is the same
 document. `cairo-85141-0.zip-3.pdf`'s object 76 states **41 entries** readably — 39 references to
 glyph descriptions, `/a112` cut to a bare integer, and one key lexed out of the binary damage — and
 `Type3Font::read` now comes through ADR 0784's door for them, on §9.6.4's step b): "If the name is
@@ -2096,7 +2065,7 @@ substitutes nothing, Table 110's `/Widths` is in the whole font dictionary so no
 letters as holes, at ink **4.63038** against `pdftoppm` 1.75734, `mutool` 1.66218 and `hayro`
 1.69921 — all three discard the object — and `ghostscript` 8.93729, which draws glyphs for names
 whose descriptions are physically not in the file. ADRs 0866 and 0867, and the row in
-`doc/checks/fixed-documents.toml` moved to session 912.
+`doc/checks/fixed-documents.toml` says so.
 
 **And the population of the general question is now measured**, by
 `pdf-model --example damaged_dictionary_consumers` over 90 535 documents: 311 hold a damaged
@@ -2106,10 +2075,10 @@ stays shut for the other 327, key family by key family.
 
 **What is left here**: `batch5`'s other seventeen trackers, `pdfminer.six` (123) and `qpdf` (111)
 the largest of the remainder; the two reconstruction cases above; and `batch4` once its pieces
-land. (`pdfminer.six` was taken in the nine-hundred-and-twenty-sixth — §48.)
+land. (`pdfminer.six` is taken — §48.)
 
 
-### 48. What the nine-hundred-and-twenty-sixth took: `batch5/pdfminer.six`, a Table cell read as an algorithm, and a substitution that made black bars
+### 48. `batch5/pdfminer.six`, a Table cell read as an algorithm, and a substitution that made black bars
 
 **The directory, surveyed whole under the four rules** — `tools/bounded.sh --shards 2 --data 8
 --tree 12`, twelve rayon threads, 0.4 s, 0.04 GiB peak. The line, a baseline for this directory and
@@ -2179,7 +2148,7 @@ the substitution head above.
 and `batch4` once its pieces land.
 
 
-### 49. What the nine-hundred-and-thirty-second took: `batch5/qpdf`, and a dimension written as a real
+### 49. `batch5/qpdf`, and a dimension written as a real
 
 **The directory, surveyed whole under the four rules** — `tools/bounded.sh --data 8 --tree 12`,
 twenty-four rayon threads, 0.7 s, 0.02 GiB peak. The line, a baseline for this directory and never
@@ -2257,7 +2226,7 @@ tracker attachment is one that broke a program.
   so the deficit is not scan conversion. What it is, is `pdffonts`: four of five faces are **not
   embedded** and not one of them is §9.6.2.2's standard 14 (`Arial`, `Arial,Bold`, `Arial,Italic`,
   `Arial,Bold,Italic`), and a difference map against poppler is uniform over every glyph and empty
-  everywhere else. [`21`](21-font-substitution.md)'s standing population, exactly as session 926
+  everywhere else. [`21`](21-font-substitution.md)'s standing population, exactly as section 48
   found it one directory over.
 
 **What is left here**: `batch5`'s other fifteen trackers, `PDFIUM` (379) and `FOP` (808) the
@@ -2266,7 +2235,7 @@ largest of the remainder — both already walked, so what is left is the small o
 which is where the population is. Whether it should travel to every entry a table types as an
 integer is [`Q31`](../questions/Q31-how-far-a-readers-tolerance-of-7-3-3-travels.md).
 
-**Session 936 swept that class and amended two things in this paragraph's finding.** The rule lives
+**A sweep of that class amended two things in this paragraph's finding.** The rule lives
 in `pdf_model::integer_entry` now rather than in `image.rs`, and it is **the nearest integer rather
 than the truncated one** — because the second document above is what settles it. `GHOSTSCRIPT-695872-0.pdf`'s
 inline image says `/W 737.999999999715 /H 49.999999999` over a JPEG frame of 738 × 50, so the new
@@ -2284,7 +2253,7 @@ trackers by batch and `batch5` by tracker, the crawl by its 145 buckets. A walk 
 nothing to say, and the cost of splitting it is a few seconds of process startup.
 
 
-### 50. What the nine-hundred-and-thirty-seventh took: `batch5/pdfcpu`, and a font matrix written to two decimal places
+### 50. `batch5/pdfcpu`, and a font matrix written to two decimal places
 
 **The directory, surveyed whole under the four rules** — `tools/bounded.sh --data 8 --tree 12`,
 twenty-four rayon threads, 1.2 s, 0.02 GiB peak. The line, a baseline for this directory and never
@@ -2403,7 +2372,7 @@ the other 44 opening onto a page tree that yields none. Over the 65 659, `exampl
 **720 report anything at all about page one** and **64 939 report nothing**: **98.9%** of this
 crawl's first pages are drawn with no shortfall to name. That is a statement about what this tree
 *reports*, not about whether the pixels are right — the ink ranking is the instrument for the
-second question and the two have different blind spots (640's rule) — and it is the first time the
+second question and the two have different blind spots (section 26's rule) — and it is the first time the
 report instrument has been run over the population rather than over a chunk of it.
 
 **What the 720 are made of**, by the first thing each names: 250 a font whose program has no
@@ -2434,7 +2403,7 @@ diagnostic (§1's argument); a round that wants to close a departure should come
 that shows what closing it would buy.
 
 
-### 28. The chunk the eight-hundred-and-thirty-fifth took: `pdf-differences` read as clauses
+### 28. `pdf-differences` read as clauses
 
 **Not a new population but the one §14 left owed**, and §4's own words for it: *the per-case gates
 this corpus makes possible, one clause and one hand-built witness apiece, each with its expected
@@ -2464,8 +2433,7 @@ colour spaces both ways — and the four this file already records are as their 
   whenever both were on, so both drew the document's round join where one of them wants two end
   caps. `pdf_render::opened_where_a_dash_ends_at_the_close` is the rule and
   `render-raster/tests/dashed_close.rs` holds all three backends to it.
-- **`VerticalText.pdf` was the case left standing, and the eight-hundred-and-thirty-sixth session
-  took it** (ADR 0763). `/Encoding /Identity-V` over a non-embedded `CIDFontType0` of
+- **`VerticalText.pdf` was the case left standing, and it is taken** (ADR 0763). `/Encoding /Identity-V` over a non-embedded `CIDFontType0` of
   `Adobe-Japan1`: the producer had already chosen the vertical-form CIDs, and a substitute reached
   through Unicode drew the horizontal brackets and the centred punctuation the corpus publishes as
   wrong. The displacement was right all along — `/DW2 [ 880 −1600 ]` puts the columns where the
@@ -2477,8 +2445,7 @@ colour spaces both ways — and the four this file already records are as their 
   rest are: the first draws what §9.3.6's two paragraphs ask for as far as three read-throughs can
   establish, and the second is about what a *user interface* shows for §12.4.2's labels.
 
-**What this chunk left was one gate rather than a population, and the eight-hundred-and-thirty-sixth
-session added both.** `crates/pdf-model/tests/indexed_out_of_range.rs` holds §8.6.6.3's row of
+**What this chunk left was one gate rather than a population, and both are added.** `crates/pdf-model/tests/indexed_out_of_range.rs` holds §8.6.6.3's row of
 patches and `inline_image_abbreviations.rs` gained a second test for §8.9.7's eight images. Two
 things were learned in the writing and neither was in the sentence this paragraph replaces.
 
@@ -2496,7 +2463,7 @@ things were learned in the writing and neither was in the sentence this paragrap
   answered by §8.9.7's stated length, the other falling through to the first filter's own
   end-of-data — and the second gate is a second witness rather than a duplicate.
 
-### 29. The chunk the eight-hundred-and-fifty-fifth took: the issue-tracker corpus, at last
+### 29. The issue-tracker corpus
 
 **§28 said it in as many words — "[w]hat is left in this file for a *population* is the 31 GB
 issue-tracker corpus and nothing else" — and five sections before it held the same offer open.
@@ -2533,11 +2500,10 @@ its first 160 bytes. Each attempt starts from nothing.
 4.2G, `batch3` 3.4G, `batch4` 5.0G, `batch5` 3.9G, `batch6` 1.2G — **19.5 GB compressed**, which is
 where this file's "31 GB" figure comes from uncompressed. One directory per tracker inside each.
 
-**Fetched and verified in the eight-hundred-and-fifty-fifth: `batch6` and `batch1`, 3.27 GB
-compressed and 4.2 GB on disk.** `batch2` was attempted eleven times there and never matched its
-digest; `batch3`, `batch4` and `batch5` were untried.
+**Fetched and verified first: `batch6` and `batch1`, 3.27 GB compressed and 4.2 GB on disk.**
+`batch2` was attempted eleven times and never matched its digest.
 
-**Retried in the eight-hundred-and-fifty-seventh: `batch3` landed, the other three did not.** Six
+**Retried: `batch3` landed, the other three did not.** Six
 attempts apiece, each starting from nothing. `batch3.tgz` came back on its fifth attempt at
 3 606 571 824 bytes matching its published digest exactly; `batch5`'s six attempts were all the
 Archive's 160-byte nginx `504` page; `batch2` and `batch4` each got one transfer that started and
@@ -2598,8 +2564,7 @@ denominators `CLAUDE.md` separates, not one number twice.
   `0423548.pdf` 2.35 → 2.37 s and `3990833.pdf` 2.78 → 2.79 s, three samples each, which is noise
   in the wrong direction. Reverted on `CLAUDE.md`'s own rule that an optimisation is justified by a
   benchmark.
-- ~~**So what this page needs is a bound, and this round did not invent one.**~~ **Taken in the
-  eight-hundred-and-fifty-sixth** (ADR 0780), in the order this paragraph asked for. The measure is
+- ~~**So what this page needs is a bound.**~~ **Taken** (ADR 0780), in the order this paragraph asked for. The measure is
   cumulative **group blit pixels** — `pdf_render::group_blit_demand`, read off the display list and
   drawing nothing — and the constant is `MAX_GROUP_BLIT_PIXELS`, sized by
   `examples/group_blit_census` over the three populations the way `MASK_BUDGET` was sized, with
@@ -2615,10 +2580,9 @@ denominators `CLAUDE.md` separates, not one number twice.
   of its fonts and whose objects the bug report's reduction removed — §7.3.10's null, a different
   clause and a different producer's mistake. ADR 0779 has the split and its three populations; the
   974 do not move and twenty-two reports in this corpus do.
-- ~~**The claim that has held for six populations breaks here, and it breaks softly.**~~ **Read in
-  the eight-hundred-and-fifty-seventh, and both of the numbers above were wrong.** The population
-  is **28** documents rather than sixteen — the four directories' own survey lines add to it — and
-  **13** of them get a page count out of `pdfinfo` rather than eight. What matters more is that the
+- ~~**The claim that has held for six populations breaks here, and it breaks softly.**~~ **Read.** The population
+  is **28** documents — the four directories' own survey lines add to it — and **13** of them get a
+  page count out of `pdfinfo`. What matters more is that the
   count was the wrong instrument: **`pdfinfo`'s `Pages:` is the page tree's `/Count`, not a page**,
   and this tree prints the *same* number for ten of the thirteen, because `Pages::len` reads
   `/Count` too. Asked to draw page one at 36 dpi instead, poppler answers a 1×1 image or a blank
@@ -2642,7 +2606,7 @@ directories are named for the reader that failed, which the crawl's hash buckets
 wanting a defect should take another tracker; a round wanting a rate should not, because a bug
 tracker's rate is a fact about bug reports.
 
-### 30. The chunk the eight-hundred-and-fifty-seventh took: `batch3`, which is one tracker
+### 30. `batch3`, which is one tracker
 
 **`batch3.tgz` landed and verified**, 3 606 571 824 bytes against Apache's published SHA-512
 `a00bbb1e97f101db…c15cbd1b`, on the fifth attempt of a day whose first four came back as the
@@ -2697,7 +2661,7 @@ nearer the web than it is to its own corpus's other three directories.**
   target, 32 s. Neither is diagnosed further here; the first is handed to `40` and the second is
   a size rather than a structure.
 
-### 31. ~~What the eight-hundred-and-fifty-seventh leaves: a recovery whose condition is not its comment~~ — **taken in the eight-hundred-and-fifty-eighth** (ADR 0782)
+### 31. ~~What `batch3` leaves: a recovery whose condition is not its comment~~ — **taken** (ADR 0782)
 
 **The `len()`-versus-`/Count` question is settled in writing and the code matches the reading.**
 Table 30's own cell makes `/Count` "redundant" and the `Kids` arrays and their descendants what
@@ -2739,7 +2703,7 @@ documents into a claim about one, and the other three are a *page object* defect
 *tree* defect — a different item, unread, and the question it would ask is whether §7.3.7's
 dictionary has a prefix worth drawing, which is trap 5's test again on a third population.
 
-### 32. What the eight-hundred-and-fifty-eighth leaves: three batches, and a route that works
+### 32. Three batches, and a route that works
 
 **§29's hypothesis is confirmed: HTTP `Range` requests get past whatever stops a whole-file
 transfer near 4.2 GB.** `batch2`'s pieces come back as clean `206`s at exactly the length asked
@@ -2768,7 +2732,7 @@ here** — the round's own history file records what this one got. What is worth
 route is proven and the remaining cost is patience: about 512 MiB of the Archive's throttling per
 successful piece, and `batch2`, `batch4` and `batch5` are 9, 11 and 8 pieces.
 
-### 33. What the eight-hundred-and-sixtieth took: `batch2`, and the page object that will not parse
+### 33. `batch2`, and the page object that will not parse
 
 **`batch2` was fetched by the round before and extracted by this one**, verified against Apache's
 published SHA-512. `ls corpus-cache/tika-issue-tracker/` is what says which batches are on this
@@ -2781,7 +2745,7 @@ beyond its closing `>>` and states that the written order is not information, so
 before the damage are a **subset** of the producer's rather than the dictionary. `Document::get`
 still refuses the object outright; a second door hands the subset to a caller that asks by name —
 first `Pages`' recovery, only where those entries themselves state Table 31's `/Type /Page`, and
-since the nine-hundred-and-twelfth session a Type 3 font's `/CharProcs` as well, on §9.6.4's own
+a Type 3 font's `/CharProcs` as well, on §9.6.4's own
 step b) (ADRs 0866, 0867).
 
 **The population was measured first and it is several defects rather than one.**
@@ -2799,7 +2763,7 @@ where the whole object parsed, so in a rebuilt file a damaged object is not mere
 wants to ask a question about an object that will not parse has the same problem, and
 `Document::damaged_dictionaries` is the only answer to it in the tree.
 
-### 34. What the eight-hundred-and-sixty-first read: the eleven that declare `/Type /Page` nowhere
+### 34. The eleven that declare `/Type /Page` nowhere
 
 **§33 left a majority and nobody had asked what was in it.** `examples/standing_count_census` split
 the standing-count population by cause and the largest cause was *no object whose bytes declare
@@ -2882,15 +2846,15 @@ Two doors, and each is worth arguing rather than assuming:
    `/Name` has guessed where the bad value ended. The one thing in its favour is that no valid
    object begins with the keyword the guess steps over — but that is an argument about *these*
    files rather than about the clause, which is where it should stop until somebody reads §7.3
-   properly for it. **[§36](#36-what-the-eight-hundred-and-sixty-third-read-73-for-door-2-which-is-now-closed)
+   properly for it. **[§36](#36-73-for-door-2-which-is-now-closed)
    is that reading and the door is closed**; the objection in this bullet turns out to be
    answerable and a different clause refuses it. Do not re-open this from here.
 
-Neither was taken in the eight-hundred-and-sixty-first. What it took was the account: **the eleven
+Neither door is taken here (sections 35 and 36 take them). What this section holds is the account: **the eleven
 are five defects, two of them with a route the standard supplies and three with none**, and the
 census prints which is which rather than this file asserting it.
 
-### 35. What the eight-hundred-and-sixty-second took: the first of those two doors
+### 35. The first of those two doors
 
 **Door 1 is built and all five of §34's witnesses draw.** `Pages::new`'s recovery now runs the
 tree's `/Kids` beside the scan: `tree_named` descends from the catalogue's `/Pages` collecting the
@@ -2926,7 +2890,7 @@ only witnesses, and `poppler-355-0.pdf`, `PDFBOX-3870-0`, `PDFBOX-3894-0` and `P
 beyond any additive recovery for the reasons §34 states. `standing_count_census` prints where the
 population now stands.
 
-### 36. What the eight-hundred-and-sixty-third read: §7.3 for door 2, which is now closed
+### 36. §7.3 for door 2, which is now closed
 
 **§34 said the argument "should stop until somebody reads §7.3 properly for it".** This is that
 reading, and its verdict is **no**: door 2 is refused for good, and ADR 0787 has it in full.
@@ -2990,7 +2954,7 @@ refusal out loud is the answer for all six.
 now **ask what made the prefix the producer's**. Where the answer is byte continuity from a known
 position, no recovery may skip bytes and keep the guarantee.
 
-### 37. What the eight-hundred-and-sixty-fourth took: `batch5`, the GHOSTSCRIPT tracker, and a silence that was the reader's
+### 37. `batch5`, the GHOSTSCRIPT tracker, and a silence that was the reader's
 
 **`batch5` landed and is on disk.** The fetch shepherd of the round before verified it against
 Apache's published SHA-512 and this round verified it again before extracting; `ls
@@ -3084,7 +3048,7 @@ marks on it, which is why it is worth having beside the first.
 interpretation-side clip cost, which is [`40`](40-mask-chain-crop.md)'s to price with a witness it
 did not have.
 
-### 38. What the eight-hundred-and-sixty-ninth re-walked: the second half of ADR 0798's GHOSTSCRIPT slice, after ADR 0791 closed the item that was todo 17
+### 38. The second half of ADR 0798's GHOSTSCRIPT slice, re-walked after ADR 0791 closed the item that was todo 17
 
 The slice ADR 0798 measured is the first 680 of `batch2/GHOSTSCRIPT` in sorted order, and its
 second half is the 340 that held the ten-gibibyte document. Re-walked here after the raster
@@ -3114,13 +3078,13 @@ trackers, the `MAX_FORM_DEPTH` sixteen, and `40`'s clip cost.
   start one at all. The tool cannot do it by accident and can do it on purpose; which of those a
   session is doing is a question for whoever is paying for the bytes.
 - **Do not add a corpus to the default gate sequence** on the strength of it being interesting.
-  Session 385 took that sequence from 608 s to 268 s. The `pdfbox` comparison is in it because it
+  The sequence's cost is its argument (`tools/state.sh gates-cost`). The `pdfbox` comparison is in it because it
   costs 0.4 s on a binary already being built and needs no external process; an instrument that
   runs `pdftotext`, `pdftoppm` or `gs` per document is a different proposition and the timing is
   the argument either way.
 - **Do not commit a SafeDocs file** without reading `doc/third-party-data.md`'s entry for it.
 
-### 39. What the eight-hundred-and-seventy-first ran: ADR 0271's experiment on section 37's sixteen, and two of them are not cycles
+### 39. ADR 0271's experiment on section 37's sixteen, and two of them are not cycles
 
 Section 37 left one thing owed by name: sixteen documents in `batch2/GHOSTSCRIPT` reach
 `MAX_FORM_DEPTH`, and ADR 0271's experiment — lift the bound sixteenfold in a scratch build, one
@@ -3167,8 +3131,8 @@ documents are its witnesses, 64 draws both, and the crawl's four and `MOZILLA`'s
 run at the candidate bound in the same sitting so that the claim about cycles is re-made over all
 twenty-seven rather than inherited.
 
-**And the fourteen were not cycles either, bar two** — the eight-hundred-and-seventy-fourth
-found the experiment above measured the instrument: a tiling cell was run at `MAX_FORM_DEPTH - 1`,
+**And the fourteen were not cycles either, bar two** — the experiment above measured the
+instrument: a tiling cell was run at `MAX_FORM_DEPTH - 1`,
 so a cell holding two levels of forms reached the bound at 256 as surely as at 16. With the bound
 asked once in `Interpreter::run` and set to 64 from a stack measurement, twenty-five of the
 twenty-seven witnesses across the three corpora draw whole reporting nothing, and only
@@ -3182,7 +3146,7 @@ is a baseline rather than a ratchet. And a "legitimate" nesting is one that term
 the sixty-four-deep Aspose page is a producer's intent or a producer's accident is not a question
 the bound can answer, and the page it holds is a page.
 
-### 40. What the eight-hundred-and-seventy-sixth took: `batch5`'s REDHAT tracker, and a fax drawn to the row it breaks on
+### 40. `batch5`'s REDHAT tracker, and a fax drawn to the row it breaks on
 
 **The first of `batch5`'s two dozen trackers, walked under the four rules of 2026-09-02**: one
 walk on the machine at a time, `tools/bounded.sh --data 8 --tree 12`, twelve rayon threads, and
@@ -3253,7 +3217,7 @@ dictionary nobody resolves and a `MAX_TILES` refusal, both diagnosed populations
 `Content { Unreachable }` documents whose `/Contents` is §7.3.10's null are worth a look from
 ADR 0789's side — the survey names them and this round did not open them.
 
-### 41. What the eight-hundred-and-seventy-eighth took: `batch5/poppler`, the six-gigabyte document, and a JPEG whose lines are stated after its data
+### 41. `batch5/poppler`, the six-gigabyte document, and a JPEG whose lines are stated after its data
 
 **Section 40's allocation was the file.** The directory walked one document per process under
 `tools/bounded.sh --data 2 --tree 4`, four lanes side by side, exited 0 on every one of its 1586

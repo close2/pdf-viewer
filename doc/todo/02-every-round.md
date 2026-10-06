@@ -19,8 +19,8 @@ running only the first finishes when the corpus goes quiet, which can happen wit
 standard unimplemented and nothing able to say which parts; one running only the second ships
 features no file exercises. This is a principle-5 rule, not a suggestion.
 
-**But the map is not the territory.** Four of the six findings in the ten sessions from the
-hundred-and-twentieth were on no list at all: a `shall` hiding behind a silence about artwork (ADR
+**But the map is not the territory.** Four of six findings in one run of ten rounds were on
+no list at all: a `shall` hiding behind a silence about artwork (ADR
 0109), a clause with two populations where the row named one (0110), a malformed optional entry
 that erased a font (0111), and a font cache keyed by a name that drew wrong glyphs in silence for
 thirty-one sessions (0115). None was `silent`, none was `reported`, and no gate could see the
@@ -86,6 +86,7 @@ cargo test  --profile gates -p pdf-syntax     --test on_disk         -- --ignore
 cargo build --release       -p pdf-sandbox --bins   # trap 10 again, and `--release` on purpose: see below
 cargo test  --release       -p viewer-ui      --test launch_path    -- --ignored --nocapture   # principle 2's numbers, the counted half (doc/verify.md runs the clocks)
 cargo test  --release       -p render-raster  --test turn_path      -- --ignored --nocapture   # doc/performance.md 3e's turn and step rows, banded in doc/checks/turn-path.toml (ADR 1513)
+tools/batch.sh raster-examples   # ci.yml's fourteen raster examples, each with --check under Xvfb, one line each (ADR 1575)
 ```
 
 **Tier 3 — the merge, on `main`, and every line of it.** These are the corpus-scale walks. An
@@ -218,6 +219,7 @@ merely upstream of it does not. Everything else in tier 3 is the merge's.
 | a change in | is under | so run, beyond tier 1 |
 |---|---|---|
 | `render-raster` | the third rasteriser only | the quorra gate, and its second coverage lane where the change is a quorra release or the zoom path; and `--test turn_path` (release) where the change is in raster's encode, an image decode or anything a page turn crosses — `doc/performance.md`'s turn and step rows, banded (ADR 1513) |
+| `raster/crates/raster-gpu/src/` | CI's `raster-examples` job, and the gate that runs it here | `tools/batch.sh raster-examples`, behind the lock through `tools/bounded.sh` as every walk is: each example `.github/workflows/ci.yml` names, built `--release` and run with `--check` under `xvfb-run`, one line per example with its exit and its log. `cargo test` builds no example, so an example's assertions run nowhere else here, and two went stale where only the owner's CI ran them (ADR 1563); the merge runs it as `t2-raster_examples` (ADR 1575) |
 | `render-gpu` | no gate at all | the workspace tests are the only judge — `cargo test -p render-gpu --test headless_gpu`, **without** `--ignored`: none of its tests is ignored, so that flag runs zero of them and exits 0; say so, and consider `doc/verify.md`'s cross-backend runs |
 | `viewer-core`, `viewer-accessibility` | the two censuses | `selection_census`, `accessibility_census` |
 | `viewer-ui`, `viewer-gtk`, `viewer-qt`, `viewer-ffi`, `viewer-host`, `viewer-confined`, `confined-transport`, `pdf-fuse`, `pdf-vfs-ffi`, `kio/` | the launch-path gate for the first of them, and the awkward-class sweep for `viewer-confined` | the core, which builds and tests them; section 5's `tools/batch.sh install` rebuilds what a person runs at the merge. **And `--test awkward_classes`, with its `--bins` line, where the change is in `viewer-confined`, `confined-transport` or anything `pdf-view-worker` links** — the sweep of the other confined program, in the sequence since session 995 (ADR 1015). **And `--test launch_path` where the change is in `viewer-ui`, `viewer-core` or anything the launch path crosses**, which is `CLAUDE.md` principle 2's four numbers and is the only gate in this sequence that can see them. **`confined-transport` is under two crates**, so a change there is a change to `viewer-confined` *and* `pdf-vfs`, and both of their worker binaries have to be rebuilt before their tests are believed — trap 10 twice. **`pdf-fuse` and `pdf-vfs-ffi` are the two faces and neither has a gate of its own**: the workspace lines build and test both, and `pdf-vfs-ffi`'s own tests need `pdf-vfs`'s worker beside them, which `cargo nextest run --workspace` and `cargo test -p pdf-vfs-ffi` both produce (they build a package's bin targets) — the trap-10 shape would bite only if a `--profile gates --test` line were added for this crate, as it did for `pdf-vfs`. **`kio/` is not in the workspace at all** and no `cargo` line reaches it; what builds it is `crates/pdf-vfs-ffi/tests/the_kio_worker.rs`, which runs CMake and a KIO client and **skips, printing what is missing**, on a machine with no `cmake`, ECM, Qt 6 or KF6 — so this sequence stays green with no KDE installed, which is the whole reason that directory is outside the workspace (ADR 0869) |
@@ -237,9 +239,8 @@ round into `main` owns this section for the merged result, before the next round
 it. There is no exemption for a merge that "only touched docs" — the five-round breakage was in
 an example file nobody thought about either.
 
-**This sequence used to be more than twice as slow**, until the three-hundred-and-eighty-fifth
-session measured every step of it and changed four things; ADR 0222 has the table and the
-argument, and `Cargo.toml`'s profiles carry the reasoning beside the settings. What binds here —
+**This sequence is half what it cost before every step of it was measured** and four
+things changed; ADR 0222 has the table and the argument, and `Cargo.toml`'s profiles carry the reasoning beside the settings. What binds here —
 and this line said *five notes* over ten bullets, because each round that added one counted the
 list it had read rather than the list it left:
 
@@ -262,17 +263,15 @@ list it had read rather than the list it left:
 - **Run the sequence on a quiet machine, and run nothing beside it.** Three of these lines spawn
   *other programs* with time budgets — the oracle's poppler, mupdf and ghostscript, the text line's
   `pdftotext`, quorra's device — and a budget is wall clock rather than work, so a reference
-  renderer that would have finished loses to a `cargo` build running in another terminal. The
-  six-hundred-and-twenty-sixth session ran the ledger sweeps beside the sequence and the oracle
-  reported **38 not comparable and 873 agreeing in 218 seconds**; the identical tree, run alone,
+  renderer that would have finished loses to a `cargo` build running in another terminal. A round that ran the ledger sweeps beside the
+  sequence saw the oracle report **38 not comparable and 873 agreeing in 218 seconds**; the identical tree, run alone,
   reported **13 and 907 in 57 seconds**, and the section's exit status went from 101 to 0. Nothing
   had changed but the load. **A gate that spawns a reference is a measurement of two programs, and
   a loaded machine is a silent third**: the failure is legible as a regression in the thing being
   measured, which is the worst shape a false result can take. Sweeps, censuses and background
   builds go before the sequence or after it, never during.
 
-  **And it is not only the clock that moves, which the nine-hundred-and-fourteenth session found
-  the hard way.** `foreign_corpus`'s `bookmarks` lane failed on `bug1997343.pdf` with a §14.7 fault
+  **And it is not only the clock that moves.** `foreign_corpus`'s `bookmarks` lane failed on `bug1997343.pdf` with a §14.7 fault
   — "mupdf resolves the source page's parent-tree entry to 90 entries and ours to 79" — beside a
   neighbouring round's walk at a load average of 32, and the identical tree re-run alone reported
   `bookmarks: §14.7 faults: 0`. Nothing there is a duration: what changed is **how much structure
@@ -282,12 +281,11 @@ list it had read rather than the list it left:
   foreign-reader disagreement seen on a loaded machine is re-run alone before it is diagnosed.
 
   **And it is not only the lines that spawn a reference.** `tests/corpus.rs` carries a wall clock
-  of its own — no document may take longer than 30 s to open and draw — and in the
-  eight-hundred-and-ninety-first session that threshold produced its first recorded false
+  of its own — no document may take longer than 30 s to open and draw — and that threshold has produced a false
   positive: `ContentStreamCycleType3insideType3.pdf`, the `MAX_FORM_DEPTH` cycle that costs 3.8 s
   in ADR 0810, took **32.23 s** and failed the gate at exit 101 while a neighbouring round was
   building and running `cargo nextest run --workspace` in its own worktree at a load of 26. The
-  same gate on the same tree passed twice quiet in the same session, the whole walk in 11.5 s with
+  same gate on the same tree passed twice quiet in the same round, the whole walk in 11.5 s with
   `0 slow`. An eightfold margin is not proof against a machine running two rounds, so a `slow`
   failure is a thing to re-run alone before it is a thing to diagnose — and `ps` rather than
   `pgrep -af '…corpus…'` is what finds the neighbour, because a build is not a walk and the
@@ -301,7 +299,7 @@ list it had read rather than the list it left:
   call ran*, that is the gate to build; a duration is what is left when it cannot, and ADR 0884 is
   the five-part construction a duration costs here.
 
-  **The nine-hundred-and-sixth session is the third witness and the largest swing recorded**:
+  **The third witness is the largest swing recorded**:
   `pdf-transform`'s gate carries RFC 0002 section 12's floor of 40 pages a second and reported
   **33.3** while a neighbouring round ran a `render_at` sweep at 120 % of a core with a
   fifteen-minute load average of 19.69. The same tree, quiet, reported **198.3** — five times the
@@ -338,17 +336,15 @@ list it had read rather than the list it left:
   changes when one is added.
 - **The `selection_census` line is the one that clicks**, and it is here rather than in
   `doc/verify.md` because two of its three properties are exact and it is what catches a defect in
-  the loop from a press to a selection — which is the loop `doc/traps/the-interactive-loop.md`'s trap 12a is about and
-  which nothing gated until the five-hundred-and-eighty-sixth session. Its *drag fraction* is
+  the loop from a press to a selection — which is the loop `doc/traps/the-interactive-loop.md`'s trap 12a is about and which nothing else gates. Its *drag fraction* is
   printed and **not** ratcheted, by `doc/todo/05`'s standing rule; what fails the line is a
   selection that is not the interpreter's readback, a caret whose own point lands somewhere else,
   or a panic. Six seconds with a warm extraction cache, which it shares with the line above it.
 - **The `accessibility_census` line is a *ratchet* and says so**, which is the third of ADR 0323's
   instruments and the shape it was designed with: no other implementation puts a comparable tree on
   AT-SPI, so there is nobody to disagree with us and a count that cannot fall is what is honestly
-  available. It entered this list in the five-hundred-and-ninetieth session rather than in the one
-  that built it (ADR 0425), on `doc/todo/05`'s own rule — the counts had to hold across rounds
-  first, and they did. Twenty seconds. What fails the line is a capability count falling, a defect
+  available. It entered this list only after its counts had held across
+  rounds (ADR 0425), on `doc/todo/05`'s own rule. Twenty seconds. What fails the line is a capability count falling, a defect
   class growing, a panic, an untagged page given a structure it does not state, or a line whose
   characters disagree with its own text. **A tree without the `doc/pdf.js` submodule prints why it
   is not ratcheted instead of failing**, because a smaller population is the one reason a floor can
@@ -375,17 +371,15 @@ list it had read rather than the list it left:
 
 - **The `launch_path` line is `CLAUDE.md` principle 2's, and it is the one line here that is
   `--release`.** That principle names four numbers — cold open, time-to-first-page, page-turn
-  latency, memory high-water — makes cold graphics bring-up a fifth gate of its own, and until the
-  nine-hundred-and-twenty-second session **not one of them was printed by any command in this
-  tree**. `crates/viewer-ui/tests/launch_path.rs` is the harness, `doc/checks/launch-path.toml`
+  latency, memory high-water — makes cold graphics bring-up a fifth gate of its own, and this line is the
+  command that prints them. `crates/viewer-ui/tests/launch_path.rs` is the harness, `doc/checks/launch-path.toml`
   holds a band on each figure, and ADR 0884 is why a wall-clock gate can be believed here at all:
   every clock figure is the minimum of nine fresh processes pinned to the machine's fastest cores,
   and a calibration probe decides whether the clock is judged, so a loaded machine prints
   `NOT JUDGED` where it would otherwise have produced a fourth entry in this file's list of false
   failures.
 
-  **Since the nine-hundred-and-thirty-eighth session this line runs the half of the gate that has
-  no clock in it, and that is the owner's answer to `doc/questions/Q29`** (`A29`: options 1 and 2
+  **This line runs the half of the gate that has no clock in it, and that is the owner's answer to `doc/questions/Q29`** (`A29`: options 1 and 2
   together). Without `PDFVIEWER_LAUNCH_CLOCKS` in the environment the gate measures one sample of
   each phase and judges the figures a machine cannot move — the bytes an open reads, **the read
   calls it makes, the instructions it executes**, what it costs in memory, and what page one has
@@ -496,9 +490,8 @@ list it had read rather than the list it left:
   rather than on the day somebody notices.
 
   **Why the question *do the targets still compile against the tree they fuzz* is a line here at
-  all: they did not, for fourteen rounds.** The six-hundred-and-sixth session reshaped
-  `Answer::Frame` to carry a page apiece and the six-hundred-and-tenth reshaped the accessibility
-  answer the same way; `confined_wire` matched on the old shapes and no local gate saw it, because
+  all: they did not, for fourteen rounds.** One round reshaped `Answer::Frame` to carry a
+  page apiece and another reshaped the accessibility answer the same way; `confined_wire` matched on the old shapes and no local gate saw it, because
   the only instrument that builds `fuzz/` is a CI job that was itself failing for an unrelated
   reason the whole time. Principle 3 makes that worse than a compile error — fuzzing is meant to be
   continuous from the first parser commit, and between those rounds there was none.
@@ -523,7 +516,7 @@ Three rules bind a round rather than a count:
   libFuzzer's fork mode merges the corpus before it fuzzes, one execution per seed, and on the
   seeds `fuzz/seed_page.py` produces that merge had become most of every run's wall clock — one
   round spent fifty minutes inside it and got nothing back. `cargo fuzz cmin page` writes the
-  reduced set back, and the five-hundred-and-ninety-third session ran it: **the corpus fell to
+  reduced set back, and run once it took **the corpus down to
   about a quarter of its files and a seventh of its bytes, at no cost in coverage at all** — a
   `cmin` keeps exactly the distinct-coverage set, so the reduced corpus carries the same edges and
   the same features the whole one did — `cmin`'s own `MERGE-OUTER` line says so, and a fork-mode
@@ -640,8 +633,8 @@ whether every file is still the one installed; `tools/round.sh` fails while `mai
 (ADR 1511).
 
 **A round installs nothing and measures nothing from there.** It may not write in the main
-checkout, and a binary of the last merge is a measurement of the past — the
-hundred-and-forty-second session was reported as "still lags" against a binary three hours and six
+checkout, and a binary of the last merge is a measurement of the past — a page turn was once reported as "still lags"
+against a binary three hours and six
 commits old, one of which was the 40x page-turn fix. So **before any measurement** — of the launch
 path, a page turn, a frame, a memory high-water, anything section 2's gates do not print — a round
 builds `--release` what it measures, in its own build directory, and runs it from there:
@@ -655,7 +648,7 @@ cargo build --release --bin quorra --bin pdf-sandbox-worker   # what the measure
 **Which directory that is has to be *asked for*, never written down.** The main checkout builds
 where `~/.cargo/config.toml`'s `target-dir` says, a batch worktree where its `.cargo/config.toml`
 says (`tools/state.sh disk` prints both), and a literal path installs or runs a **neighbour's**
-binary: the seven-hundred-and-twenty-sixth session rebuilt the GTK host three times, installed it
+binary: one round rebuilt the GTK host three times, installed it
 three times, ran a feature that was working and saw nothing, because every run was of another
 branch's program. It is trap 15's own subject, reached through an instruction rather than a habit,
 and `install` asks Cargo in the worktree for the same reason.
@@ -736,8 +729,7 @@ and how to tell it from a regression.
 
 ## 6. Write it down, then commit
 
-**Check the file, not the script's exit status.** Twice, in the three hundredth and
-three-hundred-and-first rounds, a Python edit put its `assert` *after* the replacements and
+**Check the file, not the script's exit status.** Twice in two consecutive rounds a Python edit put its `assert` *after* the replacements and
 *before* the write, so a failed assertion left the file untouched while every other file in the
 same commit moved. `grep` what you wrote back out of the file before committing it, which is the
 same rule as trap 1 one directory over: the instrument that says a change happened is not the
@@ -785,8 +777,8 @@ verbatim, and never paraphrases the round's own reading in the owner's voice.
   the pixels — and on a tiling pattern `poppler` goes the other way, its strokes thinning rather
   than its edges sharpening. Take two ladders: one cannot tell convergence from drift, and two
   also say when *neither* has converged.
-- **A count that improves is not a picture.** The two-hundred-and-eighteenth session took the
-  corpus's incomplete list down by two and both documents were still wrong — one of them blank.
+- **A count that improves is not a picture.** One round took the corpus's incomplete list down
+  by two and both documents were still wrong — one of them blank.
   Trap 1's oldest sentence, and the second finding was three steps beyond the first, in a
   function neither document was about. **The inverse holds too**: a count that does *not* move is
   not evidence that nothing happened, which is what a round finding a defect no corpus document
@@ -796,8 +788,7 @@ verbatim, and never paraphrases the round's own reading in the owner's voice.
   `ambiguous_undiagnosed.txt`, or diagnosing a population would take its pages off the one
   instrument that sees content this tree is *not drawing*. Three minutes, from artefacts already
   on disk. Drop a reference whose ink is zero first, and read the result beside the corpus's
-  incomplete list: a page this tree reports is expected to be light. It found its first defect in
-  the two-hundred-and-sixty-fifth session — a text annotation attached to a point, drawn as
+  incomplete list: a page this tree reports is expected to be light. Its first defect was a text annotation attached to a point, drawn as
   nothing — on a page the ranking rated harmless because a nearly blank page resembles a nearly
   blank page.
 

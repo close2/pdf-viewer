@@ -28,7 +28,7 @@
 //!   could ask for the DX12 one. ADR 0017 records the shape and the two silences that
 //!   go with it: no backend field in [`Options`], and no `WGPU_BACKEND`.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::error::{DeviceError, PipelineProblem};
 
@@ -489,8 +489,31 @@ pub fn create_instance() -> wgpu::Instance {
 pub fn create_instance_with(backends: wgpu::Backends) -> wgpu::Instance {
     wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends,
+        flags: instance_flags(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     })
+}
+
+/// The flags every instance raster makes carries: the build's own, less the validation of
+/// indirect calls, which raster does not make.
+///
+/// **`VALIDATION_INDIRECT_CALL` is a pipeline compiled before the device is usable.** With
+/// it set, `wgpu` builds two compute pipelines inside `request_device` — one to check an
+/// indirect dispatch's arguments and one an indirect draw's — so that a device's construction
+/// waits for a shader compilation, which `CLAUDE.md` principle 2 forbids the launch path
+/// ("[t]he graphics library must return a usable device before it is warm"). On the Radeon
+/// 890M through RADV it was about 0.8 ms of a 2.2 ms `request_device` and 3.7 M of its
+/// instructions (ADR 1569).
+///
+/// **What it guards is a call raster does not record.** The pipelines check the arguments an
+/// indirect draw or dispatch reads from a buffer; every draw and dispatch here is direct, with
+/// its counts computed on the processor and bounded before they are recorded, and the test
+/// below holds the crate to that. A change that records an indirect call takes this flag back
+/// with it. Debug builds keep the build's other validation, which is the build's choice and
+/// not a bring-up figure.
+fn instance_flags() -> wgpu::InstanceFlags {
+    wgpu::InstanceFlags::from_build_config()
+        .difference(wgpu::InstanceFlags::VALIDATION_INDIRECT_CALL)
 }
 
 /// The instance a launch brings its device up on: the platform's primary backends, and
@@ -514,16 +537,59 @@ pub fn create_instance_with(backends: wgpu::Backends) -> wgpu::Instance {
 /// a machine draws on the adapter it would have had and pays one extra enumeration for it.
 #[must_use]
 pub fn create_launch_instance() -> wgpu::Instance {
+    create_launch_instance_timed().0
+}
+
+/// [`create_launch_instance`], and what each of its steps cost.
+///
+/// The two steps move for different reasons, which is why they are two numbers: making the
+/// instance is the Vulkan loader and every installed driver initialising, and is steady from
+/// launch to launch; the adapter check is the first physical-device enumeration, where the
+/// kernel driver is first asked about the GPU, and is the part of bring-up that varies (ADR
+/// 1569). [`StartupTimings::instance_creation`] cannot carry either, because the constructor
+/// that takes this instance did not make it.
+#[must_use]
+pub fn create_launch_instance_timed() -> (wgpu::Instance, LaunchSteps) {
+    let started = Instant::now();
     let primary = create_instance_with(wgpu::Backends::PRIMARY);
+    let made = started.elapsed();
+    let checking = Instant::now();
     let on_hardware = pollster::block_on(primary.enumerate_adapters(wgpu::Backends::PRIMARY))
         .iter()
         .any(|adapter| adapter.get_info().device_type != wgpu::DeviceType::Cpu);
+    let adapter_check = checking.elapsed();
     if on_hardware {
-        primary
-    } else {
-        drop(primary);
-        create_instance()
+        let steps = LaunchSteps {
+            instance_creation: made,
+            adapter_check,
+            every_backend: false,
+        };
+        return (primary, steps);
     }
+    drop(primary);
+    let again = Instant::now();
+    let instance = create_instance();
+    let steps = LaunchSteps {
+        instance_creation: made.saturating_add(again.elapsed()),
+        adapter_check,
+        every_backend: true,
+    };
+    (instance, steps)
+}
+
+/// What [`create_launch_instance_timed`] spent, one field per step that can regress on its
+/// own — this module's rule for [`StartupTimings`], applied to the instance a launch makes
+/// before any constructor sees it.
+#[derive(Debug, Clone, Copy)]
+pub struct LaunchSteps {
+    /// `wgpu::Instance::new`: the driver loader and the drivers' own initialisation — both
+    /// instances' together where the fallback made a second.
+    pub instance_creation: Duration,
+    /// Enumerating the primary backends' adapters to learn whether one is on hardware.
+    pub adapter_check: Duration,
+    /// Whether the primary backends offered no adapter on hardware, so that every backend was
+    /// loaded after them.
+    pub every_backend: bool,
 }
 
 /// Choose the adapter: the [`Options::adapter`] filter when there is one, wgpu's own
@@ -571,5 +637,50 @@ pub(crate) fn select_adapter(
                 available,
             }
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    /// Every `.rs` file under `directory`, with its text.
+    fn sources(directory: &Path, into: &mut Vec<(String, String)>) {
+        for entry in std::fs::read_dir(directory).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                sources(&path, into);
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                let text = std::fs::read_to_string(&path).unwrap();
+                into.push((path.display().to_string(), text));
+            }
+        }
+    }
+
+    /// `instance_flags` drops `wgpu`'s validation of indirect calls on the ground that raster
+    /// makes none (ADR 1569); this is that ground, read off the crate's own source. The needles
+    /// are assembled so that this file does not find itself.
+    #[test]
+    fn raster_records_no_indirect_call_so_its_validation_is_not_asked_for() {
+        let mut files = Vec::new();
+        sources(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut files,
+        );
+        assert!(files.len() > 10, "the crate's sources were found");
+        let needles = [
+            ["_indirect", "("].concat(),
+            ["BufferUsages::", "INDIRECT"].concat(),
+        ];
+        let found: Vec<&str> = files
+            .iter()
+            .filter(|(_, text)| needles.iter().any(|needle| text.contains(needle.as_str())))
+            .map(|(path, _)| path.as_str())
+            .collect();
+        assert!(
+            found.is_empty(),
+            "an indirect call is recorded in {found:?}: `instance_flags` must keep \
+             `VALIDATION_INDIRECT_CALL` for it"
+        );
     }
 }

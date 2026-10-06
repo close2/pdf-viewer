@@ -24,6 +24,10 @@
 # own form nodes, which carry §12.7.4.3's value as a text run and a choice's options as selectable
 # items (ADR 1489).
 #
+# And two things a screen reader does, through AT-SPI alone: it asks which window is the active one,
+# whose frame says so with the keyboard in it and not without (ADR 1565), and it clicks a text field
+# in the document's tree and types into it, which the saved file then holds (ADR 1566).
+#
 # Coordinates are ASKED of the window where it can answer: the drive runs on a private session bus
 # with AT-SPI on it, and the outline rows, the pages tab and row, the check box and the choice are
 # found by role and name and clicked at the centre of `Component.GetExtents` — so a change of layout
@@ -488,6 +492,13 @@ asked_fetch_up() {
     sleep 2
 }
 lines() { wc -l < "$LOG" 2>/dev/null || echo 0; }
+# outside: a corner of the screen the main window does not cover, as "x y".
+outside() {
+    local x y w h X Y WIDTH HEIGHT
+    eval "$(xdotool getwindowgeometry --shell "$(main_window)" 2>/dev/null | grep -E '^(X|Y|WIDTH|HEIGHT)=')"
+    x=${X:-0}; y=${Y:-0}; w=${WIDTH:-0}; h=${HEIGHT:-0}
+    if [ "$x" -gt 0 ] || [ "$y" -gt 0 ]; then echo "0 0"; else echo "$((x + w + 5)) $((y + h + 5))"; fi
+}
 # found_since N: whether the window said, after line N of its log, that a search found something —
 # `quorra`'s trace of the core's answer, or the two native windows' "found" note.
 found_since() { tail -n "+$(($1 + 1))" "$LOG" 2>/dev/null | grep -q 'searched: page\|^note: found "'; }
@@ -544,6 +555,78 @@ for index in range(desktop.get_child_count()):
     if application is not None and application.get_process_id() == pid:
         walk(application, 0)
 print(" ".join(str(seen.get(key, "-")) for key in "ACBDE"))
+PY
+# active.py PID: whether the window that holds the document's tree is the active one, as AT-SPI's
+# state set says — "active", "inactive", or "none" where no window of the process holds a
+# DocumentFrame. In the two toolkits' windows the toolkit publishes a frame of its own beside the
+# document's, so the frame asked is the one above the DocumentFrame (ADR 1565).
+cat > "$OUT/active.py" <<'PY'
+import sys
+import gi
+gi.require_version("Atspi", "2.0")
+from gi.repository import Atspi
+pid = int(sys.argv[1])
+def holds_a_document(node, depth):
+    if node is None or depth > 6:
+        return False
+    try:
+        if node.get_role() == Atspi.Role.DOCUMENT_FRAME:
+            return True
+        return any(holds_a_document(node.get_child_at_index(index), depth + 1)
+                   for index in range(node.get_child_count()))
+    except gi.repository.GLib.Error:
+        return False
+desktop = Atspi.get_desktop(0)
+for index in range(desktop.get_child_count()):
+    application = desktop.get_child_at_index(index)
+    if application is None or application.get_process_id() != pid:
+        continue
+    for nth in range(application.get_child_count()):
+        window = application.get_child_at_index(nth)
+        if window is not None and holds_a_document(window, 0):
+            active = window.get_state_set().contains(Atspi.StateType.ACTIVE)
+            print("active" if active else "inactive")
+            sys.exit(0)
+print("none")
+PY
+# aim.py PID NAME: performs the "click" action of the node of that name inside the document's tree
+# — §14.7's tree, or the widgets an untagged page publishes (ADR 1369) — the way a screen reader
+# activates a form field, without coordinates; fails where no such node declares the action.
+cat > "$OUT/aim.py" <<'PY'
+import sys
+import gi
+gi.require_version("Atspi", "2.0")
+from gi.repository import Atspi
+pid, name = int(sys.argv[1]), sys.argv[2]
+def find(node, depth, document):
+    if node is None or depth > 40:
+        return None
+    try:
+        document = document or node.get_role() == Atspi.Role.DOCUMENT_FRAME
+        if document and node.get_name() == name and node.get_action_iface() is not None:
+            return node
+        for index in range(node.get_child_count()):
+            found = find(node.get_child_at_index(index), depth + 1, document)
+            if found is not None:
+                return found
+    except gi.repository.GLib.Error:
+        return None
+    return None
+desktop = Atspi.get_desktop(0)
+for index in range(desktop.get_child_count()):
+    application = desktop.get_child_at_index(index)
+    if application is None or application.get_process_id() != pid:
+        continue
+    node = find(application, 0, False)
+    if node is None:
+        continue
+    action = node.get_action_iface()
+    for nth in range(Atspi.Action.get_n_actions(action)):
+        if Atspi.Action.get_action_name(action, nth) == "click":
+            Atspi.Action.do_action(action, nth)
+            print("clicked %s, a %s" % (name, node.get_role_name()))
+            sys.exit(0)
+sys.exit(1)
 PY
 # extents PID WINDOW: where AT-SPI's `GetCharacterExtents` puts the second character of the text
 # field N, and the field's own extents, both on the screen ("x y w h in X Y W H"), or "refused: …"
@@ -849,6 +932,68 @@ PY
         verdict 29-field-extents works "GetCharacterExtents(1): $seen"
     else
         verdict 29-field-extents wrong "GetCharacterExtents(1): ${seen:-nothing}"
+    fi
+
+    # AT-SPI's frame says whether the window is the active one, which is what a screen reader
+    # follows between applications: active with the keyboard in it, inactive once the keyboard is
+    # given to the root window — on two documents, an outline's and a form's (ADR 1565).
+    if [ -z "$BUS" ]; then
+        verdict 32-window-active "not offered" "no accessibility bus on this machine"
+    else
+        local active inactive file said=""
+        for file in drive drive-form; do
+            launch "$FIXTURES/$file.pdf"
+            xdotool windowfocus --sync "$(main_window)" 2>/dev/null; sleep 1.5
+            active=$(timeout 20 python3 "$OUT/active.py" "$APP" 2>/dev/null)
+            # The pointer leaves the window first: with the keyboard given to the root, X sends
+            # the keys to whatever window is under the pointer, and GTK counts that as having them.
+            # shellcheck disable=SC2046
+            xdotool mousemove $(outside) 2>/dev/null
+            xdotool windowfocus --sync "$(xwininfo -root | awk '/Window id:/ {print $4}')" 2>/dev/null; sleep 1.5
+            inactive=$(timeout 20 python3 "$OUT/active.py" "$APP" 2>/dev/null)
+            [ "$file" = drive ] && shot 32-window-active
+            said="$said $file.pdf: ${active:-nothing}, then ${inactive:-nothing};"
+        done
+        if [[ "$said" == " drive.pdf: active, then inactive; drive-form.pdf: active, then inactive;" ]]; then
+            verdict 32-window-active works "active with the keyboard and inactive without it:$said"
+        else
+            verdict 32-window-active wrong "with the keyboard, then without it:$said"
+        fi
+    fi
+
+    # §12.7.5.3's text field activated the way a screen reader activates it — the document's node's
+    # "click", no coordinates — takes what is typed next, in every window: a caret in the field
+    # `quorra` draws, the keyboard in the control a toolkit placed over it (ADR 1566). Two
+    # documents, an empty field A and a field N holding "123"; the witness is each saved file's /V.
+    if [ -z "$BUS" ]; then
+        verdict 33-aimed-field "not offered" "no accessibility bus on this machine"
+    else
+        local aimed field said="" values=""
+        for field in drive-form:A drive-field:N; do
+            aimed="$OUT/$WINDOW-aimed-${field%%:*}.pdf"
+            cp "$FIXTURES/${field%%:*}.pdf" "$aimed"; rm -f "${aimed%.pdf}.edited.pdf"
+            launch "$aimed"
+            if ! timeout 20 python3 "$OUT/aim.py" "$APP" "${field##*:}" > /dev/null 2>&1; then
+                said="$said no node ${field##*:} declares a click;"
+                continue
+            fi
+            sleep 1.5; type_in z
+            [ "${field##*:}" = A ] && shot 33-aimed-field
+            click 690 850; key ctrl+s; sleep 1
+            seen=$(python3 -c "import pikepdf,sys; p=pikepdf.open(sys.argv[1]); print(str({str(f.T): f for f in p.Root.AcroForm.Fields}[sys.argv[2]].get('/V')))" \
+                "${aimed%.pdf}.edited.pdf" "${field##*:}" 2>&1 | tail -1)
+            said="$said ${field##*:} is $seen;"
+            values="$values ${field##*:}=$seen"
+        done
+        # N's z replaces "123" where the control selects its text on taking the keyboard (GTK's
+        # entry does) and goes in beside it where it does not.
+        local typed="${values##* N=}"
+        if [ "$values" = " A=z N=$typed" ] && [ "${typed//[^z]/}" = z ] \
+                && { [ "${typed//z/}" = "" ] || [ "${typed//z/}" = 123 ]; }; then
+            verdict 33-aimed-field works "clicked through AT-SPI, typed z, saved:$said"
+        else
+            verdict 33-aimed-field wrong "clicked through AT-SPI, typed z, saved:$said"
+        fi
     fi
 
     # Annex O: the text after `#` in a command-line word is the URI's fragment (ADR 0209), carried

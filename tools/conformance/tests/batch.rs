@@ -791,3 +791,45 @@ fn install_names_every_program_and_library_the_workspace_builds_for_a_person() {
          {not_installed:?}\n  a C library not installed: {libraries_missed:?}"
     );
 }
+
+/// `tools/batch.sh raster-examples` runs what CI's `raster-examples` job runs: the names it reads
+/// out of `.github/workflows/ci.yml`'s `--check` loop are every example `raster-gpu` has, one a
+/// file under `examples/` or a directory with a `main.rs` (ADR 1575). `raster-gpu`'s own
+/// `tests/example_checks.rs` holds the workflow to the directory; this holds the gate's reading
+/// of the workflow, so a reformatted loop that the `awk` stops reading fails here rather than
+/// as a green gate that ran nothing.
+#[test]
+fn the_raster_examples_gate_reads_every_example_ci_runs() {
+    let listed = Command::new("bash")
+        .arg(repository_root().join("tools/batch.sh"))
+        .args(["raster-examples", "--list"])
+        .env("BATCH_WORKTREE", repository_root())
+        .output()
+        .expect("bash runs tools/batch.sh");
+    assert!(listed.status.success(), "--list failed: {}", text(&listed));
+    let mut read: Vec<String> = String::from_utf8_lossy(&listed.stdout)
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect();
+    read.sort();
+    let examples = repository_root().join("raster/crates/raster-gpu/examples");
+    let mut on_disk: Vec<String> = std::fs::read_dir(&examples)
+        .expect("raster-gpu has an examples directory")
+        .filter_map(|entry| {
+            let path = entry.expect("a readable directory entry").path();
+            let stem = path.file_stem()?.to_str()?.to_owned();
+            let is_example = if path.is_dir() {
+                path.join("main.rs").is_file()
+            } else {
+                path.extension().is_some_and(|extension| extension == "rs")
+            };
+            is_example.then_some(stem)
+        })
+        .collect();
+    on_disk.sort();
+    assert_eq!(
+        read, on_disk,
+        "tools/batch.sh raster-examples reads these names out of ci.yml (left); raster-gpu's \
+         examples/ holds these (right)"
+    );
+}

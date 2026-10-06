@@ -54,7 +54,9 @@ import os
 import re
 import sys
 
-from seed_der import definite, inflated_streams, paths, signature_values, stated, value_at, values
+from seed_der import (definite, inflated_streams, paths, shape, signature_values, stated, value_at,
+                      values)
+from seed_shape import Smallest, mapped, names_any
 
 # RFC 5652 section 5's `id-signedData`, `1.2.840.113549.1.7.2` — the only content type any of the
 # signature formats §12.8.3 defines puts in `/Contents`, and what `pdf_model::cms` requires.
@@ -105,6 +107,11 @@ CANDIDATE = re.compile(
 # an object stream states nothing else a scan can see. `seed_x509.py` declined a comparable trade
 # for 118 certificates; this one is five times the return for one run of a recipe, so it is taken.
 COLLECTIONS = (b"/ByteRange", b"/DSS", b"/VRI", b"/TS")
+
+# What a document must hold for any route to find a CMS object in it: one of the names above, or
+# `id-signedData`'s eleven octets in the clear, which every object the raw scan accepts states. A
+# document holding none is passed over by a search through its map (ADR 1571).
+NEEDLES = (*COLLECTIONS, ID_SIGNED_DATA)
 
 
 def signature(value):
@@ -202,6 +209,8 @@ def attribute_values(attributes, depth):
 
 
 def main(argv):
+    every = "--every" in argv
+    argv = [argument for argument in argv if argument != "--every"]
     if len(argv) < 3:
         sys.exit(__doc__)
     directory = argv[1]
@@ -210,20 +219,22 @@ def main(argv):
     # and a `/TS` restates what a signature above it already carried, so a per-occurrence tally
     # would report tens of thousands of finds over a corpus of a few thousand objects.
     route_of = {}
+    # One object per `seed_der.shape` (ADR 1571), or with `--every` each under its own name.
+    chosen = Smallest(name=lambda cms: hashlib.sha1(cms).hexdigest())
 
     def keep(cms, route):
         # A `ContentInfo` naming `id-signedData` is already thirteen octets of identifier, and
         # nothing under this length has a `SignerInfo` in it at all.
         if len(cms) < 32:
             return
-        name = hashlib.sha1(cms).hexdigest()
-        with open(os.path.join(directory, name), "wb") as handle:
-            handle.write(cms)
-        route_of.setdefault(name, route)
+        route_of.setdefault(hashlib.sha1(cms).hexdigest(), route)
+        chosen.offer(cms if every else shape(cms), cms)
 
     for path in paths(argv[2:]):
-        with open(path, "rb") as handle:
-            data = handle.read()
+        with mapped(path) as mapping:
+            if not names_any(mapping, NEEDLES):
+                continue
+            data = bytes(mapping)
         if b"/ByteRange" in data:
             for value in signature_values(data):
                 # Kept whatever it is: §12.8.3.2's `adbe.x509.rsa_sha1` puts a bare PKCS #1
@@ -241,12 +252,14 @@ def main(argv):
             for token in stated(buffer, CANDIDATE, is_signed_data):
                 keep(token, "stated")
 
+    written = chosen.write(directory)
     routes = list(route_of.values())
     print(
-        f"{len(route_of)} distinct CMS object(s) written to {directory}: "
+        f"{len(route_of)} distinct CMS object(s): "
         f"{routes.count('signature')} a signature value, "
         f"{routes.count('nested')} inside a signer's attributes, "
-        f"{routes.count('stated')} stated by a document"
+        f"{routes.count('stated')} stated by a document; {chosen.summary()}; "
+        f"{written} new in {directory}"
     )
 
 

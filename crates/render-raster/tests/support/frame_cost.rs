@@ -32,6 +32,44 @@ pub(crate) const WARM_UP: (&str, usize) = ("doc/PDF20_AN001-BPC.pdf", 1);
 /// different question on a different machine.
 pub(crate) const WINDOW: (u32, u32) = (1600, 1000);
 
+/// How long every core a round may run on is kept busy just before the round (ADR 1577).
+///
+/// **A round is a claim about the tree, and the clock an idle processor wakes at is not part of
+/// the tree.** This machine's governor (`amd-pstate-epp`, `balance_performance`) gives a core that
+/// has idled for a second a clock a quarter lower than one that has been working, and a child of
+/// a light page is short enough to live its whole run at the clock it started at: the mesh page's
+/// turn read 11.2 to 11.7 ms that way and 9.3 to 9.8 after this spin, the calibration probe beside
+/// it declined 24 of 90 children against 2, and the heavy rows moved by under 5% (ADRs 1519,
+/// 1556, 1577). Thirty milliseconds is what ADRs 1519 and 1556 measured with.
+pub(crate) const WARM_SPIN: Duration = Duration::from_millis(30);
+
+/// Keeps every core this process may run on busy for [`WARM_SPIN`], one thread a core, and
+/// returns when all of them have stopped.
+///
+/// The figure that follows is then the tree's at the clock a working processor runs at, which is
+/// the state the bands were taken in; what an idle machine adds to a first frame is the launch
+/// gate's subject, measured there as a person meets it.
+pub(crate) fn warm_the_cores() {
+    let cores = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
+    let began = Instant::now();
+    std::thread::scope(|scope| {
+        for _ in 0..cores {
+            scope.spawn(|| {
+                let mut state = 1_u64;
+                while began.elapsed() < WARM_SPIN {
+                    for _ in 0..1_000 {
+                        state = std::hint::black_box(
+                            state
+                                .wrapping_mul(6_364_136_223_846_793_005)
+                                .wrapping_add(1),
+                        );
+                    }
+                }
+            });
+        }
+    });
+}
+
 /// Milliseconds, the unit every frame line in this project is in.
 pub(crate) fn ms(span: Duration) -> f64 {
     span.as_secs_f64() * 1e3
@@ -207,8 +245,10 @@ pub(crate) struct Round {
     pub(crate) adapter: String,
 }
 
-/// One round of `path`'s page `index` in a window of `window` device pixels.
+/// One round of `path`'s page `index` in a window of `window` device pixels, on cores
+/// [`warm_the_cores`] has just kept busy.
 pub(crate) fn round(path: &str, index: usize, window: (u32, u32)) -> Round {
+    warm_the_cores();
     let page = read(path, index);
     // The page turn and the repaint after it, on the lane `coverage_for` gives every
     // magnification below 10× — which is the lane the window turns a page on.

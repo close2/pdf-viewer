@@ -253,6 +253,18 @@ change to *what* is bounded, and both need the argument before the code.
   46.64 → 40.62 G instructions. What is left of the two is lexing and the glyph description's
   stream being looked up again per code (`NestedContent::of`, a fifth of the second unit), which
   is per-operator work every bound already counts.
+- **The `page` target's slow units are six shapes, and one of them is a cost no bound governs**
+  (ADR 1571, callgrind over all 70 on disk): the Type 3 glyph cycle above (3 units), nested forms
+  and patterns that reach their depth and tile bounds (18), image samples through the `DeviceCMYK`
+  press, bounded only by the image's own sample count (29), substitute-font search (2), content
+  lexing and tiling (15) — and three units sharing one TrueType font whose `post` table is format
+  2.0 with 5125 glyphs, 14.3 G instructions each and 99% of it in `read_fonts`'s
+  `Post::glyph_name`. `pdf-font`'s `post_glyph` searches the table per name it is asked for, and
+  each lookup walks the string list from its start, so one unlisted name costs the square of the
+  glyph count over two and a font pays it per name. The comment above it prices the scan against
+  the map for a small font; at 65 535 glyphs and 256 unlisted names the quadratic extrapolates to
+  about 750 times this unit. The fix is a name-to-glyph map built once per font, linear in the
+  glyphs, and it is `pdf-font`'s to make; every unit exits 0 today, at most 2.6 s in release.
 - **And it was counting the wrong quantity as well, which is a different fault from the one above
   and is fixed** (ADR 0306). Every "operators" in this file's budget rows means *lexer tokens*: the
   one increment site was the token loop, and §7.8.2 puts an operator after its operands, so a `c`

@@ -1438,9 +1438,11 @@ const CONTRADICTED_DEVICE_CMYK_CONVERSION: [&str; 5] = [
 /// > However, only those pixels whose centres lie within the region shall be painted.
 ///
 /// That paragraph opens by saying a sampled image's region is determined similarly to a
-/// filled shape's *though not identically*, and the sentence above is the difference. An
-/// image mask is an image XObject (§8.9.6.2), so it is the paragraph that applies here — and
-/// note what it does not carry over: the guarantee §10.7.4 states two paragraphs earlier,
+/// filled shape's *though not identically*, and the sentence above is the difference. This
+/// mask is an inline image, which §8.9.7 makes a sampled image in another form, and an image mask
+/// is one whose samples say where the current colour goes (§8.9.6.2), so it is the paragraph that
+/// applies here — and note what it does not carry over: the guarantee §10.7.4 states two
+/// paragraphs earlier,
 ///
 /// > This ensures that no shape ever disappears as a result of unfavourable placement
 /// > relative to the device pixel grid, as might happen with other possible scan conversion
@@ -1504,14 +1506,20 @@ const CONTRADICTED_DEVICE_CMYK_CONVERSION: [&str; 5] = [
 /// members of that pair — [`CONTRADICTED_GLYPH_EDGES`]'s last section has the table. The mask
 /// paragraph above owns the margin; ADR 0717 measured what the bound under it is made of.
 ///
-/// # Whose departure this is (ADR 1483)
+/// # Whose departure this is: the references' (ADRs 1483, 1572)
 ///
-/// Ours, and it stands as a decision rather than a defect: the image paragraph's "only those
-/// pixels whose centres lie within the region shall be painted" is the sentence, the 0.478 of a
-/// row is §10.7.4 row's departure (1) met at an image's edge, and that row records it as the
-/// departure it is. The references' whole row is not the clause either, so neither moving to
-/// them nor to the clause's empty row is a fix this group can ask for; the one that would be is
-/// the departure revisited on its own row. [`Whose::Ours`] in [`WHOSE_DEPARTURE`].
+/// The 0.478 of a row is §10.7.4 row's departure (1) met at an image's edge, and it is still a
+/// departure from the image paragraph's "only those pixels whose centres lie within the region
+/// shall be painted". It is not what the verdict holds. The clause's own form put in our place —
+/// row 25 left white, everything else ours — is contradicted by the same pair on the same measure
+/// and by more on the others: against `poppler` it differs in 8.06% of channels, exactly as ours
+/// does, because a white channel and a `0x85` one are each a channel the references' black row
+/// differs from, and its structural similarity falls from ours 0.948 to 0.821. The bound, twice the
+/// `poppler`–`mupdf` pair over `Tolerance::TEXT_HEAVY`'s floor, is 7.34%. Only the references' own
+/// row clears it, at 6.71%, and that row is the shape rule applied to an image, the paragraph
+/// before the one that governs. So the departure the verdict rests on is the references', and no
+/// reading of the clause available to this tree closes it; [`Whose::References`] in
+/// [`WHOSE_DEPARTURE`]. ADR 1572 has the closed forms against every reference.
 const CONTRADICTED_SUBPIXEL_IMAGE: [&str; 1] = ["issue4436r.pdf page 1"];
 
 /// Contradicted, where the two references that agree are the same decoder.
@@ -14269,11 +14277,12 @@ impl Whose {
 /// The clause is the one whose sentence settles the verdict the group holds, which is not always
 /// the group's subject: [`CONTRADICTED_VISIBILITY_EXPRESSION`] is about `/VE`, and its note
 /// measures that the `DeviceCMYK` press owns the differing fraction it fails on, but the sentence
-/// the references depart from is §8.11.2.2's and that is the claim the group makes. The one
-/// [`Whose::Ours`] row is §10.7.4 row's departure (1) — a partly covered pixel painted partly —
-/// met at an image's edge, and its note measures that departure as the margin. The same departure
-/// met at a clip's edge is on [`CONTRADICTED_TIGHT_CONSENSUS`]'s page as well, and that page is
-/// the references' because its verdict is a tile the departure does not reach (ADR 1560).
+/// the references depart from is §8.11.2.2's and that is the claim the group makes. No row is
+/// [`Whose::Ours`]. §10.7.4 row's departure (1) — a partly covered pixel painted partly — is on two
+/// held pages, and neither verdict is the departure's: at a clip's edge on
+/// [`CONTRADICTED_TIGHT_CONSENSUS`]'s page the verdict is a tile the departure does not reach
+/// (ADR 1560), and at an image's edge on [`CONTRADICTED_SUBPIXEL_IMAGE`]'s the clause's own form
+/// in our place is contradicted by the same measure (ADR 1572).
 const WHOSE_DEPARTURE: &[(&str, Whose, &str)] = &[
     (
         "CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE",
@@ -14296,7 +14305,7 @@ const WHOSE_DEPARTURE: &[(&str, Whose, &str)] = &[
         Whose::Choice,
         "§10.3.2",
     ),
-    ("CONTRADICTED_SUBPIXEL_IMAGE", Whose::Ours, "§10.7.4"),
+    ("CONTRADICTED_SUBPIXEL_IMAGE", Whose::References, "§10.7.4"),
     (
         "CONTRADICTED_SHARED_JBIG2_DECODER",
         Whose::References,
@@ -15559,8 +15568,9 @@ fn name_the_pages_no_group_holds(ranked: &[(&Examined, f64, &str)]) {
         .collect();
     if unheld.is_empty() {
         println!(
-            "    every one of the {} pages is held by a group by name, so the next page to take \
-             is the highest row whose note names a departure of ours rather than a reference's",
+            "    every one of the {} pages is held by a group by name, so the next page to take, \
+             if any, is the highest row whose note names a departure of ours rather than a \
+             reference's",
             ranked.len()
         );
     } else {
@@ -15575,8 +15585,8 @@ fn name_the_pages_no_group_holds(ranked: &[(&Examined, f64, &str)]) {
 
 /// The page the ranking's last sentence sends a round to, named rather than described.
 ///
-/// [`name_the_pages_no_group_holds`] ends on "the next page to take is the highest row whose note
-/// names a departure of ours"; [`WHOSE_DEPARTURE`] says which notes those are, so the row is
+/// [`name_the_pages_no_group_holds`] ends on "the next page to take, if any, is the highest row whose
+/// note names a departure of ours"; [`WHOSE_DEPARTURE`] says which notes those are, so the row is
 /// found here over the whole pool rather than the ten printed above it, and the pool's split
 /// between the three answers is counted beside it (ADR 1483).
 fn name_the_next_departure_of_ours(ranked: &[(&Examined, f64, &str)]) {

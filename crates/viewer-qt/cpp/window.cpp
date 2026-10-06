@@ -953,6 +953,12 @@ MainWindow::MainWindow(rust::Box<Host> host)
         Busy guard(busy_);
         host_->accessibility_pump();
         applyUpdates();
+        // A client's click on a text field or a choice is a point under the control placed over
+        // it, so the control is given the keyboard here, where the controls are (ADR 1566).
+        const int aimed = host_->aimed_control();
+        if (aimed >= 0 && static_cast<std::size_t>(aimed) < controls_.size()) {
+            controls_[static_cast<std::size_t>(aimed)]->setFocus(Qt::OtherFocusReason);
+        }
     });
 
     // The look at the drawing thread. Created stopped, exactly as the two above are:
@@ -1519,6 +1525,30 @@ void MainWindow::moveEvent(QMoveEvent* event)
 {
     QMainWindow::moveEvent(event);
     reportPlacement();
+}
+
+// Whether this is the window a person is in, for a screen reader that follows the active window
+// between applications. Told to the adapter whose tree the reader walks; before the first frame
+// there is no adapter and the value waits on the Rust side (ADR 1565).
+void MainWindow::changeEvent(QEvent* event)
+{
+    QMainWindow::changeEvent(event);
+    if (event->type() == QEvent::ActivationChange) {
+        reportActivation();
+    }
+}
+
+// A change that arrives inside another call into the host — a dialogue's nested loop is where a
+// window loses the keyboard most often — is told once that call has returned rather than dropped,
+// and what is told is the state then, because the last word is the one a reader needs.
+void MainWindow::reportActivation()
+{
+    if (busy_) {
+        QTimer::singleShot(100, this, [this] { reportActivation(); });
+        return;
+    }
+    Busy guard(busy_);
+    host_->window_activated(isActiveWindow());
 }
 
 void MainWindow::resizeEvent(QResizeEvent* event)

@@ -3805,6 +3805,47 @@ impl Host {
         });
     }
 
+    /// §12.7.5.3's text field or §12.7.5.4's choice, clicked by an assistive technology: the
+    /// keyboard goes to the control this host placed over the widget (ADR 1566).
+    ///
+    /// What a click on one asks for is a caret, or the options, and a person's click gets both
+    /// from the `GtkEntry` or the list it lands on. A client's click is a point on the page, under
+    /// the control, so the control is given the keyboard instead — the same `grab_focus` §12.5.1's
+    /// tab walk ends in, from an idle for that walk's reason: GTK moves its own focus after the
+    /// call that asked has returned. What the keys then do in the control is the toolkit's.
+    pub(crate) fn aim(
+        &mut self,
+        name: &pdf_model::view::FieldName,
+        annotation: pdf_syntax::ObjectId,
+    ) {
+        let Some(control) = self
+            .placed
+            .iter()
+            .find(|placed| placed.key.1 == annotation)
+            .map(|placed| placed.widget.clone())
+        else {
+            // A widget the frame placed no control over — off the arrangement, or a kind this
+            // host draws — has nothing to aim at, and says so (trap 5).
+            let said = format!("the field {} has no control placed over it", name.shown());
+            self.trace
+                .say(Topic::Access, format_args!("refused: {said}"));
+            eprintln!("note: {said}");
+            return;
+        };
+        self.trace.say(
+            Topic::Access,
+            format_args!("the keyboard goes to the field {}", name.shown()),
+        );
+        glib::idle_add_local_once(move || {
+            control.grab_focus();
+        });
+    }
+
+    /// Whether this window has the keyboard, which the accessibility bridge is told (ADR 1565).
+    pub(crate) fn window_active(&self) -> bool {
+        self.ui.window.is_active()
+    }
+
     /// Gives the keyboard to the page a person has just pressed on, unless the press went into one
     /// of this host's controls or the find bar.
     ///
@@ -4919,6 +4960,15 @@ fn build_window(
     let window = gtk4::ApplicationWindow::new(app);
     window.set_default_size(1000, 1100);
     window.set_title(Some(&named(path)));
+    // Whether a screen reader is told this is the window a person is in (ADR 1565). On the idle
+    // queue for `connect_search_mode_enabled_notify`'s reason below: GTK raises the notification
+    // from inside calls that can be holding the host borrowed.
+    let listener = me.clone();
+    window.connect_is_active_notify(move |window| {
+        let active = window.is_active();
+        let listener = listener.clone();
+        glib::idle_add_local_once(move || with(&listener, |host| host.window_focused(active)));
+    });
 
     let (fixed, popups, chrome, overlay) = page_area(chrome_state);
 

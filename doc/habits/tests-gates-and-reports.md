@@ -479,7 +479,8 @@ replacement had always pointed at stale bytes (ADR 1515 §5) — a range into a 
 test that moves the buffer.
 
 **A change under `raster/crates/raster-gpu/src/` runs every example `ci.yml` names with `--check`,
-under Xvfb, behind the lock.** Nothing in the merge recipe runs them, so their premises went stale
+under Xvfb, behind the lock.** Nothing in the merge recipe ran them, so their premises went stale
 until the owner's CI failed on two of them (`outline_upload`'s witness, `retained`'s cold-frame
-signature; ADR 1563). Until the examples are a gate of `tools/batch.sh gates`, the round that
-touches `raster-gpu` runs the loop itself and says so in its record.
+signature; ADR 1563). The merge runs them as `tools/batch.sh gates`' `t2-raster_examples` line, and
+the round that touches `raster-gpu` runs the same loop, `tools/batch.sh raster-examples`, behind the
+lock and says so in its record (ADR 1575).

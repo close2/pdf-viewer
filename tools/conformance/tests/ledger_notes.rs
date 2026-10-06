@@ -43,7 +43,7 @@ use conformance::ledger::{Exclusion, Grounding, Ledger, Status};
 /// Held by equality: a count above it is a note written with its history in it, and a count below
 /// it is a round that took some out and owes the lower number here. The clause families still
 /// carrying them are printed on every run, largest first, so the next round knows where to start.
-const ORDINALS_IN_THE_LEDGER: usize = 934;
+const ORDINALS_IN_THE_LEDGER: usize = 693;
 
 /// Whether `word`, a maximal run of lowercase letters and hyphens, is a session ordinal.
 fn is_spelled_ordinal(word: &str) -> bool {

@@ -604,6 +604,9 @@ pub mod ffi {
         /// Asked after a Tab so that the keyboard follows the walk: into the control, or to the
         /// page, where Space and Enter press a push-button the page draws (ADR 1357).
         fn focused_control(self: &Host) -> i32;
+        /// Which placed control an assistive technology's click on §12.7.5.3's text field or
+        /// §12.7.5.4's choice aimed the keyboard at, or -1; asked after each drain (ADR 1566).
+        fn aimed_control(self: &mut Host) -> i32;
         /// §7.6.4.1: a person typed a password, or dismissed the prompt with an empty one.
         ///
         /// **An empty string is a decline and not the default user password**, which the reader
@@ -849,6 +852,13 @@ pub mod ffi {
         /// being asked for per page: `viewer-ui` measured the same two questions at 1.8 to 3.2 ms
         /// of synchronous X11 round trips when it asked them on every page turn (ADR 0228).
         fn window_placed(self: &mut Host, outer: QtPlace, inner: QtPlace);
+        /// The window gained or lost the keyboard: `QEvent::ActivationChange`, with
+        /// `QWidget::isActiveWindow` after it.
+        ///
+        /// What a screen reader follows between applications, told to the adapter rather than to
+        /// Qt's own accessibility layer because the tree a reader walks is the adapter's (ADR
+        /// 1565).
+        fn window_activated(self: &mut Host, active: bool);
         /// The page area's top-left corner in the window's contents, in device pixels.
         ///
         /// What AccessKit adds to a node is the contents' origin, and the page area sits below

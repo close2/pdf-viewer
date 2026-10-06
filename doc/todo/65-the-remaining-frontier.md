@@ -73,27 +73,20 @@ permanent) or an owner decision to acquire a specification.
   `hayro-jbig2` reads EXTTEMPLATE and ignores it, and `doc/patches/hayro-jbig2-extended-template.patch`
   waits on the owner's fork (ADR 1459); `crates/pdf-sandbox/tests/t88_conformance.rs` says the day the
   codec takes it. No corpus stream uses it.
-- §12.10, §12.10.2 — a geospatial viewport's **projection**. Everything the file states is read and a
-  person can trace a path in one: which system the map is in, how many `/GPTS`–`/LPTS` pairs register
-  it, whether §12.10.2's `/Bounds` neatline covers the point (ADR 1191). Turning a projected
-  coordinate into a latitude needs the EPSG registry or an ISO 19162 string, and §12.10.3 names both
-  as texts outside this standard. **Whether the projection may be built of this tree's own is the
-  owner's open question `doc/questions/Q171`** — a WKT grammar and the inverse series from IOGP's
-  free guidance note, or the registry's tables beside them — and neither row is built on it until
-  the answer lands; this map records the wait and does not decide it.
-- §7.4.9 — thirteen corpus JPEG 2000 codestreams decode one level off the reference software, held by
-  name so an upstream release closing it fails the build. The one sentence of this clause addressed
-  to a processor asks for *support* of the JPX baseline enumerated colour spaces, which ITU-T T.801
-  M.9.2.4 lists — the held identical text of ISO/IEC 15444-2 (`doc/questions/A169`, ADR 1383).
-  CMYK, sRGB, its grey, sYCC, ROMM-RGB and CIE Lab under D50 are drawn as defined; e-sRGB and
-  e-sYCC (PIMA 7667), CIE Jab (CIE Publication 131) and CIE Lab under another illuminant take
-  §7.4.9's device fallback, because those texts are not held — PIMA 7667 is sold (IS&T, ANSI), CIE
-  131 is sold and superseded there by CIE 159, and a non-D50 Lab wants the illuminant's white point,
-  which T.801 codes after ITU-T T.4 Annex E. That text is held and read: it gives the white point in
-  XYZ for D50 alone and names every other illuminant by a code, its data left for further study, so
-  no held text states the value this case needs. The row's note carries the date each text's
-  availability was read on, which is the date to re-check it against. Checking the restriction on a file is not a reader's job and is not
-  counted as debt (ADR 1184); `pdf-archive` checks all of M.9.2 for ISO 19005 (ADRs 1383, 1399).
+- §7.4.9 — the one sentence of this clause addressed to a processor asks for *support* of the JPX
+  baseline enumerated colour spaces, which ITU-T T.801 M.9.2.4 lists — the held identical text of
+  ISO/IEC 15444-2 (`doc/questions/A169`, ADR 1383). CMYK, sRGB, its grey, sYCC, ROMM-RGB and CIE Lab
+  under D50 are drawn as defined; e-sRGB and e-sYCC (PIMA 7667), CIE Jab (CIE Publication 131) and
+  CIE Lab under another illuminant take §7.4.9's device fallback, because those texts are not held —
+  PIMA 7667 is sold (IS&T, ANSI), CIE 131 is sold and superseded there by CIE 159, and a non-D50 Lab
+  wants the illuminant's white point, which T.801 codes after ITU-T T.4 Annex E. That text is held
+  and read: it gives the white point in XYZ for D50 alone and names every other illuminant by a
+  code, its data left for further study, so no held text states the value this case needs. The
+  row's note carries the date each text's availability was read on, which is the date to re-check
+  it against. Checking the restriction on a file is not a reader's job and is not counted as debt
+  (ADR 1184); `pdf-archive` checks all of M.9.2 for ISO 19005 (ADRs 1383, 1399). The thirteen
+  corpus codestreams a level off the reference software on the irreversible path are not debt:
+  ISO/IEC 15444-1 leaves that path's reconstruction and precision to the decoder (ADR 1574).
 - §12.8.3.4.4 — enforcing a signature policy's constraints. Everything the held texts define is read:
   ETSI EN 319 122-1 clause 5.2.9's attribute whole — which policy, its digest with the all-zero *not
   known* kept apart, the URL, the notice meant to be shown, the specification identifier — and clause
@@ -260,6 +253,13 @@ A normal round can advance or close each of these today; there is no missing sur
 package, no cross-round architecture. Membership is re-derived from the ledger rather than carried: a
 row is in this bucket when its note names none of those three.
 
+- §12.10, §12.10.2 — a geospatial viewport's **projection**. Everything the file states is read and a
+  person can trace a path in one (ADR 1191). The owner's answer `doc/questions/A171` makes the
+  projection this tree's own to build: a census over the crawl first, deciding whether `/WKT` alone
+  suffices or tables of the EPSG codes documents use are needed; the inverse methods it finds cited
+  to IOGP Guidance Note 7-2, its worked examples as the tests; an accuracy budget documented as a
+  choice; within the file's own datum, as §12.10 asks (ADR 1574).
+
 §13.4 was here, and is `departed`: Table 306's stream `/Poster` is drawn in `/Rect` at a placement
 this program chose, and the playing — the boolean form with it — is the one withholding, on the
 clause 13 exclusion `doc/questions/A33` bounded (ADR 1561).
@@ -279,7 +279,7 @@ These are `partial` only because something they carry is; each note says so and 
 They are not independently actionable — do not brief a round to *take* one. `tools/state.sh ledger`
 counts them among `partial`; they flip when the last binding row flips.
 
-§7.6, §12.1, §12.8, §12.8.3, §12.8.3.4.
+§7.6, §12.8, §12.8.3, §12.8.3.4.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap

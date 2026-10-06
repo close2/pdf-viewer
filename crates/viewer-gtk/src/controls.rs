@@ -340,7 +340,7 @@ fn toggle(
         );
         // `false`: the click reached the control — it *is* the control's signal — so there is
         // nothing about a page coordinate to report.
-        if let Some(said) = clicked.note(false) {
+        if let Some(said) = clicked.note() {
             eprintln!("note: {said}");
         }
         match clicked {

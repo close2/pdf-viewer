@@ -133,6 +133,44 @@ def stated(data, opening, accept):
     return out
 
 
+def shape(data):
+    """A DER structure's shape: the set of object identifiers it states anywhere, and whether it
+    uses clause 8.1.3.6's indefinite length.
+
+    The readers this seeds — `pdf_model::cms`, `pdf_signature`'s certificate and revocation
+    readers — branch on identifiers: which digest, which signature algorithm, which curve, which
+    attribute or extension is present, which content type. What they do with a name, a serial
+    number or a key's digits is arithmetic on data, the same branch for every value. So one seed
+    per set of identifiers, with the length form beside it because the walk above takes a branch of
+    its own for it (ADR 1571). An `OCTET STRING` or `BIT STRING` whose contents are themselves one
+    whole DER value — an extension's value, an encapsulated content — is walked into as well."""
+    found = set()
+    indefinite = _walk(data, found, 0)
+    return (frozenset(found), indefinite)
+
+
+def _walk(data, found, depth):
+    """`shape`'s walk: adds each identifier under `data` to `found`; whether a length was
+    indefinite (an end-of-contents marker at a value's end with `0x80` as its length octet)."""
+    indefinite = False
+    if depth > 32:
+        return indefinite
+    for tag, first, last in values(data):
+        contents = data[first:last]
+        if 0 < first <= len(data) and data[first - 1] == 0x80 and data[last:last + 2] == b"\x00\x00":
+            indefinite = True
+        if tag == 0x06:
+            found.add(bytes(contents))
+        elif tag & 0x20:
+            indefinite |= _walk(contents, found, depth + 1)
+        elif tag in (0x03, 0x04):
+            inner = contents[1:] if tag == 0x03 else contents
+            inside = values(inner) if inner[:1] in (b"\x30", b"\x31") else []
+            if inside and inside[-1][2] == len(inner):
+                indefinite |= _walk(inner, found, depth + 1)
+    return indefinite
+
+
 STREAM = re.compile(rb"stream\r?\n")
 
 # A stream body long enough to hold what these seeders look for and short enough that inflating

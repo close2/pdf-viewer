@@ -20,7 +20,7 @@ use raster_scene::{
 };
 
 use super::Device;
-use super::ramp::{RAMP_RESOLUTION, RAMP_ROWS, sample_ramp};
+use super::ramp::{RAMP_RESOLUTION, RAMP_ROWS, sample_ramps};
 use super::textures::{
     TexelRect, opaque, paint_texture, premultiply_in_place, write_samples, write_texels,
 };
@@ -278,6 +278,10 @@ impl Device {
         for op in ops {
             bytes = bytes.saturating_add(self.fill_sampled(op)?);
         }
+        // A frame's new ramps are sampled together, on threads where there are enough of them,
+        // and only then made into textures in the order the encode named them (ADR 1567).
+        let mut wanted = Vec::new();
+        let mut stops = Vec::new();
         for &id in &encoded.used_ramps {
             if self.ramp_textures.contains_key(&id) {
                 continue;
@@ -285,7 +289,11 @@ impl Device {
             let Some(stored) = self.resources.ramp(RampId(id)) else {
                 return Err(RenderError::UnknownRamp { ramp: RampId(id) });
             };
-            let samples = sample_ramp(&stored.stops);
+            wanted.push(id);
+            stops.push(&stored.stops[..]);
+        }
+        let tables = sample_ramps(&stops, self.encode_threads);
+        for (id, samples) in wanted.into_iter().zip(tables) {
             let pair = self.rgba_texture("raster ramp", RAMP_RESOLUTION, RAMP_ROWS, &samples);
             bytes = bytes.saturating_add(samples.len() as u64);
             self.ramp_textures.insert(id, pair);

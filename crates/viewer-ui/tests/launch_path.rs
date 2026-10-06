@@ -655,14 +655,41 @@ fn phase_bring_up() {
         }
     };
     let (judged, wall, runq) = corrected(elapsed, scheduled, waited);
-    measured_beside_the_machine(&[
+    let mut fields = vec![
         ("bring_up_ms", judged),
         ("bring_up_wall_ms", wall),
         ("bring_up_runq_ms", runq),
         ("adapter", adapter),
         ("mapped_kib", or_absent(mapped_resident_kib())),
         ("peak_kib", or_absent(peak_resident_kib())),
-    ]);
+    ];
+    if let Ok(ref raster) = backend {
+        fields.extend(device_steps(raster));
+    }
+    measured_beside_the_machine(&fields);
+}
+
+/// The device thread's own steps, as the child's fields: each one's duration as raster and the
+/// host timed it, in milliseconds, and `-` for a step this host did not make (ADR 1569).
+///
+/// They happen in this order and nothing else on the thread is between them but the device's
+/// assembly — its pipeline store, the warm-up thread's spawn, a sampler and the timestamp query
+/// sets — and the host's caches, which is what the printed remainder is.
+fn device_steps(backend: &QuorraRasterizer) -> Vec<(&'static str, String)> {
+    let ms = |duration: std::time::Duration| format!("{:.3}", duration.as_secs_f64() * 1e3);
+    let (launch, device) = backend.startup();
+    vec![
+        (
+            "device_instance_ms",
+            launch.map_or_else(|| "-".to_owned(), |steps| ms(steps.instance_creation)),
+        ),
+        (
+            "device_check_ms",
+            launch.map_or_else(|| "-".to_owned(), |steps| ms(steps.adapter_check)),
+        ),
+        ("device_adapter_ms", ms(device.adapter_selection)),
+        ("device_request_ms", ms(device.device_creation)),
+    ]
 }
 
 /// **Phase `first-page`**: process start to page one's pixels, the device on the critical path.
@@ -783,7 +810,7 @@ fn phase_first_page() {
         ("mapped_kib", or_absent(mapped_resident_kib())),
         ("peak_kib", or_absent(peak_resident_kib())),
     ];
-    fields.extend(cost);
+    fields.extend(cost.into_iter().chain(device_steps(&backend)));
     measured_beside_the_machine(&fields);
 }
 
@@ -1346,6 +1373,19 @@ fn print_timeline(fields: &Fields) {
         ),
         ("opened_ms", "document opened (document thread)"),
         ("anticipated_ms", "page one interpreted (document thread)"),
+        (
+            "device_instance_at",
+            "graphics instance made (device thread)",
+        ),
+        (
+            "device_check_at",
+            "adapters enumerated, one found on hardware (device thread)",
+        ),
+        ("device_adapter_at", "adapter chosen (device thread)"),
+        (
+            "device_request_at",
+            "device and queue returned by request_device (device thread)",
+        ),
         ("device_ms", "graphics device up"),
         ("joined_ms", "document joined"),
         ("requested_ms", "first render requested"),
@@ -1358,11 +1398,14 @@ fn print_timeline(fields: &Fields) {
             "outline and page tree read (a thread of their own, after the frame's clock)",
         ),
     ];
+    let steps = device_thread_instants(fields);
     let mut lines: Vec<(f64, &str)> = milestones
         .iter()
         .filter_map(|&(key, what)| {
             let at = if key == "phase_began" {
                 Some(0.0)
+            } else if let Some(&(_, at)) = steps.iter().find(|(step, _)| *step == key) {
+                Some(at)
             } else {
                 field(fields, key)
             };
@@ -1376,6 +1419,52 @@ fn print_timeline(fields: &Fields) {
     for (at, what) in lines {
         println!("launch-path:     {at:>7.1} ms  {what}");
     }
+}
+
+/// The device thread's steps as instants from the phase's start: each step's own duration laid
+/// end to end from the moment the thread began, which is when the phase did (ADR 1569). What
+/// lies between the last of them and "graphics device up" is the device's assembly and the
+/// host's caches.
+fn device_thread_instants(fields: &Fields) -> Vec<(&'static str, f64)> {
+    let mut at = 0.0;
+    let mut instants = Vec::new();
+    for (step, key) in [
+        ("device_instance_at", "device_instance_ms"),
+        ("device_check_at", "device_check_ms"),
+        ("device_adapter_at", "device_adapter_ms"),
+        ("device_request_at", "device_request_ms"),
+    ] {
+        let Some(spent) = field(fields, key) else {
+            continue;
+        };
+        at += spent;
+        instants.push((step, at));
+    }
+    instants
+}
+
+/// The bring-up child's steps on one line: what each cost and what is left of the figure.
+fn print_device_thread(fields: &Fields) {
+    let at = |key: &str| field(fields, key);
+    let named = [
+        "device_instance_ms",
+        "device_check_ms",
+        "device_adapter_ms",
+        "device_request_ms",
+    ]
+    .iter()
+    .filter_map(|key| at(key))
+    .sum::<f64>();
+    let shown = |key: &str| at(key).map_or_else(|| "-".to_owned(), |value| format!("{value:.1}"));
+    println!(
+        "launch-path:   the device thread: instance {} + adapter check {} + adapter {} + \
+         request_device {} + the device's assembly and the host's {:.1} ms",
+        shown("device_instance_ms"),
+        shown("device_check_ms"),
+        shown("device_adapter_ms"),
+        shown("device_request_ms"),
+        (at("bring_up_wall_ms").unwrap_or(0.0) - named).max(0.0),
+    );
 }
 
 /// What the first frame was made of on the device thread — the span between "first render
@@ -2431,6 +2520,7 @@ fn the_launch_path_stays_inside_its_bands() {
                  and the rest is mapped libraries{}",
                 waiting(&fields, "bring_up_runq_ms")
             );
+            print_device_thread(&fields);
             band_it(
                 &mut judged,
                 "the graphics device".to_owned(),

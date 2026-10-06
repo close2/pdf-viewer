@@ -74,8 +74,9 @@ pub use report::{Report, ReportKind};
 pub use retained::RetainedScene;
 pub use startup::{
     Coverage, DEFAULT_ATLAS_BUDGET, DEFAULT_COVERAGE_SAMPLES, DEFAULT_GLYPH_QUANTUM,
-    DEFAULT_MAX_FRAME_BYTES, DEFAULT_MAX_RESOURCE_BYTES, Options, StartupTimings, WarmUp,
-    create_instance, create_instance_with, create_launch_instance,
+    DEFAULT_MAX_FRAME_BYTES, DEFAULT_MAX_RESOURCE_BYTES, LaunchSteps, Options, StartupTimings,
+    WarmUp, create_instance, create_instance_with, create_launch_instance,
+    create_launch_instance_timed,
 };
 pub use target::Target;
 pub use viewport::Viewport;

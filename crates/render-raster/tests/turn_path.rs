@@ -22,6 +22,10 @@
 //!   pinned to the machine's fastest cores (derived from `cpuinfo_max_freq`, never written down)
 //!   with rayon given exactly those cores — the table's "minimum of three runs of five rounds,
 //!   pinned". Contention adds time and never removes it.
+//! - **Every round starts on warm cores**: `frame_cost::warm_the_cores` keeps each core the
+//!   child is pinned to busy for 30 ms first, so that a light page is measured at the clock a
+//!   working processor runs at and not at the one an idle core wakes at, which read the mesh
+//!   page's turn a quarter high on alternate runs of a quiet machine (ADR 1577).
 //! - **Every child runs the launch gate's calibration probe after its rounds**: the smallest
 //!   committed document opened from memory and its first page interpreted, fifty times, the
 //!   quickest. A child whose probe is outside the check file's band did not have the machine it

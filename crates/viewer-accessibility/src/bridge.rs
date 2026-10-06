@@ -419,6 +419,31 @@ impl Bridge {
             .set_root_window_bounds(rect(outer), rect(inner));
     }
 
+    /// Tells the platform whether this program's window is the one with the keyboard.
+    ///
+    /// **What a screen reader follows between applications** (ADR 1565). AT-SPI marks the active
+    /// window's frame `ACTIVE` and announces `window:activate` when it changes, and the published
+    /// tree's focus — its root, since no element of a page takes focus — is `FOCUSED` only while
+    /// the window is: `accesskit_unix` decides both from this one fact, and without it every one
+    /// of this program's frames reads as a window nobody is in, so a client that tracks the active
+    /// window never arrives at the page at all.
+    ///
+    /// A host calls it when the bridge comes up, with what the toolkit already knows, and each time
+    /// the toolkit says the window gained or lost the keyboard. The adapter keeps the value while
+    /// no assistive technology is attached and hands it over when one arrives.
+    #[cfg_attr(
+        not(target_os = "linux"),
+        expect(
+            unused_variables,
+            reason = "the platforms with no adapter have nobody to tell, and `shortfall` is what \
+                      says so"
+        )
+    )]
+    pub fn focused(&mut self, active: bool) {
+        #[cfg(target_os = "linux")]
+        self.adapter.update_window_focus_state(active);
+    }
+
     /// What clients have asked for since this was last called, each with what it means here.
     ///
     /// Drained rather than kept, and **resolved against the tree the client walked** rather than

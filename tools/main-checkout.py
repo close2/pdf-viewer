@@ -92,6 +92,26 @@ def artefacts(main):
     return lines
 
 
+def stale_corpora(main, targets):
+    """The targets whose disk corpus the last census found stale, and the record that says so.
+
+    `tools/state.sh fuzz-stale` is a census behind the lock, and a state section writes nothing
+    (ADR 1487), so its finding lives where a round puts it: the newest record under `doc/history/`
+    whose `**Stale today:**` sentence names targets. The line names that record, because a census
+    is of its day and the corpus may have been re-seeded since (ADR 1575)."""
+    history = os.path.join(main, "doc/history")
+    names = sorted((n for n in os.listdir(history) if re.match(r"\d+-.*\.md$", n)),
+                   key=lambda n: int(n.split("-")[0]), reverse=True) if os.path.isdir(history) else []
+    for name in names:
+        with open(os.path.join(history, name), encoding="utf-8", errors="replace") as handle:
+            text = handle.read()
+        sentence = re.search(r"\*\*Stale today:\*\*(.*?\.)(\s|$)", text, re.S)
+        if sentence:
+            found = [t for t in re.findall(r"`([a-z0-9_]+)`", sentence.group(1)) if t in targets]
+            return found, f"doc/history/{name}'s census"
+    return [], "no census any record states"
+
+
 def unseeded(main):
     manifest = os.path.join(main, "fuzz/Cargo.toml")
     try:
@@ -102,8 +122,14 @@ def unseeded(main):
     empty = [t for t in targets
              if not os.path.isdir(os.path.join(main, "fuzz/corpus", t))
              or not os.listdir(os.path.join(main, "fuzz/corpus", t))]
+    stale, source = stale_corpora(main, targets)
+    stale = [t for t in stale if t not in empty]
+    owed = empty + stale
     return f"fuzz/corpus: {len(empty)} of {len(targets)} target(s) unseeded" + (
-        f": {' '.join(empty)}" if empty else "")
+        f": {' '.join(empty)}" if empty else "") + (
+        f"; {len(stale)} stale by {source}" + (f": {' '.join(stale)}" if stale else "")) + (
+        f"; the owner's re-seed, behind the lock: flock /home/AI/heavy-walk.lock fuzz/seeds.sh "
+        f"fuzz/corpus {' '.join(owed)}" if owed else "")
 
 
 def uncommitted_answers(main):

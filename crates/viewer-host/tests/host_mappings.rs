@@ -814,7 +814,7 @@ fn a_click_on_each_of_nine_button_widgets_is_what_the_clause_makes_of_it() {
     );
     // Every refusal names the field §14.9.3 says a user interface shall name, and cites a clause.
     for outcome in &outcomes {
-        let Some(said) = outcome.note(true) else {
+        let Some(said) = outcome.note() else {
             continue;
         };
         assert!(
