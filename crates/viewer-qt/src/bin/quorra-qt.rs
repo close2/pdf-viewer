@@ -69,6 +69,9 @@ struct Arguments {
     /// signal; this is the better of the two and is the one thing this host has that the other
     /// does not.
     quit_after: i32,
+    /// §12.8.1's anchors, §8.10.4's target documents and §8.11.4.4's reader, in the words
+    /// `quorra` takes and read by the same [`viewer_host::ReaderWords`] (ADRs 1580, 1581).
+    reader: viewer_host::ReaderWords,
 }
 
 /// Reads the command line, or says what is wrong with it.
@@ -83,8 +86,13 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
     let mut embedded_documents = viewer_host::EmbeddedDocuments::default();
     let mut submissions = viewer_host::Submissions::default();
     let mut separations = false;
-    for word in words {
-        if word == "--draw-widget-appearances" {
+    let mut reader = viewer_host::ReaderWords::default();
+    let mut words = words.into_iter();
+    while let Some(word) = words.next() {
+        if reader.take(std::ffi::OsStr::new(&word), &mut words)? {
+            // One of the reader's three policy words, with its value taken from the words after
+            // it — the reading every window shares, rather than `QCommandLineParser`'s (ADR 1581).
+        } else if word == "--draw-widget-appearances" {
             widget_appearances = WidgetAppearances::Drawn;
         } else if word == IGNORE_RESTRICTIONS {
             restrictions = RestrictionPolicy::uniform(RestrictionLevel::Off);
@@ -134,8 +142,9 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
              [{IGNORE_RESTRICTIONS}] [--restrictions=copy:ask,annotate:on] \
              [--links=refuse|ask|warn|open] [--remote-documents=refuse|ask|warn|open] \
              [--embedded-documents=refuse|ask|warn|open] [--submissions=refuse|ask|warn|send] \
-             [--separations=on|off] \
-             [--quit-after=<ms>] <file.pdf>..."
+             [--separations=on|off] {} \
+             [--quit-after=<ms>] <file.pdf>...",
+            viewer_host::ReaderWords::USAGE
         )
     })?;
     Ok(Arguments {
@@ -150,6 +159,7 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
         submissions,
         separations,
         quit_after,
+        reader,
     })
 }
 
@@ -181,6 +191,7 @@ fn main() -> std::process::ExitCode {
             submissions: arguments.submissions,
             separations: arguments.separations,
         },
+        arguments.reader,
         trace,
     ) {
         Ok(host) => host,

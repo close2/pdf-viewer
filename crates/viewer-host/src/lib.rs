@@ -138,6 +138,7 @@ pub mod policy;
 pub mod popup;
 pub mod presentation;
 pub mod printing;
+pub mod reader;
 pub mod report;
 pub mod restriction;
 pub mod status;
@@ -179,6 +180,7 @@ pub use policy::{
 pub use popup::Window;
 pub use presentation::{Chrome, Placing, Presenting, centred, fitted};
 pub use printing::Defaults as PrintDefaults;
+pub use reader::{ReaderSupply, ReaderWords};
 pub use restriction::{
     Act, ActEntry, ActLevel, Chose, Entry, Question, Restrictions, Row, Scope, Subject, act_chosen,
     asked, chosen, declined,

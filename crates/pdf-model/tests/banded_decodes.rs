@@ -164,8 +164,8 @@ fn a_scan_the_data_ends_inside_is_left_to_the_whole_decoder() {
 /// 0.5.15 instead fills the last MCU row — lines 104 to 106 — with 128, because its lookahead
 /// reached the end of the data while that row's bits were still unconsumed and it stops at the next
 /// row on having reached it. `doc/patches/zune-jpeg-scan-complete-without-eoi.patch` makes it stop
-/// only once it has consumed past the end, and `doc/questions/Q227` asks whether the tree carries
-/// it. **This holds the current bytes by name and waits on that patch: when the fork takes it the
+/// only once it has consumed past the end, and `doc/questions/A227` has the tree carry it in a
+/// fork. **This holds the current bytes by name and waits on that patch: when the fork takes it the
 /// first assertion fails, and the guard is deleted for the frame's equality** (ADR 1520).
 #[test]
 fn a_complete_last_row_without_its_eoi_is_grey_until_the_fork_takes_the_patch() {
@@ -203,26 +203,72 @@ fn a_complete_last_row_without_its_eoi_is_grey_until_the_fork_takes_the_patch() 
     );
 }
 
+/// A frame whose DC prediction leaves `i32` once it is multiplied by the quantiser's DC entry is
+/// decoded whole, and the decode returns. A DC category bounds each difference the scan codes
+/// (ITU-T T.81 Table F.1), not the sum of the differences a hostile frame accumulates, so a
+/// decoder meets such a sum and must not abort on it: `zune-jpeg` 0.5.15 updates the prediction
+/// with a wrapping add and then multiplies it unchecked, which panics wherever overflow checks are
+/// on (the dev, test and fuzz profiles). The frame header states 509 lines of 2122 samples, so the
+/// patched decode is that many RGBA pixels.
+#[test]
+// not a gate: it panics until the zune-jpeg fork carries doc/patches/zune-jpeg-dc-prediction-overflow.patch, which doc/questions/A227 has the owner create; the day it does, the ignore goes
+#[ignore = "panics on zune-jpeg 0.5.15 until the fork doc/questions/A227 owes carries the patch"]
+fn a_dc_prediction_past_i32_is_decoded_rather_than_aborting() {
+    let decodes = banded_decodes(&dc_prediction_past_i32(), 16);
+    let whole = decodes.whole.expect("the whole decoder reads it");
+    assert_eq!(whole.len(), 2122 * 509 * 4, "2122 × 509, RGBA");
+}
+
 /// A grey frame of 100 × 107 whose entropy-coded data runs to the end of the stream with no `EOI`
 /// — the `jpeg_bands` fuzz target's second finding (ADR 1495), the codestream in hexadecimal.
+fn grey_frame_without_its_eoi() -> Vec<u8> {
+    from_hex(&[
+        "ffd8ffe000104a46494600010100000100010000ffdb004300100b0c0e0c0a100e0d0e1211101318281a181616183123",
+        "251d283a333d3c3933383740485c4e404457453738506d51575f626768673e4d71797064785c656763ffc0000b08006b",
+        "006401011100ffc400190001000301010000000000000000000000000102030407ffc400191001010101010100000000",
+        "000000000000000102111203ffda0008010100003f00f3f0000000048701000253c4f0e1c388e23480129916917994f9",
+        "4f856e55b956c56a0131791a672d6656984f856e19eb2cf519d54168d331b6236ce5acc26e14d658ef2c3719695a8168",
+        "d72dfe6e8c46d989b19ea30dc73ed8e94a8168d32e8f9d7462b6cd5ad67bae7fa5736eb2d29502634cd6d8adf1a6b9da",
+        "6ed4d6986f4c3759d56a04c5a5699d34ceda4da7dabadb2d699eaa955013169569a5a693ed5ba56e95b508004a7a74e9",
+        "d47440000000000000037fd9",
+    ])
+}
+
+/// A one-component frame of 2122 × 509 whose DC differences accumulate past `i32` once
+/// dequantised — the `jpeg_bands` fuzz target's third finding, the codestream of
+/// `doc/patches/zune-jpeg-dc-prediction-overflow.patch` in hexadecimal.
+fn dc_prediction_past_i32() -> Vec<u8> {
+    from_hex(&[
+        "ffd8ffe000104a46494600010100000100010000ffdb004300100b0c0e0c0a100e0d0e1211101318281a181616183123",
+        "251d283a333d3c3933383740485c4e404457453738506d51575f626768673e4d71797064785c656763ffc0000b0801fd",
+        "084a01011100ffc4001a00010003010101000000000000000000000f00000000010405030207ffc4001f100100020202",
+        "0301010000000000000000001361111403120102044131ffda0008010100003f00f9f800000000000000000000000000",
+        "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "000000000000024c183060c183060c183060c183060c183060c183060c183060c183060c183060c183060c183060c183",
+        "060c183060c183060c183060c183060c183060c183060c183060c183060c183060c19d4ea753a9d4ea753a9d4ea753a9",
+        "d4ea753a9d4ea753a9d4ea3a759d4ea753a9d4ea753a9d4ea753a9d4ea753a9d4ea7533a9d4ea753a9d4ea753a9d4ea7",
+        "53a9d4ea753a9d4ea753a9d4ea753a9d4ea753a9d4ea753a9d4ea753a9d4ea753a9d4e7553d4a9a7ea3a9d4ea753a9d4",
+        "ea753a9d4ea753a9d4ea753a9d4ea753a9d4ea753a9d4ea753a9d4ea753a9d4ea753a9d4ea753a1ad4866b51ad46b51a",
+        "d46b51ad46b51ad46b51ad46b51ad46b51ad46b51ad46b51ad46b51affffffffffffffffffffffffffffffffffffffff",
+        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffd46b51ad46b5",
+        "1ad46b51ad46b51ad46b51ad46b51ad46b51ad46b51ad46b51ad46b51ad46b51ad46b51ad46b51adffb51a2b6b51ad46",
+        "b51ad46b510a0a0a0ac18308f3e1cfdbc38727850e7f0cbfa7c7f593f4f8feb27e8f1fd67731a7bb9797904f875f4581",
+        "818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181",
+        "818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181",
+        "81998181818181818181819e2687cff8d5f97f1aff002fe35be75fe25af474f090000000000000000000000000000000",
+        "000000000000000000000a00000000000000000000000a0a0a0a0a0a0a00",
+    ])
+}
+
+/// The bytes a codestream written out in hexadecimal digits stands for.
 #[expect(
     clippy::expect_used,
     clippy::arithmetic_side_effects,
     reason = "a fixture written out by hand: a pair of hexadecimal digits that is not one is a \
               broken test, and an offset two past one inside a string of even length cannot wrap"
 )]
-fn grey_frame_without_its_eoi() -> Vec<u8> {
-    let hex = [
-    "ffd8ffe000104a46494600010100000100010000ffdb004300100b0c0e0c0a100e0d0e1211101318281a181616183123",
-    "251d283a333d3c3933383740485c4e404457453738506d51575f626768673e4d71797064785c656763ffc0000b08006b",
-    "006401011100ffc400190001000301010000000000000000000000000102030407ffc400191001010101010100000000",
-    "000000000000000102111203ffda0008010100003f00f3f0000000048701000253c4f0e1c388e23480129916917994f9",
-    "4f856e55b956c56a0131791a672d6656984f856e19eb2cf519d54168d331b6236ce5acc26e14d658ef2c3719695a8168",
-    "d72dfe6e8c46d989b19ea30dc73ed8e94a8168d32e8f9d7462b6cd5ad67bae7fa5736eb2d29502634cd6d8adf1a6b9da",
-    "6ed4d6986f4c3759d56a04c5a5699d34ceda4da7dabadb2d699eaa955013169569a5a693ed5ba56e95b508004a7a74e9",
-    "d47440000000000000037fd9",
-    ]
-    .concat();
+fn from_hex(lines: &[&str]) -> Vec<u8> {
+    let hex = lines.concat();
     (0..hex.len())
         .step_by(2)
         .map(|at| u8::from_str_radix(&hex[at..at + 2], 16).expect("hexadecimal"))

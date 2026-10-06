@@ -1,22 +1,19 @@
 # The copy of the standard this project checks itself against is lossy
 
-Status: **census run, step 2 built, all 120 known passages read, and items 1 to 3 closed in the
-five-hundred-and-fortieth (ADR 0375)** — sessions 416 (ADR 0252), 417 (ADR 0253) and 418 (ADR
-0254). The census answered the question the item turned on and answered it the bad way: the
+Status: **census run, step 2 built, all 120 known passages read, and items 1 to 3 closed (ADR
+0375)** — on ADRs 0252, 0253 and 0254. The census answered the question the item turned on and answered it the bad way: the
 annotations are the **errata**, and `doc/md/` presents struck-out passages as the standard's
 current text. Reading all of them found **four clauses this tree implemented differently** —
 §12.5.2's `/BM`, §14.13.5's `/MCAF`, §7.8.3's Type 3 glyph resources and §8.9.5.4, the last of
-which is implemented as the erratum states it since the five-hundred-and-fortieth.
+which is implemented as the erratum states it (ADR 0375).
 **What is left is steps 4 and 5 below.** Step 3b was the 27 struck passages the
-five-hundred-and-ninety-first's repair of the comparison made visible, and the
-five-hundred-and-ninety-fourth read them: three findings, one owed behaviour, and a count of the
-unread remainder corrected from twenty to nineteen by re-deriving it.
+repair of the comparison made visible (ADR 0426), all read: three findings, one owed behaviour,
+and an unread remainder of nineteen.
 **That nineteen was step 3b's count and is spent; it is not the number a round sent to "the
 remainder" needs.** The remainder that is still being read is the *issue* population of
 `doc/todo/01`'s recipe — every erratum carrying a strike or a caret that no file in this tree
 names — and its count is printed by that recipe's step 2 and recorded only in
-`doc/errata-read.md`'s latest section, never here. The nine-hundred-and-eighty-third read the whole
-of that field to a verdict each and found the **sixth** clause implemented against struck text,
+`doc/errata-read.md`'s latest section, never here. That field is read whole to a verdict each, which found the **sixth** clause implemented against struck text,
 §7.5.8.3's Table 18 offset default (ADR 1004); the field is small enough now that a round reads it
 whole rather than ranking it.
 Priority: 48 — kept, by the convention that the `40`–`49` band is *the project's own instruments*.
@@ -24,16 +21,14 @@ Priority: 48 — kept, by the convention that the `40`–`49` band is *the proje
 principle 5 rests on.
 Corpus: —, the subject is `doc/md/` and the fourteen documents under `doc/`
 Code: `tools/spec-errata` (built), `conformance::prose` and its `quotations` binary (the sixth
-population, built in the four-hundred-and-seventy-fourth),
+population, ADR 0309),
 `crates/pdf-model/examples/spec_annotation_census.rs` (the census)
 Read: `doc/errata-read.md` — every passage `check` names, its verdict, and what is owed
 
-## What the census found, and what it corrected in this file
+## What the census found
 
-The table below **replaces this file's original premise, which was wrong by a factor of thirteen**:
-it recorded "882 `/Annots`" in ISO 32000-2 and called them annotations. There are 882 `/Annots`
-*arrays* and **11 462 annotations** in them. The item's own rule — census before building — is what
-caught it.
+ISO 32000-2 holds 882 `/Annots` *arrays* and **11 462 annotations** in them — the item's own rule,
+census before building, is what counts them.
 
 | | annotations | what they are |
 |---|---|---|
@@ -47,19 +42,15 @@ The three `_EC3` and `-2022` files record their errata as review markup and appl
 each with a `Caret` carrying the replacement, and 1752 §12.5.6.4 state annotations whose `/State`
 says how far the change got. The body text underneath is unamended.
 
-`/StructTreeRoot` in all fourteen, `/MarkInfo /Marked` in twelve. **This paragraph used to end with
-a bound and the bound is gone**: `Tree::walk` stopped at 65 536 items, so the 71 371 recorded here as
-the size of ISO 32000-2's structure tree was the *bound overshooting* rather than the tree, which is
-**129 389**. Session 421 raised it to 2²⁰, made it report through `Reading::truncated`, and found the
-walk quadratic besides — 16.8 s to **151 ms** (ADR 0257). So `logical_order` and everything on it now
-see the whole document, and a substrate built on this need not go page by page; 1021 of its 1023
+`/StructTreeRoot` in all fourteen, `/MarkInfo /Marked` in twelve. ISO 32000-2's structure tree is
+**129 389** items; `Tree::walk`'s bound is 2²⁰, reported through `Reading::truncated`, and the walk
+is linear — **151 ms** (ADR 0257). So `logical_order` and everything on it see the whole document, and a substrate built on this need not go page by page; 1021 of its 1023
 pages state `/StructParents`, so `ParentTree::for_page` remains the cheaper route where only one
 page is wanted.
 
 ## What is built
 
-`tools/spec-errata`, with `census`, `emit`, `check`, `moved` and — since the
-five-hundred-and-ninety-first — `applied`, which asks whether a place that *records* an erratum has
+`tools/spec-errata`, with `census`, `emit`, `check`, `moved` and `applied`, which asks whether a place that *records* an erratum has
 applied it (ADR 0426, `doc/todo/01`'s seventeenth sweep). Seven seconds over all fourteen documents.
 Not a gate and not a test, and `conformance` does not know it exists — the gate must keep checking
 quotations against a conversion this project did not make, or a defect in our extractor becomes a
@@ -70,52 +61,48 @@ defect in the standard. ADR 0252 has the argument.
 - **151 struck passages of four words or more that `doc/md/` still carries as current text**, 120
   of them distinct, over 92 sections. All 120 are read, in `doc/errata-read.md`. The comparison
   drops every space before comparing, because both sides are extractions of the same glyphs by
-  different programs (ADR 0253); it took the first number from 79 to 151. **One class of false
+  different programs (ADR 0253); so the count is 151 rather than 79. **One class of false
   positive is known and cannot be removed**: where the standard prints a sentence twice and the
   erratum deletes one copy, the survivor is current text and this reports it as retired — §7.5.4's
   Issue #113 is the witness.
-- **Quotations in this tree that overlap struck text.** Three populations since the
-  four-hundred-and-eighteenth session, because only one of them has a gate: rustdoc **blockquotes**,
+- **Quotations in this tree that overlap struck text.** Three populations (ADR 0254),
+  because only one of them has a gate: rustdoc **blockquotes**,
   which `cargo test -p conformance` verifies; rustdoc **prose**, a pair of quotation marks inside a
   doc comment, which nothing reads; and **`ledger.toml` notes**, ADR 0249's spans, which
-  `--bin quotations` reads against the standard since the five-hundred-and-fortieth and which
-  nothing gates. 25 land in the clause they cite and every one is now a *correction* quoting the
+  `--bin quotations` reads against the standard (ADR 0375) and which nothing gates. 25 land in the clause they cite and every one is now a *correction* quoting the
   wording it retired; 51 more match a phrase struck out of another clause and all of them have been
-  looked at. **A fifth and a sixth were added later** — a `"` in an ordinary `//` comment (ADR 0255)
-  and, in the four-hundred-and-seventy-fourth, every quotation in this project's own Markdown
+  looked at. **A fifth and a sixth beside them** — a `"` in an ordinary `//` comment (ADR 0255)
+  and every quotation in this project's own Markdown
   documents (`spec_errata::document_landings`, ADR 0309). The sixth's landings are almost all
   correct writing by construction, because `doc/errata-read.md`'s whole subject is the struck text;
   two were not, and both are corrected.
 
 ## What is still owed
 
-1. ~~**§8.9.5.4**~~ — **implemented in the five-hundred-and-fortieth, and the reason it had been
-   declined was wrong.** ADR 0253 said the amended step a) "reads as terminal and would leave the
+1. ~~**§8.9.5.4**~~ — **implemented as the erratum states it** (ADR 0375). ADR 0253 had said the amended step a) "reads as terminal and would leave the
    amended d) unreachable". It is terminal and d) is unreachable *for a hidden base image*, which is
    the amendment rather than a defect in it: a) and b) dispose of every base image that states an
    `/OC`, and c) and d) open at "Otherwise", so they belong to one that states none. `doc/md/` was
    checked against the PDF here and is faithful — the conversion is not the problem in this clause,
    the tree's reading of the carets was. ADR 0375.
-2. ~~**§14.8.6.3's enclosure requirement**~~ — **reported since the eight-hundred-and-sixty-second,
-   and the reason it had been declined was the ledger's fifth decay shape.** The reading of *whose*
+2. ~~**§14.8.6.3's enclosure requirement**~~ — **reported** (ADR 0786), the declining having been the
+   ledger's fifth decay shape. The reading of *whose*
    `shall` it is stands: the amended sentence opens "[w]hen including mathematics structured as
-   MathML", so both halves are a producer's. What did not stand is the inference from there —
+   MathML", so both halves are a producer's. What does not follow from there is a refusal to report —
    `CLAUDE.md`'s exclusion says this tree does not *write* such a tagging and says nothing about
-   reading one, and §14.8.6.2's own file-addressed `shall` had been answered by a report one round
-   earlier (ADR 0785). So the enclosure is a report now (ADR 0786): `Tree::mathml_outside_a_formula`
+   reading one, and §14.8.6.2's own file-addressed `shall` is answered by a report (ADR 0785).
+   So the enclosure is a report (ADR 0786): `Tree::mathml_outside_a_formula`
    counts the elements ending at the lowercase `math` type in the MathML namespace with no `Formula`
    above them, `viewer_core::notes` says it once when the document opens, and no document in
    `doc/pdf.js`, `doc/corpora/`, this project's fixtures or the `CC-MAIN-2021-31` crawl is a witness.
    **The erratum's second half stays unimplemented as a *reading***: all MathML types and their
    attributes having the namespace explicitly defined quantifies over MathML's own vocabulary, which
-   ISO 32000-2 states nowhere. `structure::Namespace::is_standard` got its caller anyway and not the one
-   this entry predicted: §14.8.6.2's rule decides whether a type *name* is §14.8.4's word or a
+   ISO 32000-2 states nowhere. `structure::Namespace::is_standard` has its caller anyway: §14.8.6.2's rule decides whether a type *name* is §14.8.4's word or a
    foreign vocabulary's homonym, so `Tree::standard_role` refuses a name that ends outside a
-   standard structure namespace. **And the clause carried the round's real finding**, which is the
+   standard structure namespace. **And the clause carries a finding about `doc/md/`**, which is the
    next entry's: `doc/md/` writes its namespace name in single quotes with spaces inside them where
    the PDF sets one double quotation mark.
-3. ~~**The ledger's single-quoted spans.**~~ **Read since the five-hundred-and-fortieth**, and there
-   are 106 of them. `conformance::quote::quoted_spans` is the shared rule — an opening `'` needs a
+3. ~~**The ledger's single-quoted spans.**~~ **Read** (ADR 0375), and there are 106 of them. `conformance::quote::quoted_spans` is the shared rule — an opening `'` needs a
    space or a bracket before it, a closing one needs a space or ordinary punctuation after it, and a
    double quotation mark ends the search — and the ledger's notes are a population of
    `--bin quotations` rather than a script somebody retypes. Its first committed run found three
@@ -130,16 +117,13 @@ defect in the standard. ADR 0252 has the argument.
    columns — the caveat above, now with witnesses. ADR 0309. **A gate is still refused for ADR
    0249's reason** and the price has gone up: the syntax it needs would have to be migrated onto
    1401 spans rather than 417.
-3b. ~~**The 27 struck passages the repaired comparison made visible**~~ — **read in the
-   five-hundred-and-ninety-fourth, and the split was not the one this entry printed.** The repair
-   itself stands as written: `squeezed` kept square brackets and dash shapes, so it could not find a
+3b. ~~**The 27 struck passages the repaired comparison made visible**~~ — **read** (ADR 0426). The repair: `squeezed` kept square brackets and dash shapes, so it could not find a
    passage quoted in `CLAUDE.md`'s own `"[e]ncloses"` spelling of an altered first letter, nor one
    carrying a table caption `doc/md/` writes with a hyphen where the standard sets an em dash; it is
-   `conformance::prose::folded` now and `check`'s struck-passage list went from 151 lines to **178**
-   (ADR 0426). What was wrong is the arithmetic under it. Three of the new lines are in Annex A and
-   **five** in clause 13 — not four — so the unread remainder is **nineteen** and not twenty, over
-   exactly the seventeen clauses `doc/errata-read.md` named. The count was corrected by re-deriving
-   it rather than by re-reading the tables: the pre-repair `squeezed` is four lines in the commit
+   `conformance::prose::folded`, and `check`'s struck-passage list is **178** lines (ADR 0426). Three of the new lines are in Annex A and
+   **five** in clause 13, so the unread remainder is **nineteen**, over
+   exactly the seventeen clauses `doc/errata-read.md` named. The count is re-derived rather than
+   read off the tables: the pre-repair `squeezed` is four lines in the commit
    that replaced it, so a copy of the tree with those four lines back prints exactly 151 and `diff`
    names the 27 with nothing inferred. **Three findings**, which is the highest rate this file's
    history records and is explained rather than celebrated in `doc/errata-read.md`: §9.8.3.3's
@@ -178,37 +162,34 @@ correctness one, and this item drops into the notes.**
 
 **That test has been run three times and the item passes it every time.** Three clauses were
 implemented differently — §12.5.2's `/BM`, §14.13.5's `/MCAF` and §7.8.3's Type 3 glyph resources —
-and a fourth, §8.9.5.4, still is. So the item stays where it is. **A fifth and a sixth followed
+and a fourth, §8.9.5.4, still is. So the item stays where it is. **A fifth and a sixth came
 from the recipe's issue population rather than from `check`'s struck passages**: §7.4.3's base-85
-bound in the eight-hundred-and-twenty-ninth, and §7.5.8.3's type 1 offset default in the
-nine-hundred-and-eighty-third, both under `implemented` rows that quoted the printed text as the
-clause's. **The four-hundred-and-nineteenth
-ran it a fourth time and it passed again**, this time from the other direction: reading §7.8.3 for
+bound, and §7.5.8.3's type 1 offset default (ADR 1004), both under `implemented` rows that quoted the printed text as the
+clause's. **A fourth run passed too**
+(ADR 0255), from the other direction: reading §7.8.3 for
 an unrelated clause found `content.rs` quoting the struck fourth bullet, which found two holes in
 the instrument — a `"` inside an ordinary `//` comment and a quotation with an ellipsis in it — and
 six more stale quotations behind them (ADR 0255). One of the six, §8.9.7's NOTE 3, is a clause whose
 *code* was already right and whose comment was two years behind it.
 
-**The four-hundred-and-seventy-fourth ran it a fifth time, over the population item 3a named, and it
-passed again** — three sentences quoted as ISO 32000-2's that ISO 32000-2 does not contain, two of
+**A fifth run, over the population item 3a named, passed** (ADR 0309) — three sentences quoted as ISO 32000-2's that ISO 32000-2 does not contain, two of
 them also standing in `crates/` where the gate exists and could not see them because neither was a
-blockquote. ADR 0309. It also produced the first *evidence* for this file's own warning about the
+blockquote. It also produced the first *evidence* for this file's own warning about the
 conversion rather than more advice: two suspects were `doc/md/` truncating Table 29's `/OpenAction`
 row and shifting Table 179's columns, both acquitted by `pdftotext -layout` over the PDF.
 
-**The five-hundred-and-fortieth ran it a sixth time, over items 1 to 3, and it passed again** — the
+**A sixth run, over items 1 to 3, passed** (ADR 0375) — the
 last clause this tree knowingly implemented a retired version of is implemented as the erratum
 states it, and the reason it had been declined turned out to be a misreading of the amended steps'
-own ordering rather than a defect in them. ADR 0375.
+own ordering rather than a defect in them.
 
-**The five-hundred-and-ninety-fourth ran it a seventh time, over step 3b, and it passed again** —
+**A seventh run, over step 3b, passed** (ADR 0426) —
 and from the direction step 4 exists for. Reading Issue #384 found the standard's own
 `Courier-BoldOblique` written `CourierBoldOblique` by the conversion, because the name is set broken
 across a line and the converter drops the hyphen of a word it breaks; `pdf_font::standard` carries a
 fifteenth entry for the fourteen names and a doc comment arguing that the missing hyphen "reads as
 the standard's own typography rather than as a distinct name". It reads as the conversion's. That is
-the third witness for step 4 after the four-hundred-and-seventy-fourth's truncated `/OpenAction` row
-and shifted Table 179, and the first that cost an argument rather than a suspect.
+the third witness for step 4 after the truncated `/OpenAction` row and shifted Table 179 (ADR 0309), and the first that cost an argument rather than a suspect.
 
 The replacement condition, for whoever picks it up: **the reading half is done for every passage the
 instrument can see, the correctness question it was asked to answer is answered, and items 1 to 3b

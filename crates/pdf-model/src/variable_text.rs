@@ -262,6 +262,9 @@ pub(crate) enum Owed {
     /// the walk §12.5.6.6's `/RC` already goes through (ADRs 1122, 1197). Saying the rest out
     /// loud is the shortfall trap 5 exists against.
     RichTextFormatting,
+    /// Table 199's `/F`: the field's format script is not one Tier 0 runs, or its one call
+    /// refused, so the value is drawn as it stands. The sentence is the dispatch's own (ADR 1579).
+    Script(String),
     /// The `/DA`'s `Tm` states a linear part with no inverse, so there is no room to lay out in.
     ///
     /// The clause admits at most one `Tm` and has a processor "replace the horizontal and
@@ -331,6 +334,7 @@ impl Owed {
                                          its markup, Table 228's /RV and Table 228's /DS state \
                                          is XFA 3.3's and is not applied here"
                 .to_owned(),
+            Self::Script(sentence) => sentence.clone(),
             Self::SingularTextMatrix => "its /DA sets a text matrix whose linear part has no \
                                          inverse, so its value is positioned in the box's own \
                                          space and the matrix flattens every glyph onto one line, \

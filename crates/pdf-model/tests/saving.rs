@@ -53,7 +53,7 @@ fn a_text_widget_with_no_appearance_stream_is_given_one() {
     // §7.3.8.1 makes every stream an indirect object, so a widget that had no `/AP` needs an
     // object *added* rather than replaced — which is the half of §7.5.6's "changed, replaced, or
     // deleted" (ADR 0130).
-    let Some(document) = saved("160F-2019.pdf", "X.minus1", "Ada Lovelace") else {
+    let Some(document) = saved("160F-2019.pdf", "X.minus1", "1234.5") else {
         eprintln!("skipped: doc/pdf.js is not checked out");
         return;
     };
@@ -84,7 +84,10 @@ fn a_text_widget_with_no_appearance_stream_is_given_one() {
         .expect("the written stream decodes");
     let content = String::from_utf8_lossy(&content);
     assert!(content.contains("/Tx BMC"), "{content}");
-    assert!(content.contains("Ada Lovelace"), "{content}");
+    // The field's `/AA /F` is `AFNumber_Format(2, 0, 0, 0, "", false)`, so the saved appearance
+    // shows the value through it (ADR 1579), and its `/K` is the matching keystroke script, which
+    // is why the value typed is a number.
+    assert!(content.contains("(1,234.50) Tj"), "{content}");
 }
 
 #[test]
@@ -184,7 +187,7 @@ fn saving_leaves_both_of_a_documents_metadata_sources_exactly_as_they_were() {
         .expect("the fixture carries §14.3.2's stream")
         .expect("which reads");
 
-    let after = saved("160F-2019.pdf", "X.minus1", "Ada Lovelace")
+    let after = saved("160F-2019.pdf", "X.minus1", "1234.5")
         .expect("the fixture is checked out and has that field");
 
     assert_eq!(

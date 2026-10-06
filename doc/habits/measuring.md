@@ -756,3 +756,13 @@ ioctls (ADR 1569) — read `free` and strace the ioctls before believing a clock
 arms alike. And a state section may not write (ADR 1487), so where one section needs a census's
 result it reads the newest record that carries it and names that record — `main-checkout`'s
 re-seed line reads the `**Stale today:**` sentence of the newest history record (round 1370).
+
+## 70. An artefact is found by its content, and a saving on helper threads is ordered by the clock
+
+A brief named three fuzz slow units by description ("the 5 125-glyph `post` table") and the
+same-size triplet that looked like them was the wrong one; round 1374 found the right three by
+scanning every unit for a format 2.0 `post` table with 5 125 glyphs. Find an artefact by its
+content before measuring it. And work already on helper threads is mostly hidden from the clock:
+the exact areas fell 42% in instructions and bought 1.5–2.5 ms, while deciding convexity on the
+walk thread cost 7.7 ms to save 4.7 (ADR 1582) — order a saving by the clock on the thread that
+waits, not by instructions wherever they run.

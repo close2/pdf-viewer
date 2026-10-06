@@ -160,14 +160,8 @@ const DOCUMENT: DocumentId = DocumentId(0);
 struct Policies {
     /// How much of what a document asserts over its reader this run obeys (`CLAUDE.md`).
     restrictions: RestrictionPolicy,
-    /// The directory `--trust-anchors` named: RFC 5280 section 6.1.1's input (d).
-    trust_anchors: Option<PathBuf>,
-    /// Whether §12.8.4 material that settles nothing is acted on anyway.
-    accept_unknown_revocation: bool,
-    /// The directory `--reference-files` named: ISO 32000-2 §8.10.4's target documents.
-    reference_files: Option<PathBuf>,
-    /// Who is reading and in what language: §8.11.4.4's two categories about this reader.
-    audience: pdf_model::optional_content::Audience,
+    /// §12.8.1's anchors, §8.10.4's target documents and §8.11.4.4's reader, as typed.
+    reader: viewer_host::ReaderWords,
     /// Whether §10.8.3's separation simulation is what this reader asked for.
     separations: bool,
 }
@@ -192,13 +186,9 @@ fn open_document(
 ) -> (Viewer, Vec<Event>) {
     let Policies {
         restrictions,
-        trust_anchors,
-        accept_unknown_revocation,
-        reference_files,
-        audience,
+        reader,
         separations,
     } = policies;
-    let (trust_anchors, reference_files) = (trust_anchors.as_deref(), reference_files.as_deref());
     // Open on disk rather than read whole: the core reads the trailer, the table and the objects
     // page one needs through the handle, and a document's size stops being its cost (ADR 0809).
     let bytes = match pdf_syntax::FileBytes::on_disk(path) {
@@ -220,37 +210,29 @@ fn open_document(
             restrictions,
         ))),
     );
-    // **§12.8.1's third question, answered by whoever started this program and by nobody else.**
-    // Rule 2 again, and the same reason: the core has no filesystem and no clock, so the party
-    // that turns `--trust-anchors` into RFC 5280 section 6.1.1's inputs (d) and (b) is this one.
-    // Here rather than on the launch path because nothing about it is needed to show page one
-    // (`CLAUDE.md` principle 2), and with no directory named it reads nothing at all.
-    let (trust, refused) = viewer_host::trust_anchors(trust_anchors, accept_unknown_revocation);
-    for refusal in &refused {
+    // **§12.8.1's third question, §8.10.4's target documents and §8.11.4.4's two categories about
+    // the reader, answered by whoever started this program and by nobody else.** Rule 2: the core
+    // has no filesystem and no clock, so the party that turns `--trust-anchors` into RFC 5280
+    // section 6.1.1's inputs (d) and (b), and `--reference-files` into bytes, is this one — and
+    // which of those bytes a reference names is decided in the core by §14.4's identifier, never
+    // here by a path. Here rather than on the launch path because nothing about it is needed to
+    // show page one (`CLAUDE.md` principle 2), and with no directory named it reads nothing at
+    // all. The audience decides which layers the first interpretation draws, so it too goes
+    // before the document (ADRs 1039, 1101, 1106, 1580).
+    let supply = reader.commands();
+    for command in supply.commands {
+        drop(viewer.handle(command));
+    }
+    for refusal in supply
+        .refused
+        .into_iter()
+        .chain(viewer.reference_refusals().iter().map(ToString::to_string))
+    {
         // Said out loud rather than swallowed: a person who named six files and got four anchors
-        // would otherwise read verdicts computed under a store they did not supply (trap 5).
+        // or four target documents would otherwise read verdicts and pages computed under a supply
+        // they did not make (trap 5).
         eprintln!("note: {refusal}");
     }
-    drop(viewer.handle(Command::Trust(trust)));
-    // **§8.10.4's target documents, and rule 2 a third time.** The core has no filesystem, so the
-    // party that turns `--reference-files` into bytes is this one — and which of those bytes a
-    // reference names is decided in the core by §14.4's identifier, never here by a path.
-    let (files, refused) = viewer_host::reference_files(reference_files);
-    for refusal in &refused {
-        eprintln!("note: {refusal}");
-    }
-    drop(viewer.handle(Command::References(files)));
-    for refusal in viewer.reference_refusals() {
-        // The other half of the same sentence, from the party that opened each file: a person who
-        // named six files and got four target documents would otherwise wonder which page came
-        // from where (trap 5).
-        eprintln!("note: {refusal}");
-    }
-    // **§8.11.4.4's two categories about the reader**, before the document for `Command::Restrict`'s
-    // reason: a policy applied halfway through is not a policy, and this one decides which layers
-    // the first interpretation draws. Nothing is read off this machine — the words a person typed
-    // are the whole of it (ADR 1106).
-    drop(viewer.handle(Command::Audience(audience)));
     // **§10.8.3's simulation, before the document for `Command::Restrict`'s reason**: it decides
     // what colour every mark of the first interpretation is, and a preference applied after the
     // page has been drawn would have drawn the other picture first (ADR 1228).
@@ -296,10 +278,7 @@ fn main() {
         embedded_documents,
         submissions,
         separations,
-        trust_anchors,
-        accept_unknown_revocation,
-        reference_files,
-        audience,
+        reader,
         proxy_pages,
         supersample,
         coverage,
@@ -312,10 +291,7 @@ fn main() {
         .with(viewer_host::ActLevel::Submissions(submissions));
     let policies = Policies {
         restrictions,
-        trust_anchors,
-        accept_unknown_revocation,
-        reference_files,
-        audience,
+        reader,
         separations,
     };
     launch.mark("arguments");

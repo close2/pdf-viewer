@@ -801,13 +801,17 @@ pub(crate) struct Regenerated {
 ///
 /// Returns `None` where the stream cannot be read, which leaves the caller drawing it as it
 /// stands — the ordinary undecodable-appearance path reports that.
+///
+/// The view supplies the value and whether Table 199's `/F` applies to it: every value but the
+/// one a person is still typing, which shows as typed until it is committed (ADR 1579).
 pub(crate) fn regenerate(
     document: &Document,
     annotation: &Dictionary,
     stored: &pdf_syntax::Stream,
     bbox: [f32; 4],
-    value: FieldValue<'_>,
+    view: crate::view::AnnotationView<'_>,
 ) -> Option<Regenerated> {
+    let value = view.value;
     let data = document.decoded_stream_data(stored)?;
     let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
     let source = characteristics.as_ref().unwrap_or(annotation);
@@ -827,6 +831,7 @@ pub(crate) fn regenerate(
         // the normal appearance: what a pointer is doing now is not written into a document.
         crate::view::Appearance::Normal,
         Asked::default(),
+        !view.editing,
     ) {
         Ok(Some(laid_out)) => (laid_out.content, laid_out.owed.map(|owed| owed.detail())),
         // A field with no value has no marks, and an empty marked-content region is the
@@ -1107,7 +1112,13 @@ pub(crate) fn for_saving(
             rect[2] - rect[0],
             rect[3] - rect[1],
         ]);
-        let Some(regenerated) = regenerate(document, annotation, &stored, bbox, value) else {
+        // A saved file is read by somebody who is not typing into it, so its appearance is the
+        // formatted one whatever the field's state here (ADR 1579).
+        let view = crate::view::AnnotationView {
+            value,
+            ..crate::view::AnnotationView::default()
+        };
+        let Some(regenerated) = regenerate(document, annotation, &stored, bbox, view) else {
             return ForSaving::Owed;
         };
         // A value set in a face from this machine is saved with the face subset and embedded;
@@ -2630,6 +2641,7 @@ fn widget(
         value,
         view.appearance,
         Asked::default(),
+        !view.editing,
     ) {
         Ok(laid_out) => laid_out,
         Err(refusal) => {
@@ -3304,6 +3316,13 @@ fn list_box_options(
 /// `asked` is what a *question* wants out of the layout and is empty for everything that draws:
 /// where it asks anything at all, an empty field is laid out rather than skipped, because a place
 /// for the next character is exactly what an empty field can still be asked for.
+#[expect(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    reason = "one layout's inputs, each a different clause's: the widget, its characteristics, its \
+              box, its value, its appearance state, what a host asked, and Table 199's format; \
+              and one match over §12.7.4.3's field types, each arm the text that type lays out"
+)]
 fn field_text(
     document: &Document,
     annotation: &Dictionary,
@@ -3312,6 +3331,7 @@ fn field_text(
     value: FieldValue<'_>,
     appearance: crate::view::Appearance,
     asked: Asked,
+    format: bool,
 ) -> Result<Option<variable_text::LaidOut>, Refusal> {
     let field = Field::read(document, annotation, value);
     if field.too_deep {
@@ -3330,6 +3350,9 @@ fn field_text(
     // The list box's selected lines, which it highlights in a colour this program chose and
     // reports as its own (ADR 1323); empty for every other field type.
     let mut selected: Vec<usize> = Vec::new();
+    // Table 199's `/F`, which "shall be performed before the field is formatted to display its
+    // value" — read once here and applied to a text or editable combo value below (ADR 1579).
+    let mut formatting = Formatting::of(document, annotation, format);
     let (text, shape) = match kind {
         // Table 192's `/CA`, "the widget annotation's normal caption, which shall be displayed
         // when it is not interacting with the user" — the entry that "may be used with any
@@ -3377,10 +3400,13 @@ fn field_text(
             // Table 231 bit 14: a password field's characters "shall instead be echoed in some
             // unreadable form, such as asterisks or bullet characters". A value stored in the
             // file at all breaks the same row's NOTE; echoing it as it stands would publish it.
-            let value = if field.flags & FLAG_PASSWORD == 0 {
-                value
-            } else {
+            // Its echo is never formatted, because a format would show what the echo hides.
+            let value = if field.flags & FLAG_PASSWORD != 0 {
                 "\u{2022}".repeat(value.chars().count())
+            } else if format {
+                formatting.apply(value)
+            } else {
+                value
             };
             (value, field.text_shape(document, annotation))
         }
@@ -3402,6 +3428,11 @@ fn field_text(
             if value.is_empty() && asked == Asked::default() {
                 return Ok(None);
             }
+            let value = if format {
+                formatting.apply(value)
+            } else {
+                value
+            };
             (value, Shape::SingleLine)
         }
         // §12.7.5.5: a signature field's value is a signature dictionary and signing "entails
@@ -3419,9 +3450,15 @@ fn field_text(
     // Table 228 marks `/DA` and `/Q` inheritable, and Table 224 gives the interactive form
     // dictionary "a document-wide default value" for each — so the chain runs from the widget
     // up its parents and ends at the form.
-    let Some(default_appearance) = variable_text::bytes(document, &sources, "DA") else {
+    let Some(mut default_appearance) = variable_text::bytes(document, &sources, "DA") else {
         return Err(Refusal::Text(Owed::NoFont));
     };
+    // `AFNumber_Format`'s two red negative styles colour the text, which Adobe's library does by
+    // setting the field's text colour: the `/DA`'s own operators are replayed first and the red
+    // after them, so it is the colour the text is shown in (ADR 1578 section 2).
+    if formatting.red {
+        default_appearance.extend_from_slice(b" 1 0 0 rg");
+    }
     let resources = default_resources(document);
     let request = Request {
         text: &text,
@@ -3445,9 +3482,68 @@ fn field_text(
             if rich_text_unformatted(document, &field) {
                 laid_out.owed = laid_out.owed.or(Some(Owed::RichTextFormatting));
             }
+            if let Some(sentence) = formatting.report.take() {
+                laid_out.owed = laid_out.owed.or(Some(Owed::Script(sentence)));
+            }
             Some(laid_out)
         })
         .map_err(Refusal::Text)
+}
+
+/// Table 199's `/F` for one widget, read once per layout (ADR 1579).
+///
+/// Where the field's format script is one call of `crate::aform`'s library, the value is shown as
+/// that call writes it and `red` says whether the call colours it. Where the script is anything
+/// else, or its call refuses its arguments, the value is shown as it stands and `report` carries
+/// the sentence — the raw value is what the file's own appearance carries, so drawing it is not a
+/// guess, and the sentence says what was not run.
+struct Formatting {
+    /// The format call, where the field states one this tier runs and formatting is wanted.
+    call: Option<crate::aform::Call>,
+    /// Whether the formatted text is drawn red.
+    red: bool,
+    /// What was not run, for the report.
+    report: Option<String>,
+}
+
+impl Formatting {
+    /// The widget's format script, or nothing to apply when `wanted` is false.
+    fn of(document: &Document, annotation: &Dictionary, wanted: bool) -> Self {
+        let mut out = Self {
+            call: None,
+            red: false,
+            report: None,
+        };
+        if !wanted {
+            return out;
+        }
+        match crate::aform::site::of_widget(document, annotation, crate::aform::Trigger::Format) {
+            crate::aform::site::Site::Absent => {}
+            crate::aform::site::Site::Library(call) => out.call = Some(call),
+            crate::aform::site::Site::NotRun(sentence) => out.report = Some(sentence),
+        }
+        out
+    }
+
+    /// The text to show for `value`.
+    fn apply(&mut self, value: String) -> String {
+        let Some(call) = &self.call else {
+            return value;
+        };
+        match call.format(&value) {
+            Ok(formatted) => {
+                self.red = formatted.red;
+                formatted.text
+            }
+            Err(refusal) => {
+                self.report = Some(format!(
+                    "the field's format script {} did not run: {refusal}",
+                    call.function.name()
+                ));
+                value
+            }
+        }
+    }
 }
 
 /// §12.7.5.3's Table 231 bit 26: the characters a rich text value states, or `None`.
@@ -3782,6 +3878,9 @@ fn laid_out_in(
         view.value,
         view.appearance,
         asked,
+        // A caret, a click or a selection is asked of the characters a host edits, which are the
+        // value as typed rather than as a format shows it (ADR 1579).
+        false,
     )
     .ok()
     .flatten()

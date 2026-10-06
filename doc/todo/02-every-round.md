@@ -78,6 +78,7 @@ each is a prerequisite of the lines under it, and it is run with them or not at 
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test raster_golden   -- --ignored --nocapture   # ADR 1016: our own output held by name — a change detector; PDFVIEWER_RASTER_GOLDEN=update regenerates
+cargo test  --profile gates -p pdf-model      --test script_corpus   -- --ignored --nocapture   # RFC 0008 section 6.7's Tier 0 form: every field script of the census population committed once, every displayed value held by name (ADR 1579); PDFVIEWER_SCRIPT_CORPUS=update regenerates
 cargo test  --profile gates -p pdf-model      --test dates           -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test xmp             -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test jpeg2000        -- --nocapture

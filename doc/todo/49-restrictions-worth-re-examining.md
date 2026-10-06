@@ -253,18 +253,22 @@ change to *what* is bounded, and both need the argument before the code.
   46.64 → 40.62 G instructions. What is left of the two is lexing and the glyph description's
   stream being looked up again per code (`NestedContent::of`, a fifth of the second unit), which
   is per-operator work every bound already counts.
-- **The `page` target's slow units are six shapes, and one of them is a cost no bound governs**
-  (ADR 1571, callgrind over all 70 on disk): the Type 3 glyph cycle above (3 units), nested forms
-  and patterns that reach their depth and tile bounds (18), image samples through the `DeviceCMYK`
-  press, bounded only by the image's own sample count (29), substitute-font search (2), content
-  lexing and tiling (15) — and three units sharing one TrueType font whose `post` table is format
-  2.0 with 5125 glyphs, 14.3 G instructions each and 99% of it in `read_fonts`'s
-  `Post::glyph_name`. `pdf-font`'s `post_glyph` searches the table per name it is asked for, and
-  each lookup walks the string list from its start, so one unlisted name costs the square of the
-  glyph count over two and a font pays it per name. The comment above it prices the scan against
-  the map for a small font; at 65 535 glyphs and 256 unlisted names the quadratic extrapolates to
-  about 750 times this unit. The fix is a name-to-glyph map built once per font, linear in the
-  glyphs, and it is `pdf-font`'s to make; every unit exits 0 today, at most 2.6 s in release.
+- **The `page` target's slow units are six shapes** (ADR 1571, callgrind over all 70 on disk): the
+  Type 3 glyph cycle above (3 units), nested forms and patterns that reach their depth and tile
+  bounds (18), image samples through the `DeviceCMYK` press, bounded only by the image's own
+  sample count (29), substitute-font search (2), content lexing and tiling (15) — and three units
+  sharing one TrueType font whose `post` table is format 2.0 with 5125 glyphs
+  (`slow-unit-0c5ebcab3dec74b1571560be89ddeb8ab3b64b92`, `…2b9f6ddf…`, `…e788c7ce…`). That one is
+  no longer a cost: a face's `post` names are resolved once and inverted once (`pdf_font`'s
+  `PostNames`, ADR 1584), and the unit's page is 14 487 → 132 M instructions.
+  `crates/pdf-font/tests/post_table_names.rs` holds it at the unit's size and at 65 535 glyphs.
+- **A composite font's `/W` ranges are expanded one entry per CID, with no bound on the total**
+  (`pdf_font::metrics::composite_widths`, found by ADR 1584's audit and not built). Each `c1 c2 w`
+  range is capped at 65 536 entries and nothing caps how many ranges an array holds, so an array of
+  n ranges asks for up to 65 536 n map entries — this is arithmetic from the code, not a measured
+  file. A dense list of single widths costs one tree entry each as well, and that was 28.6% of
+  `issue16553.pdf`'s page 1. Storing ranges as ranges, first statement winning as §9.7.4.3 says,
+  would answer both; it is `pdf-font`'s to make.
 - **And it was counting the wrong quantity as well, which is a different fault from the one above
   and is fixed** (ADR 0306). Every "operators" in this file's budget rows means *lexer tokens*: the
   one increment site was the token loop, and §7.8.2 puts an operator after its operands, so a `c`

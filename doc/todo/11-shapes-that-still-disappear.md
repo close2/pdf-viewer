@@ -15,18 +15,17 @@ product, since ADR 0363 a clip standing *beside* a soft mask does too, and since
 What is left of it on this backend is **nothing owed**: an image's edge is paid and has a witness,
 and a group whose opacity is below 1.0 is a documented choice under §10.7.1's NOTE rather than a
 debt (ADR 1348) — and the two backends that still multiply; and what is left of the file is two marks abutting — which item 2
-had only across a cell's box edge and which the four-hundred-and-seventy-third session measured in
-its general form on a document the project owner reported (ADR 0308). **It is not a defect of this
+had only across a cell's box edge, measured in its general form on a document the project owner
+reported (ADR 0308). **It is not a defect of this
 program**, and item 5 says on what evidence. **What an eight-bit raster does to a mark whose ink is
 under one of its levels was this file's standing question and is answered** (ADR 0419): the standard
 states a floor of one whole device pixel for the *aliased* algorithm and none at all for the
 anti-aliased one §10.7.1's NOTE permits instead, beyond "no shape ever disappears" — which this tree
-was failing at the very bottom of the range and now is not. **One of the two marks that were left
+meets at the very bottom of the range. **One of the two marks that were left
 there is paid** — §8.5.3.2's dot, on all three rasterisers, by stating it as the device pixel the
 clause's own flooring identifies rather than as a circle no placement lets a raster hold (ADR 0420)
 — and what remains is the body of a sub-pixel rule on `render-raster` alone.
-**And a seventh arrived in the six-hundred-and-forty-third session, from the other end of the same
-sentence**: this file is about marks the coverage quantum *loses*, and item 7 is what the same
+**And a seventh comes from the other end of the same sentence**: this file is about marks the coverage quantum *loses*, and item 7 is what the same
 quantum does to a mark it keeps — an edge's coverage rounded to a quarter on `render-cpu` alone
 (ADR 0474), **paid for the shape §10.7.4's own closed form covers** (ADR 0476).
 **Item 8 is the largest loss this file ever held and its refusal half is paid** (ADR 0482): a mark
@@ -70,15 +69,14 @@ instrument),
 `crates/render-raster/tests/singular_transform.rs` and
 `crates/pdf-model/examples/singular_transform_census.rs` (item 8's gate and its instrument)
 
-Leftovers from the hundred-and-eighty-sixth to -eighth sessions, which closed §10.7.4's
+What is left beside §10.7.4's
 "no shape ever disappears" for a fill with *no* area (ADR 0154) and for a redundant pattern-cell
-clip (ADR 0155). All three are the same sentence one step along, and none of them is the
+clip, which are closed (ADR 0155). All three are the same sentence one step along, and none of them is the
 anti-aliasing departure.
 
 ## 1 and 3. A stroke or a fill thinner than the rasteriser's coverage quantum — **closed**
 
-Both were `render-cpu`'s alone, which the three-hundred-and-forty-fourth session measured, and both
-were paid in the three-hundred-and-eighty-ninth. `tiny-skia`'s scan converter supersamples four
+Both were `render-cpu`'s alone, and both are paid (ADR 0226). `tiny-skia`'s scan converter supersamples four
 times per pixel row and takes each sub-row's sample at its centre, so a fill under an eighth of a
 pixel crossed no sample line and vanished; and its painter drew a stroke under a pixel wide as a
 hairline smeared symmetrically about the path, so one within half a pixel of the raster's edge lost
@@ -86,7 +84,7 @@ the half of its smear that fell outside.
 
 `pdf_render::sub_pixel_bands` draws an axis-aligned rectangle thinner than a device pixel as the
 whole pixel line it lies in, at the coverage its own area there implies, and a sub-pixel stroke on a
-straight axis-aligned rule is converted to the fill of its own outline first. Both backends now
+straight axis-aligned rule is converted to the fill of its own outline first. Both backends
 answer within one level of 255 of the shape's own area at every thickness measured, and
 `tests/sub_pixel_coverage.rs` gates **both** against the area rather than against each other. The
 before/after ladders, the cost, and every declined case are in ADR 0226.
@@ -104,9 +102,8 @@ Two consequences worth keeping here:
 ### The residual they left — a rule that is not axis-aligned — **closed, and it was a different defect**
 
 ADR 0226 named `22060_A1_01_Plans.pdf` as the witness and priced the answer as "a coverage span per
-scanline rather than one rectangle per pixel line, which is a scan converter of our own". The
-four-hundred-and-thirty-second session measured the case instead of inheriting that price and
-**both halves of the sentence were wrong** (ADR 0268):
+scanline rather than one rectangle per pixel line, which is a scan converter of our own". Measured
+rather than inherited, **both halves of that sentence are wrong** (ADR 0268):
 
 - **A diagonal does not disappear, and cannot.** A band lying between two of `tiny-skia`'s sample
   lines vanishes; a band that is *not parallel* to them crosses one every `1/(4 tan θ)` pixels of
@@ -167,8 +164,8 @@ band at exactly 45° reads 177.44 of its own 200, because that converter quantis
 per-row run to quarter pixels. 177.44 is much better than 141.42 and it is not the geometry; the
 gate's `TURNED_TOLERANCE` is set by it.
 
-**And the ladder that set it was reading the substitute through a second approximation** — found in
-the five-hundred-and-eighty-third (ADR 0418). This construction carries a rule's given-up width in
+**And the ladder that set it was reading the substitute through a second approximation**
+(ADR 0418). This construction carries a rule's given-up width in
 the paint's **alpha**, so anything that biases the alpha's arithmetic biases a thin mark's ink in
 proportion to how thin it is; `tiny-skia`'s low-precision raster pipeline was doing exactly that,
 rounding a division by 255 *up* twice per pixel. At 45° the ladder read −0.2% at 0.05 of a pixel and
@@ -200,9 +197,8 @@ ungated and unwitnessed. It takes the same substitution, as does a zero-length d
 
 ### What is left of it: an eight-bit raster's own floor — **the reading is settled (ADR 0419), two marks are left**
 
-**The five-hundred-and-eighty-fourth session read the clauses this item rests on and the answer is
-that the standard states no floor for an anti-aliasing device**, so this item is no longer "what an
-eight-bit raster does" as an open question. What it is now is two measured residuals with a reason
+**The clauses this item rests on state no floor for an anti-aliasing device** (ADR 0419), so this
+item is not "what an eight-bit raster does" as an open question. What it is is two measured residuals with a reason
 apiece.
 
 The reading, in three sentences and with the ladders in ADR 0419. §8.4.3.2's one-device-pixel
@@ -304,9 +300,8 @@ ADR 0268's substitute does not touch a fill at all, so it does not reopen the qu
 
 ## 4. A clip boundary that falls where another clip boundary already fell — **the chain is paid, and so is a fill's own coverage**
 
-**Found in the four-hundred-and-forty-third session (ADR 0279) and half taken in the
-four-hundred-and-forty-fourth (ADR 0280).** It is the same clause's *other* paragraph — the one
-about clipping, which neither this file nor §10.7.4's ledger row had cited before 443:
+**Found by ADR 0279 and half taken by ADR 0280.** It is the same clause's *other* paragraph — the
+one about clipping:
 
 > For clipping, the clipping region consists of the set of pixels that would be included by a fill
 > operation. Subsequent painting operations shall affect a region that is the intersection of the set
@@ -359,8 +354,8 @@ mask only at the pixmap's own size, so a per-mark allocation is a band's worth o
 **The corpus population is not the witness's.** It is a §12.5.5 widget appearance whose border rule
 sits on the `/BBox` §8.10.1 step c) clips it by — `bug1844576.pdf`, `bug1844583.pdf`,
 `issue16473.pdf`, `issue18823.pdf`, `multiline.pdf`, `textfields.pdf` — which is the same finding
-`render-raster`'s differing list wrote about `issue21068.pdf` in the two-hundred-and-seventh
-session, when a *redundant* clip came off its comb separators.
+`render-raster`'s differing list wrote about `issue21068.pdf` when a *redundant* clip came off its
+comb separators.
 
 ### What was paid after that: a clip *beside* a soft mask — **ADR 0363**
 
@@ -449,8 +444,8 @@ the mark is whole where the clip is not.
   boolean on the command and one linear pass over the band** — no channel, no second buffer, no
   second render. `pdf_render::Command::Group::alpha_is_shape` is that boolean, answered in
   `pdf-model` because only the interpreter knows §11.6.4.3's `/AIS` reading, and
-  `render_cpu::scan::intersect_group` is the pass. **Paid on `render-cpu` for an isolated group in
-  the six-hundred-and-sixty-sixth session**; the ladder below is the eighth rung moving and the
+  `render_cpu::scan::intersect_group` is the pass. **Paid on `render-cpu` for an isolated group**;
+  the ladder below is the eighth rung moving and the
   other seven staying.
 
   The re-derivation's other half is that **the layers already held the shape**: `pdf-model`'s
@@ -470,8 +465,7 @@ the mark is whole where the clip is not.
 
 ### Which composition is still a product — a ladder, and its eighth rung
 
-**Written in the six-hundred-and-sixty-second session, and it is the first time this item has been
-put to a document it built itself.** `crates/pdf-model/examples/coincident_edge_probe` is one 40 × 40
+**This item put to a document it built itself.** `crates/pdf-model/examples/coincident_edge_probe` is one 40 × 40
 page holding one black fill of `[10 10 30 30.504]`, so a single device row holds the shape's edge at
 coverage 0.504, restated a second time four ways and each of those with and without §11.6.5.2's
 luminosity soft mask whose `/BC` is white — a mask worth 1.0 at every pixel, which cannot change
@@ -504,7 +498,7 @@ multiplied. Its two boundary rows are covered 0.504 and 0.456 and this tree pain
 neither.
 
 **No gate in this tree can see the change, and that is a fact about the gates.** Measured both ways
-in the six-hundred-and-sixty-sixth by disabling the composition and re-running: the oracle's verdicts
+by disabling the composition and re-running: the oracle's verdicts
 are identical, the cross-backend gate is identical to the name and the mean, and step 7's ink sweep
 moves four rows of 786 — all upward, 0.003 to 0.013 of 255, negative tail byte-identical. The
 instrument that can see it is the probe.
@@ -515,7 +509,7 @@ ADR 0355 wrote that the witness's mark "carries a soft mask *and* a clip … so 
 `scan::fill` is a `Clip::Value`". **Nothing on that page arrives at `scan::fill` that way**
 (ADR 0363). Instrumented, page one takes the clip-and-mask pair exactly twice and both consumers
 are a *group's* plain blit; the only two marks reaching the composition are clipping regions with
-no mask at all. Its similarity is 0.9846 before this round and after it.
+no mask at all. Its similarity is 0.9846 with the change and without it.
 
 With the group's raster meeting the clip as a set instead of by the product — the identity's own
 answer, since that page's group lies inside its clip — device column 14 of row 89 goes
@@ -525,15 +519,14 @@ of the mark, where departure (1) gives 0.827 and the clause 1.000. The construct
 is not, which is the same approximation the item above says has to go away. So the group blit is one of the
 remaining factors and not the last of them, and a round taking it owes the ladder again.
 
-**The witness left the oracle's contradicted list in the six-hundred-and-forty-sixth session, and
-not by any of the above.** ADR 0476 changed *how finely each surviving factor is measured* rather
+**The witness is off the oracle's contradicted list, and not by any of the above.** ADR 0476 changed *how finely each surviving factor is measured* rather
 than how many there are: every one of the page's seven statements is the same axis-aligned device
 rectangle whose edge falls at device 14.173, so each was worth `tiny-skia`'s quarter — 0.75 — where
 its own coverage is 0.827. Measuring a rectangular fill and a rectangular clip region exactly took
 device column 14 from `(240, 245, 249)` to `(232, 240, 246)`, **0.306 → 0.469** of the mark, and the
 page agrees. The two edges stand in the ratio `(0.75/0.827)^4.4`, so **four to five factors are
 still products** and everything above is still owed; what changed is that the page is no longer the
-list's witness for it. **The group blit was taken in the six-hundred-and-sixty-sixth and the ladder is 0.469 → 0.694**:
+list's witness for it. **The group blit is taken and the ladder is 0.469 → 0.694**:
 device column 14 of row 89 goes `(232, 240, 246)` to `(221, 233, 241)` against the same interior, so
 `0.827^4.0` became `0.827^1.9` — about two of the page's factors paid and about two left.
 
@@ -565,8 +558,7 @@ Two things bound any attempt at the rest:
 
 ## 2. Two marks that abut across a cell's box edge without repeating
 
-**The witness closed in the three-hundred-and-seventy-fourth session and this is what is left of
-the item.** `issue16038.pdf`'s second square drew a rule its cell states on *both* box edges, so
+**The witness is closed and this is what is left of the item.** `issue16038.pdf`'s second square drew a rule its cell states on *both* box edges, so
 Table 74's clip halved it and the two halves composited as `1 − (1−a)(1−b)` rather than adding —
 0.1159 against the geometry's 0.1333. The two statements are one mark of the tiling, a whole
 `/YStep` apart, and §11.6.2 forbids compositing portions of one object; folding them to the one
@@ -578,12 +570,8 @@ Three things that were written here and are worth keeping:
   what `mupdf` does and what makes its two squares differ by a factor of 1.63.
 - **The NOTE that looks like the answer is not one.** §11.6.7's NOTE 2 recommends treating all
   tiles as a single transparency group against "artifacts due to multiple marking of pixels along
-  the boundaries between adjacent tiles", and `tile` has built that group since the
-  hundred-and-seventeenth session. Compositing inside a group is still compositing; the loss was
-  *inside* it. (This file said §8.7.3.1's NOTE 2 for four sessions. The note is §11.6.7's — and that
-  correction reached this file and none of the three others that had copied it, which is how the
-  eight-hundred-and-ninety-first session found `doc/todo/49`, ADR 0810 and `pattern.rs` still
-  citing it; ADR 0827.)
+  the boundaries between adjacent tiles", and `tile` builds that group. Compositing inside a group is still compositing; the loss was
+  *inside* it. (The note is §11.6.7's, not §8.7.3.1's; ADR 0827.)
 - **The general case is still open, and no page in the corpus names it.** Two *different* marks
   hanging out of opposite edges of the box and meeting at the boundary: the clipped pair is then
   the right set of points, there is no repeat to fold, and joining them would mean either a
@@ -602,8 +590,7 @@ rule. It is `AMBIGUOUS_TILING_CELL_CLIP`'s own last paragraph.
 ## 5. Two marks that abut anywhere — **witnessed, measured, and ours after all** (ADR 0308, corrected by ADR 0582)
 
 Item 2 above is this one inside a tiling cell, and the *unwitnessed general case* it hands on is
-narrower than what a document actually does. **A witness arrived from the project owner in the
-four-hundred-and-seventy-third session**: a 50 MB Inkscape geological cross-section whose page is
+narrower than what a document actually does. **The project owner reported a witness**: a 50 MB Inkscape geological cross-section whose page is
 one 148 MB content stream of **58 003 `f` operators, 2 868 970 curve segments, 57 413 colour
 changes and no clipping path at all**. A dark green frame rule runs under it, and the owner's
 screenshot shows the rule shining through the polygons drawn over it — and disappearing when the
@@ -622,8 +609,8 @@ cross-section of 58 003 polygons is where it is seen and a page of text is not.
 ### **This item said "the seam is what §11.3.7.3 states" and that was wrong** (ADR 0582)
 
 ADR 0308's sentence was "the seam is not a deviation from the model — it is the model, applied to
-the fractional shape §11.3.7.2's NOTE 1 says anti-aliasing produces", and the
-seven-hundred-and-eleventh session read the clauses that say where the model's values live. **The
+the fractional shape §11.3.7.2's NOTE 1 says anti-aliasing produces"; the clauses that say where
+the model's values live answer it. **The
 model states no seam anywhere**, and four sentences settle it:
 
 - §11.2, a `shall`: "Two scalar quantities called shape and opacity mediate compositing of an
@@ -771,7 +758,7 @@ what the same quantum does to the edge of a mark thicker than it, and it took si
 to be asked because the page it is visible on was filed under the anti-aliasing departure's own
 name.
 
-**The measurement, which is what the six-hundred-and-forty-third session left.**
+**The measurement** (ADR 0474).
 `render-raster/examples/edge_coverage_ladder` puts a rectangle's edge at every twentieth of a pixel
 and reads the boundary pixel:
 
@@ -873,8 +860,7 @@ question was which converter, not how many calls.
   ~~**What is left is the sharing half**, 505 of 3924 in that corpus, and its price is *not* item 5's
   rasteriser: it is one coverage buffer per mark with the portions' areas **summed** into it and the
   paint blitted once, which is `scan::intersected`'s shape already (ADR 0355) and would cost about
-  what that cost.~~ **Paid in the seven-hundred-and-fifteenth session, and 711's price was right to
-  the buffer** (ADR 0590). `scan::Exact::Shared` is that population as a type, `scan::intersected`
+  what that cost.~~ **Paid, at the price written, to the buffer** (ADR 0590). `scan::Exact::Shared` is that population as a type, `scan::intersected`
   is the buffer, and what had to change about it is one sentence: it declined wherever there was no
   clipping region to intersect, and §11.6.2 asks for the same buffer with *no clip at all*. So two
   clauses now ask for it and either is enough — which is also why `is_a_set`'s cost decline is not
@@ -922,7 +908,7 @@ question was which converter, not how many calls.
 
 ## 8. A paint that cannot be positioned costs the page rather than the mark — **the refusal is paid (ADR 0482); §10.7.4's own mark is built for a fill and a stroke (ADRs 1348, 1360)**
 
-Found in the six-hundred-and-fortieth session, on the SafeDocs crawl and not by ink: `4605705.pdf`
+Found on the SafeDocs crawl and not by ink: `4605705.pdf`
 states eight `/Contents` parts, every one a Flate stream that decodes cleanly for tens of kilobytes
 and then into garbage, and among the garbage is a `cm` whose matrix has no inverse. The whole raster
 was refused and the 282 commands the page did draw went with it.
@@ -998,9 +984,7 @@ How the three things this item said a round owed were answered:
 - **A placement**: the run of whole pixels along a page axis; across the axes, the band of one
   device pixel `collapsed.rs` already draws where the grid is turned (ADR 1360). A rank-zero
   matrix leaves a point, which is ADR 1060's decision.
-- **A witness. This bullet said "which there is not" and it was wrong** — corrected in the
-  nine-hundred-and-thirty-seventh session by running `examples/singular_transform_census` over
-  **every corpus on this disk** rather than over the population the sentence was written against.
+- **A witness**: `examples/singular_transform_census` over **every corpus on this disk**.
   Page one alone, 35 documents state such a mark and there are 465 985 of them, four documents
   carrying 333 327, 49 715, 39 895 and 39 895 apiece. The old sentence — "[m]ost matching pages
   state *one* such mark among thousands, and the two whose count is large are a garbage stream and

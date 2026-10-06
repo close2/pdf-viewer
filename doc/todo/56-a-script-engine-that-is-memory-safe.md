@@ -1,22 +1,27 @@
 # A script engine that is memory-safe, and the exclusion it invites the owner to re-read
 
-Status: **blocked on the owner's decision about the exclusion, and on nothing else — and the
-decision is now put as `doc/rfc/0008`, with `doc/questions/Q193` pointing at its ten questions.**
-This file is the finding the RFC builds on; the RFC re-measured what it could and this file keeps
-its 2026-08-28 numbers as what was found then. The premise
-this file was commissioned to test — *is it true that there is now a safe ECMAScript library?* — is
-**true, with one qualification that matters and is stated in full below**. What is not settled is
-whether the project wants the capability; `CLAUDE.md`'s exclusion list still closes it, and an
-exclusion is amended by the owner's argument, never by a round's.
-Priority: 56 — band 50–59, *blocked on a decision*. Not 20–29, though the corpus demand is there:
-no round may start this while the exclusion stands.
+Status: **the owner accepted `doc/rfc/0008` in answer A193, and its Tier 0 is built.**
+`pdf_model::aform` runs Adobe's `AF*` form library natively where a field's Table 199 script is
+textually one call with literal arguments; `ViewState` raises `/K` as a person types, runs `/K`'s
+commit form and `/V` at `ViewState::commit_field`, lays a value out through its `/F`, and walks
+Table 224's `/CO` in order after every value change; `crates/pdf-model/tests/script_corpus.rs` holds
+every scripted field's displayed value over RFC 0008 section 3's population (ADRs 1578, 1579).
+**What is next is Tier 1, in RFC 0008 section 11's order** — `pdf-script` with the engine behind a
+feature, the `Outcome` type, the budgets, the third confined process — and **one host step Tier 0
+cannot take**: no window calls `ViewState::commit_field` yet, so a typed field keeps showing what
+was typed and its validation and the keystroke's commit form wait on `viewer-core`'s `/Bl` and
+Enter. The premise this file was commissioned to test — *is it true that there is now a safe
+ECMAScript library?* — is **true, with one qualification that matters and is stated in full
+below**; the file keeps its 2026-08-28 numbers as what was found then, and the RFC re-measured what
+it could.
+Priority: 56 — band 50–59. A193's `Owes` line is the order of work: the exclusion in `CLAUDE.md`
+amended with RFC 0008 section 10's sentence beside Tier 1, never by a round on its own.
 
-**One of the two open questions this file left is now closed, and it is not the exclusion.** The
-owner has ruled on *where the host object model is read from* — §3's *The source, settled by the
-owner* below, which answers what §9's step 4 used to ask for and rewrites it. The exclusion itself
-is untouched: §8 is still an argument awaiting ratification, with the four claims that cut against
-it still standing, and the round that recorded the source decision changed no ledger status, no
-`Cargo.toml`, no file under `doc/rfc/` and no line of `CLAUDE.md`.
+**Both questions this file left are answered.** Where the host object model is read from is the
+owner's earlier ruling, recorded under *The source, settled by the owner* below; whether the
+project wants the capability is A193's acceptance of the RFC, with the owner's rule that the target
+is as much of the pinned reference's surface as is secure and reasonable, the census ranking the
+work and never capping it.
 
 Corpus: **run the census rather than reading a number here.** The instrument that answers *at
 which site* and *what each script calls* is `crates/pdf-model/examples/javascript_census.rs`
@@ -45,7 +50,9 @@ the document catalog's), §12.6.4 (Table 201), §7.7.4 (Table 32's `/JavaScript`
 §12.5.6.19. And the normative reference the standard makes for all of it: **ISO 21757-1:2020**,
 *Document management — ECMAScript for PDF — Part 1: Use of ISO 32000-2 (PDF 2.0)*.
 
-Code as it stands: `crates/pdf-model/src/action.rs` (the refusal), `crates/pdf-model/src/view.rs`
+Code as it stands: `crates/pdf-model/src/aform/` (Tier 0's library, its one-call grammar and where
+a field's script is read), `crates/pdf-model/src/view/scripts.rs` (Table 199's triggers raised and
+`/CO` walked), `crates/pdf-model/src/action.rs` (the refusal), `crates/pdf-model/src/view.rs`
 (`ViewState::perform_all`, the action log beside the document), `crates/pdf-model/src/forms_data.rs`,
 `crates/pdf-model/src/requirements.rs`, `crates/pdf-sandbox/src/lockdown_linux.rs` (the budgets),
 `crates/viewer-confined/`, `crates/pdf-model/examples/refused_action_census.rs` (the instrument).

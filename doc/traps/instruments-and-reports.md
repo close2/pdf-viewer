@@ -1101,6 +1101,18 @@ sccache server that inherits the pipe's write end — redirect to a file and rea
 Python `mmap` answers `b"/DCT" in m` with False for a multi-byte needle it holds; `m.find(b"/DCT")`
 is right.
 
+### 114. A nested crate joins the workspace, `__pycache__` is a member, and an export's mtimes are the commit's
+
+Three ways one round's scratch broke every sibling's build in batch fifty-eight. `cargo new` under
+`scratchpad/r<n>/` adds the new crate to the root `Cargo.toml`'s `members`, and `cargo` in the whole
+worktree answers "multiple workspace roots" until the line is removed. Running `python3
+tools/main-checkout.py` writes `tools/__pycache__/`, which the `tools/*` member glob reads as a crate
+directory — `PYTHONDONTWRITEBYTECODE=1` on every Python run under `tools/`. And a `git archive`
+export's files carry the commit's time, older than any artefact in a target directory that already
+exists, so a rebuild over it hands back the stale binary with no error: touch the exported sources
+before building and compare the binaries with `md5sum` (trap 50 is the same lesson from the other
+side).
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

@@ -120,9 +120,10 @@ for c in json.load(sys.stdin)["crates"]:
 **Last run on 2026-10-05**: `ed448-goldilocks` `0.14.0-pre.15` (0.9.0 its newest stable), no `bp512`
 in the registry, and no description naming an audit — `minimal-ed448` and its mirror say
 *unaudited* and `aegis-crypto` says it is not independently audited. `ed448-goldilocks-plus` 0.18.1
-(`BSD-3-Clause`, `mikelodder7/Ed448-Goldilocks`, a stable line) waits on the owner's open question
-`doc/questions/Q192`, which this rule does not answer: its README says it has not been reviewed, so
-it is below the bar unless the owner says it counts.
+(`BSD-3-Clause`, `mikelodder7/Ed448-Goldilocks`, a stable line) does not count: its README says it
+has not been reviewed, and the owner's answer `doc/questions/A192` defines reviewed as stable and
+from the supplier the tree already trusts, under which every package judged below is no and the
+trigger is RustCrypto's `ed448-goldilocks` reaching a stable line that carries the signature scheme.
 
 **The packages judged, each once, on `doc/stack.md`'s terms from its crates.io record, its
 repository and its source** — none a candidate, and none re-read:
@@ -245,7 +246,11 @@ mode is drawn in `raster/` (ADR 1295); A97's text is held and §12.7.8.3.4 reads
 A100 made §8.6.6.5 `implemented`; A03 ratified Annex F, whose rows are all `implemented` (ADRs 1293,
 1309); A67 names no ledger row. A130 wrote TLS into principle 3 as its one named exception, with
 the host checked first (ADR 1327), and A131 read F.4.1 as padding each item's run of a hint table
-(ADR 1328); neither moves a row.
+(ADR 1328); neither moves a row. Of the owner's answers of 2026-10-05, A171 is §12.10's build (the
+bullet in bucket 6), A192 closes the Ed448 search (bucket 2's curve paragraph), A193 makes
+JavaScript a build stream whose Tier 0 runs the one-call `AF*` scripts while §12.6.4.17 stays
+`out-of-scope` (ADRs 1578, 1579), A227 has the `zune-jpeg` fork prepared for the owner to create
+(ADR 1589), and A209 owes nothing; none of the last four moves a row this map holds.
 
 ### 6. Genuinely buildable now — the campaign's next targets
 
@@ -253,12 +258,15 @@ A normal round can advance or close each of these today; there is no missing sur
 package, no cross-round architecture. Membership is re-derived from the ledger rather than carried: a
 row is in this bucket when its note names none of those three.
 
-- §12.10, §12.10.2 — a geospatial viewport's **projection**. Everything the file states is read and a
-  person can trace a path in one (ADR 1191). The owner's answer `doc/questions/A171` makes the
-  projection this tree's own to build: a census over the crawl first, deciding whether `/WKT` alone
-  suffices or tables of the EPSG codes documents use are needed; the inverse methods it finds cited
-  to IOGP Guidance Note 7-2, its worked examples as the tests; an accuracy budget documented as a
-  choice; within the file's own datum, as §12.10 asks (ADR 1574).
+- §12.10, §12.10.2 — a geospatial viewport's **registration in degrees**. Everything the file states
+  is read, a person can trace a path in one (ADR 1191), and the inverse projection is built on
+  `doc/questions/A171`: no EPSG registry, because the census found no system named by code alone; the
+  older WKT form the files carry and ISO 19162's own; eight methods to Guidance Note 7-2's worked
+  examples (ADRs 1586, 1587). What is left: every one of the census's 158 projected maps writes its
+  `/GPTS` as degrees where Table 269 says eastings and northings, refused by name until
+  `doc/questions/Q271` is answered; and the forward projection beside each inverse, which serves those
+  maps under either answer and is a normal round's build. A `/DCS` on another datum stays outside
+  A171's scope.
 
 §13.4 was here, and is `departed`: Table 306's stream `/Poster` is drawn in `/Rect` at a placement
 this program chose, and the playing — the boolean form with it — is the one withholding, on the

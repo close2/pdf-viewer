@@ -5,7 +5,8 @@
 
 A round works in a worktree and may not edit the main checkout, so what a batch leaves for the
 owner is a list of things on the owner's disk: a gitignored or untracked file a merge cannot
-update, a fuzz artefact whose defect is fixed, a corpus a campaign found stale, a local edit that
+update, an owner's answer no commit holds yet (printed first, and alone under `--answers`, which
+`tools/batch.sh check` repeats), a fuzz artefact whose defect is fixed, a corpus a campaign found stale, a local edit that
 will stop the fast-forward, an uncommitted question whose `§` the main checkout's own conformance
 run fails on, a patch a dependency's fork has not taken. This prints one line per kind, with its
 count; `doc/environment.md`'s *After a merge* section says what each line means and the command that
@@ -21,6 +22,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import tomllib
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -132,10 +134,43 @@ def unseeded(main):
         f"fuzz/corpus {' '.join(owed)}" if owed else "")
 
 
-def uncommitted_answers(main):
+def answers(main):
+    """The owner's answers the main checkout holds and no commit does, newest first, and the
+    questions still open once they are counted.
+
+    An `A` file lands in the owner's checkout untracked (or as an edit to a tracked one) and stays
+    so until the owner commits it, so a list read from tracked files — `tests/questions.rs`'s, any
+    round's — calls its question open the whole time. This reads the disk: every `A` file `git
+    status` reports, dated by its modification time, which is when it landed; and every `Q` whose
+    number has no `A` beside it on the disk, which is what is open (ADR 1588)."""
+    directory = os.path.join(main, "doc/questions")
     status = git(main, "status", "--porcelain", "--untracked-files=all", "--", "doc/questions") or ""
-    answers = [line[3:] for line in status.splitlines() if re.search(r"/A\d+[^/]*\.md$", line)]
-    return f"doc/questions: {len(answers)} owner's answer file(s) uncommitted in the main checkout"
+    landed = []
+    for line in status.splitlines():
+        found = re.search(r"doc/questions/((A0*(\d+))[^/]*\.md)$", line)
+        if not found or not os.path.isfile(os.path.join(directory, found.group(1))):
+            continue
+        stamp = os.path.getmtime(os.path.join(directory, found.group(1)))
+        landed.append((stamp, int(found.group(3)), found.group(2), line.startswith("??")))
+    landed.sort(key=lambda entry: (-entry[0], entry[1]))
+    dated = " ".join(f"{name} ({time.strftime('%Y-%m-%d', time.localtime(stamp))})"
+                     for stamp, _, name, _ in landed)
+    names = os.listdir(directory) if os.path.isdir(directory) else []
+    asked = {int(m.group(1)): m.group(0)[:-1] for m in
+             (re.match(r"Q0*(\d+)-", n) for n in names if n.endswith(".md")) if m}
+    answered = {int(m.group(1)) for m in (re.match(r"A0*(\d+)-", n) for n in names) if m}
+    still_open = [asked[n] for n in sorted(set(asked) - answered)]
+    # An edit to a tracked answer leaves its question answered in the tracked files already; an
+    # untracked answer is one the tracked files cannot see.
+    unseen = [f"Q{name[1:]}" for _, number, name, new in sorted(landed, key=lambda e: e[1])
+              if new and number in asked]
+    lines = [f"answered, uncommitted: {len(landed)} in the main checkout's doc/questions, newest "
+             f"first" + (f": {dated}" if dated else "")]
+    lines += [f"open questions, less those answered on the disk: {len(still_open)}"
+              + (f": {' '.join(still_open)}" if still_open else "")
+              + (f"; the tracked files alone call {len(unseen)} more open: {' '.join(unseen)}"
+                 if unseen else "")]
+    return lines
 
 
 def section_signs(main):
@@ -179,17 +214,25 @@ def pinned(main):
 
 
 def patch_header(path):
-    """A patch's `Repository:` and `Base:` lines, from the preamble `git apply` skips, and the
-    packages its paths touch — the first directory of each `+++ b/<package>/...` line."""
+    """A patch's preamble lines, from the text `git apply` skips, and the packages it touches.
+
+    `Repository:` and `Base:` are the repository and revision it was written against. A patch
+    whose paths are relative to its package (`+++ b/src/...`, as a crates.io source is laid out)
+    names the package's place in the repository with `Directory:`, and its package is that
+    directory's last name; otherwise the packages are the first directory of each
+    `+++ b/<package>/...` line. `Fork:` names the repository under the owner's control that is to
+    carry a patch to a dependency the manifest still takes from crates.io."""
     header, packages = {}, set()
     with open(path, encoding="utf-8", errors="replace") as handle:
         for line in handle:
-            found = re.match(r"(Repository|Base):\s*(\S+)", line)
+            found = re.match(r"(Repository|Base|Fork|Directory):\s*(\S+)", line)
             if found and not packages:
                 header[found.group(1)] = found.group(2)
             target = re.match(r"\+\+\+ b/([^/\s]+)/", line)
             if target:
                 packages.add(target.group(1))
+    if "Directory" in header:
+        packages = {header["Directory"].rstrip("/").rsplit("/", 1)[-1]}
     return header, packages
 
 
@@ -199,26 +242,41 @@ def patches(main):
     A round may not push to a fork, so a fix to a dependency is a patch beside the tree whose
     preamble names the repository and the revision it was written against; the owner applies it
     to the fork and bumps the `rev` the manifest pins. A patch is owed while the manifest still
-    pins its base: a bumped `rev` is the patch applied, and it drops off the list. A patch whose
-    repository the manifest pins no fork of at all — `zune-jpeg`, taken from crates.io — is neither:
-    it waits on the decision to carry a fork, which its preamble names, and is listed as waiting
-    rather than counted as applied."""
+    pins its base: a bumped `rev` is the patch applied, and it drops off the list.
+
+    A patch to a dependency the manifest takes from crates.io — `zune-jpeg` — has no fork to apply
+    it to until one exists. While the question its preamble names is unanswered it is listed as
+    waiting; once the answer is on the disk and the preamble names the `Fork:` to carry it, the
+    fork is the owner's to create, and the line after the patches says how in one sentence (ADR
+    1589). The day the manifest pins the fork, the patch is counted as applied."""
     directory = os.path.join(main, "doc/patches")
     names = sorted(n for n in os.listdir(directory) if n.endswith(".patch")) if os.path.isdir(directory) else []
     pins = pinned(main)
     if pins is None:
         return ["doc/patches: Cargo.toml not readable here"]
-    owed, applied, unstated, waiting = [], 0, [], []
+    questions = os.path.join(main, "doc/questions")
+    on_disk = os.listdir(questions) if os.path.isdir(questions) else []
+    owed, applied, unstated, waiting, to_fork, forks_owed = [], 0, [], [], [], {}
     forks = {repository for repository, _ in pins.values()}
     for name in names:
         header, packages = patch_header(os.path.join(directory, name))
-        base, repository = header.get("Base"), header.get("Repository")
+        base, repository, fork = header.get("Base"), header.get("Repository"), header.get("Fork")
         if not base or not repository:
             unstated.append(name)
             continue
+        if fork in forks:
+            applied += 1
+            continue
         if repository not in forks:
             with open(os.path.join(directory, name), encoding="utf-8", errors="replace") as handle:
-                question = re.search(r"doc/questions/Q\d+", handle.read())
+                question = re.search(r"doc/questions/Q(\d+)", handle.read())
+            answer = question and next((n for n in on_disk if re.match(
+                rf"A0*{int(question.group(1))}-", n)), None)
+            if answer and fork:
+                to_fork.append(f"  fork to create:   doc/patches/{name} — answered by "
+                               f"doc/questions/{answer}; {fork} carries it on {base[:12]}")
+                forks_owed.setdefault(fork, (repository, base, header.get("Directory"), packages))
+                continue
             waiting.append(f"  waiting:          doc/patches/{name} — {repository}, which the manifest "
                            f"pins no fork of; it waits on "
                            f"{question.group(0) if question else 'a decision its preamble does not name'}")
@@ -231,9 +289,17 @@ def patches(main):
         else:
             applied += 1
     lines = [f"doc/patches: {len(owed)} owed to a fork the manifest still pins at the patch's base, "
-             f"{applied} whose base it no longer pins, {len(waiting)} waiting for a fork the manifest "
-             f"does not have, {len(unstated)} stating no base"]
+             f"{applied} whose base it no longer pins, {len(to_fork)} for a fork the owner is to "
+             f"create, {len(waiting)} waiting for a fork the manifest does not have, "
+             f"{len(unstated)} stating no base"]
     lines += owed
+    lines += to_fork
+    for fork, (repository, base, place, packages) in forks_owed.items():
+        crate = " ".join(sorted(packages))
+        lines.append(f"  the owner's step: fork {repository} as {fork}, apply the patches above on "
+                     f"{base} with `git apply --directory={place}`, push, and put the pushed "
+                     f"commit in the `rev` of the stanza the root Cargo.toml's comment above "
+                     f"`{crate} =` writes out, in place of that line")
     lines += waiting
     lines += [f"  no Repository:/Base: preamble: doc/patches/{name}" for name in unstated]
     return lines
@@ -256,12 +322,15 @@ def main():
         print("main-checkout.py: the main checkout cannot be found from here")
         return 1
     print(f"main checkout: {main_dir}")
+    for line in answers(main_dir):
+        print(line)
+    if sys.argv[1:] == ["--answers"]:
+        return 0
     print(in_the_way(main_dir))
     print(fuzz_lock(main_dir))
     for line in artefacts(main_dir):
         print(line)
     print(unseeded(main_dir))
-    print(uncommitted_answers(main_dir))
     for line in patches(main_dir):
         print(line)
     for line in section_signs(main_dir):

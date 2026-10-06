@@ -24,6 +24,11 @@
 # own form nodes, which carry §12.7.4.3's value as a text run and a choice's options as selectable
 # items (ADR 1489).
 #
+# The reader's three policy words are driven in all four windows, each launched with the word and
+# without it: a signature this drive makes is valid only under `--trust-anchors`, a reference XObject
+# draws the page `--reference-files` supplies, and a layer is drawn for the reader `--reader-name`
+# names and not for another (ADR 1580).
+#
 # And two things a screen reader does, through AT-SPI alone: it asks which window is the active one,
 # whose frame says so with the keyboard in it and not without (ADR 1565), and it clicks a text field
 # in the document's tree and types into it, which the saved file then holds (ADR 1566).
@@ -273,6 +278,96 @@ for i in range(1000):
 pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 612, 792],
                                          Contents=pdf.make_stream("\n".join(stars).encode()))))
 pdf.save(f"{out}/drive-coverage.pdf")
+
+# The reader's three policy words (ADR 1580): a page for each that draws one thing with the word and
+# another without it.
+import os, subprocess
+os.makedirs(f"{out}/targets", exist_ok=True)
+# drive-target.pdf: one page filled blue, with §14.4's identifier a reference names.
+ident = [String(bytes.fromhex("d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1")), String(bytes.fromhex("e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2"))]
+pdf = pikepdf.new()
+pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 612, 792],
+    Contents=pdf.make_stream(b"0 0 1 rg 72 72 468 648 re f"))))
+pdf.trailer.ID = Array(ident)
+pdf.save(f"{out}/targets/drive-target.pdf")
+# The identifier as the file now states it: a writer replaces the second string at every save.
+ident = [String(bytes(s)) for s in pikepdf.open(f"{out}/targets/drive-target.pdf").trailer.ID]
+# drive-reference.pdf: a reference XObject (§8.10.4) naming that page, whose proxy is grey.
+pdf = pikepdf.new()
+form = pdf.make_stream(b"0.5 g 72 72 468 648 re f", Type=Name.XObject, Subtype=Name.Form,
+    BBox=[0, 0, 612, 792], Ref=Dictionary(F=String("drive-target.pdf"), Page=0, ID=Array(ident)))
+pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 612, 792],
+    Resources=Dictionary(XObject=Dictionary(R=form)), Contents=pdf.make_stream(b"/R Do"))))
+pdf.save(f"{out}/drive-reference.pdf")
+# drive-audience.pdf: a green square in a group §8.11.4.4's User category names Ada for.
+pdf = pikepdf.new()
+group = pdf.make_indirect(Dictionary(Type=Name.OCG, Name=String("For Ada"),
+    Usage=Dictionary(User=Dictionary(Type=Name.Ind, Name=String("Ada")))))
+pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 612, 792],
+    Resources=Dictionary(Properties=Dictionary(oc=group)),
+    Contents=pdf.make_stream(b"/OC /oc BDC 0 1 0 rg 72 72 468 648 re f EMC"))))
+pdf.Root.OCProperties = Dictionary(OCGs=Array([group]), D=Dictionary(
+    AS=Array([Dictionary(Event=Name.View, Category=Array([Name.User]), OCGs=Array([group]))])))
+pdf.save(f"{out}/drive-audience.pdf")
+
+# drive-signed.pdf: §12.8.3.3.1's adbe.pkcs7.detached signature by a certificate a root this drive
+# issues certified; the root alone is in anchors/, which `--trust-anchors` names (§12.8.1's third
+# question), and signing/ holds the keys and is named by nothing.
+keys = os.path.join(out, "signing")
+anchors = os.path.join(out, "anchors")
+os.makedirs(keys, exist_ok=True); os.makedirs(anchors, exist_ok=True)
+def run(*args):
+    subprocess.run(args, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+k = lambda name: os.path.join(keys, name)
+run("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", k("root.key"),
+    "-out", os.path.join(anchors, "root.pem"), "-days", "3650", "-subj", "/CN=Drive root",
+    "-addext", "basicConstraints=critical,CA:TRUE", "-addext", "keyUsage=critical,keyCertSign,cRLSign")
+run("openssl", "req", "-newkey", "rsa:2048", "-nodes", "-keyout", k("signer.key"), "-out", k("signer.csr"),
+    "-subj", "/CN=Drive signer")
+with open(k("signer.ext"), "w") as ext:
+    ext.write("basicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature,nonRepudiation\n")
+run("openssl", "x509", "-req", "-in", k("signer.csr"), "-CA", os.path.join(anchors, "root.pem"),
+    "-CAkey", k("root.key"), "-CAcreateserial", "-CAserial", k("root.srl"), "-days", "3650", "-extfile", k("signer.ext"), "-out", k("signer.pem"))
+
+SIZE = 8192
+content = b"BT /F1 24 Tf 72 700 Td (Signed by the drive) Tj ET"
+objs = [
+    b"<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /SigFlags 3 >> >>",
+    b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R] /Contents 6 0 R "
+    b"/Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>",
+    b"<< /Type /Annot /Subtype /Widget /FT /Sig /T (Drive) /Rect [0 0 0 0] /F 132 /P 3 0 R /V 5 0 R >>",
+    None,
+    b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+]
+sig_head = b"<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached /Name (Drive signer) /ByteRange "
+placeholder_range = b"[0 0000000000 0000000000 0000000000]"
+sig_tail = b" /Contents <" + b"0" * (2 * SIZE) + b"> >>"
+objs[4] = sig_head + placeholder_range + sig_tail
+body = bytearray(b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n")
+offsets = []
+for number, obj in enumerate(objs, 1):
+    offsets.append(len(body))
+    body += b"%d 0 obj\n" % number + obj + b"\nendobj\n"
+xref = len(body)
+body += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1)
+for offset in offsets:
+    body += b"%010d 00000 n \n" % offset
+body += b"trailer\n<< /Size %d /Root 1 0 R /ID [<0123456789abcdef0123456789abcdef> <0123456789abcdef0123456789abcdef>] >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, xref)
+at = body.index(b"/Contents <" + b"0" * 16) + len(b"/Contents ")
+end = at + 2 + 2 * SIZE
+ranges = b"[0 %010d %010d %010d]" % (at, end, len(body) - end)
+start = body.index(placeholder_range)
+body[start:start + len(placeholder_range)] = ranges
+with open(k("signed-part.bin"), "wb") as part:
+    part.write(bytes(body[:at]) + bytes(body[end:]))
+run("openssl", "cms", "-sign", "-binary", "-in", k("signed-part.bin"), "-signer", k("signer.pem"),
+    "-inkey", k("signer.key"), "-certfile", os.path.join(anchors, "root.pem"), "-outform", "DER", "-md", "sha256",
+    "-nosmimecap", "-out", k("signature.der"))
+der = open(k("signature.der"), "rb").read()
+assert len(der) <= SIZE
+body[at + 1:at + 1 + 2 * len(der)] = der.hex().encode()
+open(os.path.join(out, "drive-signed.pdf"), "wb").write(body)
 PY
 ARABIC="$ROOT/doc/pdf.js/test/pdfs/ArabicCIDTrueType.pdf"
 [ -f "$ARABIC" ] && cp "$ARABIC" "$FIXTURES/arabic.pdf"
@@ -492,6 +587,13 @@ asked_fetch_up() {
     sleep 2
 }
 lines() { wc -l < "$LOG" 2>/dev/null || echo 0; }
+# coloured PNG HEX: how many pixels are within 6% of that colour. Counted through the alpha channel
+# rather than by painting them, because a photograph with no colour in it is stored as grey and a
+# fill of red then reads as grey too.
+coloured() {
+    magick "$1" -alpha off -fuzz 6% -transparent "$2" -alpha extract -negate \
+        -format "%[fx:round(mean*w*h)]" info: 2>/dev/null
+}
 # outside: a corner of the screen the main window does not cover, as "x y".
 outside() {
     local x y w h X Y WIDTH HEIGHT
@@ -1207,6 +1309,53 @@ PY
 # 1466). The page must cross as marks for its device to have anything to refuse — a page whose
 # pixels are smaller crosses as pixels (ADR 0607) — so it is `drive-coverage.pdf`, a few kilobytes of
 # stars whose coverage outgrows the device's scratch sheet (ADR 1478).
+# The reader's three policy words, each launched with the word and without it, so that what the
+# word changed is what is judged (ADR 1580). §12.8.1's third question: a signature by a certificate
+# the drive's own root issued is called valid only where `--trust-anchors` names that root — and with
+# `--accept-unknown-revocation`, because the file carries no §12.8.4 material to settle revocation.
+# §8.10.4: a reference XObject draws the blue page `--reference-files` supplies, and its grey proxy
+# where nothing is supplied. §8.11.4.4: a group whose /User names Ada is drawn for `--reader-name
+# Ada` and not for `--reader-name Bob`.
+reader_words() {
+    local seen blue grey green
+    launch "$FIXTURES/drive-signed.pdf" --trust-anchors "$FIXTURES/anchors" --accept-unknown-revocation
+    sleep 2; shot 34-trust-anchors
+    seen=$(grep -o 'that signature is valid: .* reaches an authority you supplied' "$LOG" | head -1)
+    if [ -n "$seen" ] && [ "$(said '1 of 1 read as RFC 5280 certificates')" -gt 0 ]; then
+        launch "$FIXTURES/drive-signed.pdf"; sleep 2
+        if [ "$(said 'It does not answer the third')" -gt 0 ] && [ "$(said 'that signature is valid')" -eq 0 ]; then
+            verdict 34-trust-anchors works "$seen; and without the word, the third question unasked"
+        else
+            verdict 34-trust-anchors wrong "valid without the word too, or no report: $LOG"
+        fi
+    else
+        verdict 34-trust-anchors wrong "$(grep -m1 'that signature is not called valid[^.]*' "$LOG" || echo "no verdict: $LOG")"
+    fi
+    launch "$FIXTURES/drive-reference.pdf" --reference-files "$FIXTURES/targets"
+    sleep 2; shot 35-reference-files
+    blue=$(coloured "$OUT/shots/$WINDOW/35-reference-files.png" "#0000ff")
+    launch "$FIXTURES/drive-reference.pdf"
+    sleep 2; shot 35-reference-proxy
+    grey=$(coloured "$OUT/shots/$WINDOW/35-reference-proxy.png" "#808080")
+    if [ "${blue:-0}" -gt 10000 ] && [ "${grey:-0}" -gt 10000 ]; then
+        verdict 35-reference-files works "the target's page drawn ($blue blue pixels), the proxy without the word ($grey grey)"
+    else
+        verdict 35-reference-files wrong "blue with the word ${blue:-?}, grey without it ${grey:-?}"
+    fi
+    launch "$FIXTURES/drive-audience.pdf" --reader-name Ada
+    sleep 2; shot 36-reader-name
+    green=$(coloured "$OUT/shots/$WINDOW/36-reader-name.png" "#00ff00")
+    launch "$FIXTURES/drive-audience.pdf" --reader-name Bob
+    sleep 2; shot 36-reader-name-other
+    seen=$(coloured "$OUT/shots/$WINDOW/36-reader-name-other.png" "#00ff00")
+    if [ "${green:-0}" -gt 10000 ] && [ "${seen:-1}" -eq 0 ]; then
+        verdict 36-reader-name works "Ada's group drawn for Ada ($green green pixels) and not for Bob"
+    else
+        verdict 36-reader-name wrong "green for Ada ${green:-?}, for Bob ${seen:-?}"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
 confined() {
     [ -x "$BIN/quorra-confined" ] || { verdict 28-confined-refusal "not offered" "no $BIN/quorra-confined"; return; }
     # The worker reads the outline on a thread of its own after the open, and its next answer
@@ -1245,10 +1394,12 @@ confined() {
 for WINDOW in "${WINDOWS[@]}"; do
     if [ "$WINDOW" = quorra-confined ]; then
         confined
+        reader_words
         continue
     fi
     drive
     accessibility
+    reader_words
 done
 echo "drive-windows: $(grep -c "	works	" "$RESULTS") works, $(grep -c "	wrong	" "$RESULTS") wrong," \
      "$(grep -c "	manual	" "$RESULTS") to look at; $RESULTS and $OUT/shots"

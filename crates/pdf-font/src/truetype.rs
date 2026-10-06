@@ -24,6 +24,7 @@ use crate::encoding;
 use crate::glyph_names::{GlyphNames, encoding_names, no_names};
 use crate::loading::{CodeSet, CodeTable, FontError};
 use crate::name_keyed::NameKeyed;
+use crate::post::PostNames;
 
 /// The three `cmap` subtables ISO 32000-2 §9.6.5.4 distinguishes.
 ///
@@ -206,6 +207,9 @@ pub(crate) fn truetype_code_table(
         Err(other) => return Err(other),
     };
 
+    // The `post` names are inverted once for the whole table, and only if some code's name
+    // reaches them (ADR 1584).
+    let post = PostNames::new(&font);
     let mut table: CodeTable = [None; 256];
 
     // "When the font has no Encoding entry, or the font descriptor's Symbolic flag is set
@@ -226,7 +230,7 @@ pub(crate) fn truetype_code_table(
         }
         let glyph_name = names.get(code).map(Cow::as_ref).filter(|n| !n.is_empty());
         *slot = glyph_name
-            .and_then(|glyph_name| named_glyph(&font, &subtables, charset.as_ref(), glyph_name));
+            .and_then(|glyph_name| named_glyph(&post, &subtables, charset.as_ref(), glyph_name));
     }
 
     // The two tiers the specification leaves to the processor; see the note above. Which codes they
@@ -306,7 +310,7 @@ fn symbol_glyph(subtables: &Subtables<'_>, code: u32) -> Option<u16> {
 
 /// A glyph name's glyph: through the (3, 1) subtable, the (1, 0) subtable, or `post`.
 fn named_glyph(
-    font: &FontRef<'_>,
+    post: &PostNames<'_>,
     subtables: &Subtables<'_>,
     charset: Option<&NameKeyed>,
     glyph_name: &str,
@@ -347,7 +351,7 @@ fn named_glyph(
 
     listed_route
         .and_then(narrow_glyph)
-        .or_else(|| post_glyph(font, glyph_name))
+        .or_else(|| post.glyph(glyph_name))
         .or_else(|| charset.and_then(|charset| charset.by_name.get(glyph_name).copied()))
         // Last, and only for a name the lists do not hold: the specification's algorithmic
         // form. A font with no `post` entry for `o.sc` states nothing better than "an o",
@@ -359,20 +363,6 @@ fn named_glyph(
                 .flatten()
                 .and_then(narrow_glyph)
         })
-}
-
-/// A glyph name's glyph, from the font program's own `post` table.
-///
-/// Searched rather than indexed: `post` maps a glyph to its name, and this needs the
-/// inverse. A simple font has at most 256 codes and this runs once per font at load time,
-/// so the linear scan costs less than the map it would otherwise build — and the names it
-/// is asked for are usually the ones no other route knew, so the scan usually runs to the
-/// end and finds nothing.
-fn post_glyph(font: &FontRef<'_>, glyph_name: &str) -> Option<u16> {
-    let post = font.post().ok()?;
-    (0..u16::try_from(post.num_names()).unwrap_or(u16::MAX)).find(|glyph| {
-        post.glyph_name(skrifa::raw::types::GlyphId16::new(*glyph)) == Some(glyph_name)
-    })
 }
 
 /// A code's glyph by treating the code itself as a character, in any subtable the font has.
@@ -412,7 +402,7 @@ fn is_symbolic(document: &Document, descriptor: &Dictionary) -> bool {
 #[cfg(test)]
 mod truetype_encoding_tests {
     use super::{
-        Subtables, as_character, named_glyph, post_glyph, symbol_glyph, truetype_code_table,
+        PostNames, Subtables, as_character, named_glyph, symbol_glyph, truetype_code_table,
     };
     use crate::fixture::font_dictionary;
     use crate::sfnt::{
@@ -875,8 +865,14 @@ mod truetype_encoding_tests {
         let font = FontRef::new(&data).expect("readable");
         let subtables = Subtables::read(&font);
 
-        assert_eq!(named_glyph(&font, &subtables, None, "eacute"), Some(GLYPH));
-        assert_eq!(named_glyph(&font, &subtables, None, "egrave"), None);
+        assert_eq!(
+            named_glyph(&PostNames::new(&font), &subtables, None, "eacute"),
+            Some(GLYPH)
+        );
+        assert_eq!(
+            named_glyph(&PostNames::new(&font), &subtables, None, "egrave"),
+            None
+        );
     }
 
     /// "The glyph name shall then be mapped back to a character code according to the
@@ -892,8 +888,14 @@ mod truetype_encoding_tests {
         let font = FontRef::new(&data).expect("readable");
         let subtables = Subtables::read(&font);
 
-        assert_eq!(named_glyph(&font, &subtables, None, "eacute"), Some(GLYPH));
-        assert_eq!(named_glyph(&font, &subtables, None, "adieresis"), None);
+        assert_eq!(
+            named_glyph(&PostNames::new(&font), &subtables, None, "eacute"),
+            Some(GLYPH)
+        );
+        assert_eq!(
+            named_glyph(&PostNames::new(&font), &subtables, None, "adieresis"),
+            None
+        );
     }
 
     /// "In any of these cases, if the glyph name cannot be mapped as specified, the glyph
@@ -911,9 +913,15 @@ mod truetype_encoding_tests {
         let font = FontRef::new(&data).expect("readable");
         let subtables = Subtables::read(&font);
 
-        assert_eq!(post_glyph(&font, "gid2436"), Some(GLYPH));
-        assert_eq!(named_glyph(&font, &subtables, None, "gid2436"), Some(GLYPH));
-        assert_eq!(named_glyph(&font, &subtables, None, "gid9999"), None);
+        assert_eq!(PostNames::new(&font).glyph("gid2436"), Some(GLYPH));
+        assert_eq!(
+            named_glyph(&PostNames::new(&font), &subtables, None, "gid2436"),
+            Some(GLYPH)
+        );
+        assert_eq!(
+            named_glyph(&PostNames::new(&font), &subtables, None, "gid9999"),
+            None
+        );
     }
 
     /// A suffixed name is not one the Adobe Glyph List holds, so the `post` table decides.
@@ -941,13 +949,22 @@ mod truetype_encoding_tests {
         let font = FontRef::new(&data).expect("readable");
         let subtables = Subtables::read(&font);
 
-        assert_eq!(named_glyph(&font, &subtables, None, "o.sc"), Some(GLYPH));
+        assert_eq!(
+            named_glyph(&PostNames::new(&font), &subtables, None, "o.sc"),
+            Some(GLYPH)
+        );
         // And the unsuffixed name still takes the clause's first route.
-        assert_eq!(named_glyph(&font, &subtables, None, "o"), Some(1));
+        assert_eq!(
+            named_glyph(&PostNames::new(&font), &subtables, None, "o"),
+            Some(1)
+        );
         // A suffixed name the program does not carry falls back to the base letter, which
         // is a recovery rather than the clause's route — better than drawing nothing, and
         // last precisely because it is not what the subclause says.
-        assert_eq!(named_glyph(&font, &subtables, None, "o.alt"), Some(1));
+        assert_eq!(
+            named_glyph(&PostNames::new(&font), &subtables, None, "o.alt"),
+            Some(1)
+        );
     }
 
     /// The mapping of this processor's choosing reaches a subtable §9.6.5.4 never names.

@@ -231,24 +231,20 @@ calibration_ms = 0.62 .. 0.78
 # because a machine that quietly fell back to a software rasteriser would otherwise report a
 # different measurement wearing the same number.
 #
-# **The band is 14.5 .. 22.2 and was 23.3 .. 41.9, because the instance no longer loads GL on a
-# machine whose primary backend has the adapter** (`raster_gpu::create_launch_instance`, ADR
-# 1532): an all-backends instance initialised Mesa's EGL, a second driver, for an adapter
-# `request_adapter` passed over. Three runs of this gate on 2026-10-05 read 17.1, 18.5 and 18.1
-# against 25.2 to 28.3 the same morning; the band is this file's rule over the three, smallest ×
-# 0.85 and largest × 1.20, so that a launch that loaded GL again — about 25 ms — fails here as
-# itself rather than as a slower page.
+# **The instance loads no GL on a machine whose primary backend has the adapter**
+# (`raster_gpu::create_launch_instance`, ADR 1532): an all-backends instance initialised Mesa's
+# EGL, a second driver, for an adapter `request_adapter` passed over, and read 25.2 to 28.3 ms.
+# **And the device's construction compiles none of `wgpu`'s indirect-call validation pipelines**
+# (`raster_gpu`'s `instance_flags`, ADR 1569).
 #
-# **The device's construction no longer compiles `wgpu`'s two indirect-call validation pipelines**
-# (`raster_gpu`'s `instance_flags`, ADR 1569): `request_device` read 2.54 / 2.96 ms (minimum /
-# median, thirty interleaved children) before and 1.67 / 2.07 after, and the bring-up child's
-# instructions 90.16 → 86.65 M. **The band did not move with it**, because the gate could not show
-# it the morning it was taken. Six runs, A and B interleaved, read 18.7 to 25.8 ms on both arms,
-# with `request_device` at 4 to 8 ms in each. Under `strace` the excess sat in the kernel driver's
-# ioctls, with about 1 GiB of memory free. That is the machine's state, not a launch's. A band
-# derived from those runs would be the machine's, so a quiet machine owes the re-take. The device thread's steps are printed
-# beneath this figure on every run, so a re-take can see which step moved.
-bring_up_ms = 14.5 .. 22.2
+# **The band is 13.6 .. 20.6, re-taken on a quiet machine for both** (ADR 1585). Three runs on
+# 2026-10-06 at a one-minute load of 0.42 to 0.78, 27 GiB free and Tctl under 52 °C read 17.08,
+# 16.87 and 16.05 ms, with `request_device` at 1.1 to 2.1. The band is this file's rule over the
+# three, smallest × 0.85 and largest × 1.20, so that a launch that loaded GL again fails here as
+# itself rather than as a slower page. The Vulkan loader's software driver, `lavapipe`, is about
+# 3.5 ms of every figure here, and only a launcher's environment can leave it out
+# (`doc/questions/Q270`). The device thread's steps are printed beneath this figure on every run.
+bring_up_ms = 13.6 .. 20.6
 
 # What the device costs in *allocated* memory, in the same process that has done nothing else.
 #
@@ -306,9 +302,13 @@ warm_open_ms = 0.27 .. 0.48
 # and 4.5 MiB less on every row. The frame is the same bytes: the run prints its hash, and every
 # row's read the same before and after both. Each band is this file's rule over three runs of the
 # gate that morning — clocks smallest × 0.85 to largest × 1.20, allocations the observed range
-# widened by a tenth and rounded outwards to half a mebibyte. Here the three read 24.7, 25.8 and
-# 26.2 ms against 33.0 to 36.9 before, and 21.9 to 23.1 MiB against 26.6 to 27.4.
-first_page_ms = 20.9 .. 31.5
+# widened by a tenth and rounded outwards to half a mebibyte. The allocations here read 21.9 to
+# 23.1 MiB against 26.6 to 27.4.
+#
+# **Every row's `first_page_ms` was re-taken on 2026-10-06 on a quiet machine** (ADR 1585): the
+# same three runs as `bring_up_ms` above, this file's clock rule over them. Here they read 24.76,
+# 26.57 and 26.67 ms.
+first_page_ms = 21.0 .. 32.1
 turn_ms = 3.4 .. 5.6
 peak_anon_mib = 19.5 .. 25.5
 open_peak_mib = 5 .. 9
@@ -326,10 +326,10 @@ pages = 57
 # in 88 → 30 calls, cold 2.34 to 2.77 ms → 1.31 to 1.61, warm 1.93 to 2.45 → 0.91 to 1.17.
 cold_open_ms = 1.11 .. 1.93
 warm_open_ms = 0.77 .. 1.40
-# Re-taken for ADRs 1531 and 1532 (see the first row): 28.9 to 30.6 ms against 45.5 to 46.6
-# before, and 25.6 to 26.5 MiB. This page's `ICCBased` page group is also converted on more than
-# one thread now (`pdf_render::resolve_cube`), which took about 2 ms off its first frame.
-first_page_ms = 24.5 .. 36.8
+# Re-taken on a quiet machine (ADR 1585, see the first row): 29.02, 31.50 and 26.93 ms. The
+# allocations read 25.6 to 26.5 MiB. This page's `ICCBased` page group is converted on more than
+# one thread (`pdf_render::resolve_cube`).
+first_page_ms = 22.8 .. 37.8
 turn_ms = 3.99 .. 6.6
 peak_anon_mib = 23.0 .. 29.5
 open_peak_mib = 6 .. 11
@@ -346,9 +346,9 @@ pages = 1023
 # 4.3 MB a cold open read. What is left is §7.5's cross-reference, 57.2 M of 70.3 M.
 cold_open_ms = 4.6 .. 7.4
 warm_open_ms = 3.7 .. 6.5
-# Re-taken for ADRs 1531 and 1532 (see the first row): 28.1 to 30.0 ms against 37.4 to 40.2
-# before, and 28.4 to 28.9 MiB.
-first_page_ms = 23.9 .. 36.1
+# Re-taken on a quiet machine (ADR 1585, see the first row): 26.28, 26.36 and 26.00 ms. The
+# allocations read 28.4 to 28.9 MiB.
+first_page_ms = 22.1 .. 31.7
 # **The floor was 4.5 and is 3.8, because session 925 took 0.77 ms out of this document's page
 # turn** and a floor derived from a slower program is a floor a faster one falls through. What
 # went: `Viewer::announce_page` built a `Pages` and then the whole `Pages::indices` map — every
@@ -380,8 +380,9 @@ warm_open_ms = 0.23 .. 0.35
 # and 128 M under callgrind. ADR 1544's timeline, three runs: page one interpreted at 20.3 to 20.9
 # ms against a device up at 22.9 to 24.0, where it was 25.9 to 32.9 against 23.7 to 29.9. What is
 # left on that thread is page one's own ink — the font catalogue a non-embedded font needs, a
-# JPEG, the annotations — and none of it can be deferred. The three read 30.2, 29.0 and 28.0 ms,
-# every frame's hash unchanged; the band is this file's clock rule over them.
+# JPEG, the annotations — and none of it can be deferred. Re-taken on a quiet machine (ADR 1585,
+# see the first row): 28.34, 30.12 and 28.44 ms, every frame's hash unchanged; the band is this
+# file's clock rule over them.
 #
 # **`peak_anon_mib` rose with it, by the overlap and not by the bytes.** The stencils are decoded
 # on the interpreter's thread and the page's other images ahead of their `Do` on the pool (ADR
@@ -390,7 +391,7 @@ warm_open_ms = 0.23 .. 0.35
 # both arms; the interpretation alone at one rayon thread reads 36.4 against 35.7 MiB resident,
 # and at two to eight 39.0 to 39.5 against 47.7 to 48.0. The three gate runs read 53.24, 53.24 and
 # 53.46 MiB against 44.5 to 46.2 before, and the band is this file's allocation rule over them.
-first_page_ms = 23.8 .. 36.3
+first_page_ms = 24.0 .. 36.2
 turn_ms = none
 peak_anon_mib = 47.5 .. 59.0
 open_peak_mib = 5 .. 9
@@ -408,16 +409,17 @@ why = "the launch path's expensive case, and the one the other three rows cannot
 [[document]]
 path = "doc/pdf.js/test/pdfs/xfa_filled_imm1344e.pdf"
 pages = 1
-# **The three clock figures state `none` on purpose, and the counted ones are this row's whole
+# **The open's two clocks state `none` on purpose, and the counted figures are this row's whole
 # point.** What this document is here for is a quantity no clock is needed to see: a signed
 # document's open used to read and digest the signed part of the file, and `read_kib`,
-# `read_calls` and `open_kinstructions` say so on any machine under any load. Bands for the
-# clocks have to be derived on a machine this round did not have — five rounds were running —
-# and `doc/todo/05`'s rule for a figure whose band has not been derived is that it is printed and
-# not judged. They are printed on every run with clocks, and deriving them is an edit here.
+# `read_calls` and `open_kinstructions` say so on any machine under any load. `doc/todo/05`'s rule
+# for a figure whose band has not been derived is that it is printed and not judged; the two open
+# clocks are printed on every run with clocks, and deriving them is an edit here.
 cold_open_ms = none
 warm_open_ms = none
-first_page_ms = none
+# Derived on a quiet machine with every other row's (ADR 1585, see the first row): 24.6, 25.8 and
+# 23.8 ms, as the run prints them, and this file's clock rule over them.
+first_page_ms = 20.2 .. 31.0
 turn_ms = none
 # Re-taken for ADR 1532 (see the first row): 12.8 to 13.1 MiB against 17.4 to 17.7. Its first
 # page read 24.5 to 26.7 ms in the same runs and stays unbanded for the reason above.

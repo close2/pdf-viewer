@@ -30,7 +30,11 @@ use crate::action::{
 };
 use crate::destination::Destination;
 use crate::forms_data::Import;
+
+mod scripts;
+
 use crate::optional_content::{Audience, OptionalContent, Purpose};
+pub use scripts::Committed;
 
 /// Deepest nesting of `/Kids`, and longest `/Parent` chain, walked in §12.7.4.1's field tree.
 ///
@@ -285,6 +289,19 @@ pub struct ViewState {
     /// allocated is still held: an attachment detached again and an annotation added after it
     /// would otherwise be given the same number, and the log names annotations by number.
     allocated: u32,
+    /// Fields a person is typing into and has not committed, by §12.7.4.2's fully qualified name,
+    /// with what each of the field's widgets showed before the typing began.
+    ///
+    /// Table 199's `/K` runs per character and its `/V` "when the field's value is changed"; a
+    /// host that sends a whole value per keystroke has changed the value character by character
+    /// and committed it once, and the commit is what [`ViewState::commit_field`] marks. What is
+    /// kept is what a refused commit puts back (ADR 1579).
+    uncommitted: BTreeMap<String, Vec<(ObjectId, scripts::Before)>>,
+    /// What Tier 0's dispatch did not run, each sentence once, in the order it was met.
+    ///
+    /// RFC 0008 section 6.8's rule for a failing script — reported once per document per site,
+    /// never a storm — which a keystroke script raised per character would otherwise break.
+    script_reports: Vec<String>,
 }
 
 /// The resource name the `/DA` of a free text annotation this program creates uses.
@@ -1044,6 +1061,15 @@ pub struct AnnotationView<'a> {
     /// chose. Read only under [`Purpose::Print`]; `None` is Table 193's *not known*, under which
     /// the page's own media box stands in.
     pub paper: Option<TargetMedia>,
+    /// Whether this widget's field holds a value a person is typing and has not committed.
+    ///
+    /// Table 199's `/F` is performed "before the field is formatted to display its value", and a
+    /// value still being typed is not yet the one the field displays: Adobe's event model — the
+    /// *JavaScript for Acrobat API Reference*'s "Form event processing" — formats after the commit,
+    /// and a layout of the formatted text would put a host's caret beside characters it is not
+    /// editing. So a field between [`ViewState::set_field`] and [`ViewState::commit_field`] is laid
+    /// out as typed, and every other value as its format script writes it (ADR 1579).
+    pub editing: bool,
 }
 
 /// §12.5.6.22's target media, and how the page is placed on it.
@@ -1224,6 +1250,8 @@ impl ViewState {
             unfiled: Vec::new(),
             modified: None,
             allocated: 0,
+            uncommitted: BTreeMap::new(),
+            script_reports: Vec::new(),
         }
     }
 
@@ -1543,6 +1571,7 @@ impl ViewState {
                 .get(&annotation)
                 .and_then(|import| import.appearance.as_ref()),
             contents: self.retyped.get(&annotation).map(String::as_str),
+            editing: self.is_editing(annotation),
         }
     }
 
@@ -1616,6 +1645,8 @@ impl ViewState {
         self.awaiting.append(&mut awaiting);
         self.append_templates(document, data, &table, &mut outcome);
         self.place_annotations(document, data, &mut outcome);
+        // An import changes values, and Table 224's `/CO` recalculates on any change.
+        self.recalculate(document, &widgets_by_field_name(document));
         outcome
     }
 
@@ -2450,8 +2481,18 @@ impl ViewState {
     ///
     /// Returns how many widgets took the value. Zero means the document has no field of that
     /// name — a caller's mistake rather than a document's — that every widget of it is Table 227's
-    /// `ReadOnly`, which is the document refusing, or that [`Entered::Chosen`] named §12.7.5.4's
-    /// options on a field that is not one of §12.7.5.4's, which is a caller's mistake again.
+    /// `ReadOnly`, which is the document refusing, that [`Entered::Chosen`] named §12.7.5.4's
+    /// options on a field that is not one of §12.7.5.4's, which is a caller's mistake again, or
+    /// that the field's one-call keystroke script refused the characters — Table 199's `/K` "may
+    /// check the added text for validity and reject or modify it", which is the document refusing
+    /// again, one character at a time (ADR 1579).
+    ///
+    /// # Table 199's scripts, and the commit
+    ///
+    /// A text value is *typed*: `/K` judges it here, the field shows it as typed, and its format,
+    /// its validation and the keystroke's commit form wait for [`Self::commit_field`]. Every value
+    /// this takes is a value change, so Table 224's `/CO` is walked after it, which is what keeps a
+    /// total following its lines while they are typed (ADR 1579).
     ///
     /// # What §12.7.5.4's two value shapes cost, and where they are decided
     ///
@@ -2528,6 +2569,14 @@ impl ViewState {
             .copied()
             .filter(|widget| !is_read_only(document, *widget))
             .collect();
+        // Table 199's `/K`, which "may check the added text for validity and reject or modify it":
+        // a one-call keystroke script judges the characters before any widget takes them, and a
+        // refusal leaves the field as it was (ADR 1579).
+        if let Entered::Text(text) = value
+            && !self.keystroke_stands(document, &taking, text)
+        {
+            return 0;
+        }
         let entry = match value {
             Entered::Cleared => Entry {
                 value: None,
@@ -2552,6 +2601,12 @@ impl ViewState {
         // any other way takes them with it: a pathname and bytes that no longer belong to it
         // would be the wrong file submitted under the right name.
         self.chosen.remove(name);
+        // Characters are typed and later committed; a choice or a clear is whole when it is made.
+        if matches!(value, Entered::Text(_)) {
+            self.begin_typing(name, &taking);
+        } else {
+            self.uncommitted.remove(name);
+        }
         let mut applied = 0_usize;
         for widget in &taking {
             // The four statements about a value answer one question, so a widget belongs to
@@ -2560,6 +2615,10 @@ impl ViewState {
             self.imported.remove(widget);
             self.edited.insert(*widget, entry.clone());
             applied = applied.saturating_add(1);
+        }
+        // Table 224's `/CO` orders the recalculation "when the value of any field changes".
+        if applied > 0 {
+            self.recalculate(document, &table);
         }
         applied
     }
@@ -2788,6 +2847,8 @@ impl ViewState {
         for widget in widgets {
             self.edited.remove(widget);
         }
+        self.uncommitted.remove(name);
+        self.recalculate(document, &table);
         widgets.len()
     }
 
@@ -3271,6 +3332,7 @@ impl ViewState {
     /// any of it. See `viewer-core`'s `Open::replay` for why replaying beats inverting.
     pub fn clear_all_fields(&mut self) {
         self.edited.clear();
+        self.uncommitted.clear();
         // §12.7.5.3's contents go with the pathnames they belong to: a replay that put one back
         // without the other would submit a file nobody chose.
         self.chosen.clear();
@@ -3691,7 +3753,11 @@ impl ViewState {
                 self.reapply_usage();
             }
             Action::Hide(hide) => self.hide(document, hide),
-            Action::ResetForm(reset) => self.reset_form(document, reset),
+            Action::ResetForm(reset) => {
+                self.reset_form(document, reset);
+                // A reset changes values, and Table 224's `/CO` recalculates on any change.
+                self.recalculate(document, &widgets_by_field_name(document));
+            }
             Action::Refused(_) => {}
         }
         None

@@ -1,67 +1,45 @@
 # Transparency departures
 
 Status: each reported where it can change a pixel. **§11.5.3's population is closed** — its device
-branch was taken in the three-hundred-and-eightieth session (ADR 0217) and both residues in the
-three-hundred-and-eighty-third (ADR 0220), and a blend mode inside a `DeviceCMYK` mask group is
-composited in the group's four components, with §11.3.4's complement, rather than on one weighted
-channel (ADR 1342) — **§11.4.6's shape is closed in the
-three-hundred-and-ninety-seventh** (ADR 0234), and **§11.4.4's non-isolated group is drawn since
-the four-hundredth** (ADR 0237). The four-hundred-and-fifteenth found the standing population was
-the wrong one and priced what is left of it (ADR 0251); **the four-hundred-and-twenty-sixth built
-what it priced and found the price was for the wrong half** (ADR 0262); **the
-four-hundred-and-twenty-seventh built that other half and closed the standing item** (ADR 0263);
-**the four-hundred-and-thirty-sixth made the press the document's** and closed the largest
-condition the web has (ADR 0272). **The four-hundred-and-thirty-eighth took the first of the two
-backend rows off this file** (ADR 0274): `render-raster` draws §11.4.4's non-isolated group, and
-the two rows still on it — §11.4.6's stated shape and §11.4.7's two rasters — stopped being
-requests to somebody else and became work here, because quorra answered both asks at `89d7dd77`.
-**The four-hundred-and-thirty-ninth did one of the two and found the other is still not writable**
-(ADR 0275): §11.4.7's two rasters are drawn through quorra and three corpus pages left the refused
-list, while §11.4.6's two marks cannot be *asked for* at `89d7dd77` — the operators exist and the
-one position this tree emits them from is one of the two the builder refuses. That row stays, with
-its reason corrected and an ask written (`doc/QUORRA_FEEDBACK.md` section 14.2). **The
-four-hundred-and-fifty-sixth took the second backend row off this file** (ADR 0291): quorra lifted
-both refusals at `2c9bdd0`, `render-raster` states §11.4.6's two stages, and the four corpus pages
-that were refused for it agree with the CPU oracle — so no backend row is left here and what
-remains is the interpreter's. **The
-four-hundred-and-fortieth asked the standing row what it contained and 77 of its 85 were a soft
-mask** (ADR 0276): the flag that says a group changed the page's blending space was not scoped to
-the page the way the space itself is, so an isolated group inside an `/SMask`'s group took the whole
-page off §11.4.7's ink route. Corpus 68 → 65 incomplete, web 905 → 851, and this row is 85 → 8.
-**The four-hundred-and-forty-first closed §11.3.5.3's row with no code written for it at all**
-(ADR 0277): the rule that clause gives the black component is what its own four functions return on
-the neutral colour the black raster holds, so a backend that implements §11.3.5.3 for three
-components implements it for four. Web 851 → **824** incomplete — 27 of the 31 complete, 4 keeping
-§11.4.4's report — that row 31 → 0, and the refusal it fired from
-was deleted rather than narrowed.
-**The four-hundred-and-seventy-second read §11.4.6 for *which* backdrop a knockout group hands
-each element and found this file's second open item was two documents that needed no construction
-at all** (ADR 0307): a knockout group whose rule can change no pixel is §11.4.4's group, and
-NOTE 6 makes a non-isolated group nested in an isolated knockout group §11.4.5's. Corpus 67 → 65
-incomplete and the oracle's contradicted set 68 → 67: `knockout_blend_multiply.pdf` draws the
-colour §11.3.5.2 states rather than one two channels away, which all three references were
-already drawing, and `knockout_inner_backdrop.pdf` — which was drawn right all along — stops
-reporting a departure it does not have. **The four-hundred-and-ninety-second built both of this
-file's last two constructions** (ADR 0327): §11.4.6's non-isolated knockout group is drawn on the
-oracle with the initial backdrop retained beside the accumulation, and an isolated group that
-*introduces* a sampleable four-component space composites in it as §11.4.7's pair one scope down
-— `Command::Group` carries the space and the second element list, which is word for word what
-this file priced. Corpus 65 → 63 incomplete: `issue18032.pdf` **agrees with the CPU oracle** now
-(its `/AIS` blocker was a page-wide flag a `Q`-restored statement two forms away had set, scoped
-to the group in the same round), and `bug1721218_reduced.pdf` is drawn in ink and joins
-`AMBIGUOUS_PAGE_DRAWN_IN_INK` with its own reading — nearer to `poppler` than any two references
-sit to each other. Both are refused by name on `render-gpu` and `render-raster` and the frames go
-to the oracle, which is a backend row again only in the sense ADR 0327 prices: a scene under
+branch is taken (ADR 0217) and both residues (ADR 0220), and a blend mode inside a `DeviceCMYK`
+mask group is composited in the group's four components, with §11.3.4's complement, rather than on
+one weighted channel (ADR 1342) — **§11.4.6's shape is closed** (ADR 0234), and **§11.4.4's
+non-isolated group is drawn** (ADR 0237). The standing population was priced (ADR 0251) and built
+in two halves: the four components as two rasters (ADR 0262), and the conversion into the blending
+space as a right inverse of the ink cube, which closed the standing item (ADR 0263). **The press is
+the document's** (ADR 0272), which closed the largest condition the web has.
+**No backend row is left on this file**: `render-raster` draws §11.4.4's non-isolated group
+(ADR 0274), §11.4.7's two rasters are drawn through quorra (ADR 0275), and `render-raster` states
+§11.4.6's two stages since quorra lifted both refusals at `2c9bdd0`, the four corpus pages once
+refused for it agreeing with the CPU oracle (ADR 0291) — so what remains is the interpreter's.
+**The flag that says a group changed the page's blending space is scoped to the page the way the
+space itself is** (ADR 0276): 77 of the standing row's 85 were a soft mask, an isolated group
+inside an `/SMask`'s group having taken the whole page off §11.4.7's ink route.
+**§11.3.5.3's row is closed with no code written for it** (ADR 0277): the rule that clause gives the
+black component is what its own four functions return on the neutral colour the black raster
+holds, so a backend that implements §11.3.5.3 for three components implements it for four, and the
+refusal it fired from is deleted rather than narrowed.
+**A knockout group whose rule can change no pixel is §11.4.4's group, and NOTE 6 makes a
+non-isolated group nested in an isolated knockout group §11.4.5's** (ADR 0307):
+`knockout_blend_multiply.pdf` draws the colour §11.3.5.2 states rather than one two channels away,
+which all three references draw, and `knockout_inner_backdrop.pdf` reports no departure it does not
+have. **This file's last two constructions are built** (ADR 0327): §11.4.6's non-isolated knockout
+group is drawn on the oracle with the initial backdrop retained beside the accumulation, and an
+isolated group that *introduces* a sampleable four-component space composites in it as §11.4.7's
+pair one scope down — `Command::Group` carries the space and the second element list.
+`issue18032.pdf` **agrees with the CPU oracle** (its `/AIS` blocker, a page-wide flag a `Q`-restored
+statement two forms away had set, is scoped to the group), and `bug1721218_reduced.pdf` is drawn in
+ink and is in `AMBIGUOUS_PAGE_DRAWN_IN_INK` with its own reading — nearer to `poppler` than any two
+references sit to each other. Both are refused by name on `render-gpu` and `render-raster` and the
+frames go to the oracle, which is a backend row only in the sense ADR 0327 prices: a scene under
 composition cannot resolve a pair per pixel or retain a backdrop beside a layer.
-**The five-hundred-and-eightieth honoured §11.6.4.3's `/AIS`** (ADR 0415), which had been read and
-refused since ADR 0234 and which this file had twice priced as "a second `stated_shape`": under
-`/AIS true` §11.3.7.2's three opacity inputs are all 1.0 — §11.6.4.2 gives the object's, this
-clause and §11.6.4.4 give the other two away — so the alpha a rasteriser already draws an element
-with *is* its shape, and the shape half of `Command::Shaped` is the element itself. No vocabulary,
-no backend arm, no raster. The refusal was **inverted**: `/AIS true` is the one reading under which
-one number per pixel cannot disagree with the shape. Corpus: 0 pages, measured over every page of
-the nine documents that state the entry. Web: 1 of 65 944, `6573550.pdf`, whose knockout group
-draws now.
+**§11.6.4.3's `/AIS` is honoured** (ADR 0415): under `/AIS true` §11.3.7.2's three opacity inputs
+are all 1.0 — §11.6.4.2 gives the object's, this clause and §11.6.4.4 give the other two away — so
+the alpha a rasteriser already draws an element with *is* its shape, and the shape half of
+`Command::Shaped` is the element itself. No vocabulary, no backend arm, no raster: `/AIS true` is
+the one reading under which one number per pixel cannot disagree with the shape. Corpus: 0 pages,
+measured over every page of the nine documents that state the entry. Web: 1 of 65 944,
+`6573550.pdf`, whose knockout group draws.
 Priority: 23
 Corpus: 0 documents
 Clauses: §11.3.5.3, §11.3.7.2, §11.4.4, §11.4.6, §11.5.3, §11.6.4.3, §11.6.4.4, §11.6.6, §11.7.5.3,
@@ -72,48 +50,37 @@ Code: `crates/pdf-model/src/content/transparency.rs`, `crates/pdf-colour/src/col
 
 | | corpus | web witnesses | what it is |
 |---|---|---|---|
-| ~~a non-separable blend mode on such a page (§11.3.5.3)~~ | ~~1~~ → 0 | ~~1 of 1896, 2 of 4000, 27, 28, 31~~ → **0** | **closed in the 441st, ADR 0277: the K rule is the clause's own four functions on a neutral pair, which is what the black raster is.** No display-list member, no backend arm, no refusal — the collapse went further than the round set out to take it, and the explicit route it replaced (a `Backdrop` blend function, which is Destination-Over exactly) would have cost the quorra backend all 31 |
-| a group inside the page composites in a different space (§11.6.6) — **the standing item now** | 0 | 78, 85 → **8 of 65 944** | 77 of the 85 were a mask's group counted as the page's (ADR 0276). A further **30** — 1 in the corpus, `bug1721218_reduced.pdf` — were a group that *introduces* a space on a page that states none, and **the four-hundred-and-ninety-second draws that shape** where the space is four components this tree can sample (ADR 0327): the corpus witness composites in ink. What the condition still fires on is a space the group-scoped pair cannot carry — a three- or one-component group inside a four-component parent (a per-pixel conversion between two presses) and four components no profile backs — each still reported by name where it composites. §11.7.5.3's black generation left this list in session 1055 (ADR 1069) and its second bullet is carried out (ADR 1242). **Narrowed by §11.7.2 in the eight-hundred-and-seventy-ninth** (ADR 0797): a device-space group of the same count inside a CIE-based one *is* that space and changes nothing, so a `/DeviceCMYK` group inside a profile's press and a `/DeviceRGB` one inside an sRGB page left this condition |
-| an `/ExtGState` states `/BG`, `/BG2`, `/UCR` or `/UCR2` (§11.7.5.3) | 0 | 1 of 1896, 0 of 4000, 7 → **9 of 65 944** | **was silent until the 426th**, and 0 of 4000 could have been read as noise. **All nine state it at `soft_mask_depth` 0**, measured in the 440th, so the monotone flag costs nothing here |
-| a page group whose components are not four this tree can sample | 0 | 14 of 4000, 106 → **5 of 65 944** | what is left after ADR 0272: a `/DeviceGray` or `Lab` page group, or four components with no profile behind them, so §11.3.4 has no formula to apply and no conversion out. **`/DeviceGray` left this row in the eight-hundred-and-sixty-fifth** (ADR 0790): one component is three equal channels, drawn by one interpretation under `Compositing::Grey`. **`CalGray` and a one-component profile left it in the eight-hundred-and-seventy-first** (ADR 0792): the component is composited and a sampled curve out rides on the display list. **`CalRGB` and a bi-directional three-component profile never sat on this row and are drawn since the eight-hundred-and-seventy-ninth** (ADR 0797). What stays is `Lab`, which the clause forbids, a one-component space the clause does not list (`Separation`, `Indexed`), a profile whose curve has no inverse and a three-component table profile with no `B2A` — reported on every mark or where something composites, and the population of that is a number the corpus gate prints. **The nine-hundred-and-fourth drew the table profile where it has a `B2A`, took §11.5.3's mask branch with it, and turned three silences into reports** (ADR 0851); **the nine-hundred-and-seventh took the last shape §11.5.3 had left — a four-component profile as a *mask* group's `/CS`, which is §11.4.7's pair of rasters inside the mask** (ADRs 0856, 0857), so what is reported of a four-component space is now a profile §11.3.4 rules out or a budget rather than a construction nobody had built. *What the two condition rows still fire on* below says, clause by clause, which of what is left is a debt and which is this reader telling the truth about a file |
-| ~~the document names the press its `DeviceCMYK` is~~ | ~~0~~ | ~~151~~ → **0** | **closed in the 436th, ADR 0272: the press is a value, and `CMYK_CORNERS` is one of them** |
-| ~~a conversion *into* the blending space~~ | ~~5~~ → 0 | ~~61~~ → 0 | **closed in the 427th, ADR 0263: a right inverse of the ink cube** |
-| ~~the four components themselves~~ | — | — | **closed in the 426th, ADR 0262: two rasters, no new format** |
-| ~~a non-isolated group NOTE 5 cannot flatten~~ | ~~6~~ → ~~3~~ → ~~1~~ → 0 | | **the non-knockout ones closed** in the 400th, ADR 0237; **two of the three knockout ones closed in the 472nd, ADR 0307** — one was §11.4.4's group wearing `/K`, the other was §11.4.5's wearing `/I false` under NOTE 6 — and **the last, `issue18032.pdf`, closed in the 492nd, ADR 0327**: the initial backdrop is retained beside the accumulation on the oracle, per element, which is exactly the construction ADR 0307 priced |
-| ~~a soft-mask group with such a space~~ | ~~7~~ → 0 | | **closed** in the 380th and 383rd, ADRs 0217 and 0220 |
-| ~~a knockout element whose shape is not its coverage~~ | ~~5~~ → 0 | | **closed** in the 397th, ADR 0234 |
+| ~~a non-separable blend mode on such a page (§11.3.5.3)~~ | ~~1~~ → 0 | ~~1 of 1896, 2 of 4000, 27, 28, 31~~ → **0** | **closed, ADR 0277: the K rule is the clause's own four functions on a neutral pair, which is what the black raster is.** No display-list member, no backend arm, no refusal — and the explicit route it replaced (a `Backdrop` blend function, which is Destination-Over exactly) would have cost the quorra backend all 31 |
+| a group inside the page composites in a different space (§11.6.6) — **the standing item now** | 0 | 78, 85 → **8 of 65 944** | 77 of the 85 were a mask's group counted as the page's (ADR 0276). A further **30** — 1 in the corpus, `bug1721218_reduced.pdf` — were a group that *introduces* a space on a page that states none, and **that shape is drawn** where the space is four components this tree can sample (ADR 0327): the corpus witness composites in ink. What the condition still fires on is a space the group-scoped pair cannot carry — a three- or one-component group inside a four-component parent (a per-pixel conversion between two presses) and four components no profile backs — each still reported by name where it composites. §11.7.5.3's black generation is off this list (ADR 1069) and its second bullet is carried out (ADR 1242). **Narrowed by §11.7.2** (ADR 0797): a device-space group of the same count inside a CIE-based one *is* that space and changes nothing, so a `/DeviceCMYK` group inside a profile's press and a `/DeviceRGB` one inside an sRGB page left this condition |
+| an `/ExtGState` states `/BG`, `/BG2`, `/UCR` or `/UCR2` (§11.7.5.3) | 0 | 1 of 1896, 0 of 4000, 7 → **9 of 65 944** | **reported by name**. **All nine state it at `soft_mask_depth` 0**, so the monotone flag costs nothing here |
+| a page group whose components are not four this tree can sample | 0 | 14 of 4000, 106 → **5 of 65 944** | what is left after ADR 0272: a `/DeviceGray` or `Lab` page group, or four components with no profile behind them, so §11.3.4 has no formula to apply and no conversion out. **`/DeviceGray` is off this row** (ADR 0790): one component is three equal channels, drawn by one interpretation under `Compositing::Grey`. **`CalGray` and a one-component profile are off it** (ADR 0792): the component is composited and a sampled curve out rides on the display list. **`CalRGB` and a bi-directional three-component profile never sat on this row and are drawn** (ADR 0797). What stays is `Lab`, which the clause forbids, a one-component space the clause does not list (`Separation`, `Indexed`), a profile whose curve has no inverse and a three-component table profile with no `B2A` — reported on every mark or where something composites, and the population of that is a number the corpus gate prints. **The table profile is drawn where it has a `B2A`, §11.5.3's mask branch with it, and three former silences are reports** (ADR 0851); **so is the last shape §11.5.3 had left — a four-component profile as a *mask* group's `/CS`, which is §11.4.7's pair of rasters inside the mask** (ADRs 0856, 0857), so what is reported of a four-component space is a profile §11.3.4 rules out or a budget rather than a construction nobody had built. *What the two condition rows still fire on* below says, clause by clause, which of what is left is a debt and which is this reader telling the truth about a file |
+| ~~the document names the press its `DeviceCMYK` is~~ | ~~0~~ | ~~151~~ → **0** | **closed, ADR 0272: the press is a value, and `CMYK_CORNERS` is one of them** |
+| ~~a conversion *into* the blending space~~ | ~~5~~ → 0 | ~~61~~ → 0 | **closed, ADR 0263: a right inverse of the ink cube** |
+| ~~the four components themselves~~ | — | — | **closed, ADR 0262: two rasters, no new format** |
+| ~~a non-isolated group NOTE 5 cannot flatten~~ | ~~6~~ → ~~3~~ → ~~1~~ → 0 | | **the non-knockout ones closed**, ADR 0237; **two of the three knockout ones closed, ADR 0307** — one was §11.4.4's group wearing `/K`, the other was §11.4.5's wearing `/I false` under NOTE 6 — and **the last, `issue18032.pdf`, closed, ADR 0327**: the initial backdrop is retained beside the accumulation on the oracle, per element, which is exactly the construction ADR 0307 priced |
+| ~~a soft-mask group with such a space~~ | ~~7~~ → 0 | | **closed**, ADRs 0217 and 0220 |
+| ~~a knockout element whose shape is not its coverage~~ | ~~5~~ → 0 | | **closed**, ADR 0234 |
 
-The rows that grew by one or two in the four-hundred-and-thirty-sixth are documents that were
-reported for the press and are now reported for the next condition they meet — the population
-narrowing honestly rather than a condition being narrowed (trap 5).
-
-Each remaining one is refused *by name* rather than approximated, and since the four-hundred-and-
-twenty-sixth the name says **which** of the conditions fired. No corpus document is on this file
-any more: `bug1721218_reduced` and `issue18032` left in the four-hundred-and-ninety-second, both
-drawn by the oracle. `knockout_blend_multiply` and `knockout_inner_backdrop` left in the
-four-hundred-and-seventy-second.
-`personwithdog.pdf` left in the four-hundred-and-twenty-sixth, `issue12798_page1_reduced.pdf` and
-`bug1365930.pdf` in the four-hundred-and-twenty-seventh, and `bug1703683_page2_reduced.pdf`,
-`bug1755507.pdf` and `issue13520.pdf` in the four-hundred-and-fortieth, each of which drew them.
-`issue18032.pdf` lost its **third** report in the four-hundred-and-forty-first and keeps the two
-§11.4.4 and §11.4.6 give it, which is why the corpus count did not move while the picture did.
+Each remaining one is refused *by name* rather than approximated, and the name says **which** of
+the conditions fired (ADR 0262). No corpus document is on this file: each that was is drawn, the
+last two (`bug1721218_reduced`, `issue18032`) by the oracle (ADR 0327). `issue18032.pdf` keeps the
+two reports §11.4.4 and §11.4.6 give it on the backends that cannot draw them.
 
 ## What the two condition rows still fire on, and how much of it is a debt
 
-The nine-hundred-and-fourth session was asked to say, for each of them, whether it should stay
-reported or become drawn, **and to derive that from the clause rather than from what would be
-nice** (ADR 0850). The answer is that they are two different kinds of thing and the rows had not
-told them apart:
+ADR 0850 says, for each of them, whether it should stay
+reported or become drawn, **derived from the clause rather than from what would be nice**. They are two
+different kinds of thing:
 
 | what fires | the clause | so |
 |---|---|---|
 | `Lab` as a blending or mask group space | §11.3.4: it "shall not be used as blending colour spaces because the compositing computations in such spaces do not give meaningful results when applied separately to each component" | **stays reported, for good.** A file stating one is outside what the clause admits; drawing it would be inventing an arithmetic the standard says has no meaning |
 | a one-component space §11.3.4 does not list — `Separation`, `Indexed` | §11.6.6's restrictions "exclude `Lab` and lightness-chromaticity `ICCBased` colour spaces, as well as the special colour spaces `Pattern`, `Separation`, and `DeviceN`" | **stays reported, for good.** Same shape: the file is what departs |
 | a profile with no way in — no `B2A` this crate reads, or a curve with no inverse | §11.3.4: "the ICC profile shall be capable of both device to PCS and PCS to device transformations" | **stays reported, for good.** §11.6.5.1 makes the `/CS` "the colour space in which the compositing computation is to be performed" and there is nothing to convert the group's marks into |
-| ~~a four-component profile as a *mask* group's `/CS`~~ | §11.5.3's colorimetric branch, §11.4.7's per-component compositing | **paid in the nine-hundred-and-seventh** (ADRs 0856, 0857). It was the one row of the six that named a construction rather than a condition the file fails, and the construction was buildable: the mask group is the pair of rasters and the `Y` is the press's own over four axes. What is left on the row is the *budget* — a page that has already named `colour::MAX_PRESSES` distinct presses — which is a bound rather than a debt |
-| ~~a space the group-scoped pair cannot carry — a three- or one-component group inside a four-component parent, or two different spaces nested~~ | §11.6.6 puts a conversion at the `Do` | **paid in session 1039** (ADR 1056): the group's conversion out is composed with the parent's conversion in (`transparency::composed_into_parent`) and the backend resolves the composition as it resolved the group's own; every pairing of the spaces this tree draws is built, a press inside a press and a group inside a mask's group included. **And the last of it was paid in session 1089** (ADR 1103): `knockout_construction` applies its chosen rewrite to the black half beside the chromatic one and commits neither unless the results still pair, so the isolated knockout group naming four components is drawn too and nothing of this row is left |
-| ~~four components no profile backs~~ | §11.6.6's own restrictions | **not a debt, read in session 1196** (ADR 1230): a `/DeviceCMYK` group with no profile behind it composites in ADR 0263's assumed inks, and a four-component `/CS` that is neither `DeviceCMYK` nor a four-channel `ICCBased` space is one §11.6.6 excludes from being a group colour space at all, so the report is the clause carried out. What is left on these rows is `colour::MAX_PRESSES`, a resource bound rather than a reading |
-| ~~§11.7.5.3's black generation~~ | §10.4.2.1's fork | **paid in session 1055** (ADR 1069), and by reading rather than building: the functions parameterise §10.4.2.4, which §10.4.2.1 ranks below the branch this tree converts on, so the refusal bought nothing the fallback did not also fail to buy. The page keeps §11.4.7's space and the departure is named (`Unsupported::BlackGeneration`). The reading was already in this file — see "§11.7.5.3 does not name §10.4.2.4" below, written in the four-hundred-and-twenty-seventh — and the refusal outlived it by six hundred sessions |
+| ~~a four-component profile as a *mask* group's `/CS`~~ | §11.5.3's colorimetric branch, §11.4.7's per-component compositing | **paid** (ADRs 0856, 0857). It was the one row of the six that named a construction rather than a condition the file fails, and the construction was buildable: the mask group is the pair of rasters and the `Y` is the press's own over four axes. What is left on the row is the *budget* — a page that has already named `colour::MAX_PRESSES` distinct presses — which is a bound rather than a debt |
+| ~~a space the group-scoped pair cannot carry — a three- or one-component group inside a four-component parent, or two different spaces nested~~ | §11.6.6 puts a conversion at the `Do` | **paid** (ADR 1056): the group's conversion out is composed with the parent's conversion in (`transparency::composed_into_parent`) and the backend resolves the composition as it resolved the group's own; every pairing of the spaces this tree draws is built, a press inside a press and a group inside a mask's group included. **And the last of it is paid** (ADR 1103): `knockout_construction` applies its chosen rewrite to the black half beside the chromatic one and commits neither unless the results still pair, so the isolated knockout group naming four components is drawn too and nothing of this row is left |
+| ~~four components no profile backs~~ | §11.6.6's own restrictions | **not a debt** (ADR 1230): a `/DeviceCMYK` group with no profile behind it composites in ADR 0263's assumed inks, and a four-component `/CS` that is neither `DeviceCMYK` nor a four-channel `ICCBased` space is one §11.6.6 excludes from being a group colour space at all, so the report is the clause carried out. What is left on these rows is `colour::MAX_PRESSES`, a resource bound rather than a reading |
+| ~~§11.7.5.3's black generation~~ | §10.4.2.1's fork | **paid** (ADR 1069), and by reading rather than building: the functions parameterise §10.4.2.4, which §10.4.2.1 ranks below the branch this tree converts on, so the refusal bought nothing the fallback did not also fail to buy. The page keeps §11.4.7's space and the departure is named (`Unsupported::BlackGeneration`). The reading is this file's "§11.7.5.3 does not name §10.4.2.4" below |
 
 **Four of the seven are not owed work at all** and the other three are paid, and that is worth saying plainly because a
 `reported` row reads like a debt whether or not it is one: each of the first three names a
@@ -174,21 +141,19 @@ space and a second command list, and three backends would have to resolve the pa
 compositing the group onto its parent. Both halves of the conversion between two presses already
 exist — `Press::blending_space` out and `colour::rgb_to_ink` in — so what is missing is the display
 list's vocabulary and not the arithmetic. 8 web documents and 0 corpus ones is what it is worth.
-**Built in the four-hundred-and-ninety-second for the four-component shape** (ADR 0327):
+**Built for the four-component shape** (ADR 0327):
 `pdf_render::GroupBlending` is that vocabulary word for word, the oracle resolves the pair, and
 the other two backends refuse it by name. What the row keeps is the *other* direction — a three-
 or one-component group inside a four-component parent, whose conversion out lands in the parent's
 ink per pixel, which is a conversion between two presses no sampled grid here expresses — plus
-four components no profile backs. §11.7.5.3's stated black generation was a third until session
-1055 (ADR 1069), **and the conversion a three-component group takes into a `DeviceCMYK` parent now
-carries the pair in force at the `Do`** (ADR 1242): that cube is sampled in the interpreter, beside
+four components no profile backs. §11.7.5.3's stated black generation is not a third (ADR 1069), **and the conversion a
+three-component group takes into a `DeviceCMYK` parent carries the pair in force at the `Do`** (ADR 1242): that cube is sampled in the interpreter, beside
 the graphics state, and what reaches a backend is the sampled cube either way. **The one-component
-group on a page compositing on the device is drawn since the eight-hundred-and-sixty-fifth** (ADR
-0790, `Interpreter::group_grey`): its result is grey in every channel and §10.4.2.2's conversion
+group on a page compositing on the device is drawn** (ADR 0790, `Interpreter::group_grey`): its result is grey in every channel and §10.4.2.2's conversion
 out is the identity on that, so it composites onto its parent as any group does. The one-component
-group *inside a press* is recorded whatever it holds now — a one-component conversion changes an
+group *inside a press* is recorded whatever it holds — a one-component conversion changes an
 opaque mark — so the pair falls back, the group is drawn grey on the device and the press is
-reported; that is louder than the ink it was drawn in before, and it is the shape a per-pixel
+reported; that is the shape a per-pixel
 conversion between a grey and a press would close.
 
 **54 of the 77 become complete and 23 keep a report they already had** — 21 of §11.4.4's
@@ -228,7 +193,7 @@ twice with a different three loaded. `Compositing::Subtractive(Half)` is which t
 carry §11.3.4's additive complements, so the blend functions see what that clause requires without
 anything being complemented around them; `pdf_render::BlendingSpace` carries the conversion out as
 the ink cube's sixteen corners and `blending::resolve` applies it where §11.4.7 does, before the
-medium. **`render-raster` draws it since the four-hundred-and-thirty-ninth** and `render-gpu` still refuses
+medium. **`render-raster` draws it** and `render-gpu` refuses
 the list. `QUORRA_FEEDBACK.md` §17 asked whether two `Target::Readback` renders against one quorra
 device were possible; they always were, they share their uploaded resources and cost the second
 pass no geometry at all, and `89d7dd77` added the test that keeps it so. So the work was here, and
@@ -236,8 +201,8 @@ it is one private `render` used twice with `pdf_render::blending::resolve` betwe
 medium — the construction `render-cpu` already had. The three corpus pages
 (`personwithdog.pdf`, `issue12798_page1_reduced.pdf`, `bug1365930.pdf`) agree with the CPU oracle
 at 0.0288, 0.0093 and 0.0760 mean, and the 3.5% of the web §17 measured is what it is worth on real
-files. `render-gpu`'s refusal has a test of its own now
-(`headless_gpu.rs::the_gpu_refuses_a_four_component_page`), which it did not before. ADR 0275.
+files. `render-gpu`'s refusal has a test of its own
+(`headless_gpu.rs::the_gpu_refuses_a_four_component_page`). ADR 0275.
 
 **ADR 0251's "second raster format" is therefore withdrawn as a requirement.** It was a true
 statement about arithmetic — the ink cube is affine on no face of the cube, 48 of 255 at worst —
@@ -245,8 +210,8 @@ attached to a wrong statement about what carrying four components costs.
 
 ## The one component was one channel, and what is left of it is a choice between two routes
 
-**§11.3.4's one-component row was never a raster question either**, which the
-eight-hundred-and-sixty-fifth found by reading the same sentence ADR 0262 read for four: the
+**§11.3.4's one-component row was never a raster question either**, by the same sentence ADR
+0262 read for four (ADR 0790): the
 formula is per component, so a space of one component composites one number per pixel and three
 equal channels are that number three times. §11.3.5.3 says it of the non-separable modes in so
 many words — "[b]lending in gray colour spaces ( DeviceGray , CalGray and ICCBased gray) shall be
@@ -257,8 +222,7 @@ isolated `/DeviceGray` group on a device page one run of its content. ADR 0790.
 
 **What is left of the row is one thing, and it is not a construction.**
 
-- ~~**`CalGray` and `ICCBased` 'GRAY'.**~~ **Drawn since the eight-hundred-and-seventy-first**
-  (ADR 0792). Their component reaches the device through §8.6.5.2's gamma or a profile's curve,
+- ~~**`CalGray` and `ICCBased` 'GRAY'.**~~ **Drawn** (ADR 0792). Their component reaches the device through §8.6.5.2's gamma or a profile's curve,
   so the space's own component is not the channel's and compositing in device grey is a
   different picture; what was built is exactly what this bullet priced — compositing in the
   space's component under `Compositing::Calibrated` and applying the curve per pixel at the end,
@@ -276,9 +240,8 @@ isolated `/DeviceGray` group on a device page one run of its content. ADR 0790.
   §10.4.2.1's other one, sRGB's linear-light luminance re-encoded, which puts a pure red at 129
   of 255 where the classic weights put it at 77; `poppler` ignores the space. §10.4.2.1 makes
   §10.3 a *should* for an ICC-enabled processor and the classic algorithms a *may* for a
-  less-capable one. **This bullet said the two were one decision because "a mask and a blending
-  space are one sentence of §11.6.6", and the nine-hundred-and-fourth found a second sentence**
-  (ADR 0850). §11.5.3's device branch converts the composited colour to `DeviceGray` "with no
+  less-capable one. **They are not one decision, although a mask and a blending space share a
+  sentence of §11.6.6: a second sentence separates them** (ADR 0850). §11.5.3's device branch converts the composited colour to `DeviceGray` "with no
   compensation for gamma or other colour calibration", and §10.3's route *is* a colour
   calibration — so for a `/Luminosity` mask group in a device space the clause states the
   classic weights outright, `mupdf` and `ghostscript` depart from it there, and this tree is
@@ -295,8 +258,7 @@ isolated `/DeviceGray` group on a device page one run of its content. ADR 0790.
 
 ## The way into a profile's press is the profile's, and the ICC `B2A` row is closed
 
-**The section above this one said a `B2A` was not needed, and the eight-hundred-and-seventy-seventh
-read the clause that says it is** (ADR 0796). §8.6.5.5 requires a blending-space profile to carry
+**A `B2A` is needed, by the clause** (ADR 0796). §8.6.5.5 requires a blending-space profile to carry
 "from CIE" information "because the group colour space shall be used as both the destination for
 objects being painted within the group and the source for the group's results" — the second half
 is the `A2B` this tree already sampled out, and the first is the conversion *in*, which ADR 0272
@@ -307,13 +269,13 @@ conversion in and the search was this tree's stand-in. `icc::Profile::to_device`
 `B2A0` in `mft1`, `mft2` and the v4 `mBA ` (matrix and M curves modelled), `Press` holds the
 profile where it is bi-directional, and a colour goes in as an XYZ — its own for a CIE-based
 source, sRGB's for a device one, with the compensation the way out applied undone. What an opaque
-mark loses on the round trip is now the profile's own residue, which is the producer's picture
+mark loses on the round trip is the profile's own residue, which is the producer's picture
 rather than one tuned to come back. A profile without the table keeps the right inverse, and the
 crawl holds none: `press_census` over all 145 archives finds every one of its 287 profile presses
 (187 page groups, 94 output intents, 6 `/DefaultCMYK`) carrying a `B2A` this tree evaluates, while
 `doc/pdf.js` names no profile press at all.
 
-**A one-component CIE-based mask group takes §11.5.3's own `Y` since the same round**: `CalGray`
+**A one-component CIE-based mask group takes §11.5.3's own `Y`** (ADR 0796): `CalGray`
 or an `ICCBased` 'GRAY' `/CS` on a `/Luminosity` group is painted in its component under
 `Compositing::Calibrated`, `/BC` is that component, and `soft_mask::luminance_derivation` composes
 "convert to the CIE 1931 XYZ space and use the Y component as the luminosity" into the mask's
@@ -321,11 +283,11 @@ table — exact, on the construction ADR 0792 built for a page. `bug1721218_redu
 such groups are the corpus witness (at most 5 of 255 on 666 pixels at two pixels per unit; the
 masks are nearly binary).
 
-~~**What is left of §11.3.4 and §11.5.3 together is three components**~~ — **drawn since the
-eight-hundred-and-seventy-ninth** (ADR 0797), in both places: a `CalRGB` or `ICCBased` 'RGB '
+~~**What is left of §11.3.4 and §11.5.3 together is three components**~~ — **drawn** (ADR 0797), in
+both places: a `CalRGB` or `ICCBased` 'RGB '
 page, isolated group or mask group composites the space's own components under
-`Compositing::Additive`, and the conversion out is `pdf_render::ColourCube` — not the sampled
-3 → 3 grid this paragraph priced, because the device's transfer function is fifteen levels of 255
+`Compositing::Additive`, and the conversion out is `pdf_render::ColourCube` — not a sampled
+3 → 3 grid, because the device's transfer function is fifteen levels of 255
 steep at black on a linear space, but one curve per component, a grid of linear light and the
 device's own curve, which is §8.6.5.3 and a matrix profile *exactly* from eight corners. A mask
 takes §11.5.3's `Y` as three summed curves (`pdf_render::Luminance`). `raster_digest` over
@@ -335,8 +297,7 @@ group's encoded 0.25 is 0.05, and nine renderers take the device branch's 0.25. 
 the argument and the cost, and it is the owner's to rank.
 
 ~~**What §11.3.4 keeps is the route-into-grey choice below and nothing else. What §11.5.3 keeps is
-two shapes**~~ — **the nine-hundred-and-fourth took one of the two and measured the other, and
-the measurement is the finding** (ADRs 0850, 0851).
+two shapes**~~ — **both are drawn** (ADRs 0850, 0851, 0856, 0857).
 
 - **A three-component *table* profile as a mask group's `/CS` is drawn.** §11.5.3 branches on
   the *kind* of the space and not on the shape of its arithmetic, so a profile with no
@@ -349,14 +310,12 @@ the measurement is the finding** (ADRs 0850, 0851).
   `luminosity_mask_census` opens. It was drawn anyway because what stood in its place was not a
   documented choice but a *silence*: the device branch's weights on a CIE-based space, with no
   report.
-- ~~**A four-component profile as a mask group's `/CS` is reported**~~ — **drawn since the
-  nine-hundred-and-seventh, as §11.4.7's pair of rasters inside the mask** (ADRs 0856, 0857).
-  The population two decisions had recorded as empty is **3417 groups in 181 crawl documents**,
-  measured in the nine-hundred-and-fourth; the five pieces this bullet listed were built exactly
-  as listed, and the list was right about all five. `pdf_render::SoftMask::black` is the second
+- ~~**A four-component profile as a mask group's `/CS` is reported**~~ — **drawn as §11.4.7's
+  pair of rasters inside the mask** (ADRs 0856, 0857). The population is **3417 groups in 181
+  crawl documents** (ADR 0850). `pdf_render::SoftMask::black` is the second
   command list with its own backdrop, `Luminance` grew a four-axis grid, `render-cpu` draws a
   second buffer and `render-gpu` a second scene, and the confined protocol tags the pair.
-  **What the reading added to the list is one word — *unconditional***: `Command::Group`'s pair
+  **The pair is *unconditional* here**: `Command::Group`'s pair
   is skipped where nothing inside the group composites, because a group's four components are
   converted to the device at the end and an opaque `Normal` mark carries its colour through
   whatever space it was carried in; a mask's four are converted to **one number** that is a
@@ -365,19 +324,18 @@ the measurement is the finding** (ADRs 0850, 0851).
   profile's own `A2B` at the very points `sample_press` samples for the conversion out, built on
   first use because almost every press a document names is a page's and carries no mask.
 
-## What used to block the population, and what it turned out to be
+## §11.7.2's second sentence, which does not block the population
 
-This section carried §11.7.2's second sentence as the standing blocker for one session:
+§11.7.2's second sentence reads:
 
 > If the colour space of a graphics object within the group is not equivalent to the group's
 > blending colour space, then it shall be converted to the group's colour space , and all blending
 > and compositing computations shall be done in that space
 
-and recorded that §11.7.5.3 "names §10.4.2.4 as that conversion". **It does not.** The bullets that
+and §11.7.5.3 does not name §10.4.2.4 as that conversion. The bullets that
 name the black-generation and undercolour-removal functions are §10.4.2's side of §10.4.2.1's fork;
 the paragraph above them chooses a *target* and leaves the algorithm to whichever branch the
-processor is on. Reading that paragraph is the whole of the four-hundred-and-twenty-seventh session,
-and what it licensed was the third of the three routes this file listed — a right inverse of the
+processor is on. What that paragraph licenses was the third of the three routes this file listed — a right inverse of the
 press, with gamut mapping where no preimage exists. The two measurements this section recorded as
 "where the next round will be tempted" were both offers to take a shortcut without a clause, and
 neither was taken: exempting `DeviceGray` would have put black text at `#231F20`, and taking
@@ -398,19 +356,18 @@ states no `/Group` at all — nothing on it composites anywhere but the device's
 report has gone. And five documents were departing in silence, because nothing in this tree read
 §11.4.7's entry: `bug1365930`, `bug1703683_page2_reduced`, `issue12798_page1_reduced`, `issue13520`
 and `personwithdog` all state a page group of `/DeviceCMYK`, so **every mark on those pages
-composites in ink**. Four of them reported it then; `bug1365930` did not, because nothing on its
-first page composites and the space cannot change a pixel there. **All five are drawn in ink now**,
-the last three of them in the four-hundred-and-fortieth.
+composites in ink**. Nothing on `bug1365930`'s first page composites, so the space cannot change a pixel there.
+**All five are drawn in ink** (ADRs 0263, 0276).
 
 `crates/pdf-model/examples/group_space_census.rs` is what says this, and the thing that made it say
 anything is printing the *effective* space beside the declared one. 115 of the 974 documents state a
 page group `/CS`; 7 of those name a space that is not the device's three components; 71 group
 dictionaries declare `/DeviceCMYK` and 96 groups actually composite in it.
 
-## How it was priced in the four-hundred-and-fifteenth, and what survived that pricing
+## How it was priced (ADR 0251), and what survived that pricing
 
 **A second raster format was thought to be genuinely required, and ADR 0217 gave the wrong reason
-for it; the requirement itself was withdrawn in the four-hundred-and-twenty-sixth, below.** The
+for it; the requirement itself is withdrawn (ADR 0262), below.** The
 reason was "a painted group's result is three components"; the number of components has nothing to
 do with it. §11.3.3 under `Normal` is a weighted average — §11.3.6: "the compositing formula
 collapses to a simple weighted average of the backdrop and source colours" — and a convex
@@ -435,7 +392,7 @@ it and its control.
 
 **ADR 0251 concluded from this that a four-component raster was owed**, and the arithmetic above
 is right while that conclusion is not: §11.3.4's per-component formula makes four components two
-rasters, which the four-hundred-and-twenty-sixth built. What the arithmetic still decides is that
+rasters, which are built (ADR 0262). What the arithmetic still decides is that
 compositing in ink is a *different picture* and worth having — 51.5 of 255 at the fixture, +0.100
 of 255 over the whole of `personwithdog.pdf` — and that §10.4.2.5's classic conversion is not the
 way to get it, because it is 115 of 255 out at the cube's corners.
@@ -465,14 +422,13 @@ formulas, and the three fixtures.
 1. ~~**A non-isolated knockout group whose elements blend *and* whose rule can show**~~ — the same
    sentence one clause over. §11.4.6 composites each element with the group's *initial* backdrop,
    which for a non-isolated knockout group is the page, so the two stages are not the pair
-   `Command::Shaped` states. **Two of the three corpus witnesses this used to name were not this
-   item**, which the four-hundred-and-seventy-second found by reading the clause against them
-   (ADR 0307): `knockout_blend_multiply.pdf` is one element, which has nothing to knock out, so
+   `Command::Shaped` states. **Two of the three corpus witnesses once named here were not this
+   item**, by the clause read against them (ADR 0307): `knockout_blend_multiply.pdf` is one element, which has nothing to knock out, so
    §11.4.6's initial backdrop *is* §11.4.4's immediate one and the group takes ADR 0237's
    construction; and `knockout_inner_backdrop.pdf` is a non-isolated group inside an **isolated**
    knockout group, which NOTE 6 gives that group's transparent initial backdrop — so it is
-   §11.4.5's isolated group by definition and was being drawn correctly while reporting otherwise.
-   **`issue18032.pdf` closed in the four-hundred-and-ninety-second** (ADR 0327), by exactly the
+   §11.4.5's isolated group by definition and is drawn as such.
+   **`issue18032.pdf` is closed** (ADR 0327), by exactly the
    construction the arithmetic here priced: the display list states the pair of flags, every
    element arrives as a `Command::Shaped`, and `render-cpu` keeps the initial backdrop beside the
    accumulation with a scratch per element — `f × E = S − (1 − f) × B` recovering stage a)'s
@@ -485,7 +441,7 @@ formulas, and the three fixtures.
    its accumulation and hands the caller Table 139's result (ADR 1305).
 3. **`render-gpu` refuses the command**, because a Vello layer begins transparent and cannot be
    seeded from the surface; the frame goes to the CPU backend, which is what `CLAUDE.md` keeps
-   that backend for. **`render-raster` draws it since the four-hundred-and-thirty-eighth** (ADR
+   that backend for. **`render-raster` draws it** (ADR
    0274): `raster_scene::GroupSpec` gained Table 145's `/I` at `89d7dd77`, which is exactly what
    `doc/QUORRA_FEEDBACK.md` §16 asked for, and the flag passes straight through. Three of the four
    corpus pages that had moved from `agree` to `refused` went back to `agree` — this time about
@@ -505,12 +461,11 @@ Plus: source-over there is 32 of 255 out at a half-covered pixel under a half-op
 
 ### What that left behind, each reported by name and each with no corpus witness
 
-1. ~~**An element whose one alpha carries both quantities in a raster.**~~ — **closed in the
-   nine-hundred-and-ninety-seventh, ADR 1017**, and not by keeping two channels: the *kind* is
+1. ~~**An element whose one alpha carries both quantities in a raster.**~~ — **closed, ADR 1017**, and not by keeping two channels: the *kind* is
    decided where the image is decoded (`SampleAlpha` — a stencil, an explicit `/Mask` or a
    colour key is *shape* by §11.6.4.2, an `/SMask` or `/SMaskInData` is *opacity* by §11.6.4.3, a
    stencil under its own `/SMask` is both), and a shading needs no bit at all because its colours
-   are opaque before §11.6.4.4's constant is folded in (`Shading::opaque()`). A knockout group now
+   are opaque before §11.6.4.4's constant is folded in (`Shading::opaque()`). A knockout group
    states the shape of either instead of reporting, and the stencil under its own soft mask — whose
    two quantities one raster would multiply, in a file Table 87 permits (ADR 1022 section 5) — is
    kept as a pair on every image route (ADRs 1218, 1279) and, painted through a pattern, as two
@@ -525,26 +480,19 @@ Plus: source-over there is 32 of 255 out at a half-covered pixel under a half-op
    justified the record had not changed; the *readers* had — §11.7.4.4's and §9.3.8's implicit
    knockout groups ask the same question from `path.rs` and `text.rs`, which a record inside
    `MaskCache` could not answer, so every `B` and every text object holding an image kept the
-   report for five rounds. A record keyed by identity is a substitute with an expiry date, and a
+   report until it was. A record keyed by identity is a substitute with an expiry date, and a
    second reader is what expires it.
-2. ~~**§11.6.4.3's `/AIS`.**~~ — **closed in the five-hundred-and-eightieth, ADR 0415**, and the
-   price this entry quoted was an overstatement of a construction that turned out to be an
-   identity. It said honouring the flag "means composing the mask and the constants into the shape
-   instead of into the object, which is a second `stated_shape` rather than a new vocabulary" —
-   right about the shape of the answer, and composing them *into* the shape yields the element
-   back. §11.6.4.2 makes an elementary object's intrinsic opacity 1.0 everywhere and the flag hands
+2. ~~**§11.6.4.3's `/AIS`.**~~ — **closed, ADR 0415**, and the construction is an identity: composing
+   the mask and the constants *into* the shape yields the element back. §11.6.4.2 makes an elementary object's intrinsic opacity 1.0 everywhere and the flag hands
    the mask and both constants to shape, so §11.3.7.2's source opacity is 1.0 and §11.3.7.1's alpha
-   is the source shape: the shape command is the element with its blend mode dropped. **What this
-   entry got wrong besides the price was the population**: it said nine corpus documents state the
-   entry and "none of their knockout groups is drawn today", which had stopped being true when ADR
-   0327 scoped the flag — measured over every page of all nine, not one of their knockout groups
+   is the source shape: the shape command is the element with its blend mode dropped. **The population**: nine corpus documents state the entry, and since ADR 0327
+   scoped the flag, measured over every page of all nine, not one of their knockout groups
    reaches the refusal. The world population was **1 of 65 944** crawled web documents. What is
    refused in its place is a *scope*: a group whose content painted under **both** readings, and
    nothing else. A non-isolated group used as an element was never a shape gap — §11.3.7.2 makes a
    group's shape the union of its elements', accumulated on transparency, whatever its isolation
-   (ADR 1205) — and the one construction that refused such an element for §11.4.6's NOTE 6 takes it
-   now, wherever the knockout group composites its elements against an initial backdrop it keeps
-   (ADR 1256). **Which knockout groups those are is a field rather than a guess since ADR 1265**:
+   (ADR 1205) — and the one construction that refused such an element for §11.4.6's NOTE 6 takes it, wherever the knockout group composites its elements against an initial backdrop it keeps
+   (ADR 1256). **Which knockout groups those are is a field rather than a guess** (ADR 1265):
    `Interpreter::enclosing_knockout` carries §11.4.6's own "isolated or non-isolated" as a kind, so
    the non-isolated enclosing group — which keeps its initial backdrop and clones it per element —
    takes the own-backdrop construction, and under an *isolated* one §11.7.4.4's implicit group is
@@ -559,13 +507,12 @@ Plus: source-over there is 32 of 255 out at a half-covered pixel under a half-op
    the element did not become a knockout group's (ADR 1319). A group or cell under the other
    reading whose raster is not its shape has its content sealed the same way. What is still
    refused by name is an element whose shape cannot be stated at all, which no route reaches.
-3. ~~**`render-raster` refuses a `Shaped` element outright**~~ — **closed in the
-   four-hundred-and-fifty-sixth, ADR 0291.** The history is the part worth keeping, because it is
-   three rounds long and each one was a different kind of wrong. §14 asked for Destination-Out and
+3. ~~**`render-raster` refuses a `Shaped` element outright**~~ — **closed, ADR 0291.** The
+   incident is the part worth keeping, because it took three rounds and each one was a different
+   kind of wrong. §14 asked for Destination-Out and
    Plus and **both arrived at `89d7dd77`** (quorra's ADR 0025), weighted by shape rather than by
-   the paint's alpha, which is what a `Shaped` command's second member already carries; the
-   four-hundred-and-thirty-ninth session then wrote the translation out and found neither mark
-   could be *asked for*, for two independent reasons — `SceneBuilder::fill` refused a staged
+   the paint's alpha, which is what a `Shaped` command's second member already carries; one round
+   then wrote the translation out and found neither mark could be *asked for*, for two independent reasons — `SceneBuilder::fill` refused a staged
    operator inside a knockout group, which is the one position `Command::Shaped` occurs in, and
    `group`, `stroke` and `image` carried no `Compose` at all while three of the four corpus pages
    state a `Shaped` whose halves are **groups** (§11.6.4.2 makes a nested group's shape the union
@@ -612,11 +559,11 @@ follow-up rather than taken.
 ## The form's knockout group took the mode to its `Do`, and a stated element was read as blending
 
 **ADR 1000 §7 priced a form `XObject`'s non-isolated knockout group whose elements blend as
-route 2's argument "extended unchanged", and the nine-hundred-and-eighty-eighth session took it
+route 2's argument "extended unchanged", and that is how it is drawn
 (ADR 1009).** `transparency::knockout_construction` tries the three constructions in the order
 `implicit_knockout_group` does — transparency, the mode at the `Do`, the group's own backdrop —
 and the second is tried before the third because every backend draws it. Two things the pricing
-did not say were needed, and both came from reading the derivation for what it needs rather than
+did not say are needed, and both come from reading the derivation for what it needs rather than
 what it was written against: an element of zero opacity has weight 0 everywhere, so it contributes
 no colour, need not share the mode, and — under the opacity reading — still knocks out what is under
 it; and where exactly one element carries colour, `K / Σwᵢ` is that colour at every pixel, so *any*
@@ -630,17 +577,16 @@ crate's list.
 **Found on the way, and it was a report about nothing**: `command_blends` fell to its
 non-exhaustive arm for a `Command::Shaped`, so a knockout group drawn on transparency with a
 stated element was reported as "non-isolated, and an element blends with the backdrop it excludes"
-whenever Table 145 said `/I false`. A stated element blends as its object does now. No corpus
+whenever Table 145 said `/I false`. A stated element blends as its object does. No corpus
 page carried the report, because every corpus knockout group with a stated element is `/I true`.
 
 What the own-backdrop construction still keeps, and keeps on the oracle alone: coloured elements
 under two modes, or under one mode that is neither affine in its source nor applied to one colour.
 And the two elements §11.4.6 could neither draw nor state — an image whose samples may be shape
-or opacity, a shading that is not opaque — are stated since the nine-hundred-and-ninety-seventh
-session (ADR 1017): the *kind* of an image's alpha is carried beside its value and a shading's is
-opaque by construction, which is the bit this paragraph used to say would close both, and did.
-§11.3.7.2's row's argument stands and is now the whole of it: nothing but §11.4.6 reads a shape
-apart from an opacity, and there the shape is stated. One thing that round took back to the
+or opacity, a shading that is not opaque — are stated (ADR 1017): the *kind* of an image's
+alpha is carried beside its value and a shading's is opaque by construction. §11.3.7.2's row's
+argument is the whole of it: nothing but §11.4.6 reads a shape
+apart from an opacity, and there the shape is stated. One thing ADR 1017 took back to the
 clause rather than the vote: `mupdf` and `ghostscript` let colour survive under a soft mask's zero
 inside a knockout group; §11.6.4.3 makes that opacity and §11.4.6's NOTE 5 gives the backdrop, so
 this tree does not follow them — and if the owner ever wants Acrobat's picture, that is a
@@ -715,7 +661,7 @@ quantity a command could name, and which no corpus document asks for.
 
 ## The cube into a parent's space has identity curves, and that is what the "non-affine route" is
 
-**Answered in the one-thousand-two-hundred-and-eighth, and half of it by the clause** (ADR 1254).
+**Answered, and half of it by the clause** (ADR 1254).
 This file and §11.3.4's row carried a question about the non-affine route into a blending colour
 space. `Lab` is not part of it: §11.3.4 says the Lab space and lightness-chromaticity `ICCBased`
 spaces "shall not be used as blending colour spaces because the compositing computations in such

@@ -349,8 +349,18 @@ in `tools/batch.sh gates`; a row that moves moves its band there with its reason
 | | step | 11.19 (134%) | — | — | **10.43** | 0.09 | 0.47 | 0.21 | 2026-10-06, ADR 1577 |
 | `bug1743245.pdf` p1, tight bends | turn | 37.95 (455%) | 3.38 | 0.44 | **33.25** | 0.34 | 0.41 | 0.12 | 2026-10-06, ADR 1577 |
 | | step | 34.96 (420%) | — | — | **34.12** | 0.12 | 0.48 | 0.24 | 2026-10-06, ADR 1577 |
-| `bug1721218_reduced.pdf` p1, a four-component group of 3 518 clipped shadings, drawn as two frames | turn | 159.23 (1911%) | 69.69 | **86.62** | 1.39 | 0.38 | 0.62 | 0.52 | 2026-10-06, ADR 1567 |
-| | step | 84.11 (1009%) | — | **81.03** | 1.57 | 0.28 | 0.61 | 0.62 | 2026-10-06, ADR 1577 |
+| `bug1721218_reduced.pdf` p1, a four-component group of 3 518 clipped shadings, drawn as two frames | turn | 154.59 (1855%) | 68.81 | **82.83** | 1.42 | 0.38 | 0.60 | 0.56 | 2026-10-06, ADR 1582 |
+| | step | 84.02 (1008%) | — | **80.62** | 1.53 | 0.27 | 0.63 | 0.97 | 2026-10-06, ADR 1582 |
+
+**`bug1721218_reduced.pdf`'s rows were re-taken on 2026-10-06 after ADR 1582**, three runs of five
+rounds interleaved against an export of the tree before it (load 0.4–0.6; that build read turn
+157.86–160.31, `scene` 87.30–90.83, and step 84.37–85.75): the disc each of its 3 256 exact meets a
+frame puts under a clip of 3 014 dots is measured from the two convex polygons on the frame's
+helpers, where the bands' construction spent 45 000 instructions a pixel. The turn's `scene` is 5 ms
+quicker; the step moves inside its runs' spread. Its 1× frame on `zoom_frame`'s GPU lane reads
+79.5–80.8 ms against HEAD's 81.3–83.3 interleaved and the CPU backend's 47.3–47.7: 1.68×, and its
+1.25× step 1.37×. A step's remaining host costs — `CommandEncoder::finish` 2.9 ms over its three
+renders, the poll 3.0, the readbacks 1.5 — are its draws and its device, and are priced in ADR 1583.
 
 **Warm cores move the light rows and not the heavy ones** (ADR 1577): the mesh page's turn reads
 9.25 where cold cores after a second's idle read 11.2 to 11.7 on alternate runs of the gate, and in

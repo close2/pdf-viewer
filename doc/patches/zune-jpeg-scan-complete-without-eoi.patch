@@ -1,7 +1,14 @@
 Repository: https://github.com/etemesi254/zune-image (crate zune-jpeg)
-Base: zune-jpeg 0.5.15 as crates.io publishes it
+Base: 31d81fed7551c8ccea456d9d8e2b1fd8bebb6995
+Directory: crates/zune-jpeg
+Fork: https://github.com/close2/zune-image
 
-Not applied: the tree has no fork of zune-jpeg, and whether to carry one is doc/questions/Q227.
+The base is zune-jpeg 0.5.15 as crates.io publishes it: the crate's `.cargo_vcs_info.json` names
+that commit, its `src/` is byte for byte the published one, and upstream tags no 0.5.15. The paths
+below are the crate's own, so the patch applies in the repository with
+`git apply --directory=crates/zune-jpeg`. Carried by a fork under the owner's control, wired as the
+`hayro` fork is: doc/questions/Q227, answered (ADR 1589). The upstream report is the `.md` beside
+this file.
 Found by the `jpeg_bands` fuzz target (ADR 1495); the analysis is ADR 1520. A baseline scan whose
 entropy-coded data holds every MCU and ends with no EOI after it (ITU-T T.81 section E.2.3 ends a
 scan on its MCU count) is decoded whole except its last MCU row, which comes back 128. The bit

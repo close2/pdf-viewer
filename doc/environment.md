@@ -530,6 +530,16 @@ nothing a count could say (ADR 1440). A line whose count is zero has nothing to 
 ```sh
 tools/state.sh main-checkout             # first, from the main checkout or the worktree
 
+# `answered, uncommitted: N …, newest first: A171 (2026-10-05) …` — the owner's own answers on the
+#   disk and in no commit, each dated by when it landed: a round's list read from tracked files calls
+#   their questions open until they are committed, so this line is the one a merge reads first, and
+#   `tools/batch.sh check` repeats it (ADR 1588). No round writes or commits them; the owner does:
+git status --short doc/questions
+
+# `open questions, less those answered on the disk: N: Q254 …; the tracked files alone call M more
+#   open: …` — what is open is the first list; the second is what the uncommitted answers above
+#   close, and it empties when they are committed. Nothing to run but the commit above.
+
 # `local edits the fast-forward would refuse over: N (paths)` — a local edit to a path the batch
 #   changes stops `git merge --ff-only`. Set it aside and put it back around the fast-forward; never
 #   commit it on main first, which ends the fast-forward.
@@ -555,20 +565,19 @@ PYTHONDONTWRITEBYTECODE=1 python3 tools/main-checkout.py \
 #   campaign's record calls stale, behind the lock, because it walks the corpus:
 flock /home/AI/heavy-walk.lock fuzz/seeds.sh fuzz/corpus <target>...
 
-# `doc/questions: N owner's answer file(s) uncommitted` — the owner's own answers, which no round
-#   writes or commits; the owner commits them:
-git status --short doc/questions
-
-# `doc/patches: N owed …, M whose base it no longer pins, W waiting …, K stating no base` — an `owed:` line is a
+# `doc/patches: N owed …, M whose base it no longer pins, F for a fork the owner is to create, W waiting …, K stating no base` — an `owed:` line is a
 #   fix to a dependency this tree pins from a fork, written against the `rev` its `Base:` names;
 #   a round cannot push to the fork. Apply it on that base in a clone of the fork and push; then
 #   every `rev` the root Cargo.toml pins to that repository moves to the new commit together, and
 #   both locks follow. The line goes when the manifest no longer pins the base (ADRs 1447, 1463).
 #   A `no Repository:/Base: preamble:` line is a patch whose base cannot be read, so whether it is
 #   owed cannot be said: write those two lines at its head. A `waiting:` line is a patch to a
-#   dependency the manifest takes from crates.io and pins no fork of (`zune-jpeg`): there is no fork
-#   to apply it to until the question it names is answered, and it is listed rather than counted
-#   as applied.
+#   dependency the manifest takes from crates.io and pins no fork of: there is no fork to apply it
+#   to until the question it names is answered, and it is listed rather than counted as applied.
+#   Once that question's answer is on the disk and the preamble names its `Fork:`, each such patch
+#   is a `fork to create:` line, and `the owner's step:` beneath them is the one sentence that
+#   creates the fork and wires it (`zune-jpeg`, A227, ADR 1589; the stanza is written out in a
+#   comment in the root Cargo.toml). The day the manifest pins the fork the patches count as applied.
 git -C <fork clone> checkout <Base> && git -C <fork clone> apply doc/patches/<name>.patch
 cargo update -p hayro-jbig2 -p hayro-jpeg2000 -p hayro-ccitt
 cargo update --manifest-path fuzz/Cargo.toml -p hayro-jbig2 && cargo test -p conformance --test fuzz_workspace

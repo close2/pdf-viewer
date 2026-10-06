@@ -349,6 +349,26 @@ by side and differ only in their toolkit. **One flag is its own**: `--quit-after
 window by itself, because a window under `Xvfb` has nobody to close it and a test that killed the
 process could not tell a clean exit from a crash.
 
+**The reader's three policy words are every window's**, in the same spelling and read by the same
+`viewer_host::ReaderWords` — `quorra`, `quorra-gtk`, `quorra-qt` and `quorra-confined` alike
+(ADRs 1580, 1581):
+
+```sh
+target/release/quorra-gtk --trust-anchors ~/anchors --accept-unknown-revocation signed.pdf
+target/release/quorra-qt --reference-files ~/targets drawing.pdf
+target/release/quorra --reader-name Ada --reader-organisation Acme --interface-language de layered.pdf
+```
+
+`--trust-anchors <dir>` names the certification authorities a signature's path may end at —
+§12.8.1's third question, which is asked only once somebody names one (ADR 1039) — and
+`--accept-unknown-revocation` acts on a verdict whose revocation the file's own §12.8.4 material
+does not settle. `--reference-files <dir>` supplies the documents a §8.10.4 reference `XObject` may
+import a page from, matched by §14.4's identifier and never by its path (ADR 1101).
+`--reader-name`, `--reader-title`, `--reader-organisation` (each repeatable) and
+`--interface-language <tag>` answer §8.11.4.4's `User` and `Language` categories (ADR 1106). Each
+is sent before the document, a file in a named directory that does not take is said as a `note:`,
+and a word with nothing after it, or a directory that is not one, stops the launch with the reason.
+
 Both native hosts bind `/` and Ctrl+F to their toolkit's own find bar — a `GtkSearchBar` with a
 `GtkSearchEntry` and a `QToolBar` with a `QLineEdit` and Previous/Next actions — and draw every
 occurrence on the page under the selection, in the platform's colour at a lower alpha. Nothing about

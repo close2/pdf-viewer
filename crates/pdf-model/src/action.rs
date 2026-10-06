@@ -1830,7 +1830,13 @@ fn refused(kind: &[u8]) -> Option<&'static str> {
         b"Movie" => "Movie: clause 13's multimedia, excluded by CLAUDE.md principle 5",
         b"Rendition" => "Rendition: clause 13's multimedia, excluded by CLAUDE.md principle 5",
         b"GoTo3DView" => "GoTo3DView: clause 13's 3D, excluded by CLAUDE.md principle 5",
-        b"JavaScript" => "JavaScript: excluded by CLAUDE.md principle 5",
+        // RFC 0008's Tier 0 runs a field's one-call `AF*` scripts natively and constructs no
+        // ECMAScript engine, so an ECMAScript action is still a script this tier does not run
+        // (ADR 1579).
+        b"JavaScript" => {
+            "JavaScript: a script this tier does not run — Tier 0 runs a field's one-call AF \
+             library scripts and no ECMAScript"
+        }
         b"RichMediaExecute" => {
             "RichMediaExecute: clause 13's multimedia, excluded by CLAUDE.md principle 5"
         }

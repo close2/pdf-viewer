@@ -15,9 +15,8 @@ use crate::loading::FontError;
 
 /// The glyph name each of a simple font's 256 character codes selects.
 ///
-/// Borrowed for a name one of the specifications lists, which is nearly every name a real
-/// document writes, and owned for one only the document's own font program carries — a
-/// subsetter's `/gid2436`, say. Both have to be kept: an unrecognised name is *not* an
+/// Borrowed for a name a base encoding supplies and owned for one a `/Differences` array
+/// writes — a subsetter's `/gid2436`, say. Both have to be kept: an unrecognised name is *not* an
 /// unencoded code, and the font's own `post` table or CFF charset may hold the glyph under
 /// exactly that spelling. Dropping them was a defect; see [`apply_differences`].
 pub(crate) type GlyphNames = Box<[Cow<'static, str>; 256]>;
@@ -184,37 +183,13 @@ fn apply_differences(document: &Document, dict: &Dictionary, names: &mut GlyphNa
     }
 }
 
-/// Returns a `/Differences` name, borrowing the specifications' spelling where there is one.
+/// Returns a `/Differences` name as the document spells it.
 ///
-/// Glyph names are ASCII by specification; a font that breaks that is malformed, not a
-/// reason to lose the name, so the owned case is lossy rather than fallible.
+/// Owned, always. Borrowing a listed spelling instead meant searching the standard strings and
+/// four encodings' tables for every name — about 1400 comparisons for a name in none of them,
+/// against one small allocation — which was 28% of `issue4550.pdf`'s page (ADR 1584). Glyph
+/// names are ASCII by specification; a font that breaks that is malformed, not a reason to lose
+/// the name, so the conversion is lossy rather than fallible.
 fn glyph_name_of(name: &[u8]) -> Cow<'static, str> {
-    match interned(name) {
-        Some(known) => Cow::Borrowed(known),
-        None => Cow::Owned(String::from_utf8_lossy(name).into_owned()),
-    }
-}
-
-/// Returns the `'static` spelling of a glyph name, if it is one the specifications list.
-///
-/// Matching one avoids an allocation for the overwhelmingly common case of a name PDF or
-/// CFF already defines.
-fn interned(name: &[u8]) -> Option<&'static str> {
-    let name = std::str::from_utf8(name).ok()?;
-    skrifa::raw::ps::string::STANDARD_STRINGS
-        .iter()
-        .copied()
-        .find(|known| *known == name)
-        .or_else(|| {
-            (0..=u8::MAX).find_map(|code| {
-                [
-                    BaseEncoding::WinAnsi.glyph_name(code),
-                    BaseEncoding::MacRoman.glyph_name(code),
-                    encoding::SymbolicEncoding::Symbol.glyph_name(code),
-                    encoding::SymbolicEncoding::ZapfDingbats.glyph_name(code),
-                ]
-                .into_iter()
-                .find(|known| *known == name)
-            })
-        })
+    Cow::Owned(String::from_utf8_lossy(name).into_owned())
 }

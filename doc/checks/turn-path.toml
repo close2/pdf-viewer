@@ -146,9 +146,9 @@ why = "tight bends: the tiling's own cost, which ADR 1505 divided across the fan
 path = "doc/pdf.js/test/pdfs/bug1721218_reduced.pdf"
 page = 1
 commands = 1
-# observed 161.26 .. 162.75 ms (turn), 84.44 .. 85.68 ms (step): three frame_budget runs on
-# 2026-10-06, pinned, load 2.0, after ADR 1555; after ADR 1567 and on warm cores 159.23 .. 164.05
-# and 84.11 .. 86.16, three frame_budget runs and two gate runs the same day, load 1.8 to 2.2
-turn_ms = 137.0 .. 195.3
-step_ms = 71.7 .. 102.9
-why = "a four-component group of 3 518 residue-clipped shadings, drawn as two frames of one geometry (ADRs 1471, 1529), whose exact meets are made beside the walk (ADR 1541) and whose shading quads read one buffer of their numbers at their own offsets (ADR 1555): the tree before that read 191 to 203 and 118 to 126 ms beside it, past the top of both bands, so the bands hold that change. Its 132 ramps, first seen on the turn, are sampled beside each other (ADR 1567), 2 to 4 ms of the turn and inside the band"
+# observed 154.59 .. 160.03 ms (turn), 84.02 .. 86.78 ms (step): three frame_budget runs on an
+# export of the tree with ADR 1582 and two gate runs on the batch's worktree, 2026-10-06, pinned,
+# warm cores, load 0.4 to 1.6
+turn_ms = 131.4 .. 192.1
+step_ms = 71.4 .. 104.2
+why = "a four-component group of 3 518 residue-clipped shadings, drawn as two frames of one geometry (ADRs 1471, 1529), whose exact meets are made beside the walk (ADR 1541) and whose shading quads read one buffer of their numbers at their own offsets (ADR 1555): the tree before that read 191 to 203 and 118 to 126 ms beside it, past the top of both bands, so the bands hold that change. Its 132 ramps, first seen on the turn, are sampled beside each other (ADR 1567), and its meets of a disc with a dot clip are measured from the two convex polygons (ADR 1582), which took the turn's scene 5 ms quicker beside the tree before it; the bands follow that re-take"

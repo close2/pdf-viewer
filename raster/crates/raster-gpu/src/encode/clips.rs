@@ -346,6 +346,25 @@ impl Encoder<'_> {
         }))
     }
 
+    /// The chain's links as a meet made beside the walk reads them: each link's flattening and
+    /// its row index where the frame kept one (ADR 1582). Empty for a chain with no residue.
+    pub(super) fn chain_links(
+        &mut self,
+        resolved: &ResolvedClip,
+    ) -> Result<Vec<super::meet::ChainLink>, RenderError> {
+        let Some(leaf) = resolved.residues.clone() else {
+            return Ok(Vec::new());
+        };
+        Ok(self
+            .flatten_chain(&leaf)?
+            .into_iter()
+            .map(|link| super::meet::ChainLink {
+                polylines: link.polylines,
+                index: link.index,
+            })
+            .collect())
+    }
+
     /// The words that state a chain's residue as a meet reads it: each link's outline
     /// segments, its device transform's bits and its rule, leaf first, then the frame's
     /// visible rectangle, which bounds the region a chain is filled over (ADR 1517). Each

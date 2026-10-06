@@ -24,6 +24,7 @@
 
 pub mod accessibility;
 pub mod action;
+pub mod aform;
 mod annotation;
 pub mod annotation_state;
 pub mod appearance;
@@ -42,6 +43,7 @@ pub mod file_spec;
 pub mod form;
 pub mod forms_data;
 pub mod fragment;
+pub mod geospatial;
 pub use pdf_colour::function;
 pub use pdf_colour::icc;
 mod icon;

@@ -104,6 +104,11 @@ pub struct Opening {
 impl Opening {
     /// Opens the file and starts the thread that opens the document in it.
     ///
+    /// `reader` is the reader's three policy words, which become their commands on that thread:
+    /// reading an anchor or a target directory is not needed to show page one (`CLAUDE.md`
+    /// principle 2), and the commands go before the document because a policy applied halfway
+    /// through is not a policy (ADR 1580).
+    ///
     /// # Errors
     ///
     /// [`HostError::Unreadable`] where the file named cannot be read.
@@ -112,6 +117,7 @@ impl Opening {
         fragment: Option<String>,
         widget_appearances: WidgetAppearances,
         settings: viewer_host::Settings,
+        reader: viewer_host::ReaderWords,
     ) -> Result<Self, HostError> {
         // Open on disk rather than read whole: the core reads what page one needs through the
         // handle, and the file's size stops being the launch's cost (ADR 0809).
@@ -133,6 +139,19 @@ impl Opening {
             // with no extent.
             let mut viewer = Viewer::new(0, 0, 1.0);
             let mut events = Vec::new();
+            let supply = reader.commands();
+            for command in supply.commands {
+                events.extend(viewer.handle(command));
+            }
+            // Said where the window says everything else, and before the document so that a
+            // person reading the verdicts that follow knows which files did not take (trap 5).
+            for refusal in supply
+                .refused
+                .into_iter()
+                .chain(viewer.reference_refusals().iter().map(ToString::to_string))
+            {
+                println!("note: {refusal}");
+            }
             for command in commands {
                 events.extend(viewer.handle(command));
             }

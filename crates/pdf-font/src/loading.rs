@@ -40,6 +40,7 @@ use crate::metrics::{
     vertical_extent,
 };
 use crate::name_keyed::{NameKeyed, simple_code_table};
+use crate::post::PostNames;
 use crate::predefined;
 use crate::program::{Embedded, Program, embedded_program, parsed_type1, simple_units_per_em};
 use crate::substitute;
@@ -1756,13 +1757,13 @@ impl LoadedFont {
                 return BTreeMap::new();
             };
             let mut by_glyph = invert_charmap(&font);
-            let Ok(post) = font.post() else {
-                return by_glyph;
-            };
+            // Resolved once for the face: asking `read-fonts` glyph by glyph would step over
+            // every earlier name for each one (ADR 1584).
+            let post = PostNames::new(&font);
             let glyphs = font.maxp().map_or(0, |maxp| maxp.num_glyphs());
             for glyph in 0..glyphs {
                 if let Some(character) = post
-                    .glyph_name(skrifa::raw::types::GlyphId16::new(glyph))
+                    .name(glyph)
                     .filter(|name| !name.is_empty())
                     .and_then(read_fonts::ps::agl::name_to_char)
                 {

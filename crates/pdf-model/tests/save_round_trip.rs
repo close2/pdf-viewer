@@ -310,7 +310,10 @@ fn reason(restriction: Restriction) -> String {
 /// honestly fill, so Table 227 bit 1's read-only fields and Table 231 bit 14's password fields
 /// are passed over — the second because [`ViewState::save`] rightly withholds their values
 /// (ADR 0247), which would leave assertion 3 asking the references to see a value the file
-/// must not contain.
+/// must not contain. A field whose one-call keystroke script is Tier 0's is typed a value that
+/// script accepts — [`witness_for`] — because Table 199's `/K` "may check the added text for
+/// validity and reject" it, and typing letters into a number field would witness the script's
+/// refusal rather than the save (ADR 1579).
 fn fillable_text_field(document: &Document, pages: &Pages) -> Option<(String, usize)> {
     document.catalog().ok()?.get("AcroForm")?;
     let view = ViewState::of(document);
@@ -324,12 +327,44 @@ fn fillable_text_field(document: &Document, pages: &Pages) -> Option<(String, us
             }
             if let pdf_model::form::Control::Text(control) = field.control
                 && !control.password
+                && ViewState::of(document).set_field(
+                    document,
+                    &field.name.qualified,
+                    &Entered::Text(witness_for(document, &field.name.qualified)),
+                ) > 0
             {
                 return Some((field.name.qualified, index));
             }
         }
     }
     None
+}
+
+/// What the field edit types into one field: [`FIELD_WITNESS`], or, where the field's `/K` is one
+/// call of `pdf_model::aform`'s library, a value that call accepts typed and committed — a number,
+/// a date or time in the field's own picture, a complete zip, phone or SSN, the arbitrary mask
+/// filled (`aform::Call::accepted_example`).
+fn witness_for(document: &Document, name: &str) -> String {
+    let table = pdf_model::view::widgets_by_field_name(document);
+    let script = table
+        .get(name)
+        .and_then(|widgets| widgets.first())
+        .and_then(|widget| {
+            let object = document.get(*widget);
+            object.as_dict().map(|dict| {
+                pdf_model::aform::site::of_widget(
+                    document,
+                    dict,
+                    pdf_model::aform::Trigger::Keystroke,
+                )
+            })
+        });
+    match script {
+        Some(pdf_model::aform::site::Site::Library(call)) => call
+            .accepted_example()
+            .unwrap_or_else(|| FIELD_WITNESS.to_owned()),
+        _ => FIELD_WITNESS.to_owned(),
+    }
 }
 
 /// Runs one witness script with [`REFERENCE_BUDGET`] and hands back its stdout.
@@ -447,6 +482,9 @@ struct Performed {
     /// holds — read back through [`ViewState::field_value`] *before* saving, because
     /// §12.7.5.3's truncation means the stored value is the document's, not the keystroke's.
     field: Option<(String, usize, String)>,
+    /// What the field displays through its format script, where that differs from its value —
+    /// the text the saved appearance must show (ADR 1579).
+    formatted: Option<String>,
     /// The saved file.
     written: Vec<u8>,
 }
@@ -474,11 +512,19 @@ fn perform(
         None
     };
     let field = field.and_then(|(name, page_index)| {
-        if view.set_field(document, name, &Entered::Text(FIELD_WITNESS.to_owned())) == 0 {
+        if view.set_field(document, name, &Entered::Text(witness_for(document, name))) == 0 {
+            return None;
+        }
+        // A person leaves the field after typing, which is the commit its scripts run at.
+        if let pdf_model::view::Committed::Refused(_) = view.commit_field(document, name) {
             return None;
         }
         let held = view.field_value(document, name).map(|shown| shown.text)?;
         (!held.is_empty()).then_some((name.clone(), *page_index, held))
+    });
+    let formatted = field.as_ref().and_then(|(name, _, held)| {
+        view.displayed_value(document, name)
+            .filter(|shown| shown != held)
     });
     if free_text.is_none() && field.is_none() {
         return Err(("no edit applied".to_owned(), false));
@@ -487,6 +533,7 @@ fn perform(
         Ok(written) => Ok(Performed {
             free_text,
             field,
+            formatted,
             written: written.bytes,
         }),
         Err(error) => Err((error.to_string(), true)),
@@ -546,8 +593,49 @@ fn read_back(performed: &Performed, password: &str, page_id: ObjectId) -> Result
                 "field {name:?} read back as {read:?}, not {held:?}"
             ));
         }
+        if let Some(formatted) = &performed.formatted {
+            formatted_appearance(&saved, name, formatted)?;
+        }
     }
     Ok(())
+}
+
+/// Assertion 2's second half for a field with a format script: the saved appearance shows the
+/// value as the format writes it, not as it was typed (ADR 1579).
+///
+/// Looked for as a literal string operand, escaped as §7.3.4.2 escapes one; an appearance whose
+/// font is shown by hexadecimal codes carries no literal to find, and is not judged here.
+fn formatted_appearance(saved: &Document, name: &str, formatted: &str) -> Result<(), String> {
+    let table = pdf_model::view::widgets_by_field_name(saved);
+    let Some(widget) = table.get(name).and_then(|widgets| widgets.first()) else {
+        return Err(format!("the saved file has no field {name:?}"));
+    };
+    let normal = entry(saved, *widget, "AP")
+        .as_dict()
+        .map(|appearances| saved.get_key(appearances, "N"));
+    let Some(stream) = normal.as_ref().and_then(Object::as_stream) else {
+        return Err(format!(
+            "field {name:?} was saved with no normal appearance stream"
+        ));
+    };
+    let content = saved
+        .decoded_stream_data(stream)
+        .map(|data| String::from_utf8_lossy(&data).into_owned())
+        .unwrap_or_default();
+    let escaped: String = formatted
+        .chars()
+        .flat_map(|c| match c {
+            '(' | ')' | '\\' => vec!['\\', c],
+            other => vec![other],
+        })
+        .collect();
+    if content.contains(&format!("({escaped})")) || !content.contains('(') {
+        Ok(())
+    } else {
+        Err(format!(
+            "field {name:?}'s saved appearance does not show {formatted:?}"
+        ))
+    }
 }
 
 /// Assertion 3, one reference: the answer contains the edit.

@@ -143,7 +143,10 @@ codegen (§5), and `crates/pdf-sandbox/build.rs` bakes the confined worker's pat
   figure out of either end of its band fails, and a row moved on purpose moves its band with the
   reason written beside it (ADR 1513). A child is judged only on a quiet device: the driver's own
   busy counter is read around it, and a child that ran beside a neighbour's device work prints "not
-  judged", which is not a pass (ADR 1537). `tools/batch.sh gates` runs it in `release`.
+  judged", which is not a pass (ADR 1537). Every round of the method — the gate's child and
+  `examples/frame_budget` alike — begins by keeping each core the process may run on busy for a
+  moment, so the processor's idle clock is not one of the quantities a band holds (ADR 1577).
+  `tools/batch.sh gates` runs it in `release`.
 - Miri on the pure-Rust core; ASan/UBSan on any FFI
 - `cargo-deny`, `cargo-audit`
 - **the conformance gate** (§5a) — citations checked against the standard's own clause index,
@@ -280,7 +283,7 @@ gated, every contradicted page is named in the source, and both a new disagreeme
 entry fail the build. See ADR 0011. Each group of contradicted pages states whose departure it
 holds — ours, the references', or a documented choice — in `WHOSE_DEPARTURE`, beside the clause
 its note decides it by and held to the groups both ways, and the ranking by the bound names the
-highest-ranked page held as a departure of ours (ADR 1483). A page the references call
+highest-ranked page held as a departure of ours, or says that none is (ADRs 1483, 1572). A page the references call
 ambiguous, or whose geometry the standard does not admit, is held by name too where it is a page
 this tree already reports — `AMBIGUOUS_ON_A_PAGE_WE_REPORT` and `GEOMETRY_ON_A_PAGE_WE_REPORT`,
 checked both ways and read against `corpus.rs`'s `INCOMPLETE` — so every page the oracle counts is
@@ -437,7 +440,7 @@ an argued exclusion, so the next clause left out is a build failure instead of a
 | Status | Means |
 |---|---|
 | `implemented` | Every normative requirement in the clause is executed. Names the code site and the test. |
-| `partial` | Names which requirements are implemented, which are not, and what is *reported* for the remainder. |
+| `partial` | Names which requirements are implemented, which are not, and what is *reported* for the remainder. The note states one current reason and what would move the row — a crate release, an owner's answer by number, or a trigger (ADR 1574). A head is `partial` while a row beneath it owes (ADR 1035); a clause that states no requirement of its own is a heading, not an aggregate, and takes `implemented` (ADRs 1535, 1573). |
 | `departed` | Every requirement of the clause is executed except the one the note names, which was decided against with its cost recorded. Nothing is owed. The note's first sentence says what was departed from and names the ADR that decided it and priced it; `tools/state.sh` counts it as its own figure, never folded into `implemented` or `partial`. The owner's word, added in answer to `doc/questions/Q63` (ADR 1119). |
 | `reported` | Deliberately not implemented *yet*; detected and reported at runtime rather than skipped silently. Still owed. |
 | `silent` | Not implemented, and **nothing says so**: a document exercising the clause is drawn wrong without a word. |
@@ -551,7 +554,8 @@ one entry per kind of line `tools/main-checkout.py` prints, in its order (`tests
 the ledger's session ordinals only fall, held by equality, because a note states what is, and an
 `out-of-scope` row names its exclusion and quotes its clause (`tests/ledger_notes.rs`, ADRs
 1547, 1548), no Rust source names a round, spelled out or as `Session <number>`
-(`tests/spelled_ordinals.rs`, ADR 1023), and a round's record fits its forty lines and states its gates in a `**Gates.**` paragraph with an
+(`tests/spelled_ordinals.rs`, ADR 1023) — which also prints, without holding it, how many lines under
+`doc/todo/` still do, each todo file stating what is owed as of now (ADR 1576) — and a round's record fits its forty lines and states its gates in a `**Gates.**` paragraph with an
 exit status or a pass count (`tests/records.rs`, ADRs 1100, 1499). The sweeps under `src/bin/` —
 `pointers`, `overtaken`, `retired`, `unread`, `cited` and the rest — are reading lists and never
 gates, since each judges prose; `tools/state.sh` runs them by section. `tools/state.sh comments`

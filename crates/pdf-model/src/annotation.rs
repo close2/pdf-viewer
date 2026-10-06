@@ -1205,7 +1205,7 @@ fn decided(
     let mut content = Content::Stored(Arc::clone(&stored));
     if crate::appearance::regenerates(document, annotation, &subtype, view.value)
         && let Some(regenerated) =
-            crate::appearance::regenerate(document, annotation, &stored, bbox, view.value)
+            crate::appearance::regenerate(document, annotation, &stored, bbox, view)
     {
         owed = owed.or_else(|| regenerated.report.map(|detail| format!("{name}: {detail}")));
         content = Content::Constructed {

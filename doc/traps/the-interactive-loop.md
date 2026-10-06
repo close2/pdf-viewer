@@ -301,3 +301,13 @@ off the window before the keyboard leaves it (ADR 1565). And a probe arm's ceili
 it skips: ADR 1555 skipped every small region's fill and read 4.5 ms; ADR 1567 skipped the regions
 and everything they lead to and read 30 ms — the same lever, two ceilings. Name what the arm skips
 beside its figure.
+
+### 115. A colour is counted through the alpha channel, and a golden gate draws page one
+
+A drive step counted red pixels in a `quorra` screenshot with a fill and read 0: the screenshot was
+all grey, ImageMagick saved it as a greyscale PNG, and a red fill matches nothing in it. Count a
+colour by making it transparent and extracting the alpha (`-fuzz 6% -transparent COLOUR -alpha
+extract`), which works whatever the PNG's channels (round 1372). And before a round predicts that a
+change moves golden pages it reads what the gate draws: `raster_golden` and the corpus gate draw page
+one of each document, and the only page-one widgets Tier 0's formatting would have changed are
+Hidden (`/F` bit 2) — no page moved, and the prediction was the brief's (round 1371).

@@ -24,7 +24,7 @@
 use super::super::flatten::{Polyline, polyline_bounds};
 
 /// A box, `(left, top, right, bottom)`, as [`polyline_bounds`] returns one.
-pub(super) type Bounds = (f32, f32, f32, f32);
+pub(crate) type Bounds = (f32, f32, f32, f32);
 
 /// One fill's edges and subpaths by device row.
 #[derive(Debug)]
@@ -243,7 +243,7 @@ impl RowIndex {
     /// The subpaths whose boxes can meet rows `top .. top + rows`, in order, each with its
     /// box — or `None` where that is every subpath.
     #[expect(clippy::arithmetic_side_effects)] // `r + 1` is a row of `subpath_starts`
-    pub(super) fn subpaths_meeting(
+    pub(crate) fn subpaths_meeting(
         &self,
         top: i32,
         rows: usize,

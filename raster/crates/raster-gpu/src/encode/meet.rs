@@ -23,10 +23,12 @@ use raster_scene::{Point, Rect};
 
 use crate::raster::{self, CoverageMask, MeetWork, Polyline, RowEdges, Rule};
 
+mod convex;
 mod deferred;
 mod helpers;
 mod kept;
 
+pub(in crate::encode) use convex::ChainLink;
 pub(in crate::encode) use deferred::ExactMeet;
 pub(in crate::encode) use helpers::Helpers;
 pub(crate) use kept::KeptMeets;
@@ -167,9 +169,13 @@ impl Encoder<'_> {
         // A tile with a fractional pixel was filled from polylines; a mark that reached its
         // meet without them keeps `min` rather than meeting an empty set.
         let filled = !cut.is_empty() && !mark.polylines.is_empty();
-        let mut exact = chain
-            .filter(|_| filled)
-            .map(|chain| ExactMeet::new(tile, cut, chain.links, inputs));
+        let mut exact = match chain.filter(|_| filled) {
+            Some(chain) => {
+                let flats = self.chain_links(resolved)?;
+                Some(ExactMeet::new(tile, cut, (chain.links, flats), inputs))
+            }
+            None => None,
+        };
         if let Some(words) = words
             && unbounded
         {

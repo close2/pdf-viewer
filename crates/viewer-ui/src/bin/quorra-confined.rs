@@ -135,6 +135,9 @@ struct Arguments {
     /// buys is a page that names an uninstalled face drawn in that face rather than in a
     /// compiled-in Latin one (ADRs 0870, 0880).
     faces: bool,
+    /// §12.8.1's anchors, §8.10.4's target documents and §8.11.4.4's reader, in the words every
+    /// window takes (ADRs 1580, 1581).
+    reader: viewer_host::ReaderWords,
 }
 
 /// A message's `Debug` form cut to a line, for the trace.
@@ -160,8 +163,19 @@ fn arguments() -> Arguments {
     let mut topics = 0u8;
     let mut processor = false;
     let mut faces = false;
-    for argument in std::env::args().skip(1) {
-        if argument == "--trace" {
+    let mut reader = viewer_host::ReaderWords::default();
+    let mut arguments = std::env::args().skip(1);
+    while let Some(argument) = arguments.next() {
+        let taken = reader
+            .take(std::ffi::OsStr::new(&argument), &mut arguments)
+            .unwrap_or_else(|complaint| {
+                eprintln!("{complaint}");
+                std::process::exit(2);
+            });
+        if taken {
+            // One of the reader's three policy words, with its value taken from the words after
+            // it — read on this side, which has the filesystem, and carried across the wire.
+        } else if argument == "--trace" {
             topics = u8::MAX;
         } else if argument == "--cpu" {
             processor = true;
@@ -179,16 +193,18 @@ fn arguments() -> Arguments {
             path = Some(PathBuf::from(argument));
         } else {
             eprintln!(
-                "usage: quorra-confined [--trace[=topics]] [--cpu] [{}] document.pdf",
-                viewer_host::MACHINE_FONTS
+                "usage: quorra-confined [--trace[=topics]] [--cpu] [{}] {} document.pdf",
+                viewer_host::MACHINE_FONTS,
+                viewer_host::ReaderWords::USAGE
             );
             std::process::exit(2);
         }
     }
     let Some(path) = path else {
         eprintln!(
-            "usage: quorra-confined [--trace[=topics]] [--cpu] [{}] document.pdf",
-            viewer_host::MACHINE_FONTS
+            "usage: quorra-confined [--trace[=topics]] [--cpu] [{}] {} document.pdf",
+            viewer_host::MACHINE_FONTS,
+            viewer_host::ReaderWords::USAGE
         );
         std::process::exit(2);
     };
@@ -198,6 +214,7 @@ fn arguments() -> Arguments {
         processor,
         // The word, or the environment for a window nobody typed a command line at.
         faces: viewer_host::offers_machine_fonts(faces),
+        reader,
     }
 }
 
@@ -284,6 +301,10 @@ struct Host {
     /// restart inside another and make the depth of this program's stack a document's to choose.
     /// At the loop's turn there is nothing of the failed exchange left on the stack.
     resume: Option<Reopen>,
+    /// The reader's three policy words, kept because every worker is owed them: a worker that
+    /// replaces a dead one is a new viewer, and one that lost the anchors would judge a signature
+    /// differently after a crash (ADR 1580).
+    reader: viewer_host::ReaderWords,
 }
 
 /// A worker started, confined, and holding the document with page one interpreted: what the
@@ -355,6 +376,7 @@ impl Host {
             resuming: Resuming::new(),
             resume: None,
             faces,
+            reader: viewer_host::ReaderWords::default(),
         }
     }
 
@@ -378,11 +400,12 @@ impl Host {
     /// reads only the file's descriptor and the worker's frames (trap 83 is about the other side).
     /// The first `Resize` after the join then goes straight to the page's marks.
     fn anticipate(&mut self) {
-        let (path, faces, canceller, trace) = (
+        let (path, faces, canceller, trace, reader) = (
             self.path.clone(),
             self.faces,
             self.canceller.clone(),
             self.trace,
+            self.reader.clone(),
         );
         self.opening = Some(std::thread::spawn(move || {
             let starting = Instant::now();
@@ -407,6 +430,16 @@ impl Host {
                     scale: 1.0,
                 })
                 .map_err(|e| e.to_string())?;
+            // The reader's policy before the document, for `Command::Restrict`'s reason: a policy
+            // applied halfway through is not a policy. Read here, on this side's filesystem, and
+            // carried across the wire as bytes (ADR 1580).
+            let supply = reader.commands();
+            for refusal in &supply.refused {
+                eprintln!("note: {refusal}");
+            }
+            for command in &supply.commands {
+                events.extend(confined.handle(command).map_err(|e| e.to_string())?);
+            }
             events.extend(
                 confined
                     .handle(&Command::Open {
@@ -534,6 +567,10 @@ impl Host {
                 height: extent.height,
                 scale,
             });
+        }
+        // The new worker is a new viewer, so it is told again what the first one was told.
+        for command in self.reader.commands().commands {
+            self.dispatch(&command);
         }
         self.dispatch(&Command::Open {
             id: DOCUMENT,
@@ -1494,8 +1531,10 @@ fn main() {
         topics,
         processor,
         faces,
+        reader,
     } = arguments();
     let mut host = Host::new(path, topics, processor, faces, began);
+    host.reader = reader;
     host.anticipate();
     let event_loop = EventLoop::new().expect("an event loop");
     event_loop.set_control_flow(ControlFlow::Wait);

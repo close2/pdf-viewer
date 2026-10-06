@@ -32,31 +32,27 @@ the first three all in one direction:
    worst pixel. It is the quantum this file already records for a shape *thinner* than a pixel,
    met at the edge of a thick one.
 
-   **The commonest shape in every PDF stopped paying it in the six-hundred-and-forty-sixth
-   session** (ADR 0476). §10.7.4 defines a pixel as a product of two half-open intervals and gives
+   **The commonest shape in every PDF does not pay it** (ADR 0476). §10.7.4 defines a pixel as a product of two half-open intervals and gives
    a filled shape the same form, so an axis-aligned rectangle's coverage of a pixel is the product
    of its two one-dimensional overlaps — exact, at every placement, and derived rather than
    fitted. `pdf_render::edge` states the geometry for both backends, `render-cpu` hands such a
    fill to `tiny-skia`'s **rectangle** scan converter rather than its path one, and writes the same
    closed form into a rectangular **clip region's** mask, because this subclause says the region
    "consists of the set of pixels that would be included by a fill operation" and the two must
-   therefore be one rule. Both backends now answer the ladder to a level of 255 at all twenty-one
+   therefore be one rule. Both backends answer the ladder to a level of 255 at all twenty-one
    rungs. **What still carries the quantum is every shape that is not a single axis-aligned
    rectangle**, where it is a sixteenth rather than a quarter and averages along the edge; a glyph,
-   a curve and a diagonal are in it. **A stroke's outline joined the exception in the
-   six-hundred-and-ninetieth** (ADR 0535), where the outline is one rectangle: a butt-capped
+   a curve and a diagonal are in it. **A stroke's outline is in the exception** (ADR 0535), where the outline is one rectangle: a butt-capped
    straight rule along a device axis is drawn as the fill of that rectangle and measured by the
-   same closed form. **And a path stating *several* rectangles joined it in the
-   seven-hundred-and-eleventh, on a clause that is not this one** (ADR 0583): this file and
-   `doc/todo/11` item 7 both said such a path was deliberate and waited on item 5's seam, and
-   §11.3.7.3's union is what the standard says to do with two *objects*. A path's subpaths are
+   same closed form. **And so is a path stating *several* rectangles, on a clause that is not this one** (ADR
+   0583): §11.3.7.3's union is what the standard says to do with two *objects*. A path's subpaths are
    portions of one, and §11.6.2 forbids compositing portions of one object with one another — so
    the construction was forbidden rather than traded. `pdf_render::device_rectangles` decomposes
    such a path and `DeviceRectangles::share_a_device_pixel` asks §10.7.4's own question, whether
    two portions fall in one pixel; where none do, each is drawn as its own mark at the exact area,
    for a fill and for a clipping region alike. 3419 fills over 151 first pages of the pdf.js
    corpus, +0.074% of the rasteriser on a page of text against −0.53% on a page that states them.
-   **And the 505 that *do* share a pixel left it in the seven-hundred-and-fifteenth** (ADR 0590):
+   **And the 505 that *do* share a pixel are in it too** (ADR 0590):
    their portions' exact areas are **summed** into one coverage buffer and the paint blitted through
    it once, which is one composition with the backdrop for the whole object and each portion's own
    area within it. The two requirements are independent — §11.6.2 by the single blit, this
@@ -106,8 +102,8 @@ the first three all in one direction:
    backends, the four references and what a cure would cost; `crates/pdf-model/examples/
    uncovered_share.rs` is the instrument for any page.
 
-   **And the seam belongs to *this* departure rather than to §11.3.7.3, which is the correction
-   the seven-hundred-and-eleventh session made** (ADR 0582). ADR 0308 recorded it as "the model,
+   **And the seam belongs to *this* departure rather than to §11.3.7.3** (ADR 0582), not as
+   ADR 0308 recorded it, "the model,
    applied to the fractional shape §11.3.7.2's NOTE 1 says anti-aliasing produces". The model's
    values are at *points*: §11.2 is a `shall` — shape and opacity "shall be defined at every point
    in the plane" — and §11.6.4.2 makes a path's shape "1.0 inside and 0.0 outside", so the union of
@@ -122,57 +118,52 @@ the first three all in one direction:
 3. `Image::area_averaged` averages over the pixel area where the clause says "there shall not be
    averaging over the pixel area" (ADR 0025 — it is what made `bug1001080.pdf` legible).
 4. A clip's effect on a mark is a **product** where the clause states an intersection of sets —
-   narrowed to the mark's own coverage in the four-hundred-and-forty-fourth session (ADR 0280),
-   narrowed again to a filled mark in the five-hundred-and-twentieth (ADR 0355) and to a clip
-   standing beside a soft mask in the five-hundred-and-twenty-eighth (ADR 0363), and the
-   paragraphs below have the reading and what is left.
+   narrowed to the mark's own coverage (ADR 0280), to a filled mark (ADR 0355) and to a clip
+   standing beside a soft mask (ADR 0363); the paragraphs below have the reading and what is left.
 
 ## What is honoured
 
 Pixel boundaries on integers, half-open regions, a zero-width stroke drawn as the thinnest line
 the device can produce (the clause's own permission), glyphs scan-converted by the font
-rasteriser's own algorithm (the clause's last sentence allows it), and — since the
-hundred-and-eighty-sixth session — **"no shape ever disappears"** for a fill whose subpath has no
+rasteriser's own algorithm (the clause's last sentence allows it), and **"no shape ever disappears"** for a fill whose subpath has no
 extent along one axis (`pdf_render::collapsed`, ADR 0154).
 
-**And since the three-hundred-and-eighty-ninth, the shape that has an area and loses it anyway.**
+**And the shape that has an area and loses it anyway.**
 Anti-aliasing replaces "paint the pixel" with coverage proportional to area, and a coverage that
 rounds to *nothing* is not that replacement — it is the same disappearance reached by another road.
 `tiny-skia` supersamples four times per pixel row at each sub-row's centre, so its smallest
-non-zero coverage is a sixteenth of a pixel and a fill under an eighth of one vanished; and it
+non-zero coverage is a sixteenth of a pixel and a fill under an eighth of one would vanish; and it
 draws a stroke under a pixel wide as a hairline smeared symmetrically about the path, so one within
-half a pixel of the raster's edge lost half its ink. `pdf_render::sub_pixel_bands` draws an
+half a pixel of the raster's edge would lose half its ink. `pdf_render::sub_pixel_bands` draws an
 axis-aligned rectangle thinner than a device pixel as the whole pixel line it lies in, at the
 coverage its own area there implies, and a sub-pixel stroke on a straight axis-aligned rule is
-outlined into one first. **The graphics device never had either fault**, so this is the *oracle*
-being brought up to it rather than a rule about scan conversion. ADR 0226.
+outlined into one first. **The graphics device has neither fault**, so this is the *oracle*
+brought up to it rather than a rule about scan conversion. ADR 0226.
 
-**And since the four-hundred-and-thirty-second, the rule that is not axis-aligned** — which that
-session found was a *different sentence* failing, not the same one. The clause makes two promises
+**And the rule that is not axis-aligned** — which is a *different sentence* failing, not the
+same one. The clause makes two promises
 and a diagonal separates them. "No shape ever disappears" is not at risk: a band between two of
 `tiny-skia`'s sample lines vanishes, and a band that is not parallel to them crosses one every
 `1/(4 tan θ)` pixels of its length, so a filled diagonal sliver 0.05 of a pixel thick reads 9.47 to
-10.23 of its own 10 at every angle. What failed is "[t]he area covered by painted pixels shall
+10.23 of its own 10 at every angle. What fails is "[t]he area covered by painted pixels shall
 always be at least as large as the area of the original shape", and only for a **stroke**:
 `tiny-skia`'s hairline lays one pixel down per step along the line's *longer device axis*, so it
 carried `cos θ` of the rule's area — 29.3% short at 45°, at every thickness. The substitute is the
 same rule stroked one device pixel wide with the width it gave up carried in the paint's alpha
 (`pdf_render::substitute_width`), which is §10.7.4's own run of whole pixels and needs no scan
-converter of ours. `issue11473.pdf`'s three diagonal hatch swatches went 0.6768 → 0.7566 against a
-two-ladder limit of 0.752 to 0.760. ADR 0268; the boundary case it leaves is in `doc/todo/11`.
+converter of ours. `issue11473.pdf`'s three diagonal hatch swatches read 0.7566 against a two-ladder limit of
+0.752 to 0.760. ADR 0268; the boundary case it leaves is in `doc/todo/11`.
 
-**And since the three-hundred-and-sixty-eighth, *where* that mark goes.** NOTE 1 of the same
+**And *where* that mark goes.** NOTE 1 of the same
 subclause says a filling region "is considered to intersect every pixel through which its boundary
 passes, even if the interior of the filling region is empty", and its EXAMPLE says "A zero-width or
 zero-height rectangle paints a line 1 pixel wide" — so the mark is the run of whole device pixels
-the collapsed axis passes through, not a band at the shape's own fractional position. Both
-statements were in `doc/md/` for the whole of the rule's life and neither had been read. Under a
+the collapsed axis passes through, not a band at the shape's own fractional position.  Under a
 rotation or a shear the band remains, because a slanted line's pixel run is a staircase; no corpus
 document writes one. ADR 0208.
 
-**And since the four-hundred-and-forty-fourth, how a clip chain composes** — which is the same
-subclause's *other* paragraph, the one about clipping, unread here until the
-four-hundred-and-forty-third named it as a fourth departure (ADR 0279). §10.7.4 states a clip as a
+**And how a clip chain composes** — which is the same subclause's *other* paragraph, the one
+about clipping, a fourth departure (ADR 0279). §10.7.4 states a clip as a
 **set of pixels** intersected with a set of pixels, and §8.5.4 says the same thing about a *value*:
 "[t]he effective shape is the intersection of the object's intrinsic shape with the clipping path;
 the source shape value shall be 0.0 outside this intersection." A clip zeroes what is outside it and
@@ -195,7 +186,7 @@ across a chain too (its ADR 0030), read off §8.5.4's "the graphics state holds 
 rather than off this tree's argument — so the two backends compose a chain by one rule again, and
 both still multiply where the clip meets the *mark*.
 
-**And since the five-hundred-and-twentieth, where a clip meets a *filled* mark** — the step ADR
+**And where a clip meets a *filled* mark** — the step ADR
 0280 priced as "this backend's own blitter" and which needed none (ADR 0355). The closed form is the
 clause's own set identity rather than anybody's arithmetic: `S ∩ C = S` where `S ⊆ C`, so **a clip
 that contains a mark takes nothing from it**, at the mark's anti-aliased boundary included.
@@ -208,7 +199,7 @@ mark, a mark that is not anti-aliased, and `BlendMode::Source`. `issue21346.pdf`
 raster, and both other backends — which is why the departure is narrowed rather than closed
 a second time.
 
-**And since the six-hundred-and-ninetieth, where a clip meets a *stroked* mark** — the same
+**And where a clip meets a *stroked* mark** — the same
 sentence one operator over, since neither §10.7.4's clipping paragraph nor §8.5.4 names an operator
 and §8.4.3 gives a stroke a shape (ADR 0535). Every stroke went to
 `tiny_skia::PixmapMut::stroke_path`, which hands the finished mask to its own `fill_path`. **The
@@ -230,7 +221,7 @@ which it did not before: `coincident_edge_probe`'s stroke table read 0.4980 alon
 each of three restatements where the fill table read 0.5059 four times, and all eight rungs read
 0.5059 now.
 
-**And since the five-hundred-and-twenty-eighth, a clip standing *beside* a soft mask** — the case
+**And a clip standing *beside* a soft mask** — the case
 ADR 0355 declined because the two were already one buffer (ADR 0363). The standard states them in
 an order, and the fold destroyed it: §8.5.4 intersects the clipping path with the object's *own*
 shape and §11.3.7.2 multiplies the mask shape into what comes out, so `fₛ = (fⱼ ∩ C) · fₘ` rather
@@ -252,7 +243,7 @@ buffer carries *alpha*, which is shape times opacity, so the construction needs 
 beside the raster. Measured with the set kept apart at that blit, the witness's edge goes
 **0.306 → 0.571** of the mark against departure (1)'s 0.827. `doc/todo/11` item 4 carries it.
 
-**And since the five-hundred-and-eighty-fourth, the floor under all of it** — which is departure (1)
+**And the floor under all of it** — which is departure (1)
 meeting the eight bits its coverage is carried in (ADR 0419). Every substitution above states a mark
 wider than the document's own and puts the area it gave up in the paint's **alpha**, so each has a
 second floor below the rasteriser's coverage quantum: a coverage under `1/255` rounds to nothing and
@@ -265,7 +256,7 @@ which is the side of "[t]he area covered by painted pixels shall always be at le
 area of the original shape" that the `shall` is on. It is not §10.7.5's promotion: the mark keeps its
 place and the substitute's width, and only the last level of its alpha moves.
 
-**And since the five-hundred-and-eighty-fifth, the mark an alpha the raster *can* hold still loses**
+**And the mark an alpha the raster *can* hold still loses**
 — which is the same floor one step along and is where departure (1) meets §10.7.4's *second*
 sentence rather than its third (ADR 0420). An alpha of one level is not a level of ink: what a pixel
 receives is the alpha times the shape's coverage there, and the widened mark covers no pixel fully.
@@ -300,30 +291,26 @@ than a defect. `doc/todo/11` carries the two marks that are still lost.
 Three oracle groups turn on this, and the distinction that matters is between a difference the
 departure explains and one it does not:
 
-- `CONTRADICTED_TIGHT_CONSENSUS` — `colors.pdf` pages 1 and 2, and **this bullet said the wrong
-  thing about them until the six-hundred-and-forty-third session**: "every renderer agrees about
-  the swatch interiors to the byte and sits on a spectrum of edge softness … we are furthest. The
-  departure explains it whole." The interiors half is right and the rest is not. Sixteen
-  axis-aligned rectangles at known sub-pixel boundaries make each page a closed form; ours was that
-  form with every coverage rounded to `tiny-skia`'s quarter (max 1 level of 255 over the whole
+- `CONTRADICTED_TIGHT_CONSENSUS` — `colors.pdf` pages 1 and 2. Every renderer agrees about the swatch
+  interiors to the byte; the edges are not a spectrum of softness. Sixteen
+  axis-aligned rectangles at known sub-pixel boundaries make each page a closed form; the raster this
+  tree drew before ADR 0476 was that form with every coverage rounded to `tiny-skia`'s quarter (max 1 level of 255 over the whole
   raster) and `hayro`'s is the exact one (max 2). From the geometry at the worst pixel: `hayro` 2,
-  `mupdf` 13, ours 33, `ghostscript` 54, `poppler` 124 — two paint the shape's area, `poppler`
-  paints whole pixels, and we were third of five rather than the soft end of a spectrum. And the
+  `mupdf` 13, the rounded raster 33, `ghostscript` 54, `poppler` 124 — two paint the shape's area and `poppler`
+  paints whole pixels. And the
   departure does not explain the *verdict* at all: the exact
   form is contradicted here too, at ssim 0.98772 against a bound of 0.98862, because the pair that
   votes is the pair furthest from the geometry. ADR 0474.
 
-  **Since the six-hundred-and-forty-sixth our raster *is* the exact form (ADR 0476), and the two
-  pages confirm 643's prediction to the fourth decimal.** That session computed, from the file's
-  own arithmetic and with no code written, that a rasteriser painting precisely the covered area
-  would read ssim **0.98772** on page 1 and **0.98001** on page 2. The gate now measures
+  **Our raster *is* the exact form (ADR 0476), and the two pages confirm ADR 0474's prediction to
+  the fourth decimal.** ADR 0474 computed, from the file's own arithmetic and with no code written, that a rasteriser painting precisely the covered area
+  would read ssim **0.98772** on page 1 and **0.98001** on page 2. The gate measures
   **0.9879** and **0.9802**, against bounds of 0.9886 and 0.9840. So both pages are still
   contradicted, exactly as predicted and for the predicted reason — and the two numbers arriving
   where a closed form said they would, by a route with no renderer in it, is the strongest evidence
   this file has that the construction is the clause's and not a fit.
 - `AMBIGUOUS_SUB_PIXEL_LINE_WORK` — `22060_A1_01_Plans.pdf`: an A1 drawing whose four floor plans
-  are **72 sampled images**, not strokes, which the four-hundred-and-thirty-second session counted
-  after four sessions of this file calling it "*all* strokes under a pixel wide". Its 26 sub-pixel
+  are **72 sampled images**, not strokes (ADR 0268). Its 26 sub-pixel
   strokes carry 98% of their length within 5° of a device axis. So the departure that moves this
   picture is the *image* paragraph's — ADR 0025's area averaging — and not the shape rule's, which
   is why ADR 0226 could not move it and ADR 0268 moves it by 0.06%. Ink 10.00 ours, 10.27 `hayro`,
@@ -352,8 +339,7 @@ automatically be adjusted": that is grid-fitting, the non-uniformity it removes 
 the aliased scan conversion this tree already departs from, and nothing reports it. **Any proposal
 to snap something to the pixel grid has to say why it is not this.**
 
-**Both halves of that were arguments until the nine-hundred-and-third session measured them**
-(ADR 0848), and the instrument is the phase ladder — one width at eight sub-pixel placements, which
+**Both halves of that are measured** (ADR 0848), and the instrument is the phase ladder — one width at eight sub-pixel placements, which
 is the only variable "uniform thickness" is a claim about and the one nothing here had moved. At a
 requested 0.6 of a device pixel this device's achieved thickness runs 0.5961 to 0.6000 over the
 eight, against `poppler` 1.0000 flat: the clause bounds thickness at half a device pixel from the

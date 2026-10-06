@@ -85,12 +85,6 @@ pub(crate) const DEFAULT_BACKEND: Option<Backend> = Some(Backend::Dx12);
 pub(crate) const DEFAULT_BACKEND: Option<Backend> = None;
 
 /// What the command line asked for.
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "four independent words a person typed, each read in one place and none of them a \
-              state: which backend to draw with, whether one was named at all, whether §12.8.4 \
-              material that settles nothing is acted on, and §10.8.3's answer"
-)]
 pub(crate) struct Arguments {
     /// The document to open.
     pub(crate) path: PathBuf,
@@ -149,38 +143,16 @@ pub(crate) struct Arguments {
     /// and §10.8.1 leaves it "up to the processing software". Off unless a person said otherwise
     /// (ADR 1228).
     pub(crate) separations: bool,
-    /// The directory `--trust-anchors` named, or nothing, which is the default and means nobody.
+    /// §12.8.1's anchors, §8.10.4's target documents and §8.11.4.4's reader: the reader's three
+    /// policy words, read by the [`viewer_host::ReaderWords`] every window shares (ADR 1581).
     ///
-    /// **§12.8.1's third question, as a host's input.** RFC 5280 section 6.1.1 makes the trust
-    /// anchors input (d) and "a matter of policy"; ADR 1039 decided this program ships no root
-    /// list and reads no platform store, so the only way one arrives is a person naming it.
-    /// `viewer_host::trust_anchors` is what reads the directory, on the document's thread rather
-    /// than this one: nothing about it is needed to show page one (`CLAUDE.md` principle 2).
-    pub(crate) trust_anchors: Option<PathBuf>,
-    /// Whether `--accept-unknown-revocation` was typed.
-    ///
-    /// The second half of the same policy, and a separate word because it is a separate decision:
-    /// ADR 1067's rule that an absence of §12.8.4 material is never a `Good` is not what this
-    /// touches, and what it decides is whether a reader acts on a verdict resting on one.
-    pub(crate) accept_unknown_revocation: bool,
-    /// The directory `--reference-files` named, or nothing, which is the default and means that
-    /// every reference `XObject` draws ISO 32000-2 §8.10.4.1's proxy.
-    ///
-    /// **§8.10.4's target documents, as a host's input.** The clause writes a `shall` for a
-    /// processor that imports and a `shall` for one that cannot, and nothing in a *document*
-    /// decides which this is: `CLAUDE.md` principle 3 gives the renderer no filesystem, so the
-    /// files arrive only where a person names a directory of them. `viewer_host::reference_files`
-    /// reads it, on the document's thread, for `trust_anchors`' reason.
-    pub(crate) reference_files: Option<PathBuf>,
-    /// ISO 32000-2 §8.11.4.4's two categories about the *reader*, from `--reader-name`,
-    /// `--reader-title`, `--reader-organisation` and `--interface-language`.
-    ///
-    /// Empty by default, under which both are reported unanswered and every optional content
-    /// group stands where the document's configuration put it. `viewer_host::audience` builds it
-    /// and reads nothing off this machine, which is the decision rather than an omission: taking
-    /// a name from a login or a tag from a locale would be this program deciding on a reader's
-    /// behalf what a document is told about them.
-    pub(crate) audience: pdf_model::optional_content::Audience,
+    /// Each defaults to the word not having been typed — no anchor, every reference `XObject`
+    /// drawing §8.10.4.1's proxy, nobody reading — and the two directories are read on the
+    /// document's thread rather than this one: nothing about them is needed to show page one
+    /// (`CLAUDE.md` principle 2). ADR 1039 decided this program ships no root list and reads no
+    /// platform store, and ADR 1106 that no reader's name is taken from a login or a locale, so
+    /// what arrives is what a person typed and nothing else.
+    pub(crate) reader: viewer_host::ReaderWords,
     /// How many whole pages the window retains a low-resolution picture of, from
     /// `--proxy-pages`, defaulting to [`crate::stale::PROXY_PAGES`].
     ///
@@ -235,13 +207,7 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
     let mut embedded_documents = viewer_host::EmbeddedDocuments::default();
     let mut submissions = viewer_host::Submissions::default();
     let mut separations = false;
-    let mut trust_anchors = None;
-    let mut reference_files = None;
-    let mut reader_names: Vec<String> = Vec::new();
-    let mut reader_titles: Vec<String> = Vec::new();
-    let mut reader_organisations: Vec<String> = Vec::new();
-    let mut interface_language: Option<String> = None;
-    let mut accept_unknown_revocation = false;
+    let mut reader = viewer_host::ReaderWords::default();
     let mut proxy_pages = crate::stale::PROXY_PAGES;
     let mut supersample = 2_u32;
     let mut coverage = CoverageChoice::Auto;
@@ -299,74 +265,16 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
             supersample = supersample_factor(arguments.next());
         } else if argument == "--coverage" {
             coverage = coverage_choice(arguments.next());
-        } else if argument == viewer_host::TRUST_ANCHORS {
-            // Refused here rather than carried and refused later, for `--backend`'s reason: a
-            // person who names a directory that is not one has mistyped it, and a launch that
-            // ignored the word would answer every signature's third question with *nobody* while
-            // that person believed they had answered it.
-            let Some(directory) = arguments.next() else {
-                eprintln!(
-                    "{} wants a directory of PEM or DER certificates",
-                    viewer_host::TRUST_ANCHORS
-                );
-                std::process::exit(2);
-            };
-            let directory = PathBuf::from(directory);
-            if !directory.is_dir() {
-                eprintln!(
-                    "{} {}: not a directory",
-                    viewer_host::TRUST_ANCHORS,
-                    directory.display()
-                );
+        } else if match reader.take(&argument, &mut arguments) {
+            Ok(taken) => taken,
+            Err(complaint) => {
+                // Refused here rather than carried and refused later, for `--backend`'s reason: a
+                // word with nothing after it, or a directory that is not one, is a typing mistake.
+                eprintln!("{complaint}");
                 std::process::exit(2);
             }
-            trust_anchors = Some(directory);
-        } else if argument == viewer_host::REFERENCE_FILES {
-            // Refused rather than ignored, on `--trust-anchors`' rule: a person who names a
-            // directory that is not one has mistyped it, and a launch that ignored the word would
-            // draw every proxy while that person believed they had supplied the pages.
-            let Some(directory) = arguments.next() else {
-                eprintln!(
-                    "{} wants a directory of PDF files",
-                    viewer_host::REFERENCE_FILES
-                );
-                std::process::exit(2);
-            };
-            let directory = PathBuf::from(directory);
-            if !directory.is_dir() {
-                eprintln!(
-                    "{} {}: not a directory",
-                    viewer_host::REFERENCE_FILES,
-                    directory.display()
-                );
-                std::process::exit(2);
-            }
-            reference_files = Some(directory);
-        } else if argument == viewer_host::READER_NAME
-            || argument == viewer_host::READER_TITLE
-            || argument == viewer_host::READER_ORGANISATION
-            || argument == viewer_host::INTERFACE_LANGUAGE
-        {
-            // Refused rather than ignored, on `--trust-anchors`' rule: a word with nothing after
-            // it is a person who meant to say something, and a launch that swallowed it would
-            // draw layers chosen for an audience they never named.
-            let word = argument.to_string_lossy().into_owned();
-            let Some(value) = arguments.next() else {
-                eprintln!("{word} wants a value");
-                std::process::exit(2);
-            };
-            let value = value.to_string_lossy().into_owned();
-            if argument == viewer_host::READER_NAME {
-                reader_names.push(value);
-            } else if argument == viewer_host::READER_TITLE {
-                reader_titles.push(value);
-            } else if argument == viewer_host::READER_ORGANISATION {
-                reader_organisations.push(value);
-            } else {
-                interface_language = Some(value);
-            }
-        } else if argument == viewer_host::ACCEPT_UNKNOWN_REVOCATION {
-            accept_unknown_revocation = true;
+        } {
+            // One of the reader's three policy words, with its value taken from the words after it.
         } else if let Some(list) = argument
             .to_string_lossy()
             .strip_prefix(viewer_host::RESTRICTIONS)
@@ -506,15 +414,7 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
         embedded_documents,
         submissions,
         separations,
-        trust_anchors,
-        accept_unknown_revocation,
-        reference_files,
-        audience: viewer_host::audience(
-            &reader_names,
-            &reader_titles,
-            &reader_organisations,
-            interface_language.as_deref(),
-        ),
+        reader,
         proxy_pages,
         coverage,
         supersample,

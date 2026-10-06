@@ -6128,3 +6128,32 @@ pages moved on three lanes at 1× and 4×.
 Pinned minima of 4 × 5, interleaved on exported trees, the CPU backend in the same sitting. **The
 1× frame is 1.72× the CPU backend**, from 1.79×; the step is 1.38×. On your table the turn row
 reads 159.23 ms, its `scene` 86.62 from 89.52.
+
+## 69. `bug1721218_reduced.pdf`'s exact meets are measured from the two convex polygons (ADR 1582)
+
+**Where the 1× frame's residue time is, counted.** The page's 3 515 regions are single-dot clips
+under shadings that cover their whole tile, so they are filled and met by `min`; its exact meets
+are another 3 256 a frame, each a radial shading's disc of 33 points under one clip of 3 014 dots,
+about 11 400 pixels cut by both, at 45 000 instructions a pixel. The dots are 3 280 distinct shapes
+(your producer writes each in page coordinates to 0.001 pt), not one under many translations, and
+each is four cubics, not a circle — so neither a memo by sub-pixel phase nor a circle's closed form
+is exact here. The region fills are at their floor: a polygon's own measure of a dot's coverage
+was a fifth quicker than the fill, and not byte-identical by construction.
+
+**What changed, byte for byte.** Where the mark is one convex polygon and the clip is, inside the
+tile, convex subpaths whose boxes stand apart, the meet's area in each pixel is the intersection
+polygon cut to the pixel and measured by the shoelace — on the frame's helpers, after the walk has
+made everything the general meet reads, so a meet that is not convex is met as before. 6 444 of the
+zoom pair's 6 512 meets take it. Corpus digests: 0 pages moved on three lanes at 1× and 4×.
+
+| `zoom_frame`, GPU lane | before | after | your CPU backend |
+|---|---:|---:|---:|
+| the 1× frame | 81.3 ms | **79.5 ms** | 47.3 ms |
+| the 1.25× step | 78.4 ms | 77.2 ms | 56.2 ms |
+
+Pinned minima of 4 × 5, interleaved on exported trees, the CPU backend in the same sitting. **The
+1× frame is 1.68× the CPU backend**, from 1.72×; the step is 1.37×. On your table the turn row
+reads 154.59 ms, its `scene` 82.83 from 87.30. A step's `CommandEncoder::finish` (2.9 ms over its
+three renders) and poll (3.0) are its 3 583 draws a render and the device drawing them; an
+instanced shading draw and walking the black frame while the chromatic one draws are priced in ADR
+1583 and not built.

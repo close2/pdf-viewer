@@ -35,6 +35,7 @@
 use std::sync::Arc;
 
 use super::super::Encoder;
+use super::convex::{self, ChainLink};
 use super::helpers::Helpers;
 use super::{Mark, MarkInputs, exact_areas};
 use crate::raster::{CoverageMask, Polyline, RowEdges, Rule};
@@ -60,13 +61,15 @@ pub(in crate::encode) struct ExactMeet {
 }
 
 /// Everything a meet's exact areas are a function of: the tile as `min` left it, the pixels
-/// both sets cut, the chain's edges and the mark's polylines, rule and edges. Owned, so that a
-/// helper thread can make the areas while the walk goes on.
+/// both sets cut, the chain's edges and the mark's polylines, rule and edges — and the chain's
+/// flattenings, which a meet of convex sets is measured from instead ([`convex::areas`], ADR
+/// 1582). Owned, so that a helper thread can make the areas while the walk goes on.
 #[derive(Debug)]
 pub(super) struct ExactInputs {
     tile: CoverageMask,
     cut: Vec<usize>,
     links: Arc<[RowEdges]>,
+    chain: Vec<ChainLink>,
     polylines: Vec<Polyline>,
     rule: Rule,
     edges: Option<RowEdges>,
@@ -74,25 +77,27 @@ pub(super) struct ExactInputs {
 
 impl ExactInputs {
     /// The intersection's area in each cut pixel, as bytes, or `None` where the mark's edges
-    /// pass their bound and the tile keeps `min` — [`exact_areas`] of what the walk recorded.
+    /// pass their bound and the tile keeps `min` — measured from convex polygons where the sets
+    /// are those ([`convex::areas`]), and otherwise [`exact_areas`] of what the walk recorded.
     pub(super) fn areas(&self) -> Option<Vec<u8>> {
         let mark = Mark {
             polylines: &self.polylines,
             rule: self.rule,
             edges: self.edges.as_ref(),
         };
-        exact_areas(&self.tile, &self.cut, &self.links, mark)
+        convex::areas(&self.tile, &self.cut, mark, &self.chain)
+            .or_else(|| exact_areas(&self.tile, &self.cut, &self.links, mark))
     }
 }
 
 impl ExactMeet {
     /// A meet of `tile`, already met by `min`, whose `cut` pixels take the area of the
-    /// intersection of the mark `inputs` describe with the chain whose edges are `links`;
-    /// borrowed inputs are copied and owned ones taken.
+    /// intersection of the mark `inputs` describe with the chain whose edges are `links` and
+    /// whose flattenings are `chain`; borrowed inputs are copied and owned ones taken.
     pub(super) fn new(
         tile: &CoverageMask,
         cut: Vec<usize>,
-        links: Arc<[RowEdges]>,
+        (links, chain): (Arc<[RowEdges]>, Vec<ChainLink>),
         inputs: MarkInputs<'_>,
     ) -> Self {
         let (polylines, rule, edges) = match inputs {
@@ -104,6 +109,7 @@ impl ExactMeet {
                 tile: tile.clone(),
                 cut,
                 links,
+                chain,
                 polylines,
                 rule,
                 edges,
@@ -129,7 +135,8 @@ impl ExactMeet {
     /// A chain's edges the frame kept are held by the frame's residue cache too, under the
     /// edge budget that admitted them (ADR 1467), and every meet of that chain shares them: on
     /// `bug1721218_reduced.pdf` one chain's are 4.98 MB, so counting them again per meet
-    /// settled every meet on its own. Edges remade for one meet's rows are that meet's alone.
+    /// settled every meet on its own. Edges remade for one meet's rows are that meet's alone. A
+    /// chain's flattenings are the frame's in the same way, and held by the frame's memo.
     fn held(&self) -> u64 {
         let inputs = &self.inputs;
         let words = |n: usize| u64::try_from(n).unwrap_or(u64::MAX);

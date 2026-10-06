@@ -1,13 +1,23 @@
 Repository: https://github.com/etemesi254/zune-image (crate zune-jpeg)
-Base: zune-jpeg 0.5.15 as crates.io publishes it
+Base: 31d81fed7551c8ccea456d9d8e2b1fd8bebb6995
+Directory: crates/zune-jpeg
+Fork: https://github.com/close2/zune-image
 
-Not applied: the tree has no fork of zune-jpeg, and whether to carry one is doc/questions/Q227.
+The base is zune-jpeg 0.5.15 as crates.io publishes it: the crate's `.cargo_vcs_info.json` names
+that commit, its `src/` is byte for byte the published one, and upstream tags no 0.5.15. The paths
+below are the crate's own, so the patch applies in the repository with
+`git apply --directory=crates/zune-jpeg`. Carried by a fork under the owner's control, wired as the
+`hayro` fork is: doc/questions/Q227, answered (ADR 1589). The upstream report is the `.md` beside
+this file.
 Found by the `jpeg_bands` fuzz target (ADR 1495). `decode_dc` already updates the DC prediction
-with `wrapping_add`; the dequantising multiply beside it does not, so a frame whose DC differences
-accumulate past i32 range under a 16-bit quantiser panics wherever overflow checks are on (the dev,
-test and fuzz profiles) and wraps in release. This makes the multiply wrap as the addition does,
-which is release's behaviour in every profile. The reproduction is the 847-byte codestream below
-(hexadecimal), decoded whole to RGBA:
+with `wrapping_add`; the dequantising multiply beside it does not, so a frame whose accumulated DC
+prediction leaves i32 range once multiplied by the quantiser's DC entry panics wherever overflow
+checks are on (the dev, test and fuzz profiles) and wraps in release. This makes the multiply wrap
+as the addition does, which is release's behaviour in every profile. The reproduction is the
+846-byte codestream below (hexadecimal), a 2122 x 509 one-component frame decoded whole to RGBA;
+`crates/pdf-model/tests/banded_decodes.rs`'s ignored
+`a_dc_prediction_past_i32_is_decoded_rather_than_aborting` holds it, and loses its ignore the day
+the fork takes this:
 #   ffd8ffe000104a46494600010100000100010000ffdb004300100b0c0e0c0a100e0d0e1211101318281a181616183123
 #   251d283a333d3c3933383740485c4e404457453738506d51575f626768673e4d71797064785c656763ffc0000b0801fd
 #   084a01011100ffc4001a00010003010101000000000000000000000f00000000010405030207ffc4001f100100020202

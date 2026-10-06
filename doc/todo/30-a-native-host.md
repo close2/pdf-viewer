@@ -154,20 +154,19 @@ These are the places where a native host's shape differs from the tier-2 host's,
   `viewer_host::open_chosen`, where the levels attach.
 - **A screen reader is published to by AccessKit in all three** (ADR 0623), and `doc/todo/31` is
   what it still owes.
+- **The reader's three policy words are every window's** (ADRs 1580, 1581): `--trust-anchors` and
+  `--accept-unknown-revocation` (`Command::Trust`), `--reference-files` (`Command::References`), and
+  `--reader-name`, `--reader-title`, `--reader-organisation` and `--interface-language`
+  (`Command::Audience`). `viewer_host::ReaderWords` reads them for `quorra`, `quorra-gtk`,
+  `quorra-qt` and `quorra-confined` alike, rather than each toolkit's own parser, and its
+  `commands` are sent on the document's thread before the first `Command::Open`; the confined window
+  carries them across its wire and sends them again to a worker that replaces a dead one.
+  `tools/drive-windows.sh`'s steps 34 to 36 drive each word with and without it.
 
 ## What is left, and none of it is architecture
 
 Ranked by ADR 0509's criterion; `tools/state.sh windows` prints the window rows with their readings.
 
-- **The two native windows take none of the reader's three policy words**: `--trust-anchors` and
-  `--accept-unknown-revocation` (`Command::Trust`, ADR 1039), `--reference-files`
-  (`Command::References`, ADR 1101), and `--reader-name`, `--reader-title`,
-  `--reader-organisation` and `--interface-language` (`Command::Audience`, ADR 1106). `quorra`
-  parses each with `viewer_host::policy`'s words and sends it before the document. So in
-  `quorra-gtk` and `quorra-qt` a signature always answers that no anchor was supplied, a reference
-  `XObject` always draws its proxy, and §8.11.4.4's two categories about the reader stay unanswered.
-  Each is the word in the window's argument list and one send; the parsing and the refusals are
-  `viewer_host`'s already.
 - **`quorra` shows what would print and has no printer of its own** (ADR 1180 section 6), where
   `quorra-gtk` prints through `GtkPrintOperation` and `quorra-qt` through a `QPrinter`.
 - **§12.5.6.6's free-text drag is refused by name in the two native windows**, because authoring

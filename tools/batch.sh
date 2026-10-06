@@ -145,7 +145,7 @@ gates() {
     run build-hayro    cargo build --profile gates -p hayro-compare --bin pdfref-hayro
     run build-vfs      cargo build --profile gates -p pdf-vfs --bins
     run build-confined cargo build --profile gates -p viewer-confined --bins
-    for t in corpus raster_golden dates xmp; do
+    for t in corpus raster_golden script_corpus dates xmp; do
         run "t2-$t" cargo test --profile gates -p pdf-model --test "$t" -- --ignored --nocapture; done
     run t2-jpeg2000       cargo test --profile gates -p pdf-model --test jpeg2000 -- --nocapture
     run t2-transform-gate cargo test --profile gates -p pdf-transform --test gate -- --ignored --nocapture
@@ -239,6 +239,12 @@ raster_examples() {
 check_batch() {
     cd "$wt" || return 1
     local bad=0 found
+
+    # The owner's answers that landed in the main checkout and no commit holds yet, newest first,
+    # and what is open once they are counted: `tools/main-checkout.py`'s first two lines, repeated
+    # here because a merge runs this and a list of tracked files calls every such question open
+    # (ADR 1588). Read-only against the main checkout, and never a finding: they are the owner's.
+    PYTHONDONTWRITEBYTECODE=1 python3 tools/main-checkout.py --answers | sed -n '2,$p' || true
 
     # A file this tree has no place for. The extensions are what a round legitimately adds; a
     # binary, an archive, an editor's leavings and a regenerated header are none of them, and the

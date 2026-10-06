@@ -305,6 +305,23 @@ accesskit_unix = "0.22.1"
 xmlparser = "0.13.6"
 
 # Image codecs, pure Rust.
+#
+# **`zune-jpeg` is to be carried by a fork under the owner's control, wired as `hayro-jbig2` below
+# is** (doc/questions/Q227, answered; ADR 1589). It carries the two patches the `jpeg_bands` fuzz
+# target found, `doc/patches/zune-jpeg-dc-prediction-overflow.patch` and
+# `doc/patches/zune-jpeg-scan-complete-without-eoi.patch`, until a release carries them; each has
+# its upstream report beside it. The fork's repository is the owner's to create: fork
+# `etemesi254/zune-image` as `close2/zune-image`, apply both patches on `31d81fed` (zune-jpeg
+# 0.5.15 as crates.io publishes it) with `git apply --directory=crates/zune-jpeg`, push, and
+# replace the line below this comment with this stanza, its `rev` the pushed commit:
+#
+# zune-jpeg = { git = "https://github.com/close2/zune-image", rev = "<the fork's commit>", version = "0.5.15" }
+#
+# `zune-core` then comes from the same fork, because `zune-jpeg` names it by path; nothing else in
+# the tree takes it. What follows is a round's: the fork's URL joins `deny.toml`'s `allow-git`
+# beside `close2/hayro`, both locks move (`cargo update -p zune-jpeg`, and again with
+# `--manifest-path fuzz/Cargo.toml`), and `banded_decodes.rs`'s ignored DC test loses its ignore
+# and its grey-row test its guard.
 zune-jpeg = "0.5.15"
 zune-png = "0.5.2"
 

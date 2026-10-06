@@ -1052,3 +1052,27 @@ against the file's 18.0, and no line disagrees.
 **Not taken.** `rustybuzz`, for `doc/stack.md`'s reason, and `harfbuzz_rs`, which is C. The joining
 is the Unicode Standard's own rules over the tables above, reaching each form as a presentation-form
 code point; executing a face's `GSUB` instead is priced in ADR 1414 and not built.
+
+## IOGP Guidance Note 7-2 and ISO 19162, the texts §12.10 hands its projection to
+
+§12.10.3 names two things outside ISO 32000-2 for a coordinate system: an EPSG code, whose
+registry the IOGP administers, and a WKT string whose format ISO 19162 specifies. The owner's answer
+`doc/questions/A171` has the projection built of this tree's own, and ADR 1586's census decided that
+no registry is carried (every system stating `/EPSG` states `/WKT` beside it). Two free texts were
+fetched on 2026-10-06 into a round's scratch directory, never under `doc/` (trap 43), prepared with
+`python3 tools/spec-md.py <pdf> --out doc/md/IOGP-373-07-02.md` and `--out doc/md/OGC-18-010r11.md`
+into the ignored `doc/md/`, and kept at `/home/AI/specs/` on the agent's machine:
+
+| text | fetched from | SHA-256 of the PDF |
+|---|---|---|
+| **IOGP Publication 373-7-2, Geomatics Guidance Note 7 part 2**, *Coordinate Conversions and Transformations including Formulas*, revised September 2019 | `https://www.iogp.org/wp-content/uploads/2019/09/373-07-02.pdf` | `8951d9641e6a65a071e865d1e6bb0611d0d7248772fa3054496fc14041183465` |
+| **OGC 18-010r11**, *Geographic information — Well-known text representation of coordinate reference systems*, version 2.1.11 (2023), the OGC's publication of ISO 19162:2019 | `https://docs.ogc.org/is/18-010r11/18-010r11.pdf` | `c97a5eb8f454b7309c990e1e0eef18f884b74f7ade8cf7f1a6f15f43668430e3` |
+
+**Cited and paraphrased, never quoted.** The Guidance Note states no terms of reproduction in its
+text, which under ADR 0187 is the same as none granted. The OGC text carries a licence permitting
+copies with its notices intact, but the quotation gate reads a quotation mark as ISO 32000-2's, so
+both are cited by section — "Guidance Note 7-2 section 3.2.3.1", "ISO 19162 section 6.4" — and
+paraphrased in source and in the ledger alike. What `crates/pdf-model/src/geospatial/` carries from
+the Note is its formulas, which are the method rather than prose about it, and its worked examples'
+numbers as test inputs (ADR 1587). Nothing from the EPSG Dataset is carried: the parameter and
+method codes `system.rs` recognises are the identifiers the Note itself prints beside each method.

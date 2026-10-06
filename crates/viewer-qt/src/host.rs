@@ -568,6 +568,9 @@ impl Host {
     /// rasterised at, and a page drawn at a guessed size would be drawn twice. That is
     /// `viewer-gtk`'s shape too, so the two hosts' launch timelines measure the same thing.
     ///
+    /// `reader` is the reader's three policy words, which become their commands on that thread
+    /// and before the document, for `viewer-gtk`'s reasons (ADR 1580).
+    ///
     /// # Errors
     ///
     /// [`HostError::Unreadable`] where the file named cannot be read.
@@ -576,6 +579,7 @@ impl Host {
         fragment: Option<String>,
         widget_appearances: WidgetAppearances,
         settings: viewer_host::Settings,
+        reader: viewer_host::ReaderWords,
         trace: Trace,
     ) -> Result<Self, HostError> {
         // Open on disk rather than read whole: the core reads what page one needs through the
@@ -603,6 +607,19 @@ impl Host {
             // single-threaded — `viewer-core`'s rule 4 as `quorra` keeps it (ADR 0182).
             let mut viewer = Viewer::new(0, 0, 1.0);
             let mut events = Vec::new();
+            let supply = reader.commands();
+            for command in supply.commands {
+                events.extend(viewer.handle(command));
+            }
+            // Said where the window says everything else, and before the document so that a
+            // person reading the verdicts that follow knows which files did not take (trap 5).
+            for refusal in supply
+                .refused
+                .into_iter()
+                .chain(viewer.reference_refusals().iter().map(ToString::to_string))
+            {
+                println!("note: {refusal}");
+            }
             for command in commands {
                 events.extend(viewer.handle(command));
             }
@@ -4867,6 +4884,7 @@ mod tests {
                 submissions: viewer_host::Submissions::Refuse,
                 separations: false,
             },
+            viewer_host::ReaderWords::default(),
             Trace::off(std::time::Instant::now()),
         )
         .expect("the document is readable");

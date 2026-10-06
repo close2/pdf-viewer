@@ -55,12 +55,14 @@
 //! (a slab smeared across the border instead of cut at it, ADR 0049). Each is one
 //! function of one part, and none could have been found by reading another.
 
+mod convex;
 mod fill;
 mod flatten;
 mod meet;
 pub(crate) mod reduce;
 mod stroke;
 
+pub(crate) use convex::{Convex, ConvexMeet, Work as ConvexWork};
 pub(crate) use fill::{
     CoverageMask, RowIndex, Rule, clip_mask, fill_mask, fill_mask_settled, winds_two_values,
 };

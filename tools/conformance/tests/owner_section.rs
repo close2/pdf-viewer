@@ -263,3 +263,37 @@ git apply
     assert!(section.contains("`owed:"));
     assert!(!section.contains("not: an entry"));
 }
+
+/// The owner's answers are the first kind the script prints, and the merge's check repeats them.
+///
+/// An answer lands in the main checkout as an untracked or modified `A` file, and every list read
+/// from tracked files calls its question open until the owner commits it; the line that says so
+/// is the one a merge must not miss, so it is printed before anything else, and `tools/batch.sh
+/// check`, which every merge runs, prints it again by asking the script for it (ADR 1588).
+#[test]
+fn the_owners_answers_come_first_and_the_merge_check_repeats_them() {
+    let root = repository_root();
+    let script = std::fs::read_to_string(root.join("tools/main-checkout.py"))
+        .expect("tools/main-checkout.py is read");
+    let batch =
+        std::fs::read_to_string(root.join("tools/batch.sh")).expect("tools/batch.sh is read");
+    let (kinds, _) = script_kinds(&script);
+    assert_eq!(
+        kinds.iter().take(2).map(String::as_str).collect::<Vec<_>>(),
+        ["answered", "open questions"],
+        "the owner's uncommitted answers and the questions they leave open are the first two lines"
+    );
+    assert!(
+        script.contains("\"--answers\""),
+        "the script answers `--answers` with those two lines alone"
+    );
+    let check = batch
+        .split("\ncheck_batch() {")
+        .nth(1)
+        .and_then(|body| body.split("\n}\n").next())
+        .expect("tools/batch.sh defines check_batch");
+    assert!(
+        check.contains("main-checkout.py --answers"),
+        "tools/batch.sh check repeats the answered line"
+    );
+}

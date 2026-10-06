@@ -608,6 +608,13 @@ section_dates() {
         cargo test --profile gates -p pdf-model --test dates -- --ignored --nocapture
 }
 
+# RFC 0008 section 6.7's Tier 0 form over the census population: every field script at a Table 199
+# site committed once, each displayed value held by name (ADR 1579). A corpus walk, behind the lock.
+section_scripts() {
+    run "field scripts, Tier 0 (RFC 0008)" '^[0-9]+ (PDF\(s\) walked|held)' \
+        cargo test --profile gates -p pdf-model --test script_corpus -- --ignored --nocapture
+}
+
 section_xmp() {
     run "XMP (§14.3.2)" "^[0-9]+ documents carry" \
         cargo test --profile gates -p pdf-model --test xmp -- --ignored --nocapture
@@ -811,10 +818,12 @@ gate_names() {
              else print name }' tools/batch.sh
 }
 
-# What the main checkout holds that a merge does not carry, read and never written: a local edit
+# What the main checkout holds that a merge does not carry, read and never written: first, the
+# owner's answers no commit holds yet, each dated, and the questions still open once they are
+# counted, which a list of tracked files cannot see (ADR 1588); then a local edit
 # the fast-forward would refuse over, whether `fuzz/Cargo.lock` agrees with the root lock, which
 # fuzz artefacts the tree has read (it names them) and which it has not, the targets with no seeds
-# there, the owner's uncommitted answers, and every `§` after another standard's name in an
+# there, and every `§` after another standard's name in an
 # uncommitted instruction document there, which the main checkout's own `cargo test -p conformance`
 # fails on and no worktree's run can see (ADR 1452). `doc/environment.md`'s *After a merge* is the
 # commands; this is which of them has anything to do (ADR 1440).
@@ -1145,9 +1154,6 @@ Query:Offset|not a debt|the same delegation: a click placing the cursor inside a
 Query:FieldSelection|not a debt|the same delegation: a drag selecting inside a toolkit's own entry is the toolkit's, and Ctrl+C in it is the toolkit's binding (ADR 0519).
 Query:FreeTextAt|a debt, named and refused out loud|§12.5.6.6's free-text drag is `t` in viewer_host::keys and both native hosts refuse it by name (ADR 0526), because authoring that annotation is a drag mode plus an editor. doc/todo/33's, not this file's.
 Command:View|not a debt, and the reason is this section's own exclusion|a window that keeps the viewer in its own process never loses the view, so it has nothing to put back. The pair exists for a host whose worker can die under it: quorra-confined asks Query::View per frame and echoes the answer back as this, so that a restarted worker resumes where the reader was rather than at page one (ADRs 0734, 0737). That window is deliberately not in this section's population — it is a second window in viewer-ui's crate — which is why a variant one real window does reach reads here as reached by nobody. Closing this line means a *counted* window gaining a worker it can lose.
-Command:Trust|a debt|§12.8.1's third question. quorra takes `--trust-anchors` and `--accept-unknown-revocation` (viewer_host::policy) and sends this before the document; the two native windows parse neither word, so every signature they show answers that no anchor was supplied (ADR 1039). The two words and the send, in each window's own argument list.
-Command:References|a debt|§8.10.4's target documents: quorra takes `--reference-files` and sends this before the document; the two native windows do not, so a reference XObject draws its proxy there whatever the reader has on disk (ADR 1101). The word and the send, as for Trust.
-Command:Audience|a debt|§8.11.4.4's User and Language categories: quorra takes `--reader-name`, `--reader-title`, `--reader-organisation` and `--interface-language` and sends this before the document; the two native windows do not, so both categories stay unanswered there (ADR 1106). The words and the send, as for Trust.
 Query:LogicalSelection|not a debt|a copy is Command::Copy, and Event::Copied carries both of §14.8.2.5's orders to all three windows (ADR 1144), which choose between them with viewer_host::copied. The query is asked by viewer-ffi, for a C caller that copies on its own.
 Query:PrintPage|a debt, named|quorra shows what would print and says it has no printer of its own (ADR 1180 section 6); quorra-gtk prints through GtkPrintOperation and quorra-qt through a QPrinter, each asking this per sheet.
 READING
@@ -1383,7 +1389,7 @@ section_ratchets() {
     done
 }
 
-all="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held fuzz-stale tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame turn dates xmp save actions on-disk jpeg2000 instruments"
+all="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held fuzz-stale tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame turn dates xmp scripts save actions on-disk jpeg2000 instruments"
 quick="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held remedies instruments"
 
 # Sections another section already runs. Not in `all`, because a full run pays for every line
@@ -1434,6 +1440,7 @@ for section in $sections; do
     turn) section_turn ;;
     dates) section_dates ;;
     xmp) section_xmp ;;
+    scripts) section_scripts ;;
     save) section_save ;;
     actions) section_actions ;;
     on-disk) section_on_disk ;;

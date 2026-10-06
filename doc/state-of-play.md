@@ -108,8 +108,10 @@ word by the mark's tile, its rule and polylines and the chain's content, so that
 chromatic and a black render meets nothing twice — and a sweep past its budget counted before it
 sorts (ADR 1517), the black render handed the chromatic one's finished coverage tiles, residue
 regions and clip outlines rather than making them again (ADR 1529), a meet's exact pixels made
-beside the walk by helper threads and written onto the sheet where its tile lies (ADR 1541), a
-pass's shading quads read from one buffer of their numbers at their own offsets (ADR 1555) — and a clipped mark's
+beside the walk by helper threads and written onto the sheet where its tile lies (ADR 1541) — and,
+where the mark is one convex polygon and the clip is convex pieces apart inside the tile, measured
+there from the polygons rather than band by band from their edges (ADR 1582) — a
+pass's shading quads read from one buffer of their numbers at their own offsets (ADR 1555), a frame's new ramps sampled into their tables beside each other on the encode threads, each texel the same byte the one-ramp statement gives (ADR 1567) — and a clipped mark's
 coverage and a stroke's made off the walk's thread by the encoder's fan-out, a stroke's segment
 weighed at what it costs (ADR 1395), the fan-out's threads claiming its jobs in order rather than
 taking fixed shares (ADR 1505), a wide job building its mark's edges over its own tile (ADR 1513),
@@ -193,9 +195,11 @@ window's ceiling is stepped over by the
 grammar that ends it, a composite glyph's cycle is found in time linear in the glyph graph, a face
 written whole holds every glyph it is asked for, a band is refused wherever the whole decoder reads
 the frame another way, and a page-tree node met beneath itself stands for no pages (ADRs 1423, 1424,
-1439, 1495, 1496). Two patches to `zune-jpeg` wait on Q227: an overflow in its DC prediction, and a
-scan whose data holds every minimum coded unit with no `EOI` after it, decoded whole rather than
-stopped a row short (ADR 1520). A JBIG2
+1439, 1495, 1496). Two patches to `zune-jpeg` — an overflow in its DC prediction, and a scan whose
+data holds every minimum coded unit with no `EOI` after it, decoded whole rather than stopped a row
+short (ADR 1520) — are carried by no fork yet: the owner creates one under `doc/questions/A227`, and
+until the manifest pins it the tree decodes with `zune-jpeg` 0.5.15, the DC reproducer an ignored
+test that panics there (ADR 1589). A JBIG2
 symbol dictionary the codec decodes for minutes is ended at a deadline on either isolation — the
 in-process one abandons rather than kills, and says so, and a process behind its own seccomp filter
 decodes on its own thread instead, because a kept thread asks for `prctl` — and its three unbounded
@@ -261,7 +265,14 @@ and every place ISO 32000-2 overrides the text, or the text says too little, ref
 in a form field** — where the host keeps the *point* it
 clicked and never the text, so §12.7.5.3's truncation is read back rather than predicted (ADR
 0201), with a caret that says where the next character goes so that correcting the middle of a
-value is not deleting back to it (ADR 0211) — undo it and redo it; **a rich text field's value is
+value is not deleting back to it (ADR 0211) — undo it and redo it; **a field's one-call script
+runs** — RFC 0008's Tier 0: a keystroke, format, validate or calculate script that is textually one
+call of Adobe's `AF*` form library with literal arguments runs as `pdf_model::aform`'s Rust
+re-implementation of all twenty-one functions, every rule of which ADR 1578 names as a choice, a
+keystroke the script refuses is not taken, a total follows its lines because Table 224's `/CO` is
+walked in order after every value change, and a value is drawn and saved through its format once it
+is not being typed, while every other script is reported as one this tier does not run and no
+ECMAScript is parsed (ADR 1579); **a rich text field's value is
 drawn as characters**, because Table 228's `/RV` and Table 231 bit 26 are ISO 32000-2's own rich
 text string and not the XFA template architecture `CLAUDE.md` excludes, so the text is laid out and
 only the *formatting* is reported (ADR 1197); **a file-select control takes a
@@ -298,7 +309,9 @@ and over the C ABI's `quorra_measure`, with the arithmetic and
 §12.9.2's five formatting steps the document's, so a length, an area, an angle and a slope come back
 in the units and the labels the producer chose rather than in any this program invented; a geospatial
 viewport says which system the map is in and states outright that §12.10 defines no position between
-its registration points (ADR 1191); a person can **add an annotation** — §12.5.6.10's four markups over what is
+its registration points (ADR 1191), and `pdf_model::geospatial` carries a projected position back to a
+latitude by the inverse of each method the census found, refusing by name the projected maps whose
+registration points are already degrees (ADRs 1586, 1587, `doc/questions/Q271`); a person can **add an annotation** — §12.5.6.10's four markups over what is
 selected (ADR 0196), and §12.5.6.6's free text drawn as a rectangle and typed into, which is the
 one markup subtype whose text *is* the annotation and therefore the one whose geometry has to come
 from a drag rather than from a selection (ADR 0238) — **and the producer's own free text annotation
@@ -647,7 +660,7 @@ raised by the pointer. Four clauses closed on the sidebar without anybody pickin
 and three of the four had a ledger row whose reason was "this program has no ___" — which is the
 lesson in [`doc/habits.md`](habits.md)'s ledger section rather than a fact about the sidebar.
 
-**And what a reader does is driven in all three windows by one command**: `tools/drive-windows.sh` takes them under `Xvfb` through open, the outline, page turns, zoom, find, a popup, a link, a markup and a form saved and reopened, the restriction levels, print, a password and AT-SPI, and photographs each step (ADR 1453). The find bar finds a right-to-left word typed in reading order on a page that shows it as presentation forms in display order, folding the forms and reading the order off the glyphs' positions (ADR 1465), and a word typed without its vowel marks or accents finds one printed with them, while a mark typed is asked for (ADR 1477). No step of the drive rests on a person looking at a picture: the reopened form is read off AT-SPI in all three windows, `quorra`'s form nodes carrying each field's value and each character's place in it (ADRs 1489, 1501), and `quorra-confined`'s device refusal is driven to its title (ADR 1478). The `ask` level's question is answered both ways in all three windows — a toolkit dialogue's buttons pressed through their AT-SPI action, `quorra`'s drawn card by its two keys — and the answer read off the log and the drive's server (ADR 1540).
+**And what a reader does is driven in all three windows by one command**: `tools/drive-windows.sh` takes them under `Xvfb` through open, the outline, page turns, zoom, find, a popup, a link, a markup and a form saved and reopened, the restriction levels, print, a password and AT-SPI, and photographs each step (ADR 1453). The find bar finds a right-to-left word typed in reading order on a page that shows it as presentation forms in display order, folding the forms and reading the order off the glyphs' positions (ADR 1465), and a word typed without its vowel marks or accents finds one printed with them, while a mark typed is asked for (ADR 1477). No step of the drive rests on a person looking at a picture: the reopened form is read off AT-SPI in all three windows, `quorra`'s form nodes carrying each field's value and each character's place in it (ADRs 1489, 1501), and `quorra-confined`'s device refusal is driven to its title (ADR 1478). The `ask` level's question is answered both ways in all three windows — a toolkit dialogue's buttons pressed through their AT-SPI action, `quorra`'s drawn card by its two keys — and the answer read off the log and the drive's server (ADR 1540). The reader's three policy words are driven in all four windows, each with the word and without it: a signature called valid only under the anchors `--trust-anchors` names, a reference `XObject` drawing the page `--reference-files` supplies, and a layer drawn for the reader `--reader-name` names and not for another (ADR 1580).
 
 **All of it sits behind `viewer-core`**: `Command` in, `Event` out, `Query` → `Answer` beside
 them, with no type from a windowing or graphics library anywhere in its API.
