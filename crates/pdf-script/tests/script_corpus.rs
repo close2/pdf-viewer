@@ -36,7 +36,7 @@
 //! # Running it
 //!
 //! ```text
-//! RAYON_NUM_THREADS=4 flock /home/AI/heavy-walk.lock tools/bounded.sh --data 8 --tree 12 -- \
+//! RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --data 8 --tree 12 -- \
 //!     cargo test --profile gates -p pdf-script --features engine --test script_corpus -- \
 //!     --ignored --nocapture
 //! ```
@@ -83,7 +83,7 @@ use script_population::{MAX_FILE_BYTES, password_for, population, repository};
 const HELD_EXCEEDED: usize = 0;
 
 /// Most runs that may end in an uncaught throw.
-const HELD_THREW: usize = 9_319;
+const HELD_THREW: usize = 9_317;
 
 /// Most runs that may finish having been refused a call: none, since a write to `this.pageNum` —
 /// the one refusal three scripts caught — is a page turn the host makes (ADR 1640).
@@ -93,7 +93,7 @@ const HELD_FINISHED_REFUSED: usize = 0;
 const HELD_UNPARSED: usize = 8;
 
 /// Fewest runs the walk may hand the engine.
-const HELD_RUNS: usize = 21_100;
+const HELD_RUNS: usize = 21_101;
 
 /// How the runs ended, counted across the walk.
 #[derive(Debug, Default)]

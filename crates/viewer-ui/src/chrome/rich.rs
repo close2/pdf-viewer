@@ -19,6 +19,9 @@
 //!   Hebrew sentence whose words are coloured two ways reads right to left across both. A
 //!   paragraph whose direction is right to left and states no `text-align` begins at the right,
 //!   its own start edge, as Pango and Qt place one (ADR 1654).
+//! - **Tab stops**, chapter 27's *Tab Stops* (pages 1205 to 1207): a tab advances to the next of
+//!   the paragraph's stops past it, stated or every `tab-interval`, and the text after it stands
+//!   there as the stop's alignment says (ADR 1666).
 //! - **`letter-spacing` and the two font scales** as `pdf_model::rich_text::lay_out` applies them
 //!   to a field: the spacing is added after every glyph and the horizontal scale multiplies the
 //!   advance with it, which is §9.4.4's `(w0 × Tfs + Tc) × Th` with chapter 27's two in place of
@@ -113,6 +116,9 @@ struct Item<'a> {
     space: bool,
     /// Whether it is XHTML's `br`, where the line ends whatever the width.
     end: bool,
+    /// Whether it is chapter 27's tab, which advances to the paragraph's next stop: how far is
+    /// decided where its line is laid out ([`lines`]), and it draws no glyph.
+    tab: bool,
 }
 
 /// How a run is drawn: its family and style, its em in pixels across and up, and how far its
@@ -196,8 +202,9 @@ fn glyphs_of<'a>(
             .saturating_sub(byte);
         let stored = letters.get(shaped.source).copied().unwrap_or(' ');
         let end = stored == '\n';
+        let tab = stored == '\t';
         let advance = match settings.get(setting) {
-            Some(setting) if !end => setting.advance(
+            Some(setting) if !end && !tab => setting.advance(
                 run,
                 chrome.glyph_advance(setting.face.0, setting.face.1, shaped.character),
             ),
@@ -212,15 +219,55 @@ fn glyphs_of<'a>(
             advance,
             space: stored == ' ',
             end,
+            tab,
         });
     }
     (text, out, settings)
 }
 
+/// How far a tab at `position` from the paragraph's left margin advances before `group`, the
+/// glyphs after it up to the next tab or the line's end: to the first of `stops` past the
+/// cursor, the group standing there as the stop's side says, and by nothing where no stop lies
+/// past it — chapter 27's *Tab Stops* (pages 1205 to 1207), as a field's layout reads it.
+fn tab_advance(stops: &[viewer_host::popup::TabStop], position: f32, group: &[Item<'_>]) -> f32 {
+    use viewer_host::popup::TabSide;
+    let Some(stop) = stops.iter().find(|stop| stop.at > position + f32::EPSILON) else {
+        return 0.0;
+    };
+    let whole: f32 = group.iter().map(|item| item.advance).sum();
+    let lead = match stop.side {
+        TabSide::Left => 0.0,
+        TabSide::Centre => whole * 0.5,
+        TabSide::Right => whole,
+        TabSide::Decimal => {
+            group
+                .iter()
+                .position(|item| item.character == '.')
+                .map_or(whole, |radix| {
+                    group
+                        .get(..radix)
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|item| item.advance)
+                        .sum()
+                })
+        }
+    };
+    (stop.at - lead - position).max(0.0)
+}
+
 /// A paragraph's glyphs broken into lines that fit `available`, each a range of them in stored
 /// order: at the spaces between words where it can, and by glyph where a word is wider than the
 /// line, because the window is the document's rectangle and there is nowhere else for it to go.
-fn lines(items: &[Item<'_>], available: f32) -> Vec<std::ops::Range<usize>> {
+///
+/// A tab's advance is set here, where its place on the line is known: `stops` from the left
+/// margin, which lies `margin` before the line's first glyph — a list tag's width, which the two
+/// toolkit windows set inside the line (ADR 1666).
+fn lines(
+    items: &mut [Item<'_>],
+    available: f32,
+    (stops, margin): (&[viewer_host::popup::TabStop], f32),
+) -> Vec<std::ops::Range<usize>> {
     let mut lines = Vec::new();
     let (mut from, mut used, mut at) = (0, 0.0_f32, 0);
     while let Some(item) = items.get(at) {
@@ -231,12 +278,27 @@ fn lines(items: &[Item<'_>], available: f32) -> Vec<std::ops::Range<usize>> {
             at = from;
             continue;
         }
+        if item.tab {
+            let group_end = (at.saturating_add(1)..items.len())
+                .find(|&next| items.get(next).is_none_or(|other| other.end || other.tab))
+                .unwrap_or(items.len());
+            let group = items
+                .get(at.saturating_add(1)..group_end)
+                .unwrap_or_default();
+            let advance = tab_advance(stops, margin + used, group).min((available - used).max(0.0));
+            if let Some(tab) = items.get_mut(at) {
+                tab.advance = advance;
+            }
+            used += advance;
+            at = at.saturating_add(1);
+            continue;
+        }
         let space = item.space;
         let word_end = (at..items.len())
             .find(|&next| {
                 items
                     .get(next)
-                    .is_none_or(|other| other.end || other.space != space)
+                    .is_none_or(|other| other.end || other.tab || other.space != space)
             })
             .unwrap_or(items.len());
         let width: f32 = items
@@ -304,12 +366,19 @@ pub(super) fn draw(
         let tag_width = tag.as_ref().map_or(0.0, |(tag, setting)| {
             draw_tag(chrome, None, (tag, setting), (0.0, 0.0)) + size * 0.5
         });
-        let start = left + indent + tag_width;
-        let available = (room - indent - tag_width).max(size);
-        let (text, items, settings) = glyphs_of(chrome, paragraph, size, per_point);
-        let levels = pdf_font::shaping::Paragraphs::new(&text);
         let right_to_left = viewer_host::popup::right_to_left(paragraph);
-        let broken = lines(&items, available);
+        // The indent and the tag are at the paragraph's start edge, the right for one read right
+        // to left (ADR 1666).
+        let start = if right_to_left {
+            left
+        } else {
+            left + indent + tag_width
+        };
+        let available = (room - indent - tag_width).max(size);
+        let (text, mut items, settings) = glyphs_of(chrome, paragraph, size, per_point);
+        let levels = pdf_font::shaping::Paragraphs::new(&text);
+        let stops = viewer_host::popup::tab_stops(paragraph, size, per_point, room);
+        let broken = lines(&mut items, available, (&stops, tag_width));
         let final_line = broken.len().saturating_sub(1);
         for (index, range) in broken.iter().enumerate() {
             let line = items.get(range.clone()).unwrap_or_default();
@@ -358,12 +427,12 @@ pub(super) fn draw(
             if index == 0
                 && let Some((tag, setting)) = &tag
             {
-                draw_tag(
-                    chrome,
-                    Some(&mut *list),
-                    (tag, setting),
-                    (left + indent, baseline),
-                );
+                let at = if right_to_left {
+                    left + room - indent - (tag_width - size * 0.5)
+                } else {
+                    left + indent
+                };
+                draw_tag(chrome, Some(&mut *list), (tag, setting), (at, baseline));
             }
             for item in ordered(line, levels.as_ref()) {
                 let advance = item.advance + if item.space { widen } else { 0.0 };
@@ -389,7 +458,8 @@ pub(super) fn draw(
 /// it is not; the answer is its width.
 ///
 /// A tag is chapter 27's generated number or bullet rather than the string's characters, so it is
-/// set as one left-to-right label in its own run's style and is no part of the paragraph's order.
+/// set as one left-to-right label in its own run's style and is no part of the paragraph's order;
+/// it stands at the paragraph's start edge, the right for one read right to left (ADR 1666).
 fn draw_tag(
     chrome: &Chrome,
     mut list: Option<&mut DisplayList>,
@@ -459,7 +529,7 @@ fn draw_item(
     let run = item.run;
     let raised = baseline - setting.rise;
     let colour = run.colour.unwrap_or(Color::BLACK);
-    if !item.space {
+    if !item.space && !item.tab {
         // Rule L4: a character at an odd level is drawn as its mirror, where it has one.
         let shown = pdf_font::shaping::displayed(item.character, item.byte, levels);
         chrome.glyph(list, setting.face, shown, (x, raised), setting.em, colour);
@@ -482,8 +552,9 @@ fn draw_item(
 }
 
 /// What a rich note states and this window did not draw, said under it, and where the next line
-/// goes: chapter 27's properties `pdf-model` does not carry out, which is the whole of the list —
-/// this window sets every face, order, spacing and scale the note states (ADR 1654).
+/// goes: chapter 27's properties `pdf-model` does not carry out, and a tab in a paragraph read
+/// right to left, which no window lays out leftward — this window sets every face, order,
+/// spacing, scale and left-to-right tab stop the note states (ADRs 1654, 1666).
 pub(super) fn say_what_was_not_drawn(
     chrome: &Chrome,
     list: &mut DisplayList,
@@ -491,7 +562,9 @@ pub(super) fn say_what_was_not_drawn(
     (left, line, room, bottom): (f32, f32, f32, f32),
     size: f32,
 ) -> f32 {
-    let Some(sentence) = viewer_host::popup::not_drawn(note, &[]) else {
+    let Some(sentence) =
+        viewer_host::popup::not_drawn(note, &viewer_host::popup::tabs_unapplied(note))
+    else {
         return line;
     };
     if line > bottom {

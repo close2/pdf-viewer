@@ -238,6 +238,10 @@ pub(super) struct Scripting {
     /// The properties scripts set that a widget's appearance draws, by widget: what
     /// [`super::AnnotationView::scripted`] carries (ADR 1617).
     pub(super) drawn: BTreeMap<ObjectId, Vec<Property>>,
+    /// Every widget and member a script set through a `Field` of that widget alone, until a set on
+    /// the whole field replaces it: a save writes such a member's field entries — `/DA`, `/Q` — on
+    /// no field, which the widget's siblings would inherit (ADR 1664).
+    pub(super) one_widget: BTreeSet<(ObjectId, &'static str)>,
     /// What a save last wrote, where a host has said a save happened: what `this.dirty` is
     /// measured against ([`ViewState::mark_saved`]).
     saved: Option<Box<Saved>>,
@@ -591,8 +595,9 @@ impl ViewState {
         &self.script_reports
     }
 
-    /// The properties scripts have set on one field, the latest of each member, in the order they
-    /// were set.
+    /// The properties scripts have set on one field as a whole, the latest of each member, in the
+    /// order they were set; a member set through one widget's `Field` is that widget's alone and is
+    /// drawn from [`super::AnnotationView::scripted`] (ADR 1664).
     ///
     /// What a host drawing its own control over a field reads beside the value. A script's
     /// `textColor`, `fillColor`, `strokeColor`, `borderStyle`, `alignment` and `charLimit` are
@@ -917,51 +922,17 @@ impl ViewState {
                         applied.values = true;
                     }
                 }
-                ScriptEdit::Property { field, property } => {
-                    let Some(widgets) = table.get(field).cloned() else {
-                        continue;
-                    };
-                    self.scripting
-                        .overrides
-                        .entry(field.clone())
-                        .or_default()
-                        .record(property.clone());
-                    match property {
-                        Property::Display(display) => {
-                            for widget in &widgets {
-                                self.set_hidden(*widget, !display.on_screen());
-                            }
-                        }
-                        // Table 227 bit 1 bars a *user*, and `set_field` is where a user's value
-                        // arrives, so that is where the override is read.
-                        Property::ReadOnly(_) => {}
-                        // What the appearance draws, and `required`, which a save writes: kept
-                        // per widget for `AnnotationView::scripted`, and the page drawn again
-                        // (ADR 1617).
-                        // A caption is Table 192's `/CA`, `/AC` or `/RC`, drawn and saved the same
-                        // way (ADR 1626).
-                        Property::TextColor(_)
-                        | Property::FillColor(_)
-                        | Property::StrokeColor(_)
-                        | Property::BorderStyle(_)
-                        | Property::Alignment(_)
-                        | Property::CharLimit(_)
-                        | Property::Required(_)
-                        | Property::Caption(..) => {
-                            for widget in &widgets {
-                                let held = self.scripting.drawn.entry(*widget).or_default();
-                                held.retain(|kept| !kept.replaces(property));
-                                held.push(property.clone());
-                            }
-                            applied.values = true;
-                        }
-                        other @ Property::TextFlag(..) => self.report(format!(
-                            "{field}: a script set Field.{}; this view state keeps it and the \
-                             drawn appearance does not carry it (ADR 1603)",
-                            other.member()
-                        )),
-                    }
-                }
+                ScriptEdit::Property {
+                    field,
+                    widget,
+                    property,
+                } => self.apply_property(
+                    document,
+                    table,
+                    (field, *widget),
+                    property,
+                    &mut applied.values,
+                ),
                 ScriptEdit::Reset { fields } => {
                     let action = ResetForm {
                         fields: fields.iter().cloned().map(ResetTarget::Name).collect(),
@@ -1000,6 +971,108 @@ impl ViewState {
             }
         }
         applied
+    }
+
+    /// Applies one property a script set, on the widget it names or on every widget of its field,
+    /// and sets `values` where the page has to be drawn again (ADRs 1603, 1617, 1664).
+    fn apply_property(
+        &mut self,
+        document: &Document,
+        table: &BTreeMap<String, Vec<ObjectId>>,
+        (field, widget): (&str, Option<u32>),
+        property: &Property,
+        values: &mut bool,
+    ) {
+        let Some(all) = table.get(field) else {
+            return;
+        };
+        // A widget-level member set through one widget's `Field` reaches that widget
+        // alone; every other member is the field's (ADR 1664).
+        let widget = widget.filter(|_| property.is_widget_level());
+        let widgets: Vec<ObjectId> = match widget {
+            None => all.clone(),
+            Some(index) => {
+                let Some(one) = usize::try_from(index).ok().and_then(|index| all.get(index)) else {
+                    self.report(format!(
+                        "{field}: a script set Field.{} on its widget {index}, and \
+                         the field has {} widget(s), so nothing is set (ADR 1664)",
+                        property.member(),
+                        all.len()
+                    ));
+                    return;
+                };
+                vec![*one]
+            }
+        };
+        // A style is a ZapfDingbats code, and in any other font the same code is a
+        // letter: drawn there, it would be a mark the script did not ask for (ADR
+        // 1665).
+        if let Property::Style(glyph) = property
+            && !widgets.iter().all(|widget| {
+                document.get(*widget).as_dict().is_some_and(|dictionary| {
+                    crate::appearance::draws_dingbats(document, dictionary)
+                })
+            })
+        {
+            self.report(format!(
+                "{field}: a script set Field.style to {}, and the field's /DA font is \
+                 not ZapfDingbats, in which alone the style's code is its glyph; the \
+                 widget is drawn as before (ADR 1665)",
+                glyph.adobe()
+            ));
+            return;
+        }
+        let member = property.member();
+        if widget.is_some() {
+            self.scripting
+                .one_widget
+                .extend(widgets.iter().map(|widget| (*widget, member)));
+        } else {
+            for widget in &widgets {
+                self.scripting.one_widget.remove(&(*widget, member));
+            }
+        }
+        self.scripting
+            .overrides
+            .entry(field.to_owned())
+            .or_default()
+            .record(widget, property.clone());
+        match property {
+            Property::Display(display) => {
+                for widget in &widgets {
+                    self.set_hidden(*widget, !display.on_screen());
+                }
+            }
+            // Table 227 bit 1 bars a *user*, and `set_field` is where a user's value
+            // arrives, so that is where the override is read.
+            Property::ReadOnly(_) => {}
+            // What the appearance draws, and `required`, which a save writes: kept
+            // per widget for `AnnotationView::scripted`, and the page drawn again
+            // (ADR 1617).
+            // A caption is Table 192's `/CA`, `/AC` or `/RC`, drawn and saved the same
+            // way (ADR 1626).
+            Property::TextColor(_)
+            | Property::FillColor(_)
+            | Property::StrokeColor(_)
+            | Property::BorderStyle(_)
+            | Property::Alignment(_)
+            | Property::CharLimit(_)
+            | Property::Required(_)
+            | Property::Caption(..)
+            | Property::Style(_) => {
+                for widget in &widgets {
+                    let held = self.scripting.drawn.entry(*widget).or_default();
+                    held.retain(|kept| !kept.replaces(property));
+                    held.push(property.clone());
+                }
+                *values = true;
+            }
+            other @ Property::TextFlag(..) => self.report(format!(
+                "{field}: a script set Field.{}; this view state keeps it and the \
+                 drawn appearance does not carry it (ADR 1603)",
+                other.member()
+            )),
+        }
     }
 
     /// A script's `OCG.state = …`, made as a person's layer switch makes it, or reported where no

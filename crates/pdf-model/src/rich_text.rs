@@ -40,7 +40,7 @@ use style::{Block, Declarations, Unapplied};
 /// window, which hands Table 172's `/RC` to a host as runs rather than laying it out (ADR 1642).
 pub(crate) mod parts {
     pub(crate) use super::markup::{ListIndent, Piece};
-    pub(crate) use super::style::{Align, Spacing};
+    pub(crate) use super::style::{Align, Spacing, TabAlign};
 }
 
 /// What a field or a note is drawn from, once its entries are read.

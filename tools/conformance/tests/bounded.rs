@@ -20,15 +20,17 @@
 //! trap 18 read from the other side: there the limit destroyed the channel that reports it; here
 //! the channel that measures the limit could stop, and nothing said so.
 //!
-//! The self-test's seven cases are the script's own (`tools/bounded.sh --self-test` prints one line
+//! The self-test's eight cases are the script's own (`tools/bounded.sh --self-test` prints one line
 //! each): a synthetic table of a hundred thousand children sampled in a fraction of the interval,
 //! a chain, a cycle and a duplicated row walked once each, a live tree that fans out, a child
 //! over the ceiling stopped with exit 137, a sampler that never returns stopping the tree after
 //! the stated number of missed samples, a fork loop of at most 128 children refused under a
 //! task limit of 64, and the heavy-walk lock on a file of the case's own — a run queued behind a
 //! holder logs its wait, one finds the lock free, one runs under its caller's own `flock` and
-//! finishes rather than queueing behind it (ADR 1646). This test runs the script and repeats what
-//! it said.
+//! finishes rather than queueing behind it (ADR 1646) — and the lock kept by the wrapper rather
+//! than handed to its command: a daemon the command leaves running does not keep it, `--held`
+//! reads the marker inside a hold and not outside it, and a `--lock` run nested in a hold runs
+//! under it (ADR 1674). This test runs the script and repeats what it said.
 //!
 //! **No memory bound sees a process count**, and trap 116 is the incident: a tool that forked a
 //! task per package and never waited took the agent's scope to 52 259 tasks, and the OOM daemon
@@ -230,5 +232,186 @@ fn every_lock_a_tool_takes_is_taken_by_the_wrapper_that_logs_it() {
             && !rule.contains("flock /home/AI/heavy-walk.lock"),
         "doc/environment.md's rule line does not spell the lock as `tools/bounded.sh --lock \
          --round <session>`, or still runs a bare `flock`:\n{rule}"
+    );
+}
+
+/// `tools/state.sh gates-cost` counts a lock line for the batch it belongs to even where the line
+/// names no batch branch: a wrapper run from a detached export of HEAD writes `batch=HEAD`, and two
+/// of round 1405's runs, 1 921.9 s of its queue, were counted for no batch until the line was
+/// placed by its round (ADR 1675). The planted log puts such a line inside a batch, one whose round
+/// no batch holds, and that one last, so the last batch is found by its branch and not by the last
+/// line. Calibrated by planting (trap 13): the previous reading, which took the last line's branch
+/// and counted only lines naming it, printed `batch HEAD` and nothing of the batch.
+#[test]
+fn the_lock_cost_counts_a_line_that_names_no_batch_for_the_batch_its_round_is_in() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_nanos());
+    let scratch = std::env::temp_dir().join(format!("lock-cost-{}-{nanos}", std::process::id()));
+    std::fs::create_dir_all(&scratch).expect("a temporary directory");
+    let log = scratch.join("heavy-walk.log");
+    std::fs::write(
+        &log,
+        "2026-10-07T10:00:00 batch=batch-100-105 round=101 wait=1.0s hold=2.0s exit=0 peak=0.10GiB behind=- cmd=walk one\n\
+         2026-10-07T10:01:00 batch=HEAD round=103 wait=30.0s hold=4.0s exit=0 cmd=walk two\n\
+         2026-10-07T10:03:00 batch=batch-100-105 round=batch-100-105 wait=0.0s hold=5.0s exit=0 cmd=a gate\n\
+         2026-10-07T10:04:00 batch=HEAD round=999 wait=7.0s hold=1.0s exit=0 cmd=walk three\n",
+    )
+    .expect("a planted lock log");
+    let gates = scratch.join("batch-gates.log");
+    std::fs::write(&gates, "").expect("an empty gate log");
+    let output = Command::new("bash")
+        .arg(repository_root().join("tools/state.sh"))
+        .arg("gates-cost")
+        .env("HEAVY_WALK_LOG", &log)
+        .env("BATCH_GATES_LOG", &gates)
+        .output()
+        .expect("bash runs tools/state.sh");
+    let _ = std::fs::remove_dir_all(&scratch);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let by_round = |round: &str| {
+        stdout
+            .lines()
+            .find(|line| {
+                line.trim_start().starts_with(&format!("round {round} ")) && line.contains("run(s)")
+            })
+            .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+            .unwrap_or_default()
+    };
+    assert!(
+        stdout.contains("batch batch-100-105, by round:"),
+        "the last batch was not found by its branch:\n{stdout}"
+    );
+    assert_eq!(
+        by_round("103"),
+        "round 103 1 run(s) queued 30.0s held 4.0s",
+        "a line naming no batch was not counted for the batch its round is in:\n{stdout}"
+    );
+    assert_eq!(by_round("101"), "round 101 1 run(s) queued 1.0s held 2.0s");
+    assert!(
+        by_round("999").is_empty()
+            && stdout.contains("[batch=HEAD, by its round]")
+            && stdout.contains("1 of those line(s) name no batch branch and are counted by their round, 30.0s of queue")
+            && stdout.contains("1 line(s) of the log name no batch branch and a round no batch on the log holds"),
+        "a line counted by its round is not marked so, or one no batch holds was counted:\n{stdout}"
+    );
+}
+
+/// Whether `line` tells a person to take the heavy-walk lock with `flock` on the lock's path, as
+/// `flock /home/AI/heavy-walk.lock <command>` — options between the two allowed — rather than
+/// through `tools/bounded.sh --lock`.
+fn spells_a_bare_lock(line: &str) -> bool {
+    let words: Vec<&str> = line.split_whitespace().collect();
+    words.iter().enumerate().any(|(at, word)| {
+        let bare = word
+            .rsplit(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '/' | '.')))
+            .next()
+            .unwrap_or_default();
+        (bare == "flock" || bare.ends_with("/flock"))
+            && words
+                .iter()
+                .skip(at.saturating_add(1))
+                .find(|next| !next.starts_with('-'))
+                .is_some_and(|path| {
+                    path.trim_matches(|c: char| matches!(c, '`' | '"' | '\'' | ')' | ';' | ','))
+                        .ends_with("heavy-walk.lock")
+                })
+    })
+}
+
+/// The files that still tell a person to take the lock with a bare `flock`, each another round's to
+/// re-spell: a ratchet, so a file leaves this list the day it is re-spelled and none joins it.
+const HELD_BARE_LOCK_INSTRUCTIONS: [&str; 1] =
+    ["doc/rfc/0008-a-script-is-a-document-acting-on-its-reader.md"];
+
+/// Every instruction a person reads spells the lock as the wrapper does, not only the scripts and
+/// the rule line above: a census's doc comment, `fuzz/seeds.sh`'s header and `doc/verify.md` told a
+/// person to run a walk under a bare `flock`, whose wait is on no line of the lock's log and whose
+/// descriptor any daemon the walk starts keeps (ADR 1662 section 3, ADR 1674). The population is
+/// every tracked text file but the records — `doc/adr/`, `doc/history/` and `doc/reviews/` keep the
+/// spelling of their day — and this file, which plants the shape. Calibrated by planting (trap 13):
+/// the reader names the bare spelling in a code span, behind `RAYON_NUM_THREADS=4`, with `-n`, and
+/// inside `$(…)`, and passes the wrapper's spelling and a `flock` on another file.
+#[test]
+fn every_instruction_a_person_reads_spells_the_lock_as_the_wrapper() {
+    for planted in [
+        "run it behind the lock, `flock /home/AI/heavy-walk.lock fuzz/seeds.sh`.",
+        "//! RAYON_NUM_THREADS=4 flock /home/AI/heavy-walk.lock tools/bounded.sh --data 12 -- \\",
+        "flock -n /home/AI/heavy-walk.lock true",
+        "out=$(flock \"/home/AI/heavy-walk.lock\" true)",
+    ] {
+        assert!(spells_a_bare_lock(planted), "the reader passed {planted:?}");
+    }
+    for clean in [
+        "tools/bounded.sh --lock --round <session> --tree 12 -- fuzz/seeds.sh",
+        "timeout 20 flock \"$scratch/lock\" env HEAVY_WALK_LOCK=\"$scratch/lock\"",
+        "a bare `flock`, which is on no line",
+    ] {
+        assert!(!spells_a_bare_lock(clean), "the reader named {clean:?}");
+    }
+
+    let listed = Command::new("git")
+        .arg("-C")
+        .arg(repository_root())
+        .args(["ls-files", "-z"])
+        .output()
+        .expect("git lists the tree");
+    assert!(listed.status.success(), "git ls-files failed");
+    let records = ["doc/adr/", "doc/history/", "doc/reviews/"];
+    let text = ["rs", "md", "sh", "py", "toml", "txt", "yml", "yaml"];
+    let mut read = 0_usize;
+    let mut bare = Vec::new();
+    let mut spelled: Vec<String> = Vec::new();
+    for path in String::from_utf8_lossy(&listed.stdout).split('\0') {
+        let is_text = Path::new(path)
+            .extension()
+            .is_some_and(|extension| text.iter().any(|kind| extension == *kind));
+        if !is_text
+            || records.iter().any(|record| path.starts_with(record))
+            || path == "tools/conformance/tests/bounded.rs"
+        {
+            continue;
+        }
+        let Ok(source) = std::fs::read_to_string(repository_root().join(path)) else {
+            continue;
+        };
+        read = read.saturating_add(1);
+        let lines: Vec<usize> = source
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| spells_a_bare_lock(line))
+            .map(|(index, _)| index.saturating_add(1))
+            .collect();
+        if lines.is_empty() {
+            continue;
+        }
+        spelled.push(path.to_owned());
+        if !HELD_BARE_LOCK_INSTRUCTIONS.contains(&path) {
+            bare.push(format!("{path}:{lines:?}"));
+        }
+    }
+    println!(
+        "{read} tracked text file(s) read for a bare `flock` on the lock; {} held, {} owed",
+        spelled.len().saturating_sub(bare.len()),
+        bare.len()
+    );
+    assert!(
+        read >= 1000,
+        "{read} file(s) read: the population is not the tree"
+    );
+    assert!(
+        bare.is_empty(),
+        "these lines tell a person to take the heavy-walk lock with a bare `flock`; spell it \
+         `tools/bounded.sh --lock --round <session> … --`:\n{}",
+        bare.join("\n")
+    );
+    let fixed: Vec<&str> = HELD_BARE_LOCK_INSTRUCTIONS
+        .iter()
+        .copied()
+        .filter(|held| !spelled.iter().any(|path| path == held))
+        .collect();
+    assert!(
+        fixed.is_empty(),
+        "these files no longer spell a bare `flock`, so they leave the held list: {fixed:?}"
     );
 }

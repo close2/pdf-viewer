@@ -14,7 +14,7 @@ use pdf_model::action::{PageTrigger, Trigger as AnnotationTrigger};
 use pdf_model::aform::Trigger;
 use pdf_model::view::{
     Alignment, BorderStyle, Colour, Display, DocumentState, DocumentTrigger, Face, FieldState,
-    FieldType, InfoEntry, Layer, Property, ScriptEdit, ScriptSite, TextFlag,
+    FieldType, Glyph, InfoEntry, Layer, Property, ScriptEdit, ScriptSite, TextFlag, WidgetState,
 };
 
 use crate::{
@@ -27,8 +27,9 @@ use crate::{
 /// Moved whenever what crosses changes shape: 4 carries a commit's key, a full field's two
 /// changes, the unsaved mark, the document's information dictionary and groups, a push-button's
 /// captions, a layer's switch, the depth budget, a run's notes, and a question and its answer
-/// (ADRs 1626, 1627); 5 a script's page turn (ADR 1640).
-pub const VERSION: u8 = 5;
+/// (ADRs 1626, 1627); 5 a script's page turn (ADR 1640); 6 a field's widgets each with its own
+/// state, and a property set on one of them (ADR 1664).
+pub const VERSION: u8 = 6;
 
 /// Most fields one request may tell a realm of, and most edits one outcome may carry.
 ///
@@ -461,8 +462,19 @@ fn put_field(out: &mut Vec<u8>, field: &FieldState) {
     put_u8(out, tag_of(&FIELD_TYPES, &field.kind));
     put_str(out, &field.value);
     put_u32(out, field.flags);
-    put_u8(out, tag_of(&DISPLAYS, &field.display));
-    for colour in [field.text_color, field.fill_color, field.stroke_color] {
+    for number in [field.char_limit, field.page] {
+        put_optional_u32(out, number);
+    }
+    put_len(out, field.widgets.len());
+    for widget in &field.widgets {
+        put_widget(out, widget);
+    }
+}
+
+/// Writes one widget's state.
+fn put_widget(out: &mut Vec<u8>, widget: &WidgetState) {
+    put_u8(out, tag_of(&DISPLAYS, &widget.display));
+    for colour in [widget.text_color, widget.fill_color, widget.stroke_color] {
         match colour {
             None => put_u8(out, 0),
             Some(colour) => {
@@ -471,22 +483,24 @@ fn put_field(out: &mut Vec<u8>, field: &FieldState) {
             }
         }
     }
-    put_u8(out, tag_of(&BORDER_STYLES, &field.border_style));
-    put_u8(out, tag_of(&ALIGNMENTS, &field.alignment));
-    for number in [field.char_limit, field.page] {
-        match number {
-            None => put_u8(out, 0),
-            Some(number) => {
-                put_u8(out, 1);
-                put_u32(out, number);
-            }
-        }
-    }
-    for coordinate in field.rect {
+    put_u8(out, tag_of(&BORDER_STYLES, &widget.border_style));
+    put_u8(out, tag_of(&ALIGNMENTS, &widget.alignment));
+    for coordinate in widget.rect {
         put_f64(out, coordinate);
     }
-    for caption in &field.captions {
+    for caption in &widget.captions {
         put_str(out, caption);
+    }
+}
+
+/// Writes a number that may be absent: 0, or 1 and the number.
+fn put_optional_u32(out: &mut Vec<u8>, number: Option<u32>) {
+    match number {
+        None => put_u8(out, 0),
+        Some(number) => {
+            put_u8(out, 1);
+            put_u32(out, number);
+        }
     }
 }
 
@@ -537,9 +551,14 @@ fn put_edit(out: &mut Vec<u8>, edit: &ScriptEdit) {
             put_str(out, field);
             put_str(out, value);
         }
-        ScriptEdit::Property { field, property } => {
+        ScriptEdit::Property {
+            field,
+            widget,
+            property,
+        } => {
             put_u8(out, 1);
             put_str(out, field);
+            put_optional_u32(out, *widget);
             match property {
                 Property::Display(display) => {
                     put_u8(out, 0);
@@ -586,6 +605,10 @@ fn put_edit(out: &mut Vec<u8>, edit: &ScriptEdit) {
                     put_u8(out, 10);
                     put_u8(out, tag_of(&FACES, face));
                     put_str(out, caption);
+                }
+                Property::Style(glyph) => {
+                    put_u8(out, 11);
+                    put_u8(out, tag_of(&Glyph::ALL, glyph));
                 }
             }
         }
@@ -839,19 +862,37 @@ impl<'a> Reader<'a> {
 
     /// One field's state.
     fn field(&mut self) -> Result<FieldState, WireError> {
+        let name = self.string()?;
+        let kind = self.tagged(&FIELD_TYPES, "field type")?;
+        let value = self.string()?;
+        let flags = self.u32()?;
+        let char_limit = self.optional_u32()?;
+        let page = self.optional_u32()?;
+        let count = self.count()?;
+        let mut widgets = Vec::new();
+        for _ in 0..count {
+            widgets.push(self.widget()?);
+        }
         Ok(FieldState {
-            name: self.string()?,
-            kind: self.tagged(&FIELD_TYPES, "field type")?,
-            value: self.string()?,
-            flags: self.u32()?,
+            name,
+            kind,
+            value,
+            flags,
+            char_limit,
+            page,
+            widgets,
+        })
+    }
+
+    /// One widget's state.
+    fn widget(&mut self) -> Result<WidgetState, WireError> {
+        Ok(WidgetState {
             display: self.tagged(&DISPLAYS, "display")?,
             text_color: self.optional_colour()?,
             fill_color: self.optional_colour()?,
             stroke_color: self.optional_colour()?,
             border_style: self.tagged(&BORDER_STYLES, "border style")?,
             alignment: self.tagged(&ALIGNMENTS, "alignment")?,
-            char_limit: self.optional_u32()?,
-            page: self.optional_u32()?,
             rect: [self.f64()?, self.f64()?, self.f64()?, self.f64()?],
             captions: [self.string()?, self.string()?, self.string()?],
         })
@@ -896,6 +937,7 @@ impl<'a> Reader<'a> {
             },
             1 => {
                 let field = self.string()?;
+                let widget = self.optional_u32()?;
                 let property = match self.u8()? {
                     0 => Property::Display(self.tagged(&DISPLAYS, "display")?),
                     1 => Property::ReadOnly(self.boolean()?),
@@ -910,9 +952,14 @@ impl<'a> Reader<'a> {
                         Property::TextFlag(self.tagged(&TEXT_FLAGS, "text flag")?, self.boolean()?)
                     }
                     10 => Property::Caption(self.tagged(&FACES, "face")?, self.string()?),
+                    11 => Property::Style(self.tagged(&Glyph::ALL, "style")?),
                     _ => return Err(WireError::Invalid("property")),
                 };
-                ScriptEdit::Property { field, property }
+                ScriptEdit::Property {
+                    field,
+                    widget,
+                    property,
+                }
             }
             2 => {
                 let count = self.count()?;

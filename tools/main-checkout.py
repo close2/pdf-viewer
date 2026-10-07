@@ -167,7 +167,7 @@ def unseeded(main, owed):
     stale = [t for t in stale if t not in empty]
     if empty or stale:
         owe(owed, RESEED, f"re-seed the {len(empty) + len(stale)} corpora above, behind the lock: "
-            f"`flock /home/AI/heavy-walk.lock fuzz/seeds.sh fuzz/corpus {' '.join(empty + stale)}`")
+            f"`tools/bounded.sh --lock --round <session> --tree 12 -- fuzz/seeds.sh fuzz/corpus {' '.join(empty + stale)}`")
     return f"fuzz/corpus: {len(empty)} of {len(targets)} target(s) unseeded" + (
         f": {' '.join(empty)}" if empty else "") + (
         f"; {len(stale)} stale by {source}" + (f": {' '.join(stale)}" if stale else ""))

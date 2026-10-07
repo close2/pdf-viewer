@@ -1076,6 +1076,31 @@ fn print_remedy_sites(arguments: &Arguments) -> Result<(), Failure> {
             remedy.push_str("\n      ");
             remedy.push_str(kept);
         }
+        // `doc/adr/1673`: a requirement that splits into two shapes is answered half by half, and
+        // the listing names both halves and which one a row is carried out for — the operator
+        // meets the distinction here, before writing the row, rather than in an error after it.
+        if !site.shapes.is_empty() {
+            let halves: Vec<String> = site
+                .shapes
+                .iter()
+                .map(|shape| {
+                    format!(
+                        "{} ({})",
+                        shape.name,
+                        if shape.answered {
+                            "answered"
+                        } else {
+                            "keeps its refusal"
+                        }
+                    )
+                })
+                .collect();
+            remedy.push_str("\n      shapes: ");
+            remedy.push_str(&halves.join(", "));
+            remedy.push_str(" — a [site.\"");
+            remedy.push_str(site.requirement);
+            remedy.push_str("\".shape.\"<name>\"] row answers one half (doc/adr/1211)");
+        }
         println!("  {} ({})\n      {remedy}", site.requirement, site.citation);
         if site.takes_a_tool || site.takes_a_fetched_file {
             // **`doc/questions/A56`.** The warning lives where an operator configures a tool rather

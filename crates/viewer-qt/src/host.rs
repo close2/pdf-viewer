@@ -39,7 +39,7 @@ use viewer_host::trace::{Topic, Trace};
 
 use crate::bridge::ffi::{
     QtChrome, QtControl, QtFrame, QtMeasure, QtPage, QtPopup, QtPrintCell, QtPrintJob, QtQuad,
-    QtRow, QtScatter, QtScriptEntry, QtUpdate, QtWindowExtents,
+    QtRichParagraph, QtRichRun, QtRow, QtScatter, QtScriptEntry, QtTab, QtUpdate, QtWindowExtents,
 };
 use crate::keys;
 use crate::page;
@@ -3387,16 +3387,17 @@ impl Host {
                     thread: viewer_host::popup::thread(window),
                     rich: window
                         .rich
-                        .map(|note| viewer_host::popup::html(note, base))
+                        .map(|note| rich_paragraphs(note, base, width))
                         .unwrap_or_default(),
                     not_drawn: window
                         .rich
-                        // Qt's rich text states no glyph scale, and a share of a space is the
-                        // face's that Qt picks, so both are said (ADR 1654).
+                        // The window sets both font scales and measures a space for a spacing
+                        // given as a share of one; what Qt's tab positions cannot say is said
+                        // (ADRs 1654, 1666).
                         .and_then(|note| {
                             viewer_host::popup::not_drawn(
                                 note,
-                                &viewer_host::popup::toolkit_unapplied(note),
+                                &viewer_host::popup::toolkit_unapplied(note, true),
                             )
                         })
                         .unwrap_or_default(),
@@ -4747,6 +4748,121 @@ fn narrow(value: i64) -> i32 {
 )]
 fn level(component: f32) -> u8 {
     (component.clamp(0.0, 1.0) * 255.0 + 0.5) as u8
+}
+
+/// Table 172's `/RC` as the popup window's `QTextDocument` is built from it, paragraph by paragraph
+/// and run by run (ADR 1666).
+///
+/// `base` is the window's text size in points and `room` its width, which bounds how many default
+/// tab stops a paragraph is handed. A list tag is wrapped in a left-to-right isolate, UAX #9's
+/// LRI and PDI, so that it reads as one label at the paragraph's start edge and takes no part in
+/// its order; a paragraph whose tabs advance by nothing has its tab characters taken out, so that
+/// Qt's own default stops are not used where the chapter sets none.
+fn rich_paragraphs(
+    note: &pdf_model::popup::RichNote,
+    base: f32,
+    room: f32,
+) -> Vec<QtRichParagraph> {
+    note.paragraphs
+        .iter()
+        .map(|paragraph| {
+            let advances = viewer_host::popup::advances(paragraph);
+            let tag = paragraph.tag.as_ref().map(|tag| {
+                let mut run = rich_run(tag, base, true);
+                run.text = format!("\u{2066}{}\u{2069} ", run.text);
+                run
+            });
+            let runs = tag
+                .into_iter()
+                .chain(
+                    paragraph
+                        .runs
+                        .iter()
+                        .map(|run| rich_run(run, base, advances)),
+                )
+                .collect();
+            QtRichParagraph {
+                align: match paragraph.align {
+                    None => 0,
+                    Some(pdf_model::popup::RichAlign::Left) => 1,
+                    Some(pdf_model::popup::RichAlign::Centre) => 2,
+                    Some(pdf_model::popup::RichAlign::Right) => 3,
+                    Some(pdf_model::popup::RichAlign::Justify) => 4,
+                },
+                right_to_left: viewer_host::popup::right_to_left(paragraph),
+                indent: f32::from(paragraph.level) * base * 2.0,
+                tagged: paragraph.tag.is_some(),
+                runs,
+                tabs: viewer_host::popup::tab_stops(paragraph, base, 1.0, room)
+                    .into_iter()
+                    .map(|stop| QtTab {
+                        side: match stop.side {
+                            viewer_host::popup::TabSide::Left => 0,
+                            viewer_host::popup::TabSide::Centre => 1,
+                            viewer_host::popup::TabSide::Right => 2,
+                            viewer_host::popup::TabSide::Decimal => 3,
+                        },
+                        at: stop.at,
+                    })
+                    .collect(),
+            }
+        })
+        .collect()
+}
+
+/// One run as [`QtRichRun`] carries it: its size and stretch from
+/// `viewer_host::popup::scaled_face`, its letter spacing under its horizontal scale, a `br` as
+/// U+2028, which is Qt's line separator, and its tabs kept only where `tabs` says they advance.
+fn rich_run(run: &pdf_model::popup::RichRun, base: f32, tabs: bool) -> QtRichRun {
+    let size = viewer_host::popup::size(run, base, 1.0);
+    let (points, stretch) = viewer_host::popup::scaled_face(run, size);
+    let horizontal = stretch * points / size.max(f32::EPSILON) / 100.0;
+    let raised = viewer_host::popup::rise(run, base, 1.0);
+    let text = run
+        .text
+        .chars()
+        .filter(|character| tabs || *character != '\t')
+        .map(|character| {
+            if character == '\n' {
+                '\u{2028}'
+            } else {
+                character
+            }
+        })
+        .collect();
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a stretch is held to QFont's own range of 1 to 4000 before it is converted"
+    )]
+    let stretch = stretch.round().clamp(1.0, 4000.0) as i32;
+    QtRichRun {
+        text,
+        family: viewer_host::popup::family(run)
+            .unwrap_or_default()
+            .to_owned(),
+        points,
+        stretch,
+        bold: run.bold,
+        italic: run.italic,
+        coloured: run.colour.is_some(),
+        colour: run.colour.map_or(0, packed),
+        underlines: run.underlines,
+        line_through: run.line_through,
+        spacing: viewer_host::popup::letter_spacing(run, base, 1.0, None).unwrap_or_default()
+            * horizontal,
+        spacing_of_space: match run.letter_spacing {
+            pdf_model::popup::RichSpacing::OfSpace(share) => share,
+            pdf_model::popup::RichSpacing::Length(_) => 0.0,
+        },
+        spacing_bound: size * horizontal,
+        rise: if raised > 0.0 {
+            1
+        } else if raised < 0.0 {
+            -1
+        } else {
+            0
+        },
+    }
 }
 
 /// A colour as Qt's `QRgb` takes it, `0xRRGGBB`.

@@ -42,7 +42,9 @@ on the library's number writers, the button captions as Table 192's entries, and
 `app.response` held in the worker until the window's answer comes; a script's depth is bounded
 before Boa parses it, and Boa's optimizer is off. A write to `this.pageNum` is a page turn the host makes (ADR 1640), and a question the
 worker's wait withdraws is an event a window drops its card on, its late answer never handed to the
-question asked after it (ADR 1641). **What is next** is chosen from the throws' causes below, then
+question asked after it (ADR 1641). `getField("name.N")` is a `Field` of that one widget, a
+field's state carrying one state per widget (ADR 1664), and `Field.style` redraws a check box's
+glyph while `app.fs` is refused by name (ADR 1665). **What is next** is chosen from the throws' causes below, then
 the other Tier 1 members `crates/pdf-script/src/surface.rs` lists, and the owner's amendment of
 `CLAUDE.md`'s exclusion, which `doc/questions/Q286` proposes. Every window commits through
 `viewer-core` — Table 197's `/Bl` wherever the focus leaves a widget, `Command::CommitField` for
@@ -1208,10 +1210,13 @@ them, so a document whose scripts throw on every field fills the report with its
    against ADR 1590's choice of Boa.
 7. **A Tier 1 member not yet bridged**: `AFSpecial_FormatEx`, which neither library has (class
    3). `AFExactMatch`, the `style` constants and the `cursor` constants are carried, each rule a
-   documented choice (ADR 1652); `Field.style` and `app.fs`, which they are written to, are not, and
-   `Field.style` is refused by name. The reference's widget addressing — `getField("myRadio.0")`
-   returns one widget — is refused by name rather than answered `null` until the realm holds a
-   state per widget (ADR 1652 section 2); no census throw reaches it.
+   documented choice (ADR 1652). `Field.style` is a check box's or radio button's glyph, Table
+   192's `/CA` holding Table D.6's code, drawn by constructing the widget and owed to the next
+   reader on a save (ADR 1665); `app.fs`, which the `cursor` constants are written to, is the
+   application's full-screen preferences and is refused by name (ADR 1665). The reference's
+   widget addressing — `getField("myRadio.0")` is one widget — is answered: a field's state is its
+   own members and one state per widget across the wire, a widget member set through one widget's
+   `Field` reaches that widget alone, and the value stays the field's (ADR 1664).
 
 No throw is a Tier 2 member's: every refusal the column meets is caught or carried.
 

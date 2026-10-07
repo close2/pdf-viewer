@@ -1444,3 +1444,126 @@ fn the_wrappers_last_line_names_the_seconds_gates_reads() {
         "tools/batch.sh's `run` no longer reads the wrapper's `after <n>s`, which this test holds"
     );
 }
+
+/// A directory holding a complete export of `commit`: its README and all six arms.
+fn complete_export(out: &Path, commit: &str) -> PathBuf {
+    std::fs::create_dir_all(out).expect("an export directory");
+    std::fs::write(
+        out.join("README"),
+        format!("HEAD arms of {commit}, exported now from here\ndone now\n"),
+    )
+    .expect("this commit's README");
+    for arm in [
+        "cpu-1x",
+        "gpu-1x",
+        "compute-1x",
+        "cpu-4x",
+        "gpu-4x",
+        "compute-4x",
+    ] {
+        std::fs::write(out.join(format!("{arm}.tsv")), "page.pdf\t1\t1\t0\t0\n")
+            .expect("a digest file");
+    }
+    out.to_path_buf()
+}
+
+/// `arms-held` walks only under a hold of the heavy-walk lock, and the hold is the wrapper's: the
+/// command `tools/bounded.sh --lock` runs is handed the marker `HEAVY_WALK_HELD_BY` instead of the
+/// lock's descriptor, so `arms-held` accepts the marker inside the hold, refuses where it runs
+/// under none, and refuses in a daemon the hold left running — which does not keep the lock either,
+/// as `sccache`'s server did when the descriptor was handed down (ADR 1659 section 4, ADR 1674).
+/// The export directory is complete for HEAD, so an accepted `arms-held` says so and walks nothing.
+/// Calibrated by planting (trap 13): with the descriptor handed to the command again, the daemon
+/// kept the lock and this test failed; with `--held` answering on the marker alone, the daemon's
+/// `arms-held` was accepted and it failed.
+#[test]
+fn arms_held_runs_under_the_wrappers_marker_and_a_daemon_it_leaves_holds_nothing() {
+    let sandbox = Sandbox::new("held");
+    let head = String::from_utf8_lossy(
+        &sandbox
+            .git(&sandbox.worktree(), &["rev-parse", "HEAD"])
+            .stdout,
+    )
+    .trim()
+    .to_owned();
+    let out = complete_export(&sandbox.base.join("complete"), &head);
+    let lock = sandbox.base.join("heavy-walk.lock");
+    let script = sandbox.worktree().join("tools/batch.sh");
+    let wrapper = sandbox.worktree().join("tools/bounded.sh");
+    let given = out.to_str().expect("a temporary path is UTF-8").to_owned();
+    let run = |program: &Path, arguments: &[&str]| {
+        sandbox
+            .command("bash", &sandbox.repo())
+            .env("HEAVY_WALK_LOCK", &lock)
+            .env("HEAVY_WALK_LOG", sandbox.base.join("heavy-walk.log"))
+            .arg(program)
+            .args(arguments)
+            .output()
+            .expect("bash runs the script")
+    };
+    let under_a_hold = |arguments: &[&str]| {
+        let mut all = vec![
+            "--lock", "--round", "t", "--tree", "1", "--data", "1", "--nice", "0", "--",
+        ];
+        all.extend_from_slice(arguments);
+        run(&wrapper, &all)
+    };
+    let script_path = script
+        .to_str()
+        .expect("a temporary path is UTF-8")
+        .to_owned();
+
+    let alone = run(&script, &["arms-held", &given, &head, "0"]);
+    assert!(
+        !alone.status.success() && text(&alone).contains("arms-held: run by"),
+        "arms-held walked under no hold of the lock: {}",
+        text(&alone)
+    );
+    let under = under_a_hold(&["bash", &script_path, "arms-held", &given, &head, "0"]);
+    assert!(
+        under.status.success() && text(&under).contains("holds every arm of"),
+        "arms-held refused under the wrapper's hold, so the marker is not read: {}",
+        text(&under)
+    );
+
+    // The daemon: started inside a hold and left running, it asks `arms-held` once the test has
+    // seen the hold end, and writes what it was told.
+    let verdict = sandbox.base.join("daemon.verdict");
+    let over = sandbox.base.join("hold.over");
+    let daemon = format!(
+        "(for _ in $(seq 200); do [ -e '{over}' ] && break; sleep 0.1; done; \
+         bash '{script_path}' arms-held '{given}' '{head}' 0 > '{verdict}.text' 2>&1; \
+         echo $? > '{verdict}'; exec sleep 30) > /dev/null 2>&1 < /dev/null & echo $! > '{verdict}.pid'",
+        over = over.display(),
+        verdict = verdict.display(),
+    );
+    let started = under_a_hold(&["sh", "-c", &daemon]);
+    assert!(
+        started.status.success(),
+        "the hold that starts the daemon failed: {}",
+        text(&started)
+    );
+    let free = Command::new("flock")
+        .arg("-n")
+        .arg(&lock)
+        .arg("true")
+        .status()
+        .is_ok_and(|status| status.success());
+    std::fs::write(&over, "").expect("the hold's end, said to the daemon");
+    let asked = within(20, || verdict.exists());
+    let pid = std::fs::read_to_string(format!("{}.pid", verdict.display())).unwrap_or_default();
+    if !pid.trim().is_empty() {
+        let _ = Command::new("kill").arg(pid.trim()).status();
+    }
+    assert!(
+        free,
+        "a process the command left running kept the heavy-walk lock after the wrapper ended"
+    );
+    assert!(asked, "the daemon never asked arms-held");
+    let said = std::fs::read_to_string(&verdict).unwrap_or_default();
+    assert!(
+        said.trim() != "0",
+        "arms-held was accepted in a daemon after the hold that started it had ended: {}",
+        std::fs::read_to_string(format!("{}.text", verdict.display())).unwrap_or_default()
+    );
+}

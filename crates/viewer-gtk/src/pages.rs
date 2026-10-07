@@ -124,7 +124,7 @@ fn bind(item: &glib::Object, row: &Rc<dyn Fn(usize) -> Option<Row>>) {
         |row| row.label.clone(),
     );
     let label = gtk4::Label::new(Some(&named));
-    label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    label.set_ellipsize(pango::EllipsizeMode::End);
     column.append(&label);
     item.set_child(Some(&column));
 }

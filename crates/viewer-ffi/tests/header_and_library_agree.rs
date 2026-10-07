@@ -132,7 +132,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        220,
+        222,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -343,6 +343,30 @@ fn the_argument_enumerations(expected: &mut BTreeMap<String, i64>) {
         (
             "QUORRA_RICH_ALIGN_JUSTIFY",
             viewer_ffi::abi::QUORRA_RICH_ALIGN_JUSTIFY,
+        ),
+        (
+            "QUORRA_RICH_TAB_LEFT",
+            viewer_ffi::abi::QUORRA_RICH_TAB_LEFT,
+        ),
+        (
+            "QUORRA_RICH_TAB_CENTRE",
+            viewer_ffi::abi::QUORRA_RICH_TAB_CENTRE,
+        ),
+        (
+            "QUORRA_RICH_TAB_RIGHT",
+            viewer_ffi::abi::QUORRA_RICH_TAB_RIGHT,
+        ),
+        (
+            "QUORRA_RICH_TAB_DECIMAL",
+            viewer_ffi::abi::QUORRA_RICH_TAB_DECIMAL,
+        ),
+        (
+            "QUORRA_RICH_TAB_AFTER",
+            viewer_ffi::abi::QUORRA_RICH_TAB_AFTER,
+        ),
+        (
+            "QUORRA_RICH_TAB_BEFORE",
+            viewer_ffi::abi::QUORRA_RICH_TAB_BEFORE,
         ),
     ] {
         expected.insert(name.to_owned(), i64::from(value));

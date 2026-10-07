@@ -19,7 +19,7 @@ use pdf_model::aform::printf::{Argument, printf};
 use pdf_model::view::{Face, FieldState, FieldType, Layer, Property, ScriptEdit};
 
 use super::bridge::{
-    accessor, data, field_name, function, integral, refusers, terminals, text_argument,
+    accessor, data, field_name, function, integral, refusers, terminals, text_argument, widget_of,
 };
 use super::{State, guard, refuse};
 use crate::surface::Holder;
@@ -546,11 +546,17 @@ fn first_state(this: &JsValue, context: &mut Context) -> JsResult<Option<FieldSt
     Ok(State::table(context, |table| table.fields.get(&first).cloned()).flatten())
 }
 
-/// `field.buttonGetCaption(nFace)`: Table 192's `/CA`, `/AC` or `/RC`, empty where it states none.
+/// `field.buttonGetCaption(nFace)`: Table 192's `/CA`, `/AC` or `/RC` of the widget the `Field`
+/// stands for — its first, for a `Field` of every widget — empty where it states none.
 fn get_caption(this: &JsValue, arguments: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
     let face = face_of(arguments, 0, "Field.buttonGetCaption", context)?;
+    let widget = widget_of(this, context)?;
     let caption = first_state(this, context)?
-        .and_then(|state| state.captions.get(face.index()).cloned())
+        .and_then(|state| {
+            state
+                .widget(widget)
+                .and_then(|shown| shown.captions.get(face.index()).cloned())
+        })
         .unwrap_or_default();
     Ok(JsValue::from(JsString::from(caption.as_str())))
 }
@@ -562,6 +568,7 @@ fn set_caption(this: &JsValue, arguments: &[JsValue], context: &mut Context) -> 
     let caption = text_argument(arguments, 0, context)?;
     let face = face_of(arguments, 1, "Field.buttonSetCaption", context)?;
     let name = field_name(this, context)?;
+    let widget = widget_of(this, context)?;
     for field in terminals(context, &name) {
         let kind = State::table(context, |table| {
             table.fields.get(&field).map(|state| state.kind)
@@ -588,13 +595,11 @@ fn set_caption(this: &JsValue, arguments: &[JsValue], context: &mut Context) -> 
         let property = Property::Caption(face, caption.clone());
         let edit = ScriptEdit::Property {
             field: field.clone(),
-            property,
+            widget,
+            property: property.clone(),
         };
-        let written = caption.clone();
         State::edit(context, &field, edit, move |state| {
-            if let Some(slot) = state.captions.get_mut(face.index()) {
-                *slot = written;
-            }
+            state.apply(widget, &property);
         });
     }
     Ok(JsValue::undefined())

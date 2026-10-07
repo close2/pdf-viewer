@@ -1601,6 +1601,26 @@ fn encode_rich(writer: &mut Writer, rich: Option<&pdf_model::popup::RichNote>) {
         for run in &paragraph.runs {
             encode_run(writer, run);
         }
+        match paragraph.tab_interval {
+            Some(interval) => {
+                writer.u8(1).f32(interval.per_base).f32(interval.points);
+            }
+            None => {
+                writer.u8(0);
+            }
+        }
+        writer.usize(paragraph.tab_stops.len());
+        for stop in &paragraph.tab_stops {
+            writer.u8(match stop.align {
+                pdf_model::popup::RichTabAlign::Left => 0,
+                pdf_model::popup::RichTabAlign::Centre => 1,
+                pdf_model::popup::RichTabAlign::Right => 2,
+                pdf_model::popup::RichTabAlign::Decimal => 3,
+                pdf_model::popup::RichTabAlign::After => 4,
+                pdf_model::popup::RichTabAlign::Before => 5,
+            });
+            writer.f32(stop.at.per_base).f32(stop.at.points);
+        }
     }
     writer.strings(&note.unapplied);
 }
@@ -1675,11 +1695,43 @@ fn decode_rich(
         } else {
             None
         };
+        let runs = reader.list("a rich paragraph's runs", decode_run)?;
+        let what = "a rich paragraph's tab interval";
+        let tab_interval = if reader.bool(what)? {
+            Some(pdf_model::popup::Measure {
+                per_base: reader.f32(what)?,
+                points: reader.f32(what)?,
+            })
+        } else {
+            None
+        };
+        let tab_stops = reader.list("a rich paragraph's tab stops", |reader| {
+            let what = "a tab stop's alignment";
+            let align = match reader.u8(what)? {
+                0 => pdf_model::popup::RichTabAlign::Left,
+                1 => pdf_model::popup::RichTabAlign::Centre,
+                2 => pdf_model::popup::RichTabAlign::Right,
+                3 => pdf_model::popup::RichTabAlign::Decimal,
+                4 => pdf_model::popup::RichTabAlign::After,
+                5 => pdf_model::popup::RichTabAlign::Before,
+                value => return Err(unrecognised(what, value)),
+            };
+            let what = "a tab stop's position";
+            Ok(pdf_model::popup::RichTabStop {
+                align,
+                at: pdf_model::popup::Measure {
+                    per_base: reader.f32(what)?,
+                    points: reader.f32(what)?,
+                },
+            })
+        })?;
         Ok(pdf_model::popup::RichParagraph {
             align,
             level,
             tag,
-            runs: reader.list("a rich paragraph's runs", decode_run)?,
+            runs,
+            tab_interval,
+            tab_stops,
         })
     })?;
     Ok(Some(pdf_model::popup::RichNote {

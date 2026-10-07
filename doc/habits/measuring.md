@@ -783,3 +783,10 @@ every turn paid it (ADR 1632, `turn_interpret`). And a census of a key populatio
 stream dictionaries — `/Order`, `/Filter`, `/DecodeParms` — is a byte grep, because a stream
 dictionary is never inside an object stream: 126 393 Type 0 functions over the whole crawl in 40 s
 (ADR 1636).
+
+## 73. A gate's harness is read before a row is proposed for a cost
+
+`turn_path` interprets a page without `viewer-core`, so no row of it can see the field table a
+repaint builds, and a form page proposed for a row there would have measured a cost the harness
+never pays (round 1417, ADR 1670). Before a row is proposed for a cost, the harness's own module
+comment says what it runs; a cost outside it needs another instrument, not a row.

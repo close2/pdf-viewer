@@ -514,7 +514,21 @@ having measured it than have the knob added on the strength of a plausible argum
 
 ---
 
-## 9. The first frame pays ~12 ms that every frame after it does not, and it is not the shaders — **open**
+## 9. The first frame pays ~12 ms that every frame after it does not, and it is not the shaders — **answered on this side: withdrawn (ADR 1668)**
+
+**Re-taken at `b9fa776a` on 2026-10-07, and the ask is withdrawn.** On the same page at the same
+three targets, interleaved, the first frame now pays **6.70, 7.74 and 17.87 ms** over its steady
+successors (medians of eight runs; 596 × 842, 1191 × 1684, 2382 × 3368), and a second's wait still
+moves nothing the right way. Stage by stage, almost all of it is the page's own work: the CPU lane's
+coverage of every glyph seen for the first time, 4.1 to 5.8 ms of encode, and the scene's resources.
+At 4× a further 7.6 ms is the offscreen path's host pass over the read-back raster, which a window
+does not have. Counted at wgpu's boundary, the per-device resources a first frame makes and the tenth
+does not are two textures, the glyph atlas and the white stand-in, plus the command-stream memory
+ADR 1606 already priced. Made on the warm-up thread, the two textures take 0.10 to 0.18 ms off the
+frame's upload and nothing measurable off the frame; made before the warm set, they delay it by
+0.45 ms. So nothing is moved, and the rule that nothing waits for warmth costs nothing measurable.
+`examples/first_frame` now prints every frame stage by stage, with its page faults and raster's
+phases, and ADR 1668 has every row.
 
 **Status re-checked at `2531f447` in the three-hundred-and-eighty-fourth session, because that
 revision touched `spawn_warm_up` and it would be easy to read it as an answer.** It is not:

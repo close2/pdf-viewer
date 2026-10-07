@@ -5791,6 +5791,7 @@ name = "viewer-gtk"
 version = "0.1.0"
 dependencies = [
  "gtk4",
+ "pango",
  "pdf-model",
  "pdf-render",
  "pdf-syntax",

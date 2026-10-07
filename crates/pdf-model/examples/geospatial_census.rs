@@ -20,6 +20,11 @@
 //! dictionary, which is Table 269's own requirement of a geospatial measure (ADR 0405 is why a
 //! census over names measures at the wrong granularity).
 //!
+//! **The projection is asked at the maps.** Every `/GCS` is read by this tree's own reader, and
+//! every projected one whose `/GPTS` are shaped as degrees has those points carried through the
+//! forward projection and back, as the base system's degrees — so each method is measured at the
+//! places the world's maps are, beside the worked examples its unit tests hold (ADR 1672).
+//!
 //! `/LGIDict` is counted beside them and reported apart: it is the pre-ISO geospatial encoding of
 //! Adobe's extension and the OGC's best practice, which ISO 32000-2 does not define, so a document
 //! carrying only it is evidence about the world and not a §12.10 beneficiary.
@@ -300,6 +305,62 @@ fn reading(gcs: &System, points: Vec<[f64; 2]>) -> String {
     }
 }
 
+/// The forward projection and the inverse run in turn at every registration point of a projected
+/// `/GCS` whose points are shaped as degrees, each read as the base system's latitude and longitude
+/// — the census's own reading, not the program's, which refuses those points until
+/// `doc/questions/Q271` is answered. What it measures is the projection at the places the world's
+/// maps are, which no worked example covers: the largest closure in seconds of arc against ADR
+/// 1587's budget of 0.0005″, or the refusal (ADR 1672).
+fn round_trip(gcs: &System, points: &[[f64; 2]]) -> Option<String> {
+    use pdf_model::geospatial::{GeographicPosition, ReferenceSystem};
+    use pdf_model::measurement::CoordinateSystem;
+    let shaped_as_degrees = !points.is_empty()
+        && points
+            .iter()
+            .all(|[a, b]| a.abs() <= 90.0 && b.abs() <= 180.0);
+    if !gcs.projected || !shaped_as_degrees {
+        return None;
+    }
+    let system = CoordinateSystem {
+        projected: true,
+        epsg: gcs.epsg,
+        wkt: gcs.wkt.clone(),
+    };
+    let Ok(ReferenceSystem::Projected(projected)) = system.reference_system() else {
+        return None;
+    };
+    let method = projected.projection.method.name();
+    let mut worst = 0.0_f64;
+    for &[latitude, longitude] in points {
+        let position = GeographicPosition {
+            latitude,
+            longitude,
+        };
+        let back = projected
+            .grid(position)
+            .and_then(|[easting, northing]| projected.geographic(easting, northing));
+        match back {
+            Ok(back) => {
+                let off = (back.latitude - latitude)
+                    .abs()
+                    .max((back.longitude - longitude).abs())
+                    * 3600.0;
+                worst = worst.max(off);
+            }
+            Err(refusal) => {
+                return Some(format!(
+                    "round trip at the points: {method}, refused: {refusal}"
+                ));
+            }
+        }
+    }
+    Some(if worst <= 0.0005 {
+        format!("round trip at the points: {method}, closes within 0.0005\"")
+    } else {
+        format!("round trip at the points: {method}, closes at {worst:.6}\", outside the budget")
+    })
+}
+
 /// `/GPTS` taken pairwise, as Table 269 states it.
 fn pairs(document: &Document, dict: &Dictionary) -> Vec<[f64; 2]> {
     let value = document.get_key(dict, "GPTS");
@@ -571,6 +632,7 @@ fn measure(path: &Path) -> Counts {
                         if matrix { "with" } else { "no" }
                     ));
                 }
+                readings.extend(round_trip(&gcs, &points));
                 readings.insert(reading(&gcs, points));
                 systems.push(("GCS", gcs));
                 if let Some(dcs) = system(&document, &dict, "DCS") {

@@ -66,9 +66,12 @@ fn form_fixture() -> Vec<u8> {
          /F 4 >>\nendobj\n",
         appearance("0 0 1 rg"),
         appearance("1 1 1 rg"),
-        // Table 172's `/RC`: one run red, bold, set in Courier and spaced two points (ADR 1655).
-        "<body xmlns=\"http://www.w3.org/1999/xhtml\"><p>a <span style=\"color:#ff0000;\
-         font-weight:bold;font-family:Courier;letter-spacing:2pt\">red</span> word</p></body>",
+        // Table 172's `/RC`: one run red, bold, set in Courier and spaced two points (ADR 1655),
+        // and a tab at the paragraph's end to its one right-aligned stop (ADR 1667).
+        "<body xmlns=\"http://www.w3.org/1999/xhtml\"><p style=\"tab-interval:36pt;\
+         tab-stops:right 72pt\">a <span style=\"color:#ff0000;font-weight:bold;\
+         font-family:Courier;letter-spacing:2pt\">red</span> word<span \
+         style=\"xfa-tab-count:1\"/></p></body>",
     );
 
     let mut out = String::from("%PDF-1.7\n");
@@ -268,6 +271,10 @@ fn what_it_printed(said: &str) {
         // Courier run with its two points of spacing, read through the header's own structs.
         "rich: 1 paragraph(s), 0 unapplied; paragraph 0 align 0, 3 piece(s)",
         "rich piece 1: \"red\" bold 1 colour 1.00,0.00,0.00 family Courier spacing 2.0pt",
+        "rich piece 2: \" word\t\"",
+        // The paragraph's stops as it states them: the interval and one right-aligned stop.
+        "rich tabs: 1 stated, interval 1 at 36.0pt",
+        "rich tab 0: align 2 at 72.0pt",
         "ok",
     ] {
         assert!(

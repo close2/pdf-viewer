@@ -183,19 +183,15 @@ export_arms() {
         "$wt/tools/batch.sh" arms-held "$out" "$commit" "$(date +%s)"
 }
 
-# Whether this process holds a descriptor on the heavy-walk lock — the one `tools/bounded.sh --lock`
-# opened, took and handed down to the command it runs. The file is the wrapper's, read the same way.
-holds_the_lock() {
-    local target link
-    target=$(readlink -f -- "${HEAVY_WALK_LOCK:-/home/AI/heavy-walk.lock}") || return 1
-    for link in /proc/$$/fd/*; do
-        [ "$(readlink -- "$link" 2>/dev/null)" = "$target" ] && return 0
-    done
-    return 1
-}
+# Whether this process runs under a hold of the heavy-walk lock. The wrapper keeps the lock's
+# descriptor and hands its command a marker instead, `HEAVY_WALK_HELD_BY`, so a daemon the walk
+# starts does not keep the lock after it (ADR 1674); whether the marker names an ancestor that holds
+# the descriptor is the wrapper's question to answer, asked of it rather than answered twice. A
+# descriptor this process has itself — a bare `flock <lock>` above it — is a hold as well.
+holds_the_lock() { "$(dirname "${BASH_SOURCE[0]}")/bounded.sh" --held; }
 
 # The export itself, run by `arms` under the lock it took: OUT, the commit it is of, and the second
-# the lock was asked for. Not a command to type, and it refuses where no ancestor holds the lock,
+# the lock was asked for. Not a command to type, and it refuses where it runs under no hold,
 # since six arms walked beside another walk are what the lock exists to prevent.
 arms_held() {
     cd "$wt" || return 1

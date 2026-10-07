@@ -34,7 +34,7 @@
 //! # Running it
 //!
 //! ```text
-//! RAYON_NUM_THREADS=4 flock /home/AI/heavy-walk.lock tools/bounded.sh --data 8 --tree 12 -- \
+//! RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --data 8 --tree 12 -- \
 //!     cargo test --profile gates -p pdf-model --test script_corpus -- --ignored --nocapture
 //! PDFVIEWER_SCRIPT_CORPUS=update …   # rewrites tests/script_corpus.tsv and prints what moved
 //! ```

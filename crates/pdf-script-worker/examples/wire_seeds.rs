@@ -18,7 +18,7 @@ use pdf_model::action::{PageTrigger, Trigger as AnnotationTrigger};
 use pdf_model::aform::Trigger;
 use pdf_model::view::{
     Alignment, BorderStyle, Colour, Display, DocumentTrigger, FieldState, FieldType, Property,
-    ScriptEdit, ScriptEvent, ScriptSite, TextFlag,
+    ScriptEdit, ScriptEvent, ScriptSite, TextFlag, WidgetState,
 };
 use pdf_script::{Ending, Exceeded, Outcome, Refusal, RefusalKind, Request};
 use pdf_script_worker::wire::{MAX_SCRIPT_BYTES, Reply, Run, encode_reply, encode_run};
@@ -30,16 +30,18 @@ fn field(name: &str, kind: FieldType, value: &str) -> FieldState {
         kind,
         value: value.to_owned(),
         flags: 0,
-        display: Display::Visible,
-        text_color: Some(Colour::Gray(0.0)),
-        fill_color: Some(Colour::Rgb([1.0, 1.0, 0.5])),
-        stroke_color: None,
-        border_style: BorderStyle::Solid,
-        alignment: Alignment::Left,
         char_limit: Some(12),
         page: Some(0),
-        rect: [10.0, 10.0, 210.0, 40.0],
-        captions: Default::default(),
+        widgets: vec![WidgetState {
+            display: Display::Visible,
+            text_color: Some(Colour::Gray(0.0)),
+            fill_color: Some(Colour::Rgb([1.0, 1.0, 0.5])),
+            stroke_color: None,
+            border_style: BorderStyle::Solid,
+            alignment: Alignment::Left,
+            rect: [10.0, 10.0, 210.0, 40.0],
+            captions: Default::default(),
+        }],
     }
 }
 
@@ -154,10 +156,12 @@ fn edits() -> Vec<ScriptEdit> {
         },
         ScriptEdit::Property {
             field: "Total".to_owned(),
+            widget: None,
             property: Property::FillColor(Colour::Cmyk([0.0, 0.1, 0.2, 0.3])),
         },
         ScriptEdit::Property {
             field: "Total".to_owned(),
+            widget: None,
             property: Property::TextFlag(TextFlag::Comb, true),
         },
         ScriptEdit::Focus {
@@ -165,6 +169,7 @@ fn edits() -> Vec<ScriptEdit> {
         },
         ScriptEdit::Property {
             field: "Send".to_owned(),
+            widget: None,
             property: Property::Caption(pdf_model::view::Face::Rollover, "Send it".to_owned()),
         },
         ScriptEdit::Layer {

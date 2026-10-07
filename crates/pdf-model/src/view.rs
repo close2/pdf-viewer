@@ -38,7 +38,8 @@ mod scripts;
 use crate::optional_content::{Audience, OptionalContent, Purpose};
 pub use script_model::{
     Alignment, BorderStyle, Colour, CommitKey, Display, DocumentState, DocumentTrigger, Face,
-    FieldState, FieldType, InfoEntry, Layer, Property, ScriptEdit, ScriptSite, TextFlag,
+    FieldState, FieldType, Glyph, InfoEntry, Layer, Property, ScriptEdit, ScriptSite, TextFlag,
+    WidgetState,
 };
 pub use scripts::{Committed, Displayed, Resumed, ScriptEvent, ScriptResult, ScriptRunner};
 
@@ -3209,13 +3210,31 @@ impl ViewState {
     /// `/T` — the field §12.7.4.2 names, which is the one the script named — so its other widgets
     /// inherit them as they inherited what they replace. A widget no one typed into gets its
     /// appearance written here; one a person typed into got it above, from the same properties.
+    ///
+    /// **A member a script set on one widget of several writes no field entry** (ADR 1664): `/DA`
+    /// and `/Q` are the field's, and its other widgets would inherit the one widget's colour or
+    /// alignment from them. That widget's saved appearance carries what was set.
     fn write_scripted(&self, document: &Document, update: &mut Update) {
         for (widget, properties) in &self.scripting.drawn {
             let widget = *widget;
             let Some(original) = document.get(widget).as_dict().cloned() else {
                 continue;
             };
-            let entries = crate::appearance::scripted_entries(document, &original, properties);
+            let mut entries = crate::appearance::scripted_entries(document, &original, properties);
+            let whole_field: Vec<Property> = properties
+                .iter()
+                .filter(|property| {
+                    !self
+                        .scripting
+                        .one_widget
+                        .contains(&(widget, property.member()))
+                })
+                .cloned()
+                .collect();
+            if whole_field.len() < properties.len() {
+                entries.field =
+                    crate::appearance::scripted_entries(document, &original, &whole_field).field;
+            }
             if !entries.widget.is_empty()
                 && let Some(mut current) = update.current(document, widget)
             {

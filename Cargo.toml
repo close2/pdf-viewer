@@ -242,6 +242,10 @@ rustls-native-certs = "0.8.4"
 # requirement**, since these crates link dynamically against the platform's own GTK, so it is not
 # raised for an API that does not answer the question.
 gtk4 = { version = "0.11.4", features = ["v4_10"] }
+# The Pango `gtk4` re-exports, named directly by `viewer-gtk` for one feature: 1.50's right, centred
+# and decimal tab alignments, which a popup's rich text sets (ADR 1666). The same crate at the same
+# version — no new code enters the tree, and the machine's Pango is far past 1.50.
+pango = { version = "0.22.8", features = ["v1_50"] }
 
 # The second native host's bridge, and the only C++ in this tree. `doc/todo/30`'s order put Qt
 # second precisely because it costs one: `cxx` generates the `extern "C"` shims that carry

@@ -15,7 +15,9 @@
 use std::time::Instant;
 
 use pdf_model::aform::{Call, Trigger};
-use pdf_model::view::{Alignment, BorderStyle, Display, FieldState, FieldType, ScriptSite};
+use pdf_model::view::{
+    Alignment, BorderStyle, Display, FieldState, FieldType, ScriptSite, WidgetState,
+};
 use pdf_script::{Budget, Ending, Event, Exceeded, Outcome, RefusalKind, Request, run};
 
 /// A text field's state as a view state tells a realm of it.
@@ -25,16 +27,18 @@ fn field(name: &str, value: &str) -> FieldState {
         kind: FieldType::Text,
         value: value.to_owned(),
         flags: 0,
-        display: Display::Visible,
-        text_color: None,
-        fill_color: None,
-        stroke_color: None,
-        border_style: BorderStyle::Solid,
-        alignment: Alignment::Left,
         char_limit: None,
         page: Some(0),
-        rect: [10.0, 10.0, 210.0, 40.0],
-        captions: Default::default(),
+        widgets: vec![WidgetState {
+            display: Display::Visible,
+            text_color: None,
+            fill_color: None,
+            stroke_color: None,
+            border_style: BorderStyle::Solid,
+            alignment: Alignment::Left,
+            rect: [10.0, 10.0, 210.0, 40.0],
+            captions: Default::default(),
+        }],
     }
 }
 

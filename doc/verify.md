@@ -633,15 +633,15 @@ cargo run --release -p hayro-compare --bin hayro-speed -- --per-document ...  # 
 # because it was never in it.
 #
 # **A seeded corpus also goes stale with nothing failing** (trap 107), so before a campaign ask:
-# `flock /home/AI/heavy-walk.lock fuzz/seeds.sh check <target>` seeds the target afresh into a
-# scratch directory beside the build output, prints libFuzzer's `INITED cov` over the disk corpus
-# and over the fresh seeds — a `-runs=0` pass each, under the limits this file's line gives — and
-# says `STALE` when the fresh seeds lead by more than the margin the script states, with what a
-# re-seed would add and where. It reads the disk corpus and never writes it; the re-seed is a
-# separate, deliberate command. A target whose fresh seeds exceed its line's memory limit is "not
-# judged", which is a fact about the seeder's population rather than about the corpus. ADR 1559.
-# Each pass runs the target built without the sanitiser, as a campaign is, so `check` runs under
-# `tools/bounded.sh` and compares the figure the campaign will see.
+# `tools/bounded.sh --lock --round <session> --tree 12 -- fuzz/seeds.sh check <target>` seeds the
+# target afresh into a scratch directory beside the build output, prints libFuzzer's `INITED cov`
+# over the disk corpus and over the fresh seeds — a `-runs=0` pass each, under the limits this
+# file's line gives — and says `STALE` when the fresh seeds lead by more than the margin the script
+# states, with what a re-seed would add and where. It reads the disk corpus and never writes it; the
+# re-seed is a separate, deliberate command. A target whose fresh seeds exceed its line's memory
+# limit is "not judged", which is a fact about the seeder's population rather than about the corpus.
+# ADR 1559. Each pass runs the target built without the sanitiser, as a campaign is, so `check` runs
+# under `tools/bounded.sh` and compares the figure the campaign will see.
 #
 # **Every recipe over the documents keeps one seed per shape** (ADRs 1559, 1571): the population
 # is some ninety thousand files and 126 GB, and kept whole each recipe wrote tens of thousands of
@@ -1084,7 +1084,7 @@ cd fuzz && cargo +nightly fuzz run vfs_write    -- -max_total_time=600 -rss_limi
 # directory and the seeded one second, so that what the run finds is written to the scratch one
 # and a worktree's linked `fuzz/corpus` is read rather than grown (ADR 1423):
 #   cargo +nightly fuzz build -O -s none
-#   RAYON_NUM_THREADS=4 flock /home/AI/heavy-walk.lock tools/bounded.sh --data 4 --tree 4 -- \
+#   RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --data 4 --tree 4 -- \
 #     <target dir>/x86_64-unknown-linux-gnu/release/<target> <scratch>/<target> fuzz/corpus/<target> \
 #     -max_total_time=600 -rss_limit_mb=2048 -timeout=20 -jobs=1 -artifact_prefix=<scratch>/<target>-
 # A target whose own line above states a larger ceiling runs under that one — `page`'s 4096 MB,

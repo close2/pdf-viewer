@@ -18,7 +18,7 @@
 //! # Running it
 //!
 //! ```text
-//! RAYON_NUM_THREADS=4 flock /home/AI/heavy-walk.lock tools/bounded.sh --data 8 --tree 12 -- \
+//! RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --data 8 --tree 12 -- \
 //!     cargo test --profile gates -p pdf-script-worker --features engine --test script_column -- \
 //!     --ignored --nocapture
 //! ```

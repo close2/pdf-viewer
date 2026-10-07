@@ -16,7 +16,7 @@
 use pdf_model::aform::Trigger;
 use pdf_model::view::{
     Alignment, BorderStyle, Display, FieldState, FieldType, Property, ScriptEdit, ScriptSite,
-    TextFlag,
+    TextFlag, WidgetState,
 };
 use pdf_script::{Budget, Ending, Event, Outcome, Realm, RefusalKind, Request};
 
@@ -27,16 +27,18 @@ fn field(name: &str, kind: FieldType, flags: u32, char_limit: Option<u32>) -> Fi
         kind,
         value: String::new(),
         flags,
-        display: Display::Visible,
-        text_color: None,
-        fill_color: None,
-        stroke_color: None,
-        border_style: BorderStyle::Solid,
-        alignment: Alignment::Left,
         char_limit,
         page: Some(0),
-        rect: [0.0, 0.0, 100.0, 20.0],
-        captions: Default::default(),
+        widgets: vec![WidgetState {
+            display: Display::Visible,
+            text_color: None,
+            fill_color: None,
+            stroke_color: None,
+            border_style: BorderStyle::Solid,
+            alignment: Alignment::Left,
+            rect: [0.0, 0.0, 100.0, 20.0],
+            captions: Default::default(),
+        }],
     }
 }
 
@@ -185,10 +187,12 @@ fn comb_is_set_where_table_231_lets_it_be_and_sets_do_not_scroll_beside_it() {
         vec![
             ScriptEdit::Property {
                 field: "Code".to_owned(),
+                widget: None,
                 property: Property::TextFlag(TextFlag::Comb, true),
             },
             ScriptEdit::Property {
                 field: "Code".to_owned(),
+                widget: None,
                 property: Property::TextFlag(TextFlag::DoNotScroll, true),
             },
         ]

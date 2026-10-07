@@ -392,76 +392,21 @@ Nothing that keeps the device awake is taken, because the owner's display would 
 device thread now opens the awake render nodes before the loader runs, so the power-up overlaps
 `wgpu::Instance::new`; the gate prints that step as `device_wake_ms`.
 
-### 5. The first frame pays ~12 ms of first-use allocation, and it is **not** the shaders
+### 5. The first frame's excess over the steady frame is the page's own work
 
-Measured on the machine's real adapter, headless
-(`crates/render-raster/examples/first_frame.rs`): frame 1 costs 18.2 ms and frames 2 to 10 cost
-3.7 to 5.1, and the difference is roughly fixed across scales — 13.3 ms at 1×, 14.3 at 2×, 18.1
-at 4×.
-
-**Sleeping between bring-up and the first render changes nothing** (16.05 / 15.26 / 16.65 ms after
-0, 300 and 1000 ms), and the background thread reports its pipelines compiled in 5.3 to 5.7 ms —
-so what the first frame pays for is device resource creation, not warmth. Two consequences:
-
-- `CLAUDE.md`'s "nothing on the launch path waits for warmth" **costs nothing here**, and a
-  `wait_until_warm` would buy zero milliseconds while hiding the twelve that matter.
-- The ask is in `doc/QUORRA_FEEDBACK.md` §9: warm the *allocations* on the same background thread
-  that already warms the shaders. Nothing about the API changes and ~12 ms comes off every cold
-  launch of every host.
-
-**Answered in part, and the remainder changed shape.** quorra timed the inside of `Device::render`
-and found **2.43 ms of the first frame was making that frame's own timestamp query** — a `QuerySet`
-and two buffers per frame, which the driver charges for the first time and pools afterwards. One
-lives with the device now (its ADR 0031). Confirmed here on this side's own instrument, A/B/A with
-eight samples an arm because the effect is smaller than the spread: the minimum first frame goes
-**14.94 ms → 12.77 and 12.47**, and both `A` arms agree with each other.
-
-**What is left is not an optimisation and cannot be warmed on a thread**: about 6 ms inside
-`run_frame` that scales with the target — page-sized textures and the driver's first touch of a
-heap that size — and a warm-up thread cannot allocate those before the viewport exists. quorra
-records it as the caller's contract rather than taking it, which makes it *this* side's question:
-whether to ask for a size hint or a `Device::warm_for(extent)`, and what a host would pass it
-before it has a window. `viewer-ui` knows its viewport only after `Resized`, so the honest answer
-may be that the first frame keeps this cost and the number is stated rather than hidden.
-
-**`Device::warm_for` now exists and the answer is still that one**, decided in ADR 0313
-with a measurement rather than by re-reading this paragraph. `examples/first_frame.rs` on page 7 of the specification, eight runs an arm across the
-two quorra revisions, read at the **minimum** because the spread is several times the effect and
-five other sessions were compiling on the box:
-
-```text
-                          first frame      frames 3-5
-  scale 1   2c9bdd0          26.15 ms        7.54 ms
-            a7babab          26.24           5.58
-  scale 4   2c9bdd0          51.35          30.44
-            a7babab          56.91          31.78
-```
-
-Nothing in the release moves either column by more than the spread, which is the expected result
-and worth having anyway: 0036 to 0039 size a frame's **layer** textures, and a frame with no
-transparency group allocates none — upstream's own census puts layered frames at about 8 % of the
-corpus at 4×. So the first frame's fixed cost on a launch-shaped page is what it was.
-
-**And the hint would not fit even where it applies.** quorra's ADR 0039 says so about ADR 0035 in
-its own *what it cost* section: `warm_for` warms a **target-sized** layer, and after the plans are
-sized to what they mark that is the right size only for a root that fills its target — about a
-quarter of layered frames. Its headline of 24.7 ms → 10.3 was measured on a page whose root did
-fill the target and is not a general number. Both halves of the reason to decline are therefore
-now on the record: this host cannot call it, and where a host could, the size would usually be
-wrong. `doc/QUORRA_FEEDBACK.md` §9.2.
-
-**`wgpu`'s command encoders are not a lever here either** (ADR 1606). The first frame of every
-row allocates two batches of sixteen Vulkan command buffers, 1.2 M instructions — the frame's
-encoder and the readback's — and growing the pool on raster's warm-up thread runs beside that frame:
-after the warm set it read 0.5 to 1.2 ms slower at the median, before it or on a thread of its own
-inside the spread. It is not built.
-
-**And it re-scales the whole timeline.** ADR 0179's 145 ms is `lavapipe` under `Xvfb`, where the
-first present is 54 to 68 ms because llvmpipe is drawing the page on the processor. On the real
-adapter the same steps are bring-up 33 to 43, interpretation ~5 and a first frame of ~18, so a
-launch on this machine's own GPU should be **75 to 90 ms**. Nobody has run it — `AI` has no X
-authority cookie for the user's display, so the window half of that number is the user's to
-measure (ADR 0126).
+`crates/render-raster/examples/first_frame.rs` prints a first frame and the frames after it per
+stage, with the page faults and raster's phases, and the excess is read off it rather than carried
+here. On the machine's real adapter it is the encode: the page's glyphs rasterised once into the
+atlas, with the device's idle state behind the first submission (ADR 1658) — not shader
+compilation (a settle before the first frame makes it slower, not faster) and not resource
+creation: the two textures a warm-up thread could make are worth 0.1 to 0.2 ms, inside the frame's
+spread, and are not moved (ADR 1668). The frame's own timestamp query lives with the device
+(ADR 0031); `Device::warm_for` exists and cannot take the page-sized textures' cost before a
+viewport exists (ADR 0313); the command-buffer pool is not grown ahead of the frames (ADR 1606).
+`CLAUDE.md`'s "nothing on the launch path waits for warmth" therefore costs nothing here. The two
+levers left are the encode's thread spawns on every frame with new geometry and the 4× offscreen
+host pass over the read-back raster (ADR 1668, "Unfinished"). The window half of a launch on this
+machine's own display is the user's to measure: `AI` has no X authority cookie for it (ADR 0126).
 
 ## 6. The *native* hosts have a launch path too, and it is a different number
 

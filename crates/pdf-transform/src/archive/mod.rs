@@ -175,8 +175,8 @@ pub use census::{Kind, Standing, census, standing, unconsidered};
 pub use cmaps::EmbeddedCMap;
 pub use config::{
     ConfigError, Configuration, Coverage, Departure, Derivation, Kind as RemedyKind, Original,
-    Placement, Preservation, Resolution, Site, Supplied, Supply, UNTRUSTED_INPUT_WARNING, Unbuilt,
-    Unmapped, Winner, WriteModeSource, sites,
+    Placement, Preservation, Resolution, Site, SiteShape, Supplied, Supply,
+    UNTRUSTED_INPUT_WARNING, Unbuilt, Unmapped, Winner, WriteModeSource, sites,
 };
 pub use decision::{
     Authorisations, Because, Conditional, Decision, Loss, answered, conditional, refused_by_name,

@@ -483,6 +483,21 @@ static int read_the_rich_note(const quorra_viewer *viewer)
                    piece, text, run.bold ? 1 : 0, run.colour[0], run.colour[1], run.colour[2],
                    run.families > 0 ? family : "(the window's)", run.spacing_points);
         }
+        /* The paragraph's tab stops, which a '\t' in its characters advances to (ADR 1667). */
+        quorra_rich_tabs tabs;
+        quorra_rich_tab tab;
+        if (ok && check("quorra_popup_rich_tabs", quorra_popup_rich_tabs(popups, 0, 0, 0, &tabs))) {
+            printf("rich tabs: %zu stated, interval %d at %.1fpt\n", tabs.stops,
+                   tabs.has_interval ? 1 : 0, tabs.interval_points);
+            if (tabs.stops > 0
+                && check("quorra_popup_rich_tab", quorra_popup_rich_tab(popups, 0, 0, 0, 0, &tab))) {
+                printf("rich tab 0: align %u at %.1fpt\n", tab.align, tab.at_points);
+            } else if (tabs.stops > 0) {
+                ok = 0;
+            }
+        } else {
+            ok = 0;
+        }
     }
     quorra_popups_free(popups);
     return ok;

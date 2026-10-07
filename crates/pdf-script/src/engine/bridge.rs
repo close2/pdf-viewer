@@ -6,8 +6,9 @@
 //! realm was told of, with the properties RFC 0008 section 4.2 admits for a field's value and its
 //! appearance (`value`, `valueAsString`, `name`, `type`, `display`, `hidden`, `readonly`,
 //! `required`, `textColor`, `fillColor`, `strokeColor`, `borderStyle`, `alignment`, `charLimit`,
-//! the flags `multiline`, `password`, `comb`, `doNotScroll`, and `page`, `rect`, `doc`) and its
-//! `getArray` and `setFocus`; `event` with what each site raises; `app`'s six properties naming the
+//! the flags `multiline`, `password`, `comb`, `doNotScroll`, `style`, and `page`, `rect`, `doc`)
+//! and its `getArray` and `setFocus`, and a `Field` of one widget of a field (ADR 1664); `event`
+//! with what each site raises; `app`'s six properties naming the
 //! viewer, `util.printd` and `util.printx` (ADR 1615); the reference's `display`, `border` and
 //! `color` constants; `console.println`; and the `AF*` library, each function a native that hands
 //! its arguments to
@@ -38,7 +39,7 @@ use pdf_model::aform::{
     parse_date,
 };
 use pdf_model::view::{
-    Alignment, BorderStyle, Colour, Display, FieldState, FieldType, Property, ScriptEdit,
+    Alignment, BorderStyle, Colour, Display, FieldState, FieldType, Glyph, Property, ScriptEdit,
     ScriptSite, TextFlag,
 };
 
@@ -531,21 +532,21 @@ fn constants(context: &mut Context) -> JsResult<()> {
     // The "Field properties" page's `style` table names six glyph styles of a check box or radio
     // button, each with its keyword, and types the property a string; that the string is the
     // style's own name in the table — `style.ci` is `"circle"` — is a documented choice, since the
-    // page states the keywords and not their values (ADR 1652). `Field.style` itself is refused by
-    // name (`crate::surface::NOT_BRIDGED`): its write is a check box's glyph redrawn.
+    // page states the keywords and not their values (ADR 1652). `Field.style` reads and writes
+    // them as the glyph Table 192's `/CA` draws (ADR 1665).
     let glyph = ObjectInitializer::new(context).build();
     for (name, style) in [
-        ("ch", "check"),
-        ("cr", "cross"),
-        ("di", "diamond"),
-        ("ci", "circle"),
-        ("st", "star"),
-        ("sq", "square"),
+        ("ch", Glyph::Check),
+        ("cr", Glyph::Cross),
+        ("di", Glyph::Diamond),
+        ("ci", Glyph::Circle),
+        ("st", Glyph::Star),
+        ("sq", Glyph::Square),
     ] {
         data(
             &glyph,
             name,
-            JsValue::from(JsString::from(style)),
+            JsValue::from(JsString::from(style.adobe())),
             false,
             context,
         )?;
@@ -555,7 +556,8 @@ fn constants(context: &mut Context) -> JsResult<()> {
     // The "FullScreen properties" page's `cursor` table names three pointer behaviours and types
     // the property a number without stating one; they are numbered in the table's own order, a
     // documented choice (ADR 1652). Nothing here reads them back: `app.fs` is no member RFC 0008
-    // section 4.2 admits to `app`, so the realm has none, and a script's write through it throws.
+    // section 4.2 admits to `app`, and it is refused by name (`crate::surface::EXCLUDED`, ADR
+    // 1665).
     let cursor = ObjectInitializer::new(context).build();
     for (name, number) in [("hidden", 0), ("delay", 1), ("visible", 2)] {
         data(&cursor, name, JsValue::from(number), false, context)?;
@@ -710,14 +712,20 @@ fn get_field(_this: &JsValue, arguments: &[JsValue], context: &mut Context) -> J
     if let Some(field) = field_object(context, &name) {
         return Ok(JsValue::from(field));
     }
-    if let Some(field) = widget_address(&name)
-        && State::table(context, |table| table.fields.contains_key(field)).unwrap_or(false)
+    if let Some((field, index)) = widget_address(&name)
+        && let Some(widgets) = State::table(context, |table| {
+            table.fields.get(field).map(|state| state.widgets.len())
+        })
+        .flatten()
     {
-        return Err(refuse(
-            format!("this.getField({name:?})"),
-            RefusalKind::NotBridged,
-            context,
-        ));
+        // A widget the field does not have is no object of the realm, as a name no field has is
+        // not: the reference's index counts the field's widgets and stops there.
+        let held = usize::try_from(index).is_ok_and(|index| index < widgets);
+        return Ok(if held {
+            widget_object(context, &name, field, index).map_or_else(JsValue::null, JsValue::from)
+        } else {
+            JsValue::null()
+        });
     }
     let Some(spoken) = spoken_name(&name) else {
         return Ok(JsValue::null());
@@ -735,19 +743,20 @@ fn get_field(_this: &JsValue, arguments: &[JsValue], context: &mut Context) -> J
     Ok(JsValue::from(field))
 }
 
-/// The terminal field a name addresses one widget of, the reference's `name.N`: the name before a
-/// final PERIOD and a run of decimal digits, `None` for any other name.
+/// The terminal field a name addresses one widget of, and the widget's index, the reference's
+/// `name.N`: the name before a final PERIOD and a run of decimal digits, `None` for any other name.
 ///
 /// The "Field" page of Adobe's reference has `getField` answer, for a field's name, a PERIOD and a
-/// widget's index from zero, a `Field` of that one widget, whose widget properties are that
-/// widget's alone. The realm holds each field as its first widget, so it cannot answer one widget
-/// of several, and such a name is refused by name rather than answered `null` — a `null` would
-/// say the field does not exist (ADR 1652). A field whose own name ends that way is found by the
-/// exact reading first.
-fn widget_address(asked: &str) -> Option<&str> {
+/// widget's index from zero, a `Field` of that one widget: its widget-level members are that
+/// widget's, and its field-level members — the value among them — the field's (ADR 1664). A field
+/// whose own name ends that way is found by the exact reading first, and an index too long for a
+/// `u32` names no widget any field has.
+fn widget_address(asked: &str) -> Option<(&str, u32)> {
     let (field, index) = asked.rsplit_once('.')?;
-    (!field.is_empty() && !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit()))
-        .then_some(field)
+    if field.is_empty() || index.is_empty() || !index.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    Some((field, index.parse().unwrap_or(u32::MAX)))
 }
 
 /// The name `getField` reads a second time where `asked` names no field: without the white space
@@ -861,6 +870,65 @@ fn field_object(context: &mut Context, name: &str) -> Option<JsObject> {
     Some(object)
 }
 
+/// The `Field` of one widget of a terminal field, held under the name a script asked by.
+///
+/// Its `name` is the field's, as the reference's is, and its `widget` the index that every
+/// widget-level member reads and writes through ([`widget_of`]).
+fn widget_object(context: &mut Context, asked: &str, field: &str, index: u32) -> Option<JsObject> {
+    let objects = context.get_data::<Objects>()?;
+    if let Some(held) = objects.fields.borrow().get(asked) {
+        return Some(held.clone());
+    }
+    let prototype = objects.prototype.clone();
+    let object = ObjectInitializer::new(context).build();
+    object.set_prototype(Some(prototype));
+    data(
+        &object,
+        "name",
+        JsValue::from(JsString::from(field)),
+        false,
+        context,
+    )
+    .ok()?;
+    object
+        .define_property_or_throw(
+            JsString::from(WIDGET),
+            PropertyDescriptor::builder()
+                .value(JsValue::from(index))
+                .writable(false)
+                .enumerable(false)
+                .configurable(false)
+                .build(),
+            context,
+        )
+        .ok()?;
+    if let Some(objects) = context.get_data::<Objects>() {
+        objects
+            .fields
+            .borrow_mut()
+            .insert(asked.to_owned(), object.clone());
+    }
+    Some(object)
+}
+
+/// The own property a `Field` of one widget carries its index in. Not a member of the reference:
+/// a name no script of the census spells, so that it shadows nothing a document reads.
+const WIDGET: &str = "__widget";
+
+/// The widget a `Field` stands for, or `None` for one that stands for every widget of its field.
+pub(super) fn widget_of(this: &JsValue, context: &mut Context) -> JsResult<Option<u32>> {
+    let Some(object) = this.as_object() else {
+        return Ok(None);
+    };
+    if !object.has_own_property(JsString::from(WIDGET), context)? {
+        return Ok(None);
+    }
+    let index = object
+        .get(JsString::from(WIDGET), context)?
+        .to_u32(context)?;
+    Ok(Some(index))
+}
+
 /// The terminal fields a name stands for: itself where the realm knows it, every field below it
 /// where it does not.
 pub(super) fn terminals(context: &Context, name: &str) -> Vec<String> {
@@ -953,11 +1021,13 @@ enum FieldProperty {
     Rect,
     /// `doc`.
     Doc,
+    /// `style`: a check box's or radio button's glyph (ADR 1665).
+    Style,
 }
 
 impl FieldProperty {
     /// Every property, in the order the prototype defines them.
-    const ALL: [Self; 20] = [
+    const ALL: [Self; 21] = [
         Self::Value,
         Self::ValueAsString,
         Self::Type,
@@ -978,6 +1048,7 @@ impl FieldProperty {
         Self::Page,
         Self::Rect,
         Self::Doc,
+        Self::Style,
     ];
 
     /// The reference's spelling.
@@ -1000,6 +1071,7 @@ impl FieldProperty {
             Self::Page => "page",
             Self::Rect => "rect",
             Self::Doc => "doc",
+            Self::Style => "style",
         }
     }
 }
@@ -1018,7 +1090,8 @@ pub(super) fn field_name(this: &JsValue, context: &mut Context) -> JsResult<Stri
 }
 
 /// One property of a field, read from the realm's table: the first terminal field's, for a name
-/// that stands for a subtree.
+/// that stands for a subtree, and a widget-level member from the widget the `Field` stands for —
+/// its first, for a `Field` of every widget, as the reference's "Field" page has it (ADR 1664).
 fn read_property(
     property: FieldProperty,
     this: &JsValue,
@@ -1028,6 +1101,7 @@ fn read_property(
     if property == FieldProperty::Doc {
         return Ok(JsValue::from(context.global_object()));
     }
+    let widget = widget_of(this, context)?;
     let Some(first) = terminals(context, &name).into_iter().next() else {
         return Ok(JsValue::undefined());
     };
@@ -1036,32 +1110,33 @@ fn read_property(
         return Ok(JsValue::undefined());
     };
     let text = |text: &str| JsValue::from(JsString::from(text));
+    let shown = state.widget(widget).cloned().unwrap_or_default();
     Ok(match property {
         FieldProperty::Value => value_of(&state, context),
         FieldProperty::ValueAsString => text(&state.value),
         FieldProperty::Type => text(state.kind.adobe()),
-        FieldProperty::Display => JsValue::from(state.display.number()),
-        FieldProperty::Hidden => JsValue::from(state.display == Display::Hidden),
+        FieldProperty::Display => JsValue::from(shown.display.number()),
+        FieldProperty::Hidden => JsValue::from(shown.display == Display::Hidden),
         FieldProperty::ReadOnly => JsValue::from(state.flags & READ_ONLY != 0),
         FieldProperty::Required => JsValue::from(state.flags & REQUIRED != 0),
         FieldProperty::TextColor => {
-            colour_array(state.text_color.unwrap_or(Colour::Gray(0.0)), context)
+            colour_array(shown.text_color.unwrap_or(Colour::Gray(0.0)), context)
         }
         FieldProperty::FillColor => {
-            colour_array(state.fill_color.unwrap_or(Colour::Transparent), context)
+            colour_array(shown.fill_color.unwrap_or(Colour::Transparent), context)
         }
         FieldProperty::StrokeColor => {
-            colour_array(state.stroke_color.unwrap_or(Colour::Transparent), context)
+            colour_array(shown.stroke_color.unwrap_or(Colour::Transparent), context)
         }
-        FieldProperty::BorderStyle => text(state.border_style.adobe()),
-        FieldProperty::Alignment => text(state.alignment.adobe()),
+        FieldProperty::BorderStyle => text(shown.border_style.adobe()),
+        FieldProperty::Alignment => text(shown.alignment.adobe()),
         FieldProperty::CharLimit => JsValue::from(state.char_limit.unwrap_or(0)),
         FieldProperty::Flag(flag) => JsValue::from(state.flags & flag.bit() != 0),
         FieldProperty::Page => state.page.map_or_else(|| JsValue::from(-1), JsValue::from),
         FieldProperty::Rect => {
             // The reference's rectangle is upper-left then lower-right; Table 166's `/Rect` is any
             // two opposite corners, normalised here.
-            let [x0, y0, x1, y1] = state.rect;
+            let [x0, y0, x1, y1] = shown.rect;
             let corners = [x0.min(x1), y0.max(y1), x0.max(x1), y0.min(y1)];
             JsValue::from(JsArray::from_iter(
                 corners.into_iter().map(JsValue::from),
@@ -1069,6 +1144,13 @@ fn read_property(
             ))
         }
         FieldProperty::Doc => JsValue::from(context.global_object()),
+        // The style whose code the widget's normal caption holds; a caption that is none of the
+        // six's codes is no style the reference names, and reads as `undefined` (ADR 1665).
+        FieldProperty::Style => shown
+            .captions
+            .first()
+            .and_then(|caption| Glyph::of_caption(caption))
+            .map_or_else(JsValue::undefined, |glyph| text(glyph.adobe())),
     })
 }
 
@@ -1088,7 +1170,8 @@ fn value_of(state: &FieldState, context: &mut Context) -> JsValue {
 }
 
 /// Writes one property of a field — every terminal field a subtree's name stands for — into the
-/// realm's table, and records each edit.
+/// realm's table, and records each edit: a widget-level member on the one widget a `Field` of one
+/// widget stands for, every other member on the field (ADR 1664).
 fn write_property(
     property: FieldProperty,
     this: &JsValue,
@@ -1096,6 +1179,7 @@ fn write_property(
     context: &mut Context,
 ) -> JsResult<()> {
     let name = field_name(this, context)?;
+    let widget = widget_of(this, context)?;
     let member = property.name();
     let refused = |why: &str, context: &mut Context| {
         refuse(
@@ -1161,6 +1245,7 @@ fn write_property(
             let limit = value.to_length(context)?;
             Property::CharLimit(u32::try_from(limit).unwrap_or(u32::MAX))
         }
+        FieldProperty::Style => style_of(&name, value, context)?,
         FieldProperty::ValueAsString
         | FieldProperty::Type
         | FieldProperty::Page
@@ -1170,15 +1255,49 @@ fn write_property(
         }
         FieldProperty::Flag(flag) => return write_flag(&name, flag, value.to_boolean(), context),
     };
+    let widget = widget.filter(|_| change.is_widget_level());
     for field in terminals(context, &name) {
         let edit = ScriptEdit::Property {
             field: field.clone(),
+            widget,
             property: change.clone(),
         };
         let applied = change.clone();
-        State::edit(context, &field, edit, move |state| apply(state, &applied));
+        State::edit(context, &field, edit, move |state| {
+            state.apply(widget, &applied);
+        });
     }
     Ok(())
+}
+
+/// `Field.style` set: one of the style constants, on a field the name stands for that is a check
+/// box or a radio button, whose Table 192 `/CA` is the glyph (ADR 1665).
+fn style_of(name: &str, value: &JsValue, context: &mut Context) -> JsResult<Property> {
+    let refused = |why: &str, context: &mut Context| {
+        refuse(
+            "Field.style=".to_owned(),
+            RefusalKind::Unreachable(why.to_owned()),
+            context,
+        )
+    };
+    let text = value.to_string(context)?.to_std_string_lossy();
+    let Some(glyph) = Glyph::from_adobe(&text) else {
+        return Err(refused("style takes one of the style constants", context));
+    };
+    for field in terminals(context, name) {
+        let kind = State::table(context, |table| {
+            table.fields.get(&field).map(|state| state.kind)
+        })
+        .flatten();
+        if !matches!(kind, Some(FieldType::CheckBox | FieldType::RadioButton)) {
+            return Err(refused(
+                "style is a check box's or a radio button's glyph, and Table 192's /CA is that \
+                 glyph only for a toggling button",
+                context,
+            ));
+        }
+    }
+    Ok(Property::Style(glyph))
 }
 
 /// `Field.multiline`, `password`, `doNotScroll` or `comb` set: Table 231's flag on every terminal
@@ -1240,9 +1359,10 @@ fn write_flag(name: &str, flag: TextFlag, on: bool, context: &mut Context) -> Js
             let property = Property::TextFlag(flag, on);
             let edit = ScriptEdit::Property {
                 field: field.clone(),
+                widget: None,
                 property: property.clone(),
             };
-            State::edit(context, &field, edit, |state| apply(state, &property));
+            State::edit(context, &field, edit, |state| state.apply(None, &property));
         }
     }
     Ok(())
@@ -1265,6 +1385,15 @@ fn get_array(this: &JsValue, _arguments: &[JsValue], context: &mut Context) -> J
 /// name that stands for a subtree — as an edit the host carries out (ADR 1615).
 fn set_focus(this: &JsValue, _arguments: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
     let name = field_name(this, context)?;
+    // The reference makes `setFocus` a widget's; a host takes a focus request by field and focuses
+    // its first widget, so a `Field` of one widget asks what the host cannot yet carry (ADR 1664).
+    if widget_of(this, context)?.is_some_and(|widget| widget > 0) {
+        return Err(refuse(
+            "Field.setFocus".to_owned(),
+            RefusalKind::NotBridged,
+            context,
+        ));
+    }
     if let Some(field) = terminals(context, &name).into_iter().next() {
         State::note(context, ScriptEdit::Focus { field });
     }
@@ -1306,28 +1435,6 @@ fn write_value(name: &str, value: &JsValue, context: &mut Context) -> JsResult<(
         State::edit(context, &field, edit, move |state| state.value = written);
     }
     Ok(())
-}
-
-/// A property set, over the realm's record of a field.
-fn apply(state: &mut FieldState, property: &Property) {
-    let set = |flags: u32, bit: u32, on: bool| if on { flags | bit } else { flags & !bit };
-    match *property {
-        Property::Display(display) => state.display = display,
-        Property::ReadOnly(on) => state.flags = set(state.flags, READ_ONLY, on),
-        Property::Required(on) => state.flags = set(state.flags, REQUIRED, on),
-        Property::TextColor(colour) => state.text_color = Some(colour),
-        Property::FillColor(colour) => state.fill_color = Some(colour),
-        Property::StrokeColor(colour) => state.stroke_color = Some(colour),
-        Property::BorderStyle(style) => state.border_style = style,
-        Property::Alignment(alignment) => state.alignment = alignment,
-        Property::CharLimit(limit) => state.char_limit = Some(limit),
-        Property::TextFlag(flag, on) => state.flags = set(state.flags, flag.bit(), on),
-        Property::Caption(face, ref caption) => {
-            if let Some(slot) = state.captions.get_mut(face.index()) {
-                slot.clone_from(caption);
-            }
-        }
-    }
 }
 
 /// A colour as the reference's array.

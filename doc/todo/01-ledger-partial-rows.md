@@ -42,7 +42,8 @@ reading in one line per row, and the note is where it is argued. The membership 
   moves when one does and its named specification is held. The network is not what is missing
   (ADR 1291).
 - **§12.10.2** — every projected map in the census writes its `/GPTS` as degrees, refused by name
-  until `doc/questions/Q271` is answered, and the forward projection is not built (ADRs 1586, 1587).
+  until `doc/questions/Q271` is answered; the forward projection is built beside each inverse (ADRs
+  1586, 1587, 1672), and a `/DCS` on another datum is a datum transformation A171 leaves out.
 
 §12.1 states no requirement and is `implemented` (ADR 1573).
 

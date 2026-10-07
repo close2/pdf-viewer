@@ -28,6 +28,8 @@
 
 #include "viewer-qt/src/bridge.cxx.h"
 
+class QTextDocument;
+
 class QLabel;
 class QLineEdit;
 class QListView;
@@ -264,6 +266,27 @@ protected:
 private:
     /// `viewer_host::popup::EDGE`.
     QColor edge_;
+};
+
+/// Table 172's `/RC` as a popup window draws it: a `QTextDocument` built format by format from
+/// the runs the host answered, laid out at the widget's width (ADR 1666).
+///
+/// Not a `QLabel`, because a label takes rich text as markup and Qt's CSS reader states no font
+/// scale; a document built through `QTextCursor` takes `QTextCharFormat::setFontStretch`.
+class RichNoteView : public QWidget
+{
+public:
+    /// Builds the document from `paragraphs`, set in `font` where a run states nothing.
+    RichNoteView(const rust::Vec<QtRichParagraph>& paragraphs, const QFont& font, QWidget* parent);
+    ~RichNoteView() override;
+
+protected:
+    /// Lays the document out at the widget's width, inside its padding, and draws it.
+    void paintEvent(QPaintEvent* event) override;
+
+private:
+    /// The note, owned here.
+    QTextDocument* document_;
 };
 
 /// The page's pixels, the form's controls, and the chrome over both.

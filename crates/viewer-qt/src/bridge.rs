@@ -292,13 +292,14 @@ pub mod ffi {
         /// list because this bridge carries one label per block of text. Empty for a window
         /// nobody replied to, which is almost every window.
         thread: String,
-        /// Table 172's `/RC` in Qt's rich text, as `viewer_host::popup::html` writes it, which the
-        /// window shows in place of [`QtPopup::text`] where it is not empty (ADR 1642).
+        /// Table 172's `/RC`, paragraph by paragraph, which the window shows in place of
+        /// [`QtPopup::text`] where it is not empty (ADRs 1642, 1666).
         ///
-        /// Every character escaped and every element and attribute `viewer_host` wrote, so a
-        /// label set to `Qt::RichText` with it shows the note's formatting and nothing the
-        /// document could have made markup.
-        rich: String,
+        /// Runs rather than Qt's rich text, because the window builds a `QTextDocument` format by
+        /// format: Qt's CSS reader has no property for chapter 27's font scales, and
+        /// `QTextCharFormat::setFontStretch` does scale. A document's characters cross as
+        /// characters and never as markup, so nothing of them can become an element.
+        rich: Vec<QtRichParagraph>,
         /// What the window did not draw of [`QtPopup::rich`], said under it; empty where nothing.
         not_drawn: String,
         /// §12.5.6.2's thread in Qt's rich text, where a reply in it states a rich note, which the
@@ -320,6 +321,73 @@ pub mod ffi {
         paper: u32,
         /// `viewer_host::popup::EDGE`, the line round the window, as `0xRRGGBB`.
         edge: u32,
+    }
+
+    /// One paragraph of a rich note, as the popup window's `QTextDocument` takes it (ADR 1666).
+    #[derive(Debug, Clone)]
+    struct QtRichParagraph {
+        /// Chapter 27's `text-align`: 0 none stated, 1 left, 2 centre, 3 right, 4 justify.
+        align: u8,
+        /// Whether UAX #9 reads the paragraph right to left, which puts its start edge — where
+        /// an unaligned paragraph and its list tag stand — at the right (ADR 1666).
+        right_to_left: bool,
+        /// How far the paragraph is set in from its start edge, in points: one list indent per
+        /// level.
+        indent: f32,
+        /// Whether `runs[0]` is a list item's tag, set as one left-to-right label at the
+        /// paragraph's start edge and outside its order.
+        tagged: bool,
+        /// The runs, the tag first where there is one.
+        runs: Vec<QtRichRun>,
+        /// The paragraph's tab stops, nearest its start edge first, as
+        /// `viewer_host::popup::tab_stops` places them.
+        tabs: Vec<QtTab>,
+    }
+
+    /// One run of a rich paragraph, every property already a number Qt sets.
+    #[derive(Debug, Clone)]
+    struct QtRichRun {
+        /// The characters: a `'\t'` advances one stop and U+2028 is XHTML's `br`.
+        text: String,
+        /// The family `viewer_host::popup::family` passed; empty for the window's own.
+        family: String,
+        /// The face's size in points: the run's size under its vertical scale.
+        points: f32,
+        /// How wide the glyphs are drawn, a percentage of the face's own: the horizontal scale
+        /// over the vertical, which `QFont::setStretch` takes.
+        stretch: i32,
+        /// Whether the run is bold.
+        bold: bool,
+        /// Whether it is italic.
+        italic: bool,
+        /// Whether it states a colour.
+        coloured: bool,
+        /// `color` as `0xRRGGBB`, where `coloured`.
+        colour: u32,
+        /// How many underlines: 0, 1 or 2 (Qt draws one).
+        underlines: u8,
+        /// Whether a line is drawn through it.
+        line_through: bool,
+        /// Letter spacing in points, already under the horizontal scale; the share of a space
+        /// below is added to it.
+        spacing: f32,
+        /// Letter spacing as a share of a space in the face Qt picks, which only the window can
+        /// measure; zero for none.
+        spacing_of_space: f32,
+        /// The largest spacing the run takes either way, in points: its own size, under its
+        /// horizontal scale.
+        spacing_bound: f32,
+        /// 1 raised, -1 lowered, 0 on the line.
+        rise: i8,
+    }
+
+    /// One tab stop, as `QTextOption::Tab` takes it.
+    #[derive(Debug, Clone)]
+    struct QtTab {
+        /// 0 left, 1 centre, 2 right, 3 at the first full stop.
+        side: u8,
+        /// The stop's distance from the paragraph's start, in points.
+        at: f32,
     }
 
     /// Where a window is on the screen, in the screen's own pixels.

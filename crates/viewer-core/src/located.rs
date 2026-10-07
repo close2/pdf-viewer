@@ -21,7 +21,7 @@
 //! threshold of this program's choosing: the file stated those points, and a person reading a
 //! position is owed how far the reading is from them.
 
-use pdf_model::geospatial::GeographicPosition;
+use pdf_model::geospatial::{AffineRegistration, GeographicPosition};
 use pdf_model::measurement::{Geospatial, Measure, Viewports};
 
 /// Where on the earth one point of a geospatial viewport is, or why no position is given.
@@ -44,9 +44,6 @@ pub enum Located {
     /// outside the neatline, or registration points that determine no map.
     Refused(String),
 }
-
-/// The fewest registration pairs that determine an affine map of the plane.
-const AFFINE_PAIRS: usize = 3;
 
 /// The position of a point in default user space, where the viewport containing it is
 /// geospatial; `None` where it is not, because then there is nothing of §12.10's to say.
@@ -110,7 +107,8 @@ fn position(geospatial: &Geospatial, point: (f32, f32), local: [f64; 2]) -> Loca
 }
 
 /// The least-squares affine map from the unit square to degrees, evaluated at `local`, and the
-/// largest departure of the file's own points from it.
+/// largest departure of the file's own points from it — `pdf_model`'s fit, which
+/// `Viewport::page_position` runs backwards (ADR 1672).
 ///
 /// `None` where fewer than three pairs are stated or every pair lies on one line, which determine
 /// no map of the plane.
@@ -118,62 +116,7 @@ fn fitted(
     pairs: &[(GeographicPosition, [f64; 2])],
     local: [f64; 2],
 ) -> Option<(GeographicPosition, f64)> {
-    if pairs.len() < AFFINE_PAIRS {
-        return None;
-    }
-    // The normal equations of `value = a·u + b·v + c`, one shared matrix for both axes. Centred on
-    // the points' mean so that a map registered far from its origin keeps its precision.
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "a count of registration pairs, which a file states in single figures"
-    )]
-    let count = pairs.len() as f64;
-    let mean = |pick: fn(&(GeographicPosition, [f64; 2])) -> f64| {
-        pairs.iter().map(pick).sum::<f64>() / count
-    };
-    let (mu, mv) = (mean(|pair| pair.1[0]), mean(|pair| pair.1[1]));
-    let (mut suu, mut suv, mut svv) = (0.0, 0.0, 0.0);
-    for (_, [u, v]) in pairs {
-        let (du, dv) = (u - mu, v - mv);
-        suu += du * du;
-        suv += du * dv;
-        svv += dv * dv;
-    }
-    let determinant = suu * svv - suv * suv;
-    // Collinear points: the spread across the line they share is nothing, relative to the spread
-    // along it, to the precision a double carries.
-    if determinant.abs() <= f64::EPSILON * (suu * svv).max(f64::MIN_POSITIVE) {
-        return None;
-    }
-    let axis = |pick: fn(&GeographicPosition) -> f64| {
-        let centre = pairs.iter().map(|pair| pick(&pair.0)).sum::<f64>() / count;
-        let (mut su, mut sv) = (0.0, 0.0);
-        for (position, [u, v]) in pairs {
-            let delta = pick(position) - centre;
-            su += (u - mu) * delta;
-            sv += (v - mv) * delta;
-        }
-        let a = (su * svv - sv * suv) / determinant;
-        let b = (sv * suu - su * suv) / determinant;
-        move |[u, v]: [f64; 2]| centre + a * (u - mu) + b * (v - mv)
-    };
-    let latitude = axis(|position| position.latitude);
-    let longitude = axis(|position| position.longitude);
-    let departure = pairs
-        .iter()
-        .map(|(position, at)| {
-            (latitude(*at) - position.latitude)
-                .abs()
-                .max((longitude(*at) - position.longitude).abs())
-        })
-        .fold(0.0, f64::max);
-    Some((
-        GeographicPosition {
-            latitude: latitude(local),
-            longitude: longitude(local),
-        },
-        departure,
-    ))
+    AffineRegistration::fit(pairs).map(|fit| (fit.position(local), fit.departure()))
 }
 
 #[cfg(test)]

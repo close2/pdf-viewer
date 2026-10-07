@@ -19,6 +19,7 @@
 # So the bound here is the *walk's*, and a shard takes a share of it:
 #
 #   tools/bounded.sh [--lock [--round N]] [--shards N] [--data GiB] [--tree GiB] [--tasks N] [--nice n] -- <command> [args…]
+#   tools/bounded.sh --held
 #
 #   --shards N   this process is one of N run side by side (default 1). It gets nproc/N rayon
 #                threads and (walk budget)/N of data, so the walk as a whole never exceeds the
@@ -41,7 +42,12 @@
 #                it until the wrapper ends, and append one line to /home/AI/heavy-walk.log saying how
 #                long the run queued for it, behind what, how long it held it and the tree's peak
 #                (below). An ancestor that holds the lock already — `flock <lock> tools/bounded.sh
-#                --lock …` — is found and used, never queued behind.
+#                --lock …`, or a `--lock` wrapper this command runs under — is found and used,
+#                never queued behind. The command runs without the lock's descriptor and with
+#                `HEAVY_WALK_HELD_BY` naming the process that holds it for the command.
+#   --held       exit 0 if the caller runs under a hold of the lock — it has the lock's descriptor
+#                open, or `HEAVY_WALK_HELD_BY` names an ancestor that has — and 1 otherwise. What a
+#                script that must run under the lock asks before it walks (`tools/batch.sh arms-held`).
 #   --round N    the round's session number, written on that line so a round's lock time can be
 #                read off the log (default `-`).
 #   --self-test  run the sampler against synthetic process tables and against live trees — one
@@ -110,9 +116,19 @@
 # a count (doc/reviews/1401, section 3). So `--lock` takes the lock here and writes one line per run
 # when the wrapper ends — `<asked> batch=<branch> round=<N> wait=<s> hold=<s> exit=<status>
 # cmd=<command>`, the branch being the batch's (that of the tree this script is in) —
-# and `tools/state.sh gates-cost` prints the last batch's lines and each round's sum. The descriptor
-# is inherited by the command, as `flock <lock> <command>` leaves it, so the lock is held while
-# anything the walk started still runs, a wrapper killed under it included. ADR 1646.
+# and `tools/state.sh gates-cost` prints the last batch's lines and each round's sum. ADR 1646.
+#
+# **The descriptor stays with the wrapper and is not handed to the command.** Handed down, as
+# `flock <lock> <command>` leaves it, the lock was held by anything the walk started for as long as
+# that thing lived, and a build inside the lock starts `sccache`'s server, which outlives the build
+# by design: on 2026-10-07 one held the machine's lock for about eighteen minutes after the walk
+# that started it had ended, while two rounds queued (ADR 1659 section 4, trap 131).
+# So the command and the `tee` beside it run with the descriptor closed, and the subshell that
+# waits for them keeps it: the lock is held exactly while the command runs, and still while it
+# runs after the wrapper above it was killed. What a script under the lock reads instead of the
+# descriptor is `HEAVY_WALK_HELD_BY`, that subshell's pid, which `--held` accepts only while that
+# process is an ancestor of the caller and has the descriptor open — so a daemon the walk left
+# behind, reparented away from it, is under no hold. ADR 1674.
 
 set -u -o pipefail
 
@@ -152,6 +168,7 @@ tasks=$task_budget
 lock_path=${HEAVY_WALK_LOCK:-/home/AI/heavy-walk.lock}
 lock_log=${HEAVY_WALK_LOG:-/home/AI/heavy-walk.log}
 take_lock=
+held_query=
 round=-
 
 while [ $# -gt 0 ]; do
@@ -163,6 +180,7 @@ while [ $# -gt 0 ]; do
         --task-budget) echo "$task_budget"; exit 0 ;;
         --nice) niceness=$2; shift 2 ;;
         --lock) take_lock=1; shift ;;
+        --held) held_query=1; shift ;;
         --round) round=$2; shift 2 ;;
         --self-test) self_test=1; shift ;;
         --) shift; break ;;
@@ -271,8 +289,8 @@ watch_tree() {
 # The lock.
 #
 # `lock_take` sets `lock_fd`, `asked_ms` and `held_ms`. A descriptor this process already has open
-# on the lock file is an ancestor's — `flock <lock> tools/bounded.sh --lock …` — and is locked
-# again rather than a second one opened: `flock` locks an open file description, so a second
+# on the lock file is a bare `flock` ancestor's — `flock <lock> tools/bounded.sh --lock …` — and is
+# locked again rather than a second one opened: `flock` locks an open file description, so a second
 # description of the same file would queue behind the caller's own lock for ever, while the
 # inherited one is granted at once. The wait is printed when there is one, so a round watching its
 # shell knows what it is waiting for, and so is the run it found holding the lock (ADR 1659).
@@ -298,17 +316,48 @@ lock_holder() {
     [ -n "$said" ] || said=unknown
     printf '%s' "$said" | tr ' \t\n' '___' | cut -c1-160
 }
-lock_take() {
+
+# `lock_open_in PID` prints the number of a descriptor PID has open on the lock file, and fails
+# where it has none.
+lock_open_in() {
     local target link
-    lock_fd=
-    if [ -e "$lock_path" ]; then
-        target=$(readlink -f -- "$lock_path")
-        for link in /proc/$$/fd/*; do
-            if [ "$(readlink -- "$link" 2>/dev/null)" = "$target" ]; then
-                lock_fd=${link##*/}
-                break
-            fi
-        done
+    [ -e "$lock_path" ] || return 1
+    target=$(readlink -f -- "$lock_path") || return 1
+    for link in /proc/"$1"/fd/*; do
+        if [ "$(readlink -- "$link" 2>/dev/null)" = "$target" ]; then
+            echo "${link##*/}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# `held_by_marked_ancestor` succeeds where `HEAVY_WALK_HELD_BY` names a process that is an
+# ancestor of this one and has the lock's descriptor open: the subshell of a `--lock` wrapper this
+# process runs under. The marker alone is only an inherited word — a daemon the walk started keeps
+# it after the walk — so the parent chain is what makes it a hold.
+held_by_marked_ancestor() {
+    local holder=${HEAVY_WALK_HELD_BY:-} pid=$$
+    case "$holder" in ''|*[!0-9]*) return 1 ;; esac
+    while [ "$pid" -gt 1 ]; do
+        pid=$(awk '$1 == "PPid:" { print $2; exit }' "/proc/$pid/status" 2>/dev/null)
+        [ -n "$pid" ] || return 1
+        [ "$pid" != "$holder" ] || { lock_open_in "$pid" > /dev/null; return; }
+    done
+    return 1
+}
+
+# What `--held` answers: this process has the lock's descriptor open — handed down by a bare
+# `flock <lock>` — or a marked ancestor holds it.
+lock_held_here() { lock_open_in $$ > /dev/null || held_by_marked_ancestor; }
+
+# `lock_take` returns at once, taking nothing and writing no line, where a `--lock` wrapper above
+# this one holds the lock already: that wrapper's line is the hold, and a second one would count it
+# twice.
+lock_take() {
+    lock_fd=$(lock_open_in $$) || lock_fd=
+    if [ -z "$lock_fd" ] && held_by_marked_ancestor; then
+        return 0
     fi
     [ -n "$lock_fd" ] || exec {lock_fd}>>"$lock_path" || return 1
     asked_ms=$(now_ms)
@@ -337,6 +386,8 @@ lock_record() {
     [ "$(cut -d' ' -f1 "$lock_path.holder" 2>/dev/null)" != "$$" ] || rm -f -- "$lock_path.holder"
 }
 seconds() { awk -v ms="$1" 'BEGIN { printf "%.1f", ms / 1000 }'; }
+
+[ -z "$held_query" ] || { lock_held_here; exit; }
 
 # ---------------------------------------------------------------------------------------------
 # The self-test: each case prints one line, and the script exits 1 on the first that fails.
@@ -507,6 +558,37 @@ print(f"all {born} forks succeeded", file=sys.stderr)
     [ -e "$scratch/lock.holder" ] && fail "lock: the holder's file outlived the holder: $(cat "$scratch/lock.holder")"
     echo "bounded --self-test: a run queued ${first_wait}s behind a holder, one found the lock free and one its caller's, each logged, each holder named"
 
+    # 8. The lock stays with the wrapper (ADR 1674). A daemon planted inside a hold — a `sleep` the
+    #    command starts and leaves running, as a build leaves `sccache`'s server — must not keep the
+    #    lock once the wrapper has ended; the command must not have the lock's descriptor; `--held`
+    #    must answer yes inside the hold, through the marker, and no outside it and in the daemon
+    #    once the hold is over; and a `--lock` run nested inside a hold must run under it rather
+    #    than queue behind its own ancestor, writing no line of its own.
+    held_case() { HEAVY_WALK_LOCK="$scratch/lock" HEAVY_WALK_LOG="$scratch/held8.log" "$self" "$@"; }
+    held_case --held && fail "held: --held said yes outside any hold"
+    held_case --lock --round 8 --tree 1 --data 1 --nice 0 -- sh -c '
+        "$0" --held && echo yes > "$1.inside"
+        ls -l /proc/$$/fd | grep -q "/lock\$" && echo yes > "$1.descriptor"
+        (for _ in $(seq 200); do [ -e "$1.over" ] && break; sleep 0.1; done
+         "$0" --held && echo yes > "$1.daemon"; : > "$1.asked"; exec sleep 30) > /dev/null 2>&1 < /dev/null &
+        echo $! > "$1.pid"
+        timeout 20 "$0" --lock --round 88 --tree 1 --data 1 --nice 0 -- true > /dev/null 2>&1 && echo yes > "$1.nested"
+        exit 0
+    ' "$self" "$scratch/held8" > /dev/null 2>&1 || fail "held: the hold's own run failed"
+    daemon=$(cat "$scratch/held8.pid" 2>/dev/null)
+    flock -n "$scratch/lock" true; free=$?
+    : > "$scratch/held8.over"
+    for _ in $(seq 100); do [ -e "$scratch/held8.asked" ] && break; sleep 0.1; done
+    [ -n "$daemon" ] && kill "$daemon" 2>/dev/null
+    [ -e "$scratch/held8.asked" ] || fail "held: the daemon never asked --held"
+    [ "$free" -eq 0 ] || fail "held: a sleep the command left running kept the lock after the wrapper ended"
+    [ -e "$scratch/held8.inside" ] || fail "held: --held said no inside a hold, so the marker is not read"
+    [ -e "$scratch/held8.descriptor" ] && fail "held: the command was handed the lock's descriptor"
+    [ -e "$scratch/held8.daemon" ] && fail "held: --held said yes in a daemon after the hold had ended"
+    [ -e "$scratch/held8.nested" ] || fail "held: a --lock run inside a hold did not finish: it queued behind its own ancestor"
+    [ "$(wc -l < "$scratch/held8.log")" = 1 ] || fail "held: $(wc -l < "$scratch/held8.log") lines logged for one hold and one nested run, wanted 1"
+    echo "bounded --self-test: a daemon left by the command did not keep the lock; --held read the marker inside, no outside and none in the daemon; a nested --lock ran under its ancestor"
+
     echo "bounded --self-test: every case holds"
     exit 0
 fi
@@ -565,10 +647,22 @@ errlog="$scratch/stderr"
 # is what a limit can reach (trap 18) and a pipe is not. Its standard output stays its own —
 # fd 3 carries it around the pipeline — because a survey's report is that stream. The subshell
 # exits with the *command's* status rather than `tee`'s.
+# Where this wrapper took the lock, the command and its `tee` run with the lock's descriptor closed
+# and the subshell keeps it, so the lock ends with the command and not with what the command left
+# running (the header, ADR 1674); the marker names the subshell, the process that holds it for them.
+# The output's copy is a descriptor of its own number for the same reason: an inherited lock is on
+# whatever number its `flock` opened, often 3.
 started=$(date +%s)
 (
-    exec 3>&1
-    prlimit --data="$data_bytes" --nproc="$tasks" nice -n "$niceness" "$@" 2>&1 1>&3 | tee "$errlog" >&2
+    exec {out_fd}>&1
+    if [ -n "${lock_fd:-}" ]; then
+        export HEAVY_WALK_HELD_BY=$BASHPID
+        prlimit --data="$data_bytes" --nproc="$tasks" nice -n "$niceness" "$@" \
+            {lock_fd}>&- 2>&1 1>&"$out_fd" {out_fd}>&- | tee "$errlog" {lock_fd}>&- {out_fd}>&- >&2
+    else
+        prlimit --data="$data_bytes" --nproc="$tasks" nice -n "$niceness" "$@" \
+            2>&1 1>&"$out_fd" {out_fd}>&- | tee "$errlog" {out_fd}>&- >&2
+    fi
     exit "${PIPESTATUS[0]}"
 ) &
 leader=$!

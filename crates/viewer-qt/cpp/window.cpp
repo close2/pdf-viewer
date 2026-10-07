@@ -23,6 +23,8 @@
 #include <QGuiApplication>
 #include <QFileDialog>
 #include <QFontDatabase>
+#include <QFontMetricsF>
+#include <QFontInfo>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QIcon>
@@ -49,6 +51,10 @@
 #include <QStatusBar>
 #include <QTabBar>
 #include <QTabWidget>
+#include <QAbstractTextDocumentLayout>
+#include <QTextBlock>
+#include <QTextCursor>
+#include <QTextDocument>
 #include <QTimer>
 #include <QToolBar>
 #include <QTreeView>
@@ -756,16 +762,22 @@ PopupWindow::PopupWindow(const QtPopup& window, QWidget* parent) : QFrame(parent
     // that shall be displayed in the popup window when the annotation is opened" — as the rich
     // text `viewer_host::popup::html` wrote: every character escaped and every element its own,
     // so `Qt::RichText` shows the note's formatting and nothing of the document's as markup.
-    const bool rich = !window.rich.empty();
-    auto* note = new QLabel(text(rich ? window.rich : window.text), this);
-    note->setTextFormat(rich ? Qt::RichText : Qt::PlainText);
-    note->setOpenExternalLinks(false);
-    note->setTextInteractionFlags(Qt::NoTextInteraction);
-    note->setWordWrap(true);
-    note->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    note->setContentsMargins(kPopupPadding, kPopupPadding, kPopupPadding, kPopupPadding);
-    note->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
-    column->addWidget(note, 1);
+    if (!window.rich.empty()) {
+        // Built format by format rather than handed over as markup, so that chapter 27's font
+        // scales and a paragraph's tab stops are set (ADR 1666).
+        auto* note = new RichNoteView(window.rich, font(), this);
+        note->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+        column->addWidget(note, 1);
+    } else {
+        auto* note = new QLabel(text(window.text), this);
+        note->setTextFormat(Qt::PlainText);
+        note->setTextInteractionFlags(Qt::NoTextInteraction);
+        note->setWordWrap(true);
+        note->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+        note->setContentsMargins(kPopupPadding, kPopupPadding, kPopupPadding, kPopupPadding);
+        note->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+        column->addWidget(note, 1);
+    }
     // What the window did not draw of the rich note, said rather than dropped (ADR 1642).
     if (!window.not_drawn.empty()) {
         auto* said = new QLabel(text(window.not_drawn), this);
@@ -801,6 +813,119 @@ void PopupWindow::paintEvent(QPaintEvent* event)
     QPainter painter(this);
     painter.setPen(QPen(edge_, 0));
     painter.drawRect(rect().adjusted(0, 0, -1, -1));
+}
+
+// ---------------------------------------------------------------------------------------------
+// RichNoteView
+// ---------------------------------------------------------------------------------------------
+
+RichNoteView::RichNoteView(const rust::Vec<QtRichParagraph>& paragraphs, const QFont& font,
+                           QWidget* parent)
+    : QWidget(parent), document_(new QTextDocument())
+{
+    setAttribute(Qt::WA_TransparentForMouseEvents);
+    document_->setDefaultFont(font);
+    document_->setDocumentMargin(0);
+    // Points become the document's pixels at the screen's own resolution, which is what Qt sizes
+    // a face in points by.
+    const qreal pixelsPerPoint = logicalDpiX() / 72.0;
+    QTextCursor cursor(document_);
+    bool first = true;
+    for (const QtRichParagraph& paragraph : paragraphs) {
+        QTextBlockFormat block;
+        // The start edge is the right for a paragraph UAX #9 reads right to left: an unaligned
+        // paragraph begins there, its list tag stands there and its indent is taken from there.
+        block.setLayoutDirection(paragraph.right_to_left ? Qt::RightToLeft : Qt::LeftToRight);
+        switch (paragraph.align) {
+        case 1: block.setAlignment(Qt::AlignLeft | Qt::AlignAbsolute); break;
+        case 2: block.setAlignment(Qt::AlignHCenter); break;
+        case 3: block.setAlignment(Qt::AlignRight | Qt::AlignAbsolute); break;
+        case 4: block.setAlignment(Qt::AlignJustify); break;
+        default: block.setAlignment(Qt::AlignLeading); break;
+        }
+        if (paragraph.right_to_left) {
+            block.setRightMargin(paragraph.indent * pixelsPerPoint);
+        } else {
+            block.setLeftMargin(paragraph.indent * pixelsPerPoint);
+        }
+        // `viewer_host::popup::tab_stops`' stops; chapter 27's `after` and `before` are already
+        // a side, so each is one of Qt's four kinds.
+        QList<QTextOption::Tab> tabs;
+        for (const QtTab& stop : paragraph.tabs) {
+            const qreal at = stop.at * pixelsPerPoint;
+            switch (stop.side) {
+            case 1: tabs.append(QTextOption::Tab(at, QTextOption::CenterTab)); break;
+            case 2: tabs.append(QTextOption::Tab(at, QTextOption::RightTab)); break;
+            case 3: tabs.append(QTextOption::Tab(at, QTextOption::DelimiterTab, QChar('.'))); break;
+            default: tabs.append(QTextOption::Tab(at, QTextOption::LeftTab)); break;
+            }
+        }
+        block.setTabPositions(tabs);
+        if (first) {
+            cursor.setBlockFormat(block);
+            first = false;
+        } else {
+            cursor.insertBlock(block);
+        }
+        for (const QtRichRun& run : paragraph.runs) {
+            QTextCharFormat format;
+            QFont face = font;
+            if (!run.family.empty()) {
+                face.setFamilies({text(run.family)});
+            }
+            face.setPointSizeF(std::max<qreal>(run.points, 1.0));
+            face.setBold(run.bold);
+            face.setItalic(run.italic);
+            // `QFont::setStretch` draws every glyph `stretch` percent of its face's own width:
+            // chapter 27's horizontal scale over its vertical (ADR 1666). Qt also matches a stretch
+            // to a face of another width where the family has one — a condensed design, not a
+            // scaled one — so the face is pinned by its style name first, and the stretch scales it.
+            if (run.stretch != 100) {
+                face.setStyleName(QFontInfo(face).styleName());
+                face.setStretch(run.stretch);
+            }
+            face.setUnderline(run.underlines > 0);
+            face.setStrikeOut(run.line_through);
+            qreal spacing = run.spacing * pixelsPerPoint;
+            if (run.spacing_of_space != 0.0f) {
+                spacing += QFontMetricsF(face, this).horizontalAdvance(QChar(' '))
+                           * run.spacing_of_space;
+            }
+            const qreal bound = run.spacing_bound * pixelsPerPoint;
+            spacing = std::clamp(spacing, -bound, bound);
+            if (spacing != 0.0) {
+                face.setLetterSpacing(QFont::AbsoluteSpacing, spacing);
+            }
+            format.setFont(face);
+            if (run.coloured) {
+                format.setForeground(QColor::fromRgb(run.colour));
+            }
+            if (run.rise > 0) {
+                format.setVerticalAlignment(QTextCharFormat::AlignSuperScript);
+            } else if (run.rise < 0) {
+                format.setVerticalAlignment(QTextCharFormat::AlignSubScript);
+            }
+            cursor.insertText(text(run.text), format);
+        }
+    }
+}
+
+RichNoteView::~RichNoteView()
+{
+    delete document_;
+}
+
+void RichNoteView::paintEvent(QPaintEvent* /*event*/)
+{
+    QPainter painter(this);
+    const qreal inner = std::max(1, width() - 2 * kPopupPadding);
+    document_->setTextWidth(inner);
+    painter.translate(kPopupPadding, kPopupPadding);
+    painter.setClipRect(QRectF(0, 0, inner, height() - 2 * kPopupPadding));
+    QAbstractTextDocumentLayout::PaintContext context;
+    context.palette = palette();
+    context.palette.setColor(QPalette::Text, palette().color(QPalette::WindowText));
+    document_->documentLayout()->draw(&painter, context);
 }
 
 // ---------------------------------------------------------------------------------------------

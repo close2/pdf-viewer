@@ -59,6 +59,9 @@ pub struct ProjectedSystem {
     pub projection: Projection,
     /// Metres per unit of the system's eastings and northings.
     pub linear_unit: f64,
+    /// That unit's name as the string states it, or `metre` where ISO 19162 section 7.4.4's
+    /// implied default applies — what a host writes beside an easting it displays.
+    pub linear_unit_name: String,
 }
 
 /// The system a `/WKT` string states.
@@ -347,13 +350,12 @@ fn projected(node: &Node) -> Result<ProjectedSystem, Refusal> {
 
     // The linear unit: the older form's `UNIT` at the system's level, the newer form's
     // `LENGTHUNIT` there or on its first axis; section 7.4.4's implied default is the metre.
-    let linear_unit = unit_factor(
-        node.child(&["LENGTHUNIT", "UNIT"]).or_else(|| {
-            node.child(&["AXIS"])
-                .and_then(|axis| axis.child(&["LENGTHUNIT"]))
-        }),
-        1.0,
-    )?;
+    let unit_node = node.child(&["LENGTHUNIT", "UNIT"]).or_else(|| {
+        node.child(&["AXIS"])
+            .and_then(|axis| axis.child(&["LENGTHUNIT"]))
+    });
+    let linear_unit = unit_factor(unit_node, 1.0)?;
+    let linear_unit_name = unit_node.and_then(Node::name).unwrap_or("metre").to_owned();
 
     let mut parameters = Parameters::default();
     let mut auxiliary_sphere = None;
@@ -414,6 +416,7 @@ fn projected(node: &Node) -> Result<ProjectedSystem, Refusal> {
         projection: Projection::new(method, ellipsoid, parameters)?,
         base,
         linear_unit,
+        linear_unit_name,
     })
 }
 

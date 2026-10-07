@@ -502,3 +502,10 @@ Every Latin fixture of round 1412's list tags passed while a CJK tag's full stop
 the tag was set by two faces and the second was never looked at. A change to tab stops, leaders or
 list tags is rendered and looked at (trap 1) with a right-to-left paragraph and a tag whose glyphs
 come from two faces, not with Latin text alone.
+
+## A rich fixture's `/Contents` is the rich string's text exactly as it is read
+
+A drive fixture whose `/RC` held a tab had a `/Contents` that spelled the tab as nothing, so the two
+texts differed, `/Contents` won (ADR 1635), the window showed plain text and the step found no colour
+at all (round 1415, step 57). A fixture that states both carries in `/Contents` exactly the text the
+rich string reads to, character for character, or the window is right to ignore the rich string.

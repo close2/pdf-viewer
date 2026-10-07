@@ -262,11 +262,12 @@ row is in this bucket when its note names none of those three.
   through the registration's affine map (ADR 1593), and the inverse projection is built on
   `doc/questions/A171`: no EPSG registry, because the census found no system named by code alone; the
   older WKT form the files carry and ISO 19162's own; eight methods to Guidance Note 7-2's worked
-  examples (ADRs 1586, 1587). What is left: every one of the census's 158 projected maps writes its
-  `/GPTS` as degrees where Table 269 says eastings and northings, refused by name until
-  `doc/questions/Q271` is answered; and the forward projection beside each inverse, which serves those
-  maps under either answer and is a normal round's build. A `/DCS` on another datum stays outside
-  A171's scope.
+  examples in both directions (ADRs 1586, 1587, 1672), so a projected `/DCS` on the file's datum is
+  displayed and a position given to a viewport answers its page point. What is left: every one of
+  the census's 158 projected maps writes its `/GPTS` as degrees where Table 269 says eastings and
+  northings, refused by name until `doc/questions/Q271` is answered — the forward leg those maps
+  would be fitted through is built and waits on that answer alone. A `/DCS` on another datum stays
+  outside A171's scope.
 
 §7.10.2 is `implemented`: Table 39's `/Order 3` is the not-a-knot cubic spline, the choice ADR 1636
 writes down against the clause's own four-sample threshold, and §7.10 settles with it.
@@ -322,11 +323,6 @@ than against its own words (ADR 1201's method), and what stands here is the buil
 no longer blocks. A round takes one of these the way it takes a ledger row; the ADR that recorded the
 premise is a record and stays as written.
 
-- **ADR 1012 — the converter's inert verbs.** `executor::execute`, `archive/preserve.rs` and
-  `archive/remedies.rs` carry out `derive`, `supply` and `preserve`, and `Qualifier::Shape` selects
-  against `decision::SHAPES` (ADR 1211). What is left is the listing: `print_remedy_sites` prints one
-  remedy sentence per site and no shape column, so an operator meets the distinction only in the error
-  that names it.
 - **ADR 0660 — Errata Collection 3 Issue #307's `shall not` as a writer's.** Discharged for four
   writers by ADR 1211: `filing::tree_root` is the only place this tree writes a `/Names` node, its key
   type is the prohibition, and three end-to-end tests hold that a source's null key does not cross a

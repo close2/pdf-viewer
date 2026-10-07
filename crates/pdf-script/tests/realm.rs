@@ -16,8 +16,8 @@
 use pdf_model::action::{PageTrigger, Trigger as AnnotationTrigger};
 use pdf_model::aform::Trigger;
 use pdf_model::view::{
-    Alignment, BorderStyle, Colour, Display, FieldState, FieldType, Property, ScriptEdit,
-    ScriptSite,
+    Alignment, BorderStyle, Colour, Display, FieldState, FieldType, Glyph, Property, ScriptEdit,
+    ScriptSite, WidgetState,
 };
 use pdf_script::{Budget, Ending, Engine, Event, Outcome, Realm, RefusalKind, Request};
 
@@ -28,17 +28,24 @@ fn field(name: &str, value: &str) -> FieldState {
         kind: FieldType::Text,
         value: value.to_owned(),
         flags: 0,
-        display: Display::Visible,
-        text_color: None,
-        fill_color: None,
-        stroke_color: None,
-        border_style: BorderStyle::Solid,
-        alignment: Alignment::Left,
         char_limit: None,
         page: Some(0),
-        rect: [10.0, 10.0, 210.0, 40.0],
-        captions: Default::default(),
+        widgets: vec![WidgetState {
+            display: Display::Visible,
+            text_color: None,
+            fill_color: None,
+            stroke_color: None,
+            border_style: BorderStyle::Solid,
+            alignment: Alignment::Left,
+            rect: [10.0, 10.0, 210.0, 40.0],
+            captions: Default::default(),
+        }],
     }
+}
+
+/// The one widget of a field of [`field`].
+fn widget() -> WidgetState {
+    field("", "").widgets.remove(0)
 }
 
 /// The form every test here tells its realm of.
@@ -49,10 +56,13 @@ fn form() -> Vec<FieldState> {
         FieldState {
             flags: 1 << 1,
             char_limit: Some(6),
-            alignment: Alignment::Right,
-            border_style: BorderStyle::Beveled,
-            text_color: Some(Colour::Rgb([0.0, 0.0, 1.0])),
             page: Some(2),
+            widgets: vec![WidgetState {
+                alignment: Alignment::Right,
+                border_style: BorderStyle::Beveled,
+                text_color: Some(Colour::Rgb([0.0, 0.0, 1.0])),
+                ..widget()
+            }],
             ..field("Total", "")
         },
         FieldState {
@@ -200,6 +210,7 @@ fn every_property_write_is_an_edit_by_member() {
     assert_eq!(ran.ending, Ending::Finished, "{ran:?}");
     let total = |property| ScriptEdit::Property {
         field: "Total".to_owned(),
+        widget: None,
         property,
     };
     assert_eq!(
@@ -216,6 +227,7 @@ fn every_property_write_is_an_edit_by_member() {
             total(Property::CharLimit(3)),
             ScriptEdit::Property {
                 field: "Line.2".to_owned(),
+                widget: None,
                 property: Property::Display(Display::Hidden),
             },
         ]
@@ -457,6 +469,56 @@ fn the_glyph_styles_and_the_pointer_behaviours_are_the_reference_s_tables() {
 }
 
 #[test]
+fn a_style_is_the_glyph_code_of_the_normal_caption() {
+    // The "Field properties" page's `style`, read and written as Table 192's `/CA` holding the
+    // ZapfDingbats code of the glyph (ADR 1665): `Agree` states no caption, so it reads as no
+    // style; a text field has no glyph to set.
+    let mut realm = realm();
+    let ran = calculate(
+        &mut realm,
+        r#"var box = this.getField("Agree"), before = typeof box.style;
+           box.style = style.cr;
+           var refused = "";
+           try { this.getField("Total").style = style.ch; } catch (e) { refused = e.name; }
+           event.value = [before, box.style, box.buttonGetCaption(), refused].join();"#,
+    );
+    assert_eq!(
+        ran.value.as_deref(),
+        Some("undefined,cross,8,NotAllowedError"),
+        "{ran:?}"
+    );
+    assert_eq!(
+        ran.edits,
+        vec![ScriptEdit::Property {
+            field: "Agree".to_owned(),
+            widget: None,
+            property: Property::Style(Glyph::Cross),
+        }]
+    );
+}
+
+#[test]
+fn the_full_screen_preferences_are_refused_by_name() {
+    // `app.fs` is the application's full-screen preferences, which RFC 0008 section 4.2 does not
+    // admit: a script that sets its cursor meets a `NotAllowedError` naming it (ADR 1665).
+    let mut realm = realm();
+    let ran = calculate(
+        &mut realm,
+        r"try { app.fs.cursor = cursor.hidden; } catch (e) { event.value = e.name; }",
+    );
+    assert_eq!(ran.value.as_deref(), Some("NotAllowedError"), "{ran:?}");
+    assert_eq!(ran.refusals.len(), 1, "{ran:?}");
+    assert_eq!(ran.refusals[0].member, "app.fs");
+    assert!(
+        matches!(
+            &ran.refusals[0].kind,
+            RefusalKind::Excluded(reason) if reason.contains("/PageMode")
+        ),
+        "{ran:?}"
+    );
+}
+
+#[test]
 fn an_exact_match_is_of_the_whole_string_and_answers_a_position_from_one() {
     // ADR 1652: the first pattern whose first match is the whole string, counted from one; 0 for
     // none; one pattern is a list of one.
@@ -502,19 +564,73 @@ fn a_name_that_matches_no_field_is_read_again_without_its_spaces_and_trailing_pe
     assert!(exact.notes.is_empty(), "{:?}", exact.notes);
 }
 
+/// A radio button field with two widgets, the second drawn elsewhere, hidden and filled grey.
+fn two_widgets() -> FieldState {
+    FieldState {
+        kind: FieldType::RadioButton,
+        widgets: vec![
+            widget(),
+            WidgetState {
+                display: Display::Hidden,
+                fill_color: Some(Colour::Gray(0.5)),
+                rect: [300.0, 10.0, 320.0, 30.0],
+                ..widget()
+            },
+        ],
+        ..field("Choice", "Off")
+    }
+}
+
 #[test]
-fn one_widget_of_a_field_is_refused_by_name_rather_than_answered_null() {
-    // The reference's `name.N` names one widget; the realm holds a field as its first widget, so
-    // the address is refused, and a name that is no field's prefix stays `null` (ADR 1652).
-    let mut realm = realm();
+fn one_widget_of_a_field_answers_its_own_widget_members_and_the_field_s_value() {
+    // The reference's "Field" page: `getField("name.N")` is the Nth widget from zero; a widget
+    // member reads and writes that widget, a field member the field (ADR 1664).
+    let mut realm = Realm::new(Budget::FIELD_EVENT).expect("a realm");
+    let mut fields = form();
+    fields.push(two_widgets());
+    let told = realm.run(&request(ScriptSite::Library, "", "", fields));
+    assert_eq!(told.ending, Ending::Finished, "{told:?}");
     let ran = calculate(
         &mut realm,
-        r#"var missing = this.getField("Line.3") === null; this.getField("Total.0");"#,
+        r#"var all = this.getField("Choice"), second = this.getField("Choice.1");
+           var read = [second.name, second.rect.join(), second.display, second.fillColor.join(),
+                       all.rect.join(), all.display, second === this.getField("Choice.1"),
+                       this.getField("Choice.2") === null, this.getField("Total.0").name];
+           second.strokeColor = color.red;
+           second.readonly = true;
+           second.value = "B";
+           read.push(this.getField("Choice.0").strokeColor.join(), second.strokeColor.join(),
+                     all.readonly, all.value);
+           event.value = read.join(" ");"#,
     );
-    assert!(matches!(ran.ending, Ending::Threw(_)), "{ran:?}");
-    assert_eq!(ran.refusals.len(), 1, "{ran:?}");
-    assert_eq!(ran.refusals[0].member, r#"this.getField("Total.0")"#);
-    assert_eq!(ran.refusals[0].kind, RefusalKind::NotBridged);
+    assert_eq!(ran.ending, Ending::Finished, "{ran:?}");
+    assert_eq!(
+        ran.value.as_deref(),
+        Some(
+            "Choice 300,30,320,10 1 G,0.5 10,40,210,10 0 true true Total \
+             T RGB,1,0,0 true B"
+        ),
+        "{ran:?}"
+    );
+    assert_eq!(
+        ran.edits,
+        vec![
+            ScriptEdit::Property {
+                field: "Choice".to_owned(),
+                widget: Some(1),
+                property: Property::StrokeColor(Colour::Rgb([1.0, 0.0, 0.0])),
+            },
+            ScriptEdit::Property {
+                field: "Choice".to_owned(),
+                widget: None,
+                property: Property::ReadOnly(true),
+            },
+            ScriptEdit::Value {
+                field: "Choice".to_owned(),
+                value: "B".to_owned(),
+            },
+        ]
+    );
 }
 
 #[test]

@@ -1222,6 +1222,8 @@ fn a_rich_note_is_drawn_in_the_colour_its_run_states() {
                 ),
                 run(" note.", None),
             ],
+            tab_interval: None,
+            tab_stops: Vec::new(),
         }],
         unapplied: Vec::new(),
     });
@@ -1311,6 +1313,8 @@ fn rich_note(
                     run
                 })
                 .collect(),
+            tab_interval: None,
+            tab_stops: Vec::new(),
         }],
         unapplied: Vec::new(),
     });
@@ -1384,6 +1388,87 @@ fn a_right_to_left_paragraph_is_ordered_across_its_runs() {
     assert!(
         blue_to < red_from,
         "blue ends at {blue_to}, left of red from {red_from}"
+    );
+}
+
+/// A tab advances to the paragraph's stop, and the text after it stands there as the stop's side
+/// says (ADR 1666): left-aligned, the blue letter begins 120 points — 160 pixels at 96 to the
+/// inch — right of the red one's line start; right-aligned, it ends there; with no stop stated,
+/// it follows the red letter as though the tab were not there.
+#[test]
+fn a_tab_advances_to_the_paragraphs_stop() {
+    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    let stopped = |side: Option<pdf_model::popup::RichTabAlign>| {
+        let mut note = rich_note(&[("H", &[], RED), ("\tH", &[], BLUE)], |_| {});
+        if let (Some(side), Some(paragraph)) = (
+            side,
+            note.rich
+                .as_mut()
+                .and_then(|rich| rich.paragraphs.first_mut()),
+        ) {
+            paragraph.tab_stops = vec![pdf_model::popup::RichTabStop {
+                align: side,
+                at: pdf_model::popup::Measure {
+                    per_base: 0.0,
+                    points: 120.0,
+                },
+            }];
+        }
+        let list = viewer_ui::chrome::popup_windows(
+            &chrome,
+            std::slice::from_ref(&note),
+            WIDTH,
+            HEIGHT,
+            1.0,
+        )
+        .expect("one window is drawn");
+        let red = columns(&list, 50..150, 0).expect("the red letter is drawn");
+        let blue = columns(&list, 50..150, 2).expect("the blue letter is drawn");
+        (red, blue)
+    };
+    let ((red_from, red_to), (blue_from, _)) = stopped(None);
+    assert!(
+        blue_from > red_to && blue_from - red_to < 8,
+        "no stop: blue from {blue_from}, red to {red_to}"
+    );
+    let ((red_from_left, _), (blue_from, _)) = stopped(Some(pdf_model::popup::RichTabAlign::Left));
+    assert_eq!(red_from_left, red_from);
+    let gap = blue_from - red_from;
+    assert!((155..=165).contains(&gap), "left stop: {gap} px");
+    let ((_, _), (_, blue_to)) = stopped(Some(pdf_model::popup::RichTabAlign::Right));
+    let gap = blue_to - red_from;
+    assert!((155..=165).contains(&gap), "right stop: {gap} px");
+}
+
+/// A list item's tag stands at its paragraph's start edge (ADR 1666): the right of a paragraph
+/// read right to left, so the red tag is right of the blue Hebrew it numbers.
+#[test]
+fn a_right_to_left_list_items_tag_is_at_its_right() {
+    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    chrome.settle();
+    let mut note = rich_note(&[("\u{5e9}\u{5dc}\u{5d5}\u{5dd}", &[], BLUE)], |_| {});
+    if let Some(paragraph) = note
+        .rich
+        .as_mut()
+        .and_then(|rich| rich.paragraphs.first_mut())
+    {
+        let mut tag = paragraph.runs.first().cloned().expect("one run");
+        tag.text = "1.".to_owned();
+        tag.colour = Some(RED);
+        paragraph.tag = Some(tag);
+    }
+    let draw = || {
+        viewer_ui::chrome::popup_windows(&chrome, std::slice::from_ref(&note), WIDTH, HEIGHT, 1.0)
+            .expect("one window is drawn")
+    };
+    drop(draw());
+    chrome.settle();
+    let list = draw();
+    let (red_from, _) = columns(&list, 50..150, 0).expect("the tag is drawn red");
+    let (_, blue_to) = columns(&list, 50..150, 2).expect("the paragraph is drawn blue");
+    assert!(
+        blue_to < red_from,
+        "the paragraph ends at {blue_to}, left of the tag from {red_from}"
     );
 }
 

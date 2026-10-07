@@ -96,6 +96,11 @@ pages of −11 to −23 levels against both references that were the instrument 
 `examples/open_one` on the head of any ranking is the check, and `cp <target>/release/pdf-sandbox-worker
 <target>/release/examples/` is the fix.
 
+The dev profile has a worker of its own. After a round's `--profile gates` builds, a plain
+`cargo nextest run -p pdf-model` showed 38 decoder failures that read as a regression until
+`cargo build -p pdf-sandbox --bins` had been run for `dev` as well (round 1414): the two profiles
+keep two workers, and a test under one profile finds only that profile's.
+
 ### 10b. A *new module file* is a fifth thing Cargo will hand you stale
 
 Adding `crates/pdf-render/src/medium.rs` in the six-hundred-and-eleventh session left the
@@ -619,6 +624,10 @@ make a member the sweep cannot measure a non-zero exit rather than a row it quie
 is what `cargo run --release -p pdfref --bin undrawn` does, reading its population *and* its
 exclusions off the gate's own report rather than assembling either (ADR 0985).
 
+A brief's "the N lines" is one of these. Batch sixty-five's instruments slot was told the tree held
+three bare-`flock` instructions in two files; a sweep over the tree found twelve in eight (round
+1419, ADR 1674). A sweep a brief asks for is widened from the lines the brief names to the tree,
+and the test that holds the result derives its population from the tree too.
 
 ### 27. An assertion on a substring passes for every answer that shares it
 

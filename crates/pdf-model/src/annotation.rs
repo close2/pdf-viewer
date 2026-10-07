@@ -1269,7 +1269,7 @@ fn stored_set_aside(
     let retyped = view.contents.is_some() && subtype == b"FreeText";
     let scripted = !view.scripted.is_empty()
         && subtype == b"Widget"
-        && crate::appearance::constructs_for_script(document, annotation);
+        && crate::appearance::constructs_for_script(document, annotation, view.scripted);
     if !retyped && !scripted {
         return None;
     }

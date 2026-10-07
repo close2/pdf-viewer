@@ -12,8 +12,10 @@
 //! - [`wkt`] is ISO 19162 section 6's string form;
 //! - [`system`]'s reading says what a tree means — the older `PROJCS` form every census document
 //!   carries, and ISO 19162's own `PROJCRS`;
-//! - [`projection`] is the inverse of each method the census found, each cited to IOGP Guidance
-//!   Note 7-2's own section and tested on its worked example;
+//! - [`projection`] is each method the census found in both directions, each cited to IOGP
+//!   Guidance Note 7-2's own section and tested on its worked example;
+//! - [`registration`] is the affine map a registration determines between an object's unit
+//!   square and the earth, and that map run backwards (ADRs 1593 and 1672);
 //! - [`Ellipsoid`] is Guidance Note 7-2 section 1.1's shared quantities.
 //!
 //! # The fork the census decided
@@ -30,21 +32,25 @@
 //!
 //! **No datum is transformed.** §12.10 asks where a point is in the system the file names; the
 //! answer is a latitude on that system's own datum. §12.10.2's `/DCS` names the system positions
-//! are displayed in, and [`Geospatial::display_position`] reaches it where it is the same datum;
-//! a `/DCS` on another datum is a datum transformation, which no clause here defines and the
-//! owner's answer leaves out, so it is refused by the two datums' names.
-//! **Nothing between registration points is interpolated**: §12.10 states the points and no
-//! function between them, so [`Geospatial::registration_geographic`] converts the points the
-//! file states and [`Geospatial::geographic_position`] converts through `/PCSM`, the one function
-//! the table does state.
+//! are displayed in, and [`Geospatial::display`] reaches it where it is on the same datum —
+//! geographic, or projected through the forward projection; a `/DCS` on another datum is a datum
+//! transformation, which no clause here defines and the owner's answer leaves out, so it is
+//! refused by the two datums' names.
+//! **Between registration points the function is a choice, and it is named**: §12.10 states the
+//! points and no function between them, so [`Geospatial::registration_geographic`] converts the
+//! points the file states, [`Geospatial::geographic_position`] converts through `/PCSM`, the one
+//! function the table does state, and [`registration::AffineRegistration`] is ADR 1593's reading
+//! between the points, which `crate::measurement::Viewport::page_position` runs backwards.
 
 pub mod ellipsoid;
 pub mod projection;
+pub mod registration;
 pub mod system;
 pub mod wkt;
 
 pub use ellipsoid::Ellipsoid;
-pub use projection::{LatLon, Method, Parameters, Projection};
+pub use projection::{GridPoint, LatLon, Method, Parameters, Projection};
+pub use registration::AffineRegistration;
 pub use system::{GeographicSystem, ProjectedSystem, ReferenceSystem};
 
 use crate::measurement::{CoordinateSystem, Geospatial};
@@ -139,6 +145,48 @@ pub enum Refusal {
         /// The method.
         method: &'static str,
     },
+    /// `/DCS` names a projected system, whose position is an easting and a northing; a caller
+    /// that writes only degrees has asked for a form the display system does not take, and
+    /// [`Geospatial::display`] gives the easting and northing.
+    #[error(
+        "the display system is projected, so its position is an easting and a northing, not \
+         degrees"
+    )]
+    DisplayIsProjected,
+    /// The registration states too few points, or points on one line or one parallel, to
+    /// determine an affine map between the unit square and the earth (ADR 1593).
+    #[error(
+        "the file's {0} registration point(s) do not span the map: an affine map needs three \
+         that are not on one line"
+    )]
+    NoMap(usize),
+    /// `/PCSM` maps two directions of the object onto one line of the projected plane, so no
+    /// position on the plane has one point of the object.
+    #[error("the /PCSM matrix is singular, so no position on the map has one point on the page")]
+    SingularMatrix,
+    /// The position is outside the map's neatline, where Table 269's `/Bounds` says the file's
+    /// registration does not apply.
+    #[error(
+        "this position is outside the map's neatline, where the file's registration does not \
+         apply (Table 269's /Bounds)"
+    )]
+    OutsideNeatline,
+}
+
+/// A position as Table 269's `/DCS` displays it: in the display system's own coordinates.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Displayed {
+    /// A latitude and a longitude of a geographic display system.
+    Geographic(GeographicPosition),
+    /// An easting and a northing of a projected display system, in its own linear unit.
+    Projected {
+        /// The easting.
+        easting: f64,
+        /// The northing.
+        northing: f64,
+        /// The unit both are counted in, as the system's string names it.
+        unit: String,
+    },
 }
 
 /// A position on the earth, in degrees of the file's own geographic system.
@@ -171,6 +219,21 @@ impl CoordinateSystem {
 }
 
 impl ProjectedSystem {
+    /// The easting and the northing, in this system's own unit, of a latitude and a longitude of
+    /// its base geographic system — Guidance Note 7-2's forward formulas of the system's method.
+    ///
+    /// # Errors
+    ///
+    /// What [`Projection::forward`] refuses: a point the method sends to infinity or does not
+    /// reach.
+    pub fn grid(&self, position: GeographicPosition) -> Result<[f64; 2], Refusal> {
+        let GridPoint { easting, northing } = self.projection.forward(LatLon {
+            latitude: position.latitude.to_radians(),
+            longitude: position.longitude.to_radians(),
+        })?;
+        Ok([easting / self.linear_unit, northing / self.linear_unit])
+    }
+
     /// The latitude and longitude of an easting and a northing in this system's own unit.
     ///
     /// # Errors
@@ -251,37 +314,33 @@ impl Geospatial {
     }
 
     /// A position of [`Self::coordinate_system`]'s own geographic system, in the system Table
-    /// 269's `/DCS` names — "[a] projected or geographic coordinate system that shall be used for the
-    /// display of position values".
+    /// 269's `/DCS` names — "[a] projected or geographic coordinate system that shall be used for
+    /// the display of position values".
     ///
     /// Without a `/DCS` the position is displayed as it is. With one, the display system is
-    /// reached only where that needs no datum transformation: a geographic `/DCS` on the same
-    /// datum and ellipsoid as `/GCS`'s base is the same latitude, its longitude moved by the
-    /// difference of the two prime meridians. A `/DCS` on another datum — the clause's own
-    /// example, a 1927 datum displayed in WGS84 — is refused by both datums' names, and a
-    /// projected `/DCS` by the forward projection it would need, which this tree does not carry.
+    /// reached where that needs no datum transformation: a `/DCS` whose geographic system — the
+    /// system itself, or a projected system's base — is on the same datum and ellipsoid as
+    /// `/GCS`'s is the same latitude, its longitude moved by the difference of the two prime
+    /// meridians, and a projected `/DCS` then carries it through its forward projection to an
+    /// easting and a northing. A `/DCS` on another datum — the clause's own example, a 1927 datum
+    /// displayed in WGS84 — is refused by both datums' names.
     ///
     /// # Errors
     ///
-    /// [`Refusal::DatumTransformation`] and [`Refusal::Unsupported`] as above, and whatever
-    /// reading either system's `/WKT` refuses.
-    pub fn display_position(
-        &self,
-        position: GeographicPosition,
-    ) -> Result<GeographicPosition, Refusal> {
+    /// [`Refusal::DatumTransformation`] as above, whatever reading either system's `/WKT`
+    /// refuses, and what the display system's forward projection refuses.
+    pub fn display(&self, position: GeographicPosition) -> Result<Displayed, Refusal> {
         let Some(display) = self.display_system.as_ref() else {
-            return Ok(position);
+            return Ok(Displayed::Geographic(position));
         };
         let system = self.coordinate_system.as_ref().ok_or(Refusal::NotStated)?;
         if display.wkt.is_none() && display.epsg.is_some() && display.epsg == system.epsg {
             // The same code names the same system; nothing needs reading to know that.
-            return Ok(position);
+            return Ok(Displayed::Geographic(position));
         }
-        let ReferenceSystem::Geographic(to) = display.reference_system()? else {
-            return Err(Refusal::Unsupported {
-                method: "/DCS",
-                reason: "a projected display system, which needs the forward projection",
-            });
+        let (to, projected) = match display.reference_system()? {
+            ReferenceSystem::Geographic(geographic) => (geographic, None),
+            ReferenceSystem::Projected(projected) => (projected.base.clone(), Some(projected)),
         };
         let from = match system.reference_system()? {
             ReferenceSystem::Geographic(geographic) => geographic,
@@ -313,10 +372,38 @@ impl Geospatial {
         } else if longitude < -180.0 {
             longitude += 360.0;
         }
-        Ok(GeographicPosition {
+        let shown = GeographicPosition {
             latitude: position.latitude,
             longitude,
+        };
+        Ok(match projected {
+            None => Displayed::Geographic(shown),
+            Some(projected) => {
+                let [easting, northing] = projected.grid(shown)?;
+                Displayed::Projected {
+                    easting,
+                    northing,
+                    unit: projected.linear_unit_name,
+                }
+            }
         })
+    }
+
+    /// [`Self::display`] for a caller that writes degrees: the display system's latitude and
+    /// longitude, or [`Refusal::DisplayIsProjected`] where `/DCS` is a projected system, whose
+    /// easting and northing [`Self::display`] gives.
+    ///
+    /// # Errors
+    ///
+    /// What [`Self::display`] refuses, and [`Refusal::DisplayIsProjected`].
+    pub fn display_position(
+        &self,
+        position: GeographicPosition,
+    ) -> Result<GeographicPosition, Refusal> {
+        match self.display(position)? {
+            Displayed::Geographic(shown) => Ok(shown),
+            Displayed::Projected { .. } => Err(Refusal::DisplayIsProjected),
+        }
     }
 
     /// A position in the object's own coordinates as a latitude and a longitude: `/PCSM` into
@@ -469,6 +556,157 @@ mod tests {
             ..Geospatial::default()
         };
         assert_eq!(none.display_position(position), Ok(position));
+    }
+
+    #[test]
+    fn a_projected_display_system_on_the_same_datum_shows_an_easting_and_a_northing() {
+        // Table 269's `/DCS` "shall be used for the display of position values" and may be a
+        // projected system; on `/GCS`'s own datum it is reached by its forward projection.
+        let etrs89 = r#"GEOGCS["GCS_ETRS_1989",DATUM["D_ETRS_1989",SPHEROID["GRS_1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]]"#;
+        let utm_33n = utm_32n()
+            .wkt
+            .expect("a WKT")
+            .replace("zone_32N", "zone_33N")
+            .replace(r#""central_meridian",9"#, r#""central_meridian",15"#);
+        let geospatial = Geospatial {
+            coordinate_system: Some(CoordinateSystem {
+                projected: false,
+                epsg: None,
+                wkt: Some(etrs89.to_owned()),
+            }),
+            display_system: Some(CoordinateSystem {
+                projected: true,
+                epsg: None,
+                wkt: Some(utm_33n.clone()),
+            }),
+            ..Geospatial::default()
+        };
+        let on_the_meridian = GeographicPosition {
+            latitude: 0.0,
+            longitude: 15.0,
+        };
+        let Ok(Displayed::Projected {
+            easting,
+            northing,
+            unit,
+        }) = geospatial.display(on_the_meridian)
+        else {
+            panic!("an easting and a northing");
+        };
+        assert!((easting - 500_000.0).abs() < 1e-6 && northing.abs() < 1e-6);
+        assert_eq!(unit, "Meter");
+        // Off the meridian, the display system's own inverse returns the position given.
+        let munich = GeographicPosition {
+            latitude: 48.137,
+            longitude: 11.575,
+        };
+        let Ok(Displayed::Projected {
+            easting, northing, ..
+        }) = geospatial.display(munich)
+        else {
+            panic!("an easting and a northing");
+        };
+        let Ok(ReferenceSystem::Projected(display)) = system::from_wkt(&utm_33n) else {
+            panic!("a projected system");
+        };
+        let back = display.geographic(easting, northing).expect("a position");
+        assert!((back.latitude - munich.latitude).abs() < 1e-9);
+        assert!((back.longitude - munich.longitude).abs() < 1e-9);
+        // A caller that writes degrees is told the display system is projected.
+        assert_eq!(
+            geospatial.display_position(munich),
+            Err(Refusal::DisplayIsProjected)
+        );
+        // On another datum the forward projection is never reached.
+        let nad27_utm = utm_33n
+            .replace("D_ETRS_1989", "D_North_American_1927")
+            .replace(
+                r#""GRS_1980",6378137,298.257222101"#,
+                r#""Clarke_1866",6378206.4,294.9786982"#,
+            );
+        let other = Geospatial {
+            display_system: Some(CoordinateSystem {
+                projected: true,
+                epsg: None,
+                wkt: Some(nad27_utm),
+            }),
+            ..geospatial
+        };
+        assert!(matches!(
+            other.display(munich),
+            Err(Refusal::DatumTransformation { .. })
+        ));
+    }
+
+    #[test]
+    fn every_method_closes_at_a_census_maps_registration_point() {
+        // ADR 1672: one map per method the census's round trip found, its `/GCS` string as the
+        // crawl document states it (a literal string's `\` before an ordinary character resolved
+        // as §7.3.4.2 says, by dropping it) and its first `/GPTS` pair read as the base system's
+        // degrees — the census's reading, which the program refuses until Q271 is answered. The
+        // forward projection and the inverse return to the point within ADR 1587's 0.0005″.
+        let cases: [(&str, &str, Method, [f64; 2]); 7] = [
+            (
+                "0100299.pdf",
+                r#"PROJCS["NAD_1983_StatePlane_New_York_Central_FIPS_3102_Feet",GEOGCS["GCS_North_American_1983",DATUM["D_North_American_1983",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["False_Easting",820208.333],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-76.5833333333333],PARAMETER["Scale_Factor",0.9999375],PARAMETER["Latitude_Of_Origin",40.0],UNIT["Foot_US",0.3048006096012192]]"#,
+                Method::TransverseMercator,
+                [42.391_88, -75.512_55],
+            ),
+            (
+                "0792430.pdf",
+                r#"PROJCS["NAD_1983_StatePlane_Washington_North_FIPS_4601_Feet",GEOGCS["GCS_North_American_1983",DATUM["D_North_American_1983",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Conformal_Conic"],PARAMETER["False_Easting",1640416.666666667],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-120.8333333333333],PARAMETER["Standard_Parallel_1",47.5],PARAMETER["Standard_Parallel_2",48.73333333333333],PARAMETER["Latitude_Of_Origin",47.0],UNIT["Foot_US",0.3048006096012192]]"#,
+                Method::LambertConicConformal2Sp,
+                [48.149_04, -122.183_57],
+            ),
+            (
+                "1161520.pdf",
+                r#"PROJCS["NAD_1983_HARN_WISCRS_Oneida_County_Feet",GEOGCS["GCS_North_American_1983_HARN",DATUM["D_North_American_1983_HARN",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Conformal_Conic"],PARAMETER["False_Easting",230000.0],PARAMETER["False_Northing",188936.744],PARAMETER["Central_Meridian",-89.54444444444444],PARAMETER["Standard_Parallel_1",45.70422377027778],PARAMETER["Scale_Factor",1.0000686968],PARAMETER["Latitude_Of_Origin",45.70422377027778],UNIT["Foot_US",0.3048006096012192]]"#,
+                Method::LambertConicConformal1Sp,
+                [45.613_72, -89.431_92],
+            ),
+            (
+                "0423430.pdf",
+                r#"PROJCS["WGS_1984_Web_Mercator ",GEOGCS["GCS_WGS_1984_Major_AuxSphere",DATUM["D_WGS_1984_Major_AuxSphere",SPHEROID["WGS_1984",6378137.0,0.0]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Mercator"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",0.0],PARAMETER["Standard_Parallel_1",0.0], UNIT["Meter",1.0]]"#,
+                Method::MercatorVariantB,
+                [38.2415, -122.993],
+            ),
+            (
+                "0300297.pdf",
+                r#"PROJCS["GAM",GEOGCS["GCS_North_American_1983",DATUM["D_North_American_1983",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers"],PARAMETER["False_Easting",4921250.0],PARAMETER["False_Northing",19685000.0],PARAMETER["Central_Meridian",-100.0],PARAMETER["Standard_Parallel_1",27.5],PARAMETER["Standard_Parallel_2",35.0],PARAMETER["Latitude_Of_Origin",31.25],UNIT["Foot_US",0.3048006096012192]]"#,
+                Method::AlbersEqualArea,
+                [29.471_54, -97.657_88],
+            ),
+            (
+                "2514866.pdf",
+                r#"PROJCS["Rijksdriehoekstelsel_New",GEOGCS["GCS_Amersfoort",DATUM["D_Amersfoort",SPHEROID["Bessel_1841",6377397.155,299.1528128]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Double_Stereographic"],PARAMETER["False_Easting",155000.0],PARAMETER["False_Northing",463000.0],PARAMETER["Central_Meridian",5.38763888888889],PARAMETER["Scale_Factor",0.9999079],PARAMETER["Latitude_Of_Origin",52.15616055555555],UNIT["Meter",1.0]]"#,
+                Method::ObliqueStereographic,
+                [50.586_65, 3.032_52],
+            ),
+            (
+                "6204117.pdf",
+                r#"PROJCS["WGS_1984_Web_Mercator_Auxiliary_Sphere",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Mercator_Auxiliary_Sphere"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",0.0],PARAMETER["Standard_Parallel_1",0.0],PARAMETER["Auxiliary_Sphere_Type",0.0],UNIT["Meter",1.0]]"#,
+                Method::PseudoMercator,
+                [-28.603, 21.7683],
+            ),
+        ];
+        let budget = 0.0005 / 3600.0;
+        for (file, wkt, method, [latitude, longitude]) in cases {
+            let Ok(ReferenceSystem::Projected(projected)) = system::from_wkt(wkt) else {
+                panic!("{file}: a projected system");
+            };
+            assert_eq!(projected.projection.method, method, "{file}");
+            let position = GeographicPosition {
+                latitude,
+                longitude,
+            };
+            let [easting, northing] = projected.grid(position).expect("a grid point");
+            let back = projected.geographic(easting, northing).expect("a position");
+            assert!(
+                (back.latitude - latitude).abs() <= budget
+                    && (back.longitude - longitude).abs() <= budget,
+                "{file}: {back:?}"
+            );
+        }
     }
 
     #[test]

@@ -17,8 +17,8 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 
 use pdf_model::view::{
-    Alignment, BorderStyle, Colour, Property, ScriptEdit, ScriptEvent, ScriptResult, ScriptRunner,
-    ScriptSite, ViewState,
+    Alignment, BorderStyle, Colour, FieldState, Glyph, Property, ScriptEdit, ScriptEvent,
+    ScriptResult, ScriptRunner, ScriptSite, ViewState,
 };
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
@@ -109,6 +109,7 @@ impl ScriptRunner for Setting {
                 .iter()
                 .map(|property| ScriptEdit::Property {
                     field: "Field".to_owned(),
+                    widget: None,
                     property: property.clone(),
                 })
                 .collect()
@@ -340,4 +341,194 @@ fn a_fields_entries_go_on_the_field_and_a_widgets_on_the_widget() {
         drawn.contains("0.5 g"),
         "the grey background is drawn: {drawn}"
     );
+}
+
+/// A text field (object 4) with two widgets that are kids of it (objects 6 and 7), the second
+/// further down the page.
+fn two_widget_document() -> Document {
+    let [pages, page] = pages("6 0 R 7 0 R");
+    assembled(&[
+        catalog(),
+        pages,
+        page,
+        "<< /FT /Tx /T (Field) /V (Paid) /Kids [6 0 R 7 0 R] >>".to_owned(),
+        font(),
+        "<< /Type /Annot /Subtype /Widget /Parent 4 0 R /Rect [10 10 210 40] /F 4 /P 3 0 R \
+         /MK << /BG [1] /BC [0] >> >>"
+            .to_owned(),
+        "<< /Type /Annot /Subtype /Widget /Parent 4 0 R /Rect [10 60 210 90] /F 4 /P 3 0 R \
+         /MK << /BG [1] /BC [0] >> >>"
+            .to_owned(),
+    ])
+}
+
+/// A runner answering the open action with properties set through a `Field` of one widget —
+/// `this.getField("Field.1").fillColor = color.red` — and keeping what it was told of `Field`.
+#[derive(Debug, Default)]
+struct OneWidget {
+    /// The widget, and what was set on it.
+    set: (u32, Vec<Property>),
+    /// The field's state as the open action was told it.
+    told: std::sync::Mutex<Option<FieldState>>,
+}
+
+impl ScriptRunner for OneWidget {
+    fn run(&self, event: &ScriptEvent<'_>) -> ScriptResult {
+        if let Some(field) = event.fields.iter().find(|field| field.name == "Field")
+            && let Ok(mut told) = self.told.lock()
+        {
+            *told = Some(field.clone());
+        }
+        let edits = if event.site == ScriptSite::OpenAction {
+            self.set
+                .1
+                .iter()
+                .map(|property| ScriptEdit::Property {
+                    field: "Field".to_owned(),
+                    widget: Some(self.set.0),
+                    property: property.clone(),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        ScriptResult {
+            rc: true,
+            value: None,
+            change: None,
+            edits,
+            report: Vec::new(),
+        }
+    }
+}
+
+/// A realm is told each widget of a field, and a property a script set through one widget's
+/// `Field` is drawn and saved on that widget alone: its `/MK` is the widget's, and the `/DA` its
+/// text colour would be written to is the field's, which the other widget would inherit, so it is
+/// not written there and the widget's own appearance carries the colour (ADR 1664).
+#[test]
+fn a_property_set_on_one_widget_reaches_that_widget_alone() {
+    let document = two_widget_document();
+    let runner = Arc::new(OneWidget {
+        set: (
+            1,
+            vec![
+                Property::FillColor(Colour::Rgb([1.0, 0.0, 0.0])),
+                Property::TextColor(Colour::Rgb([0.0, 0.0, 1.0])),
+            ],
+        ),
+        ..OneWidget::default()
+    });
+    let mut view = ViewState::of(&document);
+    view.run_scripts_with(Some(Arc::clone(&runner) as Arc<dyn ScriptRunner>));
+    view.run_open_scripts(&document, 0);
+    let told = runner
+        .told
+        .lock()
+        .ok()
+        .and_then(|told| told.clone())
+        .expect("the realm is told of the field");
+    let rects: Vec<[f64; 4]> = told.widgets.iter().map(|widget| widget.rect).collect();
+    assert_eq!(
+        rects,
+        vec![[10.0, 10.0, 210.0, 40.0], [10.0, 60.0, 210.0, 90.0]]
+    );
+
+    let written = view.save(&document).expect("the update writes");
+    let saved = Document::open(written.bytes).expect("the update reads back");
+    let (first, second, field) = (object(&saved, 6), object(&saved, 7), object(&saved, 4));
+    assert_eq!(
+        numbers(&saved, &characteristics(&saved, &second), "BG"),
+        Some(vec![1.0, 0.0, 0.0])
+    );
+    assert_eq!(
+        numbers(&saved, &characteristics(&saved, &first), "BG"),
+        Some(vec![1.0]),
+        "the first widget keeps its own background"
+    );
+    assert!(
+        field.get("DA").is_none(),
+        "no text colour is written where the first widget would inherit it"
+    );
+    let drawn = appearance(&saved, &second);
+    assert!(drawn.contains("1 0 0 rg"), "the red background: {drawn}");
+    assert!(drawn.contains("0 0 1 rg"), "the blue text: {drawn}");
+}
+
+/// A check box (object 4), on, whose `/DA` selects `face` and whose stored states draw a tick
+/// (object 6) and nothing (object 7); its `/MK` names the tick's code as its caption.
+fn check_box_document(face: &str) -> Document {
+    let [pages, page] = pages("4 0 R");
+    assembled(&[
+        catalog(),
+        pages,
+        page,
+        format!(
+            "<< /Type /Annot /Subtype /Widget /FT /Btn /T (Field) /V /Yes /AS /Yes \
+             /Rect [10 10 30 30] /F 4 /P 3 0 R /DA ({face} 0 Tf 0 g) \
+             /MK << /BG [1] /BC [0] /CA (4) >> /AP << /N << /Yes 6 0 R /Off 7 0 R >> >> >>"
+        ),
+        font(),
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] /Length 46 >>\nstream\n\
+         BT /ZaDb 14 Tf 3 4 Td (4) Tj ET 0 0 20 20 re S\nendstream"
+            .to_owned(),
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] /Length 14 >>\nstream\n\
+         0 0 20 20 re S\nendstream"
+            .to_owned(),
+    ])
+}
+
+/// `style`: Table 192's `/CA` holding the glyph's `ZapfDingbats` code. A saved file states it,
+/// and — since the on state is one stream among the appearance dictionary's, which one
+/// constructed stream would replace — keeps its states and names the field as one whose
+/// appearance it did not construct, which is what Table 224's flag is written for (ADR 1665).
+#[test]
+fn a_style_is_the_check_box_caption_and_its_states_are_owed() {
+    let document = check_box_document("/ZaDb");
+    let mut view = ViewState::of(&document);
+    view.run_scripts_with(Some(Arc::new(Setting(vec![Property::Style(Glyph::Cross)]))));
+    view.run_open_scripts(&document, 0);
+    let written = view.save(&document).expect("the update writes");
+    assert_eq!(written.unconstructed, vec!["Field".to_owned()]);
+    let saved = Document::open(written.bytes).expect("the update reads back");
+    let widget = object(&saved, 4);
+    assert_eq!(
+        saved
+            .get_key(&characteristics(&saved, &widget), "CA")
+            .as_string()
+            .map(<[u8]>::to_vec),
+        Some(b"8".to_vec())
+    );
+    let normal = saved.get_key(
+        &saved
+            .get_key(&widget, "AP")
+            .as_dict()
+            .cloned()
+            .expect("an /AP"),
+        "N",
+    );
+    assert!(
+        normal
+            .as_dict()
+            .is_some_and(|states| states.get("Yes").is_some() && states.get("Off").is_some()),
+        "the states stand: {normal:?}"
+    );
+}
+
+/// In a `/DA` font other than `ZapfDingbats` the style's code is a letter, so the style is not
+/// drawn and the reader is told (ADR 1665).
+#[test]
+fn a_style_in_another_font_is_reported_and_not_drawn() {
+    let document = check_box_document("/Helv");
+    let mut view = ViewState::of(&document);
+    view.run_scripts_with(Some(Arc::new(Setting(vec![Property::Style(Glyph::Star)]))));
+    view.run_open_scripts(&document, 0);
+    assert!(
+        view.script_reports()
+            .iter()
+            .any(|sentence| sentence.contains("not ZapfDingbats")),
+        "{:?}",
+        view.script_reports()
+    );
+    assert!(view.script_properties("Field").is_empty());
 }

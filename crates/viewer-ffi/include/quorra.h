@@ -383,6 +383,14 @@ extern "C" {
 #define QUORRA_RICH_ALIGN_RIGHT    3u
 #define QUORRA_RICH_ALIGN_JUSTIFY  4u  /* and justify-all */
 
+/* How the text after a tab stands at its stop, as quorra_rich_tab carries it (ADR 1667). */
+#define QUORRA_RICH_TAB_LEFT     0u
+#define QUORRA_RICH_TAB_CENTRE   1u
+#define QUORRA_RICH_TAB_RIGHT    2u
+#define QUORRA_RICH_TAB_DECIMAL  3u  /* the first full stop at the stop, the right edge without one */
+#define QUORRA_RICH_TAB_AFTER    4u  /* the edge the text starts from */
+#define QUORRA_RICH_TAB_BEFORE   5u  /* the edge it ends at */
+
 /* Which of a §14.7 structure element's three strings `quorra_structure_text` answers. ROLE is
  * §14.7.4's /S AFTER §14.7.3's role map, which is a `shall` on us; mapping it onto YOUR platform's
  * vocabulary is a different mapping and is yours. */
@@ -605,6 +613,27 @@ typedef struct quorra_viewing {
     float    scroll_x;     /* device pixels; positive has moved the content up and left */
     float    scroll_y;
 } quorra_viewing;
+
+/* A paragraph's tab stops (ADR 1667): how many it states, and its tab-interval where it states one.
+ * A '\t' in a run's characters advances to the next stop past the cursor — a stated one, then a
+ * default one every interval beyond the last stated, aligned QUORRA_RICH_TAB_AFTER — and by NOTHING
+ * where no stop lies past it: chapter 27 sets no stop where nothing states one. Positions are from
+ * the paragraph's left margin and resolve as a run's lengths do; sort them once resolved. */
+typedef struct quorra_rich_tabs {
+    size_t stops;             /* stated stops, quorra_popup_rich_tab reads each */
+    bool   has_interval;
+    float  interval_per_base;
+    float  interval_points;
+} quorra_rich_tabs;
+
+/* One stated stop: how the text after the tab stands at it (QUORRA_RICH_TAB_*; AFTER and BEFORE
+ * are the edges the text starts from and ends at, which turn with the paragraph's direction), and
+ * where it is. */
+typedef struct quorra_rich_tab {
+    uint32_t align;
+    float    at_per_base;
+    float    at_points;
+} quorra_rich_tab;
 
 /* One paragraph of a popup's rich note (ADR 1655). Its pieces are its list tag first, where
  * `has_tag` says it has one, then its runs; quorra_popup_rich_run reads each. */
@@ -1335,7 +1364,12 @@ int32_t quorra_popup_rich_paragraph(const quorra_popups *popups, size_t index, s
                                     size_t paragraph, quorra_rich_paragraph *into);
 int32_t quorra_popup_rich_run(const quorra_popups *popups, size_t index, size_t note,
                               size_t paragraph, size_t piece, quorra_rich_run *into);
-/* A piece's characters; a '\n' is XHTML's br, where the line ends whatever the width. */
+int32_t quorra_popup_rich_tabs(const quorra_popups *popups, size_t index, size_t note,
+                               size_t paragraph, quorra_rich_tabs *into);
+int32_t quorra_popup_rich_tab(const quorra_popups *popups, size_t index, size_t note,
+                              size_t paragraph, size_t stop, quorra_rich_tab *into);
+/* A piece's characters; a '\n' is XHTML's br, where the line ends whatever the width, and a '\t'
+ * advances one tab stop (quorra_rich_tabs). */
 int32_t quorra_popup_rich_text(const quorra_popups *popups, size_t index, size_t note,
                                size_t paragraph, size_t piece, char *out, size_t cap,
                                size_t *needed);

@@ -32,6 +32,8 @@ viewer-accessibility.workspace = true
 # The toolkit, and the whole point of the crate. See ADR 0244 for the decision, the
 # licence position and what confines it to this crate.
 gtk4.workspace = true
+# Pango 1.50's tab alignments, which `gtk4`'s re-export leaves off (ADR 1666).
+pango.workspace = true
 # Every refusal in this crate is a typed error, as everywhere else in the tree.
 thiserror.workspace = true
 

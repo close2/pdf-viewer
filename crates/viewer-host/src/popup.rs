@@ -259,25 +259,179 @@ pub fn scaled(run: &pdf_model::popup::RichRun) -> bool {
         || (run.vertical_scale - 1.0).abs() > f32::EPSILON
 }
 
-/// What a window that sets a note through a toolkit's label says it did not draw, beside
-/// `pdf_model::popup::RichNote::unapplied`: a font scale, which neither Pango's markup nor Qt's
-/// rich text states a property for, and a letter spacing given as a share of a space, which only
-/// the face the toolkit picks can resolve (ADR 1654). `quorra` draws both and passes nothing.
+/// How the text after a tab stands at its stop, once the paragraph's direction has turned
+/// chapter 27's `after` and `before` into a side: the four alignments Pango's tab array, Qt's tab
+/// positions and `quorra`'s own layout each set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TabSide {
+    /// The text's left edge at the stop.
+    Left,
+    /// The text centred on the stop.
+    Centre,
+    /// The text's right edge at the stop.
+    Right,
+    /// The text's first full stop at the stop, its right edge where it has none.
+    Decimal,
+}
+
+/// One of a paragraph's tab stops, placed: how the text after it stands, and how far it is from
+/// the paragraph's left margin in the unit [`size`] answers in.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TabStop {
+    /// How the text after the tab stands at the stop.
+    pub side: TabSide,
+    /// The stop's distance from the left margin.
+    pub at: f32,
+}
+
+/// The most default stops a paragraph is given: a window's width at the smallest interval a
+/// person can tell from a space is far below it, and a `tab-interval` of a hair is not a reason to
+/// hand a toolkit a million stops.
+const MOST_DEFAULT_STOPS: usize = 256;
+
+/// The stops a paragraph's tabs advance to, nearest the left margin first, as far as `room`.
+///
+/// ISO 32000-2 §12.7.4.3 brings chapter 27 of XFA 3.3 in for a rich text string's formatting, and
+/// its *Tab Stops* (pages 1205 to 1207) is the rule: the stops `tab-stops` states, then the
+/// default ones at every multiple of `tab-interval` beyond the last stated, each default stop
+/// aligned `after` — its left edge where the paragraph reads left to right. `base` and
+/// `per_point` are [`size`]'s; a paragraph stating neither property has no stop, and then a tab
+/// advances by nothing ([`advances`]), which is the chapter's own reading where nothing sets one.
 #[must_use]
-pub fn toolkit_unapplied(note: &pdf_model::popup::RichNote) -> Vec<String> {
+pub fn tab_stops(
+    paragraph: &pdf_model::popup::RichParagraph,
+    base: f32,
+    per_point: f32,
+    room: f32,
+) -> Vec<TabStop> {
+    use pdf_model::popup::RichTabAlign;
+    let right_to_left = right_to_left(paragraph);
+    let side = |align: RichTabAlign| match (align, right_to_left) {
+        (RichTabAlign::Left, _) | (RichTabAlign::After, false) | (RichTabAlign::Before, true) => {
+            TabSide::Left
+        }
+        (RichTabAlign::Right, _) | (RichTabAlign::After, true) | (RichTabAlign::Before, false) => {
+            TabSide::Right
+        }
+        (RichTabAlign::Centre, _) => TabSide::Centre,
+        (RichTabAlign::Decimal, _) => TabSide::Decimal,
+    };
+    let length = |measure: pdf_model::popup::Measure| {
+        measure.per_base.mul_add(base, measure.points * per_point)
+    };
+    let mut stops: Vec<TabStop> = paragraph
+        .tab_stops
+        .iter()
+        .map(|stop| TabStop {
+            side: side(stop.align),
+            at: length(stop.at),
+        })
+        .filter(|stop| stop.at.is_finite() && stop.at >= 0.0)
+        .collect();
+    stops.sort_by(|one, other| one.at.total_cmp(&other.at));
+    if let Some(interval) = paragraph
+        .tab_interval
+        .map(length)
+        .filter(|interval| interval.is_finite() && *interval > 0.0)
+    {
+        let last = stops.last().map_or(0.0, |stop| stop.at);
+        let mut at = ((last / interval).floor() + 1.0) * interval;
+        let mut added = 0;
+        while at <= room && added < MOST_DEFAULT_STOPS {
+            stops.push(TabStop {
+                side: side(RichTabAlign::After),
+                at,
+            });
+            at += interval;
+            added = added.saturating_add(1);
+        }
+    }
+    stops
+}
+
+/// Whether a paragraph's tabs advance at all: chapter 27 sets no stop where neither
+/// `tab-interval` nor `tab-stops` states one, so a toolkit — which puts its own default stops
+/// every so many spaces — is handed the text without its tab characters there.
+#[must_use]
+pub fn advances(paragraph: &pdf_model::popup::RichParagraph) -> bool {
+    !paragraph.tab_stops.is_empty()
+        || paragraph
+            .tab_interval
+            .is_some_and(|interval| interval.per_base != 0.0 || interval.points != 0.0)
+}
+
+/// Whether a paragraph holds a tab.
+#[must_use]
+pub fn tabbed(paragraph: &pdf_model::popup::RichParagraph) -> bool {
+    paragraph.runs.iter().any(|run| run.text.contains('\t'))
+}
+
+/// What a popup window says it did not draw of a paragraph's tabs, in every window alike: a tab in
+/// a paragraph read right to left, whose stops chapter 2's *Tab Stops* has the text reach leftward
+/// (page 61), which none of the three windows lays out (ADR 1666).
+#[must_use]
+pub fn tabs_unapplied(note: &pdf_model::popup::RichNote) -> Vec<String> {
+    if note
+        .paragraphs
+        .iter()
+        .any(|paragraph| tabbed(paragraph) && advances(paragraph) && right_to_left(paragraph))
+    {
+        vec!["a tab in a right-to-left paragraph".to_owned()]
+    } else {
+        Vec::new()
+    }
+}
+
+/// What a window that sets a note through a toolkit says it did not draw, beside
+/// `pdf_model::popup::RichNote::unapplied` and [`tabs_unapplied`] (ADRs 1654, 1666).
+///
+/// - **A font scale**, where `scales` is false: Pango's attributes state none per run (its
+///   `font_stretch` chooses a face's width, it does not scale one), so `quorra-gtk` passes false;
+///   Qt's `QTextCharFormat::setFontStretch` scales, and `quorra-qt` sets it.
+/// - **A tab past a paragraph's last stated stop**, where the paragraph states stops and no
+///   `tab-interval`: the chapter sets no default stop there and so no advance, and both toolkits
+///   put one of their own — Pango repeats the last spacing, Qt its default distance. Whether a tab
+///   reaches that far is decided by the toolkit's line, so the sentence names the case rather than
+///   a count of it.
+///
+/// `quorra` lays its lines out itself and passes neither.
+#[must_use]
+pub fn toolkit_unapplied(note: &pdf_model::popup::RichNote, scales: bool) -> Vec<String> {
     let runs = || {
         note.paragraphs
             .iter()
             .flat_map(|paragraph| paragraph.tag.iter().chain(&paragraph.runs))
     };
-    let mut said = Vec::new();
-    if runs().any(scaled) {
+    let mut said = tabs_unapplied(note);
+    if !scales && runs().any(scaled) {
         said.push("a font scale in a popup window".to_owned());
     }
-    if runs().any(|run| matches!(run.letter_spacing, pdf_model::popup::RichSpacing::OfSpace(share) if share != 0.0)) {
-        said.push("letter-spacing as a share of a space".to_owned());
+    if note.paragraphs.iter().any(|paragraph| {
+        tabbed(paragraph) && paragraph.tab_interval.is_none() && !paragraph.tab_stops.is_empty()
+    }) {
+        said.push("a tab past the last stated stop".to_owned());
     }
     said
+}
+
+/// The two numbers a toolkit that sizes a face by its height and scales its width sets a run in,
+/// for chapter 27's two font scales: the face's size, `size` times the vertical scale, and how
+/// wide its glyphs are drawn as a percentage of that face's own, the horizontal scale over the
+/// vertical — so that a glyph is `em × vertical` tall and advances `width × em × horizontal`, the
+/// reading `quorra` and a field's appearance draw by (ADR 1654).
+#[must_use]
+pub fn scaled_face(run: &pdf_model::popup::RichRun, size: f32) -> (f32, f32) {
+    let vertical = if run.vertical_scale.is_finite() && run.vertical_scale > 0.0 {
+        run.vertical_scale
+    } else {
+        1.0
+    };
+    let horizontal = if run.horizontal_scale.is_finite() && run.horizontal_scale > 0.0 {
+        run.horizontal_scale
+    } else {
+        1.0
+    };
+    (size * vertical, horizontal / vertical * 100.0)
 }
 
 /// The first family a run's `font-family` names that a toolkit may be handed, or `None` for the
@@ -542,11 +696,13 @@ mod tests {
                 level: 0,
                 tag: None,
                 runs: vec![spaced],
+                tab_interval: None,
+                tab_stops: Vec::new(),
             }],
             unapplied: Vec::new(),
         };
         assert!(super::html(&note, 10.0).contains("letter-spacing:13.33px"));
-        assert!(super::toolkit_unapplied(&note).is_empty());
+        assert!(super::toolkit_unapplied(&note, false).is_empty());
     }
 
     /// A toolkit's label states no font scale, so a note with one says so; one without says nothing.
@@ -560,14 +716,102 @@ mod tests {
                 level: 0,
                 tag: None,
                 runs,
+                tab_interval: None,
+                tab_stops: Vec::new(),
             }],
             unapplied: Vec::new(),
         };
         assert_eq!(
-            super::toolkit_unapplied(&note(vec![wide])),
+            super::toolkit_unapplied(&note(vec![wide]), false),
             vec!["a font scale in a popup window".to_owned()]
         );
-        assert!(super::toolkit_unapplied(&note(vec![run("x")])).is_empty());
+        assert!(super::toolkit_unapplied(&note(vec![run("x")]), false).is_empty());
+    }
+
+    /// A toolkit that sets a font scale says none, and the face it is set in is the run's size
+    /// under the vertical scale and drawn the horizontal over the vertical wide.
+    #[test]
+    fn a_toolkit_that_scales_is_handed_a_size_and_a_stretch() {
+        let mut wide = run("x");
+        wide.horizontal_scale = 2.0;
+        wide.vertical_scale = 0.5;
+        let (points, stretch) = super::scaled_face(&wide, 20.0);
+        assert!((points - 10.0).abs() < 1e-5, "{points}");
+        assert!((stretch - 400.0).abs() < 1e-3, "{stretch}");
+        let note = pdf_model::popup::RichNote {
+            paragraphs: vec![pdf_model::popup::RichParagraph {
+                align: None,
+                level: 0,
+                tag: None,
+                runs: vec![wide],
+                tab_interval: None,
+                tab_stops: Vec::new(),
+            }],
+            unapplied: Vec::new(),
+        };
+        assert!(super::toolkit_unapplied(&note, true).is_empty());
+    }
+
+    /// Chapter 27's *Tab Stops*: the stated stops in order of position, then the default ones at
+    /// every multiple of `tab-interval` past the last stated, aligned at their start edge; a
+    /// paragraph stating neither has no stop and its tabs advance by nothing.
+    #[test]
+    fn a_paragraphs_tab_stops_are_the_stated_then_every_interval() {
+        use pdf_model::popup::{Measure, RichTabAlign, RichTabStop};
+        let points = |points| Measure {
+            per_base: 0.0,
+            points,
+        };
+        let mut paragraph = pdf_model::popup::RichParagraph {
+            align: None,
+            level: 0,
+            tag: None,
+            runs: vec![run("a\tb")],
+            tab_interval: None,
+            tab_stops: Vec::new(),
+        };
+        assert!(!super::advances(&paragraph));
+        assert!(super::tab_stops(&paragraph, 10.0, 1.0, 500.0).is_empty());
+        paragraph.tab_stops = vec![
+            RichTabStop {
+                align: RichTabAlign::Decimal,
+                at: points(100.0),
+            },
+            RichTabStop {
+                align: RichTabAlign::Right,
+                at: Measure {
+                    per_base: 3.0,
+                    points: 0.0,
+                },
+            },
+        ];
+        paragraph.tab_interval = Some(points(72.0));
+        assert!(super::advances(&paragraph));
+        let stops = super::tab_stops(&paragraph, 10.0, 2.0, 500.0);
+        let placed: Vec<(super::TabSide, f32)> =
+            stops.iter().map(|stop| (stop.side, stop.at)).collect();
+        assert_eq!(
+            placed,
+            vec![
+                (super::TabSide::Right, 30.0),
+                (super::TabSide::Decimal, 200.0),
+                (super::TabSide::Left, 288.0),
+                (super::TabSide::Left, 432.0),
+            ]
+        );
+        let note = pdf_model::popup::RichNote {
+            paragraphs: vec![paragraph],
+            unapplied: Vec::new(),
+        };
+        assert!(super::toolkit_unapplied(&note, true).is_empty());
+        let mut unbounded = note.clone();
+        if let Some(paragraph) = unbounded.paragraphs.first_mut() {
+            paragraph.tab_interval = None;
+        }
+        assert_eq!(
+            super::toolkit_unapplied(&unbounded, true),
+            vec!["a tab past the last stated stop".to_owned()]
+        );
     }
 
     /// The note's characters and family names are the document's, so nothing of them reaches Qt's
@@ -584,6 +828,8 @@ mod tests {
                 level: 0,
                 tag: None,
                 runs: vec![hostile],
+                tab_interval: None,
+                tab_stops: Vec::new(),
             }],
             unapplied: Vec::new(),
         };

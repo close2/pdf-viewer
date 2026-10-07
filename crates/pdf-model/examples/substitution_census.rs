@@ -23,7 +23,7 @@
 //! opened with the password `tests/support/corpus_passwords.rs` publishes for it (ADR 1377).
 //!
 //! ```sh
-//! RAYON_NUM_THREADS=4 flock /home/AI/heavy-walk.lock tools/bounded.sh -- \
+//! RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> -- \
 //!   cargo run --release -p pdf-model --example substitution_census
 //! ```
 #![expect(

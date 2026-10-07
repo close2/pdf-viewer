@@ -15,8 +15,8 @@
 # line in `doc/verify.md`; the command is here.
 #
 # It walks `corpus-cache`, `doc/corpora` and `doc/pdf.js/test/pdfs`, which is a census over the
-# corpus: run it behind the lock, `flock /home/AI/heavy-walk.lock fuzz/seeds.sh`. `-L` because a
-# worktree's corpora are symbolic links into the main checkout.
+# corpus: run it behind the lock, `tools/bounded.sh --lock --round <session> --tree 12 --
+# fuzz/seeds.sh`. `-L` because a worktree's corpora are symbolic links into the main checkout.
 #
 # **Every recipe over those documents keeps one seed per shape** (ADRs 1559, 1571): the population
 # is some ninety thousand files and 126 GB, and kept whole each recipe wrote tens of thousands of

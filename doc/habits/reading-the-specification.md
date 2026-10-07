@@ -275,3 +275,12 @@ A parameter list a brief names is checked against the tables the clause prints: 
 vendor's open-parameter names (`pagemode`, `toolbar`, `navpanes`…) as Annex O's, and Annex O's
 own Tables O.3 and O.4 hold eleven (ADR 1523). Seven of the brief's seventeen are not in the
 standard, and under principle 5 they were not built.
+
+## A worked example is tested against its printed intermediates, not only its result
+
+Guidance Note 7-2's British National Grid example prints its intermediates η and ξ and a result that
+disagrees with them by 6 to 8 mm: the intermediates reproduce to every digit and give E 577274.984 m,
+where the page prints 577274.99 (round 1418, ADR 1672). A test against the result alone would have
+failed a correct implementation or passed a wrong one inside the tolerance it needed. Where an
+example prints both, the test asserts the constants and intermediates to their printed digits, and
+the result to the budget the decision records.

@@ -62,6 +62,10 @@ calibration_ms = 0.62 .. 0.78
 # IDLE, a planted compute loop PLANTED.
 device_busy_percent = 20
 
+# **No form page has a row, on purpose** (ADR 1670). This harness interprets with the widgets drawn and
+# no `viewer-core`, so a row cannot see the field table a form's repaint builds; `opt_demo.pdf` and
+# `xfa_filled_imm1344e.pdf` turned in 2.0 to 2.3 ms, under every row below, by a text page's stages.
+
 [[page]]
 path = "doc/ISO_32000-2_sponsored_EC3.pdf"
 page = 101

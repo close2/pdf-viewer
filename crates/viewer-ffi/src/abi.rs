@@ -104,6 +104,51 @@ pub const QUORRA_RICH_ALIGN_RIGHT: u32 = 3;
 /// `justify` and `justify-all`.
 pub const QUORRA_RICH_ALIGN_JUSTIFY: u32 = 4;
 
+/// A tab stop's text standing with its left edge at the stop (`quorra_rich_tab::align`, ADR 1667).
+pub const QUORRA_RICH_TAB_LEFT: u32 = 0;
+/// Centred on the stop.
+pub const QUORRA_RICH_TAB_CENTRE: u32 = 1;
+/// Its right edge at the stop.
+pub const QUORRA_RICH_TAB_RIGHT: u32 = 2;
+/// Its first full stop at the stop, its right edge where it has none.
+pub const QUORRA_RICH_TAB_DECIMAL: u32 = 3;
+/// The edge the text starts from: the left in a paragraph read left to right, the right in one
+/// read right to left — every default stop's alignment.
+pub const QUORRA_RICH_TAB_AFTER: u32 = 4;
+/// The edge the text ends at, the other way round.
+pub const QUORRA_RICH_TAB_BEFORE: u32 = 5;
+
+/// A paragraph's tab stops, as `quorra_popup_rich_tabs` answers them (ADR 1667): how many it
+/// states, and its `tab-interval` where it states one.
+///
+/// A struct added rather than one widened, so [`QUORRA_ABI_VERSION`] does not move (ADR 0737).
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
+pub struct PdfvRichTabs {
+    /// How many stops `quorra_popup_rich_tab` reads, in the order the paragraph states them.
+    pub stops: usize,
+    /// Whether the paragraph states a `tab-interval`; where it does not, no default stop is set
+    /// and a tab past every stated stop advances by nothing.
+    pub has_interval: bool,
+    /// The interval: so many of the caller's text size.
+    pub interval_per_base: f32,
+    /// And so many points beside them.
+    pub interval_points: f32,
+}
+
+/// One stated tab stop: how the text after it stands, and its distance from the paragraph's left
+/// margin, resolved as a run's lengths are (ADR 1667).
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
+pub struct PdfvRichTab {
+    /// `QUORRA_RICH_TAB_*`.
+    pub align: u32,
+    /// The position: so many of the caller's text size.
+    pub at_per_base: f32,
+    /// And so many points beside them.
+    pub at_points: f32,
+}
+
 /// One paragraph of Table 172's `/RC`, as `quorra_popup_rich_paragraph` answers it (ADR 1655).
 ///
 /// Written into a caller's struct rather than passed by value, so [`QUORRA_ABI_VERSION`] does not
@@ -5437,6 +5482,81 @@ pub unsafe extern "C" fn quorra_popup_rich_family(
         .and_then(|run| run.families.get(family).ok_or(Status::OutOfRange))
     {
         Ok(name) => copy_out(name, out, cap, needed),
+        Err(status) => status.code(),
+    }
+}
+
+/// A paragraph's tab stops: how many it states and its `tab-interval` (ADR 1667).
+///
+/// ISO 32000-2 §12.7.4.3 brings chapter 27 of XFA 3.3 in for a rich text string's formatting, and
+/// its *Tab Stops* (pages 1205 to 1207) is what a `'\t'` in a run's characters advances to: the
+/// next stated stop past the cursor, then a default one every interval beyond the last stated.
+///
+/// # Safety
+///
+/// See the module documentation. `into` is writable for one `quorra_rich_tabs`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_popup_rich_tabs(
+    popups: *const Popups,
+    index: usize,
+    note: usize,
+    paragraph: usize,
+    into: *mut PdfvRichTabs,
+) -> c_int {
+    let (Some(popups), Some(into)) = (popups.as_ref(), into.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match popups.rich_paragraph(index, note, paragraph) {
+        Ok(read) => {
+            let interval = read.tab_interval.unwrap_or_default();
+            *into = PdfvRichTabs {
+                stops: read.tab_stops.len(),
+                has_interval: read.tab_interval.is_some(),
+                interval_per_base: interval.per_base,
+                interval_points: interval.points,
+            };
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// One of a paragraph's stated tab stops, in the order it states them (ADR 1667).
+///
+/// # Safety
+///
+/// See the module documentation. `into` is writable for one `quorra_rich_tab`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_popup_rich_tab(
+    popups: *const Popups,
+    index: usize,
+    note: usize,
+    paragraph: usize,
+    stop: usize,
+    into: *mut PdfvRichTab,
+) -> c_int {
+    let (Some(popups), Some(into)) = (popups.as_ref(), into.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match popups
+        .rich_paragraph(index, note, paragraph)
+        .and_then(|read| read.tab_stops.get(stop).ok_or(Status::OutOfRange))
+    {
+        Ok(read) => {
+            *into = PdfvRichTab {
+                align: match read.align {
+                    pdf_model::popup::RichTabAlign::Left => QUORRA_RICH_TAB_LEFT,
+                    pdf_model::popup::RichTabAlign::Centre => QUORRA_RICH_TAB_CENTRE,
+                    pdf_model::popup::RichTabAlign::Right => QUORRA_RICH_TAB_RIGHT,
+                    pdf_model::popup::RichTabAlign::Decimal => QUORRA_RICH_TAB_DECIMAL,
+                    pdf_model::popup::RichTabAlign::After => QUORRA_RICH_TAB_AFTER,
+                    pdf_model::popup::RichTabAlign::Before => QUORRA_RICH_TAB_BEFORE,
+                },
+                at_per_base: read.at.per_base,
+                at_points: read.at.points,
+            };
+            Status::Ok.code()
+        }
         Err(status) => status.code(),
     }
 }

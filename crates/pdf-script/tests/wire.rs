@@ -6,7 +6,7 @@ use pdf_model::action::Trigger as AnnotationTrigger;
 use pdf_model::aform::Trigger;
 use pdf_model::view::{
     Alignment, BorderStyle, Colour, Display, DocumentTrigger, FieldState, FieldType, Property,
-    ScriptEdit, ScriptSite, TextFlag,
+    ScriptEdit, ScriptSite, TextFlag, WidgetState,
 };
 use pdf_script::wire::{WireError, decode_outcome, decode_request, encode_outcome, encode_request};
 use pdf_script::{Ending, Event, Exceeded, Outcome, Refusal, RefusalKind, Request};
@@ -33,16 +33,30 @@ fn request(site: ScriptSite) -> Request {
             kind: FieldType::ComboBox,
             value: "12".to_owned(),
             flags: 1 << 17,
-            display: Display::NoPrint,
-            text_color: Some(Colour::Rgb([1.0, 0.0, 0.5])),
-            fill_color: Some(Colour::Transparent),
-            stroke_color: None,
-            border_style: BorderStyle::Underline,
-            alignment: Alignment::Right,
             char_limit: Some(8),
             page: None,
-            rect: [1.0, 2.5, 3.0, -4.0],
-            captions: Default::default(),
+            widgets: vec![
+                WidgetState {
+                    display: Display::NoPrint,
+                    text_color: Some(Colour::Rgb([1.0, 0.0, 0.5])),
+                    fill_color: Some(Colour::Transparent),
+                    stroke_color: None,
+                    border_style: BorderStyle::Underline,
+                    alignment: Alignment::Right,
+                    rect: [1.0, 2.5, 3.0, -4.0],
+                    captions: Default::default(),
+                },
+                WidgetState {
+                    display: Display::Hidden,
+                    text_color: None,
+                    fill_color: Some(Colour::Gray(0.25)),
+                    stroke_color: Some(Colour::Cmyk([0.0, 0.5, 1.0, 0.0])),
+                    border_style: BorderStyle::Beveled,
+                    alignment: Alignment::Center,
+                    rect: [10.0, 20.0, 30.0, 40.0],
+                    captions: ["Yes".to_owned(), String::new(), "Over".to_owned()],
+                },
+            ],
         }],
         page: 3,
         pages: 9,
@@ -65,10 +79,12 @@ fn outcome() -> Outcome {
             },
             ScriptEdit::Property {
                 field: "Total".to_owned(),
+                widget: None,
                 property: Property::TextColor(Colour::Cmyk([0.0, 0.1, 0.2, 0.3])),
             },
             ScriptEdit::Property {
                 field: "Total".to_owned(),
+                widget: Some(1),
                 property: Property::Display(Display::Hidden),
             },
             ScriptEdit::Reset {
@@ -77,6 +93,7 @@ fn outcome() -> Outcome {
             ScriptEdit::Calculate,
             ScriptEdit::Property {
                 field: "Total".to_owned(),
+                widget: None,
                 property: Property::TextFlag(TextFlag::Comb, true),
             },
             ScriptEdit::Focus {

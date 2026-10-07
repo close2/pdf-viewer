@@ -76,6 +76,8 @@
 
 use pdf_syntax::{Dictionary, Document, Object};
 
+use crate::geospatial::{AffineRegistration, GeographicPosition, ReferenceSystem, Refusal};
+
 /// Most viewports read from one page.
 ///
 /// A viewport is a region of a page a person measures in; a page stating more of them than this
@@ -150,12 +152,86 @@ impl Viewport {
     /// `None` for a rectangle with no extent along an axis, which states no square to map into.
     #[must_use]
     pub fn unit_square(&self, (x, y): (f32, f32)) -> Option<[f64; 2]> {
+        self.unit_square_at([f64::from(x), f64::from(y)])
+    }
+
+    /// [`Self::unit_square`] for a point already in `f64`.
+    fn unit_square_at(&self, [x, y]: [f64; 2]) -> Option<[f64; 2]> {
         let [x0, y0, x1, y1] = self.bbox.map(f64::from);
         let (width, height) = (x1 - x0, y1 - y0);
         if width == 0.0 || height == 0.0 {
             return None;
         }
-        Some([(f64::from(x) - x0) / width, (f64::from(y) - y0) / height])
+        Some([(x - x0) / width, (y - y0) / height])
+    }
+
+    /// The point in default user space at a point of the unit square — [`Self::unit_square`]
+    /// run backwards, with the corners as stated for that method's reason.
+    #[must_use]
+    pub fn from_unit_square(&self, [u, v]: [f64; 2]) -> [f64; 2] {
+        let [x0, y0, x1, y1] = self.bbox.map(f64::from);
+        [x0 + u * (x1 - x0), y0 + v * (y1 - y0)]
+    }
+
+    /// Where on the page, in default user space, a position on the earth is in this viewport.
+    ///
+    /// The position is a latitude and a longitude of the file's own geographic system — `/GCS`
+    /// itself, or a projected `/GCS`'s base — which is what reading a point gives (ADR 1593), and
+    /// this is that reading run backwards (ADR 1672): through `/PCSM` where Table 269 gives the
+    /// matrix priority — the forward projection into the projected plane, then the matrix solved
+    /// for the object's position — and otherwise through the affine map the registration
+    /// determines, inverted, then this viewport's `/BBox`. A position the map places outside
+    /// `/Bounds` is refused: the table makes that polygon "the bounds of an area for which
+    /// geospatial transformations are valid", and that is so in both directions.
+    ///
+    /// `None` where the viewport's measure is not geospatial, because then §12.10 states nothing.
+    #[must_use]
+    pub fn page_position(&self, position: GeographicPosition) -> Option<Result<[f64; 2], Refusal>> {
+        let Some(Measure::Geospatial(geospatial)) = &self.measure else {
+            return None;
+        };
+        Some(self.geospatial_page_position(geospatial, position))
+    }
+
+    /// [`Self::page_position`] in a geospatial viewport.
+    fn geospatial_page_position(
+        &self,
+        geospatial: &Geospatial,
+        position: GeographicPosition,
+    ) -> Result<[f64; 2], Refusal> {
+        let no_square = || Refusal::Missing {
+            what: "/BBox with an extent, so no unit square to place a position in",
+            of: "the viewport".to_owned(),
+        };
+        let (point, local) = if geospatial.matrix_has_priority() {
+            let system = geospatial
+                .coordinate_system
+                .as_ref()
+                .ok_or(Refusal::NotStated)?;
+            let ReferenceSystem::Projected(projected) = system.reference_system()? else {
+                return Err(Refusal::NotASystem(
+                    "a PROJCS dictionary whose WKT states a geographic system".to_owned(),
+                ));
+            };
+            let point = geospatial
+                .object_position(projected.grid(position)?)
+                .ok_or(Refusal::NotStated)??;
+            (point, self.unit_square_at(point).ok_or_else(no_square)?)
+        } else {
+            let pairs = geospatial.registration_geographic()?;
+            let local = AffineRegistration::fit(&pairs)
+                .and_then(|fit| fit.local(position))
+                .ok_or(Refusal::NoMap(pairs.len()))?;
+            if self.unit_square_at([0.0, 0.0]).is_none() {
+                return Err(no_square());
+            }
+            (self.from_unit_square(local), local)
+        };
+        if geospatial.within_bounds(local) {
+            Ok(point)
+        } else {
+            Err(Refusal::OutsideNeatline)
+        }
     }
 }
 
@@ -365,17 +441,11 @@ impl Traced {
 
 /// What §12.10 states about a traced path in a geospatial viewport.
 ///
-/// # The half that is the file's and the half that is a registry's
-///
-/// Everything here is read out of the document. What is **not** here is a latitude, and the
-/// reason is the clause rather than the work: §12.10 states the correspondence between the
-/// object's unit square and the earth — `/GPTS` against `/LPTS`, point for point — and states no
-/// function between the registration points. Turning an arbitrary position into a coordinate
-/// means choosing one, and where `/GCS` is projected it means the EPSG registry and ISO 19162's
-/// grammar as well, both of which §12.10.3 names as texts outside this standard. So a position
-/// this reader cannot derive is absent rather than guessed, and what a host says instead is what
-/// the file does state: which system the map is in, how many points register it, and whether the
-/// place a person is pointing at is one the document's own neatline covers.
+/// Everything here is read out of the document: which system the map is in, how many points
+/// register it, and whether the path lies inside the document's own neatline. A latitude is not
+/// here, because §12.10 states no function between the registration points and the one this
+/// program reads there is a choice (ADR 1593): `viewer_core` reads it through
+/// `crate::geospatial::AffineRegistration`, and [`Viewport::page_position`] runs it backwards.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Geographic {
     /// `/GCS`, the system the map's coordinates are in. Table 269 requires it.
@@ -893,27 +963,17 @@ fn unit(value: &str, format: &NumberFormat) -> String {
 /// coordinate system associated with the PDF object, and corresponding arrays of points in that
 /// coordinate system and the local object coordinate system".
 ///
-/// # Read as data, and the boundary is stated rather than assumed
+/// # Read as data here, and projected in `crate::geospatial`
 ///
-/// Everything Table 269 holds is read. What is *not* here is the **projection**: turning a
-/// point in a projected coordinate system into a latitude means evaluating the algorithm named
-/// in a WKT string or looked up by an EPSG code, which is a geodesy library and a database —
-/// ISO 19162 and the EPSG registry, both outside this standard, and both named by §12.10.3 as
-/// external references. A reader that guessed at it would produce coordinates that look right
-/// and are somewhere else.
-///
-/// **The registry is the second leg of the journey and not the whole of it**, which is worth
-/// stating because this comment said otherwise for a long time. Two things are usable without
-/// any of it:
-///
-/// - the registration — [`Self::registration`] pairs the `/GPTS` geographic points with the
-///   `/LPTS` positions in the object's unit square, which is the correspondence the file states
-///   directly;
-/// - the first leg — [`Self::projected_position`] carries a position in the object's own
-///   coordinates into the projected system by `/PCSM`, which is a matrix multiplication and
-///   needs nothing outside the file. Table 269 gives that matrix priority over `/GPTS` where it
-///   is present, so on a document that states one the arithmetic this module cannot do is
-///   *projected to geographic* alone.
+/// Everything Table 269 holds is read here, and the legs that need nothing outside the file are
+/// answered here too: [`Self::registration`] pairs the `/GPTS` geographic points with the `/LPTS`
+/// positions in the object's unit square, which is the correspondence the file states directly,
+/// and [`Self::projected_position`] carries a position in the object's own coordinates into the
+/// projected system by `/PCSM` — a matrix multiplication — with [`Self::object_position`] its way
+/// back. The leg that does need a text outside this standard — the algorithm a WKT string names,
+/// §12.10.4's "algorithms and associated parameters used to transform points between geographic
+/// coordinates and a two-dimensional (projected) coordinate system" — is `crate::geospatial`'s,
+/// built of IOGP Guidance Note 7-2's formulas in both directions (ADRs 1586, 1587 and 1672).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Geospatial {
     /// `/Bounds`, the polygon "for which geospatial transformations are valid" — a *neatline* on
@@ -1033,18 +1093,55 @@ impl Geospatial {
     /// annotation" — Issue #534 again — so a caller measuring on a page passes `0.0` for it.
     #[must_use]
     pub fn projected_position(&self, [x, y, z]: [f64; 3]) -> Option<[f64; 3]> {
-        if !self.matrix_has_priority() {
-            return None;
-        }
         // One row per line, each name saying which input axis it scales and which output
         // component it lands in; the fourth row is the translation and the elided last column
         // is 0, 0, 0, 1.
-        let &[xx, xy, xz, yx, yy, yz, zx, zy, zz, tx, ty, tz] = self.projected_matrix.as_ref()?;
-        Some([
-            x * xx + y * yx + z * zx + tx,
-            x * xy + y * yy + z * zy + ty,
-            x * xz + y * yz + z * zz + tz,
-        ])
+        self.matrix_rows()
+            .map(|[xx, xy, xz, yx, yy, yz, zx, zy, zz, tx, ty, tz]| {
+                [
+                    x * xx + y * yx + z * zx + tx,
+                    x * xy + y * yy + z * zy + ty,
+                    x * xz + y * yz + z * zz + tz,
+                ]
+            })
+    }
+
+    /// The position in the object's own coordinates that `/PCSM` carries to an easting and a
+    /// northing — [`Self::projected_position`] solved for its argument, with `z` zero as it is on
+    /// a page.
+    ///
+    /// `None` where [`Self::matrix_has_priority`] is false, for that method's reasons.
+    ///
+    /// # Errors
+    ///
+    /// [`Refusal::SingularMatrix`] where the matrix's `x` and `y` rows are parallel in the plane,
+    /// so that a position on the plane is reached from a whole line of the object or from none.
+    #[must_use]
+    pub fn object_position(
+        &self,
+        [easting, northing]: [f64; 2],
+    ) -> Option<Result<[f64; 2], Refusal>> {
+        let [xx, xy, _, yx, yy, _, _, _, _, tx, ty, _] = self.matrix_rows()?;
+        let determinant = xx * yy - yx * xy;
+        let scale = (xx.abs() + yx.abs()) * (xy.abs() + yy.abs());
+        if !determinant.is_finite() || determinant.abs() <= f64::EPSILON * scale {
+            return Some(Err(Refusal::SingularMatrix));
+        }
+        let (e, n) = (easting - tx, northing - ty);
+        Some(Ok([
+            (e * yy - yx * n) / determinant,
+            (xx * n - xy * e) / determinant,
+        ]))
+    }
+
+    /// `/PCSM`'s twelve numbers where Table 269 applies them, in the row order Errata Collection
+    /// 3's Issue #534 states: one row per input axis, the fourth the translation, the elided last
+    /// column 0, 0, 0, 1.
+    fn matrix_rows(&self) -> Option<[f64; 12]> {
+        if !self.matrix_has_priority() {
+            return None;
+        }
+        self.projected_matrix
     }
 
     /// Whether a point of the object's unit square lies inside `/Bounds`.
@@ -1562,7 +1659,10 @@ pub fn annotation_measurement(document: &Document, annotation: &Dictionary) -> O
 
 #[cfg(test)]
 mod tests {
-    use super::{Fraction, Measure, NumberFormat, Viewports, format};
+    use super::{
+        CoordinateSystem, Fraction, Geospatial, Measure, NumberFormat, Viewport, Viewports, format,
+    };
+    use crate::geospatial::{GeographicPosition, Refusal};
     use pdf_syntax::Document;
 
     /// Builds a document from object bodies numbered from 1.
@@ -2245,5 +2345,129 @@ mod tests {
             .as_dict()
             .cloned()
             .expect("the first viewport")
+    }
+
+    /// A viewport over `[0 0 100 100]` measured by `geospatial`.
+    fn geospatial_viewport(geospatial: Geospatial) -> Viewport {
+        Viewport {
+            bbox: [0.0, 0.0, 100.0, 100.0],
+            name: None,
+            measure: Some(Measure::Geospatial(Box::new(geospatial))),
+            has_point_data: false,
+        }
+    }
+
+    fn degrees(latitude: f64, longitude: f64) -> GeographicPosition {
+        GeographicPosition {
+            latitude,
+            longitude,
+        }
+    }
+
+    #[test]
+    fn a_position_given_to_a_geographic_viewport_answers_the_page_point_that_reads_it() {
+        // The registration of `a_neatline_says_where_a_geospatial_reading_applies`: latitude runs
+        // along the unit square's u, longitude along its v.
+        let registration = Geospatial {
+            coordinate_system: Some(CoordinateSystem {
+                projected: false,
+                epsg: Some(4326),
+                wkt: None,
+            }),
+            geographic_points: vec![[51.0, 0.0], [51.0, 1.0], [52.0, 1.0], [52.0, 0.0]],
+            local_points: vec![[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]],
+            bounds: vec![[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]],
+            ..Geospatial::default()
+        };
+        let viewport = geospatial_viewport(registration.clone());
+        let point = viewport
+            .page_position(degrees(51.25, 0.75))
+            .expect("a geospatial viewport")
+            .expect("a page point");
+        assert!((point[0] - 25.0).abs() < 1e-9 && (point[1] - 75.0).abs() < 1e-9);
+
+        // Table 269's `/Bounds` disclaims every position outside it, in this direction too.
+        let quarter = geospatial_viewport(Geospatial {
+            bounds: vec![[0.0, 0.0], [0.0, 0.5], [0.5, 0.5], [0.5, 0.0]],
+            ..registration.clone()
+        });
+        assert_eq!(
+            quarter.page_position(degrees(51.75, 0.75)),
+            Some(Err(Refusal::OutsideNeatline))
+        );
+        assert!(matches!(
+            quarter.page_position(degrees(51.25, 0.25)),
+            Some(Ok(_))
+        ));
+
+        // One registration point determines no map, and says so with its count.
+        let one = geospatial_viewport(Geospatial {
+            geographic_points: vec![[51.0, 0.0]],
+            local_points: vec![[0.0, 0.0]],
+            ..registration
+        });
+        assert_eq!(
+            one.page_position(degrees(51.0, 0.0)),
+            Some(Err(Refusal::NoMap(1)))
+        );
+
+        // A viewport whose measure is not geospatial states nothing of §12.10's.
+        let plain = Viewport {
+            bbox: [0.0, 0.0, 100.0, 100.0],
+            name: None,
+            measure: None,
+            has_point_data: false,
+        };
+        assert!(plain.page_position(degrees(51.0, 0.0)).is_none());
+    }
+
+    #[test]
+    fn a_position_given_through_a_matrix_comes_back_to_the_point_it_was_read_at() {
+        // A UTM zone 32N map whose `/PCSM` makes one unit of the page ten metres and puts the
+        // page's origin at (500000, 5300000): a position read at a page point through the matrix
+        // and the inverse projection, given back, is that point (ADR 1672).
+        let mut matrix = [0.0; 12];
+        matrix[0] = 10.0;
+        matrix[4] = 10.0;
+        matrix[8] = 1.0;
+        matrix[9] = 500_000.0;
+        matrix[10] = 5_300_000.0;
+        let geospatial = Geospatial {
+            coordinate_system: Some(CoordinateSystem {
+                projected: true,
+                epsg: None,
+                wkt: Some(r#"PROJCS["ETRS89_UTM_zone_32N",GEOGCS["GCS_ETRS_1989",DATUM["D_ETRS_1989",SPHEROID["GRS_1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",9],PARAMETER["scale_factor",0.9996],PARAMETER["false_easting",500000],PARAMETER["false_northing",0],UNIT["Meter",1]]"#.to_owned()),
+            }),
+            projected_matrix: Some(matrix),
+            bounds: vec![[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]],
+            ..Geospatial::default()
+        };
+        let viewport = geospatial_viewport(geospatial.clone());
+        for page in [[0.0, 0.0], [30.0, 40.0], [99.0, 1.0]] {
+            let position = geospatial
+                .geographic_position([page[0], page[1], 0.0])
+                .expect("the matrix applies")
+                .expect("a position");
+            let back = viewport
+                .page_position(position)
+                .expect("a geospatial viewport")
+                .expect("a page point");
+            assert!(
+                (back[0] - page[0]).abs() < 1e-6 && (back[1] - page[1]).abs() < 1e-6,
+                "{page:?} came back as {back:?}"
+            );
+        }
+        // A matrix that maps the page's two axes onto one line reaches no single page point.
+        let mut flat = matrix;
+        flat[3] = 10.0;
+        flat[4] = 0.0;
+        assert_eq!(
+            Geospatial {
+                projected_matrix: Some(flat),
+                ..geospatial
+            }
+            .object_position([500_000.0, 5_300_000.0]),
+            Some(Err(Refusal::SingularMatrix))
+        );
     }
 }

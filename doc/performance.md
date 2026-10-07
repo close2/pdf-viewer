@@ -102,10 +102,11 @@ initialising GL is Mesa's EGL bringing up `radeonsi` for an adapter nobody choos
 instance a launch makes now loads it only where the primary backends have no hardware adapter
 (ADR 1532: the enumeration ADR 0179 found paying the saving back costs 3 to 8 ms either way on
 today's driver stack). **On the machine's real adapter, headless,
-the first frame costs 18.2 ms and the tenth 4.1** — and a one-second sleep before it changes
-nothing, so the ~12 ms difference is first-use allocation rather than warmth. `CLAUDE.md`'s ban on
-waiting for warmth therefore costs nothing measurable here; `examples/first_frame` is the
-instrument and `doc/QUORRA_FEEDBACK.md` §9 is the ask. The same arithmetic puts a launch on the
+the first frame of ISO 32000-2's page 7 costs 10.3 ms and the steady frame 4.0** (ADR 1668), and
+a one-second sleep before it changes nothing for the better. So the difference is not warmth: it is
+the page's own coverage, seen for the first time, and the two textures a warm-up could make for it
+are worth 0.1 to 0.2 ms. `CLAUDE.md`'s ban on waiting for warmth therefore costs nothing measurable
+here; `examples/first_frame` is the instrument. The same arithmetic puts a launch on the
 real GPU at **75 to 90 ms** against `lavapipe`'s 145, and nobody has run that — the window half of
 it is the user's to measure. The CPU backend keeps its other two jobs:
 the correctness oracle, and the frame the device refuses.
@@ -589,6 +590,16 @@ again as slowly as the faster — and a page whose resources reach fewer than tw
 nothing. The population it helps is small: 39 of the pdf.js corpus's 958 first pages name two
 images or more. ADR 1321 has the census, the pinned A/B and the frame rows;
 `examples/image_decode_census` is the instrument.
+
+**A device's first frame against its tenth** is `examples/first_frame`, which prints each frame
+stage by stage with its page faults and raster's phases. On ISO 32000-2's page 7, medians of eight
+interleaved runs on 2026-10-07, frame 1 is 6.70 ms over the steady frame at 596 × 842, 7.74 at
+1191 × 1684 and 17.87 at 2382 × 3368. The encode holds 4.1 to 5.8 ms of it: the page's glyphs,
+whose coverage the CPU lane makes once into the atlas. The scene holds 0.5 ms and the first
+submission's recording and submit about 1. At 4× the readback holds 2.4 ms more, and the host pass
+over the read-back raster a further 7.6, paid on frames 1 and 2. What a warm-up thread could make
+for the frame is the atlas texture and the white stand-in, and they are worth 0.10 to 0.18 ms of
+its upload, so they are made where the first glyph needs them (ADR 1668).
 
 ## What a soft mask cost, and what naming one constant took off it
 

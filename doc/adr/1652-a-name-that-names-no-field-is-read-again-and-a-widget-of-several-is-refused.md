@@ -1,6 +1,8 @@
 # 1652 — A name that names no field is read again, cut; one widget of several is refused by name; and three members of Adobe's library are carried
 
-Status: accepted and **built**. Session 1408. Builds on RFC 0008 section 4.2 (`A193`), ADR 1591's
+Status: accepted and **built**. Session 1408; **superseded in part by ADR 1664 (session 1414)**:
+section 2's refusal of one widget is replaced by a `Field` of that widget, and section 3's
+`Field.style` is carried by ADR 1665. Builds on RFC 0008 section 4.2 (`A193`), ADR 1591's
 refusal rule, ADR 1603's realm table and ADR 1578's library; closes `doc/todo/56`'s Tier 1 column
 classes 4 and 7 as far as each goes.
 Code: `crates/pdf-script/src/engine/bridge.rs` (`get_field`, `spoken_name`, `widget_address`,

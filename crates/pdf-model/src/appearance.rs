@@ -1140,7 +1140,14 @@ pub(crate) fn for_saving(
     scripted: &[crate::view::Property],
 ) -> ForSaving {
     let constructed_for_script =
-        !scripted.is_empty() && constructs_for_script(document, annotation);
+        !scripted.is_empty() && constructs_for_script(document, annotation, scripted);
+    // A check box's or radio button's style is its on state's glyph, and §12.7.5.2.3 keeps that
+    // state as one stream among the appearance dictionary's, which one constructed stream would
+    // replace: the saved file states the glyph in `/MK` and asks the next reader to construct the
+    // states with Table 224's flag (ADR 1665).
+    if constructed_for_script && is_toggling(document, annotation) {
+        return ForSaving::Owed;
+    }
     if !constructed_for_script && !regenerates(document, annotation, b"Widget", value) {
         return ForSaving::Selected;
     }
@@ -1352,14 +1359,15 @@ pub(crate) fn scripted_entries(
                     .field
                     .push((Name::new(&b"Ff"[..]), Object::Integer(flags)));
             }
-            // `buttonSetCaption`: Table 192's `/CA`, `/AC` or `/RC`, which the push-button's
-            // construction draws its caption from (ADR 1626).
-            Property::Caption(face, caption) => {
+            Property::Caption(..) | Property::Style(_) => {
+                let (key, caption) = caption_entry(property);
                 characteristics
                     .get_or_insert_with(|| widget_characteristics(document, annotation))
                     .insert(
-                        Name::new(face.key().as_bytes()),
-                        Object::String(pdf_syntax::text_string::encode_text_string(caption).into()),
+                        Name::new(key.as_bytes()),
+                        Object::String(
+                            pdf_syntax::text_string::encode_text_string(&caption).into(),
+                        ),
                     );
             }
             // `display`, `readonly` and the text flags are a view state's own (ADRs 1603, 1615).
@@ -1377,6 +1385,18 @@ pub(crate) fn scripted_entries(
             .push((Name::new(&b"BS"[..]), Object::Dictionary(style)));
     }
     entries
+}
+
+/// The Table 192 caption a script's property writes, and its text: `buttonSetCaption`'s `/CA`,
+/// `/AC` or `/RC`, which a push-button's construction draws (ADR 1626), and `style`'s glyph code as
+/// `/CA`, which a check box or radio button draws in its on state in the `/DA`'s font (ADR 1665).
+/// Empty for any other property.
+fn caption_entry(property: &crate::view::Property) -> (&'static str, String) {
+    match property {
+        crate::view::Property::Caption(face, caption) => (face.key(), caption.clone()),
+        crate::view::Property::Style(glyph) => ("CA", glyph.caption().to_string()),
+        _ => ("CA", String::new()),
+    }
 }
 
 /// A widget's own `/MK`, copied, or an empty one: what a script's property is written into.
@@ -1416,12 +1436,63 @@ pub(crate) fn with_scripted(
 /// construct. A check box and a radio button do not: §12.7.5.2.3 defines their states "by an
 /// appearance stream in the appearance dictionary of the field's widget annotation", which the
 /// value selects among, so constructing one stream would destroy the states — their properties are
-/// written to the file for the next construction and drawn from the stored states here.
-pub(crate) fn constructs_for_script(document: &Document, annotation: &Dictionary) -> bool {
+/// written to the file for the next construction and drawn from the stored states here. **Except
+/// their glyph**: a script's `style` changes the mark the on state *is*, so a stored stream no
+/// longer draws it and the widget is constructed — its on state the glyph Table 192's `/CA` now
+/// names, its off state the background and border (ADR 1665).
+pub(crate) fn constructs_for_script(
+    document: &Document,
+    annotation: &Dictionary,
+    scripted: &[crate::view::Property],
+) -> bool {
+    match Field::read(document, annotation, FieldValue::Stored).kind {
+        Some(
+            FieldKind::Text | FieldKind::Choice { .. } | FieldKind::Button { toggling: false },
+        ) => true,
+        Some(FieldKind::Button { toggling: true }) => scripted
+            .iter()
+            .any(|property| matches!(property, crate::view::Property::Style(_))),
+        _ => false,
+    }
+}
+
+/// Whether the widget is a check box's or a radio button's, whose appearance states its value
+/// selects among (§12.7.5.2.3).
+fn is_toggling(document: &Document, annotation: &Dictionary) -> bool {
     matches!(
         Field::read(document, annotation, FieldValue::Stored).kind,
-        Some(FieldKind::Text | FieldKind::Choice { .. } | FieldKind::Button { toggling: false })
+        Some(FieldKind::Button { toggling: true })
     )
+}
+
+/// Whether the font a widget's `/DA` selects is `ZapfDingbats`, in which a style's code is its
+/// glyph ([`crate::view::Glyph::caption`], ADR 1665): the font `/DR` names, by its `/BaseFont`, or
+/// the name that denotes it where `/DR` defines none.
+pub(crate) fn draws_dingbats(document: &Document, annotation: &Dictionary) -> bool {
+    let field = Field::read(document, annotation, FieldValue::Stored);
+    let form = interactive_form(document).unwrap_or_default();
+    let sources: Vec<&Dictionary> = field
+        .ancestry
+        .iter()
+        .chain(std::iter::once(&form))
+        .collect();
+    let Some(appearance) = variable_text::bytes(document, &sources, "DA") else {
+        return false;
+    };
+    let operators = variable_text::DefaultAppearance::parse(&appearance);
+    let Some(name) = operators.font.as_ref() else {
+        return false;
+    };
+    let resources = document
+        .get_key(&form, "DR")
+        .as_dict()
+        .cloned()
+        .unwrap_or_default();
+    let (font, _) = variable_text::resolve_font(document, &resources, name);
+    document
+        .get_key(&font, "BaseFont")
+        .as_name()
+        .is_some_and(|base| base.as_bytes() == b"ZapfDingbats")
 }
 
 /// An Adobe colour as Table 192's array: as many components as the colour space has, and none for

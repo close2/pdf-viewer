@@ -19,7 +19,7 @@ use std::rc::Rc;
 use pdf_model::aform::Trigger;
 use pdf_model::view::{
     Alignment, BorderStyle, Display, DocumentState, Face, FieldState, FieldType, InfoEntry, Layer,
-    Property, ScriptEdit, ScriptSite,
+    Property, ScriptEdit, ScriptSite, WidgetState,
 };
 use pdf_script::{
     Answer, Asker, Budget, Button, Buttons, Ending, Event, Exceeded, Icon, Outcome, Question,
@@ -33,16 +33,18 @@ fn field(name: &str, kind: FieldType) -> FieldState {
         kind,
         value: String::new(),
         flags: 0,
-        display: Display::Visible,
-        text_color: None,
-        fill_color: None,
-        stroke_color: None,
-        border_style: BorderStyle::Solid,
-        alignment: Alignment::Left,
         char_limit: None,
         page: Some(0),
-        rect: [0.0, 0.0, 100.0, 20.0],
-        captions: ["Send".to_owned(), String::new(), String::new()],
+        widgets: vec![WidgetState {
+            display: Display::Visible,
+            text_color: None,
+            fill_color: None,
+            stroke_color: None,
+            border_style: BorderStyle::Solid,
+            alignment: Alignment::Left,
+            rect: [0.0, 0.0, 100.0, 20.0],
+            captions: ["Send".to_owned(), String::new(), String::new()],
+        }],
     }
 }
 
@@ -267,10 +269,12 @@ fn a_caption_is_table_192_s_entry_and_a_text_field_has_none() {
         vec![
             ScriptEdit::Property {
                 field: "Send".to_owned(),
+                widget: None,
                 property: Property::Caption(Face::Normal, "Formular drucken".to_owned()),
             },
             ScriptEdit::Property {
                 field: "Send".to_owned(),
+                widget: None,
                 property: Property::Caption(Face::Rollover, "=> drucken <=".to_owned()),
             },
         ]

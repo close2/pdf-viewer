@@ -2420,6 +2420,23 @@ pub struct Site {
     /// on bytes the caller hands in is still a site an operator has something to say about, and
     /// the listing says which of the two it is.
     pub conditional: Option<super::Conditional>,
+    /// The two halves a `[site."…".shape."<name>"]` header selects between, where the requirement
+    /// fails for two reasons that take different answers; empty for every other site.
+    ///
+    /// `doc/adr/1211` built the qualifier and `doc/adr/1673` puts it in the listing: an operator
+    /// who met the distinction only in the error naming a shape had answered the half they did
+    /// not mean before learning there were two.
+    pub shapes: Vec<SiteShape>,
+}
+
+/// One half of a requirement that splits into two shapes, as `--remedy-sites` names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SiteShape {
+    /// The word a `[site."…".shape."<name>"]` header states.
+    pub name: &'static str,
+    /// Whether a row for this half is carried out; the other half keeps the refusal its
+    /// requirement carries, so a row for it is inert (`config::applies_to`).
+    pub answered: bool,
 }
 
 /// What an operator is agreeing to when they declare a `[tool.…]` block.
@@ -2474,6 +2491,13 @@ pub fn sites(target: Target) -> Vec<Site> {
                 takes_a_fetched_file: FETCHABLE.contains(&requirement.id),
                 preserves_in_place: in_place_preservation(requirement.id),
                 conditional: decision::conditional(requirement.id),
+                shapes: decision::shapes(requirement.id)
+                    .iter()
+                    .map(|shape| SiteShape {
+                        name: shape.name,
+                        answered: shape.answered,
+                    })
+                    .collect(),
             })
         })
         .collect()
@@ -2485,6 +2509,60 @@ mod tests {
     use pdf_archive::{Flavour, Level};
 
     const TWO_B: Target = Target::Two(Level::B);
+
+    #[test]
+    fn every_requirement_that_splits_into_shapes_is_listed_with_both_halves() {
+        // `doc/adr/1673`: the listing is where an operator meets a split requirement's two
+        // halves, so every requirement `decision::SHAPES` states that is a site under a target
+        // carries its halves there — the population is the table's, not a hand-written list.
+        use super::super::census::{Kind as Answer, Standing as Row, census};
+        let mut listed_anywhere = 0_usize;
+        for (requirement, halves) in decision::SHAPES {
+            let listed: Vec<Site> = Target::ALL
+                .into_iter()
+                .flat_map(sites)
+                .filter(|site| site.requirement == *requirement)
+                .collect();
+            if listed.is_empty() {
+                // Not a site anywhere, and for `sites`'s own reason: the answered half is applied
+                // without a configuration and a row for the other is inert, so no row changes
+                // what happens — wherever the target binds the requirement at all.
+                for target in Target::ALL {
+                    for (_, standing) in census(target).filter(|(r, _)| r.id == *requirement) {
+                        assert!(
+                            matches!(standing, Row::Remedy(Answer::Stated | Answer::Mechanical)),
+                            "{requirement} under {target}: {standing:?} is a site's standing"
+                        );
+                    }
+                }
+                continue;
+            }
+            listed_anywhere += 1;
+            for site in listed {
+                let names: Vec<(&str, bool)> = site
+                    .shapes
+                    .iter()
+                    .map(|shape| (shape.name, shape.answered))
+                    .collect();
+                let expected: Vec<(&str, bool)> = halves
+                    .iter()
+                    .map(|shape| (shape.name, shape.answered))
+                    .collect();
+                assert_eq!(names, expected, "{requirement}");
+            }
+        }
+        assert!(
+            listed_anywhere > 0,
+            "the listing shows no split requirement at all"
+        );
+        // And a site that does not split lists no shapes.
+        assert!(
+            sites(TWO_B)
+                .iter()
+                .find(|site| site.requirement == "graphics/image-interpolation-is-off")
+                .is_some_and(|site| site.shapes.is_empty())
+        );
+    }
 
     #[test]
     fn a_discard_at_a_loss_site_becomes_the_authorisation_the_flag_would() {

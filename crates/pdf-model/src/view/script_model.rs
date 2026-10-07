@@ -187,10 +187,89 @@ impl Face {
         }
     }
 
-    /// This face's place in [`FieldState::captions`].
+    /// This face's place in [`WidgetState::captions`].
     #[must_use]
     pub fn index(self) -> usize {
         usize::from(self.number())
+    }
+}
+
+/// One of the six glyphs Adobe's `Field.style` names for a check box or a radio button.
+///
+/// The "Field properties" page names them — check, cross, diamond, circle, star, square — and
+/// draws none. ISO 32000-2 draws a toggling button's caption from Table 192's `/CA` in the font
+/// Table 228's `/DA` selects, and Annex D's Table D.6 is `ZapfDingbats`' built-in encoding, so each
+/// style is the code of the glyph of that shape in Table D.6 — the solid one where the table has
+/// several: a documented choice, since neither source pairs a name with a code (ADR 1665).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Glyph {
+    /// `style.ch`: Table D.6's `a20`, ✔, at octal 064.
+    Check,
+    /// `style.cr`: `a24`, ✘, at octal 070.
+    Cross,
+    /// `style.di`: `a78`, ◆, at octal 165.
+    Diamond,
+    /// `style.ci`: `a71`, ●, at octal 154.
+    Circle,
+    /// `style.st`: `a35`, ★, at octal 110.
+    Star,
+    /// `style.sq`: `a73`, ■, at octal 156.
+    Square,
+}
+
+impl Glyph {
+    /// The six, in the order the reference's table lists them.
+    pub const ALL: [Self; 6] = [
+        Self::Check,
+        Self::Cross,
+        Self::Diamond,
+        Self::Circle,
+        Self::Star,
+        Self::Square,
+    ];
+
+    /// The style's name as the reference's table writes it, which is the value of its constant.
+    #[must_use]
+    pub fn adobe(self) -> &'static str {
+        match self {
+            Self::Check => "check",
+            Self::Cross => "cross",
+            Self::Diamond => "diamond",
+            Self::Circle => "circle",
+            Self::Star => "star",
+            Self::Square => "square",
+        }
+    }
+
+    /// The style a name of [`Self::adobe`]'s names.
+    #[must_use]
+    pub fn from_adobe(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|glyph| glyph.adobe() == name)
+    }
+
+    /// The caption that draws it: the one-byte code Table D.6 gives the glyph, as the character
+    /// of that code, which is what a `/CA` text string of one byte holds.
+    #[must_use]
+    pub fn caption(self) -> char {
+        match self {
+            Self::Check => '\u{34}',
+            Self::Cross => '\u{38}',
+            Self::Diamond => '\u{75}',
+            Self::Circle => '\u{6c}',
+            Self::Star => '\u{48}',
+            Self::Square => '\u{6e}',
+        }
+    }
+
+    /// The style a widget's normal caption draws, where it is one of the six.
+    #[must_use]
+    pub fn of_caption(caption: &str) -> Option<Self> {
+        let mut characters = caption.chars();
+        let first = characters.next()?;
+        if characters.next().is_some() {
+            return None;
+        }
+        Self::ALL.into_iter().find(|glyph| glyph.caption() == first)
     }
 }
 
@@ -527,6 +606,12 @@ impl TextFlag {
 }
 
 /// One field as a document's realm holds it: what `Field`'s properties read.
+///
+/// Split the way Adobe's *JavaScript for Acrobat API Reference*, "Field versus widget attributes",
+/// splits `Field`'s members, and the way ISO 32000-2 splits the dictionaries: §12.7.4.2 gives a
+/// field one value however many widgets show it, and §12.5.6.19 gives each widget its own
+/// presentation. So the members here are the field's, one per field, and [`Self::widgets`] holds
+/// what each widget shows (ADR 1664).
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldState {
     /// §12.7.4.2's fully qualified name.
@@ -537,9 +622,50 @@ pub struct FieldState {
     pub value: String,
     /// Table 227's `/Ff`, inherited.
     pub flags: u32,
-    /// `Field.display`, from the first widget's Table 167 flags and what a hide or a script set.
+    /// `Field.charLimit`: Table 230's `/MaxLen`.
+    pub char_limit: Option<u32>,
+    /// `Field.page`: the zero-based page Table 166's `/P` names, where the first widget states one.
+    pub page: Option<u32>,
+    /// Each widget's own members, in the order the view state's field table lists the widgets —
+    /// the order of §12.7.4.1's `/Kids` — which is the index `getField("name.N")` counts from
+    /// zero. Empty only for a state no view state built.
+    pub widgets: Vec<WidgetState>,
+}
+
+impl FieldState {
+    /// A property a script set, over this state: a field-level member on the field, a
+    /// widget-level one on `widget`, or on every widget where it names none (ADR 1664).
+    pub fn apply(&mut self, widget: Option<u32>, property: &Property) {
+        match property {
+            Property::ReadOnly(flag) => self.flags = set_bit(self.flags, READ_ONLY, *flag),
+            Property::Required(flag) => self.flags = set_bit(self.flags, REQUIRED, *flag),
+            Property::CharLimit(limit) => self.char_limit = Some(*limit),
+            Property::TextFlag(flag, on) => self.flags = set_bit(self.flags, flag.bit(), *on),
+            _ => {
+                for (index, held) in self.widgets.iter_mut().enumerate() {
+                    if widget.is_none_or(|widget| u32::try_from(index).is_ok_and(|i| i == widget)) {
+                        held.apply(property);
+                    }
+                }
+            }
+        }
+    }
+
+    /// The widget a member reads: the one `widget` names, or the first where it names none — the
+    /// reference's rule for a `Field` that stands for every widget of its field.
+    #[must_use]
+    pub fn widget(&self, widget: Option<u32>) -> Option<&WidgetState> {
+        self.widgets
+            .get(widget.map_or(Some(0), |index| usize::try_from(index).ok())?)
+    }
+}
+
+/// One widget of a field as its realm holds it: the members Adobe's reference makes a widget's.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WidgetState {
+    /// `Field.display`, from the widget's Table 167 flags and what a hide or a script set.
     pub display: Display,
-    /// `Field.textColor`: the colour operator of Table 228's `/DA`.
+    /// `Field.textColor`: the colour operator of Table 228's `/DA`, read up from the widget.
     pub text_color: Option<Colour>,
     /// `Field.fillColor`: Table 192's `/BG`.
     pub fill_color: Option<Colour>,
@@ -547,17 +673,57 @@ pub struct FieldState {
     pub stroke_color: Option<Colour>,
     /// `Field.borderStyle`: Table 168's `/S`.
     pub border_style: BorderStyle,
-    /// `Field.alignment`: Table 228's `/Q`.
+    /// `Field.alignment`: Table 228's `/Q`, read up from the widget.
     pub alignment: Alignment,
-    /// `Field.charLimit`: Table 230's `/MaxLen`.
-    pub char_limit: Option<u32>,
-    /// `Field.page`: the zero-based page Table 166's `/P` names, where the first widget states one.
-    pub page: Option<u32>,
-    /// `Field.rect`: the first widget's Table 166 `/Rect`.
+    /// `Field.rect`: Table 166's `/Rect`.
     pub rect: [f64; 4],
     /// `Field.buttonGetCaption`'s three captions, in [`Face`] order: Table 192's `/CA`, `/AC` and
-    /// `/RC` of the first widget's `/MK`, each empty where it states none.
+    /// `/RC` of the widget's `/MK`, each empty where it states none.
     pub captions: [String; 3],
+}
+
+impl WidgetState {
+    /// A widget-level property, over this widget's state; a field-level one changes nothing here.
+    pub fn apply(&mut self, property: &Property) {
+        match property {
+            Property::Display(display) => self.display = *display,
+            Property::TextColor(colour) => self.text_color = Some(*colour),
+            Property::FillColor(colour) => self.fill_color = Some(*colour),
+            Property::StrokeColor(colour) => self.stroke_color = Some(*colour),
+            Property::BorderStyle(style) => self.border_style = *style,
+            Property::Alignment(alignment) => self.alignment = *alignment,
+            Property::Caption(face, caption) => {
+                if let Some(slot) = self.captions.get_mut(face.index()) {
+                    slot.clone_from(caption);
+                }
+            }
+            Property::Style(glyph) => {
+                if let Some(slot) = self.captions.get_mut(Face::Normal.index()) {
+                    *slot = glyph.caption().to_string();
+                }
+            }
+            Property::ReadOnly(_)
+            | Property::Required(_)
+            | Property::CharLimit(_)
+            | Property::TextFlag(..) => {}
+        }
+    }
+}
+
+impl Default for WidgetState {
+    /// A widget stating nothing: visible, no colours, a solid border, left-aligned, no rectangle.
+    fn default() -> Self {
+        Self {
+            display: Display::Visible,
+            text_color: None,
+            fill_color: None,
+            stroke_color: None,
+            border_style: BorderStyle::Solid,
+            alignment: Alignment::Left,
+            rect: [0.0; 4],
+            captions: Default::default(),
+        }
+    }
 }
 
 /// A property a script set on a field.
@@ -585,6 +751,8 @@ pub enum Property {
     TextFlag(TextFlag, bool),
     /// `buttonSetCaption(cCaption, nFace)`: one of Table 192's three captions (ADR 1626).
     Caption(Face, String),
+    /// `style`: a check box's or a radio button's glyph, Table 192's `/CA` (ADR 1665).
+    Style(Glyph),
 }
 
 impl Property {
@@ -594,6 +762,11 @@ impl Property {
     pub fn replaces(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Caption(mine, _), Self::Caption(theirs, _)) => mine == theirs,
+            // A style is the normal caption written by another name, so either replaces the
+            // other.
+            (Self::Style(_), Self::Caption(face, _)) | (Self::Caption(face, _), Self::Style(_)) => {
+                *face == Face::Normal
+            }
             _ => self.member() == other.member(),
         }
     }
@@ -613,6 +786,27 @@ impl Property {
             Self::CharLimit(_) => "charLimit",
             Self::TextFlag(flag, _) => flag.adobe(),
             Self::Caption(..) => "buttonSetCaption",
+            Self::Style(_) => "style",
+        }
+    }
+
+    /// Whether the member is one Adobe's reference makes a widget's rather than the field's ("Field
+    /// versus widget attributes"): set through a `Field` of one widget it changes that widget, and
+    /// through a `Field` of the whole field every widget (ADR 1664).
+    #[must_use]
+    pub fn is_widget_level(&self) -> bool {
+        match self {
+            Self::Display(_)
+            | Self::TextColor(_)
+            | Self::FillColor(_)
+            | Self::StrokeColor(_)
+            | Self::BorderStyle(_)
+            | Self::Alignment(_)
+            | Self::Caption(..)
+            | Self::Style(_) => true,
+            Self::ReadOnly(_) | Self::Required(_) | Self::CharLimit(_) | Self::TextFlag(..) => {
+                false
+            }
         }
     }
 }
@@ -633,6 +827,10 @@ pub enum ScriptEdit {
     Property {
         /// The field.
         field: String,
+        /// The one widget it was set on, counted from zero in the field table's order, or `None`
+        /// for every widget — always `None` for a member that is the field's
+        /// ([`Property::is_widget_level`], ADR 1664).
+        widget: Option<u32>,
         /// What was set.
         property: Property,
     },
@@ -671,15 +869,29 @@ pub enum ScriptEdit {
 /// The field properties a script set, kept beside the edit log by field name.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(super) struct Overrides {
-    /// Each property, the latest a script set.
+    /// Each property set on the whole field, the latest a script set.
     pub(super) set: Vec<Property>,
+    /// Each widget-level property set on one widget, by the widget's index, the latest a script
+    /// set — applied after [`Self::set`], which a later set on the whole field clears it from.
+    pub(super) widgets: BTreeMap<u32, Vec<Property>>,
 }
 
 impl Overrides {
-    /// Records a property, replacing an earlier one of the same member.
-    pub(super) fn record(&mut self, property: Property) {
-        self.set.retain(|held| !held.replaces(&property));
-        self.set.push(property);
+    /// Records a property set on `widget`, or on the whole field, replacing an earlier one of the
+    /// same member there; a set on the whole field replaces every widget's of the member too.
+    pub(super) fn record(&mut self, widget: Option<u32>, property: Property) {
+        let Some(widget) = widget else {
+            for held in self.widgets.values_mut() {
+                held.retain(|held| !held.replaces(&property));
+            }
+            self.widgets.retain(|_, held| !held.is_empty());
+            self.set.retain(|held| !held.replaces(&property));
+            self.set.push(property);
+            return;
+        };
+        let held = self.widgets.entry(widget).or_default();
+        held.retain(|held| !held.replaces(&property));
+        held.push(property);
     }
 
     /// Whether a script set the field read-only, or writable, if it said either.
@@ -734,25 +946,53 @@ impl ViewState {
             crate::appearance::FieldKind::Choice { .. } => FieldType::ListBox,
             crate::appearance::FieldKind::Signature => FieldType::Signature,
         };
-        let ancestry: Vec<&Dictionary> = field.ancestry.iter().collect();
         let form = document
             .catalog()
             .ok()
             .and_then(|catalog| document.get_key(&catalog, "AcroForm").as_dict().cloned());
-        // Table 228's `/DA` and `/Q` are inheritable and Table 224 states the form's default for
-        // each; `/MaxLen` is Table 230's and inherits with the rest of a field's entries.
-        let inherited = |key: &str| -> Object {
-            ancestry
+        let char_limit = inherited(document, &field.ancestry, form.as_ref(), "MaxLen")
+            .as_integer()
+            .and_then(|limit| u32::try_from(limit).ok());
+        let mut state = FieldState {
+            name: name.to_owned(),
+            kind,
+            value: self.text_of(document, first).unwrap_or_default(),
+            flags: u32::try_from(field.flags & 0xFFFF_FFFF).unwrap_or(0),
+            char_limit,
+            page: widget
+                .get("P")
+                .and_then(Object::as_reference)
+                .and_then(|page| pages.get(&page))
+                .and_then(|index| u32::try_from(*index).ok()),
+            widgets: widgets
                 .iter()
-                .map(|dictionary| document.get_key(dictionary, key))
-                .find(|value| !matches!(value, Object::Null))
-                .or_else(|| {
-                    form.as_ref()
-                        .map(|form| document.get_key(form, key))
-                        .filter(|value| !matches!(value, Object::Null))
-                })
-                .unwrap_or(Object::Null)
+                .filter_map(|widget| self.widget_state(document, *widget, form.as_ref()))
+                .collect(),
         };
+        if let Some(overrides) = self.scripting.overrides.get(name) {
+            for property in &overrides.set {
+                state.apply(None, property);
+            }
+            for (widget, properties) in &overrides.widgets {
+                for property in properties {
+                    state.apply(Some(*widget), property);
+                }
+            }
+        }
+        Some(state)
+    }
+
+    /// One widget as its field's realm holds it, read from the widget and up its field's chain,
+    /// with a hide's override applied (ADR 1664).
+    fn widget_state(
+        &self,
+        document: &Document,
+        id: ObjectId,
+        form: Option<&Dictionary>,
+    ) -> Option<WidgetState> {
+        let object = document.get(id);
+        let widget = object.as_dict()?;
+        let field = crate::appearance::Field::read(document, widget, self.annotation(id).value);
         let characteristics = document.get_key(widget, "MK");
         let characteristic = |key: &str| {
             characteristics
@@ -772,47 +1012,51 @@ impl ViewState {
             });
         let annotation_flags = document.get_key(widget, "F").as_integer().unwrap_or(0);
         let mut display = Display::of_flags(annotation_flags);
-        match self.annotation_hidden(first) {
+        match self.annotation_hidden(id) {
             Some(true) => display = Display::Hidden,
             Some(false) if display == Display::Hidden => display = Display::Visible,
             _ => {}
         }
-        let mut state = FieldState {
-            name: name.to_owned(),
-            kind,
-            value: self.text_of(document, first).unwrap_or_default(),
-            flags: u32::try_from(field.flags & 0xFFFF_FFFF).unwrap_or(0),
+        // Table 228's `/DA` and `/Q` are inheritable and Table 224 states the form's default for
+        // each, so each is read up this widget's own chain.
+        Some(WidgetState {
             display,
-            text_color: match inherited("DA") {
+            text_color: match inherited(document, &field.ancestry, form, "DA") {
                 Object::String(bytes) => text_colour(&bytes),
                 _ => None,
             },
             fill_color: characteristic("BG"),
             stroke_color: characteristic("BC"),
             border_style,
-            alignment: match inherited("Q").as_integer() {
+            alignment: match inherited(document, &field.ancestry, form, "Q").as_integer() {
                 Some(1) => Alignment::Center,
                 Some(2) => Alignment::Right,
                 _ => Alignment::Left,
             },
-            char_limit: inherited("MaxLen")
-                .as_integer()
-                .and_then(|limit| u32::try_from(limit).ok()),
-            page: widget
-                .get("P")
-                .and_then(Object::as_reference)
-                .and_then(|page| pages.get(&page))
-                .and_then(|index| u32::try_from(*index).ok()),
             rect: rect_of(document, widget),
             captions: captions_of(document, &characteristics),
-        };
-        if let Some(overrides) = self.scripting.overrides.get(name) {
-            for property in &overrides.set {
-                apply(&mut state, property);
-            }
-        }
-        Some(state)
+        })
     }
+}
+
+/// An inheritable entry of a field, read up `ancestry` — the widget first — and then from the
+/// interactive form dictionary, which Table 224 gives a default for `/DA` and `/Q`; `/MaxLen` is
+/// Table 230's and inherits with the rest of a field's entries.
+fn inherited(
+    document: &Document,
+    ancestry: &[Dictionary],
+    form: Option<&Dictionary>,
+    key: &str,
+) -> Object {
+    ancestry
+        .iter()
+        .map(|dictionary| document.get_key(dictionary, key))
+        .find(|value| !matches!(value, Object::Null))
+        .or_else(|| {
+            form.map(|form| document.get_key(form, key))
+                .filter(|value| !matches!(value, Object::Null))
+        })
+        .unwrap_or(Object::Null)
 }
 
 impl ViewState {
@@ -906,27 +1150,6 @@ fn captions_of(document: &Document, characteristics: &Object) -> [String; 3] {
 /// Table 98's `/OCGs` is the document's, so its length is too; a document with more layers than
 /// this is not one any panel lists, and the list is copied at every change of a group's state.
 const MAX_LAYERS: usize = 4096;
-
-/// A property a script set, over the state the document and the view give.
-fn apply(state: &mut FieldState, property: &Property) {
-    match property {
-        Property::Display(display) => state.display = *display,
-        Property::ReadOnly(flag) => state.flags = set_bit(state.flags, READ_ONLY, *flag),
-        Property::Required(flag) => state.flags = set_bit(state.flags, REQUIRED, *flag),
-        Property::TextColor(colour) => state.text_color = Some(*colour),
-        Property::FillColor(colour) => state.fill_color = Some(*colour),
-        Property::StrokeColor(colour) => state.stroke_color = Some(*colour),
-        Property::BorderStyle(style) => state.border_style = *style,
-        Property::Alignment(alignment) => state.alignment = *alignment,
-        Property::CharLimit(limit) => state.char_limit = Some(*limit),
-        Property::TextFlag(flag, on) => state.flags = set_bit(state.flags, flag.bit(), *on),
-        Property::Caption(face, caption) => {
-            if let Some(slot) = state.captions.get_mut(face.index()) {
-                slot.clone_from(caption);
-            }
-        }
-    }
-}
 
 /// `flags` with `bit` set or cleared.
 fn set_bit(flags: u32, bit: u32, on: bool) -> u32 {

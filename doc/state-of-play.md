@@ -293,7 +293,9 @@ command, put on `quorra`'s card and on GTK's and Qt's dialogues titled with the 
 with the script's buttons or an entry holding its default, the window's thread never waiting
 while the script is held in its worker and what it does once answered applied late (ADRs 1627,
 1628), an answer only ever the question's the window took (ADR 1641), and a script's write to
-`this.pageNum` a page turn the window makes (ADR 1640) — the runner every window supplies is `pdf_script_worker::ScriptWorker`, which
+`this.pageNum` a page turn the window makes (ADR 1640), `getField("name.N")` one widget of a
+field whose widget members are its own and whose value is the field's (ADR 1664), and
+`Field.style` a check box's glyph redrawn (ADR 1665) — the runner every window supplies is `pdf_script_worker::ScriptWorker`, which
 runs each script in a third confined process started at the first trigger, under the narrowest of
 `pdf_sandbox`'s three profiles, a deadline per trigger and a named loss (ADRs 1608, 1609), a script's
 nesting bounded before it is parsed (ADR 1626), the worker built with the engine in a Cargo run of its own and installed beside the windows (ADR 1625); **a rich text field's value and a free text
@@ -333,7 +335,7 @@ of them drew nothing of it at all: the clause gives a popup "no appearance strea
 furniture rather than ink and each host places its own, over one reading of the two clauses that say
 what goes in it (ADR 0613), drawn in all three as opaque paper with an edge (ADR 1466) — **with the subject and the creation date beside the title and the
 text**, and the two dates kept apart, because Table 172 states when an annotation was made and
-Table 166 when it was last changed (ADR 1224), and **Table 172's `/RC` drawn formatted** run by run — Pango spans, Qt's rich text, `quorra`'s chrome, each run in its own face and a right-to-left paragraph in one order across its runs — with what a window did not draw said under the note (ADRs 1642, 1654), and handed to a C caller as runs (ADR 1655); a **cursor changes over §12.5.6.5's activation region** in all three,
+Table 166 when it was last changed (ADR 1224), and **Table 172's `/RC` drawn formatted** run by run — Pango spans, a `QTextDocument` built run by run, `quorra`'s chrome, each run in its own face and a right-to-left paragraph in one order across its runs, its tab stops set and a list tag at its start edge, the font scales in two of the three — with what a window did not draw said under the note (ADRs 1642, 1654, 1666), and handed to a C caller as runs and stops (ADRs 1655, 1667); a **cursor changes over §12.5.6.5's activation region** in all three,
 which no clause states and which is therefore recorded as this program's convention; a person can
 **measure a drawing** — §12.9's viewports, traced by pointer in all four windows on the key `m`
 and over the C ABI's `quorra_measure`, with the arithmetic and
@@ -342,9 +344,11 @@ in the units and the labels the producer chose rather than in any this program i
 viewport says which system the map is in and where the point put down is, to six decimal places of a
 degree with its hemispheres — read through the affine map its registration points determine, with
 how far they depart from it, which is a choice because §12.10 defines no function between them
-(ADRs 1191, 1593) — and `pdf_model::geospatial` carries a projected position back to a
-latitude by the inverse of each method the census found, refusing by name the projected maps whose
-registration points are already degrees (ADRs 1586, 1587, `doc/questions/Q271`); a person can **add an annotation** — §12.5.6.10's four markups over what is
+(ADRs 1191, 1593) — and `pdf_model::geospatial` evaluates each method the census found in both
+directions, so a projected position comes back as a latitude, a projected `/DCS` is displayed as an
+easting and a northing, and a position given to a viewport answers its page point, refusing by name
+the projected maps whose registration points are already degrees (ADRs 1586, 1587, 1672,
+`doc/questions/Q271`); a person can **add an annotation** — §12.5.6.10's four markups over what is
 selected (ADR 0196), and §12.5.6.6's free text drawn as a rectangle and typed into, which is the
 one markup subtype whose text *is* the annotation and therefore the one whose geometry has to come
 from a drag rather than from a selection (ADR 0238) — **and the producer's own free text annotation

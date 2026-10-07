@@ -155,6 +155,15 @@ pub const EXCLUDED: &[Excluded] = &[
         ],
         reason: "draws or drives the application's own chrome, which a document does not",
     },
+    // Adobe's "FullScreen" page makes `app.fs` the application's full-screen preferences, and RFC
+    // 0008 section 4.2 admits no member of it to `app`; the document's own request for full screen
+    // is the catalog's `/PageMode`, which the host reads (ADR 1665).
+    Excluded {
+        holder: Holder::App,
+        members: &["fs"],
+        reason: "sets the application's full-screen preferences, which a document does not; a \
+                 document asks for full-screen mode through its catalog's /PageMode",
+    },
     Excluded {
         holder: Holder::App,
         members: &[
@@ -260,8 +269,8 @@ pub const EXCLUDED: &[Excluded] = &[
 /// identity, `util.printd` and `util.printx`, a field's `getArray` and `setFocus` and its text
 /// flags' writes (ADR 1615), and `global`, `event.commitKey`, `fieldFull` and `changeEx`,
 /// `this.dirty`, `info` and `getOCGs`, `util.printf`, the button captions, `app.alert` and
-/// `app.response` (ADRs 1626, 1627); each of these is the next thing a round adds, and until then
-/// a property that says so.
+/// `app.response` (ADRs 1626, 1627), one widget of a field (ADR 1664) and `Field.style` (ADR
+/// 1665); each of these is the next thing a round adds, and until then a property that says so.
 pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
     (
         Holder::Event,
@@ -271,7 +280,6 @@ pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
         Holder::Field,
         &[
             "lineWidth",
-            "style",
             "textSize",
             "textFont",
             "currentValueIndices",

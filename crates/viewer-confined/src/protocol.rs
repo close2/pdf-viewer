@@ -56,7 +56,7 @@ mod panels;
 /// question — and a host would discover that at the worst moment there is, in the middle of putting
 /// a reader back after a death, as a refusal of something the reader never asked for. The greeting
 /// is the cheap place to find it out instead.
-pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF08";
+pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF09";
 
 /// Length of the worker's greeting: the magic, the Landlock level, the address-space limit, and
 /// whether system calls are filtered — the same three facts `pdf_sandbox`'s own worker reports,
@@ -5865,8 +5865,20 @@ mod tests {
                             horizontal_scale: 1.5,
                             vertical_scale: 0.75,
                         }],
+                        // The paragraph's tab stops, which cross with it (ADR 1666).
+                        tab_interval: Some(pdf_model::popup::Measure {
+                            per_base: 0.0,
+                            points: 36.0,
+                        }),
+                        tab_stops: vec![pdf_model::popup::RichTabStop {
+                            align: pdf_model::popup::RichTabAlign::Decimal,
+                            at: pdf_model::popup::Measure {
+                                per_base: 2.0,
+                                points: 1.5,
+                            },
+                        }],
                     }],
-                    unapplied: vec!["a tab stop in a popup window".to_owned()],
+                    unapplied: vec!["a tab leader in a popup window".to_owned()],
                 }),
                 // §12.5.6.2's thread, which Table 172 makes part of what this window shows.
                 replies: vec![

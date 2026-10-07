@@ -5074,7 +5074,7 @@ fn popup_window(window: &viewer_host::Window<'_>) -> gtk4::Overlay {
     let title = gtk4::Label::new(Some(window.title));
     title.set_xalign(0.0);
     title.set_hexpand(true);
-    title.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    title.set_ellipsize(pango::EllipsizeMode::End);
     title.add_css_class("heading");
     bar.append(&title);
     // Table 166's `/M`, in the one format `viewer_host::stamp` gives every date this program
@@ -5134,7 +5134,7 @@ fn popup_window(window: &viewer_host::Window<'_>) -> gtk4::Overlay {
         if let Some(who) = reply.title.as_deref().filter(|who| !who.is_empty()) {
             let author = gtk4::Label::new(Some(who));
             author.set_xalign(0.0);
-            author.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+            author.set_ellipsize(pango::EllipsizeMode::End);
             author.add_css_class("dim-label");
             comment.append(&author);
         }
@@ -5145,7 +5145,7 @@ fn popup_window(window: &viewer_host::Window<'_>) -> gtk4::Overlay {
             said.set_xalign(0.0);
             said.set_yalign(0.0);
             said.set_wrap(true);
-            said.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+            said.set_wrap_mode(pango::WrapMode::WordChar);
             comment.append(&said);
         }
         column.append(&comment);
@@ -5166,7 +5166,7 @@ fn popup_body(window: &viewer_host::Window<'_>) -> gtk4::Widget {
     note.set_xalign(0.0);
     note.set_yalign(0.0);
     note.set_wrap(true);
-    note.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+    note.set_wrap_mode(pango::WrapMode::WordChar);
     note.set_vexpand(true);
     note.set_margin_start(POPUP_PADDING);
     note.set_margin_end(POPUP_PADDING);
@@ -5195,22 +5195,32 @@ fn rich_note(note: &pdf_model::popup::RichNote) -> gtk4::Box {
     let base = probe
         .pango_context()
         .font_description()
-        .map(|description| description.size() as f32 / gtk4::pango::SCALE as f32)
+        .map(|description| description.size() as f32 / pango::SCALE as f32)
         .filter(|size| *size > 0.0)
         .unwrap_or(10.0);
+    let context = probe.pango_context();
     for paragraph in &note.paragraphs {
+        let advances = viewer_host::popup::advances(paragraph);
         let mut markup = String::new();
+        // A list tag is one left-to-right label at the paragraph's start edge, outside its order:
+        // UAX #9's LRI and PDI isolate it, so a paragraph read right to left has it at the right
+        // and reads it as it is written (ADR 1666).
         if let Some(tag) = &paragraph.tag {
-            markup.push_str(&pango_span(tag, base));
-            markup.push(' ');
+            markup.push('\u{2066}');
+            markup.push_str(&pango_span(tag, base, &context, true));
+            markup.push_str("\u{2069} ");
         }
         for run in &paragraph.runs {
-            markup.push_str(&pango_span(run, base));
+            markup.push_str(&pango_span(run, base, &context, advances));
         }
         let label = gtk4::Label::new(None);
         label.set_markup(&markup);
+        let stops = viewer_host::popup::tab_stops(paragraph, base, 1.0, POPUP_TAB_ROOM);
+        if !stops.is_empty() {
+            label.set_tabs(Some(&pango_tabs(&stops)));
+        }
         label.set_wrap(true);
-        label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+        label.set_wrap_mode(pango::WrapMode::WordChar);
         // A paragraph stating no alignment starts at its own start edge, the right for one that
         // reads right to left, as the other two windows start it (ADR 1654).
         let (xalign, justify) = match paragraph.align {
@@ -5224,16 +5234,21 @@ fn rich_note(note: &pdf_model::popup::RichNote) -> gtk4::Box {
         };
         label.set_xalign(xalign);
         label.set_justify(justify);
-        label.set_margin_start(
-            POPUP_PADDING
-                .saturating_mul(3)
-                .saturating_mul(i32::from(paragraph.level)),
-        );
+        // The indent is taken from the paragraph's start edge, the right for one read right to
+        // left, where its tag stands.
+        let indent = POPUP_PADDING
+            .saturating_mul(3)
+            .saturating_mul(i32::from(paragraph.level));
+        if viewer_host::popup::right_to_left(paragraph) {
+            label.set_margin_end(indent);
+        } else {
+            label.set_margin_start(indent);
+        }
         body.append(&label);
     }
-    // Pango's markup states no glyph scale, and a share of a space is the face's that Pango
-    // picks, so both are said rather than dropped (ADR 1654).
-    let also = viewer_host::popup::toolkit_unapplied(note);
+    // Pango states no glyph scale per run, so a font scale is said rather than dropped, with what
+    // Pango's tab array cannot say (ADRs 1654, 1666).
+    let also = viewer_host::popup::toolkit_unapplied(note, false);
     if let Some(sentence) = viewer_host::popup::not_drawn(note, &also) {
         let said = gtk4::Label::new(Some(&sentence));
         said.set_xalign(0.0);
@@ -5244,10 +5259,81 @@ fn rich_note(note: &pdf_model::popup::RichNote) -> gtk4::Box {
     body
 }
 
+/// How far, in points, a popup paragraph's default tab stops are placed: past any window a screen
+/// shows, so that a line never reaches the end of them.
+const POPUP_TAB_ROOM: f32 = 4096.0;
+
+/// A paragraph's tab stops as Pango's tab array takes them, in the label's logical pixels — the
+/// unit step 53 measured Pango's letter spacing to be in, 96 to the inch (ADRs 1654, 1666).
+fn pango_tabs(stops: &[viewer_host::popup::TabStop]) -> pango::TabArray {
+    let count = i32::try_from(stops.len()).unwrap_or(i32::MAX);
+    let mut tabs = pango::TabArray::new(count, true);
+    for (index, stop) in (0..count).zip(stops) {
+        let align = match stop.side {
+            viewer_host::popup::TabSide::Left => pango::TabAlign::Left,
+            viewer_host::popup::TabSide::Centre => pango::TabAlign::Center,
+            viewer_host::popup::TabSide::Right => pango::TabAlign::Right,
+            viewer_host::popup::TabSide::Decimal => pango::TabAlign::Decimal,
+        };
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a stop is bounded by POPUP_TAB_ROOM, far inside i32's range in pixels"
+        )]
+        let at = (stop.at * 96.0 / 72.0).round() as i32;
+        tabs.set_tab(index, align, at);
+        if stop.side == viewer_host::popup::TabSide::Decimal {
+            tabs.set_decimal_point(index, '.');
+        }
+    }
+    tabs
+}
+
+/// The width of a space in the face Pango picks for `run`, as a share of the run's em: what a
+/// letter spacing given as a share of a space is a share of (chapter 27, page 1204), which only
+/// the toolkit that chose the face can measure.
+fn pango_space(run: &pdf_model::popup::RichRun, size: f32, context: &pango::Context) -> f32 {
+    let mut description = context.font_description().unwrap_or_default();
+    if let Some(name) = viewer_host::popup::family(run) {
+        description.set_family(name);
+    }
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        reason = "a size held within three times a label's own is far inside i32's range in \
+                  Pango units, and Pango's scale of 1024 is exact in f32"
+    )]
+    description.set_size((size * pango::SCALE as f32).round() as i32);
+    description.set_weight(if run.bold {
+        pango::Weight::Bold
+    } else {
+        pango::Weight::Normal
+    });
+    description.set_style(if run.italic {
+        pango::Style::Italic
+    } else {
+        pango::Style::Normal
+    });
+    let layout = pango::Layout::new(context);
+    layout.set_font_description(Some(&description));
+    layout.set_text(" ");
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a space's width in Pango units is far inside f32's exact integer range"
+    )]
+    let width = layout.size().0 as f32 / pango::SCALE as f32;
+    width / (size * 96.0 / 72.0).max(f32::EPSILON)
+}
+
 /// One rich run as a Pango markup `span`: the characters escaped, and every attribute one this
 /// function writes from the run's own fields — a family `viewer_host::popup::family` has passed,
-/// so nothing the document wrote reaches the markup as markup.
-fn pango_span(run: &pdf_model::popup::RichRun, base: f32) -> String {
+/// so nothing the document wrote reaches the markup as markup. Its tab characters are kept only
+/// where `tabs` says the paragraph's tabs advance.
+fn pango_span(
+    run: &pdf_model::popup::RichRun,
+    base: f32,
+    context: &pango::Context,
+    tabs: bool,
+) -> String {
     use std::fmt::Write as _;
     #[expect(
         clippy::cast_possible_truncation,
@@ -5255,7 +5341,7 @@ fn pango_span(run: &pdf_model::popup::RichRun, base: f32) -> String {
         reason = "a size held within three times a label's own is far inside i32's range in \
                   Pango units, and Pango's scale of 1024 is exact in f32"
     )]
-    let units = |points: f32| (points * gtk4::pango::SCALE as f32).round() as i32;
+    let units = |points: f32| (points * pango::SCALE as f32).round() as i32;
     let mut out = String::new();
     let _ = write!(
         out,
@@ -5285,14 +5371,24 @@ fn pango_span(run: &pdf_model::popup::RichRun, base: f32) -> String {
     // Chapter 27's `letter-spacing`. Pango takes it in thousand-and-twenty-fourths of the layout's
     // own unit, a logical pixel, where a size's are of a point: eight points measured eight pixels
     // a gap under the drive's step 53, so the points become CSS2's reference pixels, 96 to the
-    // inch, first (ADR 1654).
-    if let Some(spacing) = viewer_host::popup::letter_spacing(run, base, 1.0, None)
+    // inch, first (ADR 1654). A share of a space is of the face Pango picks, measured there.
+    let space = matches!(
+        run.letter_spacing,
+        pdf_model::popup::RichSpacing::OfSpace(share) if share != 0.0
+    )
+    .then(|| pango_space(run, viewer_host::popup::size(run, base, 1.0), context));
+    if let Some(spacing) = viewer_host::popup::letter_spacing(run, base, 1.0, space)
         .filter(|spacing| spacing.abs() > f32::EPSILON)
     {
         let _ = write!(out, " letter_spacing=\"{}\"", units(spacing * 96.0 / 72.0));
     }
     out.push('>');
-    out.push_str(&glib::markup_escape_text(&run.text));
+    let text: std::borrow::Cow<'_, str> = if tabs {
+        run.text.as_str().into()
+    } else {
+        run.text.replace('\t', "").into()
+    };
+    out.push_str(&glib::markup_escape_text(&text));
     out.push_str("</span>");
     out
 }
@@ -5418,7 +5514,7 @@ fn build_window(
 
     let status = gtk4::Label::new(None);
     status.set_xalign(0.0);
-    status.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    status.set_ellipsize(pango::EllipsizeMode::End);
     status.set_margin_start(6);
     status.set_margin_end(6);
     status.set_margin_top(3);

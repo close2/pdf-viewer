@@ -834,36 +834,64 @@ section_gates_cost() {
 }
 
 # What the rounds paid for the heavy-walk lock: every line `tools/bounded.sh --lock` appended for
-# the log's last batch — the batch being the branch the last line names — then each round's runs,
-# queue and hold summed. The sums are this section's, taken from the lines printed above them in
-# the same run, so they cannot drift from what they add up; the log is the wrapper's and is read,
-# never written (ADR 1646). A run that took the lock with a bare `flock` is on no line, which is
-# why every lock is taken through `--lock`: the rounds' walks, the merge's gates (`round=` the
-# batch's branch) and the arms export (`round=arms`), held so by `tests/bounded.rs` (ADR 1662).
+# the log's last batch, then each round's runs, queue and hold summed. The sums are this section's,
+# taken from the lines printed above them in the same run, so they cannot drift from what they add
+# up; the log is the wrapper's and is read, never written (ADR 1646). A run that took the lock with
+# a bare `flock` is on no line, which is why every lock is taken through `--lock`: the rounds'
+# walks, the merge's gates (`round=` the batch's branch) and the arms export (`round=arms`), held so
+# by `tests/bounded.rs` (ADR 1662).
+#
+# **A line's batch is the branch it names, or else the batch its round is in.** The wrapper writes
+# the branch of the tree it lives in, and a wrapper run from a detached export of HEAD writes
+# `batch=HEAD`: two of round 1405's runs, 1 921.9 s of its queue, were read as no batch's. So a line
+# whose branch is not `batch-<first>-<last>` is counted for the batch whose sessions hold its round,
+# and is marked so where it is printed; one whose round no batch on the log holds is counted for
+# none and said once. The last batch is the last branch of that shape on the log (ADR 1675).
 lock_cost() {
-    local log=${HEAVY_WALK_LOG:-/home/AI/heavy-walk.log} batch
+    local log=${HEAVY_WALK_LOG:-/home/AI/heavy-walk.log}
     heading "what the heavy-walk lock cost: the last batch's runs under tools/bounded.sh --lock" "$log"
     [ -r "$log" ] || { printf 'no lock log at %s — no run on this machine has taken the lock through --lock\n' "$log"; return 0; }
-    batch=$(grep -E ' batch=[^ ]+ round=' "$log" | tail -1 | sed -E 's/.* batch=([^ ]+) .*/\1/')
-    [ -n "$batch" ] || { printf 'the lock log %s holds no line in the shape --lock writes\n' "$log"; return 0; }
-    awk -v batch="$batch" '
-        $2 == "batch=" batch {
+    awk '
+        function named(field) { return field ~ /^batch=batch-[0-9]+-[0-9]+$/ }
+        FNR == NR {
+            if (named($2)) {
+                b = $2; sub(/^batch=/, "", b); last = b
+                split(b, at, "-"); first[b] = at[2] + 0; final[b] = at[3] + 0
+            }
+            next
+        }
+        FNR == 1 && last == "" { print "the lock log holds no line naming a batch-<first>-<last> branch"; exit }
+        $2 ~ /^batch=/ && $3 ~ /^round=/ {
+            batch = $2; sub(/^batch=/, "", batch)
             round = $3; sub(/^round=/, "", round)
+            by_round = ""
+            if (!named($2)) {
+                by_round = "?"
+                if (round ~ /^[0-9]+$/) for (b in first) if (round + 0 >= first[b] && round + 0 <= final[b]) by_round = b
+                if (by_round == "?") { unplaced++; next }
+                batch = by_round
+            }
+            if (batch != last) next
             wait = $4; sub(/^wait=/, "", wait); sub(/s$/, "", wait)
             hold = $5; sub(/^hold=/, "", hold); sub(/s$/, "", hold)
             code = $6; sub(/^exit=/, "", code)
             cmd = $0; sub(/.* cmd=/, "", cmd)
-            printf "  %s  round %-5s wait %8.1fs  hold %8.1fs  exit %-3s %s\n", $1, round, wait, hold, code, substr(cmd, 1, 90)
+            mark = (by_round == "") ? "" : "[" $2 ", by its round] "
+            printf "  %s  round %-5s wait %8.1fs  hold %8.1fs  exit %-3s %s%s\n", $1, round, wait, hold, code, mark, substr(cmd, 1, 90 - length(mark))
             if (!(round in runs)) order[++rounds] = round
             runs[round]++; waited[round] += wait; held[round] += hold
+            if (by_round != "") { relabelled++; relabelled_wait += wait }
         }
         END {
-            printf "batch %s, by round:\n", batch
+            if (last == "") exit
+            printf "batch %s, by round:\n", last
             for (i = 1; i <= rounds; i++) {
                 r = order[i]
                 printf "  round %-5s %3d run(s)  queued %8.1fs  held %8.1fs\n", r, runs[r], waited[r], held[r]
             }
-        }' "$log"
+            if (relabelled) printf "%d of those line(s) name no batch branch and are counted by their round, %.1fs of queue\n", relabelled, relabelled_wait
+            if (unplaced) printf "%d line(s) of the log name no batch branch and a round no batch on the log holds, counted for none\n", unplaced
+        }' "$log" "$log"
 }
 
 # Every gate name `tools/batch.sh`'s `gates()` runs, its two loops expanded, in its order.
