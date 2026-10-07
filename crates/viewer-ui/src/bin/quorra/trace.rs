@@ -362,6 +362,7 @@ pub(crate) fn describe_command(command: &Command) -> String {
         Command::Select(what) => format!("select {what:?}"),
         Command::Focused(move_to) => format!("focus {move_to:?} annotation"),
         Command::CommitField { field } => format!("commit field {field:?}"),
+        Command::Presented => "the first frame presented: the open sequence".to_owned(),
         Command::Edit(edit) => format!("edit {edit:?}"),
         Command::Undo => "undo".to_owned(),
         Command::Redo => "redo".to_owned(),

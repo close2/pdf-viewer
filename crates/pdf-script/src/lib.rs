@@ -1,12 +1,15 @@
 //! A document's field scripts evaluated against a bounded host object model: RFC 0008's Tier 1.
 //!
-//! One responsibility: *evaluate a document's script against a host object model, and hand back
-//! what it did*. A [`Request`] goes in — which of ISO 32000-2 §12.6.3's Table 199 triggers fired,
-//! on which field, with the event's values and Table 221's `/JS` text — and an [`Outcome`] comes
-//! out: the event's `rc`, the value or change the script left, every call it was refused by name,
-//! the budget it exceeded if it exceeded one, and the lines it logged. Both are data and both have a
-//! byte encoding ([`wire`]), because RFC 0008 section 6.2 puts the engine in a confined process of
-//! its own and what crosses to it is bytes; nothing here holds a document or reads a file.
+//! One responsibility: *evaluate a document's scripts against a host object model, and hand back
+//! what they did*. A [`Request`] goes in — which of ISO 32000-2 §12.6.3's sites fired, or the
+//! document's open, on which field, with the event's values, Table 221's `/JS` text and the fields
+//! whose state changed since the realm last heard — and an [`Outcome`] comes out: the event's `rc`,
+//! the value or change the script left, every edit it made to a field, every call it was refused by
+//! name, the budget it exceeded if it exceeded one, and the lines it logged. Both are data and both
+//! have a byte encoding ([`wire`]), because RFC 0008 section 6.2 puts the engine in a confined
+//! process of its own and what crosses to it is bytes; nothing here holds a document or reads a
+//! file. A [`Realm`] is one document's engine context, which persists across every request so that
+//! what Table 32's name tree defines at the open is what a field's script calls later (ADR 1602).
 //!
 //! # The engine, and the `unsafe` this crate does not contain
 //!
@@ -21,12 +24,14 @@
 //! # What a script reaches
 //!
 //! RFC 0008 section 4.2 admits a host object model that stays inside the process, and section 4.3
-//! excludes the rest by name. This crate carries one field's `/K` and `/F` (ADR 1591): `event.value`,
-//! `event.rc`, `event.willCommit`, `event.change`, `event.selStart`, `event.selEnd`, `event.target`
-//! as a field with its `value`, `this.getField` of that same field, `console.println`, and the `AF*`
-//! library as the very functions Tier 0 runs (`pdf_model::aform`). Every other member either table
-//! names is a property that throws a `NotAllowedError` naming the call and its tier — never
-//! `undefined`, never silence — and is recorded in the outcome whether or not the script catches it
+//! excludes the rest by name. This crate carries `event` with the properties each site raises, the
+//! document's `getField` of any field and its field-walking methods, every field's value and the
+//! properties that decide its appearance, the reference's `display`, `border` and `color`
+//! constants, `console.println`, and the `AF*` library as the very functions Tier 0 runs
+//! (`pdf_model::aform`) — ADRs 1591 and 1603. A script's write to a field is an edit in the outcome,
+//! which the view state applies beside a person's typing. Every other member either table names is
+//! a property that throws a `NotAllowedError` naming the call and its tier — never `undefined`,
+//! never silence — and is recorded in the outcome whether or not the script catches it
 //! ([`surface`] is the list).
 //!
 //! # The reference the object model is read from
@@ -58,4 +63,4 @@ pub use outcome::{Ending, Exceeded, Outcome, Refusal, RefusalKind};
 pub use request::{Budget, Event, Request, utf16_offset};
 
 #[cfg(feature = "engine")]
-pub use engine::{Engine, run};
+pub use engine::{Engine, Realm, run};

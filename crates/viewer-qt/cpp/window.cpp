@@ -4,6 +4,7 @@
 // answers, and what differs between them is ADR 0246's subject.
 #include "window.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdint>
@@ -921,6 +922,24 @@ MainWindow::MainWindow(rust::Box<Host> host)
     // made the gap between two pages of a column as good as invisible.
     // Tab on the page is §12.5.1's key rather than Qt's focus chain's; see `eventFilter`.
     page_->installEventFilter(this);
+    // A text control shows the field's characters while it holds the keyboard and what Table
+    // 199's /F displays while it does not (ADR 1604), so the keyboard moving in or out of one is a
+    // write. After the move rather than inside it, which is when `hasFocus` says where it went.
+    connect(qApp, &QApplication::focusChanged, this, [this](QWidget* was, QWidget* now) {
+        const auto ours = [this](QWidget* widget) {
+            return widget != nullptr
+                && std::any_of(controls_.begin(), controls_.end(), [widget](QWidget* control) {
+                       return control == widget || control->isAncestorOf(widget);
+                   });
+        };
+        if (ours(was) || ours(now)) {
+            QTimer::singleShot(0, this, [this] {
+                if (!busy_) {
+                    placeControls();
+                }
+            });
+        }
+    });
 
     const rust::Vec<std::uint8_t> ground = host_->surround();
     if (ground.size() >= 3) {
@@ -2268,6 +2287,17 @@ void MainWindow::commitsWhenFinished(QLineEdit* entry, std::size_t index)
         host_->commit_control(index);
         applyUpdates();
     });
+    // Enter also gives the keyboard back to the page — Adobe's event model counts it among the
+    // ways a field loses the focus — so that the control shows what the field displays rather
+    // than the characters it was typed as (ADR 1604). After `editingFinished`, which Qt emits
+    // for the same key once this returns.
+    connect(entry, &QLineEdit::returnPressed, this, [this] {
+        QTimer::singleShot(0, this, [this] {
+            if (page_ != nullptr) {
+                page_->setFocus(Qt::OtherFocusReason);
+            }
+        });
+    });
 }
 
 void MainWindow::rebuildControls()
@@ -2551,16 +2581,28 @@ void MainWindow::placeControls()
             continue;
         }
         const QString value = text(control.value);
+        // ADR 1604: a text control holding the keyboard shows the field's characters, so typing
+        // starts from the value the format was made of, and one that does not shows what Table
+        // 199's /F displays — what the page shows under it everywhere else.
+        const bool holds = widget->hasFocus() || widget->isAncestorOf(QApplication::focusWidget());
+        const QString shows = holds ? value : text(control.displayed);
         switch (control.kind) {
         case 0:
-            if (auto* entry = qobject_cast<QLineEdit*>(widget); entry != nullptr && entry->text() != value) {
-                entry->setText(value);
+            if (auto* entry = qobject_cast<QLineEdit*>(widget); entry != nullptr && entry->text() != shows) {
+                // Qt selects a line edit's whole text as a Tab gives it the keyboard; the
+                // characters that replace the displayed string keep that, and otherwise the caret
+                // is after them, where `setText` leaves it.
+                const bool whole = entry->hasSelectedText() && entry->selectedText() == entry->text();
+                entry->setText(shows);
+                if (holds && whole) {
+                    entry->selectAll();
+                }
             }
             break;
         case 1:
             if (auto* entry = qobject_cast<QPlainTextEdit*>(widget);
-                entry != nullptr && entry->toPlainText() != value) {
-                entry->setPlainText(value);
+                entry != nullptr && entry->toPlainText() != shows) {
+                entry->setPlainText(shows);
             }
             break;
         case 3:

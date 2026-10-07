@@ -11,17 +11,29 @@ every scripted field's displayed value over RFC 0008 section 3's population (ADR
 against a bridge that carries `event`, the field's `value`, `getField` of that field,
 `console.println` and the `AF*` library as natives over `pdf_model::aform`, and refuses every other
 member of RFC 0008 sections 4.2 and 4.3 by name; `ViewState::run_scripts_with` is the hook a host
-supplies it through, and no host does. Its Tier 1 column (`crates/pdf-script/tests/script_corpus.rs`,
-run with `--features engine`) counts every run by how it ended, and nearly every throw is a
-`ReferenceError` for a function a document-level script defines — so **what is next, in RFC 0008
-section 11's order**, is the third confined process and its profile, then the open sequence's name
-tree in a realm that persists for the document, `util`, `app`'s answers, the drawn appearance asking
-the runner as `displayed_value` does, and the host's `Scripts` level. Every window commits through
+supplies it through, and no host does. **Items (b) and (c) are built** (ADRs 1602, 1603): a
+document's scripts share one `pdf_script::Realm`; `ViewState::run_open_scripts` runs Table 32's
+name tree, the `/OpenAction` and page one's `/O` and `/PO` into it once the first page is presented
+— which every window says with `Command::Presented`, beside `Command::Report` (ADR 1604) —
+`run_page_scripts` and `run_annotation_scripts` run Table 198's and Table 197's scripts beside the
+actions a window performs, and a commit runs `/V` and every `/CO` entry's `/C` with `event.rc`
+honoured, then `/F`, whose display the drawn and saved appearance read; a script reaches every
+field's value and appearance properties, and its writes land in the edit log. Table 200's five are
+item (d). The Tier 1 column (`crates/pdf-script/tests/script_corpus.rs`, run with `--features
+engine`) now finds `ReferenceError`s in 15 documents for 9 names, none of them a function a
+document-level script defines: functions no file defines (`TFMC`, `goNext`, `f_insert`, `aaa`),
+folder-level scripts of the author's viewer (`Matrix2D`), a script's own slip (`defaultValue`), a
+name the reference's library has and Tier 0's does not (`AFExactMatch`), one it has nowhere
+(`AFSpecial_FormatEx`), and Adobe's `cursor` constants. **What is next, in RFC 0008 section 11's
+order** — the third confined process and its profile being built (`pdf-script-worker`, ADRs 1608,
+1609) — is the hosts calling the three open and site methods (round 1384's), `util`'s
+`printx`/`printd`/`printf`, `app`'s answers (`viewerVersion`, `viewerType`, `platform`), `Field`'s
+`getArray` and `setFocus`, drawing the properties a script sets, Table 200's sites, and the host's
+`Scripts` level. Every window commits through
 `viewer-core` — Table 197's `/Bl` wherever the focus leaves a widget, `Command::CommitField` for
-Enter in a single-line field and for a toolkit control losing the keyboard — and says a refusal;
-the two toolkit windows still show a committed value in their own controls as typed rather than
-through its `/F`, which needs `Query::Fields` to carry the displayed value beside the value
-(ADR 1592). The premise this file was commissioned to test — *is it true that there is now a safe
+Enter in a single-line field and for a toolkit control losing the keyboard — and says a refusal
+(ADR 1592); `Query::Fields` carries what a field displays beside its characters, and the two toolkit
+windows show the first in a control without the keyboard and the second in one with it (ADR 1604). The premise this file was commissioned to test — *is it true that there is now a safe
 ECMAScript library?* — is **true, with one qualification that matters and is stated in full
 below**; the file keeps its 2026-08-28 numbers as what was found then, and the RFC re-measured what
 it could.

@@ -117,6 +117,24 @@ can and cannot open a window on, and where the build lands.
   this account and the agent's processes live in the owner's own session scope, which is why the
   bound is an rlimit and not a cgroup; the cgroup is the owner's to set and ADR 0798 says how.
 
+- **Every heavy command runs under the agent's task budget, `ulimit -u 8192`, because no memory
+  bound sees a process count.** On 2026-10-06 a round ran `cargo-geiger` unbounded; it forked a
+  task per package and never waited, the agent's scope climbed about 3 400 tasks a minute for ten
+  minutes to 52 259 tasks, 50 GB resident and 91 GB of swap, and the system's OOM daemon killed the
+  whole scope — the orchestrator and four rounds (trap 116). Each task was small, so neither
+  `--data` nor `--tree` could act; `RLIMIT_NPROC` refuses the `fork` itself. It counts **every task
+  of the user**, so 8192 is the budget of all six rounds and the orchestrator together: their builds,
+  test pools and Xvfb servers hold under 1 000 at work, and a spawner gone wrong holds tens of
+  thousands. `tools/bounded.sh` applies
+  it to every command it runs (`--tasks N`, never above the budget) and is the one place the figure
+  is written; `tools/batch.sh`, `tools/state.sh`, `tools/fuzz.sh` and `tools/drive-windows.sh` read
+  it with `tools/bounded.sh --task-budget` and hold themselves to it before anything runs, and
+  `tools/batch.sh check` prints the user's tasks beside the limit the calling shell held. A command
+  the wrapper ran that met the bound ends on `STOPPED BY THE TASK LIMIT`. A tool that forks per
+  package or per input is not run without the bound, and `unsafe` is counted with `grep`. The
+  rlimit reaches only what this tree starts; the cgroup that bounds the agent itself is the owner's,
+  and `tools/state.sh main-checkout` names it (ADR 1612).
+
 - **`git stash` is shared between worktrees, and a parallel round will take yours.** `refs/stash`
   lives in the *common* git directory rather than in the worktree, so every round running at the
   same time pushes onto one stack. A round that stashed its changes to measure a baseline, and
@@ -269,6 +287,17 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   processes, or the number is a lottery. `crates/viewer-ui/tests/launch_path.rs` derives that list
   rather than naming it.
 
+- **Three programs confine themselves on this kernel, and each is found beside the program that
+  starts it.** `pdf-sandbox-worker` decodes an image, `pdf-view-worker` interprets and draws a
+  document, `pdf-script-worker` runs a document's scripts; each applies its own
+  `pdf_sandbox::lockdown::Profile` — seccomp-BPF, a Landlock domain that permits nothing, and
+  resource ceilings — before it reads a byte, and its greeting reports what the kernel granted.
+  `crates/pdf-sandbox/src/lockdown_linux.rs` is each profile's allow-list and the `strace` run it
+  was taken from; a system call missing from one kills the worker with `SIGSYS`, which the host
+  names. The script worker needs the engine, so it is built only with
+  `cargo build -p pdf-script-worker --features engine --bins`, is beside no installed program until
+  a host supplies a level for scripts, and is named elsewhere by `PDF_SCRIPT_WORKER` (ADRs 1608,
+  1609).
 - KDE Frameworks 6 packages on Arch have no `kf6-` prefix (`kio`, `kconfig`, `ki18n`).
 - **Launch with a login shell** so `umask 002` applies, or every file the agent creates is
   unwritable by `cl`: `sudo -u AI bash -lc 'cd /home/cl/projects/pdf-viewer && claude'`
@@ -598,9 +627,18 @@ cargo test -p conformance --test documents
 #   list's "decide sccache's ceiling" item is the owner's choice between raising `size` under
 #   `[cache.disk]` and leaving it to evict.
 
+# `agent's cgroup: N scope(s) hold user AI's processes, M with a limit above 16384 tasks or 40 GiB`
+#   — the agent runs in a tab's scope of the owner's own session, which no rlimit of this tree
+#   reaches; a `scope:` line beneath names each, with the tightest `pids.max` and `memory.max` on its
+#   path. 16384 is twice the task budget every heavy command runs under, so the rlimit acts first and
+#   the cgroup holds what it cannot see; 40 GiB is ADR 0798's `MemoryMax`. The list's "bound the
+#   agent's scope" item writes both into each unbounded tab as the owner, who owns the files, or
+#   starts the next session in a scope of its own with `systemd-run --user --scope` (ADR 1612).
+
 # `the owner's list, in the order to do them: N` — the items, numbered: what stops the
 #   fast-forward, the question files' `§`, the commit of the answers, the open questions, the forks
-#   and the upstream reports, the patches to apply, the re-seed, the artefacts, and the disk last.
+#   and the upstream reports, the patches to apply, the agent's scope, the re-seed, the artefacts,
+#   and the disk last.
 ```
 
 **Driving `quorra-qt` under Xvfb:** Qt ignores key presses there until it is run with

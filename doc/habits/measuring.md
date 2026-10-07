@@ -766,3 +766,11 @@ content before measuring it. And work already on helper threads is mostly hidden
 the exact areas fell 42% in instructions and bought 1.5–2.5 ms, while deciding convexity on the
 walk thread cost 7.7 ms to save 4.7 (ADR 1582) — order a saving by the clock on the thread that
 waits, not by instructions wherever they run.
+
+## 71. A recursion bound is chosen after the stack cost per level is measured at two or three stack sizes
+
+Boa 0.22's parser has no depth limit. Before `Budget::nesting` was set, round 1383 measured
+26–32 KiB of stack per nesting level in dev and release alike: an 8 MiB thread parses 256 levels
+and overflows at 320, 16 MiB parses 400, 2 MiB parses 64 and not 128 (ADR 1602). The fuzz target's
+256 sat at the edge of the worker's 8 MiB thread, which the measurement showed and a guess would
+not have; the bound is 128.

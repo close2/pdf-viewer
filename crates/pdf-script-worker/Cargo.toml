@@ -1,0 +1,44 @@
+[package]
+name = "pdf-script-worker"
+description = "A document's scripts run in a confined process of their own, spawned on the first trigger the reader's level lets run (RFC 0008 section 6.2)."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The wire under the worker, shared with the view worker and the file-system worker: a kind byte, a
+# length, a greeting that carries what the kernel granted, and the supervision that can kill the
+# child (ADR 0846). What crosses it is this crate's vocabulary and nobody else's.
+confined-transport.workspace = true
+# `ScriptRunner`, the one place a host's level for scripts reaches a view state (ADR 1591), and the
+# event it hands a runner.
+pdf-model.workspace = true
+# The third confinement profile, which is the work's rather than the wire's (ADR 1608).
+pdf-sandbox.workspace = true
+# The request, the outcome and their bytes; and the engine, behind `engine` below.
+pdf-script.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+pdf-syntax.workspace = true
+
+[features]
+# Off by default for `pdf-script`'s own reason (RFC 0008 section 5.4): without it this crate is the
+# host's half — the wire and the client that spawns a worker — and links no engine. The worker
+# program needs the engine, so it is built only with it.
+default = []
+engine = ["pdf-script/engine"]
+
+[[bin]]
+name = "pdf-script-worker"
+path = "src/bin/pdf-script-worker.rs"
+required-features = ["engine"]
+
+[[example]]
+name = "script_peak"
+required-features = ["engine"]
+
+[lints]
+workspace = true

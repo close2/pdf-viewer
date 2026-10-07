@@ -33,7 +33,14 @@
 #
 # And in all four windows, §12.7.4.3's commit — a tab out of a field and Enter in one, a character a
 # field's keystroke script refuses and a value its commit refuses, each said (ADR 1592) — and §12.10's
-# position on a geographic map, with a projected map's refusal beside it (ADR 1593).
+# position on a geographic map, with a projected map's refusal beside it (ADR 1593). In the two
+# toolkit windows the committed values are then read off each control's own text as the fields
+# display them, and the field's characters once its control holds the keyboard (ADR 1604).
+#
+# A step waits for the window's own word wherever the window gives one — its first frame's line
+# under `--trace=launch`, a command's line under `events`, a title, a node on the bus, a colour on a
+# photograph — each with a ceiling, rather than for a fixed time; an input the window says nothing
+# about keeps its settle, with the reason beside the number (ADR 1605).
 #
 # And two things a screen reader does, through AT-SPI alone: it asks which window is the active one,
 # whose frame says so with the keyboard in it and not without (ADR 1565), and it clicks a text field
@@ -59,6 +66,10 @@ set -u
 export PYTHONDONTWRITEBYTECODE=1
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+# Under the agent's task budget, the figure `tools/bounded.sh` writes once (trap 116, ADR 1612); a
+# limit already at or under it is kept.
+task_budget=$("$ROOT/tools/bounded.sh" --task-budget) || exit 1
+[ "$(ulimit -u)" != unlimited ] && [ "$(ulimit -u)" -le "$task_budget" ] || ulimit -u "$task_budget" || exit 1
 OUT="$ROOT/scratchpad/drive-windows"
 DISPLAY_NUMBER=":93"
 TARGET=$(cargo metadata --format-version 1 --no-deps --manifest-path "$ROOT/Cargo.toml" 2>/dev/null \
@@ -448,7 +459,9 @@ if [ -e "/tmp/.X${DISPLAY_NUMBER#:}-lock" ]; then
 fi
 Xvfb "$DISPLAY_NUMBER" -screen 0 1400x1100x24 -nolisten tcp >/dev/null 2>&1 &
 XVFB=$!
-sleep 1
+# The server answering a client is the condition, rather than a second (ADR 1605); `wait_for` is
+# defined further down, so this is its loop written out.
+for _ in $(seq 1 100); do xdotool getdisplaygeometry >/dev/null 2>&1 && break; sleep 0.1; done
 
 # A private session bus with AT-SPI enabled on it, so that every window driven below publishes its
 # widgets' extents (doc/verify.md's AT-SPI recipe, held for the whole drive).
@@ -459,11 +472,15 @@ if command -v dbus-daemon >/dev/null && [ -x /usr/lib/at-spi-bus-launcher ] \
     read -r address BUS <<< "$(dbus-daemon --session --fork --print-address=1 --print-pid=1 | tr '\n' ' ')"
     export DBUS_SESSION_BUS_ADDRESS=$address
     /usr/lib/at-spi-bus-launcher --launch-immediately >/dev/null 2>&1 < /dev/null &
-    sleep 2
+    # Each service is waited for by its name on its bus, rather than for two seconds and one.
+    for _ in $(seq 1 100); do busctl --user status org.a11y.Bus >/dev/null 2>&1 && break; sleep 0.1; done
     busctl --user set-property org.a11y.Bus /org/a11y/bus org.a11y.Status IsEnabled b true
     A11Y=$(busctl --user call org.a11y.Bus /org/a11y/bus org.a11y.Bus GetAddress | cut -d'"' -f2)
     /usr/lib/at-spi2-registryd >/dev/null 2>&1 < /dev/null &
-    sleep 1
+    for _ in $(seq 1 100); do
+        busctl --address="$A11Y" status org.a11y.atspi.Registry >/dev/null 2>&1 && break
+        sleep 0.1
+    done
 fi
 cat > "$OUT/asked.py" <<'PY'
 # asked.py PID ROLE NAME: the centre of the smallest showing widget of that role and name, in the
@@ -556,22 +573,58 @@ WINDOW=""     # which of the three is being driven
 LOG=""        # its standard output
 STEP=0
 
+# wait_for SECONDS COMMAND…: runs COMMAND every tenth of a second until it succeeds, and fails once
+# SECONDS have passed without — the ceiling a condition gets in place of a fixed sleep (ADR 1605).
+# A ceiling reached is said on standard error and judged by the step's own verdict, never here.
+wait_for() {
+    local until=$(( ${EPOCHREALTIME/[.,]/} + $1 * 1000000 ))
+    shift
+    until "$@"; do
+        if [ "${EPOCHREALTIME/[.,]/}" -ge "$until" ]; then
+            echo "drive-windows: $WINDOW: waited the ceiling for: $*" >&2
+            return 1
+        fi
+        sleep 0.1
+    done
+}
+# said_since N PATTERN: whether the window's log says PATTERN after its line N.
+said_since() { tail -n "+$(($1 + 1))" "$LOG" 2>/dev/null | grep -q -- "$2"; }
+# first_frame: whether the window has said, under `--trace=launch`, that its first frame is on the
+# screen — each window's own sentence for it — and is mapped where xdotool can find it.
+first_frame() {
+    local line
+    case "$WINDOW" in
+        quorra) line='launch path, process start to first present' ;;
+        quorra-confined) line='first frame presented' ;;
+        *) line='first frame on the screen at' ;;
+    esac
+    grep -q -- "$line" "$LOG" 2>/dev/null && [ -n "$(main_window)" ]
+}
+# a_window: whether the process has any window mapped — a launch whose first frame waits behind a
+# question (§7.6.4's password) is ready once the question is up.
+a_window() { [ -n "$(main_window)" ]; }
+# LAUNCHED is the condition `launch` waits for; LAUNCH_TRACE the topics the window prints.
+LAUNCHED=first_frame
+LAUNCH_TRACE=events,launch
 launch() { # file [arguments]
     local file=$1
     shift
     [ -n "$APP" ] && { kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; }
     LOG="$OUT/$WINDOW.$(basename "$file" .pdf).log"
     if [ "$WINDOW" = quorra-qt ]; then
-        QT_XCB_NO_XI2=1 "$BIN/$WINDOW" --trace=events "$@" "$file" > "$LOG" 2>&1 &
+        QT_XCB_NO_XI2=1 "$BIN/$WINDOW" --trace="$LAUNCH_TRACE" "$@" "$file" > "$LOG" 2>&1 &
     else
-        "$BIN/$WINDOW" --trace=events "$@" "$file" > "$LOG" 2>&1 &
+        "$BIN/$WINDOW" --trace="$LAUNCH_TRACE" "$@" "$file" > "$LOG" 2>&1 &
     fi
     APP=$!
-    sleep 5
+    # The window's own word that its first frame is up, in place of five seconds (ADR 1605). The
+    # ceiling is the slowest launch measured under a neighbour's build, with room.
+    wait_for 30 "$LAUNCHED"
 }
 main_window() { xdotool search --onlyvisible --pid "$APP" 2>/dev/null | head -1; }
 title() { xdotool getwindowname "$(main_window)" 2>/dev/null; }
 origin() { xdotool getwindowgeometry --shell "$(main_window)" 2>/dev/null | awk -F= '/^[XY]=/{printf "%s ", $2}'; }
+# `click` and `wheel` settle for the reason `key` gives below: nothing says when a press is done.
 click() { # x y, in the main window's own coordinates
     local x y
     read -r x y <<< "$(origin)"
@@ -585,8 +638,37 @@ wheel() { # x y button [count]
     for _ in $(seq "${4:-1}"); do xdotool click "$3"; done
     sleep 1.3
 }
+# The settle after an input with no line of its own to wait for: GTK and Qt move the keyboard and
+# open popups from their event loops after the input's handler has returned, and nothing says when.
 key() { xdotool windowfocus --sync "$(main_window)" 2>/dev/null; xdotool key --delay 300 "$@"; sleep 1.2; }
 type_in() { xdotool windowfocus --sync "$(main_window)" 2>/dev/null; xdotool type --delay 300 "$1"; sleep 1.2; }
+# key_then PATTERN KEY…, type_then PATTERN TEXT, click_then PATTERN X Y: the input, and then the
+# window's own line for what it did with it, in place of the settle (ADR 1605). The lines are the
+# core's commands as each window traces them under `events`: `Focused(Next)` and `focus Next
+# annotation`, `SetField { field: "A", value: Text("1")` in all four, `saved N bytes to` from every
+# save.
+key_then() {
+    local mark pattern=$1
+    shift
+    mark=$(lines)
+    xdotool windowfocus --sync "$(main_window)" 2>/dev/null; xdotool key --delay 300 "$@"
+    wait_for 10 said_since "$mark" "$pattern"
+}
+type_then() {
+    local mark
+    mark=$(lines)
+    xdotool windowfocus --sync "$(main_window)" 2>/dev/null; xdotool type --delay 300 "$2"
+    wait_for 10 said_since "$mark" "$1"
+}
+click_then() {
+    local mark x y
+    mark=$(lines)
+    read -r x y <<< "$(origin)"
+    xdotool mousemove $((x + $2)) $((y + $3)) click 1
+    wait_for 10 said_since "$mark" "$1"
+}
+FOCUS_NEXT='Focused(Next)\|focus Next'
+SAVED='saved [0-9]* bytes to'
 shot() { # name
     local dir="$OUT/shots/$WINDOW" w n=0
     mkdir -p "$dir"
@@ -604,8 +686,12 @@ verdict() { # step verdict what
         "$(awk -v a="${CLOCK:-$now}" -v b="$now" 'BEGIN { printf "%.1f", (b - a) / 1e6 }')" | tee -a "$RESULTS"
     CLOCK=$now
 }
+title_has() { [[ "$(title)" == *"$1"* ]]; }
 expect_title() { # step needle
     local seen
+    # The title is the step's witness and the window writes it when its answer lands, so it is
+    # waited for rather than read once (ADR 1605); a title that never comes is judged below.
+    wait_for 10 title_has "$2"
     seen=$(title)
     case "$seen" in
         *"$2"*) verdict "$1" works "$seen" ;;
@@ -625,11 +711,13 @@ asked_fetch_up() {
         verdict "$step" wrong "fetched before the question was answered"
         return 1
     fi
+    local mark
+    mark=$(lines)
     if [ "$WINDOW" = quorra ]; then
         # The card is drawn rather than published, so its picture is the witness that it is up.
         shot "$step-card"
-        if [ "$1" = yes ]; then key Return; else key Escape; fi
-        sleep 1
+        # The answer is done when the window says what became of the fetch (ADR 1605).
+        if [ "$1" = yes ]; then key_then 'import-data:' Return; else key_then 'import-data:' Escape; fi
         return 0
     fi
     [ "$1" = yes ] && word="Go ahead" || word="Do not"
@@ -637,13 +725,17 @@ asked_fetch_up() {
         verdict "$step" "not offered" "no AT-SPI bus to find the dialogue's buttons on"
         return 1
     fi
-    if ! timeout 20 python3 "$OUT/press.py" "$APP" button "$word" > /dev/null 2>&1; then
+    # Pressed as soon as the dialogue's button is on the bus, and done once the window has said
+    # what became of the fetch (ADR 1605).
+    if ! wait_for 20 pressed "$word"; then
         shot "$step"
         verdict "$step" wrong "no showing \"$word\" button: the question is not up"
         return 1
     fi
-    sleep 2
+    wait_for 10 said_since "$mark" 'import-data:'
 }
+# pressed WORD: press.py's press of the showing button WORD, which fails until it is up.
+pressed() { timeout 20 python3 "$OUT/press.py" "$APP" button "$1" > /dev/null 2>&1; }
 lines() { wc -l < "$LOG" 2>/dev/null || echo 0; }
 # coloured PNG HEX: how many pixels are within 6% of that colour. Counted through the alpha channel
 # rather than by painting them, because a photograph with no colour in it is stored as grey and a
@@ -662,6 +754,8 @@ outside() {
 # found_since N: whether the window said, after line N of its log, that a search found something —
 # `quorra`'s trace of the core's answer, or the two native windows' "found" note.
 found_since() { tail -n "+$(($1 + 1))" "$LOG" 2>/dev/null | grep -q 'searched: page\|^note: found "'; }
+# What every window says once a search has ended, found or not: what `key_then` waits for.
+SEARCHED='searched: page\|^note: found "\|not in this document'
 # inside_the_field SEEN FX FY FW FH: whether the document node's box the extents probe appended
 # ("… document x y w h") lies inside the field; true where it appended none.
 inside_the_field() {
@@ -670,6 +764,20 @@ inside_the_field() {
     read -r dx dy dw dh <<< "${1##* document }"
     [ -n "$dh" ] && [ "$dw" -gt 0 ] && [ "$dx" -ge "$2" ] && [ $((dx + dw)) -le $(($2 + $4)) ] \
         && [ "$dy" -ge "$3" ] && [ $((dy + dh)) -le $(($3 + $5)) ]
+}
+# holds_colour NAME HEX: takes the photograph NAME and says whether it holds more than ten thousand
+# pixels of that colour — a page of it has landed.
+holds_colour() {
+    shot "$1"
+    [ "$(coloured "$OUT/shots/$WINDOW/$1.png" "$2")" -gt 10000 ] 2>/dev/null
+}
+# drawn_on_the_shot NAME: takes the photograph NAME and says whether it holds more than the three
+# colours of an empty window — the page has landed on it.
+drawn_on_the_shot() {
+    local colours
+    shot "$1"
+    colours=$(magick "$OUT/shots/$WINDOW/$1.png" -unique-colors -format %w info: 2>/dev/null)
+    [ "${colours:-0}" -gt 3 ]
 }
 # yellow PNG: how many pixels are the drive popup's /C colour, [1 0.9 0.2] — its title bar and icon.
 yellow() {
@@ -715,6 +823,35 @@ for index in range(desktop.get_child_count()):
     if application is not None and application.get_process_id() == pid:
         walk(application, 0)
 print(" ".join(str(seen.get(key, "-")) for key in "ACBDE"))
+PY
+# shown.py PID NAME…: what each named text control of a toolkit says through `Text`, in the order
+# asked, one word each ("-" where there is none) — the toolkit's own widgets, outside the document's
+# frame, which is where a committed value is shown as the field displays it (ADR 1604).
+cat > "$OUT/shown.py" <<'PY'
+import sys
+import gi
+gi.require_version("Atspi", "2.0")
+from gi.repository import Atspi
+pid, names, seen = int(sys.argv[1]), sys.argv[2:], {}
+def walk(node, depth, document=False):
+    if node is None or depth > 40:
+        return
+    try:
+        document = document or node.get_role() == Atspi.Role.DOCUMENT_FRAME
+        name = node.get_name()
+        if not document and node.get_role_name() in ("text", "entry") and name in names:
+            text = node.get_text_iface()
+            seen.setdefault(name, Atspi.Text.get_text(text, 0, Atspi.Text.get_character_count(text)))
+        for index in range(node.get_child_count()):
+            walk(node.get_child_at_index(index), depth + 1, document)
+    except gi.repository.GLib.Error:
+        return
+desktop = Atspi.get_desktop(0)
+for index in range(desktop.get_child_count()):
+    application = desktop.get_child_at_index(index)
+    if application is not None and application.get_process_id() == pid:
+        walk(application, 0)
+print(" ".join(seen.get(name) or "-" for name in names))
 PY
 # active.py PID: whether the window that holds the document's tree is the active one, as AT-SPI's
 # state set says — "active", "inactive", or "none" where no window of the process holds a
@@ -861,11 +998,36 @@ elif toolkit and document and not document[0].startswith("refused"):
 elif toolkit:
     print(toolkit[0])
 PY
+# answered ROLE NAME: whether asked.py finds that widget, its centre left in ASKED.
+answered() { ASKED=$(timeout 20 python3 "$OUT/asked.py" "$APP" "$1" "$2" 2>/dev/null); [ -n "$ASKED" ]; }
+# controls_show SEEN NAME…: whether shown.py reads SEEN off the named controls.
+controls_show() {
+    local want=$1
+    shift
+    [ "$(timeout 20 python3 "$OUT/shown.py" "$APP" "$@" 2>/dev/null)" = "$want" ]
+}
+# bus_reads SEEN: whether reopened.py reads SEEN off the bus.
+bus_reads() { [ "$(timeout 30 python3 "$OUT/reopened.py" "$APP" "$WINDOW" 2>/dev/null)" = "$1" ]; }
+# extents_answer: whether extents.py answers anything at all for the field N.
+extents_answer() { [ -n "$(timeout 30 python3 "$OUT/extents.py" "$APP" "$WINDOW" 2>/dev/null)" ]; }
+# activity_is STATE: whether active.py says STATE of the window.
+activity_is() { [ "$(timeout 20 python3 "$OUT/active.py" "$APP" 2>/dev/null)" = "$1" ]; }
+# aimed_at NAME: aim.py's click on the document's node NAME, which fails until the node is published.
+aimed_at() { timeout 20 python3 "$OUT/aim.py" "$APP" "$1" > /dev/null 2>&1; }
 # asked VARIABLE ROLE NAME: replaces the measured coordinates in VARIABLE with the widget's own
 # centre where the window publishes it, and says which the click will be.
 asked() {
     local seen=""
-    [ -n "$BUS" ] && seen=$(timeout 20 python3 "$OUT/asked.py" "$APP" "$2" "$3" 2>/dev/null)
+    # The two toolkits publish every widget asked for here, so they are asked until it is up — a
+    # panel is built when the outline beside page one arrives; `quorra` publishes no panel row,
+    # so it is asked once (ADR 1605).
+    ASKED=""
+    if [ -n "$BUS" ] && [ "$WINDOW" = quorra ]; then
+        answered "$2" "$3"
+    elif [ -n "$BUS" ]; then
+        wait_for 10 answered "$2" "$3"
+    fi
+    seen=$ASKED
     if [ -n "$seen" ]; then
         printf '%s\t%s\tasked\t%s %s at %s (measured %s)\n' "$WINDOW" "$1" "$2" "$3" "$seen" "${!1}" >> "$COORDINATES"
         printf -v "$1" '%s' "$seen"
@@ -893,7 +1055,7 @@ coordinates() {
 
 drive() {
     coordinates
-    local copy="$OUT/$WINDOW-drive.pdf" form="$OUT/$WINDOW-form.pdf" seen
+    local copy="$OUT/$WINDOW-drive.pdf" form="$OUT/$WINDOW-form.pdf" seen mark
     cp "$FIXTURES/drive.pdf" "$copy"
     rm -f "${copy%.pdf}.edited.pdf"
 
@@ -929,6 +1091,7 @@ drive() {
     key Home; expect_title 04-key-home-after-left "page 1 of 3"
 
     # Zoom: keys, then Control and the wheel.
+    # The second after the keys is the zoomed frame landing on the photograph, which says nothing.
     key plus; key plus; sleep 1; shot 05-zoom-keys
     [ "$(said 'Zoom\|zoom In')" -gt 0 ] && verdict 05-zoom-keys works "zoom in reached the core" \
         || verdict 05-zoom-keys wrong "no zoom in the trace"
@@ -937,7 +1100,7 @@ drive() {
     local before
     before=$(said 'Zoom\|zoom In')
     xdotool windowfocus --sync "$(main_window)"; xdotool keydown ctrl
-    wheel $PAGE 4; xdotool keyup ctrl; sleep 1; shot 06-zoom-wheel
+    wheel $PAGE 4; xdotool keyup ctrl; sleep 1; shot 06-zoom-wheel  # the same second, for the same frame
     [ "$(said 'Zoom\|zoom In')" -gt "$before" ] && verdict 06-zoom-wheel works "Control and the wheel zoomed" \
         || verdict 06-zoom-wheel wrong "Control and the wheel scrolled"
     key 0
@@ -978,7 +1141,7 @@ drive() {
     click $LINK; shot 12-link; expect_title 12-link "page 3 of 3"
 
     # §12.5.6.10's highlight over everything selected, then §7.5.6's save read back.
-    click $PAGE; key Home; key a; key h; key Escape; shot 13-markup; key ctrl+s; sleep 1
+    click $PAGE; key Home; key a; key h; key Escape; shot 13-markup; key_then "$SAVED" ctrl+s
     seen=$(python3 -c "import pikepdf,sys; p=pikepdf.open(sys.argv[1]); print(' '.join(str(a.Subtype) for a in p.pages[0].Annots))" \
         "${copy%.pdf}.edited.pdf" 2>&1)
     case "$seen" in
@@ -991,11 +1154,12 @@ drive() {
     click $PAGES_TAB; asked PAGE_ROW3 '*' "Page 3"; click $PAGE_ROW3; shot 14-pages-panel; expect_title 14-pages-panel "page 3 of 3"
 
     # The four levels (CLAUDE.md principle 3), and print.
+    # A toolkit's menu maps from its event loop and `quorra`'s card is drawn, and neither says when.
     click $PAGE; key r; sleep 1; shot 15-restrictions
     if [ "$WINDOW" = quorra ]; then
         # The card is drawn rather than published, so it is driven instead: the second row sets
         # copy to "on", which the core's trace states, and the first sets it back.
-        key Down; key Return; sleep 1
+        key Down; key Return; wait_for 10 said_since 0 'restrictions in this window copy:On'
         if [ "$(said 'restrictions in this window copy:On')" -gt 0 ]; then
             verdict 15-restrictions works "the card's second row set copy to on"
         else
@@ -1011,11 +1175,11 @@ drive() {
     # GTK's is the platform's print dialogue; `quorra` and Qt have no printer and say so (ADR 1180).
     click $PAGE; key shift+p
     local printing=""
-    for _ in $(seq 1 10); do
+    for _ in $(seq 1 100); do
         [ "$WINDOW" = quorra-gtk ] && printing=$(xdotool search --onlyvisible --pid "$APP" --name '^Print$' 2>/dev/null | head -1)
         [ "$WINDOW" != quorra-gtk ] && [ "$(said 'over 3 page(s)')" -gt 0 ] && printing=said
         [ -n "$printing" ] && break
-        sleep 1
+        sleep 0.1
     done
     shot 16-print
     case "$WINDOW:$printing" in
@@ -1031,13 +1195,16 @@ drive() {
     fi
 
     # §7.6.4.1's password.
-    launch "$FIXTURES/drive-password.pdf"
+    LAUNCHED=a_window launch "$FIXTURES/drive-password.pdf"
+    # The prompt's entry takes the keyboard once it is mapped, from the toolkit's event loop.
+    sleep 1
     shot 17-password-prompt
     local prompt
     prompt=$(xdotool search --onlyvisible --pid "$APP" | tail -1)
     xdotool windowraise "$prompt" 2>/dev/null
     [ "$WINDOW" = quorra-qt ] && { read -r px py <<< "$(xdotool getwindowgeometry --shell "$prompt" | awk -F= '/^[XY]=/{printf "%s ", $2}')"; xdotool mousemove $((px + 240)) $((py + 60)) click 1; }
-    xdotool windowfocus --sync "$prompt" 2>/dev/null; xdotool type --delay 300 drive; xdotool key Return; sleep 2
+    xdotool windowfocus --sync "$prompt" 2>/dev/null; xdotool type --delay 300 drive; xdotool key Return
+    wait_for 10 title_has "page 1 of 1"
     shot 18-password-open; expect_title 18-password "page 1 of 1"
 
     # The form: §12.5.1's /Tabs /C, §12.7.4.3's typed value, §12.7.5.2.3's check box, §12.7.5.4's
@@ -1045,14 +1212,25 @@ drive() {
     cp "$FIXTURES/drive-form.pdf" "$form"; rm -f "${form%.pdf}.edited.pdf"
     launch "$form"
     click 690 850
-    key Tab; type_in 1; key Tab; type_in 2; key Tab; key Tab; type_in 3
+    # Each input waits for the core's own line for it (ADR 1605). A Tab is said before GTK gives
+    # the control the keyboard from its idle, hence the tenth of a second after it.
+    key_then "$FOCUS_NEXT" Tab; sleep 0.1; type_then 'SetField { field: "A", value: Text("1")' 1
+    key_then "$FOCUS_NEXT" Tab; sleep 0.1; type_then 'SetField { field: "C", value: Text("2")' 2
+    key_then "$FOCUS_NEXT" Tab; key_then "$FOCUS_NEXT" Tab; sleep 0.1
+    type_then 'SetField { field: "B", value: Text("3")' 3
     shot 20-tab-order
     asked CHECK "check box" '*'; asked CHOICE "combo box" '*'
-    click $CHECK; click $CHOICE; shot 21-choice-open
-    if [ "$WINDOW" = quorra ]; then click $BLUE; else read -r bx by <<< "$BLUE"; xdotool mousemove "$bx" "$by" click 1; sleep 1.3; fi
+    click_then 'SetField { field: "D"' $CHECK; click $CHOICE; shot 21-choice-open
+    if [ "$WINDOW" = quorra ]; then
+        click_then 'SetField { field: "E"' $BLUE
+    else
+        mark=$(lines); read -r bx by <<< "$BLUE"; xdotool mousemove "$bx" "$by" click 1
+        wait_for 10 said_since "$mark" 'SetField { field: "E"'
+    fi
     shot 22-choice-chosen
-    click 690 850; key ctrl+s; sleep 1
-    click $BUTTON; shot 23-push-button; expect_title 23-push-button "page 2 of 2"
+    click 690 850; key_then "$SAVED" ctrl+s
+    click $BUTTON; wait_for 10 title_has "page 2 of 2"; shot 23-push-button
+    expect_title 23-push-button "page 2 of 2"
     seen=$(python3 - "${form%.pdf}.edited.pdf" <<'PY'
 import sys, pikepdf
 p = pikepdf.open(sys.argv[1])
@@ -1066,7 +1244,11 @@ PY
         *) verdict 20-tab-order-and-save wrong "A C B D/V D/AS E: $seen" ;;
     esac
     # The saved values as the reopened window shows them, read off the bus in every window (ADR 1489).
-    launch "${form%.pdf}.edited.pdf"; shot 24-reopened
+    launch "${form%.pdf}.edited.pdf"
+    # Read until the bus says what the file holds, which is the step's claim, or the ceiling
+    # passes: the toolkit publishes its controls after page one is up (ADR 1605).
+    [ -n "$BUS" ] && wait_for 20 bus_reads "1 2 3 True Blue"
+    shot 24-reopened
     seen=""
     [ -n "$BUS" ] && seen=$(timeout 30 python3 "$OUT/reopened.py" "$APP" "$WINDOW" 2>/dev/null)
     if [ "$seen" = "1 2 3 True Blue" ]; then
@@ -1078,7 +1260,9 @@ PY
     # ADR 1501: a field's second character has a box, inside the field, where AT-SPI asks for it —
     # and where the toolkit's field answers and the document's node is read beside it (Qt), the
     # node's box is inside the toolkit's field too (ADR 1528).
-    launch "$FIXTURES/drive-field.pdf"; shot 29-field-extents
+    launch "$FIXTURES/drive-field.pdf"
+    [ -n "$BUS" ] && wait_for 20 extents_answer
+    shot 29-field-extents
     seen=""
     [ -n "$BUS" ] && seen=$(timeout 30 python3 "$OUT/extents.py" "$APP" "$WINDOW" 2>/dev/null)
     if [ -z "$BUS" ]; then
@@ -1103,13 +1287,16 @@ PY
         local active inactive file said=""
         for file in drive drive-form; do
             launch "$FIXTURES/$file.pdf"
-            xdotool windowfocus --sync "$(main_window)" 2>/dev/null; sleep 1.5
+            # The frame's state is the witness, so it is waited for in both directions rather than
+            # read a second and a half after the keyboard moved (ADR 1605).
+            xdotool windowfocus --sync "$(main_window)" 2>/dev/null; wait_for 10 activity_is active
             active=$(timeout 20 python3 "$OUT/active.py" "$APP" 2>/dev/null)
             # The pointer leaves the window first: with the keyboard given to the root, X sends
             # the keys to whatever window is under the pointer, and GTK counts that as having them.
             # shellcheck disable=SC2046
             xdotool mousemove $(outside) 2>/dev/null
-            xdotool windowfocus --sync "$(xwininfo -root | awk '/Window id:/ {print $4}')" 2>/dev/null; sleep 1.5
+            xdotool windowfocus --sync "$(xwininfo -root | awk '/Window id:/ {print $4}')" 2>/dev/null
+            wait_for 10 activity_is inactive
             inactive=$(timeout 20 python3 "$OUT/active.py" "$APP" 2>/dev/null)
             [ "$file" = drive ] && shot 32-window-active
             said="$said $file.pdf: ${active:-nothing}, then ${inactive:-nothing};"
@@ -1132,14 +1319,20 @@ PY
         for field in drive-form:A drive-field:N; do
             aimed="$OUT/$WINDOW-aimed-${field%%:*}.pdf"
             cp "$FIXTURES/${field%%:*}.pdf" "$aimed"; rm -f "${aimed%.pdf}.edited.pdf"
-            launch "$aimed"
-            if ! timeout 20 python3 "$OUT/aim.py" "$APP" "${field##*:}" > /dev/null 2>&1; then
+            # `access` too, for the line each window says as it gives the field the keyboard.
+            LAUNCH_TRACE=events,launch,access launch "$aimed"
+            mark=$(lines)
+            # Asked until the document's tree is on the bus, which it is shortly after page one.
+            if ! wait_for 20 aimed_at "${field##*:}"; then
                 said="$said no node ${field##*:} declares a click;"
                 continue
             fi
-            sleep 1.5; type_in z
+            wait_for 10 said_since "$mark" "keyboard goes to the field ${field##*:}\|typing into the field ${field##*:}"
+            # GTK and Qt say it before their event loop gives the control the keyboard.
+            sleep 0.2
+            type_then "SetField { field: \"${field##*:}\"" z
             [ "${field##*:}" = A ] && shot 33-aimed-field
-            click 690 850; key ctrl+s; sleep 1
+            click 690 850; key_then "$SAVED" ctrl+s
             seen=$(python3 -c "import pikepdf,sys; p=pikepdf.open(sys.argv[1]); print(str({str(f.T): f for f in p.Root.AcroForm.Fields}[sys.argv[2]].get('/V')))" \
                 "${aimed%.pdf}.edited.pdf" "${field##*:}" 2>&1 | tail -1)
             said="$said ${field##*:} is $seen;"
@@ -1162,7 +1355,8 @@ PY
     # document", which the window walks for page by page (ADR 0250).
     launch "$FIXTURES/drive.pdf#page=3"; shot 30-fragment-page
     expect_title 30-fragment-page "page 3 of 3"
-    launch "$FIXTURES/drive.pdf#page=3&search=%22drive%22"; sleep 2; shot 30-fragment-search
+    launch "$FIXTURES/drive.pdf#page=3&search=%22drive%22"; wait_for 10 found_since 0
+    shot 30-fragment-search
     if found_since 0; then
         verdict 30-fragment-search works "the fragment's word was searched for and found"
     else
@@ -1174,14 +1368,16 @@ PY
     # `--submissions=send` and imported into the form; at `refuse`, said and nothing sent (ADR 1527).
     if [ -n "$PORT" ]; then
         local fetched="http://127.0.0.1:$PORT/values.fdf" served
-        launch "$FIXTURES/drive-form.pdf#fdf=$fetched" --submissions=send; sleep 1; shot 31-fragment-fdf
+        launch "$FIXTURES/drive-form.pdf#fdf=$fetched" --submissions=send
+        wait_for 10 said_since 0 "import-data: 1 field(s) from $fetched"; shot 31-fragment-fdf
         if [ "$(said "import-data: 1 field(s) from $fetched, into 1 widget(s)")" -gt 0 ]; then
             verdict 31-fragment-fdf works "$(grep -m1 "import-data: 1 field(s) from" "$LOG")"
         else
             verdict 31-fragment-fdf wrong "$(grep -m1 'import-data' "$LOG" || echo 'no import-data line')"
         fi
         served=$(grep -c 'GET /values.fdf' "$SERVED")
-        launch "$FIXTURES/drive-form.pdf#fdf=$fetched" --submissions=refuse; shot 31-fragment-fdf-refused
+        launch "$FIXTURES/drive-form.pdf#fdf=$fetched" --submissions=refuse
+        wait_for 10 said_since 0 "import-data: declined"; shot 31-fragment-fdf-refused
         if [ "$(said "import-data: declined — $fetched was not fetched")" -gt 0 ] \
                 && [ "$(grep -c 'GET /values.fdf' "$SERVED")" -eq "$served" ]; then
             verdict 31-fragment-fdf-refused works "said, and the server was not asked"
@@ -1214,7 +1410,7 @@ PY
     # A right-to-left word on a page whose text runs in visual order through presentation forms.
     if [ -f "$FIXTURES/arabic.pdf" ]; then
         launch "$FIXTURES/arabic.pdf"
-        click 400 600; key f; local mark; mark=$(lines); type_in "العربية"; key Return
+        click 400 600; key f; mark=$(lines); type_in "العربية"; key_then "$SEARCHED" Return
         shot 25-find-arabic
         if found_since "$mark"; then
             verdict 25-find-arabic works "found"
@@ -1226,14 +1422,14 @@ PY
     # ADR 1477: a word typed without its marks finds one printed with them, and a mark typed is
     # asked for — "كتب" finds "كَتَبَ", "كُتُب" (dammas) does not.
     launch "$FIXTURES/drive-vowelled.pdf"
-    click 400 600; key f; mark=$(lines); type_in "كتب"; key Return; shot 25-find-vowelled
+    click 400 600; key f; mark=$(lines); type_in "كتب"; key_then "$SEARCHED" Return; shot 25-find-vowelled
     if found_since "$mark"; then
         verdict 25-find-vowelled works "the bare word found the vowelled one"
     else
         verdict 25-find-vowelled wrong "the bare word did not find the vowelled one"
     fi
     launch "$FIXTURES/drive-vowelled.pdf"
-    click 400 600; key f; mark=$(lines); type_in "كُتُب"; key Return; sleep 1
+    click 400 600; key f; mark=$(lines); type_in "كُتُب"; key_then "$SEARCHED" Return
     if found_since "$mark"; then
         verdict 25-find-other-mark wrong "a word with dammas found one with fathas"
     else
@@ -1241,7 +1437,7 @@ PY
     fi
     # ADR 1490: a TJ in reading order under a mirroring Tm reads back as one word, and is found.
     launch "$FIXTURES/drive-mirrored.pdf"
-    click 400 600; key f; mark=$(lines); type_in "عرب"; key Return; shot 25-find-mirrored
+    click 400 600; key f; mark=$(lines); type_in "عرب"; key_then "$SEARCHED" Return; shot 25-find-mirrored
     if found_since "$mark"; then
         verdict 25-find-mirrored works "the word under a mirroring Tm is found"
     else
@@ -1259,12 +1455,10 @@ PY
     if [ -f "$REFUSED" ]; then
         if [ "$WINDOW" = quorra ]; then
             launch "$REFUSED"
-            for _ in $(seq 1 24); do
-                [ "$(said 'drawn on the processor instead')" -gt 0 ] && break
-                sleep 5
-            done
-            sleep 3
-            shot 27-processor-fallback
+            wait_for 120 said_since 0 'drawn on the processor instead'
+            # The refusal is said before the processor's page lands off its thread, so the
+            # photograph is retaken until the page is on it (ADR 1605).
+            wait_for 20 drawn_on_the_shot 27-processor-fallback
             seen=$(title)
             [ -n "$seen" ] || seen=$(xdotool getwindowname \
                 "$(xdotool search --name 'drawn on the processor' 2>/dev/null | head -1)" 2>/dev/null)
@@ -1286,21 +1480,10 @@ PY
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 
-# §14.7's tree on a real bus (doc/verify.md's AT-SPI recipe): a DocumentFrame per page shown.
-# The answer goes through a file rather than the standard output, and every process either private
-# bus started is stopped by the pid the bus names: a service D-Bus activated for the window (the
-# registry, a portal) outlives `dbus-run-session` and holds any pipe it inherited open for ever.
-accessibility() {
-    command -v dbus-run-session >/dev/null && [ -x /usr/lib/at-spi-bus-launcher ] || {
-        verdict 26-accessibility "not offered" "at-spi2-core is not installed"; return; }
-    local answer="$OUT/$WINDOW.accessibility" found
-    rm -f "$answer"
-    # On the drive's own bus where it is up: a second at-spi-bus-launcher on this display would
-    # take over the accessibility bus's socket, which is keyed by the display, and the windows
-    # driven after this one would publish nothing.
-    if [ -n "$BUS" ]; then
-        launch "$FIXTURES/drive.pdf"
-        timeout 30 python3 - "$APP" > "$answer" 2>/dev/null <<'PY'
+# frames_published FILE: how many DocumentFrame nodes the window has on the bus, into FILE, and
+# whether there is one.
+frames_published() {
+    timeout 30 python3 - "$APP" > "$1" 2>/dev/null <<'PY'
 import sys
 import gi
 gi.require_version("Atspi", "2.0")
@@ -1321,6 +1504,25 @@ for index in range(desktop.get_child_count()):
         walk(application, 0)
 print(frames)
 PY
+    [ "$(tail -1 "$1" 2>/dev/null)" -gt 0 ] 2>/dev/null
+}
+# §14.7's tree on a real bus (doc/verify.md's AT-SPI recipe): a DocumentFrame per page shown.
+# The answer goes through a file rather than the standard output, and every process either private
+# bus started is stopped by the pid the bus names: a service D-Bus activated for the window (the
+# registry, a portal) outlives `dbus-run-session` and holds any pipe it inherited open for ever.
+accessibility() {
+    command -v dbus-run-session >/dev/null && [ -x /usr/lib/at-spi-bus-launcher ] || {
+        verdict 26-accessibility "not offered" "at-spi2-core is not installed"; return; }
+    local answer="$OUT/$WINDOW.accessibility" found
+    rm -f "$answer"
+    # On the drive's own bus where it is up: a second at-spi-bus-launcher on this display would
+    # take over the accessibility bus's socket, which is keyed by the display, and the windows
+    # driven after this one would publish nothing.
+    if [ -n "$BUS" ]; then
+        launch "$FIXTURES/drive.pdf"
+        # Asked until a DocumentFrame is on the bus or the ceiling passes: the bridge publishes the
+        # tree once page one is up (ADR 1605).
+        wait_for 20 frames_published "$answer"
         kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
     else
     QT_XCB_NO_XI2=1 timeout 60 dbus-run-session -- bash -c '
@@ -1376,11 +1578,14 @@ PY
 # Ada` and not for `--reader-name Bob`.
 reader_words() {
     local seen blue grey green
+    # Every sentence the window ends §12.8.1's report with, valid or not (ADR 1580).
+    local VERIFIED='that signature is\|It does not answer the third\|that signature is not called valid'
     launch "$FIXTURES/drive-signed.pdf" --trust-anchors "$FIXTURES/anchors" --accept-unknown-revocation
-    sleep 2; shot 34-trust-anchors
+    # The window's report on the signature is the witness, and it is waited for (ADR 1605).
+    wait_for 10 said_since 0 "$VERIFIED"; shot 34-trust-anchors
     seen=$(grep -o 'that signature is valid: .* reaches an authority you supplied' "$LOG" | head -1)
     if [ -n "$seen" ] && [ "$(said '1 of 1 read as RFC 5280 certificates')" -gt 0 ]; then
-        launch "$FIXTURES/drive-signed.pdf"; sleep 2
+        launch "$FIXTURES/drive-signed.pdf"; wait_for 10 said_since 0 "$VERIFIED"
         if [ "$(said 'It does not answer the third')" -gt 0 ] && [ "$(said 'that signature is valid')" -eq 0 ]; then
             verdict 34-trust-anchors works "$seen; and without the word, the third question unasked"
         else
@@ -1389,11 +1594,12 @@ reader_words() {
     else
         verdict 34-trust-anchors wrong "$(grep -m1 'that signature is not called valid[^.]*' "$LOG" || echo "no verdict: $LOG")"
     fi
+    # Each page is photographed until its colour is on it or the ceiling passes (ADR 1605).
     launch "$FIXTURES/drive-reference.pdf" --reference-files "$FIXTURES/targets"
-    sleep 2; shot 35-reference-files
+    wait_for 10 holds_colour 35-reference-files "#0000ff"
     blue=$(coloured "$OUT/shots/$WINDOW/35-reference-files.png" "#0000ff")
     launch "$FIXTURES/drive-reference.pdf"
-    sleep 2; shot 35-reference-proxy
+    wait_for 10 holds_colour 35-reference-proxy "#808080"
     grey=$(coloured "$OUT/shots/$WINDOW/35-reference-proxy.png" "#808080")
     if [ "${blue:-0}" -gt 10000 ] && [ "${grey:-0}" -gt 10000 ]; then
         verdict 35-reference-files works "the target's page drawn ($blue blue pixels), the proxy without the word ($grey grey)"
@@ -1401,9 +1607,11 @@ reader_words() {
         verdict 35-reference-files wrong "blue with the word ${blue:-?}, grey without it ${grey:-?}"
     fi
     launch "$FIXTURES/drive-audience.pdf" --reader-name Ada
-    sleep 2; shot 36-reader-name
+    wait_for 10 holds_colour 36-reader-name "#00ff00"
     green=$(coloured "$OUT/shots/$WINDOW/36-reader-name.png" "#00ff00")
     launch "$FIXTURES/drive-audience.pdf" --reader-name Bob
+    # What is judged here is an absence, which no condition can wait for: the page's own frame is
+    # what is waited for, and the two seconds are the processor's page landing behind it.
     sleep 2; shot 36-reader-name-other
     seen=$(coloured "$OUT/shots/$WINDOW/36-reader-name-other.png" "#00ff00")
     if [ "${green:-0}" -gt 10000 ] && [ "${seen:-1}" -eq 0 ]; then
@@ -1424,9 +1632,14 @@ field_commit() {
     cp "$FIXTURES/drive-commit.pdf" "$form"; rm -f "${form%.pdf}.edited.pdf"
     launch "$form"
     click 690 850
-    key Tab; type_in 12.5; key Tab; type_in 7x; key Tab; type_in -; key Return
+    # Each input waits for the window's own line for it: the core's command, or the refusal the
+    # step judges, and a tenth of a second after a Tab for the form step's reason (ADR 1605).
+    key_then "$FOCUS_NEXT" Tab; sleep 0.1; type_then 'SetField { field: "Price1", value: Text("12.5")' 12.5
+    key_then "$FOCUS_NEXT" Tab; sleep 0.1; type_then 'AFNumber_Keystroke refused "7x"' 7x
+    key_then "$FOCUS_NEXT" Tab; sleep 0.1; type_then 'SetField { field: "Price3", value: Text("-")' -
+    key_then 'Price3: the value entered does not match the format of the field' Return
     shot 37-field-commit
-    click 690 850; key ctrl+s; sleep 1
+    click 690 850; key_then "$SAVED" ctrl+s
     seen=$(python3 - "${form%.pdf}.edited.pdf" <<'PY' 2>&1 | tail -1
 import re, sys, pikepdf
 p = pikepdf.open(sys.argv[1])
@@ -1446,6 +1659,26 @@ PY
         verdict 37-field-commit works "saved: $seen; the x refused as typed and the minus refused at the commit, both said"
     else
         verdict 37-field-commit wrong "saved: ${seen:-nothing}; keystroke refusal said ${keyed:-0}, commit refusal said ${committed:-0}: $LOG"
+    fi
+    # ADR 1604: a toolkit's own control shows a committed value as the field displays it — Table
+    # 199's /F applied, $12.50 where the field holds 12.5 — and the field's characters again once
+    # it holds the keyboard, so that typing starts from them. `quorra` and the confined window
+    # place no control and draw the appearance, which the saved file above already witnesses.
+    if [ "$WINDOW" = quorra-gtk ] || [ "$WINDOW" = quorra-qt ]; then
+        local shown held
+        if [ -z "$BUS" ]; then
+            verdict 39-field-shown "not offered" "no accessibility bus on this machine"
+        else
+            wait_for 10 controls_show '$12.50 $7.00 $19.50' Price1 Price2 Total
+            shown=$(timeout 20 python3 "$OUT/shown.py" "$APP" Price1 Price2 Total 2>/dev/null)
+            wait_for 20 aimed_at Price1 && wait_for 10 controls_show 12.5 Price1
+            held=$(timeout 20 python3 "$OUT/shown.py" "$APP" Price1 2>/dev/null)
+            if [ "$shown" = '$12.50 $7.00 $19.50' ] && [ "$held" = 12.5 ]; then
+                verdict 39-field-shown works "Price1 Price2 Total committed: $shown; Price1 holding the keyboard: $held"
+            else
+                verdict 39-field-shown wrong "Price1 Price2 Total committed: ${shown:-nothing}; Price1 holding the keyboard: ${held:-nothing}"
+            fi
+        fi
     fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
@@ -1480,20 +1713,13 @@ confined() {
     expect_title 01-section "page 1 of 3 — Chapter one"
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
     launch "$FIXTURES/drive-coverage.pdf"
-    for _ in $(seq 1 24); do
-        [[ "$(title)" == *"drawn on the processor"* ]] && break
-        sleep 5
-    done
+    wait_for 120 title_has "drawn on the processor"
     # The title is set when the device refuses, before the processor's page lands off its thread,
     # so the photograph is retaken until the page is on it or a minute has passed: a shot taken in
     # between is blank for a reason that is the clock's, not the window's.
     local seen colours
-    for _ in $(seq 1 12); do
-        sleep 5
-        shot 28-confined-refusal
-        colours=$(magick "$OUT/shots/$WINDOW/28-confined-refusal.png" -unique-colors -format %w info: 2>/dev/null)
-        [ "${colours:-0}" -gt 3 ] && break
-    done
+    wait_for 60 drawn_on_the_shot 28-confined-refusal
+    colours=$(magick "$OUT/shots/$WINDOW/28-confined-refusal.png" -unique-colors -format %w info: 2>/dev/null)
     seen=$(title)
     if [ "$(said 'the graphics device refused the frame')" -eq 0 ]; then
         verdict 28-confined-refusal wrong "no refusal on standard error: the device drew it? $seen"

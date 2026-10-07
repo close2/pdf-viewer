@@ -1,8 +1,8 @@
 //! `tools/bounded.sh` is the wrapper every corpus walk, census and build runs under, and the
 //! memory ceiling it enforces is what keeps the machine up (`doc/environment.md`'s parallel-round
 //! agreements, ADR 0798). Its `--self-test` exercises the half of it that a gate can see without
-//! a corpus: the sampler that measures the tree, the ceiling's kill, and the wrapper's own
-//! answer to a sampler that stalls.
+//! a corpus: the sampler that measures the tree, the ceiling's kill, the wrapper's own answer to
+//! a sampler that stalls, and the task limit a fork loop meets.
 //!
 //! Not a conformance question, and it lives here for the reason `sandbox_gates.rs`,
 //! `submodules.rs` and `workspaces.rs` do: this is the crate whose gates read the repository's
@@ -20,11 +20,18 @@
 //! trap 18 read from the other side: there the limit destroyed the channel that reports it; here
 //! the channel that measures the limit could stop, and nothing said so.
 //!
-//! The self-test's five cases are the script's own (`tools/bounded.sh --self-test` prints one line
+//! The self-test's six cases are the script's own (`tools/bounded.sh --self-test` prints one line
 //! each): a synthetic table of a hundred thousand children sampled in a fraction of the interval,
 //! a chain, a cycle and a duplicated row walked once each, a live tree that fans out, a child
-//! over the ceiling stopped with exit 137, and a sampler that never returns stopping the tree
-//! after the stated number of missed samples. This test runs the script and repeats what it said.
+//! over the ceiling stopped with exit 137, a sampler that never returns stopping the tree after
+//! the stated number of missed samples, and a fork loop of at most 128 children refused under a
+//! task limit of 64. This test runs the script and repeats what it said.
+//!
+//! **No memory bound sees a process count**, and trap 116 is the incident: a tool that forked a
+//! task per package and never waited took the agent's scope to 52 259 tasks, and the OOM daemon
+//! killed every round. `RLIMIT_NPROC` is the bound that acts at the `fork` itself, it counts every
+//! task of the user, and its figure is the agent's budget, written once in the wrapper (ADR 1612).
+//! The second test holds every heavy script under `tools/` to that figure.
 
 #![expect(
     clippy::expect_used,
@@ -69,5 +76,68 @@ fn the_bounded_wrappers_self_test_holds() {
     assert!(
         !stderr.contains("NOT RUN"),
         "a self-test case did not run:\n{stderr}"
+    );
+}
+
+/// Every script under `tools/` that runs a build, a test, a walk or a display server holds itself to
+/// the agent's task budget before anything runs: it reads the figure from `tools/bounded.sh
+/// --task-budget`, the one place it is written, and sets `ulimit -u` to it (trap 116, ADR 1612). A
+/// line that only prints a command — a comment, an `echo`, a `printf` — runs nothing.
+#[test]
+fn every_heavy_script_in_tools_runs_under_the_task_budget() {
+    let heavy = [
+        "cargo build",
+        "cargo test",
+        "cargo run",
+        "cargo nextest",
+        "cargo clippy",
+        "fuzz run",
+        "xvfb-run",
+        "Xvfb ",
+    ];
+    let mut scripts: Vec<_> = std::fs::read_dir(repository_root().join("tools"))
+        .expect("tools/ is in the tree")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "sh"))
+        .collect();
+    scripts.sort();
+    let mut checked = 0_usize;
+    let mut unbounded = Vec::new();
+    for script in &scripts {
+        let name = script
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if name == "bounded.sh" {
+            continue;
+        }
+        let source = std::fs::read_to_string(script).expect("a script under tools/ reads");
+        let runs_heavy = source.lines().map(str::trim_start).any(|code| {
+            !(code.starts_with('#') || code.contains("echo ") || code.contains("printf "))
+                && heavy.iter().any(|shape| code.contains(shape))
+        });
+        if !runs_heavy {
+            continue;
+        }
+        checked = checked.saturating_add(1);
+        let reads = source.lines().any(|line| {
+            line.contains("task_budget=$(") && line.contains("bounded.sh\" --task-budget)")
+        });
+        let sets = source.contains("ulimit -u \"$task_budget\"");
+        if !(reads && sets) {
+            unbounded.push(name);
+        }
+    }
+    println!("{checked} heavy script(s) under tools/ hold themselves to the task budget");
+    assert!(
+        checked >= 3,
+        "{checked} heavy script(s): the shapes are measuring nothing"
+    );
+    assert!(
+        unbounded.is_empty(),
+        "these scripts under tools/ run builds, tests or walks without the agent's task budget \
+         (`task_budget=$(\"<root>/tools/bounded.sh\" --task-budget)` and `ulimit -u \"$task_budget\"`): \
+         {unbounded:?}"
     );
 }

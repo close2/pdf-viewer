@@ -988,6 +988,18 @@ pub struct FormField {
     /// characters"* in [`pdf_model::view::ShownValue::obscured`] — one type in both answers, so a
     /// host cannot learn the exception from one question and miss it in the other (ADR 0247).
     pub value: Option<pdf_model::view::ShownValue>,
+    /// What the field displays when nobody is editing it: [`Self::value`] through Table 199's
+    /// `/F`, as `pdf_model::view::ViewState::displayed_value` answers — `$12.50` where
+    /// [`Self::value`] is `12.5`.
+    ///
+    /// **Two strings, because a host needs both and they are for different moments.** Table 199's
+    /// `/F` is "performed before the field is formatted to display its value", so what the page
+    /// shows is this; the characters a person edits are [`Self::value`]. A toolkit control holding
+    /// the keyboard shows [`Self::value`], so that typing starts from the characters the format
+    /// was made of, and one that does not shows this (ADR 1604). A field being typed into and not
+    /// yet committed displays as typed, so the two agree then; a password field answers with
+    /// [`Self::value`]'s echo. `None` exactly where [`Self::value`] is.
+    pub displayed: Option<String>,
     /// Table 227 bit 1: the document forbidding a person to change this field's value.
     pub read_only: bool,
     /// Table 227 bit 2: §12.7.6.2 requires a value at export.

@@ -1987,6 +1987,34 @@ pub unsafe extern "C" fn quorra_field_value(
     }
 }
 
+/// What the field displays when nobody is editing it: its value through Table 199's `/F` — `$12.50`
+/// where [`quorra_field_value`] answers `12.5`.
+///
+/// A control that holds the keyboard shows [`quorra_field_value`], so that typing starts from the
+/// characters the format was made of; one that does not shows this, which is what the page shows
+/// under it everywhere else (ADR 1604). [`Status::NoAnswer`] exactly where [`quorra_field_value`]
+/// answers it, and a password field answers with the same echo.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_field_displayed(
+    fields: *const Form,
+    field: usize,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(fields) = fields.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match fields.displayed(field) {
+        Ok(value) => copy_out(value, out, cap, needed),
+        Err(status) => status.code(),
+    }
+}
+
 /// How many of Table 234's `/Opt` entries the field states.
 ///
 /// # Safety
@@ -2646,6 +2674,26 @@ pub unsafe extern "C" fn quorra_document_report(
         return Status::NullArgument.code();
     };
     *events = Box::into_raw(Box::new(viewer.report()));
+    Status::Ok.code()
+}
+
+/// Says that the focused document's first frame is on the screen, so its open sequence runs —
+/// RFC 0008 section 6.5 step 1: Table 32's `/JavaScript` name tree, the `/OpenAction` script, page
+/// one's `/O` and its annotations' `/PO`.
+///
+/// **Call it when `quorra_document_report` is called**, once the reader has their page: *when
+/// opened* is not *before the first frame*, so the sequence costs page one nothing (ADR 1602). It
+/// runs once a document; what it says arrives on a `QUORRA_EVENT_REPORTED` with no page on it.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_presented(viewer: *mut Session, events: *mut *mut Events) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.presented()));
     Status::Ok.code()
 }
 

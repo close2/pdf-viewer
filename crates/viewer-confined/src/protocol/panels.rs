@@ -2035,6 +2035,7 @@ pub(super) fn encode_fields(writer: &mut Writer, fields: &[FormField]) {
             partial,
             control,
             value,
+            displayed,
             read_only,
             required,
             no_export,
@@ -2045,6 +2046,7 @@ pub(super) fn encode_fields(writer: &mut Writer, fields: &[FormField]) {
             .option_str(name.alternative.as_deref())
             .str(partial);
         encode_shown(writer, value.as_ref());
+        writer.option_str(displayed.as_deref());
         writer.bool(*read_only).bool(*required).bool(*no_export);
         encode_control(writer, control);
         writer.usize(widgets.len());
@@ -2075,6 +2077,7 @@ pub(super) fn decode_fields(reader: &mut Reader<'_>) -> Result<Vec<FormField>, P
             },
             partial: reader.string("a field's partial name")?,
             value: decode_shown(reader)?,
+            displayed: reader.option_string("what a field displays")?,
             read_only: reader.bool("a field's ReadOnly flag")?,
             required: reader.bool("a field's Required flag")?,
             no_export: reader.bool("a field's NoExport flag")?,

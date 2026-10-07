@@ -3062,6 +3062,37 @@ fn a_click_finds_the_field_it_landed_on() {
 /// §12.7.5 defines: two text fields with Table 232's `/MaxLen`, an editable combo box, a
 /// non-editable one, a multi-select list box with Table 234's export/label pairs, four check boxes
 /// and a §12.7.5.2.4 radio set of four widgets under one field.
+/// Every field on a page whose form states no Table 199 `/F` displays its own characters, which is
+/// what `Query::Fields` answers beside them (ADR 1604).
+#[test]
+fn a_field_stating_no_format_displays_its_characters() {
+    let Some(bytes) = corpus_bytes("issue17492.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: bytes.into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    let Answer::Fields(fields) = viewer.query(Query::Fields) else {
+        panic!("the page has a form");
+    };
+    assert!(fields.iter().any(|field| field.value.is_some()));
+    for field in &fields {
+        assert_eq!(
+            field.displayed.as_deref(),
+            field.value.as_ref().map(|shown| shown.text.as_str()),
+            "{}",
+            field.name.qualified
+        );
+    }
+}
+
 #[test]
 fn a_page_states_its_whole_form_as_controls_a_host_can_build() {
     let Some(bytes) = corpus_bytes("issue17492.pdf") else {

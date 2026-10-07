@@ -389,6 +389,32 @@ fn a_confined_process_decodes_in_process_on_its_own_thread() {
     );
 }
 
+/// None of what a script worker is denied is reachable: a file, a socket, a descriptor's flags, a
+/// thread, or memory made executable after it was written (ADR 1608).
+///
+/// The positive half — that the engine allocates, grows, frees and seeds inside the filter — is
+/// `pdf-script-worker`'s own `end_to_end.rs`, run in the worker itself: a probe here runs on the
+/// test harness's thread, whose allocator arena is not the single one the worker keeps, and asks
+/// for calls the worker never makes.
+#[test]
+#[cfg(target_os = "linux")]
+fn a_confined_script_worker_reaches_none_of_what_its_profile_denies() {
+    for probe in [
+        "script-open",
+        "script-socket",
+        "script-fcntl",
+        "script-thread",
+        "script-exec",
+    ] {
+        let status = run_probe(probe);
+        assert_ne!(status.code(), Some(ALLOWED), "{probe}: permitted");
+        assert!(
+            refused(&status),
+            "{probe}: expected a refusal or the filter's kill, got {status:?}"
+        );
+    }
+}
+
 /// Runs one probe in a fresh child and waits for it.
 ///
 /// The child is this same test binary, re-executed with a filter that selects the one test
@@ -426,6 +452,10 @@ fn confined_probe() {
         std::process::exit(if decoded { DECODED } else { REFUSED });
     }
 
+    if let Some(denied) = probe.strip_prefix("script-") {
+        script_probe(denied);
+    }
+
     pdf_sandbox::lockdown::apply().expect("a probe that cannot confine itself proves nothing");
 
     let permitted = match probe.as_str() {
@@ -440,5 +470,32 @@ fn confined_probe() {
         other => panic!("no probe named {other}"),
     };
 
+    std::process::exit(if permitted { ALLOWED } else { REFUSED });
+}
+
+/// The script worker's probes: confine with `Profile::Script`, then do one thing and say how it
+/// went in the exit code.
+#[cfg(target_os = "linux")]
+#[expect(
+    clippy::expect_used,
+    clippy::panic,
+    reason = "the child half of a test, called only from `confined_probe`: a probe that cannot \
+              confine itself, or is asked for a probe it does not have, should fail as loudly as \
+              the test that started it"
+)]
+fn script_probe(probe: &str) -> ! {
+    pdf_sandbox::lockdown::apply_for(pdf_sandbox::lockdown::Profile::Script)
+        .expect("a probe that cannot confine itself proves nothing");
+    let permitted = match probe {
+        "open" => std::fs::File::open("/proc/self/maps").is_ok(),
+        "socket" => std::net::UdpSocket::bind("127.0.0.1:0").is_ok(),
+        "fcntl" => rustix::io::fcntl_getfd(std::io::stdin()).is_ok(),
+        "thread" => std::thread::Builder::new().spawn(|| ()).is_ok(),
+        // A written mapping made executable: `mprotect`, which the profile does not admit.
+        "exec" => memmap2::MmapMut::map_anon(4096)
+            .and_then(memmap2::MmapMut::make_exec)
+            .is_ok(),
+        other => panic!("no script probe named {other}"),
+    };
     std::process::exit(if permitted { ALLOWED } else { REFUSED });
 }

@@ -66,6 +66,10 @@ pdf-sandbox = { path = "../crates/pdf-sandbox" }
 pdf-vfs = { path = "../crates/pdf-vfs" }
 # The meet's polygon arithmetic, through `raster_gpu::intersection` (`meet`, ADR 1495).
 raster-gpu = { path = "../raster/crates/raster-gpu" }
+# A document's scripts: the engine, which `script` runs as the confined worker does, and the
+# worker's own wire, which `script_wire` decodes from both sides (ADR 1609).
+pdf-script = { path = "../crates/pdf-script", features = ["engine"] }
+pdf-script-worker = { path = "../crates/pdf-script-worker" }
 
 [profile.release]
 debug = true
@@ -277,6 +281,20 @@ bench = false
 [[bin]]
 name = "aform"
 path = "fuzz_targets/aform.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "script_wire"
+path = "fuzz_targets/script_wire.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "script"
+path = "fuzz_targets/script.rs"
 test = false
 doc = false
 bench = false

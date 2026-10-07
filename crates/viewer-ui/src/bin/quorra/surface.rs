@@ -1604,6 +1604,8 @@ impl App {
         // the rule is `viewer_host::report::Due`'s so that four hosts ask alike. ADR 1044.
         if self.report_due.after_a_frame() {
             self.dispatch(Command::Report);
+            // And its open sequence, after the first present and never in front of it (ADR 1602).
+            self.dispatch(Command::Presented);
         }
         // Table 147's `/FitWindow` and `/CenterWindow` are about the first displayed page's size,
         // which is known now and not before (ADR 1429).

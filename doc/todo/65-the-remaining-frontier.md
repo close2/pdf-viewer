@@ -249,7 +249,8 @@ the host checked first (ADR 1327), and A131 read F.4.1 as padding each item's ru
 (ADR 1328); neither moves a row. Of the owner's answers of 2026-10-05, A171 is §12.10's build (the
 bullet in bucket 6), A192 closes the Ed448 search (bucket 2's curve paragraph), A193 makes
 JavaScript a build stream whose Tier 0 runs the one-call `AF*` scripts while §12.6.4.17 stays
-`out-of-scope` (ADRs 1578, 1579), A227 has the `zune-jpeg` fork prepared for the owner to create
+`out-of-scope` (ADRs 1578, 1579) and whose Tier 1 engine runs in no window yet, because no host
+supplies a runner (ADRs 1590, 1591), A227 has the `zune-jpeg` fork prepared for the owner to create
 (ADR 1589), and A209 owes nothing; none of the last four moves a row this map holds.
 
 ### 6. Genuinely buildable now — the campaign's next targets
@@ -259,7 +260,8 @@ package, no cross-round architecture. Membership is re-derived from the ledger r
 row is in this bucket when its note names none of those three.
 
 - §12.10.2 — a geospatial viewport's **registration in degrees**. Everything the file states
-  is read, a person can trace a path in one (ADR 1191), and the inverse projection is built on
+  is read, a person can trace a path in one (ADR 1191) and reads a position in decimal degrees
+  through the registration's affine map (ADR 1593), and the inverse projection is built on
   `doc/questions/A171`: no EPSG registry, because the census found no system named by code alone; the
   older WKT form the files carry and ISO 19162's own; eight methods to Guidance Note 7-2's worked
   examples (ADRs 1586, 1587). What is left: every one of the census's 158 projected maps writes its

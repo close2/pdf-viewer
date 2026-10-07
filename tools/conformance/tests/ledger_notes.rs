@@ -9,18 +9,24 @@
 //! note is the counted fact ADR 0281 keeps out of every live document, and a retired sentence kept
 //! beside its retirement makes the reading cost of a clause its history.
 //!
-//! The notes were written the other way for a long time, so the rule comes off them one clause
-//! family at a time rather than in one sweep that would lose an argument. This file is what keeps
-//! the direction: the count of session ordinals in the ledger is held by equality, so a row may
-//! not add one and a round that removes some lowers the bound in the same pass.
+//! No note carries a session ordinal, and this file holds the count at zero with `==`, as
+//! `CONDITION_UNQUOTED_CEILING` is held (ADR 1535): a row may not add one, and the shapes counted
+//! are every shape the notes were found to use (ADR 1610).
 //!
 //! # What an ordinal is here
 //!
-//! A hyphenated number word that holds `hundred` or `thousand` and ends as an ordinal does — in
-//! `first`, `second`, `third` or `th` — which is the only form a session number past the
-//! ninety-ninth takes in this prose, and the word `session` or `round` followed by digits. A bare `hundredth` or `thousandth` is a fraction in these notes, never a
-//! session, and is not counted. A small ordinal before the word `session` is left to the reader:
-//! the population is the large one.
+//! Four shapes, each a session named or counted:
+//!
+//! - a hyphenated number word that holds `hundred` or `thousand` and ends as an ordinal does — in
+//!   `first`, `second`, `third` or `th` — which is the form a session number past the ninety-ninth
+//!   takes in this prose. A bare `hundredth` or `thousandth` is a fraction in these notes, never a
+//!   session, and is not counted;
+//! - the word `session` or `round` followed by digits;
+//! - any other spelled ordinal followed by the word `session` — "the twenty-seventh session", "the
+//!   fifth session". Without the noun a small ordinal is a fraction ("a twentieth of a pixel"), a
+//!   position ("the twenty-eighth page") or a sweep's name, so the noun is what makes it a session;
+//! - a number followed by `sessions` — "for eighteen sessions" — which counts sessions rather than
+//!   naming one, and is the same counted fact (ADR 1610).
 //!
 //! # The second test
 //!
@@ -38,12 +44,11 @@ use std::fmt::Write as _;
 use conformance::clause::ClauseIndex;
 use conformance::ledger::{Exclusion, Grounding, Ledger, Status};
 
-/// The session ordinals the ledger's notes may still carry.
+/// The session ordinals the ledger's notes may carry, which is none.
 ///
-/// Held by equality: a count above it is a note written with its history in it, and a count below
-/// it is a round that took some out and owes the lower number here. The clause families still
-/// carrying them are printed on every run, largest first, so the next round knows where to start.
-const ORDINALS_IN_THE_LEDGER: usize = 297;
+/// Held by equality, so that a ceiling raised to admit one is a visible edit to this line rather
+/// than a note slipping past it. A failing run prints the families that carry one, largest first.
+const ORDINALS_IN_THE_LEDGER: usize = 0;
 
 /// Whether `word`, a maximal run of lowercase letters and hyphens, is a session ordinal.
 fn is_spelled_ordinal(word: &str) -> bool {
@@ -54,7 +59,104 @@ fn is_spelled_ordinal(word: &str) -> bool {
             .any(|ending| word.ends_with(ending))
 }
 
-/// The session ordinals in `text`: spelled ones, and `session <digits>` or `round <digits>`.
+/// The units a spelled ordinal below a hundred ends in.
+const ORDINAL_UNITS: [&str; 27] = [
+    "first",
+    "second",
+    "third",
+    "fourth",
+    "fifth",
+    "sixth",
+    "seventh",
+    "eighth",
+    "ninth",
+    "tenth",
+    "eleventh",
+    "twelfth",
+    "thirteenth",
+    "fourteenth",
+    "fifteenth",
+    "sixteenth",
+    "seventeenth",
+    "eighteenth",
+    "nineteenth",
+    "twentieth",
+    "thirtieth",
+    "fortieth",
+    "fiftieth",
+    "sixtieth",
+    "seventieth",
+    "eightieth",
+    "ninetieth",
+];
+
+/// The number words a spelled cardinal below a hundred is made of.
+const CARDINAL_PARTS: [&str; 27] = [
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+    "twenty",
+    "thirty",
+    "forty",
+    "fifty",
+    "sixty",
+    "seventy",
+    "eighty",
+    "ninety",
+];
+
+/// `word` with the emphasis, brackets and punctuation around it taken off, in lowercase.
+fn bare(word: &str) -> String {
+    word.trim_matches(|c: char| !(c.is_ascii_alphanumeric() || c == '-'))
+        .to_ascii_lowercase()
+}
+
+/// Whether `word` is a spelled ordinal below a hundred: `fifth`, `twenty-seventh`.
+fn is_small_ordinal(word: &str) -> bool {
+    let mut parts = word.rsplit('-');
+    let unit = parts.next().unwrap_or_default();
+    ORDINAL_UNITS.contains(&unit) && parts.all(|part| CARDINAL_PARTS.contains(&part))
+}
+
+/// Whether `word` is a number: digits, or a spelled cardinal such as `seventy-one` or `hundred`.
+fn is_cardinal(word: &str) -> bool {
+    let spelled = |part: &str| {
+        CARDINAL_PARTS.contains(&part) || matches!(part, "hundred" | "thousand" | "and")
+    };
+    !word.is_empty()
+        && !word.starts_with("and")
+        && (word.chars().all(|c| c.is_ascii_digit()) || word.split('-').all(spelled))
+}
+
+/// Whether `word` is the noun `session`, singular or possessive, or `sessions` when `plural`.
+fn is_session(word: &str, plural: bool) -> bool {
+    let word = word.to_ascii_lowercase();
+    let word = word.trim_start_matches(|c: char| !c.is_ascii_alphabetic());
+    let noun = word.trim_end_matches(|c: char| !c.is_ascii_alphabetic());
+    if plural {
+        noun == "sessions"
+    } else {
+        noun == "session" || noun == "sessions" || word.starts_with("session's")
+    }
+}
+
+/// The session ordinals in `text`, in the four shapes this file's comment names.
 fn ordinals(text: &str) -> usize {
     let spelled = text
         .split(|c: char| !(c.is_ascii_lowercase() || c == '-'))
@@ -71,11 +173,38 @@ fn ordinals(text: &str) -> usize {
                 && digits.chars().all(|c| c.is_ascii_digit())
         })
         .count();
-    spelled.saturating_add(numbered)
+    let small = words
+        .windows(2)
+        .filter(|pair| is_small_ordinal(&bare(pair[0])) && is_session(pair[1], false))
+        .count();
+    let counted = words
+        .windows(2)
+        .filter(|pair| is_cardinal(&bare(pair[0])) && is_session(pair[1], true))
+        .count();
+    spelled
+        .saturating_add(numbered)
+        .saturating_add(small)
+        .saturating_add(counted)
 }
 
 #[test]
-fn the_ledgers_session_ordinals_only_fall() {
+fn each_shape_of_ordinal_is_counted_and_a_fraction_is_not() {
+    assert_eq!(ordinals("Both, as of the twenty-seventh session; and"), 1);
+    assert_eq!(ordinals("reviewed in the **fifth session**, and"), 1);
+    assert_eq!(ordinals("the nineteenth session's reading"), 1);
+    assert_eq!(ordinals("argued for eighteen sessions that"), 1);
+    assert_eq!(ordinals("for seventy-one sessions and for 12 sessions"), 2);
+    assert_eq!(ordinals("for a hundred sessions"), 1);
+    assert_eq!(ordinals("in session 1201 and round 4"), 2);
+    assert_eq!(ordinals("an edge moved a twentieth of a pixel"), 0);
+    assert_eq!(ordinals("so the twenty-eighth page is `BB`"), 0);
+    assert_eq!(ordinals("does not raise a second round, because"), 0);
+    assert_eq!(ordinals("the twenty-second sweep ranks it"), 0);
+    assert_eq!(ordinals("a session that opens"), 0);
+}
+
+#[test]
+fn no_ledger_note_names_a_session() {
     let root = conformance::workspace_root();
     let ledger = Ledger::read(&root.join(conformance::LEDGER)).expect("the ledger");
 
@@ -98,16 +227,10 @@ fn the_ledgers_session_ordinals_only_fall() {
     }
 
     assert!(
-        total <= ORDINALS_IN_THE_LEDGER,
-        "the ledger's notes carry {total} session ordinals against a bound of \
-         {ORDINALS_IN_THE_LEDGER}: a note states the clause as it is and cites the ADR, never the \
-         session that changed it (ADR 1547)"
-    );
-    assert!(
-        total >= ORDINALS_IN_THE_LEDGER,
-        "the ledger's notes carry {total} session ordinals and the bound is still \
-         {ORDINALS_IN_THE_LEDGER}: lower `ORDINALS_IN_THE_LEDGER` to {total} in this pass, so the \
-         ones taken out cannot come back"
+        total == ORDINALS_IN_THE_LEDGER,
+        "the ledger's notes carry {total} session ordinals against {ORDINALS_IN_THE_LEDGER}: a note \
+         states the clause as it is and cites the ADR, never the session that changed it or how \
+         many sessions a sentence stood (ADRs 1547, 1610)"
     );
 }
 

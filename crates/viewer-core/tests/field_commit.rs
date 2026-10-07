@@ -258,3 +258,51 @@ fn a_refused_keystroke_is_said_and_changes_nothing() {
         "one undo takes back the one keystroke the log holds"
     );
 }
+
+/// What `Query::Fields` answers a field displays: the characters while they are being typed, Table
+/// 199's `/F` applied once they are committed, and the characters where the field states no format
+/// — and `value` stays the characters throughout, which is what a host's control holding the
+/// keyboard shows (ADR 1604).
+///
+/// `AFNumber_Format(2, 0, 0, 0, "$", true)` is two decimals, a comma between thousands and the
+/// dollar sign before the number, so 12.5 is displayed `$12.50` — the library's own reading of its
+/// arguments, held against Adobe's reference by `crates/pdf-model/tests/aform.rs`.
+#[test]
+fn a_committed_value_is_answered_as_the_field_displays_it() {
+    let shown = |viewer: &Viewer, field: &str| {
+        let Answer::Fields(fields) = viewer.query(Query::Fields) else {
+            panic!("the page has a form");
+        };
+        let field = fields
+            .into_iter()
+            .find(|candidate| candidate.name.qualified == field)
+            .expect("the field is on the page");
+        (field.value.map(|shown| shown.text), field.displayed)
+    };
+    let mut viewer = opened();
+    assert_eq!(
+        shown(&viewer, "Price1"),
+        (Some(String::new()), Some(String::new())),
+        "an empty field displays nothing"
+    );
+    typed(&mut viewer, "Price1", "12.5");
+    assert_eq!(
+        shown(&viewer, "Price1"),
+        (Some("12.5".to_owned()), Some("12.5".to_owned())),
+        "a field being typed into displays as typed"
+    );
+    viewer
+        .handle(Command::CommitField {
+            field: "Price1".to_owned(),
+        })
+        .for_each(drop);
+    assert_eq!(
+        shown(&viewer, "Price1"),
+        (Some("12.5".to_owned()), Some("$12.50".to_owned()))
+    );
+    assert_eq!(
+        shown(&viewer, "Total"),
+        (Some("12.5".to_owned()), Some("$12.50".to_owned())),
+        "Table 224's /CO recalculated the total, which displays through its own /F"
+    );
+}

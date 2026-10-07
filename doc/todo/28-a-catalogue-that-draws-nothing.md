@@ -1,24 +1,19 @@
 # A 92-page catalogue whose pages draw nothing, and the four things it asks for
 
-Status: **the image is decoded and the catalogue draws, since the three-hundred-and-fifty-fourth
-session** (ADR 0203). **Item 2 is finished**: its clause was taken in the three-hundred-and-eightieth
-(ADR 0217) and both of the residues that left behind were paid in the three-hundred-and-eighty-third
-(ADR 0220), so a mask group in this file now composites in the quantity §11.5.3 states whatever it
-is painted with. **Item 3's structural half is finished as well**: §11.4.6's shape closed in the
-three-hundred-and-ninety-seventh (ADR 0234) and §11.4.4's non-isolated group in the four-hundredth
-(ADR 0237), so **the two NOTE 5 lines this file prints are expected to be gone** — which is now a
-check rather than a question, the third time this file has turned one into the other. **And item 3 is finished too, in four more rounds**: §11.4.7's `/DeviceCMYK`
-blending space was `doc/todo/23`'s one standing population with this document as its witness, and
-the four-hundred-and-fifteenth found the entry had been read nowhere in this tree — a group's own
-`/CS` takes effect only where the group is isolated, so it is the *page* group that decides (ADR
-0251). The four-hundred-and-twenty-sixth then drew the page in the space it states (two rasters, not
-a raster format — ADR 0262), the four-hundred-and-twenty-seventh gave §11.7.2 the conversion *into*
-it (ADR 0263), the four-hundred-and-thirty-sixth made the press the document's own (ADR 0272), and
-the four-hundred-and-fortieth found that a *soft mask's* group had been counted as a group the page
-composites in (ADR 0276). **So every departure this file printed is now expected to be gone**, and
-the whole file has become one check the owner's run performs and no gate here can — including
-whether this catalogue's four reports were its groups or its page. Measured in the three-hundred-and-thirty-sixth, from a
-document the project owner opened and the notes it printed.
+Status: **the image is decoded and the catalogue draws** (ADR 0203). **Item 2 is finished**: its
+clause is taken (ADR 0217) and both of the residues that left behind are paid (ADR 0220), so a mask
+group in this file composites in the quantity §11.5.3 states whatever it is painted with. **Item 3's
+structural half is finished as well**: §11.4.6's shape (ADR 0234) and §11.4.4's non-isolated group
+(ADR 0237), so **the two NOTE 5 lines this file prints are expected to be gone** — which is a check
+rather than a question. **And item 3 is finished too**: §11.4.7's `/DeviceCMYK` blending space was
+`doc/todo/23`'s one standing population with this document as its witness; a group's own `/CS`
+takes effect only where the group is isolated, so it is the *page* group that decides (ADR 0251);
+the page is drawn in the space it states (two rasters, not a raster format — ADR 0262), §11.7.2 has
+the conversion *into* it (ADR 0263), the press is the document's own (ADR 0272), and a *soft mask's*
+group is not counted as a group the page composites in (ADR 0276). **So every departure this file
+printed is now expected to be gone**, and the whole file is one check the owner's run performs and
+no gate here can — including whether this catalogue's four reports were its groups or its page.
+Measured from a document the project owner opened and the notes it printed.
 Priority: 28
 Corpus: **0** — and that is the point. This is a real document from outside the pdf.js corpus, and
 the gates cannot see it.
@@ -28,7 +23,7 @@ Code: `crates/pdf-model/src/image.rs` (`convert_channels`, `decode_jpeg`),
 Witness: `/tmp/katalogs_2023_web.pdf` (19.9 MB, 92 pages) — **not in this repository**; the owner
 has it.
 
-## 1. ~~The page draws *nothing*~~ — **closed in the three-hundred-and-fifty-fourth session**
+## 1. ~~The page draws *nothing*~~ — **closed** (ADR 0203)
 
 `decode_jpeg` asked `zune-jpeg` for four components out only where the input space was `CMYK`, so
 a `YCCK` codestream fell through to the default three and `convert_channels` refused. It now asks
@@ -93,10 +88,9 @@ The same document prints the four populations `doc/todo/23` names, on one page:
 catalogue in CMYK, which is the case where compositing in the wrong space is visible rather than
 theoretical.
 
-**The first of the three is finished, in two rounds, and the third is finished in one more.** The three-hundred-and-eightieth paints a
-`/Luminosity` mask group whose blending space is subtractive in the ink §10.4.2.3 weighs and
-composites it there (ADR 0217); the three-hundred-and-eighty-third scales that channel so the
-clause's `min` can wait for the compositing, and carries an image's samples and a shading's ramp
+**The first of the three is finished, and so is the third.** A `/Luminosity` mask group whose
+blending space is subtractive is painted in the ink §10.4.2.3 weighs and composited there (ADR
+0217), and that channel is scaled so the clause's `min` can wait for the compositing, and carries an image's samples and a shading's ramp
 into the same quantity (ADR 0220). All three sentences the twelve reports were worded in have been
 deleted from the tree, so **the expected result of a run over this file is that the twelve are
 gone** — and that is now a check rather than a question. Two things would still be printed and
@@ -109,7 +103,7 @@ pair themselves — a group whose `Do` states an alpha or a soft mask and whose 
 drawn on a buffer seeded from the page. Both are *checks* rather than questions, exactly as the
 twelve above became one. Two things could still be printed and neither is §11.4.4's: §11.4.7's
 `/DeviceCMYK` blending space, which is item 3 below, and §11.6.4.3's `/AIS` if this producer sets it —
-which since the five-hundred-and-eightieth refuses a knockout group only where the group's content
+which refuses a knockout group only where the group's content
 painted under *both* of the entry's readings (ADR 0415). The catalogue is CMYK commercial work,
 which is where a producer is most likely to set it.
 
@@ -121,7 +115,7 @@ whether the fixtures measured the real case. The other one, §11.4.7's `/DeviceC
 is untouched and stands exactly as below — and it is now the **only** departure this file's groups
 are expected to print.
 
-## 3. ~~§7.7.2's `TwoColumnRight`, said once and correctly~~ — obeyed since the six-hundred-and-sixth
+## 3. ~~§7.7.2's `TwoColumnRight`, said once and correctly~~ — obeyed (ADR 0441)
 
 This section said the sentence `viewer-ui` printed was "the right sentence and … not a defect",
 because Table 29's `/PageLayout` was handed to the host and every host here showed one page — and it
@@ -138,12 +132,11 @@ the third host owes.
 
 1. **The image.** Decode a four-component JPEG whose Adobe marker says YCCK, and hand
    `convert_channels` four components. Until then the document is blank.
-2. ~~**The soft masks.** §11.6.6's blending space inside a mask~~ — **done**, in the
-   three-hundred-and-eightieth session (ADR 0217) and the three-hundred-and-eighty-third, which paid
-   both of the residues the first left behind (ADR 0220).
+2. ~~**The soft masks.** §11.6.6's blending space inside a mask~~ — **done** (ADR 0217), with
+   both of the residues that left behind paid (ADR 0220).
 3. **The groups.** §11.4.7's `/DeviceCMYK` blending space, which is the same change one level out.
    The structural half of this item — §11.4.6's knockout shape and §11.4.4's non-isolated backdrop —
-   was paid in the three-hundred-and-ninety-seventh and four-hundredth sessions (ADRs 0234, 0237),
+   is paid (ADRs 0234, 0237),
    so what is owed here is a colour space and nothing else. **It is priced now, and the price is a
    four-component raster per group**: compositing in `DeviceCMYK` and converting once differs from
    converting first and compositing on the device by up to 48 of 255, because this tree's conversion

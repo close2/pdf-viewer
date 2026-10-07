@@ -1018,6 +1018,20 @@ cd fuzz && cargo +nightly fuzz run aform        -- -max_total_time=1200 -rss_lim
   # keystroke example the call offers is one it commits. Seeded by `fuzz/seed_aform.py` with every
   # function under every argument shape and the malformed ones — an unterminated string, a number
   # of four hundred digits, quotes nested in quotes, ten thousand arguments, the 64 KiB bound.
+cd fuzz && cargo +nightly fuzz run script       -- -max_total_time=1200 -rss_limit_mb=2048 -timeout=20 -max_len=8192
+  # a document's script run in a realm at one of §12.6.3's sites, as `pdf-script-worker` runs it
+  # (RFC 0008 section 6.7, ADRs 1590, 1609): Boa's parser and interpreter, the bridge's members and
+  # refusals, the `AF*` library through the bridge, and the budgets. A run returns within eight
+  # times the worker's deadline, one that did not finish changed nothing, and the outcome crosses
+  # the wire as it is. Bracket nesting past 256 is not run, because Boa's parser overflows a stack
+  # on it and the worker's loss is that defect's test. Seeded by `fuzz/seed_script.py` with every
+  # site, each member carried and refused, every budget at its number and one past it, and a
+  # script at the `-max_len` above.
+cd fuzz && cargo +nightly fuzz run script_wire  -- -max_total_time=1200 -rss_limit_mb=2048
+  # the script worker's wire from both sides (ADR 1609): the run a host sends and the reply a
+  # confined worker sends back to a host that is not. What decodes once decodes again to the same,
+  # and re-encodes to the same. Seeded by `pdf-script-worker`'s `examples/wire_seeds`, every site
+  # and every ending through the real encoders, and a script at the wire's 1 MiB bound.
 cd fuzz && cargo +nightly fuzz run fetched_import -- -max_total_time=1200 -rss_limit_mb=2048 -timeout=20
   # a server's answer as a host hands it over, `Command::Respond` into `interact::import` (ADR
   # 1527): Annex O's `fdf` fetched, or §12.7.6.2's submission answered, against a form with a field

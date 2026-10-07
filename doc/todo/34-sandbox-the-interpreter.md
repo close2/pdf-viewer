@@ -31,6 +31,25 @@ that will not finish, cancelled from another thread, and a warmed allocator that
 kernel again. `examples/confined_page`, `examples/confined_cancel` and
 `examples/confined_peak` are what a person runs.
 
+## The third confined process: a document's scripts
+
+`pdf-script-worker` runs a document's scripts in a process of its own (RFC 0008 section 6.2, ADRs
+1608 and 1609), on `confined-transport`'s wire beside the view worker and the file-system worker.
+`pdf_sandbox::lockdown::Profile::Script` is the narrowest of the three profiles: one thread, no
+descriptor received, read, made or let go (`RLIMIT_NOFILE` zero, set after Landlock because the
+ruleset is a descriptor), no executable memory (`mmap` only without `PROT_EXEC`, no `mprotect`), and
+a 96 MiB address-space ceiling sized from the engine's measured costs. `ScriptWorker`, a
+`ScriptRunner`, starts it at the first trigger a view state hands over — never at open — holds each
+trigger to a deadline of its own, and names the trigger when a worker is lost; the next trigger starts
+another, told every field and the document's library again, and after four losses scripts stop for
+the document. What the tests establish, on this kernel: the scripts run end to end through a view
+state at `on` and nothing starts at `off`; the engine's library runs inside the filter; a run past
+its deadline, growth past the ceiling and a parser stack overflow each cost one named worker; and the
+profile reaches no file, socket, descriptor flag, thread or executable mapping
+(`crates/pdf-script-worker/tests/end_to_end.rs`, `crates/pdf-sandbox/tests/confinement.rs`). What is
+left is a host that supplies the runner: no window supplies a level for scripts yet (RFC 0008
+section 11 item 3 (e)), and the worker is installed with the first that does.
+
 ## The panels' answers across the boundary
 
 `protocol/panels.rs`: the eleven answers a panel is made of, encoded field for field, with a round

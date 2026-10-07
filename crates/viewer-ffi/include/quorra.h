@@ -712,6 +712,9 @@ int32_t quorra_extract(quorra_viewer *viewer, const char *name, quorra_events **
 /* What the document says about *itself* — §12.8's signatures above all — on a QUORRA_EVENT_REPORTED
  * with no page. Ask once the reader has their page: it digests the signed part of the file. */
 int32_t quorra_document_report(quorra_viewer *viewer, quorra_events **events);
+/* The first frame is on the screen: the document's open sequence runs, once (ADR 1602). Call it
+ * beside quorra_document_report. */
+int32_t quorra_presented(quorra_viewer *viewer, quorra_events **events);
 /* The answer to a QUORRA_EVENT_NEEDS_FILE. A NULL `bytes` is a refusal, which is a fair answer.
  *
  * The file supplied may itself want §7.6.4.1's password. A QUORRA_EVENT_PASSWORD_REQUIRED then
@@ -1063,6 +1066,9 @@ int32_t quorra_field_limits(const quorra_fields *fields, size_t field, uint32_t 
 /* QUORRA_NO_ANSWER for a field with no text value AT ALL, which differs from the empty string. */
 int32_t quorra_field_value(const quorra_fields *fields, size_t field, char *out, size_t cap,
                          size_t *needed);
+/* The value through Table 199's /F, which a control without the keyboard shows (ADR 1604). */
+int32_t quorra_field_displayed(const quorra_fields *fields, size_t field, char *out, size_t cap,
+                             size_t *needed);
 int32_t quorra_field_option_count(const quorra_fields *fields, size_t field, size_t *count);
 /* QUORRA_TEXT_LABEL or QUORRA_TEXT_EXPORT, in /Opt's own order, which Table 233 bit 20 requires. */
 int32_t quorra_field_option(const quorra_fields *fields, size_t field, size_t option, uint32_t which,

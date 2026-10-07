@@ -109,6 +109,8 @@ struct Entry {
     flags: u32,
     /// What the field says now, where §12.7.4.3 lays a text value out for it.
     value: Option<String>,
+    /// What it displays: `value` through Table 199's `/F` (ADR 1604).
+    displayed: Option<String>,
     /// Table 232's `/MaxLen`, and Table 231 bit 25's cell count where the field is a comb.
     limits: (Option<u32>, Option<u32>),
     /// Table 234's `/Opt`, in the array's own order, which Table 233 bit 20 requires.
@@ -227,6 +229,21 @@ impl Form {
             .ok_or(Status::NoAnswer)
     }
 
+    /// What the field displays when nobody is editing it: [`Self::value`] through Table 199's
+    /// `/F`, which a control that does not hold the keyboard shows (ADR 1604).
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] and [`Status::NoAnswer`] exactly where [`Self::value`] answers them.
+    pub fn displayed(&self, field: usize) -> Result<&str, Status> {
+        self.fields
+            .get(field)
+            .ok_or(Status::OutOfRange)?
+            .displayed
+            .as_deref()
+            .ok_or(Status::NoAnswer)
+    }
+
     /// How many of Table 234's options the field states.
     ///
     /// # Errors
@@ -337,6 +354,7 @@ impl Entry {
             kind: ControlKind::of(&control_kind(control)),
             flags: flags_of(field),
             value: field.value.as_ref().map(|shown| shown.text.clone()),
+            displayed: field.displayed.clone(),
             limits: match control {
                 pdf_model::form::Control::Text(text) => (text.max_len, text.comb),
                 _ => (None, None),

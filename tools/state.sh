@@ -29,6 +29,10 @@ set -u -o pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$root" || exit 1
 root_of_tree=$root
+# Under the agent's task budget, the figure `tools/bounded.sh` writes once (trap 116, ADR 1612); a
+# limit already at or under it is kept.
+task_budget=$("$root/tools/bounded.sh" --task-budget) || exit 1
+[ "$(ulimit -u)" != unlimited ] && [ "$(ulimit -u)" -le "$task_budget" ] || ulimit -u "$task_budget" || exit 1
 
 status=0
 built_gate_binaries=
@@ -403,7 +407,7 @@ section_launch() {
 # fails loudly rather than skipping, exactly as the corpus comparison beside it does.
 section_frame() {
     run "what a frame costs, stage by stage (doc/todo/36's budget)" \
-        '^frame budget|minima of|^the budget is|page [0-9]+ —|^  (turn|warm|step) |of one refresh' \
+        '^frame budget|minima of|^the budget is|page [0-9]+ —|^  (turn|warm|seventh|step) |of one refresh' \
         cargo run --release -q -p render-raster --example frame_budget
 }
 
@@ -836,7 +840,8 @@ gate_names() {
 # there, every `§` after another standard's name in an
 # uncommitted instruction document there, which the main checkout's own `cargo test -p conformance`
 # fails on and no worktree's run can see (ADR 1452), and the build directory and `sccache`'s cache
-# against their rules; and last the owner's list, each thing found to do once, numbered in the order
+# against their rules, the agent's cgroup against the task and memory limits that would have held
+# trap 116's incident (ADR 1612); and last the owner's list, each thing found to do once, numbered in the order
 # a person does it, with its command or its files (ADR 1601). `doc/environment.md`'s *After a merge*
 # is what each line means; this is which of them has anything to do (ADR 1440).
 section_main_checkout() {

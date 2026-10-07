@@ -200,6 +200,9 @@ pub mod ffi {
         annotation: u32,
         /// The value the field now holds, for the controls that show one.
         value: String,
+        /// What the field displays: `value` through Table 199's `/F`, which a text control shows
+        /// while it does not hold the keyboard (ADR 1604). `value` itself where no format applies.
+        displayed: String,
         /// Whether `value` is Table 231 bit 14's echo rather than the field's own characters.
         ///
         /// `pdf_model::view::ShownValue::obscured`, carried across so that the C++ can refuse to

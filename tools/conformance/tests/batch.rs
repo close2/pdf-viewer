@@ -26,6 +26,9 @@
 //! - Every `cargo test … --test` line of `gates()` and of `doc/todo/02` names a file whose
 //!   `#[ignore]` attributes match the flag the line gives it, so no gate is green having run zero
 //!   tests (ADR 1392).
+//! - Every subcommand runs under the agent's task budget, the figure `tools/bounded.sh` writes once,
+//!   and `check` prints the user's task count and the limit the calling shell held on one line, so a
+//!   merge made without the bound is legible (trap 116, ADR 1612).
 //! - `install` refuses a worktree with uncommitted work and a batch `main` has not been
 //!   fast-forwarded to, then builds the programs and libraries a person runs, installs them into
 //!   the main checkout's `target/` — the one path outside the worktree this script writes — and
@@ -100,11 +103,11 @@ impl Sandbox {
             )
             .expect("a planted artefact");
         }
-        std::fs::copy(
-            repository_root().join("tools/batch.sh"),
-            sandbox.repo().join("tools/batch.sh"),
-        )
-        .expect("tools/batch.sh copies");
+        // `tools/bounded.sh` beside it, because the script reads the agent's task budget there.
+        for script in ["tools/batch.sh", "tools/bounded.sh"] {
+            std::fs::copy(repository_root().join(script), sandbox.repo().join(script))
+                .expect("the scripts copy");
+        }
         std::fs::write(sandbox.repo().join("a.txt"), "a\n").expect("a tracked file");
         for (relative, contents) in files {
             let path = sandbox.repo().join(relative);
@@ -403,6 +406,72 @@ fn check_line(report: &str, label: &str) -> String {
     let found = report.lines().find(|line| line.starts_with(label));
     assert!(found.is_some(), "check prints no `{label}` line: {report}");
     found.unwrap_or_default().to_owned()
+}
+
+/// `check` prints the user's tasks and the limit the calling shell held as one line, and says the
+/// limit is above the budget only when it is (trap 13): run under a soft limit of the budget it is
+/// not, and run under a soft limit of 7000 against a planted budget of 6000 it is. Both limits sit at
+/// or under 8192, so the test needs no more than the hard limit `ulimit -u 8192` leaves, and 6000 is
+/// still far above what the user holds while it runs. The figure is read from the copy of
+/// `tools/bounded.sh` beside the script, which is the one place it is written.
+#[test]
+fn check_prints_the_tasks_held_and_the_limit_where_called() {
+    let sandbox = Sandbox::new("tasks");
+    let bounded_script = sandbox.repo().join("tools/bounded.sh");
+    let budget = Command::new("bash")
+        .arg(&bounded_script)
+        .arg("--task-budget")
+        .output()
+        .expect("bash runs tools/bounded.sh --task-budget");
+    let budget = String::from_utf8_lossy(&budget.stdout).trim().to_owned();
+    assert_eq!(
+        budget, "8192",
+        "tools/bounded.sh --task-budget is the figure trap 116 states"
+    );
+    let label = "tasks of ";
+    let under = |limit: &str| -> String {
+        let output = sandbox
+            .command("bash", &sandbox.repo())
+            .arg("-c")
+            .arg(format!(
+                "ulimit -S -u {limit} && exec bash {} check",
+                sandbox.repo().join("tools/batch.sh").display()
+            ))
+            .output()
+            .expect("bash runs tools/batch.sh check");
+        check_line(&text(&output), label)
+    };
+    let bounded = under(&budget);
+    assert!(
+        bounded.contains(&format!("ulimit -u {budget} where called")) && !bounded.contains("ABOVE"),
+        "{bounded}"
+    );
+    let held = bounded
+        .split("the bound")
+        .nth(1)
+        .and_then(|rest| rest.split(';').next())
+        .map(str::trim)
+        .unwrap_or_default();
+    assert!(
+        held.parse::<u32>().is_ok_and(|count| count > 0),
+        "the line carries no task count: {bounded}"
+    );
+    let script = std::fs::read_to_string(&bounded_script).expect("the copied wrapper reads");
+    assert_eq!(
+        script.matches("\ntask_budget=8192\n").count(),
+        1,
+        "the budget is written once"
+    );
+    std::fs::write(
+        &bounded_script,
+        script.replace("\ntask_budget=8192\n", "\ntask_budget=6000\n"),
+    )
+    .expect("a planted budget");
+    let above = under("7000");
+    assert!(
+        above.contains("ulimit -u 7000 where called, ABOVE the budget of 6000"),
+        "{above}"
+    );
 }
 
 /// `check` reads the root `Cargo.toml`'s `members` the way cargo does and names every one that is
@@ -854,14 +923,36 @@ fn programs_and_libraries(directory: &str) -> (Vec<String>, Vec<String>) {
             .unwrap_or_default();
         let mut tables = 0usize;
         let mut in_bin = false;
+        // A program behind a feature no build turns on by default is not one a person is handed:
+        // `pdf-script-worker` needs `engine`, and is installed when a host supplies a level for
+        // scripts (ADR 1609). Each `[[bin]]` is read whole, its name and whether it states
+        // `required-features`, before it is counted.
+        let mut gated: Vec<String> = Vec::new();
+        let mut bin: (Option<String>, bool) = (None, false);
         for line in manifest.lines().map(str::trim) {
             if line.starts_with('[') {
+                if let (Some(name), required) = std::mem::take(&mut bin) {
+                    if required {
+                        gated.push(name);
+                    } else {
+                        programs.push(name);
+                    }
+                }
                 in_bin = line == "[[bin]]";
                 tables = tables.saturating_add(usize::from(in_bin));
+            } else if in_bin && line.starts_with("required-features") {
+                bin.1 = true;
             } else if in_bin
                 && line.starts_with("name")
                 && let Some(name) = value(line)
             {
+                bin.0 = Some(name);
+            }
+        }
+        if let (Some(name), required) = bin {
+            if required {
+                gated.push(name);
+            } else {
                 programs.push(name);
             }
         }
@@ -873,6 +964,7 @@ fn programs_and_libraries(directory: &str) -> (Vec<String>, Vec<String>) {
                 let path = bin.path();
                 if path.extension().is_some_and(|extension| extension == "rs")
                     && let Some(stem) = path.file_stem()
+                    && !gated.iter().any(|name| *name == stem.to_string_lossy())
                 {
                     programs.push(stem.to_string_lossy().into_owned());
                 }

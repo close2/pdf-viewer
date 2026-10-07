@@ -9,12 +9,13 @@
 //! the next:
 //!
 //! 1. **Resource limits.** `RLIMIT_AS` bounds the address space, so a decompression bomb
-//!    fails an allocation instead of taking the machine's memory. `RLIMIT_NOFILE` bounds
-//!    descriptors, and `RLIMIT_FSIZE` of zero means a file that somehow got opened still
-//!    cannot be written.
+//!    fails an allocation instead of taking the machine's memory, and `RLIMIT_FSIZE` of zero
+//!    means a file that somehow got opened still cannot be written.
 //! 2. **Landlock**, which makes the filesystem unreachable by path: the ruleset is created
 //!    handling every access right the kernel offers and *no rules are added*, so nothing is
-//!    permitted anywhere.
+//!    permitted anywhere. Then `RLIMIT_NOFILE`, which bounds descriptors, and comes after
+//!    Landlock because the ruleset is itself a descriptor and the script worker's ceiling is
+//!    none (ADR 1608).
 //! 3. **seccomp-BPF**, an allow-list of system call numbers. Anything not on it kills the
 //!    process. This is the load-bearing layer: `openat` and `socket` are simply not
 //!    reachable, so there is no filesystem and no network irrespective of what any path or
@@ -45,7 +46,8 @@
 //! caller is the same one: **[`apply`] runs before any thread is made**, and a thread made
 //! afterwards inherits both.
 //!
-//! The decoder worker keeps that trivially by being single-threaded. The interpreter worker
+//! The decoder worker and the script worker keep that trivially by being single-threaded — the
+//! script worker's filter does not even admit a thread. The interpreter worker
 //! ([`Profile::Interpreter`]) does make threads — `render-cpu` draws a page on every core — and
 //! keeps it because `rayon`'s pool is built on its first use, which is inside a render, which is
 //! after the confinement. A caller that warmed a thread pool first would have threads outside
@@ -82,6 +84,21 @@ const ADDRESS_SPACE_LIMIT: u64 = 1 << 30;
 /// that reaches it has asked for more than any page needs.
 const INTERPRETER_ADDRESS_SPACE_LIMIT: u64 = 4 << 30;
 
+/// Ceiling on a script worker's address space, in bytes.
+///
+/// Sized from measurements rather than chosen (ADR 1609). What the worker may hold whatever it runs
+/// comes to about 43 MiB in a debug build: its image at start (17.6 MiB; 12.4 in release) and the
+/// engine one run constructs (0.4), as measured, and three bounds of the worker's own — the frames
+/// of one run and their decoded copies (8), the scripts it holds (8) and a main-thread stack grown
+/// to its 8 MiB. Beside that sits what a script makes:
+/// the largest allocation `pdf_script::Budget` admits at face value, a 16 MiB `ArrayBuffer`, and
+/// as much again for the script's own objects. Ninety-six mebibytes holds both. A call whose
+/// transient cost is many times the size its budget names — `padStart` at the string budget peaked
+/// 96 MiB above start, `join` at the element budget 150 — and growth through an operator, which no
+/// per-call budget sees, meet it here instead, and the worker aborts with the allocator's sentence
+/// on the pipe its host reads.
+const SCRIPT_ADDRESS_SPACE_LIMIT: u64 = 96 << 20;
+
 /// Ceiling on open descriptors.
 ///
 /// The worker inherits three and opens none. Eight leaves room for the runtime to do
@@ -96,6 +113,15 @@ const INTERPRETER_ADDRESS_SPACE_LIMIT: u64 = 4 << 30;
 /// one confined process is not a shape any host on that boundary has.
 const DESCRIPTOR_LIMIT: u64 = 8;
 
+/// Ceiling on a script worker's descriptors: none beyond the three it inherits, which this limit
+/// does not close.
+///
+/// `RLIMIT_NOFILE` bounds the number a *new* descriptor may take, and every one the kernel would
+/// hand out is at least zero, so a ceiling of zero refuses every new descriptor whatever the
+/// process tries — the filter's kill for the calls that make one, and this for any the filter
+/// would ever let through (ADR 1608).
+const SCRIPT_DESCRIPTOR_LIMIT: u64 = 0;
+
 /// Confines the calling thread. There is no way to undo this.
 ///
 /// # Errors
@@ -105,13 +131,17 @@ const DESCRIPTOR_LIMIT: u64 = 8;
 /// `wider` is a ceiling a caller sized for a stated budget, which is taken only where it is above
 /// the profile's own (`crate::lockdown::apply_for_decoder_within`).
 pub(crate) fn apply(profile: Profile, wider: Option<u64>) -> Result<Confinement, LockdownError> {
-    let own = match profile {
-        Profile::Decoder => ADDRESS_SPACE_LIMIT,
-        Profile::Interpreter => INTERPRETER_ADDRESS_SPACE_LIMIT,
+    let (own, descriptors) = match profile {
+        Profile::Decoder => (ADDRESS_SPACE_LIMIT, DESCRIPTOR_LIMIT),
+        Profile::Interpreter => (INTERPRETER_ADDRESS_SPACE_LIMIT, DESCRIPTOR_LIMIT),
+        Profile::Script => (SCRIPT_ADDRESS_SPACE_LIMIT, SCRIPT_DESCRIPTOR_LIMIT),
     };
     let address_space_limit = wider.map_or(own, |wider| wider.max(own));
     limit_resources(address_space_limit)?;
     let landlock = deny_filesystem_and_network();
+    // After Landlock, because building its domain takes a descriptor — the ruleset is one — and a
+    // script worker's ceiling of none would have refused it (ADR 1608).
+    limit_descriptors(descriptors)?;
     restrict_system_calls(profile)?;
     crate::lockdown::CONFINED.store(true, std::sync::atomic::Ordering::Release);
     Ok(Confinement {
@@ -121,25 +151,44 @@ pub(crate) fn apply(profile: Profile, wider: Option<u64>) -> Result<Confinement,
     })
 }
 
-/// Installs the resource ceilings.
+/// Installs the address-space and file-size ceilings.
 fn limit_resources(address_space_limit: u64) -> Result<(), LockdownError> {
-    use rustix::process::{Resource, Rlimit, setrlimit};
+    for (resource, name, value) in [
+        (
+            rustix::process::Resource::As,
+            "RLIMIT_AS",
+            address_space_limit,
+        ),
+        (rustix::process::Resource::Fsize, "RLIMIT_FSIZE", 0),
+    ] {
+        fix_limit(resource, name, value)?;
+    }
+    Ok(())
+}
 
-    let fixed = |value: u64| Rlimit {
+/// Installs the descriptor ceiling.
+fn limit_descriptors(descriptors: u64) -> Result<(), LockdownError> {
+    fix_limit(
+        rustix::process::Resource::Nofile,
+        "RLIMIT_NOFILE",
+        descriptors,
+    )
+}
+
+/// Sets one resource limit's soft and hard values to `value`, so that neither can be raised.
+fn fix_limit(
+    resource: rustix::process::Resource,
+    name: &'static str,
+    value: u64,
+) -> Result<(), LockdownError> {
+    let fixed = rustix::process::Rlimit {
         current: Some(value),
         maximum: Some(value),
     };
-    for (resource, name, value) in [
-        (Resource::As, "RLIMIT_AS", address_space_limit),
-        (Resource::Nofile, "RLIMIT_NOFILE", DESCRIPTOR_LIMIT),
-        (Resource::Fsize, "RLIMIT_FSIZE", 0),
-    ] {
-        setrlimit(resource, fixed(value)).map_err(|error| LockdownError::Rlimit {
-            resource: name,
-            source: error.into(),
-        })?;
-    }
-    Ok(())
+    rustix::process::setrlimit(resource, fixed).map_err(|error| LockdownError::Rlimit {
+        resource: name,
+        source: error.into(),
+    })
 }
 
 /// Creates a Landlock domain that permits nothing.
@@ -327,6 +376,79 @@ const _: () = assert!(
     "F_GETFD_COMMAND is the value this platform's F_GETFD has"
 );
 
+/// What a script worker is permitted, in place of [`PERMITTED`] rather than beside it.
+///
+/// Found as the other two lists were: `strace -ff` over `pdf-script-worker`, debug and release,
+/// running `crates/pdf-script-worker/tests/end_to_end.rs` — the engine's library from `Math.random`
+/// to `JSON`, `RegExp`, typed arrays and `AF*` calls, a run the wall budget stops, one the deadline
+/// kills, one the ceiling aborts and one that overflows the parser's stack — and every call it
+/// issued after its filter was installed is here (ADR 1608):
+///
+/// - `read`, `write` — its frames, and its standard error, which is a pipe the host reads.
+/// - `brk`, `munmap`, `mremap` — the allocator, which on one thread keeps one arena and grows it
+///   with `brk`; and `mmap`, which is not on this list but under
+///   [`PERMITTED_SCRIPT_UNLESS_EXECUTABLE`]'s condition.
+/// - `madvise` — not issued by the traces, and kept because `glibc` reaches it on the allocator's
+///   own pages under a `GLIBC_TUNABLES` the host's environment passes through; it touches nothing
+///   but memory this process already holds.
+/// - `getrandom` — `Math.random`'s seed.
+/// - `clock_gettime` — the wall budget's clock between slices; the vDSO's, so absent from the
+///   traces, and kept for a machine without one, as the decoder keeps it.
+/// - `exit_group` — leaving when the host closes its end.
+/// - `rt_sigprocmask`, `rt_sigaction`, `rt_sigreturn`, `getpid`, `gettid`, `tgkill` — the abort
+///   path: the address-space ceiling's failed allocation and the standard library's report of an
+///   overflowed stack both end in `abort`, and without these the process would die by `SIGSYS` from
+///   this filter instead, naming the wrong cause (trap 18).
+///
+/// **Absent, and each absence is the profile**: `clone`, `clone3` and every per-thread call — one
+/// thread; `recvmsg`, `pread64`, `fcntl` and even `close` — no descriptor is received, read or let
+/// go, because the worker reads its frames with `read` and holds only the three it was started
+/// with; `mprotect` — the single arena never changes a mapping's protection, so nothing can be made
+/// executable after it was written; `futex` and `sched_yield` — nothing to contend with; and, as
+/// for every profile, `openat`, `socket`, `execve` and the rest.
+const PERMITTED_SCRIPT: &[i64] = &[
+    libc::SYS_read,
+    libc::SYS_write,
+    libc::SYS_brk,
+    libc::SYS_munmap,
+    libc::SYS_mremap,
+    libc::SYS_madvise,
+    libc::SYS_getrandom,
+    libc::SYS_clock_gettime,
+    libc::SYS_exit_group,
+    libc::SYS_rt_sigprocmask,
+    libc::SYS_rt_sigaction,
+    libc::SYS_rt_sigreturn,
+    libc::SYS_getpid,
+    libc::SYS_gettid,
+    libc::SYS_tgkill,
+];
+
+/// The one call a script worker may make **only where the protection asked for leaves out
+/// `PROT_EXEC`**: `mmap`, whose protection is argument 2.
+///
+/// The allocator maps every block past its threshold, and never needs the mapping executable: the
+/// engine is an interpreter and compiles nothing to machine code. So the condition is a mask rather
+/// than a value — any protection whose `PROT_EXEC` bit is clear is admitted, and one with it set is
+/// the filter's kill. With `mprotect` absent, that closes both routes from a corrupted heap to code
+/// of the attacker's own: no new mapping is executable and no written one can be made so (ADR
+/// 1608).
+const PERMITTED_SCRIPT_UNLESS_EXECUTABLE: i64 = libc::SYS_mmap;
+
+/// Which argument of [`PERMITTED_SCRIPT_UNLESS_EXECUTABLE`] holds the protection.
+///
+/// `mmap(addr, length, prot, flags, fd, offset)`.
+const PROTECTION_ARGUMENT: u8 = 2;
+
+/// `PROT_EXEC`, the bit [`PERMITTED_SCRIPT_UNLESS_EXECUTABLE`] refuses.
+///
+/// A literal for [`F_GETFD_COMMAND`]'s reason, held to the platform's by the assertion beneath.
+const PROT_EXEC_BIT: u64 = 4;
+const _: () = assert!(
+    libc::PROT_EXEC == 4,
+    "PROT_EXEC_BIT is the value this platform's PROT_EXEC has"
+);
+
 /// Installs the seccomp-BPF allow-list.
 ///
 /// The mismatch action is `KillProcess` rather than `Errno`: a worker that reaches a
@@ -338,17 +460,32 @@ fn restrict_system_calls(profile: Profile) -> Result<(), LockdownError> {
     let architecture = TargetArch::try_from(std::env::consts::ARCH)
         .map_err(|_| LockdownError::UnknownArchitecture(std::env::consts::ARCH.to_owned()))?;
 
-    let extra: &[i64] = match profile {
-        Profile::Decoder => &[],
-        Profile::Interpreter => PERMITTED_INTERPRETER_EXTRA,
+    let (base, extra): (&[i64], &[i64]) = match profile {
+        Profile::Decoder => (PERMITTED, &[]),
+        Profile::Interpreter => (PERMITTED, PERMITTED_INTERPRETER_EXTRA),
+        Profile::Script => (PERMITTED_SCRIPT, &[]),
     };
     // An empty rule vector means "this call, unconditionally", which is what every entry of
-    // both lists above is: each is permitted for every argument the worker could pass.
-    let mut rules: std::collections::BTreeMap<i64, Vec<SeccompRule>> = PERMITTED
+    // these lists is: each is permitted for every argument the worker could pass.
+    let mut rules: std::collections::BTreeMap<i64, Vec<SeccompRule>> = base
         .iter()
         .chain(extra)
         .map(|number| (*number, Vec::new()))
         .collect();
+    if profile == Profile::Script {
+        // [`PERMITTED_SCRIPT_UNLESS_EXECUTABLE`]'s condition: the protection masked by
+        // `PROT_EXEC` is zero. `Dword` for the reason the `fcntl` rule below gives: the kernel
+        // reads `prot` as flags in its low 32 bits, and the executable bit is among them.
+        rules.insert(
+            PERMITTED_SCRIPT_UNLESS_EXECUTABLE,
+            vec![SeccompRule::new(vec![SeccompCondition::new(
+                PROTECTION_ARGUMENT,
+                SeccompCmpArgLen::Dword,
+                SeccompCmpOp::MaskedEq(PROT_EXEC_BIT),
+                0,
+            )?])?],
+        );
+    }
     if profile == Profile::Interpreter {
         // The one exception, and [`PERMITTED_INTERPRETER_NARROWED`] is why. A non-empty rule
         // vector matches only where its conditions hold, so `fcntl` reaches the match action —

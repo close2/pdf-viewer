@@ -10,12 +10,24 @@
 
 use std::time::Duration;
 
+use pdf_model::action::{PageTrigger, Trigger as AnnotationTrigger};
 use pdf_model::aform::Trigger;
+use pdf_model::view::{
+    Alignment, BorderStyle, Colour, Display, FieldState, FieldType, Property, ScriptEdit,
+    ScriptSite,
+};
 
 use crate::{Ending, Event, Exceeded, Outcome, Refusal, RefusalKind, Request};
 
 /// The first byte of every encoding this module writes.
-pub const VERSION: u8 = 1;
+pub const VERSION: u8 = 2;
+
+/// Most fields one request may tell a realm of, and most edits one outcome may carry.
+///
+/// A count is read before the items it counts, and every item is at least one byte, so a hostile
+/// count is already bounded by the bytes that remain; this bounds what an honest encoder of a
+/// pathological form would allocate, at four times the largest form the census population holds.
+const MAX_ITEMS: u32 = 1 << 16;
 
 /// Why bytes are not an encoding this module wrote.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -41,14 +53,22 @@ pub enum WireError {
 #[must_use]
 pub fn encode_request(request: &Request) -> Vec<u8> {
     let mut out = vec![VERSION];
-    put_u8(&mut out, trigger_tag(request.trigger));
+    put_site(&mut out, request.site);
     put_str(&mut out, &request.field);
+    put_str(&mut out, &request.label);
     put_str(&mut out, &request.script);
     put_str(&mut out, &request.event.value);
     put_str(&mut out, &request.event.change);
     put_u32(&mut out, request.event.selection_start);
     put_u32(&mut out, request.event.selection_end);
     put_bool(&mut out, request.event.will_commit);
+    put_str(&mut out, &request.event.source);
+    put_len(&mut out, request.fields.len());
+    for field in &request.fields {
+        put_field(&mut out, field);
+    }
+    put_u32(&mut out, request.page);
+    put_u32(&mut out, request.pages);
     put_u64(&mut out, request.moment);
     out.extend_from_slice(&request.utc_offset_seconds.to_le_bytes());
     out
@@ -61,24 +81,32 @@ pub fn encode_request(request: &Request) -> Vec<u8> {
 /// [`WireError`] for bytes that are not exactly one request of this version.
 pub fn decode_request(bytes: &[u8]) -> Result<Request, WireError> {
     let mut reader = Reader::new(bytes)?;
-    let trigger = match reader.u8()? {
-        0 => Trigger::Keystroke,
-        1 => Trigger::Format,
-        2 => Trigger::Validate,
-        3 => Trigger::Calculate,
-        _ => return Err(WireError::Invalid("trigger")),
+    let site = reader.site()?;
+    let field = reader.string()?;
+    let label = reader.string()?;
+    let script = reader.string()?;
+    let event = Event {
+        value: reader.string()?,
+        change: reader.string()?,
+        selection_start: reader.u32()?,
+        selection_end: reader.u32()?,
+        will_commit: reader.boolean()?,
+        source: reader.string()?,
     };
+    let count = reader.count()?;
+    let mut fields = Vec::new();
+    for _ in 0..count {
+        fields.push(reader.field()?);
+    }
     let request = Request {
-        trigger,
-        field: reader.string()?,
-        script: reader.string()?,
-        event: Event {
-            value: reader.string()?,
-            change: reader.string()?,
-            selection_start: reader.u32()?,
-            selection_end: reader.u32()?,
-            will_commit: reader.boolean()?,
-        },
+        site,
+        field,
+        label,
+        script,
+        event,
+        fields,
+        page: reader.u32()?,
+        pages: reader.u32()?,
         moment: reader.u64()?,
         utc_offset_seconds: i32::from_le_bytes(reader.array()?),
     };
@@ -93,6 +121,10 @@ pub fn encode_outcome(outcome: &Outcome) -> Vec<u8> {
     put_bool(&mut out, outcome.rc);
     put_optional(&mut out, outcome.value.as_deref());
     put_optional(&mut out, outcome.change.as_deref());
+    put_len(&mut out, outcome.edits.len());
+    for edit in &outcome.edits {
+        put_edit(&mut out, edit);
+    }
     match &outcome.ending {
         Ending::Finished => put_u8(&mut out, 0),
         Ending::Exceeded(exceeded) => {
@@ -148,6 +180,11 @@ pub fn decode_outcome(bytes: &[u8]) -> Result<Outcome, WireError> {
     let rc = reader.boolean()?;
     let value = reader.optional()?;
     let change = reader.optional()?;
+    let count = reader.count()?;
+    let mut edits = Vec::new();
+    for _ in 0..count {
+        edits.push(reader.edit()?);
+    }
     let ending = match reader.u8()? {
         0 => Ending::Finished,
         1 => Ending::Exceeded(reader.exceeded()?),
@@ -156,7 +193,7 @@ pub fn decode_outcome(bytes: &[u8]) -> Result<Outcome, WireError> {
         4 => Ending::Declined(reader.string()?),
         _ => return Err(WireError::Invalid("ending")),
     };
-    let count = reader.u32()?;
+    let count = reader.count()?;
     let mut refusals = Vec::new();
     for _ in 0..count {
         let member = reader.string()?;
@@ -169,7 +206,7 @@ pub fn decode_outcome(bytes: &[u8]) -> Result<Outcome, WireError> {
         };
         refusals.push(Refusal { member, kind });
     }
-    let count = reader.u32()?;
+    let count = reader.count()?;
     let mut log = Vec::new();
     for _ in 0..count {
         log.push(reader.string()?);
@@ -179,19 +216,198 @@ pub fn decode_outcome(bytes: &[u8]) -> Result<Outcome, WireError> {
         rc,
         value,
         change,
+        edits,
         ending,
         refusals,
         log,
     })
 }
 
-/// The tag a trigger is written with.
-fn trigger_tag(trigger: Trigger) -> u8 {
-    match trigger {
-        Trigger::Keystroke => 0,
-        Trigger::Format => 1,
-        Trigger::Validate => 2,
-        Trigger::Calculate => 3,
+/// Table 199's four triggers, in tag order.
+const FIELD_TRIGGERS: [Trigger; 4] = [
+    Trigger::Keystroke,
+    Trigger::Format,
+    Trigger::Validate,
+    Trigger::Calculate,
+];
+
+/// Table 197's ten events, in tag order.
+const ANNOTATION_TRIGGERS: [AnnotationTrigger; 10] = [
+    AnnotationTrigger::Enter,
+    AnnotationTrigger::Exit,
+    AnnotationTrigger::Down,
+    AnnotationTrigger::Up,
+    AnnotationTrigger::Focus,
+    AnnotationTrigger::Blur,
+    AnnotationTrigger::PageOpen,
+    AnnotationTrigger::PageClose,
+    AnnotationTrigger::PageVisible,
+    AnnotationTrigger::PageInvisible,
+];
+
+/// The field types, in tag order.
+const FIELD_TYPES: [FieldType; 7] = [
+    FieldType::Text,
+    FieldType::PushButton,
+    FieldType::CheckBox,
+    FieldType::RadioButton,
+    FieldType::ComboBox,
+    FieldType::ListBox,
+    FieldType::Signature,
+];
+
+/// The display constants, in tag order.
+const DISPLAYS: [Display; 4] = [
+    Display::Visible,
+    Display::Hidden,
+    Display::NoPrint,
+    Display::NoView,
+];
+
+/// The border styles, in tag order.
+const BORDER_STYLES: [BorderStyle; 5] = [
+    BorderStyle::Solid,
+    BorderStyle::Dashed,
+    BorderStyle::Beveled,
+    BorderStyle::Inset,
+    BorderStyle::Underline,
+];
+
+/// The alignments, in tag order.
+const ALIGNMENTS: [Alignment; 3] = [Alignment::Left, Alignment::Center, Alignment::Right];
+
+/// Where `item` is in `list`, as a tag byte.
+fn tag_of<T: PartialEq>(list: &[T], item: &T) -> u8 {
+    list.iter()
+        .position(|held| held == item)
+        .and_then(|index| u8::try_from(index).ok())
+        .unwrap_or(u8::MAX)
+}
+
+/// Writes where a script runs.
+fn put_site(out: &mut Vec<u8>, site: ScriptSite) {
+    match site {
+        ScriptSite::Field(trigger) => {
+            put_u8(out, 0);
+            put_u8(out, tag_of(&FIELD_TRIGGERS, &trigger));
+        }
+        ScriptSite::Annotation(trigger) => {
+            put_u8(out, 1);
+            put_u8(out, tag_of(&ANNOTATION_TRIGGERS, &trigger));
+        }
+        ScriptSite::Page(trigger) => {
+            put_u8(out, 2);
+            put_bool(out, trigger == PageTrigger::Close);
+        }
+        ScriptSite::OpenAction => put_u8(out, 3),
+        ScriptSite::Library => put_u8(out, 4),
+    }
+}
+
+/// Writes one field's state.
+fn put_field(out: &mut Vec<u8>, field: &FieldState) {
+    put_str(out, &field.name);
+    put_u8(out, tag_of(&FIELD_TYPES, &field.kind));
+    put_str(out, &field.value);
+    put_u32(out, field.flags);
+    put_u8(out, tag_of(&DISPLAYS, &field.display));
+    for colour in [field.text_color, field.fill_color, field.stroke_color] {
+        match colour {
+            None => put_u8(out, 0),
+            Some(colour) => {
+                put_u8(out, 1);
+                put_colour(out, colour);
+            }
+        }
+    }
+    put_u8(out, tag_of(&BORDER_STYLES, &field.border_style));
+    put_u8(out, tag_of(&ALIGNMENTS, &field.alignment));
+    for number in [field.char_limit, field.page] {
+        match number {
+            None => put_u8(out, 0),
+            Some(number) => {
+                put_u8(out, 1);
+                put_u32(out, number);
+            }
+        }
+    }
+    for coordinate in field.rect {
+        put_f64(out, coordinate);
+    }
+}
+
+/// Writes a colour: a tag, then its components.
+fn put_colour(out: &mut Vec<u8>, colour: Colour) {
+    let components: &[f64] = match &colour {
+        Colour::Transparent => &[],
+        Colour::Gray(gray) => std::slice::from_ref(gray),
+        Colour::Rgb(rgb) => rgb,
+        Colour::Cmyk(cmyk) => cmyk,
+    };
+    put_u8(out, u8::try_from(components.len()).unwrap_or(u8::MAX));
+    for component in components {
+        put_f64(out, *component);
+    }
+}
+
+/// Writes one edit.
+fn put_edit(out: &mut Vec<u8>, edit: &ScriptEdit) {
+    match edit {
+        ScriptEdit::Value { field, value } => {
+            put_u8(out, 0);
+            put_str(out, field);
+            put_str(out, value);
+        }
+        ScriptEdit::Property { field, property } => {
+            put_u8(out, 1);
+            put_str(out, field);
+            match property {
+                Property::Display(display) => {
+                    put_u8(out, 0);
+                    put_u8(out, tag_of(&DISPLAYS, display));
+                }
+                Property::ReadOnly(flag) => {
+                    put_u8(out, 1);
+                    put_bool(out, *flag);
+                }
+                Property::Required(flag) => {
+                    put_u8(out, 2);
+                    put_bool(out, *flag);
+                }
+                Property::TextColor(colour) => {
+                    put_u8(out, 3);
+                    put_colour(out, *colour);
+                }
+                Property::FillColor(colour) => {
+                    put_u8(out, 4);
+                    put_colour(out, *colour);
+                }
+                Property::StrokeColor(colour) => {
+                    put_u8(out, 5);
+                    put_colour(out, *colour);
+                }
+                Property::BorderStyle(style) => {
+                    put_u8(out, 6);
+                    put_u8(out, tag_of(&BORDER_STYLES, style));
+                }
+                Property::Alignment(alignment) => {
+                    put_u8(out, 7);
+                    put_u8(out, tag_of(&ALIGNMENTS, alignment));
+                }
+                Property::CharLimit(limit) => {
+                    put_u8(out, 8);
+                    put_u32(out, *limit);
+                }
+            }
+        }
+        ScriptEdit::Reset { fields } => {
+            put_u8(out, 2);
+            put_len(out, fields.len());
+            for field in fields {
+                put_str(out, field);
+            }
+        }
+        ScriptEdit::Calculate => put_u8(out, 3),
     }
 }
 
@@ -216,6 +432,10 @@ fn put_exceeded(out: &mut Vec<u8>, exceeded: Exceeded) {
         }
         Exceeded::Stack(limit) => {
             put_u8(out, 4);
+            put_u32(out, limit);
+        }
+        Exceeded::Nesting(limit) => {
+            put_u8(out, 7);
             put_u32(out, limit);
         }
         Exceeded::Elements { asked, ceiling } => {
@@ -243,6 +463,11 @@ fn put_u32(out: &mut Vec<u8>, value: u32) {
 
 /// Writes a `u64`.
 fn put_u64(out: &mut Vec<u8>, value: u64) {
+    out.extend_from_slice(&value.to_le_bytes());
+}
+
+/// Writes an `f64`.
+fn put_f64(out: &mut Vec<u8>, value: f64) {
     out.extend_from_slice(&value.to_le_bytes());
 }
 
@@ -328,6 +553,132 @@ impl<'a> Reader<'a> {
         Ok(u64::from_le_bytes(self.array()?))
     }
 
+    /// An `f64`.
+    fn f64(&mut self) -> Result<f64, WireError> {
+        Ok(f64::from_le_bytes(self.array()?))
+    }
+
+    /// A count of items, no more than [`MAX_ITEMS`].
+    fn count(&mut self) -> Result<u32, WireError> {
+        let count = self.u32()?;
+        if count > MAX_ITEMS {
+            return Err(WireError::Invalid("count"));
+        }
+        Ok(count)
+    }
+
+    /// An item of `list` named by a tag byte.
+    fn tagged<T: Copy>(&mut self, list: &[T], what: &'static str) -> Result<T, WireError> {
+        list.get(usize::from(self.u8()?))
+            .copied()
+            .ok_or(WireError::Invalid(what))
+    }
+
+    /// Where a script runs.
+    fn site(&mut self) -> Result<ScriptSite, WireError> {
+        Ok(match self.u8()? {
+            0 => ScriptSite::Field(self.tagged(&FIELD_TRIGGERS, "trigger")?),
+            1 => ScriptSite::Annotation(self.tagged(&ANNOTATION_TRIGGERS, "trigger")?),
+            2 => ScriptSite::Page(if self.boolean()? {
+                PageTrigger::Close
+            } else {
+                PageTrigger::Open
+            }),
+            3 => ScriptSite::OpenAction,
+            4 => ScriptSite::Library,
+            _ => return Err(WireError::Invalid("site")),
+        })
+    }
+
+    /// A number that may be absent.
+    fn optional_u32(&mut self) -> Result<Option<u32>, WireError> {
+        match self.u8()? {
+            0 => Ok(None),
+            1 => Ok(Some(self.u32()?)),
+            _ => Err(WireError::Invalid("optional number")),
+        }
+    }
+
+    /// A colour.
+    fn colour(&mut self) -> Result<Colour, WireError> {
+        let count = self.u8()?;
+        let mut components = [0.0_f64; 4];
+        for slot in components.iter_mut().take(usize::from(count)) {
+            *slot = self.f64()?;
+        }
+        Ok(match count {
+            0 => Colour::Transparent,
+            1 => Colour::Gray(components[0]),
+            3 => Colour::Rgb([components[0], components[1], components[2]]),
+            4 => Colour::Cmyk(components),
+            _ => return Err(WireError::Invalid("colour")),
+        })
+    }
+
+    /// A colour that may be absent.
+    fn optional_colour(&mut self) -> Result<Option<Colour>, WireError> {
+        match self.u8()? {
+            0 => Ok(None),
+            1 => Ok(Some(self.colour()?)),
+            _ => Err(WireError::Invalid("optional colour")),
+        }
+    }
+
+    /// One field's state.
+    fn field(&mut self) -> Result<FieldState, WireError> {
+        Ok(FieldState {
+            name: self.string()?,
+            kind: self.tagged(&FIELD_TYPES, "field type")?,
+            value: self.string()?,
+            flags: self.u32()?,
+            display: self.tagged(&DISPLAYS, "display")?,
+            text_color: self.optional_colour()?,
+            fill_color: self.optional_colour()?,
+            stroke_color: self.optional_colour()?,
+            border_style: self.tagged(&BORDER_STYLES, "border style")?,
+            alignment: self.tagged(&ALIGNMENTS, "alignment")?,
+            char_limit: self.optional_u32()?,
+            page: self.optional_u32()?,
+            rect: [self.f64()?, self.f64()?, self.f64()?, self.f64()?],
+        })
+    }
+
+    /// One edit.
+    fn edit(&mut self) -> Result<ScriptEdit, WireError> {
+        Ok(match self.u8()? {
+            0 => ScriptEdit::Value {
+                field: self.string()?,
+                value: self.string()?,
+            },
+            1 => {
+                let field = self.string()?;
+                let property = match self.u8()? {
+                    0 => Property::Display(self.tagged(&DISPLAYS, "display")?),
+                    1 => Property::ReadOnly(self.boolean()?),
+                    2 => Property::Required(self.boolean()?),
+                    3 => Property::TextColor(self.colour()?),
+                    4 => Property::FillColor(self.colour()?),
+                    5 => Property::StrokeColor(self.colour()?),
+                    6 => Property::BorderStyle(self.tagged(&BORDER_STYLES, "border style")?),
+                    7 => Property::Alignment(self.tagged(&ALIGNMENTS, "alignment")?),
+                    8 => Property::CharLimit(self.u32()?),
+                    _ => return Err(WireError::Invalid("property")),
+                };
+                ScriptEdit::Property { field, property }
+            }
+            2 => {
+                let count = self.count()?;
+                let mut fields = Vec::new();
+                for _ in 0..count {
+                    fields.push(self.string()?);
+                }
+                ScriptEdit::Reset { fields }
+            }
+            3 => ScriptEdit::Calculate,
+            _ => return Err(WireError::Invalid("edit")),
+        })
+    }
+
     /// A boolean.
     fn boolean(&mut self) -> Result<bool, WireError> {
         match self.u8()? {
@@ -361,6 +712,7 @@ impl<'a> Reader<'a> {
             2 => Exceeded::LoopIterations(self.u64()?),
             3 => Exceeded::Recursion(self.u32()?),
             4 => Exceeded::Stack(self.u32()?),
+            7 => Exceeded::Nesting(self.u32()?),
             5 => Exceeded::Elements {
                 asked: self.u64()?,
                 ceiling: self.u64()?,

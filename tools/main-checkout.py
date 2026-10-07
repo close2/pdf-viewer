@@ -9,7 +9,8 @@ update, an owner's answer no commit holds yet (printed first, and alone under `-
 `tools/batch.sh check` repeats), a fuzz artefact whose defect is fixed, a corpus a campaign found stale, a local edit that
 will stop the fast-forward, an uncommitted question whose `§` the main checkout's own conformance
 run fails on, a patch a dependency's fork has not taken, an upstream report not yet filed, a build
-directory over the hundred-gigabyte rule, an `sccache` cache at its ceiling. This prints one line per
+directory over the hundred-gigabyte rule, an `sccache` cache at its ceiling, the agent's cgroup
+with no task or memory limit that would have held trap 116's incident. This prints one line per
 kind, with its count, and then **the owner's list**: every one of those that has something to do, once,
 numbered in the order a person would do them, each with its command or its file — the counts say what
 is on the disk, the list says what to do about it, and nothing is said in both (ADR 1601).
@@ -23,9 +24,12 @@ The main checkout is the directory holding the repository's common git directory
 derivation `tools/batch.sh` makes — so run from the main checkout itself it reads itself.
 `MAIN_CHECKOUT` names another, and `SECTION_SIGNS_BIN` the built scanner to run in place of `cargo
 run`, which is how the shape test reads a planted checkout without a nested build.
+`MAIN_CHECKOUT_AGENT_USER`, `MAIN_CHECKOUT_PROC` and `MAIN_CHECKOUT_CGROUP_ROOT` name the agent's
+account (a name or a uid), the process table and the cgroup hierarchy the agent's scope is read from.
 """
 
 import os
+import pwd
 import re
 import subprocess
 import sys
@@ -37,8 +41,18 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # The owner's list's order, the order a person does the work in (ADR 1601): what stops the
 # fast-forward; the `§` a question file carries, before that file is committed; the commit of the
 # answers on the disk; the questions only the owner can answer; the forks and the reports, which
-# are the owner's accounts' work; the re-seed, a walk behind the lock; and the disk's hygiene last.
-IN_THE_WAY, SECTION_SIGNS, COMMIT, ANSWER, FORK, REPORT, APPLY, RESEED, REMOVE, PRUNE, CEILING = range(11)
+# are the owner's accounts' work; the agent's scope, bounded before anything walks again; the
+# re-seed, a walk behind the lock; and the disk's hygiene last.
+(IN_THE_WAY, SECTION_SIGNS, COMMIT, ANSWER, FORK, REPORT, APPLY, BOUND, RESEED, REMOVE, PRUNE,
+ CEILING) = range(12)
+
+# The agent's scope is bounded when the tightest `pids.max` and `memory.max` on its cgroup's path
+# are at or under these: twice the task budget `tools/bounded.sh` holds every heavy command to,
+# so the rlimit acts first and the cgroup is the backstop for what no rlimit reaches (the agent's
+# own processes, anything started without the wrapper), and ADR 0798's `MemoryMax`. The incident
+# they answer reached 52 259 tasks and 50 GB resident (trap 116, ADR 1612).
+AGENT_TASKS = 16384
+AGENT_MEMORY_GIB = 40
 
 
 def git(directory, *arguments):
@@ -443,6 +457,86 @@ def disk(main, owed):
     return lines
 
 
+def limit(text):
+    """A cgroup limit file's value, `max` as no limit."""
+    text = (text or "").strip()
+    return int(text) if text.isdigit() else float("inf")
+
+
+def tightest(hierarchy, path, name):
+    """The smallest `name` limit on the cgroup at `path` and every ancestor: a limit anywhere above
+    a scope bounds it as well."""
+    smallest, parts = float("inf"), [part for part in path.split("/") if part]
+    for depth in range(len(parts), -1, -1):
+        try:
+            with open(os.path.join(hierarchy, *parts[:depth], name), encoding="utf-8") as handle:
+                smallest = min(smallest, limit(handle.read()))
+        except OSError:
+            continue
+    return smallest
+
+
+def agent_tasks(proc, uid):
+    """Each cgroup holding a process whose real uid is the agent's, with its task count."""
+    scopes = {}
+    for entry in os.listdir(proc) if os.path.isdir(proc) else []:
+        if not entry.isdigit():
+            continue
+        try:
+            with open(os.path.join(proc, entry, "status"), encoding="utf-8") as handle:
+                status = handle.read()
+            with open(os.path.join(proc, entry, "cgroup"), encoding="utf-8") as handle:
+                membership = handle.read()
+        except OSError:
+            continue
+        real = re.search(r"^Uid:\s+(\d+)", status, re.M)
+        threads = re.search(r"^Threads:\s+(\d+)", status, re.M)
+        unified = re.search(r"^0::(\S+)", membership, re.M)
+        if real and unified and int(real.group(1)) == uid:
+            scopes[unified.group(1)] = scopes.get(unified.group(1), 0) + (
+                int(threads.group(1)) if threads else 1)
+    return scopes
+
+
+def agent_scope(owed):
+    """The cgroups the agent's processes run in, against the task and memory limits that would have
+    held trap 116's incident (ADR 1612).
+
+    The agent runs in the owner's own session, a terminal tab's scope beneath the owner's slice, so
+    no rlimit this tree sets reaches the agent itself and the cgroup is the owner's to set (ADR
+    0798). A tab's limit files belong to the owner, who writes them without root; a session started
+    in a scope of its own carries the limits from its launch. The scope is read from the processes,
+    because the tab changes with every session."""
+    user = os.environ.get("MAIN_CHECKOUT_AGENT_USER", "AI")
+    proc = os.environ.get("MAIN_CHECKOUT_PROC", "/proc")
+    hierarchy = os.environ.get("MAIN_CHECKOUT_CGROUP_ROOT", "/sys/fs/cgroup")
+    try:
+        uid = int(user) if user.isdigit() else pwd.getpwnam(user).pw_uid
+    except KeyError:
+        return [f"agent's cgroup: no user {user} on this machine, so no scope to read"]
+    scopes = agent_tasks(proc, uid)
+    memory = AGENT_MEMORY_GIB * 1024 ** 3
+    unbounded, lines = [], []
+    for path, tasks in sorted(scopes.items()):
+        pids, held = tightest(hierarchy, path, "pids.max"), tightest(hierarchy, path, "memory.max")
+        if pids > AGENT_TASKS or held > memory:
+            unbounded.append(path)
+        shown = ["max" if figure == float("inf") else str(figure) for figure in (pids, held)]
+        lines.append(f"  scope:            {path} — {tasks} task(s); the tightest pids.max on its "
+                     f"path {shown[0]}, memory.max {shown[1]}")
+    if unbounded:
+        writes = " && ".join(f"echo {AGENT_TASKS} > '{hierarchy}{path}/pids.max' && echo "
+                             f"{AGENT_MEMORY_GIB}G > '{hierarchy}{path}/memory.max'"
+                             for path in unbounded)
+        owe(owed, BOUND, f"bound the agent's scope at {AGENT_TASKS} tasks and {AGENT_MEMORY_GIB} "
+            f"GiB, as yourself, who owns the files: `{writes}`; or start the next session in a scope "
+            f"of its own: `systemd-run --user --scope -p TasksMax={AGENT_TASKS} -p MemoryHigh=36G "
+            f"-p MemoryMax={AGENT_MEMORY_GIB}G -p MemorySwapMax=4G sudo -u {user} bash -lc 'cd "
+            f"/home/cl/projects/pdf-viewer && claude'`")
+    return [f"agent's cgroup: {len(scopes)} scope(s) hold user {user}'s processes, "
+            f"{len(unbounded)} with a limit above {AGENT_TASKS} tasks or {AGENT_MEMORY_GIB} GiB"] + lines
+
+
 def in_the_way(main, owed):
     """Local edits in the main checkout to paths this branch changes: each stops `--ff-only`."""
     head = (git(main, "rev-parse", "HEAD") or "").strip()
@@ -489,6 +583,8 @@ def main():
     for line in section_signs(main_dir, owed):
         print(line)
     for line in disk(main_dir, owed):
+        print(line)
+    for line in agent_scope(owed):
         print(line)
     for line in owners_list(owed):
         print(line)

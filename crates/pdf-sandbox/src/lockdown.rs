@@ -32,12 +32,13 @@
 ///
 /// **A profile rather than a set of options.** Which system calls a program needs is not a
 /// preference a caller should be able to widen a little at a time; it is a property of the work,
-/// found by running that work under `strace` and reading what appeared. So there are two, each
-/// named for a program in this workspace, and adding a third means measuring a third.
+/// found by running that work under `strace` and reading what appeared. So there are three, each
+/// named for a program in this workspace, and the third was measured as the first two were (ADR
+/// 1608).
 ///
-/// **The difference between them is more than threads and address space** (ADR 0218): ADR 0812
-/// adds `recvmsg` and `pread64`, which are neither, and ADR 0888 the one argument-narrowed rule
-/// in the crate. What they have in common is the honest
+/// **The difference between the first two is more than threads and address space** (ADR 0218):
+/// ADR 0812 adds `recvmsg` and `pread64`, which are neither, and ADR 0888 the interpreter's one
+/// argument-narrowed rule. What they have in common is the honest
 /// heading and is why the profile is not a set of options: every one of them follows from the
 /// second profile being handed **a descriptor** and being asked to draw a page with it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -63,9 +64,21 @@ pub enum Profile {
     ///   and `pread64` is how it is read, and since ADR 0888 `fcntl` **narrowed by argument to
     ///   `F_GETFD`** is how it is given back — the standard library asks that question inside
     ///   `OwnedFd::drop`, so a worker forbidden it can be handed a descriptor and can never
-    ///   close one. It is the only conditional rule in this crate, and
+    ///   close one. It is the only conditional rule of its list, and
     ///   `lockdown_linux::PERMITTED_INTERPRETER_NARROWED` is what it costs and what it does not.
     Interpreter,
+    /// A document's scripts, run by an ECMAScript engine on one thread: `pdf-script-worker`.
+    ///
+    /// The narrowest of the three, because what it runs is the most programmable input this tree
+    /// reads and it needs the least to run it (ADR 1608). **No thread**: `clone`, `clone3` and the
+    /// per-thread registrations are absent. **No descriptor**: it reads its frames with `read`, so
+    /// a descriptor sent beside one is closed by the kernel rather than received — `recvmsg`,
+    /// `pread64`, `fcntl` and even `close` are absent — and `RLIMIT_NOFILE` is zero, so none can be
+    /// made either. **No executable memory**: `mmap` is admitted only where the protection it asks
+    /// for leaves out `PROT_EXEC`, and `mprotect` not at all, so the heap grows and nothing in it can
+    /// be run. And an address-space ceiling in the tens of megabytes, sized against the engine's own
+    /// construction and the budgets one run is held to (ADR 1609).
+    Script,
 }
 
 /// How thoroughly Landlock could be applied.

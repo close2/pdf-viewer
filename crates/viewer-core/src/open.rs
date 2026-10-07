@@ -104,6 +104,9 @@ pub(crate) struct Open {
     pub(crate) layout: pdf_model::viewer_preferences::PageLayout,
     /// How large the page is drawn.
     pub(crate) zoom: Zoom,
+    /// Whether RFC 0008 section 6.5's open sequence has run, which [`crate::Command::Presented`]
+    /// asks once for each document (ADR 1602).
+    pub(crate) presented: bool,
     /// §12.3.2.1's other two items, waiting for a viewport and a display list to be applied to.
     ///
     /// A destination states a page, a location and a magnification; the page is a property of the
@@ -893,6 +896,7 @@ impl Open {
             page_index,
             layout,
             zoom: INITIAL_ZOOM,
+            presented: false,
             pending_views: open_view.into_iter().collect(),
             scroll: (0.0, 0.0),
             on_screen: Vec::new(),

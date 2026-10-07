@@ -18,7 +18,7 @@
 #
 # So the bound here is the *walk's*, and a shard takes a share of it:
 #
-#   tools/bounded.sh [--shards N] [--data GiB] [--tree GiB] [--nice n] -- <command> [args…]
+#   tools/bounded.sh [--shards N] [--data GiB] [--tree GiB] [--tasks N] [--nice n] -- <command> [args…]
 #
 #   --shards N   this process is one of N run side by side (default 1). It gets nproc/N rayon
 #                threads and (walk budget)/N of data, so the walk as a whole never exceeds the
@@ -30,11 +30,16 @@
 #   --tree GiB   a ceiling on the *sum* of resident memory over the command's whole process tree,
 #                sampled once a second; the tree is killed if it is crossed. For a `cargo build`,
 #                whose memory is spread over many `rustc` processes no single RLIMIT sees.
+#   --tasks N    RLIMIT_NPROC for the command and everything it spawns (default and ceiling: the
+#                agent's task budget below). The kernel counts it against every task of the user,
+#                so it bounds the agent as a whole, not this command alone.
+#   --task-budget  print the agent's task budget and exit: `tools/*.sh` ask for the figure here,
+#                so it is written down once (`ulimit -u "$(tools/bounded.sh --task-budget)"`).
 #   --nice n     the niceness (default 19: everything here runs behind the owner's desktop and
 #                behind any round's gates).
 #   --self-test  run the sampler against synthetic process tables and against live trees — one
-#                that fans out, one that crosses the ceiling, one whose sampler stalls — and exit
-#                0 only if every case holds. `tools/conformance/tests/bounded.rs` runs it under
+#                that fans out, one that crosses the ceiling, one whose sampler stalls, one that
+#                forks past a task limit of its own — and exit 0 only if every case holds. `tools/conformance/tests/bounded.rs` runs it under
 #                `cargo test -p conformance`, so the sequence's last line exercises the bound.
 #
 # The walk budget is 12 GiB a round, and the figure was 32 until 2026-09-02, when 32 turned out to
@@ -83,6 +88,14 @@
 # it is abandoned rather than waited for; and a run of missed samples — the wrapper *blind* for
 # that long — kills the tree and says so, because that is the machine going down and the walk is
 # the one thing on it this wrapper can stop. ADR 0807.
+#
+# **And no memory bound sees a process count.** On 2026-10-06 one tool forked a task per package
+# and never waited: the agent's scope climbed about 3 400 tasks a minute to 52 259, and their
+# stacks — 50 GB resident and 91 GB of swap — are what the system's OOM daemon killed the whole
+# agent for, every round with it (trap 116). Each of those tasks was small, so neither RLIMIT_DATA
+# nor the tree ceiling, which a stalled `ps` cannot sample anyway, was the bound that could act.
+# RLIMIT_NPROC is: `fork` and `clone` fail with EAGAIN once the user holds that many tasks, at the
+# call, with nothing to sample. ADR 1612.
 
 set -u -o pipefail
 
@@ -108,11 +121,22 @@ sample_interval=1
 sample_deadline=5
 blind_limit=6
 
+# The agent's task budget: RLIMIT_NPROC is checked against the count of **every** task — process
+# and thread — the user holds, not against this command's, so whatever figure is set is the budget
+# of all six rounds, the orchestrator and their builds together. 8192 is eight times what they hold
+# at work: six rounds' builds, test pools and Xvfb servers sit under 1 000 tasks, and the incident
+# this answers was a spawner at 52 259. A command that needs more is a fork loop, not a workload.
+# Every heavy line in `tools/*.sh` reads this figure through `--task-budget`; no other copy exists.
+task_budget=8192
+tasks=$task_budget
+
 while [ $# -gt 0 ]; do
     case "$1" in
         --shards) shards=$2; shift 2 ;;
         --data) data_gib=$2; shift 2 ;;
         --tree) tree_gib=$2; shift 2 ;;
+        --tasks) tasks=$2; shift 2 ;;
+        --task-budget) echo "$task_budget"; exit 0 ;;
         --nice) niceness=$2; shift 2 ;;
         --self-test) self_test=1; shift ;;
         --) shift; break ;;
@@ -284,22 +308,65 @@ if [ -n "$self_test" ]; then
 
     # 5. A sampler that never returns: with the deadline at a second and the limit at three,
     #    the wrapper goes blind, stops the tree within a few seconds and names the reason.
-    process_table() { sleep 60; }
-    sample_deadline=1; blind_limit=3
+    #    The stalled samplers and the leader's child outlive the case on purpose — a sampler stuck
+    #    in the kernel is abandoned, never waited for — so the case runs in a subshell whose
+    #    standard output and error are set with `exec` and its verdict comes back in a file. A
+    #    redirection on the call would leave the outer descriptors saved in every forked sampler,
+    #    and a caller reading this script through a pipe, as `cargo test` does, would wait out
+    #    their sleeps, a minute after the last case had printed.
     (
-        exec 3>&1
-        sleep 30 2>&1 1>&3 &
-        wait $!
-    ) &
-    leader=$!
-    started=$(date +%s)
-    watch_tree "$leader" $(( 1024 * 1024 )) 2> "$scratch/blind.err"
-    elapsed=$(( $(date +%s) - started ))
-    [ -n "$blind" ] || fail "blind: the watch returned without going blind"
-    kill -0 "$leader" 2>/dev/null && fail "blind: the leader is still running after the watch stopped it"
+        exec > /dev/null 2> "$scratch/blind.err" < /dev/null
+        process_table() { sleep 60; }
+        sample_deadline=1; blind_limit=3
+        (
+            exec 3>&1
+            sleep 30 2>&1 1>&3 &
+            wait $!
+        ) &
+        leader=$!
+        started=$(date +%s)
+        watch_tree "$leader" $(( 1024 * 1024 ))
+        alive=$(kill -0 "$leader" 2>/dev/null && echo alive)
+        echo "${blind:-sighted} $(( $(date +%s) - started )) ${alive:-stopped}" > "$scratch/blind.verdict"
+    )
+    read -r blind elapsed alive < "$scratch/blind.verdict" || fail "blind: the case left no verdict"
+    [ "$blind" != sighted ] || fail "blind: the watch returned without going blind"
+    [ "$alive" = stopped ] || fail "blind: the leader is still running after the watch stopped it"
     [ "$elapsed" -lt 15 ] || fail "blind: took ${elapsed}s to stop a tree whose sampler stalled"
     [ "$(grep -c 'did not return within' "$scratch/blind.err")" = 3 ] || fail "blind: $(cat "$scratch/blind.err")"
     echo "bounded --self-test: a stalled sampler stopped the tree in ${elapsed}s after 3 missed samples"
+
+    # 6. A fork loop under a task limit of 64: the limit counts the user's tasks, which already
+    #    number more than 64 on a working machine and fewer on a fresh runner, so the loop is
+    #    refused at its first fork or within its first 64 — and it is bounded by its own count of
+    #    128 as well, so a wrapper that failed to apply the limit costs 128 sleeping children for
+    #    two seconds rather than a fork bomb. Exit 75 is the loop's own word that a fork was
+    #    refused; the wrapper's last line must name the task limit. Root is exempt from
+    #    RLIMIT_NPROC, so there the case cannot be run and says so.
+    if [ "$(id -u)" = 0 ]; then
+        echo "bounded --self-test: NOT RUN — root is exempt from RLIMIT_NPROC, so the task-limit case cannot be seen to hold" >&2
+    elif command -v python3 > /dev/null; then
+        "$self" --tasks 64 --data 1 --nice 0 -- env PYTHONDONTWRITEBYTECODE=1 python3 -c '
+import os, sys, time
+born = 0
+try:
+    for _ in range(128):
+        if os.fork() == 0:
+            time.sleep(2)
+            os._exit(0)
+        born += 1
+except BlockingIOError as refusal:
+    print(f"fork refused after {born} children: {refusal}", file=sys.stderr)
+    sys.exit(75)
+print(f"all {born} forks succeeded", file=sys.stderr)
+' > "$scratch/tasks.out" 2> "$scratch/tasks.err"
+        status=$?
+        [ "$status" -eq 75 ] || fail "task limit: exit $status, wanted 75 (a refused fork): $(tail -n 2 "$scratch/tasks.err" | tr '\n' ' ')"
+        grep -q 'STOPPED BY THE TASK LIMIT' "$scratch/tasks.err" || fail "task limit: $(tail -n 1 "$scratch/tasks.err")"
+        echo "bounded --self-test: a fork loop under --tasks 64 was refused: $(grep -o 'fork refused after [0-9]* children' "$scratch/tasks.err")"
+    else
+        echo "bounded --self-test: NOT RUN — the task-limit case wants python3 for its fork loop, and there is none" >&2
+    fi
 
     echo "bounded --self-test: every case holds"
     exit 0
@@ -323,6 +390,11 @@ fi
 # Rule 3 of the header: a run without a tree ceiling is not started by omission.
 [ -n "$tree_gib" ] || tree_gib=$round_share_gib
 case "$tree_gib" in ''|*[!0-9]*|0) echo "bounded: --tree wants a positive integer of GiB" >&2; exit 64 ;; esac
+case "$tasks" in ''|*[!0-9]*|0) echo "bounded: --tasks wants a positive integer" >&2; exit 64 ;; esac
+if [ "$tasks" -gt "$task_budget" ]; then
+    echo "bounded: --tasks $tasks is above the agent's task budget of $task_budget, and the limit counts every task of the user, so it would lend this command the other rounds' share — see trap 116" >&2
+    exit 64
+fi
 data_bytes=$(( data_gib * 1024 * 1024 * 1024 ))
 tree_kib=$(( tree_gib * 1024 * 1024 ))
 
@@ -341,7 +413,7 @@ trap 'rm -rf "$scratch"' EXIT
 started=$(date +%s)
 (
     exec 3>&1
-    prlimit --data="$data_bytes" nice -n "$niceness" "$@" 2>&1 1>&3 | tee "$errlog" >&2
+    prlimit --data="$data_bytes" --nproc="$tasks" nice -n "$niceness" "$@" 2>&1 1>&3 | tee "$errlog" >&2
     exit "${PIPESTATUS[0]}"
 ) &
 leader=$!
@@ -378,6 +450,18 @@ if grep -q "memory allocation of .* failed\|MemoryError\|Cannot allocate memory"
          "run passes with fewer threads and fails again with more (--shards divides both)." >&2
     exit "$status"
 fi
+# A refused `fork` or thread spawn reads EAGAIN on every path: bash prints `fork: retry: Resource
+# temporarily unavailable`, Rust's `failed to spawn thread` carries `(os error 11)`, Python raises
+# `BlockingIOError`. The line names the limit and the user's count beside it, since the count is
+# the agent's and not this command's alone. Only for a run that failed: a program that met EAGAIN
+# on a non-blocking descriptor and carried on prints the same words.
+if [ "$status" -ne 0 ] && grep -q "Resource temporarily unavailable\|BlockingIOError" "$errlog"; then
+    echo "bounded: STOPPED BY THE TASK LIMIT — exit $status after ${elapsed}s: a fork or a thread" \
+         "spawn was refused under an RLIMIT_NPROC of $tasks, which counts every task of $(id -un)" \
+         "($(ps -u "$(id -un)" -o nlwp= | awk '{ s += $1 } END { print s + 0 }') now). The command's own" \
+         "last words are above; a command that meets this bound is spawning without waiting (trap 116)." >&2
+    exit "$status"
+fi
 if [ "$status" -eq 134 ]; then
     # A Rust program built with `panic = "abort"` ends a panic this way too, and a panic is not
     # the bound: saying "the data limit" here would be a report firing on a condition it does not
@@ -388,5 +472,5 @@ if [ "$status" -eq 134 ]; then
     exit "$status"
 fi
 echo "bounded: exit $status after ${elapsed}s; peak $(gib "$peak_kib") GiB resident over the" \
-     "process tree, under RLIMIT_DATA $data_gib GiB, $RAYON_NUM_THREADS rayon thread(s), nice $niceness" >&2
+     "process tree, under RLIMIT_DATA $data_gib GiB, RLIMIT_NPROC $tasks, $RAYON_NUM_THREADS rayon thread(s), nice $niceness" >&2
 exit "$status"

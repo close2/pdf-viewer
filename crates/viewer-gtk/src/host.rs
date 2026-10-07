@@ -1560,6 +1560,9 @@ impl Host {
             // file. Once per opened document; `viewer_host::report::Due` is the rule. ADR 1044.
             if self.showing.report_due.after_a_frame() {
                 queue.push_back(Command::Report);
+                // And its open sequence, at the same moment and for the same reason: after the
+                // first present, never in front of it (ADR 1602).
+                queue.push_back(Command::Presented);
             }
             // Table 147's `/FitWindow` is about the first displayed page's size, which is known
             // now and not before (ADR 1429).
@@ -2152,6 +2155,7 @@ impl Host {
         // `Selected::quads` and `Answer::Focus` take — one arithmetic in one place (ADR 0118).
         self.suppress.set(true);
         let mut fit = ControlFit::default();
+        let focused = GtkWindowExt::focus(&self.ui.window);
         for field in fields {
             for widget in &field.widgets {
                 let key = (field.name.qualified.clone(), widget.annotation);
@@ -2173,7 +2177,10 @@ impl Host {
                 let (minimum_width, ..) = placed.widget.measure(gtk4::Orientation::Horizontal, -1);
                 let (minimum_height, ..) = placed.widget.measure(gtk4::Orientation::Vertical, -1);
                 fit.record((asked_width, asked_height), (minimum_width, minimum_height));
-                write_back(placed, field, widget);
+                let holds = focused.as_ref().is_some_and(|focused| {
+                    focused.is_ancestor(&placed.widget) || *focused == placed.widget
+                });
+                write_back(placed, field, widget, holds);
             }
         }
         self.suppress.set(false);
@@ -2306,7 +2313,26 @@ impl Host {
                         Err(refusal) => host.say(&refusal),
                     }
                 }
-                FieldChange::Commit { field } => host.dispatch(Command::CommitField { field }),
+                FieldChange::Commit { field, enter } => {
+                    host.dispatch(Command::CommitField { field });
+                    if enter {
+                        // From an idle, as every focus move here is: GTK finishes its own handling
+                        // of the key after this returns. The control losing the keyboard commits
+                        // again, which finds nothing typed and does nothing (ADR 1592), and the
+                        // refresh it ends in writes what the field displays (ADR 1604).
+                        let page = host.ui.page_area.clone();
+                        glib::idle_add_local_once(move || {
+                            page.grab_focus();
+                        });
+                    }
+                }
+                FieldChange::Holds { .. } => {
+                    let fields = match host.viewer.query(Query::Fields) {
+                        Answer::Fields(fields) => fields,
+                        _ => Vec::new(),
+                    };
+                    host.place_fields(&fields);
+                }
             });
         })
     }
@@ -4700,7 +4726,12 @@ pub(crate) fn with(me: &Weak<RefCell<Host>>, what: impl FnOnce(&mut Host)) {
 /// §12.7.5.2.4 is what makes the last of those a clause rather than an untidiness: with
 /// `RadiosInUnison` clear, "at most one radio button in a field shall be set at a time", and two
 /// buttons would show a tick together.
-fn write_back(placed: &Placed, field: &FormField, widget: &viewer_core::FormWidget) {
+///
+/// **A text field's control shows one of two strings, and the keyboard decides which** (ADR 1604):
+/// the field's characters while it holds the keyboard, so that typing starts from the value the
+/// format was made of, and [`FormField::displayed`] — Table 199's `/F` applied — while it does not,
+/// which is what the page shows under it everywhere else. `holds` is whether it has the keyboard.
+fn write_back(placed: &Placed, field: &FormField, widget: &viewer_core::FormWidget, holds: bool) {
     if let Some(button) = placed.widget.downcast_ref::<gtk4::CheckButton>() {
         // The same expression `controls::toggle` builds the button with, re-derived from what
         // `Query::Fields` says *now*: a widget is on when the field's value names its appearance
@@ -4723,14 +4754,29 @@ fn write_back(placed: &Placed, field: &FormField, widget: &viewer_core::FormWidg
         return;
     }
     let value = shown.text.as_str();
+    let written = if holds {
+        value
+    } else {
+        field.displayed.as_deref().unwrap_or(value)
+    };
     match &placed.kind {
         viewer_host::form::ControlKind::Entry {
             multiline: false, ..
         } => {
             if let Some(entry) = placed.widget.downcast_ref::<gtk4::Entry>()
-                && entry.text() != value
+                && entry.text() != written
             {
-                entry.set_text(value);
+                // GTK selects an entry's whole text as it takes the keyboard; the characters that
+                // replace the displayed string keep that, and otherwise the caret is after them.
+                let whole = entry.selection_bounds().is_some_and(|(start, end)| {
+                    start == 0 && usize::try_from(end).ok() == Some(entry.text().chars().count())
+                });
+                entry.set_text(written);
+                if holds && whole {
+                    entry.select_region(0, -1);
+                } else if holds {
+                    entry.set_position(-1);
+                }
             }
         }
         viewer_host::form::ControlKind::Entry {
@@ -4741,8 +4787,8 @@ fn write_back(placed: &Placed, field: &FormField, widget: &viewer_core::FormWidg
             {
                 let buffer = view.buffer();
                 let (start, end) = buffer.bounds();
-                if buffer.text(&start, &end, false) != value {
-                    buffer.set_text(value);
+                if buffer.text(&start, &end, false) != written {
+                    buffer.set_text(written);
                 }
             }
         }

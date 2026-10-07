@@ -323,34 +323,59 @@ rounds each on a device of its own, each round on cores kept busy for 30 ms just
 1577), pinned to the performance cores, load average 1.8–2.2, on an export of the tree with ADRs
 1567 and 1577 — milliseconds, and the share is of one 120 Hz refresh (8.333 ms). `budget` excludes the readback, which this example pays
 and a window does not. `warm` is a few per cent of the refresh on every page and is left out.
-**`crates/render-raster/tests/turn_path.rs` holds every `turn` and `step` row to a band in
+**`crates/render-raster/tests/turn_path.rs` holds every `turn`, `seventh` and `step` row to a band in
 `doc/checks/turn-path.toml`**, by this method (`tests/support/frame_cost.rs` is the one copy of it),
 in `tools/batch.sh gates`; a row that moves moves its band there with its reason:
 
 | page | row | budget | interp | scene | encode | transfer | elsewhere | execute | taken |
 |---|---|---|---|---|---|---|---|---|---|
 | ISO 32000-2 p101, text, 3 007 commands | turn | 7.81 (94%) | 1.49 | 0.45 | **4.83** | 0.26 | 0.45 | 0.33 | 2026-10-06, ADR 1577 |
+| | seventh | 7.76 (93%) | 1.40 | 0.36 | 5.07 | 0.07 | 0.47 | 0.38 | 2026-10-07, ADR 1607 |
 | | step | 1.70 (20%) | — | — | 0.23 | 0.11 | 1.25 | 0.11 | 2026-10-06, ADR 1577 |
 | `personwithdog.pdf` p1, patch meshes | turn | 9.25 (111%) | 3.68 | 1.75 | 1.36 | 0.50 | 1.75 | 0.21 | 2026-10-06, ADR 1577 |
+| | seventh | 9.63 (116%) | 3.79 | 1.81 | 1.35 | 0.34 | 2.13 | 0.21 | 2026-10-07, ADR 1607 |
 | | step | 10.29 (123%) | — | **3.28** | 4.68 | 0.52 | 1.54 | 0.27 | 2026-10-06, ADR 1577 |
 | `issue12841_reduced.pdf` p1, one 5 280 × 3 792 photograph | turn | 31.50 (378%) | **28.13** | 0.02 | 0.01 | 2.01 | 1.16 | 0.17 | 2026-10-06, ADR 1577 |
+| | seventh | 32.87 (394%) | 29.20 | 0.01 | 0.01 | 2.17 | 1.25 | 0.23 | 2026-10-07, ADR 1607 |
 | | step | 3.02 (36%) | — | 0.00 | 0.01 | 1.27 | **1.55** | 0.19 | 2026-10-06, ADR 1577 |
 | `22060_A1_01_Plans.pdf` p1, four photographs under soft masks, 72 placements | turn | 51.41 (617%) | **34.99** | 0.20 | 4.75 | 8.02 | 3.08 | 0.37 | 2026-10-06, ADR 1577 |
+| | seventh | 51.00 (612%) | 35.74 | 0.14 | 4.09 | 7.64 | 3.03 | 0.36 | 2026-10-07, ADR 1607 |
 | | step | 14.57 (175%) | — | — | 6.41 | **6.61** | 1.15 | 0.39 | 2026-10-06, ADR 1577 |
 | `issue13931.pdf` p1, one photograph under a `/Matte`'d mask | turn | 22.38 (269%) | **17.07** | 0.05 | 0.42 | 3.94 | 0.82 | 0.07 | 2026-10-06, ADR 1577 |
+| | seventh | 22.34 (268%) | 16.61 | 0.04 | 0.40 | 4.29 | 0.85 | 0.14 | 2026-10-07, ADR 1607 |
 | | step | 6.25 (75%) | — | — | 0.06 | **4.98** | 1.07 | 0.13 | 2026-10-06, ADR 1577 |
 | `images.pdf` p1 | turn | 34.80 (418%) | **25.74** | 0.04 | 1.12 | 6.13 | 1.05 | 0.72 | 2026-10-06, ADR 1577 |
+| | seventh | 33.72 (405%) | 25.94 | 0.02 | 1.02 | 4.64 | 1.21 | 0.90 | 2026-10-07, ADR 1607 |
 | | step | 9.70 (116%) | — | — | 3.33 | **4.64** | 0.66 | 1.06 | 2026-10-06, ADR 1577 |
 | `issue14415.pdf` p1, strokes, 959 commands | turn | 15.95 (191%) | 2.43 | 0.61 | **11.06** | 0.89 | 0.84 | 0.12 | 2026-10-06, ADR 1577 |
+| | seventh | 16.03 (192%) | 2.55 | 0.57 | 10.98 | 0.74 | 0.97 | 0.23 | 2026-10-07, ADR 1607 |
 | | step | 7.86 (94%) | — | — | **6.18** | 0.22 | 1.31 | 0.15 | 2026-10-06, ADR 1577 |
 | `issue19802.pdf` p1, 1 032 commands | turn | 6.18 (74%) | 0.64 | 0.20 | **4.30** | 0.22 | 0.45 | 0.37 | 2026-10-06, ADR 1577 |
+| | seventh | 5.94 (71%) | 0.57 | 0.14 | 4.45 | 0.04 | 0.36 | 0.38 | 2026-10-07, ADR 1607 |
 | | step | 1.44 (17%) | — | — | 0.08 | 0.16 | 1.06 | 0.14 | 2026-10-06, ADR 1577 |
 | `ContentStreamNoCycleType3insideType3.pdf`, stroked Type 3 in a tiling | turn | 10.47 (126%) | 0.48 | 0.18 | **8.94** | 0.30 | 0.46 | 0.11 | 2026-10-06, ADR 1577 |
+| | seventh | 9.92 (119%) | 0.54 | 0.17 | 8.61 | 0.08 | 0.40 | 0.12 | 2026-10-07, ADR 1607 |
 | | step | 11.19 (134%) | — | — | **10.43** | 0.09 | 0.47 | 0.21 | 2026-10-06, ADR 1577 |
 | `bug1743245.pdf` p1, tight bends | turn | 37.95 (455%) | 3.38 | 0.44 | **33.25** | 0.34 | 0.41 | 0.12 | 2026-10-06, ADR 1577 |
+| | seventh | 39.78 (477%) | 3.60 | 0.36 | 35.12 | 0.09 | 0.47 | 0.13 | 2026-10-07, ADR 1607 |
 | | step | 34.96 (420%) | — | — | **34.12** | 0.12 | 0.48 | 0.24 | 2026-10-06, ADR 1577 |
 | `bug1721218_reduced.pdf` p1, a four-component group of 3 518 clipped shadings, drawn as two frames | turn | 151.49 (1818%) | 67.75 | **80.82** | 1.33 | 0.45 | 0.87 | 0.28 | 2026-10-07, ADRs 1594, 1595 |
+| | seventh | 158.65 (1904%) | 69.33 | 85.80 | 1.41 | 0.45 | 0.72 | 0.94 | 2026-10-07, ADR 1607 |
 | | step | 84.44 (1013%) | — | **81.02** | 1.55 | 0.27 | 0.69 | 0.92 | 2026-10-07, ADRs 1594, 1595 |
+
+**The `seventh` rows are the turn on a device that has lived** (ADR 1607): the same page, lane and
+interpretation drawn as the seventh frame of one device, after five page turns through the warm-up
+document and back to its first page, where every other row is drawn on a device made for its round
+(trap 116). Taken on 2026-10-07 in one sitting, three runs of five rounds a page, pinned, warm
+cores, load 3.8–6.0, beside the same sitting's fresh-device turns. On eight pages the two ranges
+overlap — `bug1721218_reduced.pdf` 158.65–161.14 against 160.93–161.45. On three the seventh frame
+is quicker, by its `transfer` and `elsewhere`: `images.pdf` 33.72–34.00 against 35.27–35.47 (transfer
+4.59–4.66 against 5.85–6.27), `issue19802.pdf` 5.94–5.99 against 6.06–6.31, the Type 3 page
+9.92–10.23 against 10.38–10.75 — what a device made for the round pays on its second frame for
+first uses its seventh does not. The text page is the one whose quickest run is slower, 7.76–7.98
+against 6.85–7.99, its `encode` 5.07–5.36 against 3.83–4.51: a long-lived device's glyph atlas already holds
+another document's glyphs, which this table does not divide further. Growing `wgpu`'s pool of command
+encoders ahead of the frames was measured on both kinds of device and is not built (ADR 1606).
 
 **`bug1721218_reduced.pdf`'s rows were re-taken on 2026-10-07 after ADRs 1594 and 1595**, three runs
 of five rounds interleaved against exports of the tree before them and of ADR 1594 alone (load

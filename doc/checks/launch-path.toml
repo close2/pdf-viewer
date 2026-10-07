@@ -373,15 +373,17 @@ why = "the other end of that claim at two hundred times its pages — 1023 of th
 path = "doc/pdf.js/test/pdfs/bug1815476.pdf"
 pages = 1
 cold_open_ms = 0.32 .. 0.50
-# **The warm open stays at 0.23 .. 0.35, re-taken ten times on 2026-10-06.** Eight of ten runs
-# read 0.263 to 0.294 ms, inside the band's own population. Two read 0.580 and 0.617, at loads of
-# 6.7 and 5.7 with every calibration in band. In the second, `PDF20_AN001-BPC.pdf`'s warm open
-# fell outside too. In the first, 2.2% of the child was spent waiting for a processor. The four
-# quietest runs, at loads 4.4 to 3.1, all read inside. The band is not moved, because a figure
-# that reads twice the band in one run and inside it in the next is not a figure of the program,
-# and this file's rule moves a band on runs that describe the program. One of ADR 1585's runs read
-# 0.598 at a load of 0.89, which the busy machine does not explain. Trap 110's idle clock is the
-# suspect there, and it is untested: no run was taken under a load of 2.
+# **The warm open stays at 0.23 .. 0.35, and what reads twice it is the idle clock** (trap 110).
+# Ten runs on 2026-10-07 at a one-minute load of 1.54 to 1.68, each the minimum of nine pinned
+# children, interleaved with ten whose children first kept their cores busy for 30 ms
+# (`PDFVIEWER_LAUNCH_WARM_CORES`, the turn gate's warm start, ADR 1577): warm cores read 0.288 to
+# 0.307 ms in all ten, and cold cores 0.267 to 0.329 in five and 0.402 to 0.610 in the other five,
+# every calibration inside its band and no kept child waiting 0.01 ms for a processor. A figure
+# the program makes in 0.3 ms whether or not the machine idled before it is not moved by this
+# file's rule; the runs that read twice it are a core waking at a lower clock, on a quiet
+# machine as on a busy one (the 0.598 of ADR 1585's runs at a load of 0.89, and two of
+# 2026-10-06's ten at 5.7 and 6.7). Warming the cores for this arm, as the turn gate does, is the
+# gate's method to change and is not changed here; the flag is the instrument that says so.
 warm_open_ms = 0.23 .. 0.35
 # **The device is the longer thread on this row too since ADR 1557**, which unpacks a
 # one-component image a byte at a time: page one's three one-bit CCITT stencils cost 244 M

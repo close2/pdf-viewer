@@ -136,8 +136,12 @@ fn check(
     arguments: &[JsValue],
     context: &mut Context,
 ) -> JsResult<()> {
-    let Some((elements, units)) = State::with(context, |record| {
-        (record.budget.elements, record.budget.string_units)
+    let Some((elements, units, loops)) = State::with(context, |record| {
+        (
+            record.budget.elements,
+            record.budget.string_units,
+            record.budget.loop_iterations,
+        )
     }) else {
         return Ok(());
     };
@@ -184,7 +188,15 @@ fn check(
             }
             let length = u64::try_from(this.to_string(context)?.len()).unwrap_or(u64::MAX);
             let count = argument(0).to_length(context)?;
-            within_units(length.saturating_mul(count), units, context)
+            within_units(length.saturating_mul(count), units, context)?;
+            // Boa charges each repetition to the loop-iteration limit, and reserves room for every
+            // repetition before it charges the first: `'x'.repeat(16777216)` asked for 384 MiB of
+            // that room and was then stopped at its 100 001st (ADR 1609). A count past the limit
+            // is stopped here instead, before the reservation, with the limit Boa would have named.
+            if length > 0 && count > loops {
+                return Err(stop(Exceeded::LoopIterations(loops), context));
+            }
+            Ok(())
         }
         Measure::Padded => within_units(argument(0).to_length(context)?, units, context),
     }

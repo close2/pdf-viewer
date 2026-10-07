@@ -239,18 +239,14 @@ pub const EXCLUDED: &[Excluded] = &[
 
 /// What RFC 0008 section 4.2 admits to Tier 1 and this bridge does not carry, by holder.
 ///
-/// The bridge carries one field's `/K` and `/F` (ADR 1591); each of these is the next thing a
-/// round adds, and until then a property that says so.
+/// The bridge carries the document's realm and its fields (ADRs 1591, 1602, 1603); each of these is
+/// the next thing a round adds, and until then a property that says so.
 pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
     (
         Holder::Event,
         &[
             "changeEx",
             "commitKey",
-            "targetName",
-            "source",
-            "name",
-            "type",
             "shift",
             "modifier",
             "keyDown",
@@ -262,23 +258,9 @@ pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
     (
         Holder::Field,
         &[
-            "display",
-            "hidden",
-            "readonly",
-            "required",
-            "textColor",
-            "fillColor",
-            "strokeColor",
-            "borderStyle",
             "lineWidth",
             "textSize",
             "textFont",
-            "alignment",
-            "charLimit",
-            "comb",
-            "multiline",
-            "password",
-            "doNotScroll",
             "currentValueIndices",
             "numItems",
             "exportValues",
@@ -293,28 +275,16 @@ pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
             "isBoxChecked",
             "setFocus",
             "getArray",
-            "valueAsString",
-            "name",
-            "type",
-            "page",
-            "rect",
-            "doc",
         ],
     ),
     (
         Holder::Doc,
         &[
-            "getNthFieldName",
-            "numFields",
-            "calculateNow",
             "calculate",
-            "resetForm",
             "dirty",
             "getAnnot",
             "getAnnots",
             "getOCGs",
-            "pageNum",
-            "numPages",
             "getPageLabel",
             "getPageBox",
             "getPageRotation",
@@ -367,5 +337,5 @@ pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
         ],
     ),
     (Holder::Console, &["show", "hide", "clear"]),
-    (Holder::Global, &["color", "global"]),
+    (Holder::Global, &["global"]),
 ];

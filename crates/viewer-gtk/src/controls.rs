@@ -34,6 +34,15 @@ pub(crate) enum FieldChange {
     Commit {
         /// The qualified name.
         field: String,
+        /// Enter, which also hands the keyboard back to the page, so that the control shows what
+        /// the field displays rather than the characters it was typed as (ADR 1604).
+        enter: bool,
+    },
+    /// A control took the keyboard, so it is to show the field's characters rather than what
+    /// Table 199's `/F` displays: typing starts from the value the format was made of (ADR 1604).
+    Holds {
+        /// The qualified name.
+        field: String,
     },
 }
 
@@ -187,6 +196,7 @@ fn entry(
         let view = gtk4::TextView::new();
         view.buffer().set_text(&value);
         commits_on_leaving(&view, &name, change);
+        holds_on_entering(&view, &name, change);
         let suppress = Rc::clone(suppress);
         let change = Rc::clone(change);
         view.buffer().connect_changed(move |buffer| {
@@ -257,6 +267,7 @@ fn entry(
     });
     commits_on_enter(&entry, &commits, change);
     commits_on_leaving(&entry, &commits, change);
+    holds_on_entering(&entry, &commits, change);
     if choose_a_file {
         offer_a_chooser(&entry);
     }
@@ -264,7 +275,8 @@ fn entry(
 }
 
 /// Enter in a single-line entry commits its field: Table 231 bit 13 clear restricts the text "to a
-/// single line", so the key is no character there (ADR 1592).
+/// single line", so the key is no character there (ADR 1592) — and the keyboard goes back to the
+/// page, which Adobe's event model counts among the ways a field loses the focus (ADR 1604).
 fn commits_on_enter(entry: &impl IsA<gtk4::Widget>, field: &str, change: &Rc<dyn Fn(FieldChange)>) {
     // `GtkEntry` and `GtkPasswordEntry` both state an `activate` signal, which is Enter, and
     // neither shares a trait that carries it.
@@ -273,6 +285,7 @@ fn commits_on_enter(entry: &impl IsA<gtk4::Widget>, field: &str, change: &Rc<dyn
     entry.as_ref().connect_local("activate", false, move |_| {
         change(FieldChange::Commit {
             field: field.clone(),
+            enter: true,
         });
         None
     });
@@ -295,7 +308,33 @@ fn commits_on_leaving(
     focus.connect_leave(move |_| {
         let field = field.clone();
         let change = Rc::clone(&change);
-        gtk4::glib::idle_add_local_once(move || change(FieldChange::Commit { field }));
+        gtk4::glib::idle_add_local_once(move || {
+            change(FieldChange::Commit {
+                field,
+                enter: false,
+            });
+        });
+    });
+    control.add_controller(focus);
+}
+
+/// A text control taking the keyboard asks for the field's characters in place of what it
+/// displays (ADR 1604).
+///
+/// From an idle for [`commits_on_leaving`]'s reason, and because the host reads which widget has
+/// the keyboard to choose between the two strings: GTK has moved it once the idle runs.
+fn holds_on_entering(
+    control: &impl IsA<gtk4::Widget>,
+    field: &str,
+    change: &Rc<dyn Fn(FieldChange)>,
+) {
+    let focus = gtk4::EventControllerFocus::new();
+    let field = field.to_owned();
+    let change = Rc::clone(change);
+    focus.connect_enter(move |_| {
+        let field = field.clone();
+        let change = Rc::clone(&change);
+        gtk4::glib::idle_add_local_once(move || change(FieldChange::Holds { field }));
     });
     control.add_controller(focus);
 }

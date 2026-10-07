@@ -1,14 +1,10 @@
 # Annotation editing, a caret, and logical-order selection
 
-Status: **markup landed in the three-hundred-and-twenty-first session** (ADR 0196), **a window
-types into a field since the three-hundred-and-forty-ninth** (ADR 0201), **a caret says where the
-next character goes since the three-hundred-and-seventy-first** (ADR 0211), **a click places it
-and a drag selects since the three-hundred-and-eighty-eighth** (ADR 0225), **§12.5.6.6's free
-text since the four-hundred-and-first** (ADR 0238), and **the *file's* own free text annotation
-since the four-hundred-and-sixty-ninth** (ADR 0304), **Table 177's callout line since the
-four-hundred-and-ninety-fourth** (ADR 0329), and **§12.5.4's border since the
-five-hundred-and-ninety-seventh** (ADR 0432). What is left is a flag that waits on a verb this
-program does not have.
+Status: **markup is built** (ADR 0196), **a window types into a field** (ADR 0201), **a caret says
+where the next character goes** (ADR 0211), **a click places it and a drag selects** (ADR 0225),
+**§12.5.6.6's free text is built** (ADR 0238), and so are **the *file's* own free text annotation**
+(ADR 0304), **Table 177's callout line** (ADR 0329) and **§12.5.4's border** (ADR 0432). What is
+left is a flag that waits on a verb this program does not have.
 Priority: 33
 Clauses: §12.5.6.6, §12.5.6.10, §12.7.4.3, §7.5.6, §14.8.2.5
 Code: `crates/viewer-core/src/command.rs` (`Edit`), `crates/pdf-model/src/view.rs`,
@@ -18,7 +14,7 @@ Code: `crates/viewer-core/src/command.rs` (`Edit`), `crates/pdf-model/src/view.r
 is not authoring, and §7.5.6's incremental update is how it is written back — the producer's
 bytes stay in the file, byte for byte, under whatever the user added.
 
-## 1. ~~Markup annotations~~ — **done in the three-hundred-and-twenty-first session**
+## 1. ~~Markup annotations~~ — **done** (ADR 0196)
 
 `Edit::Markup { kind, colour }` marks up what is selected in one of §12.5.6.10's four ways;
 `ViewState::add_markup` builds the annotation; §7.5.6's update writes it and appends the reference
@@ -35,7 +31,7 @@ to the page's `/Annots`. ADR 0196 has the argument. Three decisions worth keepin
   display list's, so `content::page_transform` is public and its inverse is what an author
   composes.
 
-## 1a. ~~Free text~~ — **done in the four-hundred-and-first session**
+## 1a. ~~Free text~~ — **done** (ADR 0238)
 
 `Edit::FreeText { from, to, colour }` puts §12.5.6.6's annotation over a rectangle a person
 **drew**, `Edit::SetFreeText { annotation, text }` says what it says, and `Query::FreeTextAt { at }`
@@ -62,7 +58,7 @@ that can ask needs no event. `viewer-ui` binds `f`, `viewer-confined` carries al
   reads six corpus documents that break that sentence; writing a seventh would be a different
   thing.
 
-## 1b. ~~The file's own free text annotation~~ — **done in the four-hundred-and-sixty-ninth session**
+## 1b. ~~The file's own free text annotation~~ — **done** (ADR 0304)
 
 `ViewState::set_free_text` takes an annotation the producer wrote as well as one this session added,
 `free_text_at` answers for the page's own `/Annots`, and §7.5.6's update writes the annotation with
@@ -72,7 +68,7 @@ here:
 - **The refusal named an architecture that did not exist.** This file said replacing an object the
   producer wrote is "a decision nobody has made"; §7.5.6's own list is "objects that have been
   changed, replaced, or deleted", the producer's bytes survive it byte for byte, and `write.rs` had
-  taken a map of replacements since the hundred-and-thirty-sixth session. What was missing was only
+  long taken a map of replacements. What was missing was only
   what `pdf_model::view` was willing to say.
 - **Replaced rather than spliced, and the census is the argument.** §12.7.4.3's closing paragraph
   appends its new contents where a stream holds no `/Tx` marked content, and
@@ -86,7 +82,7 @@ here:
 - **No message was added.** `Query::FreeTextAt` and `Edit::SetFreeText` already said it, and all six
   consumers gained the capability by being recompiled.
 
-## 1c. ~~The callout line~~ — **done in the four-hundred-and-ninety-fourth session**
+## 1c. ~~The callout line~~ — **done** (ADR 0329)
 
 `appearance::callout` draws Table 177's `/CL` — two points or three, with `/LE`'s ending at
 (x1, y1) — wherever the annotation states no appearance stream and its `/IT` is `FreeTextCallout`.
@@ -108,7 +104,7 @@ ADR 0329 has the argument. Four things worth keeping here:
   annotations stating a `/CL`, so the fixtures are hand-built pairs differing in the two-point
   against three-point sentence, in `/LE`, in `/IT` and in `/RD`.
 
-## 1d. ~~The border~~ — **done in the five-hundred-and-ninety-seventh session**
+## 1d. ~~The border~~ — **done** (ADR 0432)
 
 `appearance::free_text_border` draws §12.5.4's border round the inner rectangle `/RD` names, at
 Table 168's or Table 166's width, in Table 168's style, and in black. ADR 0432 has the argument.
@@ -136,7 +132,7 @@ Three things worth keeping here:
   of the code rather than a prediction: it restricts *deleting* an annotation and *moving* one, and
   this program does neither. The day either lands, the §12.5.3 row is the one to revisit.
 
-## 2. ~~A caret~~ — **done in the three-hundred-and-seventy-first session**
+## 2. ~~A caret~~ — **done** (ADR 0211)
 
 `Query::Caret { at, offset }` answers with the segment the next character will be drawn against, in
 device pixels of the viewport, and `viewer-ui` draws it: the arrow keys, Home and End move it,
@@ -154,7 +150,7 @@ Three things worth keeping here:
   §12.7.5.3's `DoNotScroll` truncates — the same reason ADR 0201 has it keep the point and not the
   text.
 
-### ~~A point turned into an offset~~ — **done in the three-hundred-and-eighty-eighth session**
+### ~~A point turned into an offset~~ — **done** (ADR 0225)
 
 `Query::Offset { at, point }` is the caret's inverse and `Query::FieldSelection { at, from, to }` is
 the shapes over a range of a value; `viewer-ui` places the caret where a click landed, selects with a
@@ -173,7 +169,7 @@ keeping here:
 - **A point outside every glyph answers the nearest boundary** rather than refusing, which is a
   choice: a press a host has already decided belongs to a field has to leave the cursor somewhere.
 
-## 3. ~~§14.8.2.5's logical order~~ — **done in the two-hundred-and-ninety-sixth session**
+## 3. ~~§14.8.2.5's logical order~~ — **done**
 
 `Tree::logical_range` is the map between the two orders' offsets and
 `viewer_core::Query::LogicalSelection` is what asks for it. Two decisions worth keeping:

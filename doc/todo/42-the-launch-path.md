@@ -1,10 +1,10 @@
 # The launch path: 110 to 119 ms to the first frame, and what is left on it
 
-Status: **open**, measured in the two-hundred-and-seventy-fourth session; four of its five items
+Status: **open**, measured as ADR 0179's timeline; four of its five items
 are closed and the fifth is **partly answered**: §9 of `doc/QUORRA_FEEDBACK.md` asked for the
 first frame's fixed cost to be warmed, and quorra's ADR 0031 found a fifth of it was an instrument
 of its own and moved it to the constructor — 2.2 to 2.5 ms off, confirmed here. What is left was an
-**API question**, and the four-hundred-and-seventy-eighth session **answered it and closed it**:
+**API question**, and ADR 0313 **answered it and closed it**:
 the API arrived (`Device::warm_for`, quorra's ADR 0035), the first frame was measured across both
 revisions here, and this host still cannot call it — with a second reason that is upstream's own.
 Item 5 has the table. **What is left of item 5 is a number nobody has taken**, and it is the
@@ -14,7 +14,7 @@ Corpus: every document; the two costs that scale do so with the *document*, not 
 Code: `crates/viewer-ui/src/bin/quorra.rs` (`Launch`), `crates/pdf-model/examples/open_cost.rs`,
 `crates/render-raster/examples/bring_up.rs`, `first_frame.rs`, ADRs 0179, 0180, 0181, 0182
 
-## What changed in the nine-hundred-and-twenty-second session
+## The launch path is a gate (ADR 0884)
 
 **There is a gate now, and this file should stop being where a round reads these numbers.**
 `crates/viewer-ui/tests/launch_path.rs` measures principle 2's four figures and the fifth it makes
@@ -41,7 +41,7 @@ reading. Three consequences for the items below:
   as a row so the cost has a band rather than a sentence; ADR 0885 has the evidence, and the
   wording is the owner's (round 921's question).
 
-## The one band that would not sit, settled in the nine-hundred-and-thirty-first
+## The one band that would not sit, and what settled it
 
 Session 926 ran the gate on `main` four times: twenty-seven of the twenty-eight figures inside
 their bands, and `doc/PDF20_AN001-BPC.pdf`'s cold open — held to `0.49 .. 0.80` — reading
@@ -105,8 +105,8 @@ judged — there was no quiet machine to derive a band on), and a figure that is
 probe declined it and what all three probes read. What is owed is the band for that first-pass
 probe, about ten minutes of an idle machine, and it is the first of `Q29`'s three options.
 
-**And the figure with no clock in it is settled in the nine-hundred-and-thirty-fifth, which is the
-one account of it.** Everything above is about clocks, and a clock the gate can decline to judge;
+**And the figure with no clock in it is settled by ADRs 0910 and 0911, which are the one account
+of it.** Everything above is about clocks, and a clock the gate can decline to judge;
 `peak_mib` could be declined by no probe, because contention does not lower a memory high-water.
 Five rounds met it: it was derived identical over forty-four runs and fell 12% an hour later
 (session 922), would not sit for 926 and 931, fell 13% below already-widened floors in 933,
@@ -156,7 +156,7 @@ That answers the three things the merge left open, and two of them by removing t
 What the gate no longer claims — how much memory the *process* occupies, which is what a user's
 machine pays — is `doc/questions/Q37`.
 
-## And the clock half is settled in the nine-hundred-and-thirty-eighth, the way the memory half was
+## And the clock half is settled the way the memory half was
 
 Everything above is a clock that four rounds could not trust. Session 938 asked what the number is
 *made of*, and it is three quantities of which one is this program's. ADRs 0916 and 0917; the
@@ -227,12 +227,10 @@ project has found stale — with the difference that this one is about a number,
 settles it.
 
 **And the instrument now says the rule holds, by a route nobody had considered.** (That is the
-*parsing* half of the sentence; the *bytes* half — "not the whole file" — was false until the
-eight-hundred-and-eighty-first session read the file on disk where its offsets point, ADR 0809,
-and `examples/open_cost` prints both routes.) 41% of the open
-went in ADR 0180; what was left went *beside* the window in ADR 0182 and is joined after a device
-bring-up that costs 13 to 19 ms. Measured in the two-hundred-and-eighty-ninth session, three runs
-each:
+*parsing* half of the sentence; the *bytes* half — "not the whole file" — holds because the open
+reads the file on disk where its offsets point, ADR 0809, and `examples/open_cost` prints both
+routes.) 41% of the open went in ADR 0180; what was left went *beside* the window in ADR 0182 and is joined after a device
+bring-up that costs 13 to 19 ms. Measured three runs each:
 
 ```text
                          ISO 32000-2, 1023 pages    PDF20_AN001-BPC, 5 pages
@@ -248,7 +246,7 @@ the launch.
 
 ## The items, in the order the timeline ranked them
 
-### 1. `Document::open` — **taken in the two-hundred-and-seventy-sixth session, 41% off**
+### 1. `Document::open` — **taken, 41% off** (ADR 0180)
 
 §7.5's trailer and cross-reference table, for 101 318 objects. Localised with
 `crates/pdf-syntax/examples/callgrind_open.rs` and fixed the same round: **40% of it was one
@@ -285,7 +283,7 @@ the two lessons this paragraph earned are worth more than any figure:
 
 ### 1a. …and what was left of it is now *beside* the window rather than in front of it
 
-**Taken in the two-hundred-and-eighty-first session** (ADR 0182). Nothing the window needs — an
+**Taken** (ADR 0182). Nothing the window needs — an
 event loop, a window, a graphics device — depends on the document, and the document depends on
 none of them, so `main` opens it on a thread of its own and `resumed` joins that thread *after*
 the presenter exists. `document joined` now lands 3 to 6 ms after `graphics device`, where
@@ -345,7 +343,7 @@ before the first frame. **The question to settle is whether the section is worth
 launch**, or whether it should arrive on the frame after the page. ADR 1543 settled it the second way, once the
 device came up in 17 ms and the walk the section needs turned out to be twice the outline.
 
-### 3. `signature::signatures` — **taken in the two-hundred-and-seventy-seventh session**
+### 3. `signature::signatures` — **taken** (ADR 0181)
 
 §12.8's field walk found nothing and charged 1.681 ms for it, on every launch of every document
 with a form. The empty answer was reachable without it and the *standard says so*: §12.7.3's
@@ -354,7 +352,7 @@ signature fields", and Table 224 defaults the entry to 0. **1.681 ms → 0.017 m
 the corpus before it was trusted, and it corrected a ledger row that had called the entry
 "signature behaviour". ADR 0181.
 
-### 4. The graphics device — **taken in the two-hundred-and-eighty-eighth session, 30 ms off**
+### 4. The graphics device — **taken, 30 ms off** (ADR 0185)
 
 ADR 0179's table said restricting the wgpu instance to Vulkan moves the cost from instance
 creation into `request_adapter` and the total does not move, and that what was left to try was
@@ -389,7 +387,7 @@ admissible route is a launcher's `VK_LOADER_DRIVERS_DISABLE=*lvp*`, and that is 
 
 ### 5. The first frame pays ~12 ms of first-use allocation, and it is **not** the shaders
 
-Measured in the two-hundred-and-eightieth session on the machine's real adapter, headless
+Measured on the machine's real adapter, headless
 (`crates/render-raster/examples/first_frame.rs`): frame 1 costs 18.2 ms and frames 2 to 10 cost
 3.7 to 5.1, and the difference is roughly fixed across scales — 13.3 ms at 1×, 14.3 at 2×, 18.1
 at 4×.
@@ -419,9 +417,8 @@ whether to ask for a size hint or a `Device::warm_for(extent)`, and what a host 
 before it has a window. `viewer-ui` knows its viewport only after `Resized`, so the honest answer
 may be that the first frame keeps this cost and the number is stated rather than hidden.
 
-**`Device::warm_for` now exists and the answer is still that one**, decided in the
-four-hundred-and-seventy-eighth session with a measurement rather than by re-reading this
-paragraph. `examples/first_frame.rs` on page 7 of the specification, eight runs an arm across the
+**`Device::warm_for` now exists and the answer is still that one**, decided in ADR 0313
+with a measurement rather than by re-reading this paragraph. `examples/first_frame.rs` on page 7 of the specification, eight runs an arm across the
 two quorra revisions, read at the **minimum** because the spread is several times the effect and
 five other sessions were compiling on the box:
 
@@ -446,6 +443,12 @@ fill the target and is not a general number. Both halves of the reason to declin
 now on the record: this host cannot call it, and where a host could, the size would usually be
 wrong. `doc/QUORRA_FEEDBACK.md` §9.2.
 
+**`wgpu`'s command encoders are not a lever here either** (ADR 1606). The first frame of every
+row allocates two batches of sixteen Vulkan command buffers, 1.2 M instructions — the frame's
+encoder and the readback's — and growing the pool on raster's warm-up thread runs beside that frame:
+after the warm set it read 0.5 to 1.2 ms slower at the median, before it or on a thread of its own
+inside the spread. It is not built.
+
 **And it re-scales the whole timeline.** ADR 0179's 145 ms is `lavapipe` under `Xvfb`, where the
 first present is 54 to 68 ms because llvmpipe is drawing the page on the processor. On the real
 adapter the same steps are bring-up 33 to 43, interpretation ~5 and a first frame of ~18, so a
@@ -458,7 +461,7 @@ measure (ADR 0126).
 This file's five items are `viewer-ui`'s, which drives its own event loop and presents itself.
 `quorra-gtk` and `quorra-qt` place somebody else's widgets, so their launch has a term
 `viewer-ui`'s does not: **page one's answer comes back through a main loop that is inside the
-toolkit's own first frame.** Measured in the seven-hundred-and-fifty-ninth on a quiet machine, twenty
+toolkit's own first frame.** Measured on a quiet machine, twenty
 alternating pairs an arm (ADR 0678): `viewer-gtk`'s `opened` → first frame went from 9.5 ms to 53.4
 when the drawing moved to a thread, and back to 9.9 once a window with nothing on the screen waited
 for page one instead of polling for it. The instrument is `--trace=launch` in either binary and

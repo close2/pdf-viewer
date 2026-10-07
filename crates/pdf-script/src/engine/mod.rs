@@ -1,12 +1,16 @@
-//! Boa, constructed for one run, held to a [`Budget`], and read back into an [`Outcome`].
+//! Boa, as one realm a document's scripts share, each run held to a [`Budget`] and read back into
+//! an [`Outcome`].
 //!
-//! # One context per run
+//! # One realm per document
 //!
-//! A run constructs its own context and drops it at the end, so nothing a script leaves behind —
-//! a global, a prototype it changed, a closure — reaches the next trigger. That is RFC 0008 section
-//! 6.2's isolation inside one process; the realm that persists for a document's lifetime, which
-//! `global` and the document-level scripts of §12.6.4.17's name tree need, is the confined
-//! worker's to hold (ADR 1590).
+//! A [`Realm`] is one Boa context that lives as long as its document: §12.6.4.17 has the
+//! name tree's scripts executed "[w]hen the document is opened, … defining ECMAScript functions for
+//! use by other scripts in the document", so what the open defines is what a field's script calls
+//! later, and the realm is where both run (ADR 1602). Each run installs a fresh `event` and clears
+//! its record; every global a script leaves — a function, a variable, a prototype it changed —
+//! stays, as it does in the reference's viewer. The realm also holds the document's fields as it
+//! was last told of them ([`crate::Request::fields`]), so `this.getField` reads any field without
+//! asking across the process boundary.
 //!
 //! # How the budgets are enforced
 //!
@@ -17,30 +21,33 @@
 //! loop below checks the clock and the step count at every yield and abandons the evaluation
 //! where either is spent. The sizes an argument can ask a built-in to allocate are checked before
 //! the built-in runs (`guard`). What none of these bounds — work inside one native call that
-//! calls back into script, and growth through an operator — is the process's to bound, and ADR
-//! 1590 names both.
+//! calls back into script, growth through an operator, and a realm's heap across its lifetime — is
+//! the process's to bound, and ADRs 1590 and 1602 name each.
 
 mod bridge;
 mod guard;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::pin;
 use std::rc::Rc;
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context as TaskContext, Poll, Waker};
+use std::thread::JoinHandle;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use boa_engine::context::HostHooks;
-use boa_engine::context::time::FixedClock;
+use boa_engine::context::time::{Clock, JsInstant};
 use boa_engine::error::{EngineError, RuntimeLimitError};
+use boa_engine::module::IdleModuleLoader;
 use boa_engine::{Context, JsError, JsString, JsValue, Script, Source};
-use pdf_model::aform::Trigger;
-use pdf_model::view::{FieldEvent, FieldResult, ScriptRunner};
-
-use crate::{
-    Budget, Ending, Event, Exceeded, Outcome, Refusal, RefusalKind, Request, utf16_offset,
+use pdf_model::view::{
+    FieldState, ScriptEdit, ScriptEvent, ScriptResult, ScriptRunner, ScriptSite,
 };
+
+use crate::{Budget, Ending, Exceeded, Outcome, Refusal, RefusalKind, Request};
 
 /// The engine cost units one execution slice spends before the poll loop looks at the clock.
 ///
@@ -60,77 +67,161 @@ const MAX_LOG_LINES: usize = 64;
 /// Longest logged line kept, in characters.
 const MAX_LOG_CHARACTERS: usize = 1024;
 
-/// Runs one request's script under `budget`.
+/// Most edits one run hands back: a script setting every field of the census's largest form once
+/// is under it, and one setting a field in a loop is the same edit many times.
+const MAX_EDITS: usize = 4096;
+
+/// The stack a realm's thread runs on.
 ///
-/// Never panics on any input and never leaves the engine running: a run ends finished, over a
-/// budget, thrown, unparsed or declined, and [`Outcome::ending`] says which.
+/// Boa's interpreter keeps a script's own frames on its heap, and its recursion limit of 512
+/// bounds them; what reaches the native stack is a native's call back into script, a sort's
+/// comparator or a getter, each a few kilobytes. Sixteen mebibytes is the main thread's default
+/// twice over, so a realm on its own thread meets no bound a run on the main thread would not.
+const REALM_STACK: usize = 16 << 20;
+
+/// Runs one request's script in a realm constructed for it alone.
+///
+/// The realm is dropped afterwards, so nothing the script defines reaches another run: this is
+/// the one-shot form, for a caller with no document to keep a realm for. Never panics on any input
+/// and never leaves the engine running: a run ends finished, over a budget, thrown, unparsed or
+/// declined, and [`Outcome::ending`] says which.
 #[must_use]
 pub fn run(request: &Request, budget: &Budget) -> Outcome {
-    if !matches!(request.trigger, Trigger::Keystroke | Trigger::Format) {
-        return Outcome::unchanged(Ending::Declined(format!(
-            "the field's {} script is not run: this bridge carries a field's keystroke and format \
-             scripts (ADR 1591)",
-            request.trigger.noun()
-        )));
+    match Realm::new(*budget) {
+        Ok(mut realm) => realm.run(request),
+        Err(why) => Outcome::unchanged(Ending::Declined(why)),
     }
-    let mut context = match construct(request, budget) {
-        Ok(context) => context,
-        Err(error) => {
-            return Outcome::unchanged(Ending::Declined(format!(
-                "the engine could not be constructed: {error}"
-            )));
-        }
-    };
-    let event = match bridge::install(&mut context, request) {
-        Ok(event) => event,
-        Err(error) => {
-            return Outcome::unchanged(Ending::Declined(format!(
-                "the host object model could not be installed: {error}"
-            )));
-        }
-    };
-    let script = match Script::parse(
-        Source::from_bytes(request.script.as_bytes()),
-        None,
-        &mut context,
-    ) {
-        Ok(script) => script,
-        Err(error) => return Outcome::unchanged(Ending::Unparsed(error.to_string())),
-    };
-    let ending = evaluate(&script, &mut context, budget);
-    let recorded = State::take(&context);
-    let ending = match (ending, recorded.exceeded) {
-        (_, Some(exceeded)) => Ending::Exceeded(exceeded),
-        (ending, None) => ending,
-    };
-    let mut outcome = Outcome {
-        ending,
-        refusals: recorded.refusals,
-        log: recorded.log,
-        ..Outcome::unchanged(Ending::Finished)
-    };
-    if outcome.ending == Ending::Finished {
-        bridge::read_event(&event, request, &mut context, &mut outcome);
-    }
-    outcome
 }
 
-/// A context with this run's clock, hooks, limits and empty record.
-fn construct(request: &Request, budget: &Budget) -> Result<Context, JsError> {
-    let hooks = Hooks {
-        utc_offset_seconds: request.utc_offset_seconds,
-        buffer_bytes: budget.buffer_bytes,
-    };
-    let mut context = Context::builder()
-        .host_hooks(Rc::new(hooks))
-        .clock(Rc::new(FixedClock::from_millis(request.moment)))
-        .build()?;
-    let limits = context.runtime_limits_mut();
-    limits.set_loop_iteration_limit(budget.loop_iterations);
-    limits.set_recursion_limit(usize::try_from(budget.recursion).unwrap_or(usize::MAX));
-    limits.set_stack_size_limit(usize::try_from(budget.stack).unwrap_or(usize::MAX));
-    context.insert_data(State::new(request, *budget));
-    Ok(context)
+/// One document's scripts' shared engine context: what the name tree defines at the open, and the
+/// fields as the realm was last told of them (ADR 1602).
+///
+/// Not `Send`: Boa's values are reference-counted per thread. A realm lives on the thread that
+/// built it, which is the confined worker's main thread or [`Engine`]'s own.
+#[derive(Debug)]
+pub struct Realm {
+    /// The context every run evaluates in.
+    context: Context,
+    /// What `Date` answers, set per run.
+    clock: Rc<Moment>,
+    /// The offset local time is read with, set per run.
+    utc_offset_seconds: Rc<Cell<i32>>,
+    /// The budget every run is held to.
+    budget: Budget,
+}
+
+impl Realm {
+    /// A realm with the host object model installed and no field known.
+    ///
+    /// # Errors
+    ///
+    /// The sentence saying what could not be installed, where the engine refuses a property on a
+    /// context just constructed — which it does not.
+    pub fn new(budget: Budget) -> Result<Self, String> {
+        let clock = Rc::new(Moment::default());
+        let utc_offset_seconds = Rc::new(Cell::new(0));
+        let hooks = Hooks {
+            utc_offset_seconds: Rc::clone(&utc_offset_seconds),
+            buffer_bytes: budget.buffer_bytes,
+        };
+        // Boa's default module loader resolves `.` against the file system when a context is
+        // built — a `realpath`, which the script worker's confinement kills for (trap 31, ADR
+        // 1608). A document's scripts import nothing, so the loader is the one that refuses every
+        // module and reads nothing.
+        let mut context = Context::builder()
+            .host_hooks(Rc::new(hooks))
+            .clock(Rc::clone(&clock))
+            .module_loader(Rc::new(IdleModuleLoader))
+            .build()
+            .map_err(|error| format!("the engine could not be constructed: {error}"))?;
+        let limits = context.runtime_limits_mut();
+        limits.set_loop_iteration_limit(budget.loop_iterations);
+        limits.set_recursion_limit(usize::try_from(budget.recursion).unwrap_or(usize::MAX));
+        limits.set_stack_size_limit(usize::try_from(budget.stack).unwrap_or(usize::MAX));
+        context.insert_data(State::new(budget));
+        bridge::install(&mut context)
+            .map_err(|error| format!("the host object model could not be installed: {error}"))?;
+        Ok(Self {
+            context,
+            clock,
+            utc_offset_seconds,
+            budget,
+        })
+    }
+
+    /// Runs one request's script in this realm.
+    ///
+    /// The request's fields replace the realm's record of each by name first; then a fresh `event`
+    /// is installed and the script evaluated under the budget. Never panics on any input.
+    pub fn run(&mut self, request: &Request) -> Outcome {
+        self.clock.set(request.moment);
+        self.utc_offset_seconds.set(request.utc_offset_seconds);
+        State::begin(&self.context, request);
+        let event = match bridge::begin(&mut self.context, request) {
+            Ok(event) => event,
+            Err(error) => {
+                return Outcome::unchanged(Ending::Declined(format!(
+                    "the event could not be installed: {error}"
+                )));
+            }
+        };
+        let deepest = nesting(&request.script);
+        if deepest > usize::try_from(self.budget.nesting).unwrap_or(usize::MAX) {
+            return Outcome::unchanged(Ending::Exceeded(Exceeded::Nesting(self.budget.nesting)));
+        }
+        let script = match Script::parse(
+            Source::from_bytes(request.script.as_bytes()),
+            None,
+            &mut self.context,
+        ) {
+            Ok(script) => script,
+            Err(error) => return Outcome::unchanged(Ending::Unparsed(error.to_string())),
+        };
+        let ending = evaluate(&script, &mut self.context, &self.budget);
+        let recorded = State::take(&self.context);
+        let ending = match (ending, recorded.exceeded) {
+            (_, Some(exceeded)) => Ending::Exceeded(exceeded),
+            (ending, None) => ending,
+        };
+        let finished = ending == Ending::Finished;
+        let mut outcome = Outcome {
+            ending,
+            refusals: recorded.refusals,
+            log: recorded.log,
+            // A run that did not finish changes nothing, its edits included: a calculation
+            // stopped half way through has set some fields and not others.
+            edits: if finished { recorded.edits } else { Vec::new() },
+            ..Outcome::unchanged(Ending::Finished)
+        };
+        if finished {
+            bridge::read_event(&event, request, &mut self.context, &mut outcome);
+        } else {
+            State::forget_edits(&self.context);
+        }
+        outcome
+    }
+}
+
+/// The deepest a script's brackets nest, counted over every byte.
+///
+/// Boa 0.22's parser recurses once per nested expression and states no depth limit: five hundred
+/// nested parentheses overflow an 8 MiB stack, which in this process aborts it rather than one
+/// realm (ADR 1602). A bracket inside a string or a comment is counted too, which errs towards not
+/// running a script rather than towards overflowing; the fuzz target `script` skips the same
+/// depth.
+fn nesting(script: &str) -> usize {
+    let (mut depth, mut deepest) = (0_usize, 0_usize);
+    for byte in script.bytes() {
+        match byte {
+            b'(' | b'[' | b'{' => {
+                depth = depth.saturating_add(1);
+                deepest = deepest.max(depth);
+            }
+            b')' | b']' | b'}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    deepest
 }
 
 /// Evaluates the script a slice at a time, abandoning it where the clock or the steps are spent.
@@ -178,47 +269,118 @@ fn ending_of(error: &JsError, budget: &Budget) -> Ending {
     Ending::Threw(error.to_string())
 }
 
-/// What a run records while it runs, kept in the context's host data.
+/// What a realm keeps in its context's host data: the fields as it was last told of them, and
+/// what the current run records.
 #[derive(Debug)]
 pub(crate) struct State {
-    /// The record, borrowed for the length of one statement each time a native function writes
-    /// to it.
+    /// The fields, by name.
+    table: RefCell<Table>,
+    /// The current run's record, borrowed for the length of one statement each time a native
+    /// function writes to it.
     record: RefCell<Record>,
 }
 
-/// The record itself.
+/// The document as a realm knows it.
+#[derive(Debug, Default)]
+pub(crate) struct Table {
+    /// Every field the realm was told of, by §12.7.4.2's name.
+    pub(crate) fields: BTreeMap<String, FieldState>,
+    /// The page the current event happens on.
+    pub(crate) page: u32,
+    /// How many pages the document has.
+    pub(crate) pages: u32,
+}
+
+/// One run's record.
 #[derive(Debug, Default)]
 pub(crate) struct Record {
     /// The budget, for the guards.
     pub(crate) budget: Budget,
+    /// Where the script runs.
+    pub(crate) site: Option<ScriptSite>,
     /// The event's field.
     pub(crate) field: String,
     /// Every refusal, first time each member is met.
     pub(crate) refusals: Vec<Refusal>,
     /// `console.println`'s lines, and the library's messages.
     pub(crate) log: Vec<String>,
+    /// Every change the script made to a field, in order.
+    pub(crate) edits: Vec<ScriptEdit>,
+    /// The fields' states before the run's first edit of each, so that a run that does not finish
+    /// leaves the realm's table as it found it.
+    touched: BTreeMap<String, FieldState>,
     /// The budget a guard stopped the script on.
     pub(crate) exceeded: Option<Exceeded>,
 }
 
 impl State {
-    /// An empty record for one request.
-    fn new(request: &Request, budget: Budget) -> Self {
+    /// An empty table and record.
+    fn new(budget: Budget) -> Self {
         Self {
+            table: RefCell::new(Table::default()),
             record: RefCell::new(Record {
                 budget,
-                field: request.field.clone(),
                 ..Record::default()
             }),
         }
     }
 
-    /// The record, taken out of the context at the end of a run.
+    /// Takes in a request's fields and starts a fresh record for it.
+    fn begin(context: &Context, request: &Request) {
+        let Some(state) = context.get_data::<Self>() else {
+            return;
+        };
+        if let Ok(mut table) = state.table.try_borrow_mut() {
+            for field in &request.fields {
+                table.fields.insert(field.name.clone(), field.clone());
+            }
+            table.page = request.page;
+            table.pages = request.pages;
+        }
+        if let Ok(mut record) = state.record.try_borrow_mut() {
+            let budget = record.budget;
+            *record = Record {
+                budget,
+                site: Some(request.site),
+                field: request.field.clone(),
+                ..Record::default()
+            };
+        }
+    }
+
+    /// The record, taken out of the context at the end of a run, its rollback kept.
     fn take(context: &Context) -> Record {
-        context
-            .get_data::<Self>()
-            .map(|state| state.record.take())
-            .unwrap_or_default()
+        let Some(state) = context.get_data::<Self>() else {
+            return Record::default();
+        };
+        let Ok(mut record) = state.record.try_borrow_mut() else {
+            return Record::default();
+        };
+        let budget = record.budget;
+        let touched = std::mem::take(&mut record.touched);
+        std::mem::replace(
+            &mut *record,
+            Record {
+                budget,
+                touched,
+                ..Record::default()
+            },
+        )
+    }
+
+    /// Puts back every field the stopped run changed.
+    fn forget_edits(context: &Context) {
+        let Some(state) = context.get_data::<Self>() else {
+            return;
+        };
+        let (Ok(mut record), Ok(mut table)) =
+            (state.record.try_borrow_mut(), state.table.try_borrow_mut())
+        else {
+            return;
+        };
+        for (name, was) in std::mem::take(&mut record.touched) {
+            table.fields.insert(name, was);
+        }
     }
 
     /// Runs `with` on the record, if the context holds one.
@@ -226,6 +388,54 @@ impl State {
         let state = context.get_data::<Self>()?;
         let mut record = state.record.try_borrow_mut().ok()?;
         Some(with(&mut record))
+    }
+
+    /// Runs `with` on the table, if the context holds one.
+    pub(crate) fn table<T>(context: &Context, with: impl FnOnce(&mut Table) -> T) -> Option<T> {
+        let state = context.get_data::<Self>()?;
+        let mut table = state.table.try_borrow_mut().ok()?;
+        Some(with(&mut table))
+    }
+
+    /// Changes one field in the table through `change` and records the edit — the state before the
+    /// run's first change of it kept, so that a run that does not finish can be undone.
+    ///
+    /// `false` where the realm knows no such field.
+    pub(crate) fn edit(
+        context: &Context,
+        name: &str,
+        edit: ScriptEdit,
+        change: impl FnOnce(&mut FieldState),
+    ) -> bool {
+        let Some(state) = context.get_data::<Self>() else {
+            return false;
+        };
+        let (Ok(mut record), Ok(mut table)) =
+            (state.record.try_borrow_mut(), state.table.try_borrow_mut())
+        else {
+            return false;
+        };
+        let Some(field) = table.fields.get_mut(name) else {
+            return false;
+        };
+        record
+            .touched
+            .entry(name.to_owned())
+            .or_insert_with(|| field.clone());
+        change(field);
+        if record.edits.len() < MAX_EDITS {
+            record.edits.push(edit);
+        }
+        true
+    }
+
+    /// Records an edit that changes no field the table holds — a reset, a recalculation.
+    pub(crate) fn note(context: &Context, edit: ScriptEdit) {
+        State::with(context, |record| {
+            if record.edits.len() < MAX_EDITS {
+                record.edits.push(edit);
+            }
+        });
     }
 }
 
@@ -251,23 +461,49 @@ impl Record {
     }
 }
 
-/// The host hooks a run constructs its context with: no time zone of the engine's own, and the
+/// The moment `Date` answers: the request's, the same value throughout a run, so that a script
+/// cannot time the host (RFC 0008 section 4.2), and never earlier than a moment it answered before.
+#[derive(Debug, Default)]
+struct Moment(Cell<u64>);
+
+impl Moment {
+    /// Moves the clock to `millis`, or leaves it where a later moment already put it.
+    fn set(&self, millis: u64) {
+        self.0.set(self.0.get().max(millis));
+    }
+}
+
+impl Clock for Moment {
+    fn now(&self) -> JsInstant {
+        let millis = self.0.get();
+        JsInstant::new(
+            millis / 1000,
+            u32::try_from((millis % 1000).saturating_mul(1_000_000)).unwrap_or(0),
+        )
+    }
+
+    fn system_time_millis(&self) -> i64 {
+        i64::try_from(self.0.get()).unwrap_or(i64::MAX)
+    }
+}
+
+/// The host hooks a realm constructs its context with: no time zone of the engine's own, and the
 /// buffer ceiling.
 ///
 /// Boa asks `max_buffer_size` before every `ArrayBuffer` allocation and throws ECMA-262's own
 /// `RangeError` for one larger, which a script may catch: the allocation has not happened, so the
 /// ceiling holds whether or not it does.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct Hooks {
     /// The offset local time is read with.
-    utc_offset_seconds: i32,
+    utc_offset_seconds: Rc<Cell<i32>>,
     /// The largest `ArrayBuffer`.
     buffer_bytes: u64,
 }
 
 impl HostHooks for Hooks {
     fn local_timezone_offset_seconds(&self, _unix_time_seconds: i64) -> i32 {
-        self.utc_offset_seconds
+        self.utc_offset_seconds.get()
     }
 
     fn max_buffer_size(&self, _context: &mut Context) -> u64 {
@@ -275,18 +511,42 @@ impl HostHooks for Hooks {
     }
 }
 
-/// A runner a view state can be handed: every `/K` and `/F` Tier 0 does not run goes through
-/// [`run`] under one budget.
+/// A runner a view state can be handed: one document's realm, on a thread of its own, every event
+/// run through it under one budget.
 ///
-/// Constructs a context per run and holds none, so it is `Send` and `Sync` as `ScriptRunner`
-/// requires. Keeps a log of every sentence its runs produced, because a view state answering
-/// [`pdf_model::view::ViewState::displayed_value`] records nothing of its own (ADR 1591).
+/// The thread is started at the first event and ends when the engine is dropped; nothing is
+/// constructed for a document whose view state never hands one over. It is this process's stand-in
+/// for the confined worker of RFC 0008 section 6.2, which holds a [`Realm`] the same way: requests
+/// in, outcomes out, one at a time. A realm whose thread has died — a panic reachable in Boa —
+/// answers every later event with the sentence saying scripts stopped, and the document stays open
+/// (RFC 0008 section 6.8). Keeps a log of every sentence its runs produced, because a view state
+/// answering [`pdf_model::view::ViewState::displayed_value`] records nothing of its own (ADR 1591).
 #[derive(Debug)]
 pub struct Engine {
     /// The budget every run is held to.
     budget: Budget,
+    /// The realm's thread, once started.
+    realm: Mutex<Thread>,
     /// Every sentence a run produced, in order, bounded.
     log: Mutex<Vec<String>>,
+}
+
+/// The state of an engine's realm thread.
+#[derive(Debug, Default)]
+enum Thread {
+    /// Not started: no event has been handed over.
+    #[default]
+    Idle,
+    /// Running, taking requests, each with the channel its outcome comes back on. Dropping the
+    /// sender ends the thread's loop, and so the thread.
+    Running {
+        /// Where requests go.
+        requests: mpsc::Sender<(Request, mpsc::Sender<Outcome>)>,
+        /// The thread, held so that it is not detached before its sender is dropped.
+        _thread: JoinHandle<()>,
+    },
+    /// Stopped: the sentence saying why.
+    Stopped(String),
 }
 
 /// Most sentences an [`Engine`]'s log keeps.
@@ -298,6 +558,7 @@ impl Engine {
     pub fn new(budget: Budget) -> Self {
         Self {
             budget,
+            realm: Mutex::new(Thread::Idle),
             log: Mutex::new(Vec::new()),
         }
     }
@@ -316,45 +577,83 @@ impl Engine {
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
     }
+
+    /// Runs one request in this engine's realm, starting the realm's thread if it has not started.
+    #[must_use]
+    pub fn run_request(&self, request: &Request) -> Outcome {
+        let mut thread = self.realm.lock().unwrap_or_else(PoisonError::into_inner);
+        if matches!(*thread, Thread::Idle) {
+            *thread = start(self.budget);
+        }
+        let stopped = match &*thread {
+            Thread::Running { requests, .. } => {
+                let (reply, outcome) = mpsc::channel();
+                match requests.send((request.clone(), reply)) {
+                    Ok(()) => match outcome.recv() {
+                        Ok(outcome) => return outcome,
+                        Err(_) => "the script engine stopped while it ran a script".to_owned(),
+                    },
+                    Err(_) => "the script engine had stopped".to_owned(),
+                }
+            }
+            Thread::Stopped(why) => why.clone(),
+            Thread::Idle => "the script engine did not start".to_owned(),
+        };
+        let sentence = format!("{stopped}, so scripts no longer run for this document");
+        *thread = Thread::Stopped(stopped);
+        Outcome::unchanged(Ending::Declined(sentence))
+    }
+}
+
+/// Starts a realm's thread.
+fn start(budget: Budget) -> Thread {
+    let (requests, received) = mpsc::channel::<(Request, mpsc::Sender<Outcome>)>();
+    let spawned = std::thread::Builder::new()
+        .name("pdf-script realm".to_owned())
+        .stack_size(REALM_STACK)
+        .spawn(move || {
+            let mut realm = Realm::new(budget);
+            for (request, reply) in received {
+                let outcome = match &mut realm {
+                    Ok(realm) => realm.run(&request),
+                    Err(why) => Outcome::unchanged(Ending::Declined(why.clone())),
+                };
+                // A requester that stopped waiting has nothing to be told.
+                let _ = reply.send(outcome);
+            }
+        });
+    match spawned {
+        Ok(thread) => Thread::Running {
+            requests,
+            _thread: thread,
+        },
+        Err(error) => Thread::Stopped(format!("the script engine's thread did not start: {error}")),
+    }
 }
 
 impl ScriptRunner for Engine {
-    fn run(&self, event: &FieldEvent<'_>) -> FieldResult {
+    fn run(&self, event: &ScriptEvent<'_>) -> ScriptResult {
         let moment = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |since| {
                 u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
             });
-        let request = Request {
-            trigger: event.trigger,
-            field: event.field.to_owned(),
-            script: event.script.to_owned(),
-            event: Event {
-                value: event.value.to_owned(),
-                change: event.change.to_owned(),
-                selection_start: utf16_offset(event.value, event.selection.0),
-                selection_end: utf16_offset(event.value, event.selection.1),
-                will_commit: event.will_commit,
-            },
-            moment,
-            utc_offset_seconds: 0,
-        };
-        let outcome = run(&request, &self.budget);
-        let report = outcome.sentences();
+        let outcome = self.run_request(&Request::of(event, moment, 0));
+        let result = outcome.result();
         {
             let mut log = self.log.lock().unwrap_or_else(PoisonError::into_inner);
-            for sentence in &report {
+            let subject = if event.field.is_empty() {
+                event.label
+            } else {
+                event.field
+            };
+            for sentence in &result.report {
                 if log.len() < MAX_ENGINE_LOG {
-                    log.push(format!("{}: {sentence}", event.field));
+                    log.push(format!("{subject}: {sentence}"));
                 }
             }
         }
-        FieldResult {
-            rc: outcome.rc,
-            value: outcome.value,
-            change: outcome.change,
-            report,
-        }
+        result
     }
 }
 

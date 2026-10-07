@@ -2639,6 +2639,12 @@ impl Host {
                     .value
                     .as_ref()
                     .map_or_else(String::new, |shown| shown.text.clone()),
+                displayed: field.displayed.clone().unwrap_or_else(|| {
+                    field
+                        .value
+                        .as_ref()
+                        .map_or_else(String::new, |shown| shown.text.clone())
+                }),
                 obscured: field.value.as_ref().is_some_and(|shown| shown.obscured),
                 read_only: field.read_only,
                 on: widget.on || (on_by_value(&placed.kind) && widget.on_state.is_none()),
@@ -3569,6 +3575,9 @@ impl Host {
             // rule both follow. ADR 1044.
             if self.showing.report_due.after_a_frame() {
                 queue.push_back(Command::Report);
+                // And its open sequence, after the first present and never in front of it (ADR
+                // 1602).
+                queue.push_back(Command::Presented);
             }
             // Table 147's `/FitWindow` and `/CenterWindow` are about the first displayed page's
             // size, which is known now and not before; the window asks `place_window` with its

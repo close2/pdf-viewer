@@ -385,6 +385,12 @@ push-button is not one of them: the page draws its own appearance, a click on it
 Tab on the page walks §12.5.1's annotations in the document's order, so Space or Enter presses the one
 the walk is on (ADR 1357).
 
+**In both toolkit windows a text field's control shows what the field displays** — `$12.50` where
+the field's `AFNumber_Format` formats `12.5` — whenever it does not have the keyboard, and the field's
+own characters while it does, so typing starts from the value the format was made of rather than from
+characters its keystroke script would refuse. Enter in a single-line field commits it and gives the
+keyboard back to the page, which is when the control turns to the displayed string (ADR 1604).
+
 **It needs Qt 6's development files to build** — `qmake6`, `moc` and a C++ compiler — which is what a
 native host binding a platform means, and is why it is in none of the three cross-target checks.
 

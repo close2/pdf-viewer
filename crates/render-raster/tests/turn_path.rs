@@ -12,7 +12,11 @@
 //!
 //! This holds the `turn` and `step` rows of every page of that table to a band each in
 //! [`doc/checks/turn-path.toml`](../../../doc/checks/turn-path.toml), measured by the table's own
-//! method — `support/frame_cost.rs` is the one copy of it, which `frame_budget` prints from.
+//! method — `support/frame_cost.rs` is the one copy of it, which `frame_budget` prints from — and
+//! beside them the second table's `seventh`: the same turn drawn as the seventh frame of a device
+//! that has lived through six, which is the device a window keeps. Every other row is drawn on a
+//! device made for its round, and a change whose cost depends on the device's own state reads
+//! differently there (trap 116, ADR 1607).
 //!
 //! # How a figure is taken, and when it is judged
 //!
@@ -159,7 +163,7 @@ fn turn_probe() {
         .expect("a page")
         .parse()
         .expect("a page number");
-    let (mut turn, mut warm, mut step) = (None, None, None);
+    let (mut turn, mut warm, mut seventh, mut step) = (None, None, None, None);
     let (mut commands, mut preceded) = (0, false);
     for _ in 0..ROUNDS {
         let sample = round(&document, page, WINDOW);
@@ -167,18 +171,21 @@ fn turn_probe() {
         println!("adapter {}", sample.adapter);
         keep(&mut turn, sample.turn);
         keep(&mut warm, sample.warm);
+        keep(&mut seventh, sample.seventh);
         keep(&mut step, sample.step);
     }
     let rounds = "five rounds";
-    let (turn, warm, step) = (
+    let (turn, warm, seventh, step) = (
         turn.expect(rounds),
         warm.expect(rounds),
+        seventh.expect(rounds),
         step.expect(rounds),
     );
     let calibration = calibration_ms();
     println!(
         "{MARKER}turn_ms={:.3} turn_interp={:.3} turn_encode={:.3} turn_transfer={:.3} \
-         turn_readback={:.3} warm_ms={:.3} step_ms={:.3} step_encode={:.3} \
+         turn_readback={:.3} warm_ms={:.3} seventh_ms={:.3} seventh_encode={:.3} \
+         seventh_elsewhere={:.3} step_ms={:.3} step_encode={:.3} \
          step_transfer={:.3} step_bytes={} step_uploads={} commands={commands} \
          preceded={} calibration_ms={calibration:.3}",
         turn.budget(),
@@ -187,6 +194,9 @@ fn turn_probe() {
         turn.transfer,
         turn.readback,
         warm.budget(),
+        seventh.budget(),
+        seventh.encode,
+        seventh.elsewhere,
         step.budget(),
         step.encode,
         step.transfer,
@@ -348,6 +358,8 @@ struct Row {
     page: usize,
     commands: usize,
     turn_ms: Option<Band>,
+    /// The turn as a long-lived device's seventh frame (ADR 1607).
+    seventh_ms: Option<Band>,
     step_ms: Option<Band>,
 }
 
@@ -419,6 +431,7 @@ fn parse(text: &str) -> Check {
             (Some(row), "page") => row.page = count(),
             (Some(row), "commands") => row.commands = count(),
             (Some(row), "turn_ms") => row.turn_ms = Some(band(value, at)),
+            (Some(row), "seventh_ms") => row.seventh_ms = Some(band(value, at)),
             (Some(row), "step_ms") => row.step_ms = Some(band(value, at)),
             _ => panic!("line {at}: `{key}` is not a key of the check file"),
         }
@@ -544,12 +557,33 @@ fn child(row: &Row, check: &Check, pinning: Option<&(String, usize)>) -> Fields 
         .collect()
 }
 
+/// One child's judged figures, in milliseconds, or the quickest of each over several children.
+#[derive(Debug, Clone, Copy)]
+struct Figures {
+    turn: f64,
+    /// The turn as a long-lived device's seventh frame (ADR 1607).
+    seventh: f64,
+    step: f64,
+}
+
+impl Figures {
+    /// The quicker of each figure, taken figure by figure.
+    fn quickest(self, other: Self) -> Self {
+        Self {
+            turn: self.turn.min(other.turn),
+            seventh: self.seventh.min(other.seventh),
+            step: self.step.min(other.step),
+        }
+    }
+}
+
 /// What one row's children came to: the quickest fit child's figures, or why there is none.
 struct Taken {
-    /// The quickest turn and step over fit children, and that turn's child's other fields.
-    best: Option<(f64, f64, Fields)>,
+    /// The quickest of each figure over fit children, and the quickest turn's child's other
+    /// fields.
+    best: Option<(Figures, Fields)>,
     /// The quickest over every child, fit or not, printed where nothing fit.
-    any: Option<(f64, f64)>,
+    any: Option<Figures>,
     commands: Option<f64>,
     unfit: Vec<String>,
 }
@@ -576,24 +610,26 @@ fn take(row: &Row, check: &Check, pinning: Option<&(String, usize)>, ceiling: f6
         let fields = child(row, check, pinning);
         let after = device_busy();
         let figure = |key: &str| fields.get(key).copied().expect("the child printed it");
-        let (turn, step, calibration) = (
-            figure("turn_ms"),
-            figure("step_ms"),
-            figure("calibration_ms"),
-        );
+        let figures = Figures {
+            turn: figure("turn_ms"),
+            seventh: figure("seventh_ms"),
+            step: figure("step_ms"),
+        };
+        let calibration = figure("calibration_ms");
         taken.commands = Some(figure("commands"));
         taken.any = Some(
             taken
                 .any
-                .map_or((turn, step), |(t, s)| (t.min(turn), s.min(step))),
+                .map_or(figures, |quickest| quickest.quickest(figures)),
         );
         let device = match (before, after) {
             (Some(before), Some(after)) => format!("device {before:.0}% / {after:.0}% busy"),
             _ => "device busy unread".to_owned(),
         };
         println!(
-            "    child: turn {turn:.2} step {step:.2} ms, calibration {calibration:.3} ms, load \
-             {load:.2}, {device}"
+            "    child: turn {:.2} seventh {:.2} step {:.2} ms, calibration {calibration:.3} ms, \
+             load {load:.2}, {device}",
+            figures.turn, figures.seventh, figures.step
         );
         let fit_load = load <= ceiling;
         let fit_probe = check
@@ -602,14 +638,13 @@ fn take(row: &Row, check: &Check, pinning: Option<&(String, usize)>, ceiling: f6
         let fit_device = quiet(before) && quiet(after);
         if fit_load && fit_probe && fit_device {
             match &mut taken.best {
-                Some((best_turn, best_step, kept)) => {
-                    *best_step = best_step.min(step);
-                    if turn < *best_turn {
-                        *best_turn = turn;
+                Some((quickest, kept)) => {
+                    if figures.turn < quickest.turn {
                         *kept = fields;
                     }
+                    *quickest = quickest.quickest(figures);
                 }
-                None => taken.best = Some((turn, step, fields)),
+                None => taken.best = Some((figures, fields)),
             }
         } else {
             let busiest = [before, after].into_iter().flatten().fold(0.0, f64::max);
@@ -625,7 +660,7 @@ fn take(row: &Row, check: &Check, pinning: Option<&(String, usize)>, ceiling: f6
     taken
 }
 
-/// Every turn and step row of `doc/performance.md`'s table inside its band.
+/// Every turn, seventh-frame and step row of `doc/performance.md`'s tables inside its band.
 ///
 /// `#[ignore]`d for the launch gate's reason: it spawns thirty processes that each bring a
 /// graphics device up ten times, and takes minutes. `tools/batch.sh gates` runs it behind the
@@ -700,7 +735,7 @@ struct Tally {
 }
 
 impl Tally {
-    /// Prints and judges one row's two figures and its witness; `declined` is why the run
+    /// Prints and judges one row's three figures and its witness; `declined` is why the run
     /// judges nothing, where it judges nothing.
     fn row(&mut self, row: &Row, taken: &Taken, declined: &[String]) {
         let commands = taken.commands.unwrap_or(0.0);
@@ -722,28 +757,39 @@ impl Tally {
             declined.join("; ")
         };
         let best = taken.best.as_ref();
+        let judged = |of: fn(&Figures) -> f64| {
+            best.map(|(figures, _)| of(figures))
+                .filter(|_| declined.is_empty())
+        };
+        let any = |of: fn(&Figures) -> f64| taken.any.as_ref().map(of);
         self.figure(
             (&name, row.page, "turn"),
             row.turn_ms,
-            best.map(|(turn, _, _)| *turn)
-                .filter(|_| declined.is_empty()),
-            (taken.any.map(|(turn, _)| turn), &why),
+            judged(|figures| figures.turn),
+            (any(|figures| figures.turn), &why),
+        );
+        self.figure(
+            (&name, row.page, "seventh"),
+            row.seventh_ms,
+            judged(|figures| figures.seventh),
+            (any(|figures| figures.seventh), &why),
         );
         self.figure(
             (&name, row.page, "step"),
             row.step_ms,
-            best.map(|(_, step, _)| *step)
-                .filter(|_| declined.is_empty()),
-            (taken.any.map(|(_, step)| step), &why),
+            judged(|figures| figures.step),
+            (any(|figures| figures.step), &why),
         );
-        if let Some((_, _, fields)) = best {
+        if let Some((_, fields)) = best {
             let stage = |key: &str| fields.get(key).map_or(0.0, |value| *value);
             println!(
-                "    turn interp {:.2} encode {:.2} transfer {:.2}; step encode {:.2} transfer \
-                 {:.2}; calibration {:.3} ms; {commands} commands",
+                "    turn interp {:.2} encode {:.2} transfer {:.2}; seventh encode {:.2} elsewhere \
+                 {:.2}; step encode {:.2} transfer {:.2}; calibration {:.3} ms; {commands} commands",
                 stage("turn_interp"),
                 stage("turn_encode"),
                 stage("turn_transfer"),
+                stage("seventh_encode"),
+                stage("seventh_elsewhere"),
                 stage("step_encode"),
                 stage("step_transfer"),
                 stage("calibration_ms"),
@@ -791,7 +837,7 @@ impl Tally {
     }
 }
 
-/// The check file parses, names no key the gate does not read, and states both bands of every
+/// The check file parses, names no key the gate does not read, and states all three bands of every
 /// row with a floor below its ceiling — read without measuring anything, so it runs in every
 /// workspace test run.
 #[test]
@@ -814,8 +860,8 @@ fn the_check_file_states_a_band_for_every_row() {
             "{} names its page",
             row.path
         );
-        for band in [row.turn_ms, row.step_ms] {
-            let band = band.unwrap_or_else(|| panic!("{} states both bands", row.path));
+        for band in [row.turn_ms, row.seventh_ms, row.step_ms] {
+            let band = band.unwrap_or_else(|| panic!("{} states all three bands", row.path));
             assert!(
                 band.low < band.high,
                 "{}'s floor is below its ceiling",

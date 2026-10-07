@@ -33,6 +33,9 @@ rustix.workspace = true
 # filter can be asked.
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 libc.workspace = true
+# The script worker's probe asks for executable memory through a safe call, which is what a test
+# of a crate that forbids `unsafe` needs (ADR 1608).
+memmap2.workspace = true
 
 [lints]
 workspace = true

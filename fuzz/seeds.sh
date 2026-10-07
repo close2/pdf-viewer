@@ -136,6 +136,14 @@ seed() {
     forms_data) python3 "$here/seed_forms_data.py" "$root/$t" ;;
     # A field's one-call script, its value and a keystroke, each function under every argument shape.
     aform) python3 "$here/seed_aform.py" "$root/$t" ;;
+    # A document's script at every site: each member the bridge carries and refuses, the library,
+    # every budget at its number and one past it, and the malformed.
+    script) python3 "$here/seed_script.py" "$root/$t" > /dev/null ;;
+    # The script worker's wire both ways, written by the encoders the host and the worker use.
+    script_wire)
+        (cd "$tree" && cargo build -q -p pdf-script-worker --example wire_seeds)
+        "$(built)/debug/examples/wire_seeds" "$root/$t" > /dev/null
+        ;;
     # A server's answer to the form in `fetched_import.rs`: FDF naming its fields, and every XFDF
     # file the tests hold, each under the eight routes the first byte chooses (ADR 1527).
     fetched_import)

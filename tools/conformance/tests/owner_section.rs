@@ -310,11 +310,54 @@ fn the_owners_answers_come_first_and_the_merge_check_repeats_them() {
 /// A throwaway main checkout that owes one of each thing the owner's list carries but the
 /// fast-forward's and the artefacts': a `§` in an uncommitted question, an answer no commit holds,
 /// a question still open, an upstream report not filed, a patch owed to a pinned fork, an unseeded
-/// fuzz target, a build directory over a rule of zero, and an `sccache` cache over a ceiling of one
-/// kibibyte.
+/// fuzz target, a build directory over a rule of zero, an `sccache` cache over a ceiling of one
+/// kibibyte, and an agent whose processes sit in two scopes, one with no limit on its path and one
+/// under a slice that bounds it — beside a stranger's process, which is not the agent's.
 fn planted_main_checkout(base: &Path) -> Vec<(PathBuf, String)> {
     let base_rev = "0123456789abcdef0123456789abcdef01234567";
+    let process = |uid: u32, threads: u32| {
+        format!("Name:\tplanted\nUid:\t{uid}\t{uid}\t{uid}\t{uid}\nThreads:\t{threads}\n")
+    };
     vec![
+        (base.join("host/proc/10/status"), process(4242, 3)),
+        (
+            base.join("host/proc/10/cgroup"),
+            "0::/agent.slice/tab(1).scope\n".to_owned(),
+        ),
+        (base.join("host/proc/11/status"), process(4242, 5)),
+        (
+            base.join("host/proc/11/cgroup"),
+            "0::/bounded.slice/tab(2).scope\n".to_owned(),
+        ),
+        (base.join("host/proc/12/status"), process(999, 7)),
+        (
+            base.join("host/proc/12/cgroup"),
+            "0::/other.slice/tab(3).scope\n".to_owned(),
+        ),
+        (
+            base.join("host/cgroup/agent.slice/tab(1).scope/pids.max"),
+            "max\n".to_owned(),
+        ),
+        (
+            base.join("host/cgroup/agent.slice/tab(1).scope/memory.max"),
+            "max\n".to_owned(),
+        ),
+        (
+            base.join("host/cgroup/bounded.slice/pids.max"),
+            "8192\n".to_owned(),
+        ),
+        (
+            base.join("host/cgroup/bounded.slice/memory.max"),
+            "1073741824\n".to_owned(),
+        ),
+        (
+            base.join("host/cgroup/bounded.slice/tab(2).scope/pids.max"),
+            "max\n".to_owned(),
+        ),
+        (
+            base.join("host/cgroup/bounded.slice/tab(2).scope/memory.max"),
+            "max\n".to_owned(),
+        ),
         (
             base.join("Cargo.toml"),
             format!(
@@ -388,6 +431,25 @@ fn git_in(directory: &Path, arguments: &[&str]) {
     assert!(status.success(), "git {arguments:?} failed");
 }
 
+/// The planted agent's two scopes are both counted and the stranger's is not, and the list's item
+/// writes the limits of the one scope with no limit on its path and only that one: a slice above the
+/// other bounds it (ADR 1612).
+fn the_agent_scope_is_read_from_its_processes(report: &str, texts: &[&str]) {
+    assert!(
+        report.contains("agent's cgroup: 2 scope(s) hold user 4242's processes, 1 with a limit"),
+        "the stranger's scope was counted, or the bounded one missed: {report}"
+    );
+    let bound = texts
+        .iter()
+        .find(|text| text.starts_with("bound "))
+        .copied()
+        .unwrap_or_default();
+    assert!(
+        bound.contains("agent.slice/tab(1).scope/pids.max") && !bound.contains("tab(2)"),
+        "the item writes the unbounded scope's limits and only those: {bound}"
+    );
+}
+
 /// The owner's list is one numbered list, last, in the script's order, each item with its command or
 /// its files, and no file in it said twice (ADR 1601).
 #[test]
@@ -414,6 +476,9 @@ fn the_owners_list_is_one_numbered_list_in_order_with_nothing_twice() {
         .env("MAIN_CHECKOUT_BUILD_RULE_KIB", "0")
         .env("SCCACHE_DIR", base.join("sccache"))
         .env("SCCACHE_CACHE_SIZE", "1K")
+        .env("MAIN_CHECKOUT_AGENT_USER", "4242")
+        .env("MAIN_CHECKOUT_PROC", base.join("host/proc"))
+        .env("MAIN_CHECKOUT_CGROUP_ROOT", base.join("host/cgroup"))
         .output()
         .expect("python3 runs tools/main-checkout.py");
     let _ = std::fs::remove_dir_all(&base);
@@ -457,10 +522,11 @@ fn the_owners_list_is_one_numbered_list_in_order_with_nothing_twice() {
     assert_eq!(
         openings,
         [
-            "write", "commit", "answer", "file", "apply", "re-seed", "prune", "decide"
+            "write", "commit", "answer", "file", "apply", "bound", "re-seed", "prune", "decide"
         ],
         "the planted checkout's items, in the order a person does them: {report}"
     );
+    the_agent_scope_is_read_from_its_processes(&report, &texts);
     let paths = |text: &str| -> Vec<String> {
         text.split(|c: char| c.is_whitespace() || "`();,".contains(c))
             .map(|word| word.split(':').next().unwrap_or_default())

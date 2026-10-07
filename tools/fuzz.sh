@@ -35,6 +35,10 @@ set -u -o pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 verify="$root/doc/verify.md"
+# Under the agent's task budget, the figure `tools/bounded.sh` writes once (trap 116, ADR 1612); a
+# limit already at or under it is kept.
+task_budget=$("$root/tools/bounded.sh" --task-budget) || exit 1
+[ "$(ulimit -u)" != unlimited ] && [ "$(ulimit -u)" -le "$task_budget" ] || ulimit -u "$task_budget" || exit 1
 export PATH="$HOME/.cargo/bin:$PATH"
 
 # Every `[[bin]]` `fuzz/Cargo.toml` declares, which is the population by cargo's own reckoning

@@ -5,7 +5,8 @@
 //! **One copy of the method, because the gate's figures are claims about the table's.** A row of
 //! that table is the minimum of rounds of exactly what [`round`] does — a page interpreted against
 //! the font cache a page turn has, drawn on a device warmed by another document on the lane a page
-//! turn takes, and placed again at twice the magnification on the lane a moved view takes — and a
+//! turn takes, drawn again as the seventh frame of a device that has lived through six (ADR 1607),
+//! and placed again at twice the magnification on the lane a moved view takes — and a
 //! gate that measured anything else would be holding a number nobody recorded. The module comment
 //! of `examples/frame_budget.rs` has the argument for each of those choices.
 
@@ -217,6 +218,40 @@ pub(crate) fn read(path: &str, index: usize) -> Read {
     }
 }
 
+/// How many frames the long-lived device has drawn before the timed one: six, so that the page
+/// is the device's seventh frame (ADR 1607).
+///
+/// **A window keeps its device for as long as it is open, and a fresh device is not that
+/// device.** Every other row here is drawn on a device made for the round, so a change whose cost
+/// depends on what the device has already done — `wgpu`'s pool of command encoders, which grows
+/// as frames need encoders and is never given back — reads differently there than on the device
+/// a person's seventh page turn is drawn on (trap 116). By the sixth frame of one device the pool
+/// and the device's first-use allocations have stopped growing on every page this table holds
+/// (ADRs 1595, 1606), which is what makes the seventh the figure of a device that lives.
+pub(crate) const FRAMES_BEFORE_SEVENTH: usize = 6;
+
+/// The pages of [`WARM_UP`]'s document the long-lived device draws before the timed frame, in
+/// order: a reader turning through its five pages and back to the first.
+const LONG_LIVED_PAGES: [usize; FRAMES_BEFORE_SEVENTH] = [1, 2, 3, 4, 5, 1];
+
+/// A device on the page-turn lane that has drawn [`FRAMES_BEFORE_SEVENTH`] frames of
+/// [`WARM_UP`]'s document, so that the next frame is its seventh.
+fn long_lived_device(window: (u32, u32)) -> QuorraRasterizer {
+    let mut backend =
+        QuorraRasterizer::with_options(&render_raster::options()).expect("an adapter");
+    backend.set_coverage(raster_gpu::Coverage::Cpu);
+    let (path, _) = WARM_UP;
+    for page in LONG_LIVED_PAGES {
+        let before = read(path, page);
+        let _drawn = draw(
+            &mut backend,
+            &before.list,
+            placed(&before.list, 1.0, window),
+        );
+    }
+    backend
+}
+
 /// A device on `lane`, warmed by [`WARM_UP`] and by nothing else, and its adapter's name.
 fn warmed_device(lane: raster_gpu::Coverage, window: (u32, u32)) -> (QuorraRasterizer, String) {
     let mut backend =
@@ -229,12 +264,15 @@ fn warmed_device(lane: raster_gpu::Coverage, window: (u32, u32)) -> (QuorraRaste
     (backend, description)
 }
 
-/// One round of one page: its three rows, each on a device of its own where the row needs one.
+/// One round of one page: its four rows, each on a device of its own where the row needs one.
 pub(crate) struct Round {
     /// The page interpreted and drawn on a device that has drawn another document's page.
     pub(crate) turn: Stages,
     /// The same frame asked for again, nothing changed.
     pub(crate) warm: Stages,
+    /// The page turn again, drawn as the seventh frame of a device that has drawn six others —
+    /// what a window's long-lived device pays for it (ADR 1607).
+    pub(crate) seventh: Stages,
     /// The page placed at twice the magnification against the caches the first placement filled.
     pub(crate) step: Stages,
     /// [`Read::commands`].
@@ -257,6 +295,11 @@ pub(crate) fn round(path: &str, index: usize, window: (u32, u32)) -> Round {
     let turn = Stages::of(page.interpret, draw(&mut backend, &page.list, target));
     let warm = Stages::of(0.0, draw(&mut backend, &page.list, target));
     drop(backend);
+    // The same turn on a device that has lived through six frames, on the same lane, against the
+    // same interpretation: the device is the one difference between the two rows.
+    let mut backend = long_lived_device(window);
+    let seventh = Stages::of(page.interpret, draw(&mut backend, &page.list, target));
+    drop(backend);
     // The zoom step, on the moved-view lane, against the caches the first placement
     // filled — one notch of a gesture rather than a first sight of the page.
     let (mut backend, _) = warmed_device(raster_gpu::Coverage::Compute, window);
@@ -266,6 +309,7 @@ pub(crate) fn round(path: &str, index: usize, window: (u32, u32)) -> Round {
     Round {
         turn,
         warm,
+        seventh,
         step,
         commands: page.commands,
         preceded: page.preceded,

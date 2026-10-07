@@ -1052,6 +1052,10 @@ mod command_kind {
     // keyboard. It crosses because the confined worker holds the view, and therefore the typed
     // value and the scripts that judge it (ADR 1592).
     pub(super) const COMMIT_FIELD: u8 = 36;
+    // The window's first frame is on its screen, so the document's open sequence runs. It crosses
+    // because the confined worker holds the view and the scripts, and only the window knows when it
+    // presented (ADR 1602).
+    pub(super) const PRESENTED: u8 = 37;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -1406,6 +1410,9 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
         }
         Command::CommitField { field } => {
             writer.u8(k::COMMIT_FIELD).str(field);
+        }
+        Command::Presented => {
+            writer.u8(k::PRESENTED);
         }
         Command::Activate(object) => {
             writer.u8(k::ACTIVATE).object(*object);
@@ -1844,6 +1851,7 @@ pub(crate) fn decode_command_holding(
         k::COMMIT_FIELD => Command::CommitField {
             field: reader.string("a field's qualified name")?,
         },
+        k::PRESENTED => Command::Presented,
         k::ACTIVATE => Command::Activate(reader.object("an object")?),
         k::SET_GROUP => Command::SetGroup {
             group: reader.object("an optional content group")?,
@@ -4471,6 +4479,7 @@ mod tests {
             Command::CommitField {
                 field: "Lines.Price".to_owned(),
             },
+            Command::Presented,
             Command::Activate(ObjectId::new(12, 1)),
             Command::SetGroup {
                 group: ObjectId::new(3, 0),
@@ -6073,6 +6082,7 @@ mod tests {
                 text: format!("{name}'s value"),
                 obscured: false,
             }),
+            displayed: Some(format!("{name}'s value, formatted")),
             read_only: true,
             required: true,
             no_export: true,

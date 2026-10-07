@@ -43,6 +43,16 @@ root=$(dirname "$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --path-forma
 wt=${BATCH_WORKTREE:-/home/AI/pdf-viewer-rounds}
 log=${BATCH_GATES_LOG:-/home/AI/batch-gates.log}
 
+# Every subcommand runs under the agent's task budget, RLIMIT_NPROC, read from `tools/bounded.sh`,
+# where the figure is written once: `gates`, `open`'s warm-up, the raster examples and `install`
+# build and walk, and `check` runs cargo. The limit the calling shell held is read first, so that
+# `check` can say whether the merge that ran it was under the bound itself (trap 116, ADR 1612). A
+# limit already at or under the budget is kept, since a shell may lower its own but not raise it.
+tasks_where_called=$(ulimit -u)
+task_budget=$("$(dirname "${BASH_SOURCE[0]}")/bounded.sh" --task-budget)
+[ "$tasks_where_called" != unlimited ] && [ "$tasks_where_called" -le "$task_budget" ] ||
+    ulimit -u "$task_budget"
+
 # The batch directory's `debug` profile against `doc/environment.md`'s hundred-gigabyte rule.
 # Printed and never acted on: the prune is the orchestrator's, made between `close` and the next
 # `open` with no round running, and `open`'s warm build is the first thing to write there again,
@@ -251,6 +261,18 @@ check_batch() {
     # here because a merge runs this and a list of tracked files calls every such question open
     # (ADR 1588). Read-only against the main checkout, and never a finding: they are the owner's.
     PYTHONDONTWRITEBYTECODE=1 python3 tools/main-checkout.py --answers | sed -n '2,$p' || true
+
+    # The agent's tasks now, every process and thread of this user, and the limit the shell that
+    # ran this held: a merge made without `ulimit -u` reads here as the system's figure above the
+    # budget. Never a finding — this script holds itself to the budget whatever it was given — but
+    # the gates and builds the merge runs beside it were not (trap 116, ADR 1612).
+    local held where
+    held=$(ps -u "$(id -un)" -o nlwp= | awk '{ s += $1 } END { print s + 0 }')
+    where="ulimit -u $tasks_where_called where called"
+    if [ "$tasks_where_called" = unlimited ] || [ "$tasks_where_called" -gt "$task_budget" ]; then
+        where+=", ABOVE the budget of $task_budget"
+    fi
+    printf 'tasks of %s now, and the bound   %s; %s\n' "$(id -un)" "$held" "$where"
 
     # A file this tree has no place for. The extensions are what a round legitimately adds; a
     # binary, an archive, an editor's leavings and a regenerated header are none of them, and the

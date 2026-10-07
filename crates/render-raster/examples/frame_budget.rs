@@ -27,6 +27,7 @@
 //! |---|---|
 //! | **turn** | the page interpreted and drawn once on a device that has already drawn another document's page — what `Command::GoTo(Next)` costs, on the page-turn lane |
 //! | **warm** | the same frame asked for again, nothing changed — what a chrome-only repaint costs |
+//! | **seventh** | the turn again, drawn as the seventh frame of a device that has drawn six of another document's — what a window's long-lived device pays for it (ADR 1607) |
 //! | **step** | the same page placed at twice the magnification on the moved-view lane, against caches the first placement filled — what one notch of a zoom gesture costs |
 //!
 //! Every row is the **minimum of `FRAME_BUDGET_ROUNDS` rounds, each on a device of its own**, for
@@ -101,7 +102,7 @@ fn variable(name: &str) -> Option<String> {
     std::env::var(name).ok()
 }
 
-/// One page of the population, with the quickest sample of each of its three rows.
+/// One page of the population, with the quickest sample of each of its four rows.
 struct Row {
     path: String,
     index: usize,
@@ -111,7 +112,7 @@ struct Row {
     /// filled, which is what a page turn has — false for a one-page document, where a viewer
     /// arriving at the page has an empty cache too.
     preceded: bool,
-    stages: [Option<Stages>; 3],
+    stages: [Option<Stages>; 4],
 }
 
 fn main() {
@@ -150,7 +151,7 @@ fn main() {
             class: class.clone(),
             commands: 0,
             preceded: false,
-            stages: [None, None, None],
+            stages: [None, None, None, None],
         })
         .collect();
     for _ in 0..rounds {
@@ -163,7 +164,8 @@ fn main() {
             sample.adapter.clone_into(&mut adapter);
             keep(&mut row.stages[0], sample.turn);
             keep(&mut row.stages[1], sample.warm);
-            keep(&mut row.stages[2], sample.step);
+            keep(&mut row.stages[2], sample.seventh);
+            keep(&mut row.stages[3], sample.step);
         }
     }
 
@@ -213,7 +215,7 @@ fn report(table: &[Row], adapter: &str, window: (u32, u32), rounds: usize, befor
                 "empty, as a one-page document leaves them"
             }
         );
-        for (name, slot) in ["turn", "warm", "step"].iter().zip(&row.stages) {
+        for (name, slot) in ["turn", "warm", "seventh", "step"].iter().zip(&row.stages) {
             let Some(stage) = slot else {
                 continue;
             };

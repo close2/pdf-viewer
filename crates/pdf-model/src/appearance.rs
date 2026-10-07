@@ -831,7 +831,7 @@ pub(crate) fn regenerate(
         // the normal appearance: what a pointer is doing now is not written into a document.
         crate::view::Appearance::Normal,
         Asked::default(),
-        !view.editing,
+        Format::of(view),
     ) {
         Ok(Some(laid_out)) => (laid_out.content, laid_out.owed.map(|owed| owed.detail())),
         // A field with no value has no marks, and an empty marked-content region is the
@@ -1083,10 +1083,14 @@ pub(crate) struct SavedStream {
 /// drawing path makes: only a text field and a choice field hold text §12.7.4.3 has a processor
 /// lay out. Asking it here rather than repeating its reasoning is what stops a saved check box
 /// from losing the states its `/V` selects among.
+///
+/// `displayed` is what a host-supplied runner's format displayed for the value, which a saved
+/// file draws as the viewer did (ADR 1603).
 pub(crate) fn for_saving(
     document: &Document,
     annotation: &Dictionary,
     value: FieldValue<'_>,
+    displayed: Option<&crate::view::Displayed>,
 ) -> ForSaving {
     if !regenerates(document, annotation, b"Widget", value) {
         return ForSaving::Selected;
@@ -1116,6 +1120,7 @@ pub(crate) fn for_saving(
         // formatted one whatever the field's state here (ADR 1579).
         let view = crate::view::AnnotationView {
             value,
+            displayed,
             ..crate::view::AnnotationView::default()
         };
         let Some(regenerated) = regenerate(document, annotation, &stored, bbox, view) else {
@@ -1152,6 +1157,7 @@ pub(crate) fn for_saving(
         b"Widget",
         crate::view::AnnotationView {
             value,
+            displayed,
             ..crate::view::AnnotationView::default()
         },
         rect,
@@ -2641,7 +2647,7 @@ fn widget(
         value,
         view.appearance,
         Asked::default(),
-        !view.editing,
+        Format::of(view),
     ) {
         Ok(laid_out) => laid_out,
         Err(refusal) => {
@@ -3331,7 +3337,7 @@ fn field_text(
     value: FieldValue<'_>,
     appearance: crate::view::Appearance,
     asked: Asked,
-    format: bool,
+    format: Format<'_>,
 ) -> Result<Option<variable_text::LaidOut>, Refusal> {
     let field = Field::read(document, annotation, value);
     if field.too_deep {
@@ -3352,7 +3358,8 @@ fn field_text(
     let mut selected: Vec<usize> = Vec::new();
     // Table 199's `/F`, which "shall be performed before the field is formatted to display its
     // value" — read once here and applied to a text or editable combo value below (ADR 1579).
-    let mut formatting = Formatting::of(document, annotation, format);
+    let mut formatting = Formatting::of(document, annotation, format.wanted);
+    formatting.displayed = format.displayed;
     let (text, shape) = match kind {
         // Table 192's `/CA`, "the widget annotation's normal caption, which shall be displayed
         // when it is not interacting with the user" — the entry that "may be used with any
@@ -3403,7 +3410,7 @@ fn field_text(
             // Its echo is never formatted, because a format would show what the echo hides.
             let value = if field.flags & FLAG_PASSWORD != 0 {
                 "\u{2022}".repeat(value.chars().count())
-            } else if format {
+            } else if format.wanted {
                 formatting.apply(value)
             } else {
                 value
@@ -3428,7 +3435,7 @@ fn field_text(
             if value.is_empty() && asked == Asked::default() {
                 return Ok(None);
             }
-            let value = if format {
+            let value = if format.wanted {
                 formatting.apply(value)
             } else {
                 value
@@ -3490,6 +3497,36 @@ fn field_text(
         .map_err(Refusal::Text)
 }
 
+/// Whether a layout shows a value through Table 199's `/F`, and what a host-supplied runner's
+/// format displayed for it where one ran.
+///
+/// Every value is formatted but the one a person is still typing, which shows as typed until it
+/// is committed (ADR 1579); a format Tier 0 does not run is drawn as the runner's run of it left
+/// the value, so the page and `ViewState::displayed_value` agree (ADR 1603).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Format<'a> {
+    /// Whether to format at all.
+    wanted: bool,
+    /// What the runner's format displayed, and for which value.
+    displayed: Option<&'a crate::view::Displayed>,
+}
+
+impl<'a> Format<'a> {
+    /// No format: the characters a host edits.
+    const RAW: Self = Self {
+        wanted: false,
+        displayed: None,
+    };
+
+    /// The format a widget's view asks for.
+    fn of(view: crate::view::AnnotationView<'a>) -> Self {
+        Self {
+            wanted: !view.editing,
+            displayed: view.displayed,
+        }
+    }
+}
+
 /// Table 199's `/F` for one widget, read once per layout (ADR 1579).
 ///
 /// Where the field's format script is one call of `crate::aform`'s library, the value is shown as
@@ -3497,22 +3534,25 @@ fn field_text(
 /// else, or its call refuses its arguments, the value is shown as it stands and `report` carries
 /// the sentence — the raw value is what the file's own appearance carries, so drawing it is not a
 /// guess, and the sentence says what was not run.
-struct Formatting {
+struct Formatting<'a> {
     /// The format call, where the field states one this tier runs and formatting is wanted.
     call: Option<crate::aform::Call>,
     /// Whether the formatted text is drawn red.
     red: bool,
     /// What was not run, for the report.
     report: Option<String>,
+    /// What a host-supplied runner's run of a format this tier does not run displayed.
+    displayed: Option<&'a crate::view::Displayed>,
 }
 
-impl Formatting {
+impl Formatting<'_> {
     /// The widget's format script, or nothing to apply when `wanted` is false.
     fn of(document: &Document, annotation: &Dictionary, wanted: bool) -> Self {
         let mut out = Self {
             call: None,
             red: false,
             report: None,
+            displayed: None,
         };
         if !wanted {
             return out;
@@ -3528,6 +3568,15 @@ impl Formatting {
     /// The text to show for `value`.
     fn apply(&mut self, value: String) -> String {
         let Some(call) = &self.call else {
+            // A format this tier does not run, which a runner ran for this very value: what it
+            // displayed is what the field shows, and nothing is left unrun to report.
+            if self.report.is_some()
+                && let Some(displayed) = self.displayed
+                && displayed.value == value
+            {
+                self.report = None;
+                return displayed.shown.clone();
+            }
             return value;
         };
         match call.format(&value) {
@@ -3880,7 +3929,7 @@ fn laid_out_in(
         asked,
         // A caret, a click or a selection is asked of the characters a host edits, which are the
         // value as typed rather than as a format shows it (ADR 1579).
-        false,
+        Format::RAW,
     )
     .ok()
     .flatten()

@@ -560,9 +560,9 @@ ADR 1475), the fuzz workspace's lock and targets are what `tools/fuzz.sh` and
 `fuzz/seeds.sh` need (`tests/fuzz_workspace.rs`, ADR 1439), every `tools/state.sh` section reads
 and none writes (`tests/read_only.rs`, ADR 1487), and `doc/environment.md`'s *After a merge* holds
 one entry per kind of line `tools/main-checkout.py` prints, in its order (`tests/owner_section.rs`),
-the ledger's session ordinals only fall, held by equality, because a note states what is, and an
+no ledger note names a session, held at zero, because a note states what is, and an
 `out-of-scope` row names its exclusion and quotes its clause (`tests/ledger_notes.rs`, ADRs
-1547, 1548), no Rust source names a round, spelled out or as `Session <number>`
+1547, 1548, 1610), no Rust source names a round, spelled out or as `Session <number>`
 (`tests/spelled_ordinals.rs`, ADR 1023) — which also prints, without holding it, how many lines under
 `doc/todo/` still do, each todo file stating what is owed as of now (ADR 1576) — and a round's record fits its forty lines and states its gates in a `**Gates.**` paragraph with an
 exit status or a pass count (`tests/records.rs`, ADRs 1100, 1499). The sweeps under `src/bin/` —
@@ -681,8 +681,10 @@ Memory safety is necessary, not sufficient.
   themselves an attack surface.
 - **A document's JavaScript is built in RFC 0008's tiers, and an engine is a separate sandboxing
   problem.** The owner accepted the RFC (`doc/questions/A193`); Tier 0 runs a script that is one
-  `AF*` call as Rust and parses no ECMAScript (ADRs 1578, 1579), so no interpreter is in a process
-  yet, and the tier that brings one brings its sandbox argument with it (RFC 0008 section 11).
+  `AF*` call as Rust and parses no ECMAScript (ADRs 1578, 1579); Tier 1's engine, Boa in
+  `pdf-script`, is behind a feature no build turns on and runs in no window, because no host
+  supplies a runner (ADRs 1590, 1591). So no interpreter is in a running process yet, and the step
+  that puts one there brings its sandbox argument with it (RFC 0008 sections 6.2 and 11).
 
 **No C or C++ library reaches a document's bytes**; the confined codecs are pure Rust, and the
 confinement is for panic containment and a memory ceiling rather than for containing C. `ring`,

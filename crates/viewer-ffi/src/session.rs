@@ -778,6 +778,16 @@ impl Session {
         self.handle(Command::Report)
     }
 
+    /// Say that the focused document's first frame is on the screen, so that its open sequence
+    /// runs: RFC 0008 section 6.5 step 1, after the first present and never before it (ADR 1602).
+    ///
+    /// **Call it when [`Self::report`] is called**, once the reader has their page. It runs once a
+    /// document, and what it says comes back on [`viewer_core::Event::Reported`] with no page.
+    #[must_use]
+    pub fn presented(&mut self) -> Events {
+        self.handle(Command::Presented)
+    }
+
     /// §7.11.4: take an embedded file's bytes out of the document.
     #[must_use]
     pub fn extract(&mut self, name: String) -> Events {

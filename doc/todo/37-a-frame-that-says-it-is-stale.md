@@ -16,7 +16,7 @@ Witness: `tmp/Entwurf.pdf` — **not in the repository**, so no test may name th
 this file used to quote are ADR 0378's and both have since moved; ADR 0383 measured them again on
 the same witness, and the *reason* they moved is worth more than either pair of numbers.
 
-**Two of the five rules changed shape in the five-hundred-and-forty-eighth session**, and neither
+**Two of the five rules have changed shape** (ADR 0383), and neither
 weakened. Rule 1 no longer refuses a second reprojection outright — `doc/todo/36`'s owner allows
 one explicitly — it refuses to draw the view already on the screen a second time, which is a
 question about *which* view rather than about whether one is showing; the loop still cannot come to
@@ -24,8 +24,8 @@ rest on one. And rule 4's "it costs the real frame nothing" gained a second mech
 is taken **once per real frame** and every reprojection after the first resamples what it captured.
 ADR 0383 has both.
 
-**Rules 5 and 4 both changed in the five-hundred-and-forty-ninth, and those were defects rather
-than refinements — the same one at two scales.**
+**Rules 5 and 4 both changed again, and those were defects rather than refinements — the same one
+at two scales.**
 
 Rule 5 said `SHARE` × a *measured* reprojection cost, with an assumed 51 ms standing in — so a bar
 of 510 ms until a reprojection had been drawn, and a reprojection was drawn only above the bar. The
@@ -46,8 +46,7 @@ which is the other half of why the owner had to write twice: `Stale::plan` retur
 than an `Option`, and a refusal that is a judgement about two measurements prints both of them.
 ADR 0384 has the traces, the A/B and the secondary defects it turned up.
 
-**And the base's lifetime was the third, found in the five-hundred-and-fiftieth session — the same
-shape a third time.** The owner's trace carried `no reprojection: the device has no retained encode
+**And the base's lifetime was the third — the same shape a third time** (ADR 0385). The owner's trace carried `no reprojection: the device has no retained encode
 to replay` twice in twenty-four presents, and each time the frame before it was a rendering that
 repacked its glyph atlas. The pixels of the rendering *before* it had been read back and were
 this host's own `Arc<[u8]>` — and were destroyed by the frame that replaced them, because the base
@@ -63,7 +62,7 @@ all five were the same mistake; the rest now print which of the two remaining ki
 the summary carries the count. ADR 0385 has the table and the argument for the one answer that is
 deliberately silent.
 
-## Two of the five rules changed again in the five-hundred-and-fifty-sixth session (ADR 0391)
+## Two of the five rules changed again when the render left the device (ADR 0391)
 
 *The render moved to a thread of its own. That is `doc/todo/36`'s item rather than this one, but it
 reaches two rules here and the sections below were written before it.*
@@ -125,24 +124,21 @@ picture. What would remove the refusal rather than bound it is a placement *per 
 one textured quad per page instead of one for the frame — and that is a change to
 `crate::renderer`'s three layers rather than to the policy.
 
-**It was priced in the six-hundred-and-twenty-seventh session and declined** (ADR 0461), and the
-last sentence of this paragraph is what the pricing corrected. It read *"a zoom in a column shows
-the previous frame unmoved for one render, which is what every view change did before ADR 0378"* —
-true when written and false since ADR 0443 built the retained pages: six zoom steps fire this
-refusal seven times on the device and the layer underneath answered **all seven**, so what is shown
-is the incoming arrangement at 512 pixels rather than the previous frame unmoved. That changes the
+**It is priced and declined** (ADR 0461). A zoom in a column does not show the previous frame
+unmoved for one render: since ADR 0443 built the retained pages, six zoom steps fire this refusal
+seven times on the device and the layer underneath answers **all seven**, so what is shown is the
+incoming arrangement at 512 pixels rather than the previous frame unmoved. That changes the
 value of the change from *a picture instead of nothing* to *a sharp layer instead of a blurred one*,
 which is what the decision turned on.
 
 ## What is left
 
 **Nothing this file has named as owed.** The two items are taken (ADR 0457) and both of the open
-questions are answered in the six-hundred-and-twenty-seventh session (ADR 0461) — one by building
-it, one by pricing it and declining. What is below is the argument each rests on, and one lead this
+questions are answered (ADR 0461) — one by building it, one by pricing it and declining. What is below is the argument each rests on, and one lead this
 round did not follow.
 
-**The processor's window has a stand-in since the six-hundred-and-twenty-second session** (ADR
-0457) and **a composing thread of its own since the six-hundred-and-twenty-seventh** (ADR 0461).
+**The processor's window has a stand-in** (ADR 0457) and **a composing thread of its own** (ADR
+0461).
 The sections below are kept because their *argument* is what the code rests on; what running them
 corrected is here.
 
@@ -180,8 +176,8 @@ while the view is still moving is never put up on the *device* path either — `
 presents nothing, and the pixels are only ever seen through a stand-in composed from them. The
 processor needed `Composer::unshown` because rule 4 refuses exactly when the frame is slow.
 
-The six-hundred-and-thirty-third session read `Stale::plan` against `Surface::on_the_device`
-without a trace and **enumerated what can strand a rendering there**, which narrows the question
+A reading of `Stale::plan` against `Surface::on_the_device`, without a trace, **enumerates what
+can strand a rendering there**, which narrows the question
 without answering it. `plan` is asked only where `stand_in` and a rendering exists, so
 `Refusal::NothingRendered` is unreachable; `Refusal::TooDear` is unreachable because `affordable`
 returns `Ok` for `Standing::Quads` before it looks at anything. That leaves exactly two:
@@ -196,9 +192,8 @@ returns `Ok` for `Standing::Quads` before it looks at anything. That leaves exac
 So on the reading, a rendering on the device path is either shown moved, withheld for one refresh,
 or withheld because it is a picture of something else. **That is an argument and not a trace, and
 the difference matters here**: `InsideTheRefresh` is a comparison of two measured durations, and
-that session was one of four running on the machine at the time — a trace taken then would have
-been a measurement of the load, which is the failure the six-hundred-and-twenty-sixth and
--twenty-seventh sessions both paid for. What is owed is the same trace on a quiet machine, and it
+the reading was made with four rounds running on the machine — a trace taken then would have
+been a measurement of the load, which is the failure two rounds before it both paid for. What is owed is the same trace on a quiet machine, and it
 now has two named refusals to look for rather than a whole enum.
 
 **The identity of a page's picture is decided** (ADR 0457), which is the second thing this section
@@ -264,7 +259,7 @@ Not progressive rendering (`doc/todo/16`'s road C), not a page turn — nothing 
 page's pixels says anything true about the incoming one — and not §12.4.4's transitions, which are
 already a picture of two pages moving. ADR 0378 has each argument.
 
-## The retained page was built in the six-hundred-and-eighth session — ADR 0443
+## The retained page — ADR 0443
 
 **Everything the two sections below asked for exists**, in `crate::stale`'s `Proxies` and
 `crate::renderer`'s idle turn: a whole page at `PROXY_EDGE` pixels along its longer side, drawn on
@@ -279,8 +274,8 @@ claims have been corrected by running it and the corrections are here.
   the outgoing one, so the base carries — and what the retained layer adds there is *the other page
   of the pair*, which used to vanish for the length of the render. The frame line says which:
   `approximated, over a retained page`.
-- ~~**The `SinglePage` page turn is still not answered, and the reason is the identity.**~~ **Taken
-  in the six-hundred-and-twenty-second session** (ADR 0457), in the order this entry asked for: the
+- ~~**The `SinglePage` page turn is still not answered, and the reason is the identity.**~~ **Taken**
+  (ADR 0457), in the order this entry asked for: the
   decision first — a picture is of `(document, page, ink)` and a superseded *interpretation* is the
   same picture where a superseded *ink* is not — and the key second. The distinction this entry drew
   is the one the decision turns on and it was drawn the right way round: a layer toggled off going
@@ -291,7 +286,7 @@ claims have been corrected by running it and the corrections are here.
   range of raster sizes. What binds is memory, and the second thing the ladder showed: a proxy scale
   that followed the zoom would put a new glyph size in quorra's atlas at every step, and a repack
   costs the next real frame its whole geometry.
-- ~~**`Refusal::Rearranged` fires on scrolls.**~~ **Taken in the six-hundred-and-ninth session**
+- ~~**`Refusal::Rearranged` fires on scrolls.**~~ **Taken**
   (ADR 0444), in the order this entry asked for: the bound comes from the geometry — the four
   corners of the picture, because the difference of two affines is convex and attains its maximum at
   a vertex — and half a device pixel is the raster's own quantisation, the largest distance a point
@@ -367,6 +362,6 @@ decision**, so it is chosen from a measurement — what a neighbour costs to dra
 a page turn — and written down as one rather than picked. And **the scale is still open**, which was
 the other half of the sentence: an eighth was this file's illustration, not a finding.
 
-*Both were taken in the six-hundred-and-eighth session and both are in the constants' own doc
+*Both are taken (ADR 0443) and both are in the constants' own doc
 comments, with the tables: `crate::stale::PROXY_EDGE` and `crate::stale::PROXY_PAGES`. The section
 at the head of this file says which of the four claims above the measurement contradicted.*

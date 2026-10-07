@@ -3738,6 +3738,7 @@ dependencies = [
  "hayro-jpeg2000 0.4.0",
  "landlock",
  "libc",
+ "memmap2",
  "pdf-ccitt",
  "rustix 1.1.4",
  "seccompiler",
@@ -3753,6 +3754,18 @@ dependencies = [
  "pdf-syntax",
  "rayon",
  "sha2",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "pdf-script-worker"
+version = "0.1.0"
+dependencies = [
+ "confined-transport",
+ "pdf-model",
+ "pdf-sandbox",
+ "pdf-script",
+ "pdf-syntax",
  "thiserror 2.0.21",
 ]
 

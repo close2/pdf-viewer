@@ -384,11 +384,13 @@ fn turning_a_page_and_magnifying_it_both_draw_behind_the_filter() {
     let events = confined
         .handle(&Command::GoTo(PageTarget::Next))
         .expect("a page turn crosses");
-    let index = events.iter().find_map(|event| match event {
-        Event::PageChanged { index, .. } => Some(*index),
-        _ => None,
-    });
-    assert_eq!(index, Some(1), "{events:?}");
+    // The outline preparation's re-raised `PageChanged` for page one may ride this same answer
+    // frame (ADR 1553: a late answer crosses with the worker's next frame), so the turn's event is
+    // the one for the page turned to, wherever it sits in the frame.
+    let turned = events
+        .iter()
+        .any(|event| matches!(event, Event::PageChanged { index: 1, .. }));
+    assert!(turned, "{events:?}");
 
     confined
         .handle(&Command::Zoom {

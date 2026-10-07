@@ -121,6 +121,11 @@
 //! cargo test  --release -p viewer-ui --test launch_path -- --ignored --nocapture
 //! ```
 //!
+//! `PDFVIEWER_LAUNCH_WARM_CORES` makes every `open` child keep its cores busy for thirty
+//! milliseconds before it opens, the turn gate's warm start (ADR 1577): an instrument for whether
+//! an open figure is the idle clock's or the program's, printed at the top of the run, and not
+//! the method the bands were taken by (see [`WARM_CORES`]).
+//!
 //! `PDFVIEWER_LAUNCH_SAMPLES` overrides the sample count and **turns judging off**, saying so:
 //! the minimum of three is not the minimum of nine, so a band taken at one is not a band at the
 //! other. Three of the documents are `doc/`'s own, which the specification zip provides (`NOTICE`
@@ -176,6 +181,23 @@ const SAMPLE_OVERRIDE: &str = "PDFVIEWER_LAUNCH_SAMPLES";
 /// **An environment variable rather than a flag** — the owner's own preference, stated in
 /// `doc/questions/A28` about a different switch in this tree and taken as the house style here.
 const CLOCK_FIGURES: &str = "PDFVIEWER_LAUNCH_CLOCKS";
+
+/// Asks every `open` child to keep each core it may run on busy for [`WARM_SPIN`] before it
+/// opens the document, the way `render-raster`'s `frame_cost::round` starts every round of the
+/// turn gate (ADR 1577).
+///
+/// **An instrument for one question, not the gate's method.** A cold open is what a person meets,
+/// so the bands are taken from a child that idled while it was spawned; but a five-page
+/// document's warm open is a few tenths of a millisecond, short enough to live its whole run at
+/// the clock an idle core wakes at, which on this machine's governor is a quarter lower than a
+/// working one's (trap 110). Run with this set and without it on a quiet machine, the two say
+/// whether a warm open that reads twice its band is the idle clock or the program. The run says
+/// which of the two it was at the top of its output.
+const WARM_CORES: &str = "PDFVIEWER_LAUNCH_WARM_CORES";
+
+/// How long [`WARM_CORES`] keeps the cores busy: `frame_cost::WARM_SPIN`'s thirty milliseconds,
+/// which is what ADRs 1519 and 1556 measured with.
+const WARM_SPIN: std::time::Duration = std::time::Duration::from_millis(30);
 
 /// The identity a host gives the one document it opens — `quorra.rs`'s own.
 const DOCUMENT: DocumentId = DocumentId(0);
@@ -600,8 +622,40 @@ fn or_absent(value: Option<u64>) -> String {
     value.map_or_else(|| "-".to_owned(), |number| number.to_string())
 }
 
+/// Whether this run's `open` children warm the cores first; see [`WARM_CORES`].
+fn cores_are_warmed() -> bool {
+    std::env::var_os(WARM_CORES).is_some()
+}
+
+/// Keeps every core this process may run on busy for [`WARM_SPIN`], one thread a core, and
+/// returns when all of them have stopped — `frame_cost::warm_the_cores`, for the reason
+/// [`WARM_CORES`] gives.
+fn warm_the_cores() {
+    let cores = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
+    let began = Instant::now();
+    std::thread::scope(|scope| {
+        for _ in 0..cores {
+            scope.spawn(|| {
+                let mut state = 1_u64;
+                while began.elapsed() < WARM_SPIN {
+                    for _ in 0..1_000 {
+                        state = std::hint::black_box(
+                            state
+                                .wrapping_mul(6_364_136_223_846_793_005)
+                                .wrapping_add(1),
+                        );
+                    }
+                }
+            });
+        }
+    });
+}
+
 /// **Phase `open`**: what a launch pays before it has a window.
 fn phase_open() {
+    if cores_are_warmed() {
+        warm_the_cores();
+    }
     let path = document_of_the_child();
     let before = read_chars();
     let before_calls = read_calls();
@@ -2389,6 +2443,13 @@ fn the_launch_path_stays_inside_its_bands() {
         "launch-path: this run is `{profile}`, {samples} samples per figure, viewport {}x{}",
         VIEWPORT.0, VIEWPORT.1
     );
+    if cores_are_warmed() {
+        println!(
+            "launch-path: {WARM_CORES} is set, so every open child kept its cores busy for {} ms \
+             first — an instrument for the idle clock, and not the method the bands were taken by",
+            WARM_SPIN.as_millis()
+        );
+    }
 
     // **The load and the population, printed before anything is measured.** This gate's figures
     // were disbelieved and then not run at all by three rounds in one week, on a judgement about

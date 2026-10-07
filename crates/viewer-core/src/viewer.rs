@@ -707,6 +707,11 @@ impl Viewer {
                     commit_typed(id, open, &field, events);
                 }
             }
+            Command::Presented => {
+                if let (Some(id), Some(open)) = (self.focused, self.focused_mut()) {
+                    open_sequence(id, open, events);
+                }
+            }
             Command::SetGroup { group, on } => {
                 let Some(open) = self.focused_mut() else {
                     return;
@@ -2785,6 +2790,13 @@ impl Viewer {
     /// out rather than given a guessed quadrilateral, and a field left with no widget at all is
     /// left out with them, because a control with nowhere to go is not one a host can place.
     fn form_fields(&self, open: &Open) -> Vec<crate::FormField> {
+        let mut fields = self.placed_fields(open);
+        displayed(open, &mut fields);
+        fields
+    }
+
+    /// [`Self::form_fields`] before what each field displays is asked.
+    fn placed_fields(&self, open: &Open) -> Vec<crate::FormField> {
         // Every page the arrangement shows, for [`Self::popup_windows`]'s reason: a host that
         // places real controls over the page places them over every page it is drawing.
         open.on_screen
@@ -2809,11 +2821,15 @@ impl Viewer {
                         if widgets.is_empty() {
                             return None;
                         }
+                        // The characters until `displayed` below has asked which of them a
+                        // format displays otherwise.
+                        let displayed = field.value.as_ref().map(|shown| shown.text.clone());
                         Some(crate::FormField {
                             name: field.name,
                             partial: field.partial,
                             control: field.control,
                             value: field.value,
+                            displayed,
                             read_only: field.read_only,
                             required: field.required,
                             no_export: field.no_export,
@@ -4664,6 +4680,85 @@ fn commit_typed(id: DocumentId, open: &mut Open, field: &str, events: &mut Vec<E
             document: id,
             page: None,
             notes: vec![sentence],
+        });
+    }
+}
+
+/// What each field displays when nobody is editing it: `pdf_model`'s answer, Table 199's `/F`
+/// applied, written over the characters [`Viewer::placed_fields`] put there (ADR 1604).
+///
+/// **Two costs measured and both taken out**, in `examples/fields_cost.rs`. Asked one field at a
+/// time, `ViewState::displayed_value` walks §12.7.4.1's field tree once per field, which on every
+/// repaint of a toolkit window took `prefilled_f1040.pdf`'s 116 fields from 0.6–0.9 ms to 24.5 ms,
+/// none of them formatted; so [`states_a_format`] asks first whether a field states a format at
+/// all — one without displays its characters, which is that method's own answer — and the fields
+/// that do are asked together, through `ViewState::displayed_values`, which walks the tree once.
+/// With both, those 116 fields answer in 0.80 ms against 0.65 without the column, and a page of 120
+/// fields each stating `AFNumber_Format` in 0.72 ms against 0.35. A password field
+/// displays its echo, which is the characters this answer already carries.
+fn displayed(open: &Open, fields: &mut [crate::FormField]) {
+    let formatted: Vec<usize> = fields
+        .iter()
+        .enumerate()
+        .filter(|(_, field)| {
+            field.value.as_ref().is_some_and(|shown| !shown.obscured)
+                && states_a_format(&open.document, &field.widgets)
+        })
+        .map(|(index, _)| index)
+        .collect();
+    if formatted.is_empty() {
+        return;
+    }
+    let answers = open.view.displayed_values(
+        &open.document,
+        formatted
+            .iter()
+            .map(|&index| fields[index].name.qualified.as_str()),
+    );
+    for (index, answer) in formatted.into_iter().zip(answers) {
+        if let Some(answer) = answer {
+            fields[index].displayed = Some(answer);
+        }
+    }
+}
+
+/// Whether a field states Table 199's `/F` at all, read from its first widget up its `/Parent`
+/// chain as `pdf_model::aform::site::of_widget` reads it — the cheap question [`displayed`] asks
+/// before the dear one.
+fn states_a_format(document: &pdf_syntax::Document, widgets: &[crate::FormWidget]) -> bool {
+    let Some(first) = widgets.first() else {
+        return false;
+    };
+    let object = document.get(first.annotation);
+    object.as_dict().is_some_and(|widget| {
+        pdf_model::aform::site::of_widget(document, widget, pdf_model::aform::Trigger::Format)
+            != pdf_model::aform::site::Site::Absent
+    })
+}
+
+/// RFC 0008 section 6.5 step 1, run once for a document whose first frame a host has presented
+/// (ADR 1602): what the sequence says goes out as one report, and what a script it ran changed is
+/// ink, so the page is interpreted again.
+fn open_sequence(id: DocumentId, open: &mut Open, events: &mut Vec<Event>) {
+    if std::mem::replace(&mut open.presented, true) {
+        return;
+    }
+    let before = open.view.script_reports().len();
+    let page = open.page_index;
+    if open.view.run_open_scripts(&open.document, page) > 0 {
+        open.stale();
+    }
+    let said = open
+        .view
+        .script_reports()
+        .get(before..)
+        .map(<[String]>::to_vec)
+        .unwrap_or_default();
+    if !said.is_empty() {
+        events.push(Event::Reported {
+            document: id,
+            page: None,
+            notes: said,
         });
     }
 }

@@ -31,10 +31,16 @@ use crate::action::{
 use crate::destination::Destination;
 use crate::forms_data::Import;
 
+mod script_model;
+mod script_sites;
 mod scripts;
 
 use crate::optional_content::{Audience, OptionalContent, Purpose};
-pub use scripts::{Committed, FieldEvent, FieldResult, ScriptRunner};
+pub use script_model::{
+    Alignment, BorderStyle, Colour, Display, FieldState, FieldType, Property, ScriptEdit,
+    ScriptSite,
+};
+pub use scripts::{Committed, Displayed, ScriptEvent, ScriptResult, ScriptRunner};
 
 /// Deepest nesting of `/Kids`, and longest `/Parent` chain, walked in §12.7.4.1's field tree.
 ///
@@ -307,6 +313,9 @@ pub struct ViewState {
     /// RFC 0008 section 6.3's policy hook: absent is the level `off`, and nothing a host has not
     /// supplied runs (ADR 1591).
     runner: scripts::Runner,
+    /// What scripts keep beside the edit log: the properties they set, what each runner-run format
+    /// displayed, and what the runner's realm was last told of (ADRs 1602, 1603).
+    scripting: scripts::Scripting,
 }
 
 /// The resource name the `/DA` of a free text annotation this program creates uses.
@@ -1075,6 +1084,9 @@ pub struct AnnotationView<'a> {
     /// editing. So a field between [`ViewState::set_field`] and [`ViewState::commit_field`] is laid
     /// out as typed, and every other value as its format script writes it (ADR 1579).
     pub editing: bool,
+    /// What a host-supplied runner's format script displayed for this widget's value, where one
+    /// ran: the appearance draws it where Tier 0 does not run the format itself (ADR 1603).
+    pub displayed: Option<&'a Displayed>,
 }
 
 /// §12.5.6.22's target media, and how the page is placed on it.
@@ -1258,6 +1270,7 @@ impl ViewState {
             uncommitted: BTreeMap::new(),
             script_reports: Vec::new(),
             runner: scripts::Runner::default(),
+            scripting: scripts::Scripting::default(),
         }
     }
 
@@ -1578,6 +1591,7 @@ impl ViewState {
                 .and_then(|import| import.appearance.as_ref()),
             contents: self.retyped.get(&annotation).map(String::as_str),
             editing: self.is_editing(annotation),
+            displayed: self.displayed(annotation),
         }
     }
 
@@ -2570,10 +2584,13 @@ impl ViewState {
         // value. A person is exactly who this refuses, which is what separates it from
         // §12.7.6.3's reset and §12.7.8's import — both of those are the *document* changing
         // its own value, and neither is a user.
+        // A script's `readonly` is the document changing its own flag, and it stands over the
+        // file's either way (ADR 1603).
+        let read_only = self.script_read_only(name);
         let taking: Vec<ObjectId> = widgets
             .iter()
             .copied()
-            .filter(|widget| !is_read_only(document, *widget))
+            .filter(|widget| !read_only.unwrap_or_else(|| is_read_only(document, *widget)))
             .collect();
         // Table 199's `/K`, which "may check the added text for validity and reject or modify it":
         // a one-call keystroke script judges the characters before any widget takes them, and a
@@ -2999,7 +3016,7 @@ impl ViewState {
                 }
             }
             update.put(id, Object::Dictionary(field));
-            update.write_appearance(document, widget, &dict, value);
+            update.write_appearance(document, widget, &dict, value, self.displayed(widget));
             if toggling {
                 update.write_state(document, widget, entered.value.as_ref());
             }
@@ -3768,8 +3785,11 @@ impl ViewState {
             Action::Hide(hide) => self.hide(document, hide),
             Action::ResetForm(reset) => {
                 self.reset_form(document, reset);
-                // A reset changes values, and Table 224's `/CO` recalculates on any change.
-                self.recalculate(document, &widgets_by_field_name(document));
+                // A reset changes values, and Table 224's `/CO` recalculates on any change; a
+                // reset is a commit of the values it restores, so a script's `/C` runs too.
+                let table = widgets_by_field_name(document);
+                self.recalculate_scripts(document, &table, "");
+                self.refresh_formatted(document, &table);
             }
             Action::Refused(_) => {}
         }
@@ -4458,8 +4478,9 @@ impl Update {
         widget: ObjectId,
         dict: &Dictionary,
         value: FieldValue<'_>,
+        displayed: Option<&Displayed>,
     ) {
-        let built = match crate::appearance::for_saving(document, dict, value) {
+        let built = match crate::appearance::for_saving(document, dict, value, displayed) {
             crate::appearance::ForSaving::Stream(built) => built,
             crate::appearance::ForSaving::Selected => return,
             crate::appearance::ForSaving::Owed => {

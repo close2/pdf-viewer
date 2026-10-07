@@ -3,12 +3,14 @@
 
 use std::time::Duration;
 
-/// What one run of a field script did.
+use pdf_model::view::{ScriptEdit, ScriptResult};
+
+/// What one run of a script did.
 ///
-/// RFC 0008 section 6.1's `Outcome`, narrowed to what one field's `/K` and `/F` can do: a value, a
-/// change, and `rc`. A run that did not finish changes nothing — `rc` true, no value, no change —
-/// and [`Self::ending`] says why (ADR 1591).
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// RFC 0008 section 6.1's `Outcome`: the event's value, change and `rc`, and every edit the script
+/// made to the document's fields. A run that did not finish changes nothing — `rc` true, no value,
+/// no change, no edit — and [`Self::ending`] says why (ADRs 1591, 1603).
+#[derive(Debug, Clone, PartialEq)]
 pub struct Outcome {
     /// `event.rc` as the script left it: false refuses the keystroke or the commit.
     pub rc: bool,
@@ -16,6 +18,8 @@ pub struct Outcome {
     pub value: Option<String>,
     /// `event.change` where the script changed it.
     pub change: Option<String>,
+    /// Every change the script made to a field other than through the event, in order.
+    pub edits: Vec<ScriptEdit>,
     /// How the run ended.
     pub ending: Ending,
     /// Every call the script was refused, by name, in the order first met — recorded whether or
@@ -34,9 +38,23 @@ impl Outcome {
             rc: true,
             value: None,
             change: None,
+            edits: Vec::new(),
             ending,
             refusals: Vec::new(),
             log: Vec::new(),
+        }
+    }
+
+    /// What a view state takes from this outcome: the event as the script left it, its edits, and
+    /// every sentence it owes a report.
+    #[must_use]
+    pub fn result(&self) -> ScriptResult {
+        ScriptResult {
+            rc: self.rc,
+            value: self.value.clone(),
+            change: self.change.clone(),
+            edits: self.edits.clone(),
+            report: self.sentences(),
         }
     }
 
@@ -101,6 +119,8 @@ pub enum Exceeded {
     Recursion(u32),
     /// The engine's value-stack limit.
     Stack(u32),
+    /// The script's brackets nest deeper than the parser is handed.
+    Nesting(u32),
     /// A built-in was asked to iterate or allocate an array of `asked` elements.
     Elements {
         /// How many the script asked for.
@@ -138,6 +158,9 @@ impl Exceeded {
             Self::Stack(limit) => {
                 format!("it used more than its stack budget of {limit} values")
             }
+            Self::Nesting(limit) => format!(
+                "its brackets nest deeper than its budget of {limit} levels, and it was not parsed"
+            ),
             Self::Elements { asked, ceiling } => format!(
                 "it asked a built-in for an array of {asked} elements, over its memory budget of \
                  {ceiling} elements"

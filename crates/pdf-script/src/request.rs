@@ -1,21 +1,30 @@
-//! What a run is handed: the trigger, the field, the script, the event, and the budget.
+//! What a run is handed: the site, the field, the script, the event, the fields the realm is
+//! told of, and the budget.
 
 use std::time::Duration;
 
-use pdf_model::aform::Trigger;
+use pdf_model::view::{FieldState, ScriptEvent, ScriptSite};
 
-/// One script to run, at one of Table 199's triggers, on one field.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// One script to run at one of §12.6.3's sites or the document's open.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Request {
-    /// Which trigger fired. The bridge carries `/K` and `/F`; a request for `/V` or `/C` is
-    /// answered with a refusal naming the trigger (ADR 1591).
-    pub trigger: Trigger,
-    /// §12.7.4.2's fully qualified name of the field the event is on.
+    /// Where the script runs.
+    pub site: ScriptSite,
+    /// §12.7.4.2's fully qualified name of the event's field, or empty where it has none.
     pub field: String,
+    /// The name a document-level script carries in Table 32's tree; empty at every other site.
+    pub label: String,
     /// Table 221's `/JS`, as text.
     pub script: String,
     /// What the event hands the script.
     pub event: Event,
+    /// Every field whose state changed since the realm last heard; the realm replaces its record
+    /// of each by name before the script runs (ADR 1602).
+    pub fields: Vec<FieldState>,
+    /// The zero-based page the event happens on.
+    pub page: u32,
+    /// How many pages the document has.
+    pub pages: u32,
     /// The moment `Date` answers, in milliseconds since 1970-01-01T00:00:00Z — the same value for
     /// the whole run, so that a script cannot time the host (RFC 0008 section 4.2).
     pub moment: u64,
@@ -24,7 +33,37 @@ pub struct Request {
     pub utc_offset_seconds: i32,
 }
 
-/// Adobe's `event` properties the bridge carries, as Table 199's `/K` and `/F` raise them.
+impl Request {
+    /// The request a view state's event asks for, at `moment` and `utc_offset_seconds`.
+    ///
+    /// The one translation from what `pdf_model::view` hands a runner to what crosses to the
+    /// engine — a runner in this process and one across a process boundary build the same request
+    /// from the same event.
+    #[must_use]
+    pub fn of(event: &ScriptEvent<'_>, moment: u64, utc_offset_seconds: i32) -> Self {
+        Self {
+            site: event.site,
+            field: event.field.to_owned(),
+            label: event.label.to_owned(),
+            script: event.script.to_owned(),
+            event: Event {
+                value: event.value.to_owned(),
+                change: event.change.to_owned(),
+                selection_start: utf16_offset(event.value, event.selection.0),
+                selection_end: utf16_offset(event.value, event.selection.1),
+                will_commit: event.will_commit,
+                source: event.source.to_owned(),
+            },
+            fields: event.fields.to_vec(),
+            page: u32::try_from(event.page).unwrap_or(u32::MAX),
+            pages: u32::try_from(event.pages).unwrap_or(u32::MAX),
+            moment,
+            utc_offset_seconds,
+        }
+    }
+}
+
+/// Adobe's `event` properties a request carries.
 ///
 /// Offsets are in UTF-16 code units, which is what an ECMAScript string index counts.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +78,9 @@ pub struct Event {
     pub selection_end: u32,
     /// `event.willCommit`.
     pub will_commit: bool,
+    /// The name of `event.source`'s field — the field whose change a calculation answers — or
+    /// empty.
+    pub source: String,
 }
 
 /// Every ceiling one run is held to (ADR 1590 gives each number its reason).
@@ -60,6 +102,9 @@ pub struct Budget {
     pub string_units: u64,
     /// Largest `ArrayBuffer`, in bytes.
     pub buffer_bytes: u64,
+    /// Deepest a script's brackets may nest, counted before it is parsed: Boa's parser recurses
+    /// once per level and has no depth limit of its own (ADR 1602).
+    pub nesting: u32,
 }
 
 impl Budget {
@@ -73,6 +118,7 @@ impl Budget {
         elements: 1 << 20,
         string_units: 1 << 24,
         buffer_bytes: 16 << 20,
+        nesting: 128,
     };
 }
 

@@ -273,9 +273,18 @@ keystroke the script refuses is not taken, a total follows its lines because Tab
 walked in order after every value change, and a value is drawn and saved through its format once it
 is not being typed — committed in all four windows when a tab, a press elsewhere or Enter in a
 single-line field takes a person out of it, with a value the commit refuses put back and a character
-the keystroke refuses left out, each said in the window's own way (ADR 1592) — while every other script is reported as one this tier does not run and no
+the keystroke refuses left out, each said in the window's own way (ADR 1592), and in the two
+toolkit windows a control shows the committed value as the field displays it — `$12.50` — and the
+field's characters while it holds the keyboard (ADR 1604) — while every other script is reported as one this tier does not run and no
 ECMAScript is parsed (ADR 1579) — RFC 0008's Tier 1 engine, `pdf-script`, exists behind a feature
-no build turns on and is handed scripts by no window (ADRs 1590, 1591); **a rich text field's value is
+no build turns on and runs in no window, because no host supplies `ViewState::run_scripts_with` a
+runner (ADRs 1590, 1591); where one is supplied a document's scripts share one realm — Table 32's
+name tree runs into it once the first page is presented, Table 197's and Table 198's scripts run
+beside the actions a window performs, a commit runs `/V` and every `/CO` entry's `/C` with
+`event.rc` honoured and draws the runner's `/F`, and a script's writes land in the edit log (ADRs
+1602, 1603) — the runner one would supply is `pdf_script_worker::ScriptWorker`, which
+runs each script in a third confined process started at the first trigger, under the narrowest of
+`pdf_sandbox`'s three profiles, a deadline per trigger and a named loss (ADRs 1608, 1609); **a rich text field's value is
 drawn as characters**, because Table 228's `/RV` and Table 231 bit 26 are ISO 32000-2's own rich
 text string and not the XFA template architecture `CLAUDE.md` excludes, so the text is laid out and
 only the *formatting* is reported (ADR 1197); **a file-select control takes a

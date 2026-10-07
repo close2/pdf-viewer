@@ -1185,6 +1185,9 @@ impl Host {
         // rule all four hosts follow. ADR 1044.
         if self.presented.is_some() && self.report_due.after_a_frame() {
             self.dispatch(&Command::Report);
+            // And its open sequence, which runs in the worker beside the scripts' view, after the
+            // first present and never in front of it (ADR 1602).
+            self.dispatch(&Command::Presented);
         }
     }
 

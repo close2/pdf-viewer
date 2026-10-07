@@ -584,6 +584,17 @@ pub enum Command {
         /// §12.7.4.2's fully qualified name.
         field: String,
     },
+    /// The host has put the focused document's first frame on its screen, so the document's open
+    /// sequence runs now: RFC 0008 section 6.5 step 1, Table 32's `/JavaScript` name tree, the
+    /// catalog's `/OpenAction` script, page one's Table 198 `/O` and its annotations' `/PO`
+    /// ([`pdf_model::view::ViewState::run_open_scripts`]).
+    ///
+    /// **After the first present and not before it**, which is why a host says so rather than the
+    /// open running it: *when opened* is not *before the first frame*, so the sequence costs page
+    /// one nothing (ADR 1602, RFC 0008 section 6.6). It runs once a document; a second message for
+    /// the same document does nothing. What the sequence says arrives as [`crate::Event::Reported`]
+    /// — with no runner supplied, that no document-level script ran.
+    Presented,
     /// Activate an object the host is showing outside the page — §12.3.3's outline item.
     ///
     /// The clause: "[c]licking the text of any visible item activates the item, causing the

@@ -35,6 +35,17 @@
 # heavy rows moved by under 5%. The bands below were derived from cold children; every warm
 # figure is inside them, so none moved for the method.
 #
+# **`seventh_ms` is the turn again on a device that has lived** (ADR 1607): the same page, lane
+# and interpretation drawn as the seventh frame of one device, after five page turns through the
+# warm-up document and back to its first page. Every other figure here is drawn on a device made
+# for its round, and a change whose cost depends on what the device has already done reads
+# differently there than on the device a window keeps (trap 116). Its bands are this file's rule
+# over three runs of five rounds in one sitting on 2026-10-07, pinned, warm cores, load 3.8 to 6.0,
+# and two gate runs beside them at loads 1.2 to 1.7 — less the Type 3 page in the first of those,
+# where all three of its rows read 13.0 to 14.5 ms, past its turn and step bands as well as this
+# one, and a direct re-take of the same binary minutes later read 11.2 to 11.5: the busy end of
+# trap 110, which no band here is widened for. A third gate run on these bands judged 33 of 33.
+#
 # The calibration probe is the launch gate's, the same work on the same document, run by every
 # child after its rounds; its band is `launch-path.toml`'s, and over the 240 children of the runs
 # above it read 0.659 to 0.802 ms, the one child past 0.78 being the first of a run. A child outside
@@ -57,6 +68,8 @@ page = 101
 commands = 3007
 # observed 7.20 .. 8.99 ms (turn), 1.57 .. 1.72 ms (step)
 turn_ms = 6.1 .. 10.8
+# seventh frame of a long-lived device (ADR 1607): observed 7.20 .. 8.10 ms
+seventh_ms = 6.1 .. 9.8
 step_ms = 1.3 .. 2.1
 why = "text, 3 007 commands: the turn is raster's encode of the glyphs on the fan-out, which runs at the clock the processor gives the cores its threads wake on, so a child's figure is 7.2 to about 9.5 ms by that clock and not by the tree, and the band spans both ends (ADR 1519)"
 
@@ -67,6 +80,8 @@ commands = 18
 # observed 8.63 .. 8.94 ms (turn), 9.98 .. 10.41 ms (step); on warm cores 9.10 .. 9.78 and
 # 10.23 .. 10.98 on 2026-10-06, five gate runs and three frame_budget runs, pinned, load 1.2 to 2.8
 turn_ms = 7.3 .. 10.8
+# seventh frame of a long-lived device (ADR 1607): observed 9.63 .. 11.31 ms
+seventh_ms = 8.1 .. 13.6
 step_ms = 8.4 .. 12.5
 why = "§8.7.4.5.7 patch meshes: the scene walk divides the mesh rows across the pool (ADR 1259). A turn past 10.8 ms is the processor's clock, at one end of the load or the other: the idle end is taken away by starting every round on warm cores, which read 9.3 to 9.8 ms where cold cores after a second's idle read 11.2 to 11.7 (ADR 1577), and the busy end is the cores the child is not pinned to kept busy, 13.3 to 13.9 at a load average the ceiling admits (ADR 1556), so the band holds a machine neither idle nor saturated"
 
@@ -76,6 +91,8 @@ page = 1
 commands = 2
 # observed 29.92 .. 33.10 ms (turn), 2.99 .. 3.31 ms (step)
 turn_ms = 25.4 .. 39.8
+# seventh frame of a long-lived device (ADR 1607): observed 32.36 .. 34.98 ms
+seventh_ms = 27.5 .. 42.0
 step_ms = 2.5 .. 4.0
 why = "one 5 280 × 3 792 photograph whose codestream has no EOI, decoded in bands at its restart intervals (ADRs 1433, 1513): 69 ms where the bands are declined, which is the regression this row exists to see"
 
@@ -85,6 +102,8 @@ page = 1
 commands = 70
 # observed 50.22 .. 51.42 ms (turn), 14.73 .. 15.23 ms (step)
 turn_ms = 42.6 .. 61.8
+# seventh frame of a long-lived device (ADR 1607): observed 49.31 .. 59.53 ms
+seventh_ms = 41.9 .. 71.5
 step_ms = 12.5 .. 18.3
 why = "four photographs and four DCTDecode masks with no restart interval, decoded beside each other on the pool (ADRs 1321, 1505)"
 
@@ -94,6 +113,8 @@ page = 1
 commands = 513
 # observed 21.55 .. 22.38 ms (turn, ten runs re-banded for ADR 1519), 6.01 .. 7.18 ms (step)
 turn_ms = 18.3 .. 26.9
+# seventh frame of a long-lived device (ADR 1607): observed 21.90 .. 23.18 ms
+seventh_ms = 18.6 .. 27.9
 step_ms = 5.1 .. 8.7
 why = "one photograph under a /Matte mask, its frame decoded beside its mask (ADR 1481) and the mask's opacity written by the inversion, the multiplication's pass over 51 MB gone (ADR 1519): 24 ms where that pass is made"
 
@@ -103,6 +124,8 @@ page = 1
 commands = 2
 # observed 34.51 .. 36.86 ms (turn), 9.56 .. 10.15 ms (step)
 turn_ms = 29.3 .. 44.3
+# seventh frame of a long-lived device (ADR 1607): observed 33.01 .. 34.00 ms
+seventh_ms = 28.0 .. 40.8
 step_ms = 8.1 .. 12.2
 why = "this tree's own sample unpacking and soft-mask combination (ADRs 1433, 1469)"
 
@@ -112,6 +135,8 @@ page = 1
 commands = 959
 # observed 15.80 .. 17.08 ms (turn), 8.22 .. 8.62 ms (step)
 turn_ms = 13.4 .. 20.5
+# seventh frame of a long-lived device (ADR 1607): observed 15.97 .. 16.90 ms
+seventh_ms = 13.5 .. 20.3
 step_ms = 6.9 .. 10.4
 why = "curved strokes bent tighter than their half-width: two chords a flat piece (ADR 1443) and the tiling of a tight bend (ADR 1375) are its encode"
 
@@ -121,6 +146,8 @@ page = 1
 commands = 1032
 # observed 6.19 .. 6.73 ms (turn), 1.33 .. 1.44 ms (step)
 turn_ms = 5.2 .. 8.1
+# seventh frame of a long-lived device (ADR 1607): observed 5.94 .. 6.31 ms
+seventh_ms = 5.0 .. 7.6
 step_ms = 1.1 .. 1.8
 why = "1 032 commands of text and rules"
 
@@ -130,6 +157,8 @@ page = 1
 commands = 152
 # observed 10.39 .. 10.93 ms (turn), 11.04 .. 11.71 ms (step)
 turn_ms = 8.8 .. 13.2
+# seventh frame of a long-lived device (ADR 1607): observed 9.92 .. 10.60 ms
+seventh_ms = 8.4 .. 12.8
 step_ms = 9.3 .. 14.1
 why = "stroked Type 3 glyphs in a tiling under a residue clip: each glyph's expansion made once (ADR 1445), two chords a piece (ADR 1443), and the exact meet with the residue (ADR 1467) whose mark edges the fan-out builds (ADR 1513)"
 
@@ -139,6 +168,8 @@ page = 1
 commands = 269
 # observed 40.24 .. 43.19 ms (turn), 38.33 .. 40.52 ms (step)
 turn_ms = 34.2 .. 51.9
+# seventh frame of a long-lived device (ADR 1607): observed 39.14 .. 40.89 ms
+seventh_ms = 33.2 .. 49.1
 step_ms = 32.5 .. 48.7
 why = "tight bends: the tiling's own cost, which ADR 1505 divided across the fan-out"
 
@@ -150,5 +181,7 @@ commands = 1
 # export of the tree with ADRs 1594 and 1595 and two gate runs on the batch's worktree, 2026-10-07,
 # pinned, warm cores, load 1.2 to 1.8
 turn_ms = 128.7 .. 190.3
+# seventh frame of a long-lived device (ADR 1607): observed 155.70 .. 161.14 ms
+seventh_ms = 132.3 .. 193.4
 step_ms = 71.7 .. 103.5
 why = "a four-component group of 3 518 residue-clipped shadings, drawn as two frames of one geometry (ADRs 1471, 1529), whose exact meets are made beside the walk (ADR 1541) and whose shading quads read one buffer of their numbers at their own offsets (ADR 1555): the tree before that read 191 to 203 and 118 to 126 ms beside it, past the top of both bands, so the bands hold that change. Its 132 ramps, first seen on the turn, are sampled beside each other (ADR 1567), and its meets of a disc with a dot clip are measured from the two convex polygons (ADR 1582), which took the turn's scene 5 ms quicker beside the tree before it; a run of its shading quads is one instanced draw (ADR 1594) and its black frame is walked while the device draws the chromatic one (ADR 1595), which took the turn 1.5 ms quicker and leaves the step where it was, a device of its own paying for wgpu's command encoders as the overlap first needs them; the bands follow that re-take"

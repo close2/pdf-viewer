@@ -1,5 +1,5 @@
-//! One field's `/K` and `/F` run through the engine: what runs, what is refused by name, and what a
-//! budget stops (ADRs 1590 and 1591).
+//! One field's script run through the engine: what runs, what is refused by name, and what a budget
+//! stops (ADRs 1590, 1591 and 1603).
 //!
 //! Every expected value is either the event the script itself sets — `event.rc = false` is false —
 //! or `pdf_model::aform`'s own output for the same call, asked directly: the bridge's claim is
@@ -15,7 +15,27 @@
 use std::time::Instant;
 
 use pdf_model::aform::{Call, Trigger};
+use pdf_model::view::{Alignment, BorderStyle, Display, FieldState, FieldType, ScriptSite};
 use pdf_script::{Budget, Ending, Event, Exceeded, Outcome, RefusalKind, Request, run};
+
+/// A text field's state as a view state tells a realm of it.
+fn field(name: &str, value: &str) -> FieldState {
+    FieldState {
+        name: name.to_owned(),
+        kind: FieldType::Text,
+        value: value.to_owned(),
+        flags: 0,
+        display: Display::Visible,
+        text_color: None,
+        fill_color: None,
+        stroke_color: None,
+        border_style: BorderStyle::Solid,
+        alignment: Alignment::Left,
+        char_limit: None,
+        page: Some(0),
+        rect: [10.0, 10.0, 210.0, 40.0],
+    }
+}
 
 /// A request for `script` at `trigger` on the field `Amount`, holding `value`.
 fn request(
@@ -27,8 +47,9 @@ fn request(
 ) -> Request {
     let at = u32::try_from(value.encode_utf16().count()).expect("a short value");
     Request {
-        trigger,
+        site: ScriptSite::Field(trigger),
         field: "Amount".to_owned(),
+        label: String::new(),
         script: script.to_owned(),
         event: Event {
             value: value.to_owned(),
@@ -36,7 +57,11 @@ fn request(
             selection_start: at,
             selection_end: at,
             will_commit,
+            source: String::new(),
         },
+        fields: vec![field("Amount", value)],
+        page: 0,
+        pages: 1,
         moment: 1_704_465_015_000,
         utc_offset_seconds: 0,
     }
@@ -253,22 +278,19 @@ fn a_string_asked_for_by_an_argument_is_held_to_the_budget() {
 }
 
 #[test]
-fn get_field_of_a_field_that_does_not_exist_is_refused_by_name() {
+fn get_field_of_a_field_that_does_not_exist_answers_null() {
+    // The reference's `getField` answers `null` for a name no field has; reading a property of
+    // it is then the script's own `TypeError`, which ends the run as a throw.
     let ran = outcome(&request(
         Trigger::Format,
-        r#"var f = this.getField("NoSuchField"); event.value = f.value;"#,
+        r#"var f = this.getField("NoSuchField"); event.value = String(f === null); f.value;"#,
         "1",
         "",
         false,
     ));
-    let refusal = ran.refusals.first().expect("one refusal");
-    assert_eq!(refusal.member, r#"this.getField("NoSuchField")"#);
-    assert!(matches!(refusal.kind, RefusalKind::Unreachable(_)));
-    match &ran.ending {
-        Ending::Threw(thrown) => assert!(thrown.contains("NoSuchField"), "{thrown}"),
-        other => panic!("an uncaught refusal ends the run as a throw, not {other:?}"),
-    }
-    assert_eq!(ran.value, None);
+    assert!(ran.refusals.is_empty(), "{:?}", ran.refusals);
+    assert!(matches!(ran.ending, Ending::Threw(_)), "{:?}", ran.ending);
+    assert_eq!(ran.value, None, "a run that did not finish changes nothing");
 }
 
 #[test]
@@ -354,16 +376,25 @@ fn an_admitted_member_this_bridge_does_not_carry_says_so() {
 }
 
 #[test]
-fn validate_and_calculate_are_declined_by_trigger() {
-    for trigger in [Trigger::Validate, Trigger::Calculate] {
-        let ran = outcome(&request(trigger, "event.rc = false;", "1", "", true));
-        assert!(
-            matches!(ran.ending, Ending::Declined(_)),
-            "{:?}",
-            ran.ending
-        );
-        assert!(ran.rc);
-    }
+fn validate_and_calculate_hand_back_rc_and_the_value() {
+    let ran = outcome(&request(
+        Trigger::Validate,
+        "if (event.value > 10) event.rc = false;",
+        "12",
+        "",
+        true,
+    ));
+    assert_eq!(ran.ending, Ending::Finished, "{:?}", ran.ending);
+    assert!(!ran.rc, "a validate script's rc false is handed back");
+    let ran = outcome(&request(
+        Trigger::Calculate,
+        "event.value = 6 * 7;",
+        "1",
+        "",
+        false,
+    ));
+    assert_eq!(ran.value.as_deref(), Some("42"), "{ran:?}");
+    assert!(ran.rc);
 }
 
 #[test]
@@ -416,4 +447,28 @@ fn every_refused_member_throws_not_allowed_error_by_name() {
             );
         }
     }
+}
+
+#[test]
+fn a_script_nested_past_the_parser_s_budget_is_stopped_before_it_is_parsed() {
+    // Boa 0.22's parser has no depth limit: five hundred nested parentheses overflow an 8 MiB
+    // stack. The budget stops the script by name before the parser sees it (ADR 1602).
+    let deep = format!("event.value = {}1{};", "(".repeat(500), ")".repeat(500));
+    let ran = outcome(&request(Trigger::Format, &deep, "1", "", false));
+    assert_eq!(
+        ran.ending,
+        Ending::Exceeded(Exceeded::Nesting(Budget::FIELD_EVENT.nesting))
+    );
+    assert_eq!(ran.value, None);
+    // At the budget the parser runs, on the realm thread `Engine` gives it: a test's own thread
+    // has 2 MiB, which holds about sixty levels.
+    let at = format!("event.value = {}2{};", "(".repeat(128), ")".repeat(128));
+    let ran = pdf_script::Engine::new(Budget::FIELD_EVENT).run_request(&request(
+        Trigger::Format,
+        &at,
+        "1",
+        "",
+        false,
+    ));
+    assert_eq!(ran.value.as_deref(), Some("2"), "{ran:?}");
 }

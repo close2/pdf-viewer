@@ -1130,6 +1130,32 @@ first use and about 3 ms per encoder while the pool grows — reads as a loss on
 win by the sixth frame of a long-lived one (ADR 1595). Measure a sequence of frames on one device
 (`ZOOM_FRAME_SEQUENCE`) before calling such a change either.
 
+### 118. Boa's default module loader reads the file system, Landlock needs a descriptor, and a pass costs two command buffers
+
+Three findings of the script worker's confinement and the encoder-pool measurement. `Context::builder()
+.build()` installs Boa's `SimpleModuleLoader`, which calls `realpath(".")` at the first evaluation;
+under a profile with no file descriptors every confined worker died of `SIGSYS` at its first run,
+and the fix is `IdleModuleLoader` on every context (ADR 1608 — trap 31's shape, a library's hidden
+first-use syscall). Landlock builds its ruleset through a descriptor, so a `RLIMIT_NOFILE` of 0 is
+set after Landlock and never before, for every profile. And wgpu-core 30 allocates two HAL command
+buffers per render pass, sixteen at a time: `bug1721218_reduced.pdf`'s first frame makes 17
+allocations where a launch row's makes 2, growing the pool beside the first frame slowed the frame
+(7.1 → 7.9 ms), and growing it deep enough for the heavy page costs 37 MB on every device — the
+lever ADR 1594 priced was declined on the count (ADR 1606). Count the allocations by call before
+pricing a pool.
+
+### 119. A spliced doc comment, a count held at zero, and a self-test's abandoned processes
+
+Three ways a round's instrument misled it in batch sixty. A doc comment for a new function spliced
+in front of an existing `fn` line lands between that function and its own doc comment; anchor the
+splice on the blank line before the doc comment (round 1384). A Rust rule that counts a shape in a
+document is cross-checked against an independent script copy before its count is held at zero —
+the script caught the possessive "session's" and "a hundred sessions" that the rule missed, and
+the rule was widened (ADR 1610). And a self-test case that leaves processes behind on purpose runs
+in an `exec`-redirected subshell: a redirection on a function call leaves the caller's saved
+descriptors open in every subshell it forks, and `cargo test`, reading through a pipe, waited 71 s
+for 15 s of work (ADR 1612).
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

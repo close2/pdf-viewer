@@ -584,6 +584,10 @@ hayro = "0.7.1"
 # with a deadline; `libc` only for its system-call *numbers*, which are constants.
 landlock = "0.4.6"
 seccompiler = "0.5.0"
+# A safe anonymous mapping and a safe request to make it executable, for one confinement probe:
+# that the script worker's filter refuses executable memory (ADR 1608). Already locked by the
+# font stack; a dev-dependency of `pdf-sandbox` and nothing else.
+memmap2 = "0.9.11"
 rustix = { version = "1.1.4", default-features = false, features = [
     "std",
     "process",
