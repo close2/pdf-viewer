@@ -11,25 +11,34 @@ every scripted field's displayed value over RFC 0008 section 3's population (ADR
 against a bridge that carries `event`, the field's `value`, `getField` of that field,
 `console.println` and the `AF*` library as natives over `pdf_model::aform`, and refuses every other
 member of RFC 0008 sections 4.2 and 4.3 by name; `ViewState::run_scripts_with` is the hook a host
-supplies it through, and no host does. **Items (b) and (c) are built** (ADRs 1602, 1603): a
+supplies it through, and every window does, at the reader's `Scripts` level (ADR 1616). **Items (b) and (c) are built** (ADRs 1602, 1603): a
 document's scripts share one `pdf_script::Realm`; `ViewState::run_open_scripts` runs Table 32's
 name tree, the `/OpenAction` and page one's `/O` and `/PO` into it once the first page is presented
 — which every window says with `Command::Presented`, beside `Command::Report` (ADR 1604) —
 `run_page_scripts` and `run_annotation_scripts` run Table 198's and Table 197's scripts beside the
 actions a window performs, and a commit runs `/V` and every `/CO` entry's `/C` with `event.rc`
 honoured, then `/F`, whose display the drawn and saved appearance read; a script reaches every
-field's value and appearance properties, and its writes land in the edit log. Table 200's five are
-item (d). The Tier 1 column (`crates/pdf-script/tests/script_corpus.rs`, run with `--features
+field's value and appearance properties, and its writes land in the edit log. **Item (d) is built**
+(ADR 1614): `ViewState::run_document_scripts` runs Table 200's five at the moment a host marks — a
+close, before and after a save, before and after a print — with `event.rc` false reported and never
+obeyed; and the bridge carries `util.printx` and `util.printd`, `app`'s six properties naming the
+viewer as this program, a field's `getArray` and `setFocus` (a request the host takes with
+`ViewState::take_focus_request`) and its four text flags' writes (ADR 1615). The Tier 1 column (`crates/pdf-script/tests/script_corpus.rs`, run with `--features
 engine`) now finds `ReferenceError`s in 15 documents for 9 names, none of them a function a
 document-level script defines: functions no file defines (`TFMC`, `goNext`, `f_insert`, `aaa`),
 folder-level scripts of the author's viewer (`Matrix2D`), a script's own slip (`defaultValue`), a
 name the reference's library has and Tier 0's does not (`AFExactMatch`), one it has nowhere
-(`AFSpecial_FormatEx`), and Adobe's `cursor` constants. **What is next, in RFC 0008 section 11's
-order** — the third confined process and its profile being built (`pdf-script-worker`, ADRs 1608,
-1609) — is the hosts calling the three open and site methods (round 1384's), `util`'s
-`printx`/`printd`/`printf`, `app`'s answers (`viewerVersion`, `viewerType`, `platform`), `Field`'s
-`getArray` and `setFocus`, drawing the properties a script sets, Table 200's sites, and the host's
-`Scripts` level. Every window commits through
+(`AFSpecial_FormatEx`), and Adobe's `cursor` constants. **Item (e) is built** (ADR 1616): the `Scripts` level —
+`off`, `ask`, `warn`, `on`, `off` by default and `quorra-confined` pinned there — is in every
+window's menu and on every command line as `--scripts`, the runner at `on`, `warn` and an answered
+`ask` is `pdf_script_worker::ScriptWorker`, *ask* puts one question per document at its first
+script, and the viewer calls ADR 1614's five moments at the close, the save and the print and
+carries out a script's focus request. **The properties a script sets are drawn** (ADR 1617): `textColor`,
+`fillColor`, `strokeColor`, `borderStyle`, `alignment` and `charLimit` are read as the entries the
+standard draws a widget from — `/DA`'s colour, Table 192's `/BG` and `/BC`, Table 168's `/S`, `/Q`,
+`/MaxLen` — the widget's appearance constructed from them, and a save writes them with `required`'s
+`/Ff` bit where the field and the widget keep them. **What is next** is `util.printf` and the owner's
+amendment of `CLAUDE.md`'s exclusion, which `doc/questions/Q286` proposes. Every window commits through
 `viewer-core` — Table 197's `/Bl` wherever the focus leaves a widget, `Command::CommitField` for
 Enter in a single-line field and for a toolkit control losing the keyboard — and says a refusal
 (ADR 1592); `Query::Fields` carries what a field displays beside its characters, and the two toolkit

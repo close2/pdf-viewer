@@ -71,13 +71,13 @@ use crate::shading::Colouring;
 /// other patch travels to the backend and is subdivided there from the device transform (ADR
 /// 1217) — and §8.7.4.5.7's and §8.7.4.5.8's ledger rows are `departed` on exactly that kind.
 ///
-/// **And raising it is not free**: the bound is counted in triangles, so a document's patch
-/// budget is `MAX_TRIANGLES / (2 · PATCH_STEPS²)`. The largest mesh any corpus this tree holds
-/// paints with is `bug1703683_page2_reduced.pdf`'s 305 patches — 61 000 triangles, 23.3% of the
-/// bound at this fineness — and it **crosses the bound at a fineness of 21**. So a round that
-/// derives this number from §10.7.3's smoothness tolerance has to move the bound with it or
-/// start dropping patches out of a real document, which is what makes the two constants one
-/// decision rather than two.
+/// **And raising it is not free**, though it no longer decides how many patches a document may
+/// state — [`MAX_PATCHES`] does, a bound of its own (ADR 1217). A mesh tessellated here spends
+/// `2 · PATCH_STEPS²` of [`MAX_TRIANGLES`] on each patch, so at this fineness the triangle bound
+/// stops such a mesh after `MAX_TRIANGLES / 200` patches, about 1300, well inside the 16 384
+/// [`MAX_PATCHES`] admits. A fineness derived from §10.7.3's smoothness tolerance therefore has to
+/// be priced against [`MAX_TRIANGLES`] for this one kind of mesh, and against nothing for a patch
+/// that travels.
 const PATCH_STEPS: usize = 10;
 
 /// How many times one triangle may be halved along each edge before §8.7.4.4's subdivision
@@ -111,22 +111,23 @@ const REFINED_TRIANGLES: usize = MAX_TRIANGLES / 2;
 /// where a bound of this kind is licensed — "[e]ach output device may have internal limits" —
 /// the same sentence [`crate::shading`]'s `MAX_FUNCTION_CELLS` rests on.
 ///
-/// **It is counted in this program's triangles rather than in the document's patches**, and
-/// that is worth saying out loud because it is the reason this constant is public: a type 6 or
-/// 7 patch becomes `PATCH_STEPS`² quadrilaterals here, so how many patches a document is
-/// allowed depends on a number that is nothing to do with the document, and raising the
-/// tessellation's fineness lowers it. `examples/mesh_triangle_census` is what keeps that
-/// relation measured rather than assumed: over `doc/pdf.js/test/pdfs`, the four `doc/corpora/`
-/// submodules and `corpus-cache/openpreserve` — 1516 files, 40 mesh paints — the largest is
-/// 23.3% of this bound and no page reports it.
+/// **It is counted in this program's triangles rather than in the document's patches**, which
+/// is why it is public: a free-form or lattice mesh's triangles are the document's own, and a
+/// type 6 or 7 mesh tessellated here — the one kind of patch mesh that does not travel to the
+/// backend (ADR 1217) — becomes `PATCH_STEPS`² quadrilaterals per patch, so raising that
+/// fineness lowers how many of its patches this bound admits. How many patches a document may
+/// state is [`MAX_PATCHES`]'s. `examples/mesh_triangle_census` keeps the relation measured
+/// rather than assumed: over `doc/pdf.js/test/pdfs`, the four `doc/corpora/` submodules and
+/// `corpus-cache/openpreserve` — 1516 files, 40 mesh paints — the largest is 23.3% of this bound
+/// and no page reports it.
 pub const MAX_TRIANGLES: usize = 1 << 18;
 
 /// Most patches one type 6 or type 7 shading may state.
 ///
-/// A bound of its own rather than [`MAX_TRIANGLES`] divided by a tessellation's fineness, which
-/// is what this crate counted patches by until the fineness stopped being decided here: a
-/// document's patch budget is a property of the document and of this program's memory, and it
-/// had been a function of a constant that has nothing to do with either. Sixteen thousand
+/// A bound of its own rather than [`MAX_TRIANGLES`] divided by a tessellation's fineness, because
+/// a document's patch budget is a property of the document and of this program's memory, and a
+/// fineness is a property of neither — a patch that travels is subdivided by the backend under
+/// the device transform, after this bound has been applied. Sixteen thousand
 /// patches is some three megabytes of control nets and corner colours, and fifty times the
 /// largest mesh any corpus on this disk paints with (`examples/mesh_triangle_census`). §10.7.3
 /// licenses it, as it licenses [`MAX_TRIANGLES`] — "[e]ach output device may have internal

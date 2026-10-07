@@ -47,7 +47,7 @@
 //! `pdf-transform` makes for a pipe with `Refusal::Unanswered` and the one [`crate::unanswerable`]
 //! makes for a face with no dialogue at all.
 
-use crate::policy::{EmbeddedDocuments, OPENING_EMBEDDED, Submissions};
+use crate::policy::{EmbeddedDocuments, OPENING_EMBEDDED, RUNNING_SCRIPTS, Scripts, Submissions};
 use pdf_model::restriction::{Level, Operation};
 use viewer_core::{
     Command, RestrictionLevel, RestrictionOverride, RestrictionPolicy, RestrictionScope,
@@ -80,6 +80,8 @@ pub enum Subject {
     Fetch,
     /// §O.2.1's `ef`, which would open a file carried inside the document.
     Embedded,
+    /// A document's scripts, which would run in a confined worker (RFC 0008 section 6.3).
+    Scripts,
 }
 
 impl Subject {
@@ -93,6 +95,7 @@ impl Subject {
             Self::Submission => "Send this form?",
             Self::Fetch => "Fetch this form data?",
             Self::Embedded => "Open this embedded document?",
+            Self::Scripts => "Run this document's scripts?",
         }
     }
 }
@@ -164,11 +167,17 @@ pub enum Act {
     Submitting,
     /// §O.2.1's `ef` — `crate::policy::OPENING_EMBEDDED`.
     OpeningEmbedded,
+    /// A document's scripts — `crate::policy::RUNNING_SCRIPTS` (RFC 0008 section 6.3).
+    RunningScripts,
 }
 
 impl Act {
-    /// Both, in the order the menu offers them.
-    pub const ALL: [Self; 2] = [Self::Submitting, Self::OpeningEmbedded];
+    /// All three, in the order the menu offers them.
+    pub const ALL: [Self; 3] = [
+        Self::Submitting,
+        Self::OpeningEmbedded,
+        Self::RunningScripts,
+    ];
 
     /// The act's name, which heads its levels and begins the sentence about each.
     #[must_use]
@@ -176,6 +185,7 @@ impl Act {
         match self {
             Self::Submitting => SUBMITTING,
             Self::OpeningEmbedded => OPENING_EMBEDDED,
+            Self::RunningScripts => RUNNING_SCRIPTS,
         }
     }
 
@@ -187,6 +197,9 @@ impl Act {
                 "ISO 32000-2 §12.7.6.2's submit-form action, and Table Annex O.4's fdf from a server"
             }
             Self::OpeningEmbedded => "ISO 32000-2 §O.2.1's ef parameter",
+            Self::RunningScripts => {
+                "ISO 32000-2 §12.6.4.17's ECMAScript, run confined (RFC 0008 section 6.3)"
+            }
         }
     }
 }
@@ -201,6 +214,8 @@ pub enum ActLevel {
     Submissions(Submissions),
     /// A level of [`Act::OpeningEmbedded`].
     EmbeddedDocuments(EmbeddedDocuments),
+    /// A level of [`Act::RunningScripts`].
+    Scripts(Scripts),
 }
 
 impl ActLevel {
@@ -210,6 +225,7 @@ impl ActLevel {
         match self {
             Self::Submissions(_) => Act::Submitting,
             Self::EmbeddedDocuments(_) => Act::OpeningEmbedded,
+            Self::Scripts(_) => Act::RunningScripts,
         }
     }
 
@@ -219,6 +235,7 @@ impl ActLevel {
         match self {
             Self::Submissions(level) => level.as_str(),
             Self::EmbeddedDocuments(level) => level.as_str(),
+            Self::Scripts(level) => level.as_str(),
         }
     }
 }
@@ -400,6 +417,21 @@ pub fn declined(operation: Operation) -> String {
     )
 }
 
+/// What the viewer must be told when a person picks a level of an act under [`MACHINE`], or
+/// `None` where the level is the host's alone.
+///
+/// Two of the three acts are the host's own — a form sent, an embedded file opened — and their
+/// levels are read where the host does the act (ADRs 1291, 1331). The third is not: a script runs
+/// inside the view state the viewer holds, so the level reaches it as a runner, and a window sends
+/// what this answers right after [`Restrictions::set`] (ADR 1616).
+#[must_use]
+pub fn told(level: ActLevel) -> Option<Command> {
+    match level {
+        ActLevel::Submissions(_) | ActLevel::EmbeddedDocuments(_) => None,
+        ActLevel::Scripts(level) => Some(Command::Scripts(crate::policy::scripting(level))),
+    }
+}
+
 /// What a window says when a person picks a level of an act under [`MACHINE`] out of the menu.
 ///
 /// [`chosen`]'s sentence, for its reason: the level a person just set has no appearance.
@@ -448,6 +480,9 @@ pub struct Restrictions {
     /// What §O.2.1's `ef` does on this machine — global, and `ask` until a person picks another
     /// (ADR 1331).
     embedded: EmbeddedDocuments,
+    /// Whether a document's scripts run — global, and `off` until a person picks another (ADR
+    /// 1616).
+    scripts: Scripts,
 }
 
 impl Restrictions {
@@ -466,6 +501,7 @@ impl Restrictions {
             document: RestrictionOverride::NONE,
             submissions: Submissions::Ask,
             embedded: EmbeddedDocuments::Ask,
+            scripts: Scripts::Off,
         }
     }
 
@@ -482,12 +518,19 @@ impl Restrictions {
         self.embedded
     }
 
-    /// Sets one act's level, which is what a [`Row::ActLevel`] comes to. Nothing is sent to the
-    /// viewer: the level is the host's to read (ADRs 1291, 1331).
+    /// The level `crate::policy::scripting` is asked at — what a window sends the viewer.
+    #[must_use]
+    pub const fn scripts(self) -> Scripts {
+        self.scripts
+    }
+
+    /// Sets one act's level, which is what a [`Row::ActLevel`] comes to. What the viewer is told
+    /// of it, where it is told anything, is [`told`]'s.
     pub const fn set(&mut self, level: ActLevel) {
         match level {
             ActLevel::Submissions(level) => self.submissions = level,
             ActLevel::EmbeddedDocuments(level) => self.embedded = level,
+            ActLevel::Scripts(level) => self.scripts = level,
         }
     }
 
@@ -497,10 +540,12 @@ impl Restrictions {
         let levels: [ActLevel; 4] = match act {
             Act::Submitting => Submissions::ALL.map(ActLevel::Submissions),
             Act::OpeningEmbedded => EmbeddedDocuments::ALL.map(ActLevel::EmbeddedDocuments),
+            Act::RunningScripts => Scripts::ALL.map(ActLevel::Scripts),
         };
         let stands = match act {
             Act::Submitting => ActLevel::Submissions(self.submissions),
             Act::OpeningEmbedded => ActLevel::EmbeddedDocuments(self.embedded),
+            Act::RunningScripts => ActLevel::Scripts(self.scripts),
         };
         levels
             .into_iter()
@@ -945,5 +990,53 @@ mod tests {
         assert!(question.choice.contains("extracting from the document"));
         assert!(question.choice.contains("leaves the level where it is"));
         assert!(declined(Operation::Extract).contains("was not done"));
+    }
+
+    /// RFC 0008 section 6.3's four levels sit under the machine's acts, `off` ticked by default,
+    /// and choosing one is the one act the viewer is told of (ADR 1616).
+    #[test]
+    fn the_scripts_level_is_an_act_the_viewer_is_told_of() {
+        use super::{Act, ActLevel, told};
+        use crate::policy::Scripts;
+        let restrictions = Restrictions::new(RestrictionPolicy::default());
+        let entries = restrictions.act_entries(Act::RunningScripts);
+        let words: Vec<(&str, bool)> = entries
+            .iter()
+            .map(|entry| (entry.label, entry.chosen))
+            .collect();
+        assert_eq!(
+            words,
+            [
+                ("off", true),
+                ("ask", false),
+                ("warn", false),
+                ("on", false)
+            ]
+        );
+        assert!(matches!(
+            told(ActLevel::Scripts(Scripts::On)),
+            Some(Command::Scripts(viewer_core::Scripting::Run(_)))
+        ));
+        assert!(matches!(
+            told(ActLevel::Scripts(Scripts::Off)),
+            Some(Command::Scripts(viewer_core::Scripting::Off))
+        ));
+        assert!(told(ActLevel::Submissions(crate::policy::Submissions::Send)).is_none());
+        let mut chosen = restrictions;
+        chosen.set(ActLevel::Scripts(Scripts::Ask));
+        assert_eq!(chosen.scripts(), Scripts::Ask);
+    }
+
+    /// `ask`'s question names the script, shows its first line, and says what each answer does.
+    #[test]
+    fn the_scripts_question_names_the_first_script_and_both_answers() {
+        let words = crate::policy::asked_to_run_scripts(
+            "the calculate script of Total",
+            "event.value = 1;",
+        );
+        assert!(words.reasons.contains("the calculate script of Total"));
+        assert!(words.reasons.contains("event.value = 1;"));
+        assert!(words.choice.contains(GO_AHEAD) && words.choice.contains(DO_NOT));
+        assert!(words.choice.contains("--scripts ask"), "{}", words.choice);
     }
 }

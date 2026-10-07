@@ -3766,6 +3766,7 @@ dependencies = [
  "pdf-sandbox",
  "pdf-script",
  "pdf-syntax",
+ "rayon",
  "thiserror 2.0.21",
 ]
 
@@ -5807,6 +5808,7 @@ dependencies = [
  "pdf-font",
  "pdf-model",
  "pdf-render",
+ "pdf-script-worker",
  "pdf-signature",
  "pdf-syntax",
  "render-cpu",
@@ -5844,6 +5846,7 @@ dependencies = [
  "pdf-model",
  "pdf-render",
  "pdf-sandbox",
+ "pdf-script-worker",
  "pdf-syntax",
  "png",
  "raster-gpu",

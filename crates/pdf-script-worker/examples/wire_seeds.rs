@@ -17,8 +17,8 @@ use std::time::Duration;
 use pdf_model::action::{PageTrigger, Trigger as AnnotationTrigger};
 use pdf_model::aform::Trigger;
 use pdf_model::view::{
-    Alignment, BorderStyle, Colour, Display, FieldState, FieldType, Property, ScriptEdit,
-    ScriptEvent, ScriptSite,
+    Alignment, BorderStyle, Colour, Display, DocumentTrigger, FieldState, FieldType, Property,
+    ScriptEdit, ScriptEvent, ScriptSite, TextFlag,
 };
 use pdf_script::{Ending, Exceeded, Outcome, Refusal, RefusalKind, Request};
 use pdf_script_worker::wire::{MAX_SCRIPT_BYTES, Reply, Run, encode_reply, encode_run};
@@ -46,7 +46,10 @@ fn field(name: &str, kind: FieldType, value: &str) -> FieldState {
 fn request(site: ScriptSite, fields: &[FieldState], value: &str, change: &str) -> Request {
     let event = ScriptEvent {
         site,
-        field: if matches!(site, ScriptSite::Library | ScriptSite::OpenAction) {
+        field: if matches!(
+            site,
+            ScriptSite::Library | ScriptSite::OpenAction | ScriptSite::Document(_)
+        ) {
             ""
         } else {
             "Total"
@@ -91,6 +94,7 @@ fn runs() -> Vec<(String, Vec<u8>)> {
         ("page", ScriptSite::Page(PageTrigger::Open)),
         ("open-action", ScriptSite::OpenAction),
         ("library", ScriptSite::Library),
+        ("will-save", ScriptSite::Document(DocumentTrigger::WillSave)),
     ];
     let mut seeds: Vec<(String, Vec<u8>)> = Vec::new();
     for (name, site) in sites {
@@ -151,6 +155,13 @@ fn replies() -> Vec<(String, Vec<u8>)> {
         ScriptEdit::Property {
             field: "Total".to_owned(),
             property: Property::FillColor(Colour::Cmyk([0.0, 0.1, 0.2, 0.3])),
+        },
+        ScriptEdit::Property {
+            field: "Total".to_owned(),
+            property: Property::TextFlag(TextFlag::Comb, true),
+        },
+        ScriptEdit::Focus {
+            field: "Total".to_owned(),
         },
     ];
     let endings = [

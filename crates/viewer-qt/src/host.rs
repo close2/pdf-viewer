@@ -77,6 +77,7 @@ fn standing(settings: viewer_host::Settings) -> viewer_host::Restrictions {
             settings.embedded_documents,
         ))
         .with(viewer_host::ActLevel::Submissions(settings.submissions))
+        .with(viewer_host::ActLevel::Scripts(settings.scripts))
 }
 
 /// What an open sends, in the order it sends it: every policy before the document.
@@ -217,6 +218,12 @@ enum Pending {
         bytes: Vec<u8>,
         /// What followed `ef` in the fragment, which applies to it.
         fragment: Option<String>,
+    },
+    /// RFC 0008 section 6.3's one question per document, answered by
+    /// `viewer_core::Command::AnswerScripts` (ADR 1616).
+    Scripts {
+        /// The document whose scripts are waiting.
+        document: DocumentId,
     },
 }
 
@@ -2009,6 +2016,37 @@ impl Host {
         self.update.question = true;
     }
 
+    /// The two questions the viewer puts, in the one dialogue: `CLAUDE.md`'s *ask* level over an
+    /// operation the document restricts, held as [`Pending::Restricted`], and RFC 0008 section
+    /// 6.3's one question per document before its scripts run, held as [`Pending::Scripts`] (ADR
+    /// 1616). Any other event asks nothing.
+    fn ask(&mut self, asking: &Event) {
+        match asking {
+            Event::Asking {
+                document,
+                operation,
+                notes,
+            } => self.put_the_question(
+                Pending::Restricted {
+                    document: *document,
+                    operation: *operation,
+                },
+                &viewer_host::asked(*operation, notes),
+            ),
+            Event::AskingToRunScripts {
+                document,
+                script,
+                first_line,
+            } => self.put_the_question(
+                Pending::Scripts {
+                    document: *document,
+                },
+                &viewer_host::asked_to_run_scripts(script, first_line),
+            ),
+            _ => {}
+        }
+    }
+
     /// What the question's window is called, by what the question is about.
     pub(crate) fn question_title(&self) -> String {
         let subject = match self.question.as_ref().map(|(about, _)| about) {
@@ -2017,6 +2055,7 @@ impl Host {
             Some(Pending::Fetch { .. }) => viewer_host::Subject::Fetch,
             Some(Pending::RemoteDocument { .. }) => viewer_host::Subject::Document,
             Some(Pending::Embedded { .. }) => viewer_host::Subject::Embedded,
+            Some(Pending::Scripts { .. }) => viewer_host::Subject::Scripts,
             Some(Pending::Restricted { .. }) | None => viewer_host::Subject::Restricted,
         };
         subject.title().to_owned()
@@ -2072,6 +2111,12 @@ impl Host {
             // §12.6.4.8: the act is this host's own rather than an edit the core is holding, so
             // what the answer decides is whether the URI reaches `xdg-open` (ADR 1155).
             Pending::Link { uri } => self.say(&viewer_host::answered(&uri, proceed)),
+            // RFC 0008 section 6.3: the viewer holds the document's scripts, so the answer goes to
+            // it whichever it is (ADR 1616).
+            Pending::Scripts { document } => {
+                self.say(&viewer_host::scripts_answered(proceed));
+                self.dispatch(Command::AnswerScripts { document, proceed });
+            }
             // §12.7.6.2: the act is this host's own, so the answer decides whether the request
             // leaves this machine at all (ADR 1291).
             Pending::Submit {
@@ -2210,10 +2255,13 @@ impl Host {
     pub(crate) fn chose_restriction(&mut self, entry: usize) {
         let picked = match self.restrictions.rows().get(entry).copied() {
             Some(viewer_host::Row::Level(picked)) => picked,
-            // An act's row sets a level this host reads and sends the viewer nothing (ADRs 1291,
-            // 1331).
+            // An act's row sets a level this host reads, and tells the viewer only of the act it
+            // does itself — a script runs in its view state (ADRs 1291, 1331, 1616).
             Some(viewer_host::Row::ActLevel(act)) => {
                 self.restrictions.set(act.level);
+                if let Some(command) = viewer_host::told(act.level) {
+                    self.dispatch(command);
+                }
                 self.say(&viewer_host::act_chosen(act.level));
                 return;
             }
@@ -3888,17 +3936,7 @@ impl Host {
                     self.update.clipboard = true;
                 }
             }
-            Event::Asking {
-                document,
-                operation,
-                notes,
-            } => self.put_the_question(
-                Pending::Restricted {
-                    document,
-                    operation,
-                },
-                &viewer_host::asked(operation, &notes),
-            ),
+            asking @ (Event::Asking { .. } | Event::AskingToRunScripts { .. }) => self.ask(&asking),
             // §7.11.4's list moved under the files tab: rebuilt from the same answer it was
             // built from, which is the only thing a window may do here this round — display
             // the list it already shows.
@@ -4910,6 +4948,7 @@ mod tests {
                 embedded_documents: viewer_host::EmbeddedDocuments::Refuse,
                 submissions: viewer_host::Submissions::Refuse,
                 separations: false,
+                scripts: viewer_host::Scripts::Off,
             },
             viewer_host::ReaderWords::default(),
             Trace::off(std::time::Instant::now()),

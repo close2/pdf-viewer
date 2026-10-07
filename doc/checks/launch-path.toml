@@ -6,6 +6,7 @@
 # than as a slower page". This file is what each of them may be. The one command that runs them:
 #
 #   cargo build --release -p pdf-sandbox --bins     # trap 10: nothing else builds it
+#   cargo build --release -p pdf-script-worker --features engine --bins   # the script stage's
 #   cargo test  --release -p viewer-ui --test launch_path -- --ignored --nocapture
 #
 # `crates/viewer-ui/tests/launch_path.rs` is the harness and its module comment says what each
@@ -169,6 +170,19 @@
 # history file, exactly as `fixed-documents.toml` asks. A figure that falls out of the *bottom* of
 # its band is either that win or an instrument that stopped measuring, and the witnesses the run
 # prints beside it — page count, command count, bytes read — are what tell those apart.
+#
+# **The script stage is every row's, and one row bands it** (ADR 1620). Each first-page child
+# hands its viewer the runner a window at `on` hands it, so `first_page_ms` is what a reader who
+# lets scripts run waits for; after the clock it sends `Command::Presented`, and the open sequence
+# starts `pdf-script-worker` at its first trigger. `script_spawn_ms` and `script_first_run_ms` are
+# that worker's `OpenCost`, banded on `opt_demo.pdf` and `none` on every row here for something
+# else — whose stage is printed all the same, so a document with no script is seen to start none.
+# A worker started before a row's frame fails the run on any machine, since it is a count.
+#
+# **And the warm open is taken from warm cores** (ADR 1621): its child keeps every core it may run
+# on busy for 30 ms first, as every round of the turn gate does (ADR 1577), because a figure of a
+# few tenths of a millisecond otherwise lives its whole run at the clock an idle core wakes at.
+# The cold open stays a child born idle, which is what a person meets.
 
 # What the bands are a claim about. The gate prints every figure on any machine and judges the
 # clock ones only where the calibration probe says this is that machine.
@@ -294,7 +308,11 @@ pages = 5
 # old band had. `first_page_ms` does not move: the device is the longer thread on four rows
 # before and after, and ADR 1544's timeline prints by how much.
 cold_open_ms = 0.47 .. 0.83
-warm_open_ms = 0.27 .. 0.48
+# **Every row's `warm_open_ms` is taken from children that warmed their cores first** (ADR 1621):
+# six runs on 2026-10-07 at a one-minute load of 1.1 to 11.5, three of them interleaved with HEAD's
+# idle-born arm, and this file's clock rule over the six. Here they read 0.31 to 0.33 ms, where the
+# idle-born arm read 0.29, 0.56 and 0.73 beside them.
+warm_open_ms = 0.26 .. 0.40
 # **Every row's `first_page_ms` and `peak_anon_mib` were re-taken on 2026-10-05, for two levers
 # (ADRs 1531 and 1532).** Page one is interpreted on the document's thread while the device comes
 # up (`Viewer::anticipate`), which took the interpretation — 0.6 ms here, 18.6 on
@@ -310,6 +328,8 @@ warm_open_ms = 0.27 .. 0.48
 # 26.57 and 26.67 ms.
 first_page_ms = 21.0 .. 32.1
 turn_ms = 3.4 .. 5.6
+script_spawn_ms = none
+script_first_run_ms = none
 peak_anon_mib = 19.5 .. 25.5
 open_peak_mib = 5 .. 9
 read_kib = 86 .. 92
@@ -325,12 +345,15 @@ pages = 57
 # Moved for ADR 1543 (see the first row): 26692.3 → 13183.7 thousand instructions, 350 → 118 KiB
 # in 88 → 30 calls, cold 2.34 to 2.77 ms → 1.31 to 1.61, warm 1.93 to 2.45 → 0.91 to 1.17.
 cold_open_ms = 1.11 .. 1.93
-warm_open_ms = 0.77 .. 1.40
+# Warm cores (ADR 1621, see the first row): 0.94 to 0.98 ms, the idle-born arm 0.97 to 1.42.
+warm_open_ms = 0.79 .. 1.18
 # Re-taken on a quiet machine (ADR 1585, see the first row): 29.02, 31.50 and 26.93 ms. The
 # allocations read 25.6 to 26.5 MiB. This page's `ICCBased` page group is converted on more than
 # one thread (`pdf_render::resolve_cube`).
 first_page_ms = 22.8 .. 37.8
 turn_ms = 3.99 .. 6.6
+script_spawn_ms = none
+script_first_run_ms = none
 peak_anon_mib = 23.0 .. 29.5
 open_peak_mib = 6 .. 11
 read_kib = 115 .. 121
@@ -345,7 +368,8 @@ pages = 1023
 # 15.94 → 4.38 to 5.41 — the outline's 988 items and the page tree's 1023 leaves were 4.2 of the
 # 4.3 MB a cold open read. What is left is §7.5's cross-reference, 57.2 M of 70.3 M.
 cold_open_ms = 4.6 .. 7.4
-warm_open_ms = 3.7 .. 6.5
+# Warm cores (ADR 1621, see the first row): 4.37 to 4.61 ms, the idle-born arm 4.36 to 4.96.
+warm_open_ms = 3.7 .. 5.6
 # Re-taken on a quiet machine (ADR 1585, see the first row): 26.28, 26.36 and 26.00 ms. The
 # allocations read 28.4 to 28.9 MiB.
 first_page_ms = 22.1 .. 31.7
@@ -361,6 +385,8 @@ first_page_ms = 22.1 .. 31.7
 # The other two rows' floors are untouched: the same change is worth 0.06 ms on the 57-page
 # document and 0.03 on the five-page one, which is inside their own spread.
 turn_ms = 3.8 .. 7.2
+script_spawn_ms = none
+script_first_run_ms = none
 peak_anon_mib = 25.5 .. 32.0
 # 18 → 11 to 12 MiB, of which 11.6 → 3.9 allocated: the outline and the placed tree are no longer held.
 open_peak_mib = 9 .. 14
@@ -373,17 +399,13 @@ why = "the other end of that claim at two hundred times its pages — 1023 of th
 path = "doc/pdf.js/test/pdfs/bug1815476.pdf"
 pages = 1
 cold_open_ms = 0.32 .. 0.50
-# **The warm open stays at 0.23 .. 0.35, and what reads twice it is the idle clock** (trap 110).
-# Ten runs on 2026-10-07 at a one-minute load of 1.54 to 1.68, each the minimum of nine pinned
-# children, interleaved with ten whose children first kept their cores busy for 30 ms
-# (`PDFVIEWER_LAUNCH_WARM_CORES`, the turn gate's warm start, ADR 1577): warm cores read 0.288 to
-# 0.307 ms in all ten, and cold cores 0.267 to 0.329 in five and 0.402 to 0.610 in the other five,
-# every calibration inside its band and no kept child waiting 0.01 ms for a processor. A figure
-# the program makes in 0.3 ms whether or not the machine idled before it is not moved by this
-# file's rule; the runs that read twice it are a core waking at a lower clock, on a quiet
-# machine as on a busy one (the 0.598 of ADR 1585's runs at a load of 0.89, and two of
-# 2026-10-06's ten at 5.7 and 6.7). Warming the cores for this arm, as the turn gate does, is the
-# gate's method to change and is not changed here; the flag is the instrument that says so.
+# **The warm open is 0.23 .. 0.35, and what read twice it was the idle clock** (trap 110). Ten
+# runs at a one-minute load of 1.54 to 1.68, each the minimum of nine pinned children, interleaved
+# with ten whose children first kept their cores busy for 30 ms: warm cores read 0.288 to 0.307 ms
+# in all ten, and idle ones 0.267 to 0.329 in five and 0.402 to 0.610 in the other five, every
+# calibration inside its band. So the warm arm warms its cores (ADR 1621, see the first row), and
+# this file's rule over six warm runs gives the same band: 0.274 to 0.290 ms, the idle-born arm
+# 0.26 to 0.68 beside them.
 warm_open_ms = 0.23 .. 0.35
 # **The device is the longer thread on this row too since ADR 1557**, which unpacks a
 # one-component image a byte at a time: page one's three one-bit CCITT stencils cost 244 M
@@ -404,6 +426,8 @@ warm_open_ms = 0.23 .. 0.35
 # 53.46 MiB against 44.5 to 46.2 before, and the band is this file's allocation rule over them.
 first_page_ms = 24.0 .. 36.2
 turn_ms = none
+script_spawn_ms = none
+script_first_run_ms = none
 peak_anon_mib = 47.5 .. 59.0
 open_peak_mib = 5 .. 9
 read_kib = 83 .. 87
@@ -432,6 +456,8 @@ warm_open_ms = none
 # 23.8 ms, as the run prints them, and this file's clock rule over them.
 first_page_ms = 20.2 .. 31.0
 turn_ms = none
+script_spawn_ms = none
+script_first_run_ms = none
 # Re-taken for ADR 1532 (see the first row): 12.8 to 13.1 MiB against 17.4 to 17.7. Its first
 # page read 24.5 to 26.7 ms in the same runs and stays unbanded for the reason above.
 peak_anon_mib = 11.5 .. 14.5
@@ -445,3 +471,26 @@ read_calls = 22 .. 26
 # ceiling that moves by that much with no function of the tree moving is the linker's (trap 98).
 open_kinstructions = 1148 .. 1172
 why = "the population's missing case: large **and** signed. Three megabytes, one page, and a §12.8 signature — so opening it used to read 1304 KiB in 118 calls and execute 47.6 M instructions, against the 99 KiB, 26 calls and 1.80 M that page one actually needs. None of the other four rows is signed, so none of them could see it (round 1027, ADR 1044)"
+
+[[document]]
+path = "doc/pdf.js/test/pdfs/opt_demo.pdf"
+pages = 1
+# **The row that bands the script stage** (ADR 1620): 5 642 bytes, one page, a form whose Table 32
+# name tree holds one script, `0;`, so the open sequence starts the worker and its first run is
+# the realm and the engine and nothing of a document's library. Six runs on 2026-10-07 at a
+# one-minute load of 1.1 to 11.5; every band is this file's rule over them.
+cold_open_ms = 0.13 .. 0.27
+warm_open_ms = 0.08 .. 0.14
+first_page_ms = 22.4 .. 33.0
+turn_ms = none
+# Each the quickest of nine first-page children of its own, three runs: the spawn read 0.684 to
+# 0.709 ms and the first run 0.449 to 0.475. Started after the frame's clock, so neither is inside
+# `first_page_ms`; a worker started before the frame is a failure of its own, judged on any machine.
+script_spawn_ms = 0.58 .. 0.86
+script_first_run_ms = 0.38 .. 0.57
+peak_anon_mib = 14.0 .. 18.5
+open_peak_mib = 5 .. 9
+read_kib = 40 .. 44
+read_calls = 29 .. 33
+open_kinstructions = 1340 .. 1368
+why = "a document whose open sequence runs a script, so the launch gate times the third confined process where a window starts it: after page one's frame, at the open sequence's first trigger (RFC 0008 section 6.6). Every other row hands its viewer the same runner and starts no worker before its frame either"

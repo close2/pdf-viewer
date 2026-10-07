@@ -32,6 +32,81 @@ pub enum ScriptSite {
     /// One entry of Table 32's `/JavaScript` name tree, which §12.6.4.17 has executed "[w]hen the
     /// document is opened".
     Library,
+    /// Table 200: the document as a whole about to close, or around a save or a print.
+    Document(DocumentTrigger),
+}
+
+/// One of Table 200's five events of the document as a whole, each an entry of the catalog's
+/// `/AA`.
+///
+/// Every row is a moment rather than a question: `/WC` is "(Optional; PDF 1.4) An ECMAScript
+/// action that shall be performed before closing a document", and the other four say the same of
+/// a save and a print, before and after. So a script these fire is told of the operation and has no
+/// say in it — `event.rc` is read back, reported where it is false, and never obeyed (ADR 1614).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DocumentTrigger {
+    /// `/WC`, "will close".
+    WillClose,
+    /// `/WS`, "will save".
+    WillSave,
+    /// `/DS`, "did save".
+    DidSave,
+    /// `/WP`, "will print".
+    WillPrint,
+    /// `/DP`, "did print".
+    DidPrint,
+}
+
+impl DocumentTrigger {
+    /// The five, in Table 200's order.
+    pub const ALL: [Self; 5] = [
+        Self::WillClose,
+        Self::WillSave,
+        Self::DidSave,
+        Self::WillPrint,
+        Self::DidPrint,
+    ];
+
+    /// The key of the catalog's additional-actions dictionary that states this trigger's action.
+    #[must_use]
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::WillClose => "WC",
+            Self::WillSave => "WS",
+            Self::DidSave => "DS",
+            Self::WillPrint => "WP",
+            Self::DidPrint => "DP",
+        }
+    }
+
+    /// The operation the trigger is a moment of: `close`, `save` or `print`.
+    #[must_use]
+    pub fn operation(self) -> &'static str {
+        match self {
+            Self::WillClose => "close",
+            Self::WillSave | Self::DidSave => "save",
+            Self::WillPrint | Self::DidPrint => "print",
+        }
+    }
+
+    /// Whether the trigger comes before its operation rather than after it.
+    #[must_use]
+    pub fn before(self) -> bool {
+        matches!(self, Self::WillClose | Self::WillSave | Self::WillPrint)
+    }
+
+    /// Adobe's `event.name` at this trigger, which the reference's "Event type/name combinations"
+    /// page pairs with the type `Doc` (ADR 1614).
+    #[must_use]
+    pub fn adobe(self) -> &'static str {
+        match self {
+            Self::WillClose => "WillClose",
+            Self::WillSave => "WillSave",
+            Self::DidSave => "DidSave",
+            Self::WillPrint => "WillPrint",
+            Self::DidPrint => "DidPrint",
+        }
+    }
 }
 
 impl ScriptSite {
@@ -77,6 +152,7 @@ impl ScriptSite {
             Self::Page(PageTrigger::Open) => ("Page", "Open"),
             Self::Page(PageTrigger::Close) => ("Page", "Close"),
             Self::OpenAction | Self::Library => ("Doc", "Open"),
+            Self::Document(trigger) => ("Doc", trigger.adobe()),
         }
     }
 }
@@ -275,6 +351,51 @@ impl Alignment {
     }
 }
 
+/// One of the text field flags of Table 231 a script reads and writes by Adobe's name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextFlag {
+    /// `multiline`: Table 231 bit 13, `Multiline`.
+    Multiline,
+    /// `password`: bit 14, `Password`.
+    Password,
+    /// `doNotScroll`: bit 24, `DoNotScroll`.
+    DoNotScroll,
+    /// `comb`: bit 25, `Comb`.
+    Comb,
+}
+
+impl TextFlag {
+    /// The four, in the order the reference's "Field properties" page lists them.
+    pub const ALL: [Self; 4] = [
+        Self::Multiline,
+        Self::Password,
+        Self::DoNotScroll,
+        Self::Comb,
+    ];
+
+    /// The flag's bit in Table 227's `/Ff`, where Table 231 numbers it.
+    #[must_use]
+    pub fn bit(self) -> u32 {
+        match self {
+            Self::Multiline => 1 << 12,
+            Self::Password => 1 << 13,
+            Self::DoNotScroll => 1 << 23,
+            Self::Comb => 1 << 24,
+        }
+    }
+
+    /// The reference's spelling.
+    #[must_use]
+    pub fn adobe(self) -> &'static str {
+        match self {
+            Self::Multiline => "multiline",
+            Self::Password => "password",
+            Self::DoNotScroll => "doNotScroll",
+            Self::Comb => "comb",
+        }
+    }
+}
+
 /// One field as a document's realm holds it: what `Field`'s properties read.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldState {
@@ -327,6 +448,8 @@ pub enum Property {
     Alignment(Alignment),
     /// `charLimit`.
     CharLimit(u32),
+    /// One of Table 231's text field flags set or cleared.
+    TextFlag(TextFlag, bool),
 }
 
 impl Property {
@@ -343,6 +466,7 @@ impl Property {
             Self::BorderStyle(_) => "borderStyle",
             Self::Alignment(_) => "alignment",
             Self::CharLimit(_) => "charLimit",
+            Self::TextFlag(flag, _) => flag.adobe(),
         }
     }
 }
@@ -373,6 +497,12 @@ pub enum ScriptEdit {
     },
     /// `this.calculateNow()`: Table 224's `/CO` walked once more after the script.
     Calculate,
+    /// `field.setFocus()`: the keyboard focus asked for on this field, which a host carries out —
+    /// a view state holds the request and has no focus of its own ([`ViewState::take_focus_request`]).
+    Focus {
+        /// The field.
+        field: String,
+    },
 }
 
 /// The field properties a script set, kept beside the edit log by field name.
@@ -533,6 +663,7 @@ fn apply(state: &mut FieldState, property: Property) {
         Property::BorderStyle(style) => state.border_style = style,
         Property::Alignment(alignment) => state.alignment = alignment,
         Property::CharLimit(limit) => state.char_limit = Some(limit),
+        Property::TextFlag(flag, on) => state.flags = set_bit(state.flags, flag.bit(), on),
     }
 }
 

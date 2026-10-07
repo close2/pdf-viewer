@@ -171,6 +171,7 @@ fn main() -> glib::ExitCode {
         embedded_documents: arguments.embedded_documents,
         submissions: arguments.submissions,
         separations: arguments.separations,
+        scripts: arguments.reader.scripts,
     };
     // **The document opens, and page one is interpreted, before GTK is asked for anything**
     // (ADR 1539): the display, the theme and the window take longer than the open does, and

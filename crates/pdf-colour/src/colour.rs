@@ -3388,16 +3388,19 @@ impl ColourSpace {
     /// 1.0 — registration black, all four components at 1.0, weighs 2.0.
     ///
     /// **Only `DeviceCMYK` needs an arm of its own here, and that is a result rather than an
-    /// omission.** For every other device space §10.4.2's conversion to grey composes with
-    /// this one exactly. §10.4.2.2 sends a grey to `red = green = blue = grey` and an RGB
-    /// colour to `0.3 × red + 0.59 × green + 0.11 × blue`. §10.4.2.4 sends an RGB colour to
-    /// `c = 1 − red`, `m = 1 − green`, `y = 1 − blue`, `k = min(c, m, y)` with the black
-    /// generated and removed again — and because §10.4.2.3's three weights sum to 1.0, every
-    /// `k` term cancels: `0.3(c − k) + 0.59(m − k) + 0.11(y − k) + k = 0.3c + 0.59m + 0.11y`,
-    /// whatever the black-generation and undercolour-removal functions produced. So an RGB
-    /// colour taken through `DeviceCMYK` and back to grey is `0.3R + 0.59G + 0.11B`, which is
-    /// what §10.4.2.2 gives it directly, and a grey taken through `DeviceCMYK` is itself.
-    /// One arm, and the rest is `1 −` this tree's single RGB conversion.
+    /// omission.** For every other device space §10.4.2 states a conversion to grey directly:
+    /// §10.4.2.2 sends a grey to `red = green = blue = grey` and an RGB colour to
+    /// `0.3 × red + 0.59 × green + 0.11 × blue`, which is `1 −` this tree's single RGB
+    /// conversion, so no other space is taken through `DeviceCMYK` on the way. That route would
+    /// agree with the direct one only under a condition: §10.4.2.4 sends an RGB colour to
+    /// `c = 1 − red`, `m = 1 − green`, `y = 1 − blue`, `k = min(c, m, y)`, takes `UCR(k)` from
+    /// each of the three and makes the black `BG(k)`, so that route's sum is
+    /// `0.3c + 0.59m + 0.11y + BG(k) − UCR(k)` before §10.4.2.4's clamps — because §10.4.2.3's
+    /// three weights sum to 1.0, the `k` terms cancel exactly where undercolour removal takes
+    /// away what black generation adds and no clamp bites, and the round trip is off by
+    /// `BG(k) − UCR(k)` everywhere else. §11.5.3 asks for the grey of the colour, not of a
+    /// separation of it, so the direct conversion is the one taken (ADR 0217); a file's own
+    /// functions reach only the separation §11.7.5.3 names (ADR 1207).
     #[must_use]
     pub fn ink(&self, values: &[f32]) -> f32 {
         self.ink_at(values, 0)

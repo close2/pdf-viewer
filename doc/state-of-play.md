@@ -276,18 +276,24 @@ single-line field takes a person out of it, with a value the commit refuses put 
 the keystroke refuses left out, each said in the window's own way (ADR 1592), and in the two
 toolkit windows a control shows the committed value as the field displays it — `$12.50` — and the
 field's characters while it holds the keyboard (ADR 1604) — while every other script is reported as one this tier does not run and no
-ECMAScript is parsed (ADR 1579) — RFC 0008's Tier 1 engine, `pdf-script`, exists behind a feature
-no build turns on and runs in no window, because no host supplies `ViewState::run_scripts_with` a
-runner (ADRs 1590, 1591); where one is supplied a document's scripts share one realm — Table 32's
+ECMAScript is parsed (ADR 1579) — RFC 0008's Tier 1 engine, `pdf-script`, is linked into the
+worker program alone and runs in every window **at the reader's `Scripts` level**: `--scripts
+off|ask|warn|on` on every command line and a third act in every menu, `off` by default and
+`quorra-confined` pinned there and saying so, *ask* putting one question per document at its first
+script with that script's first line and a `yes` running what was withheld (ADR 1616); where it runs a document's scripts share one realm — Table 32's
 name tree runs into it once the first page is presented, Table 197's and Table 198's scripts run
 beside the actions a window performs, a commit runs `/V` and every `/CO` entry's `/C` with
-`event.rc` honoured and draws the runner's `/F`, and a script's writes land in the edit log (ADRs
-1602, 1603) — the runner one would supply is `pdf_script_worker::ScriptWorker`, which
+`event.rc` honoured and draws the runner's `/F`, a script's writes land in the edit log and the
+colours, border style, alignment and limit it sets on a field are drawn into the widget's
+appearance and saved as `/MK`, `/BS`, `/DA`, `/Q`, `/MaxLen` and `/Ff` (ADRs 1602, 1603, 1617),
+and Table 200's five run at the close, the save and the print a host marks, a script's
+`event.rc` reported and never obeyed (ADR 1614) — the runner every window supplies is `pdf_script_worker::ScriptWorker`, which
 runs each script in a third confined process started at the first trigger, under the narrowest of
-`pdf_sandbox`'s three profiles, a deadline per trigger and a named loss (ADRs 1608, 1609); **a rich text field's value is
+`pdf_sandbox`'s three profiles, a deadline per trigger and a named loss (ADRs 1608, 1609), the worker built with the engine in a Cargo run of its own and installed beside the windows (ADR 1625); **a rich text field's value is
 drawn as characters**, because Table 228's `/RV` and Table 231 bit 26 are ISO 32000-2's own rich
 text string and not the XFA template architecture `CLAUDE.md` excludes, so the text is laid out and
-only the *formatting* is reported (ADR 1197); **a file-select control takes a
+only the *formatting* is reported, and owed, XFA 3.3's Rich Text Reference being held (ADRs 1197,
+1623); **a file-select control takes a
 file rather than a value**, because Table 231 bit 21 makes the field's text "the pathname of a file
 whose contents shall be submitted as the field's value" and only a host has a filesystem to read
 them from — the path a *person* typed, under one policy function with a stated memory budget, which
@@ -1041,8 +1047,8 @@ cleared — while an axial shading, whose values lie on unbounded lines, is cut 
 It refuses rather than cuts wrong — a calculator function serving the region's own colours, a JPX
 image beyond the operator's budget or with a component deeper than sixteen bits, a file whose
 dictionary contradicts its codec — each with its sentence, and the overlay text and fill it does
-not compose (A65's fence), said as a departure in the report; §12.5.6.23 is `departed` on that
-overlay alone (ADRs 1124, 1126, 1132, 1133, 1143, 1195, 1196, 1236, 1248, 1277, 1324, 1333, 1351,
+not compose (A65's fence), said as a departure in the report; §12.5.6.23 is `departed` on the two
+refusals, the overlay being a choice its own `should` leaves (ADRs 1622, 1124, 1126, 1132, 1133, 1143, 1195, 1196, 1236, 1248, 1277, 1324, 1333, 1351,
 1352, 1363, 1371).
 
 **And a program can ask it for a *file* derived from a document.** `pdf-transform` renders pages

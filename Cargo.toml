@@ -45,6 +45,7 @@ viewer-ffi = { path = "crates/viewer-ffi", version = "0.1.0" }
 pdf-transform = { path = "crates/pdf-transform", version = "0.1.0" }
 pdf-vfs = { path = "crates/pdf-vfs", version = "0.1.0" }
 pdf-script = { path = "crates/pdf-script", version = "0.1.0" }
+pdf-script-worker = { path = "crates/pdf-script-worker", version = "0.1.0" }
 # The population two confined sweeps share. `pdf-vfs`'s read walk and `viewer-confined`'s sweep
 # ask different questions of two different confined programs and need the *same* documents to ask
 # them of, so the roots, the stride and the ten classes are one crate rather than a helper in each

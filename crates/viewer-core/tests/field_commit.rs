@@ -306,3 +306,39 @@ fn a_committed_value_is_answered_as_the_field_displays_it() {
         "Table 224's /CO recalculated the total, which displays through its own /F"
     );
 }
+
+/// An accessibility node's value is what the field displays — `$12.50` once `12.5` is committed
+/// under `AFNumber_Format` — and what a person typed while they are typing, so that the text a
+/// screen reader is given is the text whose characters the node places (ADR 1617).
+#[test]
+fn an_accessible_value_is_the_displayed_one() {
+    let accessible = |viewer: &Viewer, field: &str| {
+        let Answer::Accessibility(pages) = viewer.query(Query::AccessibilityTree) else {
+            panic!("an open document answers the question");
+        };
+        pages
+            .iter()
+            .flat_map(|page| page.widgets.iter())
+            .find(|node| node.name == field)
+            .and_then(|node| node.value.as_ref())
+            .map(|shown| shown.text.clone())
+    };
+    let mut viewer = opened();
+    typed(&mut viewer, "Price1", "12.5");
+    assert_eq!(
+        accessible(&viewer, "Price1").as_deref(),
+        Some("12.5"),
+        "typing: what was typed"
+    );
+    viewer
+        .handle(Command::CommitField {
+            field: "Price1".to_owned(),
+        })
+        .for_each(drop);
+    assert_eq!(accessible(&viewer, "Price1").as_deref(), Some("$12.50"));
+    assert_eq!(
+        accessible(&viewer, "Total").as_deref(),
+        Some("$12.50"),
+        "a calculated field is read as it displays too"
+    );
+}

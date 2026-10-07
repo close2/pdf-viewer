@@ -488,13 +488,12 @@ mod engine {
                 .iter()
                 .any(|property| matches!(property, Property::TextColor(_)))
         );
+        // The colour is drawn into the widget's appearance as well as kept, so nothing reports it
+        // as left undrawn (ADR 1617).
         assert!(
             view.script_reports()
                 .iter()
-                .any(|sentence| sentence.contains(
-                    "Target: a script set Field.textColor; this view state keeps it and the drawn \
-                 appearance does not carry it"
-                )),
+                .all(|sentence| !sentence.contains("Field.textColor")),
             "{:?}",
             view.script_reports()
         );

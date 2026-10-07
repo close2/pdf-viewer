@@ -262,6 +262,15 @@ pub(crate) fn describe_window_event(event: &WindowEvent) -> String {
     }
 }
 
+/// RFC 0008 section 6.3's level, by what the viewer was handed (ADR 1616).
+fn describe_scripting(scripting: &viewer_core::Scripting) -> &'static str {
+    match scripting {
+        viewer_core::Scripting::Off => "scripts off",
+        viewer_core::Scripting::Ask(_) => "scripts: ask before the first",
+        viewer_core::Scripting::Run(_) => "scripts run",
+    }
+}
+
 /// One line naming a command, for `--trace`.
 ///
 /// The command's own `Debug` would print a document's bytes and a raster's pixels, which is not a
@@ -338,6 +347,8 @@ pub(crate) fn describe_command(command: &Command) -> String {
         },
         Command::Separations(simulate) => format!("separation simulation {simulate}"),
         Command::Answer { proceed, .. } => format!("answer {proceed}"),
+        Command::Scripts(scripting) => describe_scripting(scripting).to_owned(),
+        Command::AnswerScripts { proceed, .. } => format!("answer scripts {proceed}"),
         Command::Delegate(appearances) => format!("widget appearances {appearances:?}"),
         Command::Tick { millis } => format!("tick {millis} ms"),
         Command::Present(mode) => format!("presentation {mode:?}"),
@@ -447,6 +458,9 @@ pub(crate) fn describe_event(event: &Event) -> String {
             operation, notes, ..
         } => format!("warned about {}: {}", operation.as_str(), notes.join("; ")),
         Event::AttachmentsChanged { .. } => "attachments changed".to_owned(),
+        Event::AskingToRunScripts {
+            script, first_line, ..
+        } => format!("asking to run scripts: {script}: {first_line}"),
         Event::Copied {
             logical,
             page_order,

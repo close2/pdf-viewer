@@ -592,6 +592,13 @@ pub(crate) fn construct(
         b"Polygon" | b"PolyLine" => polygon(document, annotation, &mut stream, subtype),
         b"Ink" => ink(document, annotation, &mut stream),
         b"Line" => line(document, annotation, &mut stream),
+        // A script's properties are read as the entries they write (ADR 1617).
+        b"Widget" if !view.scripted.is_empty() => widget(
+            document,
+            &with_scripted(document, annotation, view.scripted),
+            &mut stream,
+            view,
+        ),
         b"Widget" => widget(document, annotation, &mut stream, view),
         b"Highlight" | b"Underline" | b"StrikeOut" | b"Squiggly" => {
             text_markup(document, annotation, &mut stream, subtype)
@@ -1085,14 +1092,20 @@ pub(crate) struct SavedStream {
 /// from losing the states its `/V` selects among.
 ///
 /// `displayed` is what a host-supplied runner's format displayed for the value, which a saved
-/// file draws as the viewer did (ADR 1603).
+/// file draws as the viewer did (ADR 1603). `scripted` is what scripts set on the field that the
+/// appearance draws: a widget [`constructs_for_script`] says is constructed anew is constructed
+/// here too, whatever its stored stream, so that the saved file shows what the viewer did (ADR
+/// 1617).
 pub(crate) fn for_saving(
     document: &Document,
     annotation: &Dictionary,
     value: FieldValue<'_>,
     displayed: Option<&crate::view::Displayed>,
+    scripted: &[crate::view::Property],
 ) -> ForSaving {
-    if !regenerates(document, annotation, b"Widget", value) {
+    let constructed_for_script =
+        !scripted.is_empty() && constructs_for_script(document, annotation);
+    if !constructed_for_script && !regenerates(document, annotation, b"Widget", value) {
         return ForSaving::Selected;
     }
     let Ok(rect) = rectangle(document, annotation) else {
@@ -1105,7 +1118,8 @@ pub(crate) fn for_saving(
     let stored = normal
         .as_ref()
         .map(|entry| document.resolve(entry))
-        .and_then(|entry| entry.as_stream().cloned());
+        .and_then(|entry| entry.as_stream().cloned())
+        .filter(|_| !constructed_for_script);
 
     if let Some(stored) = stored {
         // §12.5.5 reads the stream's own `/BBox`; §12.7.4.3 states the one to use when it has
@@ -1158,6 +1172,7 @@ pub(crate) fn for_saving(
         crate::view::AnnotationView {
             value,
             displayed,
+            scripted,
             ..crate::view::AnnotationView::default()
         },
         rect,
@@ -1181,6 +1196,240 @@ pub(crate) fn for_saving(
         existing: None,
         report: constructed.report,
     })
+}
+
+/// The entries a script's properties write, split by the dictionary each belongs on (ADR 1617).
+///
+/// RFC 0008 section 6.4 makes a script's change an edit beside the document, and this is what the
+/// edit *is* in the file's own vocabulary: the entries a processor constructs a widget's appearance
+/// from. ISO 32000-2 §12.5.6.19's Table 191 gives the widget its `/MK`:
+///
+/// > (Optional) An appearance characteristics dictionary (see "Table 192 - Entries in an appearance
+/// > characteristics dictionary") that shall be used in constructing a dynamic appearance stream
+/// > specifying the annotation's visual presentation on the page.
+///
+/// and §12.7.4.3's Table 228 gives the field its `/DA`:
+///
+/// > (Required; inheritable) The default appearance string containing a sequence of valid
+/// > page-content graphics or text state operators that define such properties as the field's text
+/// > size and colour.
+///
+/// So `fillColor` is Table 192's `/BG` and `strokeColor` its `/BC`, `borderStyle` Table 168's `/S`
+/// in the widget's `/BS`, `textColor` a colour operator in `/DA`, `alignment` Table 228's `/Q`,
+/// `charLimit` Table 232's `/MaxLen`, and `required` Table 227's bit 2 in `/Ff`. The spellings and
+/// what each member names are Adobe's *JavaScript for Acrobat API Reference*, "Field properties" —
+/// a documented choice under principle 5, the object model being ISO 21757-1's.
+#[derive(Debug, Default)]
+pub(crate) struct ScriptedEntries {
+    /// On the widget annotation: Table 191's `/MK` and Table 166's `/BS`.
+    pub(crate) widget: Vec<(Name, Object)>,
+    /// On the field, every one of them inheritable: Table 228's `/DA` and `/Q`, Table 232's
+    /// `/MaxLen`, and Table 226's `/Ff`.
+    pub(crate) field: Vec<(Name, Object)>,
+}
+
+/// What a script's properties make of one widget: the entries to write, read against the
+/// inherited values they replace.
+///
+/// **`textColor` is a colour operator after the `/DA`'s own**, the shape `AFNumber_Format`'s red
+/// negative already takes above (ADR 1578 section 2): the producer's operators are replayed and the
+/// colour after them is the one the text is shown in, so a font, a size or a `Tz` the producer
+/// wrote is not rewritten by a property that named only a colour. A transparent text colour has no
+/// operator — Table 192's empty array is a *background's* "no colour", and text has no such state
+/// — so it writes nothing.
+pub(crate) fn scripted_entries(
+    document: &Document,
+    annotation: &Dictionary,
+    properties: &[crate::view::Property],
+) -> ScriptedEntries {
+    use crate::view::Property;
+    let mut entries = ScriptedEntries::default();
+    let mut characteristics: Option<Dictionary> = None;
+    let mut style: Option<Dictionary> = None;
+    let field = Field::read(document, annotation, FieldValue::Stored);
+    for property in properties {
+        match property {
+            Property::FillColor(colour) | Property::StrokeColor(colour) => {
+                let key = if matches!(property, Property::FillColor(_)) {
+                    "BG"
+                } else {
+                    "BC"
+                };
+                characteristics
+                    .get_or_insert_with(|| {
+                        document
+                            .get_key(annotation, "MK")
+                            .as_dict()
+                            .cloned()
+                            .unwrap_or_default()
+                    })
+                    .insert(Name::new(key.as_bytes()), colour_array(*colour));
+            }
+            Property::BorderStyle(border) => {
+                style
+                    .get_or_insert_with(|| {
+                        document
+                            .get_key(annotation, "BS")
+                            .as_dict()
+                            .cloned()
+                            .unwrap_or_default()
+                    })
+                    .insert(
+                        Name::new(&b"S"[..]),
+                        Object::Name(Name::new(border_style_name(*border))),
+                    );
+            }
+            Property::TextColor(colour) => {
+                let Some(operator) = colour_operator(*colour) else {
+                    continue;
+                };
+                let form = interactive_form(document).unwrap_or_default();
+                let sources: Vec<&Dictionary> = field
+                    .ancestry
+                    .iter()
+                    .chain(std::iter::once(&form))
+                    .collect();
+                let mut appearance =
+                    variable_text::bytes(document, &sources, "DA").unwrap_or_default();
+                if !appearance.is_empty() {
+                    appearance.push(b' ');
+                }
+                appearance.extend_from_slice(operator.as_bytes());
+                entries
+                    .field
+                    .push((Name::new(&b"DA"[..]), Object::String(appearance.into())));
+            }
+            Property::Alignment(alignment) => entries.field.push((
+                Name::new(&b"Q"[..]),
+                Object::Integer(match alignment {
+                    crate::view::Alignment::Left => 0,
+                    crate::view::Alignment::Center => 1,
+                    crate::view::Alignment::Right => 2,
+                }),
+            )),
+            Property::CharLimit(limit) => entries.field.push((
+                Name::new(&b"MaxLen"[..]),
+                Object::Integer(i64::from(*limit)),
+            )),
+            Property::Required(on) => {
+                const REQUIRED: i64 = 1 << 1;
+                let flags = if *on {
+                    field.flags | REQUIRED
+                } else {
+                    field.flags & !REQUIRED
+                };
+                entries
+                    .field
+                    .push((Name::new(&b"Ff"[..]), Object::Integer(flags)));
+            }
+            // `display`, `readonly` and the text flags are a view state's own (ADRs 1603, 1615).
+            _ => {}
+        }
+    }
+    if let Some(characteristics) = characteristics {
+        entries
+            .widget
+            .push((Name::new(&b"MK"[..]), Object::Dictionary(characteristics)));
+    }
+    if let Some(style) = style {
+        entries
+            .widget
+            .push((Name::new(&b"BS"[..]), Object::Dictionary(style)));
+    }
+    entries
+}
+
+/// The widget dictionary as a script's properties leave it, for a construction to read.
+///
+/// Both halves of [`scripted_entries`] are written onto the widget itself: every field entry among
+/// them is inheritable, and §12.7.4.1's inheritance takes each from the nearest dictionary that
+/// states it, so the widget's own copy is the one this program's constructions read — the same dictionary a
+/// saved file holds once the field's entries are written where the field keeps them.
+pub(crate) fn with_scripted(
+    document: &Document,
+    annotation: &Dictionary,
+    properties: &[crate::view::Property],
+) -> Dictionary {
+    let entries = scripted_entries(document, annotation, properties);
+    let mut scripted = annotation.clone();
+    for (key, value) in entries.widget.into_iter().chain(entries.field) {
+        scripted.insert(key, value);
+    }
+    scripted
+}
+
+/// Whether a widget whose script set a property it draws is constructed anew rather than drawn
+/// from its stored appearance (ADR 1617).
+///
+/// The stored stream is the producer's picture of the properties the producer chose, and a script
+/// has changed them; §12.7.4.3's construction is the one this program has, and it is the one Table
+/// 191's `/MK` names. A text field, a choice field and a push-button have one appearance to
+/// construct. A check box and a radio button do not: §12.7.5.2.3 defines their states "by an
+/// appearance stream in the appearance dictionary of the field's widget annotation", which the
+/// value selects among, so constructing one stream would destroy the states — their properties are
+/// written to the file for the next construction and drawn from the stored states here.
+pub(crate) fn constructs_for_script(document: &Document, annotation: &Dictionary) -> bool {
+    matches!(
+        Field::read(document, annotation, FieldValue::Stored).kind,
+        Some(FieldKind::Text | FieldKind::Choice { .. } | FieldKind::Button { toggling: false })
+    )
+}
+
+/// An Adobe colour as Table 192's array: as many components as the colour space has, and none for
+/// no colour.
+fn colour_array(colour: crate::view::Colour) -> Object {
+    let components: Vec<f64> = match colour {
+        crate::view::Colour::Transparent => Vec::new(),
+        crate::view::Colour::Gray(gray) => vec![gray],
+        crate::view::Colour::Rgb(rgb) => rgb.to_vec(),
+        crate::view::Colour::Cmyk(cmyk) => cmyk.to_vec(),
+    };
+    Object::Array(
+        components
+            .into_iter()
+            .map(|component| Object::Real(component.clamp(0.0, 1.0)))
+            .collect(),
+    )
+}
+
+/// An Adobe colour as the nonstroking colour operator §8.6.8 gives its device space, or `None` for
+/// no colour.
+fn colour_operator(colour: crate::view::Colour) -> Option<String> {
+    let number = |value: f64| {
+        let mut text = format!("{:.4}", value.clamp(0.0, 1.0));
+        while text.ends_with('0') {
+            text.pop();
+        }
+        if text.ends_with('.') {
+            text.pop();
+        }
+        text
+    };
+    Some(match colour {
+        crate::view::Colour::Transparent => return None,
+        crate::view::Colour::Gray(gray) => format!("{} g", number(gray)),
+        crate::view::Colour::Rgb([red, green, blue]) => {
+            format!("{} {} {} rg", number(red), number(green), number(blue))
+        }
+        crate::view::Colour::Cmyk([cyan, magenta, yellow, black]) => format!(
+            "{} {} {} {} k",
+            number(cyan),
+            number(magenta),
+            number(yellow),
+            number(black)
+        ),
+    })
+}
+
+/// Table 168's name for an Adobe border style.
+fn border_style_name(style: crate::view::BorderStyle) -> &'static [u8] {
+    match style {
+        crate::view::BorderStyle::Solid => b"S",
+        crate::view::BorderStyle::Dashed => b"D",
+        crate::view::BorderStyle::Beveled => b"B",
+        crate::view::BorderStyle::Inset => b"I",
+        crate::view::BorderStyle::Underline => b"U",
+    }
 }
 
 /// Draws a link's border: §12.5.4's rounded rectangle, in Table 166's `/C`.

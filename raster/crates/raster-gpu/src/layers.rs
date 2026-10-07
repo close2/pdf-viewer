@@ -22,9 +22,10 @@
 //! **Why handing back a texture with someone else's pixels in it is safe:** every
 //! acquired texture is fully written before it is read — the first draw pass clears it, a
 //! seeded non-isolated group blits its backdrop over it (ADR 0019), a copied backdrop is
-//! written whole by its blit, and a plan with no ops at all clears once. A composite is
-//! the one pass that writes only part of its attachment, and it writes into the plan's
-//! own accumulator, which was cleared before anything drew. Under a damage scissor the
+//! written whole by its blit's clear, and a plan with no ops at all clears once. A
+//! composite is the one draw that writes only part of its attachment, and it writes into
+//! the plan's own accumulator, which an earlier pass cleared or the composite's own pass
+//! clears before it draws (ADR 1618). Under a damage scissor the
 //! written region and the read region are the same region. Nothing ever reads a texel
 //! this frame did not write.
 //!

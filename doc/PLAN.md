@@ -146,7 +146,10 @@ codegen (§5), and `crates/pdf-sandbox/build.rs` bakes the confined worker's pat
   judged", which is not a pass (ADR 1537). Every round of the method — the gate's child and
   `examples/frame_budget` alike — begins by keeping each core the process may run on busy for a
   moment, so the processor's idle clock is not one of the quantities a band holds (ADR 1577).
-  `tools/batch.sh gates` runs it in `release`.
+  Each page carries a third row beside the turn and the step: the same turn as the seventh frame
+  of a device that has drawn six, so a cost that depends on what a device has already done is
+  judged on the device a window keeps as well as on a fresh one (ADR 1607). `tools/batch.sh gates`
+  runs it in `release`.
 - Miri on the pure-Rust core; ASan/UBSan on any FFI
 - `cargo-deny`, `cargo-audit`
 - **the conformance gate** (§5a) — citations checked against the standard's own clause index,
@@ -185,7 +188,8 @@ has the rounds.
   (`render-gpu/tests/headless_gpu.rs`). The interactive half is the viewer itself, `viewer-ui`'s
   `quorra`, which draws through `raster` rather than `render-gpu`; the agent has no X authority
   cookie for the owner's display, so `tools/drive-windows.sh` drives it, and the two other windows,
-  under Xvfb (ADR 1453).
+  under Xvfb (ADR 1453), each step waiting for the window's own word under a ceiling rather than
+  for a fixed time (ADR 1605).
 - **The Arlington TSVs generate `static` validation tables** with zero startup cost, verified
   against ISO 32000-2 Tables 29 and 31. §5 is the design.
 - **A confined worker is confined**, and the kernel says so rather than the source: `pdf-sandbox`
@@ -441,7 +445,7 @@ an argued exclusion, so the next clause left out is a build failure instead of a
 |---|---|
 | `implemented` | Every normative requirement in the clause is executed. Names the code site and the test. |
 | `partial` | Names which requirements are implemented, which are not, and what is *reported* for the remainder. The note states one current reason and what would move the row — a crate release, an owner's answer by number, or a trigger (ADR 1574). A head is `partial` while a row beneath it owes (ADR 1035); a clause that states no requirement of its own is a heading, not an aggregate, and takes `implemented` (ADRs 1535, 1573). |
-| `departed` | Every requirement of the clause is executed except the one the note names, which was decided against with its cost recorded. Nothing is owed. The note's first sentence says what was departed from and names the ADR that decided it and priced it; `tools/state.sh` counts it as its own figure, never folded into `implemented` or `partial`. The owner's word, added in answer to `doc/questions/Q63` (ADR 1119). |
+| `departed` | Every requirement of the clause is executed except the one the note names, which was decided against with its cost recorded. Nothing is owed. The note's first sentence says what was departed from and names the ADR that decided it and priced it; `tools/state.sh` counts it as its own figure, never folded into `implemented` or `partial`. The owner's word, added in answer to `doc/questions/Q63` (ADR 1119). **What is departed from is a `shall` addressed to this program**: a `should` declined, a `may` not taken, a NOTE, or a method the standard offers a kind of processor this one is not departs from no requirement, and the row is `implemented` with the choice and the sentence that leaves it named (ADR 1622). |
 | `reported` | Deliberately not implemented *yet*; detected and reported at runtime rather than skipped silently. Still owed. |
 | `silent` | Not implemented, and **nothing says so**: a document exercising the clause is drawn wrong without a word. |
 | `inapplicable` | The requirement cannot reach this program: it describes a press rather than a screen (§10.6's halftones, on the standard's own condition — ADR 0204), or it is a permission this program declines and has no code to point at (§14.11.2.2's page-boundary guidelines). **Two situations under one word**, which ADR 0205 had to separate by hand; every such note says which it means. **Not** the same as excluded, and not the same as a permission *exercised*, which is `implemented` where there is code to name — §10.7.2's flatness is the standing example. **The condition is the standard's, read in its clause, and it is asked of the whole program**: a row whose condition was this tree's own claim, or whose stated condition is false of a writer, the print path or the archive path this program has, is not `inapplicable` — a press, a PostScript printer or a capturing application is a condition; "this is a viewer" is not (ADR 1461). **The note quotes that condition**, verbatim, from the row's clause, its parent or a clause it cites, or the build fails; and a clause that states no requirement of its own is a heading, `implemented` vacuously or as its subclauses are, never `inapplicable` (ADR 1535). |
@@ -682,9 +686,14 @@ Memory safety is necessary, not sufficient.
 - **A document's JavaScript is built in RFC 0008's tiers, and an engine is a separate sandboxing
   problem.** The owner accepted the RFC (`doc/questions/A193`); Tier 0 runs a script that is one
   `AF*` call as Rust and parses no ECMAScript (ADRs 1578, 1579); Tier 1's engine, Boa in
-  `pdf-script`, is behind a feature no build turns on and runs in no window, because no host
-  supplies a runner (ADRs 1590, 1591). So no interpreter is in a running process yet, and the step
-  that puts one there brings its sandbox argument with it (RFC 0008 sections 6.2 and 11).
+  `pdf-script`, is behind the `engine` feature, one realm per document (ADRs 1590, 1591, 1602,
+  1603), and its sandbox argument is built: `pdf-script-worker` is the third confined program,
+  under the narrowest of `pdf_sandbox`'s profiles, with a deadline per trigger and a named loss
+  (ADRs 1608, 1609). No window is built with the feature: the worker alone is, in a Cargo run of
+  its own that `tools/batch.sh install` puts beside the windows, and every window supplies it as
+  its runner at the reader's `Scripts` level, `off` by default (ADRs 1616, 1625). The merge's Tier 1
+  column, `t2-script_corpus_engine`, runs every script Tier 0 does not over the census population
+  and holds its endings to the column's ceilings (ADR 1625).
 
 **No C or C++ library reaches a document's bytes**; the confined codecs are pure Rust, and the
 confinement is for panic containment and a memory ceiling rather than for containing C. `ring`,

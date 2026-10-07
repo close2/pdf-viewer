@@ -4286,13 +4286,15 @@ mod tests {
         // that grew an entry would otherwise leave this passing over a menu missing nine rows.
         let operations = viewer_core::RestrictionPolicy::OPERATIONS.len();
         assert_eq!(chosen.len(), operations * 4 + operations * 5);
-        // And the machine's acts, last: §12.7.6.2's four, then §O.2.1's (ADRs 1291, 1331).
+        // And the machine's acts, last: §12.7.6.2's four, §O.2.1's, then a document's scripts
+        // (ADRs 1291, 1331, 1616).
         let expected: Vec<viewer_host::ActLevel> = viewer_host::Submissions::ALL
             .map(viewer_host::ActLevel::Submissions)
             .into_iter()
             .chain(
                 viewer_host::EmbeddedDocuments::ALL.map(viewer_host::ActLevel::EmbeddedDocuments),
             )
+            .chain(viewer_host::Scripts::ALL.map(viewer_host::ActLevel::Scripts))
             .collect();
         assert_eq!(acts, expected);
         assert!(

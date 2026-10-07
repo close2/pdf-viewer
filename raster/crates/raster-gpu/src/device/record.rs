@@ -93,6 +93,7 @@ fn record_content(
         Route::Patch { rects, .. } => {
             executor.realise_masks(recorder)?;
             let root = executor.render_plan(recorder, 0, None)?;
+            executor.closing = true;
             executor.patch_to_target(
                 recorder,
                 &root.view(),
@@ -102,21 +103,24 @@ fn record_content(
                 rects,
             )?;
         }
-        Route::Untouched => {}
+        // No pass draws, so the end timestamp is a pass of its own.
+        Route::Untouched => executor.end_stamp(recorder, target_view),
         Route::Flat => {
             // is_flat checked: a flat root holds drawable ops only.
             let root_ops = compose::run_ops(&executor.encoded.root.ops);
+            executor.closing = true;
             executor.draw_pass(
                 recorder,
-                target_view,
-                target_format,
+                (target_view, target_format),
                 PassLoad::Clear,
                 &root_ops,
+                None,
             )?;
         }
         Route::Layered => {
             executor.realise_masks(recorder)?;
             let root = executor.render_plan(recorder, 0, None)?;
+            executor.closing = true;
             executor.blit_to_target(
                 recorder,
                 &root.view(),
@@ -174,6 +178,7 @@ impl Device {
             dummy_view,
             atlas_view: self.atlas_texture.as_ref().map(|(_, view)| view.clone()),
             first_pass_stamped: false,
+            closing: false,
             query,
             phases: Vec::new(),
             scissor: route.scissor(),
@@ -189,7 +194,6 @@ impl Device {
             route,
             (&target_view, target_format),
         )?;
-        executor.end_stamp(&mut recorder, &target_view);
         let layer_textures = u32::try_from(executor.pool.peak()).unwrap_or(u32::MAX);
         let phases = std::mem::take(&mut executor.phases);
         drop(executor);

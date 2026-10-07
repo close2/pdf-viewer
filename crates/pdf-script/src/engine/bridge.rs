@@ -5,9 +5,11 @@
 //! realm was told of, with the properties RFC 0008 section 4.2 admits for a field's value and its
 //! appearance (`value`, `valueAsString`, `name`, `type`, `display`, `hidden`, `readonly`,
 //! `required`, `textColor`, `fillColor`, `strokeColor`, `borderStyle`, `alignment`, `charLimit`,
-//! the flags `multiline`, `password`, `comb`, `doNotScroll`, and `page`, `rect`, `doc`); `event`
-//! with what each site raises; the reference's `display`, `border` and `color` constants;
-//! `console.println`; and the `AF*` library, each function a native that hands its arguments to
+//! the flags `multiline`, `password`, `comb`, `doNotScroll`, and `page`, `rect`, `doc`) and its
+//! `getArray` and `setFocus`; `event` with what each site raises; `app`'s six properties naming the
+//! viewer, `util.printd` and `util.printx` (ADR 1615); the reference's `display`, `border` and
+//! `color` constants; `console.println`; and the `AF*` library, each function a native that hands
+//! its arguments to
 //! `pdf_model::aform` — the Rust Tier 0 runs, so that a format called from a script and a format
 //! that is the whole script write the same characters. Everything else [`crate::surface`] lists is
 //! a property whose every read and write throws a `NotAllowedError`.
@@ -26,7 +28,7 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
-use boa_engine::object::builtins::JsArray;
+use boa_engine::object::builtins::{JsArray, JsDate};
 use boa_engine::object::{FunctionObjectBuilder, ObjectInitializer};
 use boa_engine::property::PropertyDescriptor;
 use boa_engine::{Context, JsNativeError, JsObject, JsResult, JsString, JsValue, NativeFunction};
@@ -36,13 +38,13 @@ use pdf_model::aform::{
 };
 use pdf_model::view::{
     Alignment, BorderStyle, Colour, Display, FieldState, FieldType, Property, ScriptEdit,
-    ScriptSite,
+    ScriptSite, TextFlag,
 };
 
 use super::{State, guard, refuse};
 use crate::request::byte_offset;
 use crate::surface::{EXCLUDED, Holder, NOT_BRIDGED};
-use crate::{Outcome, RefusalKind, Request};
+use crate::{Outcome, RefusalKind, Request, viewer};
 
 /// The objects a realm builds once and hands out many times.
 #[derive(Debug)]
@@ -57,13 +59,8 @@ struct Objects {
 const READ_ONLY: u32 = 1;
 /// Table 227 bit 2.
 const REQUIRED: u32 = 1 << 1;
-/// The flags a script reads and this bridge does not let it write, with Table 231's bit for each.
-const READ_FLAGS: [(&str, u32); 4] = [
-    ("multiline", 1 << 12),
-    ("password", 1 << 13),
-    ("doNotScroll", 1 << 23),
-    ("comb", 1 << 24),
-];
+/// Table 231 bit 21, `FileSelect`: one of the three flags that must be clear for `Comb`.
+const FILE_SELECT: u32 = 1 << 20;
 
 /// Installs the guards and the host object model a realm keeps for its lifetime.
 ///
@@ -94,7 +91,16 @@ pub(super) fn begin(context: &mut Context, request: &Request) -> JsResult<JsObje
     let (kind, name) = request.site.event_names(
         !request.field.is_empty() && matches!(request.site, ScriptSite::Annotation(_)),
     );
-    let target = field_object(context, &request.field).map_or_else(JsValue::null, JsValue::from);
+    // The reference's "Event type/name combinations" page makes the document the target of every
+    // `Doc` event — the open and Table 200's five (ADR 1614).
+    let target = if matches!(
+        request.site,
+        ScriptSite::Library | ScriptSite::OpenAction | ScriptSite::Document(_)
+    ) {
+        JsValue::from(context.global_object())
+    } else {
+        field_object(context, &request.field).map_or_else(JsValue::null, JsValue::from)
+    };
     let source =
         field_object(context, &request.event.source).map_or_else(JsValue::null, JsValue::from);
     let target_name = if request.site == ScriptSite::Library {
@@ -189,11 +195,21 @@ fn document(context: &mut Context) -> JsResult<()> {
     refusers(&global, Holder::Doc, context)?;
     refusers(&global, Holder::Global, context)?;
 
-    for (name, holder) in [("app", Holder::App), ("util", Holder::Util)] {
-        let object = ObjectInitializer::new(context).build();
-        refusers(&object, holder, context)?;
-        data(&global, name, JsValue::from(object), false, context)?;
+    let app = ObjectInitializer::new(context).build();
+    identity(&app, context)?;
+    refusers(&app, Holder::App, context)?;
+    data(&global, "app", JsValue::from(app), false, context)?;
+    let util = ObjectInitializer::new(context).build();
+    let methods: [(&str, NativeFunction); 2] = [
+        ("printx", NativeFunction::from_fn_ptr(print_mask)),
+        ("printd", NativeFunction::from_fn_ptr(print_date)),
+    ];
+    for (name, native) in methods {
+        let callable = function(context, name, native);
+        data(&util, name, JsValue::from(callable), false, context)?;
     }
+    refusers(&util, Holder::Util, context)?;
+    data(&global, "util", JsValue::from(util), false, context)?;
     let console = ObjectInitializer::new(context).build();
     let println = function(
         context,
@@ -227,6 +243,237 @@ fn document(context: &mut Context) -> JsResult<()> {
         )?;
     }
     Ok(())
+}
+
+/// `app`'s six properties that say which viewer a script runs in, each this program's own answer
+/// ([`crate::viewer`], ADR 1615), read-only as the reference's "app properties" page has them.
+fn identity(app: &JsObject, context: &mut Context) -> JsResult<()> {
+    let answers: [(&str, Answer); 6] = [
+        ("viewerType", Answer::Text(viewer::VIEWER_TYPE)),
+        ("viewerVariation", Answer::Text(viewer::VIEWER_VARIATION)),
+        ("viewerVersion", Answer::Number(viewer::version())),
+        ("formsVersion", Answer::Number(viewer::version())),
+        ("platform", Answer::Text(viewer::platform())),
+        ("language", Answer::Text(viewer::LANGUAGE)),
+    ];
+    for (name, answer) in answers {
+        let getter = function(
+            context,
+            name,
+            NativeFunction::from_copy_closure(move |_this, _arguments, _context| {
+                Ok(match answer {
+                    Answer::Text(text) => JsValue::from(JsString::from(text)),
+                    Answer::Number(number) => JsValue::from(number),
+                })
+            }),
+        );
+        let setter = function(
+            context,
+            name,
+            NativeFunction::from_copy_closure(move |_this, _arguments, context| {
+                Err(refuse(
+                    format!("app.{name}="),
+                    RefusalKind::Unreachable(
+                        "which viewer a script runs in is the viewer's to state, and a script \
+                         reads it"
+                            .to_owned(),
+                    ),
+                    context,
+                ))
+            }),
+        );
+        accessor(app, name, getter, setter, context)?;
+    }
+    Ok(())
+}
+
+/// What one of `app`'s identity properties answers.
+#[derive(Debug, Clone, Copy)]
+enum Answer {
+    /// A string.
+    Text(&'static str),
+    /// A number.
+    Number(f64),
+}
+
+/// `util.printx(cFormat, cSource)`: the source written through the mask, by the very function
+/// `AFSpecial_Format` writes through (`pdf_model::aform::print_mask`, ADR 1578 section 7).
+fn print_mask(_this: &JsValue, arguments: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    // The mask copies each source character once at most, so what it writes is never longer than
+    // the two strings the script already holds, and no budget is asked.
+    let mask = text_argument(arguments, 0, context)?;
+    let source = text_argument(arguments, 1, context)?;
+    Ok(JsValue::from(JsString::from(
+        pdf_model::aform::print_mask(&mask, &source).as_str(),
+    )))
+}
+
+/// `util.printd(cFormat, oDate, bXFAPicture)`: a `Date` written in a picture, or in one of the
+/// reference's three numbered formats.
+///
+/// The picture language is `pdf_model::aform::print_date`'s, the one `AFDate_FormatEx` writes
+/// through, and the date's fields are read in local time at the request's offset. The numbered
+/// formats are the reference's "util methods" page's, a documented choice each (ADR 1615): `0` is
+/// §7.9.4's date string in local time with its offset — the reference's example for it is
+/// `D:20000801145605+07'00'`; `1`, which the reference calls *universal*, is the same moment in
+/// Universal Time, written with §7.9.4's `Z`, since its example repeats format 0's; and `2` is the
+/// reference's example's own shape, `yyyy/mm/dd HH:MM:ss`, because this program has one locale.
+/// An XFA picture clause — `bXFAPicture` true — is XFA's, which Annex K permits a processor not to
+/// implement, and is refused by name.
+fn print_date(_this: &JsValue, arguments: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let refused = |why: &str, context: &mut Context| {
+        refuse(
+            "util.printd".to_owned(),
+            RefusalKind::Library(why.to_owned()),
+            context,
+        )
+    };
+    if arguments.get(2).is_some_and(JsValue::to_boolean) {
+        return Err(refused(
+            "its third argument asks for an XFA picture clause, which is XFA's, and Annex K \
+             permits a processor not to implement XFA",
+            context,
+        ));
+    }
+    let Some(date) = arguments
+        .get(1)
+        .and_then(JsValue::as_object)
+        .and_then(|object| JsDate::from_object(object).ok())
+    else {
+        return Err(refused("its second argument is not a Date", context));
+    };
+    let format = arguments.first().cloned().unwrap_or_default();
+    let numbered = match format.as_number() {
+        None => None,
+        Some(number)
+            if number.fract().abs() < f64::EPSILON && (0..=2).contains(&integral(number)) =>
+        {
+            Some(integral(number))
+        }
+        Some(_) => {
+            return Err(refused(
+                "its first argument is a number, and the numbered formats are 0, 1 and 2",
+                context,
+            ));
+        }
+    };
+    let universal = numbered == Some(1);
+    let Some(moment) = moment_of(&date, universal, context)? else {
+        return Err(refused(
+            "its date is not a moment: the Date holds no time value",
+            context,
+        ));
+    };
+    let picture = match numbered {
+        Some(0 | 1) => "yyyymmddHHMMss".to_owned(),
+        Some(_) => "yyyy/mm/dd HH:MM:ss".to_owned(),
+        None => format.to_string(context)?.to_std_string_lossy(),
+    };
+    // A place-holder writes at most nine characters for its four — `mmmm` is `September` — so the
+    // output is held to the string budget before it is built.
+    let units = u64::try_from(picture.encode_utf16().count()).unwrap_or(u64::MAX);
+    guard::string_units(units.saturating_mul(9) / 4, context)?;
+    let body = pdf_model::aform::print_date(&picture, &moment)
+        .map_err(|refusal| refused(refusal.sentence(), context))?;
+    let written = match numbered {
+        Some(0) => {
+            // `getTimezoneOffset` is minutes *west* of Universal Time, as ECMA-262 defines it.
+            let west = date.get_timezone_offset(context)?.to_number(context)?;
+            format!("D:{body}{}", pdf_offset(integral(west).saturating_neg()))
+        }
+        Some(1) => format!("D:{body}Z"),
+        _ => body,
+    };
+    Ok(JsValue::from(JsString::from(written.as_str())))
+}
+
+/// A `Date`'s fields as the library's moment, in local time or in Universal Time; `None` for a
+/// `Date` that holds no time value, or one whose year the library's moment cannot hold.
+fn moment_of(
+    date: &JsDate,
+    universal: bool,
+    context: &mut Context,
+) -> JsResult<Option<pdf_model::aform::DateTime>> {
+    let fields = if universal {
+        [
+            date.get_utc_full_year(context)?,
+            date.get_utc_month(context)?,
+            date.get_utc_date(context)?,
+            date.get_utc_hours(context)?,
+            date.get_utc_minutes(context)?,
+            date.get_utc_seconds(context)?,
+        ]
+    } else {
+        [
+            date.get_full_year(context)?,
+            date.get_month(context)?,
+            date.get_date(context)?,
+            date.get_hours(context)?,
+            date.get_minutes(context)?,
+            date.get_seconds(context)?,
+        ]
+    };
+    let mut numbers = [0.0_f64; 6];
+    for (slot, field) in numbers.iter_mut().zip(fields) {
+        let number = field.to_number(context)?;
+        if !number.is_finite() {
+            return Ok(None);
+        }
+        *slot = number;
+    }
+    let [year, month, day, hour, minute, second] = numbers;
+    let small = |value: f64| u8::try_from(integral(value)).ok();
+    let Ok(year) = i32::try_from(integral(year)) else {
+        return Ok(None);
+    };
+    let (Some(month), Some(day), Some(hour), Some(minute), Some(second)) = (
+        small(month),
+        small(day),
+        small(hour),
+        small(minute),
+        small(second),
+    ) else {
+        return Ok(None);
+    };
+    Ok(Some(pdf_model::aform::DateTime {
+        year,
+        // ECMA-262 counts months from zero.
+        month: month.saturating_add(1),
+        day,
+        hour,
+        minute,
+        second,
+    }))
+}
+
+/// A number as an integer, towards zero: the `Date` getters answer integral values, and a
+/// numbered format is checked to be one before it is read.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "the values are integral where they are read, and `as` saturates out of range"
+)]
+fn integral(value: f64) -> i64 {
+    value as i64
+}
+
+/// §7.9.4's `O HH ' mm` for an offset in minutes east of Universal Time: `Z` for none.
+fn pdf_offset(minutes: i64) -> String {
+    if minutes == 0 {
+        return "Z".to_owned();
+    }
+    let sign = if minutes < 0 { '-' } else { '+' };
+    let absolute = minutes.unsigned_abs();
+    format!("{sign}{:02}'{:02}", absolute / 60, absolute % 60)
+}
+
+/// One argument's text, `undefined` where it was not passed.
+fn text_argument(arguments: &[JsValue], index: usize, context: &mut Context) -> JsResult<String> {
+    Ok(arguments
+        .get(index)
+        .cloned()
+        .unwrap_or_default()
+        .to_string(context)?
+        .to_std_string_lossy())
 }
 
 /// The reference's `display`, `border` and `color` objects: constants a script compares and
@@ -468,6 +715,14 @@ fn field_prototype(context: &mut Context) -> JsResult<JsObject> {
         );
         accessor(&prototype, name, getter, setter, context)?;
     }
+    let methods: [(&str, NativeFunction); 2] = [
+        ("getArray", NativeFunction::from_fn_ptr(get_array)),
+        ("setFocus", NativeFunction::from_fn_ptr(set_focus)),
+    ];
+    for (name, native) in methods {
+        let callable = function(context, name, native);
+        data(&prototype, name, JsValue::from(callable), false, context)?;
+    }
     refusers(&prototype, Holder::Field, context)?;
     Ok(prototype)
 }
@@ -501,8 +756,8 @@ enum FieldProperty {
     Alignment,
     /// `charLimit`.
     CharLimit,
-    /// One of [`READ_FLAGS`], by index.
-    Flag(usize),
+    /// One of Table 231's text field flags.
+    Flag(TextFlag),
     /// `page`.
     Page,
     /// `rect`.
@@ -527,10 +782,10 @@ impl FieldProperty {
         Self::BorderStyle,
         Self::Alignment,
         Self::CharLimit,
-        Self::Flag(0),
-        Self::Flag(1),
-        Self::Flag(2),
-        Self::Flag(3),
+        Self::Flag(TextFlag::Multiline),
+        Self::Flag(TextFlag::Password),
+        Self::Flag(TextFlag::DoNotScroll),
+        Self::Flag(TextFlag::Comb),
         Self::Page,
         Self::Rect,
         Self::Doc,
@@ -552,7 +807,7 @@ impl FieldProperty {
             Self::BorderStyle => "borderStyle",
             Self::Alignment => "alignment",
             Self::CharLimit => "charLimit",
-            Self::Flag(index) => READ_FLAGS.get(index).map_or("flag", |(name, _)| name),
+            Self::Flag(flag) => flag.adobe(),
             Self::Page => "page",
             Self::Rect => "rect",
             Self::Doc => "doc",
@@ -612,11 +867,7 @@ fn read_property(
         FieldProperty::BorderStyle => text(state.border_style.adobe()),
         FieldProperty::Alignment => text(state.alignment.adobe()),
         FieldProperty::CharLimit => JsValue::from(state.char_limit.unwrap_or(0)),
-        FieldProperty::Flag(index) => JsValue::from(
-            READ_FLAGS
-                .get(index)
-                .is_some_and(|(_, bit)| state.flags & bit != 0),
-        ),
+        FieldProperty::Flag(flag) => JsValue::from(state.flags & flag.bit() != 0),
         FieldProperty::Page => state.page.map_or_else(|| JsValue::from(-1), JsValue::from),
         FieldProperty::Rect => {
             // The reference's rectangle is upper-left then lower-right; Table 166's `/Rect` is any
@@ -728,13 +979,7 @@ fn write_property(
         | FieldProperty::Doc => {
             return Err(refused("the reference makes it read-only", context));
         }
-        FieldProperty::Flag(_) => {
-            return Err(refuse(
-                format!("Field.{member}="),
-                RefusalKind::NotBridged,
-                context,
-            ));
-        }
+        FieldProperty::Flag(flag) => return write_flag(&name, flag, value.to_boolean(), context),
     };
     for field in terminals(context, &name) {
         let edit = ScriptEdit::Property {
@@ -744,6 +989,96 @@ fn write_property(
         State::edit(context, &field, edit, |state| apply(state, change));
     }
     Ok(())
+}
+
+/// `Field.multiline`, `password`, `doNotScroll` or `comb` set: Table 231's flag on every terminal
+/// field the name stands for, each a text field.
+///
+/// `comb` is held to the clause that defines it — the flag "[m]ay be set only if the `MaxLen`
+/// entry is present in the text field dictionary … and if the Multiline, Password, and
+/// `FileSelect` flags are clear" — and setting it sets `doNotScroll` too, the side effect the
+/// reference's "Field properties" page states (ADR 1615). A refused write changes no field.
+fn write_flag(name: &str, flag: TextFlag, on: bool, context: &mut Context) -> JsResult<()> {
+    let member = flag.adobe();
+    let refused = |why: String, context: &mut Context| {
+        refuse(
+            format!("Field.{member}="),
+            RefusalKind::Unreachable(why),
+            context,
+        )
+    };
+    let fields = terminals(context, name);
+    let states: Vec<FieldState> = State::table(context, |table| {
+        fields
+            .iter()
+            .filter_map(|field| table.fields.get(field).cloned())
+            .collect()
+    })
+    .unwrap_or_default();
+    for state in &states {
+        if state.kind != FieldType::Text {
+            return Err(refused(
+                format!(
+                    "{member} is a text field's flag, one of Table 231's, and {} is a {} field",
+                    state.name,
+                    state.kind.adobe()
+                ),
+                context,
+            ));
+        }
+        let excluding = TextFlag::Multiline.bit() | TextFlag::Password.bit() | FILE_SELECT;
+        if flag == TextFlag::Comb
+            && on
+            && (state.flags & excluding != 0 || state.char_limit.is_none())
+        {
+            return Err(refused(
+                format!(
+                    "Table 231 lets comb be set only where the field states a /MaxLen and its \
+                     multiline, password and file-select flags are clear, and {} does not meet that",
+                    state.name
+                ),
+                context,
+            ));
+        }
+    }
+    for field in fields {
+        let mut set = vec![flag];
+        if flag == TextFlag::Comb && on {
+            set.push(TextFlag::DoNotScroll);
+        }
+        for flag in set {
+            let property = Property::TextFlag(flag, on);
+            let edit = ScriptEdit::Property {
+                field: field.clone(),
+                property,
+            };
+            State::edit(context, &field, edit, |state| apply(state, property));
+        }
+    }
+    Ok(())
+}
+
+/// `field.getArray()`: the terminal fields below this one, each a `Field` — the field itself where
+/// it is terminal, a documented choice where the reference speaks only of a parent's terminal
+/// children (ADR 1615).
+fn get_array(this: &JsValue, _arguments: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let name = field_name(this, context)?;
+    let fields: Vec<JsValue> = terminals(context, &name)
+        .iter()
+        .filter_map(|field| field_object(context, field))
+        .map(JsValue::from)
+        .collect();
+    Ok(JsValue::from(JsArray::from_iter(fields, context)))
+}
+
+/// `field.setFocus()`: the keyboard focus asked for on this field — its first terminal field, for a
+/// name that stands for a subtree — as an edit the host carries out (ADR 1615).
+fn set_focus(this: &JsValue, _arguments: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let name = field_name(this, context)?;
+    if let Some(field) = terminals(context, &name).into_iter().next() {
+        State::note(context, ScriptEdit::Focus { field });
+    }
+    Ok(JsValue::undefined())
 }
 
 /// `Field.value = …`: every terminal field the name stands for takes the value's text.
@@ -796,6 +1131,7 @@ fn apply(state: &mut FieldState, property: Property) {
         Property::BorderStyle(style) => state.border_style = style,
         Property::Alignment(alignment) => state.alignment = alignment,
         Property::CharLimit(limit) => state.char_limit = Some(limit),
+        Property::TextFlag(flag, on) => state.flags = set(state.flags, flag.bit(), on),
     }
 }
 

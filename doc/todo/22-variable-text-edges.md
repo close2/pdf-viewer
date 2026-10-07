@@ -1,11 +1,12 @@
 # §12.7.4.3's remaining edges
 
-Status: **done — nothing is owed.** The last document, `freetext_no_appearance.pdf`, draws since
+Status: **done — nothing this file lists is owed.** The last document, `freetext_no_appearance.pdf`, draws since
 ADRs 1413 and 1414. The file stays whole because comments under `crates/`
 (`examples/variable_text_census.rs`, `view.rs`, `tests/saving.rs`, `tests/corpus.rs`) and
 `doc/todo/65` cite it, and what it keeps is the reasoning behind the closed items, which is the
-reason a later round will not reopen any of them. The row is `departed` for rich text formatting
-alone, which §12.7.4.3 hands to XFA 3.3 (ADRs 1122, 1197); a `/DA` text matrix with no inverse is
+reason a later round will not reopen any of them. The row is `partial` for rich text formatting
+alone, which §12.7.4.3 hands to XFA 3.3 and which is owed now that the text stating it is held
+(ADRs 1122, 1197, 1623; `doc/todo/65` bucket 4); a `/DA` text matrix with no inverse is
 the clause carried out, and the report says why the field is blank (`Owed::SingularTextMatrix`).
 Priority: 22
 Corpus: 0 documents
@@ -47,10 +48,10 @@ is still not drawn at all rather than in part, and a test that needs one skips s
   written: the widget goes out with Table 224's `/NeedAppearances` and `view::Written::unconstructed`
   names it (ADR 1159's route), and the archive's writer refuses it.
 
-## ~~A `/DA` font name that is not text, and the escaping that goes with it~~ — **done in the six-hundred-and-seventeenth session**
+## ~~A `/DA` font name that is not text, and the escaping that goes with it~~ — **done in ADR 0453**
 
 ADR 0453, and the reason it is worth keeping as a paragraph is the shape of the argument that
-deferred it rather than the fix. The six-hundred-and-fourth session's sweep found the read defect —
+deferred it rather than the fix. ADR 0439's sweep found the read defect —
 the `Tf` operand folded to a `String` before probing `/DR` — and declined to fix it, because this
 module **writes** the same name into the appearance stream it constructs and wrote it with no `#xx`
 escaping at all. Correcting the lookup alone would have found the document's font and then named a
@@ -73,7 +74,7 @@ and what they reach is a save or an edit.
 
 Closed and kept here for the reasoning:
 
-- **`bug1865341.pdf`** (two-hundred-and-eighty-fourth session, ADR 0184). Its value is *Załącznik*
+- **`bug1865341.pdf`** (ADR 0184). Its value is *Załącznik*
   and its missing set was **one character**, `ą` — not a glyph any Helvetica lacks but a **code**
   neither §9.6.5.2 encoding has. A font this module invents may state its own encoding, so it does:
   `/Encoding << /Differences [1 /aogonek] >>`, with the name from the Adobe Glyph List that
@@ -82,7 +83,7 @@ Closed and kept here for the reasoning:
   anything, so both stand in and both say so, which is the case the table is narrow enough to
   leave alone.
 
-## ~~A composite `/DA` font~~ — **done in the five-hundred-and-second session**
+## ~~A composite `/DA` font~~ — **done in ADR 0337**
 
 ADR 0337. The refusal's stated reason — a character cannot become a code without inverting
 §9.7.6.2's codespace ranges — was true and was not a reason, which is the lesson worth keeping
@@ -118,11 +119,11 @@ built from; its **formatting** is not, because that is XFA 3.3's and this tree d
 and that half stays ADR 1122's reported departure with its condition widened to Table 228's `/DS`
 — 411 widgets state one against 60 stating an `/RV`, which `examples/field_flag_census` counts.
 
-## ~~§12.7.5.4's list box~~ — **drawn in the five-hundred-and-seventy-first session**
+## ~~§12.7.5.4's list box~~ — **drawn since ADR 0407**
 
 **ADR 0407 reversed this section's conclusion by reading one sentence further, and the argument
-below is kept because the reversal is only legible beside it.** What was written in the
-four-hundred-and-third (ADR 0240) is next, unchanged.
+below is kept because the reversal is only legible beside it.** What ADR 0240 had
+written here is next, unchanged.
 
 > The clause states *which* items are selected and *in what order* they are shown — Table
 > 234's `/Opt` "shall be presented to the user", Table 233's `Sort` row adds "PDF readers shall
@@ -152,7 +153,7 @@ files." That instruction is the reason the item sat for a hundred and sixty-eigh
 looking for the wrong document — the one that was needed is any list box at all, with a person's
 choice applied to it.
 
-**The *host* half was finished first**, in the four-hundred-and-twelfth (ADR
+**The *host* half was finished first** (ADR
 0248), and that is what made the page half a debt rather than a curiosity: this program could
 choose an item and could not show the result. A host can now say which
 items a person selected — Table 233 bit 22 sets **4** of the corpus's widgets, over 4 documents —
@@ -162,7 +163,7 @@ everywhere except the one place it states nothing — and since ADR 0407 that pl
 alone: the options are drawn, from Table 234's `/TI`, and which of them the value selects is
 reported rather than invented.
 
-## ~~Table 231 bit 24's `DoNotScroll`~~ — **done in the three-hundred-and-thirty-eighth session**
+## ~~Table 231 bit 24's `DoNotScroll`~~ — **done in ADR 0197**
 
 ADR 0197. `LaidOut::overflows` answers whether the value needs more room than the box gives, on the
 axis the clause names — horizontally for a single line, vertically for several, and a count of
@@ -175,9 +176,9 @@ type-specific flag in Tables 229, 231 and 233; four of the twenty have no witnes
 
 This section read *"`Query::FieldAt` answers with §14.9.3's two names and **no value**… nothing is
 wrong today, because `viewer-ui` sends no `Edit::SetField` at all"* and was stale in both halves:
-`viewer-ui` has typed into fields since the three-hundred-and-forty-ninth (ADR 0201) and
-`Answer::Field` has carried the value for as long. Found by `doc/todo/01`'s third sweep in the
-four-hundred-and-eleventh, which is exactly the shape that sweep hunts — a note whose stated reason
+`viewer-ui` has typed into fields since ADR 0201 and
+`Answer::Field` has carried the value for as long. Found by `doc/todo/01`'s third sweep
+(ADR 0247), which is exactly the shape that sweep hunts — a note whose stated reason
 is a capability the tree acquired sixty sessions ago.
 
 **And the round that found it closed the second half too**, which is why this is worth keeping as a
@@ -191,7 +192,7 @@ it does. ADR 0247.
 **And a caret is the other half**, which is `33`'s: a truncation is what this looks like to a host
 that sends whole values, and *nothing happening as you type* is what the clause describes.
 
-## ~~A field's baseline reads the same two entries with a weaker guard~~ — **done in the four-hundred-and-third session**
+## ~~A field's baseline reads the same two entries with a weaker guard~~ — **done in ADR 0240**
 
 ADR 0240. `Metrics::read` calls `pdf_font::measured_extent`, so one band derived from Table 120's
 own definitions decides what those two entries can say for both of the things in this tree that

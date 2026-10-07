@@ -10,8 +10,9 @@
 //! or `/C` is a script Tier 0 does not run, the walk runs the open sequence — Table 32's name tree,
 //! the `/OpenAction`, page one's `/O` and its annotations' `/PO` — and then does what Tier 0's gate
 //! does for each such field: its own value typed in, committed (so `/K`, `/V`, `/CO` and `/F` fire)
-//! and its displayed value asked, with one [`pdf_script::Engine`] for the document, so every event
-//! runs in the realm the open filled, under [`Budget::FIELD_EVENT`]. Each run is counted in exactly
+//! and its displayed value asked — and then Table 200's five, a save, a print and the close — with
+//! one [`pdf_script::Engine`] for the document, so every event runs in the realm the open filled,
+//! under [`Budget::FIELD_EVENT`]. Each run is counted in exactly
 //! one of five columns: finished with no refusal, finished having been refused at least one call,
 //! stopped by a budget, thrown, and unparsed; beside them, the runs by site, which members were
 //! refused most, which names a `ReferenceError` found undefined, what the commonest uncaught throws
@@ -19,6 +20,18 @@
 //! displayed values at the level `off` — because a Tier 1 value is this program's own output against
 //! nothing, RFC 0008 section 8 item 5; what the columns say is how much of the world's scripts this
 //! bridge can carry, and what to bridge next.
+//!
+//! # What it holds
+//!
+//! RFC 0008 section 6.7's three columns with a ratchet each, and a floor under the population: no
+//! run over a budget ([`HELD_EXCEEDED`], held at zero, because a document that finishes under the
+//! budgets of section 4.3 stays under them), and ceilings on the runs that threw, the runs refused a
+//! call, and the scripts that do not parse; and at least [`HELD_RUNS`] runs, so that a walk which
+//! reached fewer documents cannot pass the ceilings by running less. The three are ceilings rather
+//! than equalities because the bridge grows every batch and each member bridged moves them; a
+//! figure below its ceiling is printed so the ceiling is lowered with it. `tools/batch.sh gates`
+//! runs this as `t2-script_corpus_engine`, building the `engine` feature for its own test binary
+//! and for nothing a person runs (ADR 1625).
 //!
 //! # Running it
 //!
@@ -29,7 +42,6 @@
 //! ```
 
 // no sandbox worker: the walk reads field dictionaries, sets and commits field values and asks what each displays; no content stream is interpreted, so no image reaches `pdf-sandbox`.
-// not a gate: a census of what the engine behind `pdf-script`'s default-off `engine` feature makes of the world's scripts, ranking what to bridge next; no build `tools/batch.sh gates` makes turns the feature on, and nothing in it is held to a number (RFC 0008 section 6.7, ADR 1602).
 
 #![cfg(feature = "engine")]
 #![expect(
@@ -47,7 +59,8 @@ use std::time::Instant;
 use pdf_model::aform::Trigger;
 use pdf_model::aform::site::{self, Site};
 use pdf_model::view::{
-    Entered, ScriptEvent, ScriptResult, ScriptRunner, ScriptSite, ViewState, widgets_by_field_name,
+    DocumentTrigger, Entered, ScriptEvent, ScriptResult, ScriptRunner, ScriptSite, ViewState,
+    widgets_by_field_name,
 };
 use pdf_script::{Budget, Ending, Engine, Request};
 use pdf_syntax::{Document, Limits};
@@ -65,6 +78,21 @@ mod corpus_passwords;
 mod script_population;
 
 use script_population::{MAX_FILE_BYTES, password_for, population, repository};
+
+/// Runs a budget may stop: none (RFC 0008 section 6.7, ADR 1625).
+const HELD_EXCEEDED: usize = 0;
+
+/// Most runs that may end in an uncaught throw.
+const HELD_THREW: usize = 9_593;
+
+/// Most runs that may finish having been refused a call.
+const HELD_FINISHED_REFUSED: usize = 0;
+
+/// Most runs whose script may not parse.
+const HELD_UNPARSED: usize = 8;
+
+/// Fewest runs the walk may hand the engine.
+const HELD_RUNS: usize = 20_789;
 
 /// How the runs ended, counted across the walk.
 #[derive(Debug, Default)]
@@ -232,6 +260,16 @@ fn examine(path: &Path, tally: &Arc<Tally>) -> usize {
         view.commit_field(&document, name);
         let _ = view.displayed_value(&document, name);
     }
+    // Table 200's five, in the order a reader's session meets them: a save, a print, the close.
+    for trigger in [
+        DocumentTrigger::WillSave,
+        DocumentTrigger::DidSave,
+        DocumentTrigger::WillPrint,
+        DocumentTrigger::DidPrint,
+        DocumentTrigger::WillClose,
+    ] {
+        view.run_document_scripts(&document, trigger, 0);
+    }
     scripted.len()
 }
 
@@ -329,6 +367,46 @@ fn every_script_tier_0_does_not_run_is_run_in_its_document_s_realm_and_counted()
     assert!(
         fields == 0 || runs > 0,
         "the hook handed none of {fields} field script(s) to the engine"
+    );
+    hold(&tally, runs);
+}
+
+/// Holds the walk's endings to the column's ceilings and its runs to the floor (ADR 1625), printing
+/// the held figures and each one the walk has moved below them.
+fn hold(tally: &Tally, runs: usize) {
+    let count = |column: &AtomicUsize| column.load(Ordering::Relaxed);
+    let held = [
+        ("over a budget", count(&tally.exceeded), HELD_EXCEEDED),
+        ("threw", count(&tally.threw), HELD_THREW),
+        (
+            "finished refused",
+            count(&tally.finished_refused),
+            HELD_FINISHED_REFUSED,
+        ),
+        ("unparsed", count(&tally.unparsed), HELD_UNPARSED),
+    ];
+    println!(
+        "held: {HELD_EXCEEDED} over a budget, {HELD_THREW} threw, {HELD_FINISHED_REFUSED} finished \
+         refused, {HELD_UNPARSED} unparsed at most; {HELD_RUNS} run(s) at least (ADR 1625)"
+    );
+    for (column, now, ceiling) in held {
+        if now < ceiling {
+            println!("ratchet: {column} fell from {ceiling} to {now}; lower its ceiling to it");
+        }
+    }
+    if runs > HELD_RUNS {
+        println!("ratchet: the runs rose from {HELD_RUNS} to {runs}; raise the floor to it");
+    }
+    let over: Vec<String> = held
+        .iter()
+        .filter(|(_, now, ceiling)| now > ceiling)
+        .map(|(column, now, ceiling)| format!("{column}: {now} against {ceiling}"))
+        .collect();
+    assert!(
+        over.is_empty() && runs >= HELD_RUNS,
+        "the Tier 1 column moved past what it holds — a run a budget stopped, a script that now \
+         throws or is refused, or fewer runs ({runs} against {HELD_RUNS}): {over:?}. Read the \
+         throws and refusals above before moving a figure (ADR 1625)"
     );
 }
 

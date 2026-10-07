@@ -288,7 +288,8 @@ fn main() {
     // (ADR 1145).
     let standing = viewer_host::Restrictions::new(restrictions)
         .with(viewer_host::ActLevel::EmbeddedDocuments(embedded_documents))
-        .with(viewer_host::ActLevel::Submissions(submissions));
+        .with(viewer_host::ActLevel::Submissions(submissions))
+        .with(viewer_host::ActLevel::Scripts(reader.scripts));
     let policies = Policies {
         restrictions,
         reader,

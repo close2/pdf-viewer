@@ -79,8 +79,13 @@ impl Host {
 
 /// A one-page document with one text field, `Amount`, whose `/AA` holds `actions`.
 fn document(actions: &str) -> Document {
+    document_with(actions, "")
+}
+
+/// [`document`], its catalog stating `catalog` as well.
+fn document_with(actions: &str, catalog: &str) -> Document {
     let bodies = [
-        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >>".to_owned(),
+        format!("<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> {catalog} >>"),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Annots [4 0 R] >>".to_owned(),
         format!(
@@ -362,6 +367,10 @@ fn the_engines_library_runs_inside_the_filter() {
         "this.getField('Elsewhere');",
         "app.launchURL('https://example.com');",
         "while (true) {}",
+        "event.value = util.printd(0, new Date()) + util.printd('dddd mmmm d, yyyy h:MM tt', \
+         new Date(2024, 0, 5)) + util.printx('>AAA-999', 'abc123');",
+        "event.value = [app.viewerType, app.viewerVersion, app.platform, app.language].join();",
+        "var f = this.getField('Total'); if (f) { f.getArray(); f.setFocus(); }",
     ];
     for script in scripts {
         let result = worker.run(&format_event(script));
@@ -379,6 +388,51 @@ fn the_engines_library_runs_inside_the_filter() {
         );
     }
     assert_eq!(worker.spawns(), 1);
+}
+
+/// Table 200's will-save script runs in the worker at the moment the host marks, its edit lands in
+/// the view state before the save, and its `event.rc` false is reported and not obeyed (ADR 1614).
+#[test]
+fn a_will_save_script_runs_in_the_worker_and_cannot_refuse_the_save() {
+    let document = document_with(
+        "",
+        "/AA << /WS << /S /JavaScript /JS (this.getField\\('Amount'\\).value = \
+         util.printx\\('9-9', '12'\\) + ' ' + event.name; event.rc = false;) >> >>",
+    );
+    let mut host = Host::open(document, Level::On);
+    assert_eq!(host.worker.spawns(), 0);
+    assert_eq!(
+        host.view.run_document_scripts(
+            &host.document,
+            pdf_model::view::DocumentTrigger::WillSave,
+            0
+        ),
+        1
+    );
+    assert_eq!(host.worker.spawns(), 1, "the trigger started the worker");
+    assert_eq!(
+        host.view
+            .field_value(&host.document, "Amount")
+            .map(|shown| shown.text)
+            .as_deref(),
+        Some("1-2 WillSave"),
+        "{:?}",
+        host.view.script_reports()
+    );
+    assert!(
+        host.view
+            .script_reports()
+            .iter()
+            .any(|sentence| sentence.contains("the save goes ahead")),
+        "{:?}",
+        host.view.script_reports()
+    );
+    assert!(host.view.save(&host.document).is_ok());
+    assert!(
+        host.worker.deaths().is_empty(),
+        "{:?}",
+        host.worker.deaths()
+    );
 }
 
 /// A script nested deeper than the engine's parser can recurse is stopped by name before it is

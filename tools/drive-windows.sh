@@ -42,6 +42,11 @@
 # photograph — each with a ceiling, rather than for a fixed time; an input the window says nothing
 # about keeps its settle, with the reason beside the number (ADR 1605).
 #
+# And in all four windows, RFC 0008 section 6.3's level for a document's scripts: a total computed
+# by a script under `--scripts off`, `on` and `ask` answered both ways, and the confined window
+# pinned to `off` (ADR 1616); and in the three, a push-button a script paints red, drawn so at `on`
+# and not at `off` (ADR 1617).
+#
 # And two things a screen reader does, through AT-SPI alone: it asks which window is the active one,
 # whose frame says so with the keyboard in it and not without (ADR 1565), and it clicks a text field
 # in the document's tree and types into it, which the saved file then holds (ADR 1566).
@@ -58,6 +63,9 @@
 # taken from `--bin` (default: this worktree's release directory); build them first:
 #   cargo build --release -p viewer-ui --bin quorra --bin quorra-confined -p viewer-gtk \
 #                         --bin quorra-gtk -p viewer-qt --bin quorra-qt
+#   cargo build --release -p viewer-confined --bin pdf-view-worker
+#   cargo build --release -p pdf-script-worker --features engine --bin pdf-script-worker
+# the last in a run of its own, so that no window links the engine (ADR 1616).
 # Needs Xvfb, xdotool, xwd, ImageMagick's `magick` and python3 with pikepdf; the accessibility step
 # and the asked coordinates need at-spi2-core and python3's `gi` Atspi. Nothing here is a gate: a test that skipped silently
 # would be worse than none (doc/environment.md).
@@ -414,6 +422,49 @@ f1.obj.Tabs = Name.R
 pdf.Root.AcroForm = Dictionary(Fields=Array(list(priced.values())), CO=Array([priced["Total"]]),
                                DA=text, DR=Dictionary(Font=Dictionary(Helv=font)))
 pdf.save(f"{out}/drive-commit.pdf")
+
+# drive-script.pdf: the same three priced lines, and a total whose Table 199 /C is a script rather
+# than one call of the AF library, so Tier 0 does not run it and only the script worker can; its
+# /F is the library's, so the total displays as currency whoever computed it (ADR 1616).
+pdf = pikepdf.new()
+font = helv(pdf)
+f1 = page(pdf, font, "Scripts")
+priced = {}
+for name, top in [("Price1", 600), ("Price2", 540), ("Price3", 480)]:
+    priced[name] = pdf.make_indirect(Dictionary(
+        Type=Name.Annot, Subtype=Name.Widget, T=String(name), Rect=[72, top - 30, 272, top], F=4,
+        P=f1.obj, FT=Name.Tx, DA=text, AA=currency, MK=Dictionary(BC=[0, 0, 0], BG=[0.9, 0.95, 1])))
+priced["Total"] = pdf.make_indirect(Dictionary(
+    Type=Name.Annot, Subtype=Name.Widget, T=String("Total"), Rect=[72, 390, 272, 420], F=4, Ff=1,
+    P=f1.obj, FT=Name.Tx, DA=text, MK=Dictionary(BC=[0, 0, 0], BG=[0.95, 0.95, 0.95]),
+    AA=Dictionary(
+        C=Dictionary(S=Name.JavaScript, JS=String(
+            'event.value = Number(this.getField("Price1").value) + '
+            'Number(this.getField("Price2").value) + Number(this.getField("Price3").value);')),
+        F=Dictionary(S=Name.JavaScript, JS=String('AFNumber_Format(2, 0, 0, 0, "$", true);')))))
+f1.obj.Annots = Array([priced[n] for n in ["Price1", "Price2", "Price3", "Total"]])
+f1.obj.Tabs = Name.R
+pdf.Root.AcroForm = Dictionary(Fields=Array(list(priced.values())), CO=Array([priced["Total"]]),
+                               DA=text, DR=Dictionary(Font=Dictionary(Helv=font)))
+pdf.save(f"{out}/drive-script.pdf")
+
+# drive-painted.pdf: a push-button whose background the document's open action sets red by
+# script — Table 192's /BG, which the appearance is constructed from once a script has changed it
+# (ADR 1617); a push-button because every window draws its appearance and none covers it with a
+# control of its own.
+pdf = pikepdf.new()
+font = helv(pdf)
+f1 = page(pdf, font, "Painted")
+painted = pdf.make_indirect(Dictionary(
+    Type=Name.Annot, Subtype=Name.Widget, T=String("Painted"), Rect=[72, 300, 372, 500], F=4,
+    P=f1.obj, FT=Name.Btn, Ff=65536, DA=text,
+    MK=Dictionary(BG=[0.8, 0.8, 0.8], BC=[0, 0, 0], CA=String("Paint"))))
+f1.obj.Annots = Array([painted])
+pdf.Root.AcroForm = Dictionary(Fields=Array([painted]), DA=text,
+                               DR=Dictionary(Font=Dictionary(Helv=font)))
+pdf.Root.OpenAction = Dictionary(S=Name.JavaScript,
+                                 JS=String('this.getField("Painted").fillColor = color.red;'))
+pdf.save(f"{out}/drive-painted.pdf")
 
 # drive-projected.pdf: a projected map whose /GPTS are degrees, the shape every projected map of the
 # crawl takes; refused by name until doc/questions/Q271 is answered (ADRs 1586, 1593).
@@ -1683,6 +1734,134 @@ PY
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 
+# RFC 0008 section 6.3's level, in all four windows (ADR 1616): the scripted total under `--scripts
+# off`, `on` and `ask` answered both ways. Two prices are typed and committed by a tab each; the
+# saved file is the witness of what the total became, and the window's own lines of what ran. At
+# `off` the total stays empty and the window names the script that did not run; at `on` the script
+# worker computes it; at `ask` the question is put at the first commit — `quorra` draws its card
+# and is answered by Enter or Escape, the two toolkits' is a dialogue whose buttons AT-SPI presses
+# (ADR 1540) — and a `yes` computes the total from what was typed, a `no` leaves it empty and says
+# so. `quorra-confined` is pinned to `off`: `--scripts on` is said and declined, and nothing runs.
+scripts_saved() { # form: the three values the saved file holds, and the total's drawn text
+    python3 - "${1%.pdf}.edited.pdf" <<'PY' 2>&1 | tail -1
+import re, sys, pikepdf
+p = pikepdf.open(sys.argv[1])
+fields = {str(f.T): f for f in p.Root.AcroForm.Fields}
+ap = fields["Total"].get("/AP")
+drawn = re.findall(r"\((.*?)\) Tj", ap.N.read_bytes().decode("latin-1")) if ap is not None else []
+print(" ".join(str(fields[n].get("/V")) for n in ["Price1", "Price2", "Total"]),
+      drawn[0] if drawn else "nothing")
+PY
+}
+scripts_typed() { # form level: launches at the level, types the first price and tabs out of it
+    cp "$FIXTURES/drive-script.pdf" "$1"; rm -f "${1%.pdf}.edited.pdf"
+    launch "$1" --scripts "$2"
+    click 690 850
+    key_then "$FOCUS_NEXT" Tab; sleep 0.1; type_then 'SetField { field: "Price1", value: Text("12.5")' 12.5
+    key_then "$FOCUS_NEXT" Tab
+}
+scripts_second() { # types the second price, tabs out of it and saves
+    sleep 0.1; type_then 'SetField { field: "Price2", value: Text("7")' 7
+    key_then "$FOCUS_NEXT" Tab
+    click 690 850; key_then "$SAVED" ctrl+s
+}
+scripts_answer() { # step yes|no: answers the ask level's question, or says why it could not
+    local word mark
+    mark=$(lines)
+    if [ "$WINDOW" = quorra ]; then
+        if ! wait_for 10 said_since 0 'asking to run scripts'; then
+            verdict "$1" wrong "no question: $LOG"; return 1
+        fi
+        shot "$1-card"
+        if [ "$2" = yes ]; then key_then 'answer scripts true' Return; else key_then 'answer scripts false' Escape; fi
+        return 0
+    fi
+    [ "$2" = yes ] && word="Go ahead" || word="Do not"
+    if [ -z "$A11Y" ]; then
+        verdict "$1" "not offered" "no AT-SPI bus to find the dialogue's buttons on"
+        return 1
+    fi
+    if ! wait_for 20 pressed "$word"; then
+        shot "$1"
+        verdict "$1" wrong "no showing \"$word\" button: the question is not up"
+        return 1
+    fi
+    wait_for 10 said_since "$mark" "scripts run until it closes\|none of this document.s scripts runs"
+}
+scripts_levels() {
+    local form="$OUT/$WINDOW-script.pdf" seen
+    if [ ! -x "$BIN/pdf-script-worker" ]; then
+        verdict 40-scripts-off "not offered" "no $BIN/pdf-script-worker beside the windows — build it with --features engine"
+        return
+    fi
+    if [ "$WINDOW" = quorra-confined ]; then
+        scripts_typed "$form" on; scripts_second
+        seen=$(scripts_saved "$form")
+        if [ "$seen" = '12.5 7 None nothing' ] && [ "$(said 'its level for scripts is pinned to off')" -gt 0 ]; then
+            verdict 40-scripts-off works "pinned: --scripts on said and declined; saved $seen"
+        else
+            verdict 40-scripts-off wrong "saved ${seen:-nothing}; pinned said $(said 'pinned to off'): $LOG"
+        fi
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    scripts_typed "$form" off; scripts_second; shot 40-scripts-off
+    seen=$(scripts_saved "$form")
+    if [ "$seen" = '12.5 7 None nothing' ] \
+            && [ "$(said 'Total: the field.s calculate script is a script this tier does not run')" -gt 0 ]; then
+        verdict 40-scripts-off works "nothing ran and the window said which script: saved $seen"
+    else
+        verdict 40-scripts-off wrong "saved ${seen:-nothing}; not-run sentence said $(said 'this tier does not run'): $LOG"
+    fi
+    scripts_typed "$form" on; scripts_second; shot 41-scripts-on
+    seen=$(scripts_saved "$form")
+    if [ "$seen" = '12.5 7 19.5 $19.50' ]; then
+        verdict 41-scripts-on works "the worker computed the total: saved $seen"
+    else
+        verdict 41-scripts-on wrong "saved ${seen:-nothing}: $LOG"
+    fi
+    scripts_typed "$form" ask
+    if scripts_answer 42-scripts-ask-yes yes; then
+        scripts_second; shot 42-scripts-ask-yes
+        seen=$(scripts_saved "$form")
+        if [ "$seen" = '12.5 7 19.5 $19.50' ] && [ "$(said 'scripts run until it closes')" -gt 0 ]; then
+            verdict 42-scripts-ask-yes works "asked once, answered yes, total computed: saved $seen"
+        else
+            verdict 42-scripts-ask-yes wrong "saved ${seen:-nothing}: $LOG"
+        fi
+    fi
+    scripts_typed "$form" ask
+    if scripts_answer 43-scripts-ask-no no; then
+        scripts_second; shot 43-scripts-ask-no
+        seen=$(scripts_saved "$form")
+        if [ "$seen" = '12.5 7 None nothing' ] && [ "$(said 'you declined to run this document.s scripts')" -gt 0 ]; then
+            verdict 43-scripts-ask-no works "asked once, answered no, nothing ran and the window said so: saved $seen"
+        else
+            verdict 43-scripts-ask-no wrong "saved ${seen:-nothing}: $LOG"
+        fi
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
+# What a script may change on the page (ADR 1617): the open action sets a push-button's
+# fillColor, and at `on` the page draws the button red — counted on the photograph through the
+# alpha channel (trap 115) — where at `off` it stays the grey the file states.
+script_painted() {
+    local red grey
+    launch "$FIXTURES/drive-painted.pdf" --scripts on
+    wait_for 10 holds_colour 44-script-fill "#ff0000"
+    red=$(coloured "$OUT/shots/$WINDOW/44-script-fill.png" "#ff0000")
+    launch "$FIXTURES/drive-painted.pdf" --scripts off
+    wait_for 10 holds_colour 44-script-fill-off "#cccccc"
+    grey=$(coloured "$OUT/shots/$WINDOW/44-script-fill-off.png" "#ff0000")
+    if [ "${red:-0}" -gt 10000 ] && [ "${grey:-1}" -eq 0 ]; then
+        verdict 44-script-fill works "fillColor drawn by the script: $red red pixels at on, none at off"
+    else
+        verdict 44-script-fill wrong "red at on ${red:-?}, at off ${grey:-?}: $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
 # §12.10's position, in all four windows (ADR 1593): measuring on, one press on the geographic map,
 # and the window's sentence carries a latitude and a longitude inside the map's own rectangle of
 # degrees, six places each; a press on a projected map whose /GPTS are degrees says why it gives no
@@ -1739,6 +1918,7 @@ for WINDOW in "${WINDOWS[@]}"; do
         confined
         reader_words
         field_commit
+        scripts_levels
         located
         continue
     fi
@@ -1746,6 +1926,8 @@ for WINDOW in "${WINDOWS[@]}"; do
     accessibility
     reader_words
     field_commit
+    scripts_levels
+    script_painted
     located
 done
 echo "drive-windows: $(grep -c "	works	" "$RESULTS") works, $(grep -c "	wrong	" "$RESULTS") wrong," \

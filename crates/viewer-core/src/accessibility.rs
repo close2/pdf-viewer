@@ -441,9 +441,11 @@ pub struct AccessibilityNode {
     /// What the field behind [`Self::control`] says now, for a text field and a combo box: §12.7.4.3's
     /// variable text as the widget lays it out.
     ///
-    /// The same [`pdf_model::view::ShownValue`] [`crate::FormField::value`] carries, read with the
-    /// same view state, so a field a person has just typed into answers with what they typed, and
-    /// Table 231 bit 14's password field answers with its echo and says so in
+    /// **What the field displays**, Table 199's `/F` applied — `$12.50` where the field holds
+    /// `12.5` — because that is the text the page draws and [`Self::value_lines`] places; while a
+    /// person is typing into it, what they typed (ADR 1617). Otherwise the same
+    /// [`pdf_model::view::ShownValue`] [`crate::FormField::value`] carries, read with the same
+    /// view state, and Table 231 bit 14's password field answers with its echo and says so in
     /// [`pdf_model::view::ShownValue::obscured`] rather than with its characters.
     ///
     /// **Only the one fact a host could not otherwise have.** §12.7.5.2's toggling buttons state

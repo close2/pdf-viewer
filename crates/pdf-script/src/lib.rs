@@ -54,6 +54,7 @@
 mod outcome;
 mod request;
 pub mod surface;
+pub mod viewer;
 pub mod wire;
 
 #[cfg(feature = "engine")]

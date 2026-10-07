@@ -552,6 +552,7 @@ fn subject(event: &ScriptEvent<'_>) -> String {
         }
         ScriptSite::OpenAction => "the document's open action".to_owned(),
         ScriptSite::Library => format!("the document-level script {}", event.label),
+        ScriptSite::Document(trigger) => format!("the document's /{} script", trigger.key()),
     }
 }
 

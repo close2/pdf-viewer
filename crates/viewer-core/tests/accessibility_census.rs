@@ -1701,12 +1701,14 @@ fn widget_floors(tracked_census: &Census) {
     gate_ratchet::floor("fields with a value published", tracked_census.valued, 545);
     // ADR 1501's population, new with that decision: a character of a field's value with the box
     // §12.7.4.3's layout gave its glyph, which is what AT-SPI's `GetCharacterExtents` answers with.
-    // Every one crossed with no place before it. Measured at 1568, over 79 of the 80 filled fields;
-    // the eightieth is `PDFBOX-3148-2-fuzzed.pdf`'s, named by the census each run.
+    // Every one crossed with no place before it. Measured at 1571, over 79 of the 80 filled fields;
+    // the eightieth is `PDFBOX-3148-2-fuzzed.pdf`'s, named by the census each run. The node carries
+    // the value as the field displays it (ADR 1617), so a formatted field has the characters its
+    // format adds.
     gate_ratchet::floor(
         "field characters with extents",
         tracked_census.field_characters,
-        1568,
+        1571,
     );
 }
 

@@ -234,6 +234,21 @@ pub enum Event {
         /// One sentence per restriction that applied, worded as a question's reasons.
         notes: Vec<String>,
     },
+    /// A document's first script is waiting on the person's answer — RFC 0008 section 6.3's *ask*
+    /// level, put once per document at the first trigger that would run one.
+    ///
+    /// The host puts the script and its first line to the person and sends
+    /// [`crate::Command::AnswerScripts`]. Until then nothing of the document's runs and every
+    /// script says it is waiting; a host that cannot ask answers `false`, which is what a closed
+    /// dialogue means everywhere else (ADR 1616).
+    AskingToRunScripts {
+        /// Which document.
+        document: DocumentId,
+        /// Who runs the first script the document handed over — `the calculate script of Total`.
+        script: String,
+        /// That script's first line that says anything, cut where a card can show it.
+        first_line: String,
+    },
     /// An operation the document restricts was performed, and this is what the document said —
     /// the answer of [`crate::RestrictionLevel::Warn`], and the *warn before the operation* level
     /// of `CLAUDE.md`'s four.

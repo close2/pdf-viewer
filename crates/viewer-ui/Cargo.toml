@@ -66,6 +66,10 @@ png.workspace = true
 # For `tests/notices.rs`, which checks the vendored fonts against the digests committed beside
 # them. Already in the tree for ISO 32000-2 §7.6.4.3.4's Algorithm 2.B.
 sha2.workspace = true
+# `tests/launch_path.rs`'s script stage: the runner a test host hands the viewer at `on`, which
+# starts `pdf-script-worker` at the open sequence's first trigger, after the first frame — taken
+# without its `engine` feature, as a window takes it (ADR 1620).
+pdf-script-worker.workspace = true
 
 [lints]
 workspace = true

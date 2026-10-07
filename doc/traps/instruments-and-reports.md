@@ -1156,6 +1156,17 @@ in an `exec`-redirected subshell: a redirection on a function call leaves the ca
 descriptors open in every subshell it forks, and `cargo test`, reading through a pipe, waited 71 s
 for 15 s of work (ADR 1612).
 
+### 121. A column prints its change per site, a per-pass saving is read per pair, and a figure carries its unit
+
+Three measurement habits from batch sixty-one. When a column gains a site — Table 200's five
+triggers joined the Tier 1 column — the change is printed per site, so the gate's ceiling is seen to
+have moved only by the new site's runs: +18 throws, all Table 200, the other sites at exactly 9 575
+(round 1389). A saving of 29 render passes was 0.6–1.4 ms on a 152 ms frame, which `zoom_frame`'s
+spread hides: the two trees are interleaved run against run and the direction read per pair before
+it is called a saving or noise (ADR 1618). And a record's `script_open spawn_ms=1.8` was read as
+1.8 s in a brief, measured as 1.8 ms, and a round's premise was off by a thousand (ADR 1620): a
+duration is quoted with its unit, and "s" is written when seconds are meant.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

@@ -1056,6 +1056,12 @@ mod command_kind {
     // because the confined worker holds the view and the scripts, and only the window knows when it
     // presented (ADR 1602).
     pub(super) const PRESENTED: u8 = 37;
+    // RFC 0008 section 6.3's level, at the one value a confined window may send: `off`. A runner
+    // is a process the host starts, so it cannot cross, and the confined window is pinned to `off`
+    // for it (ADR 1616).
+    pub(super) const SCRIPTS_OFF: u8 = 38;
+    // The person's answer to `Event::AskingToRunScripts`, which crosses for `ANSWER`'s reason.
+    pub(super) const ANSWER_SCRIPTS: u8 = 39;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -1413,6 +1419,22 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
         }
         Command::Presented => {
             writer.u8(k::PRESENTED);
+        }
+        Command::Scripts(viewer_core::Scripting::Off) => {
+            writer.u8(k::SCRIPTS_OFF);
+        }
+        Command::Scripts(viewer_core::Scripting::Ask(_) | viewer_core::Scripting::Run(_)) => {
+            return Err(Uncarried {
+                message: "Command::Scripts",
+                reason: "a runner is a process the window starts and holds, and the confined \
+                         window runs no document script: its level is pinned to off (ADR 1616)",
+            });
+        }
+        Command::AnswerScripts { document, proceed } => {
+            writer
+                .u8(k::ANSWER_SCRIPTS)
+                .document(*document)
+                .bool(*proceed);
         }
         Command::Activate(object) => {
             writer.u8(k::ACTIVATE).object(*object);
@@ -1852,6 +1874,11 @@ pub(crate) fn decode_command_holding(
             field: reader.string("a field's qualified name")?,
         },
         k::PRESENTED => Command::Presented,
+        k::SCRIPTS_OFF => Command::Scripts(viewer_core::Scripting::Off),
+        k::ANSWER_SCRIPTS => Command::AnswerScripts {
+            document: reader.document(what)?,
+            proceed: reader.bool("an answer")?,
+        },
         k::ACTIVATE => Command::Activate(reader.object("an object")?),
         k::SET_GROUP => Command::SetGroup {
             group: reader.object("an optional content group")?,
@@ -2288,6 +2315,9 @@ mod event_kind {
     // ends. It crosses because the window process is the one with a printer and the worker is
     // the one with the document (ADR 1180).
     pub(super) const PRINTING: u8 = 21;
+    // RFC 0008 section 6.3's one question per document, which crosses for `ASKING`'s reason: the
+    // worker holds the view and the window holds the person (ADR 1616).
+    pub(super) const ASKING_TO_RUN_SCRIPTS: u8 = 22;
 }
 
 /// Encodes one event.
@@ -2514,6 +2544,17 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
         Event::AttachmentsChanged { document } => {
             writer.u8(k::ATTACHMENTS_CHANGED).document(*document);
         }
+        Event::AskingToRunScripts {
+            document,
+            script,
+            first_line,
+        } => {
+            writer
+                .u8(k::ASKING_TO_RUN_SCRIPTS)
+                .document(*document)
+                .str(script)
+                .str(first_line);
+        }
         Event::Reported {
             document,
             page,
@@ -2720,6 +2761,11 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
         },
         k::ATTACHMENTS_CHANGED => Event::AttachmentsChanged {
             document: reader.document(what)?,
+        },
+        k::ASKING_TO_RUN_SCRIPTS => Event::AskingToRunScripts {
+            document: reader.document(what)?,
+            script: reader.string("the script a question names")?,
+            first_line: reader.string("a script's first line")?,
         },
         k::REPORTED => Event::Reported {
             document: reader.document(what)?,
@@ -4480,6 +4526,13 @@ mod tests {
                 field: "Lines.Price".to_owned(),
             },
             Command::Presented,
+            // RFC 0008 section 6.3's level at the one value that crosses, and the ask's answer
+            // (ADR 1616).
+            Command::Scripts(viewer_core::Scripting::Off),
+            Command::AnswerScripts {
+                document: DocumentId(4),
+                proceed: true,
+            },
             Command::Activate(ObjectId::new(12, 1)),
             Command::SetGroup {
                 group: ObjectId::new(3, 0),
@@ -4815,6 +4868,11 @@ mod tests {
                     scale: 1.0,
                     opaque: false,
                 },
+            },
+            Event::AskingToRunScripts {
+                document,
+                script: "the calculate script of Total".to_owned(),
+                first_line: "event.value = 1;".to_owned(),
             },
             Event::Dirty {
                 document,

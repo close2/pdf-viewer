@@ -185,6 +185,11 @@ pub(super) struct Scripting {
     pub(super) formatted: BTreeMap<ObjectId, Displayed>,
     /// Every page's index, by object, once a field's page has been asked for.
     pages: Option<BTreeMap<ObjectId, usize>>,
+    /// The field a script last asked the focus for, until a host takes the request.
+    focus: Option<String>,
+    /// The properties scripts set that a widget's appearance draws, by widget: what
+    /// [`super::AnnotationView::scripted`] carries (ADR 1617).
+    pub(super) drawn: BTreeMap<ObjectId, Vec<Property>>,
 }
 
 /// The statements about field values and visibility the realm was last told of: what the delta of
@@ -436,6 +441,19 @@ impl ViewState {
         self.scripting.formatted.clear();
     }
 
+    /// Walks Table 224's `/CO` whole, every script's `/C` through the runner, then every format the
+    /// runner runs: what a host calls when a runner arrives for a document whose values were set
+    /// without one, so that a calculated field shows what its script computes from the values
+    /// already there (ADR 1616).
+    pub fn recalculate_with_runner(&mut self, document: &Document) {
+        if self.runner.0.is_none() {
+            return;
+        }
+        let table = super::widgets_by_field_name(document);
+        self.recalculate_scripts(document, &table, "");
+        self.refresh_formatted(document, &table);
+    }
+
     /// What Tier 0's dispatch did not run, and what every runner's script said, each sentence
     /// once, in the order it was met.
     ///
@@ -450,16 +468,28 @@ impl ViewState {
     /// The properties scripts have set on one field, the latest of each member, in the order they
     /// were set.
     ///
-    /// What a host drawing its own control over a field reads beside the value: a script's
-    /// `textColor`, `fillColor`, `borderStyle`, `alignment`, `charLimit` and `required` are kept
-    /// here and are not drawn into the page's appearance (ADR 1603); `display` and `readonly` are
-    /// applied as well as kept.
+    /// What a host drawing its own control over a field reads beside the value. A script's
+    /// `textColor`, `fillColor`, `strokeColor`, `borderStyle`, `alignment` and `charLimit` are
+    /// drawn into the page's appearance as well and `required` is saved (ADR 1617); `display` and
+    /// `readonly` are applied as well as kept.
     #[must_use]
     pub fn script_properties(&self, name: &str) -> &[Property] {
         self.scripting
             .overrides
             .get(name)
             .map_or(&[], |overrides| overrides.set.as_slice())
+    }
+
+    /// The field a script's `setFocus` last asked the keyboard focus for, taken: `None` once a host
+    /// has taken it, and where no script asked.
+    ///
+    /// The focus is the host's — which widget a key reaches, and the page turned or the view
+    /// scrolled to show it, as Adobe's "Field methods" page describes `setFocus` — so a view state
+    /// holds the request and a host carries it out after any call that ran scripts, raising Table
+    /// 197's `/Bl` and `/Fo` as a press would (ADR 1615). The latest request stands: a script that
+    /// asks twice has asked for the second.
+    pub fn take_focus_request(&mut self) -> Option<String> {
+        self.scripting.focus.take()
     }
 
     /// What one field displays: its value through its format script, or as it stands.
@@ -707,7 +737,24 @@ impl ViewState {
                         // Table 227 bit 1 bars a *user*, and `set_field` is where a user's value
                         // arrives, so that is where the override is read.
                         Property::ReadOnly(_) => {}
-                        other => self.report(format!(
+                        // What the appearance draws, and `required`, which a save writes: kept
+                        // per widget for `AnnotationView::scripted`, and the page drawn again
+                        // (ADR 1617).
+                        Property::TextColor(_)
+                        | Property::FillColor(_)
+                        | Property::StrokeColor(_)
+                        | Property::BorderStyle(_)
+                        | Property::Alignment(_)
+                        | Property::CharLimit(_)
+                        | Property::Required(_) => {
+                            for widget in &widgets {
+                                let held = self.scripting.drawn.entry(*widget).or_default();
+                                held.retain(|kept| kept.member() != property.member());
+                                held.push(*property);
+                            }
+                            applied.values = true;
+                        }
+                        other @ Property::TextFlag(..) => self.report(format!(
                             "{field}: a script set Field.{}; this view state keeps it and the \
                              drawn appearance does not carry it (ADR 1603)",
                             other.member()
@@ -723,6 +770,16 @@ impl ViewState {
                     applied.values = true;
                 }
                 ScriptEdit::Calculate => applied.calculate = true,
+                ScriptEdit::Focus { field } => {
+                    if table.contains_key(field) {
+                        self.scripting.focus = Some(field.clone());
+                    } else {
+                        self.report(format!(
+                            "a script asked for the focus on {field}, which is not a field of \
+                             this document"
+                        ));
+                    }
+                }
             }
         }
         applied
@@ -733,6 +790,14 @@ impl ViewState {
         for sentence in sentences {
             self.report(format!("{name}: {sentence}"));
         }
+    }
+
+    /// The properties scripts set on this widget's field that its appearance draws (ADR 1617).
+    pub(super) fn scripted(&self, annotation: ObjectId) -> &[Property] {
+        self.scripting
+            .drawn
+            .get(&annotation)
+            .map_or(&[], Vec::as_slice)
     }
 
     /// Whether this widget's field is being typed into and has not been committed.

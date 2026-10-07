@@ -369,6 +369,25 @@ import a page from, matched by §14.4's identifier and never by its path (ADR 11
 is sent before the document, a file in a named directory that does not take is said as a `note:`,
 and a word with nothing after it, or a directory that is not one, stops the launch with the reason.
 
+**A document's scripts run at the reader's level**, `--scripts off|ask|warn|on`, read by the same
+`ReaderWords` and set again from the third group of every window's restrictions menu (ADR 1616):
+
+```sh
+cargo build --release -p pdf-script-worker --features engine --bin pdf-script-worker  # its own run
+target/release/quorra-gtk --scripts ask form.pdf
+```
+
+`off` is the default (`doc/questions/A193`): nothing runs, no process starts, and every script that
+is not one call of the `AF` form library is said as not run. `on` and `warn` run every script in
+`pdf-script-worker`, a confined process of its own started at the document's first trigger, and
+`warn` says of each run what it made of its field. `ask` puts one question per document at its
+first script, with that script's first line; `Go ahead` runs what was withheld — the document's
+open scripts and its calculations — and the rest as they come, `Do not` runs none until the
+document closes. The worker is built in a cargo run of its own, so that no window links the engine,
+and is found beside the window's executable or at `PDF_SCRIPT_WORKER`; without it the first
+trigger says how to build it. `quorra-confined` is pinned to `off` and says so when asked for
+another level.
+
 Both native hosts bind `/` and Ctrl+F to their toolkit's own find bar — a `GtkSearchBar` with a
 `GtkSearchEntry` and a `QToolBar` with a `QLineEdit` and Previous/Next actions — and draw every
 occurrence on the page under the selection, in the platform's colour at a lower alpha. Nothing about

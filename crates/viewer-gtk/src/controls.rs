@@ -612,6 +612,12 @@ fn editable_combo(
             });
         });
     }
+    // The text box commits as a text field's does — Enter, and the keyboard leaving it — because
+    // what is typed there is characters held until the commit, exactly as in an entry, and the
+    // field's Table 199 `/K` in its commit form and `/V` wait for that moment (ADRs 1592, 1617).
+    commits_on_enter(&entry, &field.name.qualified, change);
+    commits_on_leaving(&entry, &field.name.qualified, change);
+    holds_on_entering(&entry, &field.name.qualified, change);
     let composed = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     // GTK's own style class for "these are one control", which is what makes the pair read as a
     // combo box rather than as an entry that happens to have a button beside it.

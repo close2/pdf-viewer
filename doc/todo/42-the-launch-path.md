@@ -30,7 +30,7 @@ reading. Three consequences for the items below:
   as the ratio.
 - **Item 5's "number nobody has taken" is half-taken.** A launch on the *real adapter* is measured
   every time the gate runs — headless, on this machine's Radeon 890M through RADV, which
-  `doc/environment.md` has said since session 552 is reachable without the owner's session. What
+  `doc/environment.md` says is reachable without the owner's session. What
   is still the owner's is the other half: that adapter through a real window, with a swapchain and
   a present.
 - **The "Nothing eager" rule quoted below has one clause that is false as written**, and it is not
@@ -39,16 +39,15 @@ reading. Three consequences for the items below:
   page. It is *needed to show page one*, so it is not eager by the rule's own definition — but the
   bullet says "[n]o system font enumeration" without a condition. The gate carries such a document
   as a row so the cost has a band rather than a sentence; ADR 0885 has the evidence, and the
-  wording is the owner's (round 921's question).
+  wording is the owner's to change.
 
 ## The one band that would not sit, and what settled it
 
-Session 926 ran the gate on `main` four times: twenty-seven of the twenty-eight figures inside
-their bands, and `doc/PDF20_AN001-BPC.pdf`'s cold open — held to `0.49 .. 0.80` — reading
-**0.87, 1.30, 0.72 and 0.86**. It did not move the band, wrote three hypotheses here, and named the
-experiments that would separate them. Session 931 ran them. **All three are refuted, two of them by
-construction**, and this section is now what they found rather than what they asked. ADR 0902 is
-the reading and ADR 0903 the change; `doc/questions/Q29` is what is left for the owner.
+Four runs of the gate on `main` held twenty-seven of the twenty-eight figures inside their bands,
+and `doc/PDF20_AN001-BPC.pdf`'s cold open — held to `0.49 .. 0.80` — read **0.87, 1.30, 0.72 and
+0.86**. Three hypotheses were put to it — the gate's copies sweeping the disk, the disk itself, and
+a regression — and **all three are refuted, two of them by construction**. ADR 0902 is the reading
+and ADR 0903 the change; `doc/questions/Q29` is what is left for the owner.
 
 - **The copies are reflinks, so the sweep hypothesis is refuted by one command.** `std::fs::copy`
   is `copy_file_range`, and on btrfs `copy_file_range` is a reflink: `filefrag -v` prints the same
@@ -63,10 +62,10 @@ the reading and ADR 0903 the change; `doc/questions/Q29` is what is left for the
   ×1.38 and ×2.15 against ×1.13, ×1.14 and ×1.88), while `io_ms` stayed inside `2.0 .. 4.5`
   throughout.
 - **There is no regression.** `git diff db4a76f1 HEAD` over `pdf-syntax`, `pdf-model`,
-  `viewer-core` and `pdf-font` is session 925's outline change — the same page-tree walk, held —
+  `viewer-core` and `pdf-font` is an outline change — the same page-tree walk, held —
   plus `type3.rs`, a test and an example, and not a line of `Document::open` or of `Open::around`'s
   cost. The calibration probe *is* `Document::open` plus `Pages::new` plus `interpret` on fixed
-  bytes, and it reads 0.703 to 0.749 ms against the `0.62 .. 0.78` session 922 derived.
+  bytes, and it reads 0.703 to 0.749 ms against the `0.62 .. 0.78` derived for it.
 
 **What is true instead**, and it is a fourth thing none of the three named: the calibration probe
 is the **quickest of fifty passes inside one warmed process**, and every figure it guards is
@@ -76,7 +75,7 @@ of the same stuff as the figure it guards* — and it is a finer version of ADR 
 about sensing every subsystem: that one is about *which* subsystems, this one about the *state*
 they are in.
 
-**And the band that will not sit is not the one 926 named.** Of six failing runs in twelve, five
+**And the band that will not sit is not the one the four runs named.** Of six failing runs in twelve, five
 failed on `doc/pdf.js/test/pdfs/bug1815476.pdf`'s cold open and one on `PDF20_AN001-BPC.pdf`'s.
 Reversing the check file's own derivation rule, every clock figure's median today sits within a few
 percent of its derived maximum — high for the two smallest documents, *low* for the two largest,
@@ -92,7 +91,7 @@ which is a per-operation cost and not a regression:
 | `ISO 32000-2` cold open | 22.59 .. 25.33 | 22.35 .. 50.73, median 23.16 | −9 % |
 
 **And the gate declines nearly everything when it is run the way `doc/todo/02` §2 runs it.** In
-session 931's own full sequence the launch line read its calibration at 1.577 ms against
+a full gate sequence the launch line read its calibration at 1.577 ms against
 `0.62 .. 0.78` at a one-minute load average of about 20 — two other rounds building and walking —
 printed `NOT JUDGED`, printed all twenty-eight figures with the reason beside each, and exited 0.
 The guard is working; the consequence is that principle 2's four numbers are gated in principle and
@@ -108,10 +107,10 @@ probe, about ten minutes of an idle machine, and it is the first of `Q29`'s thre
 **And the figure with no clock in it is settled by ADRs 0910 and 0911, which are the one account
 of it.** Everything above is about clocks, and a clock the gate can decline to judge;
 `peak_mib` could be declined by no probe, because contention does not lower a memory high-water.
-Five rounds met it: it was derived identical over forty-four runs and fell 12% an hour later
-(session 922), would not sit for 926 and 931, fell 13% below already-widened floors in 933,
-was lowered by 932 and restored by the merge on 934's evidence. **No band was ever widened**, and
-the refusal was right.
+Five rounds met it: it was derived identical over forty-four runs and fell 12% an hour later,
+would not sit for the next two, fell 13% below already-widened floors in a third, and was lowered
+by a fourth and restored by the merge on a fifth's evidence. **No band was ever widened**, and the
+refusal was right.
 
 **What it was measuring was mostly not this program.** `VmHWM` counts every resident page, and in a
 process that has brought the graphics device up **nine tenths of them are pages of a mapped file**:
@@ -123,9 +122,10 @@ what evicts it. Measured: evicting those two libraries and nothing else took the
 MiB to 81.2 MiB while the anonymous total moved by 30 KiB, and over one afternoon the whole-process
 figure was seen at 92 and at 180 MiB on the same binary. ADR 0910 has the tables.
 
-**934's table is the same quantity seen from the other end**, and the two rounds do not disagree:
+**ADR 0909's table is the same quantity seen from the other end**, and the two measurements do not
+disagree:
 
-| | 934's failing run | 934's nine runs alone | 935's eviction, deliberate |
+| | a failing run under pressure | nine runs alone | an eviction, deliberate |
 |---|---|---|---|
 | the machine | ~9 GiB free, 19 GiB of swap in use | 29 GiB free | quiet, two libraries evicted |
 | `peak_mib`, four documents | 99.1, 103.1, 104.2, 116.5 | 161–164, 168–169, 168–169, 180–182 | 108.4 → 81.2 on the bring-up child |
@@ -133,8 +133,8 @@ figure was seen at 92 and at 180 MiB on the same binary. ADR 0910 has the tables
 | `open_peak_mib`, no device in it | 7, 8, 18 MiB, in band | 7, 8, 18 MiB, in band | unmoved |
 
 ADR 0909 read that as memory *pressure* and was right about the direction; the mechanism is that
-pressure makes the kernel reclaim a mapped library's resident pages, which is what 935 did on
-purpose to two named files. The last row is the control in both rounds, and it is a control because
+pressure makes the kernel reclaim a mapped library's resident pages, which is what the eviction did
+on purpose to two named files. The last row is the control in all three, and it is a control because
 that process maps no driver.
 
 **So the gate bands the anonymous high-water** (`peak_anon_mib`), judged on any machine like the
@@ -145,7 +145,7 @@ MiB where the old figure separated them by a tenth against a band 82 MiB wide.
 
 That answers the three things the merge left open, and two of them by removing the question:
 
-1. **the availability probe** 934 asked for is not owed. A figure that is a property of this program
+1. **the availability probe** ADR 0909 asked for is not owed. A figure that is a property of this program
    needs no probe, and a figure that is a property of the page cache should not be banded for a
    probe to rescue;
 2. **`Q32`'s question** — should the high-water carry a minimum at all — is superseded by `Q37`:
@@ -158,11 +158,11 @@ machine pays — is `doc/questions/Q37`.
 
 ## And the clock half is settled the way the memory half was
 
-Everything above is a clock that four rounds could not trust. Session 938 asked what the number is
-*made of*, and it is three quantities of which one is this program's. ADRs 0916 and 0917; the
+Everything above is a clock that four rounds could not trust. What the number is *made of* is
+three quantities, of which one is this program's. ADRs 0916 and 0917; the
 owner's `A29` — "combining option 1 and 2 sounds good" — is what it was built against.
 
-| what a launch clock contains | who owns it | the instrument, since this round |
+| what a launch clock contains | who owns it | the instrument |
 |---|---|---|
 | the work | this program | **`open_kinstructions`**, counted under callgrind, spread 0.00007% to 0.004% over five runs; and **`read_calls`**, `syscr`, identical on every run |
 | the rate this machine executes it at today | the machine | the calibration probe, which over-reads it: +74% against the figure's +43% in a controlled arm |
@@ -180,14 +180,14 @@ steady figures on any machine in three seconds — that is `doc/todo/02` §2's l
 nine-sample clock run is `doc/verify.md`'s, for a round that has the machine. **No band was
 widened, for the sixth round running.**
 
-**And the machine moved under this round.** On 2026-09-04 the fifty-pass probe read 0.703 to 0.724
+**And the machine moves under the gate.** On 2026-09-04 the fifty-pass probe read 0.703 to 0.724
 ms in this gate's runs; on 2026-09-06, idle, the same binary read 0.849 to 0.951 over 300 samples,
 with one busy thread on a performance core reaching 3.74 GHz against a rated 5.16 at 63 °C. The
 bands here are a claim about a processor doing 5.16 GHz. That is why `calibration_first_ms` still
 has no band — not a busy machine, a different one — and why the clock run prints `NOT JUDGED` and
 exits 0 rather than reporting a regression nobody caused.
 
-**And 2 and 3 are answered, by the owner, while this round was stopped.**
+**And 2 and 3 are answered, by the owner.**
 [`A32`](../questions/A32-a-memory-band-whose-floor-nothing-controls.md) is *recommendation
 approved*, and `Q32`'s recommendation is: **take the floor off `peak_mib` and put a floor on
 `open_peak_mib` instead** — the figure in the same row that has no graphics device in it and no
@@ -197,19 +197,16 @@ making one about the *driver's*, which is what has failed a gate three times for
 can explain. [`A29`](../questions/A29-a-clock-gate-on-a-machine-three-rounds-share.md) is
 *combining option 1 and 2 sounds good*.
 
-So the three floors this section argues about are not a question any more, and the round that
-lands 935's branch owns applying the answer: with `A32` taken, the four `peak_mib` floors go away
-rather than being restored *or* lowered, and this round's restoration of session 931's figures is
-superseded by an owner's decision rather than by another measurement. Nothing here should be read
-as a reason to keep them. Session 935's own branch was cut before that merge and before the answer,
-so whoever merges it reconciles three things at once — 932's lowered floors, this round's restored
-ones, and `A32`'s instruction to have none — and `A32` wins.
+So the three floors this section argues about are not a question any more, and `A32` is applied:
+`peak_mib` is banded nowhere and printed on every run, `peak_anon_mib` is what each row of
+`doc/checks/launch-path.toml` states, and `open_peak_mib` carries the two-sided band — an owner's
+decision rather than another measurement, so nothing above is a reason to put a `peak_mib` floor
+back (ADRs 0910, 0911).
 
 **One thing is left and it now has an instrument**: `bug1815476.pdf`'s cold open, a per cent or two
-over its ceiling since session 933 on quiet machines with every probe in band. Either the program's
-open grew or this machine's small-read latency did; `open_kinstructions` settles the first exactly
-from the next round on, and the second already reads 0.125 to 0.199 ms where session 931 measured
-0.109.
+over its ceiling on quiet machines with every probe in band. Either the program's open grew or
+this machine's small-read latency did; `open_kinstructions` settles the first exactly, and the
+second reads 0.125 to 0.199 ms against an earlier 0.109.
 
 ## Why this is a todo and not a caveat
 
@@ -479,7 +476,8 @@ for page one instead of polling for it. The instrument is `--trace=launch` in ei
 ## 7. Annex F's parameter dictionary, if the figure ever moves — **declined, priced, not closed**
 
 §6.3.2.1 recommends that "Linearized files should be read as specified in Annex F", and its ledger
-row is `departed` rather than `partial` since ADR 1225 measured what declining costs. This item is
+row is `implemented` with the recommendation's declining named as a choice, since ADR 1225
+measured what declining costs and a `should` is not a requirement (ADR 1622). This item is
 what the ADR declined to build, kept here so that a later round starts from the plan rather than
 from the question.
 
@@ -522,6 +520,15 @@ files in this corpus that state a parameter dictionary describe a file that no l
 because §F.3.6 says an incremental update invalidates the hint tables and §F.1 says the result
 "shall be treated as ordinary PDF". A route that trusted `/O` on one of those would open the wrong
 page and report nothing. Whoever takes this item runs the census first and reads that column.
+
+## 8. A document's scripts are timed after the frame — **closed, a stage of the gate**
+
+The gate's first-page child hands its viewer the runner a window at `on` hands it, so every row's
+time to first page is a reader's who lets scripts run, and sends `Command::Presented` once the
+frame's figures are read: the open sequence starts `pdf-script-worker` at its first trigger, and
+the run prints `script_open spawn_ms=… first_run_ms=…` on the timeline. `opt_demo.pdf` bands the
+two; a worker started before any row's frame fails the run. The spawn stays at the first trigger
+rather than the present, and no realm is kept warm, for the reasons and figures ADR 1620 states.
 
 ## What is deliberately not here
 

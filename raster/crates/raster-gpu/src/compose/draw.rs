@@ -18,7 +18,7 @@ use crate::encode::{Batch, BatchKind, DrawStyle, FunctionOp, ImageOp, Op, PaintS
 use crate::error::RenderError;
 use crate::pipeline::{Kind, Style};
 
-use super::Executor;
+use super::{Composite, Executor};
 
 /// What a content pass does with the pixels already in the attachment it draws onto.
 ///
@@ -33,6 +33,16 @@ pub(crate) enum PassLoad {
     Clear,
     /// A later pass: load what is there and draw over it.
     Keep,
+}
+
+impl PassLoad {
+    /// The attachment's load operation: transparency, or what an earlier pass stored.
+    pub(crate) const fn op(self) -> wgpu::LoadOp<wgpu::Color> {
+        match self {
+            PassLoad::Clear => wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+            PassLoad::Keep => wgpu::LoadOp::Load,
+        }
+    }
 }
 
 /// One drawable item of a pass: an instanced lane batch, or a single-quad op
@@ -162,14 +172,24 @@ impl Executor<'_> {
     /// One render pass of lane batches and single-quad ops onto `view`. Public to
     /// the device so the flat fast path draws the root directly onto the frame's
     /// target.
+    ///
+    /// `composite` is a child's composite onto the same attachment, drawn first in this pass
+    /// rather than in a pass of its own (ADR 1618). **The pixels are the two passes'**: a
+    /// pass's draws are rasterised and blended in the order they are recorded, as the
+    /// passes are, every draw here reads only textures other than the attachment, and an
+    /// `Rgba8Unorm` attachment stored by one pass and loaded by the next carries its bytes
+    /// unchanged — so each pixel meets the same writes, in the same order, from the same
+    /// value. What changes is the scissor between them, set for each draw as each pass
+    /// set it.
     pub(crate) fn draw_pass(
         &mut self,
         recorder: &mut wgpu::CommandEncoder,
-        view: &wgpu::TextureView,
-        format: wgpu::TextureFormat,
+        target: (&wgpu::TextureView, wgpu::TextureFormat),
         load: PassLoad,
         ops: &[RunOp],
+        composite: Option<Composite>,
     ) -> Result<(), RenderError> {
+        let (view, format) = target;
         let (ready, needed, shadings) = self.prepare_run(ops, format)?;
         // The attachment this pass writes is the current plan's region, and every lane
         // maps device space through it (ADR 0036).
@@ -191,10 +211,7 @@ impl Executor<'_> {
                 resolve_target: None,
                 ops: wgpu::Operations {
                     // Render onto transparency, always (brief section 3; §11.4.7).
-                    load: match load {
-                        PassLoad::Clear => wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        PassLoad::Keep => wgpu::LoadOp::Load,
-                    },
+                    load: load.op(),
                     store: wgpu::StoreOp::Store,
                 },
             })],
@@ -203,7 +220,16 @@ impl Executor<'_> {
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        self.scissor_pass(&mut pass, self.region, None);
+        if let Some(composite) = &composite {
+            self.draw_composite(&mut pass, composite);
+            // The composite's scissor is its own; the marks take the pass's, which is the
+            // whole attachment where the frame does not patch.
+            let whole = [0, 0, self.region.width, self.region.height];
+            let rect = self.scissor_rect(self.region, None).unwrap_or(whole);
+            pass.set_scissor_rect(rect[0], rect[1], rect[2], rect[3]);
+        } else {
+            self.scissor_pass(&mut pass, self.region, None);
+        }
         for item in &ready {
             let batch = match item {
                 Ready::Batch(batch) => batch,
@@ -268,6 +294,10 @@ impl Executor<'_> {
                     }
                 }
             }
+        }
+        drop(pass);
+        if let Some(composite) = composite {
+            self.release_composite(composite);
         }
         Ok(())
     }

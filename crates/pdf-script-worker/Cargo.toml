@@ -23,6 +23,9 @@ thiserror.workspace = true
 
 [dev-dependencies]
 pdf-syntax.workspace = true
+# The Tier 1 column through the worker walks the census population four documents at a time, as
+# `pdf-script`'s in-process column does.
+rayon.workspace = true
 
 [features]
 # Off by default for `pdf-script`'s own reason (RFC 0008 section 5.4): without it this crate is the

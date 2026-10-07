@@ -411,6 +411,36 @@ pub enum Command {
         /// Whether to go ahead.
         proceed: bool,
     },
+    /// RFC 0008 section 6.3: whether a document's scripts run, at the level the reader set.
+    ///
+    /// **A host-supplied policy value, and [`Self::Trust`]'s shape for its reason**: whether a
+    /// file's scripts may run on this machine is a fact about the person reading it, and a file
+    /// that could say so of itself would be choosing its own permission. What a host supplies is
+    /// a maker of runners ([`crate::ScriptRunners`]), so that every document is handed a realm of
+    /// its own; this crate starts no process (rule 2).
+    ///
+    /// **[`crate::Scripting::Off`] is the default and nothing changes for a host that never sends
+    /// this**: every script a view state does not run itself is reported as not run (the owner's
+    /// answer to RFC 0008's first question, `doc/questions/A193`).
+    ///
+    /// Applies to every open document and to every one opened afterwards, until it is sent again.
+    /// A document that is handed a runner after its open sequence has run has the sequence run
+    /// again and Table 224's `/CO` walked over its values, so that what the scripts would have
+    /// computed is on the page; a document asked under [`crate::Scripting::Ask`] keeps its answer
+    /// (ADR 1616).
+    Scripts(crate::Scripting),
+    /// The person's answer to [`crate::Event::AskingToRunScripts`].
+    ///
+    /// [`Self::Answer`]'s shape, for a question about the document's scripts rather than about an
+    /// operation it restricts: `true` hands the document a runner and runs what was withheld,
+    /// `false` keeps every script withheld until the document closes, and either holds whatever
+    /// level is sent afterwards. A document that is not asking does nothing (ADR 1616).
+    AnswerScripts {
+        /// Which document the question was about.
+        document: DocumentId,
+        /// Whether its scripts run.
+        proceed: bool,
+    },
     /// Table 29's `/PageLayout`: how the pages are arranged in the window.
     ///
     /// **The fourth host-supplied policy value, and it passes `doc/ui-boundary.md`'s test for the

@@ -766,8 +766,23 @@ fn batch_list(variable: &str) -> Vec<String> {
 /// beside the real one.
 fn stand_in_workspace() -> Vec<(String, String)> {
     let libraries = batch_list("install_libraries");
+    // Each program behind a feature is a package of its own, its `[[bin]]` requiring the feature
+    // `install_featured` names, so that the stand-in's build fails exactly where install forgot it.
+    let featured: Vec<(String, String, String)> = batch_list("install_featured")
+        .iter()
+        .filter_map(|entry| {
+            let (name, features) = entry.split_once(':')?;
+            let (package, feature) = features.split_once('/')?;
+            Some((name.to_owned(), package.to_owned(), feature.to_owned()))
+        })
+        .collect();
     let mut members = vec!["\"programs\"".to_owned()];
     members.extend(libraries.iter().map(|name| format!("\"{name}\"")));
+    members.extend(
+        featured
+            .iter()
+            .map(|(_, package, _)| format!("\"{package}\"")),
+    );
     let mut files = vec![
         (
             "Cargo.toml".to_owned(),
@@ -789,6 +804,20 @@ fn stand_in_workspace() -> Vec<(String, String)> {
     for name in batch_list("install_binaries") {
         files.push((
             format!("programs/src/bin/{name}.rs"),
+            "fn main() {}\n".to_owned(),
+        ));
+    }
+    for (name, package, feature) in &featured {
+        files.push((
+            format!("{package}/Cargo.toml"),
+            format!(
+                "[package]\nname = \"{package}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n\
+                 [features]\n{feature} = []\n\n[[bin]]\nname = \"{name}\"\npath = \"src/main.rs\"\n\
+                 required-features = [\"{feature}\"]\n"
+            ),
+        ));
+        files.push((
+            format!("{package}/src/main.rs"),
             "fn main() {}\n".to_owned(),
         ));
     }
@@ -862,6 +891,11 @@ fn install_refuses_until_main_names_the_batch_then_writes_only_main_s_target() {
     );
     let mut expected: Vec<String> = batch_list("install_binaries");
     expected.extend(
+        batch_list("install_featured")
+            .iter()
+            .filter_map(|entry| entry.split_once(':').map(|(name, _)| name.to_owned())),
+    );
+    expected.extend(
         batch_list("install_libraries")
             .iter()
             .map(|name| format!("lib{}.so", name.replace('-', "_"))),
@@ -899,13 +933,17 @@ fn install_refuses_until_main_names_the_batch_then_writes_only_main_s_target() {
     );
 }
 
+/// What one directory of packages builds: its programs, the packages that build a C library, and
+/// each program behind a feature as `name:package/feature,…` — `install_featured`'s spelling.
+type Built = (Vec<String>, Vec<String>, Vec<String>);
+
 /// The binary targets of the packages directly under `directory`, and the packages that build a C
 /// library, read from each manifest the way Cargo discovers them in this tree: a `[[bin]]` table's
 /// `name`, every `src/bin/<name>.rs`, and `src/main.rs` as the package's own name.
-fn programs_and_libraries(directory: &str) -> (Vec<String>, Vec<String>) {
-    let (mut programs, mut libraries) = (Vec::new(), Vec::new());
+fn programs_and_libraries(directory: &str) -> Built {
+    let (mut programs, mut libraries, mut featured) = (Vec::new(), Vec::new(), Vec::new());
     let Ok(entries) = std::fs::read_dir(repository_root().join(directory)) else {
-        return (programs, libraries);
+        return (programs, libraries, featured);
     };
     for entry in entries.flatten() {
         let Ok(manifest) = std::fs::read_to_string(entry.path().join("Cargo.toml")) else {
@@ -923,25 +961,38 @@ fn programs_and_libraries(directory: &str) -> (Vec<String>, Vec<String>) {
             .unwrap_or_default();
         let mut tables = 0usize;
         let mut in_bin = false;
-        // A program behind a feature no build turns on by default is not one a person is handed:
-        // `pdf-script-worker` needs `engine`, and is installed when a host supplies a level for
-        // scripts (ADR 1609). Each `[[bin]]` is read whole, its name and whether it states
+        // A program behind a feature no build turns on by default is built in a Cargo run of its
+        // own, so that the feature reaches nothing a window links: `pdf-script-worker` needs
+        // `engine` (ADRs 1616, 1625). Each `[[bin]]` is read whole, its name and its
         // `required-features`, before it is counted.
         let mut gated: Vec<String> = Vec::new();
-        let mut bin: (Option<String>, bool) = (None, false);
+        let mut bin: (Option<String>, Option<Vec<String>>) = (None, None);
+        let mut place =
+            |bin: (Option<String>, Option<Vec<String>>), gated: &mut Vec<String>| match bin {
+                (Some(name), Some(required)) => {
+                    let spelled: Vec<String> = required
+                        .iter()
+                        .map(|feature| format!("{package}/{feature}"))
+                        .collect();
+                    featured.push(format!("{name}:{}", spelled.join(",")));
+                    gated.push(name);
+                }
+                (Some(name), None) => programs.push(name),
+                (None, _) => {}
+            };
         for line in manifest.lines().map(str::trim) {
             if line.starts_with('[') {
-                if let (Some(name), required) = std::mem::take(&mut bin) {
-                    if required {
-                        gated.push(name);
-                    } else {
-                        programs.push(name);
-                    }
-                }
+                place(std::mem::take(&mut bin), &mut gated);
                 in_bin = line == "[[bin]]";
                 tables = tables.saturating_add(usize::from(in_bin));
             } else if in_bin && line.starts_with("required-features") {
-                bin.1 = true;
+                bin.1 = value(line).map(|list| {
+                    list.trim_matches(['[', ']'])
+                        .split(',')
+                        .map(|feature| feature.trim().trim_matches('"').to_owned())
+                        .filter(|feature| !feature.is_empty())
+                        .collect()
+                });
             } else if in_bin
                 && line.starts_with("name")
                 && let Some(name) = value(line)
@@ -949,13 +1000,7 @@ fn programs_and_libraries(directory: &str) -> (Vec<String>, Vec<String>) {
                 bin.0 = Some(name);
             }
         }
-        if let (Some(name), required) = bin {
-            if required {
-                gated.push(name);
-            } else {
-                programs.push(name);
-            }
-        }
+        place(bin, &mut gated);
         if manifest.contains("\"cdylib\"") {
             libraries.push(package.clone());
         }
@@ -974,7 +1019,7 @@ fn programs_and_libraries(directory: &str) -> (Vec<String>, Vec<String>) {
             programs.push(package);
         }
     }
-    (programs, libraries)
+    (programs, libraries, featured)
 }
 
 /// `install`'s names against the workspace: every program of a package under `crates/` — the
@@ -983,10 +1028,11 @@ fn programs_and_libraries(directory: &str) -> (Vec<String>, Vec<String>) {
 /// here fails this rather than going stale under `target/` (`doc/todo/02` section 5).
 #[test]
 fn install_names_every_program_and_library_the_workspace_builds_for_a_person() {
-    let (person_programs, libraries) = programs_and_libraries("crates");
-    let (tool_programs, _) = programs_and_libraries("tools");
+    let (person_programs, libraries, featured) = programs_and_libraries("crates");
+    let (tool_programs, _, _) = programs_and_libraries("tools");
     let installed = batch_list("install_binaries");
     let installed_libraries = batch_list("install_libraries");
+    let installed_featured = batch_list("install_featured");
     assert!(
         installed.len() >= 6 && person_programs.len() >= 6 && tool_programs.len() >= 20,
         "a list was not read: installed {installed:?}, crates/ {person_programs:?}, tools/ \
@@ -1009,6 +1055,15 @@ fn install_names_every_program_and_library_the_workspace_builds_for_a_person() {
         "tools/batch.sh install_binaries/install_libraries against the workspace:\n  installed and \
          no binary target: {not_programs:?}\n  a program under crates/ not installed: \
          {not_installed:?}\n  a C library not installed: {libraries_missed:?}"
+    );
+    let (mut wanted, mut named) = (featured, installed_featured);
+    wanted.sort();
+    named.sort();
+    assert!(
+        !wanted.is_empty() && wanted == named,
+        "tools/batch.sh install_featured against the workspace's programs behind a feature, each as \
+         `name:package/feature`: the manifests state {wanted:?} and install builds {named:?} \
+         (ADRs 1616, 1625)"
     );
 }
 

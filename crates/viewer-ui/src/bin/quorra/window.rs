@@ -498,6 +498,17 @@ impl App {
     /// are decided here; what a press means once it has got past them is
     /// [`viewer_host::keys::meaning`], which the other two hosts ask the same question of.
     fn pressed(&mut self, key: &Key<&str>) {
+        // **`CLAUDE.md`'s question takes every key while it is up, a field being typed into
+        // included.** The core is *holding* something until it is answered, so a key that turned a
+        // page while the question stood would leave a person reading somewhere else with an
+        // unanswered question behind them (ADR 1145); and one can arrive while a field holds the
+        // keyboard, because RFC 0008 section 6.3's *ask* is put at the first script, which a commit
+        // runs as the focus moves on to the next field. The typing resumes once the card is
+        // answered (ADR 1616).
+        if self.question.shown {
+            self.question_key(key);
+            return;
+        }
         // **A field being typed into takes every key, Escape included**, which is what ADR 0201
         // decided and what an earlier version of this handler quietly defeated three times: Escape
         // exited the program, `o` toggled the sidebar and `?` opened the notices card before
@@ -522,14 +533,6 @@ impl App {
         // up together — a document nobody has authenticated has no §12.7 field to type into.
         if self.password.shown {
             self.password_key(key);
-            return;
-        }
-        // **`CLAUDE.md`'s question takes every key while it is up**, for the card above's reason
-        // and one more: the core is *holding* an operation until this is answered, so a key that
-        // turned a page while the question stood would leave a person reading somewhere else with
-        // an unanswered question behind them (ADR 1145).
-        if self.question.shown {
-            self.question_key(key);
             return;
         }
         // **And so does the menu**, which is modal for the reason a menu is modal in every

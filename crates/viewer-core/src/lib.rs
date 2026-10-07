@@ -97,6 +97,7 @@ mod presentation;
 mod query;
 mod readback;
 mod report;
+mod scripting;
 mod search;
 mod select;
 mod viewer;
@@ -126,6 +127,7 @@ pub use query::{
     PageStructure, PopupWindow, PrintPage, Query, Selected, Tagging,
 };
 pub use readback::ReadbackCache;
+pub use scripting::{ScriptRunners, Scripting};
 pub use secret::Secret;
 pub use select::find_in_text;
 pub use viewer::{DocumentId, MAX_PIXELS, RenderToken, Viewer};

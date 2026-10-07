@@ -37,6 +37,10 @@ impl Executor<'_> {
     /// is the child's size rather than the plan's (ADR 0038). Both read inside the source
     /// by construction; `src_region` is what tells the shader so.
     ///
+    /// A source of `None` is an accumulator nothing has written yet, whose every texel is
+    /// §11.4.5's transparency: the pass clears and draws nothing, which stores the zeros
+    /// the blit would have copied (ADR 1618).
+    ///
     /// A blit rather than `copy_texture_to_texture` because it needs no copy usage on
     /// every internal texture in the frame, and because it is scissored by the same rule
     /// as every other pass — under a damage patch (ADR 0012) it copies only the pixels the
@@ -46,20 +50,26 @@ impl Executor<'_> {
         &mut self,
         recorder: &mut wgpu::CommandEncoder,
         label: &str,
-        src: (&wgpu::TextureView, Region),
+        src: (Option<&wgpu::TextureView>, Region),
         into: (&wgpu::TextureView, Region),
         at: [f32; 2],
     ) -> Result<(), RenderError> {
         let (src, src_region) = src;
         let (into, into_region) = into;
-        let bind = self.device.blit_bind(src, at, extent(src_region));
-        let (pipeline, compiled) = self
-            .device
-            .pipelines()
-            .get(Kind::Blit, wgpu::TextureFormat::Rgba8Unorm)?;
-        if let Some(duration) = compiled {
-            self.phases.push(("pipeline compile (first use)", duration));
-        }
+        let blit = match src {
+            Some(src) => {
+                let bind = self.device.blit_bind(src, at, extent(src_region));
+                let (pipeline, compiled) = self
+                    .device
+                    .pipelines()
+                    .get(Kind::Blit, wgpu::TextureFormat::Rgba8Unorm)?;
+                if let Some(duration) = compiled {
+                    self.phases.push(("pipeline compile (first use)", duration));
+                }
+                Some((pipeline, bind))
+            }
+            None => None,
+        };
         let stamp = self.pass_stamp();
         let mut pass = recorder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some(label),
@@ -77,10 +87,12 @@ impl Executor<'_> {
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        self.scissor_pass(&mut pass, into_region, None);
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, &bind, &[]);
-        pass.draw(0..3, 0..1);
+        if let Some((pipeline, bind)) = blit {
+            self.scissor_pass(&mut pass, into_region, None);
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &bind, &[]);
+            pass.draw(0..3, 0..1);
+        }
         Ok(())
     }
 

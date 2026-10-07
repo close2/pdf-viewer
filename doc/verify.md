@@ -538,6 +538,7 @@ cargo run --profile gates -p pdf-model --example parallel_sweep -- [file.pdf] [t
   # bands §8.9.5's colour conversion across `rayon::current_num_threads()` of its own. Two sweeps
   # apiece, since the two arrangements differ most on the second, and `VmHWM` from
   # `/proc/self/status` so the memory is the kernel's number rather than ours. ADR 0260
+cargo build --release -p pdf-script-worker --features engine --bins   # the script stage's worker (ADR 1620)
 PDFVIEWER_LAUNCH_CLOCKS=1 cargo test --release -p viewer-ui --test launch_path -- --ignored --nocapture
   # **the launch gate's other half, run when a round has the machine to itself.** `doc/todo/02`
   # section 2 runs this same gate with the variable unset and judges the twenty-one figures no

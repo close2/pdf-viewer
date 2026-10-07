@@ -13,14 +13,17 @@ use std::time::Duration;
 use pdf_model::action::{PageTrigger, Trigger as AnnotationTrigger};
 use pdf_model::aform::Trigger;
 use pdf_model::view::{
-    Alignment, BorderStyle, Colour, Display, FieldState, FieldType, Property, ScriptEdit,
-    ScriptSite,
+    Alignment, BorderStyle, Colour, Display, DocumentTrigger, FieldState, FieldType, Property,
+    ScriptEdit, ScriptSite, TextFlag,
 };
 
 use crate::{Ending, Event, Exceeded, Outcome, Refusal, RefusalKind, Request};
 
 /// The first byte of every encoding this module writes.
-pub const VERSION: u8 = 2;
+///
+/// Moved whenever what crosses changes shape: 3 carries Table 200's sites, the text flags a script
+/// writes and a script's focus request (ADRs 1614, 1615).
+pub const VERSION: u8 = 3;
 
 /// Most fields one request may tell a realm of, and most edits one outcome may carry.
 ///
@@ -245,6 +248,12 @@ const ANNOTATION_TRIGGERS: [AnnotationTrigger; 10] = [
     AnnotationTrigger::PageInvisible,
 ];
 
+/// Table 200's five events, in tag order.
+const DOCUMENT_TRIGGERS: [DocumentTrigger; 5] = DocumentTrigger::ALL;
+
+/// Table 231's text field flags, in tag order.
+const TEXT_FLAGS: [TextFlag; 4] = TextFlag::ALL;
+
 /// The field types, in tag order.
 const FIELD_TYPES: [FieldType; 7] = [
     FieldType::Text,
@@ -301,6 +310,10 @@ fn put_site(out: &mut Vec<u8>, site: ScriptSite) {
         }
         ScriptSite::OpenAction => put_u8(out, 3),
         ScriptSite::Library => put_u8(out, 4),
+        ScriptSite::Document(trigger) => {
+            put_u8(out, 5);
+            put_u8(out, tag_of(&DOCUMENT_TRIGGERS, &trigger));
+        }
     }
 }
 
@@ -398,6 +411,11 @@ fn put_edit(out: &mut Vec<u8>, edit: &ScriptEdit) {
                     put_u8(out, 8);
                     put_u32(out, *limit);
                 }
+                Property::TextFlag(flag, on) => {
+                    put_u8(out, 9);
+                    put_u8(out, tag_of(&TEXT_FLAGS, flag));
+                    put_bool(out, *on);
+                }
             }
         }
         ScriptEdit::Reset { fields } => {
@@ -408,6 +426,10 @@ fn put_edit(out: &mut Vec<u8>, edit: &ScriptEdit) {
             }
         }
         ScriptEdit::Calculate => put_u8(out, 3),
+        ScriptEdit::Focus { field } => {
+            put_u8(out, 4);
+            put_str(out, field);
+        }
     }
 }
 
@@ -586,6 +608,7 @@ impl<'a> Reader<'a> {
             }),
             3 => ScriptSite::OpenAction,
             4 => ScriptSite::Library,
+            5 => ScriptSite::Document(self.tagged(&DOCUMENT_TRIGGERS, "trigger")?),
             _ => return Err(WireError::Invalid("site")),
         })
     }
@@ -662,6 +685,9 @@ impl<'a> Reader<'a> {
                     6 => Property::BorderStyle(self.tagged(&BORDER_STYLES, "border style")?),
                     7 => Property::Alignment(self.tagged(&ALIGNMENTS, "alignment")?),
                     8 => Property::CharLimit(self.u32()?),
+                    9 => {
+                        Property::TextFlag(self.tagged(&TEXT_FLAGS, "text flag")?, self.boolean()?)
+                    }
                     _ => return Err(WireError::Invalid("property")),
                 };
                 ScriptEdit::Property { field, property }
@@ -675,6 +701,9 @@ impl<'a> Reader<'a> {
                 ScriptEdit::Reset { fields }
             }
             3 => ScriptEdit::Calculate,
+            4 => ScriptEdit::Focus {
+                field: self.string()?,
+            },
             _ => return Err(WireError::Invalid("edit")),
         })
     }

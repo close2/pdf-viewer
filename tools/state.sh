@@ -391,6 +391,8 @@ section_writer() {
 # 0884 for why a wall-clock gate on this machine says that rather than failing.
 section_launch() {
     cargo build --release -p pdf-sandbox --bins >/dev/null 2>&1 || status=1
+    # The script stage's worker, trap 10's shape once more (ADR 1620).
+    cargo build --release -p pdf-script-worker --features engine --bins >/dev/null 2>&1 || status=1
     run "the launch path (principle 2's four numbers, doc/checks/launch-path.toml)" \
         '^launch-path:' \
         cargo test --release -p viewer-ui --test launch_path -- --ignored --nocapture
@@ -612,11 +614,18 @@ section_dates() {
         cargo test --profile gates -p pdf-model --test dates -- --ignored --nocapture
 }
 
-# RFC 0008 section 6.7's Tier 0 form over the census population: every field script at a Table 199
-# site committed once, each displayed value held by name (ADR 1579). A corpus walk, behind the lock.
+# RFC 0008 section 6.7's two columns over the census population. Tier 0's form: every field script
+# at a Table 199 site committed once, each displayed value held by name (ADR 1579). Tier 1's: every
+# script Tier 0 does not run, run in its document's realm with the `engine` feature, its endings
+# counted and held to the column's own ceilings, which the `held:` line prints (ADR 1625). Two
+# corpus walks, behind the lock.
 section_scripts() {
     run "field scripts, Tier 0 (RFC 0008)" '^[0-9]+ (PDF\(s\) walked|held)' \
         cargo test --profile gates -p pdf-model --test script_corpus -- --ignored --nocapture
+    run "field scripts, Tier 1 in the engine (RFC 0008 section 6.7, ADR 1625)" \
+        '^[0-9]+ PDF\(s\) walked|^held: |^ratchet: |^budgets exceeded|^bounded:' \
+        tools/bounded.sh --data 8 --tree 12 -- \
+        cargo test --profile gates -p pdf-script --features engine --test script_corpus -- --ignored --nocapture
 }
 
 section_xmp() {

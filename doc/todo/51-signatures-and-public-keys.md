@@ -6,8 +6,8 @@ section 5.1.2 adds beside them, all verify; every digest either table names is c
 every one of ISO/TS 32002's eight curves — two of them this tree's own under the owner's answer
 A170, until a reviewed crate covers them. Question 3 is still a project.
 Priority: 51
-Corpus: 5 documents (§7.6.5's public-key handlers, counted below). `/R` 5 left this file in the
-eight-hundred-and-eighty-seventh session — it is implemented. For the signature populations, **run
+Corpus: 5 documents (§7.6.5's public-key handlers, counted below). `/R` 5 is implemented (ADR 0820)
+and has left this file. For the signature populations, **run
 the census rather than reading a number here**:
 
 ```sh
@@ -17,7 +17,7 @@ cargo run --release -p pdf-signature --example signature_algorithm_census -- @/t
 
 **`find -L`, and the `-L` is not decoration.** In a parallel worktree `corpus-cache` is a *symlink*
 into the main checkout, and `find` without it descends nothing and reports zero paths — a false
-zero of exactly the shape this file warns about, met by the six-hundred-and-eighty-ninth session.
+zero of exactly the shape this file warns about, and one round met it.
 
 Clauses: §12.8.3, §7.6.5, §7.6.4.3, Table 21, Table 256, Table 260; ISO/TS 32001 section 5.1, ISO/TS 32002 section 5.1
 Code: `crates/pdf-signature/src/signature.rs`, `crates/pdf-signature/src/cms.rs`,
@@ -27,12 +27,10 @@ Code: `crates/pdf-signature/src/signature.rs`, `crates/pdf-signature/src/cms.rs`
 
 ## Signature validation (§12.8.3) — 5 ledger rows, and it used to be 17
 
-**This file used to say the whole clause needed "a trust store and a network". That was true of one
-of the three questions a signature asks and false of the other two**; the three-hundred-and-seventy-seventh
-session separated them and answered the first (ADR 0215), the three-hundred-and-ninety-second
-answered the second for RSA (ADR 0229), the four-hundred-and-seventy-ninth answered it for DSA
-(ADR 0314), the four-hundred-and-eighty-seventh for the RSA family's other padding, RSASSA-PSS
-(ADR 0322), and the six-hundred-and-eighty-ninth for the two elliptic-curve families (ADR 0532).
+**A trust store and a network are what one of the three questions a signature asks needs, and the
+other two need neither.** ADR 0215 separates the three and answers the first; the second is
+answered for RSA by ADR 0229, for DSA by ADR 0314, for the RSA family's other padding, RSASSA-PSS,
+by ADR 0322, and for the two elliptic-curve families by ADR 0532.
 
 | | asks | needs | state |
 |---|---|---|---|
@@ -71,8 +69,8 @@ a release.**
   Those two files are outside what the Technical Specification admits, and reporting them by their
   own algorithm identifier **is** the correct behaviour rather than a gap. Do not re-open this as a
   debt.
-- **"The domain parameters are in no document this tree holds"** died in the
-  four-hundred-and-ninety-sixth session (ADR 0331) and is fully spent now: the identifiers come from
+- **"The domain parameters are in no document this tree holds"** is retired (ADR 0331) and fully
+  spent: the identifiers come from
   `const-oid`'s database — a second party's reading of the registries, at zero new packages, since
   it is already here through `digest` — and the curve constants from the curve packages.
 
@@ -84,7 +82,7 @@ SHA-3 ECDSA signature is verified today by the same path. **No document in the p
 one**, so nothing here is exercised by a real file, and that is a fact about documents rather than
 about the code.
 
-### ISO/TS 32001's four digests — done in the five-hundred-and-fifty-fifth session (ADR 0390)
+### ISO/TS 32001's four digests — computed (ADR 0390)
 
 `cms::Digest` computes SHA3-256, SHA3-384, SHA3-512 and SHAKE256 beside the base standard's six, on
 `sha3` 0.12 and `shake` 0.1. Four things it left behind that a later round should not have to
@@ -92,8 +90,8 @@ rediscover:
 
 - **Read ISO/TS 32001's errata before writing anything about it**, with `spec-errata emit` and not
   `doc/md/`. Two annotations amend it and neither is in the conversion: issue #236 **deletes clause
-  5.1.3 entirely**, so Table 256's `/DigestMethod` is *not* extended with the SHA-3 family (this
-  file said it was, for three sessions), and issue #404 strikes the sentence pinning `id-shake256`
+  5.1.3 entirely**, so Table 256's `/DigestMethod` is *not* extended with the SHA-3 family (a
+  reading of `doc/md/` alone says it is), and issue #404 strikes the sentence pinning `id-shake256`
   and defers to RFC 8702 and RFC 8419 instead. **The same errata run on ISO/TS 32002 finds #404
   again**, striking the matching footnotes in its section 5.1.2 and nothing that touches Table 3,
   Table 4 or NOTE 2.
@@ -113,7 +111,7 @@ rediscover:
 
 ### What question 3 would take — the path validation is built, the rest is still a project
 
-**The certification path validation exists since the thousand-and-twenty-second session** and is
+**The certification path validation exists** and is
 `pdf_signature::trust`: RFC 5280 section 6.1, with the trust anchors as that RFC's section 6.1.1
 input (d) rather than as a list this program ships. **Read ADR 1039 before touching any of this**,
 because it prices the two obvious moves and refuses both as defaults — a compiled-in root list and
@@ -150,8 +148,7 @@ CMS enveloped data, X.509, the user's private keys — an infrastructure and a t
 cipher. The standard security handler (§7.6.3, §7.6.4) is complete in both directions at every
 revision and method, so this is the *other* handler family.
 
-**"0 corpus documents" was this heading for a long time and it is five**, counted in the
-eight-hundred-and-ninety-second session over everything this tree can reach — 90 535 documents,
+**The count is five**, taken over everything this tree can reach — 90 535 documents,
 of which 2 374 name `/Encrypt` in their bytes and 2 360 state one in a trailer (ADR 0829):
 
 ```sh
@@ -202,8 +199,7 @@ this clause's — recorded here because this is where somebody will look for the
   in its body that the trailer's `/Encrypt` does not reach, so the reader sees an absent
   `/Filter`. A cross-reference recovery question rather than an encryption one.
 
-**And the three-hundred-and-ninety-second session read this against what it built, with a result
-that is smaller than it sounds.** `der`, `cms` and `x509` are the parsing half of §7.6.5 — perhaps
+**Read against what ADR 0229 built, the result is smaller than it sounds.** `der`, `cms` and `x509` are the parsing half of §7.6.5 — perhaps
 half of that half. What the clause needs on top is RFC 5652's `EnvelopedData` rather than
 `SignedData`, which is a different structure with recipient information in it; an RSA *decryption*
 rather than a verification, which is a private-key operation and therefore the one place in this
@@ -215,23 +211,19 @@ been decided.
 it: every dependency §12.8.3 runs on was chosen with the `_vartime` spelling on purpose, because a
 verifier has no secret. A decryption does, and none of those choices carries over.
 
-## `/R` 5 — implemented, and this section is what it replaced
+## `/R` 5 — implemented
 
-**This heading used to read "`/R` 5 — 1 document" and the paragraph under it said "Table 21 says
-`/R` 5 \"shall not be used\" and states no algorithm, so there is nothing to implement."** The
-eight-hundred-and-eighty-seventh session read that sentence as binding a *writer*, found that
-Table 21's "deprecated proprietary Adobe extension" is a **pointer** rather than an absence, and
-implemented the revision (ADR 0820). 41 of the 90 535 documents state it; 33 open, 8 want a
+**Table 21's prohibition of `/R` 5 binds a *writer*, and the algorithm it does not state is
+stated elsewhere:** Table 21's "deprecated proprietary Adobe extension" is a **pointer** rather than an
+absence, so a reader that meets the revision implements it (ADR 0820). 41 of the 90 535 documents state it; 33 open, 8 want a
 password nobody here has, 0 are refused.
 
-The eight-hundred-and-ninety-second session then fetched the extension itself — the Adobe
-Supplement to ISO 32000-1, `BaseVersion` 1.7, `ExtensionLevel` 3 — and every step ADR 0820 derived
-without it agrees with its Algorithm 3.2a, including the password preparation that was the one
+The extension itself — the Adobe Supplement to ISO 32000-1, `BaseVersion` 1.7, `ExtensionLevel`
+3 — is read, and every step ADR 0820 derived without it agrees with its Algorithm 3.2a, including the password preparation that was the one
 step resting on a reading (ADR 0829). Nothing is owed here.
 
 **What the corpus's one remaining `/R` 5 encoding refusal is about is a different clause.** A
 revision-4 password containing a character `PDFDocEncoding` has no code for is refused by
 §7.6.4.3.2 step (a)'s conversion, which uses the whole of Annex D Table D.3 and still has no code
-for U+00A0. (The row that said "this crate holds no Annex D table" was wrong for a hundred and
-twenty-nine sessions — `text_string.rs` had held it since the ninety-second, put there for
-§7.9.2.2. See `01-ledger-partial-rows.md`.)
+for U+00A0. (This crate holds Annex D's table — `text_string.rs` has it, put there for §7.9.2.2 — and a ledger
+row long said otherwise. See `01-ledger-partial-rows.md`.)

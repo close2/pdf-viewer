@@ -51,6 +51,7 @@ mod region;
 // `RunOp` is deliberately not re-exported: the device names `run_ops` and `draw_pass`
 // and lets the item type follow, so a name nothing writes would be a name to keep in
 // step for nothing.
+use child::Composite;
 pub(crate) use draw::{PassLoad, run_ops};
 pub(crate) use region::Region;
 use region::overlap;
@@ -75,6 +76,9 @@ pub(crate) struct Executor<'a> {
     pub dummy_view: wgpu::TextureView,
     pub atlas_view: Option<wgpu::TextureView>,
     pub first_pass_stamped: bool,
+    /// Whether the pass recorded next is the frame's last, onto its target, which carries
+    /// the end timestamp (ADR 1618).
+    pub closing: bool,
     pub query: Option<&'a PassQuery>,
     pub phases: Vec<(&'static str, Duration)>,
     /// When a frame patches a damage list (ADR 0012), every internal pass is
@@ -160,6 +164,8 @@ impl Executor<'_> {
         let accumulator = self.pool.acquire(self.device, region.width, region.height);
         let view = view_of(&accumulator);
         let outer = std::mem::replace(&mut self.region, region);
+        // Whether a recorded pass has written the whole accumulator, or the pending
+        // composite's pass will: that pass clears it when nothing has (ADR 1618).
         let mut cleared = false;
         if let Some(backdrop) = seed {
             // The parent's region and the child's are the same rectangle for a seeded
@@ -167,12 +173,19 @@ impl Executor<'_> {
             self.copy_pass(
                 recorder,
                 "raster seed non-isolated group",
-                (backdrop, region),
+                (Some(backdrop), region),
                 (&view, region),
                 [0.0, 0.0],
             )?;
             cleared = true;
         }
+        // A child's composite whose copy is recorded and whose draw is not. **It is drawn
+        // first in the pass of the run after it**, because both write this accumulator and
+        // nothing between them reads it: two passes onto one attachment, each loading what
+        // the last stored, deposit what one pass deposits drawing the same draws in the
+        // same order (ADR 1618). A child, or the plan's end, records it in a pass of its own,
+        // since the next child's copy has to read what it wrote.
+        let mut pending: Option<Composite> = None;
         let mut op_index = 0;
         while op_index < plan.ops.len() {
             match &plan.ops[op_index] {
@@ -183,38 +196,42 @@ impl Executor<'_> {
                         op_index = op_index.saturating_add(1);
                     }
                     let run = run_ops(&plan.ops[run_start..op_index]);
+                    let load = match &pending {
+                        Some(composite) => composite.load(),
+                        None if cleared => PassLoad::Keep,
+                        None => PassLoad::Clear,
+                    };
                     self.draw_pass(
                         recorder,
-                        &view,
-                        wgpu::TextureFormat::Rgba8Unorm,
-                        if cleared {
-                            PassLoad::Keep
-                        } else {
-                            PassLoad::Clear
-                        },
+                        (&view, wgpu::TextureFormat::Rgba8Unorm),
+                        load,
                         &run,
+                        pending.take(),
                     )?;
                     cleared = true;
                 }
                 Op::Child(child) => {
                     let child_op = *child;
                     op_index = op_index.saturating_add(1);
-                    if !cleared {
-                        // The composite reads the accumulator through a copy, so it must
-                        // exist even if nothing was drawn yet: clear it with an empty pass.
-                        self.draw_pass(
-                            recorder,
-                            &view,
-                            wgpu::TextureFormat::Rgba8Unorm,
-                            PassLoad::Clear,
-                            &[],
-                        )?;
-                        cleared = true;
+                    if let Some(composite) = pending.take() {
+                        self.composite_pass(recorder, &view, composite);
                     }
                     // §11.4.4: a non-isolated group's elements composite onto the
                     // group's backdrop, so its buffer begins as a copy of what is under
                     // it. The composite that follows takes that contribution back out
-                    // (ADR 0019), which is why this seeding is only half a change.
+                    // (ADR 0019), which is why this seeding is only half a change. A
+                    // non-isolated group's backdrop has to be in the accumulator to be
+                    // copied, so an accumulator nothing has written is cleared first.
+                    if !child_op.isolated && !cleared {
+                        self.draw_pass(
+                            recorder,
+                            (&view, wgpu::TextureFormat::Rgba8Unorm),
+                            PassLoad::Clear,
+                            &[],
+                            None,
+                        )?;
+                        cleared = true;
+                    }
                     let seed = (!child_op.isolated).then_some(&view);
                     let child =
                         self.render_plan(recorder, child_op.layer.saturating_add(1), seed)?;
@@ -226,29 +243,26 @@ impl Executor<'_> {
                         }
                         None => None,
                     };
-                    self.composite_child(
+                    pending = self.composite_child(
                         recorder,
-                        &view,
-                        region,
-                        (&child, group_alpha.as_ref()),
+                        (&view, region, cleared),
+                        (child, group_alpha),
                         &child_op,
                     )?;
-                    // Every pass that reads the child has been recorded; a sibling may
-                    // have its texture now.
-                    self.pool.release(child.texture);
-                    if let Some(group_alpha) = group_alpha {
-                        self.pool.release(group_alpha.texture);
-                    }
+                    cleared = cleared || pending.is_some();
                 }
             }
+        }
+        if let Some(composite) = pending.take() {
+            self.composite_pass(recorder, &view, composite);
         }
         if !cleared {
             self.draw_pass(
                 recorder,
-                &view,
-                wgpu::TextureFormat::Rgba8Unorm,
+                (&view, wgpu::TextureFormat::Rgba8Unorm),
                 PassLoad::Clear,
                 &[],
+                None,
             )?;
         }
         self.region = outer;
@@ -271,8 +285,16 @@ impl Executor<'_> {
     /// takes two rectangles rather than one: a patched frame compositing a small group
     /// must honour both, and only their overlap does.
     fn scissor_pass(&self, pass: &mut wgpu::RenderPass<'_>, into: Region, limit: Option<Region>) {
+        if let Some(rect) = self.scissor_rect(into, limit) {
+            pass.set_scissor_rect(rect[0], rect[1], rect[2], rect[3]);
+        }
+    }
+
+    /// The rectangle [`Self::scissor_pass`] sets, in `into`'s space; `None` where the pass
+    /// writes its whole attachment.
+    fn scissor_rect(&self, into: Region, limit: Option<Region>) -> Option<[u32; 4]> {
         if self.scissor.is_none() && limit.is_none() {
-            return;
+            return None;
         }
         let mut rect = [0, 0, into.width, into.height];
         if let Some(damage) = self.scissor {
@@ -281,11 +303,13 @@ impl Executor<'_> {
         if let Some(limit) = limit {
             rect = overlap(rect, into.scissor_in(limit.rect()));
         }
-        pass.set_scissor_rect(rect[0], rect[1], rect[2], rect[3]);
+        Some(rect)
     }
 
-    /// The end-of-frame timestamp: an empty pass whose only job is the second
-    /// timestamp, so `execute` spans first pass to last whatever the pass count.
+    /// The end-of-frame timestamp of a frame that records no pass: an empty pass whose only
+    /// job is the second timestamp. Every route that draws stamps its end on its last pass
+    /// instead ([`Self::closing`]), because a pass of its own onto the same target costs a
+    /// pass and changes no pixel (ADR 1618).
     pub(crate) fn end_stamp(
         &mut self,
         recorder: &mut wgpu::CommandEncoder,
@@ -314,17 +338,20 @@ impl Executor<'_> {
         });
     }
 
-    /// The first pass stamps the frame's beginning; later passes stamp nothing (the
-    /// end stamp is its own pass).
+    /// The first pass stamps the frame's beginning and the closing pass its end, so
+    /// `execute` spans first pass to last whatever the pass count; every other pass stamps
+    /// nothing.
     fn pass_stamp(&mut self) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
-        if self.first_pass_stamped {
+        let beginning = (!self.first_pass_stamped).then_some(0);
+        let end = self.closing.then_some(1);
+        self.first_pass_stamped = true;
+        if beginning.is_none() && end.is_none() {
             return None;
         }
-        self.first_pass_stamped = true;
         self.query.map(|q| wgpu::RenderPassTimestampWrites {
             query_set: &q.set,
-            beginning_of_pass_write_index: Some(0),
-            end_of_pass_write_index: None,
+            beginning_of_pass_write_index: beginning,
+            end_of_pass_write_index: end,
         })
     }
 }

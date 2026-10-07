@@ -1,6 +1,7 @@
 //! The scripts a document runs outside a field's own four triggers: Table 32's name tree and the
-//! catalog's `/OpenAction` when the document is opened, Table 198's page events, and Table 197's
-//! annotation events (RFC 0008 sections 6.5 and 6.6, ADR 1602).
+//! catalog's `/OpenAction` when the document is opened, Table 198's page events, Table 197's
+//! annotation events (RFC 0008 sections 6.5 and 6.6, ADR 1602), and Table 200's events of the
+//! document as a whole, which a host marks around a close, a save and a print (ADR 1614).
 //!
 //! **Only the ECMAScript actions are run here.** A host already performs every other action of the
 //! same chains — `crate::action::for_annotation` and `crate::action::for_page` read them and
@@ -22,7 +23,7 @@ use std::time::Instant;
 use pdf_syntax::{Dictionary, Document, Object, ObjectId, tree};
 
 use super::ViewState;
-use super::script_model::ScriptSite;
+use super::script_model::{DocumentTrigger, ScriptSite};
 use super::scripts::{MAX_SEQUENCE_TIME, ScriptEvent, script_text};
 use crate::action::{PageTrigger, Trigger as AnnotationTrigger};
 
@@ -173,6 +174,106 @@ impl ViewState {
             self.refresh_formatted(document, &table);
         }
         ran
+    }
+
+    /// Runs Table 200's script for one moment of the document as a whole, and answers how many
+    /// scripts were handed over.
+    ///
+    /// **What a host calls at each of the five moments** (ADR 1614): [`DocumentTrigger::WillClose`]
+    /// before it lets a document go, [`DocumentTrigger::WillSave`] before
+    /// [`ViewState::save`] writes §7.5.6's update and [`DocumentTrigger::DidSave`] once it has —
+    /// so what a will-save script writes into a field is in the file — and
+    /// [`DocumentTrigger::WillPrint`] and [`DocumentTrigger::DidPrint`] at the start and the end of
+    /// a print operation. `page` is the zero-based page the host shows, `this.pageNum`.
+    ///
+    /// **A trigger here is a notification, never a question.** Table 200 says of each entry only
+    /// when its action "shall be performed" — `/WC` "before closing a document", `/WS` "before
+    /// saving a document" — and gives the action no part in whether the operation happens; so a
+    /// script that sets `event.rc` false is reported, and the close, the save or the print goes
+    /// ahead. A document that could keep its reader from closing or saving it would be a
+    /// restriction no level could turn off, which `CLAUDE.md` principle 3 forbids.
+    ///
+    /// The value column makes every entry "[a]n ECMAScript action", so an action of another type
+    /// in the chain is not performed, and is reported. The chain is held to its runner's budget per
+    /// script and to [`MAX_SEQUENCE_TIME`] as a whole; with no runner supplied, the scripts are
+    /// reported as not run, once.
+    pub fn run_document_scripts(
+        &mut self,
+        document: &Document,
+        trigger: DocumentTrigger,
+        page: usize,
+    ) -> usize {
+        let key = trigger.key();
+        let subject = format!("the document's /{key} script");
+        let Some(entry) = document_entry(document, trigger) else {
+            return 0;
+        };
+        let (scripts, others) = chain(document, &entry);
+        if others > 0 {
+            self.report(format!(
+                "the catalog's /AA /{key} chain holds {others} action(s) that are not \
+                 ECMAScript, which Table 200 does not admit there, and none was performed"
+            ));
+        }
+        if scripts.is_empty() {
+            return 0;
+        }
+        if self.runner.0.is_none() {
+            self.report(format!(
+                "{subject} was not run, before or after the {} it marks: no host has supplied a \
+                 runner for scripts",
+                trigger.operation()
+            ));
+            return 0;
+        }
+        let table = super::widgets_by_field_name(document);
+        let started = Instant::now();
+        let (mut handed, mut changed, mut calculate) = (0_usize, false, false);
+        for (index, script) in scripts.iter().enumerate() {
+            if started.elapsed() > MAX_SEQUENCE_TIME {
+                self.report(format!(
+                    "{subject} chain was stopped at script {} of {}: it ran longer than its \
+                     budget of {} ms (ADR 1614)",
+                    index.saturating_add(1),
+                    scripts.len(),
+                    MAX_SEQUENCE_TIME.as_millis()
+                ));
+                break;
+            }
+            let event = ScriptEvent {
+                script,
+                page,
+                ..ScriptEvent::at(ScriptSite::Document(trigger), "")
+            };
+            let Some((result, applied)) = self.run_event(document, &table, event) else {
+                continue;
+            };
+            handed = handed.saturating_add(1);
+            changed |= applied.values;
+            calculate |= applied.calculate;
+            let refused = !result.rc;
+            self.report_each(&subject, result.report);
+            if refused {
+                let operation = trigger.operation();
+                self.report(if trigger.before() {
+                    format!(
+                        "{subject} set event.rc false, and the {operation} goes ahead: Table 200 \
+                         performs the script before the {operation} and gives it no say in \
+                         whether the {operation} happens (ADR 1614)"
+                    )
+                } else {
+                    format!(
+                        "{subject} set event.rc false after the {operation}, which nothing \
+                         listens to (ADR 1614)"
+                    )
+                });
+            }
+        }
+        if handed > 0 {
+            self.after_scripts(document, &table, changed, calculate);
+            self.refresh_formatted(document, &table);
+        }
+        handed
     }
 
     /// The page's scripts and its annotations' for one of Table 198's events.
@@ -409,30 +510,52 @@ fn open_action_scripts(document: &Document) -> Vec<String> {
     }
 }
 
+/// The catalog's Table 200 entry for one trigger, where its additional-actions dictionary states
+/// one.
+///
+/// Table 29 makes the catalog's `/AA` "[a]n additional-actions dictionary defining the actions
+/// that shall be taken in response to various trigger events affecting the document as a whole".
+fn document_entry(document: &Document, trigger: DocumentTrigger) -> Option<Object> {
+    let catalog = document.catalog().ok()?;
+    let additional = document.get_key(&catalog, "AA");
+    additional.as_dict()?.get(trigger.key()).cloned()
+}
+
 /// The text of every ECMAScript action in one chain, in §12.6.2's execution order — an action,
 /// then its `/Next` subtree, then the next sibling — each action dictionary visited once.
 fn scripts_in(document: &Document, entry: &Object) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut seen = BTreeSet::new();
-    let mut visited = 0_usize;
-    walk(document, entry, &mut out, &mut seen, &mut visited);
-    out
+    chain(document, entry).0
+}
+
+/// [`scripts_in`], with how many actions of the chain are of another type, or are ECMAScript whose
+/// text cannot be read.
+fn chain(document: &Document, entry: &Object) -> (Vec<String>, usize) {
+    let mut walked = Walked::default();
+    walk(document, entry, &mut walked);
+    (walked.scripts, walked.others)
+}
+
+/// What one chain's walk has found so far.
+#[derive(Debug, Default)]
+struct Walked {
+    /// Each script's text, in order.
+    scripts: Vec<String>,
+    /// How many actions were not a script whose text was read.
+    others: usize,
+    /// Every action dictionary visited, by object.
+    seen: BTreeSet<ObjectId>,
+    /// How many entries the walk has visited, held to [`MAX_CHAIN`].
+    visited: usize,
 }
 
 /// Appends one action's script and its `/Next` subtree's.
-fn walk(
-    document: &Document,
-    entry: &Object,
-    out: &mut Vec<String>,
-    seen: &mut BTreeSet<ObjectId>,
-    visited: &mut usize,
-) {
-    if *visited >= MAX_CHAIN {
+fn walk(document: &Document, entry: &Object, walked: &mut Walked) {
+    if walked.visited >= MAX_CHAIN {
         return;
     }
-    *visited = visited.saturating_add(1);
+    walked.visited = walked.visited.saturating_add(1);
     if let Object::Reference(id) = entry
-        && !seen.insert(*id)
+        && !walked.seen.insert(*id)
     {
         return;
     }
@@ -440,17 +563,18 @@ fn walk(
     let Some(action) = resolved.as_dict() else {
         return;
     };
-    if let Some(script) = script_text(document, action) {
-        out.push(script);
+    match script_text(document, action) {
+        Some(script) => walked.scripts.push(script),
+        None => walked.others = walked.others.saturating_add(1),
     }
     let next = action.get("Next").cloned().unwrap_or(Object::Null);
     match document.resolve(&next) {
         Object::Array(items) => {
             for item in &items {
-                walk(document, item, out, seen, visited);
+                walk(document, item, walked);
             }
         }
-        Object::Dictionary(_) => walk(document, &next, out, seen, visited),
+        Object::Dictionary(_) => walk(document, &next, walked),
         _ => {}
     }
 }

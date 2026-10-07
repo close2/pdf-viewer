@@ -213,6 +213,17 @@ fn arguments() -> Arguments {
         );
         std::process::exit(2);
     };
+    // RFC 0008 section 6.3's level is pinned here, and a person who asked for another is told so
+    // rather than given a word this window would not obey (`doc/questions/A193`, ADR 1616).
+    if reader.scripts != viewer_host::Scripts::Off {
+        eprintln!(
+            "note: {} {}: {}",
+            viewer_host::SCRIPTS,
+            reader.scripts.as_str(),
+            viewer_host::SCRIPTS_PINNED
+        );
+        reader.scripts = viewer_host::Scripts::Off;
+    }
     Arguments {
         path,
         topics,
@@ -902,6 +913,19 @@ impl Host {
             } => {
                 eprintln!("note: {}", viewer_host::unanswerable(&notes));
                 self.dispatch(&Command::Answer {
+                    document,
+                    proceed: false,
+                });
+            }
+            // RFC 0008 section 6.3's question cannot arrive: this window is pinned to `off` and
+            // hands its worker no runner. Answered `no` where it does, for the arm above's reason
+            // (ADR 1616).
+            Event::AskingToRunScripts { document, .. } => {
+                eprintln!(
+                    "note: {SCRIPTS_PINNED}",
+                    SCRIPTS_PINNED = viewer_host::SCRIPTS_PINNED
+                );
+                self.dispatch(&Command::AnswerScripts {
                     document,
                     proceed: false,
                 });

@@ -174,6 +174,7 @@ fn standing(settings: viewer_host::Settings) -> viewer_host::Restrictions {
             settings.embedded_documents,
         ))
         .with(viewer_host::ActLevel::Submissions(settings.submissions))
+        .with(viewer_host::ActLevel::Scripts(settings.scripts))
 }
 
 /// What an open sends, in the order it sends it: every policy before the document.
@@ -984,6 +985,18 @@ impl Host {
         );
     }
 
+    /// RFC 0008 section 6.3's one question per document, in the same window (ADR 1616).
+    fn ask_whether_to_run_scripts(&mut self, document: DocumentId, script: &str, first_line: &str) {
+        self.put_a_question(
+            viewer_host::Subject::Scripts.title(),
+            &viewer_host::asked_to_run_scripts(script, first_line),
+            Rc::new(move |host: &mut Self, proceed| {
+                host.say(&viewer_host::scripts_answered(proceed));
+                host.dispatch(Command::AnswerScripts { document, proceed });
+            }),
+        );
+    }
+
     /// `CLAUDE.md`'s *ask* level over §12.6.4.8's link, in the same window.
     ///
     /// The same dialogue as the one above because it is the same kind of question — this program
@@ -1387,9 +1400,13 @@ impl Host {
     }
 
     /// A person picked the level of an act a document asks this machine to do: kept here, and
-    /// nothing sent to the viewer, because the level is this host's to read (ADRs 1291, 1331).
+    /// the viewer told only where the act is one it does — a script runs in its view state (ADRs
+    /// 1291, 1331, 1616).
     fn chose_act(&mut self, level: viewer_host::ActLevel) {
         self.restrictions.set(level);
+        if let Some(command) = viewer_host::told(level) {
+            self.dispatch(command);
+        }
         self.say(&viewer_host::act_chosen(level));
     }
 
@@ -1937,6 +1954,11 @@ impl Host {
                 operation,
                 notes,
             } => self.ask_whether_to_proceed(document, operation, &notes),
+            Event::AskingToRunScripts {
+                document,
+                script,
+                first_line,
+            } => self.ask_whether_to_run_scripts(document, &script, &first_line),
             // §7.11.4's list moved under the files tab: a file attached this sitting is in it
             // before anything is saved, and one detached is out of it. The tab is rebuilt from
             // the same answer it was built from, which is the only thing a window may do here
@@ -5549,6 +5571,7 @@ fn act_menu(
     let name = match act {
         viewer_host::Act::Submitting => "sending",
         viewer_host::Act::OpeningEmbedded => "embedded",
+        viewer_host::Act::RunningScripts => "scripts",
     };
     let action =
         gio::SimpleAction::new_stateful(name, Some(glib::VariantTy::STRING), &chosen.to_variant());

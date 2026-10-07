@@ -1068,11 +1068,10 @@ fn decided(
     // states at length: `FreeText` is one of [`crate::appearance::bounded_by_rect`]'s six, so
     // Table 177's `/CL` reaches the page whatever `/Rect` says, and the value is clipped to the
     // box it is laid out in rather than to a `/BBox`. One question, one answer, in both places.
-    if view.contents.is_some() && subtype == b"FreeText" {
-        return match stated_rect {
-            Some(rect) => construct(document, annotation, &subtype, &name, rect, view),
-            None => Decision::Unsupported(format!("{name}: no usable /Rect")),
-        };
+    if let Some(decision) =
+        stored_set_aside(document, annotation, &subtype, &name, stated_rect, view)
+    {
+        return decision;
     }
 
     let (source, stored) = match stored_appearance(document, annotation, view) {
@@ -1248,6 +1247,36 @@ fn decided(
         }),
         owed,
     }
+}
+
+/// The decision for an annotation whose stored stream no longer describes it, or `None` for one
+/// whose stream stands.
+///
+/// Two cases, one reason: the stored stream is the producer's picture of something this view state
+/// has since changed, so the appearance is constructed anew on [`construct`]'s path. A §12.5.6.6
+/// free text a person retyped is the first, for the reason [`decided`] states at length. A widget
+/// whose script set a property its appearance draws is the second: Table 191's `/MK` is what
+/// "shall be used in constructing a dynamic appearance stream", and the script has changed it (ADR
+/// 1617).
+fn stored_set_aside(
+    document: &Document,
+    annotation: &Dictionary,
+    subtype: &[u8],
+    name: &str,
+    stated_rect: Option<[f32; 4]>,
+    view: crate::view::AnnotationView<'_>,
+) -> Option<Decision> {
+    let retyped = view.contents.is_some() && subtype == b"FreeText";
+    let scripted = !view.scripted.is_empty()
+        && subtype == b"Widget"
+        && crate::appearance::constructs_for_script(document, annotation);
+    if !retyped && !scripted {
+        return None;
+    }
+    Some(match stated_rect {
+        Some(rect) => construct(document, annotation, subtype, name, rect, view),
+        None => Decision::Unsupported(format!("{name}: no usable /Rect")),
+    })
 }
 
 /// Constructs an appearance for an annotation that has none, and places it.

@@ -1,7 +1,7 @@
 # The project's own turnaround — what is left after 608 s became 268
 
 Status: **open, and it is the *project's* performance rather than the *program's*.** The second item —
-three gates said to have doubled — was taken in the four-hundred-and-forty-seventh and is **closed**:
+three gates said to have doubled — is **closed** (ADR 0282):
 one of the three had moved, for a reason that was not rendering at all, and the last section of this
 file is what the bisect found.
 Priority: 43
@@ -25,12 +25,13 @@ result, 268.0 and 266.6). What is left, in the order the measurement ranks it:
 
 ## 1. §5's fat link is the single largest item — and it is **bought**, measured at last
 
-**Answered in the seven-hundred-and-fifty-second session, and the answer is that it stays.** ADR
+**Answered, and the answer is that it stays.** ADR
 0666 has the measurement. This section had asked since ADR 0222 what the fat link is *for*, and
 named the candidate itself: if `lto = "thin"` costs nothing measurable, `[profile.release]` could
 follow the gates. It costs a great deal.
 
-**The A/B needed no edit at all, which is why it should have been run 300 rounds ago.**
+**The A/B needed no edit at all, which is why it should have been run when ADR 0222 first asked,
+some three hundred rounds before it was.**
 `[profile.gates]` *is* `[profile.release]` with `lto = "thin"` and `codegen-units = 16` — it
 inherits everything else — so the two arms were already sitting in `Cargo.toml`, and two further
 profiles separate the settings. Callgrind rather than a clock, because this file's own denominator
@@ -82,8 +83,8 @@ than a preference:
 - **The oracle's floor is one page.** Its wall clock is 24.5–25.7 s, and
   `22060_A1_01_Plans.pdf` page 1 alone was **8.6–9.8 s** of it. A cache saves nothing on the run
   that has to produce that page, which is every run that changed the code that produces it.
-  **That witness is no longer the floor and the argument is unchanged**: the raster cache of the
-  five-hundred-and-thirty-ninth session (ADR 0374) took its page-one interpretation from 58.7 G
+  **That witness is no longer the floor and the argument is unchanged**: the raster cache
+  (ADR 0374) took its page-one interpretation from 58.7 G
   instructions to 6.5 G, and the oracle's *slowest pages* line names other documents now. Read the
   line rather than this sentence — it prints the five, run by run, and the point was never which
   page it is.
@@ -113,17 +114,17 @@ rather than a fact. Do not build it without an argument for why that judgement c
 
 ## 4. What is not measured at all
 
-- **CI's wall clock.** This round measured the *local* round only. CI runs `cargo test
+- **CI's wall clock.** ADR 0222 measured the *local* round only. CI runs `cargo test
   --workspace` on two cores, where nextest's whole advantage is small, and it never runs the
   `--ignored` corpus gates — so none of ADR 0222's four changes reaches it except the dev
   profile, which makes CI's compile slower and its test run faster by an unmeasured amount.
   Somebody should read one CI run's step timings before changing anything there.
 - **The fuzzers and the nightly job**, which are outside §2 and were never timed.
 
-## A third denominator, opened by the four-hundred-and-forty-fifth and closed by the four-hundred-and-forty-seventh
+## A third denominator: three gate timings said to have doubled
 
-The four-hundred-and-forty-fifth re-took `doc/HANDOVER.md`'s gate-timing column, which had been the
-three-hundred-and-ninety-eighth's for forty-seven rounds, and reported that **three of ten timings had
+One round re-took `doc/HANDOVER.md`'s gate-timing column, which had not been re-taken for forty-seven
+rounds, and reported that **three of ten timings had
 roughly doubled** — the oracle, the quorra comparison and the corpus gate, which it noted were "exactly
 the three that rasterise all 974 first pages". It handed over a hypothesis (§11.4.7's page group drawn
 as two rasters since ADR 0262) and an instrument (bisect the window).
@@ -131,12 +132,12 @@ as two rasters since ADR 0262) and an instrument (bisect the window).
 **The bisect was run and the answer is smaller and stranger than the handover.** ADR 0282 is the whole
 argument; three things belong here because they are about *this file's* denominator.
 
-- **Two of the three never moved.** Session 398's own commit `244b86a`, checked out beside `351bfed` in
+- **Two of the three never moved.** The commit the old column was taken at, `244b86a`, checked out beside `351bfed` in
   one sitting on one machine, gives corpus **4.6/4.6/4.7 s** against HEAD's **3.9/4.0/4.0** and quorra
   **34.6/34.5** against HEAD's **34.1/35.0**. The corpus gate is *faster* at HEAD. Neither end's
   reported figure reproduces; what reproduces is the difference between them being nothing. The page-group
   hypothesis is excluded, because the gates ADRs 0262 and 0275 touched are the two that did not move.
-- **The one that moved is `92579c2`, and it is not rendering.** The four-hundred-and-seventh session added
+- **The one that moved is `92579c2`, and it is not rendering.** That commit added
   a second `#[ignore]`d test to `oracle.rs` — a derivation whose own doc comment says it "is not itself a
   gate" — and `doc/todo/02` §2 invokes that binary with `--ignored`, which un-ignores every test in it. The
   two then walked the corpus under `rayon` in one process. The derivation now declines unless
@@ -149,19 +150,19 @@ argument; three things belong here because they are about *this file's* denomina
 
 **What this leaves for the denominator this file owns.** The whole of `doc/todo/02` §2, end to end through
 `tools/state.sh`, is now **2 m 37 s**. §1's fat link is again the single largest item in a round and is
-**measured against what it buys since the seven-hundred-and-fifty-second** (ADR 0666), which is the
+**measured against what it buys** (ADR 0666), which is the
 top of this file and is now an answer rather than a question.
 
 **And one lesson that is this file's rather than the ADR's**: *no gate measures a gate*, which is what the
-four-hundred-and-forty-fifth said, and it is still true. What the four-hundred-and-forty-seventh adds is
+round that re-took the column said, and it is still true. What the bisect adds is
 that a gate's own printed timings are not a substitute — the oracle's `processor time` and `slowest pages`
 rows read a factor of two high for thirty-nine rounds, and one of them was quoted *in this file* as
 evidence for the regression it was a symptom of. A number a gate prints about itself is only as good as
 what else is in its process.
 
-## The compiler cache, opened by the five-hundred-and-ninth
+## The compiler cache
 
-`sccache` has been the `rustc-wrapper` since the four-hundred-and-eighty-fourth session and had never
+`sccache` is the `rustc-wrapper`, and until ADR 0344 it had never
 been read as a *turnaround* question, only as a curiosity with a bad hit rate. It belongs in this file
 because a worktree round builds into a fresh directory, which is precisely the case a compilation cache
 exists for — and this project had switched it off by accident. ADR 0344 is the measurement; three things
@@ -188,7 +189,7 @@ belong here because they are about a round's wall clock rather than about the ca
 
 ## The denominator nobody had measured: what a round *reads* and which gates it *chooses*
 
-Opened and half-closed in the five-hundred-and-ninety-third, on a measurement the project owner
+Half-closed on a measurement the project owner
 took (ADR 0428). Every number above is about a *command*; this section is about the two costs
 around them, and the owner's measurement is what put them here:
 

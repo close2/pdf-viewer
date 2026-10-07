@@ -107,6 +107,11 @@ pub(crate) struct Open {
     /// Whether RFC 0008 section 6.5's open sequence has run, which [`crate::Command::Presented`]
     /// asks once for each document (ADR 1602).
     pub(crate) presented: bool,
+    /// What this document's reader answered about its scripts, and the runner standing in until
+    /// they did (RFC 0008 section 6.3, ADR 1616).
+    pub(crate) consent: crate::scripting::Consent,
+    /// How many of the view state's script sentences have gone out as [`crate::Event::Reported`].
+    pub(crate) scripts_said: usize,
     /// §12.3.2.1's other two items, waiting for a viewport and a display list to be applied to.
     ///
     /// A destination states a page, a location and a magnification; the page is a property of the
@@ -897,6 +902,8 @@ impl Open {
             layout,
             zoom: INITIAL_ZOOM,
             presented: false,
+            consent: crate::scripting::Consent::default(),
+            scripts_said: 0,
             pending_views: open_view.into_iter().collect(),
             scroll: (0.0, 0.0),
             on_screen: Vec::new(),

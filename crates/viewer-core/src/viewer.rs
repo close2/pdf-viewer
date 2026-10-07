@@ -54,6 +54,11 @@ use crate::readback::ReadbackCache;
 /// bound read from one place, which is what `pdf_sandbox`'s own ceiling was derived from.
 pub const MAX_PIXELS: u64 = 1 << 28;
 
+/// Most `setFocus` requests one command carries out: a script that asks for the focus, and the
+/// `/Fo` script of the field it reaches asking once more, with room; past it the request is
+/// dropped, so a ring of focus scripts costs one command four hops and no more (ADR 1615).
+const MAX_FOCUS_HOPS: usize = 4;
+
 /// Why the page is being turned, which ISO 32000-2 §12.4.4 makes two different questions.
 ///
 /// Not a message and deliberately not one: a host says which page it wants, and whether the
@@ -165,6 +170,9 @@ pub struct Viewer {
     /// when a document is asked what it says about itself. Defaults to no anchors at all, which is
     /// what every host in this tree supplied before the command existed.
     trust: crate::TrustPolicy,
+    /// Whether a document's scripts run — RFC 0008 section 6.3's level, as [`Command::Scripts`]
+    /// last supplied it, and [`crate::Scripting::Off`] until a host says otherwise (ADR 1616).
+    scripting: crate::Scripting,
     /// Who draws §12.7's form widgets, as the host has said (§6.3.2.2).
     ///
     /// Held here rather than per document because it is a fact about the *host*: a program that
@@ -260,6 +268,7 @@ impl Viewer {
             holds_rasters: true,
             restrictions: crate::RestrictionPolicy::default(),
             trust: crate::TrustPolicy::default(),
+            scripting: crate::Scripting::Off,
             delegated: pdf_model::view::WidgetAppearances::default(),
             audience: pdf_model::optional_content::Audience::NONE,
             clock: None,
@@ -279,6 +288,9 @@ impl Viewer {
     pub fn handle(&mut self, command: Command) -> impl Iterator<Item = Event> + use<> {
         let mut events = Vec::new();
         self.act(command, &mut events);
+        self.carry_out_focus_requests(&mut events);
+        self.say_what_scripts_said(&mut events);
+        self.ask_about_scripts(&mut events);
         self.settle(&mut events);
         events.into_iter()
     }
@@ -557,6 +569,17 @@ impl Viewer {
                 fragment,
             } => self.open(id, bytes, password.as_ref(), fragment.as_deref(), events),
             Command::Close(id) => {
+                // Table 200's `/WC`, "before closing a document", and what it said goes out
+                // before the document does (ADR 1614).
+                if let Some(open) = self.documents.get_mut(&id) {
+                    let page = open.page_index;
+                    open.view.run_document_scripts(
+                        &open.document,
+                        pdf_model::view::DocumentTrigger::WillClose,
+                        page,
+                    );
+                }
+                self.say_what_scripts_said(events);
                 if self.documents.remove(&id).is_some() {
                     events.push(Event::Closed(id));
                 }
@@ -617,6 +640,26 @@ impl Viewer {
                 }
             }
             Command::References(files) => self.supply_references(&files),
+            // RFC 0008 section 6.3's level, applied to every open document and to every one
+            // opened afterwards — `Command::Restrict`'s rule, for its reason (ADR 1616).
+            Command::Scripts(scripting) => {
+                self.scripting = scripting;
+                let ids: Vec<DocumentId> = self.documents.keys().copied().collect();
+                for id in ids {
+                    self.supply_scripts(id);
+                }
+            }
+            Command::AnswerScripts { document, proceed } => {
+                let asking = self.documents.get_mut(&document).is_some_and(|open| {
+                    open.consent.answered.is_none() && open.consent.withheld.is_some()
+                });
+                if asking {
+                    if let Some(open) = self.documents.get_mut(&document) {
+                        open.consent.answered = Some(proceed);
+                    }
+                    self.supply_scripts(document);
+                }
+            }
             // §8.11.4.4's two categories about this reader, applied to every open document and
             // to every one opened afterwards — `Command::Restrict`'s rule, for its reason.
             // A document whose groups move is drawing something else, so its ink is superseded.
@@ -708,8 +751,8 @@ impl Viewer {
                 }
             }
             Command::Presented => {
-                if let (Some(id), Some(open)) = (self.focused, self.focused_mut()) {
-                    open_sequence(id, open, events);
+                if let Some(open) = self.focused_mut() {
+                    open_sequence(open);
                 }
             }
             Command::SetGroup { group, on } => {
@@ -873,6 +916,10 @@ impl Viewer {
         // document this window will show. Off where nothing was said, which is every host by
         // default.
         open.view.set_separation_simulation(self.separations);
+        // RFC 0008 section 6.3's level, on the same rule: a reader who let scripts run, or asked
+        // to be asked, said it about every document this window will show (ADR 1616).
+        let runner = crate::scripting::runner_for(&self.scripting, &mut open.consent);
+        open.view.run_scripts_with(runner);
         // A document opened *during* a presentation arrives in the mode the host is in: §12.4.4.2's
         // node is a property of the page being shown and NOTE 2's saved groups of the document, so
         // both are taken here rather than only on `Command::Present`.
@@ -1761,7 +1808,23 @@ impl Viewer {
         let Some(open) = self.focused_mut() else {
             return;
         };
-        match open.view.save(&open.document) {
+        // Table 200's `/WS`, "before saving a document", so that what the script writes into a
+        // field is in the update; `/DS` follows a save that was written (ADR 1614).
+        let page = open.page_index;
+        open.view.run_document_scripts(
+            &open.document,
+            pdf_model::view::DocumentTrigger::WillSave,
+            page,
+        );
+        let saved = open.view.save(&open.document);
+        if saved.is_ok() {
+            open.view.run_document_scripts(
+                &open.document,
+                pdf_model::view::DocumentTrigger::DidSave,
+                page,
+            );
+        }
+        match saved {
             Ok(written) => {
                 // Table 231 bit 14's NOTE, said out loud. `pdf_model::view::ViewState::save`
                 // declines to store a password field's value and this is the only channel that
@@ -2238,6 +2301,13 @@ impl Viewer {
         fidelity: crate::Fidelity,
         events: &mut Vec<Event>,
     ) {
+        // Table 200's `/WP`, "before printing a document": before the intent is set, so that what
+        // the script writes into a field is on the paper (ADR 1614).
+        open.view.run_document_scripts(
+            &open.document,
+            pdf_model::view::DocumentTrigger::WillPrint,
+            open.page_index,
+        );
         open.printing = Some(sheet);
         open.view
             .set_purpose(pdf_model::optional_content::Purpose::Print);
@@ -2261,6 +2331,13 @@ impl Viewer {
         open.view
             .set_purpose(pdf_model::optional_content::Purpose::View);
         open.view.set_paper(None);
+        // Table 200's `/DP`, "after printing a document": the operation is over once the intent
+        // is taken back out (ADR 1614).
+        open.view.run_document_scripts(
+            &open.document,
+            pdf_model::view::DocumentTrigger::DidPrint,
+            open.page_index,
+        );
         open.stale();
     }
 
@@ -2995,6 +3072,16 @@ impl Viewer {
                 }
             }
         };
+        self.focus_on(id, wants, events);
+    }
+
+    /// Moves the keyboard focus of document `id` to `wants`, raising Table 197's `/Bl` on the
+    /// widget it leaves and `/Fo` on the one it reaches — a tab's half of [`Self::move_focus`], and
+    /// what a script's `setFocus` comes to.
+    fn focus_on(&mut self, id: DocumentId, wants: Option<ObjectId>, events: &mut Vec<Event>) {
+        let Some(open) = self.documents.get_mut(&id) else {
+            return;
+        };
         if open.focus == wants {
             return;
         }
@@ -3133,10 +3220,11 @@ impl Viewer {
         let Some(page_id) = on_screen.object.id else {
             return Vec::new();
         };
-        let fields = pdf_model::form::fields(&open.document, &on_screen.object, &open.view);
+        let mut fields = pdf_model::form::fields(&open.document, &on_screen.object, &open.view);
         if fields.is_empty() {
             return Vec::new();
         }
+        as_displayed(open, &mut fields);
         let languages =
             pdf_model::structure::annotation_languages(&open.document, &on_screen.object.dict);
         let order = pdf_model::tab_order::order(&open.document, &on_screen.object, page_id);
@@ -4432,7 +4520,9 @@ fn referenced_objects(open: &Open, shown: &pdf_model::Page) -> Referenced {
     let mut fields = BTreeMap::new();
     let mut values = BTreeMap::new();
     let mut glyphs = BTreeMap::new();
-    for field in pdf_model::form::fields(&open.document, shown, &open.view) {
+    let mut on_page = pdf_model::form::fields(&open.document, shown, &open.view);
+    as_displayed(open, &mut on_page);
+    for field in on_page {
         for widget in &field.widgets {
             if let Some(value) = &field.value {
                 values.insert(widget.annotation, value.clone());
@@ -4722,6 +4812,51 @@ fn displayed(open: &Open, fields: &mut [crate::FormField]) {
     }
 }
 
+/// Each field's value as an accessibility node carries it: what the field displays — Table 199's
+/// `/F` applied, `$12.50` where it holds `12.5` — and its characters while it is being typed into,
+/// which `ViewState::displayed_values` answers as typed (ADR 1617).
+///
+/// **The displayed value, because it is the value the node's glyphs are of.** The node's
+/// `value_lines` are where §12.7.4.3's layout placed each character of the appearance the page
+/// draws, and an appearance is drawn through the format; a value of `12.5` beside the positions of
+/// `$12.50` would tell a screen reader where characters are that the text does not hold. A
+/// password field keeps its echo, which [`displayed`]'s own rule is too. Asked only of fields that
+/// state a format, for [`displayed`]'s cost.
+fn as_displayed(open: &Open, fields: &mut [pdf_model::form::FormField]) {
+    let formatted: Vec<usize> = fields
+        .iter()
+        .enumerate()
+        .filter(|(_, field)| {
+            field.value.as_ref().is_some_and(|shown| !shown.obscured)
+                && field.widgets.first().is_some_and(|widget| {
+                    let object = open.document.get(widget.annotation);
+                    object.as_dict().is_some_and(|dictionary| {
+                        pdf_model::aform::site::of_widget(
+                            &open.document,
+                            dictionary,
+                            pdf_model::aform::Trigger::Format,
+                        ) != pdf_model::aform::site::Site::Absent
+                    })
+                })
+        })
+        .map(|(index, _)| index)
+        .collect();
+    if formatted.is_empty() {
+        return;
+    }
+    let answers = open.view.displayed_values(
+        &open.document,
+        formatted
+            .iter()
+            .map(|&index| fields[index].name.qualified.as_str()),
+    );
+    for (index, answer) in formatted.into_iter().zip(answers) {
+        if let (Some(answer), Some(shown)) = (answer, fields[index].value.as_mut()) {
+            shown.text = answer;
+        }
+    }
+}
+
 /// Whether a field states Table 199's `/F` at all, read from its first widget up its `/Parent`
 /// chain as `pdf_model::aform::site::of_widget` reads it — the cheap question [`displayed`] asks
 /// before the dear one.
@@ -4736,30 +4871,128 @@ fn states_a_format(document: &pdf_syntax::Document, widgets: &[crate::FormWidget
     })
 }
 
+impl Viewer {
+    /// Hands one document the runner its reader's level and answer call for, and runs what a
+    /// runner arriving late has missed (ADR 1616).
+    ///
+    /// A document handed a runner that runs has Table 224's `/CO` walked over its values, so that
+    /// a total shows what its scripts compute from what is already typed; one whose open sequence
+    /// has run has the sequence run again first — a new runner holds a new realm, and the
+    /// functions Table 32's name tree defines are what its field scripts call. What either says
+    /// goes out after the command, with every other script's sentence.
+    fn supply_scripts(&mut self, id: DocumentId) {
+        let Some(open) = self.documents.get_mut(&id) else {
+            return;
+        };
+        let runner = crate::scripting::runner_for(&self.scripting, &mut open.consent);
+        open.view.run_scripts_with(runner);
+        if !crate::scripting::runs(&self.scripting, &open.consent) {
+            return;
+        }
+        if open.presented {
+            let page = open.page_index;
+            open.view.run_open_scripts(&open.document, page);
+        }
+        open.view.recalculate_with_runner(&open.document);
+        open.stale();
+    }
+
+    /// Every sentence a document's scripts said since the last command, as one report per
+    /// document: what Tier 0 did not run, what a runner refused, threw or logged, what `warn` says
+    /// ran, and what *ask* withheld (RFC 0008 section 6.8, ADR 1616).
+    ///
+    /// Asked after every command rather than at each trigger's site, because a script runs at a
+    /// keystroke, a commit, a focus, a page turn, the open sequence and a replay of the log, and a
+    /// site that forgot to say would be a script that ran in silence. The view state keeps each
+    /// sentence once, so what is new is what follows the count already said.
+    fn say_what_scripts_said(&mut self, events: &mut Vec<Event>) {
+        for (id, open) in &mut self.documents {
+            let all = open.view.script_reports();
+            let said = open.scripts_said.min(all.len());
+            if all.len() > said {
+                events.push(Event::Reported {
+                    document: *id,
+                    page: None,
+                    notes: all[said..].to_vec(),
+                });
+            }
+            open.scripts_said = all.len();
+        }
+    }
+
+    /// A script's `setFocus`, carried out: the field's first widget takes the keyboard, on its own
+    /// page, with Table 197's `/Bl` and `/Fo` raised as a tab raises them (ADR 1615).
+    ///
+    /// Held to [`MAX_FOCUS_HOPS`] in one command, because a `/Fo` script may ask for the focus
+    /// again and a document whose focus scripts hand it round in a ring would hold the command
+    /// for ever.
+    fn carry_out_focus_requests(&mut self, events: &mut Vec<Event>) {
+        for _ in 0..MAX_FOCUS_HOPS {
+            let Some(id) = self.focused else { return };
+            let Some(open) = self.documents.get_mut(&id) else {
+                return;
+            };
+            let Some(field) = open.view.take_focus_request() else {
+                return;
+            };
+            let widget = pdf_model::view::widgets_by_field_name(&open.document)
+                .get(&field)
+                .and_then(|widgets| widgets.first().copied());
+            let Some(widget) = widget else {
+                events.push(Event::Reported {
+                    document: id,
+                    page: None,
+                    notes: vec![format!(
+                        "a script asked for the keyboard focus on {field}, which has no widget                          on any page, so the focus stays where it is"
+                    )],
+                });
+                return;
+            };
+            let page = open
+                .document
+                .get(widget)
+                .as_dict()
+                .and_then(|dictionary| open.document.get_key(dictionary, "P").as_reference())
+                .and_then(|page| open.page_indices().get(&page).copied());
+            if let Some(page) = page
+                && page != open.page_index
+            {
+                self.go_to(PageTarget::Index(page), Turn::Requested, events);
+            }
+            self.focus_on(id, Some(widget), events);
+        }
+    }
+
+    /// RFC 0008 section 6.3's one question per document, put the first time a document's
+    /// [`crate::scripting::Withheld`] runner has been handed a script (ADR 1616).
+    fn ask_about_scripts(&mut self, events: &mut Vec<Event>) {
+        for (id, open) in &self.documents {
+            if let Some((script, first_line)) = open
+                .consent
+                .withheld
+                .as_ref()
+                .and_then(|withheld| withheld.question())
+            {
+                events.push(Event::AskingToRunScripts {
+                    document: *id,
+                    script,
+                    first_line,
+                });
+            }
+        }
+    }
+}
+
 /// RFC 0008 section 6.5 step 1, run once for a document whose first frame a host has presented
-/// (ADR 1602): what the sequence says goes out as one report, and what a script it ran changed is
-/// ink, so the page is interpreted again.
-fn open_sequence(id: DocumentId, open: &mut Open, events: &mut Vec<Event>) {
+/// (ADR 1602): what a script it ran changed is ink, so the page is interpreted again, and what the
+/// sequence says goes out with every other script's sentence after the command.
+fn open_sequence(open: &mut Open) {
     if std::mem::replace(&mut open.presented, true) {
         return;
     }
-    let before = open.view.script_reports().len();
     let page = open.page_index;
     if open.view.run_open_scripts(&open.document, page) > 0 {
         open.stale();
-    }
-    let said = open
-        .view
-        .script_reports()
-        .get(before..)
-        .map(<[String]>::to_vec)
-        .unwrap_or_default();
-    if !said.is_empty() {
-        events.push(Event::Reported {
-            document: id,
-            page: None,
-            notes: said,
-        });
     }
 }
 

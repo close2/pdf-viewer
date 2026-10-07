@@ -484,3 +484,8 @@ until the owner's CI failed on two of them (`outline_upload`'s witness, `retaine
 signature; ADR 1563). The merge runs them as `tools/batch.sh gates`' `t2-raster_examples` line, and
 the round that touches `raster-gpu` runs the same loop, `tools/batch.sh raster-examples`, behind the
 lock and says so in its record (ADR 1575).
+
+**`/dev/stdout` is compared with `test -ef` in the shell itself, never inside `$(…)`**: inside a
+command substitution it is the substitution's own pipe, so `gates()`'s check that its summary was not
+about to overwrite the log always answered no, and every gates log began with the summary line over
+`build-sandbox`'s (ADR 1625 fixed it). A check about where output goes runs where the output goes.

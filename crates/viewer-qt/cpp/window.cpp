@@ -2430,6 +2430,12 @@ void MainWindow::rebuildControls()
             // seven-hundred-and-seventeenth session. A claim about what another host cannot do
             // decays exactly like any other.)
             combo->setEditable(control.editable);
+            // The text box commits as a line edit's does — Enter, and the keyboard leaving it —
+            // because what is typed there is characters held until the commit, and the field's
+            // Table 199 /K in its commit form and /V wait for that moment (ADRs 1592, 1617).
+            if (control.editable && combo->lineEdit() != nullptr) {
+                commitsWhenFinished(combo->lineEdit(), index);
+            }
             connect(combo, &QComboBox::currentTextChanged, this, [this, index, combo](const QString& chosen) {
                 if (busy_ || writing_) {
                     return;

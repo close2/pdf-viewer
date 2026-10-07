@@ -37,8 +37,8 @@ mod scripts;
 
 use crate::optional_content::{Audience, OptionalContent, Purpose};
 pub use script_model::{
-    Alignment, BorderStyle, Colour, Display, FieldState, FieldType, Property, ScriptEdit,
-    ScriptSite,
+    Alignment, BorderStyle, Colour, Display, DocumentTrigger, FieldState, FieldType, Property,
+    ScriptEdit, ScriptSite, TextFlag,
 };
 pub use scripts::{Committed, Displayed, ScriptEvent, ScriptResult, ScriptRunner};
 
@@ -1087,6 +1087,10 @@ pub struct AnnotationView<'a> {
     /// What a host-supplied runner's format script displayed for this widget's value, where one
     /// ran: the appearance draws it where Tier 0 does not run the format itself (ADR 1603).
     pub displayed: Option<&'a Displayed>,
+    /// The properties scripts set on this widget's field that its appearance draws — `textColor`,
+    /// `fillColor`, `strokeColor`, `borderStyle`, `alignment`, `charLimit` — and `required`, which
+    /// a save writes: the latest of each, empty where no script set one (ADR 1617).
+    pub scripted: &'a [Property],
 }
 
 /// §12.5.6.22's target media, and how the page is placed on it.
@@ -1592,6 +1596,7 @@ impl ViewState {
             contents: self.retyped.get(&annotation).map(String::as_str),
             editing: self.is_editing(annotation),
             displayed: self.displayed(annotation),
+            scripted: self.scripted(annotation),
         }
     }
 
@@ -3016,7 +3021,14 @@ impl ViewState {
                 }
             }
             update.put(id, Object::Dictionary(field));
-            update.write_appearance(document, widget, &dict, value, self.displayed(widget));
+            update.write_appearance(
+                document,
+                widget,
+                &dict,
+                value,
+                self.displayed(widget),
+                self.scripted(widget),
+            );
             if toggling {
                 update.write_state(document, widget, entered.value.as_ref());
             }
@@ -3024,6 +3036,7 @@ impl ViewState {
             // whichever ancestor §12.7.4.1 keeps the value on.
             update.stamp_annotation(document, widget);
         }
+        self.write_scripted(document, &mut update);
         if !update.is_empty()
             && let Some((id, mut form)) = interactive_form(document)
         {
@@ -3063,6 +3076,55 @@ impl ViewState {
             unconstructed,
             still_reached,
         })
+    }
+
+    /// Writes what scripts set on each widget's field as the entries the standard draws a widget
+    /// from: `/MK` and `/BS` on the widget, `/DA`, `/Q`, `/MaxLen` and `/Ff` on the field that
+    /// holds them, and the appearance constructed from them (ADR 1617).
+    ///
+    /// **After the values**, and through `Update::current`, because a widget a person also typed
+    /// into has had its field rewritten above, and this adds to that rewrite rather than replacing
+    /// it. The field's entries go on the nearest dictionary of the widget's chain that states a
+    /// `/T` — the field §12.7.4.2 names, which is the one the script named — so its other widgets
+    /// inherit them as they inherited what they replace. A widget no one typed into gets its
+    /// appearance written here; one a person typed into got it above, from the same properties.
+    fn write_scripted(&self, document: &Document, update: &mut Update) {
+        for (widget, properties) in &self.scripting.drawn {
+            let widget = *widget;
+            let Some(original) = document.get(widget).as_dict().cloned() else {
+                continue;
+            };
+            let entries = crate::appearance::scripted_entries(document, &original, properties);
+            if !entries.widget.is_empty()
+                && let Some(mut current) = update.current(document, widget)
+            {
+                for (key, value) in entries.widget {
+                    current.insert(key, value);
+                }
+                update.put(widget, Object::Dictionary(current));
+            }
+            if !entries.field.is_empty() {
+                let field = named_field(document, widget);
+                if let Some(mut current) = update.current(document, field) {
+                    for (key, value) in entries.field {
+                        current.insert(key, value);
+                    }
+                    update.put(field, Object::Dictionary(current));
+                }
+            }
+            if !self.edited.contains_key(&widget) {
+                let view = self.annotation(widget);
+                update.write_appearance(
+                    document,
+                    widget,
+                    &original,
+                    view.value,
+                    view.displayed,
+                    view.scripted,
+                );
+            }
+            update.stamp_annotation(document, widget);
+        }
     }
 
     /// Writes every file a person attached and takes every detached entry out of the tree.
@@ -4479,8 +4541,10 @@ impl Update {
         dict: &Dictionary,
         value: FieldValue<'_>,
         displayed: Option<&Displayed>,
+        scripted: &[Property],
     ) {
-        let built = match crate::appearance::for_saving(document, dict, value, displayed) {
+        let built = match crate::appearance::for_saving(document, dict, value, displayed, scripted)
+        {
             crate::appearance::ForSaving::Stream(built) => built,
             crate::appearance::ForSaving::Selected => return,
             crate::appearance::ForSaving::Owed => {
@@ -4582,6 +4646,28 @@ fn holder(document: &Document, widget: ObjectId, dict: Dictionary) -> (ObjectId,
         (id, current) = (parent, next);
     }
     (id, current)
+}
+
+/// The field a widget belongs to: the nearest dictionary of its `/Parent` chain, itself first, that
+/// states §12.7.4.2's `/T` — "[a] field dictionary that does not have a partial field name ( T
+/// entry) of its own shall not be considered a field but simply a Widget annotation" — or the
+/// widget itself where none does, for [`holder`]'s bound.
+fn named_field(document: &Document, widget: ObjectId) -> ObjectId {
+    let mut id = widget;
+    for _ in 0..MAX_FIELD_DEPTH {
+        let object = document.get(id);
+        let Some(current) = object.as_dict() else {
+            return widget;
+        };
+        if current.get("T").is_some() {
+            return id;
+        }
+        let Some(parent) = current.get("Parent").and_then(Object::as_reference) else {
+            return widget;
+        };
+        id = parent;
+    }
+    widget
 }
 
 /// The catalog's `/AcroForm`, with the object it is, where the document states one indirectly.

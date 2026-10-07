@@ -136,9 +136,10 @@ run() {
     began=$(cat "$stamp" 2>/dev/null); rm -f "$stamp"
     [ -n "$began" ] || began=$asked
     # A test line that ran nothing exits 0: `--ignored` over a file with no ignored test is green
-    # while checking nothing. It is a failure here, and `tests/batch.rs` holds every line's flag
-    # to its file's `#[ignore]` attributes before anything runs (ADR 1392).
-    if [ "$rc" -eq 0 ] && [ "$1 $2" = "cargo test" ] &&
+    # while checking nothing. It is a failure here, wherever in the line `cargo test` stands —
+    # behind `tools/bounded.sh` as much as at its head — and `tests/batch.rs` holds every line's
+    # flag to its file's `#[ignore]` attributes before anything runs (ADR 1392).
+    if [ "$rc" -eq 0 ] && [[ " $* " == *" cargo test "* ]] &&
         ! printf '%s\n' "$out" | grep -qE 'test result: [a-z]+\. [1-9][0-9]* passed'; then
         rc=98; out+=$'\nran zero tests — a green line that checked nothing (ADR 1392)'
     fi
@@ -154,15 +155,22 @@ gates() {
     # `tools/batch.sh gates > <the log>` makes this script's standard output the log itself at
     # offset nought, so the summary printed last lands over the first gate's line and that gate is
     # missing from every reading of the log. The summary is in the log already; it is printed only
-    # where standard output is somewhere else.
+    # where standard output is somewhere else. The comparison is `test -ef` in this shell, because
+    # `/dev/stdout` inside a command substitution is the substitution's own pipe and never the log.
     local onto_the_log=
-    [ "$(stat -Lc %d:%i /dev/stdout 2>/dev/null)" = "$(stat -Lc %d:%i "$log" 2>/dev/null)" ] && onto_the_log=1
+    [ /dev/stdout -ef "$log" ] && onto_the_log=1
     run build-sandbox  cargo build --profile gates -p pdf-sandbox --bins
     run build-hayro    cargo build --profile gates -p hayro-compare --bin pdfref-hayro
     run build-vfs      cargo build --profile gates -p pdf-vfs --bins
     run build-confined cargo build --profile gates -p viewer-confined --bins
     for t in corpus raster_golden script_corpus dates xmp; do
         run "t2-$t" cargo test --profile gates -p pdf-model --test "$t" -- --ignored --nocapture; done
+    # The Tier 1 column of RFC 0008 section 6.7: every script Tier 0 does not run, run in its
+    # document's realm with the `engine` feature built for this test binary alone, held to its
+    # column's own constants. Bounded as a walk is, because a script's heap is the engine's to bound
+    # and the walk is ninety thousand documents of them (ADR 1625).
+    run t2-script_corpus_engine tools/bounded.sh --data 8 --tree 12 -- \
+        cargo test --profile gates -p pdf-script --features engine --test script_corpus -- --ignored --nocapture
     run t2-jpeg2000       cargo test --profile gates -p pdf-model --test jpeg2000 -- --nocapture
     run t2-transform-gate cargo test --profile gates -p pdf-transform --test gate -- --ignored --nocapture
     run t2-on_disk        cargo test --profile gates -p pdf-syntax --test on_disk -- --ignored --nocapture
@@ -540,6 +548,11 @@ commit_batch() {
 # name. The build directory is asked of Cargo in the worktree, never written down (trap 15).
 install_binaries="quorra quorra-confined quorra-gtk quorra-qt pdf-sandbox-worker pdf-view-worker quorra-retrieve quorra-transform quorrafs pdf-vfs-worker"
 install_libraries="viewer-ffi pdf-vfs-ffi"
+# A program behind a feature no window is built with, as `name:features`: each is built in a Cargo
+# run of its own, so that feature unification puts nothing of it into a window's build. The script
+# worker links the engine and a window links only the client that spawns it, and it is looked for
+# beside the window that spawns it, so it is installed with them (ADRs 1616, 1625).
+install_featured="pdf-script-worker:pdf-script-worker/engine"
 
 install_batch() {
     [ -d "$wt" ] || { echo "$wt does not exist — install runs while the batch is open, before close"; return 1; }
@@ -567,8 +580,13 @@ install_batch() {
     echo "building ${install_binaries// /, } and the libraries of ${install_libraries// /, } (--release) in $built"
     cargo build --release "${programs[@]}" || { echo "the release build of the programs failed (above) — nothing installed"; return 1; }
     cargo build --release "${packages[@]}" --lib || { echo "the release build of the libraries failed (above) — nothing installed"; return 1; }
+    local entry
+    for entry in $install_featured; do
+        cargo build --release --bin "${entry%%:*}" --features "${entry#*:}" || { echo "the release build of ${entry%%:*} with ${entry#*:} failed (above) — nothing installed"; return 1; }
+    done
     local -a files=()
     for name in $install_binaries; do files+=("$name"); done
+    for entry in $install_featured; do files+=("${entry%%:*}"); done
     for name in $install_libraries; do files+=("lib${name//-/_}.so"); done
     for name in "${files[@]}"; do
         [ -f "$built/$name" ] || { echo "$built/$name was not produced — nothing installed"; return 1; }

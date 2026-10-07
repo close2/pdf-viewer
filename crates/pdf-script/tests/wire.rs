@@ -5,8 +5,8 @@ use std::time::Duration;
 use pdf_model::action::Trigger as AnnotationTrigger;
 use pdf_model::aform::Trigger;
 use pdf_model::view::{
-    Alignment, BorderStyle, Colour, Display, FieldState, FieldType, Property, ScriptEdit,
-    ScriptSite,
+    Alignment, BorderStyle, Colour, Display, DocumentTrigger, FieldState, FieldType, Property,
+    ScriptEdit, ScriptSite, TextFlag,
 };
 use pdf_script::wire::{WireError, decode_outcome, decode_request, encode_outcome, encode_request};
 use pdf_script::{Ending, Event, Exceeded, Outcome, Refusal, RefusalKind, Request};
@@ -69,6 +69,13 @@ fn outcome() -> Outcome {
                 fields: vec!["A".to_owned(), "B".to_owned()],
             },
             ScriptEdit::Calculate,
+            ScriptEdit::Property {
+                field: "Total".to_owned(),
+                property: Property::TextFlag(TextFlag::Comb, true),
+            },
+            ScriptEdit::Focus {
+                field: "Total".to_owned(),
+            },
         ],
         ending: Ending::Exceeded(Exceeded::Wall(Duration::from_millis(100))),
         refusals: vec![
@@ -93,7 +100,10 @@ fn a_request_and_an_outcome_come_back_as_they_went() {
         ScriptSite::Page(pdf_model::action::PageTrigger::Close),
         ScriptSite::OpenAction,
         ScriptSite::Library,
-    ] {
+    ]
+    .into_iter()
+    .chain(DocumentTrigger::ALL.map(ScriptSite::Document))
+    {
         assert_eq!(
             decode_request(&encode_request(&request(site))).expect("decodes"),
             request(site)

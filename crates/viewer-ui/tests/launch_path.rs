@@ -20,9 +20,10 @@
 //! | number | what is inside it | what is not |
 //! |---|---|---|
 //! | **cold open** | `FileBytes::on_disk`, `Viewer::new`, `Command::Restrict`, `Command::Open` — `quorra.rs`'s `open_document` exactly, on a file whose page cache has just been dropped | the process's own creation, the window, the device |
-//! | **warm open** | the same, second time, with the file in the page cache | — |
+//! | **warm open** | the same, second time, with the file in the page cache, in a child that kept its cores busy for thirty milliseconds first (ADR 1621) | the idle clock a core wakes at, which on a figure of a few tenths of a millisecond was half of what moved it |
 //! | **time to first page** | the document opening on one thread, and page one interpreted there (`Viewer::anticipate`, ADR 1531), while the graphics device comes up on this one, joined, given a viewport, and page one's pixels drawn on the device; the run prints a timeline from the process's spawn — each thread's milestones, one line each (ADR 1544) — and a hash of the frame | the outline and the page tree, read on a thread of their own after the join (ADR 1543) and joined after the clock stops;  winit's `EventLoop::new`, the window, the surface and the present |
 //! | **cold bring-up** | `QuorraRasterizer::new_headless` in a process that has done nothing else | everything else |
+//! | **the script stage** | after page one's frame, `Command::Presented` to a viewer that was handed a runner before it opened the document (`Command::Scripts`, a window at `on`): RFC 0008 section 6.5's open sequence, which starts `pdf-script-worker` at its first trigger — `OpenCost::line()`'s `script_open spawn_ms=<f> first_run_ms=<f>`, the worker's start through its greeting and the first run's exchange with the realm constructed inside it (ADR 1620) | time to first page, which every row's child measures with the same runner supplied and whose clock has stopped before the stage begins; a worker started before the frame is a failure of its own |
 //! | **page turn** | `Command::GoTo(Next)`, the interpretation it causes, and the frame drawn on the device | — |
 //! | **memory high-water** | `VmHWM` of the process that did all of the above for one document, less the resident pages of the files it has mapped — what the allocator asked the kernel for | every shared object the Vulkan loader brought in, which is nine tenths of the process's own `VmHWM` and is the kernel's decision rather than this program's (ADR 0910) |
 //! | **bytes read** | `rchar` from `/proc/self/io` across the open, which is what principle 2's "reads the trailer and the objects page one needs — not the whole file" is a claim about | the binary's own loading, which is `mmap` rather than `read` |
@@ -118,13 +119,17 @@
 //!
 //! ```text
 //! cargo build --release -p pdf-sandbox --bins           # trap 10: nothing else builds it
+//! cargo build --release -p pdf-script-worker --features engine --bins   # trap 10, the script stage
 //! cargo test  --release -p viewer-ui --test launch_path -- --ignored --nocapture
 //! ```
 //!
-//! `PDFVIEWER_LAUNCH_WARM_CORES` makes every `open` child keep its cores busy for thirty
-//! milliseconds before it opens, the turn gate's warm start (ADR 1577): an instrument for whether
-//! an open figure is the idle clock's or the program's, printed at the top of the run, and not
-//! the method the bands were taken by (see [`WARM_CORES`]).
+//! Without the script worker beside the test binary the script stage is printed `NOT MEASURED`
+//! with the line that builds it, and counted, as a missing `valgrind` is.
+//!
+//! `PDFVIEWER_LAUNCH_WARM_CORES` makes the cold arm's children keep their cores busy first as
+//! well, the warm arm's method (ADR 1621): an instrument for whether a cold figure is the idle
+//! clock's or the program's, printed at the top of the run, and not the method the cold bands were
+//! taken by (see [`WARM_CORES`]).
 //!
 //! `PDFVIEWER_LAUNCH_SAMPLES` overrides the sample count and **turns judging off**, saying so:
 //! the minimum of three is not the minimum of nine, so a band taken at one is not a band at the
@@ -139,12 +144,17 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command as Child;
-use std::time::Instant;
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use pdf_render::Rasterizer as _;
+use pdf_script_worker::{OpenCost, ScriptWorker};
 use pdf_syntax::FileBytes;
 use render_raster::QuorraRasterizer;
-use viewer_core::{Command, DocumentId, Event, PageTarget, Rendered, RestrictionLevel, Viewer};
+use viewer_core::{
+    Command, DocumentId, Event, PageTarget, Rendered, RestrictionLevel, ScriptRunners, Scripting,
+    Viewer,
+};
 
 /// What a child's one line of numbers begins with.
 const MARKER: &str = "measured ";
@@ -182,22 +192,23 @@ const SAMPLE_OVERRIDE: &str = "PDFVIEWER_LAUNCH_SAMPLES";
 /// `doc/questions/A28` about a different switch in this tree and taken as the house style here.
 const CLOCK_FIGURES: &str = "PDFVIEWER_LAUNCH_CLOCKS";
 
-/// Asks every `open` child to keep each core it may run on busy for [`WARM_SPIN`] before it
-/// opens the document, the way `render-raster`'s `frame_cost::round` starts every round of the
-/// turn gate (ADR 1577).
+/// Asks the cold arm's `open` children to keep their cores busy for [`WARM_SPIN`] first as well,
+/// which the warm arm's always do.
 ///
-/// **An instrument for one question, not the gate's method.** A cold open is what a person meets,
-/// so the bands are taken from a child that idled while it was spawned; but a five-page
-/// document's warm open is a few tenths of a millisecond, short enough to live its whole run at
-/// the clock an idle core wakes at, which on this machine's governor is a quarter lower than a
-/// working one's (trap 110). Run with this set and without it on a quiet machine, the two say
-/// whether a warm open that reads twice its band is the idle clock or the program. The run says
-/// which of the two it was at the top of its output.
+/// **The warm arm warms by default, and the cold arm does not** (ADR 1621). A cold open is what a
+/// person meets, so its bands are taken from a child that idled while it was spawned and read the
+/// disk. A warm open is the open's own work with the disk taken out, a few tenths of a millisecond
+/// — short enough to live its whole run at the clock an idle core wakes at, which on this
+/// machine's governor is a quarter lower than a working one's (trap 110): ten runs on a quiet
+/// machine read `bug1815476.pdf`'s warm open inside its band in ten of ten with the spin and in
+/// five of ten without it. So the warm arm starts as every round of the turn gate does (ADR
+/// 1577), and this variable is what asks the same of the cold arm, an instrument for whether a cold
+/// figure that reads high is the idle clock or the program. The run says so at the top.
 const WARM_CORES: &str = "PDFVIEWER_LAUNCH_WARM_CORES";
 
-/// How long [`WARM_CORES`] keeps the cores busy: `frame_cost::WARM_SPIN`'s thirty milliseconds,
+/// How long a warmed child keeps its cores busy: `frame_cost::WARM_SPIN`'s thirty milliseconds,
 /// which is what ADRs 1519 and 1556 measured with.
-const WARM_SPIN: std::time::Duration = std::time::Duration::from_millis(30);
+const WARM_SPIN: Duration = Duration::from_millis(30);
 
 /// The identity a host gives the one document it opens — `quorra.rs`'s own.
 const DOCUMENT: DocumentId = DocumentId(0);
@@ -448,7 +459,11 @@ fn ms(began: Instant) -> f64 {
 /// rather than of a sequence somebody wrote down beside it: the steps, their order and the
 /// commands are the host's, and the only difference is that no fragment and no `--page` are
 /// given.
-fn open_document(path: &Path) -> (Viewer, usize) {
+///
+/// `scripts` is a window whose reader's level runs scripts: the viewer is told so before the
+/// document opens, as a window tells it at its own start, so that the document is handed a runner
+/// as it opens — and the runner starts nothing until the first trigger (ADR 1620).
+fn open_document(path: &Path, scripts: Option<Arc<KeptWorkers>>) -> (Viewer, usize) {
     let bytes = match FileBytes::on_disk(path) {
         Ok(bytes) => bytes,
         Err(error) => {
@@ -462,6 +477,9 @@ fn open_document(path: &Path) -> (Viewer, usize) {
             viewer_core::RestrictionPolicy::uniform(RestrictionLevel::On),
         ))),
     );
+    if let Some(workers) = scripts {
+        drop(viewer.handle(Command::Scripts(Scripting::Run(workers))));
+    }
     let opened: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
@@ -478,6 +496,52 @@ fn open_document(path: &Path) -> (Viewer, usize) {
         })
         .unwrap_or(0);
     (viewer, pages)
+}
+
+/// The runners a first-page child's viewer is handed, each kept so that the script stage can read
+/// what its worker cost.
+///
+/// **A test host's maker, and the only one this gate has**: `ScriptWorker` is the runner a window
+/// at `on` supplies, constructing one starts nothing, and the worker it starts at the first
+/// trigger is the program the windows install (ADR 1620).
+#[derive(Debug, Default)]
+struct KeptWorkers {
+    /// Every runner made, in order.
+    made: Mutex<Vec<Arc<ScriptWorker>>>,
+}
+
+impl KeptWorkers {
+    /// The runners made so far, from a lock nothing under it can poison.
+    fn made(&self) -> Vec<Arc<ScriptWorker>> {
+        self.made
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// How many workers the runners made so far have started between them.
+    fn spawns(&self) -> usize {
+        self.made()
+            .iter()
+            .map(|worker| worker.spawns())
+            .fold(0, usize::saturating_add)
+    }
+
+    /// What the first worker started and its first run cost, once both have happened.
+    fn open_cost(&self) -> Option<OpenCost> {
+        self.made().iter().find_map(|worker| worker.open_cost())
+    }
+}
+
+impl ScriptRunners for KeptWorkers {
+    fn runner(&self) -> Arc<dyn pdf_model::view::ScriptRunner> {
+        let worker = Arc::new(ScriptWorker::new());
+        self.made
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(Arc::clone(&worker));
+        worker
+    }
 }
 
 /// Gives the viewer a viewport and draws whatever it asks for, once.
@@ -651,9 +715,12 @@ fn warm_the_cores() {
     });
 }
 
-/// **Phase `open`**: what a launch pays before it has a window.
-fn phase_open() {
-    if cores_are_warmed() {
+/// **Phases `open` and `warm-open`**: what a launch pays before it has a window.
+///
+/// `warm` is the warm arm's child, which keeps its cores busy first (ADR 1621); the cold arm's
+/// does only where [`WARM_CORES`] asks.
+fn phase_open(warm: bool) {
+    if warm || cores_are_warmed() {
         warm_the_cores();
     }
     let path = document_of_the_child();
@@ -661,7 +728,7 @@ fn phase_open() {
     let before_calls = read_calls();
     let scheduled = scheduling();
     let began = Instant::now();
-    let (viewer, pages) = open_document(&path);
+    let (viewer, pages) = open_document(&path, None);
     let elapsed = ms(began);
     let waited = scheduling();
     drop(viewer);
@@ -730,7 +797,7 @@ fn phase_bring_up() {
 /// assembly — its pipeline store, the warm-up thread's spawn, a sampler and the timestamp query
 /// sets — and the host's caches, which is what the printed remainder is.
 fn device_steps(backend: &QuorraRasterizer) -> Vec<(&'static str, String)> {
-    let ms = |duration: std::time::Duration| format!("{:.3}", duration.as_secs_f64() * 1e3);
+    let ms = |duration: Duration| format!("{:.3}", duration.as_secs_f64() * 1e3);
     let (launch, device) = backend.startup();
     vec![
         (
@@ -751,6 +818,15 @@ fn device_steps(backend: &QuorraRasterizer) -> Vec<(&'static str, String)> {
 /// The two threads are `main`'s: the document opens on one while the graphics stack comes up on
 /// the other, because "[r]eading a document depends on none of it" (`quorra.rs`). What stands
 /// in for the window is nothing at all — see the module comment.
+///
+/// Then the script stage, after the clock: the open sequence a window's `Command::Presented`
+/// runs, with the runner the viewer was handed before the open, and what its worker cost to start
+/// and to answer its first run (ADR 1620).
+#[expect(
+    clippy::too_many_lines,
+    reason = "one launch in the order `quorra` runs it, two threads and a join, and every instant \
+              on its timeline; a split would hand the instants across functions"
+)]
 fn phase_first_page() {
     let path = document_of_the_child();
     let before = read_chars();
@@ -763,8 +839,14 @@ fn phase_first_page() {
     // `quorra.rs`'s document thread: the open, and then page one interpreted while the device is
     // still coming up (ADR 1531). Each of the two says when it finished, because the join says
     // only when the longer of the two threads did (ADR 1544).
+    //
+    // The viewer is handed a runner as a window at `on` hands it one, on every row: what a
+    // reader who lets scripts run pays before page one is inside this figure, and the worker the
+    // runner starts is not, because nothing starts it before the first trigger (ADR 1620).
+    let workers = Arc::new(KeptWorkers::default());
+    let supplied = Arc::clone(&workers);
     let opening = std::thread::spawn(move || {
-        let (mut viewer, pages) = open_document(&path);
+        let (mut viewer, pages) = open_document(&path, Some(supplied));
         let opened = Instant::now();
         viewer.anticipate().for_each(drop);
         (viewer, pages, opened, Instant::now())
@@ -801,6 +883,9 @@ fn phase_first_page() {
     );
     let elapsed = ms(began);
     let waited = scheduling();
+    // Asked the moment the clock stops: a worker started before page one's frame would be the
+    // critical path waiting for one, which is the one thing the runner supplied above may not do.
+    let spawned_before_frame = workers.spawns();
     // Read after the clock, off what the backend kept of the frame it just drew.
     let cost = frame_fields(&backend.last_frame(), backend.last_phases());
     let Some(Drawn {
@@ -864,14 +949,55 @@ fn phase_first_page() {
         ("mapped_kib", or_absent(mapped_resident_kib())),
         ("peak_kib", or_absent(peak_resident_kib())),
     ];
+    fields.extend(script_stage(
+        &mut viewer,
+        &workers,
+        began,
+        spawned_before_frame,
+    ));
     fields.extend(cost.into_iter().chain(device_steps(&backend)));
     measured_beside_the_machine(&fields);
+}
+
+/// **The script stage, once every figure of the first-page phase has been read** (ADR 1620).
+///
+/// A window sends `Command::Presented` at its first present; here it is sent after the frame's
+/// clock, its hash and the memory high-water, so that nothing of the stage can reach one of them.
+/// The open sequence it runs starts the worker at its first trigger, a process of its own, so what
+/// this one allocates for it is the runner's bookkeeping. Answers the child's fields for it, the
+/// instants measured from `began` like every other on the timeline.
+fn script_stage(
+    viewer: &mut Viewer,
+    workers: &KeptWorkers,
+    began: Instant,
+    before_frame: usize,
+) -> [(&'static str, String); 6] {
+    let since = |instant: Instant| instant.duration_since(began).as_secs_f64() * 1e3;
+    let presented = since(Instant::now());
+    viewer.handle(Command::Presented).for_each(drop);
+    let sequenced = since(Instant::now());
+    let open_cost = workers.open_cost();
+    let in_ms = |duration: Duration| format!("{:.3}", duration.as_secs_f64() * 1e3);
+    [
+        ("script_before_frame", before_frame.to_string()),
+        ("script_workers", workers.spawns().to_string()),
+        ("presented_ms", format!("{presented:.3}")),
+        ("sequenced_ms", format!("{sequenced:.3}")),
+        (
+            "script_spawn_ms",
+            open_cost.map_or_else(|| "-".to_owned(), |cost| in_ms(cost.spawn)),
+        ),
+        (
+            "script_first_run_ms",
+            open_cost.map_or_else(|| "-".to_owned(), |cost| in_ms(cost.first_run)),
+        ),
+    ]
 }
 
 /// **Phase `page-turn`**: five arrow keys, each timed, on a viewer that has already drawn.
 fn phase_page_turn() {
     let path = document_of_the_child();
-    let (mut viewer, pages) = open_document(&path);
+    let (mut viewer, pages) = open_document(&path, None);
     let mut backend = match QuorraRasterizer::new_headless() {
         Ok(backend) => backend,
         Err(error) => {
@@ -957,7 +1083,7 @@ fn phase_page_turn() {
 /// smaller figure and read as a win (trap 16).
 fn phase_count_open() {
     let path = document_of_the_child();
-    let (viewer, pages) = open_document(&path);
+    let (viewer, pages) = open_document(&path, None);
     drop(viewer);
     measured(&[("pages", pages.to_string())]);
 }
@@ -1070,7 +1196,8 @@ fn launch_probe() {
                 ("commands", commands.to_string()),
             ]);
         }
-        "open" => phase_open(),
+        "open" => phase_open(false),
+        "warm-open" => phase_open(true),
         "count-open" => phase_count_open(),
         "bring-up" => phase_bring_up(),
         "first-page" => phase_first_page(),
@@ -1146,6 +1273,17 @@ struct Row {
     first_page_ms: Pin,
     /// The band on one page turn.
     turn_ms: Pin,
+    /// The band on starting the script worker at the open sequence's first trigger, through its
+    /// greeting: the program's load and its confinement (`OpenCost::spawn`, ADR 1620).
+    ///
+    /// `none` on a row whose document is here for something other than its scripts; the stage is
+    /// still run and printed on every row, which is how a document with no script is seen to
+    /// start no worker.
+    script_spawn_ms: Pin,
+    /// The band on the open sequence's first run in that worker: the realm constructed, the
+    /// bridge installed, the document's first script parsed and run, and the frames both ways
+    /// (`OpenCost::first_run`, ADR 1620).
+    script_first_run_ms: Pin,
     /// The band on how much *this program* had allocated at its high-water, in mebibytes, in
     /// the process that drew page one.
     ///
@@ -1273,6 +1411,10 @@ struct Partial {
     first_page_ms: Option<Pin>,
     /// See [`Row::turn_ms`]. `None` here is "the key was not stated at all".
     turn_ms: Option<Pin>,
+    /// See [`Row::script_spawn_ms`]. `None` here is "the key was not stated at all".
+    script_spawn_ms: Option<Pin>,
+    /// See [`Row::script_first_run_ms`]. `None` here is "the key was not stated at all".
+    script_first_run_ms: Option<Pin>,
     /// See [`Row::peak_anon_mib`]. `None` here is "the key was not stated at all".
     peak_anon_mib: Option<Pin>,
     /// See [`Row::open_peak_mib`]. `None` here is "the key was not stated at all".
@@ -1296,6 +1438,8 @@ fn finish(partial: Partial, at: usize, into: &mut Vec<Row>) -> Result<(), String
         warm_open_ms: Some(warm_open_ms),
         first_page_ms: Some(first_page_ms),
         turn_ms: Some(turn_ms),
+        script_spawn_ms: Some(script_spawn_ms),
+        script_first_run_ms: Some(script_first_run_ms),
         peak_anon_mib: Some(peak_anon_mib),
         open_peak_mib: Some(open_peak_mib),
         read_kib: Some(read_kib),
@@ -1306,8 +1450,8 @@ fn finish(partial: Partial, at: usize, into: &mut Vec<Row>) -> Result<(), String
     else {
         return Err(format!(
             "the row ending at line {at} is missing one of path, pages, cold_open_ms, \
-             warm_open_ms, first_page_ms, turn_ms, peak_anon_mib, open_peak_mib, read_kib, \
-             read_calls, open_kinstructions, why"
+             warm_open_ms, first_page_ms, turn_ms, script_spawn_ms, script_first_run_ms, \
+             peak_anon_mib, open_peak_mib, read_kib, read_calls, open_kinstructions, why"
         ));
     };
     into.push(Row {
@@ -1317,6 +1461,8 @@ fn finish(partial: Partial, at: usize, into: &mut Vec<Row>) -> Result<(), String
         warm_open_ms,
         first_page_ms,
         turn_ms,
+        script_spawn_ms,
+        script_first_run_ms,
         peak_anon_mib,
         open_peak_mib,
         read_kib,
@@ -1375,6 +1521,8 @@ fn parse(text: &str) -> Result<Check, String> {
                 "warm_open_ms" => row.warm_open_ms = Some(band(value, at)?),
                 "first_page_ms" => row.first_page_ms = Some(band(value, at)?),
                 "turn_ms" => row.turn_ms = Some(band(value, at)?),
+                "script_spawn_ms" => row.script_spawn_ms = Some(band(value, at)?),
+                "script_first_run_ms" => row.script_first_run_ms = Some(band(value, at)?),
                 "peak_anon_mib" => row.peak_anon_mib = Some(band(value, at)?),
                 "open_peak_mib" => row.open_peak_mib = Some(band(value, at)?),
                 "read_kib" => row.read_kib = Some(band(value, at)?),
@@ -1451,6 +1599,14 @@ fn print_timeline(fields: &Fields) {
             "prepared_ms",
             "outline and page tree read (a thread of their own, after the frame's clock)",
         ),
+        (
+            "presented_ms",
+            "Command::Presented: the open sequence begins (here after every figure was read)",
+        ),
+        (
+            "sequenced_ms",
+            "the open sequence done, its worker started at its first trigger (ADR 1620)",
+        ),
     ];
     let steps = device_thread_instants(fields);
     let mut lines: Vec<(f64, &str)> = milestones
@@ -1495,6 +1651,79 @@ fn device_thread_instants(fields: &Fields) -> Vec<(&'static str, f64)> {
         instants.push((step, at));
     }
     instants
+}
+
+/// The first-page child's script stage, as `pdf-script-worker`'s own `OpenCost::line()` and what
+/// it stands beside (ADR 1620).
+///
+/// The line is rebuilt from the child's two figures, so that what a reader greps for is the line
+/// the worker's host prints. A stage that started no worker says so, which is how a document with
+/// no script, or none the open sequence reaches, is seen to cost nothing at all.
+fn print_script_stage(fields: &Fields) {
+    let workers = field(fields, "script_workers").unwrap_or(0.0);
+    let took = match (field(fields, "presented_ms"), field(fields, "sequenced_ms")) {
+        (Some(from), Some(to)) => format!("{:.1} ms", (to - from).max(0.0)),
+        _ => "-".to_owned(),
+    };
+    let duration = |key: &str| field(fields, key).map(|ms| Duration::from_secs_f64(ms / 1e3));
+    match (duration("script_spawn_ms"), duration("script_first_run_ms")) {
+        (Some(spawn), Some(first_run)) => println!(
+            "launch-path:   the script stage: {} — {workers:.0} worker(s) started by the open \
+             sequence, which took {took}",
+            OpenCost { spawn, first_run }.line()
+        ),
+        _ if workers > 0.0 => println!(
+            "launch-path:   the script stage: {workers:.0} worker(s) started and no first run \
+             answered, in {took}"
+        ),
+        _ => println!(
+            "launch-path:   the script stage: no script ran at the open, so no worker was \
+             started ({took})"
+        ),
+    }
+}
+
+/// The complaint a first-page child earns by starting a script worker before its frame was drawn.
+///
+/// **A count, judged on every machine**: `CLAUDE.md` principle 2's "[n]othing on the launch path
+/// waits for warmth" has a script-shaped twin in RFC 0008 section 6.6 — the open sequence runs
+/// after the first present — and a runner that started its worker while page one was being
+/// interpreted would have put a process's start in front of the first page (ADR 1620).
+fn started_before_the_frame(fields: &Fields, path: &str) -> Option<String> {
+    let before = field(fields, "script_before_frame")?;
+    (before > 0.0).then(|| {
+        format!(
+            "{path}: {before:.0} script worker(s) started before page one's frame was drawn — the \
+             open sequence runs after the first present and no trigger comes before it"
+        )
+    })
+}
+
+/// Whether `pdf-script-worker` is where the script stage's runner looks for it, asked once.
+///
+/// The three places `ScriptWorker` searches — the variable that names it, beside this binary, and
+/// one directory up, where Cargo puts programs — because the runner finds it there or nowhere.
+/// **Absence is printed and counted rather than failed**, as a missing `valgrind` is: only this
+/// gate's own sequence builds the worker (trap 10), and a stage that could not start one measured
+/// nothing rather than something faster.
+fn script_worker_is_here() -> bool {
+    static HERE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *HERE.get_or_init(|| {
+        if let Some(named) = std::env::var_os(pdf_script_worker::WORKER_PATH_VARIABLE) {
+            return Path::new(&named).is_file();
+        }
+        let name = format!(
+            "{}{}",
+            pdf_script_worker::WORKER_PROGRAM,
+            std::env::consts::EXE_SUFFIX
+        );
+        std::env::current_exe().ok().is_some_and(|exe| {
+            exe.ancestors()
+                .skip(1)
+                .take(2)
+                .any(|directory| directory.join(&name).is_file())
+        })
+    })
 }
 
 /// The bring-up child's steps on one line: what each cost and what is left of the figure.
@@ -1556,9 +1785,9 @@ fn print_first_frame(fields: &Fields) {
 /// one `key=value` per field.
 fn frame_fields(
     cost: &render_raster::FrameCost,
-    named: &[(&'static str, std::time::Duration)],
+    named: &[(&'static str, Duration)],
 ) -> Vec<(&'static str, String)> {
-    let ms = |duration: std::time::Duration| format!("{:.3}", duration.as_secs_f64() * 1e3);
+    let ms = |duration: Duration| format!("{:.3}", duration.as_secs_f64() * 1e3);
     let named = if named.is_empty() {
         "-".to_owned()
     } else {
@@ -2443,13 +2672,18 @@ fn the_launch_path_stays_inside_its_bands() {
         "launch-path: this run is `{profile}`, {samples} samples per figure, viewport {}x{}",
         VIEWPORT.0, VIEWPORT.1
     );
-    if cores_are_warmed() {
-        println!(
-            "launch-path: {WARM_CORES} is set, so every open child kept its cores busy for {} ms \
-             first — an instrument for the idle clock, and not the method the bands were taken by",
-            WARM_SPIN.as_millis()
-        );
-    }
+    println!(
+        "launch-path: every warm open's child keeps its cores busy for {} ms first (ADR 1621){}",
+        WARM_SPIN.as_millis(),
+        if cores_are_warmed() {
+            format!(
+                ", and {WARM_CORES} is set, so every cold open's does too — an instrument for the \
+                 idle clock, and not the method the cold bands were taken by"
+            )
+        } else {
+            String::new()
+        }
+    );
 
     // **The load and the population, printed before anything is measured.** This gate's figures
     // were disbelieved and then not run at all by three rounds in one week, on a judgement about
@@ -2632,6 +2866,7 @@ fn the_launch_path_stays_inside_its_bands() {
     let mut absent = 0_usize;
     let mut measured_documents = 0_usize;
     let mut uncounted = 0_usize;
+    let mut unmeasured_scripts = 0_usize;
     if !callgrind_is_here() {
         println!(
             "launch-path: NOT COUNTED — valgrind is not on this machine, so no row's \
@@ -2696,10 +2931,16 @@ fn the_launch_path_stays_inside_its_bands() {
                 None
             }
         };
+        // The warm arm's children keep their cores busy first, so that a figure of a few tenths
+        // of a millisecond is the open's rather than the idle clock's (ADR 1621).
         let warm = if clocks {
-            quickest("open", "open_ms", Some(cold_source), samples, &mut || {
-                Ok(Vec::new())
-            })
+            quickest(
+                "warm-open",
+                "open_ms",
+                Some(cold_source),
+                samples,
+                &mut || Ok(Vec::new()),
+            )
         } else {
             Err("not asked for".to_owned())
         };
@@ -2886,6 +3127,10 @@ fn the_launch_path_stays_inside_its_bands() {
                 );
                 print_timeline(&fields);
                 print_first_frame(&fields);
+                print_script_stage(&fields);
+                if let Some(complaint) = started_before_the_frame(&fields, &row.path) {
+                    complaints.push(complaint);
+                }
                 band_it(
                     &mut judged,
                     format!("{}: time to first page", row.path),
@@ -2935,6 +3180,64 @@ fn the_launch_path_stays_inside_its_bands() {
             }
             Err(complaint) if complaint == "not asked for" => {}
             Err(complaint) => complaints.push(format!("{}: page turn: {complaint}", row.path)),
+        }
+
+        // The script stage's two figures, where the row bands them: each the quickest of its own
+        // first-page children, as every clock figure here is the minimum of its own (ADR 1620).
+        let scripts_banded =
+            row.script_spawn_ms.band().is_some() || row.script_first_run_ms.band().is_some();
+        if scripts_banded && !script_worker_is_here() {
+            unmeasured_scripts = unmeasured_scripts.saturating_add(1);
+            println!(
+                "launch-path:   NOT MEASURED — the script stage: `{}` is not beside this binary; \
+                 `cargo build --release -p pdf-script-worker --features engine --bins` builds it",
+                pdf_script_worker::WORKER_PROGRAM
+            );
+        } else if scripts_banded && clocks {
+            for (key, pin, what) in [
+                (
+                    "script_spawn_ms",
+                    row.script_spawn_ms,
+                    "starting the script worker",
+                ),
+                (
+                    "script_first_run_ms",
+                    row.script_first_run_ms,
+                    "the script worker's first run",
+                ),
+            ] {
+                if pin.band().is_none() {
+                    continue;
+                }
+                match quickest("first-page", key, Some(cold_source), samples, &mut || {
+                    Ok(Vec::new())
+                }) {
+                    Ok((value, fields)) => {
+                        println!(
+                            "launch-path:   {what} {value:.3} ms, the quickest of its own \
+                             first-page children"
+                        );
+                        if let Some(complaint) = started_before_the_frame(&fields, &row.path) {
+                            complaints.push(complaint);
+                        }
+                        band_it(
+                            &mut judged,
+                            format!("{}: {what}", row.path),
+                            key,
+                            value,
+                            pin,
+                            false,
+                            Sample {
+                                fields: &fields,
+                                waited: None,
+                            },
+                        );
+                    }
+                    Err(complaint) => {
+                        complaints.push(format!("{}: {what}: {complaint}", row.path));
+                    }
+                }
+            }
         }
     }
 
@@ -3045,8 +3348,8 @@ fn the_launch_path_stays_inside_its_bands() {
 
     println!(
         "launch-path: {measured_documents} documents measured, {absent} absent, \
-         {uncounted} not counted, {} figures banded, {unjudged} not judged ({for_load} of them \
-         for load), {} outside",
+         {uncounted} not counted, {unmeasured_scripts} script stages not measured, {} figures \
+         banded, {unjudged} not judged ({for_load} of them for load), {} outside",
         judged.len(),
         judged
             .iter()

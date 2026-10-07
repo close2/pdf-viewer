@@ -70,8 +70,7 @@ the earlier measurement in this section, taken by splitting the file into seven 
 than interpreting it in pieces. Both are questions for §5's road D, which is the entry that changes
 the *kind* of the quantity.
 
-**"Nobody has attributed that" stood here until the five-hundred-and-nineteenth session, and
-`massif` attributes it in one command** — `valgrind --tool=massif --time-unit=B`, whose peak
+**`massif` attributes the residue in one command** (ADR 0354) — `valgrind --tool=massif --time-unit=B`, whose peak
 snapshot names the two blocks alive at it rather than a total. On §2's Bomb A they are
 `filter::flate`'s buffer and `Arc<[u8]>::copy_from_slice`, and the sum is the whole of the peak to
 within the program's own eight megabytes. **The instrument was never the difficulty**, which is
@@ -100,7 +99,7 @@ token. `MAX_OPERATIONS` bounds time *after* decompression and bounds memory not 
 bound the owner is thinking of is not the bound that caps their document** — they are different
 objects, in different crates, and the one that is load-bearing is the weaker of the two.
 
-**Both were rebuilt from this description in the four-hundred-and-seventy-first session and came
+**Both were rebuilt from this description for ADR 0306 and came
 out the same sizes to the byte** — 389 317 and 1 847 467, both 1029:1 — which is what makes the
 comparison below a measurement rather than a memory. `bomb.py`-shaped generators are not committed
 because the description above is enough to rebuild them, and that is the point of writing it down.
@@ -116,7 +115,7 @@ million operators however they are counted. Bomb B loses 70% of its peak in the 
 
 **The third column is not a continuation of the second and the two bombs' figures moved for one
 reason: `Vec::reserve` is amortised.** By the time it was measured again, Bomb B had gone back up
-to **1811 MB** — the loop that replaced `read_to_end` in the five-hundred-and-eighth session
+to **1811 MB** — the loop that replaced `read_to_end` (ADR 0343)
 computed the right growth step and handed it to a method documented to take
 `max(2 × capacity, len + additional)`, so the last step before a gibibyte ceiling granted 1804 MiB.
 The measurement and the multiplication agree. Bomb B now costs **exactly the bound**, and Bomb A —
@@ -139,8 +138,8 @@ The clean statement, and the test to apply to every bound in the tree:
 > a small input that commands unbounded work. `MAX_OPERATIONS` and `MAX_STATE_DEPTH` guard none of
 > those. They cap size.**
 
-**And the sentence has a fourth member the table below did not have a column for, found in the
-five-hundred-and-sixty-fourth session: a *memo*.** ADR 0399's two documents took 2 m 13 s and 35.6 s
+**And the sentence has a fourth member the table below did not have a column for, found by
+ADR 0399: a *memo*.** That ADR's two documents took 2 m 13 s and 35.6 s
 not because any bound was too small or too large, but because `image::RasterCache`'s probe is linear
 in its entries and §8.9.7's inline image added one entry per *draw* that nothing could ever find —
 so a page's cost was quadratic in its own image count while every bound in the table below refused
@@ -171,7 +170,7 @@ bound it violates (principle 3); `tools/state.sh fuzz` prints what `fuzz/artifac
 | ~~`MAX_TILES` 4096~~ (retired by ADR 0810) | stated `/XStep 0.001` over 600 units — 3.6×10¹¹ empty cells, about four days; an empty cell executes no operator, so nothing else saw it (ADR 0271) — until an empty cell was not looped at all, which leaves every marking site a copy charged to `MAX_OPERATIONS` and to `MAX_TILE_COPIES`, 65 536 commands a tiling | **was load-bearing** for a loop that no longer runs; what bounds a tiling now is its cost in commands, and `MAX_OPERATIONS`'s row is below |
 | `MAX_TILE_COPIES` 65 536 commands a tiling, `MAX_REACH_SCAN` 4 194 304 edge tests a page (both ADR 0810) | the first is what `MAX_TILES` became once the unit was the cost rather than the count; the second is the price of asking which sites a fill reaches, which a row reaching none would otherwise scan for hours without spending a copy | **load-bearing**, and the second is the only one here whose exhaustion refuses nothing — it stops a *saving*, and the sites it stops saving are bounded by the first |
 | `pdf-sandbox`'s `MAX_PIXELS`/`MAX_SAMPLES`, `RLIMIT_AS`, seccomp, Landlock | unbounded decode in the historically worst attack surface | **load-bearing** — and inside `hayro-jbig2`'s symbol dictionary three loops T.88 does not bound spend minutes on a few hundred bytes; `doc/patches/hayro-jbig2-symbol-dictionary-bounds.patch` bounds them for the owner to apply to the fork, and until then the deadline above is what ends them (ADR 1447) |
-| `xmp` ×5, `der`/`cms`/`x509`/`pkcs1`, `function.rs`'s `MAX_STITCH_DEPTH` (a 720-byte file overflowed every stack until session 425), `icc`, `mesh`, `image::MAX_SAMPLES`, every cycle guard | each turns a tiny file into unbounded work | **load-bearing** |
+| `xmp` ×5, `der`/`cms`/`x509`/`pkcs1`, `function.rs`'s `MAX_STITCH_DEPTH` (a 720-byte file overflowed every stack until ADR 0261), `icc`, `mesh`, `image::MAX_SAMPLES`, every cycle guard | each turns a tiny file into unbounded work | **load-bearing** |
 | §8.9.6.3's and §11.6.5.2's mask chains — `explicit_entry`, `soft_mask_entry` | until ADR 0399, **nothing at all**: an image whose `/Mask` names an image mask stating a `/Mask` of its own recursed `decode_parts` → `apply_explicit_mask` → `decode` until the stack aborted the process, and Table 143's `/Mask` row was unread while its `/SMask` row was guarded | **load-bearing, and it is not a constant** — Table 87 and Table 143 both say the entry "shall not be present", so the standard's depth is one and the guard is a refusal rather than a number |
 | **`MAX_OPERATIONS` 4 M** | nothing a bomb needs: the memory is already spent, and the time is unbounded either way because one `sh` can paint the whole page | **caps an honest document** — and capped it seven times harder than it said, until ADR 0306 |
 | `MAX_LIST_BYTES` 512 MiB a page (ADR 1507) | a 2440-byte cycle through two Type 3 fonts and a tiling cell copied 2.05 million clips beside its commands — 1.8 GiB, 3.16 GiB in the `page` fuzz target — because a copy is charged one operator and its clip nothing | **load-bearing**, and set by census: 2.4 times the largest list a first page of 90 150 builds inside every other bound, refusing no page of the five corpora that another bound did not already stop |
@@ -226,7 +225,7 @@ They were not architecture and did not wait for a decision, which is why they we
   refused by name before an allocation is attempted, and a breach that still kills arrives with the
   worker's last line attached.
 - **The file itself is held whole, once, and the room for it is asked for before a byte is read
-  (ADR 0795).** It was held *twice* until the eight-hundred-and-seventy-eighth session: every host
+  (ADR 0795).** Before that ADR it was held *twice*: every host
   read the file into a `Vec<u8>` and `Document::open` copied it into an `Arc<[u8]>`, and the copy was
   the one allocation on the open path that could not fail gracefully — `batch5/poppler`'s
   `poppler-44085-1.xz-0.pdf`, 6 001 925 614 bytes and an honest PDF 1.5 file, aborted the survey on
@@ -236,8 +235,8 @@ They were not architecture and did not wait for a decision, which is why they we
   **Deliberately no number of this program's own**: the owner's brief above is the reason, and the
   bound is the process's limit, asked once. ~~What that leaves is the *kind* of the quantity, which
   is this file's §5 D question one layer down: a 5.6 GB document costs 5.6 GiB resident to show page
-  one, because `pdf-syntax` reads slices of one buffer and nothing in it seeks.~~ **Answered in the
-  eight-hundred-and-eighty-first session** (ADR 0809): `pdf_syntax::FileBytes::on_disk` keeps the
+  one, because `pdf-syntax` reads slices of one buffer and nothing in it seeks.~~ **Answered by
+  ADR 0809**: `pdf_syntax::FileBytes::on_disk` keeps the
   file open and every reader in the crate asks for bytes from an offset, through a window the
   parser grows until it examined nothing at the window's end — so the 5.6 GB document costs its
   trailer, its table and page one's objects, and every host that opens a file itself opens it that
@@ -246,8 +245,8 @@ They were not architecture and did not wait for a decision, which is why they we
   the confined viewer's host still reads the file whole because its worker has no file system and
   receives the document over a pipe; a signature's `/ByteRange` digest reads its ranges into
   memory; a scan still reads the file whole, by design, and `Document::scan_refused` says when the
-  process could not — which no host consumes yet.~~ **All three taken in the
-  eight-hundred-and-eighty-third session** (ADR 0812): the document crosses to the confined worker
+  process could not — which no host consumes yet.~~ **All three taken by
+  ADR 0812**: the document crosses to the confined worker
   as its open file's descriptor beside `Command::Open` (`SCM_RIGHTS` over a socket the host makes;
   `recvmsg` and `pread64` on the interpreter's allow-list and nothing else — not `fstat`, which
   takes a path, so the length crosses on the wire), and `quorra-confined` holds no byte of the
@@ -314,18 +313,17 @@ And two facts that constrain the design more than anything else:
 
 ## 5. Four roads. The choice is the owner's, and here is what each costs today
 
-**The prices below were re-taken in the five-hundred-and-nineteenth session against the code as it
-now stands**, because two rounds had changed the ground under them since they were written: the
-five-hundred-and-eighth replaced the inflate path with a pump (ADR 0343), and this one capped its
-buffer and removed a copy (ADR 0354). Read the table before the four sections; the sections are the
+**The prices below were re-taken against the code as it stands after ADR 0354**, because two
+changes had moved the ground under them since they were written: ADR 0343 replaced the inflate
+path with a pump, and ADR 0354 capped its buffer and removed a copy. Read the table before the four sections; the sections are the
 argument and the table is the arithmetic.
 
-| road | what it removes | what it costs, in today's code | moved by 508 / 519? |
+| road | what it removes | what it costs, in today's code | moved by ADRs 0343 / 0354? |
 |---|---|---|---|
-| **A** deadline + callback | unbounded *time* | one parameter on `interpret`, one check at `run.rs`'s existing increment site, two boundary messages, and a rule pinning the gates | **no** — the check point is where 471 left it |
+| **A** deadline + callback | unbounded *time* | one parameter on `interpret`, one check at `run.rs`'s existing increment site, two boundary messages, and a rule pinning the gates | **no** — the check point is where ADR 0306 left it |
 | **B** ship the confinement | unbounded *anything*, by killing | **a tier change (`doc/todo/34` §2) and nothing else**: the `try_reserve`/`Refused` path is built and the restart it needed turned out not to be owed (ADR 0597), and the tier change is now *decided* — display lists cross with the raster kept as a per-page fall-back, and a device inside the confinement dies on its first `ioctl` (ADR 0607). What is left of it is a codec. Linux-only | **cheaper twice** — see below, and `doc/todo/15` |
 | **C** resumable interpretation | unbounded *latency* | a state-machine rewrite of `Interpreter::run`, against an oracle of 1794 pages | **no** |
-| **D** stream the decompression | the *allocation* | **shipped, all five of the content streams §7.8.2 names** — a page's `/Contents` in 530 (ADR 0365), the three beside it in 592 (ADR 0427), the LZW pump in 594 (ADR 0429) and §8.7.3.1's tiling cell in 595, once the cell was drawn once and its marks copied (ADR 0430) | **done and measured: Bomb B costs 8.4 MB against 1032 in `/Contents`, 10.7 against 1032 in a form and 9.4 against 1055 in a pattern cell; the witness 194 MB against 381; every gate identical, +5.74% then +0.089% instructions on an ordinary page and −94% on a tiling one** |
+| **D** stream the decompression | the *allocation* | **shipped, all five of the content streams §7.8.2 names** — a page's `/Contents` (ADR 0365), the three beside it (ADR 0427), the LZW pump (ADR 0429) and §8.7.3.1's tiling cell, once the cell was drawn once and its marks copied (ADR 0430) | **done and measured: Bomb B costs 8.4 MB against 1032 in `/Contents`, 10.7 against 1032 in a form and 9.4 against 1055 in a pattern cell; the witness 194 MB against 381; every gate identical, +5.74% then +0.089% instructions on an ordinary page and −94% on a tiling one** |
 
 **D is half-built and nobody set out to build it.** §5 D below says "`filter::flate` already holds a
 *streaming* decoder — `flate2::read::ZlibDecoder`, an `io::Read` — and then calls `read_to_end`".
@@ -335,8 +333,8 @@ holds a `flate2::Decompress` across iterations, keeps its own input cursor, writ
 `Stopped::Damaged(_)`, `Stopped::PastTheBound`. That *is* a pump. A window-fed decoder is that loop
 with a fixed buffer in place of a growing one and a consumer between the two, and the vocabulary it
 must report in already exists, because D's own caveat — "a streaming rewrite that does not separate
-[damage from the bound] is the same bug with better memory behaviour" — was separated in 471 and
-made reliable in 508.
+[damage from the bound] is the same bug with better memory behaviour" — was separated by ADR 0306 and
+made reliable by ADR 0343.
 
 **And D's prize shrank in the same measurement — then grew again when somebody built it.** What it
 removes is now:
@@ -365,16 +363,16 @@ stream can demand" is answered by the bound rather than by the ceiling, and B's 
 the three in the table above, unchanged.
 
 **A and C are untouched**, and that is worth stating rather than leaving to inference: nothing in
-471, 508 or 519 went near `Interpreter::run`'s shape or put a clock anywhere near `pdf-model`.
+ADRs 0306, 0343 or 0354 went near `Interpreter::run`'s shape or put a clock anywhere near `pdf-model`.
 
 **The order in the last paragraph of this section still holds and is now three steps further
 along**: §3's defects, then D's measurement, then D. **D is shipped for the stream this file is
-about** — ADR 0365, the five-hundred-and-thirtieth session — and the two bombs are the row above:
+about** — ADR 0365 — and the two bombs are the row above:
 Bomb B commands 8.4 MB where it commanded a gibibyte, and the witness draws whole from 194 MB.
 The gibibyte in §2's sentence "**It is still a gibibyte commanded by 1.85 MB of file**" is no
-longer commanded by that file, and `max_stream_len` is no longer what refuses it. **And three of the four nested content streams followed in the
-five-hundred-and-ninety-second**, on the decoded-stream memo's own condition rather than on a new
-number (ADR 0427); the fourth, §8.7.3.1's cell, is an exception that round's own fuzzing measured.
+longer commanded by that file, and `max_stream_len` is no longer what refuses it. **And three of the four nested content streams followed**
+(ADR 0427), on the decoded-stream memo's own condition rather than on a new
+number; the fourth, §8.7.3.1's cell, is an exception that ADR 0427's own fuzzing measured.
 What is left of D is in [`14`](14-stream-the-decompression.md) §"What is still owed" — that cell
 and one filter family — and the owner's order is at **B** next.
 
@@ -401,7 +399,7 @@ them gets today's behaviour with a far larger default.
 
 ### B, C and D have files of their own, and the owner has ordered them
 
-**The project owner chose, in the five-hundred-and-nineteenth session's aftermath: D, then B, then
+**The project owner chose, once §5's prices were re-taken after ADR 0354: D, then B, then
 C.** Each road's argument moved out of this file and into its own, so that the evidence lives with
 the item the way every other todo does; what stays here is §5's table, which is the *comparison*,
 and A, which nobody chose.

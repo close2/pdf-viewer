@@ -507,6 +507,15 @@ answers in two places"
                     &words,
                 );
             }
+            // RFC 0008 section 6.3's one question per document, on the same card (ADR 1616).
+            Event::AskingToRunScripts {
+                document,
+                script,
+                first_line,
+            } => {
+                let words = viewer_host::asked_to_run_scripts(&script, &first_line);
+                self.put_a_question(crate::app::Pending::Scripts { document }, &words);
+            }
             // §7.11.4's list moved: the copy `gather` took when the document opened is stale,
             // which is the one way "a property of an immutable document" stopped being true of
             // this list. Read again, and only this list.
@@ -695,6 +704,12 @@ impl App {
             // what the answer decides is whether the URI reaches `xdg-open` (ADR 1155).
             crate::app::Pending::Link { uri } => {
                 println!("{}", viewer_host::answered(&uri, proceed));
+            }
+            // RFC 0008 section 6.3: the viewer holds the document's scripts, so the answer goes to
+            // it whichever document is in front (ADR 1616).
+            crate::app::Pending::Scripts { document } => {
+                println!("note: {}", viewer_host::scripts_answered(proceed));
+                self.dispatch(Command::AnswerScripts { document, proceed });
             }
             // §12.7.6.2: the act is this host's own, so the answer decides whether the request
             // leaves this machine at all (ADR 1291).
@@ -885,10 +900,13 @@ impl App {
     /// The menu stays up, which is what a person setting three levels at once needs, and its rows
     /// are taken again so that the tick follows the choice.
     pub(crate) fn chose_restriction(&mut self) {
-        // An act's row sets a level this host reads and sends the viewer nothing (ADRs 1291,
-        // 1331).
+        // An act's row sets a level this host reads, and tells the viewer only of the act it does
+        // itself — a script runs in its view state (ADRs 1291, 1331, 1616).
         if let Some(level) = self.menu.act_level() {
             self.restrictions.set(level);
+            if let Some(command) = viewer_host::told(level) {
+                self.dispatch(command);
+            }
             println!("note: {}", viewer_host::act_chosen(level));
             let rows = self.restrictions.rows();
             self.menu.refill(rows);

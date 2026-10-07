@@ -46,15 +46,13 @@ read, answered and applied entry by entry, and §12.2 is `departed` for `/HideMe
 reader's own menu and for `/CenterWindow` in the one window whose toolkit cannot place it
 (ADRs 1203, 1204, 1227, 1145, 1429).
 
-- **Beside this bucket and not in it** — §12.3.5 and §12.3.5.1 are `departed`, and §12.3 with them:
+- **Beside this bucket and not in it** — §12.3.5 and §12.3.5.1 are `implemented`, and §12.3 with them:
   every name Table 160 defines is drawn, `/View` is obeyed for each of its four values, `/Sort`
-  orders the panel and Table 158's `Direction N` gives the window to the file list. What is left is
-  Table 157's `/Colors`, a suggestion a NOTE only recommends, and Table 158's `H`, `V` and
-  `/Position`, whose splitter divides a pair of areas this window does not present — both named by
-  `panel::unused_furniture` (ADRs 1168, 1215, 1251, 1252).
-- **Beside this bucket and not in it** — §12.7.5.3 is `departed`: bit 26's `RichText` *formatting*,
-  which §12.7.4.3 hands to XFA and which is therefore reported rather than drawn — the plain `/V` is
-  laid out. The control's contents cross, a person's chosen pathname is read by `viewer_host::policy`
+  orders the panel and Table 158's `Direction N` gives the window to the file list. Unused, as a choice
+  the clause's `may` leaves, are Table 157's `/Colors`, a suggestion a NOTE only recommends, and
+  Table 158's `H`, `V` and `/Position`, whose splitter divides a pair of areas this window does not
+  present — both named by `panel::unused_furniture` (ADRs 1168, 1215, 1251, 1252, 1622).
+- **Beside this bucket and not in it** — §12.7.5.3's file-select control: its contents cross, a person's chosen pathname is read by `viewer_host::policy`
   and submitted as the field's value (ADR 1216), and the dialogue over that typing is built:
   `viewer-gtk` a `gtk4::FileDialog` and `viewer-qt` a `QFileDialog`, each inside the widget's own
   §12.5.2 rectangle, behind `viewer_host::policy::may_choose_file` (ADRs 1070, 1122, 1240).
@@ -166,9 +164,9 @@ elements are painted in the parent's and `PagePress::Beyond` names why. It is tw
 standard says one profile can be, Table 69's four intents against §8.6.5.9's `/UseBlackPtComp` less
 the pair that clause forbids, and the deepest page `examples/press_depth` finds names one press (ADR
 1254). §11.5.3's blend mode inside a subtractive group of more than one component is composited in
-the group's four components (ADR 1342). §11.3.4 is `departed` too. Its one departure is the choice of
-route into a one-component blending space (ADR 0790), which `doc/todo/23` still prices; the
-precision that stood beside it here is closed, the cube into a parent's components being carried as
+the group's four components (ADR 1342). §11.3.4 is `implemented`, its route into a one-component
+blending space a choice §10.4.2.1's ranking leaves to the processor (ADRs 0790, 1622), which
+`doc/todo/23` still prices; the precision that stood beside it here is closed, the cube into a parent's components being carried as
 the device's decoding, a linear grid and the space's own encoding rather than as one sampled grid
 (ADR 1267).
 
@@ -177,8 +175,10 @@ extent along either axis lies in, ADR 1060's decision for §8.5.3.3.1's point an
 a matrix of rank zero collapses — and everything else it states is executed: a fill or a stroke its
 matrix carries onto a line is that line (ADRs 1348, 1360), a path whose subpaths overlap is measured
 as the set its rule declares inside (ADRs 1341, 1347), and the exact set's cost has a measured floor
-(ADR 1359). Its four scan-conversion departures are choices §10.7.1's NOTE licenses; §10.7 is
-`implemented` with it.
+(ADR 1359). Its three other departures — anti-aliasing, the area it costs and a reduced image's
+average — are departures §10.7.1's NOTE describes and does not license (ADR 1560), and no
+contradicted verdict the oracle holds rests on any of the four (ADR 1622); §10.7 is `implemented`
+with it.
 
 **Beside this bucket and not in it**: §8.7.4.5.7 and §8.7.4.5.8 are `departed`. The patch travels
 to the backend and the fineness is derived there in device pixels (ADR 1217); the one branch left
@@ -190,23 +190,33 @@ document takes.
 The feature draws; the residue is a case the first build did not reach. **What would unblock them:**
 a normal round extending the existing code.
 
-No row is here at present. §14.3.1 and Annex L were, and are `implemented`: `update` and `merge`
-state §14.3.3's deprecated entries in §14.3.2's packet alone in a PDF 2.0 file (ADR 1473), and a
-merged root holding PDF 2.0 `Document`s from several sources holds them inside one (ADR 1474).
+**One build, five rows: rich text formatting** (ADR 1623). A rich text string's characters are
+laid out or shown everywhere the standard names one, and its formatting — the faces, sizes, colours
+and alignment its XHTML markup and a `/DS` style string state — is reported rather than applied.
+`CLAUDE.md`'s XFA exclusion does not reach it (ADR 1197), and the text that states the formatting is
+held: XFA 3.3 at `/home/AI/specs/XFA-3_3.pdf` (SHA-256 `a3344e7e…a01e`), the copy the PDF
+Association hosts among ISO 32000-2's normative references, whose chapter 27 is the Rich Text
+Reference and whose preface permits software that displays content in it; it is cited by section,
+never quoted, and it owes a section in `doc/third-party-data.md` before a round builds on it. §14.3.1
+and Annex L were in this bucket, and are `implemented` (ADRs 1473, 1474).
 
-- **Beside this bucket and not in it** — §12.5.6.23 is `departed`: every content class the clause
-  reaches is removed, a codec's output carried as the image's own samples in every colour space
-  (ADR 1371), and Table 195's overlay is the one decided departure (ADR 1124). Two refusals stay as
-  decisions with their cost recorded: a calculator function serving region-only colours (ADR 1363)
-  and a `JPXDecode` component deeper than sixteen bits (ADR 1371).
-- **Beside this bucket and not in it** — §12.7.4.3 is `departed`: a rich text field's formatting,
-  which the clause hands to XFA 3.3, is reported rather than applied (ADRs 1122, 1197). A `/DA`
-  whose `Tm` has no inverse is the clause carried out — the translation is the processor's to
-  choose, and the producer's matrix draws no area — and says so (`doc/todo/22`).
-- **Beside this bucket and not in it** — §12.7.8.3.2 is `departed`: Table 249's `/APRef`, and it alone. `/AP`, `/A`, `/AA` and `/IF` are applied by one
+- §12.7.4.3 — a rich text field's formatting, reported rather than applied, the characters laid out
+  (ADRs 1122, 1197). A `/DA` whose `Tm` has no inverse is the clause carried out and says so
+  (`doc/todo/22`).
+- §12.7.5.3 — Table 231 bit 26's formatting, the same build seen from the field's own table
+  (ADR 1240).
+- §12.7.8.3.2 — Table 249's `/RV`, not imported because the formatting it carries is not applied;
+  it crosses once §12.7.4.3's does.
+- §12.5.6.6 — Table 177's `/RC` and `/DS` formatting, reported by `appearance::unapplied_default_style`.
+- §12.5.6.2 — Table 172's `/RC`, whose characters the popup shows and whose formatting it does not.
+
+- **Beside this bucket and not in it** — §12.5.6.23 is `departed` on two refusals with their cost
+  recorded, a calculator function serving region-only colours (ADR 1363) and a `JPXDecode` component
+  deeper than sixteen bits (ADR 1371); every other content class the clause reaches is removed, and
+  Table 195's overlay is a choice its own `should` leaves (ADRs 1124, 1622).
+- **Beside this bucket and not in it** — §12.7.8.3.2's other entries: `/AP`, `/A`, `/AA` and `/IF` are applied by one
   rule, a value that lives in the other file crossing as a *value* rather than as a reference
-  (ADRs 1186, 1223); `/RV` is XFA rich text on `CLAUDE.md`'s closed exclusion list and is not a
-  requirement this project answers. `/APRef`'s two branches are both built: **without** Table 253's
+  (ADRs 1186, 1223). `/APRef`'s two branches are both built: **without** Table 253's
   `/F` the named page is one this document holds under §12.7.7's tree, and
   `named_page::page_as_form` makes it the widget's appearance (ADR 1235); **with** `/F` it names a
   second PDF, and the hop is `viewer-core`'s — a second host question raised while the first import
@@ -241,7 +251,7 @@ the parity and names the open ones. The owner's answers of 2026-09-22 are built:
 §12.7.6.2's request, so that row and §12.7.6 are `implemented` (ADR 1291); A72's bound — a quantity
 may be chosen where the clause names the kind of mark and withholds only the number — moved
 §12.4.4, §12.4.4.1, §12.5.6.19 and §12.6.4.15 to `implemented` (ADR 1299), puts §12.5.6.11's and
-§12.5.6.12's artwork on its far side (both `departed` on it, ADR 1367), and moved §12.7.5.4 to `implemented` (ADR 1323); A76's
+§12.5.6.12's artwork on its far side (both `implemented` with that choice named, ADRs 1367, 1622), and moved §12.7.5.4 to `implemented` (ADR 1323); A76's
 mode is drawn in `raster/` (ADR 1295); A97's text is held and §12.7.8.3.4 reads it (ADR 1297);
 A100 made §8.6.6.5 `implemented`; A03 ratified Annex F, whose rows are all `implemented` (ADRs 1293,
 1309); A67 names no ledger row. A130 wrote TLS into principle 3 as its one named exception, with
@@ -249,8 +259,9 @@ the host checked first (ADR 1327), and A131 read F.4.1 as padding each item's ru
 (ADR 1328); neither moves a row. Of the owner's answers of 2026-10-05, A171 is §12.10's build (the
 bullet in bucket 6), A192 closes the Ed448 search (bucket 2's curve paragraph), A193 makes
 JavaScript a build stream whose Tier 0 runs the one-call `AF*` scripts while §12.6.4.17 stays
-`out-of-scope` (ADRs 1578, 1579) and whose Tier 1 engine runs in no window yet, because no host
-supplies a runner (ADRs 1590, 1591), A227 has the `zune-jpeg` fork prepared for the owner to create
+`out-of-scope` (ADRs 1578, 1579) and whose Tier 1 engine runs in every window at the reader's
+`Scripts` level, `off` by default, with the row's move waiting on the owner's amendment that
+`doc/questions/Q286` proposes (ADRs 1590, 1591, 1616), A227 has the `zune-jpeg` fork prepared for the owner to create
 (ADR 1589), and A209 owes nothing; none of the last four moves a row this map holds.
 
 ### 6. Genuinely buildable now — the campaign's next targets
@@ -259,6 +270,9 @@ A normal round can advance or close each of these today; there is no missing sur
 package, no cross-round architecture. Membership is re-derived from the ledger rather than carried: a
 row is in this bucket when its note names none of those three.
 
+- §7.10.2 — Table 39's `/Order 3`, interpolated linearly. The clause names a cubic spline and
+  withholds which, so the build is a cubic spline at a choice written down, the clause's own
+  `/Size`-under-4 sentence kept, and a census over the crawl first to rank it (ADRs 0098, 1623).
 - §12.10.2 — a geospatial viewport's **registration in degrees**. Everything the file states
   is read, a person can trace a path in one (ADR 1191) and reads a position in decimal degrees
   through the registration's affine map (ADR 1593), and the inverse projection is built on
@@ -291,7 +305,8 @@ exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any
 "Aggregate of the rows below" and the reason is the owing row's. They are not independently actionable
 — do not brief a round to *take* one; they flip when the last binding row flips.
 
-§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4, §12.10.
+§7.4, §7.6, §7.6.5, §7.10, §12.5, §12.5.6, §12.7, §12.7.4, §12.7.5, §12.7.8, §12.7.8.3, §12.8, §12.8.3,
+§12.8.3.4, §12.10.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap
@@ -307,8 +322,9 @@ reading.
 No row is here at present, and the bucket was emptied by re-reading it rather than by building.
 §12.6.4.9's and §12.6.4.10's own opening sentence hands the playing to 13.2, so both are
 `out-of-scope` on principle 5's clause 13 entry, the position §12.6.4.14's rendition action is in.
-§12.5.6.11's caret and §12.5.6.12's stamp legends are `departed`: `doc/questions/A72` put their
-artwork on the far side of its bound, which made it a decision rather than a debt (ADR 1367).
+§12.5.6.11's caret and §12.5.6.12's stamp legends are `implemented` with the choice named:
+`doc/questions/A72` put their artwork on the far side of its bound, which made it a decision rather
+than a debt (ADR 1367), and a choice the standard leaves is not a departure (ADR 1622).
 §12.6.4.6 did not hold: Table 207's `/F` names a document to open as well as an application to run,
 and the half that names a PDF is built (ADRs 1368, 1358).
 

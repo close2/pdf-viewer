@@ -238,6 +238,10 @@ fn the_event_kinds(expected: &mut BTreeMap<String, i64>) {
         // `quorra_print` granted: §7.6.4.2 bit 3's operation, written here in the same commit as
         // the `#define` for the reason the paragraph above records (ADR 1180).
         ("QUORRA_EVENT_PRINTING", EventKind::Printing),
+        (
+            "QUORRA_EVENT_ASKING_TO_RUN_SCRIPTS",
+            EventKind::AskingToRunScripts,
+        ),
     ] {
         expected.insert(name.to_owned(), i64::from(kind.code()));
     }

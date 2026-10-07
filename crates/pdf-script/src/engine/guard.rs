@@ -222,6 +222,19 @@ fn within_elements(asked: u64, ceiling: u64, context: &mut Context) -> JsResult<
     Ok(())
 }
 
+/// Stops the script where a native of the bridge would build a string of `asked` code units, over
+/// the run's string budget.
+///
+/// For a native whose output can be longer than its arguments — `util.printd`'s picture writes a
+/// month's name for `mmmm` — checked before it builds anything, as the guards above check a
+/// built-in (ADR 1615).
+pub(super) fn string_units(asked: u64, context: &mut Context) -> JsResult<()> {
+    let Some(ceiling) = State::with(context, |record| record.budget.string_units) else {
+        return Ok(());
+    };
+    within_units(asked, ceiling, context)
+}
+
 /// Stops the script where `asked` code units are over `ceiling`.
 fn within_units(asked: u64, ceiling: u64, context: &mut Context) -> JsResult<()> {
     if asked > ceiling {

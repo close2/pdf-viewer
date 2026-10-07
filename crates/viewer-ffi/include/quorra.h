@@ -51,7 +51,7 @@ extern "C" {
  * This is what stands in for the Rust rule that a new message fails to compile in every consumer.
  * It cannot fail a build, so it fails a startup instead, once, naming the number that moved.
  */
-#define QUORRA_EVENT_KIND_COUNT 22u
+#define QUORRA_EVENT_KIND_COUNT 23u
 
 /* What an entry point returns. `QUORRA_OK` is zero; everything else is a refusal. */
 #define QUORRA_OK                 0
@@ -106,6 +106,11 @@ extern "C" {
  * annotations are drawn, §8.11.4.5's Print event which layers are, and §12.5.6.22's watermarks
  * go against the sheet. `quorra_events_describe` gives the page count. */
 #define QUORRA_EVENT_PRINTING          21u
+
+/* RFC 0008 section 6.3's one question per document before its scripts run. A caller of this ABI
+ * supplies no runner, so its sessions run no script and this kind is not sent to it; it is named
+ * for the default arm of a switch over a newer build (ADR 1616). */
+#define QUORRA_EVENT_ASKING_TO_RUN_SCRIPTS 22u
 
 /* §12.5.5's three situations, of which a press is two. What `quorra_pointer` takes. */
 #define QUORRA_POINTER_MOVED     0u

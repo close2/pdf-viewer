@@ -1858,19 +1858,6 @@ fn same_language(one: &str, other: &str) -> bool {
     one.eq_ignore_ascii_case(other)
 }
 
-/// The packet's bytes as text, in whichever of the three encodings ISO 16684-1 section 7.1 names
-/// — UTF-8, UTF-16 or UTF-32. Paraphrased rather than quoted, because a verbatim sentence in this
-/// tree is one the conformance checker verifies against `doc/md/`, and that directory holds
-/// ISO 32000-2 and not this standard.
-///
-/// **Section 7.1 puts the choice between the three beyond its own scope** and leaves it to
-/// whichever standard embeds the packet, so a reader that took one of them for the rule would be
-/// inventing one. §14.3.2 embeds packets in PDF and states no encoding either.
-///
-/// UTF-8 is what every one of the 319 corpus streams uses and what the `<?xpacket>` header's
-/// `begin` attribute signals by carrying U+FEFF in the packet's own encoding. The other two are
-/// decoded here rather than refused, because refusing a spelling the standard names is a gap
-/// dressed as a limit — and both are twenty lines.
 /// A packet's bytes as text, refusing one past [`MAX_BYTES`] before decoding it.
 fn text_of(bytes: &[u8]) -> Result<String, XmpError> {
     if bytes.len() > MAX_BYTES {
@@ -1879,6 +1866,22 @@ fn text_of(bytes: &[u8]) -> Result<String, XmpError> {
     decode(bytes)
 }
 
+/// The packet's bytes as text, in whichever of the three encodings ISO 16684-1 section 7.1 names
+/// — UTF-8, UTF-16 or UTF-32. Paraphrased rather than quoted, because a verbatim sentence in this
+/// tree is one the conformance checker verifies against `doc/md/`, and that directory holds
+/// ISO 32000-2 and not this standard.
+///
+/// **Section 7.1 puts the choice between the three beyond its own scope** and leaves it to
+/// whichever standard embeds the packet, and §14.3.2 is that standard for PDF: Errata Collection
+/// 3's Issue #296 adds to it a producer's requirement that all XMP metadata in PDF be encoded as
+/// UTF-8 (paraphrased, since the caret's text is not in `doc/md/`). UTF-8 is what every one of the
+/// 319 corpus streams uses, and what the `<?xpacket>` header's `begin` attribute signals by
+/// carrying U+FEFF in the packet's own encoding.
+///
+/// **Decoding the other two is a departure from that stated encoding, taken deliberately**: the
+/// requirement is the producer's, a reader that decodes what a producer was told not to write
+/// loses nothing, and refusing the packet would cost a document its metadata for no requirement
+/// a reader is under. ADR 1004 and §14.3.2's ledger row record it.
 fn decode(bytes: &[u8]) -> Result<String, XmpError> {
     // A byte-order mark decides between them; the clause's own signalling is exactly this.
     match bytes {

@@ -46,9 +46,10 @@ the document. What the tests establish, on this kernel: the scripts run end to e
 state at `on` and nothing starts at `off`; the engine's library runs inside the filter; a run past
 its deadline, growth past the ceiling and a parser stack overflow each cost one named worker; and the
 profile reaches no file, socket, descriptor flag, thread or executable mapping
-(`crates/pdf-script-worker/tests/end_to_end.rs`, `crates/pdf-sandbox/tests/confinement.rs`). What is
-left is a host that supplies the runner: no window supplies a level for scripts yet (RFC 0008
-section 11 item 3 (e)), and the worker is installed with the first that does.
+(`crates/pdf-script-worker/tests/end_to_end.rs`, `crates/pdf-sandbox/tests/confinement.rs`). Every
+window supplies the runner at the reader's `Scripts` level (ADR 1616), and the worker program is
+built in a cargo run of its own and installed beside the windows, which is what ADR 1616 section 5
+asks `tools/batch.sh install` to carry.
 
 ## The panels' answers across the boundary
 

@@ -189,6 +189,7 @@ fn main() -> std::process::ExitCode {
             remote_documents: arguments.remote_documents,
             embedded_documents: arguments.embedded_documents,
             submissions: arguments.submissions,
+            scripts: arguments.reader.scripts,
             separations: arguments.separations,
         },
         arguments.reader,

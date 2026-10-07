@@ -375,21 +375,24 @@ pub fn external_associated(document: &Document, dict: &Dictionary) -> Vec<Extern
 /// sentence never named the property list's key at all — it said only that the property list
 /// "shall specify an array of file specification dictionaries", words Errata Collection 3 has
 /// since struck, and §14.13.10's EXAMPLE 3 writes
-/// `/AF /NamedAF BDC` without showing what `/NamedAF` resolves to. So `AF` was an inference from
-/// the tag operand, and it is the inference this tree made.
+/// `/AF /NamedAF BDC` without showing what `/NamedAF` resolves to, so under that printing `AF`
+/// is only an inference from the tag operand.
 ///
 /// Errata Collection 3 states the key: Issue #374, `/State` `Review` `Completed`, whose caret puts
 /// "a dictionary with an MCAF entry defining" in front of that sentence and makes the following
 /// one read "[t]he named resource in the Property List … shall specify this dictionary", against
-/// "Table 409a - Property list entries for associated files". `doc/md/` has neither the caret nor
-/// the table (ADR 0252, ADR 0253), so `MCAF` cannot be verified against this project's copy of the
-/// standard and is taken from the annotation itself.
+/// "Table 409a - Property list entries for associated files". `doc/md/` carries the table, under
+/// its `Issue #374` heading, though not the caret (ADR 0253): its one row is `MCAF`, an optional
+/// PDF 2.0 array of file specification dictionaries, each with an `AFRelationship`, denoting the
+/// marked-content sequence's associated files, and the erratum's EXAMPLE writes `/AF /MF1 BDC`
+/// over a property list holding `/MCAF`. So the tag stays `AF` and the key is `MCAF`, verified
+/// against this project's copy of the standard.
 ///
-/// Both keys are read, `MCAF` first. That is not indecision: the erratum names `MCAF` and no text
-/// available here says `AF` is now wrong there, so a file written to either reading is understood
-/// and none is silently dropped — which is what the previous behaviour did to a conforming PDF 2.0
-/// file. Table 409a is what would settle whether `AF` should be refused; when it can be read, this
-/// is the function that narrows.
+/// Both keys are read, `MCAF` first. Table 409a defines `MCAF` and forbids no other key, and the
+/// 2020 printing named none, so a file whose property list carries the array as `AF` — the
+/// inference the tag operand invites — is a file whose associated files are otherwise dropped
+/// for no requirement a reader is under; reading `AF` after `MCAF` costs a conforming file
+/// nothing, since a conforming file states `MCAF` and is answered by it.
 #[must_use]
 pub fn associated_in_property_list(document: &Document, dict: &Dictionary) -> Vec<Attachment> {
     let mcaf = associated_under(document, dict, "MCAF");

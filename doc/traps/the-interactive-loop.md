@@ -320,3 +320,14 @@ is a value the commit refuses and puts back — a lone `-` in a number field —
 ran leaves the saved `/V` empty (ADR 1592). And a hand-written tokeniser with a byte bound is found
 quadratic by a seed AT the bound: one letter repeated to 64 KiB took `AFDate_FormatEx`'s picture
 reader 991 ms a call (ADR 1597). Every grammar with a stated bound gets a seed that states it.
+
+### 120. A toggle key can land twice, and a frame's first event is not the one you asked for
+
+Drive step `38-located` presses `m` to enter measuring and then clicks; in one full drive `quorra`
+logged "measuring" and "measuring off" before the click — xdotool delivered the key twice — and the
+step read wrong, then worked on two reruns (round 1390). A step that toggles a mode waits for the
+window's own line that the mode is on before it acts. And over the confined wire a late answer rides
+the worker's next frame (ADR 1553): the outline preparation's re-raised `PageChanged` for page one
+rode a page turn's answer, and a test that read the frame's first `PageChanged` read 0 where it
+expected 1, once in a hundred runs under tier 1's load (round 1388's merge). A test reads the event
+it asked for wherever it sits in the frame.

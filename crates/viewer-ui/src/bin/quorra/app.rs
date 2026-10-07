@@ -73,6 +73,12 @@ pub(crate) enum Pending {
         /// What followed `ef` in the fragment, which applies to it.
         fragment: Option<String>,
     },
+    /// RFC 0008 section 6.3's one question per document, answered by
+    /// `viewer_core::Command::AnswerScripts` (ADR 1616).
+    Scripts {
+        /// The document whose scripts are waiting.
+        document: viewer_core::DocumentId,
+    },
 }
 
 /// Everything this window holds about the document **in front**, and nothing about the others.

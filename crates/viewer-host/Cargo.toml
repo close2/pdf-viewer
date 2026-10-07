@@ -36,6 +36,11 @@ thiserror.workspace = true
 ureq.workspace = true
 rustls.workspace = true
 rustls-native-certs.workspace = true
+# RFC 0008 section 6.3's `on`, `warn` and answered `ask`: the runner a host supplies is the host's
+# half of the third confined worker, which spawns `pdf-script-worker` at the first trigger. Taken
+# without its `engine` feature, so no engine is linked into a window — the engine runs only in the
+# worker program, which is built beside the windows (ADR 1616).
+pdf-script-worker.workspace = true
 
 [lints]
 workspace = true

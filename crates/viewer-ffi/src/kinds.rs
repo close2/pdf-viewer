@@ -92,6 +92,10 @@ pub enum EventKind {
     /// [`viewer_core::Event::Printing`] — `quorra_print` went ahead and this document is
     /// interpreted for paper until `quorra_print_finish`.
     Printing = 21,
+    /// [`viewer_core::Event::AskingToRunScripts`] — RFC 0008 section 6.3's one question per
+    /// document. A caller of this ABI supplies no runner, so its sessions are at the level `off`
+    /// and the kind is named for a caller's `default` arm rather than sent (ADR 1616).
+    AskingToRunScripts = 22,
 }
 
 impl EventKind {
@@ -100,7 +104,7 @@ impl EventKind {
     /// **The number a C caller checks its header against**, which is the whole of what this ABI
     /// can offer in place of a build failure. It is written out rather than counted by a macro so
     /// that adding a variant is a line a person writes beside the variant, in the same commit.
-    pub const COUNT: u32 = 22;
+    pub const COUNT: u32 = 23;
 
     /// Which kind an event is.
     ///
@@ -132,6 +136,7 @@ impl EventKind {
             Event::Submit { .. } => Self::Submit,
             Event::Copied { .. } => Self::Copied,
             Event::Printing { .. } => Self::Printing,
+            Event::AskingToRunScripts { .. } => Self::AskingToRunScripts,
         }
     }
 
@@ -165,6 +170,7 @@ impl EventKind {
             Self::Submit => "Submit\0",
             Self::Copied => "Copied\0",
             Self::Printing => "Printing\0",
+            Self::AskingToRunScripts => "AskingToRunScripts\0",
         }
     }
 
@@ -198,6 +204,7 @@ impl EventKind {
             19 => Self::Submit,
             20 => Self::Copied,
             21 => Self::Printing,
+            22 => Self::AskingToRunScripts,
             _ => return None,
         })
     }

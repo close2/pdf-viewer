@@ -1352,6 +1352,8 @@ pub struct Settings {
     pub submissions: Submissions,
     /// Whether §10.8.3's separation simulation is asked for ([`SEPARATIONS`]).
     pub separations: bool,
+    /// Whether a document's scripts run ([`SCRIPTS`]).
+    pub scripts: Scripts,
 }
 
 /// The word a person types to say which PDFs beside their own this reader will parse.
@@ -1657,6 +1659,205 @@ pub fn submissions(word: &str) -> Result<Submissions, String> {
         )
     })
 }
+
+/// The word a person types to say whether a document's scripts run — RFC 0008 section 6.3's four
+/// levels, `--scripts off|ask|warn|on`, read by [`crate::ReaderWords`] for every window (ADR 1581).
+///
+/// The menu's third group sets the same value while the window is up; the word is what a window is
+/// started at, as [`SUBMISSIONS`] is.
+pub const SCRIPTS: &str = "--scripts";
+
+/// Whether this reader runs a document's scripts: RFC 0008 section 6.3's policy hook, at one of
+/// `CLAUDE.md`'s four levels.
+///
+/// **The RFC's own words, `off` to `on`**, rather than [`Links`]' `refuse` to `open`: the subject
+/// is again this machine doing what a document asked, and the permissive end is again last — but
+/// what a script does is *run*, and `on` says so where `open` would not. A level decides whether
+/// the engine runs and never what a script may reach: every call that leaves the process is
+/// refused by name at every level (RFC 0008 section 6.3, ADR 1616).
+///
+/// **Global rather than per document**, [`Submissions`]' reason; what *ask* asks is per document,
+/// once, and its answer is the document's for as long as it is open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Scripts {
+    /// No script runs: no runner is supplied, no process is started, and every script a view state
+    /// does not run itself says it was not run.
+    ///
+    /// **The default, and the owner's** (`doc/questions/A193`, RFC 0008's first question): `off`
+    /// until the `script_corpus` gate has been green for a batch, when the default is asked again
+    /// with the gate's number. The argument for *ask* everywhere else — a person is clicking
+    /// something they can see — fails here, because a script runs on open and per keystroke.
+    #[default]
+    Off,
+    /// One question per document at its first script, showing that script's first line; the
+    /// answer holds until the document closes.
+    Ask,
+    /// Scripts run, and the report says which ran and what each made of its field.
+    Warn,
+    /// Scripts run, reported in the panel and nowhere louder.
+    On,
+}
+
+impl Scripts {
+    /// All four, least permissive first — the order a menu offers them in.
+    pub const ALL: [Self; 4] = [Self::Off, Self::Ask, Self::Warn, Self::On];
+
+    /// The word a person reads for this level.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Ask => "ask",
+            Self::Warn => "warn",
+            Self::On => "on",
+        }
+    }
+
+    /// The level a word names, or `None` for a word that names none.
+    #[must_use]
+    pub fn parse(word: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|level| level.as_str() == word)
+    }
+}
+
+/// Reads [`SCRIPTS`]' word onto a level, or says what is wrong with it.
+///
+/// # Errors
+///
+/// The sentence to print, naming every word this option takes — [`links`]' shape.
+pub fn scripts(word: &str) -> Result<Scripts, String> {
+    Scripts::parse(word).ok_or_else(|| {
+        format!(
+            "{SCRIPTS} {word}: no such level. One of {}",
+            Scripts::ALL.map(Scripts::as_str).join(", ")
+        )
+    })
+}
+
+/// What a window sends the viewer for a level: [`viewer_core::Command::Scripts`]'s value.
+///
+/// **The one place a level becomes a runner**, for [`may_submit`]'s reason: every window asks it
+/// here rather than building its own. At `on`, `warn` and an answered `ask` each document is handed
+/// a `pdf_script_worker::ScriptWorker`, which starts the worker program at the document's first
+/// trigger and never before (RFC 0008 section 6.6); at `warn` it is wrapped in [`Warning`]. At
+/// `off` nothing is constructed at all.
+#[must_use]
+pub fn scripting(level: Scripts) -> viewer_core::Scripting {
+    match level {
+        Scripts::Off => viewer_core::Scripting::Off,
+        Scripts::Ask => viewer_core::Scripting::Ask(std::sync::Arc::new(Workers { warn: false })),
+        Scripts::Warn => viewer_core::Scripting::Run(std::sync::Arc::new(Workers { warn: true })),
+        Scripts::On => viewer_core::Scripting::Run(std::sync::Arc::new(Workers { warn: false })),
+    }
+}
+
+/// What makes each document's runner at the levels that run scripts.
+#[derive(Debug)]
+struct Workers {
+    /// Whether each run is said, which is `warn`'s difference from `on`.
+    warn: bool,
+}
+
+impl viewer_core::ScriptRunners for Workers {
+    fn runner(&self) -> std::sync::Arc<dyn pdf_model::view::ScriptRunner> {
+        let worker = pdf_script_worker::ScriptWorker::new();
+        if self.warn {
+            std::sync::Arc::new(Warning { worker })
+        } else {
+            std::sync::Arc::new(worker)
+        }
+    }
+}
+
+/// `warn`'s runner: the worker's, with one sentence per run saying that it ran and what it made of
+/// its field.
+///
+/// The sentence joins the run's own report, which the view state prefixes with the script it is
+/// about and says once; so a script run on every keystroke is said once per value it produced, not
+/// once per key.
+#[derive(Debug)]
+struct Warning {
+    /// The runner that runs it.
+    worker: pdf_script_worker::ScriptWorker,
+}
+
+impl pdf_model::view::ScriptRunner for Warning {
+    fn run(&self, event: &pdf_model::view::ScriptEvent<'_>) -> pdf_model::view::ScriptResult {
+        let mut result = self.worker.run(event);
+        result.report.push(ran(&result));
+        result
+    }
+}
+
+/// What `warn` says of one run.
+fn ran(result: &pdf_model::view::ScriptResult) -> String {
+    let mut parts = vec![format!(
+        "ran, because this reader is set to {} ({RUNNING_SCRIPTS})",
+        Scripts::Warn.as_str()
+    )];
+    if let Some(value) = &result.value {
+        parts.push(format!("its value is now {value:?}"));
+    }
+    let edits = result.edits.len();
+    if edits > 0 {
+        parts.push(format!("it changed the form {edits} time(s)"));
+    }
+    if !result.rc {
+        parts.push("it refused the change it was handed".to_owned());
+    }
+    parts.join("; ")
+}
+
+/// The act's name under the menu's third group, and the name the sentences about its level use.
+pub const RUNNING_SCRIPTS: &str = "running a document's scripts";
+
+/// What a window puts in front of a person at [`Scripts::Ask`]: the first script a document handed
+/// over, its first line, and what the two answers do.
+#[must_use]
+pub fn asked_to_run_scripts(script: &str, first_line: &str) -> crate::restriction::Question {
+    crate::restriction::Question {
+        reasons: format!(
+            "This document carries scripts, and {script} is the first to run. Its first line \
+             reads: {first_line}"
+        ),
+        choice: format!(
+            "You have set this reader to {} before {RUNNING_SCRIPTS} ({SCRIPTS} {}). \"{}\" \
+             runs this document's scripts, confined, until it closes; \"{}\" runs none of them. \
+             The level stays where it is (RFC 0008 section 6.3).",
+            Scripts::Ask.as_str(),
+            Scripts::Ask.as_str(),
+            crate::restriction::GO_AHEAD,
+            crate::restriction::DO_NOT
+        ),
+    }
+}
+
+/// What a window says when a person answers [`asked_to_run_scripts`].
+#[must_use]
+pub fn scripts_answered(proceed: bool) -> String {
+    if proceed {
+        format!(
+            "this document's scripts run until it closes, because you answered \"{}\"",
+            crate::restriction::GO_AHEAD
+        )
+    } else {
+        format!(
+            "none of this document's scripts runs, because you answered \"{}\"",
+            crate::restriction::DO_NOT
+        )
+    }
+}
+
+/// What `quorra-confined` says when it is asked for a level of [`SCRIPTS`] other than `off`, and
+/// what it says of the level when asked: the window is pinned (`doc/questions/A193`).
+///
+/// The confined window's viewer is in its worker, and a runner is a process the window would have
+/// to start beside it and hand across, which its wire does not carry; and it has no dialogue for
+/// *ask* to put. So it runs no document script at any word, and says so rather than take a word it
+/// would not obey (ADR 1616).
+pub const SCRIPTS_PINNED: &str = "quorra-confined runs no document script: its level for scripts is pinned to off, because its \
+     viewer is confined in a worker that a script runner cannot be handed to (RFC 0008 section \
+     6.3, ADR 1616)";
 
 /// What this reader does when §O.2.1's `ef` asks it to open an embedded document.
 ///

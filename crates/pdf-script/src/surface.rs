@@ -239,8 +239,10 @@ pub const EXCLUDED: &[Excluded] = &[
 
 /// What RFC 0008 section 4.2 admits to Tier 1 and this bridge does not carry, by holder.
 ///
-/// The bridge carries the document's realm and its fields (ADRs 1591, 1602, 1603); each of these is
-/// the next thing a round adds, and until then a property that says so.
+/// The bridge carries the document's realm and its fields (ADRs 1591, 1602, 1603), and the viewer's
+/// identity, `util.printd` and `util.printx`, a field's `getArray` and `setFocus` and its text
+/// flags' writes (ADR 1615); each of these is the next thing a round adds, and until then a
+/// property that says so.
 pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
     (
         Holder::Event,
@@ -273,8 +275,6 @@ pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
             "buttonSetCaption",
             "checkThisBox",
             "isBoxChecked",
-            "setFocus",
-            "getArray",
         ],
     ),
     (
@@ -310,12 +310,6 @@ pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
             "setInterval",
             "clearTimeOut",
             "clearInterval",
-            "viewerType",
-            "viewerVersion",
-            "viewerVariation",
-            "platform",
-            "language",
-            "formsVersion",
             "activeDocs",
             "goBack",
             "goForward",
@@ -325,8 +319,6 @@ pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
         Holder::Util,
         &[
             "printf",
-            "printd",
-            "printx",
             "scand",
             "crackURL",
             "spansToXML",

@@ -140,6 +140,19 @@ does not move, because the device is the longer thread on four rows, and the gat
 32000-2 the document opened at 6.6 to 7.2 ms and page one was interpreted at 11.0 to 12.3, against
 a device up at 21.1 to 22.8.
 
+**A document's scripts cost the launch nothing, and what they cost after it is timed** (ADR 1620).
+Every first-page child of the gate hands its viewer the runner a window at `on` hands it, and the
+open sequence starts `pdf-script-worker` only at its first trigger, after page one's frame: no row
+starts one before. Measured on 2026-10-07 in the gates profile, the worker 14.3 MB: the spawn is 0.85
+to 1.72 ms, of which the binary's own load is about 0.6 and the confinement a tenth or two; the
+first run is 0.53 to 0.59 ms on a library of one statement, the realm 0.40 to 0.51 of it, and 16.8
+to 17.8 ms on the largest library the corpus holds (`evince-LINK-46-2.pdf`, 173 KB), where Boa's
+AST optimizer is 70.8% of the instructions. Under `release` the gate's `opt_demo.pdf` row reads
+0.68 to 0.71 ms for the spawn and 0.45 to 0.48 for the first run, and prints `script_open` on
+every row's timeline. **The warm open is taken from warm cores** (ADR 1621): over six runs each
+row's warm open moved by under 8% — the five-page document 0.31 to 0.33 ms — where the idle-born
+arm beside it read 0.29 to 0.73.
+
 ### 3b. The quorra backend, and what a corpus-scale comparison found in it
 
 **A second GPU backend arrived in the hundred-and-eighty-sixth to -eighth sessions**, written
@@ -359,9 +372,9 @@ in `tools/batch.sh gates`; a row that moves moves its band there with its reason
 | `bug1743245.pdf` p1, tight bends | turn | 37.95 (455%) | 3.38 | 0.44 | **33.25** | 0.34 | 0.41 | 0.12 | 2026-10-06, ADR 1577 |
 | | seventh | 39.78 (477%) | 3.60 | 0.36 | 35.12 | 0.09 | 0.47 | 0.13 | 2026-10-07, ADR 1607 |
 | | step | 34.96 (420%) | — | — | **34.12** | 0.12 | 0.48 | 0.24 | 2026-10-06, ADR 1577 |
-| `bug1721218_reduced.pdf` p1, a four-component group of 3 518 clipped shadings, drawn as two frames | turn | 151.49 (1818%) | 67.75 | **80.82** | 1.33 | 0.45 | 0.87 | 0.28 | 2026-10-07, ADRs 1594, 1595 |
-| | seventh | 158.65 (1904%) | 69.33 | 85.80 | 1.41 | 0.45 | 0.72 | 0.94 | 2026-10-07, ADR 1607 |
-| | step | 84.44 (1013%) | — | **81.02** | 1.55 | 0.27 | 0.69 | 0.92 | 2026-10-07, ADRs 1594, 1595 |
+| `bug1721218_reduced.pdf` p1, a four-component group of 3 518 clipped shadings, drawn as two frames | turn | 151.86 (1822%) | 67.69 | **81.28** | 1.38 | 0.45 | 0.78 | 0.27 | 2026-10-07, ADR 1618 |
+| | seventh | 151.16 (1814%) | 68.16 | 79.81 | 1.40 | 0.47 | 0.89 | 0.44 | 2026-10-07, ADR 1618 |
+| | step | 84.08 (1009%) | — | **80.50** | 1.54 | 0.28 | 0.66 | 1.11 | 2026-10-07, ADR 1618 |
 
 **The `seventh` rows are the turn on a device that has lived** (ADR 1607): the same page, lane and
 interpretation drawn as the seventh frame of one device, after five page turns through the warm-up
@@ -376,6 +389,19 @@ first uses its seventh does not. The text page is the one whose quickest run is 
 against 6.85–7.99, its `encode` 5.07–5.36 against 3.83–4.51: a long-lived device's glyph atlas already holds
 another document's glyphs, which this table does not divide further. Growing `wgpu`'s pool of command
 encoders ahead of the frames was measured on both kinds of device and is not built (ADR 1606).
+
+**`bug1721218_reduced.pdf`'s three rows were re-taken on 2026-10-07 after ADR 1618**, three runs
+of five rounds interleaved against an export of the tree before it, pinned, load 2.0–2.6 (that build
+read turn 153.10–154.33, seventh 152.04–153.14, step 84.81–85.59): a child's composite is drawn in
+the pass of the marks after it, an accumulator whose first op is a child is cleared by that
+composite's pass, and a frame's end timestamp is written by its last pass — 193 passes a turn where
+it recorded 222, every flat page's frame one pass where it was two, and no byte moved. Every run of
+the change read quicker than the one beside it, by 0.6 to 1.4 ms, in `scene`. **In one sitting the
+seventh frame is the quicker of the two**, by its first uses (151.16–152.37 against 151.86–153.06):
+the table's two rows that stood 7 ms apart were taken in two sittings, and what is left of the page's walk ranks
+the same on either device (ADR 1619). `zoom_frame`'s 1× frame reads 78.6–80.4 ms against the CPU
+backend's 47.2, 1.67×, and its step 76.3–77.8 against 56.4, 1.36× — HEAD read the same in that
+sitting, so neither ratio moved for the change.
 
 **`bug1721218_reduced.pdf`'s rows were re-taken on 2026-10-07 after ADRs 1594 and 1595**, three runs
 of five rounds interleaved against exports of the tree before them and of ADR 1594 alone (load
