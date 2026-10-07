@@ -423,6 +423,24 @@ pdf.Root.AcroForm = Dictionary(Fields=Array(list(priced.values())), CO=Array([pr
                                DA=text, DR=Dictionary(Font=Dictionary(Helv=font)))
 pdf.save(f"{out}/drive-commit.pdf")
 
+# drive-combo.pdf: two editable combo boxes — Table 233 bits 18 and 19 — under the same currency
+# /K and /F, whose text box holds characters until the commit exactly as a text field does
+# (ADR 1617 section 5): one committed by a tab and displayed through /F, one refused at its commit.
+pdf = pikepdf.new()
+font = helv(pdf)
+f1 = page(pdf, font, "Combo")
+combos = {}
+for name, top in [("Amount", 600), ("Other", 540)]:
+    combos[name] = pdf.make_indirect(Dictionary(
+        Type=Name.Annot, Subtype=Name.Widget, T=String(name), Rect=[72, top - 30, 272, top], F=4,
+        P=f1.obj, FT=Name.Ch, Ff=(1 << 17) | (1 << 18), Opt=Array([String("1.00"), String("2.00")]),
+        DA=text, AA=currency, MK=Dictionary(BC=[0, 0, 0], BG=[0.9, 0.95, 1])))
+f1.obj.Annots = Array([combos[n] for n in ["Amount", "Other"]])
+f1.obj.Tabs = Name.R
+pdf.Root.AcroForm = Dictionary(Fields=Array(list(combos.values())), DA=text,
+                               DR=Dictionary(Font=Dictionary(Helv=font)))
+pdf.save(f"{out}/drive-combo.pdf")
+
 # drive-script.pdf: the same three priced lines, and a total whose Table 199 /C is a script rather
 # than one call of the AF library, so Tier 0 does not run it and only the script worker can; its
 # /F is the library's, so the total displays as currency whoever computed it (ADR 1616).
@@ -447,6 +465,28 @@ f1.obj.Tabs = Name.R
 pdf.Root.AcroForm = Dictionary(Fields=Array(list(priced.values())), CO=Array([priced["Total"]]),
                                DA=text, DR=Dictionary(Font=Dictionary(Helv=font)))
 pdf.save(f"{out}/drive-script.pdf")
+
+# drive-asks.pdf: a script that asks the person (ADR 1628) — the open action's `app.alert` with
+# the question icon and Yes and No, and a field whose Table 199 /V puts an `app.response` with a
+# default answer at its commit and writes what came back into a second field.
+pdf = pikepdf.new()
+font = helv(pdf)
+f1 = page(pdf, font, "Asks")
+asked = {}
+for name, top in [("Who", 600), ("Name", 540)]:
+    asked[name] = pdf.make_indirect(Dictionary(
+        Type=Name.Annot, Subtype=Name.Widget, T=String(name), Rect=[72, top - 30, 272, top], F=4,
+        P=f1.obj, FT=Name.Tx, DA=text, MK=Dictionary(BC=[0, 0, 0], BG=[0.9, 0.95, 1])))
+asked["Who"].AA = Dictionary(V=Dictionary(S=Name.JavaScript, JS=String(
+    'var answered = app.response("Who is filling this in?", "Drive", "Ada");'
+    ' if (answered) this.getField("Name").value = answered;')))
+f1.obj.Annots = Array([asked[n] for n in ["Who", "Name"]])
+f1.obj.Tabs = Name.R
+pdf.Root.AcroForm = Dictionary(Fields=Array(list(asked.values())), DA=text,
+                               DR=Dictionary(Font=Dictionary(Helv=font)))
+pdf.Root.OpenAction = Dictionary(S=Name.JavaScript,
+                                 JS=String('app.alert("Welcome to the drive", 2, 2, "Drive");'))
+pdf.save(f"{out}/drive-asks.pdf")
 
 # drive-painted.pdf: a push-button whose background the document's open action sets red by
 # script — Table 192's /BG, which the appearance is constructed from once a script has changed it
@@ -719,6 +759,37 @@ click_then() {
     wait_for 10 said_since "$mark" "$1"
 }
 FOCUS_NEXT='Focused(Next)\|focus Next'
+# mode_on KEY ON OFF: a key that toggles a mode, pressed until the window's own lines say the mode
+# is ON. A toggle key under xdotool can land twice — `quorra`'s `m` said "measuring" and then
+# "measuring off" before the click that followed (trap 120) — so the press waits for ON, then for
+# the window's lines about the mode to stay quiet for longer than the X server's autorepeat delay,
+# and the last of them decides; a mode found off is pressed again, three times at most.
+mode_on() {
+    local key=$1 on=$2 off=$3 mark _
+    for _ in 1 2 3; do
+        mark=$(lines)
+        xdotool windowfocus --sync "$(main_window)" 2>/dev/null; xdotool key --delay 300 "$key"
+        wait_for 10 said_since "$mark" "$on" || continue
+        wait_for 5 mode_quiet "$mark" "$on" "$off"
+        [ "$(mode_last "$mark" "$on" "$off")" = on ] && return 0
+    done
+    return 1
+}
+# mode_last N ON OFF: `on` or `off`, whichever of the two lines the window said last after line N.
+mode_last() {
+    tail -n "+$(($1 + 1))" "$LOG" 2>/dev/null | grep -e "$2" -e "$3" | tail -1 | grep -q -- "$3" \
+        && echo off || echo on
+}
+# mode_quiet N ON OFF: whether the window has said nothing about the mode for 0.8 s — past the X
+# server's 660 ms autorepeat delay, so a second landing of the same press has had time to show.
+mode_quiet() {
+    local count
+    count=$(tail -n "+$(($1 + 1))" "$LOG" 2>/dev/null | grep -c -e "$2" -e "$3")
+    sleep 0.8
+    [ "$(tail -n "+$(($1 + 1))" "$LOG" 2>/dev/null | grep -c -e "$2" -e "$3")" = "$count" ]
+}
+MEASURING_ON='measuring (§12.9)'
+MEASURING_OFF='measuring off'
 SAVED='saved [0-9]* bytes to'
 shot() { # name
     local dir="$OUT/shots/$WINDOW" w n=0
@@ -1734,6 +1805,38 @@ PY
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 
+# §12.7.5.4's editable combo box commits like a text field, in all four windows (ADR 1617 section
+# 5): a value typed into the first box's text and committed by a tab out of it is displayed through
+# its /F, and a value its /K refuses in the commit form is refused when Enter commits the second
+# box's text and said — each witnessed by the saved file and the window's own line.
+combo_commit() {
+    local form="$OUT/$WINDOW-combo.pdf" seen committed
+    cp "$FIXTURES/drive-combo.pdf" "$form"; rm -f "${form%.pdf}.edited.pdf"
+    launch "$form"
+    click 690 850
+    key_then "$FOCUS_NEXT" Tab; sleep 0.1; type_then 'SetField { field: "Amount", value: Text("12.5")' 12.5
+    key_then "$FOCUS_NEXT" Tab; sleep 0.1; type_then 'SetField { field: "Other", value: Text("-")' -
+    key_then 'Other: the value entered does not match the format of the field' Return
+    shot 45-combo-commit
+    click 690 850; key_then "$SAVED" ctrl+s
+    seen=$(python3 - "${form%.pdf}.edited.pdf" <<'PY' 2>&1 | tail -1
+import re, sys, pikepdf
+p = pikepdf.open(sys.argv[1])
+fields = {str(f.T): f for f in p.Root.AcroForm.Fields}
+ap = fields["Amount"].get("/AP")
+drawn = re.findall(r"\((.*?)\) Tj", ap.N.read_bytes().decode("latin-1")) if ap is not None else []
+print(fields["Amount"].get("/V"), fields["Other"].get("/V"), drawn[0] if drawn else "nothing")
+PY
+)
+    committed=$(said 'Other: the value entered does not match the format of the field')
+    if [ "$seen" = '12.5 None $12.50' ] && [ "${committed:-0}" -gt 0 ]; then
+        verdict 45-combo-commit works "saved: $seen; the minus refused when Enter committed the second box, said"
+    else
+        verdict 45-combo-commit wrong "saved: ${seen:-nothing}; commit refusal said ${committed:-0}: $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
 # RFC 0008 section 6.3's level, in all four windows (ADR 1616): the scripted total under `--scripts
 # off`, `on` and `ask` answered both ways. Two prices are typed and committed by a tab each; the
 # saved file is the witness of what the total became, and the window's own lines of what ran. At
@@ -1862,6 +1965,92 @@ script_painted() {
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 
+# RFC 0008 section 4.2's `app.alert` and `app.response`, in all four windows (ADR 1628): at
+# `--scripts on` the open action's alert is put on the window's card or dialogue with its Yes and
+# No and answered Yes; a commit of Who puts the response with its default, answered as it stands;
+# and the saved file holds what the script wrote with the answer. The toolkits' buttons are pressed
+# through AT-SPI (ADR 1540), `quorra`'s card by its keys. `quorra-confined` is pinned to `off` and
+# puts nothing. A runner that refuses the call by name says so, and the step says it is not offered.
+# script_title: the title of the window's dialogue that names the document a script asks in.
+script_title() {
+    local id
+    for id in $(xdotool search --pid "$APP" 2>/dev/null); do
+        xdotool getwindowname "$id" 2>/dev/null
+    done | grep -m1 'a script in'
+}
+asked_titled() { [ -n "$(script_title)" ]; }
+script_asks() {
+    local form="$OUT/$WINDOW-asks.pdf" mark seen
+    if [ ! -x "$BIN/pdf-script-worker" ]; then
+        verdict 46-script-alert "not offered" "no $BIN/pdf-script-worker beside the windows"; return
+    fi
+    cp "$FIXTURES/drive-asks.pdf" "$form"; rm -f "${form%.pdf}.edited.pdf"
+    launch "$form" --scripts on
+    if [ "$WINDOW" = quorra-confined ]; then
+        if [ "$(said 'its level for scripts is pinned to off')" -gt 0 ] && [ "$(said 'alerts (')" -eq 0 ]; then
+            verdict 46-script-alert works "pinned: --scripts on said and declined, and no question put"
+        else
+            verdict 46-script-alert wrong "pinned said $(said 'pinned to off'), questions put $(said 'alerts ('): $LOG"
+        fi
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    wait_for 20 said_since 0 'alerts (Question, No/Yes): Welcome to the drive\|app.alert is not allowed'
+    if [ "$(said 'app.alert is not allowed')" -gt 0 ]; then
+        verdict 46-script-alert "not offered" "$(grep -m1 -o 'app.alert is not allowed[^"]*' "$LOG")"
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    shot 46-script-alert
+    # The dialogue's title names the document; `quorra` draws its card, whose title line is on the
+    # photograph, and its put line names the document too.
+    local titled=""
+    if [ "$WINDOW" = quorra ]; then
+        titled=$(grep -m1 -o "a script in $WINDOW-asks.pdf alerts" "$LOG")
+    else
+        wait_for 10 asked_titled
+        titled=$(script_title)
+    fi
+    mark=$(lines)
+    if [ "$WINDOW" = quorra ]; then
+        key_then 'answer script Yes' y
+    elif [ -n "$A11Y" ]; then
+        wait_for 20 pressed Yes
+    fi
+    if wait_for 10 said_since "$mark" "you answered the script's alert: Yes" \
+            && [[ "$titled" == *"$WINDOW-asks.pdf"* ]]; then
+        verdict 46-script-alert works "titled \"$titled\"; $(grep -m1 -o 'a script in .* alerts.*' "$LOG"); answered Yes"
+    else
+        verdict 46-script-alert wrong "put $(said 'alerts ('), answered $(said "answered the script's alert"): $LOG"
+    fi
+    click 690 850
+    key_then "$FOCUS_NEXT" Tab; sleep 0.1; type_then 'SetField { field: "Who", value: Text("x")' x
+    mark=$(lines)
+    key_then "$FOCUS_NEXT" Tab
+    wait_for 20 said_since "$mark" 'asks for an answer: Who is filling this in?'
+    shot 47-script-response
+    if [ "$WINDOW" = quorra ]; then
+        key_then 'answer script typed' Return
+    elif [ -n "$A11Y" ]; then
+        wait_for 20 pressed OK
+    fi
+    wait_for 10 said_since "$mark" "you answered the script's question: \"Ada\""
+    click 690 850; key_then "$SAVED" ctrl+s
+    seen=$(python3 - "${form%.pdf}.edited.pdf" <<'PY' 2>&1 | tail -1
+import sys, pikepdf
+p = pikepdf.open(sys.argv[1])
+fields = {str(f.T): f for f in p.Root.AcroForm.Fields}
+print(fields["Who"].get("/V"), fields["Name"].get("/V"))
+PY
+)
+    if [ "$seen" = 'x Ada' ] && [ "$(said "you answered the script's question: \"Ada\"")" -gt 0 ]; then
+        verdict 47-script-response works "the default answered as it stood; the script wrote it: saved $seen"
+    else
+        verdict 47-script-response wrong "saved ${seen:-nothing}; answered $(said "answered the script's question"): $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
 # §12.10's position, in all four windows (ADR 1593): measuring on, one press on the geographic map,
 # and the window's sentence carries a latitude and a longitude inside the map's own rectangle of
 # degrees, six places each; a press on a projected map whose /GPTS are degrees says why it gives no
@@ -1871,10 +2060,10 @@ located() {
         verdict 38-located "not offered" "doc/pdf.js is not checked out"; return; }
     local mark seen refused
     launch "$FIXTURES/drive-geographic.pdf"; mark=$(lines)
-    key m; click 700 550; shot 38-located
+    mode_on m "$MEASURING_ON" "$MEASURING_OFF"; click 700 550; shot 38-located
     seen=$(tail -n "+$((mark + 1))" "$LOG" | grep -o 'geospatial.*' | head -1)
     launch "$FIXTURES/drive-projected.pdf"; mark=$(lines)
-    key m; click 700 550; shot 38-located-projected
+    mode_on m "$MEASURING_ON" "$MEASURING_OFF"; click 700 550; shot 38-located-projected
     refused=$(tail -n "+$((mark + 1))" "$LOG" | grep -o 'no position: the projected system.s registration points are shaped as degrees' | head -1)
     if [[ "$seen" =~ —\ (9|1[0-7])\.[0-9]{6}°\ S,\ 1(6[5-9]|7[0-6])\.[0-9]{6}°\ E ]] && [ -n "$refused" ]; then
         verdict 38-located works "$seen; and the projected map: $refused"
@@ -1918,7 +2107,9 @@ for WINDOW in "${WINDOWS[@]}"; do
         confined
         reader_words
         field_commit
+        combo_commit
         scripts_levels
+        script_asks
         located
         continue
     fi
@@ -1926,8 +2117,10 @@ for WINDOW in "${WINDOWS[@]}"; do
     accessibility
     reader_words
     field_commit
+    combo_commit
     scripts_levels
     script_painted
+    script_asks
     located
 done
 echo "drive-windows: $(grep -c "	works	" "$RESULTS") works, $(grep -c "	wrong	" "$RESULTS") wrong," \

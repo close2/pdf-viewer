@@ -1978,6 +1978,10 @@ void MainWindow::applyUpdates()
         // refuses.
         QTimer::singleShot(0, this, [this] { askAQuestion(); });
     }
+    if (update.script_question) {
+        // Queued for `update.question`'s reason one line up (ADR 1628).
+        QTimer::singleShot(0, this, [this] { askForAScript(); });
+    }
     if (update.menu && !scopes_.empty()) {
         // The `r` key, in a window whose menu bar a person may not have gone looking for. Posted
         // rather than popped here, because `QMenu::popup` takes the keyboard from the press that
@@ -2686,6 +2690,62 @@ void MainWindow::askAQuestion()
     const bool answered = dialog.exec() == QDialog::Accepted;
     Busy guard(busy_);
     host_->answer_question(answered);
+    applyUpdates();
+}
+
+// RFC 0008 section 4.2's `app.alert` and `app.response`, as a dialogue titled with the document
+// that asks: the script's text, the line under it, an entry holding a response's default, and the
+// buttons the Rust side names, the affirming one last and the default. Closing it without a press
+// answers -1, which the Rust side reads as a closed dialogue's answer (ADR 1628). The nested loop
+// `exec` runs is this window's, never the script's: the script waits in its worker.
+void MainWindow::askForAScript()
+{
+    if (busy_) {
+        return;
+    }
+    QDialog dialog(this);
+    dialog.setWindowTitle(text(host_->script_question_title()));
+    dialog.setModal(true);
+    auto* column = new QVBoxLayout(&dialog);
+    auto* said = new QLabel(text(host_->script_question_text()), &dialog);
+    said->setWordWrap(true);
+    column->addWidget(said);
+    const QString detail = text(host_->script_question_detail());
+    if (!detail.isEmpty()) {
+        column->addWidget(new QLabel(detail, &dialog));
+    }
+    const QtScriptEntry asked = host_->script_question_entry();
+    QLineEdit* entry = nullptr;
+    if (asked.shown) {
+        entry = new QLineEdit(text(asked.start), &dialog);
+        if (asked.password) {
+            entry->setEchoMode(QLineEdit::Password);
+        }
+        column->addWidget(entry);
+    }
+    auto* buttons = new QDialogButtonBox(&dialog);
+    const rust::Vec<rust::String> labels = host_->script_question_buttons();
+    int pressed = -1;
+    for (std::size_t index = 0; index < labels.size(); ++index) {
+        QPushButton* button = buttons->addButton(text(labels[index]), QDialogButtonBox::ActionRole);
+        if (index + 1 == labels.size()) {
+            button->setDefault(true);
+        }
+        const int at = static_cast<int>(index);
+        connect(button, &QPushButton::clicked, &dialog, [&dialog, &pressed, at] {
+            pressed = at;
+            dialog.accept();
+        });
+    }
+    column->addWidget(buttons);
+    if (entry != nullptr) {
+        entry->setFocus();
+    }
+    dialog.exec();
+    const QString typed = entry != nullptr ? entry->text() : QString();
+    const QByteArray bytes = typed.toUtf8();
+    Busy guard(busy_);
+    host_->answer_script_question(pressed, rust::Str(bytes.constData(), static_cast<std::size_t>(bytes.size())));
     applyUpdates();
 }
 

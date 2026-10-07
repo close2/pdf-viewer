@@ -97,8 +97,8 @@ impl Host {
         Typed::Taken
     }
 
-    /// The qualified name of the single-line text field §12.5.1's focus is on, where it is one a
-    /// person may type into.
+    /// The qualified name of the single-line text field, or editable combo box, §12.5.1's focus is
+    /// on, where it is one a person may type into.
     ///
     /// A multiline field, a password field — whose value answers as bullets, so a keystroke read
     /// back would append to the bullets (ADR 0247) — a file-select control and a read-only field
@@ -114,6 +114,10 @@ impl Host {
                 .iter()
                 .any(|widget| widget.annotation == object)
         })?;
+        // An editable combo box's text box takes characters until the commit exactly as an entry
+        // does — Table 233 bit 19's "editable text box" (ADR 1617 section 5) — so it is typed
+        // into here too; a combo box without the bit is a choice of rows, which this window does
+        // not offer.
         let single_line = matches!(
             control_kind(&field.control),
             ControlKind::Entry {
@@ -121,7 +125,7 @@ impl Host {
                 password: false,
                 file_select: false,
                 ..
-            }
+            } | ControlKind::Combo { editable: true, .. }
         );
         if !single_line || field.read_only {
             eprintln!(

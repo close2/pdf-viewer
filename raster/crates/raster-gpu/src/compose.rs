@@ -3,9 +3,9 @@
 //!
 //! ISO 32000-2 clause 11, run: each [`LayerPlan`] renders bottom-up into its own
 //! premultiplied texture; a [`ChildOp`] closes the current pass, renders the child,
-//! and composites it onto the accumulated parent through `composite.wgsl` — a
-//! ping-pong between the parent's two textures, because a pass cannot read its own
-//! attachment. Soft masks realise first, in id order (they may only reference
+//! and composites it onto the accumulated parent through `composite.wgsl` — from a
+//! copy of the backdrop it covers, transferred out of the parent's one texture first,
+//! because a pass cannot read its own attachment (ADRs 0038, 1630). Soft masks realise first, in id order (they may only reference
 //! earlier masks), each reduced to R8 by `reduce.wgsl`. A frame whose root has no
 //! children and no masks draws straight into the target — the flat fast path M1
 //! measured stays exactly as cheap as it was.
@@ -38,7 +38,7 @@ use std::time::{Duration, Instant};
 use crate::device::{Device, PassQuery};
 use crate::encode::{Encoded, Op};
 use crate::error::RenderError;
-use crate::layers::LayerPool;
+use crate::layers::{LayerPool, Prices};
 use crate::mask::Realised;
 
 mod blit;
@@ -89,6 +89,9 @@ pub(crate) struct Executor<'a> {
     /// The region of the frame the pass being recorded renders into (ADR 0036): the
     /// whole target while the root is drawing, a plan's own rectangle inside a group.
     pub region: Region,
+    /// What each plan was priced at against the frame budget, which a composite waiting
+    /// past a child may not exceed (ADR 1631).
+    pub prices: Prices,
 }
 
 /// One plan's finished pixels — the texture itself rather than a view, because the
@@ -179,13 +182,16 @@ impl Executor<'_> {
             )?;
             cleared = true;
         }
-        // A child's composite whose copy is recorded and whose draw is not. **It is drawn
-        // first in the pass of the run after it**, because both write this accumulator and
-        // nothing between them reads it: two passes onto one attachment, each loading what
-        // the last stored, deposit what one pass deposits drawing the same draws in the
-        // same order (ADR 1618). A child, or the plan's end, records it in a pass of its own,
-        // since the next child's copy has to read what it wrote.
-        let mut pending: Option<Composite> = None;
+        // Children's composites whose copies are recorded and whose draws are not. **They
+        // are drawn first in the pass of the run after them**, because both write this
+        // accumulator and nothing between them reads it: two passes onto one attachment,
+        // each loading what the last stored, deposit what one pass deposits drawing the
+        // same draws in the same order (ADR 1618). A child records them in a pass of their
+        // own, since its copy has to read what they wrote — unless it covers a rectangle
+        // none of them does and the frame's price holds them beside it, when it joins them
+        // (`may_wait`, ADR 1631) — and so does the plan's end.
+        let mut pending: Vec<Composite> = Vec::new();
+        let worst = self.wait_ceiling(plan, region, seed.is_some());
         let mut op_index = 0;
         while op_index < plan.ops.len() {
             match &plan.ops[op_index] {
@@ -196,7 +202,7 @@ impl Executor<'_> {
                         op_index = op_index.saturating_add(1);
                     }
                     let run = run_ops(&plan.ops[run_start..op_index]);
-                    let load = match &pending {
+                    let load = match pending.first() {
                         Some(composite) => composite.load(),
                         None if cleared => PassLoad::Keep,
                         None => PassLoad::Clear,
@@ -206,15 +212,16 @@ impl Executor<'_> {
                         (&view, wgpu::TextureFormat::Rgba8Unorm),
                         load,
                         &run,
-                        pending.take(),
+                        std::mem::take(&mut pending),
                     )?;
                     cleared = true;
                 }
                 Op::Child(child) => {
                     let child_op = *child;
                     op_index = op_index.saturating_add(1);
-                    if let Some(composite) = pending.take() {
-                        self.composite_pass(recorder, &view, composite);
+                    if !self.may_wait(&pending, &child_op, region, worst) {
+                        let composites = std::mem::take(&mut pending);
+                        self.composite_pass(recorder, &view, composites);
                     }
                     // §11.4.4: a non-isolated group's elements composite onto the
                     // group's backdrop, so its buffer begins as a copy of what is under
@@ -228,7 +235,7 @@ impl Executor<'_> {
                             (&view, wgpu::TextureFormat::Rgba8Unorm),
                             PassLoad::Clear,
                             &[],
-                            None,
+                            Vec::new(),
                         )?;
                         cleared = true;
                     }
@@ -243,26 +250,24 @@ impl Executor<'_> {
                         }
                         None => None,
                     };
-                    pending = self.composite_child(
+                    pending.extend(self.composite_child(
                         recorder,
-                        (&view, region, cleared),
+                        (&accumulator, region, cleared),
                         (child, group_alpha),
                         &child_op,
-                    )?;
-                    cleared = cleared || pending.is_some();
+                    )?);
+                    cleared = cleared || !pending.is_empty();
                 }
             }
         }
-        if let Some(composite) = pending.take() {
-            self.composite_pass(recorder, &view, composite);
-        }
+        self.composite_pass(recorder, &view, pending);
         if !cleared {
             self.draw_pass(
                 recorder,
                 (&view, wgpu::TextureFormat::Rgba8Unorm),
                 PassLoad::Clear,
                 &[],
-                None,
+                Vec::new(),
             )?;
         }
         self.region = outer;

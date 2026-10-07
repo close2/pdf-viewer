@@ -1760,12 +1760,102 @@ struct Workers {
 
 impl viewer_core::ScriptRunners for Workers {
     fn runner(&self) -> std::sync::Arc<dyn pdf_model::view::ScriptRunner> {
-        let worker = pdf_script_worker::ScriptWorker::new();
-        if self.warn {
+        self.runner_that_asks().0
+    }
+
+    /// The worker is its own desk: a script that asks is held in it, and the question and the
+    /// answer cross through it (ADRs 1627, 1628).
+    fn runner_that_asks(
+        &self,
+    ) -> (
+        std::sync::Arc<dyn pdf_model::view::ScriptRunner>,
+        Option<std::sync::Arc<dyn viewer_core::ScriptAsks>>,
+    ) {
+        let worker = std::sync::Arc::new(pdf_script_worker::ScriptWorker::new());
+        let desk: std::sync::Arc<dyn viewer_core::ScriptAsks> = std::sync::Arc::new(Desk {
+            worker: std::sync::Arc::clone(&worker),
+        });
+        let runner: std::sync::Arc<dyn pdf_model::view::ScriptRunner> = if self.warn {
             std::sync::Arc::new(Warning { worker })
         } else {
-            std::sync::Arc::new(worker)
-        }
+            worker
+        };
+        (runner, Some(desk))
+    }
+}
+
+/// Where a worker's held script puts its question and is handed its answer: the two crates'
+/// shapes, converted one for one — `pdf_script`'s carries a script's numbers, `viewer_core`'s a
+/// window's words, and they mean the same (ADR 1628).
+#[derive(Debug)]
+struct Desk {
+    /// The worker whose script asks.
+    worker: std::sync::Arc<pdf_script_worker::ScriptWorker>,
+}
+
+impl viewer_core::ScriptAsks for Desk {
+    fn take_question(&self) -> Option<viewer_core::ScriptQuestion> {
+        Some(asked(self.worker.take_question()?))
+    }
+
+    fn answer(&self, answer: viewer_core::ScriptAnswer) {
+        self.worker.answer(answered_with(&answer));
+    }
+}
+
+/// A worker's question as a window is handed it.
+fn asked(question: pdf_script::Question) -> viewer_core::ScriptQuestion {
+    use viewer_core::{AlertButtons, AlertIcon};
+    match question {
+        pdf_script::Question::Alert {
+            message,
+            icon,
+            buttons,
+            title,
+        } => viewer_core::ScriptQuestion::Alert {
+            message,
+            icon: match icon {
+                pdf_script::Icon::Error => AlertIcon::Error,
+                pdf_script::Icon::Warning => AlertIcon::Warning,
+                pdf_script::Icon::Question => AlertIcon::Question,
+                pdf_script::Icon::Status => AlertIcon::Status,
+            },
+            buttons: match buttons {
+                pdf_script::Buttons::Ok => AlertButtons::Ok,
+                pdf_script::Buttons::OkCancel => AlertButtons::OkCancel,
+                pdf_script::Buttons::YesNo => AlertButtons::YesNo,
+                pdf_script::Buttons::YesNoCancel => AlertButtons::YesNoCancel,
+            },
+            title,
+        },
+        pdf_script::Question::Response {
+            question,
+            title,
+            default,
+            label,
+            password,
+        } => viewer_core::ScriptQuestion::Response {
+            question,
+            title,
+            default,
+            label,
+            password,
+        },
+    }
+}
+
+/// A window's answer as the worker's script is handed it.
+fn answered_with(answer: &viewer_core::ScriptAnswer) -> pdf_script::Answer {
+    use viewer_core::AlertButton;
+    match answer {
+        viewer_core::ScriptAnswer::Pressed(button) => pdf_script::Answer::Pressed(match button {
+            AlertButton::Ok => pdf_script::Button::Ok,
+            AlertButton::Cancel => pdf_script::Button::Cancel,
+            AlertButton::No => pdf_script::Button::No,
+            AlertButton::Yes => pdf_script::Button::Yes,
+        }),
+        viewer_core::ScriptAnswer::Typed(text) => pdf_script::Answer::Typed(text.clone()),
+        viewer_core::ScriptAnswer::Unanswerable => pdf_script::Answer::Unanswerable,
     }
 }
 
@@ -1777,15 +1867,29 @@ impl viewer_core::ScriptRunners for Workers {
 /// once per key.
 #[derive(Debug)]
 struct Warning {
-    /// The runner that runs it.
-    worker: pdf_script_worker::ScriptWorker,
+    /// The runner that runs it, shared with the desk its questions wait on.
+    worker: std::sync::Arc<pdf_script_worker::ScriptWorker>,
 }
 
 impl pdf_model::view::ScriptRunner for Warning {
     fn run(&self, event: &pdf_model::view::ScriptEvent<'_>) -> pdf_model::view::ScriptResult {
         let mut result = self.worker.run(event);
-        result.report.push(ran(&result));
+        // A run held on a person's answer did nothing yet, so there is nothing to say it made;
+        // what it makes arrives through `take_resumed`, and is said there (ADR 1628).
+        if !self.worker.waiting() {
+            result.report.push(ran(&result));
+        }
         result
+    }
+
+    fn waiting(&self) -> bool {
+        self.worker.waiting()
+    }
+
+    fn take_resumed(&self) -> Option<pdf_model::view::Resumed> {
+        let mut resumed = self.worker.take_resumed()?;
+        resumed.result.report.push(ran(&resumed.result));
+        Some(resumed)
     }
 }
 

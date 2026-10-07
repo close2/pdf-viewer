@@ -3565,6 +3565,24 @@ pub struct QuestionCard {
     reasons: String,
     /// What this reader set, and what the two answers do.
     choice: String,
+    /// What a script asks, where the card holds a script's question rather than *ask*'s (ADR
+    /// 1628): the title naming the document, the keys that answer it, and the entry an
+    /// `app.response` is typed into.
+    script: Option<ScriptAsked>,
+}
+
+/// A script's question as [`QuestionCard`] holds it.
+#[derive(Debug, Clone, Default)]
+struct ScriptAsked {
+    /// [`viewer_host::script_asks::title`]'s line: which document asks.
+    ///
+    /// [`viewer_host::script_asks::title`]: https://docs.rs/viewer-host
+    title: String,
+    /// The line naming each key and the answer it gives.
+    keys: String,
+    /// The entry, where the question is answered by typing: what has been typed, and whether it
+    /// is echoed as bullets.
+    entry: Option<(String, bool)>,
 }
 
 impl QuestionCard {
@@ -3580,11 +3598,69 @@ impl QuestionCard {
         self.choice.clone_from(&words.choice);
     }
 
+    /// Puts a script's question up: `app.alert`'s message with the keys for its buttons, or
+    /// `app.response`'s question with an entry holding `entry`'s default (ADR 1628).
+    ///
+    /// The words are [`viewer_host::script_asks`]'s, as the two native windows' are.
+    ///
+    /// [`viewer_host::script_asks`]: https://docs.rs/viewer-host
+    pub fn ask_script(
+        &mut self,
+        title: &str,
+        text: &str,
+        label: Option<&str>,
+        keys: &str,
+        entry: Option<(&str, bool)>,
+    ) {
+        self.shown = true;
+        text.clone_into(&mut self.reasons);
+        label.unwrap_or_default().clone_into(&mut self.choice);
+        self.script = Some(ScriptAsked {
+            title: title.to_owned(),
+            keys: keys.to_owned(),
+            entry: entry.map(|(default, password)| (default.to_owned(), password)),
+        });
+    }
+
+    /// Adds what a key typed into a script's entry. Answers whether the card has one.
+    pub fn type_into(&mut self, text: &str) -> bool {
+        match self.entry() {
+            Some(typed) => {
+                typed.push_str(text);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Takes the last character back out of a script's entry. Answers whether one was there.
+    pub fn backspace(&mut self) -> bool {
+        self.entry().is_some_and(|typed| typed.pop().is_some())
+    }
+
+    /// What a script's entry holds, where the card has one.
+    #[must_use]
+    pub fn typed(&self) -> Option<&str> {
+        self.script
+            .as_ref()
+            .and_then(|asked| asked.entry.as_ref())
+            .map(|(typed, _)| typed.as_str())
+    }
+
+    /// The entry's text, to be typed into.
+    fn entry(&mut self) -> Option<&mut String> {
+        self.script
+            .as_mut()
+            .and_then(|asked| asked.entry.as_mut())
+            .map(|(typed, _)| typed)
+    }
+
     /// Takes the card down, whatever the person answered.
     pub fn answered(&mut self) {
         self.shown = false;
         self.reasons = String::new();
         self.choice = String::new();
+        self.script = None;
     }
 
     /// The card, in device pixels of the window.
@@ -3604,26 +3680,47 @@ impl QuestionCard {
         let card_wide = RESTRICTION_WIDTH * scale;
         let inner = (card_wide - pad * 2.0).max(0.0);
         let blank = || pdf_font::shaping::Label::new("");
-        let mut lines: Vec<(pdf_font::shaping::Label, bool)> =
+        let mut lines: Vec<(pdf_font::shaping::Label, bool)> = Vec::new();
+        if let Some(asked) = &self.script {
+            lines.extend(
+                wrap(chrome, &asked.title, size, inner)
+                    .into_iter()
+                    .map(|line| (line, true)),
+            );
+            lines.push((blank(), true));
+        }
+        lines.extend(
             wrap(chrome, &self.reasons, size, inner)
                 .into_iter()
-                .map(|line| (line, false))
-                .collect();
+                .map(|line| (line, false)),
+        );
         lines.push((blank(), true));
         lines.extend(
             wrap(chrome, &self.choice, size, inner)
                 .into_iter()
                 .map(|line| (line, true)),
         );
+        // A script's entry is a line of its own, with a caret after what is typed; a password's
+        // is bullets, one per character, as the password card's is.
+        if let Some((typed, password)) = self.script.as_ref().and_then(|asked| asked.entry.as_ref())
+        {
+            let shown: String = if *password {
+                std::iter::repeat_n(PASSWORD_ECHO, typed.chars().count()).collect()
+            } else {
+                typed.clone()
+            };
+            lines.push((pdf_font::shaping::Label::new(&format!("> {shown}|")), false));
+        }
         lines.push((blank(), true));
-        lines.push((
-            pdf_font::shaping::Label::new(&format!(
+        let keys = match &self.script {
+            Some(asked) => asked.keys.clone(),
+            None => format!(
                 "Enter — {}   ·   Escape — {}",
                 viewer_host::restriction::GO_AHEAD,
                 viewer_host::restriction::DO_NOT
-            )),
-            true,
-        ));
+            ),
+        };
+        lines.push((pdf_font::shaping::Label::new(&keys), true));
         #[expect(
             clippy::cast_precision_loss,
             reason = "a line count and a window's extent, both thousands at most"

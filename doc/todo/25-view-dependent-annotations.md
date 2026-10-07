@@ -1,8 +1,7 @@
 # Annotations and events that depend on the view
 
-Status: **done.** `NoZoom` and `NoRotate` since the two-hundred-and-seventeenth session (ADR
-0168), all ten of Table 197's events raised, and §12.5.6.22's `/FixedPrint` applied in the
-nine-hundred-and-forty-second (ADR 0934). Every item this road was opened for is carried out;
+Status: **done.** `NoZoom` and `NoRotate` applied (ADR 0168), all ten of Table 197's events
+raised, and §12.5.6.22's `/FixedPrint` applied (ADR 0934). Every item this road was opened for is carried out;
 what is left of the subject is RFC 0004's printing half, which is that RFC's.
 Cited by: comments in `crates/pdf-model` and `crates/viewer-core` — the reason the file is kept whole rather than deleted (ADR 1416).
 Priority: 25
@@ -13,9 +12,8 @@ Code: `crates/pdf-model/src/annotation.rs`, `crates/viewer-core/src/interact.rs`
 
 ## Table 197's ten trigger events — **all ten are raised**
 
-`/E`, `/X`, `/D` and `/U` are raised by the pointer since session 174; `/PO`, `/PC`, `/PV` and
-`/PI` since the two-hundred-and-fourth, together with both of Table 198's (ADR 0164); and `/Fo`
-and `/Bl` since the two-hundred-and-fifty-seventh.
+`/E`, `/X`, `/D` and `/U` are raised by the pointer; `/PO`, `/PC`, `/PV` and `/PI` are raised
+too, together with both of Table 198's (ADR 0164); and so are `/Fo` and `/Bl`.
 
 **The last two were recorded here as wanting "keyboard focus, which `viewer-core` does not have —
 there is no focus model in `Command` at all, and adding one is a vocabulary change rather than a
@@ -38,7 +36,7 @@ page may be visible, depending on the page layout", so in this layout the two co
 derivation. Read a blocker that names what the *program* lacks with suspicion; that is
 `doc/todo/01`'s third sweep and this is its second catch in three sessions.
 
-## `NoZoom` and `NoRotate` — **done in the two-hundred-and-seventeenth session** (ADR 0168)
+## `NoZoom` and `NoRotate` — **done** (ADR 0168)
 
 Both are applied. What this file said — that they "make an appearance's size or orientation
 depend on the *view*, which a resolution-independent display list cannot express" — was a reason
@@ -57,19 +55,16 @@ being popups this tree draws nothing for. **No corpus document has a `NoRotate` 
 tree draws on a page with a non-zero `/Rotate`**, so that half is checked by a hand-built fixture
 whose numbers are one composition of two matrices.
 
-**And neither flag reaches §12.5.6.10's four text-markup subtypes since the
-two-hundred-and-thirty-sixth session** (ADR 0172), which is a choice under a conflict rather than
+**And neither flag reaches §12.5.6.10's four text-markup subtypes** (ADR 0172), which is a choice under a conflict rather than
 a derivation: §12.5.3's "shall always maintain the same fixed size on the screen" and
 §12.5.6.10's "shall appear ... in the text of a document" cannot both hold at a magnification
 other than 1, and the standard states no precedence. Counted first: 511 text markup annotations
 across 34 documents, 211 of them carrying `NoZoom`, and all 211 are strike-outs in
 `ISO_32000-2_sponsored_EC3.pdf` at one flag value.
 
-## `/FixedPrint` — **done in the nine-hundred-and-forty-second session** (ADR 0934)
+## `/FixedPrint` — **done** (ADR 0934)
 
-**This section said the entry "waits on a printing path rather than on a display one" and that was
-wrong, found in the nine-hundred-and-thirty-third session by reading §12.5.6.22 for a different
-question** (ADR 0906). The clause introduces the entry's effect with a `shall` on *rendering*:
+**The entry is a display question, not one that waits on a printing path** (ADR 0906). The clause introduces the entry's effect with a `shall` on *rendering*:
 
 > When rendering a watermark annotation with a FixedPrint entry, the following behaviour shall
 > occur
@@ -84,7 +79,7 @@ relative to the dimensions specified by the page's MediaBox entry". So the media
 screen needs are stated by the standard, not owed to a printer. Table 167's `Print` flag is a
 separate question and stays where it was.
 
-**The correction was the whole of the work.** `annotation::fixed_print` computes the transformed
+**Reading the clause was the whole of the work.** `annotation::fixed_print` computes the transformed
 annotation rectangle and `annotation::decided` hands it to `placement` in place of `/Rect`; nothing
 else moved, because the substitution the clause states is an *argument* to §12.5.5's algorithm
 rather than a second placement mechanism. Of the three things this file said a round would have to

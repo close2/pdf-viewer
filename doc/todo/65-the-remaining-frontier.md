@@ -190,25 +190,23 @@ document takes.
 The feature draws; the residue is a case the first build did not reach. **What would unblock them:**
 a normal round extending the existing code.
 
-**One build, five rows: rich text formatting** (ADR 1623). A rich text string's characters are
-laid out or shown everywhere the standard names one, and its formatting — the faces, sizes, colours
-and alignment its XHTML markup and a `/DS` style string state — is reported rather than applied.
-`CLAUDE.md`'s XFA exclusion does not reach it (ADR 1197), and the text that states the formatting is
-held: XFA 3.3 at `/home/AI/specs/XFA-3_3.pdf` (SHA-256 `a3344e7e…a01e`), the copy the PDF
-Association hosts among ISO 32000-2's normative references, whose chapter 27 is the Rich Text
-Reference and whose preface permits software that displays content in it; it is cited by section,
-never quoted, and it owes a section in `doc/third-party-data.md` before a round builds on it. §14.3.1
-and Annex L were in this bucket, and are `implemented` (ADRs 1473, 1474).
+**One build, five rows: rich text formatting** (ADRs 1623, 1634, 1635). A rich text string is laid
+out in the formatting it states: `pdf_model::rich_text` reads the XHTML subset and the CSS2 and XFA
+properties XFA 3.3's chapter 27 names, beneath a `/DS`, and sets each run in its own face, size,
+colour, alignment and spacing, list tags included; a changed rich value regenerates the whole
+appearance, and a save writes `/RV` beside `/V`. XFA 3.3 is held at `/home/AI/specs/XFA-3_3.pdf`
+(`doc/third-party-data.md`), cited by section, never quoted. What is left, row by row:
 
-- §12.7.4.3 — a rich text field's formatting, reported rather than applied, the characters laid out
-  (ADRs 1122, 1197). A `/DA` whose `Tm` has no inverse is the clause carried out and says so
-  (`doc/todo/22`).
-- §12.7.5.3 — Table 231 bit 26's formatting, the same build seen from the field's own table
-  (ADR 1240).
-- §12.7.8.3.2 — Table 249's `/RV`, not imported because the formatting it carries is not applied;
-  it crosses once §12.7.4.3's does.
-- §12.5.6.6 — Table 177's `/RC` and `/DS` formatting, reported by `appearance::unapplied_default_style`.
-- §12.5.6.2 — Table 172's `/RC`, whose characters the popup shows and whose formatting it does not.
+- §12.7.4.3 — three constructions take the one-style layout: a comb field, a value holding a
+  right-to-left run (UAX #9's order is the one-style layout's, ADR 1413), and a host's caret, point
+  and range questions; and `font-stretch`, `kerning-mode:pair`, tab stops, following an `<a href>`,
+  `xfa:embed` and the algorithmic list types are reported as `Owed::RichTextUnapplied`.
+- §12.7.5.3 — Table 231 bit 26, the same residue seen from the field's own table.
+- §12.7.8.3.2 — Table 249's `/RV`: the import does not carry it beside the value yet, so an imported
+  value is drawn in the field's `/DS`; `ViewState::import` and `FieldValue::Imported` are the build.
+- §12.5.6.6 — Table 177's `/RC` and `/DS`, drawn; §12.7.4.3's residue is this note's too.
+- §12.5.6.2 — Table 172's `/RC` in the popup window: the window is a host's to draw, so `popup::Popup`
+  carrying the formatted runs and the three windows drawing them is what is owed.
 
 - **Beside this bucket and not in it** — §12.5.6.23 is `departed` on two refusals with their cost
   recorded, a calculator function serving region-only colours (ADR 1363) and a `JPXDecode` component
@@ -270,9 +268,6 @@ A normal round can advance or close each of these today; there is no missing sur
 package, no cross-round architecture. Membership is re-derived from the ledger rather than carried: a
 row is in this bucket when its note names none of those three.
 
-- §7.10.2 — Table 39's `/Order 3`, interpolated linearly. The clause names a cubic spline and
-  withholds which, so the build is a cubic spline at a choice written down, the clause's own
-  `/Size`-under-4 sentence kept, and a census over the crawl first to rank it (ADRs 0098, 1623).
 - §12.10.2 — a geospatial viewport's **registration in degrees**. Everything the file states
   is read, a person can trace a path in one (ADR 1191) and reads a position in decimal degrees
   through the registration's affine map (ADR 1593), and the inverse projection is built on
@@ -283,6 +278,9 @@ row is in this bucket when its note names none of those three.
   `doc/questions/Q271` is answered; and the forward projection beside each inverse, which serves those
   maps under either answer and is a normal round's build. A `/DCS` on another datum stays outside
   A171's scope.
+
+§7.10.2 is `implemented`: Table 39's `/Order 3` is the not-a-knot cubic spline, the choice ADR 1636
+writes down against the clause's own four-sample threshold, and §7.10 settles with it.
 
 §13.4 was here, and is `departed`: Table 306's stream `/Poster` is drawn in `/Rect` at a placement
 this program chose, and the playing — the boolean form with it — is the one withholding, on the
@@ -305,7 +303,7 @@ exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any
 "Aggregate of the rows below" and the reason is the owing row's. They are not independently actionable
 — do not brief a round to *take* one; they flip when the last binding row flips.
 
-§7.4, §7.6, §7.6.5, §7.10, §12.5, §12.5.6, §12.7, §12.7.4, §12.7.5, §12.7.8, §12.7.8.3, §12.8, §12.8.3,
+§7.4, §7.6, §7.6.5, §12.5, §12.5.6, §12.7, §12.7.4, §12.7.5, §12.7.8, §12.7.8.3, §12.8, §12.8.3,
 §12.8.3.4, §12.10.
 
 

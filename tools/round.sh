@@ -21,6 +21,7 @@
 #   tools/round.sh                 # the session, the every-round reading list, the checks
 #   tools/round.sh pixels          # ... and what a round that changes what gets drawn opens
 #   tools/round.sh --list          # the kinds of round it knows
+#   tools/round.sh --lines [kind]  # how many lines each list is, which is what a review measures
 #
 # Exit status is 0 when every check passed and 1 when one did not, so a round may trust a zero.
 
@@ -46,73 +47,128 @@ pass() { printf '  ✓ %s\n' "$1"; }
 #
 # The habits are named the same way, one file per kind of work rather than doc/habits.md plus the
 # title of a section inside it, which is what this script could say before ADR 0983 split that file.
-kinds="pixels oracle parsers loop instruments clause measure host dependency docs"
+kinds="pixels oracle parsers loop instruments clause measure host script writer archive fuzz dependency docs"
 
+# Each kind's list is SHORT on purpose: the every-round list below is what every round reads, and
+# a kind adds the two or three files that kind of work cannot do without — its trap group, the
+# habit file for its method, and the one document that states what it is changing. Everything
+# else is one hop away through doc/HANDOVER.md, which is the index and not a reading list
+# (ADR 1639). `tools/round.sh --lines [kind]` prints how long each list is, which is the figure
+# doc/reviews/1401 keeps an eye on.
 kind_reading() {
     case $1 in
     pixels)
         printf 'doc/traps/pixels-and-rasterisers.md      the group for anything that can move a pixel\n'
-        printf 'doc/traps/oracle-and-references.md       because the oracle judges what you drew\n'
-        printf 'doc/state-of-play.md                     what already draws\n' ;;
+        printf 'doc/habits/judging-against-other-implementations.md  a differing page is read against the clause, not a reference\n' ;;
     oracle)
         printf 'doc/traps/oracle-and-references.md       the group for a verdict, a reference or a tolerance\n'
-        printf 'doc/oracle-and-corpus.md                 the instrument itself\n'
         printf 'doc/habits/judging-against-other-implementations.md  what an agreement is evidence of\n'
-        printf 'doc/todo/00-ambiguous-bucket.md          the bucket and step 7\n' ;;
+        printf 'doc/oracle-and-corpus.md                 the instrument itself; doc/todo/00 for the bucket and step 7\n' ;;
     parsers)
         printf 'doc/traps/parsers-and-streams.md         the group for a parser, a filter, a font or a codec\n'
-        printf 'doc/traps/instruments-and-reports.md     trap 11, before adding a report\n'
-        printf 'doc/verify.md                            which fuzz target covers what you touched\n' ;;
+        printf 'doc/verify.md                            the fuzz block: which target covers what you touched\n' ;;
     loop)
         printf 'doc/traps/the-interactive-loop.md        the group for a press, a space or a toolkit loop\n'
-        printf 'doc/ui-boundary.md                       the boundary, and the test a message must pass\n'
-        printf 'doc/environment.md                       the Xvfb recipe — the only way to drive the loop\n' ;;
+        printf 'doc/ui-boundary.md                       the boundary, and the test a message must pass\n' ;;
     instruments)
         printf 'doc/traps/instruments-and-reports.md     the group for a gate, a number or a report\n'
         printf 'doc/habits/tests-gates-and-reports.md     what discriminates, and what a ratchet says\n' ;;
     clause)
         printf 'doc/habits/reading-the-specification.md   modal verbs, silences, and what doc/md/ is\n'
         printf 'doc/habits/the-ledger-and-claims-about-this-tree.md  how a row or a reason goes stale\n'
-        printf 'doc/ledger-and-claims.md                 where a false row hides\n'
-        printf 'doc/errata-read.md                       what an erratum has moved\n'
-        printf 'doc/todo/01-ledger-partial-rows.md       the sweeps, as commands\n' ;;
+        printf 'doc/todo/01-ledger-partial-rows.md       the sweeps, as commands; doc/todo/65 for the frontier map a status change edits\n' ;;
     measure)
         printf 'doc/habits/measuring.md                  A/B in one sitting, and which number to quote\n'
-        printf 'doc/performance.md                       the timeline and what is already known\n'
         printf 'doc/traps/instruments-and-reports.md     what a gate is about to lie to you about\n'
-        printf 'doc/todo/02-every-round.md               section 5 — a measurement builds its own release binary first\n' ;;
+        printf 'doc/performance.md                       section 3e: the frame table and its gate, turn_path\n' ;;
     host)
         printf 'doc/ui-boundary.md                       Command/Event/Query/Answer, and the freeze\n'
         printf 'doc/traps/the-interactive-loop.md        the group for a press, a space or a toolkit loop\n'
-        printf 'doc/todo/30-a-native-host.md             what the hosts still owe\n' ;;
+        printf 'doc/todo/30-a-native-host.md             what the hosts still owe; tools/drive-windows.sh is the last thing you run\n' ;;
+    script)
+        printf 'doc/rfc/0008-a-script-is-a-document-acting-on-its-reader.md  accepted (A193): built in its section 11 order\n'
+        printf 'doc/traps/instruments-and-reports.md     traps 118 and 121: a confined Boa context, a column that changes what it walks\n'
+        printf 'doc/todo/56-a-script-engine-that-is-memory-safe.md  the engine and its ceilings\n' ;;
+    writer)
+        printf 'doc/todo/57-the-transform-suite.md       the suite, Annex F among it; doc/rfc/0002 for the design\n'
+        printf 'doc/traps/parsers-and-streams.md         traps 47, 89 and 90: page lists, a writer that mirrors a reader\n' ;;
+    archive)
+        printf 'doc/rfc/0006-pdf-a-validation-and-conversion.md  the design; doc/rfc/0007 for a refusal as a question\n'
+        printf 'doc/pdf-a-mitigations.md                 every refusal and its remedy; doc/todo/66 for what this version carries out\n'
+        printf 'doc/third-party-data.md                  ISO 19005 is cited by section and paraphrased, never quoted\n' ;;
+    fuzz)
+        printf 'doc/verify.md                            the fuzz block: tools/fuzz.sh, fuzz/seeds.sh check, -s none behind the lock\n'
+        printf 'doc/traps/instruments-and-reports.md     traps 107, 111 and 112: a stale seed corpus, cargo fuzz run, a sanitiser build under a bound\n' ;;
     dependency)
         printf 'doc/stack.md                             the stack, and why rustybuzz is not in it\n'
-        printf 'doc/third-party-data.md                  what a datum has to be before it is trusted\n'
-        printf 'doc/PLAN.md                              §1\n' ;;
+        printf 'doc/third-party-data.md                  what a datum has to be before it is trusted\n' ;;
     docs)
         printf 'doc/HANDOVER.md                          the index this script is the companion to\n'
-        printf 'CLAUDE.md                                the rule about what may be written down\n' ;;
+        printf 'doc/habits/the-ledger-and-claims-about-this-tree.md  how a claim about this tree goes stale\n' ;;
     *) return 1 ;;
     esac
 }
 
 kind_gates() {
     case $1 in
-    pixels)      printf 'everything — a change that can move a pixel runs the whole of §2\n' ;;
+    pixels)      printf 'everything of tier 2 — a change that can move a pixel runs the whole of section 2, and looks at a page\n' ;;
     oracle)      printf 'the core, the oracle gate and the corpus gate; everything if the change is in pdf-model\n' ;;
-    parsers)     printf 'everything — pdf-syntax, pdf-font and pdf-model are under every gate\n' ;;
+    parsers)     printf 'everything of tier 2 — pdf-syntax, pdf-font and pdf-model are under every gate\n' ;;
     loop)        printf 'the core, selection_census and accessibility_census\n' ;;
     instruments) printf 'the core, plus whichever gate the instrument is\n' ;;
     clause)      printf 'the core and cargo test -p conformance; everything if code changed\n' ;;
     measure)     printf 'the core — and a --release build of what is measured first, always, because a stale binary measures the past\n' ;;
     host)        printf 'the core, which builds and tests every host, and a drive under Xvfb with more than one document\n' ;;
+    script)      printf 'the core; --features engine --test script_corpus behind the lock, and -p pdf-model --test script_corpus where the view state is reached\n' ;;
+    writer)      printf 'the core and -p pdf-transform --test gate; the writer walks are the merge'"'"'s unless the change is what they assert\n' ;;
+    archive)     printf 'the core; -p pdf-archive --test corpus and -p pdf-transform --test archive_corpus behind the lock\n' ;;
+    fuzz)        printf 'the core and cargo test -p conformance --test fuzz_workspace; the campaign itself behind the lock\n' ;;
     dependency)  printf 'everything, plus cargo deny (doc/verify.md)\n' ;;
     docs)        printf 'the core and cargo test -p conformance, plus --bin quotations and --bin pointers\n' ;;
     esac
 }
 
+# The every-round list, as `path  what it is`; a `#section` suffix names the one section a round
+# reads of a longer file, and `--lines` counts that section alone.
+every_round_reading() {
+    printf 'CLAUDE.md                                the five principles, and what *done* means\n'
+    printf 'doc/todo/02-every-round.md#0             section 0: the round on one page — the contract, tier 1, the record\n'
+    printf 'doc/environment.md#rules                 the rule block that opens it: one line per shared-machine rule\n'
+    printf 'doc/traps/every-round.md                 the ten traps that carry four-fifths of the citations\n'
+    printf 'doc/habits/every-round.md                the ten habits the records show rounds paying for\n'
+}
+
+# How long a reading list is, in lines: `wc -l` per file, and for a `#section` entry the lines
+# from that section'"'"'s heading to the next heading of the same level — a fact on the disk, which
+# is the one kind of number this script prints.
+lines_of() {
+    local entry path section
+    while read -r entry _; do
+        path=${entry%%#*}; section=${entry#*#}
+        if [ "$section" = "$entry" ]; then
+            printf '  %6s  %s\n' "$(wc -l < "$path")" "$path"
+        else
+            case $section in
+            0) printf '  %6s  %s (section 0)\n' "$(sed -n '/^## 0\./,/^## 1\./p' "$path" | wc -l)" "$path" ;;
+            rules) printf '  %6s  %s (the rule block)\n' "$(sed -n '/^## The rules/,/^## Working/p' "$path" | wc -l)" "$path" ;;
+            esac
+        fi
+    done
+}
+
 case ${1-} in
 --list) printf '%s\n' $kinds; exit 0 ;;
+--lines)
+    heading "lines a round reads before it writes anything"
+    printf '  every round:\n'; every_round_reading | lines_of
+    if [ -n "${2-}" ]; then
+        if kind_reading "$2" >/dev/null 2>&1; then
+            printf '  and as a "%s" round:\n' "$2"; kind_reading "$2" | lines_of
+        else
+            printf '\nno such kind: %s (tools/round.sh --list)\n' "$2" >&2; exit 1
+        fi
+    fi
+    exit 0 ;;
 esac
 kind=${1-}
 
@@ -166,23 +222,14 @@ esac
 
 heading "the round"
 printf '  session %s, after %s (from %s)\n' "$session" "$last" "$from"
-if [ $((session % 5)) -eq 0 ]; then
-    printf '  **a fifth round**: doc/todo/02 §2 runs whole\n'
-else
-    printf '  not a fifth round: §2 by the change→gate map\n'
-    printf '  (%s more rounds until the next full sequence)\n' "$((5 - session % 5))"
-fi
-printf '  and whatever the change: tier 1 every round, tier 2 by the map, tier 3 at the merge (ADR 1036)\n'
+printf '  tier 1 every round, tier 2 by doc/todo/02 section 2'"'"'s map, tier 3 at the merge (ADR 1036);\n'
+printf '  the merge runs all three tiers once per batch, so no round of a batch owes the whole sequence (ADR 1638)\n'
 
 # ---------------------------------------------------------------- the reading
 
-heading "read, whatever this round is"
-printf '  CLAUDE.md                                the five principles, and what *done* means\n'
-printf '  doc/todo/README.md                       what is owed, one line per item\n'
-printf '  doc/todo/02-every-round.md               the gates, the sweeps, the binaries, the commit\n'
-printf '  doc/environment.md                       the machine, the account, the display, the build directory\n'
-printf '  doc/HANDOVER.md                          the index: which file this round opens\n'
-printf '  doc/traps/README.md                      one line per trap: the position that springs it, and the rule\n'
+heading "read, whatever this round is (tools/round.sh --lines counts it)"
+every_round_reading | sed 's/^/  /'
+printf '  doc/HANDOVER.md is the index to open for a file this list did not give you, not a reading\n'
 
 if [ -n "$kind" ]; then
     if kind_reading "$kind" >/dev/null 2>&1; then

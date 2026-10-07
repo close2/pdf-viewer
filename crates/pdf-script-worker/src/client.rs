@@ -33,8 +33,16 @@
 //! key. So after [`MAX_DEATHS`] deaths in one document no worker is started again, and every later
 //! trigger is answered with the sentence saying so — RFC 0008 section 6.8's row for a crashed
 //! engine: scripts stop running for the document, and every field is as it was.
+//!
+//! # A question is held in the worker, never on a host's thread
+//!
+//! A script's `app.alert` or `app.response` comes back from the worker as a question in place of
+//! the run's outcome, the script held mid-call. The run answers at once, having changed nothing,
+//! and later triggers of the document queue behind it; [`ScriptWorker::take_question`] hands the
+//! question to the window, [`ScriptWorker::answer`] sends the person's answer and runs the queue,
+//! and each finished run waits for `ScriptRunner::take_resumed` (ADRs 1627, 1628).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -42,11 +50,13 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use confined_transport::{Canceller, Host, TransportError};
-use pdf_model::view::{FieldState, ScriptEvent, ScriptResult, ScriptRunner, ScriptSite};
-use pdf_script::{Ending, Outcome, Request};
+use pdf_model::view::{FieldState, Resumed, ScriptEvent, ScriptResult, ScriptRunner, ScriptSite};
+use pdf_script::wire::encode_answer;
+use pdf_script::{Answer, Ending, Outcome, Question, Request};
 
 use crate::wire::{
-    FRAME_RUN, MAGIC, MAX_RUN_BYTES, MAX_SCRIPT_BYTES, Reply, Run, decode_reply, encode_run,
+    FRAME_ANSWER, FRAME_RUN, MAGIC, MAX_RUN_BYTES, MAX_SCRIPT_BYTES, Reply, Run, decode_reply,
+    encode_run,
 };
 
 /// How long one trigger's run may take before its worker is killed.
@@ -65,6 +75,30 @@ pub const DEADLINE: Duration = Duration::from_millis(250);
 /// is one whose scripts kill their worker as a matter of course, and starting a fifth costs the
 /// reader a process per keystroke for nothing.
 pub const MAX_DEATHS: usize = 4;
+
+/// How long a script's question waits on the person before the runner answers it itself, with the
+/// answer a closed dialogue gives (ADR 1627).
+///
+/// A question is a person's to answer and has no deadline a script could meet; this bounds the case
+/// where nobody does — a window that lost its card, a person who walked away — so that a document's
+/// scripts are not held for ever behind one dialogue. Two minutes is longer than any person takes
+/// over a dialogue of a sentence or two, and the bound is applied at the runner's next call after
+/// it passes, since a runner keeps no thread of its own.
+pub const ANSWER_WAIT: Duration = Duration::from_mins(2);
+
+/// Most triggers a runner queues behind a script that waits on a person.
+///
+/// A person with a question in front of them is not typing into the form, so what queues is the
+/// rest of a sequence already under way — the open's library, a commit's calculations — and a form
+/// with more than this in one sequence is one whose further triggers are named as not run.
+const MAX_QUEUED: usize = 256;
+
+/// Longest the triggers queued behind an answered question run in one call, after which the rest
+/// wait for the runner's next call.
+///
+/// They run on the thread that handed the answer over, which is a window's; `pdf_model::view`'s
+/// one second for a sequence of scripts is the same bound for the same reason.
+const DRAIN_TIME: Duration = Duration::from_secs(1);
 
 /// Most document-level scripts a runner keeps to run again in a worker started after a loss.
 ///
@@ -152,6 +186,8 @@ pub struct ScriptWorker {
     program: Option<PathBuf>,
     /// How long a run may take.
     deadline: Duration,
+    /// How long a question waits on the person before the runner answers it.
+    answer_wait: Duration,
     /// The worker and what it holds.
     state: Mutex<State>,
 }
@@ -184,6 +220,52 @@ struct State {
     pending_spawn: Option<Duration>,
     /// Set once no worker will be started again, with the sentence saying why.
     stopped: Option<String>,
+    /// The script held on a person's answer, where one is.
+    waiting: Option<Waiting>,
+    /// The triggers handed over while a script waits, in the order handed over.
+    queued: VecDeque<Queued>,
+    /// The runs that were held and have since finished, in the order they finished.
+    resumed: VecDeque<Resumed>,
+    /// Whether the last run handed back was held rather than finished.
+    holding: bool,
+    /// Set when a question's wait ran out and the runner answered it; taken by
+    /// [`ScriptWorker::question_withdrawn`].
+    withdrawn: bool,
+}
+
+/// A script held in its worker on a person's answer.
+#[derive(Debug)]
+struct Waiting {
+    /// What it asked.
+    question: Question,
+    /// Whether the host has taken the question to put it.
+    taken: bool,
+    /// When it asked.
+    since: Instant,
+    /// Where the script runs.
+    site: ScriptSite,
+    /// The event's field, or empty.
+    field: String,
+    /// The script, as a report names it.
+    subject: String,
+}
+
+/// A trigger handed over while a script waits, to run once it has finished.
+#[derive(Debug)]
+struct Queued {
+    /// The request, its script included.
+    request: Request,
+    /// The script, as a report names it.
+    subject: String,
+}
+
+/// What one exchange with a worker came back with.
+#[derive(Debug)]
+enum Exchanged {
+    /// The run finished.
+    Finished(Outcome),
+    /// The run's script asked a question and is held.
+    Asked(Question),
 }
 
 impl ScriptWorker {
@@ -194,6 +276,7 @@ impl ScriptWorker {
         Self {
             program: None,
             deadline: DEADLINE,
+            answer_wait: ANSWER_WAIT,
             state: Mutex::new(State::default()),
         }
     }
@@ -211,6 +294,13 @@ impl ScriptWorker {
     #[must_use]
     pub fn with_deadline(mut self, deadline: Duration) -> Self {
         self.deadline = deadline;
+        self
+    }
+
+    /// This runner with another wait for a question's answer than [`ANSWER_WAIT`].
+    #[must_use]
+    pub fn with_answer_wait(mut self, wait: Duration) -> Self {
+        self.answer_wait = wait;
         self
     }
 
@@ -266,6 +356,7 @@ impl ScriptWorker {
     /// Runs one event in the worker, starting one where none is running.
     fn run_event(&self, event: &ScriptEvent<'_>) -> Result<Outcome, Vec<String>> {
         let mut state = self.state();
+        state.holding = false;
         let subject = subject(event);
         for field in event.fields {
             state.fields.insert(field.name.clone(), field.clone());
@@ -290,6 +381,11 @@ impl ScriptWorker {
                  worker is handed",
                 event.script.len()
             )]);
+        }
+        self.expire(&mut state);
+        self.drain(&mut state);
+        if state.waiting.is_some() || !state.queued.is_empty() {
+            return Self::queue(&mut state, event, subject);
         }
 
         let mut report = Vec::new();
@@ -333,14 +429,243 @@ impl ScriptWorker {
             request.fields = state.fields.values().cloned().collect();
         }
         match self.exchange(&mut state, event.site, &subject, request, &mut report) {
-            Ok(mut outcome) => {
+            Ok(Exchanged::Finished(mut outcome)) => {
                 if !report.is_empty() {
                     report.append(&mut outcome.log);
                     outcome.log = report;
                 }
                 Ok(outcome)
             }
+            Ok(Exchanged::Asked(question)) => {
+                state.holding = true;
+                let mut outcome = Outcome::unchanged(Ending::Finished);
+                outcome.notes.push(format!(
+                    "{subject} asked {} and is held in its worker until the person answers; \
+                     what it does is applied then (ADR 1627)",
+                    question.summary()
+                ));
+                outcome.log = report;
+                state.waiting = Some(Waiting {
+                    question,
+                    taken: false,
+                    since: Instant::now(),
+                    site: event.site,
+                    field: event.field.to_owned(),
+                    subject,
+                });
+                Ok(outcome)
+            }
             Err(()) => Err(report),
+        }
+    }
+
+    /// Queues a trigger behind the script that waits, and answers that it is held.
+    fn queue(
+        state: &mut State,
+        event: &ScriptEvent<'_>,
+        subject: String,
+    ) -> Result<Outcome, Vec<String>> {
+        if state.queued.len() >= MAX_QUEUED {
+            return Err(vec![format!(
+                "{subject} is not run: a script of this document waits on the person's answer \
+                 and {MAX_QUEUED} triggers already wait behind it"
+            )]);
+        }
+        let mut request = Request::of(event, now(), 0);
+        request.fields = state.fields.values().cloned().collect();
+        state.holding = true;
+        let mut outcome = Outcome::unchanged(Ending::Finished);
+        outcome.notes.push(format!(
+            "{subject} waits behind a script of this document that asked the person a question, \
+             and runs in order once that is answered (ADR 1627)"
+        ));
+        state.queued.push_back(Queued { request, subject });
+        Ok(outcome)
+    }
+
+    /// The question a script of this document is waiting on, handed over once: `None` where none
+    /// waits, and where this one has been taken already (ADR 1628).
+    ///
+    /// What a host polls after every command, to put the question to the person on its own
+    /// thread; [`Self::answer`] is how the answer comes back. Triggers still queued behind an
+    /// answered question run here first, for at most [`DRAIN_TIME`].
+    pub fn take_question(&self) -> Option<Question> {
+        let mut state = self.state();
+        self.expire(&mut state);
+        // A queue a drain left part of runs on here, a host's poll after each command being the
+        // runner's next chance.
+        self.drain(&mut state);
+        let waiting = state.waiting.as_mut()?;
+        if waiting.taken {
+            return None;
+        }
+        waiting.taken = true;
+        Some(waiting.question.clone())
+    }
+
+    /// The person's answer to the question last taken: the held script resumes in its worker under
+    /// a fresh deadline per trigger, finishes, and the triggers queued behind it run in order; each
+    /// finished run waits for [`ScriptRunner::take_resumed`] (ADR 1627).
+    ///
+    /// Nothing waits where the question's wait has run out, or the worker was lost, and then the
+    /// answer is kept nowhere.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the answer is the host's to hand over, and a host hands over what the person gave"
+    )]
+    pub fn answer(&self, answer: Answer) {
+        let mut state = self.state();
+        if state.waiting.is_none() {
+            return;
+        }
+        self.resume(&mut state, &answer, None);
+    }
+
+    /// Whether a question this runner put has been withdrawn since last asked: its wait ran out
+    /// and the runner answered it as a closed dialogue answers, so a host showing it drops it.
+    /// True once per withdrawal.
+    pub fn question_withdrawn(&self) -> bool {
+        let mut state = self.state();
+        self.expire(&mut state);
+        std::mem::take(&mut state.withdrawn)
+    }
+
+    /// Answers a question that has waited past [`ANSWER_WAIT`] with its closed-dialogue answer.
+    fn expire(&self, state: &mut State) {
+        let expired = state
+            .waiting
+            .as_ref()
+            .is_some_and(|waiting| waiting.since.elapsed() > self.answer_wait);
+        if !expired {
+            return;
+        }
+        let Some(question) = state
+            .waiting
+            .as_ref()
+            .map(|waiting| waiting.question.clone())
+        else {
+            return;
+        };
+        state.withdrawn = true;
+        let note = format!(
+            "its question was not answered within {} ms, so the runner answered it as a closed \
+             dialogue answers (ADR 1627)",
+            self.answer_wait.as_millis()
+        );
+        self.resume(state, &question.dismissed(), Some(note));
+    }
+
+    /// Hands the held script its answer, keeps what it then did, and runs the queue behind it
+    /// until a run finishes asking another question or the queue is empty.
+    fn resume(&self, state: &mut State, answer: &Answer, note: Option<String>) {
+        let Some(waiting) = state.waiting.take() else {
+            return;
+        };
+        let mut report = Vec::new();
+        let finished = match self.send(
+            state,
+            waiting.site,
+            &waiting.subject,
+            FRAME_ANSWER,
+            &encode_answer(answer),
+            &mut report,
+        ) {
+            Ok(Reply::Outcome(outcome)) => Some(outcome),
+            Ok(Reply::Refused(sentence)) => {
+                report.push(format!("{} did not resume: {sentence}", waiting.subject));
+                None
+            }
+            Ok(Reply::Asked(_)) => {
+                report.push(format!(
+                    "{} asked a second question where its outcome was due, and was stopped",
+                    waiting.subject
+                ));
+                if let Some(host) = state.host.take() {
+                    host.canceller().cancel();
+                }
+                None
+            }
+            Err(()) => None,
+        };
+        let mut result = finished.map_or_else(
+            || ScriptResult {
+                rc: true,
+                value: None,
+                change: None,
+                edits: Vec::new(),
+                report: Vec::new(),
+            },
+            |outcome| outcome.result(),
+        );
+        if let Some(note) = note {
+            result.report.insert(0, note);
+        }
+        result.report.extend(report);
+        state.resumed.push_back(Resumed {
+            site: waiting.site,
+            field: waiting.field,
+            result,
+        });
+        self.drain(state);
+    }
+
+    /// Runs the queue in order until a run asks a question, the queue is empty, or
+    /// [`DRAIN_TIME`] has passed.
+    fn drain(&self, state: &mut State) {
+        let started = Instant::now();
+        while state.waiting.is_none() && started.elapsed() < DRAIN_TIME {
+            let Some(queued) = state.queued.pop_front() else {
+                break;
+            };
+            self.run_queued(state, queued);
+        }
+    }
+
+    /// Runs one trigger that waited in the queue, keeping what it did.
+    fn run_queued(&self, state: &mut State, queued: Queued) {
+        let site = queued.request.site;
+        let field = queued.request.field.clone();
+        let mut report = Vec::new();
+        let outcome = if state.host.is_some() {
+            self.exchange(state, site, &queued.subject, queued.request, &mut report)
+        } else {
+            report.push(format!(
+                "{} is not run: the script worker it waited for was lost",
+                queued.subject
+            ));
+            Err(())
+        };
+        match outcome {
+            Ok(Exchanged::Asked(question)) => {
+                state.waiting = Some(Waiting {
+                    question,
+                    taken: false,
+                    since: Instant::now(),
+                    site,
+                    field,
+                    subject: queued.subject,
+                });
+            }
+            Ok(Exchanged::Finished(outcome)) => {
+                let mut result = outcome.result();
+                result.report.extend(report);
+                state.resumed.push_back(Resumed {
+                    site,
+                    field,
+                    result,
+                });
+            }
+            Err(()) => state.resumed.push_back(Resumed {
+                site,
+                field,
+                result: ScriptResult {
+                    rc: true,
+                    value: None,
+                    change: None,
+                    edits: Vec::new(),
+                    report,
+                },
+            }),
         }
     }
 
@@ -363,6 +688,9 @@ impl ScriptWorker {
                 selection_start: 0,
                 selection_end: 0,
                 will_commit: false,
+                commit_key: 0,
+                field_full: false,
+                change_ex: String::new(),
                 source: String::new(),
             };
             request.fields = if state.told {
@@ -371,7 +699,29 @@ impl ScriptWorker {
                 state.fields.values().cloned().collect()
             };
             let subject = format!("the document-level script {label}");
-            match self.exchange(state, ScriptSite::Library, &subject, request, report) {
+            let exchanged =
+                match self.exchange(state, ScriptSite::Library, &subject, request, report) {
+                    // A library run again asked the person once already; its question is answered as a
+                    // closed dialogue answers rather than put twice.
+                    Ok(Exchanged::Asked(question)) => self
+                        .send(
+                            state,
+                            ScriptSite::Library,
+                            &subject,
+                            FRAME_ANSWER,
+                            &encode_answer(&question.dismissed()),
+                            report,
+                        )
+                        .map(|reply| match reply {
+                            Reply::Outcome(outcome) => outcome,
+                            _ => Outcome::unchanged(Ending::Declined(
+                                "it did not finish after its question".to_owned(),
+                            )),
+                        }),
+                    Ok(Exchanged::Finished(outcome)) => Ok(outcome),
+                    Err(()) => Err(()),
+                };
+            match exchanged {
                 Ok(outcome) if outcome.ending == Ending::Finished => {}
                 Ok(outcome) => report.push(format!(
                     "{subject}, run again in a new script worker, {}",
@@ -395,7 +745,7 @@ impl ScriptWorker {
         subject: &str,
         mut request: Request,
         report: &mut Vec<String>,
-    ) -> Result<Outcome, ()> {
+    ) -> Result<Exchanged, ()> {
         let text = std::mem::take(&mut request.script);
         let (new_script, index) = if let Some(index) = state.held.get(&text) {
             (None, *index)
@@ -426,16 +776,57 @@ impl ScriptWorker {
             return Err(());
         }
 
+        let started = Instant::now();
+        let reply = self.send(state, site, subject, FRAME_RUN, &bytes, report)?;
+        let spent = started.elapsed();
+        if let Some((index, text)) = run.new_script {
+            state.held_bytes = state.held_bytes.saturating_add(text.len());
+            state.held.insert(text, index);
+            state.next_index = state.next_index.saturating_add(1);
+        }
+        if told {
+            state.told = true;
+        }
+        if let Some(spawn) = state.pending_spawn.take() {
+            state.open_cost = Some(OpenCost {
+                spawn,
+                first_run: spent,
+            });
+        }
+        match reply {
+            Reply::Outcome(outcome) => Ok(Exchanged::Finished(outcome)),
+            Reply::Asked(question) => Ok(Exchanged::Asked(question)),
+            Reply::Refused(sentence) => {
+                report.push(format!("{subject} is not run: {sentence}"));
+                Err(())
+            }
+        }
+    }
+
+    /// Sends one frame to the running worker under the deadline and reads its reply; or records
+    /// the loss and answers `Err` with the sentences in `report`.
+    ///
+    /// **The deadline is the exchange's**: a run's ends when the worker answers it, with its
+    /// outcome or with a question, and the exchange that carries the answer to a question has a
+    /// deadline of its own, as long, from the moment the answer is sent. The time between, which is
+    /// a person reading, is no exchange's; the engine's own wall budget leaves it out the same way
+    /// (ADR 1627).
+    fn send(
+        &self,
+        state: &mut State,
+        site: ScriptSite,
+        subject: &str,
+        kind: u8,
+        bytes: &[u8],
+        report: &mut Vec<String>,
+    ) -> Result<Reply, ()> {
         let Some(host) = state.host.as_mut() else {
             return Err(());
         };
         let canceller = host.canceller();
-        let started = Instant::now();
         let exchanged = within(self.deadline, &canceller, || {
-            host.exchange(FRAME_RUN, &bytes, None)
+            host.exchange(kind, bytes, None)
         });
-        let spent = started.elapsed();
-
         let (answer, fired) = match exchanged {
             Ok(result) => result,
             Err(sentence) => {
@@ -463,8 +854,8 @@ impl ScriptWorker {
             // that arrived is still the run's.
             state.host = None;
         }
-        let reply = match reply {
-            Ok(reply) => reply,
+        match reply {
+            Ok(reply) => Ok(reply),
             Err(error) => {
                 if let Some(host) = state.host.take() {
                     host.canceller().cancel();
@@ -476,27 +867,6 @@ impl ScriptWorker {
                     Cause::Garbled(error.to_string()),
                     report,
                 );
-                return Err(());
-            }
-        };
-        if let Some((index, text)) = run.new_script {
-            state.held_bytes = state.held_bytes.saturating_add(text.len());
-            state.held.insert(text, index);
-            state.next_index = state.next_index.saturating_add(1);
-        }
-        if told {
-            state.told = true;
-        }
-        if let Some(spawn) = state.pending_spawn.take() {
-            state.open_cost = Some(OpenCost {
-                spawn,
-                first_run: spent,
-            });
-        }
-        match reply {
-            Reply::Outcome(outcome) => Ok(outcome),
-            Reply::Refused(sentence) => {
-                report.push(format!("{subject} is not run: {sentence}"));
                 Err(())
             }
         }
@@ -583,6 +953,16 @@ impl ScriptRunner for ScriptWorker {
                 report,
             },
         }
+    }
+
+    fn waiting(&self) -> bool {
+        self.state().holding
+    }
+
+    fn take_resumed(&self) -> Option<Resumed> {
+        let mut state = self.state();
+        self.expire(&mut state);
+        state.resumed.pop_front()
     }
 }
 

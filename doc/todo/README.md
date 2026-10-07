@@ -34,8 +34,8 @@ wrong since the first of the four (ADR 0983).
 done, and the ADRs that argued it go on citing `doc/todo/NN` — so writing a new file at that
 number makes every one of those citations resolve, silently, to an item about something else.
 `--bin pointers` sees it only as *findings disappearing*, which is the shape nobody reads as a
-regression. Grep `doc/` and `crates/` for the number before naming the file; the
-seven-hundred-and-ninety-sixth session took `17` and had to give it back (ADR 0730).
+regression. Grep `doc/` and `crates/` for the number before naming the file; one round took `17`
+and had to give it back (ADR 0730).
 
 **A number two live files share is the same defect without a deletion in front of it**, and it is
 worse: both files exist, so every pointer is *live* and `--bin pointers` cannot see it at all —
@@ -140,6 +140,7 @@ a reading nobody else holds is the one thing a deletion cannot give back (ADR 14
 | [67](67-an-interrupt-test-that-finishes-before-it-can-interrupt.md) | **An interrupt test that finishes before it can interrupt** — `viewer-confined`'s draw-interrupt test prices its slow draw at 27.6 s and this machine finishes it inside the 2 s bound, so tier 1 fails here nine runs in ten; a hole in ADR 0650's evidence, owed a measured fix rather than a re-tuned constant. |
 | [68](68-the-fuse-face-has-two-names.md) | **The FUSE face has two names** — the binary is `quorrafs`, its diagnostics and its mount name say `pdffs`; one deliberate rename owed. |
 | — | [`_scan-conversion.md`](_scan-conversion.md) — shared: §10.7.4, what this tree departs from and why |
+| — | [`_brief-template.md`](_brief-template.md) — shared: the fixed shape a batch's briefs are written from, a common part that points and a per-slot part that contracts (ADR 1638) |
 | — | [`_image-codecs-and-the-sandbox.md`](_image-codecs-and-the-sandbox.md) — shared: the three sandboxed codecs are already pure safe Rust, what the sandbox is really for, and what a subset would and would not buy |
 
 ### Done, and kept because something cites it

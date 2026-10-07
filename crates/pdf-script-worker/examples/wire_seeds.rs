@@ -39,6 +39,7 @@ fn field(name: &str, kind: FieldType, value: &str) -> FieldState {
         char_limit: Some(12),
         page: Some(0),
         rect: [10.0, 10.0, 210.0, 40.0],
+        captions: Default::default(),
     }
 }
 
@@ -72,6 +73,11 @@ fn request(site: ScriptSite, fields: &[FieldState], value: &str, change: &str) -
         fields,
         page: 0,
         pages: 3,
+        commit_key: None,
+        field_full: false,
+        change_ex: "",
+        dirty: false,
+        document: None,
     };
     Request::of(&event, 1_704_465_015_000, -3600)
 }
@@ -126,6 +132,49 @@ fn runs() -> Vec<(String, Vec<u8>)> {
     seeds
 }
 
+/// A worker's question, the reply that holds a script on a person's answer (ADR 1627).
+fn asked() -> (String, Vec<u8>) {
+    let (kind, payload) = encode_reply(&Reply::Asked(pdf_script::Question::Alert {
+        message: "Reset the form?".to_owned(),
+        icon: pdf_script::Icon::Question,
+        buttons: pdf_script::Buttons::YesNo,
+        title: Some("Form".to_owned()),
+    }));
+    let mut bytes = vec![kind];
+    bytes.extend_from_slice(&payload);
+    ("reply-asked".to_owned(), bytes)
+}
+
+/// An edit of each kind.
+fn edits() -> Vec<ScriptEdit> {
+    vec![
+        ScriptEdit::Value {
+            field: "Amount".to_owned(),
+            value: "4".to_owned(),
+        },
+        ScriptEdit::Property {
+            field: "Total".to_owned(),
+            property: Property::FillColor(Colour::Cmyk([0.0, 0.1, 0.2, 0.3])),
+        },
+        ScriptEdit::Property {
+            field: "Total".to_owned(),
+            property: Property::TextFlag(TextFlag::Comb, true),
+        },
+        ScriptEdit::Focus {
+            field: "Total".to_owned(),
+        },
+        ScriptEdit::Property {
+            field: "Send".to_owned(),
+            property: Property::Caption(pdf_model::view::Face::Rollover, "Send it".to_owned()),
+        },
+        ScriptEdit::Layer {
+            number: 12,
+            generation: 0,
+            on: false,
+        },
+    ]
+}
+
 /// A reply of every ending, with every refusal kind and an edit of each kind, and a refusal.
 fn replies() -> Vec<(String, Vec<u8>)> {
     let mut seeds = Vec::new();
@@ -147,23 +196,7 @@ fn replies() -> Vec<(String, Vec<u8>)> {
             kind: RefusalKind::Library("two arguments".to_owned()),
         },
     ];
-    let edits = vec![
-        ScriptEdit::Value {
-            field: "Amount".to_owned(),
-            value: "4".to_owned(),
-        },
-        ScriptEdit::Property {
-            field: "Total".to_owned(),
-            property: Property::FillColor(Colour::Cmyk([0.0, 0.1, 0.2, 0.3])),
-        },
-        ScriptEdit::Property {
-            field: "Total".to_owned(),
-            property: Property::TextFlag(TextFlag::Comb, true),
-        },
-        ScriptEdit::Focus {
-            field: "Total".to_owned(),
-        },
-    ];
+    let edits = edits();
     let endings = [
         ("finished", Ending::Finished),
         (
@@ -205,6 +238,7 @@ fn replies() -> Vec<(String, Vec<u8>)> {
             ending,
             refusals: refusals.clone(),
             log: vec!["one".to_owned(), "two".to_owned()],
+            notes: vec!["the script asked app.alert(\"Sure?\") and was cancelled".to_owned()],
         };
         let (kind, payload) = encode_reply(&Reply::Outcome(outcome));
         let mut bytes = vec![kind];
@@ -217,6 +251,7 @@ fn replies() -> Vec<(String, Vec<u8>)> {
     let mut bytes = vec![kind];
     bytes.extend_from_slice(&payload);
     seeds.push(("reply-refused".to_owned(), bytes));
+    seeds.push(asked());
     seeds
 }
 

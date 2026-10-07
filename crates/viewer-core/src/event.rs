@@ -249,6 +249,21 @@ pub enum Event {
         /// That script's first line that says anything, cut where a card can show it.
         first_line: String,
     },
+    /// A document's script asks the person something — Adobe's `app.alert` or `app.response`,
+    /// which RFC 0008 section 4.2 gives a host the way every other question here has one.
+    ///
+    /// The host puts the question on a dialogue whose title names the document, with the buttons
+    /// [`crate::AlertButtons::buttons`] lists or an entry holding the default, and sends
+    /// [`crate::Command::AnswerScript`]; a dialogue closed without a press answers
+    /// [`crate::ScriptAnswer::dismissed`]. A host with no dialogue answers
+    /// [`crate::ScriptAnswer::Unanswerable`] and says so — never silence, which would hold the
+    /// script until its wait ran out (ADR 1628).
+    ScriptAsking {
+        /// Which document's script asks.
+        document: DocumentId,
+        /// What it asks.
+        question: crate::ScriptQuestion,
+    },
     /// An operation the document restricts was performed, and this is what the document said —
     /// the answer of [`crate::RestrictionLevel::Warn`], and the *warn before the operation* level
     /// of `CLAUDE.md`'s four.

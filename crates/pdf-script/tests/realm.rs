@@ -37,6 +37,7 @@ fn field(name: &str, value: &str) -> FieldState {
         char_limit: None,
         page: Some(0),
         rect: [10.0, 10.0, 210.0, 40.0],
+        captions: Default::default(),
     }
 }
 
@@ -74,11 +75,16 @@ fn request(site: ScriptSite, field: &str, script: &str, fields: Vec<FieldState>)
             selection_start: 0,
             selection_end: 0,
             will_commit: false,
+            commit_key: 0,
+            field_full: false,
+            change_ex: String::new(),
             source: String::new(),
         },
         fields,
         page: 1,
         pages: 4,
+        dirty: false,
+        document: None,
         moment: 1_704_465_015_000,
         utc_offset_seconds: 0,
     }

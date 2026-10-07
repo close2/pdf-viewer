@@ -96,6 +96,10 @@ pub enum EventKind {
     /// document. A caller of this ABI supplies no runner, so its sessions are at the level `off`
     /// and the kind is named for a caller's `default` arm rather than sent (ADR 1616).
     AskingToRunScripts = 22,
+    /// [`viewer_core::Event::ScriptAsking`] — a script's `app.alert` or `app.response`. Sent to
+    /// no caller of this ABI for [`Self::AskingToRunScripts`]'s reason: its sessions run no
+    /// script (ADR 1628).
+    ScriptAsking = 23,
 }
 
 impl EventKind {
@@ -104,7 +108,7 @@ impl EventKind {
     /// **The number a C caller checks its header against**, which is the whole of what this ABI
     /// can offer in place of a build failure. It is written out rather than counted by a macro so
     /// that adding a variant is a line a person writes beside the variant, in the same commit.
-    pub const COUNT: u32 = 23;
+    pub const COUNT: u32 = 24;
 
     /// Which kind an event is.
     ///
@@ -137,6 +141,7 @@ impl EventKind {
             Event::Copied { .. } => Self::Copied,
             Event::Printing { .. } => Self::Printing,
             Event::AskingToRunScripts { .. } => Self::AskingToRunScripts,
+            Event::ScriptAsking { .. } => Self::ScriptAsking,
         }
     }
 
@@ -171,6 +176,7 @@ impl EventKind {
             Self::Copied => "Copied\0",
             Self::Printing => "Printing\0",
             Self::AskingToRunScripts => "AskingToRunScripts\0",
+            Self::ScriptAsking => "ScriptAsking\0",
         }
     }
 
@@ -205,6 +211,7 @@ impl EventKind {
             20 => Self::Copied,
             21 => Self::Printing,
             22 => Self::AskingToRunScripts,
+            23 => Self::ScriptAsking,
             _ => return None,
         })
     }

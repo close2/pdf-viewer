@@ -39,7 +39,7 @@ use viewer_host::trace::{Topic, Trace};
 
 use crate::bridge::ffi::{
     QtChrome, QtControl, QtFrame, QtMeasure, QtPage, QtPopup, QtPrintCell, QtPrintJob, QtQuad,
-    QtRow, QtScatter, QtUpdate, QtWindowExtents,
+    QtRow, QtScatter, QtScriptEntry, QtUpdate, QtWindowExtents,
 };
 use crate::keys;
 use crate::page;
@@ -442,6 +442,10 @@ pub struct Host {
     /// replaces the first — and `None` while nothing is outstanding, so that a dialogue closed
     /// twice answers once.
     question: Option<(Pending, String)>,
+    /// RFC 0008 section 4.2's `app.alert` or `app.response` a script is waiting on: which
+    /// document's, what that document is called, and what it asks — taken once, by the answer,
+    /// so that a dialogue closed twice answers once (ADR 1628).
+    script_question: Option<(DocumentId, String, viewer_core::ScriptQuestion)>,
     /// What to put above the entry, worded when the prompt is asked for and read once by C++.
     prompt: String,
     /// Whether the document has been opened yet, which waits for the first resize.
@@ -668,6 +672,7 @@ impl Host {
             print: None,
             printed: None,
             question: None,
+            script_question: None,
             prompt: String::new(),
             opened: false,
             message: String::new(),
@@ -2180,6 +2185,103 @@ impl Host {
                 self.pump(queue.into());
             }
         }
+    }
+
+    /// The script's question's dialogue title, naming the document that asks (ADR 1628).
+    pub(crate) fn script_question_title(&self) -> String {
+        self.script_question
+            .as_ref()
+            .map(|(_, name, question)| viewer_host::script_asks::title(name, question))
+            .unwrap_or_default()
+    }
+
+    /// The script's message or question.
+    pub(crate) fn script_question_text(&self) -> String {
+        self.script_question
+            .as_ref()
+            .map(|(_, _, question)| viewer_host::script_asks::text(question).to_owned())
+            .unwrap_or_default()
+    }
+
+    /// The line under the text: an alert's icon as a word, or a response's label.
+    pub(crate) fn script_question_detail(&self) -> String {
+        match self
+            .script_question
+            .as_ref()
+            .map(|(_, _, question)| question)
+        {
+            Some(viewer_core::ScriptQuestion::Alert { icon, .. }) => icon.word().to_owned(),
+            Some(viewer_core::ScriptQuestion::Response { label, .. }) => {
+                label.clone().unwrap_or_default()
+            }
+            None => String::new(),
+        }
+    }
+
+    /// The dialogue's buttons, the affirming one last: an alert's
+    /// [`viewer_core::AlertButtons::buttons`], or Cancel and OK under a response's entry.
+    pub(crate) fn script_question_buttons(&self) -> Vec<String> {
+        script_buttons(
+            self.script_question
+                .as_ref()
+                .map(|(_, _, question)| question),
+        )
+        .iter()
+        .map(|button| button.label().to_owned())
+        .collect()
+    }
+
+    /// Whether the dialogue carries an entry, and what it starts with and hides: an
+    /// `app.response`'s default, and whether it is a password.
+    pub(crate) fn script_question_entry(&self) -> QtScriptEntry {
+        match self
+            .script_question
+            .as_ref()
+            .map(|(_, _, question)| question)
+        {
+            Some(viewer_core::ScriptQuestion::Response {
+                default, password, ..
+            }) => QtScriptEntry {
+                shown: true,
+                start: default.clone(),
+                password: *password,
+            },
+            _ => QtScriptEntry {
+                shown: false,
+                start: String::new(),
+                password: false,
+            },
+        }
+    }
+
+    /// What the person answered: the index of the button pressed into
+    /// [`Self::script_question_buttons`], or a negative number for a dialogue closed without one,
+    /// with the entry's text beside it.
+    pub(crate) fn answer_script_question(&mut self, button: i32, typed: &str) {
+        let Some((document, _, question)) = self.script_question.take() else {
+            return;
+        };
+        let pressed = usize::try_from(button)
+            .ok()
+            .and_then(|index| script_buttons(Some(&question)).get(index).copied());
+        let answer = match (&question, pressed) {
+            (_, None) => viewer_core::ScriptAnswer::dismissed(&question),
+            (viewer_core::ScriptQuestion::Alert { .. }, Some(button)) => {
+                viewer_core::ScriptAnswer::Pressed(button)
+            }
+            (viewer_core::ScriptQuestion::Response { .. }, Some(viewer_core::AlertButton::Ok)) => {
+                viewer_core::ScriptAnswer::Typed(Some(typed.to_owned()))
+            }
+            (viewer_core::ScriptQuestion::Response { .. }, Some(_)) => {
+                viewer_core::ScriptAnswer::Typed(None)
+            }
+        };
+        let password = matches!(
+            question,
+            viewer_core::ScriptQuestion::Response { password: true, .. }
+        );
+        self.say(&viewer_host::script_asks::answered(&answer, password));
+        self.dispatch(Command::AnswerScript { document, answer });
     }
 
     /// What the button that lets the operation go ahead says.
@@ -3937,6 +4039,14 @@ impl Host {
                 }
             }
             asking @ (Event::Asking { .. } | Event::AskingToRunScripts { .. }) => self.ask(&asking),
+            // RFC 0008 section 4.2's `app.alert` and `app.response`: a dialogue of its own, since
+            // its buttons are the script's and an entry may stand under its text (ADR 1628).
+            Event::ScriptAsking { document, question } => {
+                let name = self.documents.label_of(document);
+                self.say(&viewer_host::script_asks::put(&name, &question));
+                self.script_question = Some((document, name, question));
+                self.update.script_question = true;
+            }
             // §7.11.4's list moved under the files tab: rebuilt from the same answer it was
             // built from, which is the only thing a window may do here this round — display
             // the list it already shows.
@@ -4464,6 +4574,21 @@ fn no_frame() -> QtFrame {
     }
 }
 
+/// A script question's buttons, the affirming one last: an alert's own, or Cancel and OK for a
+/// response.
+fn script_buttons(
+    question: Option<&viewer_core::ScriptQuestion>,
+) -> &'static [viewer_core::AlertButton] {
+    match question {
+        Some(viewer_core::ScriptQuestion::Alert { buttons, .. }) => buttons.buttons(),
+        Some(viewer_core::ScriptQuestion::Response { .. }) => &[
+            viewer_core::AlertButton::Cancel,
+            viewer_core::AlertButton::Ok,
+        ],
+        None => &[],
+    }
+}
+
 /// Every flag clear, which is what `take_update` leaves behind.
 fn nothing_changed() -> QtUpdate {
     QtUpdate {
@@ -4477,6 +4602,7 @@ fn nothing_changed() -> QtUpdate {
         status: false,
         password: false,
         question: false,
+        script_question: false,
         menu: false,
         window: false,
         clipboard: false,

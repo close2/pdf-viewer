@@ -67,6 +67,7 @@ pub mod reference;
 pub mod requirements;
 pub mod restriction;
 pub mod retrieval;
+mod rich_text;
 pub use pdf_colour::shading;
 mod soft_mask;
 pub mod structure;

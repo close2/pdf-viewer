@@ -291,7 +291,10 @@ impl Reader {
                 "fields" | "field" => Element::Field,
                 "value" if parent == Some(Element::Field) => Element::Value,
                 "value-richtext" if parent == Some(Element::Field) => {
-                    self.owe("<value-richtext>: Table 249's /RV, XFA rich text, excluded");
+                    self.owe(
+                        "<value-richtext>: Table 249's /RV, the rich text string beside the \
+                         value, which an import does not carry yet",
+                    );
                     Element::Other
                 }
                 "f" => Element::File,

@@ -13,8 +13,11 @@
 //! built from different trees refuse each other rather than misread each other. A length is read
 //! only against the bytes that remain, so a hostile one asks for nothing.
 
-use pdf_script::wire::{self as script_wire, decode_outcome, decode_request, encode_outcome};
-use pdf_script::{Outcome, Request};
+use pdf_script::wire::{
+    self as script_wire, decode_outcome, decode_question, decode_request, encode_outcome,
+    encode_question,
+};
+use pdf_script::{Outcome, Question, Request};
 
 /// The eight bytes a script worker's greeting begins with.
 ///
@@ -28,6 +31,12 @@ pub const FRAME_RUN: u8 = 1;
 pub const FRAME_OUTCOME: u8 = 2;
 /// The kind of a refusal: worker to host, one sentence of UTF-8 as the payload.
 pub const FRAME_REFUSED: u8 = 3;
+/// The kind of a question: worker to host, `pdf_script::wire`'s encoding of the question a script
+/// put as the payload. The script is held in the worker until a [`FRAME_ANSWER`] comes, and the
+/// worker's reply to that is the run's outcome (ADR 1627).
+pub const FRAME_QUESTION: u8 = 4;
+/// The kind of an answer: host to worker, `pdf_script::wire`'s encoding of the answer.
+pub const FRAME_ANSWER: u8 = 5;
 
 /// The first byte of a run.
 pub const VERSION: u8 = 1;
@@ -60,13 +69,15 @@ pub struct Run {
     pub request: Request,
 }
 
-/// What a worker answers a run with.
+/// What a worker answers a run, or an answer, with.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Reply {
     /// The run's outcome.
     Outcome(Outcome),
     /// The run was not made, and the sentence saying why.
     Refused(String),
+    /// The run's script put a question and is held until it is answered.
+    Asked(Question),
 }
 
 /// Why bytes are not a run or a reply this module wrote.
@@ -173,6 +184,7 @@ pub fn encode_reply(reply: &Reply) -> (u8, Vec<u8>) {
             FRAME_REFUSED,
             cut(sentence, MAX_SENTENCE_BYTES).as_bytes().to_vec(),
         ),
+        Reply::Asked(question) => (FRAME_QUESTION, encode_question(question)),
     }
 }
 
@@ -194,6 +206,7 @@ pub fn decode_reply(kind: u8, bytes: &[u8]) -> Result<Reply, WireError> {
             let sentence = std::str::from_utf8(bytes).map_err(|_| WireError::Utf8)?;
             Ok(Reply::Refused(sentence.to_owned()))
         }
+        FRAME_QUESTION => Ok(Reply::Asked(decode_question(bytes)?)),
         other => Err(WireError::Kind(other)),
     }
 }
@@ -286,6 +299,11 @@ pub(crate) mod tests {
             fields: &[],
             page: 0,
             pages: 1,
+            commit_key: None,
+            field_full: false,
+            change_ex: "",
+            dirty: false,
+            document: None,
         };
         Request::of(&event, 1_704_465_015_000, 3600)
     }

@@ -17,9 +17,9 @@ compares 1794 pages
 Blocked on: nothing technical — but the honest precondition is that its cost is a rewrite against
 the oracle, so it wants the other two roads' numbers in hand first
 
-## The two documents filed here in the five-hundred-and-sixtieth session were not this item's
+## Two documents filed here as a latency finding were not this item's
 
-Session 560 measured two corpus documents at **2 m 13 s** and **35.6 s** for one page and recorded
+One round measured two corpus documents at **2 m 13 s** and **35.6 s** for one page and recorded
 them here and in `doc/todo/10` as a latency finding — the first documents in this tree measured in
 minutes, and on the face of it the strongest case anybody had for a live window during a long read.
 **They were a defect, and they are fixed** (ADR 0399): `image::RasterCache` gave §8.9.7's inline

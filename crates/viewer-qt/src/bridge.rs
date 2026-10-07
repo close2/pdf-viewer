@@ -377,6 +377,17 @@ pub mod ffi {
         y3: f32,
     }
 
+    /// The entry an `app.response` dialogue carries (ADR 1628).
+    #[derive(Debug, Clone)]
+    struct QtScriptEntry {
+        /// Whether the dialogue has one: an `app.alert`'s does not.
+        shown: bool,
+        /// What it starts with: the script's default answer. Not `default`, which C++ reserves.
+        start: String,
+        /// Whether what is typed is shown as bullets.
+        password: bool,
+    }
+
     /// What has changed since the C++ side last asked.
     ///
     /// A window that rebuilt everything after every keystroke would take the keyboard away from
@@ -418,6 +429,10 @@ pub mod ffi {
         /// object and Rust does not call one. What it holds is `question_prompt`'s two sentences,
         /// and what comes back is `answer_question` (ADR 1145).
         question: bool,
+        /// A document's script asks the person something — `app.alert` or `app.response` — and
+        /// the dialogue is put up from `script_question_title` and the four calls beside it; what
+        /// comes back is `answer_script_question` (ADR 1628).
+        script_question: bool,
         /// The restrictions menu should be put on the screen — the `r` key, in a window whose
         /// menu bar a person may not have gone looking for.
         menu: bool,
@@ -650,6 +665,19 @@ pub mod ffi {
         /// means everywhere else in this program: going ahead on a question nobody answered would
         /// be the *off* level under another name (`viewer_host::restriction`).
         fn answer_question(self: &mut Host, proceed: bool);
+        /// A script's question's dialogue title, naming the document that asks (ADR 1628).
+        fn script_question_title(self: &Host) -> String;
+        /// The script's message, or its question.
+        fn script_question_text(self: &Host) -> String;
+        /// The line under it: an alert's icon as a word, or a response's label.
+        fn script_question_detail(self: &Host) -> String;
+        /// The dialogue's buttons, the affirming one last.
+        fn script_question_buttons(self: &Host) -> Vec<String>;
+        /// Whether an entry stands under the text, what it starts with, and whether it hides.
+        fn script_question_entry(self: &Host) -> QtScriptEntry;
+        /// What the person answered: the index of the button pressed, or a negative number for a
+        /// dialogue closed without one, and the entry's text.
+        fn answer_script_question(self: &mut Host, button: i32, typed: &str);
         /// The headings the restrictions menu bar carries, one per group of `restriction_menu`'s
         /// entries at depth 0 — `viewer_host::Restrictions::headings`.
         ///

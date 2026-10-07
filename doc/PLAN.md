@@ -133,7 +133,11 @@ codegen (§5), and `crates/pdf-sandbox/build.rs` bakes the confined worker's pat
   `tools/state.sh launch` prints it and `doc/todo/02` §2 runs it. **Not `criterion`**, which is the
   wrong shape for the question: four of the five figures are about a *process*, and a benchmark
   harness that measures a function in a warm loop cannot see a cold open, a driver's bring-up or a
-  high-water mark. ADR 0884 is the construction and ADR 0885 what it found. Page one goes to the
+  high-water mark. ADR 0884 is the construction and ADR 0885 what it found.
+  Every row's first-page child is handed a script runner as a window at `on` is, a worker started
+  before the frame fails on any machine, and the worker the open sequence starts is timed after it
+  (ADR 1620); the warm open is taken from cores kept busy first and the cold open from a child born
+  idle (ADR 1621). Page one goes to the
   graphics device by the owner's decision, so bring-up is *on* the critical path and is a number to
   keep small rather than a cost to move aside — `CLAUDE.md` principle 2 has the rules that follow.
 - **the turn-path gate**: the other end of a page turn — a turn onto a page the device has not
@@ -550,7 +554,9 @@ numbers it was built to catch.
 
 **The crate's other test files gate the repository's own prose and tools rather than the
 standard**, because that is the crate whose gates already read the repository's files: a Rust path
-a doc comment names is one the tree declares (`tests/names.rs`, ADR 1273), a record is at most forty
+a doc comment names is one the tree declares (`tests/names.rs`, ADR 1273), a comment saying
+`doc/md/` lacks a table, an issue, a clause or a PDF name fails where `doc/md/` holds it
+(`tests/doc_md_absences.rs`, ADR 1624), a record is at most forty
 lines (`tests/records.rs`), `--bin cited`'s rank is calibrated by a planted pair (`tests/cited.rs`,
 ADR 1274), and `tools/batch.sh commit` stages the whole population by name while `close` refuses a
 worktree holding uncommitted work and `install` writes what a person runs into the main checkout's

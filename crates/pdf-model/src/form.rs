@@ -287,8 +287,9 @@ pub struct TextControl {
     pub max_len: Option<u32>,
     /// Bit 26: "the value of this field shall be a rich text string".
     ///
-    /// Carried so that a host can decline. `CLAUDE.md` excludes XFA, so the rich text is not
-    /// interpreted here and what [`FormField::value`] answers with is Table 226's plain `/V`.
+    /// Carried so that a host knows the field is formatted: its appearance is laid out in the
+    /// formatting Table 228's `/RV` and `/DS` state (ADRs 1634, 1635), and what
+    /// [`FormField::value`] answers with is Table 226's plain `/V`, the characters a host edits.
     pub rich_text: bool,
 }
 

@@ -2,7 +2,7 @@
 //! the engine behind.
 //!
 //! `confined-transport` carries a kind byte and a length and knows nothing of what is inside; this
-//! is what is inside. Every integer is little-endian, every string is a `u32` byte length and that
+//! is what is inside: a request, an outcome, and a script's question and the person's answer. Every integer is little-endian, every string is a `u32` byte length and that
 //! many bytes of UTF-8, every boolean is one byte that is 0 or 1, and every enumeration is a tag
 //! byte followed by its fields. Both encodings begin with a version byte, so that a worker and a
 //! host built from different trees refuse each other rather than misread each other. Decoding
@@ -13,17 +13,22 @@ use std::time::Duration;
 use pdf_model::action::{PageTrigger, Trigger as AnnotationTrigger};
 use pdf_model::aform::Trigger;
 use pdf_model::view::{
-    Alignment, BorderStyle, Colour, Display, DocumentTrigger, FieldState, FieldType, Property,
-    ScriptEdit, ScriptSite, TextFlag,
+    Alignment, BorderStyle, Colour, Display, DocumentState, DocumentTrigger, Face, FieldState,
+    FieldType, InfoEntry, Layer, Property, ScriptEdit, ScriptSite, TextFlag,
 };
 
-use crate::{Ending, Event, Exceeded, Outcome, Refusal, RefusalKind, Request};
+use crate::{
+    Answer, Button, Buttons, Ending, Event, Exceeded, Icon, Outcome, Question, Refusal,
+    RefusalKind, Request,
+};
 
 /// The first byte of every encoding this module writes.
 ///
-/// Moved whenever what crosses changes shape: 3 carries Table 200's sites, the text flags a script
-/// writes and a script's focus request (ADRs 1614, 1615).
-pub const VERSION: u8 = 3;
+/// Moved whenever what crosses changes shape: 4 carries a commit's key, a full field's two
+/// changes, the unsaved mark, the document's information dictionary and groups, a push-button's
+/// captions, a layer's switch, the depth budget, a run's notes, and a question and its answer
+/// (ADRs 1626, 1627).
+pub const VERSION: u8 = 4;
 
 /// Most fields one request may tell a realm of, and most edits one outcome may carry.
 ///
@@ -65,6 +70,9 @@ pub fn encode_request(request: &Request) -> Vec<u8> {
     put_u32(&mut out, request.event.selection_start);
     put_u32(&mut out, request.event.selection_end);
     put_bool(&mut out, request.event.will_commit);
+    put_u8(&mut out, request.event.commit_key);
+    put_bool(&mut out, request.event.field_full);
+    put_str(&mut out, &request.event.change_ex);
     put_str(&mut out, &request.event.source);
     put_len(&mut out, request.fields.len());
     for field in &request.fields {
@@ -72,6 +80,14 @@ pub fn encode_request(request: &Request) -> Vec<u8> {
     }
     put_u32(&mut out, request.page);
     put_u32(&mut out, request.pages);
+    put_bool(&mut out, request.dirty);
+    match &request.document {
+        None => put_u8(&mut out, 0),
+        Some(document) => {
+            put_u8(&mut out, 1);
+            put_document(&mut out, document);
+        }
+    }
     put_u64(&mut out, request.moment);
     out.extend_from_slice(&request.utc_offset_seconds.to_le_bytes());
     out
@@ -94,6 +110,12 @@ pub fn decode_request(bytes: &[u8]) -> Result<Request, WireError> {
         selection_start: reader.u32()?,
         selection_end: reader.u32()?,
         will_commit: reader.boolean()?,
+        commit_key: match reader.u8()? {
+            key @ 0..=3 => key,
+            _ => return Err(WireError::Invalid("commit key")),
+        },
+        field_full: reader.boolean()?,
+        change_ex: reader.string()?,
         source: reader.string()?,
     };
     let count = reader.count()?;
@@ -110,6 +132,12 @@ pub fn decode_request(bytes: &[u8]) -> Result<Request, WireError> {
         fields,
         page: reader.u32()?,
         pages: reader.u32()?,
+        dirty: reader.boolean()?,
+        document: match reader.u8()? {
+            0 => None,
+            1 => Some(reader.document()?),
+            _ => return Err(WireError::Invalid("document")),
+        },
         moment: reader.u64()?,
         utc_offset_seconds: i32::from_le_bytes(reader.array()?),
     };
@@ -170,7 +198,108 @@ pub fn encode_outcome(outcome: &Outcome) -> Vec<u8> {
     for line in &outcome.log {
         put_str(&mut out, line);
     }
+    put_len(&mut out, outcome.notes.len());
+    for note in &outcome.notes {
+        put_str(&mut out, note);
+    }
     out
+}
+
+/// Encodes a question.
+#[must_use]
+pub fn encode_question(question: &Question) -> Vec<u8> {
+    let mut out = vec![VERSION];
+    match question {
+        Question::Alert {
+            message,
+            icon,
+            buttons,
+            title,
+        } => {
+            put_u8(&mut out, 0);
+            put_str(&mut out, message);
+            put_u8(&mut out, tag_of(&Icon::ALL, icon));
+            put_u8(&mut out, tag_of(&Buttons::ALL, buttons));
+            put_optional(&mut out, title.as_deref());
+        }
+        Question::Response {
+            question,
+            title,
+            default,
+            label,
+            password,
+        } => {
+            put_u8(&mut out, 1);
+            put_str(&mut out, question);
+            put_optional(&mut out, title.as_deref());
+            put_str(&mut out, default);
+            put_optional(&mut out, label.as_deref());
+            put_bool(&mut out, *password);
+        }
+    }
+    out
+}
+
+/// Decodes a question.
+///
+/// # Errors
+///
+/// [`WireError`] for bytes that are not exactly one question of this version.
+pub fn decode_question(bytes: &[u8]) -> Result<Question, WireError> {
+    let mut reader = Reader::new(bytes)?;
+    let question = match reader.u8()? {
+        0 => Question::Alert {
+            message: reader.string()?,
+            icon: reader.tagged(&Icon::ALL, "icon")?,
+            buttons: reader.tagged(&Buttons::ALL, "buttons")?,
+            title: reader.optional()?,
+        },
+        1 => Question::Response {
+            question: reader.string()?,
+            title: reader.optional()?,
+            default: reader.string()?,
+            label: reader.optional()?,
+            password: reader.boolean()?,
+        },
+        _ => return Err(WireError::Invalid("question")),
+    };
+    reader.finish()?;
+    Ok(question)
+}
+
+/// Encodes an answer.
+#[must_use]
+pub fn encode_answer(answer: &Answer) -> Vec<u8> {
+    let mut out = vec![VERSION];
+    match answer {
+        Answer::Pressed(button) => {
+            put_u8(&mut out, 0);
+            put_u8(&mut out, tag_of(&Button::ALL, button));
+        }
+        Answer::Typed(text) => {
+            put_u8(&mut out, 1);
+            put_optional(&mut out, text.as_deref());
+        }
+        Answer::Unanswerable => put_u8(&mut out, 2),
+    }
+    out
+}
+
+/// Decodes an answer.
+///
+/// # Errors
+///
+/// [`WireError`] for bytes that are not exactly one answer of this version.
+pub fn decode_answer(bytes: &[u8]) -> Result<Answer, WireError> {
+    let mut reader = Reader::new(bytes)?;
+    let answer = match reader.u8()? {
+        0 => Answer::Pressed(reader.tagged(&Button::ALL, "button")?),
+        1 => Answer::Typed(reader.optional()?),
+        2 => Answer::Unanswerable,
+        _ => return Err(WireError::Invalid("answer")),
+    };
+    reader.finish()?;
+    Ok(answer)
 }
 
 /// Decodes an outcome.
@@ -214,6 +343,11 @@ pub fn decode_outcome(bytes: &[u8]) -> Result<Outcome, WireError> {
     for _ in 0..count {
         log.push(reader.string()?);
     }
+    let count = reader.count()?;
+    let mut notes = Vec::new();
+    for _ in 0..count {
+        notes.push(reader.string()?);
+    }
     reader.finish()?;
     Ok(Outcome {
         rc,
@@ -223,6 +357,7 @@ pub fn decode_outcome(bytes: &[u8]) -> Result<Outcome, WireError> {
         ending,
         refusals,
         log,
+        notes,
     })
 }
 
@@ -253,6 +388,9 @@ const DOCUMENT_TRIGGERS: [DocumentTrigger; 5] = DocumentTrigger::ALL;
 
 /// Table 231's text field flags, in tag order.
 const TEXT_FLAGS: [TextFlag; 4] = TextFlag::ALL;
+
+/// A push-button's captions, in tag order.
+const FACES: [Face; 3] = Face::ALL;
 
 /// The field types, in tag order.
 const FIELD_TYPES: [FieldType; 7] = [
@@ -347,6 +485,34 @@ fn put_field(out: &mut Vec<u8>, field: &FieldState) {
     for coordinate in field.rect {
         put_f64(out, coordinate);
     }
+    for caption in &field.captions {
+        put_str(out, caption);
+    }
+}
+
+/// Writes the document as a whole: its information dictionary's entries, then its groups.
+fn put_document(out: &mut Vec<u8>, document: &DocumentState) {
+    put_len(out, document.info.len());
+    for entry in &document.info {
+        put_str(out, &entry.key);
+        put_str(out, &entry.text);
+        match entry.moment {
+            None => put_u8(out, 0),
+            Some(moment) => {
+                put_u8(out, 1);
+                out.extend_from_slice(&moment.to_le_bytes());
+            }
+        }
+    }
+    put_len(out, document.layers.len());
+    for layer in &document.layers {
+        put_u32(out, layer.number);
+        out.extend_from_slice(&layer.generation.to_le_bytes());
+        put_str(out, &layer.name);
+        put_bool(out, layer.on);
+        put_bool(out, layer.initially_on);
+        put_bool(out, layer.locked);
+    }
 }
 
 /// Writes a colour: a tag, then its components.
@@ -416,6 +582,11 @@ fn put_edit(out: &mut Vec<u8>, edit: &ScriptEdit) {
                     put_u8(out, tag_of(&TEXT_FLAGS, flag));
                     put_bool(out, *on);
                 }
+                Property::Caption(face, caption) => {
+                    put_u8(out, 10);
+                    put_u8(out, tag_of(&FACES, face));
+                    put_str(out, caption);
+                }
             }
         }
         ScriptEdit::Reset { fields } => {
@@ -429,6 +600,16 @@ fn put_edit(out: &mut Vec<u8>, edit: &ScriptEdit) {
         ScriptEdit::Focus { field } => {
             put_u8(out, 4);
             put_str(out, field);
+        }
+        ScriptEdit::Layer {
+            number,
+            generation,
+            on,
+        } => {
+            put_u8(out, 5);
+            put_u32(out, *number);
+            out.extend_from_slice(&generation.to_le_bytes());
+            put_bool(out, *on);
         }
     }
 }
@@ -459,6 +640,11 @@ fn put_exceeded(out: &mut Vec<u8>, exceeded: Exceeded) {
         Exceeded::Nesting(limit) => {
             put_u8(out, 7);
             put_u32(out, limit);
+        }
+        Exceeded::Depth { estimated, ceiling } => {
+            put_u8(out, 8);
+            put_u64(out, estimated);
+            put_u64(out, ceiling);
         }
         Exceeded::Elements { asked, ceiling } => {
             put_u8(out, 5);
@@ -663,7 +849,38 @@ impl<'a> Reader<'a> {
             char_limit: self.optional_u32()?,
             page: self.optional_u32()?,
             rect: [self.f64()?, self.f64()?, self.f64()?, self.f64()?],
+            captions: [self.string()?, self.string()?, self.string()?],
         })
+    }
+
+    /// The document as a whole.
+    fn document(&mut self) -> Result<DocumentState, WireError> {
+        let count = self.count()?;
+        let mut info = Vec::new();
+        for _ in 0..count {
+            info.push(InfoEntry {
+                key: self.string()?,
+                text: self.string()?,
+                moment: match self.u8()? {
+                    0 => None,
+                    1 => Some(i64::from_le_bytes(self.array()?)),
+                    _ => return Err(WireError::Invalid("moment")),
+                },
+            });
+        }
+        let count = self.count()?;
+        let mut layers = Vec::new();
+        for _ in 0..count {
+            layers.push(Layer {
+                number: self.u32()?,
+                generation: u16::from_le_bytes(self.array()?),
+                name: self.string()?,
+                on: self.boolean()?,
+                initially_on: self.boolean()?,
+                locked: self.boolean()?,
+            });
+        }
+        Ok(DocumentState { info, layers })
     }
 
     /// One edit.
@@ -688,6 +905,7 @@ impl<'a> Reader<'a> {
                     9 => {
                         Property::TextFlag(self.tagged(&TEXT_FLAGS, "text flag")?, self.boolean()?)
                     }
+                    10 => Property::Caption(self.tagged(&FACES, "face")?, self.string()?),
                     _ => return Err(WireError::Invalid("property")),
                 };
                 ScriptEdit::Property { field, property }
@@ -703,6 +921,11 @@ impl<'a> Reader<'a> {
             3 => ScriptEdit::Calculate,
             4 => ScriptEdit::Focus {
                 field: self.string()?,
+            },
+            5 => ScriptEdit::Layer {
+                number: self.u32()?,
+                generation: u16::from_le_bytes(self.array()?),
+                on: self.boolean()?,
             },
             _ => return Err(WireError::Invalid("edit")),
         })
@@ -742,6 +965,10 @@ impl<'a> Reader<'a> {
             3 => Exceeded::Recursion(self.u32()?),
             4 => Exceeded::Stack(self.u32()?),
             7 => Exceeded::Nesting(self.u32()?),
+            8 => Exceeded::Depth {
+                estimated: self.u64()?,
+                ceiling: self.u64()?,
+            },
             5 => Exceeded::Elements {
                 asked: self.u64()?,
                 ceiling: self.u64()?,

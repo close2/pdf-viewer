@@ -54,8 +54,8 @@
 //! trigger it does not serve is a [`Refusal`] with a sentence rather than a silent nothing. The
 //! library's own helpers are public functions beside them: [`make_number`] (`AFMakeNumber`),
 //! [`extract_nums`] (`AFExtractNums`), [`merge_change`] (`AFMergeChange`), [`parse_date`]
-//! (`AFParseDateEx`), and the three `util` methods the formats are written with, [`print_date`],
-//! [`print_mask`] and [`number_text`]. Nothing here reads a document: the field's script and its
+//! (`AFParseDateEx`), and the `util` methods the formats are written with, [`print_date`],
+//! [`print_mask`], [`number_text`] and [`printf::printf`]. Nothing here reads a document: the field's script and its
 //! values are handed in by `crate::view`, which is where Table 199's triggers are raised (ADR
 //! 1579).
 
@@ -63,6 +63,7 @@ mod call;
 mod date;
 mod mask;
 mod number;
+pub mod printf;
 pub mod site;
 
 pub use call::{Call, Literal, NotOneCall};

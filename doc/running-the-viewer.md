@@ -388,6 +388,20 @@ and is found beside the window's executable or at `PDF_SCRIPT_WORKER`; without i
 trigger says how to build it. `quorra-confined` is pinned to `off` and says so when asked for
 another level.
 
+**A script that asks — Adobe's `app.alert` and `app.response` — is answered in the window** (ADR
+1628): `quorra` puts it on its question card, GTK and Qt on a dialogue of their own, each titled with
+the document that asks and the script's own title beside it. An alert carries the buttons the script
+asked for — OK; OK and Cancel; Yes and No; Yes, No and Cancel — and in `quorra` each is its first
+letter, with Enter for the affirming one and Escape for the one a closed dialogue answers (Cancel,
+else No, else OK); a response carries an entry holding the script's default, bullets for a password,
+answered by Enter or by OK and cancelled by Escape. Each window prints the question as it puts it and
+the answer as it is given, a password's text never. The script waits in its worker, never the
+window, and a question left unanswered past the worker's wait is answered as a closed dialogue;
+`quorra-confined`, pinned to `off`, refuses one by name.
+
+An editable combo box's text — Table 233 bit 19 — is typed into and committed like a single-line
+field's in all four windows: Tab out of it or Enter in it runs its `/K` commit form and `/V`.
+
 Both native hosts bind `/` and Ctrl+F to their toolkit's own find bar — a `GtkSearchBar` with a
 `GtkSearchEntry` and a `QToolBar` with a `QLineEdit` and Previous/Next actions — and draw every
 occurrence on the page under the selection, in the platform's colour at a lower alpha. Nothing about

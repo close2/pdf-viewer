@@ -3,9 +3,9 @@
 // Two callers, and they want the same pass for different reasons. **The final hand-off**:
 // a frame that needed internal layers (groups, masks, non-Normal blends) accumulates the
 // page in a texture the compositor can read, and this moves it onto the target — which
-// may be a swapchain texture that cannot be sampled. **The composite's backdrop**: a pass
-// cannot read its own attachment, so the pixels a child is about to be composited onto are
-// copied out first, at the child's size rather than the page's (ADR 0038).
+// may be a swapchain texture that cannot be sampled. **§11.4.4's seed**: a non-isolated
+// group's buffer begins as a copy of what is under it (ADR 0019). The composite's
+// backdrop is copied by a transfer instead (ADR 1630).
 //
 // REPLACE, no blending, no conversion: the page stays rendered onto transparency (§3; the
 // caller composites onto the medium), and between two `Rgba8Unorm` textures a `textureLoad`
@@ -13,8 +13,7 @@
 
 struct Placement {
     // The source texel this pass's texel (0, 0) reads. Zero for a copy between two
-    // textures of one size, which is what the seed is; the child's rectangle inside its
-    // parent's, for the composite's backdrop (ADR 0038); and **negative** for the
+    // textures of one size, which is what the seed is; and **negative** for the
     // hand-off, whose destination is the whole target while its source is only what the
     // page marks (ADR 0039).
     origin: vec2f,

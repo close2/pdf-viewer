@@ -774,3 +774,12 @@ Boa 0.22's parser has no depth limit. Before `Budget::nesting` was set, round 13
 and overflows at 320, 16 MiB parses 400, 2 MiB parses 64 and not 128 (ADR 1602). The fuzz target's
 256 sat at the edge of the worker's 8 MiB thread, which the measurement showed and a guess would
 not have; the bound is 128.
+
+## 72. A turn is two runs less one, and a stream-dictionary census is a byte grep
+
+A callgrind turn on a page that fills process-wide caches (the press and ink tables) is measured as
+a run of two interpretations less a run of one; a single run counted the ink table's 1.19 G as if
+every turn paid it (ADR 1632, `turn_interpret`). And a census of a key population that lives in
+stream dictionaries — `/Order`, `/Filter`, `/DecodeParms` — is a byte grep, because a stream
+dictionary is never inside an object stream: 126 393 Type 0 functions over the whole crawl in 40 s
+(ADR 1636).

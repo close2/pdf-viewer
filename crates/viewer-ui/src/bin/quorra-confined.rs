@@ -930,6 +930,17 @@ impl Host {
                     proceed: false,
                 });
             }
+            // RFC 0008 section 4.2's `app.alert` and `app.response` cannot arrive either, for the
+            // arm above's reason; this window has no dialogue for a script, so it refuses by name
+            // and answers as a closed dialogue does, rather than hold the script until its wait
+            // runs out (ADR 1628).
+            Event::ScriptAsking { document, .. } => {
+                eprintln!("note: {}", viewer_host::script_asks::UNANSWERABLE);
+                self.dispatch(&Command::AnswerScript {
+                    document,
+                    answer: viewer_core::ScriptAnswer::Unanswerable,
+                });
+            }
             Event::Reported { page, notes, .. } => {
                 for note in notes {
                     match page {

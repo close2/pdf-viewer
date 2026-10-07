@@ -1,12 +1,12 @@
 # A decoded-stream cache
 
-Status: **taken in the four-hundred-and-eighty-second session** (ADR 0317), after being priced
+Status: **taken** (ADR 0317), after being priced
 twice on populations that could not see it. What is left is one narrower question, at the bottom.
 Priority: 41
 Code: `crates/pdf-syntax/src/document.rs` (`DECODED_BUDGET`, `DecodedStreams`),
 `crates/pdf-syntax/src/filter.rs`
 
-Measured over one interpretation of every corpus page (session 128): 6220 inflations of 38.08 MB.
+Measured over one interpretation of every corpus page: 6220 inflations of 38.08 MB.
 Among the streams above 4 KB — 722 calls, 35.0 MB, 92% of the bytes — **35 are repeats costing
 925 KB, 2.6%**. So a decoded-data cache is worth about **0.7% of interpretation**, against a real
 memory cost, a bound to argue for, and a liveness invariant to write down.
@@ -56,7 +56,7 @@ exactly the hazard the paragraph above met at 4 KB.
 
 ## The refusal is memoised now, and the shape of the item had moved before it was taken
 
-**Taken in the six-hundred-and-second session; ADR 0437 has the measurement and the argument.** A
+**Taken; ADR 0437 has the measurement and the argument.** A
 refusal is an outcome beside the bytes rather than an absence: `DecodedEntry` holds an `Outcome`,
 the entry records the **bound the refusal was reached under** — a `TooLarge` under
 `nested_content_source`'s smaller allowance is not an answer under the document's own bound — and
@@ -80,7 +80,7 @@ draw, hex-wrapped so no window can take it. One cold sweep of it went from **5.9
 
 ## The image route joined it, and the reason it was outside was half right
 
-**Taken in the seven-hundred-and-twelfth session; ADR 0585 has the measurement and the argument.**
+**Taken; ADR 0585 has the measurement and the argument.**
 This file used to say `image_stream` decoded "outside this one by construction (a codec's bytes are
 not a filter chain's)". That is true about the codec and false about everything Table 5 lets
 `/Filter` put in *front* of it — and for a codec-less image, which is most of them, "in front of it"
@@ -116,8 +116,8 @@ loses the ceiling that is this cache's whole shape, letting one entry exceed the
 bomb evict everything around it, and keying on a digest trades a decode for a hash and a collision
 for content dropped in silence.
 
-**Its redirect was taken in the seven-hundred-and-fourteenth session and was half right, which is
-what this line now records.** `doc/todo/14`'s chain pump landed (ADR 0587) and the gibibyte is
+**Its redirect is taken, and it was half right.** `doc/todo/14`'s chain pump is in (ADR 0587) and
+the gibibyte is
 gone — 1 070 828 KB of peak resident memory against 22 608 on the same twenty pages. What did not
 follow is the sentence ADR 0586 wrote beside it, that a chain pump "would take this document to
 kilobytes on **every** read": kilobytes of *memory*, but the read is still the bomb's whole decode,
@@ -133,11 +133,11 @@ is that fact travelling one hop back to `Document`, for the single-part case whe
 about is unambiguous (`Window::single`, which is every one of §7.8.2's nested content streams).
 Whoever takes it owes the hop, not a new number — and the witness and both arms are ADR 0587's.
 
-**Taken in the seven-hundred-and-forty-second session, and the hop was one fact short.** ADR 0646
+**Taken, and the hop carries one fact more than the paragraph above names.** ADR 0646
 has the measurement and the argument: 14.32–17.99 s against 186.16–287.23 µs on ADR 0586's own
 witness rebuilt to the byte, at unchanged peak resident memory, and +0.0031% instructions over ISO
-32000-2's 1023 pages. What the paragraph above got wrong is worth keeping, because it is the
-difference between a memo and a page drawn by a memo: **a window hands over everything up to the
+32000-2's 1023 pages. The extra fact is the difference between a memo and a page drawn by a
+memo: **a window hands over everything up to the
 bound and only then says it stopped**, so "too large" alone is not a fact a second read may be
 answered from — a stream whose prefix marked the page owes those marks to every later read.
 What travels is *too large **and empty***, which is exactly reproducible and which
@@ -150,9 +150,8 @@ Two lines are left, and neither is the one that was owed:
   row of ADR 0646's table, unchanged at about 14–17 s. That is ADR 0586's argued refusal and it
   stands: `DecodedStreams::keep` declines what it cannot hold beside its own key, and letting one
   entry past the budget would let the bomb evict everything around it.
-- **`NestedContent::damage`'s pump-to-the-end is confined to the one route that owes it**, since
-  the seven-hundred-and-eighty-seventh session (ADR 0723). The check this bullet asked for was
-  made and the answer is *mostly no*: §12.5.5's decision asked the full question of every stored
+- **`NestedContent::damage`'s pump-to-the-end is confined to the one route that owes it** (ADR
+  0723). Whether every route owes it is answered, and the answer is *mostly no*: §12.5.5's decision asked the full question of every stored
   appearance, and for a stream the draw was about to read that pump answered nothing the run
   would not answer itself — a windowed stream's damage is met mid-run and reported there, and a
   whole one's is stated without reading. What remains of the full answer is §12.7.4.3's

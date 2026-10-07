@@ -1,9 +1,9 @@
 # The interface's own font, and the text it cannot set
 
-Status: **most of it was never a font question**, and the four-hundred-and-ninety-first session
-closed that half. A *script* this binary does not carry is set from a face the machine offers (ADR
-1382); what is open is a machine that offers none, which is a decision the project owner has not been
-asked for — and the demand for it is four documents.
+Status: **most of it was never a font question**, and that half is closed (ADR 0326). A *script*
+this binary does not carry is set from a face the machine offers (ADR 1382); what is open is a
+machine that offers none, which is a decision the project owner has not been asked for — and the
+demand for it is four documents.
 Priority: 27
 Corpus: **13 documents** still state something in a panel this program cannot set, out of 54 that
 did. What remains is Hebrew, Thai and CJK, plus one malformed file's U+FFFD.

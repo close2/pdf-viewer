@@ -94,6 +94,8 @@ struct Tally {
     kills: Mutex<Vec<(String, String, String)>>,
     /// Every refused member, by its spelling.
     members: Mutex<BTreeMap<String, usize>>,
+    /// Runs whose script put a question, answered here as a closed dialogue answers.
+    asked: AtomicUsize,
 }
 
 /// A runner that hands each event to one document's worker and counts what came back.
@@ -107,7 +109,16 @@ struct Counting {
 
 impl ScriptRunner for Counting {
     fn run(&self, event: &ScriptEvent<'_>) -> ScriptResult {
-        let result = self.worker.run(event);
+        let mut result = self.worker.run(event);
+        // No person reads this walk: a question is answered at once as a closed dialogue answers,
+        // and the held run's outcome, which the answer releases, is the run's (ADR 1627).
+        if let Some(question) = self.worker.take_question() {
+            self.tally.asked.fetch_add(1, Ordering::Relaxed);
+            self.worker.answer(question.dismissed());
+            if let Some(resumed) = self.worker.take_resumed() {
+                result = resumed.result;
+            }
+        }
         self.tally.runs.fetch_add(1, Ordering::Relaxed);
         let says = |prefix: &str| {
             result
@@ -286,6 +297,10 @@ fn every_script_tier_0_does_not_run_is_run_in_the_confined_worker_and_its_deaths
         println!("workers lost, by cause: {causes:?}");
     }
     println!("SIGSYS deaths: {}", kills.len());
+    println!(
+        "runs that put a question, answered as a closed dialogue answers: {}",
+        count(&tally.asked)
+    );
     for (document, subject, detail) in kills.iter().take(NAMED_KILLS) {
         println!("SIGSYS  {document}  {subject}  ({detail})");
     }

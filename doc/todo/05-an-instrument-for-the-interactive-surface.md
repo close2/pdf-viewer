@@ -56,10 +56,10 @@ text-domain entry.
    the unique-word matcher, the two bounds re-derived by the instrument itself
    (`PDFVIEWER_SELECTION_SPREAD=1`, an environment guard on ADR 0282's rule), and the drag half
    in `viewer-core`'s headless harness with both endpoints from the reference's box. It runs in
-   §2's existing `text_extraction` line with no new line. **Its verdict gates since the
-   five-hundred-and-eighty-sixth session**, which is the rule at the foot of this file being kept
-   rather than waived: the figures held from session 498 to session 586 — the same fraction of
-   matched words in bounds, one more document judged — so the gate now carries a named list of
+   §2's existing `text_extraction` line with no new line. **Its verdict gates**,
+   which is the rule at the foot of this file being kept rather than waived: the figures held
+   across the rounds from the instrument's first run to the gate — the same fraction of matched
+   words in bounds, one more document judged — so the gate now carries a named list of
    the documents with a word out of bounds, checked in both directions, and a floor under the
    judged set (trap 11's arithmetic as a ratchet).
 
@@ -82,7 +82,7 @@ text-domain entry.
    by reason rather than counted as a disagreement. Nothing is cached (the saved file's hash
    is new whenever the writer changes, so `pdfref`'s key never amortises) and nothing needed
    sampling — the questions are object reads, not renders. **And the census counts ratchet since
-   ADR 1011**: they held from session 499 to session 990 with one explained movement, so every
+   ADR 1011**: they held from the instrument's first run (ADR 0334) to ADR 1011 with one explained movement, so every
    capability count has a floor and every refusal, exclusion and policy population is a set of
    names checked both ways; `tools/state.sh save` runs it, in about twelve seconds. **Still owed
    from this item:** the §2 line — `cargo test --profile gates -p pdf-model --test
@@ -103,8 +103,8 @@ text-domain entry.
    Three *decisions* are asserted whatever the counts do — no panic, no untagged page given a
    structure it does not state (ADR 0214), and no line whose characters disagree with its own text.
    **And the counts ratchet since ADR 0425**, the rule below having been met: every one of them was
-   unchanged from this instrument's own round to the five-hundred-and-fifty-ninth, which added a
-   caret to all of them and moved none. A capability has a floor and a defect class a ceiling, the
+   unchanged across the rounds from this instrument's own to the one that added a caret to all of
+   them and moved none. A capability has a floor and a defect class a ceiling, the
    population is checked before either, and the line is in `doc/todo/02` §2. Its first run found a
    defect on the page-object join and `doc/todo/31`'s two residues now have numbers — both in ADR
    0342.

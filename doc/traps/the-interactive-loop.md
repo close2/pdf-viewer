@@ -331,3 +331,11 @@ the worker's next frame (ADR 1553): the outline preparation's re-raised `PageCha
 rode a page turn's answer, and a test that read the frame's first `PageChanged` read 0 where it
 expected 1, once in a hundred runs under tier 1's load (round 1388's merge). A test reads the event
 it asked for wherever it sits in the frame.
+
+### 123. A composed GTK control takes no focus; its named child does
+
+Drive step `45-combo-commit` found GTK giving the keyboard to an editable combo box's composed
+`GtkBox`, which takes no focus, so nothing was typed; `child_focus` into the box is no fix either,
+because GTK's own Tab may already have put the keyboard in the entry, and moving forward from
+there leaves it — which is a commit. `controls::give_the_keyboard` names the entry (ADR 1629). A
+multiline field's `GtkScrolledWindow` is the next composed control a drive step will meet.

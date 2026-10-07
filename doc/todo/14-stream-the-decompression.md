@@ -48,10 +48,10 @@ Priority: 14 — the first road of [`10`](10-bounds-that-cap-size.md), whose §5
 four and whose §6 binds whatever lands here. **Finished, twice** (above); road B
 ([`15`](15-ship-the-confinement.md)) is what the owner's order points at next.
 Witness: `tmp/Entwurf.pdf` — **not in the repository and not addable to it**, so no test may name
-that path; Bomb B, which `doc/todo/10` §2 describes precisely enough to rebuild (sessions 519,
-527 and 595 rebuilt it from that description, the last of them inside a pattern cell); and ADR
-0586's hex-wrapped pair, whose generator is in `doc/history/712-…` and which the
-seven-hundred-and-fourteenth session rebuilt from it to the byte — 4 174 537 and 12 523 517
+that path; Bomb B, which `doc/todo/10` §2 describes precisely enough to rebuild (it has been
+rebuilt from that description three times, once inside a pattern cell); and ADR 0586's
+hex-wrapped pair, whose generator is in `doc/history/712-…` and which has been rebuilt from it to
+the byte — 4 174 537 and 12 523 517
 encoded, the two sides of `DECODED_BUDGET`. A third witness is worth building beside them and is
 two lines of the same generator: the **same deflate stream with no armour**, which is the control
 that says what the armour costs and what it does not.
@@ -130,8 +130,8 @@ assumed, and the split is not even:
   forward from `ID` for the end of data whose length the dictionary does not state, which is a
   lookahead of unbounded size inside a bounded window — but **90 304 of 93 930 inline images state
   or imply their length before their data is read** (336 by `/L`, 89 968 by §8.9.3's arithmetic),
-  and of the **3 455** that did not, **the largest is 2.99 KiB**. **Since the
-  six-hundred-and-thirty-third session most of that remainder is derived rather than searched**:
+  and of the **3 455** that did not, **the largest is 2.99 KiB**. **Most of
+  that remainder is derived rather than searched**:
   §7.3.8.2 makes a filtered extent the filter's own end-of-data marker, so the search is left with
   the chains this crate has no resumable decoder for. `token_window_census` prints the split, and
   it is a pump question rather than a clause one — which is this file's subject from the other end.
@@ -163,8 +163,7 @@ assumed, and the split is not even:
 
 ## What the measurement said
 
-**This section used to say what a round taking the road owes first — the measurement — and the
-five-hundred-and-twenty-seventh session took it.** ADR 0362 has the argument and the invocations;
+**The measurement a round taking the road owed first is taken.** ADR 0362 has the argument and the invocations;
 what belongs here is the result and what it decides. `examples/window_lexer_spike` is the
 experiment and it is committed, so none of this has to be believed.
 

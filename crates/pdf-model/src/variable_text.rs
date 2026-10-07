@@ -201,6 +201,7 @@ pub(crate) struct Request<'a> {
 }
 
 /// What §12.7.4.3 asks for that this module cannot supply.
+#[derive(Clone)]
 pub(crate) enum Owed {
     /// The `/DA` string carries no `Tf`, which the clause requires: "At a minimum, the string
     /// shall include a Tf (text font) operator along with its two operands, font and size."
@@ -245,23 +246,38 @@ pub(crate) enum Owed {
     /// whose items are displayed — and states no appearance for it, so the quantity is this
     /// program's and the report says so (ADR 1323).
     ListBoxSelection,
-    /// §12.7.5.3's Table 231 bit 26: the field's value is a rich text string, whose characters
-    /// are laid out and whose formatting is not applied.
+    /// A rich text string states formatting XFA 3.3 section 27 names and this tree does not carry
+    /// out; the phrase lists each, and everything else the string states is applied.
     ///
-    /// **A report beside a drawing rather than a refusal**, and the `shall` it departs from is
-    /// §12.7.4.3's rather than the flag's own. Bit 26 writes two requirements at the *file* —
-    /// the value "shall be a rich text string" and, where the field has one, Table 228's `/RV`
-    /// "shall specify the rich text string" — but the clause that lays a field out writes
-    /// a third at the processor: "[f]or these fields, the following conventions are not used,
-    /// and the entire annotation appearance shall be regenerated each time the value is
-    /// changed". What replaces them is XFA 3.3's formatting model, which this tree does not
-    /// hold: a face, a size, a colour and an alignment stated in the markup and in Table 228's
-    /// `/DS` are read by nothing here. The **characters** are another matter and are drawn —
-    /// §12.7.5.3 makes "[t]he contents of this text string or stream" what the appearance is
-    /// constructed from, and the contents of a rich text string are its character data, taken by
-    /// the walk §12.5.6.6's `/RC` already goes through (ADRs 1122, 1197). Saying the rest out
-    /// loud is the shortfall trap 5 exists against.
-    RichTextFormatting,
+    /// **A report beside a complete drawing.** The string's runs are laid out in the faces, sizes,
+    /// colours, alignments and spacing it states (`crate::rich_text`, ADR 1634); what the phrase
+    /// names is a property whose value no part of this program acts on — a face of another width,
+    /// pair kerning, a tab stop, a hyperlink a reader could follow — and leaving it out silently
+    /// would be trap 5's silence inside a feature otherwise built.
+    RichTextUnapplied(String),
+    /// A rich text string states characters other than its plain twin's, so the plain one is
+    /// drawn, in the default style.
+    ///
+    /// Two pairs: a field's Table 228 `/RV` and its `/V`, where §12.7.5.3 makes `/V` hold "[t]he
+    /// field's text" and Table 231 bit 26 makes `/RV` "specify the rich text string" of that
+    /// value; and a free text annotation's Table 177 `/RC` and its `/Contents`, which §12.5.6.2
+    /// says "specifies the displayed text". A rich text string whose characters are not the
+    /// value's describes some other text, so the characters win and the formatting that described
+    /// other characters does not travel with them (ADR 1635).
+    RichTextDisagrees {
+        /// The rich text entry's name.
+        rich: &'static str,
+        /// The plain entry's name.
+        plain: &'static str,
+        /// The clause that makes the plain entry the text, as the report states it.
+        clause: &'static str,
+    },
+    /// A rich text string is laid out in one style, its default one, for the reason given.
+    ///
+    /// The construction a value in a right-to-left script or a comb field needs is the one-style
+    /// layout's, which carries UAX #9's order and Table 231 bit 25's cells; the runs' own faces,
+    /// sizes and colours do not reach it yet.
+    RichTextOneStyle(&'static str),
     /// Table 199's `/F`: the field's format script is not one Tier 0 runs, or its one call
     /// refused, so the value is drawn as it stands. The sentence is the dispatch's own (ADR 1579).
     Script(String),
@@ -329,11 +345,21 @@ impl Owed {
             Self::Truncated(limit) => {
                 format!("its value is longer than the {limit} characters laid out here")
             }
-            Self::RichTextFormatting => "§12.7.5.3's RichText flag makes its value a rich text \
-                                         string: its characters are drawn, and the formatting \
-                                         its markup, Table 228's /RV and Table 228's /DS state \
-                                         is XFA 3.3's and is not applied here"
-                .to_owned(),
+            Self::RichTextUnapplied(phrase) => format!(
+                "its rich text is drawn in the formatting it states, except {phrase}, which XFA \
+                 3.3's chapter 27 names and this program does not carry out"
+            ),
+            Self::RichTextDisagrees {
+                rich,
+                plain,
+                clause,
+            } => format!(
+                "its {rich} states characters other than its {plain}, and {clause}, so {plain} is \
+                 drawn in its default style"
+            ),
+            Self::RichTextOneStyle(why) => {
+                format!("its rich text is drawn in its default style alone, because {why}")
+            }
             Self::Script(sentence) => sentence.clone(),
             Self::SingularTextMatrix => "its /DA sets a text matrix whose linear part has no \
                                          inverse, so its value is positioned in the box's own \
@@ -391,13 +417,15 @@ pub(crate) struct LaidOut {
     /// is what needs it: Figure 81 breaks the line around an inline caption, and where the break
     /// goes is where the text is.
     pub advance: f32,
-    /// A font dictionary this module invented, to be added to the appearance's `/Resources`
-    /// under the name the `/DA` used.
+    /// The font dictionaries this module invented, to be added to the appearance's `/Resources`
+    /// under the names the stream uses.
     ///
-    /// Present only where `/DR` defines no font under that name — see [`substituted_font`]. The
-    /// stream this module writes says `/{name} {size} Tf`, so the resource has to exist by the
-    /// time the interpreter runs it or the appearance would name nothing.
-    pub font: Option<(pdf_syntax::Name, Dictionary)>,
+    /// The `/DA`'s own name where `/DR` defines no font under it — see [`substituted_font`] —
+    /// and, for a rich text string, the name of each face its runs are set in that `/DR` does not
+    /// hold under that name (`crate::rich_text`). The stream says `/{name} {size} Tf`, so each
+    /// resource has to exist by the time the interpreter runs it or the appearance would name
+    /// nothing.
+    pub fonts: Vec<(pdf_syntax::Name, Dictionary)>,
 }
 
 /// Finds the `/DA`'s font in `/DR`, or stands one in; the flag says which happened.
@@ -405,7 +433,7 @@ pub(crate) struct LaidOut {
 /// A name `/DR` does not define is the document breaking §12.7.4.3's own `shall`, and
 /// [`substituted_font`] is why that is answered with a stand-in and a report rather than with a
 /// blank field.
-fn resolve_font(
+pub(crate) fn resolve_font(
     document: &Document,
     resources: &Dictionary,
     name: &pdf_syntax::Name,
@@ -455,7 +483,7 @@ fn resolve_font(
 ///   not change whose inference it is: `/DR` defines nothing, so reading `/Helv` is this
 ///   program's reading and an inference may not fall short.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Resolution {
+pub(crate) enum Resolution {
     /// Table 224's `/DR` defines a font under this name, as §12.7.4.3 requires.
     Named,
     /// `/DR` defines nothing, and the name is one of [`STANDARD_ABBREVIATIONS`].
@@ -596,6 +624,73 @@ fn set_in(
     Ok((dict, font, runs, resolution))
 }
 
+/// One face a rich text string's runs are set in: the font, the dictionary it came from, and the
+/// vertical metrics a line is measured by.
+///
+/// The three steps [`set_in`] takes for a `/DA`'s font — load, refuse a vertical writing mode,
+/// refuse a font no character can be turned into a code of — taken for each face
+/// `crate::rich_text` chooses, so a run is refused for exactly what a value is refused for here.
+pub(crate) struct Face {
+    /// The font dictionary, the document's own or one this program invented.
+    pub(crate) dict: Dictionary,
+    /// The loaded font.
+    pub(crate) font: pdf_font::LoadedFont,
+    /// Table 120's `/Ascent` and `/Descent`, or the documented split.
+    pub(crate) metrics: Metrics,
+}
+
+impl Face {
+    /// Loads a face.
+    ///
+    /// # Errors
+    ///
+    /// [`Owed::FontUnusable`] where the font will not load or cannot be addressed by character,
+    /// and [`Owed::VerticalWritingMode`] where its `CMap` asks for §9.7.5.1's writing mode 1.
+    pub(crate) fn load(
+        document: &Document,
+        dict: Dictionary,
+        name: &pdf_syntax::Name,
+    ) -> Result<Self, Owed> {
+        let label = name.escaped();
+        let font = pdf_font::LoadedFont::load(document, &dict, &label)
+            .map_err(|error| Owed::FontUnusable(error.to_string()))?;
+        if font.is_vertical() {
+            return Err(Owed::VerticalWritingMode(name.clone()));
+        }
+        if !font.addresses_characters() {
+            return Err(Owed::FontUnusable(format!(
+                "/{label}'s /Encoding CMap states more codes than can be inverted, so no \
+                 character of the value can be turned into one (§9.7.6.2)"
+            )));
+        }
+        let metrics = Metrics::read(document, &dict);
+        Ok(Self {
+            dict,
+            font,
+            metrics,
+        })
+    }
+
+    /// The code this face draws a character with, the no-break space included
+    /// ([`substitutable`]).
+    pub(crate) fn code(&self, character: char) -> Option<pdf_font::Code> {
+        self.font
+            .code_for(character)
+            .or_else(|| substitutable(character, &self.font))
+    }
+
+    /// A run of characters as this face's codes, through the same [`encode`] a value goes
+    /// through.
+    pub(crate) fn encode(&self, text: &str) -> Encoded {
+        encode(
+            &|character| self.code(character),
+            text,
+            Asked::default(),
+            None,
+        )
+    }
+}
+
 /// The same value re-encoded through an invented font whose `/Differences` names what it missed.
 ///
 /// `None` unless the second attempt reaches strictly more characters than the first, which is
@@ -686,7 +781,7 @@ fn with_differences(dict: &Dictionary, missing: &str) -> Option<Dictionary> {
 /// the same answer as passing no name at all. What is never done is silence — the report says
 /// which name `/DR` failed to define, so the page says the document is malformed while still
 /// showing what the document says.
-fn substituted_font(name: &pdf_syntax::Name) -> Dictionary {
+pub(crate) fn substituted_font(name: &pdf_syntax::Name) -> Dictionary {
     let entry =
         |key: &[u8], value: pdf_syntax::Name| (pdf_syntax::Name::new(key), Object::Name(value));
     let mut dict = Dictionary::new();
@@ -1149,10 +1244,10 @@ pub(crate) const LINE_HEIGHT: f32 = 13.0 / 12.0;
 /// this is what stands in. Splitting the em three-to-one puts the baseline where Latin text
 /// normally sits, and being a constant it makes the layout independent of which fonts are
 /// installed — which the substitute glyphs themselves are not, and layout should not be.
-const DEFAULT_DESCENT: f32 = -0.25;
+pub(crate) const DEFAULT_DESCENT: f32 = -0.25;
 
 /// The matching ascent for [`DEFAULT_DESCENT`], so that the two span exactly one em.
-const DEFAULT_ASCENT: f32 = 0.75;
+pub(crate) const DEFAULT_ASCENT: f32 = 0.75;
 
 /// How many characters of one value are laid out.
 ///
@@ -1161,7 +1256,7 @@ const DEFAULT_ASCENT: f32 = 0.75;
 /// list and a glyph count all growing with it. Sixteen thousand characters is far past what
 /// any field shows and far short of what a decompression bomb would ask for. The habit this
 /// follows is that a silent cap is a defect, not safety.
-const MAX_CODES: usize = 1 << 14;
+pub(crate) const MAX_CODES: usize = 1 << 14;
 
 /// The smallest size auto-sizing will choose.
 ///
@@ -1169,7 +1264,7 @@ const MAX_CODES: usize = 1 << 14;
 /// hundredths of a point tall would otherwise drive the size — and the glyph count with it —
 /// towards zero. Reaching it is not reported, because the text is still drawn: a value too
 /// long for its box is the document's arrangement, not a gap in this crate.
-const MIN_AUTO_SIZE: f32 = 1.0;
+pub(crate) const MIN_AUTO_SIZE: f32 = 1.0;
 
 /// How many halvings the auto-size search makes.
 ///
@@ -1177,7 +1272,7 @@ const MIN_AUTO_SIZE: f32 = 1.0;
 /// is far below any size difference a device can show. A fixed count rather than a tolerance
 /// keeps the cost of a pathological box bounded, which principle 3 asks of every loop that a
 /// document's own numbers drive.
-const AUTO_SIZE_STEPS: u32 = 20;
+pub(crate) const AUTO_SIZE_STEPS: u32 = 20;
 
 /// Builds the appearance stream §12.7.4.3 describes.
 ///
@@ -1318,7 +1413,10 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         // stream that names nothing. The *same* [`pdf_syntax::Name`] the `Tf` was written from,
         // so the two cannot drift: §7.3.5 makes the key and the operand one name only while the
         // bytes are an exact binary match, and this is that match by construction.
-        font: (resolution != Resolution::Named).then_some((font_name, dict)),
+        fonts: (resolution != Resolution::Named)
+            .then_some((font_name, dict))
+            .into_iter()
+            .collect(),
     })
 }
 
@@ -1737,9 +1835,11 @@ impl Frame {
 }
 
 /// Table 120's `/Ascent` and `/Descent`, in text-space units where one em is 1.0.
-struct Metrics {
-    ascent: f32,
-    descent: f32,
+pub(crate) struct Metrics {
+    /// How far the face reaches above the baseline, at one em.
+    pub(crate) ascent: f32,
+    /// How far it reaches below, at one em, as a number at or below zero.
+    pub(crate) descent: f32,
 }
 
 impl Metrics {
@@ -1780,7 +1880,7 @@ impl Metrics {
     /// `pdf_font::vertical_extent`'s em box, and the difference is not an oversight: that one
     /// answers *how tall is this line* for a selection highlight, and this one answers *where in
     /// its box does this field's text sit*, which is the choice those two constants record.
-    fn read(document: &Document, dict: &Dictionary) -> Self {
+    pub(crate) fn read(document: &Document, dict: &Dictionary) -> Self {
         let descriptor = descriptor_of(document, dict);
         let read = |key: &str| {
             descriptor
@@ -1815,7 +1915,7 @@ impl Metrics {
 /// unmistakable to the compiler, which is the construction principle 4 asks for over a comment
 /// warning about the collision.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Placed {
+pub(crate) enum Placed {
     /// §12.7.5.3's line break: [`wrap`] ends a line at it and [`show`] writes nothing for it.
     Break,
     /// A character code of the `/DA`'s font, from [`pdf_font::LoadedFont::code_for`].
@@ -1831,7 +1931,7 @@ enum Placed {
 
 impl Placed {
     /// The code to draw, or `None` for a break.
-    fn code(self) -> Option<pdf_font::Code> {
+    pub(crate) fn code(self) -> Option<pdf_font::Code> {
         match self {
             Self::Break => None,
             Self::Shown(code) | Self::Space(code) => Some(code),
@@ -1849,7 +1949,7 @@ impl Placed {
 ///
 /// One indirection deep and no further: a descendant is a `CIDFont`, and Table 115 gives it no
 /// descendants of its own.
-fn descriptor_of(document: &Document, dict: &Dictionary) -> Object {
+pub(crate) fn descriptor_of(document: &Document, dict: &Dictionary) -> Object {
     let stated = document.get_key(dict, "FontDescriptor");
     if stated.as_dict().is_some() {
         return stated;
@@ -1867,15 +1967,15 @@ fn descriptor_of(document: &Document, dict: &Dictionary) -> Object {
 }
 
 /// The codes a value became, and the characters that produced none.
-struct Encoded {
-    codes: Vec<Placed>,
+pub(crate) struct Encoded {
+    pub(crate) codes: Vec<Placed>,
     /// The distinct characters the font states no code for, ready for a report.
-    missing: String,
+    pub(crate) missing: String,
     /// The distinct characters drawn as stored where cursive joining or UAX #9's mirroring
     /// displays them otherwise, because the font states no code for that form.
     unformed: String,
     /// Whether [`MAX_CODES`] was reached and the rest of the value dropped.
-    truncated: bool,
+    pub(crate) truncated: bool,
     /// Which code [`Asked::caret`]'s byte offset falls before, where one was asked for.
     ///
     /// An index into [`Self::codes`] rather than into the value, because that is what the layout
@@ -1910,7 +2010,7 @@ struct Encoded {
 /// where `BidiMirroring.txt` states one, which is UAX #9's rule L4. Where the font has no code
 /// for the form but has one for the letter itself, the letter is drawn unjoined and named in
 /// [`Encoded::unformed`]. For a Latin value every one of these is the identity.
-fn encode(
+pub(crate) fn encode(
     lookup: &dyn Fn(char) -> Option<pdf_font::Code>,
     text: &str,
     asked: Asked,
@@ -2060,7 +2160,10 @@ fn code_of(
 /// Deliberately not a table of near-equivalents. The soft hyphen the same note names is *not*
 /// here: it is a character a layout engine shows only where it breaks a line, and drawing it
 /// always or never are both decisions about hyphenation rather than about encoding.
-fn substitutable(character: char, font: &pdf_font::LoadedFont) -> Option<pdf_font::Code> {
+pub(crate) fn substitutable(
+    character: char,
+    font: &pdf_font::LoadedFont,
+) -> Option<pdf_font::Code> {
     (character == '\u{a0}')
         .then(|| font.code_for(' '))
         .flatten()
@@ -2811,7 +2914,7 @@ fn comb_glyphs(
 /// back splits the operand by the same `CMap`'s codespace ranges that produced the code. A
 /// two-byte code written as one byte would decode to something else entirely, which is the
 /// failure this function had while nothing could produce such a code.
-fn show(stream: &mut String, codes: &[Placed]) {
+pub(crate) fn show(stream: &mut String, codes: &[Placed]) {
     stream.push('(');
     for code in codes.iter().filter_map(|placed| placed.code()) {
         for byte in code_bytes(code) {
@@ -2853,22 +2956,24 @@ fn code_bytes(code: pdf_font::Code) -> impl Iterator<Item = u8> {
 /// > The default appearance string ( DA ) contains any graphics state or text state operators
 /// > needed to establish the graphics state parameters, such as text size and colour, for
 /// > displaying the field's variable text.
-struct DefaultAppearance {
+pub(crate) struct DefaultAppearance {
     /// The operators to replay verbatim, in order, minus the `Tm` and anything the clause
     /// does not permit here.
-    operators: String,
+    pub(crate) operators: String,
     /// The `Tf`'s first operand, as the bytes §7.3.5 makes a name.
-    font: Option<pdf_syntax::Name>,
+    pub(crate) font: Option<pdf_syntax::Name>,
     /// The `Tf`'s second operand; `Some(0.0)` is the clause's auto-size request.
-    size: Option<f32>,
+    pub(crate) size: Option<f32>,
     /// The one `Tm` the string may carry, whose translation this module replaces.
     matrix: Option<[f32; 6]>,
     /// `TL`, which decides the distance between lines when the string sets one.
     leading: Option<f32>,
     /// `Tc`, `Tw` and `Tz`, which change how wide the text measures.
-    character_spacing: f32,
-    word_spacing: f32,
-    horizontal_scaling: f32,
+    pub(crate) character_spacing: f32,
+    /// `Tw`.
+    pub(crate) word_spacing: f32,
+    /// `Tz`, as a factor.
+    pub(crate) horizontal_scaling: f32,
 }
 
 /// The operators §12.7.4.3 admits in a `/DA`.
@@ -2898,7 +3003,7 @@ const PERMITTED: [&[u8]; 27] = [
 
 impl DefaultAppearance {
     /// Reads a `/DA` string into the parts this module needs and the rest to replay.
-    fn parse(bytes: &[u8]) -> Self {
+    pub(crate) fn parse(bytes: &[u8]) -> Self {
         let mut parsed = Self {
             operators: String::new(),
             font: None,
@@ -3021,11 +3126,11 @@ fn as_number(token: &Token<'_>) -> Option<f32> {
 /// Saturating at `u16::MAX` rather than casting: past sixty-five thousand lines the layout is
 /// off the page whatever the arithmetic says, and an exact conversion keeps every number in
 /// this module free of a lossy cast.
-fn count(value: usize) -> f32 {
+pub(crate) fn count(value: usize) -> f32 {
     f32::from(u16::try_from(value).unwrap_or(u16::MAX))
 }
 
-fn narrow(value: f64) -> f32 {
+pub(crate) fn narrow(value: f64) -> f32 {
     #[expect(
         clippy::cast_possible_truncation,
         reason = "a text size or coordinate outside f32's range cannot place anything on a page"

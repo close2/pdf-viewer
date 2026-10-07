@@ -1,9 +1,8 @@
 # A clip chain as one crop and one intersect
 
 Status: **open — the chain-sharing half, and it is now a priced choice rather than an open
-question.** The copying half was taken in the four-hundred-and-ninety-third session (ADR 0328),
-byte-identically. The *covering-step* half — which this file did not know existed — was taken in
-the seven-hundred-and-forty-seventh (ADR 0656), also byte-identically, and it is worth more on the
+question.** The copying half is taken (ADR 0328), byte-identically. The *covering-step* half is
+taken too (ADR 0656), also byte-identically, and it is worth more on the
 page this item is about than the sharing half's departure would be.
 Priority: 40
 Corpus: 1 document (the worst page in the corpus, by a wide margin); 50 of 958 first pages carry
@@ -57,16 +56,15 @@ anti-aliasing off. Containment is exact whatever the converter would have made o
 (ADR 0068) → 43.13 G (ADR 0069) → 20.03 G (ADR 0236) — and the sessions between kept taking pieces
 off it (ADR 0271's transparent-pixel shortcut the largest, then ADR 0328's banding, then ADR 0656's
 covering steps), while every correctness feature that landed in this backend put some back. **Do not
-quote a figure from that ladder as today's base**: the four-hundred-and-ninety-third session's was
-26% low when the seven-hundred-and-forty-seventh re-ran it, and re-running it is one command.
+quote a figure from that ladder as today's base**: ADR 0328's was 26% low when ADR 0656's round
+re-ran it, and re-running it is one command.
 
 What remains largest on it is still `MaskCache::get`: every chain is built from the root,
 although **a child's band is inside its parent's**, so a chain could be one crop of the parent's
 rows and one intersect.
 
-What the three-hundred-and-ninety-ninth session's census (`clip_chain_census`, ADR 0236)
-established still stands, re-run in the seven-hundred-and-forty-seventh with the counts unmoved —
-they are a property of the display list, and the interpreter has not changed it:
+What the census (`clip_chain_census`, ADR 0236) establishes stands, re-run with the counts
+unmoved — they are a property of the display list, and the interpreter has not changed it:
 
 - **Intermediates are barely shared** — 3551 leaf clips through 7066 distinct nodes, 1.99 nodes per
   leaf against chains 4.01 deep; building each node once replaces 3551 fills and 10 702 intersects
@@ -102,8 +100,7 @@ The third is still the honest one and the round that takes it should say so befo
 ADR 0328 is the precedent for the *shape* of the split — band what is outside the drawing
 arithmetic, decline what is inside it — not for taking the departure.
 
-**The witness the eight-hundred-and-fifty-seventh session handed this file was not this file's,
-and the census extension that proved it is now part of the instrument** (ADR 0783).
+**One witness handed to this file was not this file's, and the census extension that proved it is now part of the instrument** (ADR 0783).
 `corpus-cache/tika-issue-tracker/batch3/MOZILLA/MOZILLA-831621-14.pdf` — 3166 commands, 3149
 distinct clips, 41 s onto 1280 × 800 — *looked* like the chain arithmetic priced here, and the
 census read it apart in one run: its chains are 3134 of 3158 **depth one** (63 082 scanned mask

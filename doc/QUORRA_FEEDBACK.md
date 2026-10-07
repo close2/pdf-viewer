@@ -6157,3 +6157,32 @@ reads 154.59 ms, its `scene` 82.83 from 87.30. A step's `CommandEncoder::finish`
 three renders) and poll (3.0) are its 3 583 draws a render and the device drawing them; an
 instanced shading draw and walking the black frame while the chromatic one draws are priced in ADR
 1583 and not built.
+
+## 70. `bug1721218_reduced.pdf`'s backdrops are copied by transfers, and composites apart share a pass (ADRs 1630, 1631)
+
+**Where the 1× frame's passes were, counted.** The turn recorded 193 render passes: 59 of them
+copied a composite's backdrop out of its accumulator through `blit.wgsl`, each a pass, a uniform
+buffer and a bind group, and 35 drew a composite in a pass of its own, 22 of them only so that the
+next child's copy could read what they wrote — where the two rectangles stand apart and it reads
+nothing they wrote.
+Adding `COPY_SRC | COPY_DST` to every layer texture, which a transfer needs, costs nothing RADV
+shows: allocation, the first pass, a later pass and a sampling pass read the same to 0.1 µs, and
+the same host instructions to 0.3%.
+
+**What changed, byte for byte.** A backdrop with a source is `copy_texture_to_texture` of the
+child's rectangle into a texture exactly its size — the blit's rectangle, copied without
+conversion, behind the barriers `wgpu` puts between a pass and a transfer — and a composite waits
+past the next child, the two drawn in one pass, where their rectangles meet nowhere and the bytes
+the wait keeps alive fit under the peak the frame budget already priced, so no frame is refused
+where it was drawn. 136 passes with the transfers, 114 with both. Corpus digests: 0 pages moved on
+three lanes at 1× and 4×.
+
+| `zoom_frame`, GPU lane | before | after | your CPU backend |
+|---|---:|---:|---:|
+| the 1× frame | 77.6 ms | **75.1 ms** | 47.6 ms |
+| the 1.25× step | 75.4 ms | 73.8 ms | 56.9 ms |
+
+Pinned minima of 8 × 5, interleaved on exported trees, the CPU backend in the same sitting. **The
+1× frame is 1.58× the CPU backend**, from 1.63× in this sitting; the step is 1.30×, from 1.33×.
+Every interleaved pair of the change read quicker than the tree before it. On your table the turn
+row reads 149.10 ms, its `scene` 78.91 from 80.88; the step 81.61 from 83.05.

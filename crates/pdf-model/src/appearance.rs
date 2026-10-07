@@ -524,16 +524,6 @@ enum Refusal {
     /// Table 192's `/TP` names the side the caption goes on and not how much room it gets, so
     /// the caption is drawn in [`CAPTION_SHARE`] of the rectangle — a share this program chose.
     CaptionShareChosen(i64),
-    /// Table 177's `/DS` styles this note's text in a specification this tree does not hold.
-    ///
-    /// §12.5.6.2 names the entry once, in its group-attribute list — "Contents (or RC and DS )"
-    /// — and Table 177 defines it: "[a] default style string, as described in Adobe XML
-    /// Architecture, XML Forms Architecture (XFA) Specification, version 3.3". So the characters
-    /// this reader lays out are the clause's and the **style** the producer stated is XFA's,
-    /// which `CLAUDE.md` excludes. The text is drawn under Table 177's `/DA` instead, and the
-    /// departure is said out loud rather than shown in silence — the same answer
-    /// [`rich_text_unformatted`] gives one clause over, for the field's own `/DS`. ADR 1224.
-    DefaultStyleUnapplied,
     /// Table 306's `/Poster` image is drawn in `/Rect` at a placement this program chose, since
     /// §13.4 states none (ADR 1561).
     PosterPlacementChosen,
@@ -554,9 +544,6 @@ impl Refusal {
                  §12.5.6.4 requires an appearance for"
             ),
             Self::NotDerivable(why) => format!("no appearance stream, and {why}"),
-            Self::DefaultStyleUnapplied => "its /DS states a default style in XFA 3.3's format, \
-                 which is not applied; the text is laid out under /DA"
-                .to_owned(),
             Self::PosterPlacementChosen => "no appearance stream, and Table 306's /Poster image \
                  is drawn scaled proportionally and centred in /Rect — a placement this program \
                  chose, since §13.4 states none"
@@ -819,6 +806,12 @@ pub(crate) fn regenerate(
     view: crate::view::AnnotationView<'_>,
 ) -> Option<Regenerated> {
     let value = view.value;
+    // §12.7.4.3, for a field Table 231 bit 26 makes rich text: "the following conventions are
+    // not used, and the entire annotation appearance shall be regenerated each time the value is
+    // changed". The splice below is one of those conventions (ADR 1635).
+    if is_rich_text_field(document, annotation, value) {
+        return Some(regenerated_whole(document, annotation, bbox, view));
+    }
     let data = document.decoded_stream_data(stored)?;
     let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
     let source = characteristics.as_ref().unwrap_or(annotation);
@@ -861,6 +854,49 @@ pub(crate) fn regenerate(
         resources: with_default_resources(document, stream_resources(document, stored)),
         report,
     })
+}
+
+/// Whether Table 231 bit 26 makes this widget's field a rich text field.
+fn is_rich_text_field(document: &Document, annotation: &Dictionary, value: FieldValue<'_>) -> bool {
+    let field = Field::read(document, annotation, value);
+    field.kind == Some(FieldKind::Text) && field.flags & FLAG_RICH_TEXT != 0
+}
+
+/// A rich text field's whole appearance, built again in the stored stream's own box.
+///
+/// The construction [`construct`] makes for a widget with no stream at all — Table 192's
+/// background and border, then the text — laid out in the stored stream's `/BBox` rather than in
+/// `/Rect`, so §12.5.5's placement of the stream the file states, `/Matrix` and all, carries it
+/// onto the page as it carried the old one. Table 192's `/R` is that `/Matrix`'s to carry: a
+/// producer states the turn there, and drawing it again inside the box would turn the field twice.
+fn regenerated_whole(
+    document: &Document,
+    annotation: &Dictionary,
+    bbox: [f32; 4],
+    view: crate::view::AnnotationView<'_>,
+) -> Regenerated {
+    let mut whole = annotation.clone();
+    whole.insert(
+        Name::new(b"Rect".to_vec()),
+        Object::Array(
+            bbox.iter()
+                .map(|edge| Object::Real(f64::from(*edge)))
+                .collect(),
+        ),
+    );
+    if let Some(mut characteristics) = document.get_key(annotation, "MK").as_dict().cloned() {
+        characteristics.remove("R");
+        whole.insert(
+            Name::new(b"MK".to_vec()),
+            Object::Dictionary(characteristics),
+        );
+    }
+    let constructed = construct(document, &whole, b"Widget", view, bbox);
+    Regenerated {
+        content: constructed.content.unwrap_or_default(),
+        resources: constructed.resources,
+        report: constructed.report,
+    }
 }
 
 /// Replaces the `/Tx BMC` … `EMC` region of a content stream, or appends where there is none.
@@ -1256,13 +1292,7 @@ pub(crate) fn scripted_entries(
                     "BC"
                 };
                 characteristics
-                    .get_or_insert_with(|| {
-                        document
-                            .get_key(annotation, "MK")
-                            .as_dict()
-                            .cloned()
-                            .unwrap_or_default()
-                    })
+                    .get_or_insert_with(|| widget_characteristics(document, annotation))
                     .insert(Name::new(key.as_bytes()), colour_array(*colour));
             }
             Property::BorderStyle(border) => {
@@ -1322,6 +1352,16 @@ pub(crate) fn scripted_entries(
                     .field
                     .push((Name::new(&b"Ff"[..]), Object::Integer(flags)));
             }
+            // `buttonSetCaption`: Table 192's `/CA`, `/AC` or `/RC`, which the push-button's
+            // construction draws its caption from (ADR 1626).
+            Property::Caption(face, caption) => {
+                characteristics
+                    .get_or_insert_with(|| widget_characteristics(document, annotation))
+                    .insert(
+                        Name::new(face.key().as_bytes()),
+                        Object::String(pdf_syntax::text_string::encode_text_string(caption).into()),
+                    );
+            }
             // `display`, `readonly` and the text flags are a view state's own (ADRs 1603, 1615).
             _ => {}
         }
@@ -1337,6 +1377,15 @@ pub(crate) fn scripted_entries(
             .push((Name::new(&b"BS"[..]), Object::Dictionary(style)));
     }
     entries
+}
+
+/// A widget's own `/MK`, copied, or an empty one: what a script's property is written into.
+fn widget_characteristics(document: &Document, annotation: &Dictionary) -> Dictionary {
+    document
+        .get_key(annotation, "MK")
+        .as_dict()
+        .cloned()
+        .unwrap_or_default()
 }
 
 /// The widget dictionary as a script's properties leave it, for a construction to read.
@@ -2398,7 +2447,7 @@ fn caption(
     Caption {
         drawn: Some(CaptionMark {
             content: laid_out.content,
-            font: laid_out.font,
+            fonts: laid_out.fonts,
             colour: border.colour,
             axes: [forward[0], forward[1], up[0], up[1]],
             origin,
@@ -2485,7 +2534,7 @@ struct CaptionMark {
     /// §12.7.4.3's marked-content section, as [`variable_text::lay_out`] wrote it.
     content: String,
     /// The font dictionary the layout invented, for the appearance's `/Resources`.
-    font: Option<(Name, Dictionary)>,
+    fonts: Vec<(Name, Dictionary)>,
     /// Table 166's `/C`, which is what the line is stroked in.
     colour: Colour,
     /// The reading direction and the perpendicular, as the first four operands of a `cm`.
@@ -2510,7 +2559,7 @@ impl CaptionMark {
         stream.text.push_str(&self.content);
         stream.text.push_str("Q\n");
         let resources = stream.resources.take().unwrap_or_default();
-        stream.resources = Some(with_stand_in_font(resources, self.font));
+        stream.resources = Some(with_stand_in_font(resources, self.fonts));
     }
 }
 
@@ -2923,7 +2972,7 @@ fn widget(
     stream.text.push_str(&laid_out.content);
     stream.resources = Some(with_stand_in_font(
         default_resources(document),
-        laid_out.font,
+        laid_out.fonts,
     ));
     rotation.end(stream);
     Ok(Painted {
@@ -3609,6 +3658,8 @@ fn field_text(
     // value" — read once here and applied to a text or editable combo value below (ADR 1579).
     let mut formatting = Formatting::of(document, annotation, format.wanted);
     formatting.displayed = format.displayed;
+    // Where Table 231 bit 26 makes the value rich text, what the file says it is.
+    let mut rich_source: Option<RichSource> = None;
     let (text, shape) = match kind {
         // Table 192's `/CA`, "the widget annotation's normal caption, which shall be displayed
         // when it is not interacting with the user" — the entry that "may be used with any
@@ -3653,6 +3704,7 @@ fn field_text(
             if value.is_empty() && asked == Asked::default() {
                 return Ok(None);
             }
+            let unformatted = value.clone();
             // Table 231 bit 14: a password field's characters "shall instead be echoed in some
             // unreadable form, such as asterisks or bullet characters". A value stored in the
             // file at all breaks the same row's NOTE; echoing it as it stands would publish it.
@@ -3664,6 +3716,20 @@ fn field_text(
             } else {
                 value
             };
+            // Table 231 bit 26's rich text, where the echo above is not what is shown and the
+            // characters are not a file's name: the file's `/RV` or markup in `/V` describes the
+            // value the file stores, so a value a format rewrote is drawn in the default style.
+            if field.flags & FLAG_RICH_TEXT != 0
+                && field.flags & (FLAG_PASSWORD | FLAG_FILE_SELECT) == 0
+            {
+                rich_source = Some(RichSource {
+                    markup: field
+                        .value
+                        .as_ref()
+                        .and_then(|value| variable_text::value_text(document, value)),
+                    stored: !field.overridden && value == unformatted,
+                });
+            }
             (value, field.text_shape(document, annotation))
         }
         FieldKind::Choice { combo: false } => {
@@ -3716,12 +3782,41 @@ fn field_text(
         default_appearance.extend_from_slice(b" 1 0 0 rg");
     }
     let resources = default_resources(document);
+    let quadding = Quadding::read(document, &sources);
+    if let Some(source) = rich_source {
+        let root = crate::rich_text::root_style(document, &resources, &default_appearance);
+        if let Some(chosen) = crate::rich_text::for_field(
+            document,
+            &field.ancestry,
+            &text,
+            source.markup.as_deref(),
+            source.stored,
+            &root,
+        ) {
+            let route = RichRoute {
+                box_,
+                default_appearance: &default_appearance,
+                resources: &resources,
+                quadding,
+                shape,
+                asked,
+            };
+            return rich_laid_out(document, &chosen, &route)
+                .map(|mut laid_out| {
+                    if let Some(sentence) = formatting.report.take() {
+                        laid_out.owed = laid_out.owed.or(Some(Owed::Script(sentence)));
+                    }
+                    Some(laid_out)
+                })
+                .map_err(Refusal::Text);
+        }
+    }
     let request = Request {
         text: &text,
         box_,
         default_appearance: &default_appearance,
         resources: &resources,
-        quadding: Quadding::read(document, &sources),
+        quadding,
         shape,
         asked,
         selected: &selected,
@@ -3731,12 +3826,9 @@ fn field_text(
             // Behind whatever the layout itself owed, and the order is an argument rather than a
             // habit: `Owed` carries one statement, and a shortfall in the glyphs that *were*
             // drawn — a font `/DR` does not define, a character it states no code for — explains
-            // the picture, where an unmarked selection or missing formatting only adds to it.
+            // the picture, where an unmarked selection only adds to it.
             if !selected.is_empty() {
                 laid_out.owed = laid_out.owed.or(Some(Owed::ListBoxSelection));
-            }
-            if rich_text_unformatted(document, &field) {
-                laid_out.owed = laid_out.owed.or(Some(Owed::RichTextFormatting));
             }
             if let Some(sentence) = formatting.report.take() {
                 laid_out.owed = laid_out.owed.or(Some(Owed::Script(sentence)));
@@ -3744,6 +3836,109 @@ fn field_text(
             Some(laid_out)
         })
         .map_err(Refusal::Text)
+}
+
+/// What a rich text field's own entries are, read where its value is.
+struct RichSource {
+    /// The value's text as it stands, which bit 26 makes a rich text string.
+    markup: Option<String>,
+    /// Whether the value is the file's own `/V`, unformatted — the value its `/RV` describes.
+    stored: bool,
+}
+
+/// Where a rich text string is laid out, and what the plain layout around it was given.
+struct RichRoute<'a> {
+    box_: [f32; 4],
+    default_appearance: &'a [u8],
+    resources: &'a Dictionary,
+    quadding: Quadding,
+    shape: Shape,
+    asked: Asked,
+}
+
+/// Lays a field's or a note's rich text string out (ADRs 1634, 1635).
+///
+/// **The runs, each in its own style**, by [`crate::rich_text::lay_out`], for every drawing of a
+/// one-line or a multiline box. Three things take the one-style form instead
+/// ([`crate::rich_text::one_style`]), each reported as [`Owed::RichTextOneStyle`]: a comb field,
+/// whose cells Table 231 bit 25 states for one style; a value holding a right-to-left run, whose
+/// order UAX #9 decides in the one-style layout alone (ADR 1413); and a string the runs' faces
+/// cannot draw whole, where the one-style layout reaches a machine face (ADR 1414). A question a
+/// host asks — where a caret stands, what a point or a range covers — is answered by the one-style
+/// form too, which is where those answers are computed; the next build carries them into the
+/// runs. A shortfall the string itself owes — what the file states that disagrees, a property
+/// chapter 27 names and this tree does not carry out — is said beside whatever was drawn.
+fn rich_laid_out(
+    document: &Document,
+    chosen: &crate::rich_text::Chosen,
+    route: &RichRoute<'_>,
+) -> Result<variable_text::LaidOut, Owed> {
+    let request = crate::rich_text::Request {
+        rich: &chosen.rich,
+        box_: route.box_,
+        default_appearance: route.default_appearance,
+        resources: route.resources,
+        quadding: route.quadding,
+        multiline: matches!(route.shape, Shape::Multiline),
+    };
+    let text = chosen.rich.text();
+    let one_style = if matches!(route.shape, Shape::Comb(_)) {
+        Some("Table 231 bit 25 lays a comb field's characters out one to a cell")
+    } else if pdf_font::shaping::Paragraphs::new(&text).is_some() {
+        Some("it holds a right-to-left run, which UAX #9 orders in the one-style layout")
+    } else if route.asked == Asked::default() {
+        None
+    } else {
+        Some("a host's question about a caret, a point or a range is answered there")
+    };
+    let laid_out = match one_style {
+        None => match crate::rich_text::lay_out(document, &request) {
+            Ok(laid_out) => Ok(laid_out),
+            Err(Owed::NoFont) => Err(Owed::NoFont),
+            Err(_) => one_style_laid_out(
+                document,
+                &request,
+                route,
+                &text,
+                "a character none of its faces draws is set in the one-style layout's face",
+            ),
+        },
+        Some(reason) => one_style_laid_out(document, &request, route, &text, reason),
+    };
+    laid_out.map(|mut laid_out| {
+        if let Some(disagrees) = &chosen.disagrees {
+            laid_out.owed = laid_out.owed.or_else(|| Some(disagrees.clone()));
+        }
+        laid_out
+    })
+}
+
+/// A rich text string laid out in its first run's style by the plain layout.
+fn one_style_laid_out(
+    document: &Document,
+    request: &crate::rich_text::Request<'_>,
+    route: &RichRoute<'_>,
+    text: &str,
+    reason: &'static str,
+) -> Result<variable_text::LaidOut, Owed> {
+    let one = crate::rich_text::one_style(document, request)?;
+    let resources = with_stand_in_font(route.resources.clone(), one.font.iter().cloned().collect());
+    let plain = Request {
+        text,
+        box_: route.box_,
+        default_appearance: &one.default_appearance,
+        resources: &resources,
+        quadding: one.quadding.unwrap_or(route.quadding),
+        shape: route.shape,
+        asked: route.asked,
+        selected: &[],
+    };
+    let mut laid_out = variable_text::lay_out(document, &plain)?;
+    laid_out.fonts.extend(one.font);
+    if route.asked == Asked::default() {
+        laid_out.owed = laid_out.owed.or(Some(Owed::RichTextOneStyle(reason)));
+    }
+    Ok(laid_out)
 }
 
 /// Whether a layout shows a value through Table 199's `/F`, and what a host-supplied runner's
@@ -3866,48 +4061,6 @@ fn rich_text_value(value: &str) -> Option<String> {
         return None;
     }
     Some(read.text.trim().to_owned())
-}
-
-/// Whether this layout is about to draw §12.7.5.3's rich text without its formatting.
-///
-/// Table 231 bit 26 makes a text field's value "a rich text string", and §12.7.4.3 says what a
-/// processor owes such a field:
-///
-/// > For these fields, the following conventions are not used, and the entire annotation
-/// > appearance shall be regenerated each time the value is changed.
-///
-/// The conventions that sentence sets aside are this module's whole construction, and what
-/// replaces them is XFA 3.3's. The **characters** of the value are drawn, by
-/// [`rich_text_value`]; the **formatting** — a face, a size, a colour, an alignment — is stated
-/// in a specification this tree does not hold, and is not applied. That is a departure and it is
-/// said out loud rather than drawn in silence (ADRs 1122, 1197).
-///
-/// **The condition is the formatting the file states and not the flag alone**, which is trap
-/// 11's rule about what a report fires on: a field setting the flag over plain characters, with
-/// neither entry and no markup in its value, has no formatting to lose and drawing it owes
-/// nothing. Three things put formatting in the file, and any of them fires the report — Table
-/// 228's `/RV`, which bit 26's second sentence makes "specify the rich text string"; Table 228's
-/// `/DS`, the default style string; and a `/V` that is itself markup, which is what bit 26's
-/// first sentence says it is. `examples/field_flag_census` counts each.
-///
-/// The two entries are looked up over the field's own `/Parent` chain and not past it: Table 228
-/// marks `/DA` and `/Q` inheritable and neither of these, so the walk is for a merged widget
-/// whose entries sit on the field dictionary above it rather than for §12.7.4.1's inheritance.
-fn rich_text_unformatted(document: &Document, field: &Field) -> bool {
-    if field.kind != Some(FieldKind::Text) || field.flags & FLAG_RICH_TEXT == 0 {
-        return false;
-    }
-    if field.ancestry.iter().any(|source| {
-        !matches!(document.get_key(source, "RV"), Object::Null)
-            || !matches!(document.get_key(source, "DS"), Object::Null)
-    }) {
-        return true;
-    }
-    field
-        .value
-        .as_ref()
-        .and_then(|value| variable_text::value_text(document, value))
-        .is_some_and(|text| rich_text_value(&text).is_some())
 }
 
 /// Where the caret sits inside the text of an annotation, in **default user space**.
@@ -4398,8 +4551,9 @@ pub(crate) fn accepted_prefix(
 ///
 /// # Where the text comes from, and Table 177's second source for it
 ///
-/// Table 166's `/Contents` first, and Table 177's `/RC` where the file states none. That entry is
-/// a `shall` about *this annotation's appearance* rather than about a window — §12.5.6.6:
+/// Table 177's `/RC` where it states the note's characters, and Table 166's `/Contents` otherwise.
+/// That entry is a `shall` about *this annotation's appearance* rather than about a window —
+/// §12.5.6.6:
 ///
 /// > A rich text string (see Adobe XML Architecture, XML Forms Architecture (XFA) Specification,
 /// > version 3.3 ) that shall be used to generate the appearance of the annotation.
@@ -4407,10 +4561,11 @@ pub(crate) fn accepted_prefix(
 /// and its own NOTE separates it from the identically named entry [`crate::popup`] reads: "As
 /// freetext annotations do not have an open state this cannot apply to the popup window as
 /// described for the RC key in "Table 172 - Additional entries in an annotation dictionary
-/// specific to markup annotations"." ADR 0199's reading carries over unchanged — the *characters*
-/// are what the clause requires and the XFA markup is what `CLAUDE.md` excludes — and the
-/// ordering is §12.5.6.2 NOTE 1's, which makes the two "textually equivalent" where a file states
-/// both, so no document stating `/Contents` changes at all. ADR 0224.
+/// specific to markup annotations"." So the string is laid out in the formatting it and Table
+/// 177's `/DS` state, by [`crate::rich_text`] (ADR 1634), wherever its characters are the note's;
+/// where they are not, `/Contents` is the text, because §12.5.6.2 says a free text annotation's
+/// "Contents entry specifies the displayed text", and the disagreement is said (ADR 1635). A note
+/// stating `/DS` and no `/RC` has its `/Contents` drawn in that default style.
 ///
 /// A free text annotation stating only `/RC` must not draw nothing, which on this subtype is a
 /// blank page: the text *is* the annotation.
@@ -4454,7 +4609,7 @@ fn free_text(
     stream.text.push_str(&laid_out.content);
     stream.resources = Some(with_stand_in_font(
         default_resources(document),
-        laid_out.font,
+        laid_out.fonts,
     ));
     Ok(Painted {
         drawn: true,
@@ -4462,25 +4617,8 @@ fn free_text(
             .owed
             .map(Refusal::Text)
             .or(callout.owed)
-            .or(decoration)
-            .or(unapplied_default_style(document, annotation)),
+            .or(decoration),
     })
-}
-
-/// Table 177's `/DS` on a note whose appearance this program constructed.
-///
-/// Read through [`crate::markup::group_source`] because §12.5.6.2 makes it a group attribute —
-/// its list is "Contents (or RC and DS ), M , C , T , Popup , CreationDate , Subj , and Open" —
-/// so a subordinate's own `/DS` is ignored and the primary's is the one that would have styled
-/// the words. [`Refusal::DefaultStyleUnapplied`] says why neither does. ADR 1224.
-#[expect(
-    clippy::doc_markdown,
-    reason = "a verbatim quotation: §12.5.6.2 spells the entry names without backticks"
-)]
-fn unapplied_default_style(document: &Document, annotation: &Dictionary) -> Option<Refusal> {
-    let shared = crate::markup::group_source(document, annotation);
-    (!matches!(document.get_key(&shared, "DS"), Object::Null))
-        .then_some(Refusal::DefaultStyleUnapplied)
 }
 
 /// What [`callout`] put on the page, and what it could not.
@@ -4724,9 +4862,11 @@ fn free_text_layout(
     // and none of them free text — and the rule is applied anyway, because the list is the
     // clause's rather than the corpus's.
     let shared = crate::markup::group_source(document, annotation);
+    let contents = variable_text::string(document, &[&shared], "Contents");
     let text = match retyped {
         Some(retyped) => retyped.to_owned(),
-        None => variable_text::string(document, &[&shared], "Contents")
+        None => contents
+            .clone()
             .filter(|contents| !contents.is_empty())
             .or_else(|| crate::popup::rich_text(document, &shared))
             .unwrap_or_default(),
@@ -4740,12 +4880,30 @@ fn free_text_layout(
         return Err(Refusal::Text(Owed::NoFont));
     };
     let resources = default_resources(document);
+    let quadding = Quadding::read(document, &sources);
+    // Table 177's `/RC` and `/DS`, the text's formatting (ADRs 1634, 1635).
+    let root = crate::rich_text::root_style(document, &resources, &default_appearance);
+    if let Some(chosen) =
+        crate::rich_text::for_free_text(document, &shared, contents.as_deref(), retyped, &root)
+    {
+        let route = RichRoute {
+            box_,
+            default_appearance: &default_appearance,
+            resources: &resources,
+            quadding,
+            shape: Shape::Multiline,
+            asked,
+        };
+        return rich_laid_out(document, &chosen, &route)
+            .map(Some)
+            .map_err(Refusal::Text);
+    }
     let request = Request {
         text: &text,
         box_,
         default_appearance: &default_appearance,
         resources: &resources,
-        quadding: Quadding::read(document, &sources),
+        quadding,
         // Table 177 states no single-line free text: the annotation is a box of prose.
         shape: Shape::Multiline,
         asked,
@@ -4764,7 +4922,8 @@ fn is_free_text(document: &Document, annotation: &Dictionary) -> bool {
         .is_some_and(|subtype| subtype.as_bytes() == b"FreeText")
 }
 
-/// Adds the font [`variable_text::lay_out`] invented, if it invented one, to `/DR`'s resources.
+/// Adds the fonts [`variable_text::lay_out`] or [`crate::rich_text::lay_out`] invented to `/DR`'s
+/// resources.
 ///
 /// §12.7.4.3 makes a constructed appearance's `/Resources` "created using resources from the
 /// interactive form dictionary's DR entry", and this is the one addition to that rule: a `/DA`
@@ -4772,16 +4931,18 @@ fn is_free_text(document: &Document, annotation: &Dictionary) -> bool {
 /// answers, so the stand-in has to arrive with it or the interpreter would report a missing
 /// resource instead of the missing definition. `/DR`'s own entry always wins, because there is
 /// only a stand-in where `/DR` had none.
-fn with_stand_in_font(mut resources: Dictionary, font: Option<(Name, Dictionary)>) -> Dictionary {
-    let Some((name, dict)) = font else {
+fn with_stand_in_font(mut resources: Dictionary, invented: Vec<(Name, Dictionary)>) -> Dictionary {
+    if invented.is_empty() {
         return resources;
-    };
+    }
     let mut fonts = resources
         .get("Font")
         .and_then(Object::as_dict)
         .cloned()
         .unwrap_or_default();
-    fonts.insert(name, Object::Dictionary(dict));
+    for (name, dict) in invented {
+        fonts.insert(name, Object::Dictionary(dict));
+    }
     resources.insert(Name::new(b"Font".to_vec()), Object::Dictionary(fonts));
     resources
 }

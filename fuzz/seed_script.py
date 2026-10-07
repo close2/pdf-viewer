@@ -4,8 +4,9 @@ engine's library, the budgets at and past their bounds, and the malformed.
 
     python3 fuzz/seed_script.py fuzz/corpus/script
 
-**Why a generator.** The target's input is a selector byte — the site in its low three bits,
-`willCommit` in its top bit — then a script, the event's value and a keystroke's change,
+**Why a generator.** The target's input is a selector byte — the site in its low four bits, the
+unsaved mark, a commit by Enter, an asker that answers, and `willCommit` in the four above — then a
+script, the event's value and a keystroke's change,
 NUL-separated (`fuzz/fuzz_targets/script.rs`). A mutator handed nothing will not spell
 `event.value` or `this.getField` before it finds a parser error, so each is written here: the
 `event` members a field event carries, a field's properties read and set, the `AF*` library, the
@@ -54,6 +55,26 @@ SCRIPTS = [
     "AFSimple_Calculate('SUM', ['Total', 'Amount']);",
     "AFSpecial_Keystroke(2);",
     "event.value = util.printf('%.2f', 3.14159) + util.printd('yyyy-mm-dd', new Date(0));",
+    "event.value = util.printf('%,0+08.3f|%x|%s|%%|%05d', -1234.5, 255, Math.PI, 7);",
+    "event.value = util.printf('%,9d', 1);",
+    "event.value = util.printf('%1025d', 1);",
+    # The members ADR 1626 carries.
+    "global.radius = 8; event.value = util.printf('%.5f', (4/3) * Math.PI * Math.pow(global.radius, 3));",
+    "global.setPersistent('radius', true);",
+    "event.value = [event.commitKey, event.fieldFull, event.changeEx].join();",
+    "var b = this.dirty; this.dirty = false; event.value = String(this.dirty); this.dirty = b;",
+    "for (var k in this.info) event.value += k + '=' + this.info[k] + ';'; this.info.Title = 1;",
+    "var g = this.getOCGs(); g[0].state = !g[0].state; g[1].state = false; g[0].initState = 1;",
+    "this.getOCGs(0);",
+    "var b = this.getField('Send'); b.buttonSetCaption(b.buttonGetCaption() + '!', 2);",
+    "this.getField('Total').buttonSetCaption('x');",
+    # The questions ADR 1627 puts.
+    "event.value = app.alert({cMsg: 'Sure?', nIcon: 2, nType: 3, cTitle: 'Form'}) + app.alert('again');",
+    "var c = {cMsg: 'box', bInitialValue: true}; app.alert('x', 0, 1, 't', this, c); event.value = c.bAfterValue;",
+    "event.value = String(app.response({cQuestion: 'Name?', cDefault: 'x', bPassword: true}));",
+    # Deep without brackets, and deep at run time.
+    "event.value = eval('1' + '+1'.repeat(30000));",
+    "event.value = Function('return ' + '!'.repeat(5000) + '1')();",
     # A document-level function, defined and called.
     "function total() { return 42; } event.value = String(total());",
     "var global = global || {}; global.count = (global.count || 0) + 1; event.value = global.count;",
@@ -61,10 +82,8 @@ SCRIPTS = [
     # Refused by name.
     "app.launchURL('https://example.com');",
     "this.submitForm('https://example.com');",
-    "app.alert('hello'); app.alert('again');",
-    "app.response('question');",
     "this.exportDataObject({cName: 'x'});",
-    "event.commitKey;",
+    "event.keyDown;",
     "try { app.launchURL('x'); } catch (e) { event.value = e.name + ': ' + e.message; }",
     # The language's library.
     "event.value = JSON.stringify(JSON.parse('{\"a\": [1, 2, {\"b\": null}]}'));",
@@ -113,6 +132,9 @@ SCRIPTS = [
     "!" * 1000 + "1",
     "1 ? 1 : " * 500 + "1",
     "if (1) " * 500 + "event.value = 'x';",
+    "x=>" * 1000 + "1",
+    "a = " * 2000 + "1",
+    "if (x) {} " + "else if (x) {} " * 400,
 ]
 
 VALUES = [("12", ""), ("", "x"), ("-1234.5678", "5"), ("é€ ", "€")]
@@ -130,8 +152,8 @@ def main() -> None:
     scripts.append("1" + " +1" * ((MAX_LEN - 16) // 3))
     written = 0
     for script in scripts:
-        for selector in range(8):
-            for commit in (0x00, 0x80):
+        for selector in range(16):
+            for commit in (0x00, 0x70, 0x80, 0xF0):
                 value, change = VALUES[(selector + len(script)) % len(VALUES)]
                 data = (bytes([selector | commit]) + script.encode("utf-8") + b"\0"
                         + value.encode("utf-8") + b"\0" + change.encode("utf-8"))

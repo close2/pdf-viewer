@@ -826,16 +826,28 @@ fn simplify(stops: &[Stop]) -> Vec<Stop> {
         // line the two of them draw. Checking *all* of them, rather than only the one being
         // dropped, is what stops the error accumulating over a long run.
         let mut end = index;
+        // The last stop of the run from the anchor in which every stop is the anchor's own
+        // colour (`uniform_with`): a candidate inside it is straight without asking each middle,
+        // which on a constant ramp is the whole quadratic walk (ADR 1632).
+        let mut uniform = anchor;
         while end.saturating_add(1) < stops.len() {
             let next = end.saturating_add(1);
             let (Some(&start), Some(&finish)) = (stops.get(anchor), stops.get(next)) else {
                 break;
             };
-            let straight = stops
-                .get(anchor.saturating_add(1)..next)
-                .unwrap_or_default()
-                .iter()
-                .all(|middle| on_the_line(start, finish, *middle));
+            while uniform < next
+                && stops
+                    .get(uniform.saturating_add(1))
+                    .is_some_and(|stop| uniform_with(start, *stop))
+            {
+                uniform = uniform.saturating_add(1);
+            }
+            let straight = (uniform >= next && spans(start, finish))
+                || stops
+                    .get(anchor.saturating_add(1)..next)
+                    .unwrap_or_default()
+                    .iter()
+                    .all(|middle| on_the_line(start, finish, *middle));
             if !straight {
                 break;
             }
@@ -850,14 +862,43 @@ fn simplify(stops: &[Stop]) -> Vec<Stop> {
     out
 }
 
+/// Whether `stop` is `anchor`'s colour at a finite position, every channel finite — the case in
+/// which [`on_the_line`] answers yes without its arithmetic deciding anything.
+///
+/// **Exact rather than a tolerance**, and the argument is the arithmetic's own. Between two stops
+/// of one finite colour every channel's `b − a` is a zero, so the interpolated value is `a` plus a
+/// zero times a fraction the clamp keeps finite, which is `a`; and a middle of that colour is `a`
+/// again, so each channel's distance from the line is zero, which [`COLLINEAR`] admits. A
+/// non-finite channel or position is the one way that arithmetic produces a NaN, and is left to
+/// [`on_the_line`] to refuse. [`spans`] is the one test of the two ends that remains.
+#[expect(
+    clippy::float_cmp,
+    reason = "the equality is the condition: the argument above holds for equal channels and \
+              for nothing within a tolerance of them"
+)]
+fn uniform_with(anchor: Stop, stop: Stop) -> bool {
+    let colour = |stop: Stop| [stop.colour.r, stop.colour.g, stop.colour.b, stop.colour.a];
+    anchor.at.is_finite()
+        && stop.at.is_finite()
+        && colour(anchor) == colour(stop)
+        && colour(anchor).iter().all(|channel| channel.is_finite())
+}
+
+/// Whether [`on_the_line`]'s first test passes for a run from `start` to `finish`: a finite,
+/// positive width.
+fn spans(start: Stop, finish: Stop) -> bool {
+    let span = finish.at - start.at;
+    span.is_finite() && span > 0.0
+}
+
 /// Whether `middle` is what linear interpolation between `start` and `finish` would give.
 fn on_the_line(start: Stop, finish: Stop, middle: Stop) -> bool {
-    let span = finish.at - start.at;
     // A zero-width span is a discontinuity, and a stop inside one has no line to lie on. A
     // NaN position is neither, and `<=` answers false for it, which is the same refusal.
-    if !span.is_finite() || span <= 0.0 {
+    if !spans(start, finish) {
         return false;
     }
+    let span = finish.at - start.at;
     let fraction = ((middle.at - start.at) / span).clamp(0.0, 1.0);
     let between = |a: f32, b: f32| a + (b - a) * fraction;
     (middle.colour.r - between(start.colour.r, finish.colour.r)).abs() <= COLLINEAR
@@ -2425,10 +2466,147 @@ impl Triangle {
 #[cfg(test)]
 mod tests {
     use super::{
-        Corners, MESH_PARALLEL_FLOOR, MeshRaster, PatchCorners, PatchMesh, Placed, Ramp,
-        SurfacePatch, Triangle, blend_parameter, rasterise,
+        Corners, MESH_PARALLEL_FLOOR, MeshRaster, PatchCorners, PatchMesh, Placed, Ramp, Stop,
+        SurfacePatch, Triangle, blend_parameter, on_the_line, rasterise, simplify,
     };
     use crate::{Color, Point, Transform};
+
+    /// `simplify` as it reads without the uniform run: every middle asked of every candidate.
+    #[expect(
+        clippy::arithmetic_side_effects,
+        clippy::indexing_slicing,
+        reason = "indices below the length of the slice they index, in a test's reference"
+    )]
+    fn simplify_by_every_middle(stops: &[Stop]) -> Vec<Stop> {
+        let Some(first) = stops.first().copied() else {
+            return Vec::new();
+        };
+        let mut out = vec![first];
+        let mut anchor = 0usize;
+        let mut index = 1usize;
+        while index < stops.len() {
+            let mut end = index;
+            while end + 1 < stops.len() {
+                let next = end + 1;
+                let (start, finish) = (stops[anchor], stops[next]);
+                if !stops[anchor + 1..next]
+                    .iter()
+                    .all(|middle| on_the_line(start, finish, *middle))
+                {
+                    break;
+                }
+                end = next;
+            }
+            out.push(stops[end]);
+            anchor = end;
+            index = end + 1;
+        }
+        out
+    }
+
+    /// Bits, so that a NaN compares equal to itself and a negative zero differs from a positive.
+    fn bits(stops: &[Stop]) -> Vec<[u32; 5]> {
+        stops
+            .iter()
+            .map(|stop| {
+                [
+                    stop.at,
+                    stop.colour.r,
+                    stop.colour.g,
+                    stop.colour.b,
+                    stop.colour.a,
+                ]
+                .map(f32::to_bits)
+            })
+            .collect()
+    }
+
+    /// **A uniform run is the run every middle would have made, stop for stop and bit for bit**
+    /// (ADR 1632): constant ramps, ramps that are constant and then are not, steps at one
+    /// position, negative zeros, and the non-finite channels and positions the shortcut leaves to
+    /// the arithmetic — over every length up to forty and a pseudo-random choice of each.
+    #[test]
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "a test's pseudo-random choices: a modulus of the colours' count indexes them"
+    )]
+    fn a_uniform_run_is_the_run_every_middle_would_have_made() {
+        let colours = [
+            Color {
+                r: 0.25,
+                g: 0.5,
+                b: 0.75,
+                a: 1.0,
+            },
+            Color {
+                r: -0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 1.0,
+            },
+            Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 1.0,
+            },
+            Color {
+                r: 0.25,
+                g: 0.5,
+                b: 0.75 + 1.0 / 1024.0,
+                a: 1.0,
+            },
+            Color {
+                r: f32::INFINITY,
+                g: 0.0,
+                b: 0.0,
+                a: 1.0,
+            },
+            Color {
+                r: f32::NAN,
+                g: 0.0,
+                b: 0.0,
+                a: 1.0,
+            },
+        ];
+        let mut seed = 0x2545_f491_u32;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed
+        };
+        for length in 0..40usize {
+            for _ in 0..200 {
+                let mut at = 0.0f32;
+                let stops: Vec<Stop> = (0..length)
+                    .map(|_| {
+                        let draw = next();
+                        // Mostly the same colour, so that uniform runs are common; a repeated
+                        // position now and then, which is a step; a NaN position rarely.
+                        let colour = if draw % 4 == 0 {
+                            colours[(draw / 4) as usize % colours.len()]
+                        } else {
+                            colours[0]
+                        };
+                        if draw % 7 != 0 {
+                            at += 1.0 / 64.0;
+                        }
+                        let position = if draw % 97 == 0 { f32::NAN } else { at };
+                        Stop {
+                            at: position,
+                            colour,
+                        }
+                    })
+                    .collect();
+                assert_eq!(
+                    bits(&simplify(&stops)),
+                    bits(&simplify_by_every_middle(&stops)),
+                    "{stops:?}"
+                );
+            }
+        }
+    }
 
     /// A break makes a step, and a ramp without one averages across it.
     ///

@@ -740,6 +740,45 @@ chapter 2's *Annotation Elements*, *Annotation Subelements* and *Annotation attr
 mapping tables are present and in order, pages 37 to 99. Appendix A, the `ex_data` element for
 comments on 3D and rich media annotations, is read and refused: its subject is clause 13's.
 
+## XML Forms Architecture (XFA) Specification 3.3 — the rich text §12.7.4.3 hands its formatting to
+
+ISO 32000-2 names one text for every rich text string it defines — Table 228's `/RV` and `/DS`,
+Table 249's `/RV`, Table 172's and Table 177's `/RC`, Table 177's `/DS` — and it is *Adobe XML
+Architecture, XML Forms Architecture (XFA) Specification, version 3.3*. The copy held is the PDF
+the PDF Association hosts among ISO 32000-2's normative references, taken from the Internet
+Archive's capture of 2026-08-19, and kept outside the tree at `/home/AI/specs/XFA-3_3.pdf` on the
+agent's machine; `python3 tools/spec-md.py /home/AI/specs/XFA-3_3.pdf --out doc/md/XFA-3_3.md` put
+its text under the ignored `doc/md/`, in the page's content order (it carries no structure tree),
+1584 pages:
+
+| text | SHA-256 of the PDF |
+|---|---|
+| **XFA Specification, version 3.3**, dated 9 January 2012 | `a3344e7ef0b0da445bcce4323e689e646b31b64ecf1c318a8fc98f6b5edca01e` |
+
+**What its notice permits, paraphrased.** The preface's *Intellectual Property* section (page ix)
+keeps Adobe's copyright in the grammar and the processing rules and grants a permission to use the
+architecture for four purposes, one of them writing software that accepts input in the
+architecture and displays, prints or otherwise interprets its contents; the permission extends to
+copying the grammar and the example code as far as those purposes need, on condition that the
+copyright notice goes with what is copied. It grants no right to reproduce the specification's
+prose. So it is held the way XFDF 3.0 is (ADR 0187): **cited by chapter, section heading and page,
+paraphrased, never quoted** — *XFA 3.3 section 27, Supported Character Formatting, page 1198* —
+never with a `§`, never in a `>` blockquote, and nothing of it committed. The fixtures under
+`crates/pdf-model/tests/rich_text.rs` and `crates/pdf-model/src/rich_text/` are written for the
+tests, in XHTML's and CSS's own grammar with words and values of their own, each naming the example
+of chapter 27 whose rule it holds; none copies an example's text, so the notice's condition is
+never reached. The element and property names it lists are XHTML's and CSS2's, which the chapter
+names as its normative references for their values.
+
+**What it is read for.** Chapter 27, the Rich Text Reference (pages 1187 to 1223), and the
+measurement grammar of chapter 2's *Basic Composition* (page 36) that the chapter's relative
+measurements point at. `pdf_model::rich_text` is written against it (ADRs 1634, 1635). Nothing
+else in the specification is read: the template grammar, the data binding, the scripting and the
+layout of content areas are Annex K's schema-driven page generation, which `CLAUDE.md`'s XFA
+exclusion declines on §K.1's permission, and that exclusion does not reach a rich text string an
+AcroForm entry or an annotation carries (ADR 1197). Part 4, *Adobe Implementation*, is one
+vendor's departures and is evidence at most.
+
 ## PDF Association TechNote 0010, and a licence that could not be confirmed
 
 The owner obtained it on 2026-09-09 as `doc/TechNote0010.pdf` — *TechNote 0010: Clarifications of

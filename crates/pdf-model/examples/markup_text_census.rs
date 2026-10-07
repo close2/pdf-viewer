@@ -2,13 +2,14 @@
 //!
 //! Table 172 gives a markup annotation two ways to say what its popup shows. Table 166's
 //! `/Contents` is a plain text string and this tree draws it (ADR 0191); `/RC` is "[a] rich text
-//! string … that shall be displayed in the popup window when the annotation is opened", in the
-//! XFA rich-text format `CLAUDE.md` excludes by name — and NOTE 1 says the two are "expected" to
-//! be textually equivalent where both are present.
+//! string … that shall be displayed in the popup window when the annotation is opened", in XFA
+//! 3.3's rich text format, which `CLAUDE.md`'s XFA exclusion does not reach (ADR 1197) — and NOTE 1
+//! says the two are "expected" to be textually equivalent where both are present.
 //!
-//! So the question that decides whether the exclusion costs anything is **how many annotations
-//! state `/RC` and no `/Contents`**, and it had never been counted. This counts it, over every
-//! page rather than page one: a popup is opened by a click, and a click can be on page 40.
+//! So the question that decides what a window loses when only `/Contents` is read is **how many
+//! annotations state `/RC` and no `/Contents`**, and it had never been counted. This counts it,
+//! over every page rather than page one: a popup is opened by a click, and a click can be on page
+//! 40.
 //!
 //! ```sh
 //! cargo run --release -p pdf-model --example markup_text_census -- doc/pdf.js/test/pdfs/*.pdf

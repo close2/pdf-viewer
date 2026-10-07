@@ -28,6 +28,10 @@ pub struct Outcome {
     pub refusals: Vec<Refusal>,
     /// What the script wrote with `console.println`, a line each.
     pub log: Vec<String>,
+    /// What the run owes a report that is neither a refusal nor a line the script logged: each
+    /// question it put and how it was answered, the questions it was not let put, and a call
+    /// whose effect is not the reference's, each a sentence (ADRs 1626, 1627).
+    pub notes: Vec<String>,
 }
 
 impl Outcome {
@@ -42,6 +46,7 @@ impl Outcome {
             ending,
             refusals: Vec::new(),
             log: Vec::new(),
+            notes: Vec::new(),
         }
     }
 
@@ -58,11 +63,12 @@ impl Outcome {
         }
     }
 
-    /// Every sentence the outcome owes a report, in order: each refusal, then how the run ended
-    /// where it did not finish, then each logged line.
+    /// Every sentence the outcome owes a report, in order: each refusal, each note, then how the
+    /// run ended where it did not finish, then each logged line.
     #[must_use]
     pub fn sentences(&self) -> Vec<String> {
         let mut sentences: Vec<String> = self.refusals.iter().map(Refusal::sentence).collect();
+        sentences.extend(self.notes.iter().cloned());
         if let Some(sentence) = self.ending.sentence() {
             sentences.push(sentence);
         }
@@ -121,6 +127,14 @@ pub enum Exceeded {
     Stack(u32),
     /// The script's brackets nest deeper than the parser is handed.
     Nesting(u32),
+    /// The script's expressions nest deeper than the parser and the bytecompiler are handed: the
+    /// stack [`crate::depth::estimate`] says they would need, against the budget's, in bytes.
+    Depth {
+        /// The estimate.
+        estimated: u64,
+        /// The ceiling.
+        ceiling: u64,
+    },
     /// A built-in was asked to iterate or allocate an array of `asked` elements.
     Elements {
         /// How many the script asked for.
@@ -160,6 +174,12 @@ impl Exceeded {
             }
             Self::Nesting(limit) => format!(
                 "its brackets nest deeper than its budget of {limit} levels, and it was not parsed"
+            ),
+            Self::Depth { estimated, ceiling } => format!(
+                "its expressions nest so deep that parsing it would take about {} KiB of stack, \
+                 past its budget of {} KiB, and it was not parsed",
+                estimated >> 10,
+                ceiling >> 10
             ),
             Self::Elements { asked, ceiling } => format!(
                 "it asked a built-in for an array of {asked} elements, over its memory budget of \

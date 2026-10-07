@@ -304,6 +304,16 @@ impl<T> Documents<T> {
         self.tabs.iter().map(|tab| (tab.id, tab.label.as_str()))
     }
 
+    /// What one document's tab says, or a name made from its number where it has no tab — what a
+    /// question a document puts calls it (ADR 1628).
+    #[must_use]
+    pub fn label_of(&self, id: DocumentId) -> String {
+        self.iter().find(|(each, _)| *each == id).map_or_else(
+            || format!("document {}", id.0),
+            |(_, label)| label.to_owned(),
+        )
+    }
+
     /// Changes what one tab says, for a host that has learnt the document's own title.
     pub fn relabel(&mut self, id: DocumentId, label: String) {
         if let Some(index) = self.index_of(id) {

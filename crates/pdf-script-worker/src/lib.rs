@@ -16,7 +16,8 @@
 //!   granted, and answers each run with `pdf_script::run` under `pdf_script::Budget::FIELD_EVENT`.
 //!
 //! [`wire`] is what crosses between them: the script once, then the event's fields, and back an
-//! `Outcome`. The worker never holds the document's bytes; it is handed text and gives text back.
+//! `Outcome` — or a script's question, held in the worker until the host sends the person's answer
+//! (ADR 1627). The worker never holds the document's bytes; it is handed text and gives text back.
 //!
 //! # Why not inside `pdf-view-worker`
 //!
@@ -33,7 +34,7 @@ pub mod wire;
 #[cfg(feature = "engine")]
 mod worker;
 
-pub use client::{Cause, DEADLINE, Death, MAX_DEATHS, OpenCost, ScriptWorker};
+pub use client::{ANSWER_WAIT, Cause, DEADLINE, Death, MAX_DEATHS, OpenCost, ScriptWorker};
 
 #[cfg(feature = "engine")]
 pub use worker::serve;

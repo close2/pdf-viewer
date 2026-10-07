@@ -1,28 +1,25 @@
 # A draft that took ten seconds to appear, and takes one and a half
 
 Status: **open, and the title is now history** — the ten seconds is gone and this file is the
-record of where it went. Both levers §2 and §3 measured are built (ADRs 0341, 0351), and session
-588 re-measured the launch on this machine with the round's own binaries: **1.37 to 1.48 s** under
-`Xvfb`, against the owner's own later traces at 1.61 and 1.71 on their hardware
+record of where it went. Both levers §2 and §3 measured are built (ADRs 0341, 0351), and the
+launch re-measured on this machine is **1.37 to 1.48 s** under `Xvfb` (ADR 0423), against the owner's own later traces at 1.61 and 1.71 on their hardware
 (`tmp/trace2.entwurf.txt`, `tmp/trace3.entwurf.txt`). §6 is that measurement, phase by phase, and
 what it names next: not interpretation, and not anything this side can take.
-The owner asked whether displaying this document can be improved and supplied a trace; session 497
-closed the trace's hole, attributed the interpretation with callgrind, and priced the encode cache
-(ADR 0332). Session 506
-took §2's lexer candidate *and* its number-parsing second (ADR 0341): interpreting this document
-lost 39.8% of its instructions, byte-identical readback on this document and on ISO 32000-2.
-**Session 516 took §3** — upstream built the retained encode at `580fa4ac` (their ADR 0048, after
+The owner asked whether displaying this document can be improved and supplied a trace. The
+trace's hole is closed, the interpretation attributed with callgrind, and the encode cache priced
+(ADR 0332). §2's lexer candidate *and* its number-parsing second are taken (ADR 0341):
+interpreting this document lost 39.8% of its instructions, byte-identical readback on this
+document and on ISO 32000-2. **§3 is taken** — upstream built the retained encode at `580fa4ac` (their ADR 0048, after
 pricing it at `87898c69`), and this tree adopted it in ADR 0351: a frame whose page, placement,
 window, medium and chrome are the last frame's builds no scene and encodes nothing. §3.2 is what
-it did. **Session 535 retook §2's attribution, which three rounds of its own work had made stale,
-and took the three levers the new one names** (§2a, ADR 0370) — a fixed-size operand marshalling,
+it did. **§2's attribution is retaken, and the three levers the new one names are taken** (§2a,
+ADR 0370) — a fixed-size operand marshalling,
 §7.2.3's classification as a table, and §7.3.3's fixed format asked before the digit scan.
-**Session 588 divided the `scene` phase and finished the launch table** (§6, ADR 0423).
-**Session 589 then divided the largest phase of all** — interpretation — and took what the division
-named: 85% of this page's 20.8 million tokens are §7.3.3 numbers, each walked once to find its run
+**The `scene` phase is divided and the launch table finished** (§6, ADR 0423).
+**So is the largest phase of all** — interpretation — and what the division named is taken: 85% of this page's 20.8 million tokens are §7.3.3 numbers, each walked once to find its run
 and once to read its value, and fusing the two with §7.3.8.2's `endstream` search is **−7.12%** of
 interpreting the page and −6.8% of the launch's interpretation step, byte-identical over 1178 first
-pages (ADR 0424). That ADR also settles the other half of session 588's attribution: the 23% of
+pages (ADR 0424). That ADR also settles the other half of ADR 0423's attribution: the 23% of
 inflation is one pass over the stream and there is nothing to memoise.
 What is left of this file is §3.1's second half — the page-space construction that would
 buy the `scene` phase back across *zoom* steps, which needs nothing from upstream and which the
@@ -40,7 +37,7 @@ first frame's phases), `crates/pdf-syntax/src/lexer.rs` (where the interpretatio
 `crates/render-raster` (`scene.rs`'s `handing_over`, `cache.rs`'s `handed`; `encode`, where the
 retained scene sits beside ADR 0297's cache)
 
-## 1. The trace's hole is closed (session 497, ADR 0332)
+## 1. The trace's hole is closed (ADR 0332)
 
 The launch table jumped from `document joined 505.704 ms` to `first present 10220.077 ms
 (+9714.373)` with nothing between. It now carries two more milestones:
@@ -58,7 +55,7 @@ figure to half a millisecond. Read back through the owner's trace, the ten secon
 interpretation, ~1.0 s scene translation, ~1.7 s device** (of which `encode` 978 ms) — every
 second named.
 
-## 2. What the seven seconds are (callgrind, session 497)
+## 2. What the seven seconds are (callgrind, ADR 0332)
 
 `valgrind --tool=callgrind` over `examples/callgrind_interpret tmp/Entwurf.pdf 1`: one open plus
 one interpretation of page one is **22 411 M instructions**, of which the open is ~26 M. The page
@@ -85,10 +82,10 @@ display commands. Inclusive shares of the total:
 `doc/todo/41`'s population argument held: the 141 MiB inflates once, so the decoded-stream memo
 is not the lever here.
 
-**This table is the attribution as it stood in session 497, kept because it is what the decisions
+**This table is ADR 0332's attribution, kept because it is what the decisions
 below were made from. It is no longer the shape of this document's interpretation — §2a is.**
 
-**Both candidates this section named were taken in session 506 (ADR 0341).** The lexer borrows
+**Both candidates this section named are taken (ADR 0341).** The lexer borrows
 its token bytes from the decoded stream (`Token<'a>`, `Keyword(&'a [u8])`), and §7.3.3's fixed
 format is parsed from the bytes directly with an exactness argument that keeps it bit-identical
 to `f64::from_str`. Measured on this document with the same instrument: 22 398 M instructions →
@@ -98,9 +95,9 @@ readback byte-identical here and over all 1023 pages of ISO 32000-2, and a corpu
 declined designs are ADR 0341's; the table above is kept as the measurement the decision was
 made from.
 
-## 2a. The attribution retaken, and the three levers under it (session 535, ADR 0370)
+## 2a. The attribution retaken, and the three levers under it (ADR 0370)
 
-§2's table was three rounds old by the five-hundred-and-thirty-fifth: ADR 0341 had halved the
+§2's table was three rounds old when it was retaken: ADR 0341 had halved the
 lexer under it and ADR 0365 had put the stream behind a window. **A profile that old cannot say
 what to optimise**, and this is the rule the round is worth remembering for rather than any of its
 numbers — the launch table still named interpretation as the largest single item on this
@@ -157,7 +154,7 @@ display list never changed after the first frame.
   reuse exists to feed. quorra's `Options::instrument_encode` (its ADR 0023, unused here) can
   subdivide `encode` first if the ask wants finer numbers.
 
-### 3.1 What `87898c69` answered, and the question this tree owes back (session 512, ADR 0347)
+### 3.1 What `87898c69` answered, and the question this tree owes back (ADR 0347)
 
 Quorra's ADR 0045 priced the reuse and **built neither ask**, each for a stated reason:
 
@@ -193,7 +190,7 @@ upstream asked for, and carrying it across is the next step of this item. Not de
 is a change to the contract between the two trees, so it is theirs to shape from this reason
 (the same order `Device::warm_for` followed, in reverse).
 
-### 3.2 Taken at `580fa4ac` (session 516, ADR 0351) — and the residue is what §3 computed
+### 3.2 Taken at `580fa4ac` (ADR 0351) — and the residue is what §3 computed
 
 Upstream built the retained encode: `RetainedScene` is a handle the caller holds, owning the
 `Scene` and the encode of its last frame, and `Device::render_retained` replays that encode when
@@ -220,7 +217,7 @@ measurement that lost something. Without a clock: **24 of 25 frames replayed**, 
 58 989 → 58 029 (40 a frame to none), and the handle held **3 830 032 bytes** for this page.
 The launch table is unmoved, as a first frame that reuses nothing requires.
 
-### 3.3 Their question back is answered — and it is a *target* question rather than a scene one (session 547, ADR 0382)
+### 3.3 Their question back is answered — and it is a *target* question rather than a scene one (ADR 0382)
 
 *Can the host draw the page and the overlays as two `render` calls into the same target?*
 **Yes, and there is no case here that needs fragment composition.** `render_quorra::present::build`
@@ -240,7 +237,7 @@ exist, and neither side should build it. What the answer turns into instead is n
   rather than doing it quietly.
 
 **So the encode cache's obstacle (a) is closed by moving the presenter's target, not by new scene
-vocabulary**, and that same move is what session 548's reprojecting presenter needs.
+vocabulary**, and that same move is what the reprojecting presenter needs.
 `QUORRA_FEEDBACK.md` §28.4 and §28.6 have the argument and the one question that went back with it;
 ADR 0382 §6 is why the three items are one item.
 
@@ -254,14 +251,14 @@ rather than closing:
 - **The page scene built in page space under `Viewport`'s root affine.** It buys the `scene` phase
   across *zoom* steps and nothing else — §3.1's second bullet is upstream's correction, and it is
   final: a zoom step is a genuinely different rasterisation of every glyph, so no design reuses an
-  encode across one. It needs nothing from quorra. **Session 533 priced it: 2.4% of a zoom frame**
+  encode across one. It needs nothing from quorra. **It is priced at 2.4% of a zoom frame**
   (§5). It stays open because it is cheap and correct — the brief's §2.3 already asks a scene to be
   viewport-independent — and not because it is a lever.
 - **`QuadOutline` built lazily upstream** — §6, `doc/QUORRA_FEEDBACK.md` §33. 156 ms of this
   document's launch on the real adapter, 83% of its `scene` phase, and it is a representation no
   frame of a `Coverage::Cpu` session reads. It is not this side's to take.
 
-## 5. The zoom step, measured at last, and it is not the `scene` phase (session 533, ADR 0368)
+## 5. The zoom step, measured at last, and it is not the `scene` phase (ADR 0368)
 
 §4 said a person zooming is a different population and that a witness would have to come from
 `doc/todo/45`. The project owner asked the question directly instead — *could this document be
@@ -282,7 +279,7 @@ three sessions, 639.8 / 660.0 / 661.9 ms):
 | `transfer` | 65.4 | 10.2% |
 | `execute` (the adapter's own timestamps) | 29.1 | 4.5% |
 
-### 5b. The same frame after the thread pool, on the owner's own adapter (session 552, ADR 0387)
+### 5b. The same frame after the thread pool, on the owner's own adapter (ADR 0387)
 
 ADR 0377 turned `encode_threads` on and the frame changed shape. The owner's `tmp/trace2.entwurf.txt`,
 medians of 15 frames of a zoom session:
@@ -298,7 +295,7 @@ medians of 15 frames of a zoom session:
 
 **The row to read is `execute`.** The graphics device does about a thousandth of this frame; every
 other row is one host thread, and two of them — `transfer` and `elsewhere` — are quorra's with no
-lever on this side at all. What session 552 took is the third: `scene`, −20.5 % by removing a
+lever on this side at all. What ADR 0387 took is the third: `scene`, −20.5 % by removing a
 device-pixel window computed for every fill and read by none of them (ADR 0387 §3). What it
 established about the other two is that neither is what it looked like: the 40 uploads move none of
 `transfer`'s bytes (§3a of `doc/todo/45`), and `elsewhere` is host time inside `Device::render` that
@@ -321,7 +318,7 @@ sub-pixel marks forbidden by §10.7.4 outright. `doc/QUORRA_ENCODE_THREADS.md` i
 upstream: divide `encode` across more than one thread, with its own ceiling stated — geometry at
 zero still leaves a 235 ms frame.
 
-## 6. The launch re-measured, and the phase the table could not name (session 588, ADR 0423)
+## 6. The launch re-measured, and the phase the table could not name (ADR 0423)
 
 **The ten seconds is one and a half, and every second of it is now named.** Four launches under
 `Xvfb` on `llvmpipe`, the round's own release binaries, `--trace=launch`:

@@ -516,6 +516,12 @@ answers in two places"
                 let words = viewer_host::asked_to_run_scripts(&script, &first_line);
                 self.put_a_question(crate::app::Pending::Scripts { document }, &words);
             }
+            // RFC 0008 section 4.2's `app.alert` and `app.response`, on the same card, with the
+            // keys for the buttons the script asked for or an entry holding its default, and
+            // titled with the document that asks (ADR 1628).
+            Event::ScriptAsking { document, question } => {
+                self.put_script_question(document, question);
+            }
             // §7.11.4's list moved: the copy `gather` took when the document opened is stale,
             // which is the one way "a property of an immutable document" stopped being true of
             // this list. Read again, and only this list.
@@ -651,6 +657,10 @@ impl App {
     /// two windows and in `pdf-transform`'s pipe.
     pub(crate) fn question_key(&mut self, key: &winit::keyboard::Key<&str>) {
         use winit::keyboard::{Key, NamedKey};
+        if matches!(self.asked, Some(crate::app::Pending::Script { .. })) {
+            self.script_question_key(key);
+            return;
+        }
         match key {
             Key::Named(NamedKey::Enter) => self.question_answered(true),
             Key::Named(NamedKey::Escape) => self.question_answered(false),
@@ -710,6 +720,12 @@ impl App {
             crate::app::Pending::Scripts { document } => {
                 println!("note: {}", viewer_host::scripts_answered(proceed));
                 self.dispatch(Command::AnswerScripts { document, proceed });
+            }
+            // A script's question answered other than by its own keys — which is a yes or a no
+            // and nothing finer: the affirming button or what is typed, or a closed dialogue's
+            // answer (ADR 1628).
+            crate::app::Pending::Script { document, question } => {
+                self.script_answered_by_the_card(document, &question, proceed);
             }
             // §12.7.6.2: the act is this host's own, so the answer decides whether the request
             // leaves this machine at all (ADR 1291).
@@ -839,6 +855,124 @@ impl App {
             self.offer_a_name(path, bytes.as_deref().unwrap_or_default(), purpose);
         }
         self.dispatch(Command::Supply { purpose, bytes });
+    }
+
+    /// A script's question on the card: its title names the document, and its last line the keys
+    /// (ADR 1628).
+    fn put_script_question(
+        &mut self,
+        document: viewer_core::DocumentId,
+        question: viewer_core::ScriptQuestion,
+    ) {
+        use viewer_host::script_asks;
+        let name = self.documents.label_of(document);
+        println!("note: {}", script_asks::put(&name, &question));
+        let (label, entry) = match &question {
+            viewer_core::ScriptQuestion::Alert { icon, .. } => (Some(icon.word()), None),
+            viewer_core::ScriptQuestion::Response {
+                label,
+                default,
+                password,
+                ..
+            } => (label.as_deref(), Some((default.as_str(), *password))),
+        };
+        self.question.ask_script(
+            &script_asks::title(&name, &question),
+            script_asks::text(&question),
+            label,
+            &script_asks::keys_line(&question),
+            entry,
+        );
+        self.asked = Some(crate::app::Pending::Script { document, question });
+        self.redraw();
+    }
+
+    /// A script's question answered other than by its own keys — which is a yes or a no and
+    /// nothing finer: the affirming button or the default typed, or a closed dialogue's answer.
+    fn script_answered_by_the_card(
+        &mut self,
+        document: viewer_core::DocumentId,
+        question: &viewer_core::ScriptQuestion,
+        proceed: bool,
+    ) {
+        use viewer_core::{ScriptAnswer, ScriptQuestion};
+        let answer = match (question, proceed) {
+            (ScriptQuestion::Alert { buttons, .. }, true) => buttons
+                .buttons()
+                .last()
+                .copied()
+                .map_or_else(|| ScriptAnswer::dismissed(question), ScriptAnswer::Pressed),
+            (ScriptQuestion::Response { default, .. }, true) => {
+                ScriptAnswer::Typed(Some(default.clone()))
+            }
+            (_, false) => ScriptAnswer::dismissed(question),
+        };
+        let password = matches!(question, ScriptQuestion::Response { password: true, .. });
+        println!(
+            "note: {}",
+            viewer_host::script_asks::answered(&answer, password)
+        );
+        self.dispatch(Command::AnswerScript { document, answer });
+    }
+
+    /// A key while a script's question is on the card: a button's letter, Enter or Escape for an
+    /// alert, and for a response the characters of the answer, Backspace, Enter and Escape.
+    fn script_question_key(&mut self, key: &winit::keyboard::Key<&str>) {
+        use viewer_core::{ScriptAnswer, ScriptQuestion};
+        use viewer_host::script_asks::{self, Pressed};
+        use winit::keyboard::{Key, NamedKey};
+        let Some(crate::app::Pending::Script { document, question }) = self.asked.as_ref() else {
+            return;
+        };
+        let (document, password) = (
+            *document,
+            matches!(question, ScriptQuestion::Response { password: true, .. }),
+        );
+        let answer = match (question, key) {
+            (ScriptQuestion::Alert { buttons, .. }, _) => {
+                let pressed = match key {
+                    Key::Named(NamedKey::Enter) => Pressed::Enter,
+                    Key::Named(NamedKey::Escape) => Pressed::Escape,
+                    Key::Character(text) => Pressed::Character(text),
+                    // A key with no meaning here, taken anyway: the card is modal.
+                    _ => return,
+                };
+                let Some(button) = script_asks::button_for(*buttons, pressed) else {
+                    return;
+                };
+                ScriptAnswer::Pressed(button)
+            }
+            (ScriptQuestion::Response { .. }, Key::Named(NamedKey::Enter)) => {
+                ScriptAnswer::Typed(Some(self.question.typed().unwrap_or_default().to_owned()))
+            }
+            (ScriptQuestion::Response { .. }, Key::Named(NamedKey::Escape)) => {
+                ScriptAnswer::Typed(None)
+            }
+            (ScriptQuestion::Response { .. }, Key::Named(NamedKey::Backspace)) => {
+                if self.question.backspace() {
+                    self.redraw();
+                }
+                return;
+            }
+            (ScriptQuestion::Response { .. }, Key::Named(NamedKey::Space)) => {
+                if self.question.type_into(" ") {
+                    self.redraw();
+                }
+                return;
+            }
+            (ScriptQuestion::Response { .. }, Key::Character(text)) => {
+                if self.question.type_into(text) {
+                    self.redraw();
+                }
+                return;
+            }
+            (ScriptQuestion::Response { .. }, _) => return,
+        };
+        self.asked = None;
+        self.question.answered();
+        self.redraw();
+        println!("note: {}", script_asks::answered(&answer, password));
+        self.dispatch(Command::AnswerScript { document, answer });
     }
 
     /// Puts one question on the card, whatever it is about.

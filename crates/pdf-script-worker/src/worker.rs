@@ -15,14 +15,19 @@
 //! closes its copy, so a host — or anything that has taken one over — cannot hand this process a
 //! file. `recvmsg` is off its allow-list, and that is the reason it can be.
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::io::{Read, Write as _};
+use std::io::{Read, StdinLock, StdoutLock, Write};
+use std::rc::Rc;
 
 use confined_transport::{frame, greeting};
 use pdf_sandbox::lockdown::{self, Profile};
-use pdf_script::{Budget, Realm};
+use pdf_script::wire::{decode_answer, encode_question};
+use pdf_script::{Answer, Asker, Budget, Question, Realm};
 
-use crate::wire::{FRAME_RUN, MAGIC, MAX_RUN_BYTES, Reply, decode_run, encode_reply};
+use crate::wire::{
+    FRAME_ANSWER, FRAME_QUESTION, FRAME_RUN, MAGIC, MAX_RUN_BYTES, Reply, decode_run, encode_reply,
+};
 
 /// Most scripts one worker holds.
 ///
@@ -49,28 +54,99 @@ const MAX_HELD_BYTES: usize = 8 << 20;
 pub fn serve() -> Result<(), std::io::Error> {
     let confinement = lockdown::apply_for(Profile::Script).map_err(std::io::Error::other)?;
 
-    let stdout = std::io::stdout();
-    let mut output = stdout.lock();
-    output.write_all(&greeting::encode(MAGIC, confinement))?;
-    output.flush()?;
+    let pipes = Rc::new(RefCell::new(Pipes {
+        input: std::io::stdin().lock(),
+        output: std::io::stdout().lock(),
+    }));
+    {
+        let mut pipes = pipes.borrow_mut();
+        pipes
+            .output
+            .write_all(&greeting::encode(MAGIC, confinement))?;
+        pipes.output.flush()?;
+    }
 
-    let stdin = std::io::stdin();
-    let mut input = stdin.lock();
+    let asker: Rc<dyn Asker> = Rc::new(Wire {
+        pipes: Rc::clone(&pipes),
+    });
     let mut held = Held::default();
     let mut realm = None;
-    while let Some(incoming) = read_frame(&mut input)? {
+    loop {
+        let incoming = read_frame(&mut pipes.borrow_mut().input)?;
+        let Some(incoming) = incoming else {
+            break;
+        };
         let reply = match incoming {
-            Incoming::Frame { kind, payload } => answer(&mut held, &mut realm, kind, &payload),
+            Incoming::Frame { kind, payload } => {
+                answer(&mut held, &mut realm, &asker, kind, &payload)
+            }
             Incoming::TooLarge { length } => Reply::Refused(format!(
                 "a run of {length} bytes is past the {MAX_RUN_BYTES} this worker reads"
             )),
         };
         let (kind, bytes) = encode_reply(&reply);
-        output.write_all(&frame::header(kind, bytes.len()))?;
-        output.write_all(&bytes)?;
-        output.flush()?;
+        write_frame(&mut pipes.borrow_mut().output, kind, &bytes)?;
     }
     Ok(())
+}
+
+/// The worker's two pipes, shared by the loop that reads runs and the asker that puts a script's
+/// question while a run is under way.
+struct Pipes {
+    /// Standard input, locked for the process's life: nothing else reads it.
+    input: StdinLock<'static>,
+    /// Standard output, likewise.
+    output: StdoutLock<'static>,
+}
+
+/// Writes one frame and flushes it.
+fn write_frame(output: &mut impl Write, kind: u8, bytes: &[u8]) -> Result<(), std::io::Error> {
+    output.write_all(&frame::header(kind, bytes.len()))?;
+    output.write_all(bytes)?;
+    output.flush()
+}
+
+/// The worker's asker: the question goes to the host as a [`FRAME_QUESTION`], and the script is
+/// held in its call until the host's [`FRAME_ANSWER`] comes back (ADR 1627).
+///
+/// The host has already returned from the run that asked — a host's thread never waits on a person
+/// (ADR 1628) — so nothing else crosses until the answer does: the host queues every later trigger
+/// of this document behind the question. A frame of any other kind where the answer should be, a
+/// pipe that fails, or an input that ends is a question nobody can answer, and the script is
+/// answered as a closed dialogue answers.
+struct Wire {
+    /// The pipes.
+    pipes: Rc<RefCell<Pipes>>,
+}
+
+impl std::fmt::Debug for Wire {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Wire")
+    }
+}
+
+impl Asker for Wire {
+    fn ask(&self, question: &Question) -> Answer {
+        let Ok(mut pipes) = self.pipes.try_borrow_mut() else {
+            return Answer::Unanswerable;
+        };
+        if write_frame(
+            &mut pipes.output,
+            FRAME_QUESTION,
+            &encode_question(question),
+        )
+        .is_err()
+        {
+            return Answer::Unanswerable;
+        }
+        match read_frame(&mut pipes.input) {
+            Ok(Some(Incoming::Frame {
+                kind: FRAME_ANSWER,
+                payload,
+            })) => decode_answer(&payload).unwrap_or(Answer::Unanswerable),
+            _ => Answer::Unanswerable,
+        }
+    }
 }
 
 /// One frame, or the fact that it was past [`MAX_RUN_BYTES`].
@@ -166,7 +242,13 @@ impl Held {
 /// document's library defined at the open is what a field's script calls later (ADR 1602). A
 /// refusal is a reply rather than an error: a host that sent something this worker does not run
 /// keeps its worker, and only a broken pipe ends one.
-fn answer(held: &mut Held, realm: &mut Option<Realm>, kind: u8, payload: &[u8]) -> Reply {
+fn answer(
+    held: &mut Held,
+    realm: &mut Option<Realm>,
+    asker: &Rc<dyn Asker>,
+    kind: u8,
+    payload: &[u8],
+) -> Reply {
     if kind != FRAME_RUN {
         return Reply::Refused(format!(
             "a frame of kind {kind} is not one this worker reads"
@@ -192,7 +274,7 @@ fn answer(held: &mut Held, realm: &mut Option<Realm>, kind: u8, payload: &[u8]) 
         ..run.request
     };
     if realm.is_none() {
-        match Realm::new(Budget::FIELD_EVENT) {
+        match Realm::with_asker(Budget::FIELD_EVENT, Rc::clone(asker)) {
             Ok(constructed) => *realm = Some(constructed),
             Err(why) => return Reply::Refused(why),
         }
@@ -207,7 +289,16 @@ fn answer(held: &mut Held, realm: &mut Option<Realm>, kind: u8, payload: &[u8]) 
 mod tests {
     use pdf_script::Ending;
 
+    use std::rc::Rc;
+
+    use pdf_script::{Asker, Nobody};
+
     use super::{Held, Incoming, MAX_HELD_BYTES, answer, read_frame};
+
+    /// The asker of a test that puts no question.
+    fn nobody() -> Rc<dyn Asker> {
+        Rc::new(Nobody)
+    }
     use crate::wire::tests::request;
     use crate::wire::{FRAME_RUN, MAX_RUN_BYTES, Reply, Run, encode_run};
 
@@ -222,8 +313,13 @@ mod tests {
             request: request(),
         };
         let mut realm = None;
-        let Reply::Outcome(outcome) = answer(&mut held, &mut realm, FRAME_RUN, &encode_run(&first))
-        else {
+        let Reply::Outcome(outcome) = answer(
+            &mut held,
+            &mut realm,
+            &nobody(),
+            FRAME_RUN,
+            &encode_run(&first),
+        ) else {
             panic!("the first run is answered with an outcome");
         };
         assert_eq!(outcome.value.as_deref(), Some("<12>"));
@@ -231,8 +327,13 @@ mod tests {
             new_script: None,
             ..first
         };
-        let Reply::Outcome(outcome) = answer(&mut held, &mut realm, FRAME_RUN, &encode_run(&again))
-        else {
+        let Reply::Outcome(outcome) = answer(
+            &mut held,
+            &mut realm,
+            &nobody(),
+            FRAME_RUN,
+            &encode_run(&again),
+        ) else {
             panic!("the second run is answered with an outcome");
         };
         assert_eq!(outcome.ending, Ending::Finished);
@@ -249,6 +350,7 @@ mod tests {
         let reply = answer(
             &mut Held::default(),
             &mut None,
+            &nobody(),
             FRAME_RUN,
             &encode_run(&run),
         );

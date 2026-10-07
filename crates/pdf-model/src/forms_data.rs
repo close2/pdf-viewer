@@ -80,7 +80,9 @@
 //! - **`/Differences`** is the target document's own incremental updates, carried for a server;
 //!   applying it would mean *writing* the target file, which principle 5 puts outside this
 //!   project.
-//! - **`/RV`** on a field: XFA rich text, which is excluded. `read_field` argues it. Table 249's
+//! - **`/RV`** on a field: the rich text string beside the value, which the import does not yet
+//!   carry; the value it replaces is drawn in the field's default style. `read_field` says it.
+//!   Table 249's
 //!   `/IF`, `/AP`, `/A` and `/AA` are **not** among them: an icon fit dictionary states names,
 //!   numbers and a boolean and nothing else, so it crosses whole and replaces Table 192's `/IF`
 //!   on the widget (ADR 1186); the other three cross by [`carry`], which is the rule below
@@ -1190,11 +1192,15 @@ fn read_field(
             );
         }
     }
-    // `/RV` is a rich text string, whose formatting no part of this tree applies — §12.7.4.3's
-    // own departure, reported on the field it is drawn for rather than here — so importing it
-    // would change nothing a reader sees. ADRs 1186, 1197, 1223.
+    // `/RV` is the rich text string of the value beside it, which a field's appearance is laid
+    // out in (ADR 1634). An import carries the value and not this entry yet, so the imported
+    // value is drawn in the field's default style and the entry is named here. ADRs 1186, 1223,
+    // 1635.
     if !document.get_key(field, "RV").is_null() {
-        owed.push("/RV: a rich text string whose XFA 3.3 formatting §12.7.4.3 does not apply here");
+        owed.push(
+            "/RV: the rich text string beside the value, which an import does not carry yet; the \
+             value is drawn in the field's default style",
+        );
     }
     FdfField {
         name,
@@ -1768,7 +1774,10 @@ mod tests {
         assert_eq!(data.annotations[0].subtype.as_deref(), Some("Text"));
         assert_eq!(
             data.fields[0].owed,
-            ["/RV: a rich text string whose XFA 3.3 formatting §12.7.4.3 does not apply here"]
+            [
+                "/RV: the rich text string beside the value, which an import does not carry yet; \
+                 the value is drawn in the field's default style"
+            ]
         );
         // Named one by one rather than counted: an assertion on a length would accept any five
         // sentences, including five of the wrong ones (trap 27).

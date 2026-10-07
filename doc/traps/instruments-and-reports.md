@@ -1167,6 +1167,18 @@ it is called a saving or noise (ADR 1618). And a record's `script_open spawn_ms=
 1.8 s in a brief, measured as 1.8 ms, and a round's premise was off by a thousand (ADR 1620): a
 duration is quoted with its unit, and "s" is written when seconds are meant.
 
+### 122. A time-bounded target at nice 19, a scanner over "the rest", and a clock under the lock's prefix
+
+Three instruments that lied in batch sixty-two. A fuzz target bounded by wall time, run under
+`tools/bounded.sh`'s default nice 19 beside siblings' builds, failed on the seed that sits at its
+budget (`new Array(1048576).fill(0)`: 2.1 and 3.4 s against 2 s, 0.57–0.68 s alone) — a
+time-bounded target runs with `--nice 0` (round 1395). The same round's depth scanner decoded
+the rest of the script for every character and was quadratic; the fuzz campaign found it in a
+64 KiB string compiled at run time, and a four-byte window fixed it (ADR 1626). And the lock
+prefix `RAYON_NUM_THREADS=4` reaches whatever runs inside it: `zoom_frame`'s CPU backend read
+93.7 ms under it where it is 47.6 — a clock child sets its own pinned core count, as `turn_path`
+does with `RAYON_NUM_THREADS=8` and `taskset -c 0-3,12-15` (round 1397).
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

@@ -1024,10 +1024,12 @@ cd fuzz && cargo +nightly fuzz run script       -- -max_total_time=1200 -rss_lim
   # (RFC 0008 section 6.7, ADRs 1590, 1609): Boa's parser and interpreter, the bridge's members and
   # refusals, the `AF*` library through the bridge, and the budgets. A run returns within eight
   # times the worker's deadline, one that did not finish changed nothing, and the outcome crosses
-  # the wire as it is. Bracket nesting past 256 is not run, because Boa's parser overflows a stack
-  # on it and the worker's loss is that defect's test. Seeded by `fuzz/seed_script.py` with every
-  # site, each member carried and refused, every budget at its number and one past it, and a
-  # script at the `-max_len` above.
+  # the wire as it is. Table 200's five sites are among the sixteen, the document as a whole is told
+  # (an information dictionary, two groups), and a question is answered or answered by nobody
+  # (ADRs 1626, 1627). Bracket nesting past 256 is not run; the realm's own bounds stop a script
+  # below that. Seeded by `fuzz/seed_script.py` with every site, each member carried and refused,
+  # every budget at its number and one past it, chains deep without brackets, and a script at the
+  # `-max_len` above.
 cd fuzz && cargo +nightly fuzz run script_wire  -- -max_total_time=1200 -rss_limit_mb=2048
   # the script worker's wire from both sides (ADR 1609): the run a host sends and the reply a
   # confined worker sends back to a host that is not. What decodes once decodes again to the same,

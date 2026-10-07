@@ -1195,15 +1195,16 @@ fn a_free_text_annotations_rich_text_draws_where_it_states_no_contents() {
     );
 }
 
-/// `/Contents` outranks `/RC`, which is §12.5.6.2's NOTE 1 read for this subtype.
+/// `/Contents` outranks a disagreeing `/RC`, which is §12.5.6.2 read for this subtype.
 ///
 /// > When both Contents and RC entries are present, it is expected that the contents of both
 /// > entries are textually equivalent.
 ///
-/// Expected rather than required, so the two can disagree — and the plain string is the one this
-/// crate can hand over without reading a specification it does not have. The fixture makes them
-/// disagree in *width*, which is the only thing a raster can be asked: a one-character
-/// `/Contents` beside a long `/RC` must ink like the short one.
+/// Expected rather than required, so the two can disagree — and where they do, the clause's own
+/// first group says which is the text: a free text annotation's "Contents entry specifies the
+/// displayed text". The disagreement is said (ADR 1635). The fixture makes them disagree in
+/// *width*, which is the only thing a raster can be asked: a one-character `/Contents` beside a
+/// long `/RC` must ink like the short one.
 #[test]
 fn a_free_text_annotations_contents_outranks_its_rich_text() {
     let (reports, raster) = draw(pdf_with(
@@ -1212,7 +1213,11 @@ fn a_free_text_annotations_contents_outranks_its_rich_text() {
          /RC (<body xmlns=\"http://www.w3.org/1999/xhtml\"><p>wwwwwwwwwwwwwwww</p></body>) \
          /DA (/Helv 12 Tf 0 g) /Border [0 0 0] >>",
     ));
-    assert!(reports.is_empty(), "{reports:?}");
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    assert!(
+        reports[0].contains("/RC") && reports[0].contains("/Contents"),
+        "{reports:?}"
+    );
     let (start, end) = ink_span(&raster);
     let width = end.saturating_sub(start);
     assert!(
@@ -3850,42 +3855,42 @@ fn a_da_whose_text_matrix_has_no_inverse_says_it_flattens_every_glyph() {
     assert!(upright.is_empty(), "the control owes nothing: {upright:?}");
 }
 
-/// §12.7.5.3's Table 231 bit 26 makes the value rich text, and this tree draws its characters.
+/// §12.7.5.3's Table 231 bit 26 makes the value rich text, and this tree draws its formatting.
 ///
-/// The `shall` the picture departs from is §12.7.4.3's, addressed to a processor rather than to
-/// the file:
+/// §12.7.4.3 states what a processor owes such a field:
 ///
 /// > For these fields, the following conventions are not used, and the entire annotation
 /// > appearance shall be regenerated each time the value is changed.
 ///
-/// What replaces those conventions is XFA 3.3's formatting model, which this tree does not hold,
-/// so a face, a size, a colour and an alignment stated in the markup are not applied — and
-/// saying so is what this tree can do about it (ADRs 1122, 1197). The characters are another
-/// matter and are drawn, which the fixtures below pin. The report's condition is the formatting
-/// the *file* states rather than the flag, because a condition is what a report is worth (trap
-/// 11): here Table 228's `/RV`, since bit 26's second sentence is what puts formatting in the
-/// file, and a field with neither entry nor markup in its value has none to lose. Reporting on
-/// the flag alone would fire on 252 crawled widgets instead of 33
-/// (`examples/field_flag_census`).
+/// and Table 228's `/RV` is the "rich text string, as described in Adobe XML Architecture, XML
+/// Forms Architecture (XFA) Specification, version 3.3", which is held and is what
+/// `pdf_model`'s rich layout reads (ADRs 1634, 1635). So the `<b>` an `/RV` states sets the
+/// value in the bold face, wider than the plain one, and nothing is owed. `tests/rich_text.rs`
+/// holds every element and property; this fixture is the one that reaches the field through its
+/// `/NeedAppearances` regeneration.
 #[test]
-fn a_rich_text_fields_formatting_is_reported_and_its_plain_value_is_drawn() {
+fn a_rich_text_fields_formatting_is_drawn() {
     // Bit 26 is 1 << 25 = 33554432.
-    let (reports, raster) = draw(pdf_with_appearance(
-        "/NeedAppearances true",
-        "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx /Ff 33554432 \
-         /T (field) /V (Hi) /RV (<body><p><b>Hi</b></p></body>) /AP << /N 6 0 R >> \
-         /DA (/Helv 12 Tf 0 g) >>",
-        "/Tx BMC EMC",
-    ));
-    assert_eq!(reports.len(), 1, "{reports:?}");
+    let field = |rv: &str| {
+        pdf_with_appearance(
+            "/NeedAppearances true",
+            &format!(
+                "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
+                 /Ff 33554432 /T (field) /V (Hi) {rv} /AP << /N 6 0 R >> /DA (/Helv 12 Tf 0 g) >>"
+            ),
+            "/Tx BMC EMC",
+        )
+    };
+    let (reports, bold) = draw(field("/RV (<body><p><b>Hi</b></p></body>)"));
+    assert!(reports.is_empty(), "the formatting is applied: {reports:?}");
+    let (_, plain) = draw(field(""));
+    let width = |raster: &pdf_render::Raster| {
+        let (start, end) = ink_span(raster);
+        end.saturating_sub(start)
+    };
     assert!(
-        reports[0].contains("RichText") && reports[0].contains("XFA"),
-        "the report must name the flag and what is not read: {reports:?}"
-    );
-    assert!(
-        !inked_columns(&raster).is_empty(),
-        "the plain characters of /V are still drawn, which is what makes this a report \
-         beside a drawing rather than a refusal"
+        width(&bold) > width(&plain),
+        "Helvetica-Bold's advances are wider than Helvetica's"
     );
 }
 
@@ -3928,16 +3933,30 @@ fn an_rv_without_the_rich_text_flag_owes_nothing() {
 /// Table 226 makes `/Ff` inheritable and Table 228 does not mark `/RV` so — but a widget merged
 /// with its field is the common shape, and a widget that is a `/Kids` entry of the field
 /// dictionary is the other one, where both entries sit above it. The walk is the field's own
-/// chain either way, which is what this fixture holds: neither entry is on the annotation.
+/// chain either way, which is what this fixture holds: neither entry is on the annotation, and the
+/// bold the `/RV` states is drawn.
 #[test]
 fn a_rich_text_fields_flag_and_rv_are_found_up_the_parent_chain() {
-    let (reports, _) = draw(pdf_with_objects(
-        "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /Parent 8 0 R >>",
-        "8 0 obj\n<< /FT /Tx /Ff 33554432 /T (field) /V (Hi) \
-         /RV (<body><p><b>Hi</b></p></body>) /DA (/Helv 12 Tf 0 g) >>\nendobj\n",
-    ));
-    assert_eq!(reports.len(), 1, "{reports:?}");
-    assert!(reports[0].contains("RichText"), "{reports:?}");
+    let field = |rv: &str| {
+        pdf_with_objects(
+            "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /Parent 8 0 R >>",
+            &format!(
+                "8 0 obj\n<< /FT /Tx /Ff 33554432 /T (field) /V (Hi) {rv} \
+                 /DA (/Helv 12 Tf 0 g) >>\nendobj\n"
+            ),
+        )
+    };
+    let (reports, bold) = draw(field("/RV (<body><p><b>Hi</b></p></body>)"));
+    assert!(reports.is_empty(), "{reports:?}");
+    let (_, plain) = draw(field(""));
+    let width = |raster: &pdf_render::Raster| {
+        let (start, end) = ink_span(raster);
+        end.saturating_sub(start)
+    };
+    assert!(
+        width(&bold) > width(&plain),
+        "the /RV above the widget is read"
+    );
 }
 
 /// A rich text value is drawn as the characters it encloses, not as the markup that encloses
@@ -3974,10 +3993,9 @@ fn a_rich_text_values_markup_is_drawn_as_the_characters_it_encloses() {
         "(<body xmlns=\"http://www.w3.org/1999/xhtml\"><p>Hi</p></body>)",
     ));
     let (_, plain) = draw(field("(Hi)"));
-    assert_eq!(reports.len(), 1, "{reports:?}");
     assert!(
-        reports[0].contains("RichText"),
-        "the formatting is still not applied, and the report says so: {reports:?}"
+        reports.is_empty(),
+        "markup with no style of its own owes nothing: {reports:?}"
     );
     assert_eq!(
         ink_span(&markup),
@@ -4052,22 +4070,34 @@ fn markup_in_a_value_whose_rich_text_flag_is_clear_is_drawn_as_it_stands() {
     );
 }
 
-/// Table 228's `/DS` is formatting the file states, so it fires the report on its own.
+/// Table 228's `/DS` styles a rich text field's value where the file states no `/RV`.
 ///
-/// The entry is a "default style string" for the rich text this clause hands to XFA 3.3, so a
-/// field stating one has style this program does not apply whether or not it also states an
-/// `/RV`. The condition is what the file says it loses, which is trap 11's rule; the control is
-/// the same field with neither entry, which owes nothing and is pinned above.
+/// The entry is a "default style string, as described in Adobe XML Architecture, XML Forms
+/// Architecture (XFA) Specification, version 3.3", and a value with no markup of its own is
+/// drawn in it: here a size three times the `/DA`'s, which inks three times as tall.
 #[test]
-fn a_rich_text_fields_default_style_string_is_reported_on_its_own() {
-    let (reports, _) = draw(pdf_with_appearance(
-        "/NeedAppearances true",
-        "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx /Ff 33554432 \
-         /T (field) /V (Hi) /DS (font-size:12pt) /AP << /N 6 0 R >> /DA (/Helv 12 Tf 0 g) >>",
-        "/Tx BMC EMC",
-    ));
-    assert_eq!(reports.len(), 1, "{reports:?}");
-    assert!(reports[0].contains("RichText"), "{reports:?}");
+fn a_rich_text_fields_default_style_string_is_drawn() {
+    let field = |ds: &str| {
+        pdf_with(
+            "",
+            &format!(
+                "<< /Type /Annot /Subtype /Widget /Rect [20 20 180 90] /F 4 /FT /Tx \
+                 /Ff 33554432 /T (field) /V (Hi) {ds} /DA (/Helv 12 Tf 0 g) >>"
+            ),
+        )
+    };
+    let (reports, styled) = draw(field("/DS (font-size:36pt)"));
+    assert!(reports.is_empty(), "{reports:?}");
+    let (_, plain) = draw(field(""));
+    let height = |raster: &pdf_render::Raster| {
+        let rows = inked_rows(raster);
+        let top = rows.iter().max().copied().unwrap_or_default();
+        top.saturating_sub(rows.iter().min().copied().unwrap_or_default())
+    };
+    assert!(
+        height(&styled) > height(&plain) * 2,
+        "the default style's size is drawn"
+    );
 }
 
 /// §12.7.4.1's bound is reported rather than read as "this field states nothing".

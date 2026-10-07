@@ -34,6 +34,7 @@ fn field(name: &str, value: &str) -> FieldState {
         char_limit: None,
         page: Some(0),
         rect: [10.0, 10.0, 210.0, 40.0],
+        captions: Default::default(),
     }
 }
 
@@ -57,11 +58,16 @@ fn request(
             selection_start: at,
             selection_end: at,
             will_commit,
+            commit_key: 0,
+            field_full: false,
+            change_ex: String::new(),
             source: String::new(),
         },
         fields: vec![field("Amount", value)],
         page: 0,
         pages: 1,
+        dirty: false,
+        document: None,
         moment: 1_704_465_015_000,
         utc_offset_seconds: 0,
     }
@@ -365,13 +371,13 @@ fn submit_form_is_refused_by_name_and_stops_an_uncaught_script() {
 fn an_admitted_member_this_bridge_does_not_carry_says_so() {
     let ran = outcome(&request(
         Trigger::Keystroke,
-        "if (event.commitKey == 2) event.rc = false;",
+        "if (event.keyDown) event.rc = false;",
         "1",
         "",
         true,
     ));
     let refusal = ran.refusals.first().expect("one refusal");
-    assert_eq!(refusal.member, "event.commitKey");
+    assert_eq!(refusal.member, "event.keyDown");
     assert_eq!(refusal.kind, RefusalKind::NotBridged);
 }
 
@@ -426,15 +432,28 @@ fn every_refused_member_throws_not_allowed_error_by_name() {
             let spelled = format!("{}{member}", row.holder.prefix());
             let reached = match row.holder {
                 pdf_script::surface::Holder::Field => format!("event.target.{member}"),
+                pdf_script::surface::Holder::Layer => format!("this.getOCGs()[0].{member}"),
                 _ => spelled.clone(),
             };
-            let ran = outcome(&request(
+            let mut asked = request(
                 Trigger::Format,
                 &format!("try {{ var x = {reached}; }} catch (e) {{ console.println(e.name); }}"),
                 "1",
                 "",
                 false,
-            ));
+            );
+            asked.document = Some(pdf_model::view::DocumentState {
+                info: Vec::new(),
+                layers: vec![pdf_model::view::Layer {
+                    number: 7,
+                    generation: 0,
+                    name: "Watermark".to_owned(),
+                    on: true,
+                    initially_on: true,
+                    locked: false,
+                }],
+            });
+            let ran = outcome(&asked);
             assert_eq!(ran.ending, Ending::Finished, "{spelled}: {:?}", ran.ending);
             assert_eq!(
                 ran.log,

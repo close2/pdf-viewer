@@ -287,13 +287,20 @@ beside the actions a window performs, a commit runs `/V` and every `/CO` entry's
 colours, border style, alignment and limit it sets on a field are drawn into the widget's
 appearance and saved as `/MK`, `/BS`, `/DA`, `/Q`, `/MaxLen` and `/Ff` (ADRs 1602, 1603, 1617),
 and Table 200's five run at the close, the save and the print a host marks, a script's
-`event.rc` reported and never obeyed (ADR 1614) — the runner every window supplies is `pdf_script_worker::ScriptWorker`, which
+`event.rc` reported and never obeyed (ADR 1614); a question a runner's script waits on —
+`app.alert`, `app.response` — goes to the window as an event after the command and comes back as a
+command, put on `quorra`'s card and on GTK's and Qt's dialogues titled with the document that asks,
+with the script's buttons or an entry holding its default, the window's thread never waiting
+while the script is held in its worker and what it does once answered applied late (ADRs 1627,
+1628) — the runner every window supplies is `pdf_script_worker::ScriptWorker`, which
 runs each script in a third confined process started at the first trigger, under the narrowest of
-`pdf_sandbox`'s three profiles, a deadline per trigger and a named loss (ADRs 1608, 1609), the worker built with the engine in a Cargo run of its own and installed beside the windows (ADR 1625); **a rich text field's value is
-drawn as characters**, because Table 228's `/RV` and Table 231 bit 26 are ISO 32000-2's own rich
-text string and not the XFA template architecture `CLAUDE.md` excludes, so the text is laid out and
-only the *formatting* is reported, and owed, XFA 3.3's Rich Text Reference being held (ADRs 1197,
-1623); **a file-select control takes a
+`pdf_sandbox`'s three profiles, a deadline per trigger and a named loss (ADRs 1608, 1609), a script's
+nesting bounded before it is parsed (ADR 1626), the worker built with the engine in a Cargo run of its own and installed beside the windows (ADR 1625); **a rich text field's value and a free text
+note's `/RC` are drawn in their formatting**, because Table 228's `/RV` and `/DS`, Table 177's `/RC`
+and `/DS` and Table 231 bit 26 are ISO 32000-2's own rich text string and not the XFA template
+architecture `CLAUDE.md` excludes: XFA 3.3's Rich Text Reference is held and each run is set in the
+face, size, colour, alignment and spacing it states, a changed rich value regenerating the whole
+appearance and a save writing `/RV` beside `/V` (ADRs 1197, 1634, 1635); **a file-select control takes a
 file rather than a value**, because Table 231 bit 21 makes the field's text "the pathname of a file
 whose contents shall be submitted as the field's value" and only a host has a filesystem to read
 them from — the path a *person* typed, under one policy function with a stated memory budget, which
@@ -524,7 +531,9 @@ the channel, a stencil under a soft mask of its own included, and a mark whose o
 backdrop component takes the page's default, so §11.7.5.2 is `implemented` with nothing reported
 (ADR 1279). **Colour is its own crate**: `pdf-colour` holds the colour spaces, the ICC
 reader, the functions, shadings, meshes and transfer, below the interpreter with no cycle and
-re-exported by `pdf-model` under the paths its callers knew (ADR 1131). **§8.6.5.9's black point
+re-exported by `pdf-model` under the paths its callers knew (ADR 1131). **All four of §7.10's
+function types are evaluated**, a Type 0 function's samples encoded from its own `/Domain` and its
+`/Order 3` taken as the not-a-knot cubic spline, the choice ADR 1636 writes down. **§8.6.5.9's black point
 compensation is performed rather than reported**, on the `ON` case the clause states by reference:
 ISO 18619's procedure, whose source black is read from an output-capable profile's own perceptual
 `B2A` where it carries one and taken as the display's `L*` 0 where it does not, so a press's deepest
@@ -870,7 +879,7 @@ ambiguity by itself. The approved PDF Association errata are an input beside the
 which *withdraws* a rule from part 4. `tools/state.sh archive` prints where the comparison
 stands, and `doc/todo/02` §2 runs it every whole-sequence round (ADR 1015).
 
-**And a separate ledger says how much of the *standard* the viewer implements**, clause by clause, one row per subclause in `doc/conformance/ledger.toml`. Its statuses gained a word in answer to `doc/questions/Q63`: `departed`, for a clause every requirement of which is executed except one sentence decided against with its cost recorded, so a deliberate departure stops wearing `partial`'s word for unfinished work and `tools/state.sh` counts it as its own figure (ADR 1119). Three of that script's sections read the tree rather than the ledger: `departures` prints each `departed` row's deciding ADR and what has cited it since, `remedies` prints per profile and target how many answers sit at a site the target's own listing does not name, and `flags` holds at zero the rule that **every command-line flag a message names is one the program accepts** — both populations derived, the programs from the workspace's manifests and the flags from each binary's own source (ADRs 1166, 1213). The ledger's own count says per status how many rows a fixture holds, how many only corpus walks or corpus witnesses hold, and how many name no test; an `implemented` row of the second kind keeps its status and owes a fixture, and the gate admits exactly as many as it has named (ADR 1497).
+**And a separate ledger says how much of the *standard* the viewer implements**, clause by clause, one row per subclause in `doc/conformance/ledger.toml`. Its statuses gained a word in answer to `doc/questions/Q63`: `departed`, for a clause every requirement of which is executed except one `shall` addressed to this program, decided against with its cost recorded — a `should` declined or a permission not taken is `implemented` with the choice named (ADR 1622) — so a deliberate departure stops wearing `partial`'s word for unfinished work and `tools/state.sh` counts it as its own figure (ADR 1119). Three of that script's sections read the tree rather than the ledger: `departures` prints each `departed` row's deciding ADR and what has cited it since, `remedies` prints per profile and target how many answers sit at a site the target's own listing does not name, and `flags` holds at zero the rule that **every command-line flag a message names is one the program accepts** — both populations derived, the programs from the workspace's manifests and the flags from each binary's own source (ADRs 1166, 1213). The ledger's own count says per status how many rows a fixture holds, how many only corpus walks or corpus witnesses hold, and how many name no test; an `implemented` row of the second kind keeps its status and owes a fixture, and the gate admits exactly as many as it has named (ADR 1497).
 
 **And it can *make* one.** `pdf-transform`'s `archive` verb brings a document to a stated target in
 three stages — validate with `pdf-archive`, decide each failed requirement as a refusal, an

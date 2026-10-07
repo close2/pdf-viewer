@@ -11,9 +11,8 @@ Code: `crates/viewer-core/src/transition.rs`, `crates/viewer-core/src/presentati
 `crates/viewer-gtk/src/host.rs`, `crates/viewer-qt/src/host.rs`
 
 §12.4.4's whole presentation is read — Table 164's transition styles, `/Dur`'s auto-advance,
-§12.4.4.2's sub-page navigation — the core has *advanced* a slide show since the hundred-and-fiftieth
-session (`Command::Tick`, ADR 0135), and since the **three-hundred-and-ninety-third** a host draws
-the frames (ADR 0230): `viewer_core::transition::frame` shapes the frame at a fraction of the way
+§12.4.4.2's sub-page navigation — the core *advances* a slide show (`Command::Tick`, ADR 0135),
+and a host draws the frames (ADR 0230): `viewer_core::transition::frame` shapes the frame at a fraction of the way
 through, `Frame::draw` turns it into a display list of two page rasters so both backends draw it,
 and `viewer-ui`'s `p` is the clock.
 
@@ -66,10 +65,7 @@ at all for a present one whose value it does not list.
 of its 39 pages, Table 165's nodes over §12.6.4.13's `/SetOCGState`, and fourteen §12.6.4.15
 transition *actions*. It is the only crawled document that states any of those three.
 
-~~One other thing this clause still owes: **full screen**~~ — **taken in the
-six-hundred-and-thirty-eighth** (ADR 0470), and this entry was wrong in the way a refusal usually
-is. It said full screen is "a host drawing a page with no chrome round it, **which no clause asks
-for**". Two clauses ask for it, neither of them §12.4.4: Table 29's `/PageMode` names `FullScreen`
+**Full screen is carried out** (ADR 0470). Two clauses ask for it, neither of them §12.4.4: Table 29's `/PageMode` names `FullScreen`
 — "[f]ull-screen mode, with no menu bar, window controls, or any other window visible" — as one of
 the six ways a document "shall be displayed when opened", and §12.2's Table 147 states the same
 subject in the smaller with `/HideToolbar`, `/HideMenubar` and `/HideWindowUI`, plus
@@ -79,10 +75,7 @@ document stating `/PageMode /FullScreen` opens presenting. **No message was adde
 changed shape** — `Command::Present`, `Query::Opening` and `Query::Preferences` were all already
 there.
 
-~~What the *window* left behind~~ — **taken in the six-hundred-and-forty-second** (ADR 0473). It
-read: "[t]he two native hosts have the mode and not the clock", so `/Dur` advanced no page in GTK
-or Qt and §12.4.4.1's frames were `viewer-ui`'s alone. All three drive the clock now, on one shared
-decision: `viewer_host::Clock` answers how often to tick, what a tick carries, that the clock is
+**All three hosts drive the clock** (ADR 0473), on one shared decision: `viewer_host::Clock` answers how often to tick, what a tick carries, that the clock is
 *held* while a transition is drawn — §12.4.4.1's EXAMPLE puts the effect "[b]efore the page is
 displayed" — and when Table 164's `/D` has elapsed. The event loop is all that differs: a re-armed
 `glib` one-shot, a `QTimer` whose interval the host sets, and winit's `ControlFlow::WaitUntil`.
@@ -102,24 +95,23 @@ the action dictionary" — so `Clock::for_one_transition` draws the same frames 
 presentation, ticks nothing at all (§12.4.4.1's `/Dur` is stated as presentation timing), and
 `Clock::spent` tells a host to drop it the turn the effect ends.
 
-**§12.4.4.2's states are walked**, since that same session: the current navigation node the clause
+**§12.4.4.2's states are walked**: the current navigation node the clause
 opens by requiring, `/PresSteps` on arrival, `/NA` then `/Next`, `/PA` then `/Prev`, Table 165's
 per-node `/Dur` — which nothing had read — and NOTE 2's save and restore of §8.11's groups across
 the mode. `crates/viewer-core/src/presentation.rs`.
 
-**And the end of the `/Next` chain is the clause's business rather than this program's**, found in
-the six-hundred-and-forty-second by `spec-errata emit` over clause 12. Errata **issue #304** inserts
+**And the end of the `/Next` chain is the clause's business rather than this program's**, as
+`spec-errata emit` over clause 12 shows. Errata **issue #304** inserts
 into item (b) *If there is no node specified by Next then navigate to the next page. If the current
 page is the last page, then the current navigation node remains unchanged*, and the same of `/Prev`
 into item (d) — so the request that runs the **last** node's `/NA` is the request that turns the
-page, where this reader used to swallow it and turn the page on the next one, and on the last page
-the node stays current instead of being cleared. ADR 0473 has the reading and the two callers that
+page, and on the last page the node stays current. ADR 0473 has the reading and the two callers that
 decline the page turn with the clause that says so.
 
 **No corpus document exercises any of it**: `pdf-model/examples/presentation_census` walks the page
 tree of every document this tree opens and finds no `/Trans`, no `/Dur` and no `/PresSteps`, so
 every witness is hand-built — `examples/presentation_fixture` writes one, whose fourth slide is the
 one with states, and `viewer-core/tests/sub_page_navigation.rs` writes the pair that differs in the
-single entry. **The fixture writes the window too since the six-hundred-and-thirty-eighth**:
+single entry. **The fixture writes the window too**:
 `--opens-full-screen` adds Table 29's `/PageMode /FullScreen` and a §12.2 `/ViewerPreferences`
 beside it, which is the file all three hosts were driven on.

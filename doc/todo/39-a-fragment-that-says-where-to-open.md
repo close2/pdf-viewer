@@ -1,8 +1,8 @@
 # A fragment that says where to open
 
-Status: **done** for the annex's rows. All eleven parameters are carried out since the five-hundred-and-twenty-second
-session and `Parameter::unhonoured` names none; **§O.2.1's last sentence — the parameters after `ef`
-— is carried out since the five-hundred-and-ninety-sixth**, so all four of Annex O's rows are
+Status: **done** for the annex's rows. All eleven parameters are carried out and
+`Parameter::unhonoured` names none; **§O.2.1's last sentence — the parameters after `ef`
+— is carried out**, so all four of Annex O's rows are
 `implemented` and nothing in the annex is reported. `fdf` naming an absolute URI is fetched under
 `Submissions`' level (below, ADR 1527). What is left is *not this annex's*: the two limits named
 below, and `doc/todo/38`'s ask level. ADRs 0209, 0250, 0310, 0357, 0431, 1527.
@@ -26,15 +26,15 @@ are about. `Command::Open` carries the fragment undecoded, and
 `quorra doc.pdf#page=5` is the first caller.
 
 **Four parameters have come off the refused list, and not one for the reason the list gave.**
-`search` in the four-hundred-and-fourteenth, when `viewer_core::Command::Find` became a
+`search`, when `viewer_core::Command::Find` became a
 document-wide search: the plan is made as the document opens and the *host* walks it, one page per
 `Find::Continue`, because reading all 1023 pages of ISO 32000-2 is 5.84 s of interpretation and
 `CLAUDE.md`'s startup rules do not permit that before page one is drawn. The word list is Annex O's
 own — any of the words matching is a match — and the search does not wrap, because "the first
-matching word **in the document**" would otherwise mean nothing (ADR 0250). `ef` in the
-four-hundred-and-seventy-fifth, when nothing arrived at all: its reason was two claims joined by an
-"and", and only the second was ever about `ef` (ADR 0310). And `highlight` and `fdf` in the
-five-hundred-and-twenty-second (ADR 0357): the first because a refusal that ends "no host has asked
+matching word **in the document**" would otherwise mean nothing (ADR 0250). `ef`,
+when nothing arrived at all: its reason was two claims joined by an
+"and", and only the second was ever about `ef` (ADR 0310). And `highlight` and `fdf`
+(ADR 0357): the first because a refusal that ends "no host has asked
 for one to draw" is answered by the *annex* asking — ADR 0316's precedent, sharpened by the fact
 that no host can answer this question for itself, since no host sees the fragment — and the second
 because `Event::NeedsFile` had reached three hosts while "no host supplies one yet" stood in the
@@ -95,8 +95,8 @@ XFDF file": a relative one is `viewer_host::resolve_import`'s, and an absolute o
 
 §O.2.1: "[a]ny remaining parameters after this parameter apply to the selected embedded file." That
 means opening a *second document* from the first and applying the rest of the fragment to it, which
-`DocumentId` could always express and nothing composed — `Command::Open` is a host's. The
-five-hundred-and-ninety-sixth session composed it in three pieces, each on a boundary that already
+`DocumentId` can express and `Command::Open`, a host's, carries out. It is composed in three
+pieces, each on a boundary that already
 existed (ADR 0431): `Fragment::parse` **stops** at `ef` and keeps the remainder whole and undecoded
 in `after_embedded_file`, because those parameters are not this document's; `Event::Extracted`
 carries that remainder beside the bytes — a variant changing shape, not a message added, since a

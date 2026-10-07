@@ -200,6 +200,9 @@ impl Events {
             Event::AskingToRunScripts {
                 script, first_line, ..
             } => format!("{script} is waiting to run: {first_line}"),
+            Event::ScriptAsking { question, .. } => {
+                format!("a script asks: {}", script_question_text(question))
+            }
             Event::AttachmentsChanged { document } => format!(
                 "document {}'s embedded files changed; read the panel again",
                 document.0
@@ -326,7 +329,8 @@ impl Events {
             | Event::Submit { document, .. }
             | Event::Copied { document, .. }
             | Event::Printing { document, .. }
-            | Event::AskingToRunScripts { document, .. } => document.0,
+            | Event::AskingToRunScripts { document, .. }
+            | Event::ScriptAsking { document, .. } => document.0,
             Event::NeedsRender(request) => request.document.0,
             Event::Damage(_) => return Err(Status::WrongKind),
         })
@@ -557,6 +561,14 @@ pub struct TransitionNumbers {
 }
 
 /// Table 164's own spelling of a style.
+/// A script's question as `quorra_events_describe` words it: the message or the question asked.
+fn script_question_text(question: &viewer_core::ScriptQuestion) -> &str {
+    match question {
+        viewer_core::ScriptQuestion::Alert { message, .. } => message,
+        viewer_core::ScriptQuestion::Response { question, .. } => question,
+    }
+}
+
 fn style_name(style: &Style) -> String {
     match style {
         Style::Split => "Split".to_owned(),

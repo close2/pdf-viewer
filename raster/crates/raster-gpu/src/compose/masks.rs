@@ -41,6 +41,7 @@ impl Executor<'_> {
                 region.width,
                 region.height,
                 wgpu::TextureFormat::R8Unorm,
+                wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             );
             let mask_view = mask_texture.create_view(&wgpu::TextureViewDescriptor::default());
             let bind = self.device.reduce_bind(plan, &group_view);

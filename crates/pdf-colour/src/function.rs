@@ -22,6 +22,8 @@ use std::sync::Arc;
 use pdf_render::{ProgramOperator, ProgramStep};
 use pdf_syntax::{Dictionary, Document, Object};
 
+mod cubic_spline;
+
 /// Most values a function may take or return — the *dimensionality*, m and n.
 ///
 /// The specification sets no limit. This one bounds what a single evaluation can allocate
@@ -125,7 +127,7 @@ pub struct Function {
 /// The four function types.
 #[derive(Debug, Clone)]
 enum Kind {
-    /// Type 0: values sampled on a grid, interpolated multilinearly.
+    /// Type 0: values sampled on a grid, interpolated multilinearly or by a cubic spline.
     Sampled(Box<Sampled>),
     /// Type 2: `C0 + x^N * (C1 - C0)`.
     Exponential {
@@ -154,8 +156,22 @@ struct Sampled {
     ///
     /// Laid out with the first input varying fastest, as the specification requires.
     samples: Vec<f32>,
+    /// The function's `/Domain`, which §7.10.2's encoding maps from.
+    domain: Vec<(f32, f32)>,
     /// Maps each input from its domain onto sample indices.
     encode: Vec<(f32, f32)>,
+    /// How the samples are interpolated between, which Table 39's `/Order` decides.
+    interpolation: Interpolation,
+}
+
+/// Table 39's `/Order`, as this tree evaluates it.
+#[derive(Debug, Clone)]
+enum Interpolation {
+    /// `/Order 1`, the default, and `/Order 3` where some `/Size` is less than four.
+    Multilinear,
+    /// `/Order 3`: the tensor-product not-a-knot spline's coefficients, `size[k] + 2` per
+    /// dimension, laid out as the samples are (ADR 1636).
+    CubicSpline(Vec<f32>),
 }
 
 impl Function {
@@ -692,25 +708,75 @@ impl Function {
             samples.push(low + normalised * (high - low));
         }
 
-        let encode = pairs(document, dict, "Encode", MAX_VALUES).unwrap_or_else(|| {
-            size.iter()
-                .map(|n| {
-                    #[expect(
-                        clippy::cast_precision_loss,
-                        reason = "grid sizes are bounded by MAX_SAMPLES"
-                    )]
-                    let last = n.saturating_sub(1) as f32;
-                    (0.0, last)
-                })
-                .collect()
-        });
+        let encode = pairs(document, dict, "Encode", MAX_VALUES)
+            .unwrap_or_else(|| size.iter().map(|n| (0.0, last_index(*n))).collect());
 
         Ok(Sampled {
+            interpolation: Self::interpolation(document, dict, &size, outputs, &samples)?,
             size,
             outputs,
             samples,
+            domain: domain.to_vec(),
             encode,
         })
+    }
+
+    /// Table 39's `/Order`, read and prepared.
+    ///
+    /// ISO 32000-2 §7.10.2, Table 39:
+    ///
+    /// > Valid values shall be 1 and 3, specifying linear and cubic spline interpolation,
+    /// > respectively. Default value: 1 .
+    ///
+    /// and, below the table:
+    ///
+    /// > If Size is less than 4, cubic spline interpolation is not possible and Order 3 shall be
+    /// > ignored if specified.
+    ///
+    /// The entry is one order for the whole function, so a `/Size` with any dimension below four
+    /// ignores it for every dimension: a function interpolated by a spline along one input and
+    /// linearly along another is an order the table does not list. A value the table does not list
+    /// is refused, as an unlisted `/BitsPerSample` is, because interpolating it linearly would
+    /// substitute an order for the one the producer stated (trap 5); no corpus function states one
+    /// (ADR 1636).
+    ///
+    /// The spline's coefficient table is the sample table widened by two in every dimension, and
+    /// is held to the sample table's own budget for the same reason.
+    fn interpolation(
+        document: &Document,
+        dict: &Dictionary,
+        size: &[usize],
+        outputs: usize,
+        samples: &[f32],
+    ) -> Result<Interpolation, FunctionError> {
+        /// The most coefficients a spline may hold, [`Self::parse_sampled`]'s sample bound.
+        const MAX_COEFFICIENTS: usize = 1 << 22;
+
+        let order = match document.get_key(dict, "Order") {
+            Object::Null => 1,
+            stated => stated
+                .as_integer()
+                .ok_or_else(|| FunctionError::Malformed {
+                    detail: format!("/Order is a {}", stated.type_name()),
+                })?,
+        };
+        match order {
+            1 => Ok(Interpolation::Multilinear),
+            3 if size.iter().any(|n| *n < 4) => Ok(Interpolation::Multilinear),
+            3 => {
+                let count = cubic_spline::coefficient_count(size, outputs)
+                    .filter(|count| *count <= MAX_COEFFICIENTS)
+                    .ok_or_else(|| FunctionError::Malformed {
+                        detail: "the /Order 3 coefficient table exceeds the limit".to_owned(),
+                    })?;
+                let coefficients = cubic_spline::coefficients(samples, size, outputs);
+                debug_assert_eq!(coefficients.len(), count);
+                Ok(Interpolation::CubicSpline(coefficients))
+            }
+            other => Err(FunctionError::Malformed {
+                detail: format!("/Order is {other}"),
+            }),
+        }
     }
 
     fn parse_postscript(
@@ -782,7 +848,13 @@ fn holds_the_sample_array(data: &[u8], total: usize, bits: u32) -> Result<(), Fu
 }
 
 impl Sampled {
-    /// Evaluates by multilinear interpolation between the surrounding grid samples.
+    /// Evaluates between the surrounding grid samples, by the interpolation `/Order` chose.
+    ///
+    /// ISO 32000-2 §7.10.2 encodes each clipped input from the function's own domain:
+    ///
+    /// > ei = Interpolate (x i ′ , Domain2i , Domain 2i+1 , Encode 2i , Encode 2i+1 )
+    ///
+    /// and clips the result to the table, `e′ = min(max(e, 0), Size − 1)`.
     ///
     /// Writes into the caller's buffer for [`Function::eval_into`]'s reason: this is called
     /// once per cell of a device-resolution grid, and the three vectors it used to allocate
@@ -795,13 +867,18 @@ impl Sampled {
         let mut fraction = [0.0f32; MAX_VALUES];
         for (index, count) in self.size.iter().enumerate().take(MAX_VALUES) {
             let x = inputs.get(index).copied().unwrap_or(0.0);
+            let (domain_low, domain_high) = self.domain.get(index).copied().unwrap_or((0.0, 1.0));
             let (low, high) = self.encode.get(index).copied().unwrap_or((0.0, 1.0));
             #[expect(
                 clippy::cast_precision_loss,
                 reason = "grid sizes are bounded by MAX_SAMPLES"
             )]
             let last = count.saturating_sub(1) as f32;
-            let position = clamp(interpolate(x, 0.0, 1.0, low, high), 0.0, last);
+            let position = clamp(
+                interpolate(x, domain_low, domain_high, low, high),
+                0.0,
+                last,
+            );
             #[expect(
                 clippy::cast_possible_truncation,
                 clippy::cast_sign_loss,
@@ -818,6 +895,11 @@ impl Sampled {
 
         out.clear();
         out.resize(self.outputs, 0.0f32);
+
+        if let Interpolation::CubicSpline(coefficients) = &self.interpolation {
+            self.eval_spline(coefficients, &base, &fraction, out);
+            return;
+        }
 
         // Interpolate over the 2^dimensions corner samples. Bounded because a function
         // with many inputs would already have been refused by the sample limit.
@@ -854,6 +936,78 @@ impl Sampled {
                     .saturating_mul(self.outputs)
                     .saturating_add(component);
                 *value += weight * self.samples.get(at).copied().unwrap_or(0.0);
+            }
+        }
+    }
+}
+
+impl Sampled {
+    /// The not-a-knot spline's value at the grid position `base + fraction` (ADR 1636).
+    ///
+    /// Each input reads the four coefficients around its cell, so a function of m inputs sums
+    /// 4^m terms where the multilinear path sums 2^m. A position on the last sample is taken as
+    /// the far end of the last cell rather than the start of a cell beyond the table, which is
+    /// where the four weights still reach only coefficients the table holds.
+    fn eval_spline(
+        &self,
+        coefficients: &[f32],
+        base: &[usize; MAX_VALUES],
+        fraction: &[f32; MAX_VALUES],
+        out: &mut [f32],
+    ) {
+        let dimensions = self.size.len().min(MAX_VALUES);
+        let mut cell = [0usize; MAX_VALUES];
+        let mut weights = [[0.0f32; 4]; MAX_VALUES];
+        for (dimension, count) in self.size.iter().enumerate().take(MAX_VALUES) {
+            let floor = base.get(dimension).copied().unwrap_or(0);
+            let t = fraction.get(dimension).copied().unwrap_or(0.0);
+            // `interpolation` admits a spline only where every count is at least four.
+            let last_cell = count.saturating_sub(2);
+            let (at, t) = if floor > last_cell {
+                (last_cell, t + 1.0)
+            } else {
+                (floor, t)
+            };
+            if let Some(slot) = cell.get_mut(dimension) {
+                *slot = at;
+            }
+            if let Some(slot) = weights.get_mut(dimension) {
+                *slot = cubic_spline::weights(t);
+            }
+        }
+
+        let terms = 4usize
+            .checked_pow(u32::try_from(dimensions).unwrap_or(u32::MAX))
+            .unwrap_or(0);
+        for term in 0..terms {
+            let mut weight = 1.0f32;
+            let mut offset = 0usize;
+            let mut stride = 1usize;
+            let mut digits = term;
+            for (dimension, count) in self.size.iter().enumerate().take(dimensions) {
+                let step = digits.checked_rem(4).unwrap_or(0);
+                digits = digits.checked_div(4).unwrap_or(0);
+                weight *= weights
+                    .get(dimension)
+                    .and_then(|four| four.get(step))
+                    .copied()
+                    .unwrap_or(0.0);
+                let index = cell
+                    .get(dimension)
+                    .copied()
+                    .unwrap_or(0)
+                    .saturating_add(step);
+                offset = offset.saturating_add(index.saturating_mul(stride));
+                stride = stride.saturating_mul(count.saturating_add(2));
+            }
+            if weight == 0.0 {
+                continue;
+            }
+            for (component, value) in out.iter_mut().enumerate() {
+                let at = offset
+                    .saturating_mul(self.outputs)
+                    .saturating_add(component);
+                *value += weight * coefficients.get(at).copied().unwrap_or(0.0);
             }
         }
     }
@@ -943,6 +1097,17 @@ fn clamp(value: f32, low: f32, high: f32) -> f32 {
 }
 
 /// Maps `value` from one interval onto another.
+/// The last index of a sample table dimension holding `count` samples, Table 39's default
+/// `/Encode` bound `Size − 1`.
+fn last_index(count: usize) -> f32 {
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "grid sizes are bounded by MAX_SAMPLES"
+    )]
+    let last = count.saturating_sub(1) as f32;
+    last
+}
+
 fn interpolate(value: f32, from_low: f32, from_high: f32, to_low: f32, to_high: f32) -> f32 {
     let span = from_high - from_low;
     if span.abs() < f32::EPSILON {
@@ -3517,6 +3682,238 @@ mod tests {
         assert!(
             Function::parse(&document, &object).is_err(),
             "5 is not a width"
+        );
+    }
+
+    /// A Type 0 function built from its dictionary's entries and its samples, one byte each.
+    fn sampled_function(entries: &str, samples: &[u8]) -> Result<Function, FunctionError> {
+        let hex = samples.iter().fold(String::new(), |mut out, byte| {
+            use std::fmt::Write as _;
+            let _ = write!(out, "{byte:02X}");
+            out
+        });
+        let source = format!(
+            "%PDF-1.7\n1 0 obj\n<< /FunctionType 0 {entries} /BitsPerSample 8 \
+             /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}>\nendstream\nendobj\n\
+             trailer\n<< /Root 1 0 R >>\n",
+            hex.len().saturating_add(1)
+        );
+        let document = pdf_syntax::Document::open(source.into_bytes()).expect("opens");
+        let object = document.get(pdf_syntax::ObjectId {
+            number: 1,
+            generation: 0,
+        });
+        Function::parse(&document, &object)
+    }
+
+    /// §7.10.2's EXAMPLE 2, the clause's own sampled function: 4-bit samples in 21 columns and
+    /// 31 rows over the domain [-1.0 1.0] in both inputs, stored in 326 bytes.
+    ///
+    /// > The first byte contains the sample for the point (-1.0, -1.0) in the high-order 4 bits
+    /// > and the sample for the point (-0.9, -1.0) in the low-order 4 bits.
+    ///
+    /// So the encoding maps from the function's `/Domain` — "ei = Interpolate (x i ′ , Domain2i ,
+    /// Domain 2i+1 , Encode 2i , Encode 2i+1 )" — and -0.9 is the second column. Each grid point
+    /// reads back its own sample, decoded onto [-1.0 1.0].
+    #[test]
+    fn example_2_reads_each_point_of_its_domain_from_its_own_sample() {
+        /// The fixture's 4-bit sample at column `x` and row `y`.
+        fn sample(x: usize, y: usize) -> u8 {
+            u8::try_from((x + 2 * y) % 16).expect("below sixteen")
+        }
+        let mut nibbles = Vec::new();
+        for y in 0..31 {
+            for x in 0..21 {
+                nibbles.push(sample(x, y));
+            }
+        }
+        let bytes: Vec<u8> = nibbles
+            .chunks(2)
+            .map(|pair| (pair[0] << 4) | pair.get(1).copied().unwrap_or(0))
+            .collect();
+        assert_eq!(bytes.len(), 326, "the clause's own arithmetic, rounded up");
+        let hex = bytes.iter().fold(String::new(), |mut out, byte| {
+            use std::fmt::Write as _;
+            let _ = write!(out, "{byte:02X}");
+            out
+        });
+        let source = format!(
+            "%PDF-1.7\n14 0 obj\n<</FunctionType 0 /Domain [-1.0 1.0 -1.0 1.0] /Size [21 31] \
+             /Encode [0  20 0 30] /BitsPerSample 4 /Range [-1.0 1.0] /Decode [-1.0 1.0] \
+             /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}>\nendstream\nendobj\n\
+             trailer\n<< /Root 14 0 R >>\n",
+            hex.len().saturating_add(1)
+        );
+        let document = pdf_syntax::Document::open(source.into_bytes()).expect("opens");
+        let object = document.get(pdf_syntax::ObjectId {
+            number: 14,
+            generation: 0,
+        });
+        let function = Function::parse(&document, &object).expect("the clause's own example");
+        let decoded = |raw: u8| -1.0 + 2.0 * f32::from(raw) / 15.0;
+        for (x, y) in [(0, 0), (1, 0), (10, 15), (20, 30), (7, 22)] {
+            #[expect(clippy::cast_precision_loss, reason = "a grid index below 31")]
+            let point = [-1.0 + 0.1 * x as f32, -1.0 + 2.0 * y as f32 / 30.0];
+            let found = function.eval(&point);
+            assert!(
+                (found[0] - decoded(sample(x, y))).abs() < 1e-5,
+                "{point:?} should read column {x}, row {y}: {found:?}"
+            );
+        }
+    }
+
+    /// `p(x) = x³ + 2x + 10`, the known cubic the `/Order 3` fixtures sample at the integers.
+    fn known_cubic(x: f32) -> f32 {
+        x * x * x + 2.0 * x + 10.0
+    }
+
+    /// `/Order 3` reproduces a cubic exactly, at its samples and between them, in the end pieces
+    /// as well as the middle ones (ADR 1636's not-a-knot spline). Linear interpolation of the same
+    /// samples misses it between them by as much as 1.875 at x = 2.5.
+    #[test]
+    fn an_order_3_function_reproduces_a_cubic_at_and_between_its_samples() {
+        let samples: Vec<u8> = (0..6u8)
+            .map(|x| u8::try_from(u32::from(x).pow(3) + 2 * u32::from(x) + 10).expect("< 256"))
+            .collect();
+        let entries = "/Domain [0 5] /Range [0 255] /Decode [0 255] /Size [6]";
+        let spline = sampled_function(&format!("{entries} /Order 3"), &samples).expect("parses");
+        let linear = sampled_function(entries, &samples).expect("parses");
+        for step in 0..=20u8 {
+            let x = f32::from(step) / 4.0;
+            let found = spline.eval(&[x])[0];
+            assert!(
+                (found - known_cubic(x)).abs() < 1e-3,
+                "the spline at {x} is {found}, the cubic {}",
+                known_cubic(x)
+            );
+        }
+        assert!((linear.eval(&[2.5])[0] - 32.5).abs() < 1e-4);
+        assert!((spline.eval(&[2.5])[0] - 30.625).abs() < 1e-3);
+    }
+
+    /// The tensor product reproduces a polynomial of degree three in each input, here
+    /// `x³ − 2x² + y³ + xy + 5` over a 5 × 4 table.
+    #[test]
+    fn an_order_3_function_of_two_inputs_reproduces_a_bicubic() {
+        let f = |x: f32, y: f32| x * x * x - 2.0 * x * x + y * y * y + x * y + 5.0;
+        let mut samples = Vec::new();
+        for y in 0..4u8 {
+            for x in 0..5u8 {
+                let (i, j) = (i32::from(x), i32::from(y));
+                let value = i.pow(3) - 2 * i * i + j.pow(3) + i * j + 5;
+                samples.push(u8::try_from(value).expect("between 0 and 255"));
+            }
+        }
+        let spline = sampled_function(
+            "/Domain [0 4 0 3] /Range [0 255] /Decode [0 255] /Size [5 4] /Order 3",
+            &samples,
+        )
+        .expect("parses");
+        for (x, y) in [
+            (0.0, 0.0),
+            (0.3, 2.7),
+            (1.5, 1.5),
+            (3.9, 0.2),
+            (4.0, 3.0),
+            (2.25, 1.75),
+        ] {
+            let found = spline.eval(&[x, y])[0];
+            assert!(
+                (found - f(x, y)).abs() < 1e-3,
+                "({x}, {y}): {found} against {}",
+                f(x, y)
+            );
+        }
+    }
+
+    /// The not-a-knot spline's behaviour at the ends: its first two pieces are one cubic, and so
+    /// are its last two, which is the end condition (ADR 1636). In the middle the pieces meet at a
+    /// knot with a third derivative that jumps, which is what makes it a spline rather than one
+    /// polynomial through every sample.
+    ///
+    /// Each check fits the cubic through four values of the spline across two pieces and asks it
+    /// for a fifth: the end pieces agree with it, the middle ones do not.
+    #[test]
+    fn an_order_3_splines_two_end_pieces_are_one_cubic() {
+        /// The cubic through `(xs[k], ys[k])`, at `x`.
+        fn lagrange(xs: [f32; 4], ys: [f32; 4], x: f32) -> f32 {
+            let mut sum = 0.0;
+            for k in 0..4 {
+                let mut term = ys[k];
+                for j in 0..4 {
+                    if j != k {
+                        term *= (x - xs[j]) / (xs[k] - xs[j]);
+                    }
+                }
+                sum += term;
+            }
+            sum
+        }
+        let samples = [0u8, 200, 50, 255, 10, 120, 30];
+        // A `/Range` wider than the decoded samples, so that the spline's overshoot is not
+        // clipped and the pieces can be read as the polynomials they are.
+        let spline = sampled_function(
+            "/Domain [0 6] /Range [-1000 1000] /Decode [0 255] /Size [7] /Order 3",
+            &samples,
+        )
+        .expect("parses");
+        let at = |x: f32| spline.eval(&[x])[0];
+        for (index, sample) in samples.iter().enumerate() {
+            #[expect(clippy::cast_precision_loss, reason = "an index below seven")]
+            let x = index as f32;
+            assert!(
+                (at(x) - f32::from(*sample)).abs() < 1e-3,
+                "through sample {index}"
+            );
+        }
+        let across = |xs: [f32; 4], probe: f32| (lagrange(xs, xs.map(at), probe) - at(probe)).abs();
+        assert!(
+            across([0.0, 0.5, 1.5, 2.0], 1.25) < 1e-2,
+            "the first two pieces"
+        );
+        assert!(
+            across([4.0, 4.5, 5.5, 6.0], 4.75) < 1e-2,
+            "the last two pieces"
+        );
+        assert!(
+            across([2.0, 2.5, 3.5, 4.0], 3.25) > 1.0,
+            "two middle pieces are not one cubic"
+        );
+    }
+
+    /// "If Size is less than 4, cubic spline interpolation is not possible and Order 3 shall be
+    /// ignored if specified" — in every dimension, since the entry is one order for the function;
+    /// and an order Table 39 does not list is refused.
+    #[test]
+    fn order_3_below_four_samples_is_ignored_and_an_unlisted_order_refused() {
+        let points: [&[f32]; 3] = [&[0.1, 0.7], &[0.5, 0.5], &[0.83, 0.2]];
+        for (entries, samples) in [
+            ("/Domain [0 1] /Range [0 1] /Size [3]", vec![0u8, 255, 0]),
+            ("/Domain [0 1] /Range [0 1] /Size [2]", vec![10u8, 240]),
+            (
+                "/Domain [0 1 0 1] /Range [0 1] /Size [4 3]",
+                vec![0u8, 80, 160, 240, 30, 90, 150, 210, 255, 0, 255, 0],
+            ),
+        ] {
+            let ignored =
+                sampled_function(&format!("{entries} /Order 3"), &samples).expect("parses");
+            let linear =
+                sampled_function(&format!("{entries} /Order 1"), &samples).expect("parses");
+            for point in points {
+                // A function of one input reads the first coordinate and clips nothing else.
+                assert_eq!(
+                    ignored.eval(point),
+                    linear.eval(point),
+                    "{entries} at {point:?}"
+                );
+            }
+        }
+        assert!(
+            sampled_function(
+                "/Domain [0 1] /Range [0 1] /Size [4] /Order 2",
+                &[0, 1, 2, 3]
+            )
+            .is_err()
         );
     }
 

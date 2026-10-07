@@ -41,6 +41,9 @@ rustls-native-certs.workspace = true
 # without its `engine` feature, so no engine is linked into a window — the engine runs only in the
 # worker program, which is built beside the windows (ADR 1616).
 pdf-script-worker.workspace = true
+# The questions a script puts to the person and their answers, `app.alert` and `app.response`, as
+# the worker hands them over — the crate's data alone, without `engine` (ADR 1628).
+pdf-script.workspace = true
 
 [lints]
 workspace = true

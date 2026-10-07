@@ -22,8 +22,12 @@ pub enum Holder {
     Util,
     /// `console`.
     Console,
-    /// A name of the global scope that is an object of its own: `Net`, `color`, `global`.
+    /// A name of the global scope that is an object of its own: `Net`, `color`.
     Global,
+    /// `global`, the document's own store of values (ADR 1626).
+    Store,
+    /// An `OCG`, what `this.getOCGs` answers.
+    Layer,
 }
 
 impl Holder {
@@ -39,6 +43,8 @@ impl Holder {
             Self::Util => "util.",
             Self::Console => "console.",
             Self::Global => "",
+            Self::Store => "global.",
+            Self::Layer => "OCG.",
         }
     }
 }
@@ -216,6 +222,17 @@ pub const EXCLUDED: &[Excluded] = &[
                  immutable",
     },
     Excluded {
+        holder: Holder::Store,
+        members: &["setPersistent", "subscribe"],
+        reason: "carries a value across documents and sessions, which is a channel between files",
+    },
+    Excluded {
+        holder: Holder::Layer,
+        members: &["setAction", "setIntent"],
+        reason: "changes the document's structure or invents marks, and the document is \
+                 immutable",
+    },
+    Excluded {
         holder: Holder::Doc,
         members: &["media"],
         reason: "is multimedia, which clause 13's exclusion keeps out",
@@ -239,23 +256,16 @@ pub const EXCLUDED: &[Excluded] = &[
 
 /// What RFC 0008 section 4.2 admits to Tier 1 and this bridge does not carry, by holder.
 ///
-/// The bridge carries the document's realm and its fields (ADRs 1591, 1602, 1603), and the viewer's
+/// The bridge carries the document's realm and its fields (ADRs 1591, 1602, 1603), the viewer's
 /// identity, `util.printd` and `util.printx`, a field's `getArray` and `setFocus` and its text
-/// flags' writes (ADR 1615); each of these is the next thing a round adds, and until then a
-/// property that says so.
+/// flags' writes (ADR 1615), and `global`, `event.commitKey`, `fieldFull` and `changeEx`,
+/// `this.dirty`, `info` and `getOCGs`, `util.printf`, the button captions, `app.alert` and
+/// `app.response` (ADRs 1626, 1627); each of these is the next thing a round adds, and until then
+/// a property that says so.
 pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
     (
         Holder::Event,
-        &[
-            "changeEx",
-            "commitKey",
-            "shift",
-            "modifier",
-            "keyDown",
-            "fieldFull",
-            "richValue",
-            "richChange",
-        ],
+        &["shift", "modifier", "keyDown", "richValue", "richChange"],
     ),
     (
         Holder::Field,
@@ -271,8 +281,6 @@ pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
             "insertItemAt",
             "deleteItemAt",
             "clearItems",
-            "buttonGetCaption",
-            "buttonSetCaption",
             "checkThisBox",
             "isBoxChecked",
         ],
@@ -281,10 +289,8 @@ pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
         Holder::Doc,
         &[
             "calculate",
-            "dirty",
             "getAnnot",
             "getAnnots",
-            "getOCGs",
             "getPageLabel",
             "getPageBox",
             "getPageRotation",
@@ -293,7 +299,6 @@ pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
             "zoom",
             "zoomType",
             "layout",
-            "info",
             "documentFileName",
             "title",
             "getPageNumWords",
@@ -303,9 +308,7 @@ pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
     (
         Holder::App,
         &[
-            "alert",
             "beep",
-            "response",
             "setTimeOut",
             "setInterval",
             "clearTimeOut",
@@ -318,7 +321,6 @@ pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
     (
         Holder::Util,
         &[
-            "printf",
             "scand",
             "crackURL",
             "spansToXML",
@@ -329,5 +331,5 @@ pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
         ],
     ),
     (Holder::Console, &["show", "hide", "clear"]),
-    (Holder::Global, &["global"]),
+    (Holder::Layer, &["getIntent"]),
 ];

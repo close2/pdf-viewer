@@ -9,10 +9,14 @@
 //!
 //! The input is a selector byte and three texts separated by NUL bytes — the script, the event's
 //! value and the keystroke's change — read lossily so that every input is one. The selector's low
-//! three bits choose the site (the four field triggers, an annotation's, a page's, the open action,
-//! the document's library), its top bit `willCommit`. The realm is told of four fields, so
-//! `this.getField` and a field's properties are reached. A fresh realm is built for every input, so
-//! that a crash is the input's alone.
+//! four bits choose the site (the four field triggers, two of an annotation's, a page's open and
+//! close, the open action, the document's library, and Table 200's five), bit 4 the unsaved mark,
+//! bit 5 a commit by Enter with a full field, bit 6 whether a question is answered — a button or
+//! the change as typed text — or answered by nobody, and the top bit `willCommit`. The realm is
+//! told of five fields and of the document as a whole — an information dictionary and two groups,
+//! one locked — so `this.getField`, a field's properties, `this.info` and `this.getOCGs` are
+//! reached (ADRs 1626, 1627). A fresh realm is built for every input, so that a crash is the
+//! input's alone.
 //!
 //! Beyond never panicking — overflow checks stay on in this profile — three properties:
 //!
@@ -24,12 +28,12 @@
 //!
 //! # What is looked past, and why
 //!
-//! Boa 0.22's parser has no depth limit, and five hundred nested parentheses overflowed an 8 MiB
-//! stack (ADR 1609). In the worker that is a lost worker, named by its trigger and replaced, and
-//! `pdf-script-worker`'s `a_script_nested_past_the_parsers_depth_is_contained` is its test. So the
-//! run happens on a thread with [`STACK`] of stack, which no script within the campaign's
-//! `-max_len` can nest past except by brackets, and a script whose brackets nest past
-//! [`NESTING`] is not run: what the target is for is everything else.
+//! Boa 0.22's parser and compiler have no depth limit, and the realm stops a script its bracket
+//! budget or its depth estimate says would overflow before either sees it (ADRs 1602, 1626). The
+//! run still happens on a thread with [`STACK`] of stack, eight times the worker's, so that an
+//! estimate that undercounts is found as a run that should have been stopped rather than as a lost
+//! fuzzer; and a script whose brackets nest past [`NESTING`] is not run, the realm's own bound being
+//! below it.
 
 #![no_main]
 #![expect(
@@ -43,22 +47,73 @@ use std::time::{Duration, Instant};
 use libfuzzer_sys::fuzz_target;
 use pdf_model::action::{PageTrigger, Trigger as AnnotationTrigger};
 use pdf_model::aform::Trigger;
-use pdf_model::view::{
-    Alignment, BorderStyle, Colour, Display, FieldState, FieldType, ScriptEvent, ScriptSite,
-};
-use pdf_script::{Budget, Ending, Realm, Request, wire};
+use std::rc::Rc;
 
-/// The sites the selector chooses among.
-const SITES: [ScriptSite; 8] = [
+use pdf_model::view::{
+    Alignment, BorderStyle, Colour, CommitKey, Display, DocumentState, DocumentTrigger, FieldState,
+    FieldType, InfoEntry, Layer, ScriptEvent, ScriptSite,
+};
+use pdf_script::{Answer, Asker, Budget, Button, Ending, Nobody, Question, Realm, Request, wire};
+
+/// The sites the selector chooses among; a keystroke twice, the commonest site there is.
+const SITES: [ScriptSite; 16] = [
     ScriptSite::Field(Trigger::Keystroke),
     ScriptSite::Field(Trigger::Format),
     ScriptSite::Field(Trigger::Validate),
     ScriptSite::Field(Trigger::Calculate),
     ScriptSite::Annotation(AnnotationTrigger::Up),
+    ScriptSite::Annotation(AnnotationTrigger::Focus),
     ScriptSite::Page(PageTrigger::Open),
+    ScriptSite::Page(PageTrigger::Close),
     ScriptSite::OpenAction,
     ScriptSite::Library,
+    ScriptSite::Document(DocumentTrigger::WillClose),
+    ScriptSite::Document(DocumentTrigger::WillSave),
+    ScriptSite::Document(DocumentTrigger::DidSave),
+    ScriptSite::Document(DocumentTrigger::WillPrint),
+    ScriptSite::Document(DocumentTrigger::DidPrint),
+    ScriptSite::Field(Trigger::Keystroke),
 ];
+
+/// An asker that answers every question: an alert with Yes, a response with the input's change.
+#[derive(Debug)]
+struct Answering(String);
+
+impl Asker for Answering {
+    fn ask(&self, question: &Question) -> Answer {
+        match question {
+            Question::Alert { .. } => Answer::Pressed(Button::Yes),
+            Question::Response { .. } => Answer::Typed(Some(self.0.clone())),
+        }
+    }
+}
+
+/// The document as a whole the realm is told of.
+fn document() -> DocumentState {
+    let layer = |number, name: &str, locked| Layer {
+        number,
+        generation: 0,
+        name: name.to_owned(),
+        on: true,
+        initially_on: true,
+        locked,
+    };
+    DocumentState {
+        info: vec![
+            InfoEntry {
+                key: "Title".to_owned(),
+                text: "Form".to_owned(),
+                moment: None,
+            },
+            InfoEntry {
+                key: "ModDate".to_owned(),
+                text: "D:20240105143015Z".to_owned(),
+                moment: Some(1_704_465_015_000),
+            },
+        ],
+        layers: vec![layer(7, "Watermark", false), layer(8, "English", true)],
+    }
+}
 
 /// How long a run may take before it is a budget the engine did not enforce: eight times the
 /// worker's deadline per trigger.
@@ -87,6 +142,7 @@ fn field(name: &str, kind: FieldType, value: &str) -> FieldState {
         char_limit: Some(12),
         page: Some(0),
         rect: [10.0, 10.0, 210.0, 40.0],
+        captions: ["Send".to_owned(), String::new(), String::new()],
     }
 }
 
@@ -124,8 +180,11 @@ fn run(data: &[u8]) {
         field("Amount", FieldType::Text, &value),
         field("Agree", FieldType::CheckBox, "Off"),
         field("Choice", FieldType::ComboBox, "B"),
+        field("Send", FieldType::PushButton, ""),
     ];
-    let site = SITES[usize::from(selector & 0x07)];
+    let site = SITES[usize::from(selector & 0x0F)];
+    let committed = selector & 0x20 != 0;
+    let whole = document();
     let event = ScriptEvent {
         site,
         field: "Amount",
@@ -135,15 +194,25 @@ fn run(data: &[u8]) {
         change: &change,
         selection: (0, value.len()),
         will_commit: selector & 0x80 != 0,
+        commit_key: committed.then_some(CommitKey::Enter),
+        field_full: committed,
+        change_ex: &value,
         source: "Total",
         fields: &fields,
         page: 0,
         pages: 3,
+        dirty: selector & 0x10 != 0,
+        document: Some(&whole),
     };
     let request = Request::of(&event, 1_704_465_015_000, 0);
 
     let started = Instant::now();
-    let outcome = match Realm::new(Budget::FIELD_EVENT) {
+    let asker: Rc<dyn Asker> = if selector & 0x40 != 0 {
+        Rc::new(Answering(change.clone().into_owned()))
+    } else {
+        Rc::new(Nobody)
+    };
+    let outcome = match Realm::with_asker(Budget::FIELD_EVENT, asker) {
         Ok(mut realm) => realm.run(&request),
         Err(why) => panic!("a realm could not be constructed: {why}"),
     };

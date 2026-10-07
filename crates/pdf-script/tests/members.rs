@@ -36,6 +36,7 @@ fn field(name: &str, kind: FieldType, flags: u32, char_limit: Option<u32>) -> Fi
         char_limit,
         page: Some(0),
         rect: [0.0, 0.0, 100.0, 20.0],
+        captions: Default::default(),
     }
 }
 
@@ -52,11 +53,16 @@ fn request(script: &str, fields: Vec<FieldState>) -> Request {
             selection_start: 0,
             selection_end: 0,
             will_commit: false,
+            commit_key: 0,
+            field_full: false,
+            change_ex: String::new(),
             source: String::new(),
         },
         fields,
         page: 0,
         pages: 1,
+        dirty: false,
+        document: None,
         moment: 1_704_465_015_000,
         utc_offset_seconds: 7 * 3600,
     }

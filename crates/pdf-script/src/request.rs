@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use pdf_model::view::{FieldState, ScriptEvent, ScriptSite};
+use pdf_model::view::{DocumentState, FieldState, ScriptEvent, ScriptSite};
 
 /// One script to run at one of §12.6.3's sites or the document's open.
 #[derive(Debug, Clone, PartialEq)]
@@ -25,6 +25,11 @@ pub struct Request {
     pub page: u32,
     /// How many pages the document has.
     pub pages: u32,
+    /// Whether the view state holds work no save has written: `this.dirty`.
+    pub dirty: bool,
+    /// The document as a whole, where it changed since the realm last heard; the realm replaces
+    /// its record with it (ADR 1626).
+    pub document: Option<DocumentState>,
     /// The moment `Date` answers, in milliseconds since 1970-01-01T00:00:00Z — the same value for
     /// the whole run, so that a script cannot time the host (RFC 0008 section 4.2).
     pub moment: u64,
@@ -52,11 +57,18 @@ impl Request {
                 selection_start: utf16_offset(event.value, event.selection.0),
                 selection_end: utf16_offset(event.value, event.selection.1),
                 will_commit: event.will_commit,
+                commit_key: event
+                    .commit_key
+                    .map_or(0, pdf_model::view::CommitKey::number),
+                field_full: event.field_full,
+                change_ex: event.change_ex.to_owned(),
                 source: event.source.to_owned(),
             },
             fields: event.fields.to_vec(),
             page: u32::try_from(event.page).unwrap_or(u32::MAX),
             pages: u32::try_from(event.pages).unwrap_or(u32::MAX),
+            dirty: event.dirty,
+            document: event.document.cloned(),
             moment,
             utc_offset_seconds,
         }
@@ -78,6 +90,12 @@ pub struct Event {
     pub selection_end: u32,
     /// `event.willCommit`.
     pub will_commit: bool,
+    /// `event.commitKey`: 0 where the event is not a commit's, else 1 to 3 (ADR 1626).
+    pub commit_key: u8,
+    /// `event.fieldFull`.
+    pub field_full: bool,
+    /// `event.changeEx`.
+    pub change_ex: String,
     /// The name of `event.source`'s field — the field whose change a calculation answers — or
     /// empty.
     pub source: String,
@@ -105,6 +123,10 @@ pub struct Budget {
     /// Deepest a script's brackets may nest, counted before it is parsed: Boa's parser recurses
     /// once per level and has no depth limit of its own (ADR 1602).
     pub nesting: u32,
+    /// Most native stack, in bytes, [`crate::depth::estimate`] may say a script's parse and
+    /// compilation would need: half the worker's 8 MiB thread, the rest left to what runs beneath
+    /// a string compiled at run time (ADR 1626).
+    pub depth: u64,
 }
 
 impl Budget {
@@ -119,6 +141,7 @@ impl Budget {
         string_units: 1 << 24,
         buffer_bytes: 16 << 20,
         nesting: 128,
+        depth: 4 << 20,
     };
 }
 

@@ -22,20 +22,32 @@
 //! **Why handing back a texture with someone else's pixels in it is safe:** every
 //! acquired texture is fully written before it is read — the first draw pass clears it, a
 //! seeded non-isolated group blits its backdrop over it (ADR 0019), a copied backdrop is
-//! written whole by its blit's clear, and a plan with no ops at all clears once. A
+//! written whole by its transfer — or cleared, where nothing has written the plan it is
+//! copied from (ADR 1630) — and a plan with no ops at all clears once. A
 //! composite is the one draw that writes only part of its attachment, and it writes into
 //! the plan's own accumulator, which an earlier pass cleared or the composite's own pass
 //! clears before it draws (ADR 1618). Under a damage scissor the
 //! written region and the read region are the same region. Nothing ever reads a texel
 //! this frame did not write.
 //!
-//! Passes recorded into one command encoder execute in order, so a texture reused by a
-//! later sibling is written after the earlier sibling's composite has read it; `wgpu`
-//! inserts the usage transitions between passes.
+//! Passes and transfers recorded into one command encoder execute in order, so a texture
+//! reused by a later sibling is written after the earlier sibling's composite has read it;
+//! `wgpu` inserts the usage transitions between them.
 
 use crate::device::Device;
 use crate::encode::{Encoded, LayerPlan, Op};
 use crate::pipeline::WARM_FORMAT;
+
+/// What a layer texture is used for: drawn into, sampled, and — because a composite's
+/// backdrop is copied out of one layer texture into another by a transfer — the source and
+/// the destination of a copy (ADR 1630). The pool hands one texture out for either role, so
+/// every layer carries both. On RADV the two copy usages cost nothing measurable: a texture
+/// made with them allocates, takes its first pass, a later pass and a pass sampling it in
+/// the same time and the same host instructions as one without (ADR 1630 section 1).
+pub(crate) const LAYER_USAGES: wgpu::TextureUsages = wgpu::TextureUsages::RENDER_ATTACHMENT
+    .union(wgpu::TextureUsages::TEXTURE_BINDING)
+    .union(wgpu::TextureUsages::COPY_SRC)
+    .union(wgpu::TextureUsages::COPY_DST);
 
 /// The frame's layer textures, reused across siblings.
 ///
@@ -56,7 +68,13 @@ pub(crate) struct LayerPool {
 /// frame allocates cannot drift apart: both are `WARM_FORMAT` at the target's size,
 /// and a warm-up of another format would warm nothing.
 pub(crate) fn warm_texture(device: &Device, width: u32, height: u32) -> wgpu::Texture {
-    device.create_internal_texture("raster layer warm-up", width, height, WARM_FORMAT)
+    device.create_internal_texture(
+        "raster layer warm-up",
+        width,
+        height,
+        WARM_FORMAT,
+        LAYER_USAGES,
+    )
 }
 
 impl LayerPool {
@@ -98,7 +116,15 @@ impl LayerPool {
             .iter()
             .position(|texture| texture.width() == width && texture.height() == height);
         matching.map_or_else(
-            || device.create_internal_texture("raster layer", width, height, WARM_FORMAT),
+            || {
+                device.create_internal_texture(
+                    "raster layer",
+                    width,
+                    height,
+                    WARM_FORMAT,
+                    LAYER_USAGES,
+                )
+            },
             |at| self.free.swap_remove(at),
         )
     }
@@ -124,12 +150,13 @@ impl LayerPool {
 /// once is a root-to-leaf *chain* of plans, each holding its own accumulator while its
 /// children render, so the peak is the heaviest chain rather than the deepest one. A plan
 /// with two children pays for the heavier of them, not for both, because a sibling's
-/// texture is released before the next is acquired.
+/// texture is released before the next is acquired — or, where a composite waits for the
+/// next child's pass (ADR 1631), held only where the heavier child's price covers both.
 ///
 /// One term is not a plan's: while a child is being **composited** its own texture is
 /// still alive and a copy of the backdrop it covers is alive beside it, at the size of
 /// `child ∩ parent` (ADR 0038). So the cost of a child is the heavier of rendering it and
-/// compositing it, and that is what the max below is.
+/// compositing it, and that is what [`Prices::child`]'s max is.
 ///
 /// **A plan nobody names is priced at nothing, which is what it costs.** The encoder
 /// leaves a culled child's plan in `layers` so that every `ChildOp::layer` and
@@ -138,47 +165,10 @@ impl LayerPool {
 /// from nowhere. Its `chain` entry below is computed and never read, and no texture is
 /// ever acquired for it.
 fn peak_layer_bytes(encoded: &Encoded, width: u32, height: u32) -> u64 {
-    let region_of = |plan: &LayerPlan| crate::compose::Region::of(plan.bounds, width, height);
-    let bytes_of = |region: crate::compose::Region| {
-        u64::from(region.width)
-            .saturating_mul(u64::from(region.height))
-            .saturating_mul(4)
-    };
-    // What a child costs its parent at the worst moment: rendering its own subtree, or
-    // holding its result beside the backdrop copy the composite reads.
-    let child_peak = |chain: &[u64], index: usize, parent: crate::compose::Region| -> u64 {
-        let Some(plan) = encoded.layers.get(index) else {
-            return 0;
-        };
-        let own = region_of(plan);
-        let backdrop = own.meet(parent).map_or(0, bytes_of);
-        chain
-            .get(index)
-            .copied()
-            .unwrap_or(0)
-            .max(bytes_of(own).saturating_add(backdrop))
-    };
-    let heaviest_child = |chain: &[u64], plan: &LayerPlan, parent: crate::compose::Region| {
-        plan.ops
-            .iter()
-            .filter_map(|op| match op {
-                Op::Child(child) => Some(child_peak(chain, child.layer, parent)),
-                _ => None,
-            })
-            .max()
-            .unwrap_or(0)
-    };
-    // Backwards, so every child a plan names is already costed: the encoder appends a
-    // child's plan before the plan that names it, so a child's index is always the lower.
-    let mut chain = vec![0_u64; encoded.layers.len()];
-    for index in (0..encoded.layers.len()).rev() {
-        let plan = &encoded.layers[index];
-        let region = region_of(plan);
-        chain[index] = bytes_of(region).saturating_add(heaviest_child(&chain, plan, region));
-    }
+    let prices = Prices::of(encoded, width, height);
     // The root is as big as what the page marks, like every other plan (ADR 0039).
-    let root_region = region_of(&encoded.root);
-    let below_root = heaviest_child(&chain, &encoded.root, root_region);
+    let root_region = prices.region(&encoded.root);
+    let below_root = prices.heaviest_child(encoded, &encoded.root, root_region);
     // A soft mask realises before the root draws and gives its textures back to the same
     // pool, so the peak is the heavier of the two rather than their sum. A mask's group is
     // never composited onto a parent, so it costs its own chain and no backdrop copy.
@@ -186,10 +176,91 @@ fn peak_layer_bytes(encoded: &Encoded, width: u32, height: u32) -> u64 {
         .mask_plans
         .iter()
         .flatten()
-        .filter_map(|plan| chain.get(plan.root).copied())
+        .filter_map(|plan| prices.chain.get(plan.root).copied())
         .max()
         .unwrap_or(0);
     bytes_of(root_region).saturating_add(below_root.max(masks))
+}
+
+/// A region's bytes as an RGBA8 texture.
+pub(crate) fn bytes_of(region: crate::compose::Region) -> u64 {
+    u64::from(region.width)
+        .saturating_mul(u64::from(region.height))
+        .saturating_mul(4)
+}
+
+/// What each plan's subtree costs at its worst moment — [`peak_layer_bytes`]'s arithmetic,
+/// kept for the frame so that the executor can ask it whether a composite may wait beside
+/// the next child without the frame holding more than this priced (ADR 1631).
+pub(crate) struct Prices {
+    /// Per `Encoded::layers` index: the plan's own texture and its heaviest child.
+    chain: Vec<u64>,
+    width: u32,
+    height: u32,
+}
+
+impl Prices {
+    /// Every plan's chain, walked backwards so that every child a plan names is already
+    /// costed: the encoder appends a child's plan before the plan that names it, so a
+    /// child's index is always the lower.
+    pub(crate) fn of(encoded: &Encoded, width: u32, height: u32) -> Self {
+        let mut prices = Self {
+            chain: vec![0_u64; encoded.layers.len()],
+            width,
+            height,
+        };
+        for index in (0..encoded.layers.len()).rev() {
+            let plan = &encoded.layers[index];
+            let region = prices.region(plan);
+            let cost =
+                bytes_of(region).saturating_add(prices.heaviest_child(encoded, plan, region));
+            prices.chain[index] = cost;
+        }
+        prices
+    }
+
+    /// The rectangle a plan that is not seeded renders into (ADR 0036).
+    pub(crate) fn region(&self, plan: &LayerPlan) -> crate::compose::Region {
+        crate::compose::Region::of(plan.bounds, self.width, self.height)
+    }
+
+    /// What child `index` costs a parent at `parent` at the worst moment: rendering its own
+    /// subtree, or holding its result beside the backdrop copy the composite reads.
+    pub(crate) fn child(
+        &self,
+        encoded: &Encoded,
+        index: usize,
+        parent: crate::compose::Region,
+    ) -> u64 {
+        let Some(plan) = encoded.layers.get(index) else {
+            return 0;
+        };
+        let own = self.region(plan);
+        let backdrop = own.meet(parent).map_or(0, bytes_of);
+        self.chain
+            .get(index)
+            .copied()
+            .unwrap_or(0)
+            .max(bytes_of(own).saturating_add(backdrop))
+    }
+
+    /// The heaviest of a plan's children, which is what the plan's chain holds beyond its
+    /// own texture.
+    pub(crate) fn heaviest_child(
+        &self,
+        encoded: &Encoded,
+        plan: &LayerPlan,
+        parent: crate::compose::Region,
+    ) -> u64 {
+        plan.ops
+            .iter()
+            .filter_map(|op| match op {
+                Op::Child(child) => Some(self.child(encoded, child.layer, parent)),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(0)
+    }
 }
 
 /// The bytes the frame's reduced soft masks hold at once.

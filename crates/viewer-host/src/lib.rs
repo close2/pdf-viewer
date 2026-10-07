@@ -90,6 +90,9 @@
 //!   a person. **And [`IGNORE_RESTRICTIONS`] with [`refused`] beside it**, which is `CLAUDE.md`'s
 //!   "it shall always be possible to turn them off" as one word and one sentence, so that no window
 //!   names a flag its own argument parser rejects (ADR 0604).
+//! - [`script_asks`] — a document's script asking the person something, `app.alert` and
+//!   `app.response`: the title naming the document, `quorra`'s keys for each button, and the lines
+//!   every window prints as it puts the question and as it is answered (ADR 1628).
 //! - [`status`] — what the pages on the screen could not draw, worded for a status bar, the two
 //!   sentences a window says when there is no document to draw at all, and the three a window says
 //!   about a draw that is taking too long to wait for. One wording, three widgets: `Query::Reports`
@@ -141,6 +144,7 @@ pub mod printing;
 pub mod reader;
 pub mod report;
 pub mod restriction;
+pub mod script_asks;
 pub mod status;
 pub mod submit;
 pub mod trace;

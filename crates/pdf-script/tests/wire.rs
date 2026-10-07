@@ -23,6 +23,9 @@ fn request(site: ScriptSite) -> Request {
             selection_start: 1,
             selection_end: 2,
             will_commit: true,
+            commit_key: 0,
+            field_full: false,
+            change_ex: String::new(),
             source: "Line.1".to_owned(),
         },
         fields: vec![FieldState {
@@ -39,9 +42,12 @@ fn request(site: ScriptSite) -> Request {
             char_limit: Some(8),
             page: None,
             rect: [1.0, 2.5, 3.0, -4.0],
+            captions: Default::default(),
         }],
         page: 3,
         pages: 9,
+        dirty: false,
+        document: None,
         moment: 1_704_465_015_000,
         utc_offset_seconds: -3600,
     }
@@ -89,6 +95,7 @@ fn outcome() -> Outcome {
             },
         ],
         log: vec!["one".to_owned(), "two".to_owned()],
+        notes: vec!["a note".to_owned()],
     }
 }
 

@@ -140,6 +140,13 @@ does not move, because the device is the longer thread on four rows, and the gat
 32000-2 the document opened at 6.6 to 7.2 ms and page one was interpreted at 11.0 to 12.3, against
 a device up at 21.1 to 22.8.
 
+**No lever of ADR 1632 is a launch lever.** Page one of each of the six rows, interpreted once
+under callgrind, reads within 0.08% of the tree before it, because no row states a four-component
+group composed into a parent of its own and none spends its interpretation on a straight ramp:
+`PDF20_AN001-BPC.pdf` 11.29 M instructions, WTPDF 91.61, ISO 32000-2 122.72, `bug1815476.pdf`
+124.50, `xfa_filled_imm1344e.pdf` 5.05, `opt_demo.pdf` 4.03. The page-one interpretation the launch
+waits on is the CCITT image and the font catalogue on `bug1815476.pdf`, as above.
+
 **A document's scripts cost the launch nothing, and what they cost after it is timed** (ADR 1620).
 Every first-page child of the gate hands its viewer the runner a window at `on` hands it, and the
 open sequence starts `pdf-script-worker` only at its first trigger, after page one's frame: no row
@@ -372,9 +379,9 @@ in `tools/batch.sh gates`; a row that moves moves its band there with its reason
 | `bug1743245.pdf` p1, tight bends | turn | 37.95 (455%) | 3.38 | 0.44 | **33.25** | 0.34 | 0.41 | 0.12 | 2026-10-06, ADR 1577 |
 | | seventh | 39.78 (477%) | 3.60 | 0.36 | 35.12 | 0.09 | 0.47 | 0.13 | 2026-10-07, ADR 1607 |
 | | step | 34.96 (420%) | — | — | **34.12** | 0.12 | 0.48 | 0.24 | 2026-10-06, ADR 1577 |
-| `bug1721218_reduced.pdf` p1, a four-component group of 3 518 clipped shadings, drawn as two frames | turn | 151.86 (1822%) | 67.69 | **81.28** | 1.38 | 0.45 | 0.78 | 0.27 | 2026-10-07, ADR 1618 |
-| | seventh | 151.16 (1814%) | 68.16 | 79.81 | 1.40 | 0.47 | 0.89 | 0.44 | 2026-10-07, ADR 1618 |
-| | step | 84.08 (1009%) | — | **80.50** | 1.54 | 0.28 | 0.66 | 1.11 | 2026-10-07, ADR 1618 |
+| `bug1721218_reduced.pdf` p1, a four-component group of 3 518 clipped shadings, drawn as two frames | turn | 149.10 (1789%) | 67.13 | **78.91** | 1.38 | 0.43 | 0.97 | 0.28 | 2026-10-07, ADR 1631 |
+| | seventh | 147.23 (1767%) | 67.29 | 76.67 | 1.41 | 0.52 | 0.92 | 0.42 | 2026-10-07, ADR 1631 |
+| | step | 81.61 (979%) | — | **78.07** | 1.52 | 0.27 | 0.69 | 1.06 | 2026-10-07, ADR 1631 |
 
 **The `seventh` rows are the turn on a device that has lived** (ADR 1607): the same page, lane and
 interpretation drawn as the seventh frame of one device, after five page turns through the warm-up
@@ -389,6 +396,19 @@ first uses its seventh does not. The text page is the one whose quickest run is 
 against 6.85–7.99, its `encode` 5.07–5.36 against 3.83–4.51: a long-lived device's glyph atlas already holds
 another document's glyphs, which this table does not divide further. Growing `wgpu`'s pool of command
 encoders ahead of the frames was measured on both kinds of device and is not built (ADR 1606).
+
+**`bug1721218_reduced.pdf`'s three rows were re-taken on 2026-10-07 after ADRs 1630 and 1631**,
+eight runs of five rounds interleaved against exports of the tree before them and of ADR 1630 alone,
+pinned, load 1.0–3.2 (the tree before read turn 151.68–153.85, seventh 150.66–152.01, step
+83.05–84.49): a composite's backdrop is copied out of its accumulator by a transfer rather than a
+pass, on layer textures whose two copy usages cost nothing measurable on RADV (ADR 1630), and a
+composite waits past the next child where their rectangles stand apart and the frame's priced peak
+holds both (ADR 1631) — 114 passes a turn where it recorded 193, and no byte moved. Read per
+interleaved pair (trap 121), every run of the change was quicker than the one beside it: the turn
+by 0.57 to 3.49 ms, the seventh frame by 0.49 to 4.78, the step by 0.67 to 2.67; the transfers
+alone took the turn 0.29 to 2.44 ms quicker in every pair. `zoom_frame`'s 1× frame reads 75.1–77.5
+ms against 77.6–79.5 and the CPU backend's 47.6, 1.58× from 1.63×, and its step 73.8–75.1 against
+75.4–77.7 and 56.9, 1.30× from 1.33×.
 
 **`bug1721218_reduced.pdf`'s three rows were re-taken on 2026-10-07 after ADR 1618**, three runs
 of five rounds interleaved against an export of the tree before it, pinned, load 2.0–2.6 (that build

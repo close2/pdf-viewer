@@ -18,6 +18,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use pdf_model::view::{ScriptEvent, ScriptResult, ScriptRunner, ScriptSite};
 
+use crate::{ScriptAnswer, ScriptQuestion};
+
 /// What makes one runner per document: the host's half of RFC 0008 section 6.3's hook.
 ///
 /// A host whose reader's level runs scripts supplies one in [`Scripting::Run`] or
@@ -31,6 +33,34 @@ pub trait ScriptRunners: std::fmt::Debug + Send + Sync {
     /// runner whose construction would cost a process must not pay it here: the first trigger is
     /// where it is started (RFC 0008 section 6.6).
     fn runner(&self) -> Arc<dyn ScriptRunner>;
+
+    /// A runner for one document, and where its scripts' questions to the person wait.
+    ///
+    /// What this crate calls. The default is [`Self::runner`] with nowhere to wait, which is a
+    /// runner whose `app.alert` and `app.response` the person never sees; a maker whose runners
+    /// can hold a script on a person's answer overrides it (ADR 1628).
+    fn runner_that_asks(&self) -> (Arc<dyn ScriptRunner>, Option<Arc<dyn ScriptAsks>>) {
+        (self.runner(), None)
+    }
+}
+
+/// Where one document's script waits on the person: RFC 0008 section 4.2's `app.alert` and
+/// `app.response`, the two calls that need a host.
+///
+/// **The window's thread never waits.** A question is handed over as data after the command that
+/// raised it, [`crate::Event::ScriptAsking`], and the answer comes back as a command,
+/// [`crate::Command::AnswerScript`] — so a window that answers a dialogue from its event loop, and
+/// one that draws its own card between frames, answer it the same way. What waits is the script,
+/// in its confined worker, for as long as its runner's own bound allows; a question whose wait has
+/// run out is the runner's to drop and to say so (ADR 1628).
+pub trait ScriptAsks: std::fmt::Debug + Send + Sync {
+    /// The question a script is waiting on, handed over once: a second call answers `None` until
+    /// another script asks.
+    fn take_question(&self) -> Option<ScriptQuestion>;
+
+    /// The person's answer to the question last taken. A runner whose script is no longer
+    /// waiting — the wait ran out, or the worker was lost — keeps nothing of it.
+    fn answer(&self, answer: ScriptAnswer);
 }
 
 /// Whether this viewer runs a document's scripts, as the host's level for them says
@@ -67,6 +97,8 @@ pub(crate) struct Consent {
     pub(crate) answered: Option<bool>,
     /// The runner standing in while the question is unasked or unanswered, or after a `no`.
     pub(crate) withheld: Option<Arc<Withheld>>,
+    /// Where the document's runner leaves its scripts' questions to the person, where it has one.
+    pub(crate) asks: Option<Arc<dyn ScriptAsks>>,
 }
 
 /// What a [`Withheld`] runner has seen.
@@ -188,6 +220,7 @@ pub(crate) fn runner_for(
     scripting: &Scripting,
     consent: &mut Consent,
 ) -> Option<Arc<dyn ScriptRunner>> {
+    consent.asks = None;
     match scripting {
         Scripting::Off => {
             consent.withheld = None;
@@ -195,12 +228,12 @@ pub(crate) fn runner_for(
         }
         Scripting::Run(runners) => {
             consent.withheld = None;
-            Some(runners.runner())
+            Some(asking(runners.as_ref(), consent))
         }
         Scripting::Ask(runners) => match consent.answered {
             Some(true) => {
                 consent.withheld = None;
-                Some(runners.runner())
+                Some(asking(runners.as_ref(), consent))
             }
             Some(false) => {
                 let declined = Arc::new(Withheld::declined());
@@ -217,6 +250,13 @@ pub(crate) fn runner_for(
             }
         },
     }
+}
+
+/// A runner from `runners`, with where its questions wait kept in `consent`.
+fn asking(runners: &dyn ScriptRunners, consent: &mut Consent) -> Arc<dyn ScriptRunner> {
+    let (runner, asks) = runners.runner_that_asks();
+    consent.asks = asks;
+    runner
 }
 
 /// Whether a runner from `scripting` is a real one — one that runs what it is handed — for a

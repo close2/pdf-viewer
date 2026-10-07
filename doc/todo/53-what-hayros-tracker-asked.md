@@ -1,8 +1,7 @@
 # The residues left from reading hayro's tracker
 
-Status: **closed** — all three residues, the last in the nine-hundred-and-eighty-third (ADR 1004);
-kept as the record of three cases a round deliberately did not fix and what changed each answer.
-Opened in the five-hundred-and-fifty-seventh session.
+Status: **closed** — all three residues (the last by ADR 1004); kept as the record of three cases
+a round deliberately did not fix and what changed each answer.
 Cited by: comments in `crates/pdf-font`; §7.2.3's ledger note — the reason the file is kept whole rather than deleted (ADR 1416).
 Priority: 53 — neither is witnessed by a corpus document, which is exactly why they are written
 down rather than left to be rediscovered.
@@ -24,7 +23,7 @@ them are blank and named, and the witness is a hand-built pair of pages in
 `crates/pdf-model/tests/ccitt_bound.rs` because the corpus has no such document. The other two are
 below, each with what closed it above the entry that said why it had been left.
 
-## 1. A digit run that swallows an operator is silent — **closed** (ADR 1004, session 983)
+## 1. A digit run that swallows an operator is silent — **closed** (ADR 1004)
 
 The rule this entry said the standard does not state turned out to be one clause along from
 where it was looked for. §7.2.3 and §7.3.3 cannot tell `5f` from `12pt` — both are one token and
@@ -62,7 +61,7 @@ does not state, to improve a *report*, is the wrong trade to make without a witn
 nothing) because of the salvage. `doc/todo/00`'s step 7 is the instrument that would find it — our
 ink minus the lightest reference's — since the failure would show as a *missing* mark.
 
-## 2. A Type 1 program's unassigned codes claim glyph 0 — **closed** (ADR 0932, session 941)
+## 2. A Type 1 program's unassigned codes claim glyph 0 — **closed** (ADR 0932)
 
 The diagnosis below was right and its estimate of the size was not. A census over every corpus on
 this disk found **471 bare Type 1 programs with a custom encoding array**, of which the ones in 51

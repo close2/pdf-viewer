@@ -499,12 +499,13 @@ fn is_open(document: &Document, dict: &Dictionary) -> bool {
 ///
 /// # What is read, and what is deliberately not
 ///
-/// **The characters, and none of the formatting.** The format is XFA's rich text, which is a
-/// profile of XHTML, and `CLAUDE.md` excludes XFA — so nothing here interprets a `<span>`'s
-/// style, a colour, a size or a face. What it takes is the element content, which is text the
-/// clause requires displayed and which needs no specification this tree does not have; the
-/// clause's own NOTE 1 says so from the other end, by making `/RC` and `/Contents` "textually
-/// equivalent" where a file states both.
+/// **The characters; the window's formatting is a host's to draw.** The format is XFA 3.3's rich
+/// text, which `crate::rich_text` reads and lays out for the two entries whose text this crate
+/// draws itself (ADRs 1197, 1634); a popup window is a host's to draw (§12.5.6.14), so what this
+/// hands over is the element content, the text the clause requires displayed, and the window's
+/// faces and colours stay with the host that draws it. The clause's own NOTE 1 says the
+/// characters are the text, by making `/RC` and `/Contents` "textually equivalent" where a file
+/// states both.
 ///
 /// **A paragraph is a break.** §12.5.6.2 states the rule for the plain form — "[w]hen separating
 /// text into paragraphs, a CARRIAGE RETURN (0Dh) shall be used" — and the rich form spells a
@@ -1021,10 +1022,10 @@ mod tests {
     /// > A rich text string … that shall be displayed in the popup window when the annotation is
     /// > opened.
     ///
-    /// The characters and none of the formatting: a `<span>`'s style is XFA's and `CLAUDE.md`
-    /// excludes it, while the text is what the clause requires shown and what NOTE 1 makes
-    /// equivalent to `/Contents`. A closing paragraph is the newline §12.5.6.2 asks a plain
-    /// `/Contents` to spell with a carriage return.
+    /// The characters, which are what the clause requires shown and what NOTE 1 makes equivalent
+    /// to `/Contents`; the window is a host's to draw and its formatting with it. A closing
+    /// paragraph is the newline §12.5.6.2 asks a plain `/Contents` to spell with a carriage
+    /// return.
     #[test]
     fn a_rich_text_string_fills_a_window_a_plain_one_would_have_left_empty() {
         let document = document(

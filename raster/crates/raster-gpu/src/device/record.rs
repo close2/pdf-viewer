@@ -31,7 +31,7 @@ use super::staging::Upload;
 use crate::compose::{self, Executor, PassLoad, Region};
 use crate::encode::Encoded;
 use crate::error::RenderError;
-use crate::layers::LayerPool;
+use crate::layers::{LayerPool, Prices};
 use crate::timing::PassQuery;
 
 /// One frame's per-pass durations and one-off costs.
@@ -114,7 +114,7 @@ fn record_content(
                 (target_view, target_format),
                 PassLoad::Clear,
                 &root_ops,
-                None,
+                Vec::new(),
             )?;
         }
         Route::Layered => {
@@ -183,6 +183,7 @@ impl Device {
             phases: Vec::new(),
             scissor: route.scissor(),
             region: Region::whole(width, height),
+            prices: Prices::of(encoded, width, height),
         };
         let target_view = bound
             .texture()

@@ -271,10 +271,28 @@ fn describe_scripting(scripting: &viewer_core::Scripting) -> &'static str {
     }
 }
 
+/// A script's answer as the trace says it: the button, or how many characters were typed — never
+/// the text, which may be a password (ADR 1628).
+fn describe_script_answer(answer: &viewer_core::ScriptAnswer) -> String {
+    match answer {
+        viewer_core::ScriptAnswer::Pressed(button) => format!("answer script {}", button.label()),
+        viewer_core::ScriptAnswer::Typed(Some(text)) => {
+            format!("answer script typed, {} character(s)", text.chars().count())
+        }
+        viewer_core::ScriptAnswer::Typed(None) => "answer script cancelled".to_owned(),
+        viewer_core::ScriptAnswer::Unanswerable => "answer script unanswerable".to_owned(),
+    }
+}
+
 /// One line naming a command, for `--trace`.
 ///
 /// The command's own `Debug` would print a document's bytes and a raster's pixels, which is not a
 /// line. This is what a person following a page turn needs to see.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one arm per variant of `viewer_core::Command`, and the count is that enum's; split, \
+              the compiler could no longer name the variant nobody described"
+)]
 pub(crate) fn describe_command(command: &Command) -> String {
     match command {
         Command::Open { id, bytes, .. } => format!("open {:?}, {} bytes", id, bytes.len()),
@@ -349,6 +367,7 @@ pub(crate) fn describe_command(command: &Command) -> String {
         Command::Answer { proceed, .. } => format!("answer {proceed}"),
         Command::Scripts(scripting) => describe_scripting(scripting).to_owned(),
         Command::AnswerScripts { proceed, .. } => format!("answer scripts {proceed}"),
+        Command::AnswerScript { answer, .. } => describe_script_answer(answer),
         Command::Delegate(appearances) => format!("widget appearances {appearances:?}"),
         Command::Tick { millis } => format!("tick {millis} ms"),
         Command::Present(mode) => format!("presentation {mode:?}"),
@@ -461,6 +480,12 @@ pub(crate) fn describe_event(event: &Event) -> String {
         Event::AskingToRunScripts {
             script, first_line, ..
         } => format!("asking to run scripts: {script}: {first_line}"),
+        Event::ScriptAsking { question, .. } => {
+            format!(
+                "script asking: {}",
+                viewer_host::script_asks::text(question)
+            )
+        }
         Event::Copied {
             logical,
             page_order,

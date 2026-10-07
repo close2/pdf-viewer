@@ -4,6 +4,37 @@ Moved here so that `CLAUDE.md` holds only principles and `doc/HANDOVER.md` only 
 **Read this before running anything**: the machine, the user the agent runs as, what it
 can and cannot open a window on, and where the build lands.
 
+## The rules, one line each — the part of this file every round reads
+
+Every rule below is an incident with an argument, and the argument is in the section the rule
+names; a round reads this block, and opens the section only where a line bites (ADR 1639).
+
+- **One heavy walk on the machine at a time**, in the foreground, and you wait in it:
+  `ulimit -u 8192; RAYON_NUM_THREADS=4 flock /home/AI/heavy-walk.lock tools/bounded.sh --tree 12 -- <command>`;
+  `--data` never above 12 GiB; a corpus gate rebuilds `pdf-sandbox --bins` for its profile inside
+  the lock (trap 109); never a tool that forks per package or per input without the bound (trap 116).
+  `cargo test -p conformance` and crate-scoped unit tests are not walks.
+- **No `git stash`, no `git checkout -- .`, no `git restore .`, no `git add -A` or `-u`, no
+  whole-file `cp` restore**: name the paths you mean. A before-and-after is a patch of your own.
+- **Format only your own files**, one by one: `rustfmt --edition 2024 <file>`; never `cargo fmt --all`
+  and never a binary root's `#[path]` children.
+- **Kill by pid or process group you hold**, never `pkill -f`, never `pkill -x <shared name>`,
+  never a `pgrep -f` wait-loop on your own command line. Exit 144 with intact output is a neighbour.
+- **Scratch goes under `scratchpad/r<round>/`** and nowhere a sibling also writes; nothing of yours
+  under the workspace globs (`tools/__pycache__`, a crate under `scratchpad/`): Python runs with
+  `PYTHONDONTWRITEBYTECODE=1` (trap 114).
+- **Edit a shared file by targeted replacement, re-read immediately before the write**, never by
+  read-whole/write-whole from a copy taken earlier; `assert s.count(anchor) == 1`; read
+  `git diff --stat` after a scripted splice.
+- **A build error in a crate you were not given is a neighbour mid-edit**: wait and retry; a timing
+  failure at load average above 12 is a neighbour building — `uptime` first.
+- **Name the worktree in every `git` command** (`git -C <worktree>`), and write a commit message
+  to a file for `-F`.
+- **Run the viewer under Xvfb only as *The machine, the account and the display* says**; drive a
+  host feature in every window before calling it done.
+- **A measurement builds its own `--release` binary first** and never runs from the main
+  checkout's `target/`; two exported trees get two target directories and an `md5sum` (trap 50).
+
 ## Working agreements
 
 - You are running as your own user.  Obviously not a real sandbox, but you do not need to ask

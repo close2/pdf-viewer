@@ -380,6 +380,7 @@ private:
     /// without an answer sends `false`, which is what a closed dialogue means everywhere else in
     /// this program (ADR 1145).
     void askAQuestion();
+    void askForAScript();
     /// Fills the restrictions menus in, immediately before one of them is shown.
     ///
     /// Built here rather than in the constructor, which is CLAUDE.md section 2's rule and also the

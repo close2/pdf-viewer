@@ -37,7 +37,9 @@ use std::time::{Duration, Instant};
 
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
-use super::script_model::{FieldState, Overrides, Property, ScriptEdit, ScriptSite};
+use super::script_model::{
+    CommitKey, DocumentState, FieldState, Overrides, Property, ScriptEdit, ScriptSite,
+};
 use super::{Entry, ViewState};
 use crate::action::{ResetForm, ResetTarget};
 use crate::aform::site::{self, Site};
@@ -94,6 +96,15 @@ pub struct ScriptEvent<'a> {
     pub selection: (usize, usize),
     /// Whether this is the commit rather than a character.
     pub will_commit: bool,
+    /// How the person committed, at a commit's own events — its keystroke, its validation and its
+    /// field's format — and `None`, Adobe's `0`, at every other (ADR 1626).
+    pub commit_key: Option<CommitKey>,
+    /// Adobe's `event.fieldFull`: a keystroke into a text field whose characters do not all fit,
+    /// by Table 232's `/MaxLen` or by Table 231's `DoNotScroll` (ADR 1626).
+    pub field_full: bool,
+    /// Adobe's `event.changeEx`: the whole of what was typed where the field is full, the export
+    /// value of a choice field's option where the change names one, and the change otherwise.
+    pub change_ex: &'a str,
     /// The field whose change a calculation answers — `event.source` — or empty.
     pub source: &'a str,
     /// Every field whose state changed since the runner was last handed an event: all of them the
@@ -103,6 +114,12 @@ pub struct ScriptEvent<'a> {
     pub page: usize,
     /// How many pages the document has, `this.numPages`.
     pub pages: usize,
+    /// Whether this view state holds work a save would write and no save has written:
+    /// `this.dirty` ([`ViewState::mark_saved`], ADR 1626).
+    pub dirty: bool,
+    /// The document as a whole, where it has changed since the runner was last handed an event:
+    /// always the first time. A runner's realm replaces its record with it.
+    pub document: Option<&'a DocumentState>,
 }
 
 /// What a [`ScriptRunner`] made of a [`ScriptEvent`].
@@ -141,6 +158,35 @@ pub struct ScriptResult {
 pub trait ScriptRunner: std::fmt::Debug + Send + Sync {
     /// Runs one event's script and says what it did.
     fn run(&self, event: &ScriptEvent<'_>) -> ScriptResult;
+
+    /// Whether the run this runner last answered left its script waiting on a person's answer to a
+    /// question it put — `app.alert`, `app.response` — rather than finished (ADR 1627).
+    ///
+    /// **A run never waits on a person.** A host's thread is the one that draws the question
+    /// (ADR 1628), so a script that asks is held where it runs and its run answers at once, having
+    /// changed nothing; what it does once answered arrives later, through [`Self::take_resumed`].
+    /// A runner that puts no question is never waiting, which is the default.
+    fn waiting(&self) -> bool {
+        false
+    }
+
+    /// The next run that waited on a person and has since finished, in the order they finished:
+    /// what [`ViewState::apply_resumed`] applies. `None` where there is none, which is the default.
+    fn take_resumed(&self) -> Option<Resumed> {
+        None
+    }
+}
+
+/// A run that waited on a person's answer and has since finished: its site, its field and what it
+/// did, applied as that trigger's outcome arriving late (ADR 1627).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Resumed {
+    /// Where the script ran.
+    pub site: ScriptSite,
+    /// The event's field, or empty.
+    pub field: String,
+    /// What the whole run did, from its first statement to its last.
+    pub result: ScriptResult,
 }
 
 /// The runner a [`ViewState`] holds, or none.
@@ -190,6 +236,54 @@ pub(super) struct Scripting {
     /// The properties scripts set that a widget's appearance draws, by widget: what
     /// [`super::AnnotationView::scripted`] carries (ADR 1617).
     pub(super) drawn: BTreeMap<ObjectId, Vec<Property>>,
+    /// What a save last wrote, where a host has said a save happened: what `this.dirty` is
+    /// measured against ([`ViewState::mark_saved`]).
+    saved: Option<Box<Saved>>,
+    /// The field a commit is being made in and how, while its formats run: the one format that
+    /// carries `event.commitKey`.
+    committing: Option<(String, CommitKey)>,
+    /// Every run the runner answered as held — waiting on a person, or queued behind one that is —
+    /// in the order handed over, until its outcome arrives ([`ViewState::apply_resumed`]).
+    pending: Vec<Pending>,
+}
+
+/// A run its runner held rather than finished, and what its late outcome needs to be applied.
+#[derive(Debug, Clone, PartialEq)]
+struct Pending {
+    /// Where the script ran.
+    site: ScriptSite,
+    /// The event's field, or empty.
+    field: String,
+    /// For a commit's keystroke or validation, what each widget showed before the typing began:
+    /// what a late refusal puts back.
+    before: Option<Vec<(ObjectId, Before)>>,
+}
+
+/// Most held runs a view state keeps a record of; the runner's own queue is shorter.
+const MAX_PENDING: usize = 256;
+
+/// The parts of a view state a save writes, as the last save wrote them (ADR 1626).
+///
+/// A copy rather than a counter for [`Told`]'s reason: a comparison cannot miss a site that
+/// changes one of them.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct Saved {
+    /// [`ViewState`]'s `edited`.
+    edited: BTreeMap<ObjectId, Entry>,
+    /// [`ViewState`]'s `imported`.
+    imported: BTreeMap<ObjectId, Import>,
+    /// [`ViewState`]'s `reset`.
+    reset: BTreeSet<ObjectId>,
+    /// [`ViewState`]'s `added`.
+    added: Vec<super::Added>,
+    /// [`ViewState`]'s `retyped`.
+    retyped: BTreeMap<ObjectId, String>,
+    /// [`ViewState`]'s `filed`.
+    filed: Vec<super::Filed>,
+    /// [`ViewState`]'s `unfiled`.
+    unfiled: Vec<Vec<u8>>,
+    /// The properties scripts set that a save writes.
+    drawn: BTreeMap<ObjectId, Vec<Property>>,
 }
 
 /// The statements about field values and visibility the realm was last told of: what the delta of
@@ -212,6 +306,8 @@ struct Told {
     shown: BTreeSet<ObjectId>,
     /// The properties scripts set.
     overrides: BTreeMap<String, Overrides>,
+    /// §8.11's states, which the realm's layers are read from.
+    optional_content: Option<crate::optional_content::OptionalContent>,
 }
 
 /// What applying one result's edits did, for the sequence that ran it.
@@ -277,11 +373,27 @@ impl ViewState {
     /// A script that is not one call of the library, with no runner supplied, is not run and is
     /// reported in [`Self::script_reports`]; the value stands, because a validation nobody ran
     /// refused nothing.
+    pub fn commit_field(&mut self, document: &Document, name: &str) -> Committed {
+        self.commit_field_by(document, name, CommitKey::Enter)
+    }
+
+    /// [`Self::commit_field`], with the way the person committed stated: Adobe's
+    /// `event.commitKey`, which the commit's keystroke, its validation and its field's format are
+    /// handed (ADR 1626).
+    ///
+    /// [`Self::commit_field`] is this with [`CommitKey::Enter`], a documented choice for a host
+    /// that does not say how the commit came (ADR 1626); a host that knows it was a click or a Tab
+    /// says so here.
     #[expect(
         clippy::too_many_lines,
         reason = "one commit's triggers in the reference's order — the keystroke's commit form,                   then validate, each a one-call arm and a runner's arm with the same refusal —                   read top to bottom as the event model they implement"
     )]
-    pub fn commit_field(&mut self, document: &Document, name: &str) -> Committed {
+    pub fn commit_field_by(
+        &mut self,
+        document: &Document,
+        name: &str,
+        key: CommitKey,
+    ) -> Committed {
         let Some(before) = self.uncommitted.remove(name) else {
             return Committed::Nothing;
         };
@@ -337,11 +449,13 @@ impl ViewState {
                     value: &text,
                     selection: (at, at),
                     will_commit: true,
+                    commit_key: Some(key),
                     ..ScriptEvent::at(ScriptSite::Field(Trigger::Keystroke), name)
                 };
                 match self.run_field_script(document, &table, &widget, event) {
                     None => self.report(format!("{name}: {sentence}")),
                     Some(result) => {
+                        self.hold_before(name, &before);
                         self.report_each(name, result.report);
                         if !result.rc {
                             return self.refuse_commit(
@@ -387,11 +501,13 @@ impl ViewState {
                     value: &text,
                     selection: (text.len(), text.len()),
                     will_commit: true,
+                    commit_key: Some(key),
                     ..ScriptEvent::at(ScriptSite::Field(Trigger::Validate), name)
                 };
                 match self.run_field_script(document, &table, &widget, event) {
                     None => self.report(format!("{name}: {sentence}")),
                     Some(result) => {
+                        self.hold_before(name, &before);
                         self.report_each(name, result.report);
                         if !result.rc {
                             return self.refuse_commit(
@@ -411,7 +527,9 @@ impl ViewState {
         }
 
         self.recalculate_scripts(document, &table, name);
+        self.scripting.committing = Some((name.to_owned(), key));
         self.refresh_formatted(document, &table);
+        self.scripting.committing = None;
         Committed::Accepted
     }
 
@@ -622,23 +740,36 @@ impl ViewState {
         event: ScriptEvent<'_>,
     ) -> Option<(ScriptResult, Applied)> {
         let runner = self.runner.0.clone()?;
-        let fields = self.tell(document, table);
+        let (fields, whole) = self.tell(document, table);
         let result = runner.run(&ScriptEvent {
             fields: &fields,
             pages: crate::page::Pages::new(document).len(),
+            dirty: self.unsaved(),
+            document: whole.as_ref(),
             ..event
         });
+        if runner.waiting() && self.scripting.pending.len() < MAX_PENDING {
+            self.scripting.pending.push(Pending {
+                site: event.site,
+                field: event.field.to_owned(),
+                before: None,
+            });
+        }
         let applied = self.apply_edits(document, table, &result.edits);
         Some((result, applied))
     }
 
-    /// Every field whose state differs from what the realm was last told, read now, and the realm
-    /// counted as told of them.
+    /// Every field whose state differs from what the realm was last told, read now, and the
+    /// document as a whole where it differs too; the realm counted as told of both.
     fn tell(
         &mut self,
         document: &Document,
         table: &BTreeMap<String, Vec<ObjectId>>,
-    ) -> Vec<FieldState> {
+    ) -> (Vec<FieldState>, Option<DocumentState>) {
+        let whole = match self.scripting.told.as_deref() {
+            Some(told) if told.optional_content == self.optional_content => None,
+            _ => Some(self.document_state(document)),
+        };
         let names: BTreeSet<&String> = match self.scripting.told.as_deref() {
             None => table.keys().collect(),
             Some(told) => {
@@ -659,8 +790,8 @@ impl ViewState {
                 changed
             }
         };
-        if names.is_empty() {
-            return Vec::new();
+        if names.is_empty() && whole.is_none() {
+            return (Vec::new(), None);
         }
         let pages = self
             .scripting
@@ -681,8 +812,9 @@ impl ViewState {
             hidden: self.hidden.clone(),
             shown: self.shown.clone(),
             overrides: self.scripting.overrides.clone(),
+            optional_content: self.optional_content.clone(),
         }));
-        states
+        (states, whole)
     }
 
     /// Applies a script's edits as edits a person could have made, and says what they changed.
@@ -727,7 +859,7 @@ impl ViewState {
                         .overrides
                         .entry(field.clone())
                         .or_default()
-                        .record(*property);
+                        .record(property.clone());
                     match property {
                         Property::Display(display) => {
                             for widget in &widgets {
@@ -740,17 +872,20 @@ impl ViewState {
                         // What the appearance draws, and `required`, which a save writes: kept
                         // per widget for `AnnotationView::scripted`, and the page drawn again
                         // (ADR 1617).
+                        // A caption is Table 192's `/CA`, `/AC` or `/RC`, drawn and saved the same
+                        // way (ADR 1626).
                         Property::TextColor(_)
                         | Property::FillColor(_)
                         | Property::StrokeColor(_)
                         | Property::BorderStyle(_)
                         | Property::Alignment(_)
                         | Property::CharLimit(_)
-                        | Property::Required(_) => {
+                        | Property::Required(_)
+                        | Property::Caption(..) => {
                             for widget in &widgets {
                                 let held = self.scripting.drawn.entry(*widget).or_default();
-                                held.retain(|kept| kept.member() != property.member());
-                                held.push(*property);
+                                held.retain(|kept| !kept.replaces(property));
+                                held.push(property.clone());
                             }
                             applied.values = true;
                         }
@@ -780,9 +915,57 @@ impl ViewState {
                         ));
                     }
                 }
+                ScriptEdit::Layer {
+                    number,
+                    generation,
+                    on,
+                } => self.switch_layer(document, *number, *generation, *on),
             }
         }
         applied
+    }
+
+    /// A script's `OCG.state = …`, made as a person's layer switch makes it, or reported where no
+    /// person's switch could make it (ADR 1626).
+    ///
+    /// Table 99's `/Locked` says a locked group's state "cannot be changed through the user
+    /// interface", and its next sentence leaves the rest to the processor: one "may allow the
+    /// states of optional content groups to be changed by means other than the user interface,
+    /// such as ECMAScript". This program takes the narrower reading for a document's scripts — a
+    /// script reaches what the person reading could do by hand (RFC 0008 section 4.2) — so the
+    /// change goes through [`ViewState::set_group`], and a locked group stays as it is.
+    fn switch_layer(&mut self, document: &Document, number: u32, generation: u16, on: bool) {
+        let group = ObjectId { number, generation };
+        if self.set_group(group, on) {
+            return;
+        }
+        let name = self
+            .optional_content
+            .as_ref()
+            .and_then(|content| content.name(document, group))
+            .unwrap_or_else(|| format!("object {number}"));
+        let already = self
+            .optional_content
+            .as_ref()
+            .and_then(|content| content.state(group))
+            == Some(on);
+        if already {
+            return;
+        }
+        let why = if self
+            .optional_content
+            .as_ref()
+            .is_some_and(|content| content.is_locked(group))
+        {
+            "Table 99's /Locked names it, and a script switches only what the person reading \
+             could switch by hand (ADR 1626)"
+        } else {
+            "it is not a group whose state this document's configuration lets a switch change"
+        };
+        self.report(format!(
+            "a script set the layer {name:?} {}, and it stays as it was: {why}",
+            if on { "on" } else { "off" }
+        ));
     }
 
     /// Records each of a runner's sentences against the field it ran for.
@@ -850,9 +1033,12 @@ impl ViewState {
                         |(name, _)| name.clone(),
                     );
                 let current = self.text_of(document, first).unwrap_or_default();
+                let typed = Typed::of(document, taking, &widget, text);
                 let event = ScriptEvent {
                     value: &current,
-                    change: text,
+                    change: &typed.change,
+                    change_ex: &typed.change_ex,
+                    field_full: typed.full,
                     selection: (0, current.len()),
                     ..ScriptEvent::at(ScriptSite::Field(Trigger::Keystroke), &name)
                 };
@@ -866,6 +1052,9 @@ impl ViewState {
                         match (result.rc, result.change) {
                             (false, _) => Verdict::Rejected,
                             (true, Some(change)) => Verdict::Rewritten(change),
+                            // A full field takes the change cropped to what fits, which is what
+                            // the event handed the script as its change (ADR 1626).
+                            (true, None) if typed.full => Verdict::Rewritten(typed.change),
                             (true, None) => Verdict::Stands,
                         }
                     }
@@ -1092,9 +1281,16 @@ impl ViewState {
                 continue;
             }
             let at = shown.text.len();
+            let commit_key = self
+                .scripting
+                .committing
+                .as_ref()
+                .filter(|(field, _)| field == name)
+                .map(|(_, key)| *key);
             let event = ScriptEvent {
                 value: &shown.text,
                 selection: (at, at),
+                commit_key,
                 ..ScriptEvent::at(ScriptSite::Field(Trigger::Format), name)
             };
             let Some(result) = self.run_field_script(document, table, &widget, event) else {
@@ -1202,12 +1398,272 @@ impl ViewState {
         }
     }
 
+    /// Keeps what a commit's widgets showed before the typing began beside the run the runner just
+    /// held, so that a late refusal can put it back.
+    fn hold_before(&mut self, name: &str, before: &[(ObjectId, Before)]) {
+        if let Some(pending) = self.scripting.pending.last_mut()
+            && pending.field == name
+            && pending.before.is_none()
+            && matches!(
+                pending.site,
+                ScriptSite::Field(Trigger::Keystroke | Trigger::Validate)
+            )
+        {
+            pending.before = Some(before.to_vec());
+        }
+    }
+
+    /// Applies every run the runner held and has since finished, as the outcome of the trigger
+    /// that ran it arriving late, and answers whether anything a page draws changed (ADR 1627).
+    ///
+    /// **What a host calls once a person has answered a script's question** — after it hands the
+    /// answer to the runner — and it may call it after any command, since with nothing finished it
+    /// does nothing. A run held on a person changed nothing when it was handed over, so its whole
+    /// outcome is applied here, in the order the runs finished: every edit as an edit, every
+    /// sentence reported. The event's own answer is applied where its trigger can still take it: a
+    /// commit's keystroke or validation that refuses puts back what the field showed before the
+    /// typing began, unless a person has begun typing into it again; a commit's keystroke that
+    /// rewrites the value writes the rewrite; a calculation's value is set; and a format's text is
+    /// what the field displays. Every other site takes its edits alone, as it would have at once.
+    /// Table 224's `/CO` is walked again where a value changed.
+    pub fn apply_resumed(&mut self, document: &Document) -> bool {
+        let Some(runner) = self.runner.0.clone() else {
+            return false;
+        };
+        let table = super::widgets_by_field_name(document);
+        let (mut changed, mut calculate) = (false, false);
+        while let Some(resumed) = runner.take_resumed() {
+            let pending = self
+                .scripting
+                .pending
+                .iter()
+                .position(|held| held.site == resumed.site && held.field == resumed.field)
+                .map(|at| self.scripting.pending.remove(at));
+            let subject = if resumed.field.is_empty() {
+                "a script that waited on an answer".to_owned()
+            } else {
+                resumed.field.clone()
+            };
+            self.report_each(&subject, resumed.result.report.clone());
+            let applied = self.apply_edits(document, &table, &resumed.result.edits);
+            changed |= applied.values;
+            calculate |= applied.calculate;
+            changed |= self.apply_late_event(document, &table, &resumed, pending);
+        }
+        if changed || calculate {
+            self.recalculate_scripts(document, &table, "");
+            self.refresh_formatted(document, &table);
+        }
+        changed || calculate
+    }
+
+    /// The part of a late outcome that is its event's answer: what [`Self::apply_resumed`] says
+    /// each site takes. Answers whether a value or a displayed text changed.
+    fn apply_late_event(
+        &mut self,
+        document: &Document,
+        table: &BTreeMap<String, Vec<ObjectId>>,
+        resumed: &Resumed,
+        pending: Option<Pending>,
+    ) -> bool {
+        let ScriptSite::Field(trigger) = resumed.site else {
+            return false;
+        };
+        let name = resumed.field.as_str();
+        let Some(widgets) = table.get(name).cloned() else {
+            return false;
+        };
+        let typing = widgets.iter().any(|widget| self.is_editing(*widget));
+        let before = pending.and_then(|pending| pending.before);
+        let result = &resumed.result;
+        match (trigger, before) {
+            (Trigger::Keystroke | Trigger::Validate, Some(before)) if !result.rc => {
+                if typing {
+                    self.report(format!(
+                        "{name}: its script refused the value once its question was answered, and \
+                         the field is being typed into again, so what is typed stands"
+                    ));
+                    return false;
+                }
+                self.revert(before);
+                self.report(format!(
+                    "{name}: its script refused the value once its question was answered, so the \
+                     field shows what it showed before the typing began"
+                ));
+                true
+            }
+            (Trigger::Keystroke, Some(_)) => match &result.value {
+                Some(rewritten) if !typing => {
+                    self.write_text(&widgets, rewritten);
+                    true
+                }
+                _ => false,
+            },
+            (Trigger::Calculate, _) => match &result.value {
+                Some(calculated) if result.rc => {
+                    self.set_calculated(document, &widgets, calculated);
+                    true
+                }
+                _ => false,
+            },
+            (Trigger::Format, _) => {
+                let Some(shown) = self.field_value(document, name) else {
+                    return false;
+                };
+                let displayed = Displayed {
+                    shown: result.value.clone().unwrap_or_else(|| shown.text.clone()),
+                    value: shown.text,
+                };
+                for widget in &widgets {
+                    self.scripting.formatted.insert(*widget, displayed.clone());
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Records that a save has written everything this view state holds: what `this.dirty` is
+    /// measured against from now on (ADR 1626).
+    ///
+    /// **What a host calls once [`ViewState::save`]'s update is in a file.** The host keeps its
+    /// own mark of unsaved work, which is the reader's and which no script moves; this is the one a
+    /// script reads.
+    pub fn mark_saved(&mut self) {
+        self.scripting.saved = Some(Box::new(self.written()));
+    }
+
+    /// The parts of this view state a save writes, copied.
+    fn written(&self) -> Saved {
+        Saved {
+            edited: self.edited.clone(),
+            imported: self.imported.clone(),
+            reset: self.reset.clone(),
+            added: self.added.clone(),
+            retyped: self.retyped.clone(),
+            filed: self.filed.clone(),
+            unfiled: self.unfiled.clone(),
+            drawn: self.scripting.drawn.clone(),
+        }
+    }
+
+    /// Whether this view state holds work a save would write that no save has written:
+    /// `this.dirty`.
+    ///
+    /// Measured against what [`Self::mark_saved`] last recorded, or against a view state as a
+    /// document opens — holding no edit — where no save has been marked.
+    pub(super) fn unsaved(&self) -> bool {
+        match self.scripting.saved.as_deref() {
+            Some(saved) => {
+                saved.edited != self.edited
+                    || saved.imported != self.imported
+                    || saved.reset != self.reset
+                    || saved.added != self.added
+                    || saved.retyped != self.retyped
+                    || saved.filed != self.filed
+                    || saved.unfiled != self.unfiled
+                    || saved.drawn != self.scripting.drawn
+            }
+            None => {
+                !(self.edited.is_empty()
+                    && self.imported.is_empty()
+                    && self.reset.is_empty()
+                    && self.added.is_empty()
+                    && self.retyped.is_empty()
+                    && self.filed.is_empty()
+                    && self.unfiled.is_empty()
+                    && self.scripting.drawn.is_empty())
+            }
+        }
+    }
+
     /// Records one sentence of [`Self::script_reports`], once.
     pub(super) fn report(&mut self, sentence: String) {
         if self.script_reports.len() < MAX_REPORTS && !self.script_reports.contains(&sentence) {
             self.script_reports.push(sentence);
         }
     }
+}
+
+/// What a keystroke's whole value makes of Adobe's `event.change`, `changeEx` and `fieldFull`
+/// (ADR 1626).
+///
+/// The reference's "event properties" page: `fieldFull` is true where the text does not fit —
+/// past `charLimit`, or past the room `doNotScroll` leaves — and then `changeEx` is everything the
+/// person tried to enter and `change` what fits; for a list or combo box `changeEx` is the export
+/// value of the change. A host hands a whole value, so what fits is its longest prefix within
+/// Table 232's `/MaxLen` characters and within the rectangle Table 231's `DoNotScroll` holds the
+/// field to — the prefix [`ViewState::set_field`] already accepts under that flag. Where the field
+/// is not full, a text field's `changeEx` is its change: a documented choice, since the page
+/// defines the property for text fields only where they are full.
+struct Typed {
+    /// `event.change`: the characters the field takes.
+    change: String,
+    /// `event.changeEx`.
+    change_ex: String,
+    /// `event.fieldFull`.
+    full: bool,
+}
+
+impl Typed {
+    /// The three for `text` typed into the field whose widgets are `taking`.
+    fn of(document: &Document, taking: &[ObjectId], widget: &Dictionary, text: &str) -> Self {
+        let field = crate::appearance::Field::read(document, widget, super::FieldValue::Stored);
+        match field.kind {
+            Some(crate::appearance::FieldKind::Text) => {
+                let mut fits = super::accepted(document, taking, text);
+                let limit = field
+                    .ancestry
+                    .iter()
+                    .find_map(|dictionary| document.get_key(dictionary, "MaxLen").as_integer())
+                    .and_then(|limit| usize::try_from(limit).ok());
+                if let Some(limit) = limit
+                    && fits.chars().count() > limit
+                {
+                    fits = fits.chars().take(limit).collect();
+                }
+                let full = fits.len() < text.len();
+                Self {
+                    change: if full { fits } else { text.to_owned() },
+                    change_ex: text.to_owned(),
+                    full,
+                }
+            }
+            Some(crate::appearance::FieldKind::Choice { .. }) => Self {
+                change: text.to_owned(),
+                change_ex: export_value(document, &field.ancestry, text)
+                    .unwrap_or_else(|| text.to_owned()),
+                full: false,
+            },
+            _ => Self {
+                change: text.to_owned(),
+                change_ex: text.to_owned(),
+                full: false,
+            },
+        }
+    }
+}
+
+/// The export value of the option of Table 233's `/Opt` whose text a person sees is `shown`:
+/// the first string of a two-string entry, `None` where no entry is a pair showing it.
+fn export_value(document: &Document, ancestry: &[Dictionary], shown: &str) -> Option<String> {
+    let options = ancestry
+        .iter()
+        .map(|dictionary| document.get_key(dictionary, "Opt"))
+        .find(|value| !matches!(value, Object::Null))?;
+    let Object::Array(entries) = options else {
+        return None;
+    };
+    entries.iter().find_map(|entry| {
+        let Object::Array(pair) = document.resolve(entry) else {
+            return None;
+        };
+        let text = |index: usize| match pair.get(index).map(|item| document.resolve(item)) {
+            Some(Object::String(bytes)) => Some(pdf_syntax::text_string(&bytes)),
+            _ => None,
+        };
+        (text(1)? == shown).then(|| text(0)).flatten()
+    })
 }
 
 impl<'a> ScriptEvent<'a> {
@@ -1224,10 +1680,15 @@ impl<'a> ScriptEvent<'a> {
             change: "",
             selection: (0, 0),
             will_commit: false,
+            commit_key: None,
+            field_full: false,
+            change_ex: "",
             source: "",
             fields: &[],
             page: 0,
             pages: 1,
+            dirty: false,
+            document: None,
         }
     }
 }

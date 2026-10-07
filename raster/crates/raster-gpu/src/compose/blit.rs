@@ -5,7 +5,9 @@
 //! *where* — a seed copy reads the parent at the parent's origin, the root reaches the
 //! target through an origin that is negative because the root is smaller than the frame
 //! (ADR 0039), and a damage patch writes one scissored rectangle at a time over
-//! contents the target keeps (ADR 0012).
+//! contents the target keeps (ADR 0012). A composite's backdrop is copied by a transfer
+//! rather than by this shader (ADR 1630), and passes through here only where there is
+//! nothing to copy and its copy is cleared.
 //!
 //! They are together because the offsets are the whole of what a reader has to check,
 //! and they are checkable side by side.
@@ -32,19 +34,16 @@ impl Executor<'_> {
     /// One rectangle of one texture copied into another, whole and unchanged.
     ///
     /// Two callers. §11.4.4's **seed**: a non-isolated group's buffer begins as a copy of
-    /// what is under it (ADR 0019), at the parent's own origin. And the **backdrop** a
-    /// composite is about to cover, read from `from` in the accumulator because the copy
-    /// is the child's size rather than the plan's (ADR 0038). Both read inside the source
-    /// by construction; `src_region` is what tells the shader so.
+    /// what is under it (ADR 0019), at the parent's own origin, read inside the source by
+    /// construction; `src_region` is what tells the shader so. And the **backdrop** a
+    /// composite is about to cover where nothing has written the accumulator yet, a
+    /// source of `None` whose every texel is §11.4.5's transparency: the pass clears and
+    /// draws nothing, which stores the zeros a copy would have read (ADR 1618). A backdrop
+    /// that has a source is a transfer (`child.rs`, ADR 1630).
     ///
-    /// A source of `None` is an accumulator nothing has written yet, whose every texel is
-    /// §11.4.5's transparency: the pass clears and draws nothing, which stores the zeros
-    /// the blit would have copied (ADR 1618).
-    ///
-    /// A blit rather than `copy_texture_to_texture` because it needs no copy usage on
-    /// every internal texture in the frame, and because it is scissored by the same rule
-    /// as every other pass — under a damage patch (ADR 0012) it copies only the pixels the
-    /// frame is allowed to touch. `blit.wgsl` is a `textureLoad` and a store with no
+    /// The seed stays a blit, scissored by the same rule as every other pass, because no
+    /// page this tree times seeds a group, so what a transfer would save there is
+    /// unmeasured (ADR 1630 section 4). `blit.wgsl` is a `textureLoad` and a store with no
     /// blending, so between two `Rgba8Unorm` textures it is exact.
     pub(super) fn copy_pass(
         &mut self,

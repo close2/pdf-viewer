@@ -338,13 +338,16 @@ pub(super) fn premultiply_in_place(data: &mut [u8]) {
 }
 
 impl Device {
-    /// A frame-internal texture: layer, mask, or ping-pong scratch.
+    /// A frame-internal texture: a layer, or a soft mask's reduction, with the usages its
+    /// caller names — both are drawn into and sampled, and only a layer is a transfer's
+    /// source or destination (`layers::LAYER_USAGES`, ADR 1630).
     pub(crate) fn create_internal_texture(
         &self,
         label: &str,
         width: u32,
         height: u32,
         format: wgpu::TextureFormat,
+        usage: wgpu::TextureUsages,
     ) -> wgpu::Texture {
         self.gpu.create_texture(&wgpu::TextureDescriptor {
             label: Some(label),
@@ -357,7 +360,7 @@ impl Device {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage,
             view_formats: &[],
         })
     }

@@ -65,6 +65,9 @@ const READING_THE_OUTLINE: &str = "Reading the outline.";
 /// beside it.
 type Answered = Rc<dyn Fn(&mut Host, bool)>;
 
+/// What a script's dialogue does with the person's answer, once (ADR 1628).
+type ScriptAnswered = Rc<dyn Fn(&mut Host, viewer_core::ScriptAnswer)>;
+
 /// Why the host could not start.
 #[derive(Debug, thiserror::Error)]
 pub enum HostError {
@@ -995,6 +998,81 @@ impl Host {
                 host.dispatch(Command::AnswerScripts { document, proceed });
             }),
         );
+    }
+
+    /// RFC 0008 section 4.2's `app.alert` and `app.response`, as a dialogue titled with the
+    /// document that asks: the script's text, the buttons its alert asked for or an entry holding
+    /// its response's default, and a close answered as [`viewer_core::ScriptAnswer::dismissed`]
+    /// (ADR 1628).
+    ///
+    /// Answered from GTK's event loop like every other question here, so the window's thread
+    /// never waits on a person; the script waits in its worker.
+    fn ask_for_a_script(&mut self, document: DocumentId, question: &viewer_core::ScriptQuestion) {
+        use viewer_core::{ScriptAnswer, ScriptQuestion};
+        use viewer_host::script_asks;
+        let name = self.documents.label_of(document);
+        self.say(&script_asks::put(&name, question));
+        let dialog = gtk4::Window::new();
+        dialog.set_title(Some(&script_asks::title(&name, question)));
+        dialog.set_modal(true);
+        dialog.set_transient_for(Some(&self.ui.window));
+        dialog.set_default_size(420, -1);
+        let column = gtk4::Box::new(gtk4::Orientation::Vertical, 12);
+        column.set_margin_top(12);
+        column.set_margin_bottom(12);
+        column.set_margin_start(12);
+        column.set_margin_end(12);
+        let text = gtk4::Label::new(Some(script_asks::text(question)));
+        text.set_xalign(0.0);
+        text.set_wrap(true);
+        column.append(&text);
+        let password = matches!(question, ScriptQuestion::Response { password: true, .. });
+        // Whether it was answered lives beside the dialogue, for `put_a_question`'s reason.
+        let answered = Rc::new(Cell::new(false));
+        let answer: ScriptAnswered = Rc::new(move |host: &mut Self, answer: ScriptAnswer| {
+            host.say(&script_asks::answered(&answer, password));
+            host.dispatch(Command::AnswerScript { document, answer });
+        });
+        let buttons = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+        buttons.set_halign(gtk4::Align::End);
+        let (choices, entered) = script_choices(&column, question, password);
+        let last = choices.len().saturating_sub(1);
+        for (index, (label, chosen)) in choices.into_iter().enumerate() {
+            let button = gtk4::Button::with_label(&label);
+            if index == last {
+                button.add_css_class("suggested-action");
+                dialog.set_default_widget(Some(&button));
+            }
+            let me = self.me.clone();
+            let dialogue = dialog.clone();
+            let done = Rc::clone(&answered);
+            let said = Rc::clone(&answer);
+            button.connect_clicked(move |_| {
+                done.set(true);
+                dialogue.close();
+                let given = chosen();
+                with(&me, |host| said(host, given));
+            });
+            buttons.append(&button);
+        }
+        column.append(&buttons);
+        dialog.set_child(Some(&column));
+        // A dialogue closed without a press is the closed dialogue's answer, never silence: the
+        // script is waiting on it (trap 5).
+        let me = self.me.clone();
+        let closed = ScriptAnswer::dismissed(question);
+        dialog.connect_close_request(move |_| {
+            if !answered.get() {
+                let closed = closed.clone();
+                with(&me, |host| answer(host, closed));
+            }
+            glib::Propagation::Proceed
+        });
+        closes_on_escape(&dialog);
+        dialog.present();
+        if let Some(entry) = entered {
+            entry.grab_focus();
+        }
     }
 
     /// `CLAUDE.md`'s *ask* level over §12.6.4.8's link, in the same window.
@@ -1959,6 +2037,9 @@ impl Host {
                 script,
                 first_line,
             } => self.ask_whether_to_run_scripts(document, &script, &first_line),
+            Event::ScriptAsking { document, question } => {
+                self.ask_for_a_script(document, &question);
+            }
             // §7.11.4's list moved under the files tab: a file attached this sitting is in it
             // before anything is saved, and one detached is out of it. The tab is rebuilt from
             // the same answer it was built from, which is the only thing a window may do here
@@ -3866,9 +3947,7 @@ impl Host {
         };
         let window = self.ui.window.clone();
         glib::idle_add_local_once(move || match control {
-            Some(control) => {
-                control.grab_focus();
-            }
+            Some(control) => controls::give_the_keyboard(&control),
             None => GtkWindowExt::set_focus(&window, None::<&gtk4::Widget>),
         });
     }
@@ -3904,9 +3983,7 @@ impl Host {
             Topic::Access,
             format_args!("the keyboard goes to the field {}", name.shown()),
         );
-        glib::idle_add_local_once(move || {
-            control.grab_focus();
-        });
+        glib::idle_add_local_once(move || controls::give_the_keyboard(&control));
     }
 
     /// Whether this window has the keyboard, which the accessibility bridge is told (ADR 1565).
@@ -4725,6 +4802,78 @@ pub(crate) fn with(me: &Weak<RefCell<Host>>, what: impl FnOnce(&mut Host)) {
     match host.try_borrow_mut() {
         Ok(mut host) => what(&mut host),
         Err(_) => eprintln!("note: the host was busy and an action was dropped"),
+    }
+}
+
+/// Binds Escape to closing a dialogue, which a plain `GtkWindow` does not, as the password prompt
+/// binds it by hand.
+fn closes_on_escape(dialog: &gtk4::Window) {
+    let keys = gtk4::EventControllerKey::new();
+    let dialogue = dialog.clone();
+    keys.connect_key_pressed(move |_, key, _, _| {
+        if key == gtk4::gdk::Key::Escape {
+            dialogue.close();
+            return glib::Propagation::Stop;
+        }
+        glib::Propagation::Proceed
+    });
+    dialog.add_controller(keys);
+}
+
+/// One button of a script's dialogue: its label, and the answer it gives when pressed.
+type Choice = (String, Rc<dyn Fn() -> viewer_core::ScriptAnswer>);
+
+/// What a script's dialogue offers under its text: an alert's icon as a word and its buttons, or a
+/// response's label, its entry holding the default, and Cancel and OK — each in the order laid out,
+/// the affirming one last (ADR 1628).
+fn script_choices(
+    column: &gtk4::Box,
+    question: &viewer_core::ScriptQuestion,
+    password: bool,
+) -> (Vec<Choice>, Option<gtk4::Entry>) {
+    use viewer_core::{AlertButton, ScriptAnswer, ScriptQuestion};
+    let dim = |words: &str| {
+        let label = gtk4::Label::new(Some(words));
+        label.set_xalign(0.0);
+        label.add_css_class("dim-label");
+        label
+    };
+    match question {
+        ScriptQuestion::Alert { icon, buttons, .. } => {
+            column.prepend(&dim(icon.word()));
+            let choices = buttons
+                .buttons()
+                .iter()
+                .map(|button| {
+                    let button = *button;
+                    let pressed: Rc<dyn Fn() -> ScriptAnswer> =
+                        Rc::new(move || ScriptAnswer::Pressed(button));
+                    (button.label().to_owned(), pressed)
+                })
+                .collect();
+            (choices, None)
+        }
+        ScriptQuestion::Response { default, label, .. } => {
+            if let Some(label) = label {
+                column.append(&dim(label));
+            }
+            let entry = gtk4::Entry::new();
+            entry.set_text(default);
+            entry.set_visibility(!password);
+            entry.set_activates_default(true);
+            column.append(&entry);
+            let typed_from = entry.clone();
+            let typed: Rc<dyn Fn() -> ScriptAnswer> =
+                Rc::new(move || ScriptAnswer::Typed(Some(typed_from.text().to_string())));
+            let cancelled: Rc<dyn Fn() -> ScriptAnswer> = Rc::new(|| ScriptAnswer::Typed(None));
+            (
+                vec![
+                    (AlertButton::Cancel.label().to_owned(), cancelled),
+                    (AlertButton::Ok.label().to_owned(), typed),
+                ],
+                Some(entry),
+            )
+        }
     }
 }
 

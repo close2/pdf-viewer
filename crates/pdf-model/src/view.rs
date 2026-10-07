@@ -37,10 +37,10 @@ mod scripts;
 
 use crate::optional_content::{Audience, OptionalContent, Purpose};
 pub use script_model::{
-    Alignment, BorderStyle, Colour, Display, DocumentTrigger, FieldState, FieldType, Property,
-    ScriptEdit, ScriptSite, TextFlag,
+    Alignment, BorderStyle, Colour, CommitKey, Display, DocumentState, DocumentTrigger, Face,
+    FieldState, FieldType, InfoEntry, Layer, Property, ScriptEdit, ScriptSite, TextFlag,
 };
-pub use scripts::{Committed, Displayed, ScriptEvent, ScriptResult, ScriptRunner};
+pub use scripts::{Committed, Displayed, Resumed, ScriptEvent, ScriptResult, ScriptRunner};
 
 /// Deepest nesting of `/Kids`, and longest `/Parent` chain, walked in §12.7.4.1's field tree.
 ///
@@ -2993,6 +2993,8 @@ impl ViewState {
                     field.remove("V");
                 }
             }
+            // Table 231 bit 26's `/RV`, beside the `/V` it specifies (ADR 1635).
+            crate::rich_text::write_beside(document, &dict, entered.value.as_ref(), &mut field);
             // Table 234's `/I` is written for a single selection too, because it is the only
             // entry that says *which* `/Opt` element was chosen where two of them carry the same
             // label. This line used to justify that with the entry's own "shall be used ...

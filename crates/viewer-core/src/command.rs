@@ -441,6 +441,18 @@ pub enum Command {
         /// Whether its scripts run.
         proceed: bool,
     },
+    /// The person's answer to [`crate::Event::ScriptAsking`]: the button pressed, the text typed,
+    /// or that the window could not ask.
+    ///
+    /// Handed to the document's script, which has been waiting on it; an answer for a document
+    /// whose script is no longer waiting — its wait ran out, or it closed — does nothing
+    /// (ADR 1628).
+    AnswerScript {
+        /// Which document's script asked.
+        document: DocumentId,
+        /// What the person answered.
+        answer: crate::ScriptAnswer,
+    },
     /// Table 29's `/PageLayout`: how the pages are arranged in the window.
     ///
     /// **The fourth host-supplied policy value, and it passes `doc/ui-boundary.md`'s test for the

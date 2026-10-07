@@ -88,6 +88,11 @@ fn measure(index: usize) {
         fields: &[],
         page: 0,
         pages: 1,
+        commit_key: None,
+        field_full: false,
+        change_ex: "",
+        dirty: false,
+        document: None,
     };
     let request = Request::of(&event, 0, 0);
     let started = std::time::Instant::now();

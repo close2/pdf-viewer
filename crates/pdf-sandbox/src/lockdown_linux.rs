@@ -395,6 +395,11 @@ const _: () = assert!(
 /// - `clock_gettime` — the wall budget's clock between slices; the vDSO's, so absent from the
 ///   traces, and kept for a machine without one, as the decoder keeps it.
 /// - `exit_group` — leaving when the host closes its end.
+/// - `sigaltstack` — the standard library's teardown on that clean exit, which disables the
+///   alternate signal stack it installed for reporting an overflowed stack and unmaps it; without
+///   it a worker whose host had closed its end died by `SIGSYS` on the way out, its last act a core
+///   dump (ADR 1627). It changes where this process's own signal handler runs and reaches nothing
+///   outside it.
 /// - `rt_sigprocmask`, `rt_sigaction`, `rt_sigreturn`, `getpid`, `gettid`, `tgkill` — the abort
 ///   path: the address-space ceiling's failed allocation and the standard library's report of an
 ///   overflowed stack both end in `abort`, and without these the process would die by `SIGSYS` from
@@ -416,6 +421,7 @@ const PERMITTED_SCRIPT: &[i64] = &[
     libc::SYS_getrandom,
     libc::SYS_clock_gettime,
     libc::SYS_exit_group,
+    libc::SYS_sigaltstack,
     libc::SYS_rt_sigprocmask,
     libc::SYS_rt_sigaction,
     libc::SYS_rt_sigreturn,

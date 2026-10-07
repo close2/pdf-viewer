@@ -83,16 +83,18 @@ use script_population::{MAX_FILE_BYTES, password_for, population, repository};
 const HELD_EXCEEDED: usize = 0;
 
 /// Most runs that may end in an uncaught throw.
-const HELD_THREW: usize = 9_593;
+const HELD_THREW: usize = 9_541;
 
-/// Most runs that may finish having been refused a call.
-const HELD_FINISHED_REFUSED: usize = 0;
+/// Most runs that may finish having been refused a call: three, each a script that catches the
+/// refusal of a write to `this.pageNum` — a page turn, which this bridge does not carry — once the
+/// members before it in the same script are carried (ADR 1626).
+const HELD_FINISHED_REFUSED: usize = 3;
 
 /// Most runs whose script may not parse.
 const HELD_UNPARSED: usize = 8;
 
 /// Fewest runs the walk may hand the engine.
-const HELD_RUNS: usize = 20_789;
+const HELD_RUNS: usize = 20_860;
 
 /// How the runs ended, counted across the walk.
 #[derive(Debug, Default)]
@@ -123,6 +125,11 @@ struct Tally {
     sites: Mutex<BTreeMap<String, usize>>,
     /// The longest document-level script a run was handed, in bytes, and the document's name.
     library: Mutex<(usize, String)>,
+    /// The deepest stack `pdf_script::depth` estimated for a script, in bytes, and the document's
+    /// name (ADR 1626).
+    deepest: Mutex<(u64, String)>,
+    /// Runs that put a question, which no face here answers (ADR 1627).
+    asked: AtomicUsize,
 }
 
 /// A runner that runs one document's realm and counts each outcome.
@@ -139,7 +146,20 @@ struct Counting {
 impl ScriptRunner for Counting {
     fn run(&self, event: &ScriptEvent<'_>) -> ScriptResult {
         let request = Request::of(event, 1_704_465_015_000, 0);
+        let estimated = pdf_script::depth::estimate(event.script);
+        if let Ok(mut deepest) = self.tally.deepest.lock()
+            && estimated > deepest.0
+        {
+            *deepest = (estimated, self.document.clone());
+        }
         let outcome = self.engine.run_request(&request);
+        if outcome
+            .notes
+            .iter()
+            .any(|note| note.starts_with("the script asked"))
+        {
+            self.tally.asked.fetch_add(1, Ordering::Relaxed);
+        }
         if let Ok(mut sites) = self.tally.sites.lock() {
             let site = format!("{:?}", event.site);
             let held = sites.entry(site).or_default();
@@ -315,6 +335,7 @@ fn every_script_tier_0_does_not_run_is_run_in_its_document_s_realm_and_counted()
             largest.0, largest.1
         );
     }
+    depth_and_questions(&tally);
     if let Ok(thrown_at) = tally.thrown_at.lock() {
         println!("throws by site: {thrown_at:?}");
     }
@@ -369,6 +390,22 @@ fn every_script_tier_0_does_not_run_is_run_in_its_document_s_realm_and_counted()
         "the hook handed none of {fields} field script(s) to the engine"
     );
     hold(&tally, runs);
+}
+
+/// Prints the deepest script's estimate and the runs that put a question (ADRs 1626, 1627).
+fn depth_and_questions(tally: &Tally) {
+    if let Ok(deepest) = tally.deepest.lock() {
+        println!(
+            "deepest script: {} KiB of stack estimated against a budget of {} KiB, in {}",
+            deepest.0 >> 10,
+            Budget::FIELD_EVENT.depth >> 10,
+            deepest.1
+        );
+    }
+    println!(
+        "runs that put a question, answered as a closed dialogue answers: {}",
+        tally.asked.load(Ordering::Relaxed)
+    );
 }
 
 /// Holds the walk's endings to the column's ceilings and its runs to the floor (ADR 1625), printing

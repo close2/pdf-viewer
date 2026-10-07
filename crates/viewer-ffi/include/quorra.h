@@ -51,7 +51,7 @@ extern "C" {
  * This is what stands in for the Rust rule that a new message fails to compile in every consumer.
  * It cannot fail a build, so it fails a startup instead, once, naming the number that moved.
  */
-#define QUORRA_EVENT_KIND_COUNT 23u
+#define QUORRA_EVENT_KIND_COUNT 24u
 
 /* What an entry point returns. `QUORRA_OK` is zero; everything else is a refusal. */
 #define QUORRA_OK                 0
@@ -111,6 +111,10 @@ extern "C" {
  * supplies no runner, so its sessions run no script and this kind is not sent to it; it is named
  * for the default arm of a switch over a newer build (ADR 1616). */
 #define QUORRA_EVENT_ASKING_TO_RUN_SCRIPTS 22u
+
+/* A document's script asks the person something: app.alert or app.response. Not sent to a caller
+ * of this ABI, for the kind above's reason; named for the default arm of a switch (ADR 1628). */
+#define QUORRA_EVENT_SCRIPT_ASKING     23u
 
 /* §12.5.5's three situations, of which a press is two. What `quorra_pointer` takes. */
 #define QUORRA_POINTER_MOVED     0u

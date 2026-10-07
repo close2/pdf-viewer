@@ -2,8 +2,8 @@
 
 Not a todo. Shared background for [34](34-sandbox-the-interpreter.md),
 [35](35-confinement-off-linux.md) and what was todo 24 — the sampling-intent vocabulary,
-closed across ADRs 0210, 0321 and 0339 — written in the
-**three-hundred-and-eleventh session** when the project owner asked whether the code that needs
+closed across ADRs 0210, 0321 and 0339 — answering the project owner's question whether the code
+that needs
 `pdf-sandbox` could be replaced by safe alternatives, and how hard the algorithms would be to
 implement here.
 
@@ -165,16 +165,15 @@ what the gate would answer.
 `hayro-jpeg2000` 0.4.0 is the latest published version as of this session, so there is no upstream
 fix waiting to be picked up.
 
-**There was one for JBIG2, and the six-hundred-and-twenty-first session took it — as the commit,
-because there is still no release.** `hayro-jbig2` 0.3.0 caps a text region at a flat 10 000 symbol
+**There is one for JBIG2, and this tree takes it — as the commit, because there is still no
+release.** `hayro-jbig2` 0.3.0 caps a text region at a flat 10 000 symbol
 instances, with the comment "[a]rbitrarily chosen, but we need some limit to prevent timeouts". A
 full page of text has more than that: the crawl's `1653119.pdf` is a 4256×6258 scan whose one text
 region declares **13 264** instances, and this tree drew it as a blank sheet where `poppler`,
-`mupdf` and `ghostscript` each drew the page (session 613, ADR 0448). Two more arrived from behind a
+`mupdf` and `ghostscript` each drew the page (ADR 0448). Two more arrived from behind a
 bound of our own — `3375154.pdf`, a scan whose `/Mask` is a 9364×13030 `JBIG2Decode` stencil, and
-`3252105.pdf`, a book cover whose foreground layer is another; until session 615 both were refused
-for the size of the grid the mask and its image would be combined on, so the JBIG2 was never
-reached (ADR 0451).
+`3252105.pdf`, a book cover whose foreground layer is another; both were refused for the size of
+the grid the mask and its image would be combined on, so the JBIG2 was never reached (ADR 0451).
 
 **Upstream replaced the cap** with pdfium's heuristic — `segment_data_len × 32`, which admits
 852 096 on the first of them — in `hayro-jbig2: Use heuristic for maximum symbol instances (#1278)`,
@@ -200,8 +199,7 @@ came from a binary rather than from the file (ADR 0458). They are rows in
 item is closed. **The next one is `hayro-ccitt` and `hayro-jbig2` going back to crates.io**, which
 is a release to wait for rather than work to do.
 
-**Five of 22 000 now**, and the two the six-hundred-and-nineteenth session added arrived through no
-bound of ours at all — they reach the cap directly, which is what the first two would have done had
+**Five of 22 000**, and the last two arrive through no bound of ours at all — they reach the cap directly, which is what the first two would have done had
 the `/Mask` ceiling not hidden them. `0546561.pdf` is a 792×943 page whose full-page `/Mask`
 stencil says `JBIG2: too many symbol instances` and is short of three agreeing references by
 **30.018** of 255; `4974796.pdf` draws *nothing at all* for the same reason, at **−15.417**. Both

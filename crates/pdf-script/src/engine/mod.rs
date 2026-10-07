@@ -20,12 +20,15 @@
 //! `evaluate_async_with_budget`, which yields after a fixed number of its cost units, and the poll
 //! loop below checks the clock and the step count at every yield and abandons the evaluation
 //! where either is spent. The sizes an argument can ask a built-in to allocate are checked before
-//! the built-in runs (`guard`). What none of these bounds — work inside one native call that
+//! the built-in runs (`guard`), and how deep a script's text nests before the parser is handed it
+//! (`crate::depth`, ADR 1626) — its own text, and any string `eval` or `Function` compiles while it
+//! runs. Boa's AST optimizer is off, for ADR 1626's figures. What none of these bounds — work inside one native call that
 //! calls back into script, growth through an operator, and a realm's heap across its lifetime — is
 //! the process's to bound, and ADRs 1590 and 1602 name each.
 
 mod bridge;
 mod guard;
+mod members;
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
@@ -36,18 +39,20 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context as TaskContext, Poll, Waker};
 use std::thread::JoinHandle;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use boa_engine::context::HostHooks;
 use boa_engine::context::time::{Clock, JsInstant};
 use boa_engine::error::{EngineError, RuntimeLimitError};
 use boa_engine::module::IdleModuleLoader;
-use boa_engine::{Context, JsError, JsString, JsValue, Script, Source};
+use boa_engine::optimizer::OptimizerOptions;
+use boa_engine::realm::Realm as BoaRealm;
+use boa_engine::{Context, JsError, JsNativeError, JsResult, JsString, JsValue, Script, Source};
 use pdf_model::view::{
-    FieldState, ScriptEdit, ScriptEvent, ScriptResult, ScriptRunner, ScriptSite,
+    DocumentState, FieldState, ScriptEdit, ScriptEvent, ScriptResult, ScriptRunner, ScriptSite,
 };
 
-use crate::{Budget, Ending, Exceeded, Outcome, Refusal, RefusalKind, Request};
+use crate::{Asker, Budget, Ending, Exceeded, Nobody, Outcome, Refusal, RefusalKind, Request};
 
 /// The engine cost units one execution slice spends before the poll loop looks at the clock.
 ///
@@ -63,6 +68,9 @@ const MAX_REFUSALS: usize = 64;
 
 /// Most lines one run's log keeps.
 const MAX_LOG_LINES: usize = 64;
+
+/// Most notes one run keeps.
+const MAX_NOTES: usize = 64;
 
 /// Longest logged line kept, in characters.
 const MAX_LOG_CHARACTERS: usize = 1024;
@@ -108,16 +116,28 @@ pub struct Realm {
     utc_offset_seconds: Rc<Cell<i32>>,
     /// The budget every run is held to.
     budget: Budget,
+    /// How long the current run's question waited on its answer.
+    waited: Rc<Cell<Duration>>,
 }
 
 impl Realm {
-    /// A realm with the host object model installed and no field known.
+    /// A realm with the host object model installed and no field known, whose scripts' questions
+    /// nobody is asked ([`Nobody`]).
     ///
     /// # Errors
     ///
     /// The sentence saying what could not be installed, where the engine refuses a property on a
     /// context just constructed — which it does not.
     pub fn new(budget: Budget) -> Result<Self, String> {
+        Self::with_asker(budget, Rc::new(Nobody))
+    }
+
+    /// A realm whose scripts' questions `asker` answers (ADR 1627).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::new`].
+    pub fn with_asker(budget: Budget, asker: Rc<dyn Asker>) -> Result<Self, String> {
         let clock = Rc::new(Moment::default());
         let utc_offset_seconds = Rc::new(Cell::new(0));
         let hooks = Hooks {
@@ -138,7 +158,12 @@ impl Realm {
         limits.set_loop_iteration_limit(budget.loop_iterations);
         limits.set_recursion_limit(usize::try_from(budget.recursion).unwrap_or(usize::MAX));
         limits.set_stack_size_limit(usize::try_from(budget.stack).unwrap_or(usize::MAX));
-        context.insert_data(State::new(budget));
+        // Boa's AST optimizer is off (ADR 1626): it was 70.8% of the largest library's
+        // instructions, it is a second recursive walk over what a hostile script nests, and what it
+        // buys — folding a chain of constants — is a case no form's script is.
+        context.set_optimizer_options(OptimizerOptions::empty());
+        let waited = Rc::new(Cell::new(Duration::ZERO));
+        context.insert_data(State::new(budget, asker, Rc::clone(&waited)));
         bridge::install(&mut context)
             .map_err(|error| format!("the host object model could not be installed: {error}"))?;
         Ok(Self {
@@ -146,6 +171,7 @@ impl Realm {
             clock,
             utc_offset_seconds,
             budget,
+            waited,
         })
     }
 
@@ -165,9 +191,8 @@ impl Realm {
                 )));
             }
         };
-        let deepest = nesting(&request.script);
-        if deepest > usize::try_from(self.budget.nesting).unwrap_or(usize::MAX) {
-            return Outcome::unchanged(Ending::Exceeded(Exceeded::Nesting(self.budget.nesting)));
+        if let Some(exceeded) = too_deep(&request.script, &self.budget) {
+            return Outcome::unchanged(Ending::Exceeded(exceeded));
         }
         let script = match Script::parse(
             Source::from_bytes(request.script.as_bytes()),
@@ -177,17 +202,28 @@ impl Realm {
             Ok(script) => script,
             Err(error) => return Outcome::unchanged(Ending::Unparsed(error.to_string())),
         };
-        let ending = evaluate(&script, &mut self.context, &self.budget);
+        self.waited.set(Duration::ZERO);
+        let ending = evaluate(&script, &mut self.context, &self.budget, &self.waited);
         let recorded = State::take(&self.context);
         let ending = match (ending, recorded.exceeded) {
             (_, Some(exceeded)) => Ending::Exceeded(exceeded),
             (ending, None) => ending,
         };
         let finished = ending == Ending::Finished;
+        let mut notes = recorded.notes;
+        if recorded.unasked > 0 {
+            notes.push(format!(
+                "{} further question(s) in the same run were not put: one question is put per \
+                 trigger, and each of the rest was answered as a closed dialogue answers (RFC \
+                 0008 section 6.8)",
+                recorded.unasked
+            ));
+        }
         let mut outcome = Outcome {
             ending,
             refusals: recorded.refusals,
             log: recorded.log,
+            notes,
             // A run that did not finish changes nothing, its edits included: a calculation
             // stopped half way through has set some fields and not others.
             edits: if finished { recorded.edits } else { Vec::new() },
@@ -200,6 +236,19 @@ impl Realm {
         }
         outcome
     }
+}
+
+/// The budget a script's text exceeds before it is parsed: its brackets' nesting, or the stack its
+/// parse and compilation would need ([`crate::depth`]).
+fn too_deep(script: &str, budget: &Budget) -> Option<Exceeded> {
+    if nesting(script) > usize::try_from(budget.nesting).unwrap_or(usize::MAX) {
+        return Some(Exceeded::Nesting(budget.nesting));
+    }
+    let estimated = crate::depth::estimate(script);
+    (estimated > budget.depth).then_some(Exceeded::Depth {
+        estimated,
+        ceiling: budget.depth,
+    })
 }
 
 /// The deepest a script's brackets nest, counted over every byte.
@@ -225,7 +274,12 @@ fn nesting(script: &str) -> usize {
 }
 
 /// Evaluates the script a slice at a time, abandoning it where the clock or the steps are spent.
-fn evaluate(script: &Script, context: &mut Context, budget: &Budget) -> Ending {
+fn evaluate(
+    script: &Script,
+    context: &mut Context,
+    budget: &Budget,
+    waited: &Cell<Duration>,
+) -> Ending {
     let started = Instant::now();
     let mut spent = 0_u64;
     let mut waker = TaskContext::from_waker(Waker::noop());
@@ -239,7 +293,8 @@ fn evaluate(script: &Script, context: &mut Context, budget: &Budget) -> Ending {
                 if spent > budget.steps {
                     return Ending::Exceeded(Exceeded::Steps(budget.steps));
                 }
-                if started.elapsed() > budget.wall {
+                // The time a question waited on a person is not the script's (ADR 1627).
+                if started.elapsed().saturating_sub(waited.get()) > budget.wall {
                     return Ending::Exceeded(Exceeded::Wall(budget.wall));
                 }
             }
@@ -278,6 +333,11 @@ pub(crate) struct State {
     /// The current run's record, borrowed for the length of one statement each time a native
     /// function writes to it.
     record: RefCell<Record>,
+    /// Where the realm's questions are put.
+    asker: Rc<dyn Asker>,
+    /// How long the current run's question waited on its answer, read by the poll loop that holds
+    /// the context while the script runs.
+    waited: Rc<Cell<Duration>>,
 }
 
 /// The document as a realm knows it.
@@ -289,6 +349,10 @@ pub(crate) struct Table {
     pub(crate) page: u32,
     /// How many pages the document has.
     pub(crate) pages: u32,
+    /// Whether the view state holds work no save has written.
+    pub(crate) dirty: bool,
+    /// The document as a whole, as last told.
+    pub(crate) document: DocumentState,
 }
 
 /// One run's record.
@@ -309,20 +373,46 @@ pub(crate) struct Record {
     /// The fields' states before the run's first edit of each, so that a run that does not finish
     /// leaves the realm's table as it found it.
     touched: BTreeMap<String, FieldState>,
+    /// The groups as they were before the run's first switch of one, for the same reason.
+    pub(crate) layers_before: Option<Vec<pdf_model::view::Layer>>,
     /// The budget a guard stopped the script on.
     pub(crate) exceeded: Option<Exceeded>,
+    /// The notes the run owes a report.
+    pub(crate) notes: Vec<String>,
+    /// Whether the run has put its one question.
+    pub(crate) asked_once: bool,
+    /// How many questions after the first the run was not let put.
+    pub(crate) unasked: u32,
+    /// What a script set `this.dirty` to in this run, which it reads back until the run ends.
+    pub(crate) dirty_written: Option<bool>,
 }
 
 impl State {
-    /// An empty table and record.
-    fn new(budget: Budget) -> Self {
+    /// An empty table and record, and the realm's asker.
+    fn new(budget: Budget, asker: Rc<dyn Asker>, waited: Rc<Cell<Duration>>) -> Self {
         Self {
             table: RefCell::new(Table::default()),
             record: RefCell::new(Record {
                 budget,
                 ..Record::default()
             }),
+            asker,
+            waited,
         }
+    }
+
+    /// Adds to the time the current run's question waited.
+    pub(crate) fn waited(context: &Context, waited: Duration) {
+        if let Some(state) = context.get_data::<Self>() {
+            state.waited.set(state.waited.get().saturating_add(waited));
+        }
+    }
+
+    /// The realm's asker.
+    pub(crate) fn asker(context: &Context) -> Option<Rc<dyn Asker>> {
+        context
+            .get_data::<Self>()
+            .map(|state| Rc::clone(&state.asker))
     }
 
     /// Takes in a request's fields and starts a fresh record for it.
@@ -336,6 +426,10 @@ impl State {
             }
             table.page = request.page;
             table.pages = request.pages;
+            table.dirty = request.dirty;
+            if let Some(document) = &request.document {
+                table.document.clone_from(document);
+            }
         }
         if let Ok(mut record) = state.record.try_borrow_mut() {
             let budget = record.budget;
@@ -358,11 +452,13 @@ impl State {
         };
         let budget = record.budget;
         let touched = std::mem::take(&mut record.touched);
+        let layers_before = record.layers_before.take();
         std::mem::replace(
             &mut *record,
             Record {
                 budget,
                 touched,
+                layers_before,
                 ..Record::default()
             },
         )
@@ -380,6 +476,9 @@ impl State {
         };
         for (name, was) in std::mem::take(&mut record.touched) {
             table.fields.insert(name, was);
+        }
+        if let Some(layers) = record.layers_before.take() {
+            table.document.layers = layers;
         }
     }
 
@@ -452,6 +551,14 @@ impl Record {
         }
     }
 
+    /// Records a note, cut to [`MAX_LOG_CHARACTERS`].
+    pub(crate) fn note(&mut self, sentence: &str) {
+        if self.notes.len() < MAX_NOTES {
+            self.notes
+                .push(sentence.chars().take(MAX_LOG_CHARACTERS).collect());
+        }
+    }
+
     /// Records a logged line, cut to [`MAX_LOG_CHARACTERS`].
     pub(crate) fn log(&mut self, line: &str) {
         if self.log.len() < MAX_LOG_LINES {
@@ -509,6 +616,34 @@ impl HostHooks for Hooks {
     fn max_buffer_size(&self, _context: &mut Context) -> u64 {
         self.buffer_bytes
     }
+
+    /// A string compiled while a script runs — `eval`, `Function` — is held to the budgets a
+    /// script's own text is held to before it is parsed, since it reaches the same parser and the
+    /// same compiler (ADR 1626). Over either, the compile is refused and the run stopped on it.
+    fn ensure_can_compile_strings(
+        &self,
+        _realm: BoaRealm,
+        parameters: &[JsString],
+        body: &JsString,
+        _direct: bool,
+        context: &mut Context,
+    ) -> JsResult<()> {
+        let mut text = String::new();
+        for parameter in parameters {
+            text.push_str(&parameter.to_std_string_lossy());
+            text.push(',');
+        }
+        text.push_str(&body.to_std_string_lossy());
+        let budget = State::with(context, |record| record.budget).unwrap_or_default();
+        let Some(exceeded) = too_deep(&text, &budget) else {
+            return Ok(());
+        };
+        let sentence = exceeded.sentence();
+        State::with(context, |record| record.exceeded = Some(exceeded));
+        Err(JsNativeError::range()
+            .with_message(format!("a string compiled at run time: {sentence}"))
+            .into())
+    }
 }
 
 /// A runner a view state can be handed: one document's realm, on a thread of its own, every event
@@ -525,6 +660,8 @@ impl HostHooks for Hooks {
 pub struct Engine {
     /// The budget every run is held to.
     budget: Budget,
+    /// Where the realm's questions are put, where the caller supplied somewhere.
+    asker: Option<Arc<dyn Asker + Send + Sync>>,
     /// The realm's thread, once started.
     realm: Mutex<Thread>,
     /// Every sentence a run produced, in order, bounded.
@@ -558,9 +695,20 @@ impl Engine {
     pub fn new(budget: Budget) -> Self {
         Self {
             budget,
+            asker: None,
             realm: Mutex::new(Thread::Idle),
             log: Mutex::new(Vec::new()),
         }
+    }
+
+    /// This engine with its scripts' questions put to `asker`, which answers on the realm's thread
+    /// while the script waits (ADR 1627). The in-process engine's asker answers in the call; the
+    /// confined worker's question waits on a person without holding a host's thread, and that is
+    /// `pdf_script_worker`'s.
+    #[must_use]
+    pub fn with_asker(mut self, asker: Arc<dyn Asker + Send + Sync>) -> Self {
+        self.asker = Some(asker);
+        self
     }
 
     /// A runner for a view state, under `budget`.
@@ -583,7 +731,7 @@ impl Engine {
     pub fn run_request(&self, request: &Request) -> Outcome {
         let mut thread = self.realm.lock().unwrap_or_else(PoisonError::into_inner);
         if matches!(*thread, Thread::Idle) {
-            *thread = start(self.budget);
+            *thread = start(self.budget, self.asker.clone());
         }
         let stopped = match &*thread {
             Thread::Running { requests, .. } => {
@@ -605,14 +753,28 @@ impl Engine {
     }
 }
 
+/// An asker shared with the thread that built it, as a realm holds one.
+#[derive(Debug)]
+struct Shared(Arc<dyn Asker + Send + Sync>);
+
+impl Asker for Shared {
+    fn ask(&self, question: &crate::Question) -> crate::Answer {
+        self.0.ask(question)
+    }
+}
+
 /// Starts a realm's thread.
-fn start(budget: Budget) -> Thread {
+fn start(budget: Budget, asker: Option<Arc<dyn Asker + Send + Sync>>) -> Thread {
     let (requests, received) = mpsc::channel::<(Request, mpsc::Sender<Outcome>)>();
     let spawned = std::thread::Builder::new()
         .name("pdf-script realm".to_owned())
         .stack_size(REALM_STACK)
         .spawn(move || {
-            let mut realm = Realm::new(budget);
+            let asker: Rc<dyn Asker> = match asker {
+                Some(asker) => Rc::new(Shared(asker)),
+                None => Rc::new(Nobody),
+            };
+            let mut realm = Realm::with_asker(budget, asker);
             for (request, reply) in received {
                 let outcome = match &mut realm {
                     Ok(realm) => realm.run(&request),
@@ -663,7 +825,7 @@ pub(crate) fn refuse(member: String, kind: RefusalKind, context: &mut Context) -
     let refusal = Refusal { member, kind };
     let sentence = refusal.sentence();
     State::with(context, |record| record.refuse(refusal));
-    let error = boa_engine::JsNativeError::error()
+    let error = JsNativeError::error()
         .with_message(sentence)
         .into_opaque(context);
     // A property the error object was just given cannot refuse to be set; were it to, the error

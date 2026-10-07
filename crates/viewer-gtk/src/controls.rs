@@ -627,6 +627,23 @@ fn editable_combo(
     composed.upcast()
 }
 
+/// Gives a placed control the keyboard: the control itself, or the text box of an
+/// [`editable_combo`].
+///
+/// The composed `GtkBox` takes no focus, so a `grab_focus` on it does nothing, and §12.5.1's walk
+/// out of the first of two combo boxes left the keyboard where GTK's own Tab move had put it — on
+/// the first box's drop-down button, from which the next character reached the page as a zoom. A
+/// move *into* the box would not do either: GTK's Tab may already have put the keyboard in the
+/// entry, and a move forward from there leaves it, which is a commit. So the entry is named.
+/// Driven under Xvfb (ADR 1629).
+pub(crate) fn give_the_keyboard(control: &gtk4::Widget) {
+    let typed_into = control
+        .downcast_ref::<gtk4::Box>()
+        .and_then(WidgetExt::first_child)
+        .unwrap_or_else(|| control.clone());
+    typed_into.grab_focus();
+}
+
 /// §12.7.5.4's list box, which the page draws nothing for.
 ///
 /// ADR 0235's second smaller item: the clause states which items are selected and states no

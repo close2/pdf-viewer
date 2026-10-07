@@ -109,6 +109,136 @@ impl DocumentTrigger {
     }
 }
 
+/// How a person committed what they typed into a field: Adobe's `event.commitKey`.
+///
+/// The reference's "event properties" page numbers four ways a field loses the keyboard; the three
+/// here commit the value, and its `0` — a value not committed, an Escape — is what every event
+/// that is not a commit carries, so it is `None` where this is carried rather than a fourth variant
+/// (ADR 1626). A documented choice under principle 5: the object model is ISO 21757-1's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommitKey {
+    /// `1`: a click outside the field.
+    Click,
+    /// `2`: the Enter key.
+    Enter,
+    /// `3`: a Tab to another field.
+    Tab,
+}
+
+impl CommitKey {
+    /// The three, in the reference's order.
+    pub const ALL: [Self; 3] = [Self::Click, Self::Enter, Self::Tab];
+
+    /// The reference's number for this way of committing.
+    #[must_use]
+    pub fn number(self) -> u8 {
+        match self {
+            Self::Click => 1,
+            Self::Enter => 2,
+            Self::Tab => 3,
+        }
+    }
+}
+
+/// One of a push-button's three captions, which Table 192 keeps in its widget's `/MK`.
+///
+/// Adobe's `nFace` numbers them 0, 1 and 2 on the "Field methods" page's `buttonSetCaption`; the
+/// entries are the standard's: `/CA` "[t]he widget annotation's normal caption", `/AC` its
+/// "alternate (down) caption", `/RC` its "rollover caption".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Face {
+    /// `nFace` 0, Table 192's `/CA`.
+    Normal,
+    /// `nFace` 1, Table 192's `/AC`.
+    Down,
+    /// `nFace` 2, Table 192's `/RC`.
+    Rollover,
+}
+
+impl Face {
+    /// The three, in `nFace` order.
+    pub const ALL: [Self; 3] = [Self::Normal, Self::Down, Self::Rollover];
+
+    /// Adobe's `nFace` for this caption.
+    #[must_use]
+    pub fn number(self) -> u8 {
+        match self {
+            Self::Normal => 0,
+            Self::Down => 1,
+            Self::Rollover => 2,
+        }
+    }
+
+    /// The face `nFace` names, `None` for any other number.
+    #[must_use]
+    pub fn from_number(number: f64) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|face| (f64::from(face.number()) - number).abs() < f64::EPSILON)
+    }
+
+    /// Table 192's key for this caption.
+    #[must_use]
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Normal => "CA",
+            Self::Down => "AC",
+            Self::Rollover => "RC",
+        }
+    }
+
+    /// This face's place in [`FieldState::captions`].
+    #[must_use]
+    pub fn index(self) -> usize {
+        usize::from(self.number())
+    }
+}
+
+/// What a document's realm is told of the document as a whole, beside its fields: Table 349's
+/// information dictionary and §8.11's groups (ADR 1626).
+///
+/// Told at the first event a runner is handed and again whenever a group's state has changed since
+/// — the information dictionary is the file's and does not change while it is open.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DocumentState {
+    /// Every entry of the trailer's `/Info` a script reads as `this.info`, in the dictionary's
+    /// order.
+    pub info: Vec<InfoEntry>,
+    /// Every optional content group Table 98's `/OCGs` lists, in that order.
+    pub layers: Vec<Layer>,
+}
+
+/// One entry of Table 349's document information dictionary, as `this.info` reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InfoEntry {
+    /// The entry's key, as the file spells it.
+    pub key: String,
+    /// The entry's value as text: §7.9.2.2's text string, or a name's characters for `/Trapped`.
+    pub text: String,
+    /// For a value that is §7.9.4's date, the moment it names in milliseconds since
+    /// 1970-01-01T00:00:00Z — Adobe's "Doc properties" page answers `CreationDate` and `ModDate`
+    /// with a `Date`.
+    pub moment: Option<i64>,
+}
+
+/// One optional content group as a document's realm holds it: what Adobe's `OCG` object reads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Layer {
+    /// The group dictionary's object number, which names it in a [`ScriptEdit::Layer`].
+    pub number: u32,
+    /// Its generation number.
+    pub generation: u16,
+    /// Table 96's `/Name`, which a layer panel shows.
+    pub name: String,
+    /// Whether the group is on now.
+    pub on: bool,
+    /// Whether the default configuration turns it on when the document opens: Adobe's
+    /// `initState`.
+    pub initially_on: bool,
+    /// Whether Table 99's `/Locked` names it, so that no person's switch changes it.
+    pub locked: bool,
+}
+
 impl ScriptSite {
     /// Adobe's `event.type` and `event.name` for this site.
     ///
@@ -425,10 +555,13 @@ pub struct FieldState {
     pub page: Option<u32>,
     /// `Field.rect`: the first widget's Table 166 `/Rect`.
     pub rect: [f64; 4],
+    /// `Field.buttonGetCaption`'s three captions, in [`Face`] order: Table 192's `/CA`, `/AC` and
+    /// `/RC` of the first widget's `/MK`, each empty where it states none.
+    pub captions: [String; 3],
 }
 
 /// A property a script set on a field.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Property {
     /// `display` (and the older `hidden`).
     Display(Display),
@@ -450,12 +583,24 @@ pub enum Property {
     CharLimit(u32),
     /// One of Table 231's text field flags set or cleared.
     TextFlag(TextFlag, bool),
+    /// `buttonSetCaption(cCaption, nFace)`: one of Table 192's three captions (ADR 1626).
+    Caption(Face, String),
 }
 
 impl Property {
+    /// Whether this property and `other` set the same thing, so that the later replaces the
+    /// earlier: the same member, and for a caption the same face.
+    #[must_use]
+    pub fn replaces(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Caption(mine, _), Self::Caption(theirs, _)) => mine == theirs,
+            _ => self.member() == other.member(),
+        }
+    }
+
     /// The member a script wrote, as the reference spells it.
     #[must_use]
-    pub fn member(self) -> &'static str {
+    pub fn member(&self) -> &'static str {
         match self {
             Self::Display(_) => "display",
             Self::ReadOnly(_) => "readonly",
@@ -467,6 +612,7 @@ impl Property {
             Self::Alignment(_) => "alignment",
             Self::CharLimit(_) => "charLimit",
             Self::TextFlag(flag, _) => flag.adobe(),
+            Self::Caption(..) => "buttonSetCaption",
         }
     }
 }
@@ -503,6 +649,16 @@ pub enum ScriptEdit {
         /// The field.
         field: String,
     },
+    /// An `OCG` object's `state` set: §8.11's group switched as a person's layer switch would
+    /// switch it ([`ViewState::set_group`], ADR 1626).
+    Layer {
+        /// The group dictionary's object number.
+        number: u32,
+        /// Its generation number.
+        generation: u16,
+        /// Whether it is to be on.
+        on: bool,
+    },
 }
 
 /// The field properties a script set, kept beside the edit log by field name.
@@ -515,7 +671,7 @@ pub(super) struct Overrides {
 impl Overrides {
     /// Records a property, replacing an earlier one of the same member.
     pub(super) fn record(&mut self, property: Property) {
-        self.set.retain(|held| held.member() != property.member());
+        self.set.retain(|held| !held.replaces(&property));
         self.set.push(property);
     }
 
@@ -641,29 +797,127 @@ impl ViewState {
                 .and_then(|page| pages.get(&page))
                 .and_then(|index| u32::try_from(*index).ok()),
             rect: rect_of(document, widget),
+            captions: captions_of(document, &characteristics),
         };
         if let Some(overrides) = self.scripting.overrides.get(name) {
             for property in &overrides.set {
-                apply(&mut state, *property);
+                apply(&mut state, property);
             }
         }
         Some(state)
     }
 }
 
+impl ViewState {
+    /// The document as a whole as its realm is told of it: the information dictionary, and every
+    /// group a person's layer switch can change in the state it is in now (ADR 1626).
+    ///
+    /// Table 349's entries are read as `this.info` reads them: every key whose value is a text
+    /// string — "the value associated with any such key shall be a text string", the clause says of
+    /// every key but the two dates — with §7.9.4's date read for the moment it names, and
+    /// `/Trapped`'s name as its characters. The groups are Table 98's `/OCGs` in their order, each
+    /// with its state now and the state the default configuration opens it in; a group the
+    /// configuration's `/Intent` does not cover has "no effect on visibility" (§8.11.2.3), no switch
+    /// a person could flip, and is not listed.
+    pub(super) fn document_state(&self, document: &Document) -> DocumentState {
+        let mut state = DocumentState::default();
+        if let Some(info) = document.get_key(document.trailer(), "Info").as_dict() {
+            for (key, value) in info.iter() {
+                let key = String::from_utf8_lossy(key.as_bytes()).into_owned();
+                let text = match document.resolve(value) {
+                    Object::String(bytes) => pdf_syntax::text_string(&bytes),
+                    Object::Name(name) => String::from_utf8_lossy(name.as_bytes()).into_owned(),
+                    _ => continue,
+                };
+                let moment = matches!(key.as_str(), "CreationDate" | "ModDate")
+                    .then(|| pdf_syntax::Date::parse(&text))
+                    .flatten()
+                    .map(|date| {
+                        date.instant()
+                            .saturating_mul(60)
+                            .saturating_add(i64::from(date.second))
+                            .saturating_mul(1000)
+                    });
+                state.info.push(InfoEntry { key, text, moment });
+            }
+        }
+        let Some(content) = self.optional_content.as_ref() else {
+            return state;
+        };
+        let opened = crate::optional_content::OptionalContent::read(document);
+        let properties = document
+            .catalog()
+            .ok()
+            .map(|catalog| document.get_key(&catalog, "OCProperties"));
+        let groups = properties
+            .as_ref()
+            .and_then(Object::as_dict)
+            .map(|properties| document.get_key(properties, "OCGs"));
+        for group in groups
+            .as_ref()
+            .and_then(Object::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Object::as_reference)
+            .take(MAX_LAYERS)
+        {
+            let Some(on) = content.state(group) else {
+                continue;
+            };
+            state.layers.push(Layer {
+                number: group.number,
+                generation: group.generation,
+                name: content.name(document, group).unwrap_or_default(),
+                on,
+                initially_on: opened
+                    .as_ref()
+                    .and_then(|opened| opened.state(group))
+                    .unwrap_or(on),
+                locked: content.is_locked(group),
+            });
+        }
+        state
+    }
+}
+
+/// Table 192's three captions of a widget's `/MK`, in [`Face`] order, each empty where it states
+/// none.
+fn captions_of(document: &Document, characteristics: &Object) -> [String; 3] {
+    Face::ALL.map(|face| {
+        characteristics
+            .as_dict()
+            .and_then(|mk| match document.get_key(mk, face.key()) {
+                Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
+                _ => None,
+            })
+            .unwrap_or_default()
+    })
+}
+
+/// Most groups a realm is told of.
+///
+/// Table 98's `/OCGs` is the document's, so its length is too; a document with more layers than
+/// this is not one any panel lists, and the list is copied at every change of a group's state.
+const MAX_LAYERS: usize = 4096;
+
 /// A property a script set, over the state the document and the view give.
-fn apply(state: &mut FieldState, property: Property) {
+fn apply(state: &mut FieldState, property: &Property) {
     match property {
-        Property::Display(display) => state.display = display,
-        Property::ReadOnly(flag) => state.flags = set_bit(state.flags, READ_ONLY, flag),
-        Property::Required(flag) => state.flags = set_bit(state.flags, REQUIRED, flag),
-        Property::TextColor(colour) => state.text_color = Some(colour),
-        Property::FillColor(colour) => state.fill_color = Some(colour),
-        Property::StrokeColor(colour) => state.stroke_color = Some(colour),
-        Property::BorderStyle(style) => state.border_style = style,
-        Property::Alignment(alignment) => state.alignment = alignment,
-        Property::CharLimit(limit) => state.char_limit = Some(limit),
-        Property::TextFlag(flag, on) => state.flags = set_bit(state.flags, flag.bit(), on),
+        Property::Display(display) => state.display = *display,
+        Property::ReadOnly(flag) => state.flags = set_bit(state.flags, READ_ONLY, *flag),
+        Property::Required(flag) => state.flags = set_bit(state.flags, REQUIRED, *flag),
+        Property::TextColor(colour) => state.text_color = Some(*colour),
+        Property::FillColor(colour) => state.fill_color = Some(*colour),
+        Property::StrokeColor(colour) => state.stroke_color = Some(*colour),
+        Property::BorderStyle(style) => state.border_style = *style,
+        Property::Alignment(alignment) => state.alignment = *alignment,
+        Property::CharLimit(limit) => state.char_limit = Some(*limit),
+        Property::TextFlag(flag, on) => state.flags = set_bit(state.flags, flag.bit(), *on),
+        Property::Caption(face, caption) => {
+            if let Some(slot) = state.captions.get_mut(face.index()) {
+                slot.clone_from(caption);
+            }
+        }
     }
 }
 

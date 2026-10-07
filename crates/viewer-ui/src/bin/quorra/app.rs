@@ -79,6 +79,14 @@ pub(crate) enum Pending {
         /// The document whose scripts are waiting.
         document: viewer_core::DocumentId,
     },
+    /// RFC 0008 section 4.2's `app.alert` or `app.response`: a script waiting on the person,
+    /// answered by `viewer_core::Command::AnswerScript` (ADR 1628).
+    Script {
+        /// The document whose script asks.
+        document: viewer_core::DocumentId,
+        /// What it asks: the buttons the keys answer with, or the entry's.
+        question: viewer_core::ScriptQuestion,
+    },
 }
 
 /// Everything this window holds about the document **in front**, and nothing about the others.

@@ -34,6 +34,14 @@
 //! never silence — and is recorded in the outcome whether or not the script catches it
 //! ([`surface`] is the list).
 //!
+//! # A question to the person reading
+//!
+//! `app.alert` and `app.response` are the two calls RFC 0008 section 4.2 says need a host: a
+//! realm hands a [`Question`] to an [`Asker`] and the script is answered with what it answers
+//! ([`Answer`]). In the confined worker the asker is the wire and the script is held there until
+//! the host has the person's answer; one question is put per run, and the rest are answered as a
+//! closed dialogue answers and named (RFC 0008 section 6.8, ADRs 1627, 1628).
+//!
 //! # The reference the object model is read from
 //!
 //! Adobe's *JavaScript for Acrobat API Reference*, read at `adobe/dc-acrobat-sdk-docs` commit
@@ -44,14 +52,16 @@
 //! # Budgets
 //!
 //! [`Budget`] is every ceiling a run is held to, each a number with its reason: wall time, the
-//! engine's step count, its loop-iteration, recursion and stack limits, and the sizes an argument
-//! can ask a built-in to allocate. A run that exceeds one stops, changes nothing, and says which
+//! engine's step count, its loop-iteration, recursion and stack limits, how deep a script may nest
+//! before it is parsed ([`depth`]), and the sizes an argument can ask a built-in to allocate. A run that exceeds one stops, changes nothing, and says which
 //! ([`Exceeded`]). What the in-process budgets cannot bound is the process's, and ADR 1590 names
 //! it.
 
 #![forbid(unsafe_code)]
 
+pub mod depth;
 mod outcome;
+mod question;
 mod request;
 pub mod surface;
 pub mod viewer;
@@ -61,6 +71,7 @@ pub mod wire;
 mod engine;
 
 pub use outcome::{Ending, Exceeded, Outcome, Refusal, RefusalKind};
+pub use question::{Answer, Asker, Button, Buttons, Icon, Nobody, Question};
 pub use request::{Budget, Event, Request, utf16_offset};
 
 #[cfg(feature = "engine")]

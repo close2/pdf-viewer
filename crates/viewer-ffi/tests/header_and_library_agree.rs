@@ -242,6 +242,9 @@ fn the_event_kinds(expected: &mut BTreeMap<String, i64>) {
             "QUORRA_EVENT_ASKING_TO_RUN_SCRIPTS",
             EventKind::AskingToRunScripts,
         ),
+        // A script's `app.alert` or `app.response`, written here in the same commit as the
+        // `#define` for the reason the paragraph above records (ADR 1628).
+        ("QUORRA_EVENT_SCRIPT_ASKING", EventKind::ScriptAsking),
     ] {
         expected.insert(name.to_owned(), i64::from(kind.code()));
     }

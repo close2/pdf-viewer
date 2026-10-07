@@ -1,7 +1,7 @@
 # Confinement on macOS and Windows
 
 Status: **open, and no longer blocking an executable.** The viewer builds and ships on all three
-platforms since the three-hundred-and-fifteenth session (ADR 0194); what is owed here is the
+platforms (ADR 0194); what is owed here is the
 confinement itself on the two that have none.
 Priority: 35 — capability. Nothing is wrong here; something does not exist.
 Corpus: — (this is not a question about any document)

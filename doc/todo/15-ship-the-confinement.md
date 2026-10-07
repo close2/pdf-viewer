@@ -88,30 +88,28 @@ answered by ADR 0597, which found it was in fact *worse* than that: see below.
 - **The tier change has its number**: page one through a pipe, both arms in one sitting, in ADR
   0597's last table.
 
-## What the seven-hundred-and-seventy-fifth session built, so the next round starts from it
+## The window on this boundary, which a round starts from
 
 **A window on this boundary exists**: `quorra-confined` (in `viewer-ui`, ADR 0713 for why
 there), the smallest complete host — open, arrange, turn, scroll, zoom, report, abort — with
-everything outside that scope refused by name. **Since the seven-hundred-and-eighty-first
-session that scope includes §7.6.4.1's prompt** (ADR 0718): an encrypted document was the one
+everything outside that scope refused by name. **That scope includes §7.6.4.1's prompt** (ADR
+0718): an encrypted document was the one
 refusal standing in front of *open* itself, and the prompt is the shared card and the shared
 policy, with the password crossing into the confinement inside `Command::Open` — the direction
 argued in that ADR, not an accident. Both payload arms reach its screen: rasters are
 placed as they arrive, marks are drawn by `render-cpu` on `viewer_host::drawing`'s thread, which
 became generic over its request (`DrawRequest`) because a confined host cannot hold a
-`RenderToken`. **The cancel path is proven from a host**, which this file used to list as owed:
-Escape kills the worker and interrupts the in-flight draw, without blocking, driven under `Xvfb`
+`RenderToken`. **The cancel path is proven from a host**: Escape kills the worker and interrupts the in-flight draw, without blocking, driven under `Xvfb`
 on the amplification fixture.
 
 What that sharpens rather than closes: the three *established* windows still interpret in
 process, so "make `viewer-confined` the viewer's actual path" now means moving them — their
 panels already have owned `Reply` counterparts for every answer, and the page path has a working
-model to copy. ~~And the confined window presents through the processor~~ — **it presents
-through the device since the seven-hundred-and-ninetieth** (ADR 0725): the marks as they
+model to copy. **The confined window presents through the device** (ADR 0725): the marks as they
 crossed, the worker's rasters wrapped as one-image lists, the interruptible drawing thread kept
 for the frames the device refuses, and the `Arc` identity of an unchanged page now surviving the
-pipe, without which every host-side scene and drawing cache missed on every scroll. What that
-round could not measure is owed rather than guessed: the window's bring-up and present cadence
+pipe, without which every host-side scene and drawing cache misses on every scroll. What Xvfb
+cannot measure is owed rather than guessed: the window's bring-up and present cadence
 on the **real adapter** need the owner's session — Xvfb's llvmpipe numbers are in ADR 0725 as
 illustration only — and the device lane's coverage choice stays quorra's default until such a
 measurement asks for more.
@@ -176,8 +174,7 @@ measurement asks for more.
     abandoned draw produces no `Rendered` at all, and `viewer-core`'s
     `a_refusal_is_final_for_this_view_and_a_token_never_answered_is_not_re_asked` pins both halves.
 
-  ~~**What is left of it is the owner's callback in the three established windows**~~ — **carried
-  out in the seven-hundred-and-ninety-fifth** (ADR 0729). *"Warn the user and allow the user to
+  **The owner's callback is in the three established windows** (ADR 0729). *"Warn the user and allow the user to
   abort, however don't block"* is `viewer_host::drawing::WARN` (a second, measured against
   `doc/pdf.js`'s first pages, and a clock that raises nothing), `viewer_host::still_drawing` and
   its two companions, and `viewer_host::keys::Waiting` giving Escape a third row — offered only
@@ -193,32 +190,26 @@ measurement asks for more.
   the abandoned frame was re-asked at the next tick, warned about again and stopped again, until
   `Composer::declined` recorded the arrangement the person had stopped. A native window needs no
   such field, because a viewer's token never answered is never re-issued.
-- ~~**The cancel path proven from the host**, not only from a test~~ — **proven in the
-  seven-hundred-and-seventy-fifth** (ADR 0713): Escape in `quorra-confined` ends the worker
+- **The cancel path is proven from the host**, not only from a test (ADR 0713): Escape in `quorra-confined` ends the worker
   and takes the drawing thread back, without blocking, on the amplification fixture under `Xvfb`.
 - **The device path warns about nothing**, which ADR 0729 states rather than guards against:
   quorra has no interrupt (ADR 0725), so the flagship's render thread cannot be taken back and a
   key offered for it would name a key that does nothing. `--cpu` is the surface with the
   interruptible thread. Whether quorra should have one at all is a question for that dependency,
   not a debt of this item.
-- ~~**A breach an allocation budget cannot see** — a decode deep inside the interpreter, sized by
-  the work rather than declared by a sender. It still ends the worker … making it a *refusal* needs
-  a fallible allocation on a path this crate does not own~~ — **it is a refusal since the
-  eight-hundred-and-first** (ADR 0734), and the entry was answering the wrong question. That
-  sentence is about a refusal the **worker** makes, which is still true and still needs the fallible
-  allocation. What the *reader* needs is a refusal of the **page**, and that costs nothing inside
+- **A breach an allocation budget cannot see** — a decode deep inside the interpreter, sized by
+  the work rather than declared by a sender — **is a refusal of the page** (ADR 0734). It still
+  ends the worker, and a refusal the **worker** makes still needs a fallible allocation on a path
+  this crate does not own. What the *reader* needs is a refusal of the **page**, and that costs nothing inside
   the confinement: `viewer_confined::Resuming` decides which errors are worth another worker and
   how many in a row, and `quorra-confined` starts one, opens the file again — it is on this
   side by rule 2 — and goes back to the page the reader was on without re-sending the command that
   killed the last one. The budget is **consecutive**, put back by every frame that reaches the
   screen, so what it bounds is a recovery that is not working rather than the length of a reading.
 
-  ~~What that leaves is smaller and is named rather than implied: **the magnification and the
-  position on the page are not restored**~~ — **they are, exactly, since the
-  eight-hundred-and-fifth** (ADR 0737). The entry named the shape and got half of it: `Query::View`
+  **The magnification and the position on the page are restored, exactly** (ADR 0737). `Query::View`
   is the question, answered by the viewer and held by the host per frame, and `Viewing` is the page,
-  the magnification and the scroll as one value. What it did not foresee is that the answer needs a
-  way *back* — `GoTo` and `Zoom` are absolute and `Scroll` is not, so the third part of a view could
+  the magnification and the scroll as one value. The answer needs a way *back* too — `GoTo` and `Zoom` are absolute and `Scroll` is not, so the third part of a view could
   be asked for and not stated — so `Command::View(Viewing)` is the other half, and the host echoes
   the value rather than composing one. The exactness is the point rather than a nicety: replaying
   the three commands lands within a rounding of the place, and 16% of `f32` pairs in a device

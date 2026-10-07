@@ -661,25 +661,11 @@ fn composed_into_parent(
 ) -> Option<ComposedOut> {
     match (own, out) {
         (_, Some(pdf_render::GroupBlending::FourComponents { space, .. })) => {
-            let side = COMPOSED_PRESS_SIDE;
-            #[expect(clippy::cast_precision_loss, reason = "a grid index below the side")]
-            let at = |index: usize| index as f32 / (side - 1) as f32;
-            let mut grid = Vec::with_capacity(side.pow(4));
-            for black in 0..side {
-                for yellow in 0..side {
-                    for magenta in 0..side {
-                        for cyan in 0..side {
-                            grid.push(into.convert(space.convert(
-                                at(cyan),
-                                at(magenta),
-                                at(yellow),
-                                at(black),
-                            )));
-                        }
-                    }
-                }
-            }
-            pdf_render::BlendingSpace::new(side, Arc::from(grid)).map(ComposedOut::Space)
+            let grid = sampled_grid(COMPOSED_PRESS_SIDE, |[cyan, magenta, yellow, black]| {
+                into.convert(space.convert(cyan, magenta, yellow, black))
+            });
+            pdf_render::BlendingSpace::new(COMPOSED_PRESS_SIDE, Arc::from(grid))
+                .map(ComposedOut::Space)
         }
         (_, Some(pdf_render::GroupBlending::OneComponent { curve })) => {
             let samples: Vec<[f32; 3]> = curve
@@ -719,24 +705,56 @@ fn composed_into_parent(
 const GREY_SAMPLES: usize = 256;
 
 /// `convert` sampled over three components at [`INTO_PARENT_SIDE`] with identity curves.
-fn resampled_cube(convert: impl Fn([f32; 3]) -> [f32; 3]) -> Option<pdf_render::ColourCube> {
-    let side = INTO_PARENT_SIDE;
-    #[expect(clippy::cast_precision_loss, reason = "a grid index below the side")]
-    let at = |index: usize| index as f32 / (side - 1) as f32;
-    let mut grid = Vec::with_capacity(side.pow(3));
-    for third in 0..side {
-        for second in 0..side {
-            for first in 0..side {
-                grid.push(convert([at(first), at(second), at(third)]));
-            }
-        }
-    }
+fn resampled_cube(convert: impl Fn([f32; 3]) -> [f32; 3] + Sync) -> Option<pdf_render::ColourCube> {
     pdf_render::ColourCube::new(
         Arc::from([[0.0f32; 3], [1.0f32; 3]]),
-        side,
-        Arc::from(grid),
+        INTO_PARENT_SIDE,
+        Arc::from(sampled_grid(INTO_PARENT_SIDE, convert)),
         Arc::from([0.0f32, 1.0]),
     )
+}
+
+/// `convert` at every point of a grid of `side` samples an axis, `i ÷ (side − 1)` on each, in
+/// the order [`pdf_render::BlendingSpace`] and [`pdf_render::ColourCube`] index their grids —
+/// the first axis fastest.
+///
+/// **Sampled across rayon's pool, and the clock is why.** A four-component group composed into a
+/// parent of its own is 83 521 of these, each a press's sixteen corners and the parent's cube
+/// behind them: on `bug1721218_reduced.pdf` 136 million instructions and about five milliseconds
+/// of a 69-millisecond interpretation, all of it on the interpreter's thread (ADR 1632). Every
+/// point is a function of its own coordinates and nothing else, and `collect` keeps the index
+/// order, so which thread computes a point cannot change a sample — the grid is the one the
+/// nested loops it replaces built. The cost is that the order is an index decomposed rather
+/// than four loops read off the page.
+fn sampled_grid<const AXES: usize>(
+    side: usize,
+    convert: impl Fn([f32; AXES]) -> [f32; 3] + Sync,
+) -> Vec<[f32; 3]> {
+    use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
+
+    /// How many points one piece of the pool's work samples: enough that a piece is tens of
+    /// microseconds of conversion rather than the pool's own bookkeeping.
+    const POINTS_PER_PIECE: usize = 1024;
+
+    let last = side.saturating_sub(1).max(1);
+    #[expect(clippy::cast_precision_loss, reason = "a grid index below the side")]
+    let at = |index: usize| index as f32 / last as f32;
+    let points = side
+        .checked_pow(u32::try_from(AXES).unwrap_or(u32::MAX))
+        .unwrap_or(0);
+    (0..points)
+        .into_par_iter()
+        .with_min_len(POINTS_PER_PIECE)
+        .map(|index| {
+            let mut point = [0.0f32; AXES];
+            let mut rest = index;
+            for coordinate in &mut point {
+                *coordinate = at(rest.checked_rem(side).unwrap_or(0));
+                rest = rest.checked_div(side).unwrap_or(0);
+            }
+            convert(point)
+        })
+        .collect()
 }
 
 /// Whether two groups' conversions out are the same construction.

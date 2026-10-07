@@ -41,7 +41,7 @@ use pdf_model::view::{
     ScriptSite, TextFlag,
 };
 
-use super::{State, guard, refuse};
+use super::{State, guard, members, refuse};
 use crate::request::byte_offset;
 use crate::surface::{EXCLUDED, Holder, NOT_BRIDGED};
 use crate::{Outcome, RefusalKind, Request, viewer};
@@ -123,6 +123,10 @@ pub(super) fn begin(context: &mut Context, request: &Request) -> JsResult<JsObje
             JsValue::from(request.event.will_commit),
             false,
         ),
+        // The reference's "event properties" page makes these three read-only (ADR 1626).
+        ("commitKey", JsValue::from(request.event.commit_key), false),
+        ("fieldFull", JsValue::from(request.event.field_full), false),
+        ("changeEx", text(&request.event.change_ex), false),
         ("target", target, false),
         ("source", source, false),
         ("targetName", text(target_name), false),
@@ -192,11 +196,13 @@ fn document(context: &mut Context) -> JsResult<()> {
         );
         accessor(&global, name, getter, setter, context)?;
     }
+    members::document(&global, context)?;
     refusers(&global, Holder::Doc, context)?;
     refusers(&global, Holder::Global, context)?;
 
     let app = ObjectInitializer::new(context).build();
     identity(&app, context)?;
+    members::app(&app, context)?;
     refusers(&app, Holder::App, context)?;
     data(&global, "app", JsValue::from(app), false, context)?;
     let util = ObjectInitializer::new(context).build();
@@ -208,6 +214,7 @@ fn document(context: &mut Context) -> JsResult<()> {
         let callable = function(context, name, native);
         data(&util, name, JsValue::from(callable), false, context)?;
     }
+    members::util(&util, context)?;
     refusers(&util, Holder::Util, context)?;
     data(&global, "util", JsValue::from(util), false, context)?;
     let console = ObjectInitializer::new(context).build();
@@ -452,7 +459,7 @@ fn moment_of(
     clippy::cast_possible_truncation,
     reason = "the values are integral where they are read, and `as` saturates out of range"
 )]
-fn integral(value: f64) -> i64 {
+pub(super) fn integral(value: f64) -> i64 {
     value as i64
 }
 
@@ -467,7 +474,11 @@ fn pdf_offset(minutes: i64) -> String {
 }
 
 /// One argument's text, `undefined` where it was not passed.
-fn text_argument(arguments: &[JsValue], index: usize, context: &mut Context) -> JsResult<String> {
+pub(super) fn text_argument(
+    arguments: &[JsValue],
+    index: usize,
+    context: &mut Context,
+) -> JsResult<String> {
     Ok(arguments
         .get(index)
         .cloned()
@@ -675,7 +686,7 @@ fn field_object(context: &mut Context, name: &str) -> Option<JsObject> {
 
 /// The terminal fields a name stands for: itself where the realm knows it, every field below it
 /// where it does not.
-fn terminals(context: &Context, name: &str) -> Vec<String> {
+pub(super) fn terminals(context: &Context, name: &str) -> Vec<String> {
     State::table(context, |table| {
         if table.fields.contains_key(name) {
             return vec![name.to_owned()];
@@ -723,6 +734,7 @@ fn field_prototype(context: &mut Context) -> JsResult<JsObject> {
         let callable = function(context, name, native);
         data(&prototype, name, JsValue::from(callable), false, context)?;
     }
+    members::field(&prototype, context)?;
     refusers(&prototype, Holder::Field, context)?;
     Ok(prototype)
 }
@@ -816,7 +828,7 @@ impl FieldProperty {
 }
 
 /// The field name a `Field` object carries, read from its own `name`.
-fn field_name(this: &JsValue, context: &mut Context) -> JsResult<String> {
+pub(super) fn field_name(this: &JsValue, context: &mut Context) -> JsResult<String> {
     let Some(object) = this.as_object() else {
         return Err(JsNativeError::typ()
             .with_message("a Field property was read from something that is not a Field")
@@ -984,9 +996,10 @@ fn write_property(
     for field in terminals(context, &name) {
         let edit = ScriptEdit::Property {
             field: field.clone(),
-            property: change,
+            property: change.clone(),
         };
-        State::edit(context, &field, edit, |state| apply(state, change));
+        let applied = change.clone();
+        State::edit(context, &field, edit, move |state| apply(state, &applied));
     }
     Ok(())
 }
@@ -1050,9 +1063,9 @@ fn write_flag(name: &str, flag: TextFlag, on: bool, context: &mut Context) -> Js
             let property = Property::TextFlag(flag, on);
             let edit = ScriptEdit::Property {
                 field: field.clone(),
-                property,
+                property: property.clone(),
             };
-            State::edit(context, &field, edit, |state| apply(state, property));
+            State::edit(context, &field, edit, |state| apply(state, &property));
         }
     }
     Ok(())
@@ -1119,9 +1132,9 @@ fn write_value(name: &str, value: &JsValue, context: &mut Context) -> JsResult<(
 }
 
 /// A property set, over the realm's record of a field.
-fn apply(state: &mut FieldState, property: Property) {
+fn apply(state: &mut FieldState, property: &Property) {
     let set = |flags: u32, bit: u32, on: bool| if on { flags | bit } else { flags & !bit };
-    match property {
+    match *property {
         Property::Display(display) => state.display = display,
         Property::ReadOnly(on) => state.flags = set(state.flags, READ_ONLY, on),
         Property::Required(on) => state.flags = set(state.flags, REQUIRED, on),
@@ -1132,6 +1145,11 @@ fn apply(state: &mut FieldState, property: Property) {
         Property::Alignment(alignment) => state.alignment = alignment,
         Property::CharLimit(limit) => state.char_limit = Some(limit),
         Property::TextFlag(flag, on) => state.flags = set(state.flags, flag.bit(), on),
+        Property::Caption(face, ref caption) => {
+            if let Some(slot) = state.captions.get_mut(face.index()) {
+                slot.clone_from(caption);
+            }
+        }
     }
 }
 
@@ -1518,7 +1536,7 @@ impl EventText {
 }
 
 /// Defines `holder[name]` as a data property that cannot be redefined, writable where `writable`.
-fn data(
+pub(super) fn data(
     holder: &JsObject,
     name: &str,
     value: JsValue,
@@ -1539,7 +1557,7 @@ fn data(
 }
 
 /// Defines `holder[name]` as an accessor that cannot be redefined.
-fn accessor(
+pub(super) fn accessor(
     holder: &JsObject,
     name: &str,
     getter: JsObject,
@@ -1571,7 +1589,7 @@ fn set(event: &JsObject, name: &str, text: &str, context: &mut Context) -> JsRes
 }
 
 /// A function object named `name`.
-fn function(context: &Context, name: &str, native: NativeFunction) -> JsObject {
+pub(super) fn function(context: &Context, name: &str, native: NativeFunction) -> JsObject {
     FunctionObjectBuilder::new(context.realm(), native)
         .name(JsString::from(name))
         .build()
@@ -1580,7 +1598,7 @@ fn function(context: &Context, name: &str, native: NativeFunction) -> JsObject {
 
 /// Defines every member [`crate::surface`] lists for `holder` on `object`, each an accessor that
 /// throws on read and on write.
-fn refusers(object: &JsObject, holder: Holder, context: &mut Context) -> JsResult<()> {
+pub(super) fn refusers(object: &JsObject, holder: Holder, context: &mut Context) -> JsResult<()> {
     let prefix = holder.prefix();
     for row in EXCLUDED.iter().filter(|row| row.holder == holder) {
         for member in row.members {
@@ -1596,7 +1614,7 @@ fn refusers(object: &JsObject, holder: Holder, context: &mut Context) -> JsResul
 }
 
 /// One refused member: a getter and a setter that each throw its `NotAllowedError`.
-fn refuser(
+pub(super) fn refuser(
     object: &JsObject,
     prefix: &'static str,
     member: &'static str,

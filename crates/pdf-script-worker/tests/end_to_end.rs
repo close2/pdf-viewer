@@ -132,6 +132,11 @@ fn format_event(script: &str) -> ScriptEvent<'_> {
         fields: &[],
         page: 0,
         pages: 1,
+        commit_key: None,
+        field_full: false,
+        change_ex: "",
+        dirty: false,
+        document: None,
     }
 }
 
@@ -484,4 +489,152 @@ fn a_run_the_engines_budgets_stop_answers_inside_the_deadline() {
     );
     assert!(worker.deaths().is_empty(), "{:?}", worker.deaths());
     assert!(slowest < DEADLINE, "{slowest:?}");
+}
+
+/// A validation that asks the person is held in its worker, the commit's view state carries on
+/// without waiting, and the answer resumes the script: its refusal then puts back what the field
+/// showed before the typing began (ADRs 1627, 1628).
+#[test]
+fn a_question_holds_its_script_in_the_worker_and_the_answer_resumes_it() {
+    let document = document(
+        "/V << /S /JavaScript /JS (if \\(app.alert\\('Keep ' + event.value + '?', 2, 2\\) == 3\\) \
+         event.rc = false;) >> \
+         /F << /S /JavaScript /JS (event.value = '<' + event.value + '>';) >>",
+    );
+    let mut host = Host::open(document, Level::On);
+    host.type_into("Amount", "5");
+    let started = Instant::now();
+    host.commit("Amount");
+    assert!(
+        started.elapsed() < DEADLINE.saturating_mul(4),
+        "the commit did not wait on the person"
+    );
+    let question = host.worker.take_question().expect("the script asked");
+    assert_eq!(
+        question,
+        pdf_script::Question::Alert {
+            message: "Keep 5?".to_owned(),
+            icon: pdf_script::Icon::Question,
+            buttons: pdf_script::Buttons::YesNo,
+            title: None,
+        }
+    );
+    assert_eq!(host.worker.take_question(), None, "handed over once");
+    assert_eq!(
+        host.view
+            .field_value(&host.document, "Amount")
+            .map(|shown| shown.text)
+            .as_deref(),
+        Some("5"),
+        "the value stands while the script waits"
+    );
+    host.worker
+        .answer(pdf_script::Answer::Pressed(pdf_script::Button::No));
+    assert!(host.view.apply_resumed(&host.document));
+    assert_eq!(
+        host.view
+            .field_value(&host.document, "Amount")
+            .map(|shown| shown.text)
+            .as_deref(),
+        Some(""),
+        "{:?}",
+        host.view.script_reports()
+    );
+    assert!(
+        host.view
+            .script_reports()
+            .iter()
+            .any(|sentence| sentence.contains("once its question was answered")),
+        "{:?}",
+        host.view.script_reports()
+    );
+    assert!(
+        host.worker.deaths().is_empty(),
+        "{:?}",
+        host.worker.deaths()
+    );
+    assert_eq!(host.worker.spawns(), 1);
+}
+
+/// Triggers handed over while a script waits are queued behind it and run, in order, once it has
+/// its answer; a question nobody answers is withdrawn after its wait, and answered as a closed
+/// dialogue answers.
+#[test]
+fn triggers_wait_behind_a_question_and_a_question_nobody_answers_is_withdrawn() {
+    let worker = ScriptWorker::with_program(WORKER).with_answer_wait(Duration::from_millis(200));
+    let asked = worker.run(&format_event(
+        "global.n = app.response('Name?'); event.value = String(global.n);",
+    ));
+    assert!(worker.waiting(), "{asked:?}");
+    assert_eq!(asked.value, None);
+    let queued = worker.run(&format_event("event.value = 'after ' + global.n;"));
+    assert!(worker.waiting(), "{queued:?}");
+    assert!(worker.take_resumed().is_none());
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(worker.question_withdrawn());
+    assert!(!worker.question_withdrawn(), "said once");
+    let first = worker.take_resumed().expect("the held run finished");
+    assert_eq!(first.result.value.as_deref(), Some("null"), "{first:?}");
+    assert!(
+        first.result.report[0].contains("was not answered within 200 ms"),
+        "{first:?}"
+    );
+    let second = worker.take_resumed().expect("the queued run ran");
+    assert_eq!(
+        second.result.value.as_deref(),
+        Some("after null"),
+        "{second:?}"
+    );
+    assert!(worker.take_resumed().is_none());
+    // An answer that comes after the wait finds nothing waiting, and is kept nowhere.
+    worker.answer(pdf_script::Answer::Typed(Some("late".to_owned())));
+    assert!(worker.take_resumed().is_none());
+    assert!(worker.deaths().is_empty(), "{:?}", worker.deaths());
+}
+
+/// A chain of operators with no bracket — twenty thousand terms overflowed the worker's 8 MiB
+/// stack at about eleven thousand — is stopped by name before it is parsed, and the worker lives
+/// (ADR 1626).
+#[test]
+fn an_expression_past_the_depth_budget_is_stopped_and_the_worker_lives() {
+    let worker = ScriptWorker::with_program(WORKER);
+    for deep in [
+        format!("event.value = 1{};", "+1".repeat(20_000)),
+        format!("event.value = {}1;", "!".repeat(5_000)),
+    ] {
+        let result = worker.run(&format_event(&deep));
+        assert!(
+            result
+                .report
+                .iter()
+                .any(|sentence| sentence.contains("nest so deep")),
+            "{result:?}"
+        );
+    }
+    assert!(worker.deaths().is_empty(), "{:?}", worker.deaths());
+    assert_eq!(worker.spawns(), 1);
+}
+
+/// A worker whose input ends exits cleanly: status 0, no signal, so no core (ADR 1627).
+#[test]
+fn a_worker_whose_input_ends_exits_zero() {
+    use std::io::Read as _;
+    let mut child = std::process::Command::new(WORKER)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("the worker starts");
+    drop(child.stdin.take());
+    let mut greeting = Vec::new();
+    if let Some(mut stdout) = child.stdout.take() {
+        stdout.read_to_end(&mut greeting).expect("its output reads");
+    }
+    let status = child.wait().expect("it ends");
+    let mut stderr = String::new();
+    if let Some(mut pipe) = child.stderr.take() {
+        let _ = pipe.read_to_string(&mut stderr);
+    }
+    assert!(!greeting.is_empty(), "it greeted before it read");
+    assert!(status.success(), "{status:?}: {stderr}");
 }

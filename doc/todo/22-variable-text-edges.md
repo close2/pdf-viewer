@@ -4,9 +4,9 @@ Status: **done — nothing this file lists is owed.** The last document, `freete
 ADRs 1413 and 1414. The file stays whole because comments under `crates/`
 (`examples/variable_text_census.rs`, `view.rs`, `tests/saving.rs`, `tests/corpus.rs`) and
 `doc/todo/65` cite it, and what it keeps is the reasoning behind the closed items, which is the
-reason a later round will not reopen any of them. The row is `partial` for rich text formatting
-alone, which §12.7.4.3 hands to XFA 3.3 and which is owed now that the text stating it is held
-(ADRs 1122, 1197, 1623; `doc/todo/65` bucket 4); a `/DA` text matrix with no inverse is
+reason a later round will not reopen any of them. The row is `partial` on rich text's residue
+alone: the formatting XFA 3.3 states is laid out run by run (ADRs 1634, 1635), and `doc/todo/65`
+bucket 4 lists what the runs do not reach yet; a `/DA` text matrix with no inverse is
 the clause carried out, and the report says why the field is blank (`Owed::SingularTextMatrix`).
 Priority: 22
 Corpus: 0 documents
@@ -113,11 +113,10 @@ identical construct — Table 172's and Table 177's `/RC` carry the same words a
 `popup::rich_text` has taken their character data since ADR 0224 — so one construct named the same
 way in three tables was being read in two and declared out of scope in the third.
 
-What follows is narrow and is in §12.7.4.3's row: a rich text value's **characters** are drawn,
-because §12.7.5.3 makes "[t]he contents of this text string or stream" what the appearance is
-built from; its **formatting** is not, because that is XFA 3.3's and this tree does not hold it,
-and that half stays ADR 1122's reported departure with its condition widened to Table 228's `/DS`
-— 411 widgets state one against 60 stating an `/RV`, which `examples/field_flag_census` counts.
+What follows is in §12.7.4.3's row: a rich text value's **characters** are drawn, because
+§12.7.5.3 makes "[t]he contents of this text string or stream" what the appearance is built from,
+and its **formatting** is laid out in XFA 3.3's terms, the text being held (ADRs 1634, 1635) — from
+Table 228's `/RV` and `/DS` both, 60 and 411 widgets of `examples/field_flag_census`'s count.
 
 ## ~~§12.7.5.4's list box~~ — **drawn since ADR 0407**
 

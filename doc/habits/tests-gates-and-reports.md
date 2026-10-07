@@ -489,3 +489,9 @@ lock and says so in its record (ADR 1575).
 command substitution it is the substitution's own pipe, so `gates()`'s check that its summary was not
 about to overwrite the log always answered no, and every gates log began with the summary line over
 `build-sandbox`'s (ADR 1625 fixed it). A check about where output goes runs where the output goes.
+
+**When a sibling's mid-edit keeps the shared build broken for long, test your own files in a
+private worktree** — `git worktree add --detach <dir> HEAD` with its own `CARGO_TARGET_DIR` and the
+gitignored data linked in (`doc/arlington-pdf-model`, `doc/md`), then `git worktree remove` it and
+delete its build directory before you report (round 1399 lost no time to a sibling's clippy error
+this way; the private tree is never a crate under the shared one — trap 114).

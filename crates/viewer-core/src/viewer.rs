@@ -288,9 +288,11 @@ impl Viewer {
     pub fn handle(&mut self, command: Command) -> impl Iterator<Item = Event> + use<> {
         let mut events = Vec::new();
         self.act(command, &mut events);
+        self.apply_resumed_scripts();
         self.carry_out_focus_requests(&mut events);
         self.say_what_scripts_said(&mut events);
         self.ask_about_scripts(&mut events);
+        self.put_script_questions(&mut events);
         self.settle(&mut events);
         events.into_iter()
     }
@@ -647,6 +649,16 @@ impl Viewer {
                 let ids: Vec<DocumentId> = self.documents.keys().copied().collect();
                 for id in ids {
                     self.supply_scripts(id);
+                }
+            }
+            // RFC 0008 section 4.2's `app.alert` and `app.response`: the answer goes to the script
+            // waiting on it, and what the script did with it is ink, so the page is drawn again
+            // (ADR 1628).
+            Command::AnswerScript { document, answer } => {
+                if let Some(open) = self.documents.get_mut(&document)
+                    && let Some(asks) = open.consent.asks.clone()
+                {
+                    asks.answer(answer);
                 }
             }
             Command::AnswerScripts { document, proceed } => {
@@ -4960,6 +4972,38 @@ impl Viewer {
                 self.go_to(PageTarget::Index(page), Turn::Requested, events);
             }
             self.focus_on(id, Some(widget), events);
+        }
+    }
+
+    /// Every run a document's runner held on a person's answer and has since finished, applied as
+    /// its trigger's outcome arriving late; a page whose ink it changed is drawn again (ADRs 1627,
+    /// 1628).
+    ///
+    /// After every command rather than only after an answer, because a runner finishes what it
+    /// held behind the answered one in order, and with nothing finished this does nothing.
+    fn apply_resumed_scripts(&mut self) {
+        for open in self.documents.values_mut() {
+            if open.view.apply_resumed(&open.document) {
+                open.stale();
+            }
+        }
+    }
+
+    /// Every question a document's script is waiting on, put after the command that raised it
+    /// (ADR 1628).
+    fn put_script_questions(&mut self, events: &mut Vec<Event>) {
+        for (id, open) in &self.documents {
+            if let Some(question) = open
+                .consent
+                .asks
+                .as_ref()
+                .and_then(|asks| asks.take_question())
+            {
+                events.push(Event::ScriptAsking {
+                    document: *id,
+                    question,
+                });
+            }
         }
     }
 

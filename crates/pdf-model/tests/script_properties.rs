@@ -109,7 +109,7 @@ impl ScriptRunner for Setting {
                 .iter()
                 .map(|property| ScriptEdit::Property {
                     field: "Field".to_owned(),
-                    property: *property,
+                    property: property.clone(),
                 })
                 .collect()
         } else {

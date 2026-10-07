@@ -37,8 +37,14 @@ carries out a script's focus request. **The properties a script sets are drawn**
 `fillColor`, `strokeColor`, `borderStyle`, `alignment` and `charLimit` are read as the entries the
 standard draws a widget from — `/DA`'s colour, Table 192's `/BG` and `/BC`, Table 168's `/S`, `/Q`,
 `/MaxLen` — the widget's appearance constructed from them, and a save writes them with `required`'s
-`/Ff` bit where the field and the widget keep them. **What is next** is `util.printf` and the owner's
-amendment of `CLAUDE.md`'s exclusion, which `doc/questions/Q286` proposes. Every window commits through
+`/Ff` bit where the field and the widget keep them. **The census's refusals are carried** (ADRs
+1626, 1627): `global` per realm, `event.commitKey`, `fieldFull` and `changeEx`, `this.dirty` against
+the view state's last save, `this.info`, `this.getOCGs` switching only what a person could, `util.printf`
+on the library's number writers, the button captions as Table 192's entries, and `app.alert` and
+`app.response` held in the worker until the window's answer comes; a script's depth is bounded
+before Boa parses it, and Boa's optimizer is off. **What is next** is a write to `this.pageNum`, the
+other Tier 1 members `crates/pdf-script/src/surface.rs` lists, and the owner's amendment of
+`CLAUDE.md`'s exclusion, which `doc/questions/Q286` proposes. Every window commits through
 `viewer-core` — Table 197's `/Bl` wherever the focus leaves a widget, `Command::CommitField` for
 Enter in a single-line field and for a toolkit control losing the keyboard — and says a refusal
 (ADR 1592); `Query::Fields` carries what a field displays beside its characters, and the two toolkit

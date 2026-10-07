@@ -11,6 +11,38 @@ that separation is the point: a round that can read a gate's number here can wri
 without running the gate. Every figure this file used to carry went stale at least once (ADR
 0281).
 
+## 0. The round, on one page — what every round reads of this file
+
+The rest of this file is the argument and the lookup; this section is the contract, and a round
+reads the section below it only where a line here sends it (ADR 1639).
+
+1. **Read, in this order, and nothing else up front**: `CLAUDE.md`; this section; the rule block
+   that opens `doc/environment.md`; `doc/traps/every-round.md`; `doc/habits/every-round.md`; then
+   what `tools/round.sh <kind>` names for the kind of round you are, and what your contract names.
+   `doc/HANDOVER.md` is the index to open when you need a file this list did not give you.
+2. **The contract is ledger rows by number, or a named build.** Read the clause in `doc/md/`,
+   never only the row's note; check the brief's premise in the text, the code and the data before
+   building on it, and say in the report which premise held. Quotation marks mean verbatim from
+   ISO 32000-2; every other text is cited by section and paraphrased; a `§` is ISO 32000-2's.
+3. **Tier 1 is every round's, scoped to what you touched**: `rustfmt --check --edition 2024` on
+   your files; `RUSTFLAGS="-D warnings" cargo clippy -p <crate> --all-targets` and
+   `cargo nextest run -p <crate>` for each crate you touched; `cargo test -p conformance`. Tier 2
+   only for the subsystem the change reaches, by section 2's rule list and map, behind the lock.
+   Tier 3 is the merge's. **A figure a gate already holds is read from the gate's band, ratchet or
+   held list, not re-measured**; a round re-measures what its change can move.
+4. **Paperwork is one new record** `doc/history/<session>-<slug>.md` of at most forty lines with a
+   `**Gates.**` paragraph stating each gate's exit status or count (ADR 1499) — `wc -l` it; an ADR
+   only for a decision a later round must not re-litigate, numbered as assigned; a `Q` file only
+   where the owner's word is needed, with a recommendation and what the tree does meanwhile;
+   `doc/state-of-play.md`, the todo file touched and `doc/todo/65` kept true by small edits. No
+   trap, no habit, no edit to any other round's file; a proposed trap goes in the report.
+5. **Ledger edits are targeted and your own rows' only**: re-read the file immediately before a
+   `str.replace` of your row's text, only `\\ \" \n \t` escapes, `cargo test -p conformance`
+   right after; never `tools/state.sh ledger` or `--bin ledger` mid-batch; `over` and
+   `Unconsidered` stay 0; a status change edits `doc/todo/65`'s map in the same pass.
+6. **The report** names rows moved with the clause sentence, every file touched, every gate with
+   its exit status, what is unfinished and why, and the premise that did not hold.
+
 ## 1. Take from both tracks
 
 Demand-driven is what the corpus and the oracle name (todos `10`–`29`); spec-driven is the
@@ -43,7 +75,7 @@ beside the sweeps that find each. They are the highest-yield reading this projec
 `tools/round.sh` says whether this is a fifth round.
 
 **Why there are tiers at all, in one sentence per tier** (ADR 1036, on the measurement in
-`doc/reviews/1012-where-the-effort-goes.md` §3 over sessions 912–1011):
+`doc/reviews/1012-where-the-effort-goes.md` §3):
 
 - **Tier 1 runs in every round because it is where the catching happens** — seventeen of the
   eighteen defects a round caught in its own work came off these lines, `cargo test -p conformance`
@@ -52,8 +84,8 @@ beside the sweeps that find each. They are the highest-yield reading this projec
   crate does** — these are the lines the change → gate map names, and a round that did not touch
   what they walk is paying for a walk that cannot move.
 - **Tier 3 runs at the merge and not in an ordinary round, because that is where its catches
-  actually happened** — the ten converter-fixture failures of session 1005 and the `archive_corpus`
-  signature defect of session 985 were both found at a merge; in 98 sessions these lines caught
+  actually happened** — one merge found ten converter-fixture failures and another the
+  `archive_corpus` signature defect; in 98 sessions these lines caught
   **one** defect in the round that introduced it and raised **fourteen** false alarms, at about
   twenty-five minutes a round. Nothing here is deleted or weakened: the merge runs every one of
   them on `main`, once per batch instead of once per round, and rule 5 is why that is not a hole.
@@ -125,8 +157,8 @@ cargo test  --profile gates -p viewer-confined --test awkward_classes -- --ignor
 ```
 
 **`foreign_corpus` is the line to reach for last and the one to suspect first.** Zero self-catches
-in 98 sessions, five false failures (sessions 914, 926, 939, 960, 999), 76–214 s and 6.70 GiB — and
-session 999's record says it *"cannot be run beside another round's copy of itself, and the failure
+in 98 sessions, five false failures, 76–214 s and 6.70 GiB — and one of those rounds' records
+(`doc/history/999-…`) says it *"cannot be run beside another round's copy of itself, and the failure
 looks like a defect."* On a machine running five rounds that is a gate whose dominant output is a
 false alarm, which is why it is a merge's line rather than a round's.
 
@@ -192,9 +224,11 @@ changed page against the other renderers is `oracle`, which is tier 3 and theref
 so a round that moved a pixel **says so in its record**, and the merge is where the verdict lands.
 Trap 1's rule is unchanged by any of this and is not satisfied by a gate: render the page and look.
 
-**4. Every fifth round runs everything — all three tiers**, whatever it touched, because a map is
-a claim about the crate graph and a claim decays. `tools/round.sh` says which round this is, and
-trap 39 is why that answer is worth checking rather than trusting.
+**4. A round run alone, outside a batch, runs everything every fifth round — all three tiers**,
+whatever it touched, because a map is a claim about the crate graph and a claim decays. A round
+run in a batch owes no such sequence: the merge runs all three tiers on every batch, which checks
+the map five times as often as the fifth-round rule did, and six rounds each owing a twenty-five
+minute walk the merge then repeats is the duplicated work ADR 1638 retires.
 
 **5. A merge runs everything, always — all three tiers**, and the paragraph below the table is not
 relaxed by any of this. This rule is what makes tier 3's demotion safe rather than a hole: every
@@ -225,10 +259,10 @@ merely upstream of it does not. Everything else in tier 3 is the merge's.
 | `raster/crates/raster-gpu/src/` | CI's `raster-examples` job, and the gate that runs it here | `tools/batch.sh raster-examples`, behind the lock through `tools/bounded.sh` as every walk is: each example `.github/workflows/ci.yml` names, built `--release` and run with `--check` under `xvfb-run`, one line per example with its exit and its log. `cargo test` builds no example, so an example's assertions run nowhere else here, and two went stale where only the owner's CI ran them (ADR 1563); the merge runs it as `t2-raster_examples` (ADR 1575) |
 | `render-gpu` | no gate at all | the workspace tests are the only judge — `cargo test -p render-gpu --test headless_gpu`, **without** `--ignored`: none of its tests is ignored, so that flag runs zero of them and exits 0; say so, and consider `doc/verify.md`'s cross-backend runs |
 | `viewer-core`, `viewer-accessibility` | the two censuses | `selection_census`, `accessibility_census` |
-| `viewer-ui`, `viewer-gtk`, `viewer-qt`, `viewer-ffi`, `viewer-host`, `viewer-confined`, `confined-transport`, `pdf-fuse`, `pdf-vfs-ffi`, `kio/` | the launch-path gate for the first of them, and the awkward-class sweep for `viewer-confined` | the core, which builds and tests them; section 5's `tools/batch.sh install` rebuilds what a person runs at the merge. **And `--test awkward_classes`, with its `--bins` line, where the change is in `viewer-confined`, `confined-transport` or anything `pdf-view-worker` links** — the sweep of the other confined program, in the sequence since session 995 (ADR 1015). **And `--test launch_path` where the change is in `viewer-ui`, `viewer-core` or anything the launch path crosses**, which is `CLAUDE.md` principle 2's four numbers and is the only gate in this sequence that can see them. **`confined-transport` is under two crates**, so a change there is a change to `viewer-confined` *and* `pdf-vfs`, and both of their worker binaries have to be rebuilt before their tests are believed — trap 10 twice. **`pdf-fuse` and `pdf-vfs-ffi` are the two faces and neither has a gate of its own**: the workspace lines build and test both, and `pdf-vfs-ffi`'s own tests need `pdf-vfs`'s worker beside them, which `cargo nextest run --workspace` and `cargo test -p pdf-vfs-ffi` both produce (they build a package's bin targets) — the trap-10 shape would bite only if a `--profile gates --test` line were added for this crate, as it did for `pdf-vfs`. **`kio/` is not in the workspace at all** and no `cargo` line reaches it; what builds it is `crates/pdf-vfs-ffi/tests/the_kio_worker.rs`, which runs CMake and a KIO client and **skips, printing what is missing**, on a machine with no `cmake`, ECM, Qt 6 or KF6 — so this sequence stays green with no KDE installed, which is the whole reason that directory is outside the workspace (ADR 0869) |
+| `viewer-ui`, `viewer-gtk`, `viewer-qt`, `viewer-ffi`, `viewer-host`, `viewer-confined`, `confined-transport`, `pdf-fuse`, `pdf-vfs-ffi`, `kio/` | the launch-path gate for the first of them, and the awkward-class sweep for `viewer-confined` | the core, which builds and tests them; section 5's `tools/batch.sh install` rebuilds what a person runs at the merge. **And `--test awkward_classes`, with its `--bins` line, where the change is in `viewer-confined`, `confined-transport` or anything `pdf-view-worker` links** — the sweep of the other confined program, in the sequence (ADR 1015). **And `--test launch_path` where the change is in `viewer-ui`, `viewer-core` or anything the launch path crosses**, which is `CLAUDE.md` principle 2's four numbers and is the only gate in this sequence that can see them. **`confined-transport` is under two crates**, so a change there is a change to `viewer-confined` *and* `pdf-vfs`, and both of their worker binaries have to be rebuilt before their tests are believed — trap 10 twice. **`pdf-fuse` and `pdf-vfs-ffi` are the two faces and neither has a gate of its own**: the workspace lines build and test both, and `pdf-vfs-ffi`'s own tests need `pdf-vfs`'s worker beside them, which `cargo nextest run --workspace` and `cargo test -p pdf-vfs-ffi` both produce (they build a package's bin targets) — the trap-10 shape would bite only if a `--profile gates --test` line were added for this crate, as it did for `pdf-vfs`. **`kio/` is not in the workspace at all** and no `cargo` line reaches it; what builds it is `crates/pdf-vfs-ffi/tests/the_kio_worker.rs`, which runs CMake and a KIO client and **skips, printing what is missing**, on a machine with no `cmake`, ECM, Qt 6 or KF6 — so this sequence stays green with no KDE installed, which is the whole reason that directory is outside the workspace (ADR 0869) |
 | `pdf-script` | the Tier 1 column, and the Tier 0 form above it | `--features engine --test script_corpus`, the line in tier 2: every script Tier 0 does not run, run in its document's realm and held to its own ceilings (ADR 1625); and `-p pdf-model --test script_corpus`, the displayed values held by name, where the change reaches the view state's script sites |
 | `tools/conformance`, `doc/conformance/ledger.toml`, a doc comment citing a clause | the conformance gate | `cargo test -p conformance` |
-| `pdf-archive` | the validator's corpus walk, and the converter's | `cargo test --profile gates -p pdf-archive --test corpus -- --ignored --nocapture`, the validator against every witness the veraPDF corpus holds, per target, with `over` — a document its author built to conform, failed here — the column to read; and `-p pdf-transform --test archive_corpus`, because the converter's whole contract is this validator run twice, before and after, so a validator that changes its reading changes what the converter is held to. Plus `cargo test -p conformance`: the crate's table cites ISO 19005 by section and the ledger's rows for it. **The validator's walk reports and does not yet hold** — its own header says turning an adjudicated expectation into a gate is a later, deliberate step — so what fails the line today is a panic or an unreadable witness, and the `over` column is read by the round rather than by the test. Both walks are `#[ignore]`d for the submodule's size, skip loudly without it, and cost seconds; neither interprets a page, so neither needs the sandbox worker and both say so (ADR 1015). Until session 995 a change here ran the core and nothing that opened a veraPDF file. **And a third walk since ADR 1055, `-p pdf-archive --test cross_check`**: the survey's named-resource selections against `pdf_model`'s interpreter's over the same corpus, both recording through `pdf_model::content::ledger`, scoped to the constructs the survey walks; a change to `survey.rs`'s walk, to `pdf-model`'s `resources.rs` or to any site that enters a nested stream is a change to what it asserts. Tier 3 like its neighbours: it interprets every page, costs about two minutes, and its catches are the merge's |
+| `pdf-archive` | the validator's corpus walk, and the converter's | `cargo test --profile gates -p pdf-archive --test corpus -- --ignored --nocapture`, the validator against every witness the veraPDF corpus holds, per target, with `over` — a document its author built to conform, failed here — the column to read; and `-p pdf-transform --test archive_corpus`, because the converter's whole contract is this validator run twice, before and after, so a validator that changes its reading changes what the converter is held to. Plus `cargo test -p conformance`: the crate's table cites ISO 19005 by section and the ledger's rows for it. **The validator's walk reports and does not yet hold** — its own header says turning an adjudicated expectation into a gate is a later, deliberate step — so what fails the line today is a panic or an unreadable witness, and the `over` column is read by the round rather than by the test. Both walks are `#[ignore]`d for the submodule's size, skip loudly without it, and cost seconds; neither interprets a page, so neither needs the sandbox worker and both say so (ADR 1015). **And a third walk since ADR 1055, `-p pdf-archive --test cross_check`**: the survey's named-resource selections against `pdf_model`'s interpreter's over the same corpus, both recording through `pdf_model::content::ledger`, scoped to the constructs the survey walks; a change to `survey.rs`'s walk, to `pdf-model`'s `resources.rs` or to any site that enters a nested stream is a change to what it asserts. Tier 3 like its neighbours: it interprets every page, costs about two minutes, and its catches are the merge's |
 | `pdf-transform` | the transform gate, and the writers' walks | `cargo test --profile gates -p pdf-transform --test gate -- --ignored --nocapture`, which carries RFC 0002 section 12's perf floor and holds the verbs' inventories to the document; it needs the sandbox worker beside it like the rest. And the seven corpus walks named in the sequence above — `writer_corpus`, `split_corpus`, `merge_corpus`, `pages_corpus`, `optimize_corpus`, `foreign_corpus` and `archive_corpus`, the last of which is the converter held to the validator (the `pdf-archive` row above). **What each of them asserts is in its own `//!` header and not here**: every one of them opens with the clauses it holds its output to, the layer of RFC 0002 section 9 it is, and what it does when the programs it needs are not installed. `foreign_corpus` is the only one that asks **somebody else** — qpdf, poppler and mupdf over each of the five writers' output, every foreign reading compared with that *same* reader's reading of the source page and never with ours. All six are corpus walks, so they run under `tools/bounded.sh` (`doc/environment.md`) |
 | `pdf-vfs` | both sides' walks | `--test write_corpus`, which drives RFC 0003 section 5.2's five verbs over every corpus document the core opens, and `--test read_corpus`, which lists, `stat`s and reads the whole of section 4's layout through the **confined** worker over `doc/pdf.js` whole plus a class-balanced sample of every other corpus on the disk. **What each holds its answers to is in its own `//!` header**, including the cost floors, which are *counts* rather than clocks (`Vfs::questions`, `Vfs::forgotten` — trap 33) so that a neighbouring round's load cannot fail them. Both are corpus walks, so they run under `tools/bounded.sh`. **The `--bins` line above them is not optional and is trap 10**, on a distinction worth keeping: `cargo nextest run --workspace` and `cargo test -p pdf-vfs` both build a package's bin targets, so under those the `pdf-vfs-worker` beside the test binary is this build's; a `--profile gates --test` line builds **one test target and nothing else**, as it does for `pdf-sandbox`, so under that line the worker would be whatever an earlier round left. This crate's own tests are `cargo nextest run -p pdf-vfs`, which the workspace line already runs: `tests/a_face.rs`, `tests/a_write.rs` and `tests/confined.rs`, the last of which re-executes itself under the confinement to check that a forbidden system call kills — and that a font looked for on the machine does *not* (trap 31). A **death** — `killed by signal N` — fails a walk wherever the sentence appears |
 | `raster-compare`, `test-scenes`, `pdfref` | whichever gate names them | the core, plus the gate whose harness they are — `raster-compare` and `pdfref` are the oracle's and quorra's. **`pdfref` reaches three gate lines rather than one**, and it carries their cost floor: `pdfref::Runs` counts how many times a reference renderer or an extractor was actually *spawned*, how many of those were for a key the run had already run, and how many produced something the cache kept nowhere — and `oracle`, `text_extraction` and `selection_census` each fail on a repeat the ceiling does not excuse. It is a count and not a clock, for trap 33's reason: `Statistics`'s hits and misses cannot see a lookup that never reached the cache, nor tell a second miss on one key from a first miss on another |
@@ -314,7 +348,7 @@ list it had read rather than the list it left:
   that reads command lines can match itself** — `ps -eo args=` prints the polling `grep`'s own
   arguments, which contain the very path pattern being searched for, so the predicate never goes
   empty and the wait never ends. `readlink /proc/PID/exe` is what a process *is* rather than what
-  it was asked to be, and no pattern of the poller's can appear in it. Round 899's deadlock was
+  it was asked to be, and no pattern of the poller's can appear in it. One round's deadlock was
   the same mistake in its other direction, and both are the reason a wait predicate is worth as
   much care as the gate it guards.
 - **One of these commands runs a C compiler**, and it is the only gate in this sequence that does.
@@ -430,8 +464,8 @@ list it had read rather than the list it left:
   `tools/state.sh` section, or the excuse**, on the day it is added. The review's count was seven,
   and the seventh was a doc comment saying a test *had been* ignored: the check matches the
   attribute where an attribute is, at the start of a line (trap 11).
-- **The `awkward_classes` line was `doc/verify.md`'s until session 995**, kept out of here because
-  `pdf-vfs`'s read walk gates the same class of defect over more questions. It shares that walk's
+- **The `awkward_classes` line is here although `pdf-vfs`'s read walk gates the same class of
+  defect over more questions** (ADR 1015). It shares that walk's
   population and its filter and not its *program*: `pdf-view-worker` is the process a person reads
   pages in, and a system call in code the two workers do not share is caught by this line alone.
   It needs the `--bins` line above it (trap 10), decodes its three confined codecs in-process so
@@ -558,8 +592,8 @@ how this project has been wrong four times.
 The sweeps live in [`01-ledger-partial-rows.md`](01-ledger-partial-rows.md), which says what each
 one asks and what its first run found; that file is the reading, and this is the rule. **Run them
 over every crate of the tree as well as over `ledger.toml`** — `conformance::roots::source_roots`
-reaches all of them, derived from the workspace manifest rather than listed, which is what session
-1010 fixed after `raster/`'s five crates had been outside every sweep for four months (ADR 1029) —
+reaches all of them, derived from the workspace manifest rather than listed, because `raster/`'s five crates were once
+outside every sweep for four months (ADR 1029) —
 and run the grep-shaped ones over `doc/adr/` too, for the one thing an unmaintained
 document can get wrong: a claim a later round disproved and left standing. The ledger has a gate
 and the source does not, which is why one session found four claims in the code false for between
@@ -613,7 +647,7 @@ share, the ones that break it, and the rule each of those leaves on a round:
   binaries had not been run in sixty sessions when
   `doc/reviews/1012-where-the-effort-goes.md` measured it — not because they find nothing, but
   because nothing said when. **The merge runs one, rotating in the order they are listed in
-  `doc/todo/01`, and the merge's record names which one and what it printed.** Session 1025 ran
+  `doc/todo/01`, and the merge's record names which one and what it printed.** One round ran
   all twenty once and wrote a verdict for each in
   `doc/history/1025-the-lint-that-remembers-and-twenty-sweeps-woken.md`: eleven print a reading
   list a round can act on, five print a backlog whose *level* is noise and need their populations
@@ -663,7 +697,7 @@ feature reaches no window — `pdf-script-worker` with `engine`, ADRs 1616, 1625
 `tests/batch.rs` holds them against the workspace's own manifests: every program of a package under
 `crates/` is installed, every name installed is a binary target — `quorra-retrieve` is the one from
 `tools/`, because a person runs it — and every package that builds a C library is installed. A copy
-of a name list in a document drifts the way copies do: until session 945 this section's loop
+of a name list in a document drifts the way copies do: this section's loop once
 installed three pre-rename names, and that could not fail, because Cargo removes nothing it no
 longer produces, so `install` found months-old artefacts under the old names and copied them while
 the renamed programs never reached `target/` at all.
@@ -732,7 +766,7 @@ directory is live until its worktree is closed, and `tools/worktree.sh close` is
 builds twenty to thirty gigabytes of its own within its first hour, so a sweep is a recurring
 cost rather than a fix and the *rate* is set by how many rounds run at once. And **the sweep can
 move a measurement**: the launch gate's cold arm reads a copy it makes beside the build directory,
-so a swept tree hands it freshly allocated extents — `doc/todo/42` has what that cost session 926
+so a swept tree hands it freshly allocated extents — `doc/todo/42` has what that cost one round
 and how to tell it from a regression.
 
 ## 6. Write it down, then commit
@@ -812,28 +846,16 @@ memory of the session the quota ended. `tools/batch.sh` is the command; this is 
    the batch's first `dev` build in the worktree's own build directory, detached, into
    `scratchpad/open/build.log`: write the briefs while it runs, and the rounds find it warm rather
    than six of them meeting it cold behind one lock (ADR 1451).
-2. **Brief each round with the ledger rows it must close — by number, never by topic.** A round
-   briefed "work on partial rows" writes prose; one briefed "close §8.4.5 and §9.9.1" writes code.
-   Over 58 sessions of topic briefs, one row of 875 changed status and it went backwards; over the
-   first 24 rounds of row briefs, 27 did (ADR 1036, `doc/reviews/1012`). The brief carries: read the
-   **clause**, never the row's note (every real defect of those rounds came from a clause, and none
-   from a sweep's count — `doc/habits/measuring.md`); tier 1 plus only the tier 2 lines the change
-   reaches; one record ≤40 lines that states its gates in a paragraph opening `**Gates.**`, each
-   with its exit status or pass count — the report is never in the tree, so "see the report" is no
-   statement (both counted: `tools/state.sh records`, ADR 1499); an ADR only for a decision a
-   later round must not re-litigate; ledger notes use only `\\ \" \n \t` (a `\uXXXX` blocks tier 1
-   for the whole worktree); no `git stash`, no `git checkout -- .`, no unscoped `cargo fmt --all`,
-   no whole-file `cp` restore; stop runs by pid. **Two lines the brief carries because six rounds
-   share one machine**: scratch files go under `scratchpad/r<round>/`, because a path a sibling
-   also writes is a log one of you loses — round 1091 lost one that way; and **wait on a pid you
-   hold**, never on `pgrep -f` or a `ps` match of your own command line, which contains the
-   pattern it is searching for and never goes empty (`doc/todo/02` §2's third witness, and round
-   899's deadlock in the other direction).
-   And **every heavy walk goes behind one lock**: `RAYON_NUM_THREADS=4 flock /home/AI/heavy-walk.lock
-   tools/bounded.sh -- cargo test …` for `raster_golden`, the oracle, every corpus walk, every census
-   over the crawl, `callgrind` — one on the machine at a time across the batch, never two of a
-   round's own at once. Six rounds and a merge walked the corpus concurrently on 2026-09-15 and
-   the process was killed; `tools/batch.sh gates` takes the same lock.
+2. **Brief each round with the ledger rows it must close — by number, never by topic — from
+   `doc/todo/_brief-template.md`, and from nothing else.** A round briefed "work on partial rows"
+   writes prose; one briefed "close §8.4.5 and §9.9.1" writes code. Over 58 sessions of topic
+   briefs, one row of 875 changed status and it went backwards; over the first 24 rounds of row
+   briefs, 27 did (ADR 1036, `doc/reviews/1012`). The template is the fixed shape: a common part
+   that points at section 0 above and at the every-round files rather than restating them, and a
+   per-slot part that carries the contract, the owned files, the premise's evidence and the slot's
+   reading pointer. The last batch's lessons are not a paragraph in the brief: a lesson that
+   changes how a round works is a line in section 0, the environment rule block or a habit, made
+   once, and the brief points there (ADR 1638).
    Take from both denominators: four slots on ledger rows, one on what the corpus
    names, one on instruments — and a sweep's count is not a finding until ten of its hits have
    been read against the standard.
@@ -870,7 +892,7 @@ memory of the session the quota ended. `tools/batch.sh` is the command; this is 
    stages by name every path `git status` reports outside `scratchpad/`, prints the population's
    count against the index's, and refuses to commit when they differ. `close` refuses a worktree
    holding anything uncommitted outside `scratchpad/` and has no `--force` (ADR 1313). Run inside the worktree, that command merges the branch into itself, exits 0, and
-   prints the branch's own HEAD where a reader expects `main`'s; the merge of sessions 1038–1043
+   prints the branch's own HEAD where a reader expects `main`'s; one batch's merge
    did exactly that and then closed the batch, deleting the only ref to its commit (recovered from
    the object store because nothing had run `gc`). `tools/batch.sh close` now refuses a branch
    `main` lacks commits from, and refuses to run from inside the worktree — but the order is the
@@ -887,8 +909,8 @@ memory of the session the quota ended. `tools/batch.sh` is the command; this is 
    after `open`, whose warm build writes there (ADR 1526).
 6. **Commit only, never push** (owner, 2026-09-07). Then the next batch.
 7. **When a quota kills a batch mid-flight**, the notification's last visible line ("I'll start by
-   reading…") is the round's *first* message, not its last act. The six rounds of sessions
-   1044–1049 died with 967 insertions across 21 files, a finished record, an ADR and an
+   reading…") is the round's *first* message, not its last act. One batch's six rounds
+   died with 967 insertions across 21 files, a finished record, an ADR and an
    unbuildable crate in the worktree. Before relaunching: `git -C /home/AI/pdf-viewer-rounds
    status --short` and `cargo check --workspace --all-targets`; and `ps -eo pid,etime,args | grep -E
    'xargs|bounded.sh|examples/'` for **launchers the dead process left running** — three `xargs`

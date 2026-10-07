@@ -177,9 +177,8 @@ impl Device {
     /// and write transparency outside it (ADR 0038, ADR 0039).
     ///
     /// `[0.0, 0.0]` is a copy between two textures of one size, which is §11.4.4's seed;
-    /// a positive origin is the composite's backdrop, a rectangle inside its parent; a
-    /// negative one is the frame's hand-off, whose destination is the whole target while
-    /// its source is only what the page marks.
+    /// a negative origin is the frame's hand-off, whose destination is the whole target
+    /// while its source is only what the page marks.
     pub(crate) fn blit_bind(
         &self,
         src: &wgpu::TextureView,
