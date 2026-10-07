@@ -190,19 +190,19 @@ document takes.
 The feature draws; the residue is a case the first build did not reach. **What would unblock them:**
 a normal round extending the existing code.
 
-**One build, four rows: rich text formatting** (ADRs 1623, 1634, 1635, 1648, 1649). A rich text
+**One build, the rows below it: rich text formatting** (ADRs 1623, 1634, 1635, 1648, 1649, 1660, 1661). A rich text
 string is laid out in the formatting it states: `pdf_model::rich_text` reads the XHTML subset and the
 CSS2 and XFA properties XFA 3.3's chapter 27 names, beneath a `/DS`, and sets each run in its own face,
 size, width, colour, alignment and spacing, list tags and tab stops included, in comb cells and in
 UAX #9's order, with a host's caret, point and range answered from the runs; a changed rich value
 regenerates the whole appearance, a save writes `/RV` beside `/V`, and an import carries Table 249's
-`/RV` and XFDF's `<value-richtext>`. XFA 3.3 is held at `/home/AI/specs/XFA-3_3.pdf`
+`/RV` and XFDF's `<value-richtext>`, which a save writes (ADR 1661). XFA 3.3 is held at `/home/AI/specs/XFA-3_3.pdf`
 (`doc/third-party-data.md`), cited by section, never quoted. What is left, row by row:
 
-- §12.7.4.3 — `kerning-mode:pair`, a tab leader, a tab in a line read right to left, a width no `/DR`
-  face states, following an `<a href>`, `xfa:embed` and the algorithmic list types are reported as
-  `Owed::RichTextUnapplied`; a character none of the runs' faces draws in a face this program chose
-  takes the one-style layout's machine face (`Owed::RichTextOneStyle`, ADR 1414).
+- §12.7.4.3 — `kerning-mode:pair`, reported as `Owed::RichTextUnapplied`, which needs pair data
+  no file of this tree holds (`doc/questions/Q308`). Leaders, right-to-left tabs, every list type,
+  the nearest width and a machine face per character are built, and following a link and resolving
+  `xfa:embed` are choices the clause's delegation of formatting leaves (ADR 1660).
 - §12.7.5.3 — Table 231 bit 26, the same residue seen from the field's own table.
 - §12.5.6.6 — Table 177's `/RC` and `/DS`, drawn; §12.7.4.3's residue is this note's too.
 

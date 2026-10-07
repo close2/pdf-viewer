@@ -451,3 +451,12 @@ An audit tool that runs cargo per package is a spawner, and one of them took the
 dependency's source, with the command beside the number. And a ledger heading's status is derived
 from its leaves by the checker (ADR 1599) — the shared status when every leaf agrees, `partial`
 otherwise — so a heading can no longer be counted as debt of its own, as §12.1 was (ADR 1573).
+
+## A function a host calls after every command builds nothing until it knows it has work
+
+`ViewState::apply_resumed`, called by `viewer-core` after every command, built the every-page field
+table before checking whether any script run had finished; once that table recovered roots from the
+pages their widgets are on (ADR 1653), the launch path walked all 1 023 of EC3's pages and its memory
+high-water rose from 28 to 78 MiB. The launch gate's count caught it; no clock would have. A
+function on the per-command path takes its cheapest exit first, and a table that reads pages comes
+in the narrowest width the caller needs (`view::Omitted`'s four).

@@ -12,9 +12,9 @@
 
 use std::time::Instant;
 
-use boa_engine::object::builtins::JsArray;
+use boa_engine::object::builtins::{JsArray, JsRegExp};
 use boa_engine::object::{IntegrityLevel, ObjectInitializer};
-use boa_engine::{Context, JsObject, JsResult, JsString, JsValue, NativeFunction};
+use boa_engine::{Context, JsNativeError, JsObject, JsResult, JsString, JsValue, NativeFunction};
 use pdf_model::aform::printf::{Argument, printf};
 use pdf_model::view::{Face, FieldState, FieldType, Layer, Property, ScriptEdit};
 
@@ -79,6 +79,78 @@ pub(super) fn app(app: &JsObject, context: &mut Context) -> JsResult<()> {
 pub(super) fn util(util: &JsObject, context: &mut Context) -> JsResult<()> {
     let printf = function(context, "printf", NativeFunction::from_fn_ptr(print_format));
     data(util, "printf", JsValue::from(printf), false, context)
+}
+
+/// Installs `AFExactMatch`, the one function of Adobe's form library whose argument is a pattern
+/// rather than a literal, so that it is the engine's and never Tier 0's (ADR 1652).
+///
+/// # Errors
+///
+/// The engine's, where a property cannot be defined.
+pub(super) fn library(global: &JsObject, context: &mut Context) -> JsResult<()> {
+    let exact = function(
+        context,
+        "AFExactMatch",
+        NativeFunction::from_fn_ptr(exact_match),
+    );
+    data(global, "AFExactMatch", JsValue::from(exact), false, context)
+}
+
+/// The most patterns `AFExactMatch` reads of an array, the bound `this.resetForm` reads a list to.
+const MAX_PATTERNS: u64 = u16::MAX as u64;
+
+/// `AFExactMatch(rePatterns, cString)`: the one-based position of the first pattern that matches
+/// the whole string, or 0 where none does.
+///
+/// Adobe publishes nothing of this function: not the *JavaScript for Acrobat API Reference*, nor
+/// the *Interapplication Communication* guide's argument menus, nor any other page of
+/// `adobe/dc-acrobat-sdk-docs` at `ab3b42a7` names it (searched whole). What the tree takes is its
+/// name and the convention its neighbours keep, each a documented choice (ADR 1652): *exact* is a
+/// match of the whole string — the text `String.prototype.match` finds first is the string itself;
+/// a list answers a position counted from one, so that 0 is the answer that is false; and one
+/// pattern is a list of one, so it answers 1 or 0, which a script's `if` reads as the same truth.
+fn exact_match(_this: &JsValue, arguments: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let patterns = arguments.first().cloned().unwrap_or_default();
+    let text = arguments
+        .get(1)
+        .cloned()
+        .unwrap_or_default()
+        .to_string(context)?;
+    let listed: Vec<JsValue> = match patterns.as_object() {
+        Some(list) if JsRegExp::from_object(list.clone()).is_err() && list.is_array() => {
+            let length = list
+                .get(JsString::from("length"), context)?
+                .to_length(context)?;
+            let mut listed = Vec::new();
+            for index in 0..length.min(MAX_PATTERNS) {
+                listed.push(list.get(index, context)?);
+            }
+            listed
+        }
+        _ => vec![patterns],
+    };
+    let matcher = context
+        .intrinsics()
+        .constructors()
+        .string()
+        .prototype()
+        .get(JsString::from("match"), context)?;
+    let Some(matcher) = matcher.as_callable() else {
+        return Err(JsNativeError::typ()
+            .with_message("String.prototype.match is not a function")
+            .into());
+    };
+    let subject = JsValue::from(text.clone());
+    for (position, pattern) in (1_u32..).zip(listed) {
+        let found = matcher.call(&subject, &[pattern], context)?;
+        let Some(found) = found.as_object() else {
+            continue;
+        };
+        if found.get(0, context)?.as_string().as_ref() == Some(&text) {
+            return Ok(JsValue::from(position));
+        }
+    }
+    Ok(JsValue::from(0))
 }
 
 /// Installs a field's `buttonGetCaption` and `buttonSetCaption`.

@@ -522,6 +522,35 @@ for rich in [True, False]:
     p1.obj.Annots = Array([note, popup])
     pdf.save(f"{out}/drive-rich.pdf" if rich else f"{out}/drive-rich-plain.pdf")
 
+# drive-rich-<name>.pdf: one note whose /RC sets its characters in one 20 pt run, the run's style
+# the only difference between a pair — a face (Courier against Helvetica), a letter spacing, a
+# horizontal scale — and a right-to-left sentence whose two words are coloured two ways, read in
+# the order UAX #9 gives the paragraph across the runs (ADR 1654).
+def rich_note(name, contents, spans):
+    pdf = pikepdf.new()
+    font = helv(pdf)
+    p1 = page(pdf, font, "Rich")
+    note = Dictionary(Type=Name.Annot, Subtype=Name.Text, Rect=[60, 600, 84, 624],
+                      Contents=String(contents), T=String("Drive"), Name=Name.Comment, F=4,
+                      RC=String('<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml">'
+                                f'<p>{spans}</p></body>'))
+    note = pdf.make_indirect(note)
+    popup = pdf.make_indirect(Dictionary(Type=Name.Annot, Subtype=Name.Popup,
+                                         Rect=[100, 380, 500, 560], Parent=note, Open=True, F=4))
+    note.Popup = popup
+    p1.obj.Annots = Array([note, popup])
+    pdf.save(f"{out}/drive-rich-{name}.pdf")
+
+red20 = "color:#ff0000;font-size:20pt"
+for name, family in [("courier", "Courier"), ("helvetica", "Helvetica")]:
+    rich_note(name, "iiiiiiiiii", f'<span style="{red20};font-family:{family}">iiiiiiiiii</span>')
+rich_note("unspaced", "HHHH", f'<span style="{red20}">HHHH</span>')
+rich_note("spaced", "HHHH", f'<span style="{red20};letter-spacing:8pt">HHHH</span>')
+rich_note("scaled", "HHHH", f'<span style="{red20};xfa-font-horizontal-scale:200%">HHHH</span>')
+rich_note("rtl", "\u05e9\u05dc\u05d5\u05dd \u05e2\u05d5\u05dc\u05dd",
+          f'<span style="{red20}">\u05e9\u05dc\u05d5\u05dd</span> '
+          '<span style="color:#0000ff;font-size:20pt">\u05e2\u05d5\u05dc\u05dd</span>')
+
 # drive-painted.pdf: a push-button whose background the document's open action sets red by
 # script — Table 192's /BG, which the appearance is constructed from once a script has changed it
 # (ADR 1617); a push-button because every window draws its appearance and none covers it with a
@@ -2157,6 +2186,82 @@ popup_rich() {
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 
+# The box a colour's pixels fill on a photograph, as "width left": every other pixel turned white
+# and the photograph's trim geometry read; nothing of that colour is "0 0".
+box_of() { # png colour
+    local geometry
+    geometry=$(magick "$1" -alpha off -fuzz 6% -fill white +opaque "$2" -format %@ info: 2>/dev/null)
+    [[ "$geometry" =~ ^([0-9]+)x[0-9]+\+([0-9]+)\+[0-9]+$ ]] || { echo "0 0"; return; }
+    [ "$(coloured "$1" "$2")" -gt 0 ] || { echo "0 0"; return; }
+    echo "${BASH_REMATCH[1]} ${BASH_REMATCH[2]}"
+}
+# rich_width name: how wide the red run of drive-rich-<name>.pdf is drawn in this window.
+rich_width() {
+    launch "$FIXTURES/drive-rich-$1.pdf"; sleep 0.5; shot "5x-popup-$1"
+    box_of "$OUT/shots/$WINDOW/5x-popup-$1.png" "#ff0000" | cut -d' ' -f1
+}
+
+# A run set in the face its family names (ADR 1654), in the three windows that draw a popup:
+# ten i's in Courier, which advances each six tenths of an em, against the same ten in Helvetica's
+# two-ninths — more than twice the width wherever the face is the run's.
+popup_face() {
+    local wide narrow
+    wide=$(rich_width courier); narrow=$(rich_width helvetica)
+    if [ "${narrow:-0}" -gt 0 ] && [ "${wide:-0}" -gt $((narrow * 2)) ]; then
+        verdict 51-popup-face works "ten i's: $wide px in Courier, $narrow px in Helvetica"
+    else
+        verdict 51-popup-face wrong "Courier ${wide:-?} px, Helvetica ${narrow:-?} px: $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
+# A right-to-left paragraph ordered across its runs (ADR 1654): the red word is stored first, so
+# it is read first, so it stands to the right of the blue one.
+popup_rtl() {
+    local red blue
+    launch "$FIXTURES/drive-rich-rtl.pdf"; sleep 1; shot 52-popup-rtl
+    red=$(box_of "$OUT/shots/$WINDOW/52-popup-rtl.png" "#ff0000")
+    blue=$(box_of "$OUT/shots/$WINDOW/52-popup-rtl.png" "#0000ff")
+    local red_left=${red#* } blue_width=${blue% *} blue_left=${blue#* }
+    if [ "${red% *}" -gt 0 ] && [ "$blue_width" -gt 0 ] && [ $((blue_left + blue_width)) -le "$red_left" ]; then
+        verdict 52-popup-rtl works "the first word from x $red_left, the second ending at $((blue_left + blue_width))"
+    else
+        verdict 52-popup-rtl wrong "red (width left) $red, blue $blue: $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
+# `letter-spacing` drawn (ADR 1654): HHHH with eight points after each letter against HHHH with
+# none — at least three gaps of eight points wider, 32 px at 96 to the inch, wherever it is drawn.
+popup_spacing() {
+    local spaced plain
+    spaced=$(rich_width spaced); plain=$(rich_width unspaced)
+    if [ "${plain:-0}" -gt 0 ] && [ "${spaced:-0}" -ge $((plain + 28)) ]; then
+        verdict 53-popup-spacing works "HHHH: $spaced px spaced, $plain px not"
+    else
+        verdict 53-popup-spacing wrong "spaced ${spaced:-?} px, plain ${plain:-?} px: $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
+# Chapter 27's horizontal scale drawn (ADR 1654): HHHH at 200% against HHHH at its own width. The
+# two toolkit windows state no glyph scale — Pango's markup and Qt's rich text have no property
+# for one — and say so under the note; the step is not offered there.
+popup_scale() {
+    if [ "$WINDOW" != quorra ]; then
+        verdict 54-popup-scale "not offered" "the toolkit's markup states no glyph scale; the window says so under the note (ADR 1654)"
+        return
+    fi
+    local scaled plain
+    scaled=$(rich_width scaled); plain=$(rich_width unspaced)
+    if [ "${plain:-0}" -gt 0 ] && [ $((scaled * 10)) -ge $((plain * 18)) ]; then
+        verdict 54-popup-scale works "HHHH: $scaled px at 200%, $plain px at 100%"
+    else
+        verdict 54-popup-scale wrong "scaled ${scaled:-?} px, plain ${plain:-?} px: $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
 # §12.10's position, in all four windows (ADR 1593): measuring on, one press on the geographic map,
 # and the window's sentence carries a latitude and a longitude inside the map's own rectangle of
 # degrees, six places each; a press on a projected map whose /GPTS are degrees says why it gives no
@@ -2232,6 +2337,10 @@ for WINDOW in "${WINDOWS[@]}"; do
     script_withdrawn
     script_goto
     popup_rich
+    popup_face
+    popup_rtl
+    popup_spacing
+    popup_scale
     located
 done
 echo "drive-windows: $(grep -c "	works	" "$RESULTS") works, $(grep -c "	wrong	" "$RESULTS") wrong," \

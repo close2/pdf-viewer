@@ -271,6 +271,7 @@ pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
         Holder::Field,
         &[
             "lineWidth",
+            "style",
             "textSize",
             "textFont",
             "currentValueIndices",

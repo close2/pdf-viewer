@@ -3391,7 +3391,14 @@ impl Host {
                         .unwrap_or_default(),
                     not_drawn: window
                         .rich
-                        .and_then(|note| viewer_host::popup::not_drawn(note, &[]))
+                        // Qt's rich text states no glyph scale, and a share of a space is the
+                        // face's that Qt picks, so both are said (ADR 1654).
+                        .and_then(|note| {
+                            viewer_host::popup::not_drawn(
+                                note,
+                                &viewer_host::popup::toolkit_unapplied(note),
+                            )
+                        })
                         .unwrap_or_default(),
                     rich_thread: viewer_host::popup::thread_html(window, base).unwrap_or_default(),
                     coloured: colour.is_some(),

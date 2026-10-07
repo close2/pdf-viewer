@@ -1487,10 +1487,11 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
             census.tagged_with_unreached,
             44,
         );
+        // 120 → 123 with ADR 1653: a root `/AcroForm /Fields` omits is recovered, its widgets published.
         gate_ratchet::floor(
             "a tagged page's unreached widgets published, whole population",
             census.tagged_unreached_widgets,
-            120,
+            123,
         );
         // ADR 1393's two counts, new with it, over the whole population.
         gate_ratchet::floor(
@@ -1668,10 +1669,13 @@ fn widget_floors(tracked_census: &Census) {
         tracked_census.tagged_with_unreached,
         7,
     );
+    // 82 → 85 with ADR 1653: a root field `/AcroForm /Fields` omits is recovered from the pages its
+    // widgets are on, so three widgets of such roots on tagged pages are published where they were
+    // nobody's.
     gate_ratchet::floor(
         "a tagged page's unreached widgets published",
         tracked_census.tagged_unreached_widgets,
-        82,
+        85,
     );
     // ADR 1393's two counts, new with it: a tagged document's page its structure reaches nothing
     // on says so instead of calling the document untagged. No existing floor moved: the honest
@@ -1698,17 +1702,19 @@ fn widget_floors(tracked_census: &Census) {
     // what it shows, whether an element names its widget or the page's list carries it. Every one
     // crossed with no value before it, so a screen reader was told the field was empty.
     // Measured at 545, 80 of them holding characters: most fields of the population are empty.
-    gate_ratchet::floor("fields with a value published", tracked_census.valued, 545);
+    // 545 → 548 with ADR 1653: the fields of a root `/AcroForm /Fields` omits are published too.
+    gate_ratchet::floor("fields with a value published", tracked_census.valued, 548);
     // ADR 1501's population, new with that decision: a character of a field's value with the box
     // §12.7.4.3's layout gave its glyph, which is what AT-SPI's `GetCharacterExtents` answers with.
     // Every one crossed with no place before it. Measured at 1571, over 79 of the 80 filled fields;
     // the eightieth is `PDFBOX-3148-2-fuzzed.pdf`'s, named by the census each run. The node carries
     // the value as the field displays it (ADR 1617), so a formatted field has the characters its
     // format adds.
+    // 1571 → 1588 with ADR 1653: the characters of a recovered root's fields are published too.
     gate_ratchet::floor(
         "field characters with extents",
         tracked_census.field_characters,
-        1571,
+        1588,
     );
 }
 

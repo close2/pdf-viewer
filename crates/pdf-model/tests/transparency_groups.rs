@@ -60,7 +60,7 @@ fn fixture(group: &str, bbox: &str, form: &str, page: &str) -> Vec<u8> {
          /GM << /SMask << /S /Luminosity /G 6 0 R >> >> \
          /GA << /AIS true /SMask << /S /Luminosity /G 6 0 R >> >> \
          /GT << /AIS true >> \
-         /GBF << /BM /Multiply /AIS false >> >> \
+         /GBF << /BM /Multiply /AIS false >> /GD << /BM /Darken >> >> \
          /Shading << /Sh 8 0 R >> \
          /XObject << /Fm 5 0 R /In 7 0 R >> >> /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
@@ -739,6 +739,87 @@ fn a_knockout_group_in_a_press_paints_only_its_topmost_element() {
         stated(black),
         stated(commands),
         "and the black half of the pair is the same construction"
+    );
+}
+
+/// A `B` whose fill and stroke differ only in black keeps a press's pair, and knocks out.
+///
+/// §11.7.4.4 makes the two portions of one operator a knockout group, and §11.4.6 says what
+/// that group shows:
+///
+/// > At any given point, only the topmost object enclosing the point shall contribute to the
+/// > result colour and opacity of the group as a whole.
+///
+/// A group naming `/DeviceCMYK` is drawn as a pair of runs, one per plane (§11.4.7, ADR 0272).
+/// Under `/BM /Darken`, which is not affine in its source, the construction that moves the mode
+/// to the group's `Do` is exact only where the portions are one colour in the group's space,
+/// and each run compares only its own plane's components: `0 0 0 0.3 k` and `0 0 0 0.7 K` are
+/// one colour on the chromatic plane and two on the black one. The two runs took different
+/// constructions, the pair was given up and the group drawn outside its space with a report
+/// (ADR 1657). So the assertions are the clause's: the pair is kept, nothing is reported, and on
+/// the stroke's inner half — where it lies over the fill — the page shows what the stroke alone
+/// shows, at the fill's centre what the fill alone shows. No corpus document states the
+/// combination; the fixture is hand-built (trap 8).
+#[test]
+fn a_b_whose_portions_differ_only_in_black_keeps_its_press_pair() {
+    let press = "/Group << /S /Transparency /I true /CS /DeviceCMYK >>";
+    let backdrop = "0.5 0.2 0 0 k 0 0 100 100 re f /GD gs 8 w";
+    let both = format!("{backdrop} 0 0 0 0.3 k 0 0 0 0.7 K 30 30 40 40 re B");
+    let stroke = format!("{backdrop} 0 0 0 0.7 K 30 30 40 40 re S");
+    let fill = format!("{backdrop} 0 0 0 0.3 k 30 30 40 40 re f");
+
+    let drawn = interpret(fixture(press, "[0 0 100 100]", &both, "/Fm Do"));
+    assert!(drawn.is_complete(), "{:?}", drawn.unsupported);
+    let [
+        Command::Group {
+            commands,
+            blending: Some(blending),
+            ..
+        },
+    ] = drawn.display_list.commands()
+    else {
+        panic!(
+            "expected one group, got {:?}",
+            drawn.display_list.commands()
+        );
+    };
+    let pdf_render::GroupBlending::FourComponents { black, .. } = blending.as_ref() else {
+        panic!("expected the four-component pair, got {blending:?}");
+    };
+    let blends = |elements: &[Command]| {
+        elements
+            .iter()
+            .map(|element| match element {
+                Command::Group {
+                    blend, isolated, ..
+                } => Some((*blend, *isolated)),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        blends(black),
+        blends(commands),
+        "both halves of the pair take the same construction of the `B`"
+    );
+
+    let alone = |content: &str| interpret(fixture(press, "[0 0 100 100]", content, "/Fm Do"));
+    let (stroke, fill) = (alone(&stroke), alone(&fill));
+    // Device (32, 50) is page (32, 50): inside the stroke's inner half, over the fill.
+    assert_eq!(
+        pixel(&drawn, 32, 50),
+        pixel(&stroke, 32, 50),
+        "where the stroke covers the fill only the stroke contributes"
+    );
+    assert_eq!(
+        pixel(&drawn, 50, 50),
+        pixel(&fill, 50, 50),
+        "inside the stroke only the fill does"
+    );
+    assert_ne!(
+        pixel(&stroke, 32, 50),
+        pixel(&fill, 32, 50),
+        "and the two portions are told apart there, by their black alone"
     );
 }
 

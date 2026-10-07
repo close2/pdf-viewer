@@ -5211,7 +5211,12 @@ fn rich_note(note: &pdf_model::popup::RichNote) -> gtk4::Box {
         label.set_markup(&markup);
         label.set_wrap(true);
         label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+        // A paragraph stating no alignment starts at its own start edge, the right for one that
+        // reads right to left, as the other two windows start it (ADR 1654).
         let (xalign, justify) = match paragraph.align {
+            None if viewer_host::popup::right_to_left(paragraph) => {
+                (1.0, gtk4::Justification::Right)
+            }
             None | Some(pdf_model::popup::RichAlign::Left) => (0.0, gtk4::Justification::Left),
             Some(pdf_model::popup::RichAlign::Centre) => (0.5, gtk4::Justification::Center),
             Some(pdf_model::popup::RichAlign::Right) => (1.0, gtk4::Justification::Right),
@@ -5226,7 +5231,10 @@ fn rich_note(note: &pdf_model::popup::RichNote) -> gtk4::Box {
         );
         body.append(&label);
     }
-    if let Some(sentence) = viewer_host::popup::not_drawn(note, &[]) {
+    // Pango's markup states no glyph scale, and a share of a space is the face's that Pango
+    // picks, so both are said rather than dropped (ADR 1654).
+    let also = viewer_host::popup::toolkit_unapplied(note);
+    if let Some(sentence) = viewer_host::popup::not_drawn(note, &also) {
         let said = gtk4::Label::new(Some(&sentence));
         said.set_xalign(0.0);
         said.set_wrap(true);
@@ -5273,6 +5281,15 @@ fn pango_span(run: &pdf_model::popup::RichRun, base: f32) -> String {
     let raised = viewer_host::popup::rise(run, base, 1.0);
     if raised.abs() > f32::EPSILON {
         let _ = write!(out, " rise=\"{}\"", units(raised));
+    }
+    // Chapter 27's `letter-spacing`. Pango takes it in thousand-and-twenty-fourths of the layout's
+    // own unit, a logical pixel, where a size's are of a point: eight points measured eight pixels
+    // a gap under the drive's step 53, so the points become CSS2's reference pixels, 96 to the
+    // inch, first (ADR 1654).
+    if let Some(spacing) = viewer_host::popup::letter_spacing(run, base, 1.0, None)
+        .filter(|spacing| spacing.abs() > f32::EPSILON)
+    {
+        let _ = write!(out, " letter_spacing=\"{}\"", units(spacing * 96.0 / 72.0));
     }
     out.push('>');
     out.push_str(&glib::markup_escape_text(&run.text));

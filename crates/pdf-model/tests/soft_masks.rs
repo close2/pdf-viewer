@@ -790,6 +790,54 @@ fn a_blend_mode_in_a_four_component_mask_group_is_composited_there_and_not_repor
     );
 }
 
+/// A `B` in a `DeviceCMYK` mask group whose portions differ only in black keeps the mask's pair.
+///
+/// A mask group naming four components is run once per plane and §11.5.3's `Y` read off the
+/// pair (§11.4.7, ADR 0857). §11.7.4.4 makes the fill and stroke of one `B` a knockout group,
+/// and under `/BM /Darken` the construction that moves the mode to the group's `Do` is exact only
+/// where the portions are one colour in the group's space — which each run judged on its own
+/// plane, so `0 0 0 0.3 k` and `0 0 0 0.7 K` were one colour to the chromatic run and two to the
+/// black one, the runs parted, and the mask's luminosity was taken on the device instead with a
+/// report (ADR 1657). §11.4.6 says what the group shows — "only the topmost object enclosing the
+/// point shall contribute" — so the mask is the fill's alone inside the stroke and the stroke's
+/// alone where the stroke lies over the fill; each is held to a fixture that paints that portion
+/// by itself.
+#[test]
+fn a_b_in_a_four_component_mask_group_keeps_the_pair_when_its_portions_differ_only_in_black() {
+    let darken = b"7 0 obj\n<< /Type /ExtGState /BM /Darken >>\nendobj\n".to_vec();
+    let masked = |group: &str| {
+        // Isolated, so that a portion painted by itself under `/BM /Darken` blends with the
+        // group's transparent backdrop (§11.4.5) rather than with one a mask's raster excludes.
+        render(page_with_group_resources(
+            "/DeviceCMYK /I true",
+            "/SMask << /Type /Mask /S /Luminosity /G 6 0 R /BC [0 0 0 1] >>",
+            "q /GS gs 0 g 0 0 40 40 re f Q",
+            "<< /ExtGState << /GD 7 0 R >> >>",
+            &format!("0 0 0 0 k 0 0 20 40 re f /GD gs 4 w {group}"),
+            std::slice::from_ref(&darken),
+        ))
+    };
+    let both = masked("0 0 0 0.3 k 0 0 0 0.7 K 4 4 12 32 re B");
+    let fill = masked("0 0 0 0.3 k 4 4 12 32 re f");
+    let stroke = masked("0 0 0 0.7 K 4 4 12 32 re S");
+    // (10, 20) is inside the stroke; (5, 20) is the stroke's inner half, over the fill.
+    assert_eq!(
+        level(&both, 10, 20),
+        level(&fill, 10, 20),
+        "the fill alone inside"
+    );
+    assert_eq!(
+        level(&both, 5, 20),
+        level(&stroke, 5, 20),
+        "the stroke alone over the fill"
+    );
+    assert_ne!(
+        level(&stroke, 5, 20),
+        level(&fill, 5, 20),
+        "and the two portions are told apart there, by their black alone"
+    );
+}
+
 /// Every departure a fixture's page one reports, as the sentences they are worded in.
 fn reports(bytes: Vec<u8>) -> Vec<String> {
     let document = Document::open(bytes).expect("the fixture is a valid PDF");

@@ -3873,8 +3873,9 @@ struct RichRoute<'a> {
 /// its own run's face; in UAX #9's display order where the string holds a right-to-left run; and
 /// with a host's caret, point, range and glyph questions answered from the same lines. One case
 /// takes the one-style form instead ([`crate::rich_text::one_style`]), reported as
-/// [`Owed::RichTextOneStyle`]: a string the runs' faces cannot draw whole, where the one-style
-/// layout reaches a machine face (ADR 1414). A shortfall the string itself owes — what the file
+/// [`Owed::RichTextOneStyle`]: a string the runs' faces cannot draw whole even with a face from
+/// this machine ending their paths (ADR 1660), where the one-style layout asks once more
+/// (ADR 1414). A shortfall the string itself owes — what the file
 /// states that disagrees, a property chapter 27 names and this tree does not carry out — is said
 /// beside whatever was drawn.
 fn rich_laid_out(

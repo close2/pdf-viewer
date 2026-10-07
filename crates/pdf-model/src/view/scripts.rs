@@ -310,6 +310,10 @@ struct Told {
     overrides: BTreeMap<String, Overrides>,
     /// §8.11's states, which the realm's layers are read from.
     optional_content: Option<crate::optional_content::OptionalContent>,
+    /// Every field name the realm has been told of: a table read for one page at the open names
+    /// fewer fields than one read for the whole document later, and a field first met in the
+    /// wider one is told then (ADR 1653 section 4).
+    names: BTreeSet<String>,
 }
 
 /// What applying one result's edits did, for the sequence that ran it.
@@ -569,7 +573,9 @@ impl ViewState {
         if self.runner.0.is_none() {
             return;
         }
-        let table = super::widgets_by_field_name(document);
+        // A runner arrives as the document opens, so the walk asks the calculation order's own
+        // entries for the roots `/Fields` omits rather than every page (ADR 1653 section 4).
+        let table = super::field_table(document, super::Omitted::Calculation);
         self.recalculate_scripts(document, &table, "");
         self.refresh_formatted(document, &table);
     }
@@ -638,7 +644,7 @@ impl ViewState {
     /// says is recorded — this answers a question (ADR 1603).
     #[must_use]
     pub fn displayed_value(&self, document: &Document, name: &str) -> Option<String> {
-        self.displayed_in(document, &super::widgets_by_field_name(document), name)
+        self.displayed_values(document, [name]).pop().flatten()
     }
 
     /// [`Self::displayed_value`] for each of several fields, with §12.7.4.1's field tree walked
@@ -654,7 +660,13 @@ impl ViewState {
         document: &Document,
         names: impl IntoIterator<Item = &'n str>,
     ) -> Vec<Option<String>> {
-        let table = super::widgets_by_field_name(document);
+        // Asked on every repaint, so the pages are walked for a root `/Fields` omits only where a
+        // name asked is not a field it lists — a document that has one on screen (ADR 1653).
+        let names: Vec<&str> = names.into_iter().collect();
+        let mut table = super::field_table(document, super::Omitted::Listed);
+        if names.iter().any(|name| !table.contains_key(*name)) {
+            table = super::widgets_by_field_name(document);
+        }
         names
             .into_iter()
             .map(|name| self.displayed_in(document, &table, name))
@@ -826,7 +838,10 @@ impl ViewState {
                 let mut properties = BTreeSet::new();
                 changed_keys(&self.scripting.overrides, &told.overrides, &mut properties);
                 for (name, held) in table {
-                    if properties.contains(name) || held.iter().any(|w| widgets.contains(w)) {
+                    if properties.contains(name)
+                        || held.iter().any(|w| widgets.contains(w))
+                        || !told.names.contains(name)
+                    {
                         changed.insert(name);
                     }
                 }
@@ -841,6 +856,13 @@ impl ViewState {
             .pages
             .get_or_insert_with(|| crate::page::Pages::new(document).indices())
             .clone();
+        let mut told_names = self
+            .scripting
+            .told
+            .as_deref()
+            .map(|told| told.names.clone())
+            .unwrap_or_default();
+        told_names.extend(names.iter().map(|name| (*name).clone()));
         let states = names
             .into_iter()
             .filter_map(|name| {
@@ -856,6 +878,7 @@ impl ViewState {
             shown: self.shown.clone(),
             overrides: self.scripting.overrides.clone(),
             optional_content: self.optional_content.clone(),
+            names: told_names,
         }));
         (states, whole)
     }
@@ -1484,9 +1507,15 @@ impl ViewState {
         let Some(runner) = self.runner.0.clone() else {
             return false;
         };
+        // Asked after every command, so nothing is read until a run has finished: the table walks
+        // every page, and an open must not (ADR 1653 section 4).
+        let Some(first) = runner.take_resumed() else {
+            return false;
+        };
         let table = super::widgets_by_field_name(document);
         let (mut changed, mut calculate) = (false, false);
-        while let Some(resumed) = runner.take_resumed() {
+        let mut next = Some(first);
+        while let Some(resumed) = next.take() {
             let pending = self
                 .scripting
                 .pending
@@ -1503,6 +1532,7 @@ impl ViewState {
             changed |= applied.values;
             calculate |= applied.calculate;
             changed |= self.apply_late_event(document, &table, &resumed, pending);
+            next = runner.take_resumed();
         }
         if changed || calculate {
             self.recalculate_scripts(document, &table, "");

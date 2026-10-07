@@ -24,6 +24,7 @@ corpus-cache/safedocs/cc-main-2021-31/1284/1284517.pdf	30	6	0	0	0	47c9788af26a08
 corpus-cache/safedocs/cc-main-2021-31/1407/1407647.pdf	61	4	6	3	0	6864b3a1dcee59fc
 corpus-cache/safedocs/cc-main-2021-31/1530/1530261.pdf	100	20	3	0	0	6c1b35a8d010a9e3
 corpus-cache/safedocs/cc-main-2021-31/1530/1530460.pdf	31	46	0	0	0	4b91e53bac9246d1
+corpus-cache/safedocs/cc-main-2021-31/1653/1653889.pdf	96	1	1	0	0	9e619e7a62d752b1
 corpus-cache/safedocs/cc-main-2021-31/1776/1776205.pdf	90	9	0	0	0	566b6f5b73a9ab73
 corpus-cache/safedocs/cc-main-2021-31/1899/1899796.pdf	19	2	1	0	0	5f01ac3303c3d897
 corpus-cache/safedocs/cc-main-2021-31/1899/1899800.pdf	39	2	0	0	0	12cd1e1929794eb6
@@ -45,6 +46,7 @@ corpus-cache/safedocs/cc-main-2021-31/2883/2883360.pdf	19	6	0	0	0	b270cfcbf7eb5a
 corpus-cache/safedocs/cc-main-2021-31/2883/2883425.pdf	44	6	0	0	0	e41e4a1065e51185
 corpus-cache/safedocs/cc-main-2021-31/2883/2883557.pdf	105	36	0	0	0	98427c3ada513a37
 corpus-cache/safedocs/cc-main-2021-31/2950/2950018.pdf	62	6	0	0	0	2f425c580fbed579
+corpus-cache/safedocs/cc-main-2021-31/3006/3006044.pdf	757	16	0	0	0	d41a8ee4829358b6
 corpus-cache/safedocs/cc-main-2021-31/3006/3006074.pdf	6	0	6	0	0	2202de90b7420da5
 corpus-cache/safedocs/cc-main-2021-31/3006/3006368.pdf	9	4	0	0	0	a49359e858da01bf
 corpus-cache/safedocs/cc-main-2021-31/3129/3129158.pdf	170	229	30	32	0	9b7ae2c6edb800b0
@@ -99,6 +101,7 @@ corpus-cache/safedocs/cc-main-2021-31/5958/5958160.pdf	12	12	0	0	0	2fcfb8e7a6aea
 corpus-cache/safedocs/cc-main-2021-31/5958/5958729.pdf	46	12	0	0	0	9f14f296f45acc59
 corpus-cache/safedocs/cc-main-2021-31/6081/6081264.pdf	88	33	47	3	0	da42082481791601
 corpus-cache/safedocs/cc-main-2021-31/6081/6081374.pdf	68	24	0	0	0	0de0af8519c776b1
+corpus-cache/safedocs/cc-main-2021-31/6081/6081458.pdf	50	14	0	0	0	6a88fe582b7482f1
 corpus-cache/safedocs/cc-main-2021-31/6081/6081830.pdf	14	4	0	0	0	c81b90e2a8c55a38
 corpus-cache/safedocs/cc-main-2021-31/6100/6100177.pdf	31	4	0	2	0	f93fecaf62bbc9a8
 corpus-cache/safedocs/cc-main-2021-31/6100/6100483.pdf	185	4	0	0	0	c70b53ab7884dd2e
@@ -134,7 +137,7 @@ corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-1002-0.pdf	119	8	0	1	0	e9bf
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-1002-1.pdf	119	8	0	1	0	e9bf2a440e38dc45
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-1002-2.pdf	119	8	0	1	0	e9bf2a440e38dc45
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-1002-3.pdf	119	8	0	1	0	e9bf2a440e38dc45
-corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-1002-4.pdf	118	8	0	1	0	d026527d48ffcff0
+corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-1002-4.pdf	119	8	0	1	0	e9bf2a440e38dc45
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-1011-0.pdf	7	0	1	0	0	1e45c5c7bfbccdca
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-1294-0.pdf	12	4	0	0	0	82d5f39c207dc788
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-1428-0.pdf	224	86	1	0	0	1e34ee2e2a7b851c
@@ -167,8 +170,8 @@ corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-3094-0.pdf	526	176	21	0	0	e
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-3094-1.pdf	526	176	21	0	0	e58af3bf99b742ab
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-3094-2.zip-0.pdf	239	80	0	0	0	f29135b239569e8f
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-3094-2.zip-1.pdf	273	94	10	0	0	91562a99b5a835c2
-corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-3094-2.zip-2.pdf	217	76	11	1	0	ec105ca4b9b7695d
-corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-3094-2.zip-3.pdf	239	80	0	0	0	f29135b239569e8f
+corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-3094-2.zip-2.pdf	490	170	21	1	0	10876b2d9ef65246
+corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-3094-2.zip-3.pdf	511	176	21	1	0	17cc07682688e2ce
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-3094-2.zip-4.pdf	217	76	11	1	0	d1cb65a973549512
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-3141-0.pdf	10	2	0	0	1	870b5ce4ae3ac2e4
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-3276-0.pdf	10	2	0	0	1	870b5ce4ae3ac2e4
@@ -195,7 +198,11 @@ corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-3828-0.pdf	11	2	0	0	0	cf37f
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-3828-1.pdf	11	2	0	0	0	cf37f0b81cdfbd35
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-3857-0.pdf	9	8	0	0	0	d0fd29c23a8e3d69
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-3889-0.pdf	115	68	1	0	0	98165c99ff5cece9
+corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-3891-1.pdf	162	0	7	6	0	97ac9f65294de3cf
+corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-3891-2.pdf	14	0	6	6	0	2fd31bba97f55b72
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-3891-3.pdf	324	0	14	12	0	7f47ee283f4a3569
+corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-3891-4.pdf	162	0	7	6	0	97ac9f65294de3cf
+corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-3891-5.pdf	162	0	7	6	0	97ac9f65294de3cf
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-3891-6.pdf	162	0	7	6	0	97ac9f65294de3cf
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-4200-0.pdf	119	16	0	0	0	c3f4a2155cfc1e41
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-4249-0.pdf	1	0	1	1	0	686dfae40765b6b6
@@ -222,7 +229,7 @@ corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-4861-1.pdf	47	14	2	0	0	11ca
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-4861-2.pdf	47	14	2	0	0	c7be1fc8ffc7a73c
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-492-2.jar-11.pdf	166	118	6	55	0	1a99e96d8ac60741
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-492-2.jar-5.pdf	29	8	0	0	0	19be84cf1f2b928e
-corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-492-3.jar-52.pdf	43	28	6	5	0	7a82967d2f012dfa
+corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-492-3.jar-52.pdf	45	28	6	5	0	cf525fe1903a0d87
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-4922-0.pdf	108	2	59	3	0	891d57890fe06a16
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-563-0.pdf	225	24	0	2	0	42d2f8f50be4740d
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-563-1.pdf	225	24	0	2	0	42d2f8f50be4740d
@@ -233,6 +240,8 @@ corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-923-2.pdf	77	2	6	3	0	aef49c
 corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-923-3.pdf	77	2	6	3	0	3c4277dabd30c852
 corpus-cache/tika-issue-tracker/batch2/batch2/GHOSTSCRIPT/GHOSTSCRIPT-687125-0.pdf	10	2	0	0	1	870b5ce4ae3ac2e4
 corpus-cache/tika-issue-tracker/batch2/batch2/GHOSTSCRIPT/GHOSTSCRIPT-688139-0.pdf	380	152	15	9	0	88c15947eb60a712
+corpus-cache/tika-issue-tracker/batch2/batch2/GHOSTSCRIPT/GHOSTSCRIPT-688384-0.zip-2.pdf	2	0	1	0	0	040afbc0eac63b06
+corpus-cache/tika-issue-tracker/batch2/batch2/GHOSTSCRIPT/GHOSTSCRIPT-688384-0.zip-3.pdf	2	0	1	0	0	040afbc0eac63b06
 corpus-cache/tika-issue-tracker/batch2/batch2/GHOSTSCRIPT/GHOSTSCRIPT-689554-0.pdf	149	98	0	0	0	da2f903314a9dadd
 corpus-cache/tika-issue-tracker/batch2/batch2/GHOSTSCRIPT/GHOSTSCRIPT-690141-0.pdf	68	4	0	0	0	31c7f954d8eb1293
 corpus-cache/tika-issue-tracker/batch2/batch2/GHOSTSCRIPT/GHOSTSCRIPT-690371-0.pdf	28	0	2	2	0	10375b7b0956f5d8

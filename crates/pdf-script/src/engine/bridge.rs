@@ -250,6 +250,7 @@ fn document(context: &mut Context) -> JsResult<()> {
             context,
         )?;
     }
+    members::library(&global, context)?;
     Ok(())
 }
 
@@ -527,6 +528,40 @@ fn constants(context: &mut Context) -> JsResult<()> {
     }
     data(&global, "border", JsValue::from(border), false, context)?;
 
+    // The "Field properties" page's `style` table names six glyph styles of a check box or radio
+    // button, each with its keyword, and types the property a string; that the string is the
+    // style's own name in the table — `style.ci` is `"circle"` — is a documented choice, since the
+    // page states the keywords and not their values (ADR 1652). `Field.style` itself is refused by
+    // name (`crate::surface::NOT_BRIDGED`): its write is a check box's glyph redrawn.
+    let glyph = ObjectInitializer::new(context).build();
+    for (name, style) in [
+        ("ch", "check"),
+        ("cr", "cross"),
+        ("di", "diamond"),
+        ("ci", "circle"),
+        ("st", "star"),
+        ("sq", "square"),
+    ] {
+        data(
+            &glyph,
+            name,
+            JsValue::from(JsString::from(style)),
+            false,
+            context,
+        )?;
+    }
+    data(&global, "style", JsValue::from(glyph), false, context)?;
+
+    // The "FullScreen properties" page's `cursor` table names three pointer behaviours and types
+    // the property a number without stating one; they are numbered in the table's own order, a
+    // documented choice (ADR 1652). Nothing here reads them back: `app.fs` is no member RFC 0008
+    // section 4.2 admits to `app`, so the realm has none, and a script's write through it throws.
+    let cursor = ObjectInitializer::new(context).build();
+    for (name, number) in [("hidden", 0), ("delay", 1), ("visible", 2)] {
+        data(&cursor, name, JsValue::from(number), false, context)?;
+    }
+    data(&global, "cursor", JsValue::from(cursor), false, context)?;
+
     let color = ObjectInitializer::new(context).build();
     for (name, constant) in [
         ("transparent", Colour::Transparent),
@@ -661,6 +696,10 @@ fn page_named(asked: f64, pages: u32) -> Option<u32> {
 /// A name that is not a terminal field but has fields below it answers a `Field` for the whole
 /// subtree, which is how the reference lets a script hide a group; a name nothing answers to is
 /// `null`, as the reference has it.
+///
+/// **A name the document holds is always matched as written**, and only a name that matches
+/// nothing is read a second time, as [`spoken_name`] cuts it (ADR 1652). A second reading that
+/// finds a field is said in the run's notes, so a reader is told which field the script was given.
 fn get_field(_this: &JsValue, arguments: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
     let name = arguments
         .first()
@@ -668,7 +707,69 @@ fn get_field(_this: &JsValue, arguments: &[JsValue], context: &mut Context) -> J
         .unwrap_or_default()
         .to_string(context)?
         .to_std_string_lossy();
-    Ok(field_object(context, &name).map_or_else(JsValue::null, JsValue::from))
+    if let Some(field) = field_object(context, &name) {
+        return Ok(JsValue::from(field));
+    }
+    if let Some(field) = widget_address(&name)
+        && State::table(context, |table| table.fields.contains_key(field)).unwrap_or(false)
+    {
+        return Err(refuse(
+            format!("this.getField({name:?})"),
+            RefusalKind::NotBridged,
+            context,
+        ));
+    }
+    let Some(spoken) = spoken_name(&name) else {
+        return Ok(JsValue::null());
+    };
+    let Some(field) = field_object(context, spoken) else {
+        return Ok(JsValue::null());
+    };
+    State::with(context, |record| {
+        record.note(&format!(
+            "the script asked for the field {name:?}, which this document does not have, and was \
+             given {spoken:?}, the name without the white space around it or the periods after \
+             it (ADR 1652)"
+        ));
+    });
+    Ok(JsValue::from(field))
+}
+
+/// The terminal field a name addresses one widget of, the reference's `name.N`: the name before a
+/// final PERIOD and a run of decimal digits, `None` for any other name.
+///
+/// The "Field" page of Adobe's reference has `getField` answer, for a field's name, a PERIOD and a
+/// widget's index from zero, a `Field` of that one widget, whose widget properties are that
+/// widget's alone. The realm holds each field as its first widget, so it cannot answer one widget
+/// of several, and such a name is refused by name rather than answered `null` — a `null` would
+/// say the field does not exist (ADR 1652). A field whose own name ends that way is found by the
+/// exact reading first.
+fn widget_address(asked: &str) -> Option<&str> {
+    let (field, index) = asked.rsplit_once('.')?;
+    (!field.is_empty() && !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit()))
+        .then_some(field)
+}
+
+/// The name `getField` reads a second time where `asked` names no field: without the white space
+/// at either end and the PERIODs after it — `None` where that leaves it unchanged or empty.
+///
+/// The PERIOD is ISO 32000-2 §12.7.4.2's own separator, and the clause rules it out of a name's
+/// parts:
+///
+/// > Because the PERIOD is used as a separator for fully qualified names, a partial name shall not
+/// > contain a PERIOD character.
+///
+/// so a period that ends a name separates its last part from nothing, and a name of this document
+/// that ends that way would be a field stating an empty `/T` — which the first, exact reading
+/// already finds. White space is a character a partial name may hold, and is cut only because the
+/// exact reading has already failed: a name this document holds with its spaces is never reached
+/// here. The cut is the one Tier 0 makes of `AFSimple_Calculate`'s list of names, so that one
+/// spelling of a name is read alike by the library and by a script (ADR 1652).
+fn spoken_name(asked: &str) -> Option<&str> {
+    let cut = asked
+        .trim()
+        .trim_end_matches(|character: char| character == '.' || character.is_whitespace());
+    (!cut.is_empty() && cut != asked).then_some(cut)
 }
 
 /// `this.getNthFieldName(nIndex)`: the field names in §12.7.4.2's spelling, sorted, which is the

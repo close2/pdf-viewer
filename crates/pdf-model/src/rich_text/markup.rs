@@ -372,12 +372,11 @@ impl Walk {
                 // Chapter 27's *Hyperlink Support* recommends blue text with a single blue
                 // underline for the link (page 1189), and that recommendation is taken; the
                 // element's own style, applied below, outranks it as an author's style does.
+                // Following the link is not: §12.7.4.3 brings in XFA 3.3 for a field's
+                // "formatting information", and what a click on a widget does is §12.7's and
+                // §12.6's, so the link is drawn as the formatting it is (ADR 1660).
                 character.colour = Some([0.0, 0.0, 1.0]);
                 character.underline = style::Underline::Single;
-                if element.attribute("", "href").is_some() {
-                    self.unapplied
-                        .note("following the hyperlink an <a href> encloses");
-                }
             }
             _ => {}
         }
@@ -402,7 +401,9 @@ impl Walk {
         if element.attribute("xfa", "embed").is_some() {
             // *Embedded Object Specifications* (page 1222): a SOM expression names a node of a
             // form's XFA object model, which a PDF field does not have, and a URI is data from
-            // outside the file.
+            // outside the file, which a renderer with no network does not fetch. Neither is
+            // formatting, which is what §12.7.4.3 brings XFA 3.3 in for, so the span is drawn as
+            // what it holds — a choice — and the text it would have inserted is said (ADR 1660).
             self.unapplied.note("an embedded object (xfa:embed)");
         }
         match kind {
@@ -645,7 +646,7 @@ impl Walk {
         // a disc (page 1219).
         let level = self.lists.len();
         let style = stated("list-style-type")
-            .and_then(|value| ListStyle::named(&value, &mut self.unapplied))
+            .and_then(|value| ListStyle::named(&value))
             .or_else(|| element.attribute("", "type").and_then(ListStyle::html_type))
             .unwrap_or(if ordered {
                 ListStyle::Decimal
@@ -770,8 +771,234 @@ fn version_at_least(stated: &str, floor: &[u64]) -> bool {
     true
 }
 
-/// The item tags *List Support* requires (pages 1212 and 1213), as far as this tree generates
-/// them.
+/// *List Support*'s alphabetic Kana and Hangul types (pages 1212 and 1213), whose letters the
+/// chapter leaves to [CSS3-Lists]: the four Kana sets are *CSS Lists and Counters Module Level 3*'s
+/// (W3C Working Draft, 24 May 2011, section 9.3), and the two Hangul sets that draft does not
+/// name are those of *CSS3 module: Lists* (W3C Working Draft, 7 November 2002, section 4.4), each
+/// in its own order — <https://www.w3.org/TR/2011/WD-css3-lists-20110524/> and
+/// <https://www.w3.org/TR/2002/WD-css3-lists-20021107/>, which are not held. ADR 1660.
+const HIRAGANA: &[char] = &[
+    '\u{3042}', '\u{3044}', '\u{3046}', '\u{3048}', '\u{304a}', '\u{304b}', '\u{304d}', '\u{304f}',
+    '\u{3051}', '\u{3053}', '\u{3055}', '\u{3057}', '\u{3059}', '\u{305b}', '\u{305d}', '\u{305f}',
+    '\u{3061}', '\u{3064}', '\u{3066}', '\u{3068}', '\u{306a}', '\u{306b}', '\u{306c}', '\u{306d}',
+    '\u{306e}', '\u{306f}', '\u{3072}', '\u{3075}', '\u{3078}', '\u{307b}', '\u{307e}', '\u{307f}',
+    '\u{3080}', '\u{3081}', '\u{3082}', '\u{3084}', '\u{3086}', '\u{3088}', '\u{3089}', '\u{308a}',
+    '\u{308b}', '\u{308c}', '\u{308d}', '\u{308f}', '\u{3092}', '\u{3093}',
+];
+/// The *iroha* order of the same syllables, which adds ゐ and ゑ.
+const HIRAGANA_IROHA: &[char] = &[
+    '\u{3044}', '\u{308d}', '\u{306f}', '\u{306b}', '\u{307b}', '\u{3078}', '\u{3068}', '\u{3061}',
+    '\u{308a}', '\u{306c}', '\u{308b}', '\u{3092}', '\u{308f}', '\u{304b}', '\u{3088}', '\u{305f}',
+    '\u{308c}', '\u{305d}', '\u{3064}', '\u{306d}', '\u{306a}', '\u{3089}', '\u{3080}', '\u{3046}',
+    '\u{3090}', '\u{306e}', '\u{304a}', '\u{304f}', '\u{3084}', '\u{307e}', '\u{3051}', '\u{3075}',
+    '\u{3053}', '\u{3048}', '\u{3066}', '\u{3042}', '\u{3055}', '\u{304d}', '\u{3086}', '\u{3081}',
+    '\u{307f}', '\u{3057}', '\u{3091}', '\u{3072}', '\u{3082}', '\u{305b}', '\u{3059}', '\u{3093}',
+];
+/// [`HIRAGANA`] in Katakana.
+const KATAKANA: &[char] = &[
+    '\u{30a2}', '\u{30a4}', '\u{30a6}', '\u{30a8}', '\u{30aa}', '\u{30ab}', '\u{30ad}', '\u{30af}',
+    '\u{30b1}', '\u{30b3}', '\u{30b5}', '\u{30b7}', '\u{30b9}', '\u{30bb}', '\u{30bd}', '\u{30bf}',
+    '\u{30c1}', '\u{30c4}', '\u{30c6}', '\u{30c8}', '\u{30ca}', '\u{30cb}', '\u{30cc}', '\u{30cd}',
+    '\u{30ce}', '\u{30cf}', '\u{30d2}', '\u{30d5}', '\u{30d8}', '\u{30db}', '\u{30de}', '\u{30df}',
+    '\u{30e0}', '\u{30e1}', '\u{30e2}', '\u{30e4}', '\u{30e6}', '\u{30e8}', '\u{30e9}', '\u{30ea}',
+    '\u{30eb}', '\u{30ec}', '\u{30ed}', '\u{30ef}', '\u{30f2}', '\u{30f3}',
+];
+/// [`HIRAGANA_IROHA`] in Katakana.
+const KATAKANA_IROHA: &[char] = &[
+    '\u{30a4}', '\u{30ed}', '\u{30cf}', '\u{30cb}', '\u{30db}', '\u{30d8}', '\u{30c8}', '\u{30c1}',
+    '\u{30ea}', '\u{30cc}', '\u{30eb}', '\u{30f2}', '\u{30ef}', '\u{30ab}', '\u{30e8}', '\u{30bf}',
+    '\u{30ec}', '\u{30bd}', '\u{30c4}', '\u{30cd}', '\u{30ca}', '\u{30e9}', '\u{30e0}', '\u{30a6}',
+    '\u{30f0}', '\u{30ce}', '\u{30aa}', '\u{30af}', '\u{30e4}', '\u{30de}', '\u{30b1}', '\u{30d5}',
+    '\u{30b3}', '\u{30a8}', '\u{30c6}', '\u{30a2}', '\u{30b5}', '\u{30ad}', '\u{30e6}', '\u{30e1}',
+    '\u{30df}', '\u{30b7}', '\u{30f1}', '\u{30d2}', '\u{30e2}', '\u{30bb}', '\u{30b9}', '\u{30f3}',
+];
+/// The fourteen syllables 가 to 하.
+const HANGUL: &[char] = &[
+    '\u{ac00}', '\u{b098}', '\u{b2e4}', '\u{b77c}', '\u{b9c8}', '\u{bc14}', '\u{c0ac}', '\u{c544}',
+    '\u{c790}', '\u{cc28}', '\u{ce74}', '\u{d0c0}', '\u{d30c}', '\u{d558}',
+];
+/// The fourteen consonants ㄱ to ㅎ.
+const HANGUL_CONSONANT: &[char] = &[
+    '\u{3131}', '\u{3134}', '\u{3137}', '\u{3139}', '\u{3141}', '\u{3142}', '\u{3145}', '\u{3147}',
+    '\u{3148}', '\u{314a}', '\u{314b}', '\u{314c}', '\u{314d}', '\u{314e}',
+];
+
+/// The 2011 draft's `cjk-decimal`, which section 10.3 names as every CJK longhand style's
+/// fallback outside its range: the ideographic zero and the nine digits, written positionally.
+const CJK_DECIMAL: &[char] = &[
+    '\u{3007}', '\u{4e00}', '\u{4e8c}', '\u{4e09}', '\u{56db}', '\u{4e94}', '\u{516d}', '\u{4e03}',
+    '\u{516b}', '\u{4e5d}',
+];
+
+/// The 2011 draft's additive `hebrew` (section 9.6), defined from 1 up, whose 15 to 19 are
+/// stated as their own pairs so that 15 and 16 take the forms the draft's comment names.
+const HEBREW: &[(i64, &str)] = &[
+    (400, "\u{5ea}"),
+    (300, "\u{5e9}"),
+    (200, "\u{5e8}"),
+    (100, "\u{5e7}"),
+    (90, "\u{5e6}"),
+    (80, "\u{5e4}"),
+    (70, "\u{5e2}"),
+    (60, "\u{5e1}"),
+    (50, "\u{5e0}"),
+    (40, "\u{5de}"),
+    (30, "\u{5dc}"),
+    (20, "\u{5db}"),
+    (19, "\u{5d9}\u{5d8}"),
+    (18, "\u{5d9}\u{5d7}"),
+    (17, "\u{5d9}\u{5d6}"),
+    (16, "\u{5d8}\u{5d6}"),
+    (15, "\u{5d8}\u{5d5}"),
+    (10, "\u{5d9}"),
+    (9, "\u{5d8}"),
+    (8, "\u{5d7}"),
+    (7, "\u{5d6}"),
+    (6, "\u{5d5}"),
+    (5, "\u{5d4}"),
+    (4, "\u{5d3}"),
+    (3, "\u{5d2}"),
+    (2, "\u{5d1}"),
+    (1, "\u{5d0}"),
+];
+
+/// The 2011 draft's additive `japanese-informal` (section 9.6), defined from 0 to 9999.
+const JAPANESE_INFORMAL: &[(i64, &str)] = &[
+    (9000, "\u{4e5d}\u{5343}"),
+    (8000, "\u{516b}\u{5343}"),
+    (7000, "\u{4e03}\u{5343}"),
+    (6000, "\u{516d}\u{5343}"),
+    (5000, "\u{4e94}\u{5343}"),
+    (4000, "\u{56db}\u{5343}"),
+    (3000, "\u{4e09}\u{5343}"),
+    (2000, "\u{4e8c}\u{5343}"),
+    (1000, "\u{5343}"),
+    (900, "\u{4e5d}\u{767e}"),
+    (800, "\u{516b}\u{767e}"),
+    (700, "\u{4e03}\u{767e}"),
+    (600, "\u{516d}\u{767e}"),
+    (500, "\u{4e94}\u{767e}"),
+    (400, "\u{56db}\u{767e}"),
+    (300, "\u{4e09}\u{767e}"),
+    (200, "\u{4e8c}\u{767e}"),
+    (100, "\u{767e}"),
+    (90, "\u{4e5d}\u{5341}"),
+    (80, "\u{516b}\u{5341}"),
+    (70, "\u{4e03}\u{5341}"),
+    (60, "\u{516d}\u{5341}"),
+    (50, "\u{4e94}\u{5341}"),
+    (40, "\u{56db}\u{5341}"),
+    (30, "\u{4e09}\u{5341}"),
+    (20, "\u{4e8c}\u{5341}"),
+    (10, "\u{5341}"),
+    (9, "\u{4e5d}"),
+    (8, "\u{516b}"),
+    (7, "\u{4e03}"),
+    (6, "\u{516d}"),
+    (5, "\u{4e94}"),
+    (4, "\u{56db}"),
+    (3, "\u{4e09}"),
+    (2, "\u{4e8c}"),
+    (1, "\u{4e00}"),
+    (0, "\u{3007}"),
+];
+
+/// The 2011 draft's additive `japanese-formal` (section 9.6), defined from 0 to 9999.
+const JAPANESE_FORMAL: &[(i64, &str)] = &[
+    (9000, "\u{4e5d}\u{9621}"),
+    (8000, "\u{516b}\u{9621}"),
+    (7000, "\u{4e03}\u{9621}"),
+    (6000, "\u{516d}\u{9621}"),
+    (5000, "\u{4f0d}\u{9621}"),
+    (4000, "\u{56db}\u{9621}"),
+    (3000, "\u{53c2}\u{9621}"),
+    (2000, "\u{5f10}\u{9621}"),
+    (1000, "\u{58f1}\u{9621}"),
+    (900, "\u{4e5d}\u{767e}"),
+    (800, "\u{516b}\u{767e}"),
+    (700, "\u{4e03}\u{767e}"),
+    (600, "\u{516d}\u{767e}"),
+    (500, "\u{4f0d}\u{767e}"),
+    (400, "\u{56db}\u{767e}"),
+    (300, "\u{53c2}\u{767e}"),
+    (200, "\u{5f10}\u{767e}"),
+    (100, "\u{58f1}\u{767e}"),
+    (90, "\u{4e5d}\u{62fe}"),
+    (80, "\u{516b}\u{62fe}"),
+    (70, "\u{4e03}\u{62fe}"),
+    (60, "\u{516d}\u{62fe}"),
+    (50, "\u{4f0d}\u{62fe}"),
+    (40, "\u{56db}\u{62fe}"),
+    (30, "\u{53c2}\u{62fe}"),
+    (20, "\u{5f10}\u{62fe}"),
+    (10, "\u{58f1}\u{62fe}"),
+    (9, "\u{4e5d}"),
+    (8, "\u{516b}"),
+    (7, "\u{4e03}"),
+    (6, "\u{516d}"),
+    (5, "\u{4f0d}"),
+    (4, "\u{56db}"),
+    (3, "\u{53c2}"),
+    (2, "\u{5f10}"),
+    (1, "\u{58f1}"),
+    (0, "\u{96f6}"),
+];
+
+/// One of section 10.3's four Chinese longhand character sets: the ten digits from zero, the
+/// tens, hundreds and thousands markers, and the negative sign, from the section's table.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Longhand {
+    digits: [char; 10],
+    markers: [char; 3],
+    negative: char,
+    /// Whether this is an informal style, whose 10 to 19 drop the tens digit.
+    informal: bool,
+}
+
+/// `simp-chinese-informal`.
+const SIMP_CHINESE_INFORMAL: Longhand = Longhand {
+    digits: [
+        '\u{96f6}', '\u{4e00}', '\u{4e8c}', '\u{4e09}', '\u{56db}', '\u{4e94}', '\u{516d}',
+        '\u{4e03}', '\u{516b}', '\u{4e5d}',
+    ],
+    markers: ['\u{5341}', '\u{767e}', '\u{5343}'],
+    negative: '\u{8d1f}',
+    informal: true,
+};
+/// `simp-chinese-formal`.
+const SIMP_CHINESE_FORMAL: Longhand = Longhand {
+    digits: [
+        '\u{96f6}', '\u{58f9}', '\u{8d30}', '\u{53c1}', '\u{8086}', '\u{4f0d}', '\u{9646}',
+        '\u{67d2}', '\u{634c}', '\u{7396}',
+    ],
+    markers: ['\u{62fe}', '\u{4f70}', '\u{4edf}'],
+    // The table prints 負 beside U+8D1F in this column; the code point is taken, the one the
+    // simplified informal column states too.
+    negative: '\u{8d1f}',
+    informal: false,
+};
+/// `trad-chinese-informal`.
+const TRAD_CHINESE_INFORMAL: Longhand = Longhand {
+    digits: [
+        '\u{96f6}', '\u{4e00}', '\u{4e8c}', '\u{4e09}', '\u{56db}', '\u{4e94}', '\u{516d}',
+        '\u{4e03}', '\u{516b}', '\u{4e5d}',
+    ],
+    markers: ['\u{5341}', '\u{767e}', '\u{5343}'],
+    negative: '\u{8ca0}',
+    informal: true,
+};
+/// `trad-chinese-formal`.
+const TRAD_CHINESE_FORMAL: Longhand = Longhand {
+    digits: [
+        '\u{96f6}', '\u{58f9}', '\u{8cb3}', '\u{53c3}', '\u{8086}', '\u{4f0d}', '\u{9678}',
+        '\u{67d2}', '\u{634c}', '\u{7396}',
+    ],
+    markers: ['\u{62fe}', '\u{4f70}', '\u{4edf}'],
+    negative: '\u{8ca0}',
+    informal: false,
+};
+
+/// The item tags *List Support* requires (pages 1212 and 1213).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ListStyle {
     /// A filled circle.
@@ -794,13 +1021,28 @@ pub(crate) enum ListStyle {
     Greek(bool),
     /// Roman numerals, lower or upper case.
     Roman(bool),
+    /// Letters of another script, in the order given: the Kana and Hangul types.
+    Letters(&'static [char]),
+    /// An additive numbering, its weights largest first: Hebrew and the two Japanese styles.
+    Additive {
+        /// Each weight and what it is written as.
+        weights: &'static [(i64, &'static str)],
+        /// The least number the style is defined for; the greatest is
+        /// [`ADDITIVE_JAPANESE_MOST`] for a style whose least is zero, and unbounded otherwise.
+        least: i64,
+    },
+    /// One of the four Chinese longhand styles.
+    Longhand(&'static Longhand),
 }
 
+/// The 2011 draft's upper bound on both Japanese additive styles, whose range is 0 to 9999.
+const ADDITIVE_JAPANESE_MOST: i64 = 9999;
+
 impl ListStyle {
-    /// A `list-style-type` value, or `None` with the value noted where this tree does not
-    /// generate it — the algorithmic Hebrew, Japanese and Chinese numberings and the Hangul, Kana
-    /// and Iroha alphabets — which leaves the list's default in its place.
-    fn named(value: &str, unapplied: &mut Unapplied) -> Option<Self> {
+    /// A `list-style-type` value, every one *List Support*'s table names; `None` for a value it
+    /// does not, which leaves the list's default in its place, as chapter 27's opening has a
+    /// processor ignore markup it does not understand (page 1187).
+    fn named(value: &str) -> Option<Self> {
         Some(match value {
             "disc" => Self::Disc,
             "circle" => Self::Circle,
@@ -819,22 +1061,28 @@ impl ListStyle {
             "thai" => Self::Digits('\u{e50}'),
             "lao" => Self::Digits('\u{ed0}'),
             "cambodian" | "khmer" => Self::Digits('\u{17e0}'),
-            "hangul"
-            | "hangul-consonant"
-            | "hebrew"
-            | "hiragana"
-            | "hiragana-iroha"
-            | "japanese-formal"
-            | "japanese-informal"
-            | "katakana"
-            | "katakana-iroha"
-            | "simp-chinese-formal"
-            | "simp-chinese-informal"
-            | "trad-chinese-formal"
-            | "trad-chinese-informal" => {
-                unapplied.note(format!("list-style-type:{value}"));
-                return None;
-            }
+            "hiragana" => Self::Letters(HIRAGANA),
+            "hiragana-iroha" => Self::Letters(HIRAGANA_IROHA),
+            "katakana" => Self::Letters(KATAKANA),
+            "katakana-iroha" => Self::Letters(KATAKANA_IROHA),
+            "hangul" => Self::Letters(HANGUL),
+            "hangul-consonant" => Self::Letters(HANGUL_CONSONANT),
+            "hebrew" => Self::Additive {
+                weights: HEBREW,
+                least: 1,
+            },
+            "japanese-informal" => Self::Additive {
+                weights: JAPANESE_INFORMAL,
+                least: 0,
+            },
+            "japanese-formal" => Self::Additive {
+                weights: JAPANESE_FORMAL,
+                least: 0,
+            },
+            "simp-chinese-informal" => Self::Longhand(&SIMP_CHINESE_INFORMAL),
+            "simp-chinese-formal" => Self::Longhand(&SIMP_CHINESE_FORMAL),
+            "trad-chinese-informal" => Self::Longhand(&TRAD_CHINESE_INFORMAL),
+            "trad-chinese-formal" => Self::Longhand(&TRAD_CHINESE_FORMAL),
             _ => return None,
         })
     }
@@ -896,6 +1144,31 @@ impl ListStyle {
                     numeral
                 }
             }),
+            Self::Letters(letters) => {
+                alphabetic_in(number, letters).or_else(|| Some(number.to_string()))
+            }
+            Self::Additive { weights, least } => {
+                let most = if least == 0 {
+                    ADDITIVE_JAPANESE_MOST
+                } else {
+                    i64::MAX
+                };
+                // Section 8.5 sends a number outside the range to the fallback style: a Japanese
+                // style's is `cjk-decimal`, as section 9.6 states, and Hebrew's the initial
+                // `decimal`.
+                let within = (least..=most)
+                    .contains(&number)
+                    .then(|| additive(number, weights))
+                    .flatten();
+                within.or_else(|| {
+                    if least == 0 {
+                        Some(cjk_decimal(number))
+                    } else {
+                        Some(number.to_string())
+                    }
+                })
+            }
+            Self::Longhand(set) => longhand(number, set).or_else(|| Some(cjk_decimal(number))),
         }
     }
 
@@ -918,6 +1191,13 @@ fn alphabetic(number: i64, first: char, span: u32, skip: &[char]) -> Option<Stri
         .filter_map(|offset| char::from_u32(u32::from(first).saturating_add(offset)))
         .filter(|letter| !skip.contains(letter))
         .collect();
+    alphabetic_in(number, &letters)
+}
+
+/// The 2011 draft's alphabetic algorithm over `letters` (section 8.1.3): the number written in
+/// bijective base *n*, so that one letter's run is followed by every pair; `None` below one, where
+/// the system is not defined.
+fn alphabetic_in(number: i64, letters: &[char]) -> Option<String> {
     let base = i64::try_from(letters.len()).ok().filter(|base| *base > 0)?;
     if number < 1 {
         return None;
@@ -932,6 +1212,117 @@ fn alphabetic(number: i64, first: char, span: u32, skip: &[char]) -> Option<Stri
     }
     out.reverse();
     Some(out.into_iter().collect())
+}
+
+/// The longest additive representation written, in characters: section 8.1.6 requires a user
+/// agent to support representations of at least twenty characters and lets it take the fallback
+/// style for longer ones, which Hebrew's unbounded range needs, since its length grows with the
+/// number.
+const ADDITIVE_LONGEST: usize = 20;
+
+/// The 2011 draft's additive algorithm (section 8.1.6): each weight, largest first, written as
+/// many times as it divides what is left; zero is the zero weight's own symbol, and a number the
+/// weights cannot sum to, or whose representation passes [`ADDITIVE_LONGEST`], has none here.
+fn additive(number: i64, weights: &[(i64, &str)]) -> Option<String> {
+    if number == 0 {
+        return weights
+            .iter()
+            .find(|(weight, _)| *weight == 0)
+            .map(|(_, symbol)| (*symbol).to_owned());
+    }
+    let mut rest = number;
+    let mut out = String::new();
+    let mut length = 0_usize;
+    for (weight, symbol) in weights.iter().filter(|(weight, _)| *weight > 0) {
+        let times = usize::try_from(rest.checked_div(*weight)?).ok()?;
+        length = length.saturating_add(times.saturating_mul(symbol.chars().count()));
+        if length > ADDITIVE_LONGEST {
+            return None;
+        }
+        out.push_str(&symbol.repeat(times));
+        rest = rest.checked_rem(*weight)?;
+    }
+    (rest == 0 && !out.is_empty()).then_some(out)
+}
+
+/// The 2011 draft's `cjk-decimal`: the number's decimal digits written with [`CJK_DECIMAL`], a
+/// negative one behind a hyphen-minus as the draft's numeric styles take it.
+fn cjk_decimal(number: i64) -> String {
+    let digits: String = number
+        .unsigned_abs()
+        .to_string()
+        .chars()
+        .filter_map(|digit| {
+            let index = usize::try_from(digit.to_digit(10)?).ok()?;
+            CJK_DECIMAL.get(index).copied()
+        })
+        .collect();
+    if number < 0 {
+        format!("-{digits}")
+    } else {
+        digits
+    }
+}
+
+/// Section 10.3's Chinese longhand algorithm, over -9999 to 9999; `None` outside, where the
+/// section sends the number to `cjk-decimal`.
+///
+/// Its five steps: zero is the zero digit; every digit but zero takes its place's marker, the
+/// ones none; an informal style's ten to nineteen drop the tens digit and keep its marker; the
+/// trailing zeros go and any run of zeros left becomes one zero digit; the digits are written in
+/// the style's characters. A negative number takes the style's negative sign in front.
+fn longhand(number: i64, set: &Longhand) -> Option<String> {
+    if !(-9999..=9999).contains(&number) {
+        return None;
+    }
+    let magnitude = number.unsigned_abs();
+    let digit = |value: u64| {
+        usize::try_from(value)
+            .ok()
+            .and_then(|index| set.digits.get(index))
+            .copied()
+    };
+    let mut out = String::new();
+    if number < 0 {
+        out.push(set.negative);
+    }
+    if magnitude == 0 {
+        out.push(digit(0)?);
+        return Some(out);
+    }
+    // Thousands, hundreds, tens and ones, with the marker each place takes.
+    let places = [
+        (magnitude / 1000 % 10, set.markers.get(2).copied()),
+        (magnitude / 100 % 10, set.markers.get(1).copied()),
+        (magnitude / 10 % 10, set.markers.first().copied()),
+        (magnitude % 10, None),
+    ];
+    let first = places.iter().position(|(value, _)| *value != 0)?;
+    let last = places.iter().rposition(|(value, _)| *value != 0)?;
+    let mut zero_pending = false;
+    for (place, (value, marker)) in places
+        .iter()
+        .enumerate()
+        .take(last.saturating_add(1))
+        .skip(first)
+    {
+        if *value == 0 {
+            zero_pending = true;
+            continue;
+        }
+        if zero_pending {
+            out.push(digit(0)?);
+            zero_pending = false;
+        }
+        let tens_of_a_teen = set.informal && place == 2 && magnitude / 10 == 1;
+        if !tens_of_a_teen {
+            out.push(digit(*value)?);
+        }
+        if let Some(marker) = marker {
+            out.push(*marker);
+        }
+    }
+    Some(out)
 }
 
 /// A lower-case Roman numeral, from 1 to 3999; `None` outside that range, where the numeral has
@@ -1084,10 +1475,10 @@ mod tests {
         assert_eq!(rich.text(), "a   b    c");
     }
 
-    /// The hyperlink takes the recommended blue and underline (page 1189), and its following is
-    /// reported.
+    /// The hyperlink takes the recommended blue and underline (page 1189), and following it is
+    /// not formatting, so nothing is owed (ADR 1660).
     #[test]
-    fn a_hyperlink_is_drawn_in_the_recommended_style_and_its_following_is_named() {
+    fn a_hyperlink_is_drawn_in_the_recommended_style() {
         let rich = read("<p>see <a href=\"http://example.invalid/\">here</a></p>");
         let Piece::Text(text, style) = &rich.paragraphs[0].pieces[1] else {
             panic!("the link is a run");
@@ -1095,7 +1486,7 @@ mod tests {
         assert_eq!(text, "here");
         assert_eq!(style.colour, Some([0.0, 0.0, 1.0]));
         assert_eq!(style.underline, Underline::Single);
-        assert!(rich.unapplied.phrase().contains("hyperlink"));
+        assert!(rich.unapplied.is_empty(), "{:?}", rich.unapplied);
     }
 
     /// The default style string sits under the markup: the markup's own style wins where both
@@ -1214,6 +1605,64 @@ mod tests {
         assert_eq!(
             ListStyle::Digits('\u{660}').tag(12),
             Some("\u{661}\u{662}.".to_owned())
+        );
+    }
+
+    /// The algorithmic and alphabetic types *List Support* requires (pages 1212 and 1213), each
+    /// against what its [CSS3-Lists] definition produces: Hebrew's 15 and 16 as the draft's own
+    /// pairs, the additive Japanese styles and their `cjk-decimal` fallback past 9999, the Chinese
+    /// longhand algorithm's dropped teen digit, collapsed zeros and dropped trailing zeros, and an
+    /// alphabet's bijective second letter (ADR 1660).
+    #[test]
+    fn the_algorithmic_and_alphabetic_types_count_as_the_drafts_state() {
+        use super::ListStyle;
+        let bare = |name: &str, number: i64| {
+            ListStyle::named(name)
+                .and_then(|style| style.bare(number))
+                .unwrap_or_default()
+        };
+        assert_eq!(bare("hebrew", 15), "\u{5d8}\u{5d5}");
+        assert_eq!(bare("hebrew", 16), "\u{5d8}\u{5d6}");
+        assert_eq!(bare("hebrew", 115), "\u{5e7}\u{5d8}\u{5d5}");
+        assert_eq!(bare("hebrew", 1000), "\u{5ea}\u{5ea}\u{5e8}");
+        assert_eq!(
+            bare("hebrew", 100_000),
+            "100000",
+            "past twenty characters, decimal"
+        );
+        assert_eq!(
+            bare("japanese-informal", 1234),
+            "\u{5343}\u{4e8c}\u{767e}\u{4e09}\u{5341}\u{56db}"
+        );
+        assert_eq!(bare("japanese-formal", 2005), "\u{5f10}\u{9621}\u{4f0d}");
+        assert_eq!(bare("japanese-informal", 0), "\u{3007}");
+        assert_eq!(
+            bare("japanese-informal", 10_000),
+            "\u{4e00}\u{3007}\u{3007}\u{3007}\u{3007}"
+        );
+        assert_eq!(bare("simp-chinese-informal", 15), "\u{5341}\u{4e94}");
+        assert_eq!(bare("simp-chinese-formal", 15), "\u{58f9}\u{62fe}\u{4f0d}");
+        assert_eq!(
+            bare("simp-chinese-informal", 105),
+            "\u{4e00}\u{767e}\u{96f6}\u{4e94}"
+        );
+        assert_eq!(
+            bare("trad-chinese-informal", 1010),
+            "\u{4e00}\u{5343}\u{96f6}\u{4e00}\u{5341}"
+        );
+        assert_eq!(bare("trad-chinese-formal", 20), "\u{8cb3}\u{62fe}");
+        assert_eq!(bare("trad-chinese-informal", 0), "\u{96f6}");
+        assert_eq!(bare("trad-chinese-informal", -3), "\u{8ca0}\u{4e09}");
+        assert_eq!(bare("hiragana", 1), "\u{3042}");
+        assert_eq!(bare("hiragana", 47), "\u{3042}\u{3042}");
+        assert_eq!(bare("katakana-iroha", 25), "\u{30f0}");
+        assert_eq!(bare("hangul", 15), "\u{ac00}\u{ac00}");
+        assert_eq!(bare("hangul-consonant", 14), "\u{314e}");
+        assert_eq!(bare("hangul", 0), "0", "below one, decimal");
+        assert_eq!(
+            ListStyle::named("hebrew").and_then(|style| style.tag(2)),
+            Some("\u{5d1}.".to_owned()),
+            "every numeric tag takes the full stop (page 1219)"
         );
     }
 }

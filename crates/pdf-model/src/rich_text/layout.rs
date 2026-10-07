@@ -99,8 +99,16 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
     let characters = request.rich.text();
     let levels = Levels::new(&characters);
     let shaping = Shaping::of(&characters, levels.as_ref());
-    let paragraphs = encode(request, &styles, &mut faces, &shaping);
-    if !paragraphs.missing.is_empty() && faces.invented_in_use() {
+    let mut paragraphs = encode(request, &styles, &mut faces, &shaping);
+    // **A character no face this program chose draws, asked of the machine** (ADR 1414's rule,
+    // per character): a face from this machine covering what was missing ends the path of every
+    // style set in a chosen face, and the string is encoded again, so each run keeps its style
+    // and only the characters its faces lack are set in the machine's (ADR 1660).
+    if faces.chosen_fell_short() && faces.ask_machine(&characters, &paragraphs.missing) {
+        faces.forget_shortfalls();
+        paragraphs = encode(request, &styles, &mut faces, &shaping);
+    }
+    if faces.chosen_fell_short() {
         return Err(Owed::InventedFontFellShort {
             name: base_name,
             characters: paragraphs.missing,
@@ -160,7 +168,7 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
     let owed = if faces.base_resolution == Resolution::StoodIn {
         Some(Owed::FontNotInResources(base_name))
     } else {
-        owed_by(paragraphs, request, &faces, &plan)
+        owed_by(paragraphs, request, &faces)
     };
     let answers = if request.asked == Asked::default() {
         Answers::default()
@@ -183,7 +191,7 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
 /// What the layout could not show, most telling first: what was cut, what no face draws, what is
 /// drawn in a form other than the one displayed, and what the string states that is not carried
 /// out.
-fn owed_by(paragraphs: Paragraphs, request: &Request, faces: &Faces, plan: &Plan) -> Option<Owed> {
+fn owed_by(paragraphs: Paragraphs, request: &Request, faces: &Faces) -> Option<Owed> {
     if paragraphs.truncated {
         return Some(Owed::Truncated(variable_text::MAX_CODES));
     }
@@ -195,10 +203,9 @@ fn owed_by(paragraphs: Paragraphs, request: &Request, faces: &Faces, plan: &Plan
     }
     let mut unapplied = request.rich.unapplied.clone();
     for width in &faces.unmet_widths {
-        unapplied.note(format!("font-stretch:{width}"));
-    }
-    if plan.tabs_reversed {
-        unapplied.note("a tab stop in a line read right to left");
+        unapplied.note(format!(
+            "font-stretch:{width}, set in the nearest width its family's faces hold"
+        ));
     }
     (!unapplied.is_empty()).then(|| Owed::RichTextUnapplied(unapplied.phrase()))
 }
@@ -249,6 +256,8 @@ struct Held {
     invented: bool,
     /// Whether any glyph was set in it.
     used: std::cell::Cell<bool>,
+    /// Whether a character of a run whose path holds it was drawn by no face of the path.
+    fell_short: std::cell::Cell<bool>,
 }
 
 /// What a search path is resolved from: the family list, bold, italic, and the width.
@@ -285,6 +294,8 @@ struct Faces<'a> {
     paths: Vec<(StyleKey, Vec<usize>)>,
     /// The widths a run asked for and no face of its family was found in, by chapter 27's name.
     unmet_widths: std::collections::BTreeSet<&'static str>,
+    /// The faces from this machine for characters no chosen face draws, once asked for.
+    machine: Option<Vec<usize>>,
 }
 
 impl<'a> Faces<'a> {
@@ -304,12 +315,44 @@ impl<'a> Faces<'a> {
                 face,
                 invented: resolution != Resolution::Named,
                 used: std::cell::Cell::new(false),
+                fell_short: std::cell::Cell::new(false),
             }],
             base,
             base_resolution: resolution,
             paths: Vec::new(),
             unmet_widths: std::collections::BTreeSet::new(),
+            machine: None,
         })
+    }
+
+    /// Holds the faces from this machine covering `missing`, in the family of the first face this
+    /// program chose that fell short, and makes them the last faces of every path holding a face
+    /// it chose; `false` where the machine has none.
+    fn ask_machine(&mut self, text: &str, missing: &str) -> bool {
+        if self.machine.is_some() {
+            return false;
+        }
+        let Some(stood_in) = self
+            .held
+            .iter()
+            .find(|held| held.invented && held.fell_short.get())
+            .map(|held| held.face.dict.clone())
+        else {
+            return false;
+        };
+        let mut held = Vec::new();
+        for dict in variable_text::machine_faces_for(self.document, &stood_in, text, missing) {
+            let name = self.fresh_name();
+            if let Ok(face) = Face::load(self.document, dict, &name) {
+                held.push(self.hold(name, face, true));
+            }
+        }
+        if held.is_empty() {
+            return false;
+        }
+        self.machine = Some(held);
+        self.paths.clear();
+        true
     }
 
     /// The faces a style's characters are looked for in, nearest first, the `/DA`'s last.
@@ -339,6 +382,16 @@ impl<'a> Faces<'a> {
         if !path.contains(&0) {
             path.push(0);
         }
+        // A `/DR` face is the document's choice and is not searched past (ADR 1414); a path
+        // holding a face this program chose is, to the machine's.
+        if let Some(machine) = &self.machine
+            && path
+                .iter()
+                .filter_map(|face| self.held.get(*face))
+                .any(|held| held.invented)
+        {
+            path.extend(machine.iter().copied());
+        }
         self.paths.push((key, path.clone()));
         path
     }
@@ -352,7 +405,8 @@ impl<'a> Faces<'a> {
         {
             return Some(0);
         }
-        // Table 224's `/DR`, the document's own faces.
+        // Table 224's `/DR`, the document's own faces: the family's, in each width they state.
+        let mut widths: Vec<(u8, Name, Dictionary)> = Vec::new();
         let fonts = self.document.get_key(self.resources, "Font");
         if let Some(fonts) = fonts.as_dict() {
             for (name, entry) in fonts.iter() {
@@ -361,25 +415,39 @@ impl<'a> Faces<'a> {
                 };
                 let (stated, stated_bold, stated_italic, stated_stretch) =
                     family_of(self.document, &dict);
-                if normalised(&stated) == wanted
-                    && stated_bold == bold
-                    && stated_italic == italic
-                    && stated_stretch == stretch
-                {
-                    if let Some(index) = self.held.iter().position(|held| held.name == *name) {
-                        return Some(index);
-                    }
-                    let face = Face::load(self.document, dict, name).ok()?;
-                    return Some(self.hold(name.clone(), face, false));
+                if normalised(&stated) == wanted && stated_bold == bold && stated_italic == italic {
+                    widths.push((stated_stretch, name.clone(), dict));
                 }
             }
         }
-        // §9.6.2.2's fourteen come in one width, and §9.6.3's spelling of a stand-in states none:
-        // a width no face of `/DR` was found in is drawn in the family's normal one, and said.
-        if stretch != NORMAL_STRETCH {
-            if let Some(name) = STRETCHES.get(usize::from(stretch)) {
-                self.unmet_widths.insert(name);
+        // A width the family's `/DR` faces do not state is set in the nearest one they do, and
+        // said: CSS2 section 15.5 states no matching criterion for `font-stretch` and leaves the
+        // best match it can find to the processor, and XFA 3.3's *Displaying and
+        // Printing Rich Text* (page 222) makes the rendering heuristics application-dependent.
+        // The order is the choice, ADR 1660's: narrower widths first for a condensed or normal
+        // request, wider first for an expanded one, the nearest of each first.
+        let exact = widths.iter().position(|(width, _, _)| *width == stretch);
+        let chosen = exact.or_else(|| {
+            (stretch != NORMAL_STRETCH)
+                .then(|| nearest_width(stretch, widths.iter().map(|(width, _, _)| *width)))
+                .flatten()
+        });
+        if exact.is_none()
+            && stretch != NORMAL_STRETCH
+            && let Some(name) = STRETCHES.get(usize::from(stretch))
+        {
+            self.unmet_widths.insert(name);
+        }
+        if let Some((_, name, dict)) = chosen.and_then(|at| widths.into_iter().nth(at)) {
+            if let Some(index) = self.held.iter().position(|held| held.name == name) {
+                return Some(index);
             }
+            let face = Face::load(self.document, dict, &name).ok()?;
+            return Some(self.hold(name, face, false));
+        }
+        // §9.6.2.2's fourteen come in one width, and §9.6.3's spelling of a stand-in states none:
+        // a family no face of `/DR` holds is drawn in its normal width.
+        if stretch != NORMAL_STRETCH {
             return self.resolve(family, bold, italic, NORMAL_STRETCH);
         }
         let base_font = standard_face(&wanted, bold, italic)
@@ -403,6 +471,7 @@ impl<'a> Faces<'a> {
             face,
             invented,
             used: std::cell::Cell::new(false),
+            fell_short: std::cell::Cell::new(false),
         });
         self.held.len().saturating_sub(1)
     }
@@ -430,10 +499,20 @@ impl<'a> Faces<'a> {
         self.held.get(index)
     }
 
-    fn invented_in_use(&self) -> bool {
+    /// Whether a face this program chose is on the path of a character no face of it draws: a
+    /// face this program chose may not fall short (ADR 1414), where a `/DR` face's shortfall is
+    /// the document's and is reported as one.
+    fn chosen_fell_short(&self) -> bool {
         self.held
             .iter()
-            .any(|held| held.invented && held.used.get())
+            .any(|held| held.invented && held.fell_short.get())
+    }
+
+    /// Clears [`Self::chosen_fell_short`]'s record, before the string is encoded again.
+    fn forget_shortfalls(&self) {
+        for held in &self.held {
+            held.fell_short.set(false);
+        }
     }
 
     /// The invented faces any glyph was set in, for the appearance's resources.
@@ -444,6 +523,25 @@ impl<'a> Faces<'a> {
             .map(|held| (held.name.clone(), held.face.dict.clone()))
             .collect()
     }
+}
+
+/// Which of `stated` widths stands in for `wanted`, as a place in the list: for a condensed or
+/// normal request the narrower widths, nearest first, then the wider ones; for an expanded one
+/// the wider first, then the narrower (ADR 1660).
+fn nearest_width(wanted: u8, stated: impl Iterator<Item = u8>) -> Option<usize> {
+    let expanded = wanted > NORMAL_STRETCH;
+    stated
+        .enumerate()
+        .filter(|(_, width)| *width != wanted)
+        .min_by_key(|(_, width)| {
+            let on_the_preferred_side = if expanded {
+                *width > wanted
+            } else {
+                *width < wanted
+            };
+            (!on_the_preferred_side, width.abs_diff(wanted))
+        })
+        .map(|(at, _)| at)
 }
 
 /// A family name as two spellings of it compare: folded, with white space, hyphens and the
@@ -589,10 +687,11 @@ struct Atom {
 }
 
 impl Atom {
-    /// An advance of `count` tab stops, standing at `byte` of the string's characters.
-    fn tab(count: u16, style: usize, byte: usize) -> Self {
+    /// An advance of `count` tab stops, standing at `byte` of the string's characters, its leader
+    /// set in `face` and `style`.
+    fn tab(count: u16, (face, style): (usize, usize), byte: usize) -> Self {
         Self {
-            face: 0,
+            face,
             code: pdf_font::Code::single_byte(0),
             space: false,
             style,
@@ -691,11 +790,16 @@ fn encode(request: &Request, styles: &Styles, faces: &mut Faces, shaping: &Shapi
         let last = paragraph.pieces.len().saturating_sub(1);
         for (at, piece) in paragraph.pieces.iter().enumerate() {
             match piece {
-                Piece::Tab(count) => items.push(Item::Glyph(Atom::tab(
-                    *count,
-                    styles.index(&paragraph.strut),
-                    cursor,
-                ))),
+                Piece::Tab(count) => {
+                    // The face a leader's characters are looked for in first: the nearest of
+                    // the paragraph style's path.
+                    let face = faces.path(&paragraph.strut).first().copied().unwrap_or(0);
+                    items.push(Item::Glyph(Atom::tab(
+                        *count,
+                        (face, styles.index(&paragraph.strut)),
+                        cursor,
+                    )));
+                }
                 Piece::Break => {
                     let consumes = at < last;
                     items.push(Item::Break {
@@ -743,18 +847,13 @@ fn encode(request: &Request, styles: &Styles, faces: &mut Faces, shaping: &Shapi
                 }
             }
         }
-        let tag = paragraph.tag.as_ref().map(|tag| {
-            let tag_shaping = Shaping::of(&tag.text, None);
-            encode_items(
-                &tag_shaping.shaped,
-                &tag_shaping.characters,
-                None,
-                (&tag.style, styles.index(&tag.style)),
-                faces,
-                (&mut out.missing, &mut out.unformed),
-                false,
-            )
-        });
+        let right_to_left = shaping
+            .levels
+            .is_some_and(|levels| levels.paragraph_level(begins) % 2 == 1);
+        let tag = paragraph
+            .tag
+            .as_ref()
+            .map(|tag| encode_tag(tag, right_to_left, styles, faces, &mut out));
         out.list.push(Encoded {
             items,
             span: (begins, cursor),
@@ -768,6 +867,47 @@ fn encode(request: &Request, styles: &Styles, faces: &mut Faces, shaping: &Shapi
         }
     }
     out
+}
+
+/// A list item's tag as glyphs, in its own display order.
+///
+/// A tag is generated text: a Hebrew numeral reads right to left within a tag whose full stop
+/// follows it in the direction its paragraph reads — UAX #9 over the tag with the paragraph's
+/// direction, rules L2 and L4. Its bytes index the tag rather than the string a host edits, so
+/// none is carried.
+fn encode_tag(
+    tag: &super::markup::Tag,
+    right_to_left: bool,
+    styles: &Styles,
+    faces: &mut Faces,
+    out: &mut Paragraphs,
+) -> Vec<Atom> {
+    let tag_levels = Levels::with_direction(&tag.text, Some(right_to_left));
+    let tag_shaping = Shaping::of(&tag.text, tag_levels.as_ref());
+    let atoms = encode_items(
+        &tag_shaping.shaped,
+        &tag_shaping.characters,
+        tag_levels.as_ref(),
+        (&tag.style, styles.index(&tag.style)),
+        faces,
+        (&mut out.missing, &mut out.unformed),
+        true,
+    );
+    let levels: Vec<u8> = atoms
+        .iter()
+        .map(|atom| {
+            tag_levels
+                .as_ref()
+                .zip(atom.byte)
+                .map_or(0, |(levels, byte)| levels.level(byte))
+        })
+        .collect();
+    Order::from_levels(&levels)
+        .visual
+        .iter()
+        .filter_map(|index| atoms.get(*index).copied())
+        .map(|atom| Atom { byte: None, ..atom })
+        .collect()
 }
 
 /// Shaped characters of one run, each from the first face of its style's path that has a code
@@ -801,6 +941,11 @@ fn encode_items(
         else {
             if !missing.contains(original) {
                 missing.push(original);
+            }
+            for held in path.iter().filter_map(|face| faces.get(*face)) {
+                if held.invented {
+                    held.fell_short.set(true);
+                }
             }
             continue;
         };
@@ -1001,14 +1146,16 @@ struct Line {
     edges: Vec<f32>,
     /// The bytes of [`RichText::text`] the line holds, a soft wrap's trailing spaces included.
     span: (usize, usize),
+    /// Each displayed tab whose stop states a leader, by its place among [`Self::atoms`].
+    leaders: Vec<(usize, super::style::Leader)>,
+    /// The paragraph's left margin, which a leader's cycles are laid from.
+    margin: f32,
 }
 
 /// The whole text, placed.
 struct Plan {
     lines: Vec<Line>,
     fit: Fit,
-    /// Whether a line holding a right-to-left run holds a tab, which advances nothing there.
-    tabs_reversed: bool,
     advance: f32,
 }
 
@@ -1055,30 +1202,11 @@ fn break_lines(
     paragraphs: &[Encoded],
     root: f32,
     area: Room,
-    multiline: bool,
+    (multiline, levels): (bool, Option<&Levels>),
 ) -> Vec<Broken> {
     let mut out = Vec::new();
     if !multiline {
-        // Table 231's Multiline clear: "the field's text shall be restricted to a single line".
-        // Paragraphs and breaks join, as the plain layout's breaks draw nothing on one line.
-        let atoms: Vec<Atom> = paragraphs
-            .iter()
-            .flat_map(|paragraph| paragraph.items.iter())
-            .filter_map(|item| match item {
-                Item::Glyph(atom) => Some(*atom),
-                Item::Break { .. } => None,
-            })
-            .collect();
-        out.push(Broken {
-            atoms,
-            paragraph: 0,
-            first: true,
-            last: true,
-            span: (
-                paragraphs.first().map_or(0, |first| first.span.0),
-                paragraphs.last().map_or(0, |last| last.span.1),
-            ),
-        });
+        out.push(one_line(paragraphs));
         return out;
     }
     for (index, paragraph) in paragraphs.iter().enumerate() {
@@ -1086,6 +1214,7 @@ fn break_lines(
         let (first_start, width) = horizontal(measure, paragraph, root, area, true);
         let (origin, rest_width) = horizontal(measure, paragraph, root, area, false);
         let mut from_margin = first_start - origin;
+        let right_to_left = reads_right_to_left(paragraph, levels);
         let mut line: Vec<Atom> = Vec::new();
         let mut begins = paragraph.span.0;
         let mut reached = 0.0_f32;
@@ -1114,13 +1243,20 @@ fn break_lines(
                 }
             };
             reached += if atom.tab > 0 {
-                tab_advance(
-                    measure,
-                    &paragraph.block,
-                    (from_margin + reached, atom.tab),
-                    &aligned_by(&paragraph.items, at_item),
-                    root,
-                )
+                let group = aligned_by(&paragraph.items, at_item);
+                if right_to_left {
+                    let cursor = from_margin + limit - reached;
+                    tab_advance_leftward(
+                        measure,
+                        &paragraph.block,
+                        (cursor, atom.tab),
+                        &group,
+                        root,
+                    )
+                } else {
+                    let cursor = from_margin + reached;
+                    tab_advance(measure, &paragraph.block, (cursor, atom.tab), &group, root)
+                }
             } else {
                 measure.width(*atom, root)
             };
@@ -1171,6 +1307,29 @@ fn aligned_by(items: &[Item], at: usize) -> Vec<Atom> {
             Item::Glyph(_) | Item::Break { .. } => None,
         })
         .collect()
+}
+
+/// Table 231's Multiline clear: "the field's text shall be restricted to a single line".
+/// Paragraphs and breaks join, as the plain layout's breaks draw nothing on one line.
+fn one_line(paragraphs: &[Encoded]) -> Broken {
+    let atoms: Vec<Atom> = paragraphs
+        .iter()
+        .flat_map(|paragraph| paragraph.items.iter())
+        .filter_map(|item| match item {
+            Item::Glyph(atom) => Some(*atom),
+            Item::Break { .. } => None,
+        })
+        .collect();
+    Broken {
+        atoms,
+        paragraph: 0,
+        first: true,
+        last: true,
+        span: (
+            paragraphs.first().map_or(0, |first| first.span.0),
+            paragraphs.last().map_or(0, |last| last.span.1),
+        ),
+    }
 }
 
 /// Where a paragraph's line may start, and how long it may be: the box less the body's and the
@@ -1289,7 +1448,7 @@ fn plan(
     levels: Option<&Levels>,
 ) -> Plan {
     let multiline = request.multiline && request.comb.is_none();
-    let broken = break_lines(measure, paragraphs, root, area, multiline);
+    let broken = break_lines(measure, paragraphs, root, area, (multiline, levels));
     let (baselines, total) = stack(measure, paragraphs, &broken, root, area);
     let valign = area.valign.unwrap_or(if multiline {
         VerticalAlign::Top
@@ -1308,91 +1467,352 @@ fn plan(
         too_tall: total > area.height(),
         ..Fit::default()
     };
-    let mut tabs_reversed = false;
     for (line, baseline) in broken.into_iter().zip(baselines) {
-        let Some(paragraph) = paragraphs.get(line.paragraph) else {
-            continue;
-        };
-        let (ascent, descent, _) = line_extent(measure, &line, paragraphs, root);
-        let (start, width) = horizontal(measure, paragraph, root, area, line.first);
-        let (origin, _) = horizontal(measure, paragraph, root, area, false);
-        let (order, shown, reversed) = displayed(trimmed(&line.atoms), line.span, levels);
-        // Stops are measured from the left margin, which is where a line read left to right
-        // starts; a line holding a right-to-left run would measure them from its other side, and
-        // this tree does not, so its tabs advance nothing and the report says so.
-        if reversed && shown.iter().any(|atom| atom.tab > 0) {
-            tabs_reversed = true;
-        }
-        let shown = shown.as_slice();
-        if let Some(cells) = request.comb {
-            let (placed, many) = comb_line(measure, shown, root, (start, width), cells, request);
-            // Auto-sizing a comb asks the plain layout's question, the whole advance against the
-            // box; whether it overflows is asked in cells.
-            fit.too_wide |= measure.widths(shown, root) > width;
-            fit.too_many |= many;
-            advance = advance.max(placed.edges.last().copied().unwrap_or(start) - start);
-            lines.push(Line {
-                atoms: shown.to_vec(),
-                order,
-                x: start,
-                baseline: offset + baseline,
-                ascent,
-                descent,
-                gap: 0.0,
-                tag: None,
-                cells: Some(placed.cells),
-                edges: placed.edges,
-                span: line.span,
-            });
-            continue;
-        }
-        let (x, gap, edges) = aligned(
+        lines.extend(place_line(
             measure,
-            (paragraph, &line),
-            shown,
-            root,
-            (start, width, (!reversed).then_some(start - origin)),
-            request,
-        );
-        let used = edges.last().copied().unwrap_or(x)
-            - x
-            - gap * variable_text::count(shown.iter().filter(|atom| atom.space).count());
-        advance = advance.max(used);
-        if used > width {
-            fit.too_wide = true;
-        }
-        let tag = if line.first {
-            paragraph.tag.as_ref().map(|tag| {
-                let tag_width = measure.widths(tag, root);
-                (tag.clone(), start - TAG_GAP - tag_width)
-            })
-        } else {
-            None
-        };
-        lines.push(Line {
-            atoms: shown.to_vec(),
-            order,
-            x,
-            baseline: offset + baseline,
-            ascent,
-            descent,
-            gap,
-            tag,
-            cells: None,
-            edges,
-            span: line.span,
-        });
+            (paragraphs, line, offset + baseline),
+            (root, area, request, levels),
+            (&mut fit, &mut advance),
+        ));
     }
     Plan {
         lines,
         fit,
-        tabs_reversed,
         advance,
     }
 }
 
+/// One broken line placed: its glyphs in display order at their boundaries, by [`tab_line`] where
+/// a tab shares the line with text read right to left, by [`comb_line`] on a comb, and by
+/// [`aligned`] otherwise; what it needs of the box is added to `fit` and `advance`.
+fn place_line(
+    measure: &Measure,
+    (paragraphs, line, baseline): (&[Encoded], Broken, f32),
+    (root, area, request, levels): (f32, Room, &Request, Option<&Levels>),
+    (fit, advance): (&mut Fit, &mut f32),
+) -> Option<Line> {
+    let paragraph = paragraphs.get(line.paragraph)?;
+    let (ascent, descent, _) = line_extent(measure, &line, paragraphs, root);
+    let (start, width) = horizontal(measure, paragraph, root, area, line.first);
+    let (origin, _) = horizontal(measure, paragraph, root, area, false);
+    let (order, shown, reversed) = displayed(trimmed(&line.atoms), line.span, levels);
+    let right_to_left = reads_right_to_left(paragraph, levels);
+    let tag = |x: f32| {
+        line.first
+            .then(|| {
+                paragraph.tag.as_ref().map(|tag| {
+                    let tag_width = measure.widths(tag, root);
+                    (tag.clone(), x - TAG_GAP - tag_width)
+                })
+            })
+            .flatten()
+    };
+    // A tab divides its line into groups, each in its own display order, placed group by
+    // group from the edge the paragraph starts at (ADR 1660): wherever a run reads right to
+    // left, the whole line's reordering would carry a tab across the text it separates.
+    if request.comb.is_none()
+        && (reversed || right_to_left)
+        && shown.iter().any(|atom| atom.tab > 0)
+    {
+        let placed = tab_line(
+            measure,
+            &paragraph.block,
+            (trimmed(&line.atoms), line.span, levels),
+            root,
+            (origin, start, width),
+            (right_to_left, request.quadding),
+        );
+        *advance = advance.max(placed.used);
+        fit.too_wide |= placed.used > width;
+        return Some(Line {
+            atoms: placed.shown,
+            order: placed.order,
+            x: placed.x,
+            baseline,
+            ascent,
+            descent,
+            gap: 0.0,
+            tag: tag(start),
+            cells: None,
+            edges: placed.edges,
+            span: line.span,
+            leaders: placed.leaders,
+            margin: origin,
+        });
+    }
+    let shown = shown.as_slice();
+    if let Some(cells) = request.comb {
+        let (placed, many) = comb_line(measure, shown, root, (start, width), cells, request);
+        // Auto-sizing a comb asks the plain layout's question, the whole advance against the
+        // box; whether it overflows is asked in cells.
+        fit.too_wide |= measure.widths(shown, root) > width;
+        fit.too_many |= many;
+        *advance = advance.max(placed.edges.last().copied().unwrap_or(start) - start);
+        return Some(Line {
+            atoms: shown.to_vec(),
+            order,
+            x: start,
+            baseline,
+            ascent,
+            descent,
+            gap: 0.0,
+            tag: None,
+            cells: Some(placed.cells),
+            edges: placed.edges,
+            span: line.span,
+            leaders: Vec::new(),
+            margin: origin,
+        });
+    }
+    let (x, gap, edges, leaders) = aligned(
+        measure,
+        (paragraph, &line),
+        shown,
+        root,
+        (start, width, (!reversed).then_some(start - origin)),
+        request,
+    );
+    let used = edges.last().copied().unwrap_or(x)
+        - x
+        - gap * variable_text::count(shown.iter().filter(|atom| atom.space).count());
+    *advance = advance.max(used);
+    if used > width {
+        fit.too_wide = true;
+    }
+    let tag = tag(start);
+    Some(Line {
+        atoms: shown.to_vec(),
+        order,
+        x,
+        baseline,
+        ascent,
+        descent,
+        gap,
+        tag,
+        cells: None,
+        edges,
+        span: line.span,
+        leaders,
+        margin: origin,
+    })
+}
+
+/// Whether a paragraph reads right to left: the level UAX #9's rules P2 and P3 gave it.
+fn reads_right_to_left(paragraph: &Encoded, levels: Option<&Levels>) -> bool {
+    levels.is_some_and(|levels| levels.paragraph_level(paragraph.span.0) % 2 == 1)
+}
+
+/// A line divided by its tabs, placed: [`tab_line`]'s answer.
+struct TabLine {
+    shown: Vec<Atom>,
+    order: Order,
+    edges: Vec<f32>,
+    leaders: Vec<(usize, super::style::Leader)>,
+    x: f32,
+    used: f32,
+}
+
+/// A line holding a tab, placed group by group: the text between two tabs is a group, shown in
+/// rule L2's order over its own glyphs, and the groups follow one another from the edge the
+/// paragraph starts at — the left in a paragraph read left to right, the right in one read right
+/// to left, where chapter 2's *Tab Stops* has each tab move to the next stop on the left (page
+/// 61) and a default stop right-align what follows it (chapter 27, page 1205). UAX #9 gives the
+/// same order: a tab is a segment separator, which rule L1 resets to the paragraph's level, so no
+/// reordering carries text across one. The paragraph's alignment then moves the placed line the
+/// way [`aligned`] moves a line read left to right, mirrored: room left over goes before the start
+/// edge for an alignment toward the other edge, half of it for a centred one (ADR 1660).
+fn tab_line(
+    measure: &Measure,
+    block: &super::style::Block,
+    (logical, span, levels): (&[Atom], (usize, usize), Option<&Levels>),
+    root: f32,
+    (origin, start, width): (f32, f32, f32),
+    (right_to_left, quadding): (bool, Quadding),
+) -> TabLine {
+    let align = block.align.unwrap_or(match quadding {
+        Quadding::Left => Align::Left,
+        Quadding::Centred => Align::Centre,
+        Quadding::Right => Align::Right,
+    });
+    let line_levels = line_levels(logical, span, levels);
+    let groups = tab_groups(logical, &line_levels);
+    let begin = start - origin;
+    let placed = place_groups(
+        measure,
+        block,
+        (logical, &groups),
+        root,
+        (begin, width),
+        right_to_left,
+    );
+    // Displayed left to right: in a right-to-left paragraph the last group first, each followed by
+    // the tab that opened it; otherwise each group preceded by its tab.
+    let mut visual: Vec<usize> = Vec::with_capacity(logical.len());
+    let mut widths: Vec<f32> = Vec::with_capacity(logical.len());
+    let mut leaders = Vec::new();
+    let order_of_groups: Vec<usize> = if right_to_left {
+        (0..groups.len()).rev().collect()
+    } else {
+        (0..groups.len()).collect()
+    };
+    let first_left = order_of_groups
+        .first()
+        .and_then(|at| placed.get(*at))
+        .map_or(begin, |group| group.left);
+    for at in order_of_groups {
+        let (Some((tab, members)), Some(group)) = (groups.get(at), placed.get(at)) else {
+            continue;
+        };
+        let mut push_tab = |visual: &mut Vec<usize>, widths: &mut Vec<f32>| {
+            if let Some(index) = tab {
+                if let Some(leader) = group.leader {
+                    leaders.push((visual.len(), leader.clone()));
+                }
+                visual.push(*index);
+                widths.push((group.room.1 - group.room.0).max(0.0));
+            }
+        };
+        if !right_to_left {
+            push_tab(&mut visual, &mut widths);
+        }
+        for index in members {
+            visual.push(*index);
+            widths.push(
+                logical
+                    .get(*index)
+                    .map_or(0.0, |atom| measure.width(*atom, root)),
+            );
+        }
+        if right_to_left {
+            push_tab(&mut visual, &mut widths);
+        }
+    }
+    let spare = (width - widths.iter().sum::<f32>()).max(0.0);
+    let shift = match (align, right_to_left) {
+        (Align::Centre, true) => -spare * 0.5,
+        (Align::Centre, false) => spare * 0.5,
+        (Align::Left, true) => -spare,
+        (Align::Right, false) => spare,
+        _ => 0.0,
+    };
+    let x = origin + first_left + shift;
+    let mut edges = Vec::with_capacity(widths.len().saturating_add(1));
+    let mut at = x;
+    edges.push(at);
+    for width in &widths {
+        at += width;
+        edges.push(at);
+    }
+    let shown = visual
+        .iter()
+        .filter_map(|index| logical.get(*index).copied())
+        .collect();
+    TabLine {
+        shown,
+        order: Order::from_visual(visual, &line_levels),
+        used: at - x,
+        edges,
+        leaders,
+        x,
+    }
+}
+
+/// One group of a tab line: the tab that opens it, and its glyphs' logical indices in display
+/// order.
+type TabGroup = (Option<usize>, Vec<usize>);
+
+/// A line's groups: the tab that opens each, and its glyphs' logical indices in rule L2's order
+/// over their own levels. The first group has no tab.
+fn tab_groups(logical: &[Atom], line_levels: &[u8]) -> Vec<TabGroup> {
+    let mut groups: Vec<TabGroup> = vec![(None, Vec::new())];
+    for (index, atom) in logical.iter().enumerate() {
+        if atom.tab > 0 {
+            groups.push((Some(index), Vec::new()));
+        } else if let Some((_, members)) = groups.last_mut() {
+            members.push(index);
+        }
+    }
+    for (_, members) in &mut groups {
+        let group_levels: Vec<u8> = members
+            .iter()
+            .map(|index| line_levels.get(*index).copied().unwrap_or_default())
+            .collect();
+        if group_levels.iter().any(|level| level % 2 == 1) {
+            let visual = pdf_font::shaping::visual_order(&group_levels);
+            *members = visual
+                .iter()
+                .filter_map(|at| members.get(*at).copied())
+                .collect();
+        }
+    }
+    groups
+}
+
+/// One group of a tab line, placed: its left edge and the room its tab advances, both from the
+/// margin, and the leader that room is filled with.
+struct PlacedGroup<'a> {
+    left: f32,
+    room: (f32, f32),
+    leader: Option<&'a super::style::Leader>,
+}
+
+/// Places each group from the edge the paragraph starts at, each tab meeting its stop as
+/// [`tab_advance`] and [`tab_advance_leftward`] measure it; a stop the group would have to start
+/// behind the cursor to meet is met as near as the cursor allows.
+fn place_groups<'a>(
+    measure: &Measure,
+    block: &'a super::style::Block,
+    (logical, groups): (&[Atom], &[TabGroup]),
+    root: f32,
+    (begin, width): (f32, f32),
+    right_to_left: bool,
+) -> Vec<PlacedGroup<'a>> {
+    let mut cursor = if right_to_left { begin + width } else { begin };
+    let mut placed = Vec::with_capacity(groups.len());
+    for (tab, members) in groups {
+        let atoms: Vec<Atom> = members
+            .iter()
+            .filter_map(|index| logical.get(*index).copied())
+            .collect();
+        let whole = measure.widths(&atoms, root);
+        let count = tab
+            .and_then(|index| logical.get(index))
+            .map_or(0, |atom| atom.tab);
+        if right_to_left {
+            let (right, leader) = match reached_stop_leftward(block, (cursor, count), root) {
+                Some((align, stop, leader)) if count > 0 => (
+                    (stop - lead(measure, align, true, &atoms, root) + whole).min(cursor),
+                    leader,
+                ),
+                _ => (cursor, None),
+            };
+            placed.push(PlacedGroup {
+                left: right - whole,
+                room: (right, cursor),
+                leader,
+            });
+            cursor = right - whole;
+        } else {
+            let (left, leader) = match reached_stop(block, (cursor, count), root) {
+                Some((align, stop, leader)) if count > 0 => (
+                    (stop - lead(measure, align, false, &atoms, root)).max(cursor),
+                    leader,
+                ),
+                _ => (cursor, None),
+            };
+            placed.push(PlacedGroup {
+                left,
+                room: (cursor, left),
+                leader,
+            });
+            cursor = left + whole;
+        }
+    }
+    placed
+}
+
 /// Where a line starts after its alignment, the extra room after each space a justified line
-/// takes, and the boundaries between its displayed glyphs.
+/// takes, the boundaries between its displayed glyphs, and the leader each tab's stop states.
 fn aligned(
     measure: &Measure,
     (paragraph, line): (&Encoded, &Broken),
@@ -1400,8 +1820,23 @@ fn aligned(
     root: f32,
     (start, width, from_margin): (f32, f32, Option<f32>),
     request: &Request,
-) -> (f32, f32, Vec<f32>) {
+) -> (f32, f32, Vec<f32>, Vec<(usize, super::style::Leader)>) {
     let advanced = advances(measure, &paragraph.block, shown, root, from_margin);
+    let leaders = from_margin
+        .map(|from_margin| {
+            shown
+                .iter()
+                .zip(&advanced)
+                .enumerate()
+                .filter(|(_, (atom, _))| atom.tab > 0)
+                .filter_map(|(at, (atom, before))| {
+                    let (_, _, leader) =
+                        reached_stop(&paragraph.block, (from_margin + before, atom.tab), root)?;
+                    Some((at, leader?.clone()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     let used = advanced.last().copied().unwrap_or_default();
     let align = paragraph.block.align.unwrap_or(match request.quadding {
         Quadding::Left => Align::Left,
@@ -1430,13 +1865,13 @@ fn aligned(
         }
         edges.push(x + at + extra);
     }
-    (x, gap, edges)
+    (x, gap, edges, leaders)
 }
 
 /// The running advance at each boundary of a line's glyphs, from zero, a tab as wide as the way
 /// to its stop. `from_margin` is how far the line starts from the paragraph's left margin, which
-/// is where *Tab Stops* measures every stop from (page 1207); `None` where the stops are not
-/// measured on this line, whose tabs then advance nothing.
+/// is where *Tab Stops* measures every stop from (page 1207); `None` for a line read right to left
+/// in part, which holds no tab here because [`tab_line`] places every such line that does.
 fn advances(
     measure: &Measure,
     block: &super::style::Block,
@@ -1483,29 +1918,104 @@ fn tab_advance(
     group: &[Atom],
     root: f32,
 ) -> f32 {
+    let Some((align, stop, _)) = reached_stop(block, (position, count), root) else {
+        return 0.0;
+    };
+    let lead = lead(measure, align, false, group, root);
+    (stop - lead - position).max(0.0)
+}
+
+/// How far right of a group's left edge its stop stands, for the stop's alignment in a paragraph
+/// read left to right or right to left; `group` is in display order.
+fn lead(
+    measure: &Measure,
+    align: super::style::TabAlign,
+    right_to_left: bool,
+    group: &[Atom],
+    root: f32,
+) -> f32 {
     use super::style::TabAlign;
-    let stated: Vec<(TabAlign, f32)> = block
-        .tab_stops
-        .iter()
-        .map(|(align, at)| (*align, at.at(root)))
-        .collect();
+    let whole = measure.widths(group, root);
+    match align {
+        TabAlign::Left => 0.0,
+        TabAlign::Centre => whole * 0.5,
+        TabAlign::Right => whole,
+        TabAlign::After => {
+            if right_to_left {
+                whole
+            } else {
+                0.0
+            }
+        }
+        TabAlign::Before => {
+            if right_to_left {
+                0.0
+            } else {
+                whole
+            }
+        }
+        TabAlign::Decimal => group
+            .iter()
+            .position(|atom| atom.radix)
+            .map_or(whole, |radix| {
+                measure.widths(group.get(..radix).unwrap_or_default(), root)
+            }),
+    }
+}
+
+/// [`tab_advance`] in a paragraph read right to left, where `position` is the cursor's distance
+/// from the left margin and the tab moves it leftwards: how far, to the right edge of `group`.
+fn tab_advance_leftward(
+    measure: &Measure,
+    block: &super::style::Block,
+    (position, count): (f32, u16),
+    group: &[Atom],
+    root: f32,
+) -> f32 {
+    let Some((align, stop, _)) = reached_stop_leftward(block, (position, count), root) else {
+        return 0.0;
+    };
+    let whole = measure.widths(group, root);
+    let right = stop - lead(measure, align, true, group, root) + whole;
+    (position - right).max(0.0)
+}
+
+/// [`reached_stop`] for a paragraph read right to left. Chapter 2's *Tab Stops* makes the next
+/// stop the one on the left where the text flows that way (page 61): the nearest stated stop left
+/// of the cursor, then the default ones at multiples of `tab-interval` from the left margin,
+/// which chapter 27 puts in effect beyond the stated ones (page 1205) — read in the direction the
+/// text flows, so left of the leftmost — and right-aligned in such a paragraph, [`TabAlign::After`].
+///
+/// [`TabAlign::After`]: super::style::TabAlign::After
+fn reached_stop_leftward(
+    block: &super::style::Block,
+    (position, count): (f32, u16),
+    root: f32,
+) -> Option<(super::style::TabAlign, f32, Option<&super::style::Leader>)> {
+    use super::style::TabAlign;
     let interval = block
         .tab_interval
         .map(|interval| interval.at(root))
         .filter(|interval| *interval > 0.0);
-    let last_stated = stated.iter().map(|(_, at)| *at).fold(0.0_f32, f32::max);
+    let first_stated = block
+        .tab_stops
+        .iter()
+        .map(|stop| stop.at.at(root))
+        .fold(f32::INFINITY, f32::min);
     let mut cursor = position;
-    let mut reached: Option<(TabAlign, f32)> = None;
+    let mut reached = None;
     for _ in 0..count {
-        let next = stated
+        let next = block
+            .tab_stops
             .iter()
-            .copied()
-            .find(|(_, at)| *at > cursor + f32::EPSILON)
+            .filter(|stop| stop.at.at(root) < cursor - f32::EPSILON)
+            .max_by(|one, other| one.at.at(root).total_cmp(&other.at.at(root)))
+            .map(|stop| (stop.align, stop.at.at(root), stop.leader.as_ref()))
             .or_else(|| {
                 let interval = interval?;
-                let from = cursor.max(last_stated);
-                let steps = (from / interval).floor() + 1.0;
-                Some((TabAlign::Left, steps * interval))
+                let below = cursor.min(first_stated);
+                let steps = (below / interval).ceil() - 1.0;
+                (steps >= 1.0).then_some((TabAlign::After, steps * interval, None))
             });
         let Some(stop) = next else {
             break;
@@ -1513,22 +2023,48 @@ fn tab_advance(
         cursor = stop.1;
         reached = Some(stop);
     }
-    let Some((align, stop)) = reached else {
-        return 0.0;
-    };
-    let whole = measure.widths(group, root);
-    let lead = match align {
-        TabAlign::Left => 0.0,
-        TabAlign::Centre => whole * 0.5,
-        TabAlign::Right => whole,
-        TabAlign::Decimal => group
+    reached
+}
+
+/// The stop a tab at `position` from the left margin reaches by `count` stops, with its alignment
+/// and its leader: the stated stops first, then the default ones every `tab-interval` beyond the
+/// last stated, which are left-aligned and blank. `None` where no stop lies past the cursor.
+fn reached_stop(
+    block: &super::style::Block,
+    (position, count): (f32, u16),
+    root: f32,
+) -> Option<(super::style::TabAlign, f32, Option<&super::style::Leader>)> {
+    use super::style::TabAlign;
+    let interval = block
+        .tab_interval
+        .map(|interval| interval.at(root))
+        .filter(|interval| *interval > 0.0);
+    let last_stated = block
+        .tab_stops
+        .iter()
+        .map(|stop| stop.at.at(root))
+        .fold(0.0_f32, f32::max);
+    let mut cursor = position;
+    let mut reached = None;
+    for _ in 0..count {
+        let next = block
+            .tab_stops
             .iter()
-            .position(|atom| atom.radix)
-            .map_or(whole, |radix| {
-                measure.widths(group.get(..radix).unwrap_or_default(), root)
-            }),
-    };
-    (stop - lead - position).max(0.0)
+            .find(|stop| stop.at.at(root) > cursor + f32::EPSILON)
+            .map(|stop| (stop.align, stop.at.at(root), stop.leader.as_ref()))
+            .or_else(|| {
+                let interval = interval?;
+                let from = cursor.max(last_stated);
+                let steps = (from / interval).floor() + 1.0;
+                Some((TabAlign::After, steps * interval, None))
+            });
+        let Some(stop) = next else {
+            break;
+        };
+        cursor = stop.1;
+        reached = Some(stop);
+    }
+    reached
 }
 
 /// A line's glyphs in display order, the order itself, and whether any reads right to left.
@@ -1714,17 +2250,23 @@ fn write_line(
     line: &Line,
     root: f32,
 ) {
+    // A tag is written a face at a time: its characters can be drawn by more than one, a
+    // generated numeral in a machine's face and its full stop in the run's.
     if let Some((atoms, x)) = &line.tag {
-        write_group(
-            stream,
-            decorations,
-            state,
-            measure,
-            atoms,
-            *x,
-            line.baseline,
-            root,
-        );
+        let mut at = *x;
+        for group in atoms.chunk_by(|one, other| one.face == other.face) {
+            write_group(
+                stream,
+                decorations,
+                state,
+                measure,
+                group,
+                at,
+                line.baseline,
+                root,
+            );
+            at += measure.widths(group, root);
+        }
     }
     // Table 231 bit 25: a glyph to a cell, each written where its cell centres it.
     if let Some(cells) = &line.cells {
@@ -1747,8 +2289,27 @@ fn write_line(
         let Some(first) = line.atoms.get(start) else {
             break;
         };
-        // A tab draws nothing: the boundary after it is where the next group starts.
+        // A tab draws its stop's leader, if it states one, across the room it advances: the
+        // boundary after it is where the next group starts.
         if first.tab > 0 {
+            if let Some((_, leader)) = line.leaders.iter().find(|(at, _)| *at == start) {
+                let from = line.edges.get(start).copied().unwrap_or(line.x);
+                let to = line
+                    .edges
+                    .get(start.saturating_add(1))
+                    .copied()
+                    .unwrap_or(from);
+                write_leader(
+                    stream,
+                    decorations,
+                    state,
+                    measure,
+                    (*first, leader),
+                    (from, to, line.margin),
+                    line.baseline,
+                    root,
+                );
+            }
             start = start.saturating_add(1);
             continue;
         }
@@ -1782,6 +2343,141 @@ fn write_line(
         );
         start = end;
     }
+}
+
+/// The share of a leader's room a dot or a dash of a rule takes in each cycle, and the cycle's
+/// length in thicknesses: chapter 2 states neither, so both are this tree's (ADR 1660).
+const DASH_CYCLE: f32 = 4.0;
+/// A dotted rule's cycle, in thicknesses: a square dot and its own width of gap.
+const DOT_CYCLE: f32 = 2.0;
+
+/// Draws one tab leader across `from` to `to`: chapter 2's *Tab Leader Pattern* (pages 63 to 65).
+///
+/// The cycles are laid on a grid from the paragraph's left margin, so leaders on different lines
+/// line up as the chapter's `leaderAlignment` wants them to — `none` leaves the alignment to the
+/// processor, and this is its choice — and the chapter has a processor leave a partial cycle
+/// unrendered, so a cycle the room cannot hold whole is left blank. A cycle is the
+/// larger of `leaderPatternWidth` and the pattern's own width. Dots and content are the run's own
+/// glyphs, set at the baseline; a rule is drawn in the text's colour, centred on it, a
+/// dashed or dotted one as filled pieces (ADR 1660).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "write_group's inputs, and the leader and the room it fills"
+)]
+fn write_leader(
+    stream: &mut String,
+    decorations: &mut String,
+    state: &mut State,
+    measure: &Measure,
+    (tab, leader): (Atom, &super::style::Leader),
+    (from, to, margin): (f32, f32, f32),
+    baseline: f32,
+    root: f32,
+) {
+    use super::style::{LeaderPattern, RuleStyle};
+    let Some(style) = measure.style(tab.style) else {
+        return;
+    };
+    let size = size_at(style, root);
+    let stated_width = leader.width.map_or(0.0, |width| width.at(root));
+    let cycles = |inherent: f32| -> Vec<f32> {
+        let cycle = inherent.max(stated_width);
+        if cycle <= 0.0 || to <= from {
+            return Vec::new();
+        }
+        let first = ((from - margin) / cycle).ceil();
+        let mut out = Vec::new();
+        let mut index = first;
+        while margin + (index + 1.0) * cycle <= to + f32::EPSILON
+            && out.len() < variable_text::MAX_CODES
+        {
+            out.push(margin + index * cycle);
+            index += 1.0;
+        }
+        out
+    };
+    match &leader.pattern {
+        LeaderPattern::Dots | LeaderPattern::Content(_) => {
+            let text = match &leader.pattern {
+                LeaderPattern::Content(content) => content.as_str(),
+                _ => ".",
+            };
+            let Some(atoms) = leader_atoms(measure, tab, text) else {
+                return;
+            };
+            let inherent = measure.widths(&atoms, root);
+            for x in cycles(inherent) {
+                write_group(
+                    stream,
+                    decorations,
+                    state,
+                    measure,
+                    &atoms,
+                    x,
+                    baseline,
+                    root,
+                );
+            }
+        }
+        LeaderPattern::Rule {
+            style: rule,
+            thickness,
+        } => {
+            let thickness = thickness
+                .map_or(DECORATION_THICKNESS * size, |thickness| thickness.at(root))
+                .max(0.0);
+            if thickness <= 0.0 || to <= from {
+                return;
+            }
+            let y = baseline - thickness * 0.5;
+            let pieces: Vec<(f32, f32)> = match rule {
+                RuleStyle::Solid => vec![(from, to - from)],
+                RuleStyle::Dashed => cycles(DASH_CYCLE * thickness)
+                    .into_iter()
+                    .map(|x| (x, DASH_CYCLE * thickness * 0.5))
+                    .collect(),
+                RuleStyle::Dotted => cycles(DOT_CYCLE * thickness)
+                    .into_iter()
+                    .map(|x| (x, thickness))
+                    .collect(),
+            };
+            decorations.push_str("q\n");
+            if let Some([r, g, b]) = style.colour {
+                let _ = writeln!(decorations, "{r} {g} {b} rg");
+            } else {
+                decorations.push_str(&measure.appearance.operators);
+            }
+            for (x, width) in pieces {
+                let _ = writeln!(decorations, "{x} {y} {width} {thickness} re");
+            }
+            decorations.push_str("f\nQ\n");
+        }
+    }
+}
+
+/// A leader's characters as glyphs of the tab's own face, or of the `/DA`'s where that one lacks
+/// one; `None` where neither draws them all, which leaves the room blank.
+fn leader_atoms(measure: &Measure, tab: Atom, text: &str) -> Option<Vec<Atom>> {
+    [tab.face, 0].into_iter().find_map(|face| {
+        let held = measure.faces.get(face)?;
+        let atoms: Option<Vec<Atom>> = text
+            .chars()
+            .map(|character| {
+                held.face.code(character).map(|code| Atom {
+                    face,
+                    code,
+                    space: character == ' ',
+                    style: tab.style,
+                    byte: None,
+                    tab: 0,
+                    radix: false,
+                })
+            })
+            .collect();
+        let atoms = atoms?;
+        held.used.set(true);
+        Some(atoms)
+    })
 }
 
 /// Writes one group of glyphs of one face and one style at a position.

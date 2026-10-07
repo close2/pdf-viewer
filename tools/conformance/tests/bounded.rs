@@ -20,18 +20,28 @@
 //! trap 18 read from the other side: there the limit destroyed the channel that reports it; here
 //! the channel that measures the limit could stop, and nothing said so.
 //!
-//! The self-test's six cases are the script's own (`tools/bounded.sh --self-test` prints one line
+//! The self-test's seven cases are the script's own (`tools/bounded.sh --self-test` prints one line
 //! each): a synthetic table of a hundred thousand children sampled in a fraction of the interval,
 //! a chain, a cycle and a duplicated row walked once each, a live tree that fans out, a child
 //! over the ceiling stopped with exit 137, a sampler that never returns stopping the tree after
-//! the stated number of missed samples, and a fork loop of at most 128 children refused under a
-//! task limit of 64. This test runs the script and repeats what it said.
+//! the stated number of missed samples, a fork loop of at most 128 children refused under a
+//! task limit of 64, and the heavy-walk lock on a file of the case's own — a run queued behind a
+//! holder logs its wait, one finds the lock free, one runs under its caller's own `flock` and
+//! finishes rather than queueing behind it (ADR 1646). This test runs the script and repeats what
+//! it said.
 //!
 //! **No memory bound sees a process count**, and trap 116 is the incident: a tool that forked a
 //! task per package and never waited took the agent's scope to 52 259 tasks, and the OOM daemon
 //! killed every round. `RLIMIT_NPROC` is the bound that acts at the `fork` itself, it counts every
 //! task of the user, and its figure is the agent's budget, written once in the wrapper (ADR 1612).
 //! The second test holds every heavy script under `tools/` to that figure.
+//!
+//! **A lock nobody logged is a wait nobody can count.** `tools/bounded.sh --lock` writes one line
+//! per hold of the heavy-walk lock into `/home/AI/heavy-walk.log`, and `tools/state.sh gates-cost`
+//! reads the batch's queue off those lines; a tool that takes the lock with a bare `flock` holds it
+//! on no line, which is how the merge's gates and the arms export each held it for half an hour
+//! unrecorded (ADR 1662). The third test holds every script under `tools/` but the wrapper, and the
+//! rule line `doc/environment.md` gives the rounds, to taking it through `--lock`.
 
 #![expect(
     clippy::expect_used,
@@ -139,5 +149,86 @@ fn every_heavy_script_in_tools_runs_under_the_task_budget() {
         "these scripts under tools/ run builds, tests or walks without the agent's task budget \
          (`task_budget=$(\"<root>/tools/bounded.sh\" --task-budget)` and `ulimit -u \"$task_budget\"`): \
          {unbounded:?}"
+    );
+}
+
+/// The lines of a shell script that take a lock with `flock` themselves rather than through
+/// `tools/bounded.sh --lock`, as `(line number, line)`. A comment, and a line that only prints, take
+/// nothing.
+fn bare_locks(source: &str) -> Vec<(usize, String)> {
+    source
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| {
+            let code = line.trim_start();
+            !(code.starts_with('#') || code.starts_with("echo ") || code.starts_with("printf "))
+                && code
+                    .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+                    .any(|word| word == "flock")
+        })
+        .map(|(index, line)| (index.saturating_add(1), line.trim().to_owned()))
+        .collect()
+}
+
+/// Every lock a tool takes is taken by `tools/bounded.sh --lock`, so that its wait and its hold are
+/// a line of the lock's log: no script under `tools/` but the wrapper runs `flock` itself, and the
+/// rule line `doc/environment.md` opens with spells the lock as the wrapper's flag, never as
+/// `flock` on the lock's path (ADR 1662).
+/// Calibrated by planting (trap 13): the reader names a bare `flock` on a line of its own, behind
+/// `exec`, and inside a command substitution, and passes a comment and the wrapper's own spelling.
+#[test]
+fn every_lock_a_tool_takes_is_taken_by_the_wrapper_that_logs_it() {
+    let planted = "# flock /home/AI/heavy-walk.lock is the old spelling\n\
+                   out=$(flock /home/AI/heavy-walk.lock sh -c true)\n\
+                   tools/bounded.sh --lock --round 1 -- true\n\
+                   exec {lock}>/home/AI/heavy-walk.lock; flock \"$lock\"\n\
+                   \x20   flock -n 9\n";
+    let found: Vec<usize> = bare_locks(planted).iter().map(|(line, _)| *line).collect();
+    assert_eq!(found, [2, 4, 5], "the reader is not the shape it states");
+
+    let mut scripts: Vec<_> = std::fs::read_dir(repository_root().join("tools"))
+        .expect("tools/ is in the tree")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "sh"))
+        .filter(|path| path.file_name().is_some_and(|name| name != "bounded.sh"))
+        .collect();
+    scripts.sort();
+    assert!(
+        scripts.len() >= 3,
+        "{} script(s) under tools/: the population is not the tree",
+        scripts.len()
+    );
+    let mut bare = Vec::new();
+    for script in &scripts {
+        let source = std::fs::read_to_string(script).expect("a script under tools/ reads");
+        for (line, text) in bare_locks(&source) {
+            bare.push(format!("{}:{line}: {text}", script.display()));
+        }
+    }
+    println!(
+        "{} script(s) under tools/ read for a lock taken outside tools/bounded.sh --lock",
+        scripts.len()
+    );
+    assert!(
+        bare.is_empty(),
+        "these lines take a lock outside `tools/bounded.sh --lock`, so their wait is on no line of \
+         the lock's log:\n{}",
+        bare.join("\n")
+    );
+
+    let environment = std::fs::read_to_string(repository_root().join("doc/environment.md"))
+        .expect("doc/environment.md is in the tree");
+    let rule = environment
+        .lines()
+        .skip_while(|line| !line.starts_with("- **One heavy walk on the machine at a time**"))
+        .take_while(|line| !line.is_empty() && !line.starts_with("- **No `git stash`"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        rule.contains("tools/bounded.sh --lock --round <session>")
+            && !rule.contains("flock /home/AI/heavy-walk.lock"),
+        "doc/environment.md's rule line does not spell the lock as `tools/bounded.sh --lock \
+         --round <session>`, or still runs a bare `flock`:\n{rule}"
     );
 }

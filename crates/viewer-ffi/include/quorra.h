@@ -374,6 +374,15 @@ extern "C" {
 #define QUORRA_NOTE_CONTENTS  1u  /* Table 166's /Contents */
 #define QUORRA_NOTE_MODIFIED  2u  /* Table 166's /M, as the file spells it */
 
+/* Chapter 27's text-align for a paragraph of Table 172's /RC, as quorra_rich_paragraph carries it.
+ * NONE states none: start the paragraph at its own start edge, the right for one UAX #9 finds
+ * reading right to left. */
+#define QUORRA_RICH_ALIGN_NONE     0u
+#define QUORRA_RICH_ALIGN_LEFT     1u
+#define QUORRA_RICH_ALIGN_CENTRE   2u
+#define QUORRA_RICH_ALIGN_RIGHT    3u
+#define QUORRA_RICH_ALIGN_JUSTIFY  4u  /* and justify-all */
+
 /* Which of a §14.7 structure element's three strings `quorra_structure_text` answers. ROLE is
  * §14.7.4's /S AFTER §14.7.3's role map, which is a `shall` on us; mapping it onto YOUR platform's
  * vocabulary is a different mapping and is yours. */
@@ -596,6 +605,50 @@ typedef struct quorra_viewing {
     float    scroll_x;     /* device pixels; positive has moved the content up and left */
     float    scroll_y;
 } quorra_viewing;
+
+/* One paragraph of a popup's rich note (ADR 1655). Its pieces are its list tag first, where
+ * `has_tag` says it has one, then its runs; quorra_popup_rich_run reads each. */
+typedef struct quorra_rich_paragraph {
+    uint32_t align;    /* QUORRA_RICH_ALIGN_* */
+    uint16_t level;    /* how many lists it is nested in, one indent each */
+    bool     has_tag;  /* piece 0 is the item's number or bullet */
+    size_t   pieces;
+} quorra_rich_paragraph;
+
+/* One run of a rich paragraph: what the note's producer specified about its characters, read by
+ * the same walk every window of this program takes (ADR 1655). Its characters and its family names
+ * are read beside it with the two-call idiom.
+ *
+ * LENGTHS ARE YOURS TO RESOLVE. §12.5.6.4 gives the window's text size to the processor, so each
+ * length is so many of YOUR base size plus so many points:
+ *     em      = size_per_base  * base + size_points  * points
+ *     rise    = rise_per_base  * base + rise_points  * points           (negative is lowered)
+ *     spacing = spacing_per_base * base + spacing_points * points
+ *               + spacing_of_space * (a space's width in the face you set the run in) * em
+ * Chapter 27's percentage spacing is of a space in a face only you pick, so it crosses as a share.
+ * This program holds an em between half and three times the base and a rise and a spacing within
+ * the run's own em; the bounds are a choice (ADR 1642), and yours to make again. Each glyph's
+ * advance is (width * em + spacing) * horizontal_scale; its height is em * vertical_scale. */
+typedef struct quorra_rich_run {
+    bool    tag;          /* a list item's generated tag rather than the note's characters */
+    bool    bold;
+    bool    italic;
+    bool    has_colour;   /* colour is stated; your window's text colour where not */
+    float   colour[3];    /* sRGB, 0 to 1 */
+    float   size_per_base;
+    float   size_points;
+    float   rise_per_base;
+    float   rise_points;
+    float   spacing_per_base;
+    float   spacing_points;
+    float   spacing_of_space;
+    float   horizontal_scale;  /* xfa-font-horizontal-scale, a factor */
+    float   vertical_scale;    /* xfa-font-vertical-scale */
+    uint8_t underlines;        /* 0, 1 or 2 */
+    bool    underline_by_word;
+    bool    line_through;
+    size_t  families;          /* font-family's search path, nearest first */
+} quorra_rich_run;
 
 /* ------------------------------------------------------------------------------------------- */
 /* The identity of the ABI.                                                                      */
@@ -1269,6 +1322,28 @@ int32_t quorra_popup_reply_object(const quorra_popups *popups, size_t index, siz
                                   uint32_t *number, uint16_t *generation, size_t *depth);
 int32_t quorra_popup_reply_text(const quorra_popups *popups, size_t index, size_t reply,
                                 uint32_t which, char *out, size_t cap, size_t *needed);
+/* Table 172's /RC — "[a] rich text string ... that shall be displayed in the popup window when the
+ * annotation is opened" — as RUNS, not as the XHTML (ADR 1655): the string is the document's, and
+ * a caller handed it would parse chapter 27 again with a cascade of its own. `note` is 0 for the
+ * window's own and reply + 1 for a reply's, so walk 0..=reply_count. QUORRA_NO_ANSWER is a note you
+ * draw from quorra_popup_text alone. `unapplied` counts what this program does not carry out: say
+ * each phrase under the note, and add what your own toolkit cannot set. Characters and family
+ * names are the document's and NEVER markup — escape them before a toolkit that reads markup. */
+int32_t quorra_popup_rich(const quorra_popups *popups, size_t index, size_t note,
+                          size_t *paragraphs, size_t *unapplied);
+int32_t quorra_popup_rich_paragraph(const quorra_popups *popups, size_t index, size_t note,
+                                    size_t paragraph, quorra_rich_paragraph *into);
+int32_t quorra_popup_rich_run(const quorra_popups *popups, size_t index, size_t note,
+                              size_t paragraph, size_t piece, quorra_rich_run *into);
+/* A piece's characters; a '\n' is XHTML's br, where the line ends whatever the width. */
+int32_t quorra_popup_rich_text(const quorra_popups *popups, size_t index, size_t note,
+                               size_t paragraph, size_t piece, char *out, size_t cap,
+                               size_t *needed);
+int32_t quorra_popup_rich_family(const quorra_popups *popups, size_t index, size_t note,
+                                 size_t paragraph, size_t piece, size_t family, char *out,
+                                 size_t cap, size_t *needed);
+int32_t quorra_popup_rich_unapplied(const quorra_popups *popups, size_t index, size_t note,
+                                    size_t which, char *out, size_t cap, size_t *needed);
 
 /* §14.7's logical structure for every page the arrangement is showing. Zero nodes for an untagged
  * page is an ANSWER rather than a silence: §14.7 leaves a producer free to state no structure, and

@@ -43,12 +43,14 @@
 
 use std::collections::BTreeMap;
 use std::ops::Range;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use pdf_render::{Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Transform};
 use pdf_syntax::ObjectId;
 
 use viewer_core::Layer;
+
+mod rich;
 
 /// How wide the panel is, in logical pixels.
 ///
@@ -161,6 +163,11 @@ pub struct Chrome {
     /// would turn its licence texts into ragged prose — and both licences it carries oblige a
     /// binary to reproduce them. §9.6.2.2 supplies a fixed-pitch face for exactly this.
     mono: pdf_font::LoadedFont,
+    /// §9.6.2.2's other families — Times, Courier, Symbol and `ZapfDingbats`, in [`Family`]'s
+    /// order after Helvetica — each in the four styles [`Self::faces`] holds, loaded the first
+    /// time a rich note's run is set in one (ADR 1654): no panel asks for them, so the launch
+    /// path parses none.
+    others: [[OnceLock<Option<pdf_font::LoadedFont>>; 4]; 4],
     /// The machine's faces for characters the four above state no glyph for, found as a line asks
     /// for them; `None` where this chrome draws the compiled-in faces alone.
     ///
@@ -186,6 +193,56 @@ struct MachineFaces {
 impl std::fmt::Debug for Chrome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Chrome").finish_non_exhaustive()
+    }
+}
+
+/// Which of §9.6.2.2's five families a run of a rich note is set in (ADR 1654).
+///
+/// The chrome's own text is Helvetica throughout; a popup's Table 172 `/RC` names its runs' faces,
+/// and this window, which has no toolkit to ask for a family by name, sets each run in the one of
+/// the fourteen its search path reaches — the faces the binary carries, so a note looks the same
+/// on every machine (ADR 0133).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum Family {
+    /// Helvetica, the chrome's own.
+    #[default]
+    Sans,
+    /// Times.
+    Serif,
+    /// Courier.
+    Mono,
+    /// Symbol, in one style.
+    Symbol,
+    /// `ZapfDingbats`, in one style.
+    Dingbats,
+}
+
+impl Family {
+    /// The fourteen's names for this family in regular, bold, italic and bold italic — the order
+    /// [`Chrome::faces`] holds Helvetica's in.
+    const fn names(self) -> [&'static str; 4] {
+        match self {
+            Self::Sans => [
+                "Helvetica",
+                "Helvetica-Bold",
+                "Helvetica-Oblique",
+                "Helvetica-BoldOblique",
+            ],
+            Self::Serif => [
+                "Times-Roman",
+                "Times-Bold",
+                "Times-Italic",
+                "Times-BoldItalic",
+            ],
+            Self::Mono => [
+                "Courier",
+                "Courier-Bold",
+                "Courier-Oblique",
+                "Courier-BoldOblique",
+            ],
+            Self::Symbol => ["Symbol"; 4],
+            Self::Dingbats => ["ZapfDingbats"; 4],
+        }
     }
 }
 
@@ -277,6 +334,7 @@ impl Chrome {
                 named("Helvetica-BoldOblique")?,
             ],
             mono: named("Courier")?,
+            others: std::array::from_fn(|_| std::array::from_fn(|_| OnceLock::new())),
             machine: None,
         })
     }
@@ -339,6 +397,108 @@ impl Chrome {
         }
     }
 
+    /// The face for a family and a style, loaded on first use; Helvetica's where the family's
+    /// will not load, which is a defect of this build that `pdf-font`'s
+    /// `every_compiled_in_face_parses` catches first.
+    fn face_of(&self, family: Family, style: Style) -> &pdf_font::LoadedFont {
+        let slot = usize::from(style.bold) | (usize::from(style.italic) << 1);
+        let others = match family {
+            Family::Sans => return self.face(style),
+            Family::Serif => self.others.first(),
+            Family::Mono => self.others.get(1),
+            Family::Symbol => self.others.get(2),
+            Family::Dingbats => self.others.get(3),
+        };
+        let name = family.names().get(slot).copied().unwrap_or("Helvetica");
+        others
+            .and_then(|faces| faces.get(slot))
+            .and_then(|cell| {
+                cell.get_or_init(|| pdf_font::LoadedFont::standard(name).ok())
+                    .as_ref()
+            })
+            .unwrap_or_else(|| self.face(style))
+    }
+
+    /// One character's advance in a family's face, in ems: [`Self::set`]'s answer, so a rich
+    /// note is measured as [`Self::glyph`] draws it.
+    pub(crate) fn glyph_advance(&self, family: Family, style: Style, character: char) -> f32 {
+        self.set_in(family, style, character).1
+    }
+
+    /// Draws one character — already joined, ordered and mirrored by the caller — with its left
+    /// edge at `at.0` and its baseline at `at.1`, `scale` ems wide and tall: chapter 27's two font
+    /// scales are a rich note's, and a label's are both its size (ADR 1654).
+    pub(crate) fn glyph(
+        &self,
+        list: &mut DisplayList,
+        (family, style): (Family, Style),
+        character: char,
+        at: (f32, f32),
+        scale: (f32, f32),
+        colour: Color,
+    ) {
+        let (set, _) = self.set_in(family, style, character);
+        self.draw_set(list, self.face_of(family, style), set, at, scale, colour);
+    }
+
+    /// [`Self::set`] in a family's face rather than the chrome's own.
+    fn set_in(&self, family: Family, style: Style, character: char) -> (Set, f32) {
+        if family == Family::Sans {
+            return self.set(style, character);
+        }
+        if let Some(set) = Self::set_from(self.face_of(family, style), character) {
+            return set;
+        }
+        if character != char::REPLACEMENT_CHARACTER
+            && let Some((index, advance)) = self.machine_glyph(style, character)
+        {
+            return (Set::Machine(index, character), advance);
+        }
+        (Set::Missing, MISSING_WIDTH)
+    }
+
+    /// One glyph [`Self::set`] chose, drawn: `scale` is how many pixels an em is across and up.
+    fn draw_set(
+        &self,
+        list: &mut DisplayList,
+        face: &pdf_font::LoadedFont,
+        set: Set,
+        (x, y): (f32, f32),
+        (across, up): (f32, f32),
+        colour: Color,
+    ) {
+        let path = match set {
+            Set::Glyph(code) => face.outline(code),
+            Set::Character(character) => face
+                .character_glyph(character)
+                .and_then(|glyph| glyph.outline),
+            Set::Machine(index, character) => self.machine_outline(index, character),
+            Set::Blank => None,
+            Set::Missing => {
+                missing_box(list, (x, y), up, colour);
+                None
+            }
+        };
+        if let Some(path) = path {
+            list.push(Command::Fill {
+                path,
+                transform: Transform {
+                    a: across,
+                    b: 0.0,
+                    c: 0.0,
+                    d: -up,
+                    e: x,
+                    f: y,
+                },
+                fill_rule: FillRule::NonZero,
+                paint: Paint::Solid(colour),
+                clip: None,
+                mask: None,
+                blend: pdf_render::BlendMode::Normal,
+            });
+        }
+    }
+
     /// What one character costs a line of chrome, and what stands for it.
     ///
     /// The one place [`Self::text`] and [`Self::width`] agree about a character, so that a string
@@ -379,7 +539,11 @@ impl Chrome {
     /// What [`Self::set`] answers from the compiled-in faces alone, or `None` for a character
     /// that is the machine's to answer or a box.
     fn set_compiled_in(&self, style: Style, character: char) -> Option<(Set, f32)> {
-        let face = self.face(style);
+        Self::set_from(self.face(style), character)
+    }
+
+    /// [`Self::set_compiled_in`] from one face.
+    fn set_from(face: &pdf_font::LoadedFont, character: char) -> Option<(Set, f32)> {
         if let Some(code) = face.code_for(character) {
             return Some((Set::Glyph(code), face.advance(code)));
         }
@@ -642,77 +806,7 @@ impl Chrome {
         let face = self.face(style);
         let mut x = at.0;
         for (set, advance) in self.sets(label, style) {
-            let machine = match set {
-                Set::Machine(index, character) => self.machine_outline(index, character),
-                _ => None,
-            };
-            match set {
-                Set::Glyph(code) => {
-                    if let Some(path) = face.outline(code) {
-                        list.push(Command::Fill {
-                            path,
-                            transform: Transform {
-                                a: size,
-                                b: 0.0,
-                                c: 0.0,
-                                d: -size,
-                                e: x,
-                                f: at.1,
-                            },
-                            fill_rule: FillRule::NonZero,
-                            paint: Paint::Solid(colour),
-                            clip: None,
-                            mask: None,
-                            blend: pdf_render::BlendMode::Normal,
-                        });
-                    }
-                }
-                Set::Character(character) => {
-                    if let Some(path) = face
-                        .character_glyph(character)
-                        .and_then(|glyph| glyph.outline)
-                    {
-                        list.push(Command::Fill {
-                            path,
-                            transform: Transform {
-                                a: size,
-                                b: 0.0,
-                                c: 0.0,
-                                d: -size,
-                                e: x,
-                                f: at.1,
-                            },
-                            fill_rule: FillRule::NonZero,
-                            paint: Paint::Solid(colour),
-                            clip: None,
-                            mask: None,
-                            blend: pdf_render::BlendMode::Normal,
-                        });
-                    }
-                }
-                Set::Machine(..) => {
-                    if let Some(path) = machine {
-                        list.push(Command::Fill {
-                            path,
-                            transform: Transform {
-                                a: size,
-                                b: 0.0,
-                                c: 0.0,
-                                d: -size,
-                                e: x,
-                                f: at.1,
-                            },
-                            fill_rule: FillRule::NonZero,
-                            paint: Paint::Solid(colour),
-                            clip: None,
-                            mask: None,
-                            blend: pdf_render::BlendMode::Normal,
-                        });
-                    }
-                }
-                Set::Blank => {}
-                Set::Missing => missing_box(list, (x, at.1), size, colour),
-            }
+            self.draw_set(list, face, set, (x, at.1), (size, size), colour);
             x += advance * size;
         }
         x
@@ -2914,9 +3008,9 @@ fn draw_thread(
             );
             line += size * 1.25;
         }
-        // A reply's own `/RC` is drawn as the window's is, where it reads left to right.
-        if let Some(note) = reply.rich.as_ref().filter(|note| !right_to_left(note)) {
-            line = draw_rich(
+        // A reply's own `/RC` is drawn as the window's is.
+        if let Some(note) = reply.rich.as_ref() {
+            line = rich::draw(
                 chrome,
                 list,
                 note,
@@ -2945,8 +3039,8 @@ fn draw_thread(
 }
 
 /// The window's text and where the next line goes: Table 172's `/RC`, with each run's formatting,
-/// where the note states one this program reads and its paragraphs read left to right, and the
-/// plain text otherwise — with what was not drawn of a rich note said under it (ADR 1642).
+/// where the note states one this program reads, and the plain text otherwise — with what was not
+/// drawn of a rich note said under it (ADRs 1642, 1654).
 fn draw_body(
     chrome: &Chrome,
     list: &mut DisplayList,
@@ -2955,31 +3049,18 @@ fn draw_body(
     size: f32,
     scale: f32,
 ) -> f32 {
-    let text = window.text;
-    let rich = window.rich.filter(|note| !right_to_left(note));
-    if let Some(note) = rich {
-        line = draw_rich(
-            chrome,
-            list,
-            note,
-            (left, line - size, room, bottom),
-            size,
-            scale,
-        );
-    } else {
-        line = draw_plain(chrome, list, text, (left, line, room, bottom), size);
-    }
-    if let Some(note) = window.rich {
-        line = say_what_was_not_drawn(
-            chrome,
-            list,
-            note,
-            rich.is_none(),
-            (left, line, room, bottom),
-            size,
-        );
-    }
-    line
+    let Some(note) = window.rich else {
+        return draw_plain(chrome, list, window.text, (left, line, room, bottom), size);
+    };
+    line = rich::draw(
+        chrome,
+        list,
+        note,
+        (left, line - size, room, bottom),
+        size,
+        scale,
+    );
+    rich::say_what_was_not_drawn(chrome, list, note, (left, line, room, bottom), size)
 }
 
 /// Table 166's `/Contents` as the window's text: each paragraph wrapped to `room` and set in the
@@ -3009,335 +3090,6 @@ fn draw_plain(
         }
     }
     line
-}
-
-/// What a rich note states and this window did not draw, said under it, and where the next line
-/// goes: chapter 27's properties this program does not carry out, a face this chrome cannot set,
-/// and the whole formatting where `plain` says a paragraph runs right to left, whose order across
-/// runs this window does not lay out (ADR 1642).
-fn say_what_was_not_drawn(
-    chrome: &Chrome,
-    list: &mut DisplayList,
-    note: &pdf_model::popup::RichNote,
-    plain: bool,
-    (left, line, room, bottom): (f32, f32, f32, f32),
-    size: f32,
-) -> f32 {
-    let also: Vec<String> = if plain {
-        vec!["a right-to-left run".to_owned()]
-    } else {
-        faces_not_set(note)
-    };
-    let Some(sentence) = viewer_host::popup::not_drawn(note, &also) else {
-        return line;
-    };
-    if line > bottom {
-        return line;
-    }
-    chrome.text(
-        list,
-        &elide(chrome, &sentence, size * 0.85, Style::default(), room),
-        (left, line),
-        size * 0.85,
-        Style::default(),
-        DIMMED,
-    );
-    line + size * 1.25
-}
-
-/// How many logical pixels one point is: CSS2's reference pixel, 96 to the inch, which is also
-/// what the two toolkits take a point to be on a screen of no stated resolution.
-const PIXELS_PER_POINT: f32 = 96.0 / 72.0;
-
-/// One piece of a rich line: a word, a run of spaces, or a forced line end, in its run's style.
-struct Token<'a> {
-    /// The characters.
-    text: String,
-    /// The run they belong to.
-    run: &'a pdf_model::popup::RichRun,
-    /// Their width at the run's size.
-    width: f32,
-    /// Whether they are spaces, which justification widens and a line does not end on.
-    space: bool,
-    /// Whether this is XHTML's `br`.
-    end: bool,
-}
-
-/// Table 172's `/RC` drawn run by run: each in its weight, posture, size and colour, with its
-/// underlines, its line through and its rise, a paragraph aligned as it states and a list item
-/// indented under its tag (ADR 1642).
-///
-/// `box_` is `(left, top, room, bottom)`, the top being where the first line's em begins; the
-/// answer is where the next line's baseline would go, which is what the thread below takes.
-/// Sizes come from `viewer_host::popup::size`, so this window holds a run between the bounds the
-/// two toolkits hold it between; a face is this chrome's own Helvetica, and [`faces_not_set`] says
-/// which the note named.
-fn draw_rich(
-    chrome: &Chrome,
-    list: &mut DisplayList,
-    note: &pdf_model::popup::RichNote,
-    box_: (f32, f32, f32, f32),
-    size: f32,
-    scale: f32,
-) -> f32 {
-    let (left, mut top, room, bottom) = box_;
-    let per_point = PIXELS_PER_POINT * scale;
-    let style = |run: &pdf_model::popup::RichRun| Style {
-        bold: run.bold,
-        italic: run.italic,
-    };
-    let px = |run: &pdf_model::popup::RichRun| viewer_host::popup::size(run, size, per_point);
-    for paragraph in &note.paragraphs {
-        let indent = f32::from(paragraph.level) * size * 2.0;
-        let tag_width = paragraph.tag.as_ref().map_or(0.0, |tag| {
-            chrome.width(&tag.text, px(tag), style(tag)) + size * 0.5
-        });
-        let start = left + indent + tag_width;
-        let available = (room - indent - tag_width).max(size);
-        let tokens = tokens(chrome, paragraph, available, &px, &style);
-        let mut lines: Vec<(usize, usize)> = Vec::new();
-        let (mut from, mut used) = (0, 0.0_f32);
-        for (at, token) in tokens.iter().enumerate() {
-            if token.end {
-                lines.push((from, at.saturating_add(1)));
-                from = at.saturating_add(1);
-                used = 0.0;
-                continue;
-            }
-            if used + token.width > available && at > from && !token.space {
-                lines.push((from, at));
-                from = at;
-                used = 0.0;
-            }
-            used += token.width;
-        }
-        if from < tokens.len() || lines.is_empty() {
-            lines.push((from, tokens.len()));
-        }
-        let final_line = lines.len().saturating_sub(1);
-        for (index, &(from, to)) in lines.iter().enumerate() {
-            let line = tokens.get(from..to).unwrap_or_default();
-            // A line does not begin with the spaces it broke at.
-            let line = &line[line.iter().take_while(|token| token.space).count()..];
-            let tallest = line
-                .iter()
-                .map(|token| px(token.run))
-                .fold(px(paragraph.tag.as_ref().unwrap_or(&BLANK_RUN)), f32::max);
-            let baseline = top + tallest;
-            if baseline > bottom {
-                return baseline;
-            }
-            let width: f32 = line.iter().map(|token| token.width).sum();
-            let spaces = line.iter().filter(|token| token.space).count();
-            let ends_paragraph = index == final_line || line.last().is_some_and(|token| token.end);
-            let (mut x, widen) = match paragraph.align {
-                Some(pdf_model::popup::RichAlign::Centre) => {
-                    (start + (available - width) / 2.0, 0.0)
-                }
-                Some(pdf_model::popup::RichAlign::Right) => (start + available - width, 0.0),
-                #[expect(
-                    clippy::cast_precision_loss,
-                    reason = "a line's count of spaces is far below f32's exact integer range"
-                )]
-                Some(pdf_model::popup::RichAlign::Justify) if !ends_paragraph && spaces > 0 => {
-                    (start, (available - width).max(0.0) / spaces as f32)
-                }
-                _ => (start, 0.0),
-            };
-            if index == 0
-                && let Some(tag) = &paragraph.tag
-            {
-                chrome.text(
-                    list,
-                    &tag.text,
-                    (left + indent, baseline),
-                    px(tag),
-                    style(tag),
-                    tag.colour.unwrap_or(Color::BLACK),
-                );
-            }
-            for token in line {
-                let advance = token.width + if token.space { widen } else { 0.0 };
-                if !token.end {
-                    draw_token(chrome, list, token, (x, baseline), advance, size, per_point);
-                }
-                x += advance;
-            }
-            top = baseline + tallest * 0.25;
-        }
-    }
-    top + size
-}
-
-/// A run nothing styles, which sizes a line holding no tag.
-const BLANK_RUN: pdf_model::popup::RichRun = pdf_model::popup::RichRun {
-    text: String::new(),
-    families: Vec::new(),
-    size: pdf_model::popup::Measure {
-        per_base: 1.0,
-        points: 0.0,
-    },
-    bold: false,
-    italic: false,
-    colour: None,
-    underlines: 0,
-    underline_by_word: false,
-    line_through: false,
-    rise: pdf_model::popup::Measure {
-        per_base: 0.0,
-        points: 0.0,
-    },
-};
-
-/// A paragraph's runs as words, spaces and line ends, each measured; a word wider than the line
-/// is broken by character, for [`wrap`]'s reason.
-fn tokens<'a>(
-    chrome: &Chrome,
-    paragraph: &'a pdf_model::popup::RichParagraph,
-    available: f32,
-    px: &impl Fn(&pdf_model::popup::RichRun) -> f32,
-    style: &impl Fn(&pdf_model::popup::RichRun) -> Style,
-) -> Vec<Token<'a>> {
-    let mut out = Vec::new();
-    for run in &paragraph.runs {
-        let (size, style) = (px(run), style(run));
-        let mut word = String::new();
-        let flush = |word: &mut String, out: &mut Vec<Token<'a>>, space: bool| {
-            if word.is_empty() {
-                return;
-            }
-            let width = chrome.width(word, size, style);
-            if !space && width > available {
-                let mut piece = String::new();
-                for character in word.chars() {
-                    piece.push(character);
-                    if chrome.width(&piece, size, style) > available && piece.chars().count() > 1 {
-                        piece.pop();
-                        let width = chrome.width(&piece, size, style);
-                        out.push(Token {
-                            text: std::mem::take(&mut piece),
-                            run,
-                            width,
-                            space,
-                            end: false,
-                        });
-                        piece.push(character);
-                    }
-                }
-                *word = piece;
-            }
-            let width = chrome.width(word, size, style);
-            out.push(Token {
-                text: std::mem::take(word),
-                run,
-                width,
-                space,
-                end: false,
-            });
-        };
-        let mut in_space = false;
-        for character in run.text.chars() {
-            if character == '\n' {
-                flush(&mut word, &mut out, in_space);
-                out.push(Token {
-                    text: String::new(),
-                    run,
-                    width: 0.0,
-                    space: false,
-                    end: true,
-                });
-                continue;
-            }
-            let space = character == ' ';
-            if space != in_space {
-                flush(&mut word, &mut out, in_space);
-                in_space = space;
-            }
-            word.push(character);
-        }
-        flush(&mut word, &mut out, in_space);
-    }
-    out
-}
-
-/// One token at its baseline, with the lines its run states.
-///
-/// The underline a tenth of an em below the baseline and the line through 0.28 em above it, each
-/// a twentieth of an em thick: `pdf_model::rich_text`'s choices for a field's appearance (ADR
-/// 1634 section 5), kept so that one note does not underline two ways in one program.
-fn draw_token(
-    chrome: &Chrome,
-    list: &mut DisplayList,
-    token: &Token<'_>,
-    (x, baseline): (f32, f32),
-    advance: f32,
-    size: f32,
-    per_point: f32,
-) {
-    let run = token.run;
-    let em = viewer_host::popup::size(run, size, per_point);
-    let raised = baseline - viewer_host::popup::rise(run, size, per_point);
-    let colour = run.colour.unwrap_or(Color::BLACK);
-    if !token.space {
-        chrome.text(
-            list,
-            &token.text,
-            (x, raised),
-            em,
-            Style {
-                bold: run.bold,
-                italic: run.italic,
-            },
-            colour,
-        );
-    }
-    let thick = (em * 0.05).max(1.0);
-    if run.underlines > 0 && !(token.space && run.underline_by_word) {
-        rectangle(list, (x, raised + em * 0.1, advance, thick), colour);
-        if run.underlines > 1 {
-            rectangle(
-                list,
-                (x, raised + em * 0.1 + thick * 2.0, advance, thick),
-                colour,
-            );
-        }
-    }
-    if run.line_through {
-        rectangle(list, (x, raised - em * 0.28, advance, thick), colour);
-    }
-}
-
-/// Whether a note holds a right-to-left character, whose order across runs this window does not
-/// lay out: UAX #9 orders a paragraph, and the runs here are drawn left to right as they come.
-fn right_to_left(note: &pdf_model::popup::RichNote) -> bool {
-    note.paragraphs
-        .iter()
-        .flat_map(|paragraph| &paragraph.runs)
-        .flat_map(|run| run.text.chars())
-        .any(|character| {
-            matches!(u32::from(character),
-                0x0590..=0x08FF | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFF | 0x1_0800..=0x1_0FFF
-                    | 0x1_E800..=0x1_EFFF)
-        })
-}
-
-/// The faces a note names that this chrome does not set: it draws in its own Helvetica, so a
-/// family other than Helvetica's names and CSS2's `sans-serif` is set in it and said.
-fn faces_not_set(note: &pdf_model::popup::RichNote) -> Vec<String> {
-    let mut named: Vec<String> = Vec::new();
-    for run in note.paragraphs.iter().flat_map(|paragraph| &paragraph.runs) {
-        if let Some(family) = viewer_host::popup::family(run)
-            && !["helvetica", "arial", "sans-serif"]
-                .iter()
-                .any(|own| family.eq_ignore_ascii_case(own))
-        {
-            let said = format!("the face {family}");
-            if !named.contains(&said) {
-                named.push(said);
-            }
-        }
-    }
-    named
 }
 
 /// Breaks a paragraph into lines that fit `room`, at word boundaries where it can.

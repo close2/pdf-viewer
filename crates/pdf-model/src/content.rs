@@ -1552,6 +1552,7 @@ impl<'a> Interpreter<'a> {
             without_a_plane: BTreeSet::new(),
             spots_beside: compositing_spots,
             into_parent: BTreeMap::new(),
+            one_colour: transparency::OneColour::default(),
             presses,
             blending_beyond: beyond,
             ledger,
@@ -1611,6 +1612,9 @@ impl<'a> Interpreter<'a> {
             stream_structures: _,
             clip_extents: _,
             into_parent: _,
+            // Refused only inside a pair's second attempt, which no seam falls in; the count is
+            // compared only within one group's runs.
+            one_colour: _,
             // Empty at every seam a checkpoint is taken at, because nothing nested is running.
             chain: _,
             // Accumulated: the tail of every one of these is what the annotation pass appends.
@@ -3069,6 +3073,12 @@ struct Interpreter<'a> {
     /// `Interpreter::conversion_into_parent`.
     into_parent:
         BTreeMap<(Compositing, Compositing, Rendering, Option<usize>), transparency::ComposedOut>,
+    /// Whether §11.4.6's mode at the `Do` may rest on one solid colour, and how often it has.
+    ///
+    /// A press pair's two runs each compare only their own plane's components, so a pair whose
+    /// runs parted over that comparison is run again with it refused
+    /// (`Interpreter::black_half`, ADR 1657).
+    one_colour: transparency::OneColour,
     /// The named-resource lookups this interpretation makes, where a caller asked to be told.
     ///
     /// `None` for every caller but [`interpret_ledgered`], and then the cost is one test per

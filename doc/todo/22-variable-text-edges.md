@@ -5,7 +5,7 @@ ADRs 1413 and 1414. The file stays whole because comments under `crates/`
 (`examples/variable_text_census.rs`, `view.rs`, `tests/saving.rs`, `tests/corpus.rs`) and
 `doc/todo/65` cite it, and what it keeps is the reasoning behind the closed items, which is the
 reason a later round will not reopen any of them. The row is `partial` on rich text's residue
-alone: the formatting XFA 3.3 states is laid out run by run (ADRs 1634, 1635, 1649), and `doc/todo/65`
+alone: the formatting XFA 3.3 states is laid out run by run (ADRs 1634, 1635, 1649, 1660), and `doc/todo/65`
 bucket 4 lists what the runs do not reach yet; a `/DA` text matrix with no inverse is
 the clause carried out, and the report says why the field is blank (`Owed::SingularTextMatrix`).
 Priority: 22

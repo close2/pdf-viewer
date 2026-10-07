@@ -15,7 +15,7 @@
 //! machine face, is the toolkit's; what the producer specified about each character is this
 //! module's (ADR 1642).
 
-use crate::rich_text::parts::{Align, ListIndent, Piece};
+use crate::rich_text::parts::{Align, ListIndent, Piece, Spacing};
 use crate::rich_text::{Character, RichText};
 
 /// A length a host resolves against its own text size: so many of the window's base size, and so
@@ -39,6 +39,25 @@ impl Measure {
     #[must_use]
     pub fn at(self, base: f32) -> f32 {
         self.per_base.mul_add(base, self.points)
+    }
+}
+
+/// Chapter 27's `letter-spacing` (page 1204), in the unit it was stated in.
+///
+/// Chapter 27 makes it a relative measurement, and a percentage is of the width of a space in the
+/// face the run is set in — which is the host's to choose (ADR 1642), so the share crosses as a
+/// share and the host that picked the face resolves it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RichSpacing {
+    /// A length, resolved as [`Measure::at`] resolves one.
+    Length(Measure),
+    /// So many of the width of a space in the run's face.
+    OfSpace(f32),
+}
+
+impl Default for RichSpacing {
+    fn default() -> Self {
+        Self::Length(Measure::default())
     }
 }
 
@@ -86,6 +105,12 @@ pub struct RichRun {
     pub line_through: bool,
     /// How far the baseline sits above the line's: `vertical-align`, `sub` and `sup`.
     pub rise: Measure,
+    /// `letter-spacing`, added after every character.
+    pub letter_spacing: RichSpacing,
+    /// `xfa-font-horizontal-scale`, as a factor: the glyphs' width over the face's (page 1202).
+    pub horizontal_scale: f32,
+    /// `xfa-font-vertical-scale`, as a factor: the glyphs' height over the em's.
+    pub vertical_scale: f32,
 }
 
 /// One paragraph of a note: chapter 27's `p`, or a list item.
@@ -182,15 +207,6 @@ fn handed_over(rich: &RichText) -> RichNote {
         })
         .collect();
     let mut unapplied: Vec<String> = rich.unapplied.0.iter().cloned().collect();
-    let root = Character::root();
-    let styles = || {
-        rich.paragraphs.iter().flat_map(|paragraph| {
-            paragraph.pieces.iter().filter_map(|piece| match piece {
-                Piece::Text(_, style) => Some(style),
-                Piece::Break | Piece::Tab(_) => None,
-            })
-        })
-    };
     if rich
         .paragraphs
         .iter()
@@ -199,26 +215,14 @@ fn handed_over(rich: &RichText) -> RichNote {
     {
         unapplied.push("a tab stop in a popup window".to_owned());
     }
-    if styles().any(|style| style.letter_spacing != root.letter_spacing) {
-        unapplied.push("letter-spacing in a popup window".to_owned());
-    }
-    if styles().any(|style| {
-        (style.horizontal_scale - root.horizontal_scale).abs() > f32::EPSILON
-            || (style.vertical_scale - root.vertical_scale).abs() > f32::EPSILON
-    }) {
-        unapplied.push("a font scale in a popup window".to_owned());
-    }
     RichNote {
         paragraphs,
         unapplied,
     }
 }
 
-/// One run's style as a host reads it.
-///
-/// `letter-spacing` and chapter 27's two font scales are not carried — a toolkit label takes
-/// neither — and [`handed_over`] says so in [`RichNote::unapplied`] where a run states one;
-/// `crate::rich_text::lay_out` applies both where this program draws the text itself (ADR 1642).
+/// One run's style as a host reads it, `letter-spacing` and chapter 27's two font scales among it:
+/// a host that cannot set one says so itself (ADR 1654).
 fn run(text: String, style: &Character) -> RichRun {
     RichRun {
         text,
@@ -239,5 +243,14 @@ fn run(text: String, style: &Character) -> RichRun {
             per_base: style.rise.per_root,
             points: style.rise.points,
         },
+        letter_spacing: match style.letter_spacing {
+            Spacing::Length(length) => RichSpacing::Length(Measure {
+                per_base: length.per_root,
+                points: length.points,
+            }),
+            Spacing::OfSpace(share) => RichSpacing::OfSpace(share),
+        },
+        horizontal_scale: style.horizontal_scale,
+        vertical_scale: style.vertical_scale,
     }
 }

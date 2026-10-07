@@ -142,7 +142,10 @@ These are the places where a native host's shape differs from the tier-2 host's,
   (`viewer_host::Miniatures`), never at the launch (ADR 0564). §12.5.6.14's popup windows are an
   unmeasured `GtkOverlay` child and a layout-free Qt widget, because a popup's `/Rect` is the
   document's and must not size the window (ADR 0613, trap 19). A note's `/RC` is drawn formatted in
-  all three from `viewer_host::popup`'s shared readings of each run (ADR 1642). §12.3.5's collection is shown in all
+  all three from `viewer_host::popup`'s shared readings of each run (ADR 1642) — `quorra` setting each
+  run in its own face, ordering a right-to-left paragraph across its runs and drawing its spacing and
+  scales, the two toolkits drawing the spacing and saying a scale, which neither's markup states
+  (ADR 1654) — and the C ABI hands the runs over (ADR 1655). §12.3.5's collection is shown in all
   three.
 - **A password is asked in all three**, and a document with no pages or one that failed to open is
   said rather than shown blank (`viewer_host::cannot_open`, `no_pages`, ADRs 0545, 0564).

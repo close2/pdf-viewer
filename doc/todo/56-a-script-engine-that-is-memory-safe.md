@@ -1193,22 +1193,25 @@ them, so a document whose scripts throw on every field fills the report with its
    five copies of one form; `"ca8 "` in a calculation Acrobat itself generated from simplified field
    notation), or a trailing period (`"auo."`, `"stpfl.kt.bank."`, in two producers' forms). The
    reference says only that `cName` is the field's name; the generated case is evidence that the
-   producer's viewer answers these, and **evidence only**. The largest class a change here could
-   move; it needs a documented choice argued from the reference, never a match.
+   producer's viewer answers these, and **evidence only**. **Answered by a documented choice**: a
+   name that matches no field is read again without the white space at either end and the
+   periods after it, and the run's notes say which field was given (ADR 1652).
 5. **A root field `/AcroForm /Fields` does not list**, reached only through a page's `/Annots`
-   (one PDFBOX form: most of its root fields). Table 224 states `/Fields` as the document's root
-   fields, so the realm's table — built from `widgets_by_field_name` — has no such field; whether a
-   widget off that array is a field is a §12.7 question for the whole form, not the bridge's alone.
+   (one PDFBOX form: most of its root fields). **Answered for the whole form**: such a root is
+   recovered from the pages its widgets are on and walked as a `/Fields` entry would be, so the
+   realm, a host's controls, a submission and a save all hold it (ADR 1653;
+   `examples/orphan_field_census` counts 79 documents).
 6. **A legacy engine extension the language standard does not have**: `fn.arguments` read on a
    sloppy function (`checkSSN.arguments.length`, `SYS_CB_HDL_STATE.arguments[0]`, four documents).
    ECMA-262 gives `%Function.prototype%` throwing `caller` and `arguments` accessors, and Boa follows
    it; the producer's engine kept the extension. Carrying it would be an engine change, priced
    against ADR 1590's choice of Boa.
-7. **A Tier 1 member not yet bridged**: `AFExactMatch` (Adobe's form library has it, Tier 0 does
-   not), the `style` constants of `Field.style`, the `cursor` constants beside `app.fs`; and
-   `AFSpecial_FormatEx`, which neither library has (class 3). Each is a gap of this program's: the
-   producer's viewer ran these. The reference's widget addressing — `getField("myRadio.0")` returns
-   one widget — is in the same class and no census throw reaches it.
+7. **A Tier 1 member not yet bridged**: `AFSpecial_FormatEx`, which neither library has (class
+   3). `AFExactMatch`, the `style` constants and the `cursor` constants are carried, each rule a
+   documented choice (ADR 1652); `Field.style` and `app.fs`, which they are written to, are not, and
+   `Field.style` is refused by name. The reference's widget addressing — `getField("myRadio.0")`
+   returns one widget — is refused by name rather than answered `null` until the realm holds a
+   state per widget (ADR 1652 section 2); no census throw reaches it.
 
 No throw is a Tier 2 member's: every refusal the column meets is caught or carried.
 

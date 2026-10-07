@@ -52,16 +52,23 @@ fn form_fixture() -> Vec<u8> {
          /DA (/Helv 0 Tf 0 g) >> >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> \
-         /Contents 4 0 R /Annots [5 0 R 6 0 R] >>\nendobj\n\
+         /Contents 4 0 R /Annots [5 0 R 6 0 R 9 0 R 10 0 R] >>\nendobj\n\
          4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
          5 0 obj\n<< /Type /Annot /Subtype /Widget /FT /Tx /T (typed) /V (hello) \
          /Rect [10 10 90 30] /F 4 >>\nendobj\n\
          6 0 obj\n<< /Type /Annot /Subtype /Widget /FT /Btn /T (ticked) /Rect [110 10 130 30] \
          /F 4 /AS /Off /AP << /N << /Yes 7 0 R /Off 8 0 R >> >> >>\nendobj\n\
          7 0 obj\n{}\nendobj\n\
-         8 0 obj\n{}\nendobj\n",
+         8 0 obj\n{}\nendobj\n\
+         9 0 obj\n<< /Type /Annot /Subtype /Text /Rect [150 70 160 80] /F 4 /T (Drive) \
+         /Contents (a red word) /Popup 10 0 R /RC ({}) >>\nendobj\n\
+         10 0 obj\n<< /Type /Annot /Subtype /Popup /Rect [10 40 190 95] /Parent 9 0 R /Open true \
+         /F 4 >>\nendobj\n",
         appearance("0 0 1 rg"),
         appearance("1 1 1 rg"),
+        // Table 172's `/RC`: one run red, bold, set in Courier and spaced two points (ADR 1655).
+        "<body xmlns=\"http://www.w3.org/1999/xhtml\"><p>a <span style=\"color:#ff0000;\
+         font-weight:bold;font-family:Courier;letter-spacing:2pt\">red</span> word</p></body>",
     );
 
     let mut out = String::from("%PDF-1.7\n");
@@ -257,6 +264,10 @@ fn what_it_printed(said: &str) {
         // last save left it", not "the log is not empty", which would answer the same for a
         // document saved and one never saved at all.
         "dirty after the undo: 1",
+        // Table 172's `/RC` as runs (ADR 1655): three pieces, the middle one the note's red bold
+        // Courier run with its two points of spacing, read through the header's own structs.
+        "rich: 1 paragraph(s), 0 unapplied; paragraph 0 align 0, 3 piece(s)",
+        "rich piece 1: \"red\" bold 1 colour 1.00,0.00,0.00 family Courier spacing 2.0pt",
         "ok",
     ] {
         assert!(

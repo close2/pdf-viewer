@@ -495,3 +495,10 @@ private worktree** — `git worktree add --detach <dir> HEAD` with its own `CARG
 gitignored data linked in (`doc/arlington-pdf-model`, `doc/md`), then `git worktree remove` it and
 delete its build directory before you report (round 1399 lost no time to a sibling's clippy error
 this way; the private tree is never a crate under the shared one — trap 114).
+
+## A tab or list-tag layout change is looked at with right-to-left text and a tag that needs two faces
+
+Every Latin fixture of round 1412's list tags passed while a CJK tag's full stop was drawing as a box:
+the tag was set by two faces and the second was never looked at. A change to tab stops, leaders or
+list tags is rendered and looked at (trap 1) with a right-to-left paragraph and a tag whose glyphs
+come from two faces, not with Latin text alone.

@@ -403,11 +403,12 @@ to `off`, refuses one by name. A script's `this.pageNum = n` turns the page as a
 would, `/C` and `/O` included.
 
 **A note's popup window shows its rich text formatted** (ADR 1642): where Table 172's `/RC` states
-the same characters as `/Contents`, each run is drawn in its weight, posture, size, colour,
-underlines, line through and rise, each paragraph in its alignment and list indent — Pango spans in
-`quorra-gtk`, Qt's rich text in `quorra-qt`, `quorra`'s own chrome — and whatever the window did not
-draw of it (a letter-spacing, a tab stop, in `quorra` a face other than its own Helvetica) is said
-under the note.
+the same characters as `/Contents`, each run is drawn in its face, weight, posture, size, colour,
+underlines, line through, rise and letter spacing, each paragraph in its alignment and list indent
+and a right-to-left one in UAX #9's order across its runs — Pango spans in `quorra-gtk`, Qt's rich
+text in `quorra-qt`, `quorra`'s own chrome, which sets a run in the one of §9.6.2.2's families its
+`font-family` reaches and draws chapter 27's font scales (ADR 1654) — and whatever the window did not
+draw of it (a tab stop; in the two toolkit windows a font scale) is said under the note.
 
 An editable combo box's text — Table 233 bit 19 — is typed into and committed like a single-line
 field's in all four windows: Tab out of it or Enter in it runs its `/K` commit form and `/V`.

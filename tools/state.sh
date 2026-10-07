@@ -838,7 +838,8 @@ section_gates_cost() {
 # queue and hold summed. The sums are this section's, taken from the lines printed above them in
 # the same run, so they cannot drift from what they add up; the log is the wrapper's and is read,
 # never written (ADR 1646). A run that took the lock with a bare `flock` is on no line, which is
-# why the rounds' own walks go through `--lock`.
+# why every lock is taken through `--lock`: the rounds' walks, the merge's gates (`round=` the
+# batch's branch) and the arms export (`round=arms`), held so by `tests/bounded.rs` (ADR 1662).
 lock_cost() {
     local log=${HEAVY_WALK_LOG:-/home/AI/heavy-walk.log} batch
     heading "what the heavy-walk lock cost: the last batch's runs under tools/bounded.sh --lock" "$log"

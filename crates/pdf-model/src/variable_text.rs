@@ -251,9 +251,10 @@ pub(crate) enum Owed {
     ///
     /// **A report beside a complete drawing.** The string's runs are laid out in the faces, sizes,
     /// colours, alignments and spacing it states (`crate::rich_text`, ADR 1634); what the phrase
-    /// names is a property whose value no part of this program acts on — a width no face of `/DR`
-    /// states, pair kerning, a tab leader, a hyperlink a reader could follow — and leaving it out silently
-    /// would be trap 5's silence inside a feature otherwise built.
+    /// names is a property no part of this program carries out as stated — pair kerning, an
+    /// embedded object's text, a leader's alignment to the page, or a width set in the nearest one
+    /// the document's faces hold (ADR 1660) — and leaving it out silently would be trap 5's
+    /// silence inside a feature otherwise built.
     RichTextUnapplied(String),
     /// A rich text string states characters other than its plain twin's, so the plain one is
     /// drawn, in the default style.
@@ -274,9 +275,10 @@ pub(crate) enum Owed {
     },
     /// A rich text string is laid out in one style, its first run's, for the reason given.
     ///
-    /// One case: a character none of the runs' faces draws, in a face this program chose, where
-    /// the one-style layout reaches a machine face for it (ADR 1414) and the runs' faces do not.
-    /// A comb, a right-to-left run and a host's questions are the runs' own (ADR 1649).
+    /// One case: a character none of the runs' faces draws, in a face this program chose, and no
+    /// face from this machine covering it either — the runs' faces end in such a face where the
+    /// machine has one (ADR 1660), so this is the one-style layout's last attempt (ADR 1414). A
+    /// comb, a right-to-left run and a host's questions are the runs' own (ADR 1649).
     RichTextOneStyle(&'static str),
     /// Table 199's `/F`: the field's format script is not one Tier 0 runs, or its one call
     /// refused, so the value is drawn as it stands. The sentence is the dispatch's own (ADR 1579).
@@ -822,6 +824,78 @@ fn machine_set(
         paragraphs,
     );
     (again.missing.is_empty() && again.unformed.is_empty()).then_some((dict, font, again))
+}
+
+/// How many sets of characters [`machine_faces_for`] asks the machine about, where no one face
+/// covers them all: each first question of a set reads the font catalogue, so the search is
+/// bounded, and a string mixing more scripts than this keeps the refusal it had.
+const MACHINE_SETS: usize = 8;
+
+/// Which set [`machine_faces_for`] asks a character in: the CJK ideographs, kana and full-width
+/// forms together, Hangul together, and otherwise the character's 256-code-point block, which
+/// keeps the alphabets below U+2000 — Greek, Cyrillic, Hebrew, Arabic and the rest — apart. A
+/// grouping of the question, not a claim about scripts: a face that covers a set is asked once
+/// for all of it.
+fn machine_set_of(character: char) -> u32 {
+    let code = u32::from(character);
+    match code {
+        0x1100..=0x11FF | 0x3130..=0x318F | 0xAC00..=0xD7AF => 0x1_0001,
+        0x2E80..=0x9FFF | 0xF900..=0xFAFF | 0xFF00..=0xFFEF => 0x1_0000,
+        _ => code >> 8,
+    }
+}
+
+/// Fonts around faces from this machine covering `missing`, for a rich text string's runs.
+///
+/// [`machine_set`]'s question asked for the characters no run's face draws rather than for a whole
+/// value: each face is [`pdf_font::substitute::installed_covering`]'s answer, in the family the
+/// stood-in face's name implies, for the missing characters and every form `text` displays them
+/// in, and each font is [`machine_font`]'s. One face where one covers them all; otherwise one per
+/// [`machine_set_of`] set, since a string may mix scripts no one face holds — a Hebrew list tag
+/// beside a Japanese one. Empty where the machine offers nothing for any set.
+pub(crate) fn machine_faces_for(
+    document: &Document,
+    stood_in: &Dictionary,
+    text: &str,
+    missing: &str,
+) -> Vec<Dictionary> {
+    let mut glyphs: std::collections::BTreeMap<char, String> = missing
+        .chars()
+        .map(|character| (character, character.to_string()))
+        .collect();
+    if let Some(displayed) = pdf_font::shaping::displayed_characters(text, None) {
+        for (shown, meaning) in displayed {
+            if meaning.chars().any(|stored| missing.contains(stored)) {
+                glyphs.entry(shown).or_insert(meaning);
+            }
+        }
+    }
+    let wanted: Vec<char> = glyphs.keys().copied().collect();
+    let mut asked = pdf_font::substitute::Request::derive(document, stood_in, None);
+    asked.standard = false;
+    if let Some(program) = pdf_font::substitute::installed_covering(asked, &wanted) {
+        return machine_font(&program, &glyphs)
+            .map(|(dict, _)| dict)
+            .into_iter()
+            .collect();
+    }
+    let mut sets: std::collections::BTreeMap<u32, std::collections::BTreeMap<char, String>> =
+        std::collections::BTreeMap::new();
+    for (shown, meaning) in glyphs {
+        sets.entry(machine_set_of(shown))
+            .or_default()
+            .insert(shown, meaning);
+    }
+    if sets.len() > MACHINE_SETS {
+        return Vec::new();
+    }
+    sets.values()
+        .filter_map(|set| {
+            let wanted: Vec<char> = set.keys().copied().collect();
+            let program = pdf_font::substitute::installed_covering(asked, &wanted)?;
+            machine_font(&program, set).map(|(dict, _)| dict)
+        })
+        .collect()
 }
 
 /// A `Type0` font around a machine face: the face's glyph indices as its CIDs, and each displayed
@@ -2432,6 +2506,14 @@ impl Order {
         } else {
             (0..count).collect()
         };
+        Self::from_visual(visual, levels)
+    }
+
+    /// The order of a line whose display order is `visual` — for each display position, the
+    /// logical index shown there — and whose codes resolved to `levels`: a line whose tabs divide
+    /// it into groups placed by their stops, each group in rule L2's order (ADR 1660).
+    pub(crate) fn from_visual(visual: Vec<usize>, levels: &[u8]) -> Self {
+        let count = levels.len();
         let mut position = vec![0; count];
         for (shown_at, index) in visual.iter().enumerate() {
             if let Some(slot) = position.get_mut(*index) {

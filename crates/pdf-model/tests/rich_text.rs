@@ -733,19 +733,20 @@ fn a_list_item_takes_its_tag_left_of_its_content() {
 }
 
 /// The hyperlink takes the style chapter 27 recommends — *Hyperlink Support* (page 1189) — and
-/// following it is said not to be built.
+/// nothing is owed: following it is not the formatting §12.7.4.3 brings XFA 3.3 in for, and the
+/// drawing is complete (ADR 1660).
 #[test]
-fn a_hyperlink_is_drawn_blue_and_underlined_and_its_following_is_reported() {
+fn a_hyperlink_is_drawn_blue_and_underlined() {
     let (reports, raster) = draw(rich(
         "see here",
         "see <a href=\"http://example.invalid/\">here</a>",
     ));
-    assert_eq!(reports.len(), 1, "{reports:?}");
-    assert!(reports[0].contains("hyperlink"), "{reports:?}");
+    assert!(reports.is_empty(), "{reports:?}");
     assert!(tinted(&raster, 2) > 10, "the link is blue");
 }
 
-/// A property chapter 27 names and this tree does not carry out is named, and the rest drawn.
+/// A property chapter 27 names and this tree does not carry out as stated is named, and the rest
+/// drawn: a width the document's faces do not hold.
 #[test]
 fn a_property_not_carried_out_is_named() {
     let (reports, raster) = draw(rich(
@@ -1006,6 +1007,66 @@ fn an_imported_rich_value_is_drawn_in_its_formatting() {
     );
 }
 
+/// A save writes what an import replaced: §12.7.8.3.2's "importing a field causes the values of
+/// the entries in the FDF field dictionary to replace those of the corresponding entries in the
+/// field with the same fully qualified name in the target document", so the saved field states
+/// the imported `/V`, the `/RV` beside it and the flags Table 249's `/SetFf` changed, and the file
+/// read back draws what the screen showed (ADR 1661).
+#[test]
+fn a_save_writes_the_imported_value_and_its_rich_text_string() {
+    let (_, stated_bold) = draw(rich("Wide", "<b>Wide</b>"));
+    let document = Document::open(rich("Old", "Old")).expect("a valid PDF");
+    let widget = pdf_syntax::ObjectId::new(5, 0);
+    let mut view = pdf_model::view::ViewState::of(&document);
+    // Table 227 bit 1, `ReadOnly`, set by the import.
+    let data = pdf_model::forms_data::FormsData::read(&fdf(
+        "<< /Fields [ << /T (f) /V (Wide) /RV (<body><p><b>Wide</b></p></body>) /SetFf 1 >> ] >>",
+    ))
+    .expect("an FDF catalog");
+    assert_eq!(view.import(&document, &data).widgets, 1);
+    let (_, shown) = draw_with(&document, &view);
+    let written = view.save(&document).expect("the fixture can be written");
+    assert!(written.withheld.is_empty(), "{:?}", written.withheld);
+    let reopened = Document::open(written.bytes).expect("what was written is a PDF");
+    let dict = reopened.get(widget).as_dict().cloned().expect("the field");
+    let text = |key: &str| match reopened.get_key(&dict, key) {
+        pdf_syntax::Object::String(bytes) => pdf_syntax::text_string::text_string(&bytes),
+        other => panic!("a /{key} string, not {other:?}"),
+    };
+    assert_eq!(text("V"), "Wide");
+    assert_eq!(text("RV"), "<body><p><b>Wide</b></p></body>");
+    assert_eq!(
+        reopened.get_key(&dict, "Ff").as_integer(),
+        Some(i64::from(RICH_MULTILINE) | 1)
+    );
+    let (reports, saved) = draw_with(&reopened, &pdf_model::view::ViewState::of(&reopened));
+    assert!(reports.is_empty(), "{reports:?}");
+    assert_eq!(ink_width(&saved), ink_width(&shown));
+    assert_eq!(ink_width(&saved), ink_width(&stated_bold));
+
+    // A person who types after the import has made the later statement, and the save writes it;
+    // this import leaves the flags alone, because `ReadOnly` refuses a person.
+    let mut view = pdf_model::view::ViewState::of(&document);
+    let data =
+        pdf_model::forms_data::FormsData::read(&fdf("<< /Fields [ << /T (f) /V (Wide) >> ] >>"))
+            .expect("an FDF catalog");
+    assert_eq!(view.import(&document, &data).widgets, 1);
+    assert_eq!(
+        view.set_field(&document, "f", &Entered::Text("typed".to_owned())),
+        1
+    );
+    let written = view.save(&document).expect("the fixture can be written");
+    let reopened = Document::open(written.bytes).expect("what was written is a PDF");
+    let dict = reopened.get(widget).as_dict().cloned().expect("the field");
+    assert_eq!(
+        reopened
+            .get_key(&dict, "V")
+            .as_string()
+            .map(pdf_syntax::text_string),
+        Some("typed".to_owned())
+    );
+}
+
 /// XFDF 3.0's `<value-richtext>` is Table 249's `/RV`, and with no `<value>` beside it the field's
 /// value is the string's characters (*The value and value-richtext elements in fields*, page 31;
 /// *value-richtext*, page 36): the import draws the formatting the element states (ADR 1648).
@@ -1183,8 +1244,8 @@ fn a_right_to_left_run_is_displayed_in_uax_9_order_across_its_styles() {
 /// `font-stretch` is chapter 27's width (*Font*, page 1201), and Table 120's `/FontStretch` names
 /// the same nine widths in the same order: a run asking for `condensed` is set in the `/DR` face
 /// whose descriptor states `/Condensed`, and nothing is reported (ADR 1649). Where no face states
-/// the width, the run is drawn in its family's normal one and the width is said
-/// (`a_property_not_carried_out_is_named`).
+/// the width, the run is drawn in the nearest one its family's faces hold and the width is said
+/// (`a_width_no_face_states_is_set_in_the_nearest_one`, `a_property_not_carried_out_is_named`).
 #[test]
 fn a_width_is_set_in_the_face_whose_descriptor_states_it() {
     let bytes = pdf_with_fonts(
@@ -1204,6 +1265,187 @@ fn a_width_is_set_in_the_face_whose_descriptor_states_it() {
     assert!(content.contains("/HeCo"), "{content}");
     let (reports, _) = draw(bytes);
     assert!(reports.is_empty(), "{reports:?}");
+}
+
+/// A width no `/DR` face of the family states is set in the nearest one that does, and said:
+/// CSS2 section 15.5 states no matching criterion for `font-stretch` and leaves the best match to
+/// the processor, and the order is ADR 1660's choice — a condensed request tries the narrower
+/// widths first, so `ultra-condensed` takes the `/Condensed` face over the normal one, while an
+/// expanded request with no wider face takes the nearest narrower one.
+#[test]
+fn a_width_no_face_states_is_set_in_the_nearest_one() {
+    let with = |width: &str| {
+        pdf_with_fonts(
+            &format!(
+                "<< /Type /Annot /Subtype /Widget /Rect [10 10 290 190] /F 4 /FT /Tx /Ff 33558528 \
+                 /T (f) /V (ab) /RV (<body><p>a<span style=\"font-stretch:{width}\">b</span></p></body>) \
+                 /DA (/Helv 12 Tf 0 g) >>"
+            ),
+            "",
+            "8 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Condensed \
+             /Encoding /WinAnsiEncoding /FontDescriptor 9 0 R >>\nendobj\n\
+             9 0 obj\n<< /Type /FontDescriptor /FontName /Helvetica-Condensed \
+             /FontFamily (Helvetica) /FontStretch /Condensed /FontWeight 400 /Flags 32 \
+             /FontBBox [0 -200 800 900] /ItalicAngle 0 /Ascent 750 /Descent -250 /CapHeight 700 \
+             /StemV 80 >>\nendobj\n",
+            "/HeCo 8 0 R",
+        )
+    };
+    let (content, _) = appearance(with("ultra-condensed"));
+    assert!(content.contains("/HeCo"), "{content}");
+    let (reports, _) = draw(with("ultra-condensed"));
+    assert!(
+        reports
+            .first()
+            .is_some_and(|report| report.contains("font-stretch:ultra-condensed")),
+        "{reports:?}"
+    );
+    // `/Helv` is the family's normal width, stated without a descriptor, and so the nearest to
+    // `semi-expanded` on its narrower side; nothing wider is held.
+    let (content, _) = appearance(with("semi-expanded"));
+    assert!(!content.contains("/HeCo"), "{content}");
+}
+
+/// A character none of a run's faces draws, in a face this program chose, is set in a face from
+/// this machine and every other run keeps its own style: the italic run is still written in the
+/// oblique face beside it, and nothing is laid out in one style (ADRs 1414, 1660). Where the
+/// machine offers no face covering the character there is nothing to set it in, and the test says
+/// so and stops (ADR 1154).
+#[test]
+fn a_character_no_run_face_draws_is_set_in_a_machine_face_beside_the_runs() {
+    let missing = '\u{416}';
+    let request = pdf_font::substitute::Request {
+        family: pdf_font::substitute::Family::SansSerif,
+        bold: false,
+        italic: true,
+        standard: false,
+    };
+    if pdf_font::substitute::installed_covering(request, &[missing]).is_none() {
+        println!("skipped: no face on this machine covers U+0416");
+        return;
+    }
+    // `/V` as §7.9.2.2's UTF-16BE text string, `/RV` with XML's character reference.
+    let bytes = pdf(
+        &format!(
+            "<< /Type /Annot /Subtype /Widget /Rect [10 10 290 190] /F 4 /FT /Tx \
+             /Ff {RICH_MULTILINE} /T (f) /V <FEFF0061002004160062> \
+             /RV (<body><p>a <i>&#x416;b</i></p></body>) /DA (/Helv 12 Tf 0 g) >>"
+        ),
+        "",
+    );
+    let (content, fonts) = appearance(bytes.clone());
+    assert!(
+        fonts.iter().any(|font| font.contains("Oblique")),
+        "the italic run keeps its oblique face: {fonts:?}"
+    );
+    // The machine's face, which the appearance writes as §9.9.2's subset, tagged (ADR 1425).
+    assert!(
+        fonts
+            .iter()
+            .any(|font| font.split_once('+').is_some_and(|(tag, _)| tag.len() == 6)),
+        "{fonts:?}"
+    );
+    assert!(
+        content.contains("/Helv"),
+        "the plain run keeps the /DA's face: {content}"
+    );
+    let (reports, raster) = draw(bytes);
+    assert!(
+        reports
+            .iter()
+            .all(|report| !report.contains("one style") && !report.contains("default style alone")),
+        "{reports:?}"
+    );
+    assert!(!inked(&raster).is_empty());
+}
+
+/// A tab in a paragraph read right to left moves to the next stop on the left — chapter 2's
+/// *Tab Stops* (page 61) — and a default stop right-aligns what follows it there (chapter 27,
+/// page 1205): `אב` ends at the right margin, and `ג` after one tab ends at the nearest multiple of
+/// the half-inch interval left of where `אב` begins, 252 points from the margin, the paragraph
+/// aligned to the edge it starts at (ADR 1660). The
+/// Hebrew is set in a face from this machine beside the italic run's, so where the machine offers
+/// none there is nothing to place, and the test says so and stops (ADR 1154).
+#[test]
+fn a_tab_in_a_paragraph_read_right_to_left_moves_to_the_stop_on_the_left() {
+    let letters = ['\u{5d0}', '\u{5d1}', '\u{5d2}'];
+    let request = pdf_font::substitute::Request {
+        family: pdf_font::substitute::Family::SansSerif,
+        bold: false,
+        italic: true,
+        standard: false,
+    };
+    if pdf_font::substitute::installed_covering(request, &letters).is_none() {
+        println!("skipped: no face on this machine covers the Hebrew letters");
+        return;
+    }
+    let bytes = pdf(
+        &format!(
+            "<< /Type /Annot /Subtype /Widget /Rect [10 10 290 190] /F 4 /FT /Tx \
+             /Ff {RICH_MULTILINE} /T (f) /V <FEFF05D005D105D2> \
+             /RV (<body><p style=\"tab-interval:36pt;text-align:right\"><i>&#x5D0;&#x5D1;\
+             <span style=\"xfa-tab-count:1\"/>&#x5D2;</i></p></body>) /DA (/Helv 12 Tf 0 g) >>"
+        ),
+        "",
+    );
+    let placed = glyphs(&bytes);
+    let span = |byte: usize| {
+        let glyph = placed
+            .iter()
+            .find(|glyph| glyph.bytes.start == byte)
+            .unwrap_or_else(|| panic!("a glyph from byte {byte}: {placed:?}"));
+        let xs = [glyph.quad[0], glyph.quad[2], glyph.quad[4], glyph.quad[6]];
+        (
+            xs.iter().copied().fold(f32::INFINITY, f32::min),
+            xs.iter().copied().fold(f32::NEG_INFINITY, f32::max),
+        )
+    };
+    let (alef, bet, gimel) = (span(0), span(2), span(4));
+    let right_margin = 290.0 - 1.0;
+    assert!(
+        (alef.1 - right_margin).abs() < 0.01,
+        "the first letter at the right margin: {placed:?}"
+    );
+    assert!(bet.1 <= alef.0 + 0.01, "read right to left: {placed:?}");
+    assert!(
+        (gimel.1 - (MARGIN + 252.0)).abs() < 0.01,
+        "right-aligned at the stop: {placed:?}"
+    );
+    let (reports, _) = draw(bytes);
+    assert!(reports.is_empty(), "{reports:?}");
+}
+
+/// A generated tag no run's face draws whole is set a face at a time: `japanese-informal`'s 1234
+/// is six ideographs a face from this machine draws, and its full stop — *List Layout*'s suffix
+/// (page 1219) — is the italic run's own, written as a group of its own (ADR 1660). Where the
+/// machine offers no face for the ideographs the test says so and stops (ADR 1154).
+#[test]
+fn a_tag_in_two_faces_is_written_a_face_at_a_time() {
+    let numeral = [
+        '\u{5343}', '\u{4e8c}', '\u{767e}', '\u{4e09}', '\u{5341}', '\u{56db}',
+    ];
+    let request = pdf_font::substitute::Request {
+        family: pdf_font::substitute::Family::SansSerif,
+        bold: false,
+        italic: true,
+        standard: false,
+    };
+    if pdf_font::substitute::installed_covering(request, &numeral).is_none() {
+        println!("skipped: no face on this machine covers the numeral");
+        return;
+    }
+    let (content, _) = appearance(field(
+        RICH_MULTILINE,
+        "sen",
+        "<body><ol style=\"font-style:italic;list-style-type:japanese-informal\" start=\"1234\">\
+         <li>sen</li></ol></body>",
+        "",
+    ));
+    assert!(
+        content.contains("(.) Tj"),
+        "the full stop in its own face: {content}"
+    );
+    assert!(content.matches(" Tf").count() >= 2, "{content}");
 }
 
 /// Where each glyph of a field starts, by line, from the glyphs a host is told of.
@@ -1295,20 +1537,60 @@ fn a_decimal_stop_aligns_the_radix_or_the_right_edge() {
     assert!((lines[2][0] - stop).abs() < 0.01, "{lines:?}");
 }
 
-/// `xfa-tab-stops`' leader (chapter 2's *Tab Leader Pattern*, page 63) is named where it is not the
-/// blank one, and the stop it belongs to is still used.
+/// `xfa-tab-stops`' leader (chapter 2's *Tab Leader Pattern*, pages 63 to 65) fills the room
+/// before the text its stop aligns: `dots()` as the run's full stops, whole cycles only, since the
+/// chapter leaves a partial cycle unrendered; a solid rule as one piece across the room, a dashed
+/// one as pieces, and content repeated as many whole times as fit; the stop is
+/// still used, and only `page` alignment, whose page edge a field does not know, is said
+/// (ADR 1660).
 #[test]
-fn a_tab_leader_is_named_and_its_stop_used() {
-    let bytes = field(
-        RICH_MULTILINE,
-        "AB",
-        "<body><p style=\"xfa-tab-stops:left leader(dots()) 1in\">A\
-         <span style=\"xfa-tab-count:1\"/>B</p></body>",
-        "",
-    );
+fn a_tab_leader_fills_the_room_before_its_stop() {
+    let with = |leader: &str| {
+        field(
+            RICH_MULTILINE,
+            "AB",
+            &format!(
+                "<body><p style=\"xfa-tab-stops:left {leader} 1in\">A\
+                 <span style=\"xfa-tab-count:1\"/>B</p></body>"
+            ),
+            "",
+        )
+    };
+    let positioned = |content: &str| content.matches(" Tm").count();
+    // Filled pieces, not the clip the appearance opens with (`re W n`).
+    let pieces = |content: &str| content.lines().filter(|line| line.ends_with(" re")).count();
+    let bytes = with("leader(dots())");
     let (reports, _) = draw(bytes.clone());
-    assert_eq!(reports.len(), 1, "{reports:?}");
-    assert!(reports[0].contains("tab leader"), "{reports:?}");
+    assert!(reports.is_empty(), "{reports:?}");
     let lines = starts_by_line(&bytes);
     assert!((lines[0][1] - (MARGIN + 72.0)).abs() < 0.01, "{lines:?}");
+    let (dots, _) = appearance(bytes);
+    // The room runs from after `A`, 8.004 points from the margin at 12 points, to the stop at 72.
+    // A full stop is 3.336 points wide; on the grid from the margin the first whole cycle starts
+    // at the third (10.008) and the last ends at the twenty-first (70.056): 18 cycles.
+    assert_eq!(positioned(&dots), 2 + 18, "{dots}");
+
+    // Twice the width: from the second cycle (13.344) to the tenth's end (66.72), 8 of them.
+    let (wide, _) = appearance(with("leader(dots() none 6.672pt)"));
+    assert_eq!(positioned(&wide), 2 + 8, "a cycle twice the dot's: {wide}");
+
+    let (solid, _) = appearance(with("leader(rule(solid 1pt))"));
+    assert_eq!(pieces(&solid), 1, "{solid}");
+    assert!(solid.contains(" 1 re"), "one point thick: {solid}");
+    let (dashed, _) = appearance(with("leader(rule(dashed 1pt))"));
+    assert!(pieces(&dashed) > 10, "{dashed}");
+    let (none, _) = appearance(with("leader(rule(none))"));
+    assert_eq!(pieces(&none), 0, "{none}");
+    assert_eq!(positioned(&none), 2, "{none}");
+
+    let (content, _) = appearance(with("leader(use-content('-'))"));
+    assert!(positioned(&content) > 2, "{content}");
+
+    let (reports, _) = draw(with("leader(dots() page)"));
+    assert!(
+        reports
+            .first()
+            .is_some_and(|report| report.contains("leader alignment to the page")),
+        "{reports:?}"
+    );
 }

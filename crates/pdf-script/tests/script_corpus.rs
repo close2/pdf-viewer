@@ -83,7 +83,7 @@ use script_population::{MAX_FILE_BYTES, password_for, population, repository};
 const HELD_EXCEEDED: usize = 0;
 
 /// Most runs that may end in an uncaught throw.
-const HELD_THREW: usize = 9_541;
+const HELD_THREW: usize = 9_319;
 
 /// Most runs that may finish having been refused a call: none, since a write to `this.pageNum` —
 /// the one refusal three scripts caught — is a page turn the host makes (ADR 1640).
@@ -93,7 +93,7 @@ const HELD_FINISHED_REFUSED: usize = 0;
 const HELD_UNPARSED: usize = 8;
 
 /// Fewest runs the walk may hand the engine.
-const HELD_RUNS: usize = 20_860;
+const HELD_RUNS: usize = 21_100;
 
 /// How the runs ended, counted across the walk.
 #[derive(Debug, Default)]

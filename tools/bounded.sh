@@ -39,9 +39,9 @@
 #                behind any round's gates).
 #   --lock       take the heavy-walk lock (/home/AI/heavy-walk.lock) before the command starts, hold
 #                it until the wrapper ends, and append one line to /home/AI/heavy-walk.log saying how
-#                long the run queued for it and how long it held it (below). An ancestor that holds
-#                the lock already — `flock <lock> tools/bounded.sh --lock …` — is found and used,
-#                never queued behind.
+#                long the run queued for it, behind what, how long it held it and the tree's peak
+#                (below). An ancestor that holds the lock already — `flock <lock> tools/bounded.sh
+#                --lock …` — is found and used, never queued behind.
 #   --round N    the round's session number, written on that line so a round's lock time can be
 #                read off the log (default `-`).
 #   --self-test  run the sampler against synthetic process tables and against live trees — one
@@ -275,8 +275,29 @@ watch_tree() {
 # again rather than a second one opened: `flock` locks an open file description, so a second
 # description of the same file would queue behind the caller's own lock for ever, while the
 # inherited one is granted at once. The wait is printed when there is one, so a round watching its
-# shell knows what it is waiting for.
+# shell knows what it is waiting for, and so is the run it found holding the lock (ADR 1659).
 now_ms() { echo $(( $(date +%s%N) / 1000000 )); }
+
+# `lock_holder` prints the run holding the lock as one word: its command line, blanks made `_`,
+# or `unknown`. Two kinds of holder need two sources. A bare `flock <lock> <command>` keeps the
+# `flock` process alive as the command's parent, and `/proc/locks` names its pid. A `--lock`
+# wrapper's lock was taken by a `flock -n <fd>` that has already exited — `/proc/locks` keeps the
+# taker's pid, not the holder's — so the wrapper leaves its own line in `<lock>.holder` while it
+# holds, and that file is read when the pid is gone.
+lock_holder() {
+    local inode pid said=
+    inode=$(stat -L -c %i -- "$lock_path" 2>/dev/null) || { echo unknown; return; }
+    pid=$(awk -v ino="$inode" '$2 == "FLOCK" { n = split($6, at, ":"); if (at[n] == ino) { print $5; exit } }' /proc/locks 2>/dev/null)
+    if [ -n "$pid" ] && [ -r "/proc/$pid/cmdline" ]; then
+        said=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)
+    fi
+    if [ -z "$said" ] && [ -s "$lock_path.holder" ]; then
+        read -r pid said < "$lock_path.holder"
+        kill -0 "$pid" 2>/dev/null || said=
+    fi
+    [ -n "$said" ] || said=unknown
+    printf '%s' "$said" | tr ' \t\n' '___' | cut -c1-160
+}
 lock_take() {
     local target link
     lock_fd=
@@ -291,11 +312,14 @@ lock_take() {
     fi
     [ -n "$lock_fd" ] || exec {lock_fd}>>"$lock_path" || return 1
     asked_ms=$(now_ms)
+    behind=-
     if ! flock -n "$lock_fd"; then
-        echo "bounded: queued for the heavy-walk lock $lock_path at $(date '+%H:%M:%S')" >&2
+        behind=$(lock_holder)
+        echo "bounded: queued for the heavy-walk lock $lock_path at $(date '+%H:%M:%S'), behind $behind" >&2
         flock "$lock_fd" || return 1
     fi
     held_ms=$(now_ms)
+    printf '%s round=%s %s\n' "$$" "$round" "$command_words" > "$lock_path.holder" 2>/dev/null
 }
 
 # `lock_record STATUS` appends the run's one line, if it held the lock. Shorter than `PIPE_BUF`
@@ -304,11 +328,13 @@ lock_record() {
     [ -n "${held_ms:-}" ] || return 0
     local ended_ms
     ended_ms=$(now_ms)
-    printf '%s batch=%s round=%s wait=%ss hold=%ss exit=%s cmd=%s\n' \
+    printf '%s batch=%s round=%s wait=%ss hold=%ss exit=%s peak=%sGiB behind=%s cmd=%s\n' \
         "$(date -d "@$(( asked_ms / 1000 ))" '+%Y-%m-%dT%H:%M:%S')" "$batch" "$round" \
         "$(seconds $(( held_ms - asked_ms )))" "$(seconds $(( ended_ms - held_ms )))" "$1" \
+        "$(awk -v k="${peak_kib:-0}" 'BEGIN { printf "%.2f", k / 1048576 }')" "${behind:--}" \
         "$command_words" >> "$lock_log" ||
         echo "bounded: the lock was held, and its line could not be appended to $lock_log" >&2
+    [ "$(cut -d' ' -f1 "$lock_path.holder" 2>/dev/null)" != "$$" ] || rm -f -- "$lock_path.holder"
 }
 seconds() { awk -v ms="$1" 'BEGIN { printf "%.1f", ms / 1000 }'; }
 
@@ -444,6 +470,8 @@ print(f"all {born} forks succeeded", file=sys.stderr)
     #    at least a second — the calibration, since a wrapper that did not take the lock reads 0.0.
     #    A second run finds it free and waits nothing; a third runs under `flock` on the same file
     #    and must finish rather than queue behind its own caller; and the lock is free afterwards.
+    #    The queued line names its holder: the bare `flock`'s command from `/proc/locks`, and then a
+    #    `--lock` holder's round from the file it leaves, the source `/proc/locks` cannot be.
     lock_case() { HEAVY_WALK_LOCK="$scratch/lock" HEAVY_WALK_LOG="$scratch/lock.log" "$self" "$@"; }
     ( flock "$scratch/lock" sh -c ': > "$0"; sleep 2' "$scratch/held" ) &
     holder=$!
@@ -462,13 +490,22 @@ print(f"all {born} forks succeeded", file=sys.stderr)
     [ "$(wc -l < "$scratch/lock.log")" = 3 ] || fail "lock: $(wc -l < "$scratch/lock.log") lines logged, wanted 3: $(cat "$scratch/lock.log")"
     first_wait=$(sed -n '1s/.* wait=\([0-9.]*\)s .*/\1/p' "$scratch/lock.log")
     awk -v w="$first_wait" 'BEGIN { exit !(w >= 1.0) }' || fail "lock: the queued run logged wait=${first_wait}s, wanted at least a second: $(head -n 1 "$scratch/lock.log")"
-    grep -q '^[0-9T:-]* batch=[^ ]* round=7 wait=[0-9.]*s hold=[0-9.]*s exit=3 cmd=sh -c exit 3 *$' "$scratch/lock.log" ||
+    grep -q '^[0-9T:-]* batch=[^ ]* round=7 wait=[0-9.]*s hold=[0-9.]*s exit=3 peak=[0-9.]*GiB behind=[^ ]*sleep_2[^ ]* cmd=sh -c exit 3 *$' "$scratch/lock.log" ||
         fail "lock: the line is not the shape the header states: $(head -n 1 "$scratch/lock.log")"
     for line in 2 3; do
         [ "$(sed -n "${line}s/.* wait=\([0-9.]*\)s .*/\1/p" "$scratch/lock.log")" = 0.0 ] ||
             fail "lock: run $line found the lock free or its caller's and still waited: $(sed -n "${line}p" "$scratch/lock.log")"
     done
-    echo "bounded --self-test: a run queued ${first_wait}s behind a holder, one found the lock free and one its caller's, each logged"
+    HEAVY_WALK_LOCK="$scratch/lock" HEAVY_WALK_LOG="$scratch/held.log" \
+        "$self" --lock --round 77 --tree 1 --data 1 --nice 0 -- sleep 2 > /dev/null 2>&1 &
+    holder=$!
+    for _ in $(seq 50); do [ -s "$scratch/lock.holder" ] && break; sleep 0.1; done
+    lock_case --lock --round 7 --tree 1 --data 1 --nice 0 -- true > /dev/null 2>&1
+    wait "$holder"
+    tail -n 1 "$scratch/lock.log" | grep -q ' behind=[^ ]*round=77_sleep_2' ||
+        fail "lock: a run queued behind a --lock holder did not name its round: $(tail -n 1 "$scratch/lock.log")"
+    [ -e "$scratch/lock.holder" ] && fail "lock: the holder's file outlived the holder: $(cat "$scratch/lock.holder")"
+    echo "bounded --self-test: a run queued ${first_wait}s behind a holder, one found the lock free and one its caller's, each logged, each holder named"
 
     echo "bounded --self-test: every case holds"
     exit 0

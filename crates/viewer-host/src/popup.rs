@@ -212,6 +212,74 @@ pub fn rise(run: &pdf_model::popup::RichRun, base: f32, per_point: f32) -> f32 {
         .clamp(-size, size)
 }
 
+/// The extra advance after each of a run's characters — chapter 27's `letter-spacing` (page
+/// 1204) — in the unit [`size`] answers in, or `None` where it is a share of a space and `space`
+/// is not known.
+///
+/// `space` is the width of a space in the face the run is set in, as a share of its em: a host
+/// that chose the face knows it, and a toolkit that chooses its own face from a family name does
+/// not, so that host passes `None` and says the spacing under the note ([`toolkit_unapplied`]).
+/// Held within the run's own size either way, as [`rise`] is, so that a spacing of a page's width
+/// does not put one letter in the window and the rest outside it (ADR 1654).
+#[must_use]
+pub fn letter_spacing(
+    run: &pdf_model::popup::RichRun,
+    base: f32,
+    per_point: f32,
+    space: Option<f32>,
+) -> Option<f32> {
+    let size = size(run, base, per_point);
+    let wanted = match run.letter_spacing {
+        pdf_model::popup::RichSpacing::Length(length) => {
+            length.per_base.mul_add(base, length.points * per_point)
+        }
+        pdf_model::popup::RichSpacing::OfSpace(share) => space? * size * share,
+    };
+    Some(wanted.clamp(-size, size))
+}
+
+/// Whether a rich paragraph reads right to left: UAX #9's rules P2 and P3 over its runs' characters
+/// as one paragraph, whichever run holds the first strong one.
+///
+/// A paragraph that states no `text-align` starts at its own start edge — the right for one of
+/// these — in all three windows (ADR 1654): Qt's unaligned block follows its text, and a window
+/// that places a label by hand asks this.
+#[must_use]
+pub fn right_to_left(paragraph: &pdf_model::popup::RichParagraph) -> bool {
+    let text: String = paragraph.runs.iter().map(|run| run.text.as_str()).collect();
+    pdf_font::shaping::Paragraphs::new(&text)
+        .is_some_and(|levels| levels.paragraph_level(0) % 2 == 1)
+}
+
+/// Whether a run states chapter 27's `xfa-font-horizontal-scale` or `xfa-font-vertical-scale`
+/// (page 1202) as anything but its whole size.
+#[must_use]
+pub fn scaled(run: &pdf_model::popup::RichRun) -> bool {
+    (run.horizontal_scale - 1.0).abs() > f32::EPSILON
+        || (run.vertical_scale - 1.0).abs() > f32::EPSILON
+}
+
+/// What a window that sets a note through a toolkit's label says it did not draw, beside
+/// `pdf_model::popup::RichNote::unapplied`: a font scale, which neither Pango's markup nor Qt's
+/// rich text states a property for, and a letter spacing given as a share of a space, which only
+/// the face the toolkit picks can resolve (ADR 1654). `quorra` draws both and passes nothing.
+#[must_use]
+pub fn toolkit_unapplied(note: &pdf_model::popup::RichNote) -> Vec<String> {
+    let runs = || {
+        note.paragraphs
+            .iter()
+            .flat_map(|paragraph| paragraph.tag.iter().chain(&paragraph.runs))
+    };
+    let mut said = Vec::new();
+    if runs().any(scaled) {
+        said.push("a font scale in a popup window".to_owned());
+    }
+    if runs().any(|run| matches!(run.letter_spacing, pdf_model::popup::RichSpacing::OfSpace(share) if share != 0.0)) {
+        said.push("letter-spacing as a share of a space".to_owned());
+    }
+    said
+}
+
 /// The first family a run's `font-family` names that a toolkit may be handed, or `None` for the
 /// window's own face.
 ///
@@ -324,16 +392,20 @@ fn escape_into(out: &mut String, text: &str) {
 fn html_into(out: &mut String, note: &pdf_model::popup::RichNote, base: f32, indent: f32) {
     use std::fmt::Write as _;
     for paragraph in &note.paragraphs {
+        // A paragraph stating no `text-align` takes none, so Qt starts it at its own start edge —
+        // the right, for one UAX #9 finds reading right to left — as Pango and `quorra` do (ADR
+        // 1654).
         let align = match paragraph.align {
-            None | Some(pdf_model::popup::RichAlign::Left) => "left",
-            Some(pdf_model::popup::RichAlign::Centre) => "center",
-            Some(pdf_model::popup::RichAlign::Right) => "right",
-            Some(pdf_model::popup::RichAlign::Justify) => "justify",
+            None => "",
+            Some(pdf_model::popup::RichAlign::Left) => " align=\"left\"",
+            Some(pdf_model::popup::RichAlign::Centre) => " align=\"center\"",
+            Some(pdf_model::popup::RichAlign::Right) => " align=\"right\"",
+            Some(pdf_model::popup::RichAlign::Justify) => " align=\"justify\"",
         };
         let indent = f32::from(paragraph.level).mul_add(base * 2.0, indent);
         let _ = write!(
             out,
-            "<p align=\"{align}\" style=\"margin-top:0; margin-bottom:0; margin-left:{indent:.1}pt\">"
+            "<p{align} style=\"margin-top:0; margin-bottom:0; margin-left:{indent:.1}pt\">"
         );
         if let Some(tag) = &paragraph.tag {
             span(out, tag, base);
@@ -369,6 +441,11 @@ fn span(out: &mut String, run: &pdf_model::popup::RichRun, base: f32) {
         (true, false) => out.push_str("; text-decoration:underline"),
         (false, true) => out.push_str("; text-decoration:line-through"),
         (false, false) => {}
+    }
+    if let Some(spacing) = letter_spacing(run, base, 1.0, None).filter(|spacing| *spacing != 0.0) {
+        // Qt's rich text reads `letter-spacing` in pixels, its reference pixel being CSS2's, 96 to
+        // the inch.
+        let _ = write!(out, "; letter-spacing:{:.2}px", spacing * 96.0 / 72.0);
     }
     let raised = rise(run, base, 1.0);
     if raised > 0.0 {
@@ -429,7 +506,68 @@ mod tests {
             underline_by_word: false,
             line_through: false,
             rise: pdf_model::popup::Measure::default(),
+            letter_spacing: pdf_model::popup::RichSpacing::default(),
+            horizontal_scale: 1.0,
+            vertical_scale: 1.0,
         }
+    }
+
+    /// A letter spacing in points is points whatever the base and pixels where the host draws
+    /// in them; one given as a share of a space is resolved only where the face is known, and
+    /// either is held within the run's size.
+    #[test]
+    fn a_runs_letter_spacing_is_resolved_where_its_unit_can_be() {
+        let mut spaced = run("x");
+        spaced.letter_spacing = pdf_model::popup::RichSpacing::Length(pdf_model::popup::Measure {
+            per_base: 0.0,
+            points: 3.0,
+        });
+        assert_eq!(super::letter_spacing(&spaced, 10.0, 2.0, None), Some(6.0));
+        spaced.letter_spacing = pdf_model::popup::RichSpacing::OfSpace(0.5);
+        assert_eq!(super::letter_spacing(&spaced, 10.0, 1.0, None), None);
+        let resolved = super::letter_spacing(&spaced, 10.0, 1.0, Some(0.25)).unwrap_or_default();
+        assert!((resolved - 1.25).abs() < 1e-5, "{resolved}");
+        spaced.letter_spacing = pdf_model::popup::RichSpacing::Length(pdf_model::popup::Measure {
+            per_base: 0.0,
+            points: 400.0,
+        });
+        assert_eq!(
+            super::letter_spacing(&spaced, 10.0, 1.0, None),
+            Some(10.0),
+            "held at the size"
+        );
+        let note = pdf_model::popup::RichNote {
+            paragraphs: vec![pdf_model::popup::RichParagraph {
+                align: None,
+                level: 0,
+                tag: None,
+                runs: vec![spaced],
+            }],
+            unapplied: Vec::new(),
+        };
+        assert!(super::html(&note, 10.0).contains("letter-spacing:13.33px"));
+        assert!(super::toolkit_unapplied(&note).is_empty());
+    }
+
+    /// A toolkit's label states no font scale, so a note with one says so; one without says nothing.
+    #[test]
+    fn a_toolkit_window_says_a_font_scale_it_cannot_set() {
+        let mut wide = run("x");
+        wide.horizontal_scale = 2.0;
+        let note = |runs| pdf_model::popup::RichNote {
+            paragraphs: vec![pdf_model::popup::RichParagraph {
+                align: None,
+                level: 0,
+                tag: None,
+                runs,
+            }],
+            unapplied: Vec::new(),
+        };
+        assert_eq!(
+            super::toolkit_unapplied(&note(vec![wide])),
+            vec!["a font scale in a popup window".to_owned()]
+        );
+        assert!(super::toolkit_unapplied(&note(vec![run("x")])).is_empty());
     }
 
     /// The note's characters and family names are the document's, so nothing of them reaches Qt's

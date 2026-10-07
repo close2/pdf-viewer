@@ -548,8 +548,16 @@ pub fn create_launch_instance() -> wgpu::Instance {
 /// kernel driver is first asked about the GPU, and is the part of bring-up that varies (ADR
 /// 1569). [`StartupTimings::instance_creation`] cannot carry either, because the constructor
 /// that takes this instance did not make it.
+///
+/// Before either, the machine's awake render nodes are opened ([`wake_render_nodes`]); they are
+/// closed after the check. The power-up the kernel driver starts on an open then runs beside the
+/// loader rather than in front of the adapter check (ADR 1658).
 #[must_use]
 pub fn create_launch_instance_timed() -> (wgpu::Instance, LaunchSteps) {
+    let waking = Instant::now();
+    let woken = wake_render_nodes();
+    let mut render_node_wake = waking.elapsed();
+    let render_nodes_opened = woken.len();
     let started = Instant::now();
     let primary = create_instance_with(wgpu::Backends::PRIMARY);
     let made = started.elapsed();
@@ -558,8 +566,14 @@ pub fn create_launch_instance_timed() -> (wgpu::Instance, LaunchSteps) {
         .iter()
         .any(|adapter| adapter.get_info().device_type != wgpu::DeviceType::Cpu);
     let adapter_check = checking.elapsed();
+    // Closed only now: a close made while the power-up runs waits for it (ADR 1658).
+    let closing = Instant::now();
+    drop(woken);
+    render_node_wake = render_node_wake.saturating_add(closing.elapsed());
     if on_hardware {
         let steps = LaunchSteps {
+            render_node_wake,
+            render_nodes_opened,
             instance_creation: made,
             adapter_check,
             every_backend: false,
@@ -570,6 +584,8 @@ pub fn create_launch_instance_timed() -> (wgpu::Instance, LaunchSteps) {
     let again = Instant::now();
     let instance = create_instance();
     let steps = LaunchSteps {
+        render_node_wake,
+        render_nodes_opened,
         instance_creation: made.saturating_add(again.elapsed()),
         adapter_check,
         every_backend: true,
@@ -582,6 +598,12 @@ pub fn create_launch_instance_timed() -> (wgpu::Instance, LaunchSteps) {
 /// before any constructor sees it.
 #[derive(Debug, Clone, Copy)]
 pub struct LaunchSteps {
+    /// Opening the awake render nodes before the instance and closing them after the adapter check
+    /// ([`wake_render_nodes`]); zero where the platform has none.
+    pub render_node_wake: Duration,
+    /// How many render nodes that step opened. Fewer than the machine has is a node that was
+    /// asleep, or one this process may not open, and the adapter check meets it either way.
+    pub render_nodes_opened: usize,
     /// `wgpu::Instance::new`: the driver loader and the drivers' own initialisation — both
     /// instances' together where the fallback made a second.
     pub instance_creation: Duration,
@@ -590,6 +612,76 @@ pub struct LaunchSteps {
     /// Whether the primary backends offered no adapter on hardware, so that every backend was
     /// loaded after them.
     pub every_backend: bool,
+}
+
+/// Opens every DRM render node whose device is awake, and hands the files back to be closed after
+/// the adapter check.
+///
+/// **What it buys.** On an AMD APU (the Radeon 890M through `amdgpu`, ADR 1658), opening a render
+/// node after the GPU has had about 50 ms without work starts a power-up in the kernel driver that
+/// takes about 5 ms, and a firmware query arriving during it — the first `AMDGPU_INFO` the Vulkan
+/// driver asks inside the adapter check — waits for the remainder. The query cannot be moved, but
+/// the open can: made here, before `wgpu::Instance::new`'s 10 to 13 ms of loader work, the power-up
+/// is over by the time the driver opens the node again. Measured on that machine, the gate's
+/// bring-up child with and without this step, interleaved, 22 an arm born after 1.5 s of idle:
+/// bring-up 22.6 against 26.3 ms (median), the adapter check 6.2 against 9.8; 52 an arm born back
+/// to back read 20.7 against 20.0, the adapter check 6.0 in both. The step itself reads 0.08 to
+/// 0.19 ms; where the platform has no render node it is nothing. The files are closed after the
+/// adapter check, because closing one while its power-up runs waits for it: closed at once, the
+/// step read 1.7 to 2.4 ms in the gate's first-page children.
+///
+/// **Why only awake ones.** A device the kernel has suspended — a laptop's discrete GPU — is
+/// woken by an open, and keeping one awake is a cost a person's battery pays. Such a node is left
+/// for the adapter check, which decides whether to wake it. `active` is awake and `unsupported`
+/// is a device whose power is never managed at run time; anything else, or no status at all, is
+/// left alone.
+///
+/// **Why an open that fails is not an error.** Nothing here is needed: the adapter check opens
+/// the same nodes itself and reports what it cannot, and a node this process may not open is
+/// that check's to report. The count is in [`LaunchSteps`], so a wake that did nothing is seen.
+#[cfg(target_os = "linux")]
+fn wake_render_nodes() -> Vec<std::fs::File> {
+    render_nodes_awake(
+        std::path::Path::new("/dev/dri"),
+        std::path::Path::new("/sys/class/drm"),
+    )
+    .iter()
+    .filter_map(|node| {
+        std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(node)
+            .ok()
+    })
+    .collect()
+}
+
+/// [`wake_render_nodes`] where there are no DRM render nodes to open.
+#[cfg(not(target_os = "linux"))]
+fn wake_render_nodes() -> Vec<std::fs::File> {
+    Vec::new()
+}
+
+/// The render nodes under `dri` whose device `class` (the kernel's `/sys/class/drm`) reports
+/// awake, in name order: [`wake_render_nodes`]'s choice, apart from the opening.
+#[cfg(any(target_os = "linux", test))]
+fn render_nodes_awake(dri: &std::path::Path, class: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dri) else {
+        return Vec::new();
+    };
+    let mut nodes: Vec<std::path::PathBuf> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name())
+        .filter(|name| name.to_string_lossy().starts_with("renderD"))
+        .filter(|name| {
+            let status = class.join(name).join("device/power/runtime_status");
+            std::fs::read_to_string(status)
+                .is_ok_and(|status| matches!(status.trim(), "active" | "unsupported"))
+        })
+        .map(|name| dri.join(name))
+        .collect();
+    nodes.sort();
+    nodes
 }
 
 /// Choose the adapter: the [`Options::adapter`] filter when there is one, wgpu's own
@@ -643,6 +735,34 @@ pub(crate) fn select_adapter(
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+
+    /// [`super::render_nodes_awake`] opens an awake node and a node whose power is never managed,
+    /// and leaves a suspended one, one with no status and anything that is not a render node.
+    #[test]
+    fn only_a_render_node_whose_device_is_awake_is_woken() {
+        let root =
+            std::env::temp_dir().join(format!("raster-gpu-render-nodes-{}", std::process::id()));
+        let (dri, class) = (root.join("dri"), root.join("class"));
+        std::fs::create_dir_all(&dri).unwrap();
+        for (node, status) in [
+            ("renderD128", Some("active\n")),
+            ("renderD129", Some("suspended\n")),
+            ("renderD130", Some("unsupported\n")),
+            ("renderD131", None),
+            ("card1", Some("active\n")),
+        ] {
+            std::fs::write(dri.join(node), b"").unwrap();
+            if let Some(status) = status {
+                let power = class.join(node).join("device/power");
+                std::fs::create_dir_all(&power).unwrap();
+                std::fs::write(power.join("runtime_status"), status).unwrap();
+            }
+        }
+        let woken = super::render_nodes_awake(&dri, &class);
+        std::fs::remove_dir_all(&root).unwrap();
+        assert_eq!(woken, vec![dri.join("renderD128"), dri.join("renderD130")]);
+        assert!(super::render_nodes_awake(&root.join("absent"), &class).is_empty());
+    }
 
     /// Every `.rs` file under `directory`, with its text.
     fn sources(directory: &Path, into: &mut Vec<(String, String)>) {

@@ -1618,6 +1618,9 @@ fn encode_run(writer: &mut Writer, run: &pdf_model::popup::RichRun) {
         underline_by_word,
         line_through,
         rise,
+        letter_spacing,
+        horizontal_scale,
+        vertical_scale,
     } = run;
     writer.str(text).strings(families);
     writer.f32(size.per_base).f32(size.points);
@@ -1635,6 +1638,15 @@ fn encode_run(writer: &mut Writer, run: &pdf_model::popup::RichRun) {
         .bool(*underline_by_word)
         .bool(*line_through);
     writer.f32(rise.per_base).f32(rise.points);
+    match letter_spacing {
+        pdf_model::popup::RichSpacing::Length(length) => {
+            writer.u8(0).f32(length.per_base).f32(length.points);
+        }
+        pdf_model::popup::RichSpacing::OfSpace(share) => {
+            writer.u8(1).f32(*share);
+        }
+    }
+    writer.f32(*horizontal_scale).f32(*vertical_scale);
 }
 
 /// Reads what [`encode_rich`] wrote.
@@ -1704,6 +1716,19 @@ fn decode_run(reader: &mut Reader<'_>) -> Result<pdf_model::popup::RichRun, Prot
             per_base: reader.f32("a rich run's rise")?,
             points: reader.f32("a rich run's rise")?,
         },
+        letter_spacing: {
+            let what = "a rich run's letter spacing";
+            match reader.u8(what)? {
+                0 => pdf_model::popup::RichSpacing::Length(pdf_model::popup::Measure {
+                    per_base: reader.f32(what)?,
+                    points: reader.f32(what)?,
+                }),
+                1 => pdf_model::popup::RichSpacing::OfSpace(reader.f32(what)?),
+                value => return Err(unrecognised(what, value)),
+            }
+        },
+        horizontal_scale: reader.f32("a rich run's horizontal scale")?,
+        vertical_scale: reader.f32("a rich run's vertical scale")?,
     })
 }
 

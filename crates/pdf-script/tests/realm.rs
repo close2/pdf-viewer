@@ -440,6 +440,84 @@ fn the_constants_are_the_reference_s() {
 }
 
 #[test]
+fn the_glyph_styles_and_the_pointer_behaviours_are_the_reference_s_tables() {
+    // The "Field properties" page's six keywords, each the style's own name in its table, and the
+    // "FullScreen properties" page's three, numbered in its table's order (ADR 1652).
+    let mut realm = realm();
+    let ran = calculate(
+        &mut realm,
+        r"event.value = [style.ch, style.cr, style.di, style.ci, style.st, style.sq,
+           cursor.hidden, cursor.delay, cursor.visible].join();",
+    );
+    assert_eq!(
+        ran.value.as_deref(),
+        Some("check,cross,diamond,circle,star,square,0,1,2"),
+        "{ran:?}"
+    );
+}
+
+#[test]
+fn an_exact_match_is_of_the_whole_string_and_answers_a_position_from_one() {
+    // ADR 1652: the first pattern whose first match is the whole string, counted from one; 0 for
+    // none; one pattern is a list of one.
+    let mut realm = realm();
+    let ran = calculate(
+        &mut realm,
+        r#"var zip = [/\d{5}/, /\d{5}-\d{4}/];
+           event.value = [AFExactMatch(zip, "12345"), AFExactMatch(zip, "12345-6789"),
+           AFExactMatch(zip, "123456"), AFExactMatch(/\d+/, "42"), AFExactMatch(/\d+/, "4x"),
+           AFExactMatch(/a/g, "aa"), AFExactMatch([], "")].join();"#,
+    );
+    assert_eq!(ran.ending, Ending::Finished, "{ran:?}");
+    assert_eq!(ran.value.as_deref(), Some("1,2,0,1,0,0,0"), "{ran:?}");
+}
+
+#[test]
+fn a_name_that_matches_no_field_is_read_again_without_its_spaces_and_trailing_periods() {
+    // ADR 1652: the exact name first; only a name that matches nothing is cut, and the cut is said.
+    let mut realm = realm();
+    let ran = calculate(
+        &mut realm,
+        r#"event.value = [this.getField("Total   ").name, this.getField(" Total").name,
+           this.getField("Total.").name, this.getField("Line.1").value,
+           this.getField("Line . ").name, this.getField("None. ") === null,
+           this.getField("   ") === null].join();"#,
+    );
+    assert_eq!(ran.ending, Ending::Finished, "{ran:?}");
+    assert_eq!(
+        ran.value.as_deref(),
+        Some("Total,Total,Total,2,Line,true,true")
+    );
+    assert!(
+        ran.notes.iter().any(|note| note.contains(r#""Total   ""#)
+            && note.contains(r#"given "Total""#)
+            && note.contains("ADR 1652")),
+        "{:?}",
+        ran.notes
+    );
+    let exact = calculate(
+        &mut realm,
+        r#"event.value = this.getField("Line.1").value;"#,
+    );
+    assert!(exact.notes.is_empty(), "{:?}", exact.notes);
+}
+
+#[test]
+fn one_widget_of_a_field_is_refused_by_name_rather_than_answered_null() {
+    // The reference's `name.N` names one widget; the realm holds a field as its first widget, so
+    // the address is refused, and a name that is no field's prefix stays `null` (ADR 1652).
+    let mut realm = realm();
+    let ran = calculate(
+        &mut realm,
+        r#"var missing = this.getField("Line.3") === null; this.getField("Total.0");"#,
+    );
+    assert!(matches!(ran.ending, Ending::Threw(_)), "{ran:?}");
+    assert_eq!(ran.refusals.len(), 1, "{ran:?}");
+    assert_eq!(ran.refusals[0].member, r#"this.getField("Total.0")"#);
+    assert_eq!(ran.refusals[0].kind, RefusalKind::NotBridged);
+}
+
+#[test]
 fn an_engine_keeps_one_realm_across_its_runs() {
     let engine = Engine::new(Budget::FIELD_EVENT);
     let defined = engine.run_request(&request(

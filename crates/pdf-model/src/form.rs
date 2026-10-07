@@ -375,7 +375,8 @@ pub fn fields(document: &Document, page: &Page, view: &ViewState) -> Vec<FormFie
         return Vec::new();
     }
     let mut by_widget: BTreeMap<ObjectId, (String, usize)> = BTreeMap::new();
-    for (name, widgets) in crate::view::widgets_by_field_name(document) {
+    // The table with this page's omitted roots recovered and no other page read (ADR 1653).
+    for (name, widgets) in crate::view::widgets_on_page_by_field_name(document, &page.dict) {
         for (index, widget) in widgets.iter().enumerate() {
             by_widget.insert(*widget, (name.clone(), index));
         }
@@ -386,9 +387,10 @@ pub fn fields(document: &Document, page: &Page, view: &ViewState) -> Vec<FormFie
     for widget in on_page {
         let Some((name, index)) = by_widget.get(&widget) else {
             // A widget annotation the field tree does not reach: §12.7.4.2 makes a dictionary
-            // with no `/T` "simply a Widget annotation", and one whose `/Parent` chain leaves the
-            // form is not part of any field. It is drawn — `crate::annotation` needs no field for
-            // that — and there is nothing here for a host to control.
+            // with no `/T` "simply a Widget annotation", and one whose `/Parent` chain names no
+            // field — or whose root's `/Kids` do not answer its `/Parent` — is not part of any.
+            // It is drawn — `crate::annotation` needs no field for that — and there is nothing
+            // here for a host to control.
             continue;
         };
         let entry = grouped.entry(name.clone()).or_default();
@@ -797,6 +799,77 @@ mod tests {
 
     fn page(document: &Document) -> crate::Page {
         crate::Pages::new(document).get(0).expect("one page")
+    }
+
+    /// ADR 1653: a root `/Fields` omits, reached through a page's widget, is a field — for the
+    /// page's controls, for a value a person types, and for the whole document's table alike — and
+    /// a widget whose chain names nothing stays "simply a Widget annotation" (§12.7.4.2).
+    #[test]
+    fn a_root_the_fields_array_omits_is_recovered_from_the_page_and_a_nameless_chain_is_not() {
+        let document = document(
+            "/Fields [4 0 R]",
+            "4 0 R 6 0 R 7 0 R",
+            "4 0 obj << /Type /Annot /Subtype /Widget /Rect [10 10 200 40] /FT /Tx /T (Listed) \
+             /V (one) >> endobj\n\
+             5 0 obj << /FT /Tx /T (Omitted) /V (two) /Kids [6 0 R] >> endobj\n\
+             6 0 obj << /Type /Annot /Subtype /Widget /Parent 5 0 R /Rect [10 50 200 80] >> \
+             endobj\n\
+             7 0 obj << /Type /Annot /Subtype /Widget /Parent 8 0 R /Rect [10 90 200 120] >> \
+             endobj\n\
+             8 0 obj << /FT /Tx /V (three) /Kids [7 0 R] >> endobj\n",
+        );
+        let table = crate::view::widgets_by_field_name(&document);
+        let names: Vec<&str> = table.keys().map(String::as_str).collect();
+        assert_eq!(names, ["Listed", "Omitted"], "{table:?}");
+        let listed = crate::view::field_table(&document, crate::view::Omitted::Listed);
+        assert_eq!(
+            listed.keys().map(String::as_str).collect::<Vec<_>>(),
+            ["Listed"],
+            "the table a repaint asks first reads no page"
+        );
+        let page = page(&document);
+        assert_eq!(
+            crate::view::widgets_on_page_by_field_name(&document, &page.dict),
+            table,
+            "one page's table names the omitted root as the document's does"
+        );
+        let mut view = ViewState::of(&document);
+        let read = fields(&document, &page, &view);
+        let controls: Vec<&str> = read
+            .iter()
+            .map(|field| field.name.qualified.as_str())
+            .collect();
+        assert_eq!(controls, ["Listed", "Omitted"]);
+        assert_eq!(
+            read[1].value.as_ref().map(|shown| shown.text.as_str()),
+            Some("two")
+        );
+        assert_eq!(
+            view.set_field(
+                &document,
+                "Omitted",
+                &crate::view::Entered::Text("typed".into())
+            ),
+            1,
+            "a person's value reaches the recovered field's one widget"
+        );
+    }
+
+    /// The control for the test above: the same document with the root listed changes nothing a
+    /// reader sees, so the recovery is the array's omission and nothing else (trap 13).
+    #[test]
+    fn a_listed_root_and_an_omitted_one_read_alike() {
+        let objects = "4 0 obj << /Type /Annot /Subtype /Widget /Rect [10 10 200 40] /FT /Tx \
+                       /T (Listed) /V (one) >> endobj\n\
+                       5 0 obj << /FT /Tx /T (Omitted) /V (two) /Kids [6 0 R] >> endobj\n\
+                       6 0 obj << /Type /Annot /Subtype /Widget /Parent 5 0 R \
+                       /Rect [10 50 200 80] >> endobj\n";
+        let listed = document("/Fields [4 0 R 5 0 R]", "4 0 R 6 0 R", objects);
+        let omitted = document("/Fields [4 0 R]", "4 0 R 6 0 R", objects);
+        assert_eq!(
+            crate::view::widgets_by_field_name(&listed),
+            crate::view::widgets_by_field_name(&omitted)
+        );
     }
 
     /// §12.7.5.3's flags and Table 232's `/MaxLen`, as a host would build the control from them.

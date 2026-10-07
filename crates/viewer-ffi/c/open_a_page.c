@@ -440,6 +440,55 @@ static int say_field_string(const quorra_fields *fields, size_t field, uint32_t 
 }
 
 /*
+ * Table 172's /RC on the form's page, read as runs (ADR 1655): the paragraph's shape, then each
+ * piece's struct, its characters and its first family. Returns 1 on success.
+ */
+static int read_the_rich_note(const quorra_viewer *viewer)
+{
+    quorra_popups *popups = NULL;
+    if (!check("quorra_popups_read (rich)", quorra_popups_read(viewer, &popups))) {
+        return 0;
+    }
+    int ok = 0;
+    size_t paragraphs = 0;
+    size_t unapplied = 0;
+    quorra_rich_paragraph paragraph;
+    if (quorra_popups_len(popups) == 1
+        && check("quorra_popup_rich", quorra_popup_rich(popups, 0, 0, &paragraphs, &unapplied))
+        && check("quorra_popup_rich_paragraph",
+                 quorra_popup_rich_paragraph(popups, 0, 0, 0, &paragraph))) {
+        printf("rich: %zu paragraph(s), %zu unapplied; paragraph 0 align %u, %zu piece(s)\n",
+               paragraphs, unapplied, paragraph.align, paragraph.pieces);
+        ok = 1;
+        for (size_t piece = 0; piece < paragraph.pieces; ++piece) {
+            quorra_rich_run run;
+            char text[64] = {0};
+            char family[64] = {0};
+            size_t needed = 0;
+            if (!check("quorra_popup_rich_run", quorra_popup_rich_run(popups, 0, 0, 0, piece, &run))
+                || !check("quorra_popup_rich_text",
+                          quorra_popup_rich_text(popups, 0, 0, 0, piece, text, sizeof text,
+                                                 &needed))) {
+                ok = 0;
+                break;
+            }
+            if (run.families > 0
+                && !check("quorra_popup_rich_family",
+                          quorra_popup_rich_family(popups, 0, 0, 0, piece, 0, family,
+                                                   sizeof family, &needed))) {
+                ok = 0;
+                break;
+            }
+            printf("rich piece %zu: \"%s\" bold %d colour %.2f,%.2f,%.2f family %s spacing %.1fpt\n",
+                   piece, text, run.bold ? 1 : 0, run.colour[0], run.colour[1], run.colour[2],
+                   run.families > 0 ? family : "(the window's)", run.spacing_points);
+        }
+    }
+    quorra_popups_free(popups);
+    return ok;
+}
+
+/*
  * §12.7's form, walked and then *changed*: the one thing a C caller could not do at all before the
  * five-hundred-and-eleventh session. Returns 1 on success.
  *
@@ -462,6 +511,10 @@ static int exercise_the_form(quorra_viewer *viewer, const char *path)
     }
     free(bytes);
     quorra_events_free(events);
+
+    if (!read_the_rich_note(viewer)) {
+        return 0;
+    }
 
     quorra_fields *fields = NULL;
     if (!check("quorra_fields_read", quorra_fields_read(viewer, &fields))) {

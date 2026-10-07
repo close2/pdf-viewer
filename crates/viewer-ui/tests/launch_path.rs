@@ -791,7 +791,7 @@ fn phase_bring_up() {
 }
 
 /// The device thread's own steps, as the child's fields: each one's duration as raster and the
-/// host timed it, in milliseconds, and `-` for a step this host did not make (ADR 1569).
+/// host timed it, in milliseconds, and `-` for a step this host did not make (ADRs 1569, 1658).
 ///
 /// They happen in this order and nothing else on the thread is between them but the device's
 /// assembly — its pipeline store, the warm-up thread's spawn, a sampler and the timestamp query
@@ -800,6 +800,17 @@ fn device_steps(backend: &QuorraRasterizer) -> Vec<(&'static str, String)> {
     let ms = |duration: Duration| format!("{:.3}", duration.as_secs_f64() * 1e3);
     let (launch, device) = backend.startup();
     vec![
+        (
+            "device_wake_ms",
+            launch.map_or_else(|| "-".to_owned(), |steps| ms(steps.render_node_wake)),
+        ),
+        (
+            "device_nodes_woken",
+            launch.map_or_else(
+                || "-".to_owned(),
+                |steps| steps.render_nodes_opened.to_string(),
+            ),
+        ),
         (
             "device_instance_ms",
             launch.map_or_else(|| "-".to_owned(), |steps| ms(steps.instance_creation)),
@@ -1576,6 +1587,10 @@ fn print_timeline(fields: &Fields) {
         ("opened_ms", "document opened (document thread)"),
         ("anticipated_ms", "page one interpreted (document thread)"),
         (
+            "device_wake_at",
+            "render nodes opened and closed (device thread)",
+        ),
+        (
             "device_instance_at",
             "graphics instance made (device thread)",
         ),
@@ -1639,6 +1654,7 @@ fn device_thread_instants(fields: &Fields) -> Vec<(&'static str, f64)> {
     let mut at = 0.0;
     let mut instants = Vec::new();
     for (step, key) in [
+        ("device_wake_at", "device_wake_ms"),
         ("device_instance_at", "device_instance_ms"),
         ("device_check_at", "device_check_ms"),
         ("device_adapter_at", "device_adapter_ms"),
@@ -1730,6 +1746,7 @@ fn script_worker_is_here() -> bool {
 fn print_device_thread(fields: &Fields) {
     let at = |key: &str| field(fields, key);
     let named = [
+        "device_wake_ms",
         "device_instance_ms",
         "device_check_ms",
         "device_adapter_ms",
@@ -1740,8 +1757,9 @@ fn print_device_thread(fields: &Fields) {
     .sum::<f64>();
     let shown = |key: &str| at(key).map_or_else(|| "-".to_owned(), |value| format!("{value:.1}"));
     println!(
-        "launch-path:   the device thread: instance {} + adapter check {} + adapter {} + \
-         request_device {} + the device's assembly and the host's {:.1} ms",
+        "launch-path:   the device thread: render-node wake {} + instance {} + adapter check {} + \
+         adapter {} + request_device {} + the device's assembly and the host's {:.1} ms",
+        shown("device_wake_ms"),
         shown("device_instance_ms"),
         shown("device_check_ms"),
         shown("device_adapter_ms"),

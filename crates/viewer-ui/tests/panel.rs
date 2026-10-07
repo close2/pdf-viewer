@@ -1200,6 +1200,9 @@ fn a_rich_note_is_drawn_in_the_colour_its_run_states() {
         underline_by_word: false,
         line_through: false,
         rise: pdf_model::popup::Measure::default(),
+        letter_spacing: pdf_model::popup::RichSpacing::default(),
+        horizontal_scale: 1.0,
+        vertical_scale: 1.0,
     };
     rich.rich = Some(pdf_model::popup::RichNote {
         paragraphs: vec![pdf_model::popup::RichParagraph {
@@ -1234,6 +1237,183 @@ fn a_rich_note_is_drawn_in_the_colour_its_run_states() {
     assert!(
         ink(&drawn(std::slice::from_ref(&rich)), 55..145) > 100,
         "and the rest is drawn"
+    );
+}
+
+/// Where a colour lies across a band: the leftmost and rightmost columns holding a strong pixel of
+/// it, `channel` 0 for red and 2 for blue, or `None` where none does.
+fn columns(
+    panel: &pdf_render::DisplayList,
+    rows: std::ops::Range<u32>,
+    channel: usize,
+) -> Option<(u32, u32)> {
+    let raster = CpuRasterizer::new()
+        .rasterize(
+            panel,
+            TargetSpec {
+                width: WIDTH,
+                height: HEIGHT,
+                transform: Transform::IDENTITY,
+            },
+        )
+        .expect("the window is paths and nothing else");
+    let strong = |pixel: &[u8]| {
+        (0..3).all(|at| {
+            let value = pixel.get(at).copied().unwrap_or(0);
+            if at == channel {
+                value > 180
+            } else {
+                value < 90
+            }
+        })
+    };
+    let hits: Vec<u32> = rows
+        .flat_map(|y| (0..WIDTH).map(move |x| (x, ((y * WIDTH + x) * 4) as usize)))
+        .filter(|&(_, at)| raster.data.get(at..at + 3).is_some_and(strong))
+        .map(|(x, _)| x)
+        .collect();
+    Some((*hits.iter().min()?, *hits.iter().max()?))
+}
+
+/// A rich note of one paragraph, each run `(text, families, colour)`, everything else unstyled.
+fn rich_note(
+    runs: &[(&str, &[&str], pdf_render::Color)],
+    shape: impl Fn(&mut pdf_model::popup::RichRun),
+) -> viewer_core::PopupWindow {
+    let mut note = window("unused", Some("author"));
+    note.rich = Some(pdf_model::popup::RichNote {
+        paragraphs: vec![pdf_model::popup::RichParagraph {
+            align: None,
+            level: 0,
+            tag: None,
+            runs: runs
+                .iter()
+                .map(|(text, families, colour)| {
+                    let mut run = pdf_model::popup::RichRun {
+                        text: (*text).to_owned(),
+                        families: families.iter().map(|name| (*name).to_owned()).collect(),
+                        size: pdf_model::popup::Measure {
+                            per_base: 1.0,
+                            points: 0.0,
+                        },
+                        bold: false,
+                        italic: false,
+                        colour: Some(*colour),
+                        underlines: 0,
+                        underline_by_word: false,
+                        line_through: false,
+                        rise: pdf_model::popup::Measure::default(),
+                        letter_spacing: pdf_model::popup::RichSpacing::default(),
+                        horizontal_scale: 1.0,
+                        vertical_scale: 1.0,
+                    };
+                    shape(&mut run);
+                    run
+                })
+                .collect(),
+        }],
+        unapplied: Vec::new(),
+    });
+    note
+}
+
+const RED: pdf_render::Color = pdf_render::Color {
+    r: 1.0,
+    g: 0.0,
+    b: 0.0,
+    a: 1.0,
+};
+const BLUE: pdf_render::Color = pdf_render::Color {
+    r: 0.0,
+    g: 0.0,
+    b: 1.0,
+    a: 1.0,
+};
+
+/// How wide a colour's ink is across the body of a window.
+fn red_width(chrome: &Chrome, note: &viewer_core::PopupWindow) -> u32 {
+    let list =
+        viewer_ui::chrome::popup_windows(chrome, std::slice::from_ref(note), WIDTH, HEIGHT, 1.0)
+            .expect("one window is drawn");
+    let (from, to) = columns(&list, 50..150, 0).expect("the run is drawn red");
+    to - from
+}
+
+/// A run is set in the family its `font-family` names (ADR 1654): Courier advances every `i` six
+/// tenths of an em and Helvetica two-ninths, §9.6.2.2's own metrics, so the same letters in Courier
+/// are more than twice as wide.
+#[test]
+fn a_rich_run_is_set_in_the_face_its_family_names() {
+    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    let narrow = red_width(
+        &chrome,
+        &rich_note(&[("iiiiiiii", &["Helvetica"], RED)], |_| {}),
+    );
+    let wide = red_width(
+        &chrome,
+        &rich_note(&[("iiiiiiii", &["Courier"], RED)], |_| {}),
+    );
+    assert!(
+        wide > narrow * 2,
+        "Courier {wide} px against Helvetica {narrow} px"
+    );
+}
+
+/// Two runs of one right-to-left paragraph are ordered across the runs by UAX #9 (ADR 1654): the
+/// run stored first is read first, so it stands to the right of the one after it.
+#[test]
+fn a_right_to_left_paragraph_is_ordered_across_its_runs() {
+    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    chrome.settle();
+    let note = rich_note(
+        &[
+            ("\u{5e9}\u{5dc}\u{5d5}\u{5dd} ", &[], RED),
+            ("\u{5e2}\u{5d5}\u{5dc}\u{5dd}", &[], BLUE),
+        ],
+        |_| {},
+    );
+    let draw = || {
+        viewer_ui::chrome::popup_windows(&chrome, std::slice::from_ref(&note), WIDTH, HEIGHT, 1.0)
+            .expect("one window is drawn")
+    };
+    drop(draw());
+    chrome.settle();
+    let list = draw();
+    let (red_from, _) = columns(&list, 50..150, 0).expect("the first run is drawn red");
+    let (_, blue_to) = columns(&list, 50..150, 2).expect("the second run is drawn blue");
+    assert!(
+        blue_to < red_from,
+        "blue ends at {blue_to}, left of red from {red_from}"
+    );
+}
+
+/// `letter-spacing` widens a run by its spacing after every glyph, and a horizontal scale by its
+/// factor, as a field's appearance sets them (ADR 1654).
+#[test]
+fn a_runs_letter_spacing_and_horizontal_scale_are_drawn() {
+    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    let plain = red_width(&chrome, &rich_note(&[("HHHH", &[], RED)], |_| {}));
+    let spaced = red_width(
+        &chrome,
+        &rich_note(&[("HHHH", &[], RED)], |run| {
+            run.letter_spacing = pdf_model::popup::RichSpacing::Length(pdf_model::popup::Measure {
+                per_base: 0.0,
+                points: 6.0,
+            });
+        }),
+    );
+    let scaled = red_width(
+        &chrome,
+        &rich_note(&[("HHHH", &[], RED)], |run| run.horizontal_scale = 2.0),
+    );
+    // Three gaps of six points, eight pixels each at 96 to the inch.
+    assert!(
+        spaced >= plain + 20,
+        "spaced {spaced} px against {plain} px"
+    );
+    assert!(
+        scaled * 10 >= plain * 18,
+        "scaled {scaled} px against {plain} px"
     );
 }
 

@@ -10,8 +10,9 @@ Every rule below is an incident with an argument, and the argument is in the sec
 names; a round reads this block, and opens the section only where a line bites (ADR 1639).
 
 - **One heavy walk on the machine at a time**, in the foreground, and you wait in it:
-  `ulimit -u 8192; RAYON_NUM_THREADS=4 flock /home/AI/heavy-walk.lock tools/bounded.sh --tree 12 -- <command>`;
-  `--data` never above 12 GiB; a corpus gate rebuilds `pdf-sandbox --bins` for its profile inside
+  `ulimit -u 8192; RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --tree 12 -- <command>`,
+  the wrapper taking the lock so that the wait is a line of `/home/AI/heavy-walk.log` — never a bare
+  `flock`, which is on no line (ADR 1646); `--data` never above 12 GiB; a corpus gate rebuilds `pdf-sandbox --bins` for its profile inside
   the lock (trap 109); never a tool that forks per package or per input without the bound (trap 116).
   `cargo test -p conformance` and crate-scoped unit tests are not walks.
 - **No `git stash`, no `git checkout -- .`, no `git restore .`, no `git add -A` or `-u`, no

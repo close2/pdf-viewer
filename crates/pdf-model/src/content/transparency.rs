@@ -1955,6 +1955,7 @@ pub(super) fn implicit_knockout_group(
     seen: AlphaSourcesSeen,
     enclosing: Option<KnockoutKind>,
     shape_masks: &ShapeMasks,
+    one_colour: &mut OneColour,
 ) -> Option<ImplicitKnockout> {
     let alpha = seen.settled_over(commands)?;
     // §11.4.6's NOTE 6 first, because where it applies it decides everything: this group is a
@@ -1992,7 +1993,7 @@ pub(super) fn implicit_knockout_group(
                 isolated: true,
             });
         }
-        if let Some(blend) = blend_at_the_do(commands) {
+        if let Some(blend) = blend_at_the_do(commands, one_colour) {
             let stripped = commands
                 .iter()
                 .map(without_blend)
@@ -2086,7 +2087,7 @@ fn transparent_knockout_elements(
 /// on both sides of the equality, the same collapse ADR 0237 derived, so the condition is
 /// unchanged. The mode at that `Do` has to be Normal — the caller's condition — because the
 /// cancellation is the Normal blend function's.
-fn blend_at_the_do(commands: &[Command]) -> Option<BlendMode> {
+fn blend_at_the_do(commands: &[Command], one_colour: &mut OneColour) -> Option<BlendMode> {
     let mut shared = None;
     let mut coloured = Vec::with_capacity(commands.len());
     for command in commands {
@@ -2101,8 +2102,39 @@ fn blend_at_the_do(commands: &[Command]) -> Option<BlendMode> {
         }
     }
     let blend = shared?;
-    (affine_in_the_source(blend) || coloured.len() == 1 || one_solid_colour(&coloured))
-        .then_some(blend)
+    (affine_in_the_source(blend)
+        || coloured.len() == 1
+        || (one_solid_colour(&coloured) && one_colour.admits()))
+    .then_some(blend)
+}
+
+/// Whether [`blend_at_the_do`] may rest on `C₁ = C₂`, and how many times it has.
+///
+/// The derivation's equality is between colours in the group's colour space, and a group
+/// compositing in a press is one content stream run once per plane (§11.4.7, ADR 0272): the
+/// chromatic run compares the three components it carries and the black run the one it carries.
+/// So two parts stating `0 0 0 0.3 k` and `0 0 0 0.7 k` are one colour to the first run and two
+/// to the second, the runs take different constructions, and the pair no longer pairs.
+/// `Interpreter::black_half` counts the admissions across a pair's runs and, where the runs
+/// parted after one, runs both again with the admission refused — so each half takes the same
+/// construction, one the derivation holds for whatever the colours are (ADR 1657).
+#[derive(Debug, Default)]
+pub(super) struct OneColour {
+    /// Whether the admission is refused, which only a pair's second attempt sets.
+    refused: bool,
+    /// How many times the admission has been made in this interpretation.
+    admitted: usize,
+}
+
+impl OneColour {
+    /// Whether one solid colour admits the move here, counting it where it does.
+    fn admits(&mut self) -> bool {
+        if self.refused {
+            return false;
+        }
+        self.admitted = self.admitted.saturating_add(1);
+        true
+    }
 }
 
 /// Whether an element of a knockout group can contribute colour to the group's accumulation
@@ -2326,6 +2358,11 @@ struct KnockoutConstruction {
 /// [`Interpreter::group_press`] admit a knockout group at all. Where the black half will not
 /// take the same rewrite the group falls to the flat drawing with the report §11.4.6 already
 /// had, which is the answer it had before the pair existed.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "§11.4.6's inputs as the caller holds them; the last is the interpreter's one-colour \
+              admission, which a pair's second attempt refuses (ADR 1657)"
+)]
 fn knockout_construction(
     group: &TransparencyGroup,
     commands: Vec<Command>,
@@ -2334,6 +2371,7 @@ fn knockout_construction(
     enclosing: Option<KnockoutKind>,
     outer_blend: BlendMode,
     shape_masks: &ShapeMasks,
+    one_colour: &mut OneColour,
 ) -> KnockoutConstruction {
     // Whether §11.4.6's rule can change a pixel of this group, which decides whether its
     // initial backdrop and §11.4.4's immediate one are the same thing. Asked of the file's
@@ -2391,7 +2429,7 @@ fn knockout_construction(
         let mode = if nested_non_isolated || outer_blend != BlendMode::Normal {
             None
         } else {
-            blend_at_the_do(&construction.commands)
+            blend_at_the_do(&construction.commands, one_colour)
         };
         let moved = mode.is_some()
             && commit_knockout(&mut construction, |commands| {
@@ -2916,35 +2954,83 @@ impl<'a> Interpreter<'a> {
     /// Given up, each with the report or record it always had, where nothing composites in
     /// the group (an opaque Normal mark carries its colour through whatever space it is
     /// carried through), where a group inside changed the space with something compositing in
-    /// it and could not be drawn there, and where the two runs drew different structures,
-    /// which no valid content stream does and is therefore checked rather than assumed.
+    /// it and could not be drawn there, and where the two runs drew different structures.
+    ///
+    /// **Two runs of a valid content stream can draw different structures**, and the one way
+    /// this tree knows is [`blend_at_the_do`]'s one solid colour: each run compares only its
+    /// own plane's components, so a `B` filling `0 0 0 0.3 k` and stroking `0 0 0 0.7 K` under
+    /// `/BM /Darken` is one colour to the chromatic run and two to the black one. Where the
+    /// runs parted after that admission was made (`admitted` is the count before the
+    /// chromatic run), both are run again with it refused, which puts both halves on the
+    /// construction that holds whatever the colours are, and `chromatic` becomes the first of
+    /// the two — the readback of the first chromatic run stands and the reruns' is rewound,
+    /// because what a reader gets out of the page does not depend on a construction (ADR 1657).
+    /// The comparison is still checked rather than assumed, for whatever else could part them.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the group's run as the caller holds it: its body, the press, both compositing \
+                  targets, the chromatic list to replace and the count to compare"
+    )]
     fn black_half(
         &mut self,
         press: &Arc<Press>,
+        own: &Compositing,
         body: &GroupBody<'_, 'a>,
         resources: &Dictionary,
         inner: &GraphicsState,
         mark: usize,
-        chromatic: &[Command],
+        chromatic: &mut Vec<Command>,
+        admitted: usize,
     ) -> Option<pdf_render::GroupBlending> {
         if self.nested_space_departed || !any_command(chromatic, &command_composites) {
             return None;
         }
-        let rewind = self.readback_mark();
-        let spots = self.spots_beside.clone();
-        let saved = std::mem::replace(
-            &mut self.compositing,
-            Compositing::Subtractive(crate::colour::Plane::Black, Arc::clone(press), spots),
+        let black_plane = Compositing::Subtractive(
+            crate::colour::Plane::Black,
+            Arc::clone(press),
+            self.spots_beside.clone(),
         );
+        let rewind = self.readback_mark();
+        let black = self.run_group_in(&black_plane, body, resources, inner, mark);
+        self.rewind_readback(rewind);
+        let pair = |black| pdf_render::GroupBlending::FourComponents {
+            space: press.blending_space(),
+            black,
+        };
+        if paired(chromatic, &black) {
+            return Some(pair(black));
+        }
+        if self.one_colour.refused || self.one_colour.admitted == admitted {
+            return None;
+        }
+        self.one_colour.refused = true;
+        let rewind = self.readback_mark();
+        let again = self.run_group_in(own, body, resources, inner, mark);
+        let black = self.run_group_in(&black_plane, body, resources, inner, mark);
+        self.rewind_readback(rewind);
+        self.one_colour.refused = false;
+        if !paired(&again, &black) {
+            return None;
+        }
+        *chromatic = again;
+        Some(pair(black))
+    }
+
+    /// One run of a group's content compositing in `compositing`, its elements split off the
+    /// list at `mark`, with the reading scope restarted for it and `self.compositing` put back.
+    fn run_group_in(
+        &mut self,
+        compositing: &Compositing,
+        body: &GroupBody<'_, 'a>,
+        resources: &Dictionary,
+        inner: &GraphicsState,
+        mark: usize,
+    ) -> Vec<Command> {
+        let saved = std::mem::replace(&mut self.compositing, compositing.clone());
         self.restart_reading_scope(inner.alpha_is_shape, mark);
         self.run_group_body(body, resources, inner);
         self.compositing = saved;
-        self.rewind_readback(rewind);
-        let black = self.list.split_off_commands(mark);
-        paired(chromatic, &black).then(|| pdf_render::GroupBlending::FourComponents {
-            space: press.blending_space(),
-            black,
-        })
+        self.list.split_off_commands(mark)
     }
 
     /// The conversion a group drawn in `own` carries out to the backend, composed with the
@@ -3059,9 +3145,11 @@ impl<'a> Interpreter<'a> {
     ///   not read.
     ///
     /// A third gives it up after the fact: two interpretations that drew different structures
-    /// are not a pair, because the halves are resolved together per pixel. No valid content
-    /// stream does that — the two runs differ only in what a colour resolved to — which is why
-    /// it is checked rather than assumed.
+    /// are not a pair, because the halves are resolved together per pixel. A valid content
+    /// stream can do that where a construction rests on a colour comparison each run makes on
+    /// its own plane, which is [`blend_at_the_do`]'s one solid colour; where the runs parted
+    /// after that admission (`admitted` is the count before the first run), both are run again
+    /// with it refused, as [`Interpreter::black_half`] does for a group's pair (ADR 1657).
     fn mask_halves(
         &mut self,
         request: &crate::soft_mask::SoftMaskRequest,
@@ -3069,6 +3157,7 @@ impl<'a> Interpreter<'a> {
         resources: &Dictionary,
         inner: &GraphicsState,
         mark: usize,
+        admitted: usize,
     ) -> (Vec<Command>, Option<pdf_render::BlackHalf>) {
         let commands = self.list.split_off_commands(mark);
         let (Some(backdrop), Compositing::Subtractive(_, press, _)) =
@@ -3095,23 +3184,17 @@ impl<'a> Interpreter<'a> {
                     .to_owned(),
             );
         }
-        let rewind = self.readback_mark();
-        let saved = std::mem::replace(
-            &mut self.compositing,
-            // A mask group carries no spot plane: §11.7.3's "spot colours shall not be
-            // available in a transparency group XObject that is used to define a soft mask".
-            Compositing::Subtractive(
-                crate::colour::Plane::Black,
-                press,
-                crate::colour::DeviceSpots::default(),
-            ),
+        // A mask group carries no spot plane: §11.7.3's "spot colours shall not be available in a
+        // transparency group XObject that is used to define a soft mask".
+        let black_plane = Compositing::Subtractive(
+            crate::colour::Plane::Black,
+            press,
+            crate::colour::DeviceSpots::default(),
         );
-        self.restart_reading_scope(inner.alpha_is_shape, mark);
-        self.run(content, resources, inner);
-        self.compositing = saved;
+        let rewind = self.readback_mark();
+        let black = self.mask_run_in(&black_plane, content, resources, inner, mark);
         self.rewind_readback(rewind);
-        let black = self.list.split_off_commands(mark);
-        if paired(&commands, &black) {
+        let halves = |commands, black| {
             (
                 commands,
                 Some(pdf_render::BlackHalf {
@@ -3119,15 +3202,46 @@ impl<'a> Interpreter<'a> {
                     backdrop,
                 }),
             )
-        } else {
-            on_device(
-                self,
-                "a soft mask's group states a four-component ICCBased /CS and its two \
-                 interpretations drew different structures, so §11.5.3's Y of the four \
-                 composited components cannot be read off the pair (§11.3.4, §11.4.7)"
-                    .to_owned(),
-            )
+        };
+        if paired(&commands, &black) {
+            return halves(commands, black);
         }
+        if !self.one_colour.refused && self.one_colour.admitted != admitted {
+            self.one_colour.refused = true;
+            let rewind = self.readback_mark();
+            let chromatic = self.compositing.clone();
+            let again = self.mask_run_in(&chromatic, content, resources, inner, mark);
+            let black = self.mask_run_in(&black_plane, content, resources, inner, mark);
+            self.rewind_readback(rewind);
+            self.one_colour.refused = false;
+            if paired(&again, &black) {
+                return halves(again, black);
+            }
+        }
+        on_device(
+            self,
+            "a soft mask's group states a four-component ICCBased /CS and its two \
+             interpretations drew different structures, so §11.5.3's Y of the four \
+             composited components cannot be read off the pair (§11.3.4, §11.4.7)"
+                .to_owned(),
+        )
+    }
+
+    /// One run of a soft mask's group compositing in `compositing`, its elements split off the
+    /// list at `mark`, with the reading scope restarted for it and `self.compositing` put back.
+    fn mask_run_in(
+        &mut self,
+        compositing: &Compositing,
+        content: &NestedContent,
+        resources: &Dictionary,
+        inner: &GraphicsState,
+        mark: usize,
+    ) -> Vec<Command> {
+        let saved = std::mem::replace(&mut self.compositing, compositing.clone());
+        self.restart_reading_scope(inner.alpha_is_shape, mark);
+        self.run(content, resources, inner);
+        self.compositing = saved;
+        self.list.split_off_commands(mark)
     }
 
     /// Puts a soft mask's group's compositing in force, with no spot colourant beside it —
@@ -3340,6 +3454,7 @@ impl<'a> Interpreter<'a> {
         // resolved — and the ledger needs the route more than the object: a soft mask's group
         // is the construct the survey does not walk, so nothing under it is compared.
         self.enter_ledger_frame(super::ledger::Route::SoftMask, None);
+        let admitted = self.one_colour.admitted;
         self.run(&content, &group_resources, &inner);
         // §11.4.7's second raster, where the mask group's blending colour space has four
         // components: the same content stream interpreted again in the black component, with
@@ -3354,7 +3469,7 @@ impl<'a> Interpreter<'a> {
         // carried in. A mask's four components are converted to *one number* by §11.5.3's
         // `Y`, which is a function of all four however opaque the marks are.
         let (mut commands, mut black) =
-            self.mask_halves(request, &content, &group_resources, &inner, mark);
+            self.mask_halves(request, &content, &group_resources, &inner, mark, admitted);
         self.leave_ledger_frame();
         self.base = saved_base;
         self.nested_space_departed = saved_departed;
@@ -3627,6 +3742,7 @@ impl<'a> Interpreter<'a> {
             enclosing,
             outer.blend,
             self.image_masks.shape_masks(),
+            &mut self.one_colour,
         );
         // §11.4.4's own model, for the group NOTE 5 could not flatten: the elements
         // composite onto the backdrop the group is painted over, and the display list says
@@ -3793,6 +3909,7 @@ impl<'a> Interpreter<'a> {
         if let Some(own) = &own {
             self.compositing = own.clone();
         }
+        let admitted = self.one_colour.admitted;
         self.run_group_body(body, resources, inner);
         self.compositing = saved.clone();
         let mut commands = self.list.split_off_commands(mark);
@@ -3809,7 +3926,16 @@ impl<'a> Interpreter<'a> {
             // enclosing run reads.
             let drawn = match own {
                 Compositing::Subtractive(_, press, _) => self
-                    .black_half(press, body, resources, inner, mark, &commands)
+                    .black_half(
+                        press,
+                        own,
+                        body,
+                        resources,
+                        inner,
+                        mark,
+                        &mut commands,
+                        admitted,
+                    )
                     .map_or(OwnSpaceRun::GivenUp, |pair| OwnSpaceRun::Drawn(Some(pair))),
                 // A group inside changed the space with something compositing in it and
                 // could not be drawn there, so its `Do` owes a conversion no list here
@@ -4757,6 +4883,7 @@ mod tests {
             AlphaSourcesSeen::Opacity,
             Some(KnockoutKind::Isolated),
             &ShapeMasks::default(),
+            &mut super::OneColour::default(),
         )
         .expect("a masked pair is drawable");
         assert!(
@@ -4839,6 +4966,7 @@ mod tests {
             AlphaSourcesSeen::Opacity,
             Some(KnockoutKind::Isolated),
             &ShapeMasks::default(),
+            &mut super::OneColour::default(),
         )
         .expect("an image states the shape its raster names");
         assert!(
@@ -4882,6 +5010,7 @@ mod tests {
             opacity,
             None,
             &ShapeMasks::default(),
+            &mut super::OneColour::default(),
         )
         .expect("Multiply is affine in its source");
         assert!(multiply.isolated);
@@ -4903,16 +5032,26 @@ mod tests {
                 None,
             ),
         ];
-        let difference =
-            implicit_knockout_group(&same_colour, opacity, None, &ShapeMasks::default())
-                .expect("one colour under any mode is one colour after averaging");
+        let difference = implicit_knockout_group(
+            &same_colour,
+            opacity,
+            None,
+            &ShapeMasks::default(),
+            &mut super::OneColour::default(),
+        )
+        .expect("one colour under any mode is one colour after averaging");
         assert!(difference.isolated);
         assert_eq!(difference.blend, BlendMode::Difference);
 
         let differing = two_parts(BlendMode::Difference);
-        let own_backdrop =
-            implicit_knockout_group(&differing, opacity, None, &ShapeMasks::default())
-                .expect("§11.4.6's own backdrop draws what the move cannot");
+        let own_backdrop = implicit_knockout_group(
+            &differing,
+            opacity,
+            None,
+            &ShapeMasks::default(),
+            &mut super::OneColour::default(),
+        )
+        .expect("§11.4.6's own backdrop draws what the move cannot");
         assert!(!own_backdrop.isolated);
         assert_eq!(own_backdrop.blend, BlendMode::Normal);
         assert!(
@@ -4933,6 +5072,7 @@ mod tests {
             opacity,
             Some(KnockoutKind::Isolated),
             &ShapeMasks::default(),
+            &mut super::OneColour::default(),
         )
         .expect("an isolated knockout group hands its element a transparent backdrop");
         assert!(inside_isolated.isolated);
@@ -4946,6 +5086,7 @@ mod tests {
             opacity,
             Some(KnockoutKind::NonIsolated),
             &ShapeMasks::default(),
+            &mut super::OneColour::default(),
         )
         .expect("a non-isolated knockout group hands its element the initial backdrop");
         assert!(!inside_non_isolated.isolated);
@@ -4958,7 +5099,8 @@ mod tests {
                 &differing,
                 AlphaSourcesSeen::Mixed,
                 None,
-                &ShapeMasks::default()
+                &ShapeMasks::default(),
+                &mut super::OneColour::default()
             )
             .is_none(),
             "content painted under both readings of /AIS has no one shape to state"
@@ -4982,6 +5124,7 @@ mod tests {
             AlphaSourcesSeen::Opacity,
             None,
             &ShapeMasks::default(),
+            &mut super::OneColour::default(),
         )
         .expect("Multiply moves to the Do");
         let grouped = render(vec![group_of(answer)]);
@@ -5039,6 +5182,7 @@ mod tests {
             AlphaSourcesSeen::Opacity,
             None,
             &ShapeMasks::default(),
+            &mut super::OneColour::default(),
         )
         .expect("§11.4.6's own backdrop");
         assert!(!answer.isolated);
@@ -5092,6 +5236,7 @@ mod tests {
             AlphaSourcesSeen::Opacity,
             None,
             &ShapeMasks::default(),
+            &mut super::OneColour::default(),
         )
         .expect("one coloured part under any mode moves it to the Do");
         assert!(answer.isolated);
@@ -5114,17 +5259,26 @@ mod tests {
             blending: None,
         };
         assert_eq!(
-            super::blend_at_the_do(&[nested(true), parts[1].clone()]),
+            super::blend_at_the_do(
+                &[nested(true), parts[1].clone()],
+                &mut super::OneColour::default()
+            ),
             Some(BlendMode::Color),
             "an isolated nested group is one coloured element under its own Do's mode"
         );
         assert_eq!(
-            super::blend_at_the_do(&[nested(false), parts[1].clone()]),
+            super::blend_at_the_do(
+                &[nested(false), parts[1].clone()],
+                &mut super::OneColour::default()
+            ),
             None,
             "a non-isolated one is seeded differently under the two constructions"
         );
         assert_eq!(
-            super::blend_at_the_do(&two_parts(BlendMode::Difference)),
+            super::blend_at_the_do(
+                &two_parts(BlendMode::Difference),
+                &mut super::OneColour::default()
+            ),
             None,
             "two coloured parts under a mode that is not affine still cannot move it"
         );
@@ -5175,7 +5329,8 @@ mod tests {
             BlendMode::Normal,
             false,
         )]);
-        let mode = super::blend_at_the_do(&parts).expect("one coloured part");
+        let mode = super::blend_at_the_do(&parts, &mut super::OneColour::default())
+            .expect("one coloured part");
         let stripped = parts
             .iter()
             .map(super::without_blend)
@@ -6462,6 +6617,7 @@ mod tests {
             AlphaSourcesSeen::Mixed,
             None,
             &ShapeMasks::default(),
+            &mut super::OneColour::default(),
         )
         .expect("content described by both readings is drawn");
         assert!(answer.isolated);
@@ -6496,8 +6652,14 @@ mod tests {
             "a bare constant is the input the flag reinterprets"
         );
         assert!(
-            implicit_knockout_group(&bare, AlphaSourcesSeen::Mixed, None, &ShapeMasks::default())
-                .is_none(),
+            implicit_knockout_group(
+                &bare,
+                AlphaSourcesSeen::Mixed,
+                None,
+                &ShapeMasks::default(),
+                &mut super::OneColour::default()
+            )
+            .is_none(),
             "content painted under both readings of a stated constant has no one shape"
         );
     }

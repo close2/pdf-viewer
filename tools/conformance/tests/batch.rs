@@ -38,6 +38,10 @@
 //! - `arms` exports HEAD's six corpus arms only from a worktree holding nothing uncommitted, into
 //!   the directory the branch's first session names, and never over another commit's export
 //!   (ADR 1650).
+//! - `open` returns while the warm build and the arms export it started still run, each in a
+//!   session of its own holding none of the caller's descriptors; the export's hold of the
+//!   heavy-walk lock is a line of the lock's log; and `gates` reads its two clocks off the
+//!   wrapper's last line, which says them (ADR 1662).
 
 #![expect(
     clippy::expect_used,
@@ -66,6 +70,11 @@ struct Sandbox {
     debug_rule_kib: Option<u64>,
     /// What `open` printed.
     opened: String,
+    /// Whether `open` finds a workspace and starts its two detached jobs, with a stand-in `cargo`
+    /// on the path that only sleeps and a heavy-walk lock of the sandbox's own.
+    detaching: bool,
+    /// The process groups `open` detached, stopped by pid when the sandbox goes.
+    detached: Vec<String>,
 }
 
 impl Sandbox {
@@ -75,16 +84,28 @@ impl Sandbox {
 
     /// As [`Sandbox::new`], with `files` committed on `main` before the batch opens.
     fn with_files(name: &str, files: &[(&str, &str)]) -> Self {
-        Self::build(name, files, None)
+        Self::build(name, files, None, false)
+    }
+
+    /// As [`Sandbox::new`], on a branch that names its first session, with a workspace manifest
+    /// committed, so that `open` starts the warm build and the arms export; both run the stand-in
+    /// `cargo`, which sleeps for [`STAND_IN_SECONDS`].
+    fn detaching(name: &str) -> Self {
+        Self::build(name, &[("Cargo.toml", "[workspace]\n")], None, true)
     }
 
     /// As [`Sandbox::new`], with `planted_kib` of real bytes in the build directory's `debug`
     /// before the batch opens and `rule_kib` as the rule it is read against.
     fn with_debug_tree(name: &str, planted_kib: usize, rule_kib: u64) -> Self {
-        Self::build(name, &[], Some((planted_kib, rule_kib)))
+        Self::build(name, &[], Some((planted_kib, rule_kib)), false)
     }
 
-    fn build(name: &str, files: &[(&str, &str)], debug: Option<(usize, u64)>) -> Self {
+    fn build(
+        name: &str,
+        files: &[(&str, &str)],
+        debug: Option<(usize, u64)>,
+        detaching: bool,
+    ) -> Self {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |elapsed| elapsed.as_nanos());
@@ -95,7 +116,28 @@ impl Sandbox {
             base,
             debug_rule_kib: debug.map(|(_, rule)| rule),
             opened: String::new(),
+            detaching,
+            detached: Vec::new(),
         };
+        if detaching {
+            std::fs::create_dir_all(sandbox.base.join("bin"))
+                .expect("a directory for the stand-in");
+            let cargo = sandbox.base.join("bin/cargo");
+            std::fs::write(
+                &cargo,
+                format!("#!/bin/sh\nexec sleep {STAND_IN_SECONDS}\n"),
+            )
+            .expect("the stand-in cargo");
+            let made_executable = Command::new("chmod")
+                .arg("+x")
+                .arg(&cargo)
+                .status()
+                .is_ok_and(|status| status.success());
+            assert!(
+                made_executable,
+                "the stand-in cargo could not be made executable"
+            );
+        }
         if let Some((planted, _)) = debug {
             let tree = sandbox.target().join("debug/deps");
             std::fs::create_dir_all(&tree).expect("a planted debug tree");
@@ -122,7 +164,12 @@ impl Sandbox {
         sandbox.git(&sandbox.repo(), &["init", "-q", "-b", "main"]);
         sandbox.git(&sandbox.repo(), &["add", "-A"]);
         sandbox.git(&sandbox.repo(), &["commit", "-q", "-m", "base"]);
-        let opened = sandbox.batch(&["open", "batch-test"]);
+        let branch = if detaching {
+            "batch-9001-9006"
+        } else {
+            "batch-test"
+        };
+        let opened = sandbox.batch(&["open", branch]);
         assert!(opened.status.success(), "open failed: {}", text(&opened));
         sandbox.opened = text(&opened);
         sandbox
@@ -147,8 +194,6 @@ impl Sandbox {
         command
             .current_dir(directory)
             .env("BATCH_WORKTREE", self.worktree())
-            // `open` warms a workspace it finds; a throwaway one is built by the test that needs it.
-            .env("BATCH_WARM", "0")
             .env("BATCH_TARGET_DIR", self.target())
             // The throwaway workspace names its own build directory; an inherited one would put a
             // stand-in called `quorra` beside the real one.
@@ -163,7 +208,28 @@ impl Sandbox {
         if let Some(rule) = self.debug_rule_kib {
             command.env("BATCH_DEBUG_RULE_KIB", rule.to_string());
         }
+        if self.detaching {
+            let mut path = std::ffi::OsString::from(self.base.join("bin"));
+            if let Some(inherited) = std::env::var_os("PATH") {
+                path.push(":");
+                path.push(inherited);
+            }
+            command
+                .env("PATH", path)
+                .env("BATCH_ARMS_ROOT", &self.base)
+                .env("HEAVY_WALK_LOCK", self.lock())
+                .env("HEAVY_WALK_LOG", self.base.join("heavy-walk.log"));
+        } else {
+            // `open` warms a workspace it finds; a throwaway one is built by the test that needs it.
+            command.env("BATCH_WARM", "0");
+        }
         command
+    }
+
+    /// The heavy-walk lock of a detaching sandbox: its own file, so that no test queues behind a
+    /// real walk and no real walk behind a test.
+    fn lock(&self) -> PathBuf {
+        self.base.join("heavy-walk.lock")
     }
 
     fn git(&self, directory: &Path, arguments: &[&str]) -> Output {
@@ -200,8 +266,50 @@ impl Sandbox {
 
 impl Drop for Sandbox {
     fn drop(&mut self) {
+        for group in &self.detached {
+            stop_group(group);
+        }
         let _ = std::fs::remove_dir_all(&self.base);
     }
+}
+
+/// How long the stand-in `cargo` of a detaching sandbox sleeps: far longer than `open` may take,
+/// so that an `open` still holding its caller's pipe when it returns is a failure by a margin.
+const STAND_IN_SECONDS: u64 = 60;
+
+/// Sends `TERM` to the process group `group` leads, by its number: `open` gives each detached job
+/// a session of its own, so the group is that job and nothing else.
+fn stop_group(group: &str) {
+    let _ = Command::new("kill")
+        .args(["-TERM", "--", &format!("-{group}")])
+        .status();
+}
+
+/// Whether the process group `group` leads still has a member.
+fn group_runs(group: &str) -> bool {
+    Command::new("kill")
+        .args(["-0", "--", &format!("-{group}")])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+/// The pid `open` printed after `what`, as `<what>: pid <n>, <log>`.
+fn detached_pid(opened: &str, what: &str) -> Option<String> {
+    let rest = opened.split_once(&format!("{what}: pid "))?.1;
+    let pid: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    (!pid.is_empty()).then_some(pid)
+}
+
+/// Polls `condition` every tenth of a second for at most `seconds`.
+fn within(seconds: u64, condition: impl Fn() -> bool) -> bool {
+    for _ in 0..seconds.saturating_mul(10) {
+        if condition() {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    condition()
 }
 
 fn text(output: &Output) -> String {
@@ -1216,5 +1324,123 @@ fn arms_exports_only_head_and_never_over_another_commits_export() {
         !owed.status.success() && text(&owed).contains("no workspace"),
         "arms took an export missing an arm as done: {}",
         text(&owed)
+    );
+}
+
+/// `open` starts the warm build and then the arms export, each detached into a session of its own,
+/// and returns while both still run: the caller reads `open`'s output to its end, as an agent's
+/// shell and `Command::output` do, so a job that kept the caller's pipe would hold `open` for as
+/// long as the job ran. Both jobs here run a stand-in `cargo` that sleeps for a minute, so an `open`
+/// that waited is a failure by fifty seconds; the export queues for the sandbox's own heavy-walk
+/// lock through `tools/bounded.sh --lock`, so its hold is a line of the lock's log, written when
+/// the job is stopped (ADR 1662). Calibrated by planting the defect (trap 13): with `cd … &&
+/// setsid … &` restored in `detach`, `open` took the stand-in's whole minute and this test failed.
+#[test]
+fn open_returns_while_the_warm_build_and_the_arms_export_run_detached() {
+    let started = std::time::Instant::now();
+    let mut sandbox = Sandbox::detaching("detach");
+    let took = started.elapsed();
+    let warm = detached_pid(&sandbox.opened, "warming the build directory");
+    let arms = detached_pid(&sandbox.opened, "exporting HEAD's six corpus arms");
+    sandbox
+        .detached
+        .extend(warm.iter().chain(arms.iter()).cloned());
+    assert!(
+        took < std::time::Duration::from_secs(15),
+        "open took {took:?} with two detached jobs of {STAND_IN_SECONDS} s: it waited for one of them: {}",
+        sandbox.opened
+    );
+    assert!(
+        warm.is_some() && arms.is_some(),
+        "open did not start both jobs: {}",
+        sandbox.opened
+    );
+    let (warm, arms) = (warm.unwrap_or_default(), arms.unwrap_or_default());
+    let order = |what: &str| sandbox.opened.find(what).unwrap_or(usize::MAX);
+    assert!(
+        order("warming the build directory") < order("exporting HEAD's six corpus arms"),
+        "open did not start the warm build first: {}",
+        sandbox.opened
+    );
+    assert!(
+        group_runs(&warm) && group_runs(&arms),
+        "open returned and a job it detached is not running — it was never started, or ended at once: {}",
+        sandbox.opened
+    );
+    let lock = sandbox.lock();
+    let held = within(20, || {
+        Command::new("flock")
+            .args(["-n"])
+            .arg(&lock)
+            .arg("true")
+            .status()
+            .is_ok_and(|status| !status.success())
+    });
+    assert!(
+        held,
+        "the arms export never took the heavy-walk lock:\n{}",
+        std::fs::read_to_string(sandbox.worktree().join("scratchpad/open/arms.log"))
+            .unwrap_or_default()
+    );
+    // The export under the lock wrote its README's lock line, so `arms-held` found the
+    // descriptor the wrapper handed down rather than refusing for want of it.
+    let readme = sandbox.base.join("arms-9001/README");
+    let under_the_lock = within(20, || {
+        std::fs::read_to_string(&readme).is_ok_and(|text| text.contains("\nlock: queued "))
+    });
+    assert!(
+        under_the_lock,
+        "the export never wrote its lock line, so `arms-held` did not run under the lock:\n{}",
+        std::fs::read_to_string(sandbox.worktree().join("scratchpad/open/arms.log"))
+            .unwrap_or_default()
+    );
+    stop_group(&arms);
+    let log = sandbox.base.join("heavy-walk.log");
+    let logged = within(20, || {
+        std::fs::read_to_string(&log).is_ok_and(|text| {
+            text.lines()
+                .any(|line| line.contains(" batch=batch-9001-9006 round=arms wait="))
+        })
+    });
+    assert!(
+        logged,
+        "the arms export's hold of the lock is on no line of its log: {}",
+        std::fs::read_to_string(&log).unwrap_or_default()
+    );
+}
+
+/// The two clocks `gates` prints for each gate are read off the wrapper's last line, which names
+/// the seconds the command ran once the lock was granted as `… after <n>s`: a wrapper whose last
+/// line stopped saying so would leave every gate's queue at nought and its wait inside its wall.
+#[test]
+fn the_wrappers_last_line_names_the_seconds_gates_reads() {
+    let output = Command::new("bash")
+        .arg(repository_root().join("tools/bounded.sh"))
+        .args([
+            "--tree", "1", "--data", "1", "--nice", "0", "--", "sleep", "1",
+        ])
+        .output()
+        .expect("bash runs tools/bounded.sh");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let last = stderr.lines().last().unwrap_or_default();
+    let seconds = last
+        .strip_prefix("bounded: ")
+        .and_then(|rest| rest.rsplit_once(" after "))
+        .map(|(_, after)| {
+            after
+                .chars()
+                .take_while(char::is_ascii_digit)
+                .collect::<String>()
+        })
+        .filter(|digits| !digits.is_empty());
+    assert!(
+        output.status.success() && seconds.is_some_and(|digits| digits == "1" || digits == "2"),
+        "the wrapper's last line does not name the seconds `run` reads (`bounded: … after <n>s`): {stderr}"
+    );
+    let source = std::fs::read_to_string(repository_root().join("tools/batch.sh"))
+        .expect("tools/batch.sh is in the tree");
+    assert!(
+        source.contains("s/^bounded: .* after \\([0-9][0-9]*\\)s.*/\\1/p"),
+        "tools/batch.sh's `run` no longer reads the wrapper's `after <n>s`, which this test holds"
     );
 }

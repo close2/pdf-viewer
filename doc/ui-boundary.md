@@ -98,7 +98,8 @@ Each `AccessibilityNode` naming a text field or a combo box carries the field's 
 the shape `Answer::Fields` gives it, read through the view's state, which only the confined side
 holds; it crosses in the node's encoding, and no message was added (ADR 1489). Beside it,
 `value_lines` carries where §12.7.4.3's layout placed each character of that value, in the shape and
-under the invariant of the node's own `lines`; the greeting moved to `PDFVCF07` (ADR 1501). Where the
+under the invariant of the node's own `lines`; the greeting moved then (ADR 1501), and is `PDFVCF08`
+since a rich run's spacing and scales cross with it (ADR 1654). Where the
 viewport sits in the window is a host's to say, and `quorra-gtk` says it to the bridge
 (`Reading::at`), never to the core: it is a fact about the toolkit's layout, and no message was added
 (ADR 1516).
@@ -389,6 +390,16 @@ entry points** — `quorra_popup_reply_count`, `quorra_popup_reply_object` and
 `quorra_popup_reply_text` — for the standing reason a C caller cannot fail to compile and so has to
 be able to *ask*. `QUORRA_ABI_VERSION` did not move: an entry point added is one an old caller never
 calls, and none of the three takes a struct by value. ADR 1090.
+
+**And Table 172's `/RC` added one field and no message** — `PopupWindow::rich`, and `Comment::rich`
+beside it, the note *read* into paragraphs of runs (ADR 1642), each run carrying its face's search
+path, size, weight, posture, colour, lines, rise, letter spacing and two font scales (ADR 1654). No
+host could derive it without parsing chapter 27 itself. The C ABI gained six entry points and two
+structs a caller's memory receives — `quorra_popup_rich` and its `_paragraph`, `_run`, `_text`,
+`_family` and `_unapplied`, `quorra_rich_paragraph` and `quorra_rich_run` — and hands the runs over
+rather than the XHTML, so that a fourth host shows the reading the three show and never parses the
+document's markup (ADR 1655). `QUORRA_EVENT_KIND_COUNT` and `QUORRA_ABI_VERSION` stayed where they
+are.
 
 **And the one-thousand-two-hundred-and-thirteenth added one `Command` and one entry point**, on the
 pattern `Command::Trust` set, and it is the value that had to exist before any window could hold a

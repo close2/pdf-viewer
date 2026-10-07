@@ -60,7 +60,8 @@ impl ViewState {
             }
             return 0;
         }
-        let table = super::widgets_by_field_name(document);
+        // The page shown, and no other: this runs as the document opens (ADR 1653 section 4).
+        let table = super::field_table_on_page(document, page);
         let started = Instant::now();
         let mut handed = 0_usize;
         let mut changed = false;
@@ -136,7 +137,8 @@ impl ViewState {
         if self.runner.0.is_none() {
             return 0;
         }
-        let table = super::widgets_by_field_name(document);
+        // The page turned to or from, and no other (ADR 1653 section 4).
+        let table = super::field_table_on_page(document, page);
         let (ran, changed, calculate) = self.page_scripts(document, &table, page, trigger);
         if ran > 0 {
             self.after_scripts(document, &table, changed, calculate);

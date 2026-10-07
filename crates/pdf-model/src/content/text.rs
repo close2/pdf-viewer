@@ -1616,6 +1616,7 @@ impl Interpreter<'_> {
                         reading,
                         self.enclosing_knockout,
                         self.image_masks.shape_masks(),
+                        &mut self.one_colour,
                     )
                 })
                 .flatten();
@@ -1825,6 +1826,7 @@ impl Interpreter<'_> {
                 reading,
                 self.enclosing_knockout,
                 self.image_masks.shape_masks(),
+                &mut self.one_colour,
             ) {
                 self.draw(Command::Group {
                     commands: group.elements,

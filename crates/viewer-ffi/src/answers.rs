@@ -190,6 +190,8 @@ struct Note {
     colour: Option<[f32; 3]>,
     /// §12.5.6.2's thread, flattened: one entry per reply this window shows rather than opening.
     replies: Vec<Threaded>,
+    /// Table 172's `/RC`, read, where the note states one this program reads (ADR 1655).
+    rich: Option<pdf_model::popup::RichNote>,
 }
 
 /// One of §12.5.6.2's threaded replies, flattened.
@@ -212,6 +214,8 @@ struct Threaded {
     /// §12.5.6.2's `/T`, Table 166's `/Contents`, and Table 166's `/M`, in that order — the same
     /// three [`Note`] carries, so `QUORRA_NOTE_*` selects among them in both.
     text: [Option<String>; 3],
+    /// The reply's own `/RC`, read, as [`Note::rich`] is.
+    rich: Option<pdf_model::popup::RichNote>,
 }
 
 impl Popups {
@@ -244,8 +248,10 @@ impl Popups {
                                 reply.text.clone(),
                                 reply.modified.clone(),
                             ],
+                            rich: reply.rich.clone(),
                         })
                         .collect(),
+                    rich: window.rich.clone(),
                 })
                 .collect(),
         }
@@ -329,6 +335,64 @@ impl Popups {
             .ok_or(Status::OutOfRange)?
             .colour
             .ok_or(Status::NoAnswer)
+    }
+
+    /// The rich note `note` of window `index` states: `0` is the window's own, `reply + 1` a reply's.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] where there is no such window or note, [`Status::NoAnswer`] where the
+    /// note states no rich text this program reads — a window a caller draws from its plain text.
+    pub fn rich(&self, index: usize, note: usize) -> Result<&pdf_model::popup::RichNote, Status> {
+        let window = self.windows.get(index).ok_or(Status::OutOfRange)?;
+        let rich = match note.checked_sub(1) {
+            None => window.rich.as_ref(),
+            Some(reply) => window
+                .replies
+                .get(reply)
+                .ok_or(Status::OutOfRange)?
+                .rich
+                .as_ref(),
+        };
+        rich.ok_or(Status::NoAnswer)
+    }
+
+    /// One paragraph of a rich note.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::rich`], and [`Status::OutOfRange`] where there is no such paragraph.
+    pub fn rich_paragraph(
+        &self,
+        index: usize,
+        note: usize,
+        paragraph: usize,
+    ) -> Result<&pdf_model::popup::RichParagraph, Status> {
+        self.rich(index, note)?
+            .paragraphs
+            .get(paragraph)
+            .ok_or(Status::OutOfRange)
+    }
+
+    /// One piece of a paragraph: its list tag first where it has one, then its runs in order —
+    /// one index for both, so that a caller walks a paragraph with one loop (ADR 1655).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::rich_paragraph`], and [`Status::OutOfRange`] where there is no such piece.
+    pub fn rich_run(
+        &self,
+        index: usize,
+        note: usize,
+        (paragraph, piece): (usize, usize),
+    ) -> Result<&pdf_model::popup::RichRun, Status> {
+        let paragraph = self.rich_paragraph(index, note, paragraph)?;
+        match (&paragraph.tag, piece.checked_sub(1)) {
+            (Some(tag), None) => Some(tag),
+            (Some(_), Some(run)) => paragraph.runs.get(run),
+            (None, _) => paragraph.runs.get(piece),
+        }
+        .ok_or(Status::OutOfRange)
     }
 
     /// How many of §12.5.6.2's replies this window shows under its own text.

@@ -300,10 +300,13 @@ nesting bounded before it is parsed (ADR 1626), the worker built with the engine
 note's `/RC` are drawn in their formatting**, because Table 228's `/RV` and `/DS`, Table 177's `/RC`
 and `/DS` and Table 231 bit 26 are ISO 32000-2's own rich text string and not the XFA template
 architecture `CLAUDE.md` excludes: XFA 3.3's Rich Text Reference is held and each run is set in the
-face, size, width, colour, alignment, spacing and tab stops it states — in a comb's cells, in UAX
-#9's order, with a host's caret, point and range answered from the runs — a changed rich value
+face, size, width, colour, alignment, spacing, tab stops and leaders it states, with every list
+type chapter 27 requires — in a comb's cells, in UAX #9's order, a tab moving to the stop on the
+left where its paragraph reads that way, a character no run's face draws set in a machine's face
+beside the runs, with a host's caret, point and range answered from the runs — a changed rich value
 regenerating the whole appearance, a save writing `/RV` beside `/V` and an import carrying Table
-249's `/RV` and XFDF's `<value-richtext>` (ADRs 1197, 1634, 1635, 1648, 1649); **a file-select control takes a
+249's `/RV` and XFDF's `<value-richtext>`, which a save writes (ADRs 1197, 1634, 1635, 1648, 1649,
+1660, 1661); **a file-select control takes a
 file rather than a value**, because Table 231 bit 21 makes the field's text "the pathname of a file
 whose contents shall be submitted as the field's value" and only a host has a filesystem to read
 them from — the path a *person* typed, under one policy function with a stated memory budget, which
@@ -330,7 +333,7 @@ of them drew nothing of it at all: the clause gives a popup "no appearance strea
 furniture rather than ink and each host places its own, over one reading of the two clauses that say
 what goes in it (ADR 0613), drawn in all three as opaque paper with an edge (ADR 1466) — **with the subject and the creation date beside the title and the
 text**, and the two dates kept apart, because Table 172 states when an annotation was made and
-Table 166 when it was last changed (ADR 1224), and **Table 172's `/RC` drawn formatted** run by run — Pango spans, Qt's rich text, `quorra`'s chrome — with what a window did not draw said under the note (ADR 1642); a **cursor changes over §12.5.6.5's activation region** in all three,
+Table 166 when it was last changed (ADR 1224), and **Table 172's `/RC` drawn formatted** run by run — Pango spans, Qt's rich text, `quorra`'s chrome, each run in its own face and a right-to-left paragraph in one order across its runs — with what a window did not draw said under the note (ADRs 1642, 1654), and handed to a C caller as runs (ADR 1655); a **cursor changes over §12.5.6.5's activation region** in all three,
 which no clause states and which is therefore recorded as this program's convention; a person can
 **measure a drawing** — §12.9's viewports, traced by pointer in all four windows on the key `m`
 and over the C ABI's `quorra_measure`, with the arithmetic and
@@ -614,7 +617,8 @@ platform's primary backends, GL loaded only where they have no hardware adapter 
 without `wgpu`'s validation of indirect calls, whose two compute pipelines `request_device` would
 otherwise compile for a call raster never makes (ADR 1569) — the software Vulkan driver, where a
 machine has one installed, costs about 3.5 ms of the adapter check, which only a launcher can leave
-out (ADR 1585, `doc/questions/Q270`) — while
+out (ADR 1585, `doc/questions/Q270`), and the awake render nodes are opened before the loader
+runs, so the power-up an idle GPU starts on an open runs beside it (ADR 1658) — while
 page one is interpreted on the document's thread beside it (`Viewer::anticipate`, ADR 1531), so
 the first resize goes straight to the render. Nothing on the device's thread waits for warmth:
 the warm-up's state has a lock of its own rather than the pipeline store's compile lock, so a

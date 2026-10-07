@@ -265,7 +265,10 @@ calibration_ms = 0.62 .. 0.78
 # more on average than children born back to back, the adapter check carrying 2.5 of it, and a
 # 30 ms spin on the pinned cores first moved nothing
 # (19.4 to 24.5 against 19.9 to 25.5), so it is the device's idle state rather than the processor's
-# clock and no warm-up of this gate's can remove it. The file's rule over the sixteen would put the
+# clock and no warm-up of this gate's can remove it. What it waits on is a power-up that opening
+# the render node starts in the kernel driver, and the device thread now opens the node before the
+# loader runs, which takes most of it off an idle-born launch (ADR 1658; the step is printed as
+# `device_wake_ms`). The file's rule over the sixteen would put the
 # ceiling at 25.5, inside the 25.2 to 28.3 that GL's return read, which is the regression this
 # band exists to name; one run in sixteen past the edge by 0.66 ms is not a band failing on
 # alternate runs.

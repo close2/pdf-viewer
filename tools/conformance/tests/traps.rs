@@ -15,6 +15,13 @@
 //! nothing. A trap merged into another keeps its row and its number, and its incident sits under
 //! the survivor as a `####` heading of its own number (trap 4 under trap 8, trap 29 under
 //! trap 13); those count. A row demoted to a habit names `*habits*` and is resolved there instead.
+//!
+//! **A row is four cells, and a bar inside one is written `\|`.** A literal `|` in a cell — a
+//! shell pipe quoted in a rule, inside a code span or not — ends the cell under GitHub's table
+//! syntax, so the row renders with five columns and a reader that wants four drops it — and the
+//! only complaint left is a heading "with no row naming that group" beside a row that is plainly
+//! there. So a line shaped like a row whose cell count is not four is named as itself, by its line
+//! and its trap, with the spelling that fixes it (ADR 1663).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -35,21 +42,59 @@ const GROUPS: [(&str, &str); 5] = [
 /// The group word of a trap demoted to a habit, and where its incident now lives.
 const HABITS: (&str, &str) = ("*habits*", "doc/habits/measuring.md");
 
+/// The cells of a table line, trimmed, split at every `|` that is not written `\|` — GitHub's
+/// table syntax, under which an escaped bar is a character of its cell, a code span's included.
+/// `None` for a line that does not open and close with a bar.
+fn cells(line: &str) -> Option<Vec<String>> {
+    let inner = line.trim_end().strip_prefix('|')?.strip_suffix('|')?;
+    let mut cells = vec![String::new()];
+    let mut escaped = false;
+    for character in inner.chars() {
+        if character == '|' && !escaped {
+            cells.push(String::new());
+        } else if let Some(cell) = cells.last_mut() {
+            cell.push(character);
+        }
+        escaped = character == '\\' && !escaped;
+    }
+    Some(cells.iter().map(|cell| cell.trim().to_owned()).collect())
+}
+
+/// The cells of every line shaped like a trap's row — a table line whose first cell opens with a
+/// digit — with its line number, whatever their count.
+fn row_shaped(index: &str) -> impl Iterator<Item = (usize, Vec<String>)> + '_ {
+    index.lines().enumerate().filter_map(|(at, line)| {
+        let cells = cells(line)?;
+        let numbered = cells
+            .first()?
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_digit());
+        numbered.then(|| (at.saturating_add(1), cells))
+    })
+}
+
+/// The number of cells a row of the index has: the number, the position, the rule, the group.
+const ROW_CELLS: usize = 4;
+
 /// The index's rows: each trap's number and the group word in its last column.
 fn index_rows(index: &str) -> Vec<(String, String)> {
-    index
-        .lines()
-        .filter_map(|line| {
-            let cells: Vec<&str> = line
-                .strip_prefix('|')?
-                .strip_suffix('|')?
-                .split('|')
-                .map(str::trim)
-                .collect();
-            let number = *cells.first()?;
-            let group = *cells.last()?;
-            let starts_with_digit = number.chars().next().is_some_and(|c| c.is_ascii_digit());
-            (starts_with_digit && cells.len() == 4).then(|| (number.to_owned(), group.to_owned()))
+    row_shaped(index)
+        .filter(|(_, cells)| cells.len() == ROW_CELLS)
+        .filter_map(|(_, cells)| Some((cells.first()?.clone(), cells.last()?.clone())))
+        .collect()
+}
+
+/// The lines shaped like a row that are not [`ROW_CELLS`] cells: `(line, trap, cells)`.
+fn malformed_rows(index: &str) -> Vec<(usize, String, usize)> {
+    row_shaped(index)
+        .filter(|(_, cells)| cells.len() != ROW_CELLS)
+        .map(|(line, cells)| {
+            (
+                line,
+                cells.first().cloned().unwrap_or_default(),
+                cells.len(),
+            )
         })
         .collect()
 }
@@ -79,8 +124,10 @@ fn every_trap_row_has_its_entry_and_every_entry_its_row() {
     let read = |path: &str| {
         std::fs::read_to_string(root.join(path)).unwrap_or_else(|error| panic!("{path}: {error}"))
     };
-    let rows = index_rows(&read(INDEX));
+    let index = read(INDEX);
+    let rows = index_rows(&index);
     assert!(!rows.is_empty(), "{INDEX} holds no rows this gate can read");
+    let malformed = malformed_rows(&index);
 
     let headed: BTreeMap<&str, BTreeSet<String>> = GROUPS
         .iter()
@@ -88,6 +135,13 @@ fn every_trap_row_has_its_entry_and_every_entry_its_row() {
         .collect();
 
     let mut failures = String::new();
+    for (line, number, count) in &malformed {
+        let _ = writeln!(
+            failures,
+            "  trap {number}: its row ({INDEX} line {line}) has {count} cells, not {ROW_CELLS} — \
+             a `|` inside a cell ends the cell; write it `\\|`"
+        );
+    }
     for (number, group) in &rows {
         if *group == HABITS.0 {
             if !read(HABITS.1).contains(&format!("trap {number}")) {
@@ -117,7 +171,11 @@ fn every_trap_row_has_its_entry_and_every_entry_its_row() {
         .collect();
     for (group, numbers) in &headed {
         for number in numbers {
-            if !indexed.contains(&(number.as_str(), *group)) {
+            // A row named above as malformed is the reason its entry has no row, and is said once.
+            let said = malformed
+                .iter()
+                .any(|(_, malformed, _)| malformed == number);
+            if !said && !indexed.contains(&(number.as_str(), *group)) {
                 let _ = writeln!(
                     failures,
                     "  trap {number}: an entry in `{group}`'s file with no row naming that group"
@@ -132,7 +190,8 @@ fn every_trap_row_has_its_entry_and_every_entry_its_row() {
 }
 
 /// The reader recognises the shapes the files are written in, and nothing else — the control
-/// that keeps a clean run from being a reader that found nothing.
+/// that keeps a clean run from being a reader that found nothing — and names a row a bare `|`
+/// split, which is the defect planted back (trap 13).
 #[test]
 fn the_reader_finds_rows_and_headings_and_nothing_else() {
     let index = "| # | you are | rule | group |\n|---|---|---|---|\n\
@@ -144,6 +203,20 @@ fn the_reader_finds_rows_and_headings_and_nothing_else() {
             ("36".to_owned(), "*habits*".to_owned())
         ]
     );
+    // A bar written `\|` is a character of its cell, inside a code span or not; a bare one is
+    // where a cell ends, and the row it splits is named by its line rather than dropped.
+    let escaped = "| 127 | a build sits behind `\\| tail` | so \\| it | instruments |\n";
+    assert_eq!(
+        index_rows(escaped),
+        [("127".to_owned(), "instruments".to_owned())]
+    );
+    assert!(malformed_rows(escaped).is_empty());
+    let split =
+        "| # | a | b | group |\n| 127 | a build sits behind `| tail` | so | instruments |\n";
+    assert!(index_rows(split).is_empty());
+    assert_eq!(malformed_rows(split), [(2, "127".to_owned(), 5)]);
+    assert!(malformed_rows(index).is_empty());
+
     let group = "## Traps\n### 53. A title\n#### 4. Merged\n## 2. Not a trap\n### Things. No\n";
     assert_eq!(
         headed_numbers(group),

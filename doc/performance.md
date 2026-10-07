@@ -405,7 +405,9 @@ it made 137, and no byte moved on six arms. Per interleaved pair the turn was 1.
 its `interp` 2.5 to 3.8, and the seventh frame 0.8 to 2.8; the step, which interprets nothing, read
 81.87–82.51 and keeps its row. Callgrind puts the turn's interpretation at 1 357.6 → 1 258.9 M
 instructions. Its black run, 486.6 M of that, stays: the black list is not a function of the
-chromatic one (ADR 1645).
+chromatic one (ADR 1645), and deriving it from colour inputs carried beside each mark would tax the
+smallest launch rows over 0.1% and inherit each knockout construction from the chromatic plane
+(ADR 1656).
 
 **`bug1721218_reduced.pdf`'s three rows were re-taken on 2026-10-07 after ADRs 1630 and 1631**,
 eight runs of five rounds interleaved against exports of the tree before them and of ADR 1630 alone,

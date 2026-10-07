@@ -1653,8 +1653,8 @@ impl ViewState {
     /// name*: the pairing runs through the same §12.7.4.2 name table §12.6.4.11's hide action
     /// and §12.7.6.3's reset use, so all three agree about what a field is called.
     ///
-    /// Nothing is written to the file, for [`Self::reset_form`]'s reason: this is a viewer's
-    /// state and an FDF import that reached the document would be this program creating a PDF.
+    /// Nothing is written to the file here: the import is a statement in this log, and
+    /// [`Self::save`] is where it reaches §7.5.6's update with the edits beside it (ADR 1661).
     pub fn import(&mut self, document: &Document, data: &crate::forms_data::FormsData) -> Imported {
         let table = widgets_by_field_name(document);
         let (matched, unmatched) = crate::forms_data::match_to_document(data, &table);
@@ -2908,7 +2908,8 @@ impl ViewState {
     /// a person retyped, with Table 166's `/Contents` and a replaced appearance
     /// ([`ViewState::write_retypings`]) — which is §7.5.6's second case, "objects that have been
     /// changed, replaced, or deleted", and the producer's own bytes are still in the file beneath
-    /// it.
+    /// it. Every field an import replaced and nobody typed into since, with the entries Table 249
+    /// states and the appearance the value is drawn with ([`ViewState::write_imported_values`]).
     ///
     /// **Table 224's `/NeedAppearances` is written for what is left over, and the entry's own row
     /// states that condition** (§12.7.3):
@@ -3044,6 +3045,7 @@ impl ViewState {
             // whichever ancestor §12.7.4.1 keeps the value on.
             update.stamp_annotation(document, widget);
         }
+        self.write_imported_values(document, &mut update, &mut withheld);
         self.write_scripted(document, &mut update);
         if !update.is_empty()
             && let Some((id, mut form)) = interactive_form(document)
@@ -3084,6 +3086,117 @@ impl ViewState {
             unconstructed,
             still_reached,
         })
+    }
+
+    /// Writes §12.7.8's imported values onto the fields that took them: Table 249's `/V`, `/RV`,
+    /// `/Ff` and `/F`, and the appearance the value is drawn with.
+    ///
+    /// §12.7.8.3.2's one sentence is the rule — "importing a field causes the values of the
+    /// entries in the FDF field dictionary to replace those of the corresponding entries in the
+    /// field with the same fully qualified name in the target document" — and a save is where the
+    /// replacement reaches the file. The values are the FDF producer's, carried unreinterpreted
+    /// under the keys that file named, which is `CLAUDE.md`'s provenance test passed the way
+    /// [`Self::write_imported_appearances`] passes it; and a save that wrote the imported `/AP`
+    /// and left the old `/V` beside it would write a widget whose value and appearance §12.7.2
+    /// says must agree and do not (ADR 1661).
+    ///
+    /// The entries are the ones [`crate::forms_data::Import`] holds, each written where the
+    /// file reads it: the value on the dictionary [`holder`] finds, as a typed value is; Table
+    /// 249's `/RV` beside it where the FDF field states one, and the target's own standing where
+    /// it states none (ADR 1648); `/Ff` on the field §12.7.4.2 names, as Table 249 says, "the
+    /// form's corresponding field dictionary"; `/F` on the widget. Table 234's `/I` goes, as it
+    /// goes for a typed value: an index left beside a value it does not describe is a file
+    /// contradicting itself. A field a person typed into after the import is written by the
+    /// edits above and not here — the later statement stands — and a password field's value is
+    /// withheld by the same predicate.
+    fn write_imported_values(
+        &self,
+        document: &Document,
+        update: &mut Update,
+        withheld: &mut Vec<String>,
+    ) {
+        for (widget, import) in &self.imported {
+            let widget = *widget;
+            if self.edited.contains_key(&widget) {
+                continue;
+            }
+            let Some(dict) = document.get(widget).as_dict().cloned() else {
+                continue;
+            };
+            let value = FieldValue::Imported {
+                value: import.value.as_ref(),
+                flags: import.field_flags,
+                rich: import.rich_value.as_deref(),
+            };
+            if crate::appearance::field_text_value(document, &dict, value)
+                .is_some_and(|shown| shown.obscured)
+            {
+                withheld.push(field_name_of(document, widget));
+                continue;
+            }
+            let (id, _) = holder(document, widget, dict.clone());
+            let Some(mut field) = update.current(document, id) else {
+                continue;
+            };
+            let toggling = toggles(document, &dict);
+            match import.value.as_ref() {
+                Some(object) if toggling => {
+                    field.insert(Name::new(&b"V"[..]), state_name(object));
+                }
+                Some(object) => {
+                    field.insert(Name::new(&b"V"[..]), object.clone());
+                }
+                // ADR 0090: an FDF field stating no `/V` removes the value it replaces.
+                None => {
+                    field.remove("V");
+                }
+            }
+            if let Some(rich) = import.rich_value.as_deref() {
+                field.insert(
+                    Name::new(&b"RV"[..]),
+                    Object::String(pdf_syntax::text_string::encode_text_string(rich).into()),
+                );
+            }
+            field.remove("I");
+            update.put(id, Object::Dictionary(field));
+            if !import.field_flags.is_unchanged() {
+                let stated = crate::appearance::Field::read(document, &dict, FieldValue::Stored);
+                let named = named_field(document, widget);
+                if let Some(mut current) = update.current(document, named) {
+                    current.insert(
+                        Name::new(&b"Ff"[..]),
+                        Object::Integer(import.field_flags.applied_to(stated.flags)),
+                    );
+                    update.put(named, Object::Dictionary(current));
+                }
+            }
+            if !import.annotation_flags.is_unchanged()
+                && let Some(mut current) = update.current(document, widget)
+            {
+                let stated = document.get_key(&current, "F").as_integer().unwrap_or(0);
+                current.insert(
+                    Name::new(&b"F"[..]),
+                    Object::Integer(import.annotation_flags.applied_to(stated)),
+                );
+                update.put(widget, Object::Dictionary(current));
+            }
+            // An imported `/AP` is the FDF producer's own appearance and was written as it came;
+            // one constructed here would replace it with this program's reading of the value.
+            if import.appearance.is_none() {
+                update.write_appearance(
+                    document,
+                    widget,
+                    &dict,
+                    value,
+                    self.displayed(widget),
+                    self.scripted(widget),
+                );
+            }
+            if toggling {
+                update.write_state(document, widget, import.value.as_ref());
+            }
+            update.stamp_annotation(document, widget);
+        }
     }
 
     /// Writes what scripts set on each widget's field as the entries the standard draws a widget
@@ -4020,7 +4133,68 @@ impl ViewState {
 /// belongs to. Taking it is a **recovery**, argued in §12.7.4.2's row: the alternative is to read
 /// a document's radio group as nameless when the producer listed the buttons in `/Fields` instead
 /// of their parent. `examples/unnamed_field_census` counts the population.
+///
+/// **A root `/Fields` omits is recovered from the pages, which is the other recovery and ADR 1653's
+/// choice.** A widget a page's `/Annots` lists, reached from no `/Fields` entry, whose `/Parent`
+/// chain climbs to a dictionary — itself stating a `/T` or with one on the way — is a field the
+/// file states twice, by the widget's `/Parent` and by the root's `/T`, and omits once, from the
+/// array; the root is walked as an entry of `/Fields` would be, after the entries the array lists,
+/// in page order. `examples/orphan_field_census` counts the population: 79 documents of the census
+/// population, 4 482 roots. A dictionary no page lists and no entry reaches stays unread, so a
+/// signature field on no page still needs `/Fields` (§12.8.1).
+///
+/// **This walks every page, so it is for what a person asked of the whole document** — a value
+/// typed by name, a reset, an import, a save, a submission. What runs while a document opens, a
+/// page is drawn or the pointer moves asks [`field_table`] with a narrower [`Omitted`]: one page's
+/// widgets, or the calculation order's own entries (ADR 1653 section 4).
 pub fn widgets_by_field_name(document: &Document) -> BTreeMap<String, Vec<ObjectId>> {
+    field_table(document, Omitted::EveryPage)
+}
+
+/// [`widgets_by_field_name`], with the roots `/Fields` omits recovered from one page's `/Annots`
+/// alone (ADR 1653): what a reader drawing or laying controls over one page asks, so that the
+/// recovery adds no walk of the page tree to the path that shows page one. Every field the array
+/// lists is here whatever page it is on; an omitted root is here where this page holds one of its
+/// widgets, under the name [`widgets_by_field_name`] gives it, with every widget its walk reaches.
+#[must_use]
+pub fn widgets_on_page_by_field_name(
+    document: &Document,
+    page: &Dictionary,
+) -> BTreeMap<String, Vec<ObjectId>> {
+    field_table(document, Omitted::OnPage(page))
+}
+
+/// Where [`field_table`] looks for a root `/Fields` omits (ADR 1653).
+#[derive(Clone, Copy)]
+pub(crate) enum Omitted<'a> {
+    /// Every page's `/Annots`, in page order.
+    EveryPage,
+    /// One page's.
+    OnPage(&'a Dictionary),
+    /// Table 224's `/CO`: the root above each field the calculation order names, which asks no
+    /// page at all.
+    Calculation,
+    /// Nowhere: the fields `/Fields` lists.
+    Listed,
+}
+
+/// The field table for page `page` of the document by its zero-based index: [`Omitted::OnPage`]
+/// for that page, and [`Omitted::Listed`] where the document has no such page.
+pub(crate) fn field_table_on_page(
+    document: &Document,
+    page: usize,
+) -> BTreeMap<String, Vec<ObjectId>> {
+    match crate::page::Pages::new(document).get(page) {
+        Some(page) => field_table(document, Omitted::OnPage(&page.dict)),
+        None => field_table(document, Omitted::Listed),
+    }
+}
+
+/// The field table: `/Fields` walked, then the roots it omits recovered where `omitted` says.
+pub(crate) fn field_table(
+    document: &Document,
+    omitted: Omitted<'_>,
+) -> BTreeMap<String, Vec<ObjectId>> {
     let mut out = BTreeMap::new();
     let Ok(catalog) = document.catalog() else {
         return out;
@@ -4045,7 +4219,117 @@ pub fn widgets_by_field_name(document: &Document) -> BTreeMap<String, Vec<Object
             0,
         );
     }
+    match omitted {
+        Omitted::Listed => {}
+        Omitted::OnPage(page) => recover_omitted(document, page, &mut out, &mut seen),
+        Omitted::Calculation => {
+            let order = document.get_key(form, "CO");
+            for entry in order.as_array().into_iter().flatten() {
+                let Some(field) = entry.as_reference() else {
+                    continue;
+                };
+                if seen.contains(&field) {
+                    continue;
+                }
+                if let Some(root) = named_root(document, field)
+                    && !seen.contains(&root)
+                {
+                    walk(
+                        document,
+                        &Object::Reference(root),
+                        None,
+                        &mut out,
+                        &mut seen,
+                        0,
+                    );
+                }
+            }
+        }
+        Omitted::EveryPage => {
+            let pages = crate::page::Pages::new(document);
+            let mut in_order: Vec<(usize, ObjectId)> = pages
+                .indices()
+                .into_iter()
+                .map(|(id, index)| (index, id))
+                .collect();
+            in_order.sort_unstable();
+            for (_, id) in in_order {
+                let object = document.get(id);
+                if let Some(page) = object.as_dict() {
+                    recover_omitted(document, page, &mut out, &mut seen);
+                }
+            }
+        }
+    }
     out
+}
+
+/// Walks every root `/Fields` omits that one page's widgets climb to (ADR 1653).
+fn recover_omitted(
+    document: &Document,
+    page: &Dictionary,
+    out: &mut BTreeMap<String, Vec<ObjectId>>,
+    seen: &mut BTreeSet<ObjectId>,
+) {
+    let annotations = document.get_key(page, "Annots");
+    for entry in annotations.as_array().into_iter().flatten() {
+        let Some(widget) = entry.as_reference() else {
+            continue;
+        };
+        if seen.contains(&widget) {
+            continue;
+        }
+        let Some(root) = omitted_root(document, widget) else {
+            continue;
+        };
+        // A root already walked whose walk did not reach this widget — a `/Parent` the root's
+        // `/Kids` does not answer — leaves the widget out, as the `/Fields` walk would.
+        if !seen.contains(&root) {
+            walk(document, &Object::Reference(root), None, out, seen, 0);
+        }
+    }
+}
+
+/// The top of a widget annotation's `/Parent` chain, where something on the chain states a `/T`;
+/// `None` for an annotation that is not a widget, and for a chain no `/T` names — §12.7.4.2's
+/// "simply a Widget annotation". Bounded by [`MAX_FIELD_DEPTH`], since a chain can be a cycle.
+fn omitted_root(document: &Document, widget: ObjectId) -> Option<ObjectId> {
+    let object = document.get(widget);
+    let dict = object.as_dict()?;
+    if document
+        .get_key(dict, "Subtype")
+        .as_name()
+        .map(Name::as_bytes)
+        != Some(b"Widget")
+    {
+        return None;
+    }
+    named_root(document, widget)
+}
+
+/// The top of a dictionary's `/Parent` chain, where the dictionary or something above it states a
+/// `/T`; `None` where nothing on the chain does.
+fn named_root(document: &Document, node: ObjectId) -> Option<ObjectId> {
+    let object = document.get(node);
+    let dict = object.as_dict()?;
+    let mut named = matches!(document.get_key(dict, "T"), Object::String(_));
+    let mut current = node;
+    for _ in 0..MAX_FIELD_DEPTH {
+        let object = document.get(current);
+        let Some(parent) = object
+            .as_dict()
+            .and_then(|dict| dict.get("Parent"))
+            .and_then(Object::as_reference)
+        else {
+            break;
+        };
+        current = parent;
+        let object = document.get(current);
+        named |= object
+            .as_dict()
+            .is_some_and(|dict| matches!(document.get_key(dict, "T"), Object::String(_)));
+    }
+    named.then_some(current)
 }
 
 /// The qualified name a `/Fields` entry's `/Parent` chain gives it, if any.
@@ -5199,7 +5483,8 @@ pub(crate) fn alternative_name(document: &Document, widget: ObjectId) -> Option<
 #[must_use]
 pub fn field_at(document: &Document, page: &crate::Page, x: f32, y: f32) -> Option<FieldName> {
     let mut names: BTreeMap<ObjectId, String> = BTreeMap::new();
-    for (name, widgets) in widgets_by_field_name(document) {
+    // The pointer is over this page, so this page's omitted roots are the ones it can reach.
+    for (name, widgets) in field_table(document, Omitted::OnPage(&page.dict)) {
         for widget in widgets {
             names.insert(widget, name.clone());
         }

@@ -1192,6 +1192,45 @@ broke `popup/rich.rs`, the sibling adapted, the variant was briefly removed and 
 (round 1406). Grep the matches outside your files before adding or removing one, and settle on
 one shape.
 
+### 128. A detached job is backgrounded alone, after a `cd` and a `;`
+
+`warm` and `arms_at_open` started their jobs as `(cd "$wt" && setsid nohup … &)`. Because `&` binds
+looser than `&&`, the `&` sent the whole list to the background: a copy of the shell ran the job in
+its own foreground with its standard streams on the caller's pipe, and every caller that read the
+pipe to its end — a command substitution, an agent's shell — waited out the arms export's half hour
+(ADR 1662). The construction is `cd … ;` first, then the job as the only thing backgrounded, every
+stream redirected. The test is a caller that reads the pipe to its end against a stand-in job that
+sleeps: the old form returned after the sleep, the new one in milliseconds.
+
+### 129. An export built under the shared worktree builds into the shared target directory
+
+A copy of HEAD placed under the worktree picks up the worktree's `.cargo/config.toml`, whose
+`target-dir` is the batch's shared build directory. Its units land there and look fresh to a sibling's
+next build of the same unit, because cargo's dep-info paths are relative and the files match by
+mtime — so a sibling's next build of that unit comes from the export's tree. Round 1410's first
+probe build did this to a `pdf-model` fingerprint and deleted it within minutes. Every export's build
+gets its own `CARGO_TARGET_DIR`.
+
+### 130. A running shell script is replaced by rename, never edited in place
+
+Bash reads a script from the file as it runs, so an in-place edit shifts the offsets the running copy
+reads next. Round 1409's mid-run fixture rename in `tools/drive-windows.sh` ended the first drive in
+"syntax error near unexpected token `done'" after 1 057 s; round 1411's rewrite of `tools/bounded.sh`
+made its own running wrapper exit 2 after the command it had waited for. Write a new file and rename
+it over the old one, and keep the exec bit: a Python rename lost it, and the queued run cost 3 929 s
+of queue for an exit 126. The side lesson from the same drive: a new fixture's name must not reuse an
+existing control's, which it silently overwrites — the control's step turned wrong.
+
+### 131. A daemon started inside the lock keeps it after the walk
+
+An `sccache` server started by a `cargo` command inside round 1412's hold inherited the wrapper's
+descriptor on `heavy-walk.lock` and held the lock about 18 minutes after that wrapper had ended,
+until it idled out; rounds 1408 and 1411 queued behind it (ADR 1659). When the lock is held and no
+wrapper is running, `ls -l /proc/*/fd` for the lock's path names the holder; the shared server is
+never killed, and it is started once outside any hold. The wrapper still owes a marker
+(`HEAVY_WALK_HELD_BY`) so its command can run without the descriptor while `arms-held`'s check
+(ADR 1662) still finds the hold.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

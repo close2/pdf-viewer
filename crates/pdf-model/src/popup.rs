@@ -43,7 +43,7 @@ use pdf_syntax::{Dictionary, Document, ObjectId};
 
 mod rich;
 
-pub use rich::{Measure, RichAlign, RichNote, RichParagraph, RichRun};
+pub use rich::{Measure, RichAlign, RichNote, RichParagraph, RichRun, RichSpacing};
 
 use crate::Page;
 

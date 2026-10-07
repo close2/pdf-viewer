@@ -395,22 +395,81 @@ pub(crate) struct Block {
     /// `tab-interval`: the distance between default tab stops, from the left margin.
     pub(crate) tab_interval: Option<Linear>,
     /// `tab-stops` and `xfa-tab-stops`: the stops at stated positions from the left margin, in
-    /// the order stated, each with its alignment.
-    pub(crate) tab_stops: Vec<(TabAlign, Linear)>,
+    /// the order stated, each with its alignment and its leader.
+    pub(crate) tab_stops: Vec<TabStop>,
+}
+
+/// One stated tab stop: chapter 2's `[alignment] [leader] location` (page 63).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct TabStop {
+    /// How the text after the tab stands at the stop.
+    pub(crate) align: TabAlign,
+    /// The stop's position from the left margin.
+    pub(crate) at: Linear,
+    /// What fills the room before the aligned text; `None` for the blank leaders, `space()` and
+    /// a rule of style `none`, and for a stop that states none.
+    pub(crate) leader: Option<Leader>,
+}
+
+/// A tab leader, chapter 2's `leader ( leaderPattern [leaderAlignment [leaderPatternWidth]] )`
+/// (*Tab Leader Pattern*, pages 63 to 65).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Leader {
+    /// What is repeated.
+    pub(crate) pattern: LeaderPattern,
+    /// `leaderPatternWidth`, the least repetition width; the effective one is the larger of this
+    /// and the pattern's own.
+    pub(crate) width: Option<Linear>,
+}
+
+/// A leader's pattern: chapter 2's `dots`, `rule` and `use-content` (`space` is no leader).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum LeaderPattern {
+    /// `dots()`: a row of dots, which the chapter lets an implementation draw graphically or as
+    /// text; this tree draws the run's full stop.
+    Dots,
+    /// `rule(ruleStyle [ruleThickness])`, drawn in the text's colour.
+    Rule {
+        /// `solid`, `dashed` or `dotted`; `double`, `groove` and `ridge` are read as solid, which
+        /// the chapter permits.
+        style: RuleStyle,
+        /// `ruleThickness`; `None` takes the underline's.
+        thickness: Option<Linear>,
+    },
+    /// `use-content(content)`: the content repeated across the room before the stop, as many
+    /// whole times as fit.
+    Content(String),
+}
+
+/// A rule leader's `ruleStyle`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RuleStyle {
+    /// One unbroken line.
+    Solid,
+    /// Dashes.
+    Dashed,
+    /// Dots.
+    Dotted,
 }
 
 /// How the text after a tab stands at the stop (chapter 2's *Tab Stops* table, page 62, which
 /// chapter 27's *Tab Stops* sends `xfa-tab-stops` to).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TabAlign {
-    /// The text's left edge at the stop; `after` in text read left to right.
+    /// The text's left edge at the stop.
     Left,
     /// The text centred on the stop.
     Centre,
-    /// The text's right edge at the stop; `before` in text read left to right.
+    /// The text's right edge at the stop.
     Right,
     /// The text's first radix character at the stop, and its right edge where it has none.
     Decimal,
+    /// The edge the text starts from at the stop: its left edge where the paragraph reads left
+    /// to right and its right edge where it reads right to left — every default stop's alignment
+    /// since XFA 2.8 (chapter 27's *Tab Stops*, page 1205).
+    After,
+    /// The edge the text ends at, the other way round.
+    Before,
 }
 
 impl Block {
@@ -689,13 +748,12 @@ fn block_property(
             }
         }
         // The old syntax is alignment and position in pairs; the new one, a superset, puts an
-        // optional leader between them (chapter 2's *Tab Leader Pattern*, page 63), which this
-        // tree does not draw and says so unless it is the blank one.
+        // optional leader between them (chapter 2's *Tab Leader Pattern*, page 63).
         "tab-stops" | "xfa-tab-stops" => {
-            let (stops, leaders) = tab_stops(value, character.size);
+            let (stops, page_aligned) = tab_stops(value, character.size);
             block.tab_stops = stops;
-            if leaders {
-                unapplied.note(format!("{name}'s tab leader"));
+            if page_aligned {
+                unapplied.note(format!("{name}'s leader alignment to the page"));
             }
         }
         // Chapter 27's flow controls between content regions (pages 1192 to 1197): a field's
@@ -707,15 +765,18 @@ fn block_property(
     }
 }
 
-/// A `tab-stops` or `xfa-tab-stops` value: each stop's alignment and position, and whether any
-/// stop names a leader other than the blank ones.
+/// A `tab-stops` or `xfa-tab-stops` value: each stop's alignment, position and leader, and
+/// whether a leader asks to be aligned to the page.
 ///
 /// The grammar is chapter 2's: `[alignment] [leader] location`, repeated, the alignment `left` by
 /// default. `before` and `after` are the edges in the direction the text reads, which for text
-/// read left to right are `right` and `left`.
-fn tab_stops(value: &str, size: Linear) -> (Vec<(TabAlign, Linear)>, bool) {
+/// read left to right are `right` and `left`. A leader's `leaderAlignment` of `page` aligns its
+/// cycles as though the leader began at the page's right edge, an edge a field's appearance does
+/// not know; its cycles are laid on the margin's grid as `none`'s are, and the alignment is said.
+fn tab_stops(value: &str, size: Linear) -> (Vec<TabStop>, bool) {
     let mut stops = Vec::new();
-    let mut leaders = false;
+    let mut page_aligned = false;
+    let mut leader: Option<Leader> = None;
     let mut align = TabAlign::Left;
     let mut rest = value.trim();
     while !rest.is_empty() {
@@ -737,37 +798,114 @@ fn tab_stops(value: &str, size: Linear) -> (Vec<(TabAlign, Linear)>, bool) {
                     _ => {}
                 }
             }
-            let leader: String = rest
-                .get(..end)
-                .unwrap_or_default()
-                .chars()
-                .filter(|character| !character.is_whitespace())
-                .collect();
-            if !matches!(
-                leader.to_ascii_lowercase().as_str(),
-                "leader(space)" | "leader(space())" | "leader(rule(none))"
-            ) {
-                leaders = true;
-            }
+            let stated = rest.get(..end).unwrap_or_default();
+            let (read, page) = read_leader(stated, size);
+            leader = read;
+            page_aligned |= page;
             rest = rest.get(end..).unwrap_or_default().trim_start();
             continue;
         }
         let (word, after) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
         rest = after.trim_start();
         match word.to_ascii_lowercase().as_str() {
-            "left" | "after" => align = TabAlign::Left,
-            "right" | "before" => align = TabAlign::Right,
+            "left" => align = TabAlign::Left,
+            "right" => align = TabAlign::Right,
+            "after" => align = TabAlign::After,
+            "before" => align = TabAlign::Before,
             "center" | "centre" => align = TabAlign::Centre,
             "decimal" => align = TabAlign::Decimal,
             other => {
                 if let Some(at) = relative(other, size, Linear::default()) {
-                    stops.push((align, at));
+                    stops.push(TabStop {
+                        align,
+                        at,
+                        leader: leader.take(),
+                    });
                 }
                 align = TabAlign::Left;
+                leader = None;
             }
         }
     }
-    (stops, leaders)
+    (stops, page_aligned)
+}
+
+/// One `leader(…)` function: its pattern, read by chapter 2's tables (pages 63 and 64), then its
+/// optional `leaderAlignment` and `leaderPatternWidth`; and whether the alignment is `page`.
+///
+/// `None` for the blank patterns — `space()`, a rule of style `none`, and content that is one
+/// space, which the chapter calls equivalent to `space()` — and for a pattern
+/// the grammar does not name, which chapter 27 has a processor ignore (page 1187).
+fn read_leader(stated: &str, size: Linear) -> (Option<Leader>, bool) {
+    let inner = stated
+        .trim()
+        .strip_prefix("leader")
+        .map(str::trim_start)
+        .and_then(|rest| rest.strip_prefix('('))
+        .and_then(|rest| rest.strip_suffix(')'))
+        .unwrap_or_default()
+        .trim();
+    // The pattern runs to its own balancing parenthesis, or to the first space for a bare name.
+    let mut depth = 0_usize;
+    let mut end = inner.len();
+    for (at, character) in inner.char_indices() {
+        match character {
+            '(' => depth = depth.saturating_add(1),
+            ')' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    end = at.saturating_add(1);
+                    break;
+                }
+            }
+            character if character.is_whitespace() && depth == 0 => {
+                end = at;
+                break;
+            }
+            _ => {}
+        }
+    }
+    let (pattern, rest) = inner.split_at(end.min(inner.len()));
+    let mut extra = rest.split_whitespace();
+    let page = extra
+        .next()
+        .is_some_and(|alignment| alignment.eq_ignore_ascii_case("page"));
+    let width = extra
+        .next()
+        .and_then(|width| relative(width, size, Linear::default()));
+    let (name, arguments) = pattern
+        .split_once('(')
+        .map_or((pattern, ""), |(name, arguments)| {
+            (name, arguments.strip_suffix(')').unwrap_or(arguments))
+        });
+    let pattern = match name.trim().to_ascii_lowercase().as_str() {
+        "dots" => LeaderPattern::Dots,
+        "rule" => {
+            let mut words = arguments.split_whitespace();
+            let style = match words.next().map(str::to_ascii_lowercase).as_deref() {
+                Some("none") => return (None, page),
+                Some("dashed") => RuleStyle::Dashed,
+                Some("dotted") => RuleStyle::Dotted,
+                // `solid`, and the three the chapter lets a processor render as solid.
+                _ => RuleStyle::Solid,
+            };
+            let thickness = words
+                .next()
+                .and_then(|thickness| relative(thickness, size, Linear::default()));
+            LeaderPattern::Rule { style, thickness }
+        }
+        "use-content" => {
+            let content = arguments
+                .trim()
+                .trim_matches(|quote| quote == '"' || quote == '\'');
+            if content.is_empty() || content == " " {
+                return (None, page);
+            }
+            LeaderPattern::Content(content.to_owned())
+        }
+        _ => return (None, page),
+    };
+    (Some(Leader { pattern, width }), page)
 }
 
 /// `font-size`, against the parent's size.

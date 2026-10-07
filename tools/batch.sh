@@ -109,10 +109,22 @@ open_batch() {
 # (ADR 1463 has the figures).
 warm() {
     [ "${BATCH_WARM:-1}" = 0 ] || [ ! -f "$wt/Cargo.toml" ] && return 0
-    mkdir -p "$wt/scratchpad/open"
-    (cd "$wt" && setsid nohup cargo build --workspace --all-targets \
-        > "$wt/scratchpad/open/build.log" 2>&1 < /dev/null &
-     echo "warming the build directory: pid $!, scratchpad/open/build.log")
+    detach scratchpad/open/build.log "warming the build directory" cargo build --workspace --all-targets
+}
+
+# `detach LOG WHAT COMMAND…` starts COMMAND in the worktree in a session of its own, every standard
+# stream on LOG (relative to the worktree) or `/dev/null`, prints WHAT with the pid, and returns at
+# once. The `;` after `cd` is the construction: `&` binds looser than `&&`, so in `cd … && setsid …
+# &` it would put the whole list in a background copy of this shell, and that copy holds the
+# caller's standard output open until the command ends — a caller reading the pipe to its end, as a
+# command substitution or an agent's shell does, waits out the arms export's half-hour (ADR 1662).
+detach() {
+    local log=$1 what=$2
+    shift 2
+    mkdir -p "$wt/$(dirname "$log")"
+    (cd "$wt" || exit 1
+     setsid nohup "$@" > "$log" 2>&1 < /dev/null &
+     echo "$what: pid $!, $log")
 }
 
 # HEAD's six corpus arms, exported once per batch so that a pixels round compares its pages against
@@ -163,13 +175,34 @@ export_arms() {
         arms_complete "$out" "$commit" && { echo "arms: $out holds every arm of $commit already"; return 0; }
     fi
     [ -f "$wt/Cargo.toml" ] || { echo "arms: no workspace at $wt"; return 1; }
+    # The lock is the wrapper's, so that the export's queue and its hold are a line of the lock's
+    # log as every other walk's are (ADR 1646), and what runs under it is this script's `arms-held`.
     # The lock first and the directory after it, so that a second export of the same directory
     # queues behind the first and then finds it complete rather than writing beside it.
-    local lock bin=$out/bin exe rc arm lane scale queued
-    queued=$(date +%s)
-    exec {lock}>/home/AI/heavy-walk.lock
-    flock "$lock"
-    arms_complete "$out" "$commit" && { exec {lock}>&-; echo "arms: $out holds every arm of $commit already"; return 0; }
+    "$wt/tools/bounded.sh" --lock --round arms --tree 12 -- \
+        "$wt/tools/batch.sh" arms-held "$out" "$commit" "$(date +%s)"
+}
+
+# Whether this process holds a descriptor on the heavy-walk lock — the one `tools/bounded.sh --lock`
+# opened, took and handed down to the command it runs. The file is the wrapper's, read the same way.
+holds_the_lock() {
+    local target link
+    target=$(readlink -f -- "${HEAVY_WALK_LOCK:-/home/AI/heavy-walk.lock}") || return 1
+    for link in /proc/$$/fd/*; do
+        [ "$(readlink -- "$link" 2>/dev/null)" = "$target" ] && return 0
+    done
+    return 1
+}
+
+# The export itself, run by `arms` under the lock it took: OUT, the commit it is of, and the second
+# the lock was asked for. Not a command to type, and it refuses where no ancestor holds the lock,
+# since six arms walked beside another walk are what the lock exists to prevent.
+arms_held() {
+    cd "$wt" || return 1
+    local out=$1 commit=$2 queued=$3 bin=$1/bin exe rc arm lane scale
+    holds_the_lock ||
+        { echo "arms-held: run by \`tools/batch.sh arms\`, under the heavy-walk lock it takes through tools/bounded.sh --lock"; return 1; }
+    arms_complete "$out" "$commit" && { echo "arms: $out holds every arm of $commit already"; return 0; }
     mkdir -p "$out"
     printf 'HEAD arms of %s, exported %s from %s\nfiles: <lane>-<scale>x.txt = the corpus gate'"'"'s --nocapture output; <lane>-<scale>x.tsv = its PDFVIEWER_RASTER_TIMES file, one page a line: name, oracle ms, raster ms, frame digest, mean error\n' \
         "$commit" "$(date '+%Y-%m-%d %H:%M')" "$wt" > "$out/README"
@@ -184,14 +217,13 @@ export_arms() {
     local worker; worker=$(dirname "${exe:-/nonexistent/x}")/../pdf-sandbox-worker
     if [ -z "${exe:-}" ] || [ ! -x "$exe" ] || [ ! -x "$worker" ]; then
         echo "build exit 1 — no test binary or no worker; build.log says why" >> "$out/README"
-        exec {lock}>&-
         echo "arms: the build failed — $out/build.log"; return 1
     fi
     mkdir -p "$bin"; cp "$exe" "$bin/corpus"; cp "$worker" "$bin/pdf-sandbox-worker"
     (cd "$bin" && sha256sum corpus pdf-sandbox-worker) | sed 's/^/built: /' >> "$out/README"
     if [ -n "$(population | tr '\0' '\n')" ]; then
         echo "tree exit 1 — a path changed in $wt while the build ran, so the binaries are of no commit" >> "$out/README"
-        rm -rf "$bin"; exec {lock}>&-
+        rm -rf "$bin"
         echo "arms: the tree changed under the build — nothing walked"; return 1
     fi
     for arm in $arm_names; do
@@ -205,7 +237,6 @@ export_arms() {
         printf 'arms: %-11s exit=%s  %s page line(s)\n' "$arm" "$rc" "$(wc -l < "$out/$arm.tsv" 2>/dev/null || echo 0)"
     done
     rm -rf "$bin"
-    exec {lock}>&-
     echo "done $(date '+%Y-%m-%d %H:%M'), the lock held $(($(date +%s) - queued)) s from the queue's start" >> "$out/README"
     arms_complete "$out" "$commit" || { echo "arms: $out is incomplete — README names the arm"; return 1; }
     echo "arms: $out holds every arm of $commit"
@@ -213,12 +244,14 @@ export_arms() {
 
 # `open`'s call of the above, detached as `warm` is and for the same reason: its cost is the
 # orchestrator's, paid while the briefs are written, and it reads the tree before any round edits it.
-# Skipped where `warm` is skipped, and by `BATCH_ARMS=0`.
+# Started second and beside the warm build rather than after it: the warm build is the rounds' and
+# runs at the caller's priority, the export's builds and walks at the wrapper's nice 19 behind it,
+# and the export's own build — the minute in which a round's first edit would make it refuse — is
+# not pushed back by the warm build's two (ADR 1662). Skipped where `warm` is skipped, and by
+# `BATCH_ARMS=0`.
 arms_at_open() {
     [ "${BATCH_ARMS:-1}" = 0 ] || [ ! -f "$wt/Cargo.toml" ] && return 0
-    mkdir -p "$wt/scratchpad/open"
-    (cd "$wt" && setsid nohup "$wt/tools/batch.sh" arms > "$wt/scratchpad/open/arms.log" 2>&1 < /dev/null &
-     echo "exporting HEAD's six corpus arms: pid $!, scratchpad/open/arms.log")
+    detach scratchpad/open/arms.log "exporting HEAD's six corpus arms" "$wt/tools/batch.sh" arms
 }
 
 # One line per gate: name, exit, the seconds it ran, the seconds it queued for the lock before
@@ -229,20 +262,28 @@ arms_at_open() {
 # dear gate is read off the first and never the second. `tools/state.sh gates-cost` prints them
 # (ADR 1476).
 #
-# Every gate runs behind /home/AI/heavy-walk.lock with four rayon threads: the rounds take the
-# same lock for their own corpus walks, so at most one heavy walk is on the machine at a time
-# across the batch. On 2026-09-15 six rounds and a merge walked the corpus at once and the whole
-# process was killed (raster_golden alone peaks past 7 GiB at twelve threads); the lock costs
-# wall-clock and a kill costs the batch.
+# Every gate runs behind the heavy-walk lock with four rayon threads: the rounds take the same lock
+# for their own corpus walks, so at most one heavy walk is on the machine at a time across the
+# batch. On 2026-09-15 six rounds and a merge walked the corpus at once and the whole process was
+# killed (raster_golden alone peaks past 7 GiB at twelve threads); the lock costs wall-clock and a
+# kill costs the batch. The lock is taken by `tools/bounded.sh --lock`, `--round` the batch's
+# branch, so that the merge's holds are lines of the lock's log beside its rounds' and
+# `tools/state.sh gates-cost` reads both (ADR 1646, 1662); under the wrapper's ceilings, which are
+# the ones every round runs these gates under, and at the caller's priority rather than the
+# wrapper's nice 19, because a timing gate's band is a claim about the program a person runs.
+#
+# The two clocks are the wrapper's: its last line says how long the command ran once the lock was
+# granted (`bounded: … after <n>s`, printed after a nested wrapper's own), so `wall` is that and
+# `wait` the rest of the time since the lock was asked for. A line with no such sentence is a
+# wrapper that never started the command, and its time is all `wall`.
 run() {
-    local name=$1; shift; local out rc asked began ended stamp
-    stamp=$(mktemp)
+    local name=$1; shift; local out rc asked ended wall
     asked=$(date +%s)
-    out=$(RAYON_NUM_THREADS="${RAYON_NUM_THREADS:-4}" flock /home/AI/heavy-walk.lock \
-        sh -c 'date +%s > "$0"; exec "$@"' "$stamp" "$@" 2>&1) && rc=0 || rc=$?
+    out=$(RAYON_NUM_THREADS="${RAYON_NUM_THREADS:-4}" "$wt/tools/bounded.sh" --lock --round "$merge_round" \
+        --nice 0 -- "$@" 2>&1) && rc=0 || rc=$?
     ended=$(date +%s)
-    began=$(cat "$stamp" 2>/dev/null); rm -f "$stamp"
-    [ -n "$began" ] || began=$asked
+    wall=$(printf '%s\n' "$out" | sed -n 's/^bounded: .* after \([0-9][0-9]*\)s.*/\1/p' | tail -1)
+    [ -n "$wall" ] || wall=$((ended - asked))
     # A test line that ran nothing exits 0: `--ignored` over a file with no ignored test is green
     # while checking nothing. It is a failure here, wherever in the line `cargo test` stands —
     # behind `tools/bounded.sh` as much as at its head — and `tests/batch.rs` holds every line's
@@ -252,7 +293,7 @@ run() {
         rc=98; out+=$'\nran zero tests — a green line that checked nothing (ADR 1392)'
     fi
     printf '%-24s exit=%-4s wall=%-6s wait=%-6s %s\n' "$name" "$rc" \
-        "$((ended - began))s" "$((began - asked))s" \
+        "${wall}s" "$((ended - asked - wall))s" \
         "$(printf '%s\n' "$out" | grep -iE 'test result|documents|pages|passed|FAILED|panicked|ran zero tests' | tail -1 | cut -c1-150)" >> "$log"
     [ "$rc" -ne 0 ] && printf '%s\n' "$out" | tail -30 > "$log.fail.$name"
     return 0
@@ -260,6 +301,7 @@ run() {
 
 gates() {
     cd "$wt"; : > "$log"; rm -f "$log".fail.* 2>/dev/null || true
+    merge_round=$(git -C "$wt" rev-parse --abbrev-ref HEAD)
     # `tools/batch.sh gates > <the log>` makes this script's standard output the log itself at
     # offset nought, so the summary printed last lands over the first gate's line and that gate is
     # missing from every reading of the log. The summary is in the log already; it is printed only
@@ -777,6 +819,7 @@ case "${1:-}" in
     gates) gates ;;
     raster-examples) raster_examples "${2:-}" ;;
     arms)  export_arms "${2:-}" ;;
+    arms-held) arms_held "${2:?}" "${3:?}" "${4:?}" ;;
     check) check_batch ;;
     commit) commit_batch "${2:?a commit message file}" ;;
     install) install_batch ;;
