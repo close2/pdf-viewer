@@ -3,11 +3,13 @@
 //!
 //! Four phases, numbered as every other module here cites them: **1** classify,
 //! rasterise coverage and count (`crate::encode`); **2** allocate and stage
-//! (`super::staging`); **3** record and submit (`super::record`); **4** resolve, which
-//! only a `Readback` target pays anything for. [`Device::render`] and
-//! [`Device::render_retained`] differ in exactly one of the four — phase 1 — which is
-//! why everything below that line is `draw_encoded`, reached identically by both
-//! (ADR 0048).
+//! (`super::staging`); **3** record and submit (`super::record`); **4** wait, present or
+//! read back, and read the timestamps (`super::pending`), of which only a `Readback` target
+//! pays for the read. [`Device::render`] and [`Device::render_retained`] differ in exactly one
+//! of the four — phase 1 — which is why phases 2 and 3 are `submit_encoded` and phase 4 is
+//! `complete`, reached identically by both (ADR 0048); [`Device::submit`] and
+//! [`Device::collect`] are `render`'s first three phases and its fourth, held apart (ADR
+//! 1595).
 //!
 //! **The order the refusals are taken in is a decision, not an accident.** Every
 //! refusal a scene can earn is taken before the target is bound, because a `Surface`
@@ -23,6 +25,7 @@ use raster_scene::{MAX_COORDINATE, Scene};
 use super::Device;
 use super::bound::Bound;
 use super::damage::DamagePlan;
+use super::pending::{Submission, Submitted};
 use crate::encode::{self, Encoded};
 use crate::error::RenderError;
 use crate::frame::{Counters, EncodeSource, Frame, Payload, Raster, TimingProvenance, Timings};
@@ -31,7 +34,6 @@ use crate::readback;
 use crate::report::Report;
 use crate::retained::{EncodeKey, RetainedScene};
 use crate::target::Target;
-use crate::timing::{self, PassQuery};
 use crate::viewport::Viewport;
 
 impl Device {
@@ -53,10 +55,24 @@ impl Device {
         viewport: &Viewport<'_>,
         into: Target<'_>,
     ) -> Result<Frame, RenderError> {
+        match self.submit_scene(scene, viewport, &into)? {
+            Submission::Drawn(frame) => Ok(*frame),
+            Submission::Submitted(submitted) => self.complete(*submitted),
+        }
+    }
+
+    /// Phases 1 to 3 of [`Device::render`]: everything up to the device drawing, which
+    /// [`Device::complete`] waits for (ADR 1595).
+    pub(super) fn submit_scene<'t>(
+        &mut self,
+        scene: &Scene,
+        viewport: &Viewport<'_>,
+        into: &Target<'t>,
+    ) -> Result<Submission<'t>, RenderError> {
         self.validate_viewport(viewport)?;
 
         let mut reports = Vec::new();
-        let damage = Self::plan_damage(viewport, &into, &mut reports)?;
+        let damage = Self::plan_damage(viewport, into, &mut reports)?;
 
         // Phase 1: classify, rasterise coverage, and count (encode.rs). Runs before
         // any allocation and regardless of target size, so refusals are identical
@@ -69,10 +85,10 @@ impl Device {
         // section 4), reported as one.
         let reset_in_encode = self.atlas.generation != generation;
 
-        let mut frame = self.draw_encoded(
+        let mut submission = self.submit_encoded(
             &encoded,
             viewport,
-            &into,
+            into,
             &damage,
             reports,
             encode_time,
@@ -80,9 +96,11 @@ impl Device {
         )?;
         // Reported on the frame that caused it rather than on the one that pays for it:
         // this is the frame whose atlas layout stopped being the layout, and a caller
-        // holding a `RetainedScene` learns here that its encode is now stale.
-        frame.counters.atlas_repacked = self.settle_atlas(&encoded) || reset_in_encode;
-        Ok(frame)
+        // holding a `RetainedScene` learns here that its encode is now stale. Settled once
+        // the frame is submitted: a reset moves what later frames upload, and the queue
+        // puts every such upload behind this frame's passes.
+        submission.set_repacked(self.settle_atlas(&encoded) || reset_in_encode);
+        Ok(submission)
     }
 
     /// Render one frame of a scene the caller retains, replaying the encode of its last
@@ -140,15 +158,20 @@ impl Device {
         let encode_time = encode_started.elapsed();
         let reset_in_encode = self.atlas.generation != generation;
 
-        let mut frame = self.draw_encoded(
-            encoded,
-            viewport,
-            &into,
-            &damage,
-            reports,
-            encode_time,
-            source,
-        );
+        let mut frame = self
+            .submit_encoded(
+                encoded,
+                viewport,
+                &into,
+                &damage,
+                reports,
+                encode_time,
+                source,
+            )
+            .and_then(|submission| match submission {
+                Submission::Drawn(frame) => Ok(*frame),
+                Submission::Submitted(submitted) => self.complete(*submitted),
+            });
         // A replay inserted nothing, so there is nothing for a repack to settle — and
         // resetting after one would bump the generation the replayed encode is keyed
         // under and cost the next frame an encode for no reason.
@@ -238,32 +261,33 @@ impl Device {
         )
     }
 
-    /// Phases 2 to 4 of a frame: price, allocate, upload, draw, resolve.
+    /// Phases 2 and 3 of a frame: price, allocate, upload, record and submit — everything
+    /// before the device has to have drawn anything.
     ///
     /// Everything that is not phase 1, which is the seam a retained encode is replayed
     /// across (ADR 0048): the two callers differ only in where the [`Encoded`] came
-    /// from, and every refusal below this line is taken by both.
+    /// from, and every refusal below this line is taken by both. Phase 4 is
+    /// [`Device::complete`], which [`Device::render`] calls at once and [`Device::collect`]
+    /// when its caller has walked whatever it walks beside the device (ADR 1595).
     #[expect(clippy::too_many_arguments)] // one frame's inputs, named once at two call sites
-    #[expect(clippy::too_many_lines)] // one frame's phases in order, with ADR 0095's
-    // growth loop around exactly the two that re-run; a split would scatter the
-    // ordering argument the comments carry
-    fn draw_encoded(
+    pub(super) fn submit_encoded<'t>(
         &mut self,
         encoded: &Encoded,
         viewport: &Viewport<'_>,
-        into: &Target<'_>,
+        into: &Target<'t>,
         damage: &DamagePlan,
         reports: Vec<Report>,
         encode_time: Duration,
         source: EncodeSource,
-    ) -> Result<Frame, RenderError> {
+    ) -> Result<Submission<'t>, RenderError> {
         // Before the zero-size branch and before anything is drawn: what a frame says
         // about itself has to be true of a frame that draws nothing too, and the claim
         // this report makes is about the scene rather than about the pixels.
         let mut reports = reports;
         encode::empty_stack_reports(&encoded.used_functions, &self.resources, &mut reports);
         if viewport.width == 0 || viewport.height == 0 {
-            return Self::zero_size_frame(viewport, into, encoded, encode_time, reports, source);
+            return Self::zero_size_frame(viewport, into, encoded, encode_time, reports, source)
+                .map(|frame| Submission::Drawn(Box::new(frame)));
         }
 
         self.price_internal_textures(encoded, viewport, damage)?;
@@ -352,79 +376,43 @@ impl Device {
             }
             EncodeSource::Replayed => encoded.encode_phases.replayed(),
         };
-        let (execute_wall, mut phases, layer_textures) = ran;
+        let (submit_host, submission, phases, layer_textures) = ran;
 
-        // Present before reading instrumentation back: the person sees the frame at
-        // the earliest moment, the numbers arrive a map later.
-        let mut readback_source: Option<wgpu::Texture> = None;
-        let present_started = Instant::now();
-        match bound {
-            Bound::Acquired(surface_texture) => self.queue.present(surface_texture),
-            Bound::Owned(texture) => readback_source = Some(texture),
-            Bound::Borrowed(_) => {}
-        }
-        phases.push(("target acquire", acquire));
-        phases.push(("present", present_started.elapsed()));
-        phases.extend(encode_phases);
-        phases.extend(upload_spans);
-        let (execute, provenance) = timing::read_pass(
-            &self.gpu,
-            self.timestamps,
-            query.as_ref(),
-            execute_wall,
-            "content pass",
-            &mut phases,
-        )?;
-        // The compute lane's own device time, invisible to the frame's one query
-        // because its dispatches run in submissions of their own before the content
-        // pass — the bulk of what the caller's ADR 0084 could only call
-        // "unattributed". Read only on a frame the lane stamped: an unstamped frame's
-        // buffers hold an older frame's ticks.
-        if compute_stamped && let Some(q) = self.compute_queries.as_ref() {
-            timing::read_pass(
-                &self.gpu,
-                self.timestamps,
-                Some(&q.count),
-                Duration::ZERO,
-                "compute count pass",
-                &mut phases,
-            )?;
-            timing::read_pass(
-                &self.gpu,
-                self.timestamps,
-                Some(&q.coverage),
-                Duration::ZERO,
-                "compute emit+deposit",
-                &mut phases,
-            )?;
-        }
-        if provenance == TimingProvenance::TimestampQueries {
-            // What the content submission cost beyond its own pass: recording, submit,
-            // and the wait — host-side, and until now folded silently into the wall.
-            phases.push(("content beyond pass", execute_wall.saturating_sub(execute)));
-        }
-        // Read, so the buffers are unmapped and the set is the next frame's to use.
-        // Reached only on the `?` above succeeding, which is the whole condition: a
-        // query whose read failed is dropped here instead, and the frame after it makes
-        // a fresh one.
-        self.pass_query = query;
+        // A target this frame owns is copied out behind its passes now, so that the copy is
+        // on the device before anything waits for the frame (ADR 1595).
+        let copy = match &bound {
+            Bound::Owned(texture) => {
+                let started = Instant::now();
+                let copy = readback::copy_out(
+                    &self.gpu,
+                    &self.queue,
+                    texture,
+                    viewport.width,
+                    viewport.height,
+                    self.limits.max_target_size,
+                )?;
+                Some((copy, started.elapsed()))
+            }
+            Bound::Borrowed(_) | Bound::Acquired(_) => None,
+        };
 
-        let (payload, readback) = self.resolve_payload(readback_source, viewport)?;
-
-        Ok(Frame {
-            timings: Timings {
-                encode: encode_time,
-                upload: upload_time,
-                execute,
-                readback,
-                execute_provenance: provenance,
-                phases,
-            },
+        Ok(Submission::Submitted(Box::new(Submitted {
+            bound,
+            query,
+            submission,
+            submit_host,
+            copy,
+            compute_stamped,
+            phases,
+            acquire,
+            encode_phases,
+            upload_spans,
+            timings: (encode_time, upload_time),
             counters: self.counters(encoded, upload_bytes, layer_textures),
             reports,
-            payload,
-            encode_source: source,
-        })
+            source,
+            token: std::sync::Arc::clone(&self.pending),
+        })))
     }
 
     /// Price the compositor's internal textures while nothing of the frame
@@ -471,7 +459,7 @@ impl Device {
             atlas_distinct_keys: encoded.atlas_distinct_keys,
             atlas_working_set_bytes: encoded.atlas_requested_bytes,
             atlas_overflow_tiles: encoded.atlas_overflow_tiles,
-            // Set by the caller of `draw_encoded`, which is where the repack is
+            // Set by the caller of `submit_encoded`, which is where the repack is
             // decided: a frame that has not settled its atlas yet has not repacked
             // it, and a `Frame` may not carry a number that is not true.
             atlas_repacked: false,
@@ -516,33 +504,6 @@ impl Device {
             self.atlas.reset();
         }
         repack
-    }
-
-    /// Phase 4: resolve. Only `Readback` pays anything here (brief section 6.1: this is the cost
-    /// that dominated the old backend's offscreen frame, priced separately so brief section 11.1
-    /// finally has its answer — and ADR 0022 is what it bought).
-    ///
-    /// A `Surface` frame has already been presented and a `Texture` frame is where the
-    /// caller wanted it, so both return `Payload::None` and a zero: the number is the
-    /// truth about what this target cost, not a placeholder.
-    fn resolve_payload(
-        &self,
-        readback_source: Option<wgpu::Texture>,
-        viewport: &Viewport<'_>,
-    ) -> Result<(Payload, Duration), RenderError> {
-        let Some(texture) = readback_source else {
-            return Ok((Payload::None, Duration::ZERO));
-        };
-        let started = Instant::now();
-        let raster = readback::read_back(
-            &self.gpu,
-            &self.queue,
-            &texture,
-            viewport.width,
-            viewport.height,
-            self.limits.max_target_size,
-        )?;
-        Ok((Payload::Raster(raster), started.elapsed()))
     }
 
     fn validate_viewport(&self, viewport: &Viewport<'_>) -> Result<(), RenderError> {
@@ -606,27 +567,5 @@ impl Device {
             Target::Surface => Err(RenderError::ZeroSizeTarget { target: "Surface" }),
             Target::Texture(_) => Err(RenderError::ZeroSizeTarget { target: "Texture" }),
         }
-    }
-
-    /// This frame's timestamp query, taken out of the device for the duration, and
-    /// `None` where the adapter has no timestamps to take.
-    ///
-    /// **Taken rather than borrowed**, because the frame it belongs to needs `&mut self`
-    /// for everything else it does; and taken rather than made, because making one costs
-    /// **2.43 ms on a device's first frame** — a `QuerySet` and two sixteen-byte buffers,
-    /// which the driver charges for once and then hands back from a pool. That was a
-    /// fifth of the eleven milliseconds a first frame pays over its successors
-    /// (`QUORRA_FEEDBACK.md` section 9), spent on an instrument rather than on the page.
-    ///
-    /// It goes back at the end of a frame that read it, and does not after one that
-    /// could not: a map that failed may leave the buffer mapped, and the next frame's
-    /// `map_async` on it would be a validation error rather than a number.
-    fn take_pass_query(&mut self) -> Option<PassQuery> {
-        self.timestamps?;
-        Some(
-            self.pass_query
-                .take()
-                .unwrap_or_else(|| PassQuery::new(&self.gpu)),
-        )
     }
 }

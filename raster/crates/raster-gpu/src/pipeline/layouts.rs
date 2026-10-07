@@ -11,6 +11,8 @@
 //! `min_binding_size` on each uniform makes a layout that disagrees with its WGSL a
 //! validation error rather than a wrong picture.
 
+use crate::device::SHADING_WINDOW_BYTES;
+
 /// A uniform buffer binding, with the size the shader's struct is — `min_binding_size`
 /// makes a layout that disagrees with its WGSL a validation error rather than a wrong
 /// picture.
@@ -32,7 +34,8 @@ fn uniform_entry(
 }
 
 /// [`uniform_entry`] read at an offset the draw names: one buffer holds every op's numbers of
-/// a pass and each draw moves the binding to its own (ADR 1555).
+/// a pass and each draw moves the binding to the window its ops' numbers sit in (ADRs 1555,
+/// 1594).
 fn dynamic_uniform_entry(
     binding: u32,
     size: u64,
@@ -246,7 +249,7 @@ fn bind_layouts(device: &wgpu::Device) -> BindLayouts {
         shading: make(
             "raster shading",
             &[
-                dynamic_uniform_entry(0, 176, QUAD_UNIFORM),
+                dynamic_uniform_entry(0, SHADING_WINDOW_BYTES, QUAD_UNIFORM),
                 texture_entry(1),
                 texture_entry(2),
                 texture_entry(3),

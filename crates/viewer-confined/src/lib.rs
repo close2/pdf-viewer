@@ -658,7 +658,13 @@ pub enum Reply {
     ///
     /// Boxed because seven optional strings and §12.10's reading are four times the next largest
     /// variant, and every reply this worker sends would otherwise be that size.
-    Measured(Box<pdf_model::measurement::Traced>),
+    Measured {
+        /// What Table 267's arrays make of the path.
+        traced: Box<pdf_model::measurement::Traced>,
+        /// §12.10's position of the path's last point, where its viewport is geospatial
+        /// (ADR 1593).
+        located: Option<viewer_core::Located>,
+    },
 }
 
 /// One of §7.11.4's embedded files, as a panel lists them.

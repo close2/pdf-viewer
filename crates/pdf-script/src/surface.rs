@@ -1,0 +1,371 @@
+//! The host object model's refused members, by name: RFC 0008 section 4.3's Tier 2 with each row's
+//! reason, and what section 4.2 admits to Tier 1 that this bridge does not yet carry.
+//!
+//! Data, so that a test can walk it and a later round can move a member from one list to the
+//! bridge by deleting one line here. Each member becomes a property that throws a
+//! `NotAllowedError` naming it (ADR 1591); a member in neither list and not carried is simply not
+//! there, which is how the reference's surface ends.
+
+/// The object a member is a property of.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Holder {
+    /// The document, `this` in a field script — the global object here, so `getField` and
+    /// `this.getField` are one property.
+    Doc,
+    /// `app`.
+    App,
+    /// `event`.
+    Event,
+    /// A `Field`: `event.target`, and what `this.getField` answers.
+    Field,
+    /// `util`.
+    Util,
+    /// `console`.
+    Console,
+    /// A name of the global scope that is an object of its own: `Net`, `color`, `global`.
+    Global,
+}
+
+impl Holder {
+    /// How a script spells the holder in front of a member, `app.` or `this.`; empty for
+    /// [`Holder::Global`], whose members are names on their own.
+    #[must_use]
+    pub fn prefix(self) -> &'static str {
+        match self {
+            Self::Doc => "this.",
+            Self::App => "app.",
+            Self::Event => "event.",
+            Self::Field => "Field.",
+            Self::Util => "util.",
+            Self::Console => "console.",
+            Self::Global => "",
+        }
+    }
+}
+
+/// One row of RFC 0008 section 4.3's table: members excluded for one reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Excluded {
+    /// The object the members are properties of.
+    pub holder: Holder,
+    /// The members.
+    pub members: &'static [&'static str],
+    /// The table's reason, as the clause after "because it".
+    pub reason: &'static str,
+}
+
+/// RFC 0008 section 4.3's Tier 2, row by row.
+pub const EXCLUDED: &[Excluded] = &[
+    Excluded {
+        holder: Holder::Global,
+        members: &["Net", "SOAP"],
+        reason: "leaves the process: the confined worker has no network, and the host makes no \
+                 transmission a person did not see",
+    },
+    Excluded {
+        holder: Holder::App,
+        members: &["launchURL"],
+        reason: "leaves the machine: it is a link's question, under the host's level for links, \
+                 and a script may raise it only once the host carries a script's request",
+    },
+    Excluded {
+        holder: Holder::Doc,
+        members: &["submitForm"],
+        reason: "is a submission, under the host's level for submissions, and a script may ask \
+                 for one only once the host carries a script's request",
+    },
+    Excluded {
+        holder: Holder::Field,
+        members: &["browseForFileToSubmit", "buttonImportIcon"],
+        reason: "opens a file chooser, which is a person's act",
+    },
+    Excluded {
+        holder: Holder::Doc,
+        members: &[
+            "saveAs",
+            "exportDataObject",
+            "importDataObject",
+            "createDataObject",
+            "getDataObjectContents",
+            "exportAsFDF",
+            "exportAsXFDF",
+            "exportAsText",
+            "importAnFDF",
+            "importAnXFDF",
+            "importTextData",
+            "importXFAData",
+            "exportXFAData",
+        ],
+        reason: "reaches the filesystem, which the confined worker does not have",
+    },
+    Excluded {
+        holder: Holder::App,
+        members: &["browseForDoc", "getPath"],
+        reason: "reaches the filesystem, which the confined worker does not have",
+    },
+    Excluded {
+        holder: Holder::Util,
+        members: &["readFileIntoStream"],
+        reason: "reaches the filesystem, which the confined worker does not have",
+    },
+    Excluded {
+        holder: Holder::App,
+        members: &["openDoc", "newDoc", "newFDF", "openFDF"],
+        reason: "reaches other documents in the window, which one document's script may not",
+    },
+    Excluded {
+        holder: Holder::Doc,
+        members: &["closeDoc"],
+        reason: "reaches other documents in the window, which one document's script may not",
+    },
+    Excluded {
+        holder: Holder::Doc,
+        members: &["print", "getPrintParams"],
+        reason: "prints, which RFC 0004 builds under its own policy",
+    },
+    Excluded {
+        holder: Holder::Doc,
+        members: &["mailDoc", "mailForm"],
+        reason: "starts a mail program, which nothing here starts",
+    },
+    Excluded {
+        holder: Holder::App,
+        members: &["mailMsg", "mailGetAddrs"],
+        reason: "starts a mail program, which nothing here starts",
+    },
+    Excluded {
+        holder: Holder::App,
+        members: &[
+            "execMenuItem",
+            "addMenuItem",
+            "addSubMenu",
+            "hideMenuItem",
+            "addToolButton",
+            "removeToolButton",
+            "hideToolbarButton",
+            "popUpMenu",
+            "popUpMenuEx",
+            "execDialog",
+        ],
+        reason: "draws or drives the application's own chrome, which a document does not",
+    },
+    Excluded {
+        holder: Holder::App,
+        members: &[
+            "trustedFunction",
+            "trustPropagatorFunction",
+            "beginPriv",
+            "endPriv",
+        ],
+        reason: "enters a privileged context, which a document's events do not have",
+    },
+    Excluded {
+        holder: Holder::Global,
+        members: &["Collab", "security", "SecurityHandler", "identity"],
+        reason: "reaches collaboration servers, credentials, the reader's identity or \
+                 cryptography the document steers",
+    },
+    Excluded {
+        holder: Holder::Doc,
+        members: &["encryptUsingPolicy"],
+        reason: "reaches collaboration servers, credentials, the reader's identity or \
+                 cryptography the document steers",
+    },
+    Excluded {
+        holder: Holder::Field,
+        members: &[
+            "signatureSign",
+            "signatureValidate",
+            "signatureInfo",
+            "signatureGetSeedValue",
+            "signatureSetSeedValue",
+            "signatureGetModifications",
+            "setLock",
+            "getLock",
+        ],
+        reason: "reaches collaboration servers, credentials, the reader's identity or \
+                 cryptography the document steers",
+    },
+    Excluded {
+        holder: Holder::Doc,
+        members: &[
+            "addScript",
+            "removeScript",
+            "addField",
+            "removeField",
+            "addAnnot",
+            "addLink",
+            "insertPages",
+            "deletePages",
+            "replacePages",
+            "extractPages",
+            "flattenPages",
+            "spawnPageFromTemplate",
+            "addWatermarkFromFile",
+            "addWatermarkFromText",
+            "setPageAction",
+            "setAction",
+        ],
+        reason: "changes the document's structure or invents marks, and the document is \
+                 immutable",
+    },
+    Excluded {
+        holder: Holder::Field,
+        members: &["setAction"],
+        reason: "changes the document's structure or invents marks, and the document is \
+                 immutable",
+    },
+    Excluded {
+        holder: Holder::Doc,
+        members: &["media"],
+        reason: "is multimedia, which clause 13's exclusion keeps out",
+    },
+    Excluded {
+        holder: Holder::App,
+        members: &["media"],
+        reason: "is multimedia, which clause 13's exclusion keeps out",
+    },
+    Excluded {
+        holder: Holder::Global,
+        members: &["XFA", "xfa"],
+        reason: "is XFA, which Annex K permits a processor not to implement",
+    },
+    Excluded {
+        holder: Holder::Doc,
+        members: &["dynamicXFAForm"],
+        reason: "is XFA, which Annex K permits a processor not to implement",
+    },
+];
+
+/// What RFC 0008 section 4.2 admits to Tier 1 and this bridge does not carry, by holder.
+///
+/// The bridge carries one field's `/K` and `/F` (ADR 1591); each of these is the next thing a
+/// round adds, and until then a property that says so.
+pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
+    (
+        Holder::Event,
+        &[
+            "changeEx",
+            "commitKey",
+            "targetName",
+            "source",
+            "name",
+            "type",
+            "shift",
+            "modifier",
+            "keyDown",
+            "fieldFull",
+            "richValue",
+            "richChange",
+        ],
+    ),
+    (
+        Holder::Field,
+        &[
+            "display",
+            "hidden",
+            "readonly",
+            "required",
+            "textColor",
+            "fillColor",
+            "strokeColor",
+            "borderStyle",
+            "lineWidth",
+            "textSize",
+            "textFont",
+            "alignment",
+            "charLimit",
+            "comb",
+            "multiline",
+            "password",
+            "doNotScroll",
+            "currentValueIndices",
+            "numItems",
+            "exportValues",
+            "getItemAt",
+            "setItems",
+            "insertItemAt",
+            "deleteItemAt",
+            "clearItems",
+            "buttonGetCaption",
+            "buttonSetCaption",
+            "checkThisBox",
+            "isBoxChecked",
+            "setFocus",
+            "getArray",
+            "valueAsString",
+            "name",
+            "type",
+            "page",
+            "rect",
+            "doc",
+        ],
+    ),
+    (
+        Holder::Doc,
+        &[
+            "getNthFieldName",
+            "numFields",
+            "calculateNow",
+            "calculate",
+            "resetForm",
+            "dirty",
+            "getAnnot",
+            "getAnnots",
+            "getOCGs",
+            "pageNum",
+            "numPages",
+            "getPageLabel",
+            "getPageBox",
+            "getPageRotation",
+            "gotoNamedDest",
+            "scroll",
+            "zoom",
+            "zoomType",
+            "layout",
+            "info",
+            "documentFileName",
+            "title",
+            "getPageNumWords",
+            "getPageNthWord",
+        ],
+    ),
+    (
+        Holder::App,
+        &[
+            "alert",
+            "beep",
+            "response",
+            "setTimeOut",
+            "setInterval",
+            "clearTimeOut",
+            "clearInterval",
+            "viewerType",
+            "viewerVersion",
+            "viewerVariation",
+            "platform",
+            "language",
+            "formsVersion",
+            "activeDocs",
+            "goBack",
+            "goForward",
+        ],
+    ),
+    (
+        Holder::Util,
+        &[
+            "printf",
+            "printd",
+            "printx",
+            "scand",
+            "crackURL",
+            "spansToXML",
+            "xmlToSpans",
+            "streamFromString",
+            "stringFromStream",
+            "iconStreamFromIcon",
+        ],
+    ),
+    (Holder::Console, &["show", "hide", "clear"]),
+    (Holder::Global, &["color", "global"]),
+];

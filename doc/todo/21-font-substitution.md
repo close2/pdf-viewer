@@ -5,9 +5,8 @@ Priority: 21
 Corpus: 40 documents. **The corpus gate's own four silence lines are where the counts are, and
 this file does not repeat them** (ADR 0281): `codes reaching no glyph *in silence*` and `codes
 reaching a glyph the font draws blank` are the split ADR 0270 drew, the first of the two being what
-§3 below is about, `codes §9.10.2 could not name *in silence*` is §5's, added in the
-four-hundred-and-seventy-sixth, and `codes drawn upright where §9.7.5.1 named a vertical form` is
-§7's, added in the eight-hundred-and-thirty-seventh — the only one of the four that is a mark
+§3 below is about, `codes §9.10.2 could not name *in silence*` is §5's, and `codes drawn upright
+where §9.7.5.1 named a vertical form` is §7's (ADR 0764) — the only one of the four that is a mark
 **made**, in the wrong shape. The line's own worst-ten follows each. `doc/HANDOVER.md`'s
 not-implemented table stated the first of them wrongly for long enough to be worth this sentence.
 Clauses: §9.10.2, §9.7.4.2, §9.6.2.1, §9.6.2.2, §9.6.4 (Type 3, for §5's `/a192`), §9.6.5.3, §9.6.5.4, §9.7.5.1, §9.7.5.2, §9.8.1, §9.8.3
@@ -15,14 +14,14 @@ Code: `crates/pdf-font/src/substitute.rs`, `crates/pdf-font/src/substituted.rs`,
 
 ## 1. A per-character fallback — **0 documents, and this section was wrong about its own two**
 
-§9.10.2 gives a code a character and the face a family match found has no glyph for it. Since the
-hundred-and-eighty-third session a substitute is chosen by **coverage** — the widest-repertoire
+§9.10.2 gives a code a character and the face a family match found has no glyph for it. A
+substitute is chosen by **coverage** — the widest-repertoire
 face on the machine that can draw a character of the collection's own script (ADR 0153) — and
 eight of the ten blank pages that named this now draw.
 
 **All ten do.** This file said the two left were `issue11555.pdf` and `issue2128r.pdf`, "whose
-characters no single face on this machine has", and the two-hundred-and-fifty-sixth session opened
-the pictures: `issue2128r.pdf` draws every one of its Chinese characters and `issue11555.pdf`
+characters no single face on this machine has", and the pictures say otherwise:
+`issue2128r.pdf` draws every one of its Chinese characters and `issue11555.pdf`
 draws its whole vertical mixture of Latin and kana. Both report nothing, both are above the text
 gate's floor, and neither has a code reaching no glyph. The claim was a *prediction* about ADR
 0153's rule that nobody re-checked after the rule landed — the same shape as a ledger row whose
@@ -105,8 +104,8 @@ Honest refusals. The `-UCS2` `CMap`s closed the rest of this population in sessi
 alternative — reporting every uncovered code named 13 documents that mostly draw fine, and each
 report costs the oracle a judged page (trap 11) — and chose "drew none" deliberately.
 
-`Interpretation::codes_without_a_glyph` is the measurement that question needs, and the
-four-hundred-and-thirty-fourth session found it was counting two different things (ADR 0270).
+`Interpretation::codes_without_a_glyph` is the measurement that question needs, and it counts only
+one of two different things (ADR 0270).
 `LoadedFont::outline` answers `None` both where the routes of §9.6.5.4 and §9.7.4.2 **reached a
 glyph the program contains** and describes with no contours — which is how every sfnt stores a
 space — and where they reached **nothing, or `.notdef`**. Only the second is a mark the reader
@@ -120,8 +119,7 @@ loses, and `codes_reaching_a_blank_glyph` now holds the first.
 | no glyph, or `.notdef` — a mark lost, before the fix | **22 435** | 277 | 5 over 2 |
 | ADR 0269's total | 51 272 | 635 | 62 over 10 |
 
-**The second row's *definition* changed in the six-hundred-and-eighty-fifth session and the
-figures above are the old one** (ADR 0520). It had a third exclusion its own doc comment did not
+**The second row's *definition* is ADR 0520's, and the figures above predate it.** It had a third exclusion its own doc comment did not
 name: a code §9.10.2 could not **name** was left out as well, which is a question about the reader
 and not about whether the program answered. Counting it — the corpus's second row goes from
 **5 over 2 documents to 129 over 7** and the first row does not move at all — the split's second
@@ -134,8 +132,7 @@ section is about, and they are worth naming because none of them is a substituti
 `issue6721_reduced.pdf` code 224 reaching `.notdef`, and `issue11403_reduced.pdf` a UTF-8 no-break
 space written byte by byte into a simple font.
 
-`pr12564.pdf`'s 26 — the corpus's largest contributor, diagnosed by hand in the
-two-hundred-and-forty-fifth session — are the first row, and so is the web's largest:
+`pr12564.pdf`'s 26 — the corpus's largest contributor, diagnosed by hand — are the first row, and so is the web's largest:
 `0300276.pdf` shows one `Identity-H` code 118 times whose `/ToUnicode` maps it to U+0007 and whose
 glyph the font contains and draws blank. The whitespace exemption in front of the count cannot see
 a font that reads its own space back as something else; the glyph index can.
@@ -181,14 +178,13 @@ at 18 pt draws 99 against 105. That is 5.7% shorter capitals and 1.0% to 7.7% of
 the `CONTRADICTED_SUBSTITUTED_FONT` pages naming a Helvetica or Arial face; the serif faces have
 no such gap, and the advances have none in either family.
 
-**And the six-hundred-and-eightieth session priced the whole substitution rather than the metric**,
+**And the whole substitution is priced, not only the metric** (ADR 0510),
 which is what the gap is worth in the units a verdict is made of: rewriting each of that group's
 eight documents with `gs -sDEVICE=pdfwrite` so that the face the references resolve is *embedded* —
 after which every renderer draws one program — takes **seven of the eight inside every bound they
 were failing**, the references rendering the rewritten file byte-identically to the original on
 seven of the eight. `issue6108.pdf` is the exception, and the face owns 82% of its excess. So this
-section's gap is not a residue beside a larger unknown; on these pages it is the whole of it. ADR
-0510.
+section's gap is not a residue beside a larger unknown; on these pages it is the whole of it.
 
 **It is left open on purpose** (ADR 0267): §9.5 NOTE 5 puts substitution beyond the standard,
 §9.8.1 says a descriptor's metrics exist so that a processor may synthesise or select a substitute
@@ -199,7 +195,7 @@ usable `/CapHeight` for a non-embedded face, which no corpus page has yet been s
 
 ### The witness arrived, and it is about *width* rather than cap height
 
-**`bug1671312_ArialNarrow.pdf`, found in the five-hundred-and-eighteenth session** at the head of
+**`bug1671312_ArialNarrow.pdf`, at the head of
 the ambiguous bucket's new ratio ranking — the pages where we sit further from every voting
 reference than the closest two sit from each other. It is 1913 bytes, one line of text at 20 pt in
 a non-embedded `/ArialNarrow`, and it states the whole of Table 120:
@@ -230,7 +226,7 @@ the picture says it in one look — our letters collide where the other four hav
 
 ### The width half is closed, and the clause it rests on is Table 109's (ADR 0358)
 
-**Taken in the five-hundred-and-twenty-third session.** The clause was read first and it requires
+The clause requires
 nothing of a substituted face's shape — not §9.5's NOTE 5, not §9.6.2.2's "[t]hese fonts, or their
 font metrics and suitable substitution fonts, shall be available to the PDF processor", not §9.8.1,
 not one row of Table 120. (**And §9.6.4 is not where a reader should look for that**, which this
@@ -331,7 +327,7 @@ falling where the clause says "there is no way" is the answer rather than a back
 
 ### The band has a voice outside `pdf-model`, and that is what was owed rather than a smaller count
 
-**Closed in the five-hundred-and-eighty-seventh session** (ADR 0422). The question this section had
+**Closed** (ADR 0422). The question this section had
 left open was not the reading — it was what the program *says* — and it was asked in the wrong two
 terms: report it, or leave it as a number in a struct nobody outside the crate could reach. The
 reading was re-derived from the clause first and did not move: all three methods are implemented,
@@ -352,10 +348,9 @@ calling it a drawing fault would tell a person the picture is wrong when it is n
 census remains the instrument for the day one of the four shapes turns out to have a document whose
 own tables answer.
 
-## 6. Two substitutes for one Type 1 family, wound in opposite directions — **closed in the five-hundred-and-sixty-first** (ADR 0396)
+## 6. Two substitutes for one Type 1 family, wound in opposite directions — **closed** (ADR 0396)
 
-Found in the five-hundred-and-fifty-eighth by taking `doc/corpora/pdf-differences`
-(`doc/todo/03` §14), and fixed in the five-hundred-and-sixty-first. **What the section is kept for
+Found by taking `doc/corpora/pdf-differences` (`doc/todo/03` §14), and fixed. **What the section is kept for
 is the reading and the ordering it got wrong**, both of which outlive the three lines of code.
 
 `OverlappingGlyphClipping.pdf` was the head of that corpus's ink ranking by two orders of
@@ -398,7 +393,7 @@ What the fix cost and what moved is ADR 0396: the witness at −8.989 → −1.1
 first-page display lists changed with every oracle metric line and every ink-sweep line
 byte-identical, and 0.19% to 0.36% of interpretation on two substituted-text pages.
 
-## 7. The form the producer chose — **taken in the eight-hundred-and-thirty-sixth** (ADR 0763)
+## 7. The form the producer chose — **taken** (ADR 0763)
 
 A substitute is reached by character (§9.7.4.2) and §9.10.2's `-UCS2` table gives a character, so
 the **form** a vertical `CMap`'s CID named was thrown away one step before the face was asked.
@@ -416,8 +411,7 @@ calibration.
 
 **What is left, priced:**
 
-- **A face with no `vert` drew the horizontal shape and nothing counted it — closed in the
-  eight-hundred-and-thirty-seventh** (ADR 0764). The refusal to *report* stands and is ADR 0152's;
+- **A face with no `vert` draws the horizontal shape, and that is counted — closed** (ADR 0764). The refusal to *report* stands and is ADR 0152's;
   what did not stand is "exactly as ADR 0270 left its neighbours", because ADR 0270 left its
   neighbours **counted** and this was counted by nothing at all. So the field was built:
   `Interpretation::codes_without_a_vertical_form`, `Shortfall::without_a_vertical_form`, and every
@@ -439,8 +433,8 @@ calibration.
   no form for Adobe-Japan1's small kana. `PDFVIEWER_TRACE_VERTICAL_FORM=1` names each code with its
   character.
 
-  **What that face actually carries was measured in the eight-hundred-and-thirty-eighth, and it
-  closed the question the witness opened** (ADR 0765). `7311602.pdf`'s 33 codes are eight distinct
+  **What that face actually carries is measured, and it closes the question the witness opened**
+  (ADR 0765). `7311602.pdf`'s 33 codes are eight distinct
   small kana — っ ょ ァ ィ ャ ョ ッ ヶ, traced with the variable above — shown through non-embedded
   `HGMaruGothicMPRO` and `MS-Mincho` descendants stating Adobe-Japan1, and the face
   `installed_covering` picks for all four of the document's fonts is the same one: Droid Sans
@@ -473,7 +467,7 @@ calibration.
 - **Only `GSUB` lookup type 1 is read.** A `vert` feature is one glyph for one glyph by
   construction, and a contextual or chained rule under that tag would be a statement about a
   sequence — which is shaping, and `doc/stack.md`'s standing refusal. "No face on this machine
-  states one" was written as a sentence and is a command since the eight-hundred-and-thirty-eighth:
+  states one" is a command rather than a sentence:
   `vertical_feature_census` prints the lookup shapes it found under `vert` and `vrt2`, and on this
   machine they are `single` and nothing else. A round that sees another shape in that line has a
   *measurement* to make before it has a decision.

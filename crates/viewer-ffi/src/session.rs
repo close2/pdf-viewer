@@ -1196,7 +1196,7 @@ impl Session {
     /// the path leaves the page it started on, and where the part asked for is one the document
     /// states nothing for. [`Status::OutOfRange`] for a `part` this build does not define.
     pub fn measure(&self, points: &[[f32; 2]], part: u32) -> Result<String, Status> {
-        let Answer::Measured(traced) = self.viewer.query(Query::Measure(points)) else {
+        let Answer::Measured { traced, located } = self.viewer.query(Query::Measure(points)) else {
             return Err(Status::NoAnswer);
         };
         let Some(part) = crate::MeasurePart::from_code(part) else {
@@ -1204,7 +1204,11 @@ impl Session {
         };
         let part = match part {
             crate::MeasurePart::Sentence => {
-                return Ok(viewer_host::measuring::said(points.len(), Some(&traced)));
+                return Ok(viewer_host::measuring::said(
+                    points.len(),
+                    Some(&traced),
+                    located.as_ref(),
+                ));
             }
             crate::MeasurePart::Viewport => traced.viewport,
             crate::MeasurePart::Ratio => traced.ratio,

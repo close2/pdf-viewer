@@ -92,6 +92,9 @@ enum Token {
     Literal(char),
 }
 
+/// The longest place-holder a picture has: `mmmm`, `dddd` and `yyyy`.
+const LONGEST_PLACE_HOLDER: usize = 4;
+
 /// Splits a picture into its tokens, longest place-holder first.
 ///
 /// # Errors
@@ -104,10 +107,14 @@ fn tokens(picture: &str) -> Result<Vec<Token>, Refusal> {
     let mut out = Vec::new();
     let mut at = 0_usize;
     while let Some(&c) = chars.get(at) {
+        // No place-holder is longer than four letters, so the run is counted no further: a run
+        // counted to its end at every token would make a picture of one repeated letter cost the
+        // square of its length, and the picture is the producer's (ADR 1597).
         let run = chars
             .get(at..)
             .unwrap_or_default()
             .iter()
+            .take(LONGEST_PLACE_HOLDER)
             .take_while(|next| **next == c)
             .count();
         let take = |n: usize| run.min(n);
@@ -546,7 +553,26 @@ pub(crate) fn print_time_menu(index: usize, moment: DateTime) -> Option<String> 
 
 #[cfg(test)]
 mod tests {
-    use super::{DateTime, parse_date, print_date};
+    use std::time::{Duration, Instant};
+
+    use super::{DateTime, parse_date, print_date, tokens};
+
+    /// A picture of one letter repeated to the grammar's 64 KiB bound is read in one pass.
+    ///
+    /// The `aform` fuzz target's seed `AFDate_FormatEx("mm…")`, 64 000 letters, took 991 ms a call
+    /// when each token counted the run to its end, and every format and keystroke of the field
+    /// calls it (ADR 1597). The ceiling is a hundred times what one pass takes here and a quarter
+    /// of what the counting took.
+    #[test]
+    fn a_picture_of_one_repeated_letter_is_read_in_one_pass() {
+        let picture = "m".repeat(64_000);
+        let started = Instant::now();
+        let read = tokens(&picture).expect("months are place-holders");
+        let elapsed = started.elapsed();
+        assert_eq!(read.len(), 16_000, "four letters a month name");
+        assert!(elapsed < Duration::from_millis(250), "{elapsed:?}");
+        assert!(parse_date("1234.5", &picture).is_none());
+    }
 
     #[test]
     fn a_fixed_width_picture_reads_digits_without_separators() {

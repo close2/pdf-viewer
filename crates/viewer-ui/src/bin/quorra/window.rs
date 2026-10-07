@@ -93,11 +93,12 @@ impl App {
             return;
         }
         let points = self.measuring.points().to_vec();
-        let traced = match self.viewer.query(Query::Measure(&points)) {
-            Answer::Measured(traced) => Some(traced),
-            _ => None,
+        let (traced, located) = match self.viewer.query(Query::Measure(&points)) {
+            Answer::Measured { traced, located } => (Some(traced), located),
+            _ => (None, None),
         };
-        self.measured = viewer_host::measuring::said(points.len(), traced.as_ref());
+        self.measured =
+            viewer_host::measuring::said(points.len(), traced.as_ref(), located.as_ref());
         println!("note: {}", self.measured);
         self.retitle();
     }

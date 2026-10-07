@@ -24,8 +24,16 @@
 //!   backtick-quoted line, keyed the same way, in the order written.
 //!
 //! The kinds and the entries must be the same list in the same order, and every sub-line's key must
-//! appear in the section, because each is an instruction the owner acts on (`read, removable:` is
-//! what the `xargs rm` in the artefacts entry reads).
+//! appear in the section, because each is an instruction the owner acts on.
+//!
+//! # The owner's list
+//!
+//! After the kinds the script prints **one numbered list** of what the owner does, in the order a
+//! person does it (ADR 1601). Its shape is held against a planted main checkout that owes one of
+//! each kind the list can carry: the list is the last thing printed, numbered from one without a
+//! gap, in the order the script's ranks state; each item carries a command in backticks or the
+//! files it acts on; and nothing is said twice — no file an item names is named by another item or
+//! by a line above the list.
 
 #![expect(
     clippy::expect_used,
@@ -34,7 +42,8 @@
               reporting that as one would be worse than stopping"
 )]
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 /// Where the repository root is, relative to this crate's manifest.
 fn repository_root() -> &'static Path {
@@ -296,4 +305,186 @@ fn the_owners_answers_come_first_and_the_merge_check_repeats_them() {
         check.contains("main-checkout.py --answers"),
         "tools/batch.sh check repeats the answered line"
     );
+}
+
+/// A throwaway main checkout that owes one of each thing the owner's list carries but the
+/// fast-forward's and the artefacts': a `§` in an uncommitted question, an answer no commit holds,
+/// a question still open, an upstream report not filed, a patch owed to a pinned fork, an unseeded
+/// fuzz target, a build directory over a rule of zero, and an `sccache` cache over a ceiling of one
+/// kibibyte.
+fn planted_main_checkout(base: &Path) -> Vec<(PathBuf, String)> {
+    let base_rev = "0123456789abcdef0123456789abcdef01234567";
+    vec![
+        (
+            base.join("Cargo.toml"),
+            format!(
+                "[workspace]\nmembers = []\n\n[workspace.dependencies]\npkg = {{ git = \
+                 \"https://example.invalid/fork\", rev = \"{base_rev}\" }}\n"
+            ),
+        ),
+        (
+            base.join(".cargo/config.toml"),
+            format!(
+                "[build]\ntarget-dir = \"{}\"\n",
+                base.join("built").display()
+            ),
+        ),
+        (base.join("built/debug/artefact"), "built\n".to_owned()),
+        (base.join("sccache/entry"), "cached\n".to_owned()),
+        (
+            base.join("fuzz/Cargo.toml"),
+            "[package]\nname = \"fuzz\"\n\n[[bin]]\nname = \"unseeded_target\"\n".to_owned(),
+        ),
+        (
+            base.join("doc/patches/pkg-fix.patch"),
+            format!(
+                "Repository: https://example.invalid/fork\nBase: {base_rev}\n\n\
+                 --- a/pkg/src/lib.rs\n+++ b/pkg/src/lib.rs\n"
+            ),
+        ),
+        (
+            base.join("doc/patches/pkg-fix.md"),
+            "# pkg: a fix\n\nFor the owner to file at <https://example.invalid/issues>.\n"
+                .to_owned(),
+        ),
+        (
+            base.join("doc/questions/Q900-answered.md"),
+            "# Q900\n".to_owned(),
+        ),
+        (
+            base.join("doc/questions/Q901-still-open.md"),
+            "# Q901\n".to_owned(),
+        ),
+    ]
+}
+
+/// The planted files that land after the commit, so the checkout holds them uncommitted: an
+/// answer, and an edit to its question that puts a `§` after another standard's name.
+fn planted_uncommitted(base: &Path) -> Vec<(PathBuf, String)> {
+    vec![
+        (
+            base.join("doc/questions/A900-answered.md"),
+            "# A900\n\nYes.\n".to_owned(),
+        ),
+        (
+            base.join("doc/questions/Q900-answered.md"),
+            "# Q900\n\nUnder ISO 19005-2 \u{a7}6.7's rule the page is appended.\n".to_owned(),
+        ),
+    ]
+}
+
+fn git_in(directory: &Path, arguments: &[&str]) {
+    let status = Command::new("git")
+        .current_dir(directory)
+        .args(arguments)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_AUTHOR_NAME", "test")
+        .env("GIT_AUTHOR_EMAIL", "test@invalid")
+        .env("GIT_COMMITTER_NAME", "test")
+        .env("GIT_COMMITTER_EMAIL", "test@invalid")
+        .status()
+        .expect("git runs");
+    assert!(status.success(), "git {arguments:?} failed");
+}
+
+/// The owner's list is one numbered list, last, in the script's order, each item with its command or
+/// its files, and no file in it said twice (ADR 1601).
+#[test]
+fn the_owners_list_is_one_numbered_list_in_order_with_nothing_twice() {
+    let base = std::env::temp_dir().join(format!("owner-list-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    for (path, contents) in planted_main_checkout(&base) {
+        std::fs::create_dir_all(path.parent().expect("a planted file has a directory"))
+            .expect("a planted directory");
+        std::fs::write(&path, contents).expect("a planted file");
+    }
+    git_in(&base, &["init", "-q", "-b", "main"]);
+    git_in(&base, &["add", "-A"]);
+    git_in(&base, &["commit", "-q", "-m", "base"]);
+    for (path, contents) in planted_uncommitted(&base) {
+        std::fs::write(&path, contents).expect("a planted file");
+    }
+    let output = Command::new("python3")
+        .arg(repository_root().join("tools/main-checkout.py"))
+        .current_dir(repository_root())
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .env("MAIN_CHECKOUT", &base)
+        .env("SECTION_SIGNS_BIN", env!("CARGO_BIN_EXE_section_signs"))
+        .env("MAIN_CHECKOUT_BUILD_RULE_KIB", "0")
+        .env("SCCACHE_DIR", base.join("sccache"))
+        .env("SCCACHE_CACHE_SIZE", "1K")
+        .output()
+        .expect("python3 runs tools/main-checkout.py");
+    let _ = std::fs::remove_dir_all(&base);
+    let report = String::from_utf8_lossy(&output.stdout).into_owned();
+    println!("{report}");
+    assert!(output.status.success(), "the script failed: {report}");
+
+    let lines: Vec<&str> = report.lines().collect();
+    let heads: Vec<usize> = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| line.starts_with("the owner's list, in the order to do them: "))
+        .map(|(at, _)| at)
+        .collect();
+    assert_eq!(
+        heads.len(),
+        1,
+        "one owner's list, not {}: {report}",
+        heads.len()
+    );
+    let (above, items) = lines.split_at(heads[0].saturating_add(1));
+    let mut texts = Vec::new();
+    for (index, item) in items.iter().enumerate() {
+        let prefix = format!("  {}. ", index.saturating_add(1));
+        let text = item.strip_prefix(prefix.as_str());
+        assert!(
+            text.is_some(),
+            "an item is not numbered `{prefix}`: {item:?}"
+        );
+        texts.push(text.unwrap_or_default());
+    }
+    let count = format!("{}", texts.len());
+    assert!(
+        above.last().is_some_and(|head| head.ends_with(&count)),
+        "the list's head does not count its {count} items: {report}"
+    );
+    let openings: Vec<&str> = texts
+        .iter()
+        .map(|text| text.split_whitespace().next().unwrap_or_default())
+        .collect();
+    assert_eq!(
+        openings,
+        [
+            "write", "commit", "answer", "file", "apply", "re-seed", "prune", "decide"
+        ],
+        "the planted checkout's items, in the order a person does them: {report}"
+    );
+    let paths = |text: &str| -> Vec<String> {
+        text.split(|c: char| c.is_whitespace() || "`();,".contains(c))
+            .map(|word| word.split(':').next().unwrap_or_default())
+            .filter(|word| {
+                Path::new(word).extension().is_some()
+                    && (word.starts_with("doc/") || word.starts_with("fuzz/artifacts/"))
+            })
+            .map(str::to_owned)
+            .collect()
+    };
+    for (index, text) in texts.iter().enumerate() {
+        assert!(
+            text.contains('`') || !paths(text).is_empty() || text.contains(" at http"),
+            "item {} carries neither a command nor a file: {text}",
+            index + 1
+        );
+        for path in paths(text) {
+            let elsewhere = texts
+                .iter()
+                .enumerate()
+                .filter(|(other, _)| *other != index)
+                .any(|(_, other)| paths(other).contains(&path))
+                || above.iter().any(|line| line.contains(&path));
+            assert!(!elsewhere, "{path} is said twice: {report}");
+        }
+    }
 }

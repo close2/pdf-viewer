@@ -19,7 +19,7 @@
 //! here read this table and nothing else, and so, through a `#[path]`, do `render-raster`'s
 //! `tests/corpus.rs`, the five `pdf-transform` corpus walks (`pages_corpus`, `split_corpus`,
 //! `optimize_corpus`, `writer_corpus`, `merge_corpus`), `pdf-vfs`'s `read_corpus` and
-//! `write_corpus`, and `pdf-syntax`'s `tests/encryption.rs`, which opens every row with its
+//! `write_corpus`, `pdf-script`'s `tests/script_corpus.rs`, and `pdf-syntax`'s `tests/encryption.rs`, which opens every row with its
 //! password and refuses each without it. A password that stops opening its document stops every
 //! gate at once rather than one. A `#[path]` rather than a crate of its own because the table is
 //! one `const` and one lookup, and every reader is a test target that already has the file's

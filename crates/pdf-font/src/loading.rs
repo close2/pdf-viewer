@@ -43,6 +43,7 @@ use crate::name_keyed::{NameKeyed, simple_code_table};
 use crate::post::PostNames;
 use crate::predefined;
 use crate::program::{Embedded, Program, embedded_program, parsed_type1, simple_units_per_em};
+use crate::runs::Runs;
 use crate::substitute;
 use crate::substituted::{
     script_sample, substitute_code_table, substitute_encoding_names, substitute_face, symbolic_set,
@@ -199,7 +200,7 @@ struct StatedMetrics {
     /// How the string is split into codes, and how each code keys `widths`.
     mapping: CodeMapping,
     /// Table 109's `/Widths` by code, or §9.7.4.3's `/W` by CID, in thousandths of an em.
-    widths: BTreeMap<u32, f32>,
+    widths: Runs<f32>,
     /// Table 120's `/MissingWidth`, or Table 115's `/DW`.
     default_width: f32,
     /// Table 120's `/Ascent` and `/Descent`, in ems.
@@ -222,7 +223,7 @@ impl StatedMetrics {
             let descriptor = descriptor_object.as_dict();
             return Some(Self {
                 mapping: CodeMapping::MetricsOnly { cmap: None },
-                widths: metrics::stated_widths(document, dict),
+                widths: Runs::from_map(&metrics::stated_widths(document, dict)),
                 default_width: missing_width(document, descriptor),
                 extent: vertical_extent(document, descriptor),
                 // §9.2.4: a second set of metrics "is available only for composite fonts".
@@ -705,7 +706,7 @@ pub struct LoadedFont {
     /// keeps the font's own face, which is what it had before `/FD` was read.
     classes: Vec<Option<ClassFace>>,
     /// Glyph advances by character code, in thousandths of an em.
-    widths: BTreeMap<u32, f32>,
+    widths: Runs<f32>,
     /// Advance for a code with no entry.
     default_width: f32,
     /// Table 120's `/Ascent` and `/Descent`, in ems.
@@ -1061,7 +1062,7 @@ impl LoadedFont {
             font_dicts: None, // name-keyed, so there are no Font DICTs to replace
             type1,
             mapping,
-            widths,
+            widths: Runs::from_map(&widths),
             default_width,
             extent: vertical_extent(document, descriptor),
             // §9.2.4: a second set of metrics "is available only for composite fonts".
@@ -1859,8 +1860,7 @@ impl LoadedFont {
     #[must_use]
     pub fn advance(&self, code: Code) -> f32 {
         self.widths
-            .get(&self.selector(code))
-            .copied()
+            .get(self.selector(code))
             .unwrap_or(self.default_width)
             / 1000.0
     }
@@ -2165,7 +2165,7 @@ impl LoadedFont {
             return ([0.0, 0.0], [0.0, 0.0]);
         };
         let cid = self.selector(code);
-        let width = self.widths.get(&cid).copied().unwrap_or(self.default_width);
+        let width = self.widths.get(cid).unwrap_or(self.default_width);
         let (displacement, position) = vertical.metrics(cid, width);
         (
             [displacement[0] / 1000.0, displacement[1] / 1000.0],
@@ -3505,7 +3505,7 @@ mod tests {
         for (file, name, font) in corpus_bare_cff_fonts() {
             let cff = CffFontRef::new_cff(&font.data, 0, None).expect("the font already loaded");
 
-            for (&code, &declared) in &font.widths {
+            for (code, declared) in font.widths.iter() {
                 // A subset font's `/Widths` is padded with zeros for every code the
                 // document does not use, so a zero means "no opinion", not "zero wide".
                 // Comparing those would flag correct mappings: code 173 resolves to

@@ -1048,6 +1048,10 @@ mod command_kind {
     // and Table 204's `/NewWindow` and the host is the only party that knows whether this window
     // has a second place to put a document (ADR 1263).
     pub(super) const BESIDE: u8 = 35;
+    // §12.7.4.3's commit, sent by a host for Enter in a single-line field or a control losing the
+    // keyboard. It crosses because the confined worker holds the view, and therefore the typed
+    // value and the scripts that judge it (ADR 1592).
+    pub(super) const COMMIT_FIELD: u8 = 36;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -1399,6 +1403,9 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
                 FocusMove::Previous => 1,
                 FocusMove::None => 2,
             });
+        }
+        Command::CommitField { field } => {
+            writer.u8(k::COMMIT_FIELD).str(field);
         }
         Command::Activate(object) => {
             writer.u8(k::ACTIVATE).object(*object);
@@ -1834,6 +1841,9 @@ pub(crate) fn decode_command_holding(
                 });
             }
         }),
+        k::COMMIT_FIELD => Command::CommitField {
+            field: reader.string("a field's qualified name")?,
+        },
         k::ACTIVATE => Command::Activate(reader.object("an object")?),
         k::SET_GROUP => Command::SetGroup {
             group: reader.object("an optional content group")?,
@@ -3585,9 +3595,10 @@ pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8
             }
             writer.bytes(&bytes).strings(&page.reports);
         }
-        Answer::Measured(traced) => {
+        Answer::Measured { traced, located } => {
             writer.u8(k::MEASURED);
             encode_traced(&mut writer, traced);
+            encode_located(&mut writer, located.as_ref());
         }
         Answer::Popups(popups) => {
             writer.u8(k::POPUPS);
@@ -3831,6 +3842,78 @@ fn encode_coordinate_system(
     }
 }
 
+/// §12.10's position of a measured path's last point, as `viewer_core` read it (ADR 1593).
+fn encode_located(writer: &mut Writer, located: Option<&viewer_core::Located>) {
+    match located {
+        None => {
+            writer.u8(0);
+        }
+        Some(viewer_core::Located::At {
+            latitude,
+            longitude,
+            display,
+            departure,
+        }) => {
+            writer.u8(1).f64(*latitude).f64(*longitude);
+            match display {
+                None => {
+                    writer.u8(0);
+                }
+                Some(Ok((latitude, longitude))) => {
+                    writer.u8(1).f64(*latitude).f64(*longitude);
+                }
+                Some(Err(why)) => {
+                    writer.u8(2).str(why);
+                }
+            }
+            writer.f64(*departure);
+        }
+        Some(viewer_core::Located::Refused(why)) => {
+            writer.u8(2).str(why);
+        }
+    }
+}
+
+/// [`encode_located`]'s inverse.
+fn decode_located(reader: &mut Reader<'_>) -> Result<Option<viewer_core::Located>, ProtocolError> {
+    Ok(match reader.u8("whether a measured point is located")? {
+        0 => None,
+        1 => {
+            let latitude = reader.f64("a latitude")?;
+            let longitude = reader.f64("a longitude")?;
+            let display = match reader.u8("whether a position has a display system")? {
+                0 => None,
+                1 => Some(Ok((
+                    reader.f64("a displayed latitude")?,
+                    reader.f64("a displayed longitude")?,
+                ))),
+                2 => Some(Err(reader.string("why a display position is refused")?)),
+                other => {
+                    return Err(ProtocolError::Unrecognised {
+                        what: "whether a position has a display system",
+                        value: u32::from(other),
+                    });
+                }
+            };
+            Some(viewer_core::Located::At {
+                latitude,
+                longitude,
+                display,
+                departure: reader.f64("a registration's departure")?,
+            })
+        }
+        2 => Some(viewer_core::Located::Refused(
+            reader.string("why a point has no position")?,
+        )),
+        other => {
+            return Err(ProtocolError::Unrecognised {
+                what: "whether a measured point is located",
+                value: u32::from(other),
+            });
+        }
+    })
+}
+
 /// [`encode_traced`]'s inverse.
 fn decode_traced(reader: &mut Reader<'_>) -> Result<pdf_model::measurement::Traced, ProtocolError> {
     let viewport = reader.option_string("a measured viewport's name")?;
@@ -3926,7 +4009,10 @@ pub(crate) fn decode_answer_reusing(
     let what = "an answer";
     let answer = match reader.u8(what)? {
         k::NONE => Reply::None,
-        k::MEASURED => Reply::Measured(Box::new(decode_traced(&mut reader)?)),
+        k::MEASURED => Reply::Measured {
+            traced: Box::new(decode_traced(&mut reader)?),
+            located: decode_located(&mut reader)?,
+        },
         k::COUNT => Reply::Count(reader.usize("a page count")?),
         k::VIEW => Reply::View(decode_viewing(&mut reader)?),
         k::PAGE => Reply::Page {
@@ -4382,6 +4468,9 @@ mod tests {
             Command::Focused(FocusMove::Next),
             Command::Focused(FocusMove::Previous),
             Command::Focused(FocusMove::None),
+            Command::CommitField {
+                field: "Lines.Price".to_owned(),
+            },
             Command::Activate(ObjectId::new(12, 1)),
             Command::SetGroup {
                 group: ObjectId::new(3, 0),

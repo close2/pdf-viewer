@@ -80,9 +80,13 @@ seed() {
     # and each keeps the smallest document (or object) of each shape the script states.
     page | document | serialize | lexer | object | linearize)
         documents | python3 "$here/seed_page.py" "$t" "$root/$t" - > /dev/null
-        # `page` alone has the second seeder, for the four nested content streams no document
-        # states past the memo's allowance (`doc/verify.md` under `page`).
-        if [ "$t" = page ]; then python3 "$here/seed_nested_content.py" "$root/$t" > /dev/null; fi
+        # `page` alone has two more seeders, for what no document states: the four nested content
+        # streams past the memo's allowance, and `/W` ranges 65 536 CIDs wide (`doc/verify.md`
+        # under `page`).
+        if [ "$t" = page ]; then
+            python3 "$here/seed_nested_content.py" "$root/$t" > /dev/null
+            python3 "$here/seed_widths.py" "$root/$t" > /dev/null
+        fi
         ;;
     # One object out of a document each, in the framing each target reads.
     xmp | sfnt | cmap | ccitt | crypt | variable_text)
@@ -130,6 +134,8 @@ seed() {
     shaping) python3 "$here/seed_shaping.py" "$root/$t" ;;
     # §12.7.8's FDF files, one per entry the reader handles, and §7.9.4's dates.
     forms_data) python3 "$here/seed_forms_data.py" "$root/$t" ;;
+    # A field's one-call script, its value and a keystroke, each function under every argument shape.
+    aform) python3 "$here/seed_aform.py" "$root/$t" ;;
     # A server's answer to the form in `fetched_import.rs`: FDF naming its fields, and every XFDF
     # file the tests hold, each under the eight routes the first byte chooses (ADR 1527).
     fetched_import)

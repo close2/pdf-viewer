@@ -12,6 +12,7 @@
 //! (ADR 0216), and §9.7.4.3's vertical displacement and position vector for a font shown in
 //! writing mode 1.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use pdf_syntax::{Dictionary, Document, Object};
@@ -23,6 +24,7 @@ use crate::cff;
 use crate::glyph_names::GlyphNames;
 use crate::loading::CodeMapping;
 use crate::program::Program;
+use crate::runs::{Runs, RunsBuilder};
 use crate::standard_metrics;
 use crate::substitute;
 
@@ -403,45 +405,35 @@ pub(crate) fn program_advance_height(program: Program, data: &[u8], glyph: u16) 
 /// Collects `/W` widths for a composite font.
 ///
 /// The array mixes two forms: `c [w1 w2 ...]` gives consecutive codes, and `c1 c2 w` gives
-/// one width for a whole range.
+/// one width for a whole range. Each is kept as the run it is written as rather than expanded
+/// CID by CID ([`Runs`], ADR 1596), so a range costs the same whatever it spans.
 ///
 /// ISO 32000-2 §9.7.4.3 on a CID that appears twice: "specifying a given CID value more than
 /// once should not be done. In the case where it is done, the first specification is the one
-/// that shall be used." So an entry that already exists is kept, rather than overwritten.
-pub(crate) fn composite_widths(document: &Document, descendant: &Dictionary) -> BTreeMap<u32, f32> {
-    /// Ranges are bounded so a hostile `/W` cannot ask for four billion entries.
-    const MAX_RANGE: u32 = 1 << 16;
-
-    let mut widths = BTreeMap::new();
+/// that shall be used." [`RunsBuilder`] keeps the first.
+pub(crate) fn composite_widths(document: &Document, descendant: &Dictionary) -> Runs<f32> {
+    let mut widths = RunsBuilder::default();
     let array = document.get_key(descendant, "W");
     let Some(items) = array.as_array() else {
-        return widths;
+        return widths.finish();
     };
+    let at = |index: usize| items.get(index).map(|item| resolved(document, item));
 
-    let resolved: Vec<Object> = items.iter().map(|item| document.resolve(item)).collect();
     let mut index = 0usize;
-
-    while index < resolved.len() {
-        let Some(first) = resolved.get(index).and_then(Object::as_integer) else {
+    while let Some(first) = at(index) {
+        let Some(first) = first
+            .as_integer()
+            .and_then(|value| u32::try_from(value).ok())
+        else {
             break;
         };
-        let Ok(first) = u32::try_from(first) else {
-            break;
-        };
-
-        match resolved.get(index.saturating_add(1)) {
+        match at(index.saturating_add(1)).as_deref() {
             Some(Object::Array(list)) => {
-                for (offset, item) in list.iter().enumerate() {
-                    let Some(width) = document.resolve(item).as_number() else {
-                        continue;
-                    };
-                    let Ok(offset) = u32::try_from(offset) else {
-                        continue;
-                    };
-                    widths
-                        .entry(first.saturating_add(offset))
-                        .or_insert(narrow(width));
-                }
+                widths.list(
+                    first,
+                    list.iter()
+                        .map(|item| resolved(document, item).as_number().map(narrow)),
+                );
                 index = index.saturating_add(2);
             }
             Some(second) => {
@@ -451,25 +443,27 @@ pub(crate) fn composite_widths(document: &Document, descendant: &Dictionary) -> 
                 else {
                     break;
                 };
-                let Some(width) = resolved
-                    .get(index.saturating_add(2))
-                    .and_then(Object::as_number)
+                let Some(width) = at(index.saturating_add(2)).and_then(|item| item.as_number())
                 else {
                     break;
                 };
-                let span = last.saturating_sub(first).min(MAX_RANGE);
-                for offset in 0..=span {
-                    widths
-                        .entry(first.saturating_add(offset))
-                        .or_insert(narrow(width));
-                }
+                widths.range(first, last, narrow(width));
                 index = index.saturating_add(3);
             }
             None => break,
         }
     }
 
-    widths
+    widths.finish()
+}
+
+/// An element of a `/W` or `/W2` array, followed if it is a reference and borrowed if it is not —
+/// a nested `c [w1 w2 …]` array is read where it lies rather than copied whole.
+fn resolved<'a>(document: &Document, item: &'a Object) -> Cow<'a, Object> {
+    match item {
+        Object::Reference(_) => Cow::Owned(document.resolve(item)),
+        direct => Cow::Borrowed(direct),
+    }
 }
 
 /// The width of every code the font dictionary's `/Widths` does not cover.
@@ -706,7 +700,7 @@ pub(crate) struct Vertical {
     /// increase from bottom to top".
     default: [f32; 2],
     /// `/W2`, by CID: the vertical displacement `w1y`, then `v`'s two components.
-    metrics: BTreeMap<u32, [f32; 3]>,
+    metrics: Runs<[f32; 3]>,
 }
 
 impl Vertical {
@@ -738,8 +732,8 @@ impl Vertical {
     /// `width` is the same glyph's horizontal displacement `w0`, because the clause defines
     /// `v`'s horizontal component as half of it whenever `/W2` does not state one.
     pub(crate) fn metrics(&self, cid: u32, width: f32) -> ([f32; 2], [f32; 2]) {
-        match self.metrics.get(&cid) {
-            Some([w1y, vx, vy]) => ([0.0, *w1y], [*vx, *vy]),
+        match self.metrics.get(cid) {
+            Some([w1y, vx, vy]) => ([0.0, w1y], [vx, vy]),
             None => ([0.0, self.default[1]], [width / 2.0, self.default[0]]),
         }
     }
@@ -785,48 +779,38 @@ impl VerticalDisplacements {
 /// > The elements of the array shall be organised in groups of two or five … In the first
 /// > format, c is a starting CID and shall be followed by an array containing numbers
 /// > interpreted in groups of three.
-fn composite_vertical_metrics(
-    document: &Document,
-    descendant: &Dictionary,
-) -> BTreeMap<u32, [f32; 3]> {
-    /// The same bound `/W` takes, and for the same reason.
-    const MAX_RANGE: u32 = 1 << 16;
-
-    let mut metrics = BTreeMap::new();
+fn composite_vertical_metrics(document: &Document, descendant: &Dictionary) -> Runs<[f32; 3]> {
+    let mut metrics = RunsBuilder::default();
     let array = document.get_key(descendant, "W2");
     let Some(items) = array.as_array() else {
-        return metrics;
+        return metrics.finish();
     };
-    let resolved: Vec<Object> = items.iter().map(|item| document.resolve(item)).collect();
-    let number = |at: Option<&Object>| at.and_then(Object::as_number).map(narrow);
+    let at = |index: usize| items.get(index).map(|item| resolved(document, item));
+    let number = |index: usize| at(index).and_then(|item| item.as_number()).map(narrow);
 
     let mut index = 0usize;
-    while index < resolved.len() {
-        let Some(first) = resolved
-            .get(index)
-            .and_then(Object::as_integer)
+    while let Some(first) = at(index) {
+        let Some(first) = first
+            .as_integer()
             .and_then(|value| u32::try_from(value).ok())
         else {
             break;
         };
-        match resolved.get(index.saturating_add(1)) {
+        match at(index.saturating_add(1)).as_deref() {
             Some(Object::Array(list)) => {
                 let values: Vec<f32> = list
                     .iter()
-                    .map(|item| document.resolve(item))
-                    .map_while(|item| item.as_number().map(narrow))
+                    .map_while(|item| resolved(document, item).as_number().map(narrow))
                     .collect();
-                for (offset, group) in values.chunks_exact(3).enumerate() {
-                    let (Ok(offset), [w1y, vx, vy]) = (u32::try_from(offset), group) else {
-                        continue;
-                    };
-                    // "Specifying a given CID value more than once should not be done. In the
-                    // case where it is done, the first specification is the one that shall be
-                    // used" — §9.7.4.3, of `/W`, and `/W2` is the same array one field wider.
-                    metrics
-                        .entry(first.saturating_add(offset))
-                        .or_insert([*w1y, *vx, *vy]);
-                }
+                // "Specifying a given CID value more than once should not be done. In the
+                // case where it is done, the first specification is the one that shall be
+                // used" — §9.7.4.3, of `/W`, and `/W2` is the same array one field wider.
+                metrics.list(
+                    first,
+                    values
+                        .chunks_exact(3)
+                        .map(|group| <[f32; 3]>::try_from(group).ok()),
+                );
                 index = index.saturating_add(2);
             }
             Some(second) => {
@@ -837,24 +821,21 @@ fn composite_vertical_metrics(
                     break;
                 };
                 let group = [
-                    number(resolved.get(index.saturating_add(2))),
-                    number(resolved.get(index.saturating_add(3))),
-                    number(resolved.get(index.saturating_add(4))),
+                    number(index.saturating_add(2)),
+                    number(index.saturating_add(3)),
+                    number(index.saturating_add(4)),
                 ];
-                let (Some(w1y), Some(vx), Some(vy)) = (group[0], group[1], group[2]) else {
+                let [Some(w1y), Some(vx), Some(vy)] = group else {
                     break;
                 };
-                let end = last.min(first.saturating_add(MAX_RANGE));
-                for cid in first..=end {
-                    metrics.entry(cid).or_insert([w1y, vx, vy]);
-                }
+                metrics.range(first, last, [w1y, vx, vy]);
                 index = index.saturating_add(5);
             }
             None => break,
         }
     }
 
-    metrics
+    metrics.finish()
 }
 
 /// ISO 32000-2 §9.8.1's Table 120, on the one entry of it that moves a glyph.
@@ -1151,5 +1132,83 @@ mod measured_extent_tests {
         assert_eq!(measured_extent(891.0, 216.0), Some((0.891, -0.216)));
         // The repair is not a licence: the band still applies to what it produces.
         assert_eq!(measured_extent(100.0, 50.0), None, "still a sliver");
+    }
+}
+
+/// §9.7.4.3's `/W` and `/W2`, read from a dictionary, at the sizes a producer can ask for.
+#[cfg(test)]
+mod composite_widths_tests {
+    use std::fmt::Write as _;
+    use std::time::{Duration, Instant};
+
+    use crate::fixture::font_dictionary;
+
+    use super::{composite_vertical_metrics, composite_widths};
+
+    /// The clause's EXAMPLE 1, read from the array as written.
+    #[test]
+    fn the_clauses_example_is_read_from_the_array() {
+        let (document, dict) = font_dictionary("/W [120 [400 325 500] 7080 8032 1000]");
+        let widths = composite_widths(&document, &dict);
+        assert_eq!(widths.get(120), Some(400.0));
+        assert_eq!(widths.get(122), Some(500.0));
+        assert_eq!(widths.get(123), None);
+        assert_eq!(widths.get(8032), Some(1000.0));
+        assert_eq!(widths.run_count(), 2);
+    }
+
+    /// The clause's EXAMPLE 3, `/W2 [120 [-1000 250 772] ]`, and a range beside it.
+    #[test]
+    fn the_w2_example_and_a_range_are_read_from_the_array() {
+        let (document, dict) = font_dictionary("/W2 [120 [-1000 250 772] 0 200 -900 1 2]");
+        let metrics = composite_vertical_metrics(&document, &dict);
+        assert_eq!(metrics.get(120), Some([-1000.0, 250.0, 772.0]));
+        assert_eq!(metrics.get(121), Some([-900.0, 1.0, 2.0]));
+        assert_eq!(metrics.get(201), None);
+    }
+
+    /// Four thousand ranges of 65 536 CIDs each, and one over every CID there is, are a run each.
+    ///
+    /// One entry per CID was 268 million entries for the first array, from about 70 KiB of file;
+    /// held as runs it is as many runs as statements, and the time is the array's to read.
+    #[test]
+    fn ranges_of_every_width_cost_one_run_each() {
+        let mut entries = String::from("/W [");
+        let mut vertical = String::from("/W2 [");
+        for n in 0..4096u32 {
+            let first = n
+                .checked_mul(65_536)
+                .expect("4096 × 65 536 fits in 32 bits");
+            let last = first.checked_add(65_535).expect("so does its last CID");
+            let _ = write!(entries, "{first} {last} {n} ");
+            let _ = write!(vertical, "{first} {last} -{n} 0 880 ");
+        }
+        entries.push_str("0 4294967295 7]");
+        vertical.push(']');
+        let (document, dict) = font_dictionary(&format!("{entries} {vertical}"));
+
+        let started = Instant::now();
+        let widths = composite_widths(&document, &dict);
+        let metrics = composite_vertical_metrics(&document, &dict);
+        let elapsed = started.elapsed();
+
+        assert_eq!(
+            widths.run_count(),
+            4097,
+            "the last range claims only what is left"
+        );
+        assert_eq!(widths.get(0), Some(0.0));
+        assert_eq!(widths.get(65_536 * 4095 + 65_535), Some(4095.0));
+        assert_eq!(
+            widths.get(u32::MAX),
+            Some(7.0),
+            "past the 4096 ranges, the last one"
+        );
+        assert_eq!(metrics.run_count(), 4096);
+        assert_eq!(metrics.get(65_536 * 17 + 3), Some([-17.0, 0.0, 880.0]));
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "reading the arrays took {elapsed:?}"
+        );
     }
 }

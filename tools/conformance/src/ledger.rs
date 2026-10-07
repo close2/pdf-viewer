@@ -626,6 +626,57 @@ impl Ledger {
             .filter(|row| row.status.owes() && !self.is_aggregate(row))
             .collect()
     }
+
+    /// The status a heading takes from the rows below it, where they decide it.
+    ///
+    /// A heading over a row that still owes cannot be settled, because a heading takes its
+    /// subclauses' status (ADR 1535) and stays `partial` while any of them owes (ADR 1035). So
+    /// that status is not a reading somebody writes but a consequence of the readings below it,
+    /// and it is computed from the **leaves** — the rows with no row below them, which are the
+    /// only ones a person reads against the clause (ADR 1599). Where every leaf wears the same
+    /// owing status the heading wears it too — §7.6.5, whose three subclauses are `reported`, is
+    /// `reported` — and where they differ it is `partial`, the word for "some are, some are not".
+    ///
+    /// `None` for a leaf and for a heading every leaf of which has settled: which settled word
+    /// such a heading takes — `implemented`, or the one exclusion its whole family rests on —
+    /// is a reading of the family, and [`Problem::AggregateWithoutDebt`] is what stops it owing.
+    #[must_use]
+    pub fn derived_status(&self, row: &Row) -> Option<Status> {
+        let leaves: Vec<&Row> = self
+            .descendants(&row.clause)
+            .into_iter()
+            .filter(|below| self.descendants(&below.clause).is_empty())
+            .collect();
+        if !leaves.iter().any(|leaf| leaf.status.owes()) {
+            return None;
+        }
+        let first = leaves.first()?.status;
+        Some(if leaves.iter().all(|leaf| leaf.status == first) {
+            first
+        } else {
+            Status::Partial
+        })
+    }
+
+    /// Sets every heading's status to [`Ledger::derived_status`] where that is defined, and
+    /// returns the clauses whose status changed — what `--bin ledger -- --write` regenerates.
+    pub fn derive_aggregates(&mut self) -> Vec<ClauseNumber> {
+        let derived: Vec<Option<Status>> = self
+            .rows
+            .iter()
+            .map(|row| self.derived_status(row))
+            .collect();
+        let mut changed = Vec::new();
+        for (row, derived) in self.rows.iter_mut().zip(derived) {
+            if let Some(status) = derived
+                && row.status != status
+            {
+                row.status = status;
+                changed.push(row.clause.clone());
+            }
+        }
+        changed
+    }
 }
 
 fn write_key(out: &mut String, key: &str, value: &Value) {
@@ -699,6 +750,9 @@ pub enum ParseError {
         problem: String,
     },
 }
+
+/// How the note of a heading with a derived status opens (ADR 1599).
+pub const AGGREGATE_NOTE: &str = "Aggregate of the rows below";
 
 /// Something wrong with the ledger, found by [`check`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -802,6 +856,32 @@ pub enum Problem {
         /// How many subclause rows it has, every one of them settled.
         settled_below: usize,
     },
+    /// A heading whose status is not the one the rows below it derive.
+    ///
+    /// [`Ledger::derived_status`] is the rule, and `--bin ledger -- --write` applies it, so a
+    /// heading cannot be left `implemented` over a subclause that owes, or `partial` over a
+    /// family that is wholly `reported`. ADR 1599.
+    AggregateStatus {
+        /// The heading.
+        clause: ClauseNumber,
+        /// The ledger line.
+        line: usize,
+        /// The status it wears.
+        status: Status,
+        /// The status its leaves derive.
+        derived: Status,
+    },
+    /// A heading with a derived status whose note does not say so first.
+    ///
+    /// Its status is the rows below it, so its note opens with [`AGGREGATE_NOTE`] and leaves
+    /// what each of them owes to that row's own note: a note that repeats a child's reason
+    /// drifts from it the moment the child moves. ADR 1599.
+    AggregateNote {
+        /// The heading.
+        clause: ClauseNumber,
+        /// The ledger line.
+        line: usize,
+    },
     /// A `departed` row names an ADR that has no file in `doc/adr/`.
     ///
     /// "Decided against with its cost recorded" is a claim about a document somebody can open,
@@ -868,6 +948,42 @@ pub enum Problem {
     },
 }
 
+impl Problem {
+    /// The three findings about a heading's status, which ADRs 1035 and 1599 state together.
+    fn write_aggregate(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::AggregateWithoutDebt {
+                clause,
+                status,
+                settled_below,
+            } => write!(
+                f,
+                "§{clause} is `{status}` and all {settled_below} of its subclause rows are \
+                 settled, so it is carrying a debt none of them carries. Either its note says \
+                 what it owes of its own, or the status moves with its last child's."
+            ),
+            Self::AggregateStatus {
+                clause,
+                line,
+                status,
+                derived,
+            } => write!(
+                f,
+                "line {line}: §{clause} is `{status}` and the rows below it derive `{derived}`. \
+                 A heading's status is its subclauses' (ADR 1599): `--bin ledger -- --write` \
+                 sets it."
+            ),
+            Self::AggregateNote { clause, line } => write!(
+                f,
+                "line {line}: §{clause}'s status is derived from the rows below it, and its \
+                 note does not open with \"{AGGREGATE_NOTE}\" — what each of them owes is that \
+                 row's note to say (ADR 1599)."
+            ),
+            _ => Ok(()),
+        }
+    }
+}
+
 impl fmt::Display for Problem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -919,16 +1035,9 @@ impl fmt::Display for Problem {
                 "§{clause} is cited {citations} time(s), first at {first_site}, and its row is \
                  still `unreviewed`. Code that cites a clause has read it; record what it found."
             ),
-            Self::AggregateWithoutDebt {
-                clause,
-                status,
-                settled_below,
-            } => write!(
-                f,
-                "§{clause} is `{status}` and all {settled_below} of its subclause rows are \
-                 settled, so it is carrying a debt none of them carries. Either its note says \
-                 what it owes of its own, or the status moves with its last child's."
-            ),
+            Self::AggregateWithoutDebt { .. }
+            | Self::AggregateStatus { .. }
+            | Self::AggregateNote { .. } => self.write_aggregate(f),
             Self::ArgumentMissing { clause, adr } => write!(
                 f,
                 "§{clause} is `departed` and its note names ADR {adr:04}, which has no file in \
@@ -1062,18 +1171,7 @@ pub fn check(
         }
     }
 
-    // A heading's debt is its subclauses' until the last of them settles. What this catches is
-    // the moment after that: a row still owing something no row under it owes (ADR 1035).
-    for row in &ledger.rows {
-        let below = ledger.descendants(&row.clause);
-        if row.status.owes() && !below.is_empty() && below.iter().all(|row| !row.status.owes()) {
-            problems.push(Problem::AggregateWithoutDebt {
-                clause: row.clause.clone(),
-                status: row.status,
-                settled_below: below.len(),
-            });
-        }
-    }
+    problems.extend(check_aggregates(ledger));
 
     // A row held only by the robustness instrument is a finding about its evidence, not its
     // status: under the owner's A100 a requirement executed under a control is executed, so the
@@ -1109,6 +1207,51 @@ pub fn check(
 /// What [`Problem::ConditionUnquoted`] asks for.
 const QUOTE_THE_CONDITION: &str = "Quote, in double quotation marks, the sentence of the clause \
      (or of a clause the note cites) that states the condition the status rests on (ADR 1535).";
+
+/// A heading's status against its leaves (ADR 1599), and a heading owing what no row below it
+/// owes (ADR 1035).
+fn check_aggregates(ledger: &Ledger) -> Vec<Problem> {
+    let mut problems = Vec::new();
+    // A heading over a row that owes takes its status from its leaves rather than from a
+    // person, and its note says that and nothing a child says (ADR 1599).
+    for row in &ledger.rows {
+        let Some(derived) = ledger.derived_status(row) else {
+            continue;
+        };
+        if row.status != derived {
+            problems.push(Problem::AggregateStatus {
+                clause: row.clause.clone(),
+                line: row.line,
+                status: row.status,
+                derived,
+            });
+        }
+        if !row
+            .note
+            .as_deref()
+            .is_some_and(|note| note.starts_with(AGGREGATE_NOTE))
+        {
+            problems.push(Problem::AggregateNote {
+                clause: row.clause.clone(),
+                line: row.line,
+            });
+        }
+    }
+
+    // A heading's debt is its subclauses' until the last of them settles. What this catches is
+    // the moment after that: a row still owing something no row under it owes (ADR 1035).
+    for row in &ledger.rows {
+        let below = ledger.descendants(&row.clause);
+        if row.status.owes() && !below.is_empty() && below.iter().all(|row| !row.status.owes()) {
+            problems.push(Problem::AggregateWithoutDebt {
+                clause: row.clause.clone(),
+                status: row.status,
+                settled_below: below.len(),
+            });
+        }
+    }
+    problems
+}
 
 /// How a row's note grounds the condition an `inapplicable` status rests on (ADR 1535).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -2385,6 +2528,57 @@ mod tests {
                 .iter()
                 .any(|problem| matches!(problem, Problem::AggregateWithoutDebt { .. }))
         );
+    }
+
+    /// The drift ADR 1599 closes: a heading left `implemented` over a subclause that owes.
+    #[test]
+    fn a_settled_heading_over_an_owing_subclause_is_a_finding_and_the_write_derives_it() {
+        let mut ledger = family("implemented", "partial", "implemented");
+        let problems = check(&ledger, &index(), &[], Path::new("."));
+        assert!(problems.iter().any(|problem| matches!(
+            problem,
+            Problem::AggregateStatus { clause, status: Status::Implemented, derived: Status::Partial, .. }
+                if clause == &number("8")
+        )));
+        assert_eq!(ledger.derive_aggregates(), vec![number("8")]);
+        assert_eq!(ledger.rows[0].status, Status::Partial);
+        assert!(
+            ledger.derive_aggregates().is_empty(),
+            "a second pass changes nothing"
+        );
+    }
+
+    #[test]
+    fn a_family_wholly_reported_derives_reported_and_a_mixed_one_partial() {
+        let reported = family("partial", "reported", "reported");
+        assert_eq!(
+            reported.derived_status(&reported.rows[0]),
+            Some(Status::Reported)
+        );
+        let mixed = family("reported", "reported", "partial");
+        assert_eq!(mixed.derived_status(&mixed.rows[0]), Some(Status::Partial));
+    }
+
+    #[test]
+    fn a_heading_over_settled_rows_and_a_leaf_derive_nothing() {
+        let settled = family("implemented", "implemented", "departed");
+        assert_eq!(settled.derived_status(&settled.rows[0]), None);
+        let owing = family("partial", "partial", "implemented");
+        assert_eq!(owing.derived_status(&owing.rows[1]), None);
+    }
+
+    #[test]
+    fn a_derived_heading_whose_note_does_not_say_so_is_a_finding() {
+        let unsaid = family("partial", "partial", "implemented");
+        let finds = |ledger: &Ledger| {
+            check(ledger, &index(), &[], Path::new("."))
+                .iter()
+                .any(|problem| matches!(problem, Problem::AggregateNote { clause, .. } if clause == &number("8")))
+        };
+        assert!(finds(&unsaid));
+        let mut said = unsaid.clone();
+        said.rows[0].note = Some(format!("{AGGREGATE_NOTE} (ADR 1599)."));
+        assert!(!finds(&said));
     }
 
     #[test]

@@ -391,6 +391,32 @@ impl App {
         })
     }
 
+    /// Enter in a single-line field: the commit, and the keyboard back on the page.
+    fn commit_on_enter(&mut self, aim: Aim) -> bool {
+        let Aim::Field(field) = aim else {
+            return false;
+        };
+        self.typing = None;
+        self.dispatch(Command::CommitField { field });
+        println!("note: the keyboard is back on the page");
+        self.redraw();
+        true
+    }
+
+    /// Whether the control at a point is a text field Table 231 bit 13 keeps to one line, or a
+    /// combo box's edit — the two controls whose Enter is the commit rather than a character.
+    fn single_line(&self, at: (f32, f32)) -> bool {
+        self.control_at(at).is_some_and(|pressed| {
+            matches!(
+                pressed.kind,
+                ControlKind::Entry {
+                    multiline: false,
+                    ..
+                } | ControlKind::Combo { .. }
+            )
+        })
+    }
+
     /// Whether the control at a point takes characters from a keyboard at all.
     ///
     /// A point on no control at all answers **true**, which is deliberate: this is a *refusal*
@@ -909,6 +935,13 @@ impl App {
                     after(&current, caret)
                 };
                 (Some(spliced(&current, low, to, "")), low, low)
+            }
+            // Table 231 bit 13 clear restricts the text "to a single line", so Enter there is no
+            // character: it commits what was typed, the way a tab or a press elsewhere does, and
+            // the keyboard goes back to the page because the page now shows the field's format,
+            // where a caret placed in the value would stand between the wrong characters (ADR 1592).
+            Key::Named(NamedKey::Enter) if self.single_line(typing.at) => {
+                return self.commit_on_enter(aim);
             }
             Key::Named(NamedKey::Enter) => {
                 // §12.7.5.3's Multiline decides whether a return is a character or the end of

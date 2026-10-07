@@ -1515,11 +1515,15 @@ impl Host {
             return;
         }
         let points = self.showing.measuring.points().to_vec();
-        let traced = match self.viewer.query(Query::Measure(&points)) {
-            Answer::Measured(traced) => Some(traced),
-            _ => None,
+        let (traced, located) = match self.viewer.query(Query::Measure(&points)) {
+            Answer::Measured { traced, located } => (Some(traced), located),
+            _ => (None, None),
         };
-        self.say(&viewer_host::measuring::said(points.len(), traced.as_ref()));
+        self.say(&viewer_host::measuring::said(
+            points.len(),
+            traced.as_ref(),
+            located.as_ref(),
+        ));
     }
 
     /// The wheel turned, already in the device pixels the boundary speaks.
@@ -1626,6 +1630,20 @@ impl Host {
             }
             self.dispatch(Command::SetGroup { group, on });
         }
+    }
+
+    /// A person finished with a line edit: Enter, or the keyboard taken elsewhere.
+    ///
+    /// Table 231 bit 13 clear restricts a field's text "to a single line", so Enter there is no
+    /// character and commits, and a control losing the keyboard is Table 197's `/Bl` for a focus
+    /// Qt moved rather than the page. A field the page's own focus move already committed commits
+    /// nothing (ADR 1592).
+    pub(crate) fn commit_control(&mut self, index: usize) {
+        let Some(placed) = self.placed.get(index) else {
+            return;
+        };
+        let field = placed.name.qualified.clone();
+        self.dispatch(Command::CommitField { field });
     }
 
     /// A control's value was typed into.

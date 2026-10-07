@@ -34,7 +34,7 @@ use crate::forms_data::Import;
 mod scripts;
 
 use crate::optional_content::{Audience, OptionalContent, Purpose};
-pub use scripts::Committed;
+pub use scripts::{Committed, FieldEvent, FieldResult, ScriptRunner};
 
 /// Deepest nesting of `/Kids`, and longest `/Parent` chain, walked in §12.7.4.1's field tree.
 ///
@@ -302,6 +302,11 @@ pub struct ViewState {
     /// RFC 0008 section 6.8's rule for a failing script — reported once per document per site,
     /// never a storm — which a keystroke script raised per character would otherwise break.
     script_reports: Vec<String>,
+    /// What runs a field script Tier 0 does not, where a host has supplied one.
+    ///
+    /// RFC 0008 section 6.3's policy hook: absent is the level `off`, and nothing a host has not
+    /// supplied runs (ADR 1591).
+    runner: scripts::Runner,
 }
 
 /// The resource name the `/DA` of a free text annotation this program creates uses.
@@ -1252,6 +1257,7 @@ impl ViewState {
             allocated: 0,
             uncommitted: BTreeMap::new(),
             script_reports: Vec::new(),
+            runner: scripts::Runner::default(),
         }
     }
 
@@ -2572,11 +2578,18 @@ impl ViewState {
         // Table 199's `/K`, which "may check the added text for validity and reject or modify it":
         // a one-call keystroke script judges the characters before any widget takes them, and a
         // refusal leaves the field as it was (ADR 1579).
-        if let Entered::Text(text) = value
-            && !self.keystroke_stands(document, &taking, text)
-        {
-            return 0;
-        }
+        let rewritten;
+        let value = match value {
+            Entered::Text(text) => match self.keystroke_verdict(document, &taking, text) {
+                scripts::Verdict::Stands => value,
+                scripts::Verdict::Rejected => return 0,
+                scripts::Verdict::Rewritten(text) => {
+                    rewritten = Entered::Text(text);
+                    &rewritten
+                }
+            },
+            Entered::Cleared | Entered::Chosen(_) => value,
+        };
         let entry = match value {
             Entered::Cleared => Entry {
                 value: None,

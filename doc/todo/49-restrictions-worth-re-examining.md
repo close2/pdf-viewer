@@ -5,12 +5,12 @@ whether that is an over-restrictive *security* decision, which rules could be re
 the code or make the program faster, which are worth putting behind flags, and how much memory a
 viewer may reasonably spend. This file is the audit, with each restriction's warrant separated from
 its habit.
-**Two of the five are settled in the four-hundred-and-twentieth session** (ADR 0256): item 2, the
+**Two of the five are settled** (ADR 0256): item 2, the
 readback cache, is built with a bound and eviction, and item 4 is subsumed by it exactly as this
 file predicted. The flag `--cache-text` is **declined**, with the condition that would revive it
-written into its entry below. **A third is settled in the four-hundred-and-twenty-first** (ADR 0257):
+written into its entry below. **A third is settled** (ADR 0257):
 item 5's bound was not only wrong but hiding a quadratic walk, and both are fixed. **Item 1 is
-measured and settled in the four-hundred-and-twenty-fourth** (ADR 0260), and the measurement moved
+measured and settled** (ADR 0260), and the measurement moved
 item 3 rather than unblocking it: what is left is item 3 alone, and it is now a question about
 memory rather than about a lock.
 Priority: 49 — the project's own decisions, the band `43`–`48` already occupy. Nothing here is a
@@ -38,8 +38,8 @@ rayon — `image.rs` bands §8.9.5's per-sample colour conversion across `rayon:
 `RefCell` and is therefore `!Sync`.** That is an implementation choice, not a principle, and it is
 the actual blocker. Options, none free: `RwLock` or a sharded cache (lock traffic on the hottest
 path in the program), or N documents in N threads (N parses, N caches — the memory the owner named).
-~~**Measure the lock version before believing either.**~~ **Measured in the
-four-hundred-and-twenty-fourth, and the sentence above is wrong in the one word that matters**: the
+~~**Measure the lock version before believing either.**~~ **Measured (ADR 0260), and the sentence
+above is wrong in the one word that matters**: the
 `RefCell`s were not *the* blocker, because **N documents in N threads needs nothing from
 `pdf-syntax` and was available the whole time** — and on this machine it is the faster of the two,
 1.18 s against 1.61 s over 1023 pages on 24 threads. What `!Sync` blocked was the *cheaper* of the
@@ -86,18 +86,17 @@ places: `MASK_BUDGET` (32 MB), the confined worker's address-space ceiling (4 Gi
   document" flag that lifted them is *plausible* but should be argued as a whole, not per constant.
   **What they cost is measured, over 65 944 crawled documents** (ADR 0269): 48 reach `MAX_TILES`,
   31 `MAX_OPERATIONS`, 4 `MAX_FORM_DEPTH` and 1 `MAX_STATE_DEPTH` — **84 refusals over 83
-  documents, 0.127% of the web** (the count of *documents* was written as 84 until the
-  four-hundred-and-thirty-fifth session; `7680183.pdf` reports two of them), against 0.2% of
+  documents, 0.127% of the web** (`7680183.pdf` reports two of them), against 0.2% of
   session 430's 4000 and 0.105% of session 425's 1896, so the rate is stable at three sample sizes.
   ~~What is still owed is one of the 84 read with the bound lifted in a scratch build, to
-  find out whether the constant costs a mark or stops a bomb.~~ **Done for all 83 in the
-  four-hundred-and-thirty-fifth** (ADR 0271), one process apiece with the bound lifted, and the
+  find out whether the constant costs a mark or stops a bomb.~~ **Done for all 83** (ADR 0271),
+  one process apiece with the bound lifted, and the
   answer is different for each of the four:
 
   | bound | the population, lifted | why it stays |
   |---|---|---|
-  | `MAX_FORM_DEPTH` **64** | ~~**all four documents are cycles** — lifted to 256, all four reach 256~~ ~~True of the crawl's four and `MOZILLA`'s seven, and false of `batch2/GHOSTSCRIPT`'s sixteen: fourteen are cycles and two are finite nestings~~ **Decided in the eight-hundred-and-seventy-fourth (ADR 0793), and the population was the instrument's**: a tiling cell was run at `MAX_FORM_DEPTH - 1`, so lifting the constant lifted the cell's start with it and a cell holding two levels of forms reached *any* bound. At 64, with one counter in `Interpreter::run` for every kind of nested stream, **twenty-five of the twenty-seven witnesses draw whole reporting nothing** — the two real nestings among them — and `GHOSTSCRIPT-698226-0` and `700301-0` report the bound at 64 and at 256 alike, which is what a cycle is. The value is a stack figure: about 4 KiB a level for a form, 5 for a group, 9 for a Type 3 glyph under `[profile.release]` (`examples/form_depth_cost`), against the 2 MiB every thread `interpret` runs on has by default | the attack it exists for — and the cell was outside it: a pattern whose cell fills with itself overflowed the stack until that session. Unbounded recursion exhausts the *stack*, which the confined worker's 4 GiB ceiling does not see and which Rust turns into an abort rather than a report |
-  | ~~`MAX_TILES` 4096~~ **retired in the eight-hundred-and-eighty-second (ADR 0810)** | all 48 terminate, 0.06–14.2 s, wanting 4104–895 500 tiles; **14 of 48 want under twice the bound** | 1 000 000 *empty* tiles interpret in 889 ms **reporting nothing** — an empty cell executes no operator, so `MAX_OPERATIONS` never sees it and this is the only bound on the loop — **and an empty cell need not be looped at all**, which is what retired the count: a cell with no marks replicated any number of times is no marks, so the loop is not entered, and every other site is a copy bounded in commands, `MAX_TILE_COPIES` |
+  | `MAX_FORM_DEPTH` **64** | ~~**all four documents are cycles** — lifted to 256, all four reach 256~~ ~~True of the crawl's four and `MOZILLA`'s seven, and false of `batch2/GHOSTSCRIPT`'s sixteen: fourteen are cycles and two are finite nestings~~ **Decided (ADR 0793), and the population was the instrument's**: a tiling cell was run at `MAX_FORM_DEPTH - 1`, so lifting the constant lifted the cell's start with it and a cell holding two levels of forms reached *any* bound. At 64, with one counter in `Interpreter::run` for every kind of nested stream, **twenty-five of the twenty-seven witnesses draw whole reporting nothing** — the two real nestings among them — and `GHOSTSCRIPT-698226-0` and `700301-0` report the bound at 64 and at 256 alike, which is what a cycle is. The value is a stack figure: about 4 KiB a level for a form, 5 for a group, 9 for a Type 3 glyph under `[profile.release]` (`examples/form_depth_cost`), against the 2 MiB every thread `interpret` runs on has by default | the attack it exists for — and the cell was outside it: a pattern whose cell fills with itself overflowed the stack before ADR 0793. Unbounded recursion exhausts the *stack*, which the confined worker's 4 GiB ceiling does not see and which Rust turns into an abort rather than a report |
+  | ~~`MAX_TILES` 4096~~ **retired (ADR 0810)** | all 48 terminate, 0.06–14.2 s, wanting 4104–895 500 tiles; **14 of 48 want under twice the bound** | 1 000 000 *empty* tiles interpret in 889 ms **reporting nothing** — an empty cell executes no operator, so `MAX_OPERATIONS` never sees it and this is the only bound on the loop — **and an empty cell need not be looped at all**, which is what retired the count: a cell with no marks replicated any number of times is no marks, so the loop is not entered, and every other site is a copy bounded in commands, `MAX_TILE_COPIES` |
   | `MAX_OPERATIONS` 4 M | all 31 terminate, wanting 4.1–53.6 M **lexer tokens** — the word was *operators* here and in ADR 0271 and the counter was counting tokens (ADR 0306) — 0.27–49.9 s; the worst peaks at 1.57 GB for 495 marks | **a count is not a cost** — one `sh` paints the page — so no larger number bounds the time either. The cancel does, at 0.83–1.97 ms |
   | `MAX_STATE_DEPTH` 256 | one document, wanting **337** | ISO 32000-2 §C.2's Table C.1 prints **28** as the depth a writer could rely on. 256 is nine times the standard's own figure and the document wants twelve times it |
 
@@ -112,8 +111,8 @@ places: `MASK_BUDGET` (32 MB), the confined worker's address-space ceiling (4 Gi
 
 **Relax or re-examine — each of these is habit rather than warrant:**
 
-1. ~~**`Document`'s `!Sync`.** The blocker above. Worth one measurement round.~~ **Done in the
-   four-hundred-and-twenty-fourth** (ADR 0260). The five `RefCell`s are `RwLock`s, `Document` is
+1. ~~**`Document`'s `!Sync`.** The blocker above. Worth one measurement round.~~ **Done**
+   (ADR 0260). The five `RefCell`s are `RwLock`s, `Document` is
    `Send + Sync` with a compile-time assertion saying so, and the `loading` set is **per thread**
    rather than per document — the one hazard the swap could have introduced, since a shared set
    would answer §7.3.10's null to the second of two threads that wanted one object at one moment.
@@ -123,8 +122,8 @@ places: `MASK_BUDGET` (32 MB), the confined worker's address-space ceiling (4 Gi
    `Document::get` is asked **829 times a page** and answers 92.7% of a cold sweep from the cache —
    **and a fully warm cache is worth 5.5% of the wall clock**, so the object cache is not where a
    sweep's seconds are.
-2. **The readback cache.** ~~Decided by the owner's bound; needs eviction and a number.~~ **Done in
-   the four-hundred-and-twentieth** (ADR 0256): `crates/viewer-core/src/readback.rs`, 4 MiB per open
+2. **The readback cache.** ~~Decided by the owner's bound; needs eviction and a number.~~ **Done**
+   (ADR 0256): `crates/viewer-core/src/readback.rs`, 4 MiB per open
    document, least-recently-used, one constant in one place, and readable through
    `Viewer::readback_cache` and `quorra --trace=search`. A repeated document-wide sweep of ISO
    32000-2 fell from 5.45 s to **7.27 ms** and the window's from about five seconds to **0.021 s**;
@@ -150,9 +149,9 @@ places: `MASK_BUDGET` (32 MB), the confined worker's address-space ceiling (4 Gi
    a find bar's search no longer re-reads the page the person is looking at. The remaining half —
    the page a search *lands* on being interpreted again to draw it — cannot be subsumed, because
    drawing needs a display list and the cache deliberately holds only the readback.
-5. ~~**`MAX_CHILDREN` 65 536 in `Tree::walk`**~~ — **done in the four-hundred-and-twenty-first, and
-   it was worse than this entry recorded** (ADR 0257). The bound was on *items over the whole tree*
-   and it overshot, so the 71 371 session 416 wrote down was the bound rather than the tree: it is
+5. ~~**`MAX_CHILDREN` 65 536 in `Tree::walk`**~~ — **done, and it was worse than this entry
+   recorded** (ADR 0257). The bound was on *items over the whole tree* and it overshot, so the
+   71 371 once written down here was the bound rather than the tree: it is
    **129 389**, and `logical_order` walks the whole tree once per page, so §14.8.2.5's reading order
    for any page of ISO 32000-2 was a prefix. Two things were wrong and both are fixed. The bound is
    now `MAX_ELEMENTS` at 2²⁰ — eight times that tree — separate from `MAX_CHILDREN`, which stays and
@@ -167,8 +166,8 @@ places: `MASK_BUDGET` (32 MB), the confined worker's address-space ceiling (4 Gi
 **Raised by ADR 0271 and not taken there**, because neither is a constant to move — each is a
 change to *what* is bounded, and both need the argument before the code.
 
-- ~~**`MAX_TILES` bounds a count where it means to bound work.**~~ **Retired in the
-  eight-hundred-and-eighty-second session** (ADR 0810), on the sentence at the end of this bullet
+- ~~**`MAX_TILES` bounds a count where it means to bound work.**~~ **Retired** (ADR 0810), on
+  the sentence at the end of this bullet
   turned round: the empty-cell measurement said the count could not be dropped in favour of
   `MAX_OPERATIONS` *while the loop ran for an empty cell*, and a cell with no marks replicated any
   number of times is no marks, so it does not. Every other site is a copy charged before it is
@@ -184,7 +183,7 @@ change to *what* is bounded, and both need the argument before the code.
   budget in commands can afford at a page turn, and what they want is a cell rendered *once* and
   replicated by the rasteriser — §8.7.3.1's NOTE 2's own suggestion — which is a paint the
   display list does not have and three backends would have to draw.~~ **Closed by argument and by
-  measurement in the eight-hundred-and-ninety-first session** (ADRs 0827 and 0828), and the
+  measurement** (ADRs 0827 and 0828), and the
   premise went first: §8.7.3.1 has no such note. The two printed under it are Table 74's — a
   `/BBox` of zero height or width still painting one pixel, and `/XStep` and `/YStep` differing
   from the box — and the sentence about a cell "evaluated once and then replicated" is §11.6.7's
@@ -262,13 +261,13 @@ change to *what* is bounded, and both need the argument before the code.
   no longer a cost: a face's `post` names are resolved once and inverted once (`pdf_font`'s
   `PostNames`, ADR 1584), and the unit's page is 14 487 → 132 M instructions.
   `crates/pdf-font/tests/post_table_names.rs` holds it at the unit's size and at 65 535 glyphs.
-- **A composite font's `/W` ranges are expanded one entry per CID, with no bound on the total**
-  (`pdf_font::metrics::composite_widths`, found by ADR 1584's audit and not built). Each `c1 c2 w`
-  range is capped at 65 536 entries and nothing caps how many ranges an array holds, so an array of
-  n ranges asks for up to 65 536 n map entries — this is arithmetic from the code, not a measured
-  file. A dense list of single widths costs one tree entry each as well, and that was 28.6% of
-  `issue16553.pdf`'s page 1. Storing ranges as ranges, first statement winning as §9.7.4.3 says,
-  would answer both; it is `pdf-font`'s to make.
+- **A composite font's `/W` and `/W2` are held as the runs they are stated in** (`pdf_font::runs`,
+  ADR 1596). A `c1 c2 w` range is one run whatever it spans and `c [w1 w2 …]` one run of
+  consecutive values, the first statement of a CID winning as §9.7.4.3 says, so a table costs at
+  most two runs per statement and one value per number the array holds — bounded by the array the
+  parser already read, which is why it has no budget of its own. The 65 536-entry cap per range is
+  gone with the expansion. `issue16553.pdf`'s page 1 is 104.4 → 62.3 M instructions and its widths
+  44.8 → 5.7 M; `fuzz/seed_widths.py` hands the `page` target 4096 ranges 65 536 CIDs wide.
 - **And it was counting the wrong quantity as well, which is a different fault from the one above
   and is fixed** (ADR 0306). Every "operators" in this file's budget rows means *lexer tokens*: the
   one increment site was the token loop, and §7.8.2 puts an operator after its operands, so a `c`
@@ -284,8 +283,8 @@ new mechanism rather than a bigger number — and the mechanism turned out to be
 empty cell not looped and the copies bounded in their own unit (ADR 0810); all but the two that
 want a hundred thousand sites are admitted whole.
 
-**"Refuse loudly" was true and was not the whole sentence, and the half it left out was a defect —
-the six-hundred-and-forty-seventh session** (ADR 0477). `MAX_TILES` refused loudly *and refused the
+**"Refuse loudly" was true and was not the whole sentence, and the half it left out was a
+defect** (ADR 0477). `MAX_TILES` refused loudly *and refused the
 sites it had already been sized to afford*: the check sat in front of the cell's interpretation, so a
 fill wanting twenty thousand sites was given none rather than four thousand. §8.7.3.1 asks the
 processor to "paint the cell on the current page as many times as necessary to fill an area", so a
@@ -300,7 +299,7 @@ number.
 
 ## A third bound, and it was the only one spent by another document — **taken**
 
-**Found in the five-hundred-and-eighty-first session** (ADR 0416), by reproducing a nondeterminism
+**Found** (ADR 0416) by reproducing a nondeterminism
 `tools/safedocs survey` had had since `colour::Press` existed. `MAX_PRESSES` was 8, the table was
 `static`, filled from the front and never evicted — so the ninth *distinct* four-component blending
 space a process met was refused, and which document that fell on was decided by the order rayon ran
@@ -316,7 +315,7 @@ what else had been opened before it — a viewer defect as much as an instrument
 every gate because the 974 name **0** distinct ICC presses and the four submodule corpora none at
 all. The web names **28** (`examples/press_census`, twice, identical).
 
-**Road 3 was taken in the five-hundred-and-eighty-second** (ADR 0417), with one amendment to how
+**Road 3 is taken** (ADR 0417), with one amendment to how
 this file had priced it. The three roads were: raise the constant (rejected — it moves the line
 rather than the payer); lease a slot and reclaim it (rejected — a refusal would still depend on the
 neighbours, and then on the core count, which looks reproducible and is not); or make the budget
@@ -353,8 +352,7 @@ it.
 `--ignore-restrictions`, `--trace=<topics>`):
 
 - ~~`--cache-text[=MB]` or a general memory budget — the owner's question in flag form.~~
-  **Declined in the four-hundred-and-twentieth, by measurement, and the condition to revive it is
-  stated**: 4 MiB holds the whole readback of ISO 32000-2 — 2.66 MB, the largest document this
+  **Declined by measurement (ADR 0256), and the condition to revive it is stated**: 4 MiB holds the whole readback of ISO 32000-2 — 2.66 MB, the largest document this
   project owns, against a corpus whose largest is `freeculture.pdf`'s 352 pages — with `evicted` at
   zero on every run. There is no document in reach whose owner would want to type a number, and the
   rule three bullets below says what a flag may not be. **Build it when a document arrives whose

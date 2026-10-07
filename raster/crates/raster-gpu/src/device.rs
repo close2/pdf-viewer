@@ -41,6 +41,8 @@
 //!   is arithmetic rather than a device (ADR 0011).
 //! - `render` — one frame, from the call to the [`Frame`](crate::frame::Frame): the
 //!   phase order, and the order the refusals are taken in.
+//! - `pending` — phase 4: a frame between its submission and its pixels, which
+//!   `Device::submit` hands a caller to walk another frame beside (ADR 1595).
 //! - `damage` — ADR 0012's reading of a viewport's damage list, and which target can
 //!   honour one.
 //! - `bound` — what a frame draws into, and the contract each of the three targets
@@ -61,6 +63,7 @@ mod binds;
 mod bound;
 mod construct;
 mod damage;
+mod pending;
 mod present;
 mod ramp;
 mod rare;
@@ -83,7 +86,10 @@ use crate::startup::Coverage;
 use crate::surface::SurfaceSlot;
 pub(crate) use crate::timing::PassQuery;
 use crate::timing::TimestampSupport;
-pub(crate) use rare::shading_params_bytes;
+pub use pending::PendingFrame;
+pub(crate) use rare::{
+    SHADING_PARAMS_BYTES, SHADING_QUADS_PER_WINDOW, SHADING_WINDOW_BYTES, shading_params_bytes,
+};
 
 /// What this adapter can actually do, discoverable before any frame (section 5 of the brief:
 /// a limit that must exist is discoverable, through this and `Scene::cost`).
@@ -198,6 +204,9 @@ pub struct Device {
     /// one frame after a read fails, which is what returns a poisoned map buffer to a
     /// fresh one.
     pass_query: Option<PassQuery>,
+    /// One handle per frame submitted and not yet collected, beside the device's own: while
+    /// another is out, an absent [`Self::pass_query`] is lent rather than lost (ADR 1595).
+    pending: Arc<()>,
     /// The compute lane's two pass queries — count, and emit+deposit — kept for the
     /// device's life exactly as [`Self::pass_query`] is, and absent on the same
     /// conditions. They exist because the lane's dispatches run in submissions of

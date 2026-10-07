@@ -131,7 +131,9 @@ fn record_content(
 
 impl Device {
     /// Phase 3: the whole device side of one frame — mask realisation, layers,
-    /// composites, the flat fast path, timestamps — recorded and submitted.
+    /// composites, the flat fast path, timestamps — recorded and submitted, and not waited
+    /// for: the wait is the collect's (ADR 1595). Hands back what recording and submitting
+    /// cost the host, the submission, the executor's phases and its layer textures' peak.
     pub(super) fn run_frame(
         &mut self,
         encoded: &Encoded,
@@ -139,7 +141,7 @@ impl Device {
         upload: Upload,
         query: Option<&PassQuery>,
         damage: &DamagePlan,
-    ) -> Result<(Duration, FramePhases, u32), RenderError> {
+    ) -> Result<(Duration, wgpu::SubmissionIndex, FramePhases, u32), RenderError> {
         let width = bound.texture().width();
         let height = bound.texture().height();
         let mut recorder = self
@@ -195,7 +197,7 @@ impl Device {
             recorder.resolve_query_set(&q.set, 0..2, &q.resolve, 0);
             recorder.copy_buffer_to_buffer(&q.resolve, 0, &q.map, 0, 16);
         }
-        let execute_wall = compose::submit_and_wait(self, recorder)?;
-        Ok((execute_wall, phases, layer_textures))
+        let (submit_host, submission) = compose::submit(self, recorder);
+        Ok((submit_host, submission, phases, layer_textures))
     }
 }

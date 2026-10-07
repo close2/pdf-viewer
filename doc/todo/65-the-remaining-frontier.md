@@ -231,8 +231,8 @@ anywhere. `crates/pdf-syntax/tests/public_key_witnesses.rs` holds each recipient
 No document is known to be encrypted to a key a real reader holds, so the calibrated refusal is the
 state and the build stays untriggered.
 
-- §7.6.5, §7.6.5.1, §7.6.5.2, §7.6.5.3 — all four `reported`: the handler itself and its dictionary
-  and algorithms, refused by name before Table 23 is read.
+- §7.6.5.1, §7.6.5.2, §7.6.5.3 — all three `reported`: the handler, its dictionary and its
+  algorithms, refused by name before Table 23 is read; §7.6.5 above them is their aggregate.
 - §7.6.6 — Table 27 and nothing else: its entries are the public-key handler's and reach nothing
   while §7.6.5 refuses the handler. Table 25's `/AuthEvent` is read and load-bearing.
 
@@ -258,7 +258,7 @@ A normal round can advance or close each of these today; there is no missing sur
 package, no cross-round architecture. Membership is re-derived from the ledger rather than carried: a
 row is in this bucket when its note names none of those three.
 
-- §12.10, §12.10.2 — a geospatial viewport's **registration in degrees**. Everything the file states
+- §12.10.2 — a geospatial viewport's **registration in degrees**. Everything the file states
   is read, a person can trace a path in one (ADR 1191), and the inverse projection is built on
   `doc/questions/A171`: no EPSG registry, because the census found no system named by code alone; the
   older WKT form the files carry and ISO 19162's own; eight methods to Guidance Note 7-2's worked
@@ -283,11 +283,13 @@ doing what it is for and the reason its membership is re-derived rather than car
 
 ### Aggregate rows — no debt of their own; they move when a row below them does
 
-These are `partial` only because something they carry is; each note says so and names what it carries.
-They are not independently actionable — do not brief a round to *take* one. `tools/state.sh ledger`
-counts them among `partial`; they flip when the last binding row flips.
+A heading over a row that owes takes its status from its leaves — `partial`, or `reported` where every
+leaf is — which `cargo test -p conformance` checks and `--bin ledger -- --write` sets (ADR 1599); this list is
+exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any other. Each note opens
+"Aggregate of the rows below" and the reason is the owing row's. They are not independently actionable
+— do not brief a round to *take* one; they flip when the last binding row flips.
 
-§7.6, §12.8, §12.8.3, §12.8.3.4.
+§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4, §12.10.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap

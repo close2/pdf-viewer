@@ -1107,11 +1107,28 @@ Three ways one round's scratch broke every sibling's build in batch fifty-eight.
 `scratchpad/r<n>/` adds the new crate to the root `Cargo.toml`'s `members`, and `cargo` in the whole
 worktree answers "multiple workspace roots" until the line is removed. Running `python3
 tools/main-checkout.py` writes `tools/__pycache__/`, which the `tools/*` member glob reads as a crate
-directory — `PYTHONDONTWRITEBYTECODE=1` on every Python run under `tools/`. And a `git archive`
+directory — `PYTHONDONTWRITEBYTECODE=1` on every Python run under `tools/` — and never `python3 -m py_compile`,
+which writes the cache whatever the variable says; `python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' <file>` checks a script without it (round 1382). And a `git archive`
 export's files carry the commit's time, older than any artefact in a target directory that already
 exists, so a rebuild over it hands back the stale binary with no error: touch the exported sources
 before building and compare the binaries with `md5sum` (trap 50 is the same lesson from the other
 side).
+
+### 116. `cargo-geiger` is a fork bomb, and a fresh-device gate is not a window's device
+
+Round 1377 was asked for a dependency's `unsafe` count and ran `cargo-geiger` 0.13, unbounded, in a
+scratch directory. It forks a `cargo-geiger metadata` task per package and never waits: the agent's
+cgroup climbed about 3 400 tasks a minute for ten minutes to 52 259 tasks, 50 GB resident and 91 GB
+of swap, and the system's OOM daemon killed the whole scope — the orchestrator and four rounds
+(2026-10-06, the incident class's fourth occurrence). Re-run under `ulimit -u 8192` and
+`tools/bounded.sh --tree 12` it reached 7 845 tasks and 13 GiB in 39 s before the bound killed it.
+Count `unsafe` with `grep -rwo unsafe <crate>/src --include=*.rs` (ADR 1590's figure is that), and
+run every heavy command under the process limit and the bound. And `zoom_frame` and `frame_budget`
+draw every round on a device made for the round: a change whose cost or saving depends on the
+device's own state — wgpu's command-encoder pool, which allocates sixteen Vulkan command buffers on
+first use and about 3 ms per encoder while the pool grows — reads as a loss on the fresh device and a
+win by the sixth frame of a long-lived one (ADR 1595). Measure a sequence of frames on one device
+(`ZOOM_FRAME_SEQUENCE`) before calling such a change either.
 
 ## Things worth knowing
 

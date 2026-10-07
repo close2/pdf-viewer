@@ -2306,6 +2306,7 @@ impl Host {
                         Err(refusal) => host.say(&refusal),
                     }
                 }
+                FieldChange::Commit { field } => host.dispatch(Command::CommitField { field }),
             });
         })
     }
@@ -4351,11 +4352,15 @@ impl Host {
             return;
         }
         let points = self.showing.measuring.points().to_vec();
-        let traced = match self.viewer.query(Query::Measure(&points)) {
-            Answer::Measured(traced) => Some(traced),
-            _ => None,
+        let (traced, located) = match self.viewer.query(Query::Measure(&points)) {
+            Answer::Measured { traced, located } => (Some(traced), located),
+            _ => (None, None),
         };
-        self.say(&viewer_host::measuring::said(points.len(), traced.as_ref()));
+        self.say(&viewer_host::measuring::said(
+            points.len(),
+            traced.as_ref(),
+            located.as_ref(),
+        ));
     }
 
     /// §12.5.6.5's activation region under the pointer, as this platform's cursor.

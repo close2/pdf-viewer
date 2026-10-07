@@ -13,7 +13,7 @@
 //! decoder bounds-checked field by field, chosen per page by size (ADR 0607).
 //!
 //! Arrows, Page Up and Down or Space turn pages, Home and End jump, `+` and `-` zoom, the wheel
-//! scrolls, `q` quits. **Escape is the abort**: it ends the worker with a kill it cannot decline
+//! scrolls, `q` quits, Tab walks a form's fields, `m` measures. **Escape is the abort**: it ends the worker with a kill it cannot decline
 //! (ADR 0241) and takes back this side's own drawing thread (ADR 0650) — the reader's answer to
 //! a document written to take for ever, and it does not block. The window title carries the page
 //! and §12.4.2's label; what a page could not draw is printed, as everywhere else in this tree.
@@ -22,9 +22,12 @@
 //!
 //! It is deliberately the *smallest complete* host on this boundary, and its scope is a decision
 //! with its cost written down (ADR 0713) rather than a promise of more: no panels, no form
-//! controls, no selection, no find bar — each of those is chrome the three established windows
-//! already have in-process, and moving *them* onto this boundary is the remainder `doc/todo/15`
-//! names. What is complete is the part no other window has at all: every page on the screen came
+//! controls drawn over the page, no selection, no find bar — each of those is chrome the three
+//! established windows already have in-process, and moving *them* onto this boundary is the
+//! remainder `doc/todo/15` names. What it does take from a form is the keyboard's share — Tab
+//! through §12.5.1's order, characters into a single-line text field, Enter to commit and Control
+//! and S to save — because §12.7.4.3's commit runs where the scripts are, inside the confinement,
+//! and a boundary nobody can type across has not been shown to carry it (ADR 1592). What is complete is the part no other window has at all: every page on the screen came
 //! out of the sandboxed process, on both of ADR 0607's arms, with the drawing of the marks arm
 //! interruptible and the worker killable from the keyboard. A document this window cannot serve —
 //! a file the document asks for, a URI it wants resolved — is refused **by name**, on the screen
@@ -85,6 +88,8 @@
 mod device;
 #[path = "quorra-confined/screen.rs"]
 mod screen;
+#[path = "quorra-confined/typing.rs"]
+mod typing;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -305,6 +310,15 @@ struct Host {
     /// replaces a dead one is a new viewer, and one that lost the anchors would judge a signature
     /// differently after a crash (ADR 1580).
     reader: viewer_host::ReaderWords,
+    /// §12.7.4.2's qualified name of the text field the keyboard is in, or nothing (ADR 1592).
+    typing: Option<String>,
+    /// The modifiers held: Shift turns §12.5.1's Tab round, and Control makes S the save.
+    modifiers: winit::keyboard::ModifiersState,
+    /// §12.9's measuring mode and its points, shared with the other windows' rule for when a
+    /// press is a point (ADR 1191).
+    measuring: viewer_host::Measuring,
+    /// Where the pointer is, in the window's device pixels.
+    cursor: (f32, f32),
 }
 
 /// A worker started, confined, and holding the document with page one interpreted: what the
@@ -377,6 +391,10 @@ impl Host {
             resume: None,
             faces,
             reader: viewer_host::ReaderWords::default(),
+            typing: None,
+            modifiers: winit::keyboard::ModifiersState::empty(),
+            measuring: viewer_host::Measuring::default(),
+            cursor: (0.0, 0.0),
         }
     }
 
@@ -700,8 +718,9 @@ impl Host {
             // that a message added to the boundary still breaks this build: a `Closed` follows
             // this window's own `Close` and nothing else; a `Transition` never fires because this
             // window sends no `Command::Tick` and starts no presentation; a `Searched` answers a
-            // `Find` this window never sends; a `Dirty` reports an edit no key here can make; and
-            // an `AttachmentsChanged` names a list this window shows no panel for (ADR 0713).
+            // `Find` this window never sends; a `Dirty` marks a title this window does not mark,
+            // because its title is the confinement's sentence; and an `AttachmentsChanged` names a
+            // list this window shows no panel for (ADR 0713).
             Event::Closed(_)
             | Event::Transition { .. }
             | Event::Dirty { .. }
@@ -841,7 +860,8 @@ impl Host {
                 };
                 eprintln!("note: {why}");
             }
-            Event::Saved { .. } | Event::Extracted { .. } => {
+            Event::Saved { bytes, .. } => self.write_saved(&bytes),
+            Event::Extracted { .. } => {
                 eprintln!("note: the confined viewer sent bytes this window never asked for");
             }
             Event::Refused { notes, .. } => {
@@ -1309,6 +1329,9 @@ impl Host {
             self.password_key(&key);
             return;
         }
+        if let typing::Typed::Taken = self.field_key(&event.logical_key.as_ref()) {
+            return;
+        }
         match &event.logical_key {
             Key::Named(NamedKey::ArrowRight | NamedKey::PageDown | NamedKey::Space) => {
                 self.dispatch(&Command::GoTo(PageTarget::Next));
@@ -1337,6 +1360,10 @@ impl Host {
                     at: None,
                 }),
                 "q" => self.leaving = true,
+                "m" => {
+                    let on = self.measuring.toggle();
+                    eprintln!("note: {}", viewer_host::measuring::switched(on));
+                }
                 _ => {}
             },
             _ => {}
@@ -1455,6 +1482,21 @@ impl ApplicationHandler for Host {
                 self.redraw();
             }
             WindowEvent::KeyboardInput { event, .. } => self.key(&event),
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "a pointer position in device pixels, which is thousands"
+            )]
+            WindowEvent::CursorMoved { position, .. } => {
+                self.cursor = (position.x as f32, position.y as f32);
+            }
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: winit::event::MouseButton::Left,
+                ..
+            } if self.measuring.is_on() => self.measure_at(),
+            WindowEvent::ModifiersChanged(modifiers) => {
+                self.modifiers = modifiers.state();
+            }
             WindowEvent::MouseWheel { delta, .. } => {
                 let (dx, dy) = match delta {
                     MouseScrollDelta::LineDelta(x, y) => (-x * WHEEL_NOTCH, -y * WHEEL_NOTCH),

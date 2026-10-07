@@ -443,3 +443,11 @@ operator loop already makes, at no cost on the launch path, and reported once wi
 (ADR 1507). No deadline sits inside `interpret`: a clock there would make the drawn prefix depend
 on machine load, and the oracle, the fuzz target's purity check and `replace` rely on `interpret`
 being a function of the bytes — time is bounded by work budgets and the confined worker's kill.
+
+## A dependency's `unsafe` is counted with grep, and a derived status is never hand-written
+
+An audit tool that runs cargo per package is a spawner, and one of them took the machine down
+(trap 116): the count ADR 1590 records is `grep -rwo unsafe <crate>/src --include=*.rs` over the
+dependency's source, with the command beside the number. And a ledger heading's status is derived
+from its leaves by the checker (ADR 1599) — the shared status when every leaf agrees, `partial`
+otherwise — so a heading can no longer be counted as debt of its own, as §12.1 was (ADR 1573).

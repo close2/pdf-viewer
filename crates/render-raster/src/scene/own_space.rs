@@ -69,24 +69,36 @@ impl Encoder<'_> {
             knockout: parts.knockout,
             blending: None,
         };
-        let mut composited = self.frame_of(elements)?;
-        crate::premultiply(&mut composited);
-        match blending {
+        let chromatic = self.submit_frame(elements)?;
+        let mut composited = match blending {
             GroupBlending::FourComponents { space, black } => {
-                let mut ink = self.frame_of(GroupParts {
+                // The black frame is walked while the device draws the chromatic one: its walk
+                // reads the outlines and kept meets the chromatic walk made, never its pixels
+                // (ADR 1595).
+                let ink = self.submit_frame(GroupParts {
                     commands: black,
                     ..elements
                 })?;
+                let mut composited = self.collect_frame(chromatic)?;
+                crate::premultiply(&mut composited);
+                let mut ink = self.collect_frame(ink)?;
                 crate::premultiply(&mut ink);
                 pdf_render::resolve_blending(&mut composited, &ink, space);
+                composited
             }
             GroupBlending::OneComponent { curve } => {
+                let mut composited = self.collect_frame(chromatic)?;
+                crate::premultiply(&mut composited);
                 pdf_render::resolve_grey(&mut composited, curve);
+                composited
             }
             GroupBlending::ThreeComponents { cube } => {
+                let mut composited = self.collect_frame(chromatic)?;
+                crate::premultiply(&mut composited);
                 pdf_render::resolve_cube(&mut composited, cube);
+                composited
             }
-        }
+        };
         crate::demultiply(&mut composited);
         let spec = raster_scene::GroupSpec {
             alpha: parts.alpha,
@@ -124,13 +136,16 @@ impl Encoder<'_> {
             knockout: false,
             blending: None,
         };
-        let chromatic = self.frame_of(elements(&def.commands))?;
+        let chromatic = self.submit_frame(elements(&def.commands))?;
         let values = match def.black.as_ref() {
             Some(half) => {
-                let black = self.frame_of(elements(&half.commands))?;
+                // Walked while the chromatic frame draws, as a group's black frame is (ADR 1595).
+                let black = self.submit_frame(elements(&half.commands))?;
+                let chromatic = self.collect_frame(chromatic)?;
+                let black = self.collect_frame(black)?;
                 def.paired_values(&chromatic, &black)
             }
-            None => def.values(&chromatic),
+            None => def.values(&self.collect_frame(chromatic)?),
         };
         let pixels: Vec<u8> = values.iter().flat_map(|&value| [0, 0, 0, value]).collect();
         let mut mapped = None;
@@ -147,12 +162,23 @@ impl Encoder<'_> {
     }
 
     /// The elements `parts` names, drawn onto transparency as a frame of their own at this
-    /// encoder's target, read back straight-alpha.
+    /// encoder's target and submitted to be read back straight-alpha by
+    /// [`Encoder::collect_frame`].
     ///
     /// A second encoder over the same device, list and caches, so every path a page's own
     /// commands take is the path these take; its transient resources join this frame's and are
     /// released with them.
-    fn frame_of(&mut self, parts: GroupParts<'_>) -> Result<Vec<u8>, QuorraRasterError> {
+    ///
+    /// **What a frame submitted after this one may read of it, and when it is ready** (ADR
+    /// 1595): the clip outlines this walk uploaded, handed back below as the walk returns, and
+    /// the coverage tiles and regions raster's encode kept (ADRs 1517, 1529), whole when the
+    /// submission returns — both host state, made before the device draws a pixel. Its pixels
+    /// are ready only at the collect, and a frame of one group needs nothing of another's until
+    /// the resolution that reads both.
+    fn submit_frame(
+        &mut self,
+        parts: GroupParts<'_>,
+    ) -> Result<raster_gpu::PendingFrame, QuorraRasterError> {
         let mut builder = SceneBuilder::new();
         let target = self.target;
         let mut inner = Encoder::new(
@@ -172,9 +198,16 @@ impl Encoder<'_> {
         let scene = builder.finish();
         let viewport =
             raster_gpu::Viewport::full(target.width, target.height, raster_scene::Affine::IDENTITY);
-        let frame = self
-            .device
-            .render(&scene, &viewport, raster_gpu::Target::Readback)?;
+        Ok(self.device.submit(&scene, &viewport)?)
+    }
+
+    /// The straight-alpha pixels of a frame [`Encoder::submit_frame`] submitted, once the device
+    /// has drawn it.
+    fn collect_frame(
+        &mut self,
+        pending: raster_gpu::PendingFrame,
+    ) -> Result<Vec<u8>, QuorraRasterError> {
+        let frame = self.device.collect(pending)?;
         Ok(frame.into_raster()?.into_pixels())
     }
 

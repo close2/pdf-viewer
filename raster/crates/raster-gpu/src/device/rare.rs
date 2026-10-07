@@ -82,7 +82,8 @@ impl Device {
     /// `Params`).
     ///
     /// **Binding 0 is a window of `params`, the pass's one buffer of every shading's
-    /// numbers**, which the draw moves to each op's own with a dynamic offset (ADR 1555). A
+    /// numbers**: [`SHADING_QUADS_PER_WINDOW`] ops' numbers, which the draw moves to a window
+    /// with a dynamic offset (ADR 1555) and each instance reads at its own index (ADR 1594). A
     /// buffer and a bind group made per op were each pass's largest host cost on a page of
     /// many shadings: 9 to 10 ms of `bug1721218_reduced.pdf`'s 3 583 ops a render, against a
     /// handful of distinct paints and one mask.
@@ -117,7 +118,7 @@ impl Device {
                     resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                         buffer: params,
                         offset: 0,
-                        size: wgpu::BufferSize::new(SHADING_PARAMS_BYTES),
+                        size: wgpu::BufferSize::new(SHADING_WINDOW_BYTES),
                     }),
                 },
                 wgpu::BindGroupEntry {
@@ -136,11 +137,13 @@ impl Device {
         }))
     }
 
-    /// The bytes one shading's numbers take in a pass's buffer of them: its 176, rounded up
-    /// to the alignment the device asks of a dynamic offset.
-    pub(crate) fn shading_stride(&self) -> u64 {
+    /// The bytes one window of shading numbers takes in a pass's buffer of them: its
+    /// [`SHADING_WINDOW_BYTES`], rounded up to the alignment the device asks of a dynamic
+    /// offset. Inside a window the numbers are packed at `Params`'s own 176 bytes, which is
+    /// the array stride `shading.wgsl` indexes them by (ADR 1594).
+    pub(crate) fn shading_window_stride(&self) -> u64 {
         let alignment = u64::from(self.gpu.limits().min_uniform_buffer_offset_alignment).max(1);
-        SHADING_PARAMS_BYTES
+        SHADING_WINDOW_BYTES
             .div_ceil(alignment)
             .saturating_mul(alignment)
     }
@@ -154,7 +157,8 @@ impl Device {
             .min(u64::from(u32::MAX).saturating_add(1))
     }
 
-    /// One buffer of a pass's shading numbers, laid at [`Device::shading_stride`].
+    /// One buffer of a pass's shading numbers, laid in windows at
+    /// [`Device::shading_window_stride`].
     pub(crate) fn shading_params_buffer(&self, bytes: &[u8]) -> wgpu::Buffer {
         self.quad_uniform("raster shading params", bytes)
     }
@@ -202,9 +206,21 @@ fn image_params_bytes(op: &ImageOp, region: Region, mask: MaskPlacement) -> [u8;
     bytes
 }
 
-/// The size of `shading.wgsl`'s `Params`, which `pipeline/layouts.rs` states as the shading
-/// binding's `min_binding_size`.
-const SHADING_PARAMS_BYTES: u64 = 176;
+/// The size of `shading.wgsl`'s `Params`, and the stride its array of them is indexed at.
+pub(crate) const SHADING_PARAMS_BYTES: u64 = 176;
+
+/// How many quads' numbers one shading binding holds: the length of `shading.wgsl`'s `quads`
+/// array, which an instance indexes by `instance_index` (ADR 1594).
+///
+/// **Ninety-three, because 93 × 176 = 16 368 bytes is the largest window under 16 KiB**, the
+/// smallest `max_uniform_buffer_binding_size` any of wgpu's limit sets grants, so the binding is
+/// one every adapter this crate can be handed admits. WGSL fixes a uniform array's length when
+/// the module is written, so the device's own limit cannot choose it; a window this size draws
+/// `bug1721218_reduced.pdf`'s 3 583 quads a render in under a hundred draws, against 3 583.
+pub(crate) const SHADING_QUADS_PER_WINDOW: u64 = 93;
+
+/// One window's bytes: the shading binding's `min_binding_size` in `pipeline/layouts.rs`.
+pub(crate) const SHADING_WINDOW_BYTES: u64 = SHADING_PARAMS_BYTES * SHADING_QUADS_PER_WINDOW;
 
 /// The 176 bytes `shading.wgsl`'s `Params` reads, in its order (§8.7.4.5).
 #[expect(clippy::arithmetic_side_effects)] // fixed-layout offsets in a 176-byte array
@@ -324,6 +340,21 @@ mod tests {
                 ("mask_outside", Lane::Vec4([0.75, 0.0, 0.0, 0.0])),
             ],
         );
+    }
+
+    /// **The window the layout binds is the array the shader indexes**: `quads`'s length is
+    /// [`SHADING_QUADS_PER_WINDOW`](super::SHADING_QUADS_PER_WINDOW), written into the WGSL by
+    /// hand because a uniform array's length is fixed where the module is written (ADR 1594).
+    /// A shader whose array outgrew the window would read past the binding, which `wgpu`
+    /// refuses; one whose array fell short would leave a window's last quads unread.
+    #[test]
+    fn the_shading_window_is_the_shaders_array() {
+        let declared = format!("array<Params, {}>", super::SHADING_QUADS_PER_WINDOW);
+        assert!(
+            shaders::SHADING.contains(&declared),
+            "shading.wgsl declares `{declared}`"
+        );
+        const { assert!(super::SHADING_WINDOW_BYTES <= 16 << 10) };
     }
 
     #[test]

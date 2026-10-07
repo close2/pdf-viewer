@@ -29,6 +29,12 @@ pub(crate) enum FieldChange {
         /// The new value: characters, §12.7.5.4's chosen options, or nothing to clear it.
         value: Entered,
     },
+    /// [`viewer_core::Command::CommitField`]: a person finished with the text in a control —
+    /// Enter in a single-line entry, or the control losing the keyboard (ADR 1592).
+    Commit {
+        /// The qualified name.
+        field: String,
+    },
 }
 
 /// A control on the screen, and enough to know whether the next frame may keep it.
@@ -180,6 +186,7 @@ fn entry(
         // hold one, which is why the clause's flag decides the *control* and not a property of it.
         let view = gtk4::TextView::new();
         view.buffer().set_text(&value);
+        commits_on_leaving(&view, &name, change);
         let suppress = Rc::clone(suppress);
         let change = Rc::clone(change);
         view.buffer().connect_changed(move |buffer| {
@@ -212,13 +219,15 @@ fn entry(
         let secure = gtk4::PasswordEntry::new();
         secure.set_show_peek_icon(true);
         let name = field.name.qualified.clone();
+        commits_on_enter(&secure, &name, change);
+        commits_on_leaving(&secure, &name, change);
         let suppress = Rc::clone(suppress);
-        let change = Rc::clone(change);
+        let typed = Rc::clone(change);
         secure.connect_changed(move |secure| {
             if suppress.get() {
                 return;
             }
-            change(FieldChange::Set {
+            typed(FieldChange::Set {
                 field: name.clone(),
                 value: Entered::Text(secure.text().to_string()),
             });
@@ -235,20 +244,60 @@ fn entry(
         entry.set_max_length(max);
     }
     let suppress = Rc::clone(suppress);
-    let change = Rc::clone(change);
+    let typed = Rc::clone(change);
+    let commits = name.clone();
     entry.connect_changed(move |entry| {
         if suppress.get() {
             return;
         }
-        change(FieldChange::Set {
+        typed(FieldChange::Set {
             field: name.clone(),
             value: Entered::Text(entry.text().to_string()),
         });
     });
+    commits_on_enter(&entry, &commits, change);
+    commits_on_leaving(&entry, &commits, change);
     if choose_a_file {
         offer_a_chooser(&entry);
     }
     entry.upcast()
+}
+
+/// Enter in a single-line entry commits its field: Table 231 bit 13 clear restricts the text "to a
+/// single line", so the key is no character there (ADR 1592).
+fn commits_on_enter(entry: &impl IsA<gtk4::Widget>, field: &str, change: &Rc<dyn Fn(FieldChange)>) {
+    // `GtkEntry` and `GtkPasswordEntry` both state an `activate` signal, which is Enter, and
+    // neither shares a trait that carries it.
+    let field = field.to_owned();
+    let change = Rc::clone(change);
+    entry.as_ref().connect_local("activate", false, move |_| {
+        change(FieldChange::Commit {
+            field: field.clone(),
+        });
+        None
+    });
+}
+
+/// A control losing the keyboard commits its field, which is Table 197's `/Bl` for a focus this
+/// crate's toolkit moved rather than the page's (ADR 1592).
+///
+/// From an idle rather than in the signal: GTK takes the keyboard away while it rebuilds or
+/// destroys a control, which can be inside this host's own borrow, and a commit there would be an
+/// action dropped. A field already committed by the page's own focus move commits nothing.
+fn commits_on_leaving(
+    control: &impl IsA<gtk4::Widget>,
+    field: &str,
+    change: &Rc<dyn Fn(FieldChange)>,
+) {
+    let focus = gtk4::EventControllerFocus::new();
+    let field = field.to_owned();
+    let change = Rc::clone(change);
+    focus.connect_leave(move |_| {
+        let field = field.clone();
+        let change = Rc::clone(&change);
+        gtk4::glib::idle_add_local_once(move || change(FieldChange::Commit { field }));
+    });
+    control.add_controller(focus);
 }
 
 /// §12.7.5.3's file-select control, given a way to choose the file rather than spell it.

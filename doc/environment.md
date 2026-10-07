@@ -523,9 +523,12 @@ a pull request from a fork gets no secret, and the step says so rather than fail
 
 A round works in a worktree and never edits `/home/cl/projects/pdf-viewer`, so what a batch cannot
 carry is left on the owner's disk. `tools/state.sh main-checkout` (`tools/main-checkout.py`) reads
-the main checkout without touching it and prints one line per kind of thing, with its count; this
-section is what each line means and the command that clears it, in the order it prints them, and
-nothing a count could say (ADR 1440). A line whose count is zero has nothing to do.
+the main checkout without touching it and prints one line per kind of thing, with its count, and
+then **the owner's list**: every one of those that has anything to do, once, numbered in the order a
+person does them, each with its command or the files it acts on (ADR 1601). The counts say what is
+on the disk and the list says what to do about it; nothing is said in both. This section is what
+each line means, in the order it prints them, and nothing a count could say (ADR 1440). A line whose
+count is zero has nothing to do, and puts nothing on the list.
 
 ```sh
 tools/state.sh main-checkout             # first, from the main checkout or the worktree
@@ -533,62 +536,71 @@ tools/state.sh main-checkout             # first, from the main checkout or the 
 # `answered, uncommitted: N …, newest first: A171 (2026-10-05) …` — the owner's own answers on the
 #   disk and in no commit, each dated by when it landed: a round's list read from tracked files calls
 #   their questions open until they are committed, so this line is the one a merge reads first, and
-#   `tools/batch.sh check` repeats it (ADR 1588). No round writes or commits them; the owner does:
-git status --short doc/questions
+#   `tools/batch.sh check` repeats it (ADR 1588). No round writes or commits them; the owner does,
+#   which is the list's "commit the N answer(s)" item.
 
 # `open questions, less those answered on the disk: N: Q254 …; the tracked files alone call M more
-#   open: …` — what is open is the first list; the second is what the uncommitted answers above
-#   close, and it empties when they are committed. Nothing to run but the commit above.
+#   open: …` — what is open is the first list, and the owner's list names each one's file to answer;
+#   the second is what the uncommitted answers above close, and it empties when they are committed.
 
 # `local edits the fast-forward would refuse over: N (paths)` — a local edit to a path the batch
-#   changes stops `git merge --ff-only`. Set it aside and put it back around the fast-forward; never
-#   commit it on main first, which ends the fast-forward.
-git diff -- <path> > /tmp/owner.patch && git checkout -- <path>
-git merge --ff-only <batch branch>
-git apply --3way /tmp/owner.patch
+#   changes stops `git merge --ff-only`. The list's first item then sets it aside and puts it back
+#   around the fast-forward; never commit it on main first, which ends the fast-forward.
 
 # `fuzz/Cargo.lock: tracked|untracked, agrees with Cargo.lock | pins N version(s) …` — the fuzz
 #   workspace's lock is tracked (ADR 1439), so a merge replaces an ignored copy; a version the root
-#   lock does not pin is cleared by the merge or by the `doc/patches` line's commands below; this
-#   names it:
+#   lock does not pin is cleared by the merge or by the list's patch item; this names it:
 cargo test -p conformance --test fuzz_workspace
 
-# `fuzz/artifacts: N read, M unread, K slow-unit warning(s)` — a `read, removable:` line is an
-#   artefact the tree names, so a round read it, fixed it and turned it into a test: it may go.
-#   An `unread:` line stays until a round reads it (doc/verify.md's fuzz block). A slow-unit warning
-#   is libFuzzer's clock under the sanitiser, read in a release binary before it is believed, and
-#   not removed by this:
-PYTHONDONTWRITEBYTECODE=1 python3 tools/main-checkout.py \
-    | awk '$1 == "read," { print $3 }' | xargs -r rm --
+# `fuzz/artifacts: N read, M unread, K slow-unit warning(s)` — a read artefact is one the tree
+#   names, so a round read it, fixed it and turned it into a test: the list's "remove" item is the
+#   one `rm` that takes them all. An `unread:` line beneath stays until a round reads it
+#   (doc/verify.md's fuzz block). A slow-unit warning is libFuzzer's clock under the sanitiser, read
+#   in a release binary before it is believed, and removed by nothing here.
 
-# `fuzz/corpus: N of M target(s) unseeded: <targets>` — seed the targets it names, and any a
-#   campaign's record calls stale, behind the lock, because it walks the corpus:
-flock /home/AI/heavy-walk.lock fuzz/seeds.sh fuzz/corpus <target>...
+# `fuzz/corpus: N of M target(s) unseeded: <targets>; K stale by <record>'s census: <targets>` — the
+#   list's "re-seed" item is the one command for both, behind the lock, because it walks the corpus.
 
-# `doc/patches: N owed …, M whose base it no longer pins, F for a fork the owner is to create, W waiting …, K stating no base` — an `owed:` line is a
-#   fix to a dependency this tree pins from a fork, written against the `rev` its `Base:` names;
-#   a round cannot push to the fork. Apply it on that base in a clone of the fork and push; then
-#   every `rev` the root Cargo.toml pins to that repository moves to the new commit together, and
-#   both locks follow. The line goes when the manifest no longer pins the base (ADRs 1447, 1463).
-#   A `no Repository:/Base: preamble:` line is a patch whose base cannot be read, so whether it is
-#   owed cannot be said: write those two lines at its head. A `waiting:` line is a patch to a
-#   dependency the manifest takes from crates.io and pins no fork of: there is no fork to apply it
-#   to until the question it names is answered, and it is listed rather than counted as applied.
-#   Once that question's answer is on the disk and the preamble names its `Fork:`, each such patch
-#   is a `fork to create:` line, and `the owner's step:` beneath them is the one sentence that
-#   creates the fork and wires it (`zune-jpeg`, A227, ADR 1589; the stanza is written out in a
-#   comment in the root Cargo.toml). The day the manifest pins the fork the patches count as applied.
-git -C <fork clone> checkout <Base> && git -C <fork clone> apply doc/patches/<name>.patch
+# `doc/patches: N owed …, M whose base it no longer pins, F for a fork the owner is to create, W
+#   waiting …, K stating no base` — a patch owed is a fix to a dependency this tree pins from a fork,
+#   written against the `rev` its `Base:` names; a round cannot push to the fork, so the list's
+#   "apply" item names every patch for that fork at once: apply them on that base in a clone of the
+#   fork and push, move every `rev` the root Cargo.toml pins to that repository to the new commit
+#   together, and both locks follow. The count goes when the manifest no longer pins the base (ADRs
+#   1447, 1463). A patch to a dependency the manifest takes from crates.io is a fork to create once
+#   the question its preamble names is answered on the disk and its `Fork:` is named: the list's
+#   "create the fork" item is the one sentence that creates and wires it (`zune-jpeg`, A227, ADR
+#   1589; the stanza is written out in a comment in the root Cargo.toml), and the day the manifest
+#   pins the fork those patches count as applied. Each upstream report beside a patch — the `.md`
+#   whose head says where it is filed — is the list's "file" item until the owner writes `Filed:
+#   <the issue>` at its head (ADR 1601). A `waiting:` line beneath is a patch with no fork to apply
+#   it to until the question it names is answered; a `no Repository:/Base: preamble:` line is a
+#   patch whose base cannot be read, so whether it is owed cannot be said: write those two lines at
+#   its head. For the hayro forks, after the `rev` moves:
 cargo update -p hayro-jbig2 -p hayro-jpeg2000 -p hayro-ccitt
 cargo update --manifest-path fuzz/Cargo.toml -p hayro-jbig2 && cargo test -p conformance --test fuzz_workspace
 
 # `section signs, uncommitted: N `§` after another standard's name …` — a question file is an
 #   instruction document, so its `§` is ISO 32000-2's (ADR 1452), and the main checkout's own
-#   `cargo test -p conformance` fails on each line printed beneath, which no worktree run can see.
-#   Write the other standard's section in words — "ISO 19005-4 section 6.2.7.3", "ISO/TS 32002
-#   section 5.1.3"; the scan reads a paragraph, so a standard named at the end of the line above
-#   a sign owns it (ADR 1464). Then:
+#   `cargo test -p conformance` fails on each place the list's "write the other standard's section"
+#   item names, which no worktree run can see. Write the other standard's section in words — "ISO
+#   19005-4 section 6.2.7.3", "ISO/TS 32002 section 5.1.3"; the scan reads a paragraph, so a
+#   standard named at the end of the line above a sign owns it (ADR 1464). It comes before the
+#   commit of the answers, because the question file is committed beside them. Then:
 cargo test -p conformance --test documents
+
+# `build directory: <dir>, N GiB against the rule of 100 GiB` — the main checkout's build
+#   directory against the build-directory entry's rule above; over it, the list's "prune" item is
+#   the `rm` of its `debug` and `gates` profiles, run with no round running.
+
+# `sccache: <cache>, N GiB of a C GiB ceiling` — at its ceiling the cache evicts by age, which
+#   costs the warm builds their oldest entries and nothing else, so it is never pruned by hand; the
+#   list's "decide sccache's ceiling" item is the owner's choice between raising `size` under
+#   `[cache.disk]` and leaving it to evict.
+
+# `the owner's list, in the order to do them: N` — the items, numbered: what stops the
+#   fast-forward, the question files' `§`, the commit of the answers, the open questions, the forks
+#   and the upstream reports, the patches to apply, the re-seed, the artefacts, and the disk last.
 ```
 
 **Driving `quorra-qt` under Xvfb:** Qt ignores key presses there until it is run with

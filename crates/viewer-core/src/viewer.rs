@@ -449,9 +449,13 @@ impl Viewer {
                     annotation,
                     text,
                 }),
-            Query::Measure(points) => self
-                .measured(open, points)
-                .map_or(Answer::None, Answer::Measured),
+            Query::Measure(points) => {
+                self.measured(open, points)
+                    .map_or(Answer::None, |(traced, located)| Answer::Measured {
+                        traced,
+                        located,
+                    })
+            }
             Query::Dirty => Answer::Dirty(open.dirty()),
             Query::Properties => Answer::Properties {
                 information: pdf_model::metadata::Information::read(&open.document),
@@ -698,6 +702,11 @@ impl Viewer {
             Command::Report => self.report_the_document(events),
             Command::Find(find) => self.find(find, events),
             Command::Focused(move_to) => self.move_focus(move_to, events),
+            Command::CommitField { field } => {
+                if let (Some(id), Some(open)) = (self.focused, self.focused_mut()) {
+                    commit_typed(id, open, &field, events);
+                }
+            }
             Command::SetGroup { group, on } => {
                 let Some(open) = self.focused_mut() else {
                     return;
@@ -1354,6 +1363,15 @@ impl Viewer {
             let Some(open) = self.focused_mut() else {
                 return;
             };
+            // Table 197's `/Bl` is "when the annotation loses the input focus", and a value typed
+            // into the widget's field is committed then, before the widget's own action — the
+            // order Adobe's "Form event processing" gives, the commit's validate and calculate
+            // ahead of the blur (ADR 1592).
+            if event == Trigger::Blur
+                && let Some(field) = field_of_widget(&open.document, annotation)
+            {
+                commit_typed(id, open, &field, events);
+            }
             let outcome = interact::trigger(open, annotation, event, at);
             self.apply(id, outcome, events);
         }
@@ -1961,6 +1979,11 @@ impl Viewer {
         let Some(done) = open.resolve(edit, drag, dropped) else {
             return;
         };
+        // Characters the field's script refuses change nothing, so they are said rather than
+        // logged, for the reason a duplicate attachment is (ADR 1592).
+        if !matches!(standing, Standing::Refuse(_)) && said_instead(id, open, &done, events) {
+            return;
+        }
         match standing {
             Standing::Refuse(_) => {}
             Standing::Proceed => commit(id, open, done, events),
@@ -3486,7 +3509,11 @@ impl Viewer {
     /// unrelated arrays and a path across the join has no viewport the clause would choose. The
     /// alternative — measuring the part that stayed — would answer a shorter path than the one a
     /// person drew, with nothing on the screen saying so.
-    fn measured(&self, open: &Open, points: &[[f32; 2]]) -> Option<measurement::Traced> {
+    fn measured(
+        &self,
+        open: &Open,
+        points: &[[f32; 2]],
+    ) -> Option<(measurement::Traced, Option<crate::Located>)> {
         let mut page = None;
         let mut user = Vec::with_capacity(points.len());
         for point in points {
@@ -3497,7 +3524,12 @@ impl Viewer {
             user.push([x, y]);
         }
         let object = open.placed_page(page?)?;
-        measurement::Viewports::read(&open.document, &object.dict).traced(&user)
+        let viewports = measurement::Viewports::read(&open.document, &object.dict);
+        let traced = viewports.traced(&user)?;
+        let located = user
+            .last()
+            .and_then(|[x, y]| crate::located::locate(&viewports, (*x, *y)));
+        Some((traced, located))
     }
 
     /// Resolves a zoom command into the magnification it lands on.
@@ -4609,6 +4641,116 @@ enum Standing {
     Warn(Vec<String>),
     /// Hold it and ask these.
     Ask(Vec<String>),
+}
+
+/// Commits what was typed into one field of a document, and says what changed.
+///
+/// The unsaved mark first, for [`commit`]'s reason, then the refusal's sentence, which is the
+/// alert Adobe's library raises at this moment: a value a script refused goes back to what the
+/// field showed, and a person who saw it go back is told why.
+fn commit_typed(id: DocumentId, open: &mut Open, field: &str, events: &mut Vec<Event>) {
+    let before = open.dirty();
+    let Some(committed) = open.commit_field(field) else {
+        return;
+    };
+    if open.dirty() != before {
+        events.push(Event::Dirty {
+            document: id,
+            dirty: open.dirty(),
+        });
+    }
+    if let pdf_model::view::Committed::Refused(sentence) = committed {
+        events.push(Event::Reported {
+            document: id,
+            page: None,
+            notes: vec![sentence],
+        });
+    }
+}
+
+/// The fully qualified name of the field a widget belongs to.
+///
+/// §12.7.4.1 lets one field own several widgets, and the commit is the field's.
+fn field_of_widget(document: &pdf_syntax::Document, widget: ObjectId) -> Option<String> {
+    pdf_model::view::widgets_by_field_name(document)
+        .into_iter()
+        .find(|(_, widgets)| widgets.contains(&widget))
+        .map(|(name, _)| name)
+}
+
+/// Says a refused keystroke in place of logging it, and answers whether it did.
+fn said_instead(
+    id: DocumentId,
+    open: &Open,
+    done: &crate::open::Done,
+    events: &mut Vec<Event>,
+) -> bool {
+    let Some(sentence) = refused_keystroke(open, done) else {
+        return false;
+    };
+    events.push(Event::Reported {
+        document: id,
+        page: None,
+        notes: vec![sentence],
+    });
+    true
+}
+
+/// The sentence for characters Table 199's `/K` refused, or `None` where it took them.
+///
+/// The table's entry "may check the added text for validity and reject" it, and a rejected
+/// character leaves the field as it was — which a person whose key did nothing visible has been
+/// told nothing about. Adobe answers with a beep; this program says it (ADR 1592). Asked of a
+/// copy of the view, so that the judgement is the model's own: a field no widget would take the
+/// characters into, whose one-call keystroke script refuses them in its typing form, is the case.
+/// A read-only field takes nothing either, and its script is asked so that only the script's
+/// refusal is said.
+fn refused_keystroke(open: &Open, done: &crate::open::Done) -> Option<String> {
+    let crate::open::Done::SetField {
+        field,
+        value: value @ pdf_model::view::Entered::Text(typed),
+    } = done
+    else {
+        return None;
+    };
+    let mut trial = open.view.clone();
+    if trial.set_field(&open.document, field, value) > 0 {
+        return None;
+    }
+    let widget = *pdf_model::view::widgets_by_field_name(&open.document)
+        .get(field)?
+        .first()?;
+    let object = open.document.get(widget);
+    let dictionary = object.as_dict()?;
+    let pdf_model::aform::site::Site::Library(call) = pdf_model::aform::site::of_widget(
+        &open.document,
+        dictionary,
+        pdf_model::aform::Trigger::Keystroke,
+    ) else {
+        return None;
+    };
+    let kept = open
+        .view
+        .field_value(&open.document, field)
+        .map(|shown| shown.text)
+        .unwrap_or_default();
+    let event = pdf_model::aform::Keystroke {
+        value: &kept,
+        change: typed,
+        selection: (0, kept.len()),
+        will_commit: false,
+    };
+    matches!(
+        call.keystroke(&event),
+        Ok(pdf_model::aform::Keyed::Rejected { .. })
+    )
+    .then(|| {
+        format!(
+            "{field}: the field's keystroke script {} refused {typed:?}, and the field still \
+             reads {kept:?}",
+            call.function.name()
+        )
+    })
 }
 
 /// Adds one resolved edit to a document's log and says what changed.

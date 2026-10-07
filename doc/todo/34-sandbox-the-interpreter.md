@@ -3,19 +3,15 @@
 Status: **built, answers every question, stoppable, its tier question settled, and not yet where a
 person would meet it.** The
 confined process exists, draws real pages (ADR 0218) and carries all **twenty-nine** questions —
-twenty-five since the three-hundred-and-eighty-sixth (ADR 0223), the caret's inverse and a field's
-selected range since the three-hundred-and-eighty-eighth (ADR 0225), §12.7's form since the
-three-hundred-and-ninety-eighth (ADR 0235) and §12.5.6.6's free text at a point since the
-four-hundred-and-first (ADR 0238); a hostile document has a cancel since the
-four-hundred-and-fourth (ADR 0241). **This line said twenty-eight until the
-four-hundred-and-forty-fifth counted them.** **A window uses it since the
-seven-hundred-and-seventy-fifth** — `quorra-confined`, ADR 0713, deliberately the smallest
+the panels' (ADR 0223), the caret's inverse and a field's selected range (ADR 0225), §12.7's form
+(ADR 0235) and §12.5.6.6's free text at a point (ADR 0238); a hostile document has a cancel (ADR
+0241). **A window uses it** — `quorra-confined`, ADR 0713, deliberately the smallest
 complete host — and what is left is that the three *established* windows do not.
 Priority: 34
 Clauses: —, this is `CLAUDE.md` principle 3
 Code: `crates/viewer-confined`, `crates/pdf-sandbox/src/lockdown.rs`
 
-## What exists since the three-hundred-and-eighty-first session
+## What exists
 
 `pdf-view-worker` holds a `viewer_core::Viewer` and a `render_cpu::CpuRasterizer` behind
 seccomp-BPF, Landlock and a 4 GiB address-space ceiling, with no filesystem and no network.
@@ -30,29 +26,29 @@ one more that is **narrower than a system call number**: `fcntl` for the single 
 What the tests establish, on this kernel: a page byte-identical to the one drawn in process; a page
 turn and a magnification; a JBIG2 document decoded *inside* the confinement; a confined process that
 cannot open a file, cannot open a socket and cannot start a program; and `Confinement::shortfall`
-answering `None` because everything was enforced. **Since the four-hundred-and-fourth**: a document
+answering `None` because everything was enforced. **And**: a document
 that will not finish, cancelled from another thread, and a warmed allocator that never asks the
 kernel again. `examples/confined_page`, `examples/confined_cancel` and
 `examples/confined_peak` are what a person runs.
 
-## What the three-hundred-and-eighty-sixth session added
+## The panels' answers across the boundary
 
 `protocol/panels.rs`: the eleven answers a panel is made of, encoded field for field, with a round
 trip apiece and a comparison against the same answer read in this process on three real documents.
-**Twelve since the three-hundred-and-ninety-eighth**, the twelfth being §12.7's form — compared the
+**Twelve**, the twelfth being §12.7's form — compared the
 same way, on `issue17492.pdf`, and with an edit built out of what crossed sent back through the same
 pipe (ADR 0235).
 `examples/confined_panels` prints a sidebar's worth of a document out of the confinement. The
 transport's stand-in test became `fuzz/fuzz_targets/confined_wire.rs`, clean at 44 723 045 runs,
-and clean again at **13 175 908 runs in 241 s** in the four-hundred-and-fourth, which changed how
-a frame header is written and therefore owed it.
+and clean again at **13 175 908 runs in 241 s** after the change to how a frame header is written,
+which owed it.
 ADR 0223 has the argument, the measurements and what it refuses.
 
 ## What is left, in the order it matters
 
 ### 1. Two things the panel answers left behind, and neither is a hole in the transport
 
-**~~§12.3.5.1's `/D` is decided by nobody.~~ Closed in the three-hundred-and-ninety-fourth session**
+**~~§12.3.5.1's `/D` is decided by nobody.~~ Closed**
 (ADR 0231). `Answer::Collection` carries the resolved `Initial` beside Table 153, the protocol
 encodes its four cases, and `viewer_ui::chrome` sets the initial document's row in bold while an
 empty tree says so instead of drawing nothing. It took exactly what this entry predicted — a field
@@ -67,7 +63,7 @@ is `Command::Activate(item.id)`, which follows §12.6's action machinery inside 
 Worth knowing rather than fixing; it becomes a question the day a panel wants to print a number
 beside a row.
 
-### 2. ~~The window is a tier-2 host and this boundary is tier 1~~ — settled in the seven-hundred-and-twenty-fourth session, the codec built in the seven-hundred-and-thirty-second and wired in in the seven-hundred-and-thirty-sixth
+### 2. ~~The window is a tier-2 host and this boundary is tier 1~~ — settled, the codec built and wired in
 
 `viewer-ui` hands back `Rendered::Presented` and draws on the graphics device; a confined process
 draws on the processor and hands over a raster, so putting the window on this boundary is a change
@@ -105,10 +101,10 @@ pixels; `viewer-confined` takes no rasteriser, because the device is the host's 
 ADR 0607's own sentence points at `viewer-ui`; the target crosses beside the marks so that no host
 rebuilds one out of a page size and a scale; and `MAGIC` moved once, `PDFVCF03` → `PDFVCF04`. The
 decoder refuses a target past `viewer_core::MAX_PIXELS`, which is the one length on this boundary
-with no bytes behind it — eight bytes that become the host's own allocation, which is the
-seven-hundred-and-nineteenth session's finding arriving somewhere new.
+with no bytes behind it — eight bytes that become the host's own allocation — the same finding, a length with no bytes
+behind it, arriving somewhere new.
 
-**And the render it was wasting is gone since the seven-hundred-and-fortieth** (ADR 0640). The one
+**And the render it was wasting is gone** (ADR 0640). The one
 `viewer-core` change this whole item needed is `Rendered::Listed` — *the host took this request's
 own list*, said about a page rather than about the viewer, so `MAX_PIXELS` goes on bounding a
 confined process's raster and `Query::Frame` goes on answering for the pages that must still cross
@@ -131,7 +127,7 @@ encoder **must** preserve `Arc` identity or it buys nothing, and `ImageSource::A
 `ShadingKind::Sampled` carry trait objects that cannot cross as they stand — 4 of 958 first pages,
 covered by the raster arm.
 
-### 3. ~~A hostile document has no deadline~~ — closed in the four-hundred-and-fourth session
+### 3. ~~A hostile document has no deadline~~ — closed
 
 `Canceller` is the answer and **a cancel is a kill** (ADR 0241): the confined process is
 interpreting a hostile document, so a cancel it has to *agree* to is a cancel the document can
@@ -153,8 +149,8 @@ larger than it is: it ends the worker, so what it stops is what the worker is do
 arm that is the interpretation *and* the rasterisation; on the marks arm the worker does not
 rasterise, so it is the interpretation alone and the drawing is the host's.
 
-**The other half of that sentence has an answer since the seven-hundred-and-forty-fifth session,
-and it is a different object with a different name** (ADR 0650). `pdf_render::Interrupt` is
+**The other half of that sentence has an answer, and it is a different object with a different
+name** (ADR 0650). `pdf_render::Interrupt` is
 *raised* and *honoured* where a `Canceller` *ends a process*, and the reason a cooperative flag is
 enough there and not here is one line: on the host's side **the loop is ours**. A hostile document
 arrives in `render-cpu` as a `DisplayList`, which is data — it can make the command loop long, and
@@ -219,11 +215,11 @@ nothing refers to, so that what is timed is the transport and nothing else:
 side: the encoder's buffer, a header put in front of it by building a third buffer, the two the
 pipe makes, the worker's frame allocation and `decode_command`'s copy into `Command::Open`.
 
-**The last two of those are still both paid, and what changed in the six-hundred-and-nineteenth is
-how long they overlap** (ADR 0597). The worker's frame buffer used to be held across the whole of
-the work, so it was alive beside `Command::Open`'s copy *and* beside the `Arc<[u8]>` `pdf_syntax`
-makes — three copies of the document at the peak, measured as start-up plus exactly 3× its length.
-It is dropped the moment the message is decoded now, which is two. That is address space rather
+**The last two of those are still both paid, and what is bounded is how long they overlap** (ADR
+0597). The worker's frame buffer is dropped the moment the message is decoded, so it is not alive
+beside both `Command::Open`'s copy *and* the `Arc<[u8]>` `pdf_syntax` makes — two copies of the
+document at the peak rather than the three, start-up plus exactly 3× its length, measured when it
+was held across the whole of the work. That is address space rather
 than time: the passes are unchanged and so are the figures above.
 
 **One of those was free to remove and is gone**: both ends write the nine-byte header and the
@@ -241,21 +237,15 @@ behind a safe signature; the construction that would justify one is a **sealed**
 seals, passes, maps and hands out `&[u8]` and parses nothing — and whether such a crate falls under
 principle 3's rule is the question to answer out loud rather than assume.
 
-~~And getting the descriptor across has its own cost. The document arrives *after* the spawn, so an
-inherited descriptor means one worker per document; the runtime alternative, `SCM_RIGHTS`, needs
-`socketpair`, `sendmsg` and `recvmsg` on the interpreter's allow-list, and
-`a_confined_interpreter_cannot_reach_the_network` is the test that would have to be weakened to get
-them. Three system calls for latency is the wrong direction.~~ **The first half of that was right
-and the second was wrong twice, and the descriptor crosses since the eight-hundred-and-eighty-third
-session** (ADR 0812) — for memory rather than latency: a 6 GB document could not cross as bytes
-at all. The *host* makes the socket pair and sends; the worker only receives, so what its
+**The descriptor crosses at runtime by `SCM_RIGHTS`** (ADR 0812), because the document arrives
+*after* the spawn and an inherited descriptor would mean one worker per document — and for memory
+rather than latency: a 6 GB document could not cross as bytes at all. The *host* makes the socket pair and sends; the worker only receives, so what its
 allow-list gains is `recvmsg` on a socket it did not create and cannot create, plus `pread64` on
 the file it was handed — and `a_confined_interpreter_cannot_reach_the_network` is untouched, with
 two probes beside it pinning that the worker can read the descriptor and cannot `stat` it. The
 `memfd` question above is unchanged: that was about *mapping*, and nothing here maps.
 
-**A descriptor a worker is handed is also a descriptor it has to give back, and that cost was found
-forty-one sessions later** (session 924, ADR 0888). `OwnedFd::drop` asks `fcntl(fd, F_GETFD)` before
+**A descriptor a worker is handed is also a descriptor it has to give back** (ADR 0888). `OwnedFd::drop` asks `fcntl(fd, F_GETFD)` before
 `close` under `core::ub_checks::check_library_ub()`, so closing a document killed every build with
 library-UB checks compiled in while the release build passed — the shape trap 32 is about. The
 allow-list gains one *command* for it, narrowed by argument, on the interpreter profile alone; the

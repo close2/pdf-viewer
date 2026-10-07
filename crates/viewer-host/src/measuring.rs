@@ -27,6 +27,7 @@
 //! ADR 1191.
 
 use pdf_model::measurement::{Geographic, Traced};
+use viewer_core::Located;
 
 /// How many points one measurement may hold.
 ///
@@ -104,15 +105,15 @@ pub fn switched(on: bool) -> String {
 
 /// What a window says about the path put down so far.
 ///
-/// `traced` is `viewer_core::Answer::Measured`'s payload, or `None` where that answered
-/// `Answer::None` — which §12.9.1 makes a statement rather than a failure: the viewport chosen is
-/// "the viewport of the first point", so no viewport there means the page has said nothing about
-/// what a unit is worth where the person is pointing.
+/// `traced` and `located` are `viewer_core::Answer::Measured`'s payload, or `None` where that
+/// answered `Answer::None` — which §12.9.1 makes a statement rather than a failure: the viewport
+/// chosen is "the viewport of the first point", so no viewport there means the page has said
+/// nothing about what a unit is worth where the person is pointing.
 ///
 /// The empty string for a path of no points, so that a window with the mode on and nothing
 /// clicked says only what [`switched`] said.
 #[must_use]
-pub fn said(points: usize, traced: Option<&Traced>) -> String {
+pub fn said(points: usize, traced: Option<&Traced>, located: Option<&Located>) -> String {
     if points == 0 {
         return String::new();
     }
@@ -138,7 +139,7 @@ pub fn said(points: usize, traced: Option<&Traced>) -> String {
         }
     }
     if let Some(geospatial) = &traced.geospatial {
-        parts.push(geospatial_sentence(geospatial));
+        parts.push(geospatial_sentence(geospatial, located));
     }
     if parts.is_empty() {
         // A viewport with no `/Measure`, or one whose measuring system describes none of the
@@ -150,16 +151,38 @@ pub fn said(points: usize, traced: Option<&Traced>) -> String {
     parts.join(" · ")
 }
 
-/// What a window says about a geospatial viewport, which is what the file states and no more.
+/// Smallest departure of a registration from its affine map that is worth saying: half the last
+/// place [`degrees`] prints, below which the sentence would state a difference it cannot show.
+const DEPARTURE_SAID: f64 = 0.000_000_5;
+
+/// A latitude and a longitude as this program writes them (ADR 1593): decimal degrees to six
+/// places, with the hemisphere's letter rather than a sign.
 ///
-/// **No latitude, and the reason is §12.10 rather than the work.** That clause states the
-/// correspondence between the object's unit square and the earth — `/GPTS` against `/LPTS`, point
-/// for point — and states no function between the registration points; where `/GCS` is projected
-/// it names the EPSG registry and ISO 19162's grammar, both texts outside this standard. So a
-/// coordinate this program cannot derive is absent, and what a person is told instead is which
-/// system the map is in, how many points register it, and whether §12.10.2's neatline covers the
-/// place they are pointing at.
-fn geospatial_sentence(geospatial: &Geographic) -> String {
+/// Table 269 leaves the form to the processor — "[f]ormatting the displayed representation of
+/// these values is controlled by the interactive PDF processor" — and the clause's own example of
+/// a display system is the one "corresponding to values reported by a GPS device", which reports
+/// decimal degrees. Six places is a tenth of a metre on the ground, finer than any map's
+/// registration is drawn, so the last place shown is never the reading's own error. The letter
+/// is because a minus sign is the one character of a coordinate a person misreads.
+#[must_use]
+pub fn degrees(latitude: f64, longitude: f64) -> String {
+    let north = if latitude < 0.0 { 'S' } else { 'N' };
+    let east = if longitude < 0.0 { 'W' } else { 'E' };
+    format!(
+        "{:.6}° {north}, {:.6}° {east}",
+        latitude.abs(),
+        longitude.abs()
+    )
+}
+
+/// What a window says about a geospatial viewport: the system, the registration, the neatline,
+/// and where the last point is on the earth.
+///
+/// The position is `viewer_core`'s reading (ADR 1593) and the wording is here: the file's own
+/// system first, `/DCS`'s beside it where the file names one, how far the registration departs
+/// from the map the position was read through where it departs at all, and a refusal's sentence
+/// where no position is given.
+fn geospatial_sentence(geospatial: &Geographic, located: Option<&Located>) -> String {
     use std::fmt::Write as _;
 
     let mut said = String::from("geospatial");
@@ -180,7 +203,40 @@ fn geospatial_sentence(geospatial: &Geographic) -> String {
     if !geospatial.within_bounds {
         said.push_str(", outside the neatline");
     }
-    said.push_str(" — §12.10 states no position between them");
+    match located {
+        Some(Located::At {
+            latitude,
+            longitude,
+            display,
+            departure,
+        }) => {
+            let _ = write!(said, " — {}", degrees(*latitude, *longitude));
+            match display {
+                Some(Ok((latitude, longitude))) => {
+                    let _ = write!(
+                        said,
+                        ", displayed in /DCS as {}",
+                        degrees(*latitude, *longitude)
+                    );
+                }
+                Some(Err(why)) => {
+                    let _ = write!(said, "; not in /DCS: {why}");
+                }
+                None => {}
+            }
+            if *departure >= DEPARTURE_SAID {
+                let _ = write!(
+                    said,
+                    " (read through one affine map, from which the file's registration points \
+                     depart by up to {departure:.6}°)"
+                );
+            }
+        }
+        Some(Located::Refused(why)) => {
+            let _ = write!(said, " — no position: {why}");
+        }
+        None => {}
+    }
     said
 }
 
@@ -188,6 +244,7 @@ fn geospatial_sentence(geospatial: &Geographic) -> String {
 mod tests {
     use super::{Measuring, said, switched};
     use pdf_model::measurement::{CoordinateSystem, Geographic, Traced};
+    use viewer_core::Located;
 
     /// The mode is what decides whether a press is a point, and nothing else it does is stateful.
     #[test]
@@ -219,14 +276,14 @@ mod tests {
     /// A path with no units is said rather than left blank, which is trap 5.
     #[test]
     fn a_viewport_with_no_units_says_so_rather_than_nothing() {
-        assert_eq!(said(0, None), "");
-        assert!(said(2, None).contains("no §12.9 viewport"));
+        assert_eq!(said(0, None, None), "");
+        assert!(said(2, None, None).contains("no §12.9 viewport"));
         let bare = Traced {
             viewport: None,
             ..Traced::default()
         };
         assert_eq!(
-            said(2, Some(&bare)),
+            said(2, Some(&bare), None),
             "2 point(s): this viewport states no units for them"
         );
     }
@@ -244,7 +301,7 @@ mod tests {
             geospatial: None,
         };
         assert_eq!(
-            said(3, Some(&traced)),
+            said(3, Some(&traced), None),
             "Plan · 1/4 in = 1 ft · length 12 ft · area 30 sqft · angle 90 deg · slope 0.5"
         );
     }
@@ -265,12 +322,50 @@ mod tests {
             }),
             ..Traced::default()
         };
-        let sentence = said(2, Some(&traced));
+        let refused = Located::Refused("the file's points are shaped as degrees".to_owned());
+        let sentence = said(2, Some(&traced), Some(&refused));
         assert!(sentence.contains("EPSG 32631"), "{sentence}");
         assert!(sentence.contains("projected"), "{sentence}");
         assert!(sentence.contains("4 registration point(s)"), "{sentence}");
         assert!(sentence.contains("outside the neatline"), "{sentence}");
-        assert!(sentence.contains("§12.10 states no position"), "{sentence}");
+        assert!(
+            sentence.ends_with("— no position: the file's points are shaped as degrees"),
+            "{sentence}"
+        );
+    }
+
+    /// A position is written in decimal degrees to six places with its hemispheres, `/DCS`'s
+    /// beside it, and a registration's departure from the affine map where there is one.
+    #[test]
+    fn a_position_is_written_in_degrees_with_its_hemispheres() {
+        let traced = Traced {
+            geospatial: Some(Geographic {
+                registration: 4,
+                within_bounds: true,
+                ..Geographic::default()
+            }),
+            ..Traced::default()
+        };
+        let exact = Located::At {
+            latitude: -13.574_12,
+            longitude: 171.193_325,
+            display: None,
+            departure: 0.0,
+        };
+        assert_eq!(
+            said(1, Some(&traced), Some(&exact)),
+            "geospatial, 4 registration point(s) — 13.574120° S, 171.193325° E"
+        );
+        let skewed = Located::At {
+            latitude: 51.5,
+            longitude: -0.125,
+            display: Some(Err("the display system's datum differs".to_owned())),
+            departure: 0.05,
+        };
+        let sentence = said(1, Some(&traced), Some(&skewed));
+        assert!(sentence.contains("51.500000° N, 0.125000° W"), "{sentence}");
+        assert!(sentence.contains("; not in /DCS: the display system's datum differs"));
+        assert!(sentence.contains("depart by up to 0.050000°"), "{sentence}");
     }
 
     /// The sentence that turns the mode on names the key that turns it off.

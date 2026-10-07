@@ -96,6 +96,26 @@ pub enum Disagreement {
         /// The status that makes it open work.
         status: String,
     },
+    /// A heading whose status its subclauses derive, placed somewhere other than the aggregate
+    /// paragraph, or a row in that paragraph that is not such a heading.
+    ///
+    /// The paragraph is computed rather than read: it is exactly the rows
+    /// [`Ledger::is_aggregate`] names, because a heading's status is its leaves' (ADR 1599) and
+    /// a round briefed to *take* one would be briefed to take its subclauses' work.
+    #[error(
+        "{MAP}:{line} places §{clause} as {placed}, and the ledger {says} — the aggregate \
+         paragraph is exactly the headings over a row that owes (ADR 1599)"
+    )]
+    Aggregate {
+        /// The clause misplaced.
+        clause: String,
+        /// Where the map places it.
+        line: usize,
+        /// The place the map gives it, in words.
+        placed: &'static str,
+        /// What the ledger says the row is, in words.
+        says: &'static str,
+    },
     /// One clause placed in two places, so two buckets claim it.
     #[error("{MAP} places §{clause} more than once: on lines {lines}")]
     Twice {
@@ -206,7 +226,22 @@ pub fn compare(ledger: &Ledger, map: &str) -> Vec<Disagreement> {
                     status: row.status.as_str().to_owned(),
                 });
             }
-            Some(_) => {}
+            Some(row) => {
+                let aggregate = ledger.is_aggregate(row);
+                if aggregate != (placement.place == Place::Aggregate) {
+                    let (placed, says) = if aggregate {
+                        ("a bullet", "makes it a heading over a row that owes")
+                    } else {
+                        ("an aggregate", "gives it no row below it that owes")
+                    };
+                    disagreements.push(Disagreement::Aggregate {
+                        clause: placement.clause.clone(),
+                        line: placement.line,
+                        placed,
+                        says,
+                    });
+                }
+            }
         }
     }
 

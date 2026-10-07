@@ -349,8 +349,23 @@ in `tools/batch.sh gates`; a row that moves moves its band there with its reason
 | | step | 11.19 (134%) | — | — | **10.43** | 0.09 | 0.47 | 0.21 | 2026-10-06, ADR 1577 |
 | `bug1743245.pdf` p1, tight bends | turn | 37.95 (455%) | 3.38 | 0.44 | **33.25** | 0.34 | 0.41 | 0.12 | 2026-10-06, ADR 1577 |
 | | step | 34.96 (420%) | — | — | **34.12** | 0.12 | 0.48 | 0.24 | 2026-10-06, ADR 1577 |
-| `bug1721218_reduced.pdf` p1, a four-component group of 3 518 clipped shadings, drawn as two frames | turn | 154.59 (1855%) | 68.81 | **82.83** | 1.42 | 0.38 | 0.60 | 0.56 | 2026-10-06, ADR 1582 |
-| | step | 84.02 (1008%) | — | **80.62** | 1.53 | 0.27 | 0.63 | 0.97 | 2026-10-06, ADR 1582 |
+| `bug1721218_reduced.pdf` p1, a four-component group of 3 518 clipped shadings, drawn as two frames | turn | 151.49 (1818%) | 67.75 | **80.82** | 1.33 | 0.45 | 0.87 | 0.28 | 2026-10-07, ADRs 1594, 1595 |
+| | step | 84.44 (1013%) | — | **81.02** | 1.55 | 0.27 | 0.69 | 0.92 | 2026-10-07, ADRs 1594, 1595 |
+
+**`bug1721218_reduced.pdf`'s rows were re-taken on 2026-10-07 after ADRs 1594 and 1595**, three runs
+of five rounds interleaved against exports of the tree before them and of ADR 1594 alone (load
+1.2–1.8; the tree before read turn 153.07–153.51 and step 84.38–85.35, ADR 1594 alone 151.68–153.34
+and 83.02–84.38): a run of shading quads is one instanced draw, each instance reading its numbers at
+its index in a window of the pass's buffer — 237 draws a group render where its shading quads alone
+were 3 583, `finish` 0.74–0.78 ms a render after the first where it was 1.42–1.46 — and the black
+frame is walked and submitted while the device draws the chromatic one, its wait 1.3–2.2 ms → 0.37–0.44.
+The turn is 1.5 ms quicker; the step does not move, because each row is drawn on a device of its own
+and an overlapped frame needs a command encoder wgpu's pool does not have yet, sixteen Vulkan command
+buffers allocated at once, about 3 ms in RADV (ADR 1595 section 3). On one device's eighth frame of
+`zoom_frame`'s pair the step reads 72.0–72.6 ms against 75.0–75.9 for the tree before, and a fresh
+device's first frame pays one such encoder on any tree — the 4.3 ms of `finish` ADR 1583 left
+unattributed (ADR 1594 section 4). Its 1× frame on a fresh device reads 79.5–80.0 ms against the CPU
+backend's 47.3–47.4, 1.68×, and its step 76.3–78.9 against 55.3–57.2, 1.38×, where they were.
 
 **`bug1721218_reduced.pdf`'s rows were re-taken on 2026-10-06 after ADR 1582**, three runs of five
 rounds interleaved against an export of the tree before it (load 0.4–0.6; that build read turn

@@ -111,7 +111,7 @@ regions and clip outlines rather than making them again (ADR 1529), a meet's exa
 beside the walk by helper threads and written onto the sheet where its tile lies (ADR 1541) — and,
 where the mark is one convex polygon and the clip is convex pieces apart inside the tile, measured
 there from the polygons rather than band by band from their edges (ADR 1582) — a
-pass's shading quads read from one buffer of their numbers at their own offsets (ADR 1555), a frame's new ramps sampled into their tables beside each other on the encode threads, each texel the same byte the one-ramp statement gives (ADR 1567) — and a clipped mark's
+pass's shading quads read from one buffer of their numbers (ADR 1555), a run of them under one paint and mask drawn as one instanced draw that reads each quad's numbers at its index (ADR 1594), a group's black frame walked while the device draws its chromatic one (ADR 1595), a frame's new ramps sampled into their tables beside each other on the encode threads, each texel the same byte the one-ramp statement gives (ADR 1567) — and a clipped mark's
 coverage and a stroke's made off the walk's thread by the encoder's fan-out, a stroke's segment
 weighed at what it costs (ADR 1395), the fan-out's threads claiming its jobs in order rather than
 taking fixed shares (ADR 1505), a wide job building its mark's edges over its own tile (ADR 1513),
@@ -271,8 +271,11 @@ call of Adobe's `AF*` form library with literal arguments runs as `pdf_model::af
 re-implementation of all twenty-one functions, every rule of which ADR 1578 names as a choice, a
 keystroke the script refuses is not taken, a total follows its lines because Table 224's `/CO` is
 walked in order after every value change, and a value is drawn and saved through its format once it
-is not being typed, while every other script is reported as one this tier does not run and no
-ECMAScript is parsed (ADR 1579); **a rich text field's value is
+is not being typed — committed in all four windows when a tab, a press elsewhere or Enter in a
+single-line field takes a person out of it, with a value the commit refuses put back and a character
+the keystroke refuses left out, each said in the window's own way (ADR 1592) — while every other script is reported as one this tier does not run and no
+ECMAScript is parsed (ADR 1579) — RFC 0008's Tier 1 engine, `pdf-script`, exists behind a feature
+no build turns on and is handed scripts by no window (ADRs 1590, 1591); **a rich text field's value is
 drawn as characters**, because Table 228's `/RV` and Table 231 bit 26 are ISO 32000-2's own rich
 text string and not the XFA template architecture `CLAUDE.md` excludes, so the text is laid out and
 only the *formatting* is reported (ADR 1197); **a file-select control takes a
@@ -304,12 +307,14 @@ what goes in it (ADR 0613), drawn in all three as opaque paper with an edge (ADR
 text**, and the two dates kept apart, because Table 172 states when an annotation was made and
 Table 166 when it was last changed (ADR 1224); a **cursor changes over §12.5.6.5's activation region** in all three,
 which no clause states and which is therefore recorded as this program's convention; a person can
-**measure a drawing** — §12.9's viewports, traced by pointer in all three windows on the key `m`
+**measure a drawing** — §12.9's viewports, traced by pointer in all four windows on the key `m`
 and over the C ABI's `quorra_measure`, with the arithmetic and
 §12.9.2's five formatting steps the document's, so a length, an area, an angle and a slope come back
 in the units and the labels the producer chose rather than in any this program invented; a geospatial
-viewport says which system the map is in and states outright that §12.10 defines no position between
-its registration points (ADR 1191), and `pdf_model::geospatial` carries a projected position back to a
+viewport says which system the map is in and where the point put down is, to six decimal places of a
+degree with its hemispheres — read through the affine map its registration points determine, with
+how far they depart from it, which is a choice because §12.10 defines no function between them
+(ADRs 1191, 1593) — and `pdf_model::geospatial` carries a projected position back to a
 latitude by the inverse of each method the census found, refusing by name the projected maps whose
 registration points are already degrees (ADRs 1586, 1587, `doc/questions/Q271`); a person can **add an annotation** — §12.5.6.10's four markups over what is
 selected (ADR 0196), and §12.5.6.6's free text drawn as a rectangle and typed into, which is the
@@ -580,7 +585,9 @@ by the project owner and written into `CLAUDE.md`'s startup rules. GPU bring-up 
 makes what it costs a number to keep rather than a cost to hide — and it is brought up on the
 platform's primary backends, GL loaded only where they have no hardware adapter (ADR 1532), and
 without `wgpu`'s validation of indirect calls, whose two compute pipelines `request_device` would
-otherwise compile for a call raster never makes (ADR 1569), while
+otherwise compile for a call raster never makes (ADR 1569) — the software Vulkan driver, where a
+machine has one installed, costs about 3.5 ms of the adapter check, which only a launcher can leave
+out (ADR 1585, `doc/questions/Q270`) — while
 page one is interpreted on the document's thread beside it (`Viewer::anticipate`, ADR 1531), so
 the first resize goes straight to the render. Nothing on the device's thread waits for warmth:
 the warm-up's state has a lock of its own rather than the pipeline store's compile lock, so a

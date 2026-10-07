@@ -17,10 +17,12 @@
 //! `Post::glyph_name` does exactly that on every call. A caller asking for every glyph's name, or
 //! searching every glyph for one name, therefore pays the square of the glyph count. A fuzzed
 //! document with a 5125-glyph table cost 14.3 G instructions per page that way (ADR 1584). Here
-//! the strings are stepped over once, the index is resolved once into one name per glyph, and the
-//! inverse is one map built from that, each the first time something asks for it.
+//! the strings are stepped over once and the index is resolved once into one name per glyph, the
+//! first time something asks. A name is then found by a search over that, and once a face has been
+//! asked more names than [`SEARCHES_BEFORE_MAP`] the inverse is built as one map (ADRs 1584 and
+//! 1596).
 
-use std::cell::OnceCell;
+use std::cell::{Cell, OnceCell};
 use std::collections::HashMap;
 
 use skrifa::FontRef;
@@ -44,7 +46,17 @@ pub(crate) struct PostNames<'a> {
     /// about 890 instructions a name to build against about 280 for this, which on a subset of two
     /// thousand glyphs asked a few names is more than the search it replaces (ADR 1584).
     by_name: OnceCell<HashMap<&'a str, u16>>,
+    /// How many names have been asked for while `by_name` was still unbuilt.
+    asked: Cell<u32>,
 }
+
+/// How many names are found by a search over [`PostNames::by_glyph`] before the map is built.
+///
+/// A search costs a few instructions a glyph and the map about 570 a glyph (callgrind, `S2.pdf`'s
+/// two 2194-glyph subsets), so a face asked a few names is answered for less without it, and a
+/// face asked many pays at most this many searches on top of the map. §9.6.5.4 asks once per
+/// code, so a simple font asks at most 256. ADR 1596.
+const SEARCHES_BEFORE_MAP: u32 = 64;
 
 impl<'a> PostNames<'a> {
     /// Takes the face's `post` table, reading only its header.
@@ -53,6 +65,7 @@ impl<'a> PostNames<'a> {
             post: font.post().ok(),
             by_glyph: OnceCell::new(),
             by_name: OnceCell::new(),
+            asked: Cell::new(0),
         }
     }
 
@@ -66,6 +79,14 @@ impl<'a> PostNames<'a> {
     /// Where two glyphs carry the same name the lower one is answered, which is the order the
     /// table lists them in and what a search from glyph zero would find.
     pub(crate) fn glyph(&self, name: &str) -> Option<u16> {
+        if self.by_name.get().is_none() && self.asked.get() < SEARCHES_BEFORE_MAP {
+            self.asked.set(self.asked.get().saturating_add(1));
+            let position = self
+                .by_glyph()
+                .iter()
+                .position(|slot| *slot == Some(name))?;
+            return u16::try_from(position).ok();
+        }
         self.by_name
             .get_or_init(|| {
                 let by_glyph = self.by_glyph();

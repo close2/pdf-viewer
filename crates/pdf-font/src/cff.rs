@@ -34,8 +34,13 @@ use std::collections::BTreeMap;
 use skrifa::GlyphId;
 use skrifa::outline::OutlinePen;
 use skrifa::raw::ps::cff::CffFontRef;
+use skrifa::raw::ps::cff::charset::CharsetKind;
 
 use crate::name_keyed::NameKeyed;
+
+/// How many string identifiers the CFF specification predefines, 0 to 390 — every identifier a
+/// predefined encoding can name (Technical Note 5176, Appendix A, cited and not quoted).
+const STANDARD_STRINGS: usize = 391;
 
 /// Why a bare CFF font program could not be used.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -107,10 +112,18 @@ impl CodeToGlyph {
         }
 
         let mut by_glyph = BTreeMap::new();
+        // The charset inverted once, for the predefined encodings below: `read-fonts`'
+        // `Charset::glyph_id` walks a custom charset from its start on every call, which is the
+        // glyph count once per code (ADR 1596). A predefined encoding names only standard
+        // strings, so only their identifiers are kept, the lowest glyph for each.
+        let mut by_sid = [None; STANDARD_STRINGS];
         for (glyph, sid) in charset.iter() {
             let Ok(glyph) = u16::try_from(glyph.to_u32()) else {
                 continue;
             };
+            if let Some(slot @ None) = by_sid.get_mut(usize::from(sid.to_u16())) {
+                *slot = Some(glyph);
+            }
             let Some(name) = font.string(sid) else {
                 continue;
             };
@@ -122,13 +135,22 @@ impl CodeToGlyph {
 
         let mut builtin = Box::new([None; 256]);
         if let Some(encoding) = font.encoding() {
+            // Only a custom charset is walked; a predefined one is a static table `read-fonts`
+            // answers directly, and is left to answer.
+            let custom = matches!(charset.kind(), CharsetKind::Custom(_));
+            let predefined = encoding.predefined().filter(|_| custom);
             for (code, slot) in builtin.iter_mut().enumerate() {
                 let Ok(code) = u8::try_from(code) else {
                     continue;
                 };
-                *slot = encoding
-                    .map(code)
-                    .and_then(|glyph| u16::try_from(glyph.to_u32()).ok());
+                *slot = match predefined {
+                    Some(predefined) => predefined
+                        .sid(code)
+                        .and_then(|sid| by_sid.get(usize::from(sid.to_u16())).copied().flatten()),
+                    None => encoding
+                        .map(code)
+                        .and_then(|glyph| u16::try_from(glyph.to_u32()).ok()),
+                };
             }
         }
 

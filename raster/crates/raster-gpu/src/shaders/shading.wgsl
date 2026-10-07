@@ -48,7 +48,13 @@ struct Params {
     mask_outside: vec4f,
 }
 
-@group(0) @binding(0) var<uniform> params: Params;
+// A window of the pass's quads, one `Params` each at its 176-byte stride (ADR 1594): a run of
+// quads under one paint, mask and pipeline is one instanced draw, and each instance reads its own
+// numbers at its instance index. The length is `device/rare.rs`'s `SHADING_QUADS_PER_WINDOW`.
+@group(0) @binding(0) var<uniform> quads: array<Params, 93>;
+// This invocation's quad, read from the window once at the top of each entry point, so every
+// function below reads the numbers it read when each quad had a binding of its own.
+var<private> params: Params;
 // The ramp (RAMP_RESOLUTION x RAMP_ROWS: colours, bounds, layout) for axial/radial, or
 // the mesh raster.
 @group(0) @binding(1) var paint_tex: texture_2d<f32>;
@@ -76,10 +82,16 @@ fn soft_mask_at(p: vec2f) -> f32 {
 
 struct VsOut {
     @builtin(position) position: vec4f,
+    // Which of the window's quads this fragment shades; one value over the whole quad.
+    @location(0) @interpolate(flat) quad: u32,
 }
 
 @vertex
-fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VsOut {
+fn vs_main(
+    @builtin(vertex_index) vertex_index: u32,
+    @builtin(instance_index) instance: u32,
+) -> VsOut {
+    params = quads[instance];
     let corner = vec2f(f32(vertex_index & 1u), f32(vertex_index >> 1u));
     let pos = mix(params.dest.xy, params.dest.zw, corner);
     var out: VsOut;
@@ -89,6 +101,7 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VsOut {
         0.0,
         1.0,
     );
+    out.quad = instance;
     return out;
 }
 
@@ -255,6 +268,7 @@ fn ramp_texel(t: f32) -> i32 {
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4f {
+    params = quads[in.quad];
     let p = floor(in.position.xy) + params.origin;
     let straight = paint_at(p);
     if straight.a < 0.0 {
@@ -270,6 +284,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4f {
 // counts as shape.
 @fragment
 fn fs_shape(in: VsOut) -> @location(0) vec4f {
+    params = quads[in.quad];
     let p = floor(in.position.xy) + params.origin;
     let straight = paint_at(p);
     if straight.a < 0.0 {

@@ -1,39 +1,26 @@
 # A transfer function that changes what a screen shows
 
-Status: **found in the three-hundred-and-fifty-seventh session and implemented in the
-three-hundred-and-fifty-eighth**, after the project owner amended `CLAUDE.md`'s scope line on the
-evidence below. §10.5's ledger row was `silent` for one round — the first since the thirty-fifth
-session — and is `implemented` now. Kept because the *argument* is what took the round, and because
-`doc/todo/01`'s sweeps look here.
-**And re-opened in the six-hundred-and-thirty-second**, which found §11.7.5.2 `inapplicable` on an
-argument about the clause that the clause does not make. **The six-hundred-and-thirty-seventh
-closed the `silent` half**: the report is built and that row is `reported`, and the reading it took
-found a *second* gap one clause up — a shading's colours never passed through §10.5's map at all.
-**The six-hundred-and-fiftieth closed that one** (ADR 0479): the function is applied where a
-shading's colours are *made*, so it reaches an axial or radial ramp's samples, a parametric mesh's
-ramp, a mesh's corners and a function-based shading's grid. Two things are still owed and both are
-below — the per-region model, and the pattern whose colours were resolved a graphics state before
-the mark.
-**The six-hundred-and-fifty-fifth read the three clauses that were said to meet at the `scn`** and
-found they name three different moments (ADR 0483): two of them are implemented and the third is
-what the last section then owed. Its price was smaller than this file used to say and its shape was
-different, which is the whole of that session's contribution here.
-**The six-hundred-and-sixtieth built it** (ADR 0487): a shading pattern's colours are rebuilt at the
-mark and §11.6.7's three parameters are kept off the live state by a signature that cannot reach it.
-**The six-hundred-and-seventy-seventh closed the clause's *second bullet*** (ADR 0505), which that
-round's own ledger row had named as the last thing keeping it `partial`: a halftone dictionary's
+Status: **implemented**, after the project owner amended `CLAUDE.md`'s scope line on the evidence
+below; §10.5's ledger row is `implemented`. Kept because the *argument* is what decided the scope,
+and because `doc/todo/01`'s sweeps look here.
+§11.7.5.2 is not `inapplicable`: the argument that made it so is one the clause does not make, and
+its report was built first. **A shading's colours pass through §10.5's map** (ADR 0479): the
+function is applied where a shading's colours are *made*, so it reaches an axial or radial ramp's
+samples, a parametric mesh's ramp, a mesh's corners and a function-based shading's grid.
+**The three clauses said to meet at the `scn` name three different moments** (ADR 0483), and all
+three are implemented: a shading pattern's colours are rebuilt at the mark and §11.6.7's three
+parameters are kept off the live state by a signature that cannot reach it (ADR 0487).
+**The clause's *second bullet* is executed** (ADR 0505): a halftone dictionary's
 `TransferFunction` overrides the graphics state's, Table 57's `/HT` is read for that one entry, and
-§10.5 is `implemented`. The thing that had to be got right there is that **§10.6 being inapplicable
-does not make a halftone *dictionary* inapplicable** — §10.1 lists the two steps with only the
-halftone conditional on the device, and §10.6.1 says a device needing no screen still applies the
-transfer function — so the seven §10.6.5 rows are `implemented` rather than
-`inapplicable` now: the one entry executed, and the screen ignored under the permission §10.6.5.1
-itself states.
-**The seven-hundred-and-sixth found that half of §11.7.5.2's per-region model needs no region**
-(ADR 0570): a mark the clause does not call fully opaque is never the object whose function it
-chooses, anywhere, so it is handed the page's default — which is a per-object rule, and the
-"rasteriser change" this file priced was a price for two things at once. That half is implemented
-and the overlap below is closed too — the channel carries every mark's function to the backends,
+§10.5 is `implemented`. The thing to get right there is that **§10.6 being inapplicable does not
+make a halftone *dictionary* inapplicable** — §10.1 lists the two steps with only the halftone
+conditional on the device, and §10.6.1 says a device needing no screen still applies the transfer
+function — so the seven §10.6.5 rows are `implemented` rather than `inapplicable`: the one entry
+executed, and the screen ignored under the permission §10.6.5.1 itself states.
+**Half of §11.7.5.2's per-region model needs no region** (ADR 0570): a mark the clause does not
+call fully opaque is never the object whose function it chooses, anywhere, so it is handed the
+page's default — a per-object rule, so the "rasteriser change" was a price for two things at once.
+That half is implemented and the overlap below is closed too — the channel carries every mark's function to the backends,
 which map the finished pixel once. **Nothing is owed here now**: both paints ride the channel (ADR
 1266), every mark states §11.6.4.2's shape to it — a stencil under a soft mask of its own included —
 and §11.7.5.2's overprinting paragraph is read (ADR 1279), so §10.5 and §11.7.5.2 are both
@@ -42,8 +29,7 @@ Cited by: `CLAUDE.md`'s clause 10 entry; comments in `crates/pdf-model`, `crates
 Priority: 13 — done; kept as the reading `CLAUDE.md` cites
 Corpus: `cargo run --release -p pdf-model --example transfer_function_census --
 doc/pdf.js/test/pdfs/*.pdf` counts how many state a `/TR` or `/TR2`, how many state a real one, how
-many paint a shading on a page that states one, and — since the six-hundred-and-seventy-seventh —
-how many state an `/HT` and how many carry a halftone dictionary with a `TransferFunction`. **That
+many paint a shading on a page that states one, and how many state an `/HT` and how many carry a halftone dictionary with a `TransferFunction`. **That
 last pair is counted by two instruments and they disagree**: a resource walk sees an `/ExtGState` a
 page or a form reaches, and a scan over every object the cross-reference table names sees the ones a
 pattern or an annotation appearance reaches. Where they differ the walk is wrong, which is the false
@@ -208,19 +194,14 @@ sessions before §10.4.2.5 turned out to answer it outright.
   are additive, which is stated, so an RGB device needs the first three of the four.
 - **Images**: the same map per sample, which is where the cost is — `Conversion`'s per-image memo
   is the place it belongs, since a transfer is a pure function of a colour.
-- **What it does not need**: a halftone screen or a marking device. **This bullet also said it did
-  not need "§11.7.5.2's per-region tracking, which stays inapplicable until a *second* transfer
-  function competes with a first inside a transparency group", and that is wrong about the
-  clause** — see the section below, which is the debt this file now carries. **And it said "a
-  halftone", which was wrong about the other clause**: §10.5's second bullet reads a
-  `TransferFunction` out of a halftone *dictionary*, and a dictionary is not a screen. ADR 0505 has
-  that reading; what it needs is Table 57's `/HT`, and it is one entry of one dictionary.
-- **What it turned out to miss, found in the six-hundred-and-thirty-seventh session and
-  implemented in the six-hundred-and-fiftieth**: a **shading**. §10.5's subject is the component
-  value — "[t]he output shall be the transformed component value to be transmitted to the device"
-  — and a shading's are values. **The price 637 wrote here was wrong, and the reason is worth
-  keeping.** It said `Shading::with_alpha`'s walk done again with a closure, in `pdf-render`. That
-  walk maps a *finished* ramp, and a finished ramp has been through ADR 0068's simplifier: a
+- **What it does not need**: a halftone screen or a marking device. It does need §11.7.5.2's
+  per-region choice — see the section below — and it reads a `TransferFunction` out of a halftone
+  *dictionary* by §10.5's second bullet, because a dictionary is not a screen. ADR 0505 has that
+  reading; what it needs is Table 57's `/HT`, and it is one entry of one dictionary.
+- **A shading is in its reach**: §10.5's subject is the component value — "[t]he output shall be
+  the transformed component value to be transmitted to the device" — and a shading's are values.
+  **It is not `Shading::with_alpha`'s walk done again with a closure in `pdf-render`, and the
+  reason is worth keeping.** That walk maps a *finished* ramp, and a finished ramp has been through ADR 0068's simplifier: a
   `/FunctionType 2` interpolation with `/N 1`, which is most of the shadings in the world, reaches
   the display list as **two stops**. Mapping two stops and letting a rasteriser interpolate draws
   the chord between the transferred ends where the clause asks for the transfer's own curve — for
@@ -230,13 +211,11 @@ sessions before §10.4.2.5 turned out to answer it outright.
   measures what will be drawn. It is a `pdf-model` change and `pdf-render` needed no line of it.
   Two things fall out and are in the code with their reasons: a shading built under a transfer is
   not cached, and a type 1 shading's device program is withdrawn.
-- **Measured in the three-hundred-and-fifty-eighth session, by the census this bullet asked for**:
-  `examples/transfer_function_census` over the corpus. Run it rather than reading a number here.
+- **Measured by the census this bullet asks for**: `examples/transfer_function_census` over the corpus. Run it rather than reading a number here.
 
 ## §11.7.5.2's *last* shape, which really did need a point
 
-**Found in the six-hundred-and-thirty-second session, reading the ledger's unread rows.** §11.7.5.2
-was `inapplicable` on an argument the clause does not make. Its rule is not about two functions
+§11.7.5.2 is not `inapplicable`: the argument that made it so is one the clause does not make. Its rule is not about two functions
 competing; it is about *opacity*:
 
 > The halftone and transfer function to be used at any given point on the page shall be those in
@@ -255,7 +234,7 @@ pattern's cell — decide which marks the first sentence hands a function to.
 
 **Three pieces of work, in this order, and all three are done.**
 
-1. **The report — built in the six-hundred-and-thirty-seventh.** `Unsupported::TransferFunction`,
+1. **The report.** `Unsupported::TransferFunction`,
    on a condition derived from the clause rather than approximated from the code. The *ancestry*
    was the trap and it is carried rather than read: §11.6.6 resets the blend mode, both alpha
    constants and the soft mask before a group's content runs, and §11.6.7 starts a tiling cell from
@@ -263,9 +242,8 @@ pattern's cell — decide which marks the first sentence hands a function to.
    for the nested case. `Interpreter::opaque_ancestry` is narrowed in `group_commands` and in
    `tile`.
 
-2. **Half the region model, which needed no region — built in the seven-hundred-and-sixth**
-   (ADR 0570). **This section used to say the whole thing was a rasteriser change and that was
-   wrong about half of it**, which is the correction worth more than the code. The clause chooses
+2. **Half the region model, which needs no region** (ADR 0570). **Only half of it is a rasteriser
+   change**, which is the reading worth more than the code. The clause chooses
    the function at a point between exactly two candidates: the topmost enclosing object's, where
    that object is fully opaque, and the page's default. Take an object *O* the clause does not call
    fully opaque, and any point *O* encloses. Either *O* is topmost there, and the first sentence
@@ -318,15 +296,14 @@ pattern's cell — decide which marks the first sentence hands a function to.
    approaches conditional on "an output device that requires halftoned output", so it licenses
    nothing here — but the fringe it names is the artefact this construction has to get right.
 
-   **The design question is settled — ADR 1125, the one-thousand-one-hundred-and-eighteenth
-   session.** The edge pixel is inside the object by the clause's own "nonzero object shape value",
+   **The design question is settled — ADR 1125.** The edge pixel is inside the object by the clause's own "nonzero object shape value",
    so it takes that object's function on the composited colour, applied where §11.7.5.3's NOTE puts
    it — "only when all colour compositing has been completed". `render-cpu/tests/transfer_edge.rs`
    is the CPU half of the fixture that stands in for the missing corpus witness — it measures the
    edge gap at half a unit under an inverting transfer, the interior where the two orderings agree,
    and a no-transfer control.
 
-   **Built in the one-thousand-one-hundred-and-forty-eighth session** (ADR 1125's last section).
+   **Built** (ADR 1125's last section).
    The carrier is not a field on the mark — that is the 272 sites — and not a side-table keyed by
    position, which cannot reach a mark inside a group. It is a **parallel channel on the
    `DisplayList`**, beside the companion list §11.4.7's four-component page already carries:
@@ -369,8 +346,7 @@ pattern's cell — decide which marks the first sentence hands a function to.
    pattern cell also satisfy the foregoing conditions" is a condition on the object *painted with*
    the pattern, so that object is the elementary one, its function is the one in force at the
    painting operation, and the cell's objects decide only whether it is withheld — which makes a
-   `/TR` in a cell's own `/ExtGState` decide nothing, as §11.6.7's row has said since the
-   six-hundred-and-fifty-fifth session and the code did not. `Interpreter::record_tiling` puts the
+   `/TR` in a cell's own `/ExtGState` decide nothing, as §11.6.7's row says. `Interpreter::record_tiling` puts the
    mark's function on every tile of the finished tiling as one run.
 
    **The last shape is stated too, and the report is gone** (ADR 1279). `SampleAlpha::Both`, a
@@ -384,8 +360,7 @@ pattern's cell — decide which marks the first sentence hands a function to.
    special mode keeps a backdrop component is opaque for none of this device's three components and
    takes the page's default.
 
-   **The build's pricing was corrected in the one-thousand-one-hundred-and-thirty-seventh session,
-   and the "matching pass in all three backends" above is where it was wrong.** `render-raster` is
+   **The build is not a "matching pass in all three backends".** `render-raster` is
    the `raster-gpu` **wgpu compute** backend, not a `tiny-skia` one — only `render-cpu` uses
    `tiny-skia` — and `QuorraRasterizer::rasterize` returns the composited pixels to the CPU and
    already runs `resolve_grey`, `crop_to_page` and `impose_within` over that read-back. The index
@@ -410,7 +385,7 @@ draws its one image fully opaque. A round that changes any of it therefore has n
 owes a fixture (trap 8) — `tests/transfer_functions.rs` is where the existing ones are, each with its
 mutation.
 
-## Closed in the six-hundred-and-sixtieth: the pattern whose colours were resolved before the mark
+## Closed: the pattern whose colours were resolved before the mark
 
 **Kept as a heading rather than deleted with the section**, because two other rows and an ADR point
 here and because the *shape* of the answer is what the next reader wants. The argument in full is

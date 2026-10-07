@@ -2245,6 +2245,31 @@ void MainWindow::arrangeTheCollection()
     }
 }
 
+void MainWindow::commitsWhenFinished(QLineEdit* entry, std::size_t index)
+{
+    // `editingFinished` is Enter or the keyboard leaving the control: ISO 32000-2 Table 231 bit 13
+    // keeps a single-line field's text to one line, so Enter is the commit rather than a
+    // character, and the keyboard leaving is Table 197's /Bl for a focus Qt moved. Qt emits it
+    // while this window is busy whenever a tab hands the keyboard to the next control, so the
+    // commit then waits for the event loop rather than being lost.
+    connect(entry, &QLineEdit::editingFinished, this, [this, index] {
+        if (busy_) {
+            QTimer::singleShot(0, this, [this, index] {
+                if (busy_) {
+                    return;
+                }
+                Busy guard(busy_);
+                host_->commit_control(index);
+                applyUpdates();
+            });
+            return;
+        }
+        Busy guard(busy_);
+        host_->commit_control(index);
+        applyUpdates();
+    });
+}
+
 void MainWindow::rebuildControls()
 {
     for (QWidget* control : controls_) {
@@ -2275,6 +2300,7 @@ void MainWindow::rebuildControls()
                 host_->set_control(index, rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
                 applyUpdates();
             });
+            commitsWhenFinished(entry, index);
             // ISO 32000-2 12.7.5.3, Table 231 bit 21: the text "represents the pathname of a
             // file whose contents shall be submitted as the value of the field". So the control
             // stays an entry holding a path, and this only fills it in — the edit is the one a
@@ -2335,6 +2361,7 @@ void MainWindow::rebuildControls()
                 host_->set_control(index, rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
                 applyUpdates();
             });
+            commitsWhenFinished(entry, index);
             widget = entry;
             break;
         }

@@ -272,7 +272,7 @@ if [ -n "$self_test" ]; then
     # 4. A child that holds 1.5 GiB resident under a ceiling of 1 GiB is killed by the ceiling —
     #    exit 137 and the line that names it — and not by the data limit, which is above it.
     if command -v python3 > /dev/null; then
-        "$self" --tree 1 --data 3 --nice 0 -- python3 -c 'import time; b = b"x" * (1536 << 20); time.sleep(20)' \
+        "$self" --tree 1 --data 3 --nice 0 -- env PYTHONDONTWRITEBYTECODE=1 python3 -c 'import time; b = b"x" * (1536 << 20); time.sleep(20)' \
             > "$scratch/ceiling.out" 2> "$scratch/ceiling.err"
         status=$?
         [ "$status" -eq 137 ] || fail "ceiling: exit $status, wanted 137: $(tail -n 1 "$scratch/ceiling.err")"

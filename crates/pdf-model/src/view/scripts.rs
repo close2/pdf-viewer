@@ -19,10 +19,18 @@
 //! the value of any field changes", and the one that keeps a total following its lines while they
 //! are typed; a calculation is a function of other fields' values, so running it early shows a
 //! total the commit would show anyway.
+//!
+//! **A script that is not one call goes to a runner where a host has supplied one** — RFC 0008
+//! section 6.3's policy hook, one place a host supplies ([`ViewState::run_scripts_with`]) and absent
+//! by default, which is the level `off` (ADR 1591). The runner is handed data, a [`FieldEvent`], and
+//! answers data, a [`FieldResult`], so that what runs it can sit across a process boundary; this
+//! crate constructs no engine and names none. `/K` and `/F` are handed over; `/V` and `/C` stay
+//! reported as scripts this tier does not run.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
-use pdf_syntax::{Document, Object, ObjectId};
+use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
 use super::{Entry, ViewState};
 use crate::aform::site::{self, Site};
@@ -37,6 +45,94 @@ const MAX_CALCULATIONS: usize = 4096;
 
 /// Most distinct sentences [`ViewState::script_reports`] keeps.
 const MAX_REPORTS: usize = 256;
+
+/// Longest script text, in bytes, handed to a runner.
+///
+/// Table 221's `/JS` is the document's, so its length is too. A field script is a few hundred bytes
+/// and the longest the census population carries is under a hundred kilobytes; a megabyte is not a
+/// field script, and decoding one per keystroke is work this bound refuses.
+const MAX_SCRIPT_BYTES: usize = 1 << 20;
+
+/// One field event Tier 0 does not run, as a [`ScriptRunner`] receives it.
+///
+/// Table 199's `/K` and `/F` with what Adobe's "event properties" hand a field script —
+/// `event.value`, `event.change`, `event.selStart`, `event.selEnd`, `event.willCommit` — and the
+/// script's own text. Data rather than a callback, so that it crosses RFC 0008 section 6.2's process
+/// boundary as it stands (ADR 1591).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FieldEvent<'a> {
+    /// Which of Table 199's triggers fired.
+    pub trigger: Trigger,
+    /// §12.7.4.2's fully qualified name of the field.
+    pub field: &'a str,
+    /// Table 221's `/JS`, as text.
+    pub script: &'a str,
+    /// The field's text before the event.
+    pub value: &'a str,
+    /// What a keystroke inserts, replacing the selection: empty at a commit and at `/F`.
+    pub change: &'a str,
+    /// The selection the change replaces, as byte offsets into `value`.
+    pub selection: (usize, usize),
+    /// Whether this is the commit rather than a character.
+    pub will_commit: bool,
+}
+
+/// What a [`ScriptRunner`] made of a [`FieldEvent`].
+///
+/// A run that did not finish — a budget exceeded, a throw, a refused call left uncaught — changes
+/// nothing: `rc` true, no value, no change, and the sentence saying why in `report` (ADR 1591).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldResult {
+    /// Adobe's `event.rc`: false refuses the keystroke, or the commit.
+    pub rc: bool,
+    /// `event.value` where the script changed it: at `/F` the text displayed, at a commit the value
+    /// that stands.
+    pub value: Option<String>,
+    /// `event.change` where a keystroke's script changed it.
+    pub change: Option<String>,
+    /// Every sentence the run owes a report: each call refused by name, each budget exceeded, each
+    /// throw, each line the script logged.
+    pub report: Vec<String>,
+}
+
+/// What runs the field scripts Tier 0 does not: RFC 0008 section 6.3's policy hook.
+///
+/// A host supplies one through [`ViewState::run_scripts_with`], and only where the reader's level
+/// lets scripts run — so the four levels attach to this one place rather than to each trigger:
+/// `off` supplies nothing, `on` and `warn` supply a runner, and `ask` supplies one that asks once
+/// before its first run and remembers the answer. A view state with nothing supplied reports every
+/// such script as one this tier does not run, which is the default (ADR 1591).
+pub trait ScriptRunner: std::fmt::Debug + Send + Sync {
+    /// Runs one event's script and says what it did.
+    fn run(&self, event: &FieldEvent<'_>) -> FieldResult;
+}
+
+/// The runner a [`ViewState`] holds, or none.
+///
+/// Compared by identity: two view states hold the same runner only where they hold the same one.
+#[derive(Debug, Clone, Default)]
+pub(super) struct Runner(Option<Arc<dyn ScriptRunner>>);
+
+impl PartialEq for Runner {
+    fn eq(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (None, None) => true,
+            (Some(mine), Some(theirs)) => Arc::ptr_eq(mine, theirs),
+            _ => false,
+        }
+    }
+}
+
+/// What Table 199's `/K`, in its typing form, made of a whole value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Verdict {
+    /// The characters stand as typed.
+    Stands,
+    /// A script rejected the keystroke.
+    Rejected,
+    /// A script rewrote `event.change`, and what it wrote is what the field takes.
+    Rewritten(String),
+}
 
 /// What one widget showed before a person began typing into its field.
 ///
@@ -126,7 +222,35 @@ impl ViewState {
                     )),
                 }
             }
-            Site::NotRun(sentence) => self.report(format!("{name}: {sentence}")),
+            Site::NotRun(sentence) => {
+                let at = text.len();
+                let event = FieldEvent {
+                    trigger: Trigger::Keystroke,
+                    field: name,
+                    script: "",
+                    value: &text,
+                    change: "",
+                    selection: (at, at),
+                    will_commit: true,
+                };
+                match self.run_supplied(document, &widget, event) {
+                    None => self.report(format!("{name}: {sentence}")),
+                    Some(result) => {
+                        self.report_each(name, result.report);
+                        if !result.rc {
+                            self.revert(before);
+                            self.recalculate(document, &table);
+                            return Committed::Refused(format!(
+                                "{name}: the field's keystroke script refused the value"
+                            ));
+                        }
+                        if let Some(rewritten) = result.value {
+                            self.write_text(&widgets, &rewritten);
+                            text = rewritten;
+                        }
+                    }
+                }
+            }
             Site::Absent => {}
         }
 
@@ -149,6 +273,15 @@ impl ViewState {
 
         self.recalculate(document, &table);
         Committed::Accepted
+    }
+
+    /// Hands every field script Tier 0 does not run at `/K` and `/F` to `runner`, or, with `None`,
+    /// to nothing — RFC 0008 section 6.3's level `off`, which is where every view state starts.
+    ///
+    /// The one place a host's level for scripts reaches this crate (ADR 1591): what the runner may
+    /// reach, and whether it asks first, is the host's and the runner's, never decided here.
+    pub fn run_scripts_with(&mut self, runner: Option<Arc<dyn ScriptRunner>>) {
+        self.runner = Runner(runner);
     }
 
     /// What Tier 0's dispatch did not run, each sentence once, in the order it was met.
@@ -184,9 +317,49 @@ impl ViewState {
                 Site::Library(call) => call
                     .format(&shown.text)
                     .map_or(shown.text, |formatted| formatted.text),
-                Site::Absent | Site::NotRun(_) => shown.text,
+                // A runner's sentences are not kept from here — this answers a question and
+                // records nothing — and the runner keeps its own log of every run (ADR 1591).
+                Site::NotRun(_) => {
+                    let at = shown.text.len();
+                    let event = FieldEvent {
+                        trigger: Trigger::Format,
+                        field: name,
+                        script: "",
+                        value: &shown.text,
+                        change: "",
+                        selection: (at, at),
+                        will_commit: false,
+                    };
+                    self.run_supplied(document, dictionary, event)
+                        .and_then(|result| result.value)
+                        .unwrap_or(shown.text)
+                }
+                Site::Absent => shown.text,
             },
         )
+    }
+
+    /// Hands `event` to the supplied runner with the field's script, where there is a runner and
+    /// the trigger's action is one ECMAScript action whose text can be read.
+    fn run_supplied(
+        &self,
+        document: &Document,
+        widget: &Dictionary,
+        event: FieldEvent<'_>,
+    ) -> Option<FieldResult> {
+        let runner = self.runner.0.as_ref()?;
+        let script = supplied_script(document, widget, event.trigger)?;
+        Some(runner.run(&FieldEvent {
+            script: &script,
+            ..event
+        }))
+    }
+
+    /// Records each of a runner's sentences against the field it ran for.
+    fn report_each(&mut self, name: &str, sentences: Vec<String>) {
+        for sentence in sentences {
+            self.report(format!("{name}: {sentence}"));
+        }
     }
 
     /// Whether this widget's field is being typed into and has not been committed.
@@ -196,28 +369,51 @@ impl ViewState {
             .any(|widgets| widgets.iter().any(|(widget, _)| *widget == annotation))
     }
 
-    /// Whether Table 199's `/K`, in its typing form, lets the characters stand.
+    /// What Table 199's `/K`, in its typing form, makes of the characters.
     ///
     /// The host hands a whole value, so the keystroke is that value replacing the whole of the
-    /// field's text — what `AFMergeChange` then reassembles is the value itself.
-    pub(super) fn keystroke_stands(
+    /// field's text — what `AFMergeChange` then reassembles is the value itself, and a runner's
+    /// rewritten `event.change` is the whole value the field takes.
+    pub(super) fn keystroke_verdict(
         &mut self,
         document: &Document,
         taking: &[ObjectId],
         text: &str,
-    ) -> bool {
+    ) -> Verdict {
         let Some(first) = taking.first().copied() else {
-            return true;
+            return Verdict::Stands;
         };
         let Some(widget) = document.get(first).as_dict().cloned() else {
-            return true;
+            return Verdict::Stands;
         };
         match site::of_widget(document, &widget, Trigger::Keystroke) {
-            Site::Absent => true,
+            Site::Absent => Verdict::Stands,
             Site::NotRun(sentence) => {
                 let name = super::field_name_of(document, first);
-                self.report(format!("{name}: {sentence}"));
-                true
+                let current = self.text_of(document, first).unwrap_or_default();
+                let event = FieldEvent {
+                    trigger: Trigger::Keystroke,
+                    field: &name,
+                    script: "",
+                    value: &current,
+                    change: text,
+                    selection: (0, current.len()),
+                    will_commit: false,
+                };
+                match self.run_supplied(document, &widget, event) {
+                    None => {
+                        self.report(format!("{name}: {sentence}"));
+                        Verdict::Stands
+                    }
+                    Some(result) => {
+                        self.report_each(&name, result.report);
+                        match (result.rc, result.change) {
+                            (false, _) => Verdict::Rejected,
+                            (true, Some(change)) => Verdict::Rewritten(change),
+                            (true, None) => Verdict::Stands,
+                        }
+                    }
+                }
             }
             Site::Library(call) => {
                 let current = self.text_of(document, first).unwrap_or_default();
@@ -228,15 +424,15 @@ impl ViewState {
                     will_commit: false,
                 };
                 match call.keystroke(&event) {
-                    Ok(Keyed::Accepted { .. }) => true,
-                    Ok(Keyed::Rejected { .. }) => false,
+                    Ok(Keyed::Accepted { .. }) => Verdict::Stands,
+                    Ok(Keyed::Rejected { .. }) => Verdict::Rejected,
                     Err(refusal) => {
                         let name = super::field_name_of(document, first);
                         self.report(format!(
                             "{name}: the field's keystroke script {} did not run: {refusal}",
                             call.function.name()
                         ));
-                        true
+                        Verdict::Stands
                     }
                 }
             }
@@ -430,4 +626,48 @@ fn calculation_order(document: &Document) -> Vec<ObjectId> {
         .filter_map(Object::as_reference)
         .take(MAX_CALCULATIONS)
         .collect()
+}
+
+/// Table 221's `/JS` of the ECMAScript action a field states for `trigger`, as text.
+///
+/// The walk `site::of_widget` makes — the widget, then its `/Parent` chain, nearest first, the
+/// first `/AA` that states the trigger owning it — for the text that walk does not carry. `None`
+/// where the action is not ECMAScript, where Table 196's `/Next` makes the trigger more than this
+/// one action, or where the text cannot be read or is longer than [`MAX_SCRIPT_BYTES`]: each of
+/// those stays reported as Tier 0 reports it.
+fn supplied_script(document: &Document, widget: &Dictionary, trigger: Trigger) -> Option<String> {
+    let mut current = widget.clone();
+    for _ in 0..=crate::appearance::MAX_FIELD_ANCESTRY {
+        let additional = document.get_key(&current, "AA");
+        if let Some(additional) = additional.as_dict()
+            && let Some(entry) = additional.get(trigger.key())
+        {
+            let Object::Dictionary(action) = document.resolve(entry) else {
+                return None;
+            };
+            if !matches!(document.get_key(&action, "S"), Object::Name(ref name) if name.as_bytes() == b"JavaScript")
+            {
+                return None;
+            }
+            let follows = match document.get_key(&action, "Next") {
+                Object::Null => false,
+                Object::Array(items) => !items.is_empty(),
+                _ => true,
+            };
+            if follows {
+                return None;
+            }
+            let bytes = match document.resolve(action.get("JS")?) {
+                Object::String(bytes) => bytes.to_vec(),
+                Object::Stream(stream) => document.decoded_stream_data(&stream)?.to_vec(),
+                _ => return None,
+            };
+            if bytes.len() > MAX_SCRIPT_BYTES {
+                return None;
+            }
+            return Some(pdf_syntax::text_string(&bytes));
+        }
+        current = document.get_key(&current, "Parent").as_dict().cloned()?;
+    }
+    None
 }

@@ -805,8 +805,18 @@ section_gates_cost() {
     for name in $named; do
         grep -qE "^$name +exit=" "$log" || unrun="$unrun $name"
     done
+    for name in $unrun; do
+        printf '  %-24s no line in this log\n' "$name"
+    done
     printf '%s gate(s) in tools/batch.sh gates(), %s with no line in this log%s\n' \
         "$(printf '%s\n' "$named" | grep -c .)" "$(printf '%s' "$unrun" | wc -w)" "${unrun:+:$unrun}"
+    # The summary as the log's first line is the run's own standard output written onto the log at
+    # offset nought, over the first gate's line — `tools/batch.sh gates` now declines to print it
+    # there, and an older log is read for what it is.
+    if head -1 "$log" | grep -q '^ALL GATES DONE'; then
+        printf "the log's first line is the summary: that run's standard output was the log itself, and it\n"
+        printf "overwrote the first gate's line, so its gate ran and its clock is lost, not its verdict\n"
+    fi
 }
 
 # Every gate name `tools/batch.sh`'s `gates()` runs, its two loops expanded, in its order.
@@ -823,10 +833,12 @@ gate_names() {
 # counted, which a list of tracked files cannot see (ADR 1588); then a local edit
 # the fast-forward would refuse over, whether `fuzz/Cargo.lock` agrees with the root lock, which
 # fuzz artefacts the tree has read (it names them) and which it has not, the targets with no seeds
-# there, and every `§` after another standard's name in an
+# there, every `§` after another standard's name in an
 # uncommitted instruction document there, which the main checkout's own `cargo test -p conformance`
-# fails on and no worktree's run can see (ADR 1452). `doc/environment.md`'s *After a merge* is the
-# commands; this is which of them has anything to do (ADR 1440).
+# fails on and no worktree's run can see (ADR 1452), and the build directory and `sccache`'s cache
+# against their rules; and last the owner's list, each thing found to do once, numbered in the order
+# a person does it, with its command or its files (ADR 1601). `doc/environment.md`'s *After a merge*
+# is what each line means; this is which of them has anything to do (ADR 1440).
 section_main_checkout() {
     heading "the main checkout: what a merge does not carry" "tools/main-checkout.py"
     PYTHONDONTWRITEBYTECODE=1 python3 tools/main-checkout.py || status=1
@@ -918,6 +930,11 @@ section_batches() {
 # (`scratchpad/drive-windows/results.tsv`) unless `DRIVE_RESULTS` names another, and otherwise the
 # newest `results.tsv` under `scratchpad/` — a round driving into `scratchpad/r<session>/` is found
 # there. `manual` is the script's word for a step whose photograph a person has to look at (ADR 1487).
+# The fifth column is each verdict's seconds since the one before it, the first step of a window
+# carrying that window's launch, so its sum is the drive's wall-clock from the first launch to the
+# last verdict; it is summed per window and per step group — the step's leading number, which names
+# one thing a reader does whichever window does it — slowest first, and the slowest single steps are
+# named, because the drive's length is what a merge pays and a fixed `sleep` is legible only there.
 section_drive() {
     local file=${DRIVE_RESULTS:-}
     if [ -z "$file" ]; then
@@ -938,6 +955,26 @@ section_drive() {
                      n["works"], n["wrong"], n["not offered"], n["manual"]
               for (v in n) if (v != "works" && v != "wrong" && v != "not offered" && v != "manual")
                   printf "  and %d with the verdict %s, which this section does not know\n", n[v], v }' "$file"
+    awk -F'\t' '
+        NF < 5 || $5 !~ /^[0-9.]+$/ { unstamped++; next }
+        { total += $5; steps++; window[$2] += $5; in_window[$2]++
+          group = $1; sub(/-.*/, "", group); grouped[group] += $5; in_group[group]++
+          if (!(group in named)) { named[group] = $1; sub(/^[0-9]+-/, "", named[group]) }
+          step[$1 "  " $2] += $5 }
+        END {
+            if (unstamped) printf "%d verdict(s) with no time column: a run of tools/drive-windows.sh from before it stamped one\n", unstamped
+            if (!steps) exit
+            printf "time: %.0f s over %d verdict(s), from the first launch to the last verdict\n", total, steps
+            printf "per window:\n"
+            for (w in window) printf "  %8.1f s  %3d verdict(s)  %s\n", window[w], in_window[w], w | "sort -k1,1nr"
+            close("sort -k1,1nr")
+            printf "per step group, every window together (the step number, and its first step):\n"
+            for (g in grouped) printf "  %8.1f s  %3d verdict(s)  %s %s\n", grouped[g], in_group[g], g, named[g] | "sort -k1,1nr"
+            close("sort -k1,1nr")
+            printf "the ten slowest steps:\n"
+            for (k in step) printf "  %8.1f s  %s\n", step[k], k | "sort -k1,1nr | head -10"
+            close("sort -k1,1nr | head -10")
+        }' "$file"
 }
 
 section_counts() {

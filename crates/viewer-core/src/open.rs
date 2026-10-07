@@ -606,6 +606,17 @@ pub(crate) enum Done {
         /// The value: characters, §12.7.5.4's chosen options, or nothing.
         value: pdf_model::view::Entered,
     },
+    /// §12.7.4.3's commit of what was typed into a field: Table 199's `/K` in its commit form,
+    /// then `/V`, then Table 224's `/CO` (ADR 1592).
+    ///
+    /// An entry of its own because a replay rebuilds the view from the log alone: a commit left
+    /// out of it would come undone at the next edit to any field, and the formatted value with it.
+    /// The outcome is a function of the entries before it, so a replay reaches the same one — an
+    /// accepted value accepted again, a refused one put back again.
+    CommitField {
+        /// §12.7.4.2's name.
+        field: String,
+    },
     /// §12.7.5.3's file-select control, filled with the file a person chose.
     ///
     /// The bytes are shared rather than copied, for [`Done::Attach`]'s reason: the log, an undo
@@ -1336,6 +1347,11 @@ impl Open {
                 Done::SetField { field, value } => {
                     self.view.set_field(&self.document, field, value);
                 }
+                // The sentence a refusal carries was said when the commit was made; a replay
+                // reaches the same outcome and has nobody new to tell.
+                Done::CommitField { field } => {
+                    let _ = self.view.commit_field(&self.document, field);
+                }
                 Done::ChooseFile {
                     field,
                     pathname,
@@ -1410,6 +1426,27 @@ impl Open {
             dirty_changed: self.dirty() != before,
             attachments,
         }
+    }
+
+    /// Commits what was typed into one field, and logs the commit where there was one.
+    ///
+    /// `None` where nothing was being typed into the field, which leaves the log alone: an entry
+    /// that did nothing would be an undo step over nothing. The view is committed in place rather
+    /// than through [`Self::commit`]'s replay, because the entry's outcome is the one a replay
+    /// would reach and the log up to the cursor is already applied.
+    pub(crate) fn commit_field(&mut self, field: &str) -> Option<pdf_model::view::Committed> {
+        let committed = self.view.commit_field(&self.document, field);
+        if committed == pdf_model::view::Committed::Nothing {
+            return None;
+        }
+        self.log.truncate(self.cursor);
+        self.log.push(Done::CommitField {
+            field: field.to_owned(),
+        });
+        self.cursor = self.log.len();
+        // The formatted value, a value put back and a recalculated total are all ink.
+        self.stale();
+        Some(committed)
     }
 
     /// The text position a point in one page's display-list coordinates selects.

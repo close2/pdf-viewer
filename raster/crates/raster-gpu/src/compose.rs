@@ -329,17 +329,14 @@ impl Executor<'_> {
     }
 }
 
-/// Wall-clock the executor's whole submission, for the fallback `execute`.
-pub(crate) fn submit_and_wait(
+/// Finish and submit the executor's recording, without waiting for the device: what the host
+/// spent on it, for the fallback `execute`, and the submission a collect waits on (ADR 1595).
+pub(crate) fn submit(
     device: &Device,
     recorder: wgpu::CommandEncoder,
-) -> Result<Duration, RenderError> {
+) -> (Duration, wgpu::SubmissionIndex) {
     let started = Instant::now();
-    let (gpu, queue) = device.wgpu();
-    queue.submit([recorder.finish()]);
-    gpu.poll(wgpu::PollType::wait_indefinitely())
-        .map_err(|e| RenderError::DeviceLost {
-            detail: e.to_string(),
-        })?;
-    Ok(started.elapsed())
+    let (_, queue) = device.wgpu();
+    let submission = queue.submit([recorder.finish()]);
+    (started.elapsed(), submission)
 }

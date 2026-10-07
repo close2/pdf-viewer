@@ -333,6 +333,8 @@ private:
     void showFrame();
     /// Rebuilds §12.7's controls, which happens only when the set of them changes.
     void rebuildControls();
+    /// Commits a line edit's field when Qt says a person finished with it (ADR 1592).
+    void commitsWhenFinished(QLineEdit* entry, std::size_t index);
     /// Moves the controls the page already has and writes their values back into them.
     void placeControls();
     /// Rebuilds the three trees.

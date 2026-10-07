@@ -12,15 +12,43 @@
 use crate::error::RenderError;
 use crate::frame::Raster;
 
-/// Copy the finished target out, map it, and convert premultiplied to straight alpha.
-pub(crate) fn read_back(
+/// A copy of a finished target on its way to system memory: submitted, not yet mapped.
+///
+/// The copy is submitted with the frame and mapped when the frame is collected, so a frame
+/// another one is walked beside waits for its pixels only once (ADR 1595).
+pub(crate) struct PendingCopy {
+    buffer: wgpu::Buffer,
+    width: u32,
+    height: u32,
+    bytes_per_row: u32,
+    /// The copy's own submission, which the map waits on and nothing later.
+    submission: wgpu::SubmissionIndex,
+}
+
+impl PendingCopy {
+    /// Map the copy once the device has made it, and convert premultiplied to straight alpha.
+    pub(crate) fn collect(self, gpu: &wgpu::Device) -> Result<Raster, RenderError> {
+        let pixels = map_and_convert(
+            gpu,
+            &self.buffer,
+            &self.submission,
+            self.width,
+            self.height,
+            self.bytes_per_row,
+        )?;
+        Ok(Raster::new(self.width, self.height, pixels))
+    }
+}
+
+/// Copy the finished target out: record the copy and submit it behind the frame's passes.
+pub(crate) fn copy_out(
     gpu: &wgpu::Device,
     queue: &wgpu::Queue,
     texture: &wgpu::Texture,
     width: u32,
     height: u32,
     max_target_size: u32,
-) -> Result<Raster, RenderError> {
+) -> Result<PendingCopy, RenderError> {
     let bytes_per_row = width
         .checked_mul(4)
         .and_then(|b| b.checked_next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT))
@@ -66,23 +94,28 @@ pub(crate) fn read_back(
             depth_or_array_layers: 1,
         },
     );
-    queue.submit([encoder.finish()]);
-    // Converted straight out of the mapped range: `read_buffer`'s `to_vec` would be a
-    // second full-target copy — 8 MB at page size — of bytes this reads once and
-    // discards (ADR 0022).
-    let pixels = map_and_convert(gpu, &buffer, width, height, bytes_per_row)?;
-    Ok(Raster::new(width, height, pixels))
+    let submission = queue.submit([encoder.finish()]);
+    Ok(PendingCopy {
+        buffer,
+        width,
+        height,
+        bytes_per_row,
+        submission,
+    })
 }
 
-/// Map the copy-out buffer and demultiply straight from it, without a staging `Vec`.
+/// Map the copy-out buffer and demultiply straight from it, without a staging `Vec`:
+/// `read_buffer`'s `to_vec` would be a second full-target copy — 8 MB at page size — of
+/// bytes this reads once and discards (ADR 0022).
 fn map_and_convert(
     gpu: &wgpu::Device,
     buffer: &wgpu::Buffer,
+    submission: &wgpu::SubmissionIndex,
     width: u32,
     height: u32,
     bytes_per_row: u32,
 ) -> Result<Vec<u8>, RenderError> {
-    await_map(gpu, buffer)?;
+    await_map(gpu, buffer, submission)?;
     let pixels = {
         let view = buffer
             .get_mapped_range(..)
@@ -95,12 +128,13 @@ fn map_and_convert(
     Ok(pixels)
 }
 
-/// Map a `MAP_READ` buffer and copy its bytes out.
+/// Map a `MAP_READ` buffer that `submission` wrote, and copy its bytes out.
 pub(crate) fn read_buffer(
     gpu: &wgpu::Device,
     buffer: &wgpu::Buffer,
+    submission: &wgpu::SubmissionIndex,
 ) -> Result<Vec<u8>, RenderError> {
-    await_map(gpu, buffer)?;
+    await_map(gpu, buffer, submission)?;
     let bytes = {
         let view = buffer
             .get_mapped_range(..)
@@ -114,17 +148,22 @@ pub(crate) fn read_buffer(
 }
 
 /// Ask for the map and block until the device has done it.
-fn await_map(gpu: &wgpu::Device, buffer: &wgpu::Buffer) -> Result<(), RenderError> {
+///
+/// **The wait is for the submission that wrote the buffer, and no later one** (ADR 1595): a
+/// frame submitted after this one is on the device behind it, and waiting for the most recent
+/// submission would wait for that frame's passes too.
+fn await_map(
+    gpu: &wgpu::Device,
+    buffer: &wgpu::Buffer,
+    submission: &wgpu::SubmissionIndex,
+) -> Result<(), RenderError> {
     let (sender, receiver) = std::sync::mpsc::channel();
     buffer.map_async(wgpu::MapMode::Read, .., move |result| {
         // The poll below drives this callback; a send failure would mean the
         // receiver was dropped, which only happens after this function returned.
         let _ = sender.send(result);
     });
-    gpu.poll(wgpu::PollType::wait_indefinitely())
-        .map_err(|e| RenderError::DeviceLost {
-            detail: e.to_string(),
-        })?;
+    wait_for(gpu, submission)?;
     match receiver.recv() {
         Ok(Ok(())) => {}
         Ok(Err(source)) => {
@@ -139,6 +178,21 @@ fn await_map(gpu: &wgpu::Device, buffer: &wgpu::Buffer) -> Result<(), RenderErro
         }
     }
     Ok(())
+}
+
+/// Block until the device has executed `submission`, and run the callbacks it made ready.
+pub(crate) fn wait_for(
+    gpu: &wgpu::Device,
+    submission: &wgpu::SubmissionIndex,
+) -> Result<(), RenderError> {
+    gpu.poll(wgpu::PollType::Wait {
+        submission_index: Some(submission.clone()),
+        timeout: None,
+    })
+    .map(|_| ())
+    .map_err(|e| RenderError::DeviceLost {
+        detail: e.to_string(),
+    })
 }
 
 /// The rounding rule of `raster/doc/adr/0005`, for every (alpha, channel) pair there is:

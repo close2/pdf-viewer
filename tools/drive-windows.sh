@@ -14,8 +14,10 @@
 # data fetched from the drive's own loopback server at three `--submissions=` levels, `ask` answered both ways. Each step's
 # observable is a title, a line the window printed, the saved file's bytes, what AT-SPI reads off the window, or a count of pixels of
 # a colour the step draws, and the verdict is printed as
-# `step<TAB>window<TAB>works|wrong|not offered|manual<TAB>what was seen`, one line each, into
-# `$OUT/results.tsv`; the photographs are `$OUT/shots/<window>/<step>.png`, and every other
+# `step<TAB>window<TAB>works|wrong|not offered|manual<TAB>what was seen<TAB>seconds`, one line
+# each, into `$OUT/results.tsv`, where `seconds` is the wall-clock since the verdict before it — the
+# first step of a window carries that window's launch — so the column sums to the drive and
+# `tools/state.sh drive` can say where its time goes; the photographs are `$OUT/shots/<window>/<step>.png`, and every other
 # top-level window the program has up (a popup, a dialog) is photographed beside it, because with no
 # window manager GTK's and Qt's popups are not on the root's picture. A title is a weaker witness
 # than the picture (ADR 1453), so no step rests on one where the window says more.
@@ -28,6 +30,10 @@
 # without it: a signature this drive makes is valid only under `--trust-anchors`, a reference XObject
 # draws the page `--reference-files` supplies, and a layer is drawn for the reader `--reader-name`
 # names and not for another (ADR 1580).
+#
+# And in all four windows, §12.7.4.3's commit — a tab out of a field and Enter in one, a character a
+# field's keystroke script refuses and a value its commit refuses, each said (ADR 1592) — and §12.10's
+# position on a geographic map, with a projected map's refusal beside it (ADR 1593).
 #
 # And two things a screen reader does, through AT-SPI alone: it asks which window is the active one,
 # whose frame says so with the keyboard in it and not without (ADR 1565), and it clicks a text field
@@ -49,6 +55,8 @@
 # and the asked coordinates need at-spi2-core and python3's `gi` Atspi. Nothing here is a gate: a test that skipped silently
 # would be worse than none (doc/environment.md).
 set -u
+# No `__pycache__` where the workspace's `tools/*` glob would read it as a member (trap 114).
+export PYTHONDONTWRITEBYTECODE=1
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 OUT="$ROOT/scratchpad/drive-windows"
@@ -368,9 +376,56 @@ der = open(k("signature.der"), "rb").read()
 assert len(der) <= SIZE
 body[at + 1:at + 1 + 2 * len(der)] = der.hex().encode()
 open(os.path.join(out, "drive-signed.pdf"), "wb").write(body)
+
+# drive-commit.pdf: three number fields under AFNumber_Format and AFNumber_Keystroke and a read-only
+# total under AFSimple_Calculate that /CO names, in row order (ADR 1592) — the shape of
+# crates/pdf-model/tests/aform.rs and crates/viewer-core/tests/field_commit.rs.
+pdf = pikepdf.new()
+font = helv(pdf)
+f1 = page(pdf, font, "Commit")
+currency = Dictionary(
+    F=Dictionary(S=Name.JavaScript, JS=String('AFNumber_Format(2, 0, 0, 0, "$", true);')),
+    K=Dictionary(S=Name.JavaScript, JS=String('AFNumber_Keystroke(2, 0, 0, 0, "$", true);')))
+priced = {}
+for name, top in [("Price1", 600), ("Price2", 540), ("Price3", 480)]:
+    priced[name] = pdf.make_indirect(Dictionary(
+        Type=Name.Annot, Subtype=Name.Widget, T=String(name), Rect=[72, top - 30, 272, top], F=4,
+        P=f1.obj, FT=Name.Tx, DA=text, AA=currency, MK=Dictionary(BC=[0, 0, 0], BG=[0.9, 0.95, 1])))
+priced["Total"] = pdf.make_indirect(Dictionary(
+    Type=Name.Annot, Subtype=Name.Widget, T=String("Total"), Rect=[72, 390, 272, 420], F=4, Ff=1,
+    P=f1.obj, FT=Name.Tx, DA=text, MK=Dictionary(BC=[0, 0, 0], BG=[0.95, 0.95, 0.95]),
+    AA=Dictionary(
+        C=Dictionary(S=Name.JavaScript,
+                     JS=String('AFSimple_Calculate("SUM", ["Price1", "Price2", "Price3"]);')),
+        F=Dictionary(S=Name.JavaScript, JS=String('AFNumber_Format(2, 0, 0, 0, "$", true);')))))
+f1.obj.Annots = Array([priced[n] for n in ["Price1", "Price2", "Price3", "Total"]])
+f1.obj.Tabs = Name.R
+pdf.Root.AcroForm = Dictionary(Fields=Array(list(priced.values())), CO=Array([priced["Total"]]),
+                               DA=text, DR=Dictionary(Font=Dictionary(Helv=font)))
+pdf.save(f"{out}/drive-commit.pdf")
+
+# drive-projected.pdf: a projected map whose /GPTS are degrees, the shape every projected map of the
+# crawl takes; refused by name until doc/questions/Q271 is answered (ADRs 1586, 1593).
+wkt = ('PROJCS["ETRS89_UTM_zone_32N",GEOGCS["GCS_ETRS_1989",DATUM["D_ETRS_1989",'
+       'SPHEROID["GRS_1980",6378137,298.257222101]],PRIMEM["Greenwich",0],'
+       'UNIT["Degree",0.017453292519943295]],PROJECTION["Transverse_Mercator"],'
+       'PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",9],'
+       'PARAMETER["scale_factor",0.9996],PARAMETER["false_easting",500000],'
+       'PARAMETER["false_northing",0],UNIT["Meter",1]]')
+pdf = pikepdf.new()
+pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 612, 792],
+    Contents=pdf.make_stream(b"0.8 0.9 0.8 rg 0 0 612 792 re f"),
+    VP=Array([Dictionary(Type=Name.Viewport, BBox=[0, 0, 612, 792], Measure=Dictionary(
+        Type=Name.Measure, Subtype=Name.GEO, GCS=Dictionary(Type=Name.PROJCS, WKT=String(wkt)),
+        GPTS=Array([47, 8, 48, 8, 48, 10, 47, 10]), LPTS=Array([0, 0, 0, 1, 1, 1, 1, 0])))]))))
+pdf.save(f"{out}/drive-projected.pdf")
 PY
 ARABIC="$ROOT/doc/pdf.js/test/pdfs/ArabicCIDTrueType.pdf"
 [ -f "$ARABIC" ] && cp "$ARABIC" "$FIXTURES/arabic.pdf"
+# §12.10's one geographic map among the curated documents (ADR 1586's census): its four corners
+# are a north-up rectangle of degrees from 9.43386 S to 17.71438 S and 165.52069 E to 176.86596 E.
+GEOGRAPHIC="$ROOT/doc/pdf.js/test/pdfs/bug1146106.pdf"
+[ -f "$GEOGRAPHIC" ] && cp "$GEOGRAPHIC" "$FIXTURES/drive-geographic.pdf"
 
 # --- the instrument --------------------------------------------------------------------------------
 # A loopback HTTP server for the fetched `fdf` (step 31), on a port the kernel chose; every request
@@ -544,7 +599,10 @@ shot() { # name
     rm -f "$OUT/root.xwd" "$OUT/window.xwd"
 }
 verdict() { # step verdict what
-    printf '%s\t%s\t%s\t%s\n' "$1" "$WINDOW" "$2" "$3" | tee -a "$RESULTS"
+    local now=${EPOCHREALTIME/[.,]/}   # microseconds; the radix is the locale's
+    printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$WINDOW" "$2" "$3" \
+        "$(awk -v a="${CLOCK:-$now}" -v b="$now" 'BEGIN { printf "%.1f", (b - a) / 1e6 }')" | tee -a "$RESULTS"
+    CLOCK=$now
 }
 expect_title() { # step needle
     local seen
@@ -1356,6 +1414,64 @@ reader_words() {
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 
+# §12.7.4.3's commit, in all four windows (ADR 1592): a tab out of a field, and Enter in one, commit
+# what was typed. 12.5 is accepted and saved under its format; the x of 7x is refused by Table 199's
+# /K as it is typed, and said; a lone minus sign is refused at the commit, said, and put back — the
+# step's proof that the commit ran, since a save draws every value through its format whether or not
+# it was committed. The witnesses are the saved file and the window's own lines.
+field_commit() {
+    local form="$OUT/$WINDOW-commit.pdf" seen keyed committed
+    cp "$FIXTURES/drive-commit.pdf" "$form"; rm -f "${form%.pdf}.edited.pdf"
+    launch "$form"
+    click 690 850
+    key Tab; type_in 12.5; key Tab; type_in 7x; key Tab; type_in -; key Return
+    shot 37-field-commit
+    click 690 850; key ctrl+s; sleep 1
+    seen=$(python3 - "${form%.pdf}.edited.pdf" <<'PY' 2>&1 | tail -1
+import re, sys, pikepdf
+p = pikepdf.open(sys.argv[1])
+fields = {str(f.T): f for f in p.Root.AcroForm.Fields}
+def shown(name):
+    ap = fields[name].get("/AP")
+    drawn = re.findall(r"\((.*?)\) Tj", ap.N.read_bytes().decode("latin-1")) if ap is not None else []
+    return drawn[0] if drawn else "nothing"
+print(" ".join(str(fields[n].get("/V")) for n in ["Price1", "Price2", "Price3", "Total"]),
+      shown("Price1"), shown("Price2"), shown("Total"))
+PY
+)
+    keyed=$(said 'Price2: the field.s keystroke script AFNumber_Keystroke refused "7x"')
+    committed=$(said 'Price3: the value entered does not match the format of the field')
+    if [ "$seen" = '12.5 7 None 19.5 $12.50 $7.00 $19.50' ] && [ "${keyed:-0}" -gt 0 ] \
+            && [ "${committed:-0}" -gt 0 ]; then
+        verdict 37-field-commit works "saved: $seen; the x refused as typed and the minus refused at the commit, both said"
+    else
+        verdict 37-field-commit wrong "saved: ${seen:-nothing}; keystroke refusal said ${keyed:-0}, commit refusal said ${committed:-0}: $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
+# §12.10's position, in all four windows (ADR 1593): measuring on, one press on the geographic map,
+# and the window's sentence carries a latitude and a longitude inside the map's own rectangle of
+# degrees, six places each; a press on a projected map whose /GPTS are degrees says why it gives no
+# position, which is Q271's refusal by its name.
+located() {
+    [ -f "$FIXTURES/drive-geographic.pdf" ] || {
+        verdict 38-located "not offered" "doc/pdf.js is not checked out"; return; }
+    local mark seen refused
+    launch "$FIXTURES/drive-geographic.pdf"; mark=$(lines)
+    key m; click 700 550; shot 38-located
+    seen=$(tail -n "+$((mark + 1))" "$LOG" | grep -o 'geospatial.*' | head -1)
+    launch "$FIXTURES/drive-projected.pdf"; mark=$(lines)
+    key m; click 700 550; shot 38-located-projected
+    refused=$(tail -n "+$((mark + 1))" "$LOG" | grep -o 'no position: the projected system.s registration points are shaped as degrees' | head -1)
+    if [[ "$seen" =~ —\ (9|1[0-7])\.[0-9]{6}°\ S,\ 1(6[5-9]|7[0-6])\.[0-9]{6}°\ E ]] && [ -n "$refused" ]; then
+        verdict 38-located works "$seen; and the projected map: $refused"
+    else
+        verdict 38-located wrong "geographic: ${seen:-nothing}; projected: ${refused:-nothing}"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
 confined() {
     [ -x "$BIN/quorra-confined" ] || { verdict 28-confined-refusal "not offered" "no $BIN/quorra-confined"; return; }
     # The worker reads the outline on a thread of its own after the open, and its next answer
@@ -1391,15 +1507,20 @@ confined() {
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 
+CLOCK=${EPOCHREALTIME/[.,]/}   # the drive's clock starts with the first window, after the fixtures
 for WINDOW in "${WINDOWS[@]}"; do
     if [ "$WINDOW" = quorra-confined ]; then
         confined
         reader_words
+        field_commit
+        located
         continue
     fi
     drive
     accessibility
     reader_words
+    field_commit
+    located
 done
 echo "drive-windows: $(grep -c "	works	" "$RESULTS") works, $(grep -c "	wrong	" "$RESULTS") wrong," \
      "$(grep -c "	manual	" "$RESULTS") to look at; $RESULTS and $OUT/shots"

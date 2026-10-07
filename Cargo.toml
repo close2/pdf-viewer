@@ -44,6 +44,7 @@ viewer-qt = { path = "crates/viewer-qt", version = "0.1.0" }
 viewer-ffi = { path = "crates/viewer-ffi", version = "0.1.0" }
 pdf-transform = { path = "crates/pdf-transform", version = "0.1.0" }
 pdf-vfs = { path = "crates/pdf-vfs", version = "0.1.0" }
+pdf-script = { path = "crates/pdf-script", version = "0.1.0" }
 # The population two confined sweeps share. `pdf-vfs`'s read walk and `viewer-confined`'s sweep
 # ask different questions of two different confined programs and need the *same* documents to ask
 # them of, so the roots, the stride and the ten classes are one crate rather than a helper in each
@@ -69,6 +70,13 @@ raster-scene = { path = "raster/crates/raster-scene", version = "0.1.0" }
 
 # Error handling
 thiserror = "2.0.19"
+
+# The ECMAScript engine RFC 0008 section 5.4 recommends and the owner accepted (`doc/questions/A193`,
+# answer 3): Boa, pure Rust, `Unlicense OR MIT`. Reached only through `pdf-script`'s `engine`
+# feature, which is off by default, so no build that does not ask for it compiles or links it.
+# `annex-b` is ECMA-262's Annex B — `String.prototype.substr`, `escape`, `unescape` — which form
+# scripts written for Acrobat call; it adds no package. ADR 1590.
+boa_engine = { version = "0.22.0", default-features = false, features = ["annex-b"] }
 
 # Parallelism. Used for tile rasterisation, image decode and thumbnail grids —
 # never for the parser, which is sequential over shared mutable document state.

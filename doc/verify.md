@@ -693,6 +693,10 @@ cd fuzz && cargo +nightly fuzz run page -- -runs=50000 -fork=6 -rss_limit_mb=409
   #   pumped branch at all. Aim it at a directory of its own rather than at `fuzz/corpus/page`
   #   when what is wanted is the branch rather than the merge — 26 seeds start fuzzing in seconds
   #   where 40 000 spend most of an hour merging, which is the warning two entries down.
+  # **And a third**, `python3 fuzz/seed_widths.py <dir>`: five documents whose composite font's
+  #   `/W` or `/W2` states thousands of §9.7.4.3 ranges 65 536 CIDs wide, overlapping, backward,
+  #   or one dense list — a size a reader that expands ranges pays for and no document on this disk
+  #   writes (ADR 1596).
   # 1882 seeds under the target's own 256 KiB ceiling, `cmin` to 1535, **28 535 edges** against the
   # best of the other thirteen at 6483. The run prints the current numbers and `doc/todo/02` §2 carries the
   # warning: libFuzzer merges the corpus once per run, and on the seeds `seed_page.py` produces that
@@ -1007,6 +1011,13 @@ cd fuzz && cargo +nightly fuzz run jpx          -- -max_total_time=600 -rss_limi
   # meant to go on past one adds `-fork=1 -ignore_timeouts=1` and reads what it leaves behind.
 cd fuzz && cargo +nightly fuzz run xfdf         -- -max_total_time=600  # ISO 19444-1's XFDF and the
   # import it feeds, §12.7.6.4 (ADR 1297). Seeded from `crates/pdf-model/tests/xfdf/` by `fuzz/seeds.sh`.
+cd fuzz && cargo +nightly fuzz run aform        -- -max_total_time=1200 -rss_limit_mb=2048 -timeout=20
+  # a field's `/JS` read as one `AF*` call and run at each of Table 199's four triggers over a value
+  # and a keystroke (ADRs 1578, 1579, 1597): `Call::parse`'s grammar, the twenty-one functions, and
+  # the `util` pictures and masks they are written with. A call parses back the same, and a
+  # keystroke example the call offers is one it commits. Seeded by `fuzz/seed_aform.py` with every
+  # function under every argument shape and the malformed ones — an unterminated string, a number
+  # of four hundred digits, quotes nested in quotes, ten thousand arguments, the 64 KiB bound.
 cd fuzz && cargo +nightly fuzz run fetched_import -- -max_total_time=1200 -rss_limit_mb=2048 -timeout=20
   # a server's answer as a host hands it over, `Command::Respond` into `interact::import` (ADR
   # 1527): Annex O's `fdf` fetched, or §12.7.6.2's submission answered, against a form with a field

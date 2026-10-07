@@ -398,6 +398,134 @@ fn check_reads_the_population_commit_stages_so_a_quoted_path_is_placed_by_its_re
     );
 }
 
+/// The line of `check`'s report that starts with `label`.
+fn check_line(report: &str, label: &str) -> String {
+    let found = report.lines().find(|line| line.starts_with(label));
+    assert!(found.is_some(), "check prints no `{label}` line: {report}");
+    found.unwrap_or_default().to_owned()
+}
+
+/// `check` reads the root `Cargo.toml`'s `members` the way cargo does and names every one that is
+/// not a crate git tracks — a crate a round made under `scratchpad/` and a `__pycache__` a `tools/*`
+/// glob matches, the two shapes of trap 114 — and names any `__pycache__` under `tools/` or
+/// `crates/` on a line of its own. Each is planted, seen, and removed, and the line goes back to
+/// `none`, so neither line is one that always fires (trap 13).
+#[test]
+fn check_names_a_member_that_is_not_a_tracked_crate_and_a_pycache_under_the_globs() {
+    let manifest = "[workspace]\nmembers = [\"crates/*\", \"tools/*\"]\nresolver = \"3\"\n";
+    let crate_manifest = |name: &str| {
+        format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n")
+    };
+    let (one, two) = (crate_manifest("one"), crate_manifest("two"));
+    let sandbox = Sandbox::with_files(
+        "members",
+        &[
+            ("Cargo.toml", manifest),
+            ("crates/one/Cargo.toml", &one),
+            ("crates/one/src/lib.rs", "//! One.\n"),
+            ("tools/two/Cargo.toml", &two),
+            ("tools/two/src/lib.rs", "//! Two.\n"),
+        ],
+    );
+    let member = "workspace member not a tracked crate";
+    let pycache = "__pycache__ under tools/ or crates/";
+    let report = text(&sandbox.batch(&["check"]));
+    assert!(check_line(&report, member).ends_with(" none"), "{report}");
+    assert!(check_line(&report, pycache).ends_with(" none"), "{report}");
+
+    // `cargo new scratchpad/r1/probe`'s shape: the crate, and its directory added to `members`.
+    sandbox.write("scratchpad/r1/probe/Cargo.toml", &crate_manifest("probe"));
+    sandbox.write(
+        "Cargo.toml",
+        &manifest.replace("\"tools/*\"]", "\"tools/*\", \"scratchpad/r1/probe\"]"),
+    );
+    let report = text(&sandbox.batch(&["check"]));
+    assert!(
+        check_line(&report, member).ends_with(" 1 member(s)"),
+        "{report}"
+    );
+    assert!(
+        report.contains("    scratchpad/r1/probe: under scratchpad/"),
+        "the scratch crate is not named: {report}"
+    );
+    sandbox.write("Cargo.toml", manifest);
+    let report = text(&sandbox.batch(&["check"]));
+    assert!(check_line(&report, member).ends_with(" none"), "{report}");
+
+    // A Python run under `tools/` without `PYTHONDONTWRITEBYTECODE=1`: one directory the glob reads
+    // as a member, and the same leavings once more inside a crate, which no glob reads.
+    sandbox.write(
+        "tools/__pycache__/main-checkout.cpython-314.pyc",
+        "bytecode\n",
+    );
+    sandbox.write(
+        "crates/one/__pycache__/helper.cpython-314.pyc",
+        "bytecode\n",
+    );
+    let report = text(&sandbox.batch(&["check"]));
+    assert!(
+        check_line(&report, member).ends_with(" 1 member(s)"),
+        "{report}"
+    );
+    assert!(
+        report.contains("    tools/__pycache__: no tracked Cargo.toml"),
+        "the cache directory is not named as a member: {report}"
+    );
+    assert!(
+        check_line(&report, pycache).ends_with(" 2 director(ies)"),
+        "{report}"
+    );
+    std::fs::remove_dir_all(sandbox.worktree().join("tools/__pycache__")).expect("planted cache");
+    std::fs::remove_dir_all(sandbox.worktree().join("crates/one/__pycache__"))
+        .expect("planted cache");
+    let report = text(&sandbox.batch(&["check"]));
+    assert!(check_line(&report, member).ends_with(" none"), "{report}");
+    assert!(check_line(&report, pycache).ends_with(" none"), "{report}");
+}
+
+/// Every `python3` a script under `tools/` runs is run with `PYTHONDONTWRITEBYTECODE=1`: on its own
+/// line, or exported by the script before anything runs, so no run leaves the `__pycache__` the
+/// workspace's `tools/*` glob reads as a member (trap 114). A comment, an `echo`, and
+/// `command -v python3`, which run nothing, are not runs.
+#[test]
+fn every_python_run_in_tools_writes_no_bytecode() {
+    let mut unguarded = Vec::new();
+    let directory = repository_root().join("tools");
+    let mut scripts: Vec<PathBuf> = std::fs::read_dir(&directory)
+        .expect("tools/ is in the tree")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "sh"))
+        .collect();
+    scripts.sort();
+    for script in &scripts {
+        let source = std::fs::read_to_string(script).expect("a script under tools/ reads");
+        if source
+            .lines()
+            .any(|line| line.trim_start() == "export PYTHONDONTWRITEBYTECODE=1")
+        {
+            continue;
+        }
+        for (number, line) in source.lines().enumerate() {
+            let code = line.trim_start();
+            let runs_nothing = code.starts_with('#')
+                || code.starts_with("echo ")
+                || code.contains("command -v python3");
+            if runs_nothing || !code.contains("python3") {
+                continue;
+            }
+            if !code.contains("PYTHONDONTWRITEBYTECODE=1") {
+                unguarded.push(format!("{}:{}: {code}", script.display(), number + 1));
+            }
+        }
+    }
+    assert!(
+        unguarded.is_empty(),
+        "python3 run without PYTHONDONTWRITEBYTECODE=1:\n{}",
+        unguarded.join("\n")
+    );
+}
+
 /// Where a package's integration test called `name` is, if the package is in one of the tree's
 /// three roots.
 fn test_file(package: &str, name: &str) -> Option<PathBuf> {

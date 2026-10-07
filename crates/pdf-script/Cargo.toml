@@ -1,0 +1,33 @@
+[package]
+name = "pdf-script"
+description = "Evaluates a document's field scripts against a bounded host object model and hands back what they did (RFC 0008 Tier 1)."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# For the field event the view state raises and the result it takes (`pdf_model::view`'s
+# `ScriptRunner`), and for the `AF*` library a script calls — the same Rust functions Tier 0 runs
+# (`pdf_model::aform`), so a script and a one-call `/F` format a number identically (ADR 1591).
+pdf-model.workspace = true
+thiserror.workspace = true
+# The engine, behind `engine` and nowhere else. Its `unsafe` is the dependency's — a garbage
+# collector and a tagged value representation — and this crate's own code forbids it; the count and
+# the argument are ADR 1590's, in the sentence CLAUDE.md principle 3 asks for.
+boa_engine = { workspace = true, optional = true }
+
+[dev-dependencies]
+pdf-syntax.workspace = true
+rayon.workspace = true
+sha2.workspace = true
+
+[features]
+# Off by default: a build without it has the request, outcome and wire types and no engine to
+# audit (RFC 0008 section 5.4).
+default = []
+engine = ["dep:boa_engine"]
+
+[lints]
+workspace = true

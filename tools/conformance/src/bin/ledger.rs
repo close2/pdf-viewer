@@ -11,7 +11,8 @@
 //! **`--write` is the generator.** The ledger is generated once and then edited by people, and
 //! this program exists so that the *set of rows* is never edited by hand. With `--write` it keeps
 //! every existing row exactly as written, adds an `unreviewed` row for any subclause that has
-//! none, refreshes each row's title from the standard, and writes the file back in clause order.
+//! none, refreshes each row's title from the standard, sets each heading over a row that owes to
+//! the status its leaves derive (ADR 1599), and writes the file back in clause order.
 //! A round that edits the ledger and wants it in generated form runs it, alone, on its own tree.
 //!
 //! A row is never deleted by this program. If the standard's conversion loses a heading, the
@@ -151,6 +152,11 @@ fn main() -> ExitCode {
                 generated.rows.push(row.clone());
             }
         }
+    }
+
+    // A heading over a row that owes takes its leaves' status (ADR 1599), so a drift shows.
+    for clause in generated.derive_aggregates() {
+        println!("§{clause}: status derived from the rows below it");
     }
 
     let text = generated.to_toml(PREAMBLE);

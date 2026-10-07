@@ -6,11 +6,22 @@ textually one call with literal arguments; `ViewState` raises `/K` as a person t
 commit form and `/V` at `ViewState::commit_field`, lays a value out through its `/F`, and walks
 Table 224's `/CO` in order after every value change; `crates/pdf-model/tests/script_corpus.rs` holds
 every scripted field's displayed value over RFC 0008 section 3's population (ADRs 1578, 1579).
-**What is next is Tier 1, in RFC 0008 section 11's order** — `pdf-script` with the engine behind a
-feature, the `Outcome` type, the budgets, the third confined process — and **one host step Tier 0
-cannot take**: no window calls `ViewState::commit_field` yet, so a typed field keeps showing what
-was typed and its validation and the keystroke's commit form wait on `viewer-core`'s `/Bl` and
-Enter. The premise this file was commissioned to test — *is it true that there is now a safe
+**Tier 1's first step is built too** (ADRs 1590, 1591): `crates/pdf-script` evaluates a field's
+`/K` and `/F` in Boa behind the `engine` feature, off by default, under the budgets ADR 1590 tables,
+against a bridge that carries `event`, the field's `value`, `getField` of that field,
+`console.println` and the `AF*` library as natives over `pdf_model::aform`, and refuses every other
+member of RFC 0008 sections 4.2 and 4.3 by name; `ViewState::run_scripts_with` is the hook a host
+supplies it through, and no host does. Its Tier 1 column (`crates/pdf-script/tests/script_corpus.rs`,
+run with `--features engine`) counts every run by how it ended, and nearly every throw is a
+`ReferenceError` for a function a document-level script defines — so **what is next, in RFC 0008
+section 11's order**, is the third confined process and its profile, then the open sequence's name
+tree in a realm that persists for the document, `util`, `app`'s answers, the drawn appearance asking
+the runner as `displayed_value` does, and the host's `Scripts` level. Every window commits through
+`viewer-core` — Table 197's `/Bl` wherever the focus leaves a widget, `Command::CommitField` for
+Enter in a single-line field and for a toolkit control losing the keyboard — and says a refusal;
+the two toolkit windows still show a committed value in their own controls as typed rather than
+through its `/F`, which needs `Query::Fields` to carry the displayed value beside the value
+(ADR 1592). The premise this file was commissioned to test — *is it true that there is now a safe
 ECMAScript library?* — is **true, with one qualification that matters and is stated in full
 below**; the file keeps its 2026-08-28 numbers as what was found then, and the RFC re-measured what
 it could.
@@ -51,8 +62,9 @@ the document catalog's), §12.6.4 (Table 201), §7.7.4 (Table 32's `/JavaScript`
 *Document management — ECMAScript for PDF — Part 1: Use of ISO 32000-2 (PDF 2.0)*.
 
 Code as it stands: `crates/pdf-model/src/aform/` (Tier 0's library, its one-call grammar and where
-a field's script is read), `crates/pdf-model/src/view/scripts.rs` (Table 199's triggers raised and
-`/CO` walked), `crates/pdf-model/src/action.rs` (the refusal), `crates/pdf-model/src/view.rs`
+a field's script is read), `crates/pdf-model/src/view/scripts.rs` (Table 199's triggers raised,
+`/CO` walked, and the `ScriptRunner` hook), `crates/pdf-script/` (Tier 1's engine, bridge, budgets
+and wire), `crates/pdf-model/src/action.rs` (the refusal), `crates/pdf-model/src/view.rs`
 (`ViewState::perform_all`, the action log beside the document), `crates/pdf-model/src/forms_data.rs`,
 `crates/pdf-model/src/requirements.rs`, `crates/pdf-sandbox/src/lockdown_linux.rs` (the budgets),
 `crates/viewer-confined/`, `crates/pdf-model/examples/refused_action_census.rs` (the instrument).

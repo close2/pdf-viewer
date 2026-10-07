@@ -63,13 +63,13 @@ pub(crate) fn read_pass(
     support: Option<TimestampSupport>,
     query: Option<&PassQuery>,
     execute_wall: Duration,
-    phase_name: &'static str,
+    (phase_name, submission): (&'static str, &wgpu::SubmissionIndex),
     phases: &mut Vec<(&'static str, Duration)>,
 ) -> Result<(Duration, TimingProvenance), RenderError> {
     let (Some(support), Some(query)) = (support, query) else {
         return Ok((execute_wall, TimingProvenance::WallClock));
     };
-    let bytes = readback::read_buffer(gpu, &query.map)?;
+    let bytes = readback::read_buffer(gpu, &query.map, submission)?;
     let tick = |range: std::ops::Range<usize>| {
         let eight: [u8; 8] = bytes[range].try_into().unwrap_or([0; 8]);
         u64::from_le_bytes(eight)

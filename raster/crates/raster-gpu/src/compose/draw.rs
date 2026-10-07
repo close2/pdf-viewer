@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::device::shading_params_bytes;
+use crate::device::{SHADING_PARAMS_BYTES, SHADING_QUADS_PER_WINDOW, shading_params_bytes};
 use crate::encode::{Batch, BatchKind, DrawStyle, FunctionOp, ImageOp, Op, PaintSource, ShadedOp};
 use crate::error::RenderError;
 use crate::pipeline::{Kind, Style};
@@ -58,18 +58,69 @@ enum Ready {
         pipelines: [Option<Arc<wgpu::RenderPipeline>>; 2],
         bind: wgpu::BindGroup,
     },
-    /// A shading quad: its pipelines, which of the run's shading bind groups it reads
-    /// ([`Shadings::binds`]), and where its numbers sit in that group's buffer (ADR 1555).
+    /// A run of shading quads drawn as one instanced draw: their pipelines, which of the run's
+    /// shading bind groups they read ([`Shadings::binds`]), the window of that group's buffer
+    /// their numbers sit in (ADR 1555), and their indices in it (ADR 1594).
     Shaded {
         pipelines: [Option<Arc<wgpu::RenderPipeline>>; 2],
         bind: usize,
         offset: u32,
+        instances: std::ops::Range<u32>,
     },
 }
 
+impl Ready {
+    /// Take the next shading quad into this item where one draw draws both exactly as two
+    /// would: the same pipeline, bind group and window, the quad the next index of it, and a
+    /// style of one stage.
+    ///
+    /// **Why one draw is two draws' pixels.** A draw's primitives are rasterised and blended in
+    /// their order — instance by instance, as consecutive draws are — so a run of quads drawn
+    /// as instances deposits what the same quads drawn one by one deposit, each fragment reading
+    /// the same 176 bytes through its instance index that it read at its own offset. A style of
+    /// two stages (§11.4.6's knockout, erase then deposit per element) is never taken in: its
+    /// stages interleave element by element (ADR 0010), which one draw per stage would not.
+    fn absorb(
+        &mut self,
+        next_pipelines: &[Option<Arc<wgpu::RenderPipeline>>; 2],
+        next_bind: usize,
+        next_offset: u32,
+        index: u32,
+    ) -> bool {
+        let Ready::Shaded {
+            pipelines,
+            bind,
+            offset,
+            instances,
+        } = self
+        else {
+            return false;
+        };
+        let one_stage =
+            |stages: &[Option<Arc<wgpu::RenderPipeline>>; 2]| matches!(stages, [Some(_), None]);
+        let same_pipeline = match (&pipelines[0], &next_pipelines[0]) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        };
+        if !(one_stage(pipelines)
+            && one_stage(next_pipelines)
+            && same_pipeline
+            && *bind == next_bind
+            && *offset == next_offset
+            && instances.end == index)
+        {
+            return false;
+        }
+        instances.end = index.saturating_add(1);
+        true
+    }
+}
+
 /// The shading quads of one run, gathered before any of their bindings exist: every quad's
-/// numbers laid into as few buffers as the device allows, and one bind group per paint, mask
-/// and buffer, which every quad reading them shares at its own offset (ADR 1555).
+/// numbers laid into as few buffers as the device allows, in windows of
+/// [`SHADING_QUADS_PER_WINDOW`] quads, and one bind group per paint, mask and buffer, which
+/// every quad reading them shares at its window's offset and its own index there (ADRs 1555,
+/// 1594).
 ///
 /// **Why one buffer and few groups.** A buffer and a bind group made per quad were the
 /// largest host cost of a pass on a page of many shadings: `bug1721218_reduced.pdf` draws
@@ -78,10 +129,14 @@ enum Ready {
 /// own; only where they sit has changed, so every draw shades what it shaded.
 #[derive(Default)]
 struct Shadings {
-    /// The closed buffers' bytes, every quad's numbers at a multiple of the device's stride.
+    /// The closed buffers' bytes: windows at a multiple of the device's window stride, and
+    /// every quad's numbers at its index in its window.
     buffers: Vec<Vec<u8>>,
     /// The buffer being filled.
     current: Vec<u8>,
+    /// Where the window being filled starts in `current`, and how many quads it holds; `None`
+    /// before the buffer's first window opens.
+    window: Option<(usize, u64)>,
     /// Each bind group's paint, mask and buffer, in the order the run first asked.
     keys: Vec<(PaintSource, Option<u32>, usize)>,
     /// The bind groups, made once every buffer is whole; index for index with `keys`.
@@ -164,6 +219,7 @@ impl Executor<'_> {
                     pipelines,
                     bind,
                     offset,
+                    instances,
                 } => {
                     let Some(bind) = shadings.binds.get(*bind) else {
                         continue;
@@ -171,7 +227,7 @@ impl Executor<'_> {
                     for pipeline in pipelines.iter().flatten() {
                         pass.set_pipeline(pipeline);
                         pass.set_bind_group(0, bind, &[*offset]);
-                        pass.draw(0..4, 0..1);
+                        pass.draw(0..4, instances.clone());
                     }
                     continue;
                 }
@@ -237,7 +293,7 @@ impl Executor<'_> {
         };
         let mut ready: Vec<Ready> = Vec::with_capacity(ops.len());
         let mut shadings = Shadings::default();
-        let stride = self.device.shading_stride();
+        let stride = self.device.shading_window_stride();
         let limit = self.device.shading_buffer_limit();
         for op in ops {
             match op {
@@ -276,13 +332,19 @@ impl Executor<'_> {
                     );
                     let (_, placement) = self.mask_for(shaded.mask);
                     let numbers = shading_params_bytes(shaded, self.region, placement);
-                    let (bind, offset) = shadings.place(shaded, &numbers, stride, limit);
+                    let (bind, offset, index) = shadings.place(shaded, &numbers, stride, limit);
                     let pipelines = self.lane_pipelines(kinds, format)?;
-                    ready.push(Ready::Shaded {
-                        pipelines,
-                        bind,
-                        offset,
-                    });
+                    let absorbed = ready
+                        .last_mut()
+                        .is_some_and(|last| last.absorb(&pipelines, bind, offset, index));
+                    if !absorbed {
+                        ready.push(Ready::Shaded {
+                            pipelines,
+                            bind,
+                            offset,
+                            instances: index..index.saturating_add(1),
+                        });
+                    }
                 }
                 RunOp::Function(function) => {
                     let mask = self.mask_for(function.mask());
@@ -393,29 +455,51 @@ fn style_kinds(style: DrawStyle, family: Family) -> [Option<Kind>; 2] {
 }
 
 impl Shadings {
-    /// Lay `numbers` into the run's current buffer at the next `stride`, closing it and
-    /// starting another where it would pass `limit` bytes, and name the bind group the quad
-    /// reads them through: the index of its paint, mask and buffer, and its offset there.
+    /// Lay `numbers` into the run's current window at its next index, opening the next window
+    /// `stride` bytes on when this one is full and starting another buffer where that window
+    /// would pass `limit` bytes, and name where the quad reads them: the index of its paint,
+    /// mask and buffer's bind group, its window's offset there, and its index in the window.
     fn place(
         &mut self,
         shaded: &ShadedOp,
         numbers: &[u8],
         stride: u64,
         limit: u64,
-    ) -> (usize, u32) {
+    ) -> (usize, u32, u32) {
         let stride = usize::try_from(stride).unwrap_or(usize::MAX);
         let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-        if self.current.len().saturating_add(stride) > limit {
-            self.buffers.push(std::mem::take(&mut self.current));
+        let (start, count) = match self.window {
+            Some((start, count)) if count < SHADING_QUADS_PER_WINDOW => (start, count),
+            full_or_none => {
+                let mut start = full_or_none.map_or(0, |(start, _)| start.saturating_add(stride));
+                if start > 0 && start.saturating_add(stride) > limit {
+                    self.buffers.push(std::mem::take(&mut self.current));
+                    start = 0;
+                }
+                // The whole window is allocated when it opens, so the binding's window is
+                // inside the buffer however few quads it ends up holding.
+                self.current.resize(start.saturating_add(stride), 0);
+                (start, 0)
+            }
+        };
+        // In range: `count` is below `SHADING_QUADS_PER_WINDOW`, and a window is at least that
+        // many `Params` long (`Device::shading_window_stride`).
+        let params = usize::try_from(SHADING_PARAMS_BYTES).unwrap_or(usize::MAX);
+        let at = start.saturating_add(
+            usize::try_from(count)
+                .unwrap_or(usize::MAX)
+                .saturating_mul(params),
+        );
+        let end = at.saturating_add(numbers.len());
+        if let Some(slot) = self.current.get_mut(at..end) {
+            slot.copy_from_slice(numbers);
         }
+        self.window = Some((start, count.saturating_add(1)));
         let buffer = self.buffers.len();
-        let at = self.current.len();
-        self.current.extend_from_slice(numbers);
-        self.current
-            .resize(at.saturating_add(stride.max(numbers.len())), 0);
         // In range: the limit is at most `u32::MAX + 1` (`Device::shading_buffer_limit`)
-        // and `at` is below it by at least a stride.
-        let offset = u32::try_from(at).unwrap_or(u32::MAX);
+        // and `start` is below it by at least a stride; `count` is below 93.
+        let offset = u32::try_from(start).unwrap_or(u32::MAX);
+        let index = u32::try_from(count).unwrap_or(u32::MAX);
         let key = (shaded.paint, shaded.mask, buffer);
         let same = |(paint, mask, at): &(PaintSource, Option<u32>, usize)| {
             same_paint(*paint, key.0) && *mask == key.1 && *at == key.2
@@ -424,10 +508,11 @@ impl Shadings {
             self.keys.push(key);
             self.keys.len().saturating_sub(1)
         });
-        (bind, offset)
+        (bind, offset, index)
     }
 
-    /// Every buffer's bytes, the current one last, once the run has placed every quad.
+    /// Every buffer's bytes, the current one last, once the run has placed every quad; each
+    /// buffer ends with its last window whole.
     fn finish(&mut self) -> Vec<Vec<u8>> {
         let mut buffers = std::mem::take(&mut self.buffers);
         if !self.current.is_empty() {
@@ -449,7 +534,7 @@ fn same_paint(a: PaintSource, b: PaintSource) -> bool {
 /// Where a run's shading quads put their numbers, and which bind group each reads them by.
 #[cfg(test)]
 mod tests {
-    use super::{PaintSource, Shadings};
+    use super::{PaintSource, SHADING_QUADS_PER_WINDOW, Shadings};
     use crate::encode::{DrawStyle, ShadedOp};
 
     /// A shading quad of `paint` under `mask`; nothing else about it is placed.
@@ -470,29 +555,43 @@ mod tests {
         }
     }
 
-    /// **Every quad's numbers land at their own stride, and a quad that would pass the limit
-    /// starts the next buffer at offset 0** — so no offset is past what the binding can
-    /// address and every quad reads exactly the bytes it was given.
+    /// **Every quad's numbers land at its index in its window, a full window opens the next
+    /// one a stride on, and a window that would pass the limit starts the next buffer at offset
+    /// 0** — so no offset is past what the binding can address and every instance reads
+    /// exactly the bytes it was given (ADR 1594).
     #[test]
-    fn numbers_are_laid_at_the_stride_and_roll_over_at_the_limit() {
+    fn numbers_are_laid_by_index_in_windows_and_roll_over_at_the_limit() {
         let mut shadings = Shadings::default();
-        let numbers = |n: u8| [n; 176];
+        let per = usize::try_from(SHADING_QUADS_PER_WINDOW).unwrap();
+        let stride = 16_384_u64;
+        let numbers = |n: usize| [u8::try_from(n % 251).unwrap(); 176];
         let ramp = PaintSource::Ramp(7);
-        let placed: Vec<(usize, u32)> = (0..5)
-            .map(|n| shadings.place(&quad(ramp, None), &numbers(n), 256, 768))
+        let placed: Vec<(usize, u32, u32)> = (0..=2 * per)
+            .map(|n| shadings.place(&quad(ramp, None), &numbers(n), stride, 2 * stride))
             .collect();
-        assert_eq!(
-            placed,
-            vec![(0, 0), (0, 256), (0, 512), (1, 0), (1, 256)],
-            "three quads fill 768 bytes; the fourth opens a buffer and a group of its own"
-        );
+        for (n, &(bind, offset, index)) in placed.iter().enumerate() {
+            let window = n / per;
+            let expected = match window {
+                0 | 1 => (0, u32::try_from(window).unwrap() * 16_384, n % per),
+                _ => (1, 0, 0),
+            };
+            assert_eq!(
+                (bind, offset, index),
+                (expected.0, expected.1, u32::try_from(expected.2).unwrap()),
+                "quad {n}"
+            );
+        }
         let buffers = shadings.finish();
-        assert_eq!(buffers.iter().map(Vec::len).collect::<Vec<_>>(), [768, 512]);
-        for (n, (buffer, offset)) in placed.iter().enumerate() {
-            let at = *offset as usize;
-            let bytes = &buffers[*buffer][at..at + 176];
+        assert_eq!(
+            buffers.iter().map(Vec::len).collect::<Vec<_>>(),
+            [32_768, 16_384],
+            "two windows fill the first buffer; the third opens a buffer of its own, whole"
+        );
+        for (n, (bind, offset, index)) in placed.iter().enumerate() {
+            let at = *offset as usize + *index as usize * 176;
+            let bytes = &buffers[*bind][at..at + 176];
             assert!(
-                bytes.iter().all(|&b| usize::from(b) == n),
+                bytes.iter().all(|&b| b == numbers(n)[0]),
                 "quad {n}'s own numbers"
             );
         }
@@ -512,7 +611,11 @@ mod tests {
             (PaintSource::Ramp(1), None),
         ]
         .into_iter()
-        .map(|(paint, mask)| shadings.place(&quad(paint, mask), &numbers, 256, 1 << 20).0)
+        .map(|(paint, mask)| {
+            shadings
+                .place(&quad(paint, mask), &numbers, 16_384, 1 << 20)
+                .0
+        })
         .collect();
         assert_eq!(groups, [0, 1, 2, 3, 0]);
         assert_eq!(shadings.keys.len(), 4);

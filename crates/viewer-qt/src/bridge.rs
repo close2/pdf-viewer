@@ -585,6 +585,9 @@ pub mod ffi {
         fn show_page(self: &mut Host, index: usize);
         /// A control's value was typed into.
         fn set_control(self: &mut Host, index: usize, value: &str);
+        /// §12.7.4.3's commit: a person finished with a line edit — Enter, or the keyboard gone
+        /// elsewhere — which is `QLineEdit::editingFinished` (ADR 1592).
+        fn commit_control(self: &mut Host, index: usize);
         /// §12.7.5.4: which of Table 234's `/Opt` entries are selected now, by index.
         ///
         /// Separate from `set_control` for the reason Table 233 bit 22 gives: "more than one of

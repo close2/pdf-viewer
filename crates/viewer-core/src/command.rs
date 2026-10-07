@@ -564,6 +564,26 @@ pub enum Command {
     /// not state. Table 197's `/Fo` and `/Bl` still fire only for widgets, because that table
     /// says so.
     Focused(FocusMove),
+    /// §12.7.4.3: a person has finished with what they typed into a field, which is the moment
+    /// Table 199's `/K` in its commit form and `/V` wait for.
+    ///
+    /// What a host sends for Enter in a single-line text field and for a platform control losing
+    /// the keyboard. Table 231 bit 13's clear flag says the field's text "shall be restricted to a
+    /// single line", so Enter enters no character there, and Adobe's *JavaScript for Acrobat API
+    /// Reference* ("Form event processing") names it as the key that commits. Table 197's `/Bl`,
+    /// performed "when the annotation loses the input focus", commits without this message:
+    /// wherever this crate moves the focus off a widget — a tab, a press elsewhere, a page turned —
+    /// the widget's field is committed first (ADR 1592). The message is for the focus this crate
+    /// does not see, a toolkit's own control taking and losing the keyboard.
+    ///
+    /// The field's scripts decide what the commit comes to
+    /// ([`pdf_model::view::ViewState::commit_field`]): where one refuses the value the field shows
+    /// what it showed before the typing began and the sentence arrives as
+    /// [`crate::Event::Reported`]. A field nobody is typing into does nothing.
+    CommitField {
+        /// §12.7.4.2's fully qualified name.
+        field: String,
+    },
     /// Activate an object the host is showing outside the page — §12.3.3's outline item.
     ///
     /// The clause: "[c]licking the text of any visible item activates the item, causing the

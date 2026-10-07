@@ -325,6 +325,7 @@ impl Device {
             // constructed off the critical path by every host that follows brief section 7's advice
             // — where a first frame is on it by definition (ADR 0031).
             pass_query: pass_query_at_startup,
+            pending: std::sync::Arc::new(()),
             compute_queries,
             reduced_textures: HashMap::new(),
             compute_persist: crate::compute::ComputePersist::new(),

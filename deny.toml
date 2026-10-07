@@ -55,6 +55,15 @@ allow = [
 ]
 confidence-threshold = 0.93
 
+# The ECMAScript engine, read against this list before anything else about it was measured
+# (`doc/habits/measuring.md` habit 67). Of the 57 packages it adds, nine are `Unlicense OR MIT` —
+# `boa_engine`, its six sibling crates, `small_btree` and `tag_ptr` — and satisfied by `MIT`; the
+# fourteen Unicode tables beneath them (`icu_*`, `zerovec`, `zerotrie`, `tinystr`, `writeable`,
+# `litemap`, `potential_utf`) are `Unicode-3.0`; `ryu-js` is `Apache-2.0 OR BSL-1.0`, satisfied by
+# `Apache-2.0`; the other 33 are `MIT`, `Apache-2.0` or either. So the engine needs no line here,
+# and this paragraph is the record that the absence is a decision rather than an oversight. It
+# reaches a build only through `pdf-script`'s `engine` feature (ADR 1590).
+
 # Two crates, one licence, and a narrow exception rather than a line in `allow` above.
 #
 # `BSL-1.0` is the Boost Software License: OSI-approved, permissive, and — unlike every entry

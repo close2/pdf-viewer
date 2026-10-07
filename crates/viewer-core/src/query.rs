@@ -541,7 +541,18 @@ pub enum Answer<'a> {
     /// provide information for formatting the resulting values into textual form for
     /// presentation in a graphical user interface" — so the formatting is the *document's* and a
     /// host that computed its own would be showing a person units the producer did not choose.
-    Measured(pdf_model::measurement::Traced),
+    ///
+    /// Beside it, §12.10's position of the path's **last** point — the one a person just put
+    /// down — where the viewport there is geospatial: a latitude and a longitude, or the sentence
+    /// saying why none is given (ADR 1593). The numbers are numbers, not strings, because Table
+    /// 269 leaves their formatting to the processor: "[f]ormatting the displayed representation of
+    /// these values is controlled by the interactive PDF processor".
+    Measured {
+        /// What Table 267's arrays make of the path.
+        traced: pdf_model::measurement::Traced,
+        /// Where the last point is on the earth, or `None` where its viewport is not geospatial.
+        located: Option<crate::Located>,
+    },
     /// §12.4.2's label for the page asked about, or [`Answer::None`] where it states none.
     Label(String),
     /// §12.3.4's thumbnail for the page asked about, decoded.

@@ -141,6 +141,12 @@ run() {
 
 gates() {
     cd "$wt"; : > "$log"; rm -f "$log".fail.* 2>/dev/null || true
+    # `tools/batch.sh gates > <the log>` makes this script's standard output the log itself at
+    # offset nought, so the summary printed last lands over the first gate's line and that gate is
+    # missing from every reading of the log. The summary is in the log already; it is printed only
+    # where standard output is somewhere else.
+    local onto_the_log=
+    [ "$(stat -Lc %d:%i /dev/stdout 2>/dev/null)" = "$(stat -Lc %d:%i "$log" 2>/dev/null)" ] && onto_the_log=1
     run build-sandbox  cargo build --profile gates -p pdf-sandbox --bins
     run build-hayro    cargo build --profile gates -p hayro-compare --bin pdfref-hayro
     run build-vfs      cargo build --profile gates -p pdf-vfs --bins
@@ -175,7 +181,7 @@ gates() {
     echo "ALL GATES DONE — $(grep -c 'exit=0' "$log") of $(grep -cE 'exit=' "$log") green," \
         "$(awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^wall=/) { sub(/^wall=/, "", $i); sub(/s$/, "", $i); t += $i } }
                 END { print t + 0 }' "$log") s of gate wall time" >> "$log"
-    tail -1 "$log"
+    [ -n "$onto_the_log" ] || tail -1 "$log"
 }
 
 # The examples `.github/workflows/ci.yml` runs with `--check`, read out of that step's `for` loop
@@ -360,6 +366,43 @@ check_batch() {
         grep -v '^tools/batch\.sh:' | grep -vE '\bTMPDIR\b' || true)
     printf 'scratch identifier in a source    %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) line(s)")"
     [ -z "$found" ] || { printf '%s\n' "$found" | cut -c1-140 | sed 's/^/    /'; bad=1; }
+
+    # A workspace member that is not a crate this tree tracks (trap 114). `cargo new` under
+    # `scratchpad/r<n>/` writes its directory into the root `Cargo.toml`'s `members`, and a
+    # directory a glob matches is read as a crate whether or not it holds a manifest — so a crate a
+    # round made, or a `__pycache__` beside `tools/`'s crates, stops every sibling's cargo at once.
+    # Each entry of `members`, a glob expanded the way cargo expands it, must be a directory whose
+    # `Cargo.toml` git tracks, and none may be under `scratchpad/`. A worktree with no root manifest
+    # has no workspace to break.
+    found=
+    if [ -f Cargo.toml ]; then
+        found=$(git ls-files -z -- '*Cargo.toml' | tr '\0' '\n' |
+            PYTHONDONTWRITEBYTECODE=1 python3 -c '
+import glob, os, sys, tomllib
+tracked = set(line.rstrip("\n") for line in sys.stdin)
+with open("Cargo.toml", "rb") as manifest:
+    members = tomllib.load(manifest).get("workspace", {}).get("members", [])
+for entry in members:
+    paths = sorted(glob.glob(entry)) if glob.has_magic(entry) else [entry]
+    for path in paths:
+        path = os.path.normpath(path)
+        if glob.has_magic(entry) and not os.path.isdir(path):
+            continue
+        if path == "scratchpad" or path.startswith("scratchpad/"):
+            print(f"{path}: under scratchpad/ (members entry {entry!r})")
+        elif f"{path}/Cargo.toml" not in tracked:
+            print(f"{path}: no tracked Cargo.toml (members entry {entry!r})")
+' 2>&1 || true)
+    fi
+    printf 'workspace member not a tracked crate %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) member(s)")"
+    [ -z "$found" ] || { printf '%s\n' "$found" | sed 's/^/    /'; bad=1; }
+
+    # A `__pycache__` where a member glob or a crate's own tree would read it, which is what a
+    # Python run without `PYTHONDONTWRITEBYTECODE=1` leaves behind (trap 114). Deeper than the
+    # globs on purpose: one inside a crate is not a member, but it is the same run's leavings.
+    found=$(find tools crates raster -name target -prune -o -name __pycache__ -type d -print 2>/dev/null || true)
+    printf '__pycache__ under tools/ or crates/ %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) director(ies)")"
+    [ -z "$found" ] || { printf '%s\n' "$found" | sed 's/^/    /'; bad=1; }
 
     # And the one tier-1 line that fails after a commit rather than before it.
     local fmt

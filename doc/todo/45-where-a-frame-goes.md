@@ -124,8 +124,8 @@ fourth measured phase this tree was not carrying at all, so on the offscreen ras
 multi-megabyte copy was landing in this remainder. `FrameCost::readback` exists now.
 
 **What is left in `elsewhere` is host time inside `Device::render` that quorra measures and
-discards**, and it is legible from upstream's own source rather than inferred: `compose::submit_and_wait`
-is timed as `execute_wall` and then replaced by the adapter's timestamp wherever timestamp queries
+discards**, and it is legible from upstream's own source rather than inferred: `compose::submit` and
+the wait in `Device::complete` are timed as `execute_wall` and then replaced by the adapter's timestamp wherever timestamp queries
 exist, and `record_content` — building the wgpu command buffer for 58 003 coverage tiles — is timed
 by nothing. `doc/QUORRA_FEEDBACK.md` §29.2 is the ask, and it costs upstream one `push`.
 

@@ -449,6 +449,15 @@ an argued exclusion, so the next clause left out is a build failure instead of a
 | `out-of-scope` | **Only** for a clause covered by principle 5's closed exclusion list, and the row must name which entry covers it. **The note says which in words and quotes the clause's own sentence that puts its subject under that exclusion**, verbatim, or the build fails; a clause that states nothing takes its subclauses' status (ADR 1548). |
 | `unreviewed` | Nobody has read this clause against this code. The initial state of every row, whenever the population grows. |
 
+**A heading's status is derived, never written.** A row that has a row below it that owes takes its
+status from its leaves, the rows nothing is numbered under, which are the only rows read against a
+clause. It is `reported` where every leaf is `reported`, and `partial` where the leaves differ.
+`Ledger::derived_status` is the rule, `cargo test -p conformance` fails on a heading that wears
+anything else, and `--bin ledger -- --write` sets it. Its note opens "Aggregate of the rows below"
+and leaves each reason to the row that owes it. `doc/todo/65`'s aggregate list is checked to be
+exactly these rows. A heading whose every leaf has settled keeps a hand-written settled word,
+because which one is a reading of the family, and `AggregateWithoutDebt` stops it owing (ADR 1599).
+
 **`silent` is the status worth hunting.** Every missing *subsystem* in this tree reports —
 `LZWDecode`, encryption, Type 3 fonts — because whoever decided not to build it wrote the report
 the same afternoon. The gaps that ship are the ones *inside* something implemented, where the
@@ -670,8 +679,10 @@ Memory safety is necessary, not sufficient.
   the move.
 - **GPU-touching code ideally gets its own process** — drivers are large bodies of unsafe C and are
   themselves an attack surface.
-- **AcroForm JavaScript, if it is ever supported, is a separate sandboxing problem.** Deferred by
-  `CLAUDE.md`'s exclusion list, not designed out.
+- **A document's JavaScript is built in RFC 0008's tiers, and an engine is a separate sandboxing
+  problem.** The owner accepted the RFC (`doc/questions/A193`); Tier 0 runs a script that is one
+  `AF*` call as Rust and parses no ECMAScript (ADRs 1578, 1579), so no interpreter is in a process
+  yet, and the tier that brings one brings its sandbox argument with it (RFC 0008 section 11).
 
 **No C or C++ library reaches a document's bytes**; the confined codecs are pure Rust, and the
 confinement is for panic containment and a memory ceiling rather than for containing C. `ring`,

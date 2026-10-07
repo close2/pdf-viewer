@@ -69,20 +69,13 @@ use sha2::{Digest as _, Sha256};
 )]
 mod corpus_passwords;
 
+#[path = "support/script_population.rs"]
+mod script_population;
+
+use script_population::{MAX_FILE_BYTES, password_for, population, repository};
+
 /// The environment variable that turns the check into a regeneration.
 const UPDATE_VARIABLE: &str = "PDFVIEWER_SCRIPT_CORPUS";
-
-/// Files larger than this are counted and not read, the census's own bound (RFC 0008 section 3.1).
-const MAX_FILE_BYTES: u64 = 128 << 20;
-
-/// The census population's roots, relative to the repository, and whether each is walked whole.
-const ROOTS: [(&str, bool); 5] = [
-    ("doc/pdf.js/test/pdfs", false),
-    ("doc/corpora", true),
-    ("corpus-cache/openpreserve", true),
-    ("corpus-cache/tika-issue-tracker", true),
-    ("corpus-cache/safedocs", true),
-];
 
 /// Table 199's four triggers, in the order a line counts them.
 const TRIGGERS: [Trigger; 4] = [
@@ -91,31 +84,6 @@ const TRIGGERS: [Trigger; 4] = [
     Trigger::Validate,
     Trigger::Calculate,
 ];
-
-/// The repository root.
-fn repository() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
-
-/// Every `.pdf` under one directory, recursively where `whole` says so.
-fn collect(path: &Path, whole: bool, into: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(path) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            if whole {
-                collect(&path, whole, into);
-            }
-        } else if path
-            .extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
-        {
-            into.push(path);
-        }
-    }
-}
 
 /// One document's line.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -168,13 +136,6 @@ enum Examined {
     Unopened,
     /// The document's line.
     Held(Line),
-}
-
-/// The published password for a corpus file, or the empty default §7.6.4.1 starts with.
-fn password_for(path: &Path) -> &'static str {
-    path.file_name()
-        .and_then(|name| corpus_passwords::corpus_password(&name.to_string_lossy()))
-        .map_or("", |known| known.password)
 }
 
 /// Opens one document and commits every scripted field once.
@@ -316,24 +277,6 @@ fn write_golden(path: &Path, lines: &BTreeMap<String, Line>) {
         let _ = writeln!(text, "{key}\t{}", line.to_columns());
     }
     std::fs::write(path, text).expect("the golden file can be written beside its test");
-}
-
-/// Every PDF of the census population on this machine, sorted, each root's count printed.
-fn population(root: &Path) -> Vec<PathBuf> {
-    let mut files = Vec::new();
-    for (relative, whole) in ROOTS {
-        let directory = root.join(relative);
-        if directory.is_dir() {
-            let before = files.len();
-            collect(&directory, whole, &mut files);
-            println!("{relative}: {} PDF(s)", files.len().saturating_sub(before));
-        } else {
-            println!("{relative}: not on this machine");
-        }
-    }
-    files.sort();
-    files.dedup();
-    files
 }
 
 /// What a walk found: the lines, how many documents did not open, and which panicked.

@@ -311,3 +311,12 @@ extract`), which works whatever the PNG's channels (round 1372). And before a ro
 change moves golden pages it reads what the gate draws: `raster_golden` and the corpus gate draw page
 one of each document, and the only page-one widgets Tier 0's formatting would have changed are
 Hidden (`/F` bit 2) — no page moved, and the prediction was the brief's (round 1371).
+
+### 117. A saved file is no witness of a commit, and a grammar's bound wants a seed
+
+A save draws every field value through its `/F` whether or not the value was committed, so a drive
+step that types `12.5`, saves and reads `$12.50` has shown the format, not the commit. The witness
+is a value the commit refuses and puts back — a lone `-` in a number field — so only a commit that
+ran leaves the saved `/V` empty (ADR 1592). And a hand-written tokeniser with a byte bound is found
+quadratic by a seed AT the bound: one letter repeated to 64 KiB took `AFDate_FormatEx`'s picture
+reader 991 ms a call (ADR 1597). Every grammar with a stated bound gets a seed that states it.
