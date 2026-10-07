@@ -59,6 +59,10 @@ pub const MAX_PIXELS: u64 = 1 << 28;
 /// dropped, so a ring of focus scripts costs one command four hops and no more (ADR 1615).
 const MAX_FOCUS_HOPS: usize = 4;
 
+/// Most `this.pageNum` turns one command carries out, for [`MAX_FOCUS_HOPS`]'s reason: a page's
+/// `/O` script may turn the page again, and a ring of them costs one command four turns (ADR 1643).
+const MAX_PAGE_TURNS: usize = 4;
+
 /// Why the page is being turned, which ISO 32000-2 §12.4.4 makes two different questions.
 ///
 /// Not a message and deliberately not one: a host says which page it wants, and whether the
@@ -289,6 +293,7 @@ impl Viewer {
         let mut events = Vec::new();
         self.act(command, &mut events);
         self.apply_resumed_scripts();
+        self.carry_out_page_requests(&mut events);
         self.carry_out_focus_requests(&mut events);
         self.say_what_scripts_said(&mut events);
         self.ask_about_scripts(&mut events);
@@ -2862,6 +2867,7 @@ impl Viewer {
                             colour: popup.colour,
                             subject: popup.subject,
                             created: popup.created,
+                            rich: popup.rich,
                             replies: popup.replies,
                         })
                     })
@@ -4932,6 +4938,27 @@ impl Viewer {
         }
     }
 
+    /// A script's `this.pageNum = n`, carried out as the page turn a person asks for: Table 198's
+    /// `/C` of the page left and `/O` of the page reached run as they would (ADR 1643).
+    ///
+    /// Only the document in front turns: a document behind another has no page on the screen to
+    /// turn, so its request stays held in its view state and is carried out after the first command
+    /// that finds it in front. Held to [`MAX_PAGE_TURNS`] in one command.
+    fn carry_out_page_requests(&mut self, events: &mut Vec<Event>) {
+        for _ in 0..MAX_PAGE_TURNS {
+            let Some(open) = self.focused_mut() else {
+                return;
+            };
+            let Some(page) = open.view.take_page_request() else {
+                return;
+            };
+            if page == open.page_index {
+                return;
+            }
+            self.go_to(PageTarget::Index(page), Turn::Requested, events);
+        }
+    }
+
     /// A script's `setFocus`, carried out: the field's first widget takes the keyboard, on its own
     /// page, with Table 197's `/Bl` and `/Fo` raised as a tab raises them (ADR 1615).
     ///
@@ -4991,14 +5018,18 @@ impl Viewer {
 
     /// Every question a document's script is waiting on, put after the command that raised it
     /// (ADR 1628).
+    ///
+    /// A withdrawal is asked first, so that the card of a question whose wait ran out is dropped
+    /// before the card of one a queued script asked since is put (ADR 1643).
     fn put_script_questions(&mut self, events: &mut Vec<Event>) {
         for (id, open) in &self.documents {
-            if let Some(question) = open
-                .consent
-                .asks
-                .as_ref()
-                .and_then(|asks| asks.take_question())
-            {
+            let Some(asks) = open.consent.asks.as_ref() else {
+                continue;
+            };
+            if asks.withdrawn() {
+                events.push(Event::ScriptQuestionWithdrawn { document: *id });
+            }
+            if let Some(question) = asks.take_question() {
                 events.push(Event::ScriptAsking {
                     document: *id,
                     question,

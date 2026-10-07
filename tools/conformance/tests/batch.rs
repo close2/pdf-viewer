@@ -35,6 +35,9 @@
 //!   writes the commit they were built from beside them (ADR 1511). Its names are every program of
 //!   a package under `crates/`, `quorra-retrieve`, and every C library, held against the
 //!   workspace's own manifests.
+//! - `arms` exports HEAD's six corpus arms only from a worktree holding nothing uncommitted, into
+//!   the directory the branch's first session names, and never over another commit's export
+//!   (ADR 1650).
 
 #![expect(
     clippy::expect_used,
@@ -677,6 +680,11 @@ fn gate_commands() -> Vec<(String, String, String, bool)> {
                 let (Some(package), Some(name)) = (after("-p"), after("--test")) else {
                     continue;
                 };
+                // A build that names its test binary to run it later — `arms` runs the copy — is
+                // not a gate line, and runs nothing by its own flag.
+                if words.contains(&"--no-run") {
+                    continue;
+                }
                 let ignored = words.contains(&"--ignored");
                 let names = if name.starts_with('$') {
                     looped.clone()
@@ -1106,5 +1114,107 @@ fn the_raster_examples_gate_reads_every_example_ci_runs() {
         read, on_disk,
         "tools/batch.sh raster-examples reads these names out of ci.yml (left); raster-gpu's \
          examples/ holds these (right)"
+    );
+}
+
+/// `arms` refuses every export that would not be HEAD's — a branch that does not name its first
+/// session with no directory given, a worktree with uncommitted work, a directory holding another
+/// commit's export — and writes nothing in each; keeps an export complete for this commit; and
+/// takes an incomplete one for this commit as owed rather than done. Calibrated both ways (trap 13):
+/// the same directory is kept once its six digest files are there and refused again once one goes.
+#[test]
+fn arms_exports_only_head_and_never_over_another_commits_export() {
+    let sandbox = Sandbox::new("arms");
+    assert!(
+        !sandbox.opened.contains("exporting HEAD"),
+        "open started an export where there is no workspace: {}",
+        sandbox.opened
+    );
+    let arms = |arguments: &[&str]| {
+        sandbox
+            .command("bash", &sandbox.repo())
+            .env("BATCH_ARMS_ROOT", &sandbox.base)
+            .arg(sandbox.repo().join("tools/batch.sh"))
+            .arg("arms")
+            .args(arguments)
+            .output()
+            .expect("bash runs tools/batch.sh")
+    };
+    let unnamed = arms(&[]);
+    assert!(
+        !unnamed.status.success() && text(&unnamed).contains("does not name its first session"),
+        "arms took a branch without its first session: {}",
+        text(&unnamed)
+    );
+
+    let out = sandbox.base.join("given");
+    let given = out.to_str().expect("a temporary path is UTF-8");
+    sandbox.write("new.txt", "new\n");
+    let dirty = arms(&[given]);
+    assert!(
+        !dirty.status.success() && text(&dirty).contains("1 uncommitted path(s)"),
+        "arms exported from a dirty worktree: {}",
+        text(&dirty)
+    );
+    assert!(!out.exists(), "a refused export wrote its directory");
+    std::fs::remove_file(sandbox.worktree().join("new.txt")).expect("the planted file goes");
+
+    let head = String::from_utf8_lossy(
+        &sandbox
+            .git(&sandbox.worktree(), &["rev-parse", "HEAD"])
+            .stdout,
+    )
+    .trim()
+    .to_owned();
+    std::fs::create_dir_all(&out).expect("an export directory");
+    let other = "HEAD arms of 0123456789abcdef0123456789abcdef01234567, exported then\ndone then\n";
+    std::fs::write(out.join("README"), other).expect("another commit's README");
+    let refused = arms(&[given]);
+    assert!(
+        !refused.status.success() && text(&refused).contains("never overwritten"),
+        "arms wrote over another commit's export: {}",
+        text(&refused)
+    );
+    assert_eq!(
+        std::fs::read_to_string(out.join("README")).expect("the README stays"),
+        other,
+        "a refused export touched another commit's README"
+    );
+
+    // A complete export of this commit, in the directory the branch names.
+    sandbox.git(
+        &sandbox.worktree(),
+        &["checkout", "-q", "-b", "batch-9001-9006"],
+    );
+    let named = sandbox.base.join("arms-9001");
+    std::fs::create_dir_all(&named).expect("the named export directory");
+    std::fs::write(
+        named.join("README"),
+        format!("HEAD arms of {head}, exported now from here\ndone now\n"),
+    )
+    .expect("this commit's README");
+    for arm in [
+        "cpu-1x",
+        "gpu-1x",
+        "compute-1x",
+        "cpu-4x",
+        "gpu-4x",
+        "compute-4x",
+    ] {
+        std::fs::write(named.join(format!("{arm}.tsv")), "page.pdf\t1\t1\t0\t0\n")
+            .expect("a digest file");
+    }
+    let kept = arms(&[]);
+    assert!(
+        kept.status.success() && text(&kept).contains("already"),
+        "arms did not keep a complete export of this commit: {}",
+        text(&kept)
+    );
+    std::fs::remove_file(named.join("gpu-4x.tsv")).expect("one arm goes");
+    let owed = arms(&[]);
+    assert!(
+        !owed.status.success() && text(&owed).contains("no workspace"),
+        "arms took an export missing an arm as done: {}",
+        text(&owed)
     );
 }

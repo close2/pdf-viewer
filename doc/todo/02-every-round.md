@@ -845,7 +845,9 @@ memory of the session the quota ended. `tools/batch.sh` is the command; this is 
    pinned `--skip-worktree` so no `git add` can stage a symlink over a gitlink. `open` also starts
    the batch's first `dev` build in the worktree's own build directory, detached, into
    `scratchpad/open/build.log`: write the briefs while it runs, and the rounds find it warm rather
-   than six of them meeting it cold behind one lock (ADR 1451).
+   than six of them meeting it cold behind one lock (ADR 1451). It then starts `tools/batch.sh
+   arms`, detached, into `scratchpad/open/arms.log`: HEAD's six corpus arms, digest by page, into
+   `/home/AI/arms-<first>/`, which a pixels round compares against and never exports (ADR 1650).
 2. **Brief each round with the ledger rows it must close — by number, never by topic — from
    `doc/todo/_brief-template.md`, and from nothing else.** A round briefed "work on partial rows"
    writes prose; one briefed "close §8.4.5 and §9.9.1" writes code. Over 58 sessions of topic

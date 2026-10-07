@@ -1150,8 +1150,91 @@ fn window(text: &str, title: Option<&str>) -> viewer_core::PopupWindow {
         subject: None,
         created: None,
         colour: None,
+        rich: None,
         replies: Vec::new(),
     }
+}
+
+/// How many pixels in a band are a strong red, which only a run whose `color` the note states can
+/// put there: the window's own text is black and its paper a pale yellow.
+fn red(panel: &pdf_render::DisplayList, rows: std::ops::Range<u32>) -> usize {
+    let raster = CpuRasterizer::new()
+        .rasterize(
+            panel,
+            TargetSpec {
+                width: WIDTH,
+                height: HEIGHT,
+                transform: Transform::IDENTITY,
+            },
+        )
+        .expect("the window is paths and nothing else");
+    rows.flat_map(|y| (0..WIDTH).map(move |x| ((y * WIDTH + x) * 4) as usize))
+        .filter(|&at| {
+            raster
+                .data
+                .get(at..at + 3)
+                .is_some_and(|pixel| pixel[0] > 180 && pixel[1] < 90 && pixel[2] < 90)
+        })
+        .count()
+}
+
+/// Table 172's `/RC` is drawn with its formatting: a run the note colours red is red in the window,
+/// and the same characters handed over plain are not (ADR 1642). Ink, for the reason the thread's
+/// test gives — a display list's length cannot tell a run drawn from a run dropped.
+#[test]
+fn a_rich_note_is_drawn_in_the_colour_its_run_states() {
+    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    let plain = window("A red note.", Some("author"));
+    let mut rich = window("A red note.", Some("author"));
+    let run = |text: &str, colour: Option<pdf_render::Color>| pdf_model::popup::RichRun {
+        text: text.to_owned(),
+        families: Vec::new(),
+        size: pdf_model::popup::Measure {
+            per_base: 1.0,
+            points: 0.0,
+        },
+        bold: true,
+        italic: false,
+        colour,
+        underlines: 1,
+        underline_by_word: false,
+        line_through: false,
+        rise: pdf_model::popup::Measure::default(),
+    };
+    rich.rich = Some(pdf_model::popup::RichNote {
+        paragraphs: vec![pdf_model::popup::RichParagraph {
+            align: Some(pdf_model::popup::RichAlign::Centre),
+            level: 0,
+            tag: None,
+            runs: vec![
+                run("A ", None),
+                run(
+                    "red",
+                    Some(pdf_render::Color {
+                        r: 1.0,
+                        g: 0.0,
+                        b: 0.0,
+                        a: 1.0,
+                    }),
+                ),
+                run(" note.", None),
+            ],
+        }],
+        unapplied: Vec::new(),
+    });
+    let drawn = |windows: &[viewer_core::PopupWindow]| {
+        viewer_ui::chrome::popup_windows(&chrome, windows, WIDTH, HEIGHT, 1.0)
+            .expect("one window is drawn")
+    };
+    assert_eq!(red(&drawn(std::slice::from_ref(&plain)), 50..150), 0);
+    assert!(
+        red(&drawn(std::slice::from_ref(&rich)), 50..150) > 20,
+        "the red run is red"
+    );
+    assert!(
+        ink(&drawn(std::slice::from_ref(&rich)), 55..145) > 100,
+        "and the rest is drawn"
+    );
 }
 
 #[test]
@@ -1200,6 +1283,7 @@ fn a_threads_replies_are_drawn_under_the_note_they_answer() {
             modified: None,
             subject: None,
             created: None,
+            rich: None,
         },
         pdf_model::popup::Comment {
             annotation: ObjectId::new(10, 0),
@@ -1210,6 +1294,7 @@ fn a_threads_replies_are_drawn_under_the_note_they_answer() {
             modified: None,
             subject: None,
             created: None,
+            rich: None,
         },
     ];
     let plain = window("A note.", Some("author"));

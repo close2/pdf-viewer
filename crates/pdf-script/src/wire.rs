@@ -27,8 +27,8 @@ use crate::{
 /// Moved whenever what crosses changes shape: 4 carries a commit's key, a full field's two
 /// changes, the unsaved mark, the document's information dictionary and groups, a push-button's
 /// captions, a layer's switch, the depth budget, a run's notes, and a question and its answer
-/// (ADRs 1626, 1627).
-pub const VERSION: u8 = 4;
+/// (ADRs 1626, 1627); 5 a script's page turn (ADR 1640).
+pub const VERSION: u8 = 5;
 
 /// Most fields one request may tell a realm of, and most edits one outcome may carry.
 ///
@@ -611,6 +611,10 @@ fn put_edit(out: &mut Vec<u8>, edit: &ScriptEdit) {
             out.extend_from_slice(&generation.to_le_bytes());
             put_bool(out, *on);
         }
+        ScriptEdit::GoTo { page } => {
+            put_u8(out, 6);
+            put_u32(out, *page);
+        }
     }
 }
 
@@ -927,6 +931,7 @@ impl<'a> Reader<'a> {
                 generation: u16::from_le_bytes(self.array()?),
                 on: self.boolean()?,
             },
+            6 => ScriptEdit::GoTo { page: self.u32()? },
             _ => return Err(WireError::Invalid("edit")),
         })
     }

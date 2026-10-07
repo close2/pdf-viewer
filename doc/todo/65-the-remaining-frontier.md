@@ -190,37 +190,26 @@ document takes.
 The feature draws; the residue is a case the first build did not reach. **What would unblock them:**
 a normal round extending the existing code.
 
-**One build, five rows: rich text formatting** (ADRs 1623, 1634, 1635). A rich text string is laid
-out in the formatting it states: `pdf_model::rich_text` reads the XHTML subset and the CSS2 and XFA
-properties XFA 3.3's chapter 27 names, beneath a `/DS`, and sets each run in its own face, size,
-colour, alignment and spacing, list tags included; a changed rich value regenerates the whole
-appearance, and a save writes `/RV` beside `/V`. XFA 3.3 is held at `/home/AI/specs/XFA-3_3.pdf`
+**One build, four rows: rich text formatting** (ADRs 1623, 1634, 1635, 1648, 1649). A rich text
+string is laid out in the formatting it states: `pdf_model::rich_text` reads the XHTML subset and the
+CSS2 and XFA properties XFA 3.3's chapter 27 names, beneath a `/DS`, and sets each run in its own face,
+size, width, colour, alignment and spacing, list tags and tab stops included, in comb cells and in
+UAX #9's order, with a host's caret, point and range answered from the runs; a changed rich value
+regenerates the whole appearance, a save writes `/RV` beside `/V`, and an import carries Table 249's
+`/RV` and XFDF's `<value-richtext>`. XFA 3.3 is held at `/home/AI/specs/XFA-3_3.pdf`
 (`doc/third-party-data.md`), cited by section, never quoted. What is left, row by row:
 
-- §12.7.4.3 — three constructions take the one-style layout: a comb field, a value holding a
-  right-to-left run (UAX #9's order is the one-style layout's, ADR 1413), and a host's caret, point
-  and range questions; and `font-stretch`, `kerning-mode:pair`, tab stops, following an `<a href>`,
-  `xfa:embed` and the algorithmic list types are reported as `Owed::RichTextUnapplied`.
+- §12.7.4.3 — `kerning-mode:pair`, a tab leader, a tab in a line read right to left, a width no `/DR`
+  face states, following an `<a href>`, `xfa:embed` and the algorithmic list types are reported as
+  `Owed::RichTextUnapplied`; a character none of the runs' faces draws in a face this program chose
+  takes the one-style layout's machine face (`Owed::RichTextOneStyle`, ADR 1414).
 - §12.7.5.3 — Table 231 bit 26, the same residue seen from the field's own table.
-- §12.7.8.3.2 — Table 249's `/RV`: the import does not carry it beside the value yet, so an imported
-  value is drawn in the field's `/DS`; `ViewState::import` and `FieldValue::Imported` are the build.
 - §12.5.6.6 — Table 177's `/RC` and `/DS`, drawn; §12.7.4.3's residue is this note's too.
-- §12.5.6.2 — Table 172's `/RC` in the popup window: the window is a host's to draw, so `popup::Popup`
-  carrying the formatted runs and the three windows drawing them is what is owed.
 
 - **Beside this bucket and not in it** — §12.5.6.23 is `departed` on two refusals with their cost
   recorded, a calculator function serving region-only colours (ADR 1363) and a `JPXDecode` component
   deeper than sixteen bits (ADR 1371); every other content class the clause reaches is removed, and
   Table 195's overlay is a choice its own `should` leaves (ADRs 1124, 1622).
-- **Beside this bucket and not in it** — §12.7.8.3.2's other entries: `/AP`, `/A`, `/AA` and `/IF` are applied by one
-  rule, a value that lives in the other file crossing as a *value* rather than as a reference
-  (ADRs 1186, 1223). `/APRef`'s two branches are both built: **without** Table 253's
-  `/F` the named page is one this document holds under §12.7.7's tree, and
-  `named_page::page_as_form` makes it the widget's appearance (ADR 1235); **with** `/F` it names a
-  second PDF, and the hop is `viewer-core`'s — a second host question raised while the first import
-  is being applied, §12.6.4.4's suspended-walk shape, under the reader's `--remote-documents=` level
-  (ADR 1239). §12.7.8.3.3's Table 253 `/F` is the same one and travels with it. A file nobody
-  supplies is still named on `Imported::refused`.
 
 ### 5. Answered, awaiting a real trigger — the public-key security handler
 
@@ -303,8 +292,7 @@ exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any
 "Aggregate of the rows below" and the reason is the owing row's. They are not independently actionable
 — do not brief a round to *take* one; they flip when the last binding row flips.
 
-§7.4, §7.6, §7.6.5, §12.5, §12.5.6, §12.7, §12.7.4, §12.7.5, §12.7.8, §12.7.8.3, §12.8, §12.8.3,
-§12.8.3.4, §12.10.
+§7.4, §7.6, §7.6.5, §12.5, §12.5.6, §12.7, §12.7.4, §12.7.5, §12.8, §12.8.3, §12.8.3.4, §12.10.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap

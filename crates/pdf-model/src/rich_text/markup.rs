@@ -68,7 +68,7 @@ impl RichText {
                     // A paragraph holding nothing but a break is an empty line, which the
                     // separator above already ends.
                     Piece::Break if at < last => out.push('\r'),
-                    Piece::Break => {}
+                    Piece::Break | Piece::Tab(_) => {}
                 }
             }
         }
@@ -119,6 +119,9 @@ pub(crate) enum Piece {
     Text(String, Character),
     /// XHTML's `br`: the line ends here.
     Break,
+    /// `xfa-tab-count`: advance by this many tab stops (*Tab Stops*, page 1206). It states no
+    /// character of its own, so [`RichText::text`] spells nothing for it.
+    Tab(u16),
 }
 
 /// Reads a rich text string, with a default style string applied beneath it.
@@ -307,6 +310,8 @@ impl Walk {
                 &mut unapplied,
             );
         }
+        // A count is an event at an element, and a default style string is not one.
+        character.tab_count = 0;
         Self {
             body: block.clone(),
             stack: vec![Frame {
@@ -383,6 +388,16 @@ impl Walk {
                 &mut block,
                 &mut self.unapplied,
             );
+        }
+        // *Tab Stops* (page 1206): the element advances by its count of stops where it opens, and
+        // nothing inside it inherits the count. The chapter recommends the element be empty and
+        // lets a processor discard what it holds; what it holds is kept, after the advance.
+        if character.tab_count > 0 {
+            let count = std::mem::take(&mut character.tab_count);
+            if self.current.is_none() {
+                self.start_paragraph(block.clone(), character.clone());
+            }
+            self.push(Piece::Tab(count));
         }
         if element.attribute("xfa", "embed").is_some() {
             // *Embedded Object Specifications* (page 1222): a SOM expression names a node of a
@@ -969,6 +984,7 @@ mod tests {
                     .map(|piece| match piece {
                         Piece::Text(text, _) => text.clone(),
                         Piece::Break => "<br>".to_owned(),
+                        Piece::Tab(count) => format!("<tab {count}>"),
                     })
                     .collect()
             })
@@ -1016,7 +1032,7 @@ mod tests {
             .iter()
             .filter_map(|piece| match piece {
                 Piece::Text(_, style) => Some((style.bold(), style.italic)),
-                Piece::Break => None,
+                Piece::Break | Piece::Tab(_) => None,
             })
             .collect();
         // b and the bold span merge into one run, as do i and the italic span.
@@ -1038,7 +1054,7 @@ mod tests {
             .iter()
             .filter_map(|piece| match piece {
                 Piece::Text(_, style) => Some((style.size.at(0.0), style.rise.at(0.0))),
-                Piece::Break => None,
+                Piece::Break | Piece::Tab(_) => None,
             })
             .collect();
         let near = |a: f32, b: f32| (a - b).abs() < 1e-4;
@@ -1099,7 +1115,7 @@ mod tests {
                 Piece::Text(_, style) => {
                     Some((style.size.at(0.0), style.colour, style.families.clone()))
                 }
-                Piece::Break => None,
+                Piece::Break | Piece::Tab(_) => None,
             })
             .collect();
         assert_eq!(

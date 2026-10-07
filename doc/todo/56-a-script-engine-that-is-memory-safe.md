@@ -24,11 +24,9 @@ close, before and after a save, before and after a print — with `event.rc` fal
 obeyed; and the bridge carries `util.printx` and `util.printd`, `app`'s six properties naming the
 viewer as this program, a field's `getArray` and `setFocus` (a request the host takes with
 `ViewState::take_focus_request`) and its four text flags' writes (ADR 1615). The Tier 1 column (`crates/pdf-script/tests/script_corpus.rs`, run with `--features
-engine`) now finds `ReferenceError`s in 15 documents for 9 names, none of them a function a
-document-level script defines: functions no file defines (`TFMC`, `goNext`, `f_insert`, `aaa`),
-folder-level scripts of the author's viewer (`Matrix2D`), a script's own slip (`defaultValue`), a
-name the reference's library has and Tier 0's does not (`AFExactMatch`), one it has nowhere
-(`AFSpecial_FormatEx`), and Adobe's `cursor` constants. **Item (e) is built** (ADR 1616): the `Scripts` level —
+engine`) ranks its uncaught throws by message and by document, and its `one_document` test prints
+one document's throws with their scripts and the sentences its reader is told; *The Tier 1
+column's throws, by cause* below is what that reading found. **Item (e) is built** (ADR 1616): the `Scripts` level —
 `off`, `ask`, `warn`, `on`, `off` by default and `quorra-confined` pinned there — is in every
 window's menu and on every command line as `--scripts`, the runner at `on`, `warn` and an answered
 `ask` is `pdf_script_worker::ScriptWorker`, *ask* puts one question per document at its first
@@ -42,8 +40,10 @@ standard draws a widget from — `/DA`'s colour, Table 192's `/BG` and `/BC`, Ta
 the view state's last save, `this.info`, `this.getOCGs` switching only what a person could, `util.printf`
 on the library's number writers, the button captions as Table 192's entries, and `app.alert` and
 `app.response` held in the worker until the window's answer comes; a script's depth is bounded
-before Boa parses it, and Boa's optimizer is off. **What is next** is a write to `this.pageNum`, the
-other Tier 1 members `crates/pdf-script/src/surface.rs` lists, and the owner's amendment of
+before Boa parses it, and Boa's optimizer is off. A write to `this.pageNum` is a page turn the host makes (ADR 1640), and a question the
+worker's wait withdraws is an event a window drops its card on, its late answer never handed to the
+question asked after it (ADR 1641). **What is next** is chosen from the throws' causes below, then
+the other Tier 1 members `crates/pdf-script/src/surface.rs` lists, and the owner's amendment of
 `CLAUDE.md`'s exclusion, which `doc/questions/Q286` proposes. Every window commits through
 `viewer-core` — Table 197's `/Bl` wherever the focus leaves a widget, `Command::CommitField` for
 Enter in a single-line field and for a toolkit control losing the keyboard — and says a refusal
@@ -488,8 +488,8 @@ Not one API name comes from there.
 what makes every one of them checkable, and `tools/conformance/src/citation.rs` says so in the doc
 comment on its `ForeignCitation`, which exists for the one failure that matters here: a *readable*
 citation of something else, which "checks as ISO 32000-2's §5.2, which exists, so it passes in
-silence". (**This sentence said "and nothing else" until the nine-hundred-and-seventy-seventh
-session, and the tree had never obeyed it**: `` `doc/todo/02` §2 `` and `doc/oracle-and-corpus.md`
+silence". (**A `§` that names one of this project's own sections is the other exception**:
+`` `doc/todo/02` §2 `` and `doc/oracle-and-corpus.md`
 §3d are how this project cites *itself*, across the crates and the ledger's notes alike, and every
 one of them was being resolved against ISO 32000-2 and passing by landing on a clause. They are now classified as
 `citation::ProjectSection` — counted and printed, checked against nothing. ADR 0987.) Taking a
@@ -501,7 +501,7 @@ number it landed on exists:
 | written as | what the checker records | verdict |
 |---|---|---|
 | a section sign after `ISO 21757-1` | a **foreign citation** of "ISO 21757-1" | **caught** — the gate fails, and the message teaches the spelling: write "ISO 21757-1 section N" |
-| a section sign after `ISO 21757-1:2020` | a **foreign citation** of "ISO 21757-1:2020" | **caught since the nine-hundred-and-eighty-third**, which taught the guard that a year joined by a colon is part of a standard's number (ADR 1004). This row read "silent pass, onto the wrong standard" until the one-thousand-and-ninety-sixth ran the scanner again |
+| a section sign after `ISO 21757-1:2020` | a **foreign citation** of "ISO 21757-1:2020" | **caught** — the guard takes a year joined by a colon as part of a standard's number (ADR 1004) |
 | a section sign after `the JavaScript for Acrobat API Reference` | a citation of **ISO 32000-2 §12.5**, which exists | **silent pass, onto the wrong standard** |
 | `ISO 21757-1 Table 113` in any comment | a reference to **ISO 32000-2's Table 113** — "Additional entries in Mac OS Roman encoding not in MacRomanEncoding" | **silently the wrong table** |
 
@@ -729,7 +729,7 @@ dictionary; of those, these name the exclusion as a *debt* rather than in passin
 | §12.6.4 | `partial` | one of the nine refused action types in the Table 201 summary |
 | §12.7.3 | `partial` | Table 224's `/CO`, "which is §12.6.3's calculation order and needs the script engine principle 5 excludes" |
 | §12.7.8.3.1 | `partial` | Table 246's `/JavaScript` in an FDF file |
-| §12.11.5 | `out-of-scope` | the clause entire. **It was `partial` on the premise "[t]his program runs no ECMAScript (principle 5), so there is nothing to disable" until session 928**, which read the clause and found every requirement in it addressed to a processor that *invokes* a handler — Table 276 admits only `JS` and `NoOp` — so the exclusion covers it whole rather than leaving a debt (ADR 0896) |
+| §12.11.5 | `out-of-scope` | the clause entire. **It was `partial` on the premise "[t]his program runs no ECMAScript (principle 5), so there is nothing to disable" until ADR 0896 read the clause**, which and found every requirement in it addressed to a processor that *invokes* a handler — Table 276 admits only `JS` and `NoOp` — so the exclusion covers it whole rather than leaving a debt (ADR 0896) |
 | §12.6.3 | `partial` | Table 197–200's triggers are *read and raised*; what is missing is what an `/AA` entry's ECMAScript would do |
 
 **§12.6.3's row is the highest-leverage of them and says so in its own words**, which is worth
@@ -744,7 +744,7 @@ exists and the payload is what is missing**, which is a much cheaper starting po
 other refusal in this tree.
 
 **Two rows would move the wrong way, and a proposal that hid that would be worth nothing.**
-§12.11.1 and §12.11.2 are `implemented` and §12.11.5 is `out-of-scope` — `partial` when this was written, and moved in session 928 (ADR 0896) — *because* nothing runs. §12.11.1's
+§12.11.1 and §12.11.2 are `implemented` and §12.11.5 is `out-of-scope` — `partial` when this was written, and moved by ADR 0896 — *because* nothing runs. §12.11.1's
 note says it outright: Table 273's `/RH` "is unread, and the requirement it carries is met by
 construction rather than skipped … `CLAUDE.md` excludes ECMAScript, so every handler a file could
 name is disabled here whatever the file says." Add an engine and that construction collapses: `/RH`
@@ -1170,11 +1170,53 @@ exclusion:
 **The owner decides. Nothing in this file changes a ledger status, a `Cargo.toml` or the exclusion,
 and the round that wrote it added no dependency and no engine.**
 
+## The Tier 1 column's throws, by cause
+
+Read against each document's scripts with the column's `one_document` test; the counts are the
+column's to print, and a class is named here with what a reader of this program meets and whether
+the producer's own viewer is evidence of meeting something else. Every throw leaves the run's
+trigger as though the script had not run — a calculated value not set, a keystroke not filtered, a
+format not applied — and puts one sentence per field in the view state's report, at most 256 of
+them, so a document whose scripts throw on every field fills the report with its first fields'.
+
+1. **A function no file defines** (`TFMC` in one document carries nearly all of the column's runs,
+   one `/C` on hundreds of fields walked at every commit; `goNext`, `f_insert`, `aaa`; a test file
+   that throws on purpose). The producer's viewer meets the same throw unless the author's own
+   folder-level scripts are installed; nothing here is owed.
+2. **A folder-level library of the author's viewer** (`Matrix2D`, five copies of one form). The same
+   reading as 1.
+3. **A file's own slip**: a bare `defaultValue` where a field's property was meant, and `getField`
+   of a name no field of the document has (a field deleted, a list split on `", "` leaving a space
+   before every name but the first), whose `null` then throws a `TypeError`. The same throw in any
+   viewer.
+4. **A name the document has, spelled with something more**: trailing spaces (`"NUM_013    "` in
+   five copies of one form; `"ca8 "` in a calculation Acrobat itself generated from simplified field
+   notation), or a trailing period (`"auo."`, `"stpfl.kt.bank."`, in two producers' forms). The
+   reference says only that `cName` is the field's name; the generated case is evidence that the
+   producer's viewer answers these, and **evidence only**. The largest class a change here could
+   move; it needs a documented choice argued from the reference, never a match.
+5. **A root field `/AcroForm /Fields` does not list**, reached only through a page's `/Annots`
+   (one PDFBOX form: most of its root fields). Table 224 states `/Fields` as the document's root
+   fields, so the realm's table — built from `widgets_by_field_name` — has no such field; whether a
+   widget off that array is a field is a §12.7 question for the whole form, not the bridge's alone.
+6. **A legacy engine extension the language standard does not have**: `fn.arguments` read on a
+   sloppy function (`checkSSN.arguments.length`, `SYS_CB_HDL_STATE.arguments[0]`, four documents).
+   ECMA-262 gives `%Function.prototype%` throwing `caller` and `arguments` accessors, and Boa follows
+   it; the producer's engine kept the extension. Carrying it would be an engine change, priced
+   against ADR 1590's choice of Boa.
+7. **A Tier 1 member not yet bridged**: `AFExactMatch` (Adobe's form library has it, Tier 0 does
+   not), the `style` constants of `Field.style`, the `cursor` constants beside `app.fs`; and
+   `AFSpecial_FormatEx`, which neither library has (class 3). Each is a gap of this program's: the
+   producer's viewer ran these. The reference's widget addressing — `getField("myRadio.0")` returns
+   one widget — is in the same class and no census throw reaches it.
+
+No throw is a Tier 2 member's: every refusal the column meets is caught or carried.
+
 ## 9. What a round would do next, and in what order
 
 1. **The owner rules on §8.** Nothing below may start first.
 2. **An RFC, not a todo.** Written: `doc/rfc/0008-a-script-is-a-document-acting-on-its-reader.md`
-   (round 1296, commissioned by the owner on 2026-09-30), with the placement question of §6, the
+   (RFC 0008, commissioned by the owner on 2026-09-30), with the placement question of §6, the
    tiers, the engine measurements and ten questions for the owner; `doc/questions/Q193` points at
    them.
 3. **The `/CO` and `/AA` census** — built: `crates/pdf-model/examples/javascript_census.rs`, which

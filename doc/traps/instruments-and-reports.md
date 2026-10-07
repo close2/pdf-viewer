@@ -1179,6 +1179,19 @@ prefix `RAYON_NUM_THREADS=4` reaches whatever runs inside it: `zoom_frame`'s CPU
 93.7 ms under it where it is 47.6 — a clock child sets its own pinned core count, as `turn_path`
 does with `RAYON_NUM_THREADS=8` and `taskset -c 0-3,12-15` (round 1397).
 
+### 124. An export labelled HEAD is HEAD's only if it is one binary from a clean tree
+
+The orchestrator's first hand export of a batch's corpus arms ran `cargo test` per arm in the
+shared worktree: the second arm recompiled a sibling's `pdf-model`, the "digests" captured were
+the gate's summary (the per-page digests go to the file `PDFVIEWER_RASTER_TIMES` names), and a
+sibling's mid-edit `tools/bounded.sh` turned a passing arm into `exit 1`. `tools/batch.sh arms`
+(ADR 1650) refuses a dirty tree, builds the corpus binary and the worker once, copies them and
+writes their SHA-256 into the README, and runs all six arms under one hold of the lock. And a new
+variant on an enum another slot's file matches exhaustively breaks that file at once: `Piece::Tab`
+broke `popup/rich.rs`, the sibling adapted, the variant was briefly removed and broke it again
+(round 1406). Grep the matches outside your files before adding or removing one, and settle on
+one shape.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

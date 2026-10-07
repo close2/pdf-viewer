@@ -311,7 +311,30 @@ pub(crate) struct Character {
     pub(crate) vertical_scale: f32,
     /// `xfa-spacerun:yes`, under which a run of spaces is kept (page 1220).
     pub(crate) spacerun: bool,
+    /// `font-stretch`, as its place among the nine widths, narrowest first: [`STRETCHES`].
+    pub(crate) stretch: u8,
+    /// `xfa-tab-count`: how many tab stops the element advances by where it opens (*Tab Stops*,
+    /// page 1206). Not inherited — it is an event at the element, which the markup walk takes and
+    /// clears before anything inside it is read.
+    pub(crate) tab_count: u16,
 }
+
+/// The nine widths, narrowest first, in chapter 27's spelling (*Font*, page 1201); Table 120's
+/// `/FontStretch` names the same nine in the same order, so a width is matched by its place.
+pub(crate) const STRETCHES: [&str; 9] = [
+    "ultra-condensed",
+    "extra-condensed",
+    "condensed",
+    "semi-condensed",
+    "normal",
+    "semi-expanded",
+    "expanded",
+    "extra-expanded",
+    "ultra-expanded",
+];
+
+/// `normal`'s place among [`STRETCHES`], the width nothing styled is set in.
+pub(crate) const NORMAL_STRETCH: u8 = 4;
 
 /// `letter-spacing`'s value, kept in the unit it was stated in until the face is known.
 ///
@@ -342,6 +365,8 @@ impl Character {
             horizontal_scale: 1.0,
             vertical_scale: 1.0,
             spacerun: false,
+            stretch: NORMAL_STRETCH,
+            tab_count: 0,
         }
     }
 
@@ -367,6 +392,25 @@ pub(crate) struct Block {
     /// `line-height`, the distance between baselines; `None` derives it from the tallest thing
     /// on each line, which chapter 27's *Line Spacing* states as the default (page 1191).
     pub(crate) line_height: Option<Linear>,
+    /// `tab-interval`: the distance between default tab stops, from the left margin.
+    pub(crate) tab_interval: Option<Linear>,
+    /// `tab-stops` and `xfa-tab-stops`: the stops at stated positions from the left margin, in
+    /// the order stated, each with its alignment.
+    pub(crate) tab_stops: Vec<(TabAlign, Linear)>,
+}
+
+/// How the text after a tab stands at the stop (chapter 2's *Tab Stops* table, page 62, which
+/// chapter 27's *Tab Stops* sends `xfa-tab-stops` to).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TabAlign {
+    /// The text's left edge at the stop; `after` in text read left to right.
+    Left,
+    /// The text centred on the stop.
+    Centre,
+    /// The text's right edge at the stop; `before` in text read left to right.
+    Right,
+    /// The text's first radix character at the stop, and its right edge where it has none.
+    Decimal,
 }
 
 impl Block {
@@ -378,6 +422,8 @@ impl Block {
             margins: [Linear::default(); 4],
             indent: Linear::default(),
             line_height: None,
+            tab_interval: None,
+            tab_stops: Vec::new(),
         }
     }
 
@@ -488,12 +534,19 @@ fn character_property(
             "italic" | "oblique" => character.italic = true,
             _ => {}
         },
+        // *Tab Stops* (page 1206): a non-negative integer, and zero changes nothing.
+        "xfa-tab-count" => {
+            if let Ok(count) = value.trim().parse::<u16>() {
+                character.tab_count = count;
+            }
+        }
         "font-stretch" => {
-            // Chapter 27's *Font* table lists nine widths (page 1201). A face of another width
-            // is chosen by name nowhere in ISO 32000-2, so a width other than `normal` is
-            // formatting the page does not show, and it is said.
-            if !value.eq_ignore_ascii_case("normal") {
-                unapplied.note(format!("font-stretch:{value}"));
+            // Chapter 27's *Font* table lists nine widths (page 1201), and Table 120's
+            // `/FontStretch` names the same nine: the face a width is set in is chosen by it
+            // where `/DR` holds one (`layout`'s `Faces`), and said where none is found.
+            let wanted = value.trim().to_ascii_lowercase();
+            if let Some(at) = STRETCHES.iter().position(|name| *name == wanted) {
+                character.stretch = u8::try_from(at).unwrap_or(NORMAL_STRETCH);
             }
         }
         "color" => {
@@ -627,11 +680,24 @@ fn block_property(
                 *slot = side;
             }
         }
-        "tab-interval" | "tab-stops" | "xfa-tab-stops" => {
-            unapplied.note(format!("{name}:{value}"));
+        // *Tab Stops* (page 1206): a non-zero measurement between default stops.
+        "tab-interval" => {
+            if let Some(interval) = relative(value, character.size, Linear::default())
+                .filter(|interval| interval.per_root > 0.0 || interval.points > 0.0)
+            {
+                block.tab_interval = Some(interval);
+            }
         }
-        // Chapter 27 says outright that a count of zero changes nothing (page 1206).
-        "xfa-tab-count" if value.trim() != "0" => unapplied.note("xfa-tab-count"),
+        // The old syntax is alignment and position in pairs; the new one, a superset, puts an
+        // optional leader between them (chapter 2's *Tab Leader Pattern*, page 63), which this
+        // tree does not draw and says so unless it is the blank one.
+        "tab-stops" | "xfa-tab-stops" => {
+            let (stops, leaders) = tab_stops(value, character.size);
+            block.tab_stops = stops;
+            if leaders {
+                unapplied.note(format!("{name}'s tab leader"));
+            }
+        }
         // Chapter 27's flow controls between content regions (pages 1192 to 1197): a field's
         // and a note's appearance is one box, so no paragraph ever flows from one region to
         // another and each of these has nothing to act on. Read, and carried out by there
@@ -639,6 +705,69 @@ fn block_property(
         // unknown, or one taken above.
         _ => {}
     }
+}
+
+/// A `tab-stops` or `xfa-tab-stops` value: each stop's alignment and position, and whether any
+/// stop names a leader other than the blank ones.
+///
+/// The grammar is chapter 2's: `[alignment] [leader] location`, repeated, the alignment `left` by
+/// default. `before` and `after` are the edges in the direction the text reads, which for text
+/// read left to right are `right` and `left`.
+fn tab_stops(value: &str, size: Linear) -> (Vec<(TabAlign, Linear)>, bool) {
+    let mut stops = Vec::new();
+    let mut leaders = false;
+    let mut align = TabAlign::Left;
+    let mut rest = value.trim();
+    while !rest.is_empty() {
+        // A leader is a function with parentheses that may hold spaces and nest, so it is read
+        // to its balancing parenthesis rather than to the next space.
+        if rest.starts_with("leader") {
+            let mut depth = 0_usize;
+            let mut end = rest.len();
+            for (at, character) in rest.char_indices() {
+                match character {
+                    '(' => depth = depth.saturating_add(1),
+                    ')' => {
+                        depth = depth.saturating_sub(1);
+                        if depth == 0 {
+                            end = at.saturating_add(1);
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let leader: String = rest
+                .get(..end)
+                .unwrap_or_default()
+                .chars()
+                .filter(|character| !character.is_whitespace())
+                .collect();
+            if !matches!(
+                leader.to_ascii_lowercase().as_str(),
+                "leader(space)" | "leader(space())" | "leader(rule(none))"
+            ) {
+                leaders = true;
+            }
+            rest = rest.get(end..).unwrap_or_default().trim_start();
+            continue;
+        }
+        let (word, after) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
+        rest = after.trim_start();
+        match word.to_ascii_lowercase().as_str() {
+            "left" | "after" => align = TabAlign::Left,
+            "right" | "before" => align = TabAlign::Right,
+            "center" | "centre" => align = TabAlign::Centre,
+            "decimal" => align = TabAlign::Decimal,
+            other => {
+                if let Some(at) = relative(other, size, Linear::default()) {
+                    stops.push((align, at));
+                }
+                align = TabAlign::Left;
+            }
+        }
+    }
+    (stops, leaders)
 }
 
 /// `font-size`, against the parent's size.
@@ -1042,11 +1171,13 @@ mod tests {
     /// applies or that have nothing to act on are not.
     #[test]
     fn what_is_not_applied_is_named_and_nothing_else_is() {
-        let (_, _, unapplied) =
+        let (character, _, unapplied) =
             styled("font-stretch:condensed; kerning-mode:pair; orphans:2; widows:1; color:#000000");
+        assert_eq!(unapplied.phrase(), "kerning-mode:pair");
+        // A width is a style the layout looks a face up by, and says where it finds none.
         assert_eq!(
-            unapplied.phrase(),
-            "font-stretch:condensed, kerning-mode:pair"
+            super::STRETCHES[usize::from(character.stretch)],
+            "condensed"
         );
         let (_, _, unapplied) = styled("font-stretch:normal; kerning-mode:none; xfa-tab-count:0");
         assert!(unapplied.is_empty(), "{unapplied:?}");

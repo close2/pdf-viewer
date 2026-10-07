@@ -2,15 +2,14 @@
 
 Status: **the reading, the four levels, the verdict, the events, the command, the question, a level
 *per restriction*, a per-document scope, the copy operation, a command line, a menu in all three
-windows and the prompt the *ask* level needs are built** (ADR 0212, session 373; ADR 0803, session
-872; ADR 0814, session 885; ADRs 0874 and 0875, session 916; ADR 1144, session 1147; ADR 1145,
-session 1155). **The owner lifted the no-interface deferral on 2026-09-16.** §12.11.6's requirements processing
-joined the six as a seventh operation in session 1165 (ADR 1167), which is the first one that is
-not a verb a person presses: what its level decides is whether a document is opened at all. What is
-left is the *attach and detach gestures*, which wait on the owner's HTML mockups, and `Assemble`,
-which awaits a verb this program does not have. `Print` has one since session 1171 (ADR 1180):
-`Command::Print` is the operation and `viewer_host::WindowAct::Print` is the key that sends it, and
-`PrintFaithfully` joined it in session 1183 as Table 22 bit 12's own level (ADR 1203).
+windows and the prompt the *ask* level needs are built** (ADRs 0212, 0803, 0814, 0874, 0875, 1144
+and 1145). **The owner lifted the no-interface deferral on 2026-09-16.** §12.11.6's requirements
+processing is a seventh operation beside the six (ADR 1167), and the first one that is not a verb a
+person presses: what its level decides is whether a document is opened at all. What is left is the
+*attach and detach gestures*, which wait on the owner's HTML mockups, and `Assemble`, which awaits a
+verb this program does not have. `Print` has one (ADR 1180): `Command::Print` is the operation and
+`viewer_host::WindowAct::Print` is the key that sends it, and `PrintFaithfully` is beside it as
+Table 22 bit 12's own level (ADR 1203).
 
 **A second policy with the same four levels sits beside this one and is not part of it**, because
 the direction is the other one: `viewer_host::Links` is what this machine does when §12.6.4.8's
@@ -144,9 +143,9 @@ document moves underneath the mount.
 |---|---|---|---|
 | KIO | **yes** | `WorkerBase::messageBox`, `QuestionTwoActions`; a decline is `ERR_USER_CANCELED` | `PDF_KIO_RESTRICTIONS`, default `off` |
 | `pdf-transform` | **yes, on a terminal** | the question on stderr, a line read back; `--restrictions=ask` is a level rather than a usage error | `--restrictions=off\|on\|ask\|warn` |
-| a C host of `viewer-ffi` | **yes, since session 885** | `QUORRA_EVENT_KIND_ASKING`, `quorra_answer` | `quorra_restrict` |
+| a C host of `viewer-ffi` | **yes** (ADR 0814) | `QUORRA_EVENT_KIND_ASKING`, `quorra_answer` | `quorra_restrict` |
 | `pdf-fuse` | **no** — a mount has no dialogue | `EACCES` and the sentence, in full, in the log | `Config::policy`, default `off` |
-| the three windows | **yes, since session 1155** | a modal window apiece, worded by `viewer_host::asked` | `viewer_host::RESTRICTIONS`, and the menu |
+| the three windows | **yes** (ADR 1145) | a modal window apiece, worded by `viewer_host::asked` | `viewer_host::RESTRICTIONS`, and the menu |
 | `quorra-confined` | **no** — and no question can reach it | `viewer_host::unanswerable`, `proceed: false` | `viewer_host::IGNORE_RESTRICTIONS` |
 
 **The default did not move anywhere**, which is the owner's rule: every face still opens at `off`.
@@ -224,18 +223,17 @@ screen still takes the bar — that sentence is the reader asking rather than th
   the files tab is rebuilt from `Query::Attachments` when `Event::AttachmentsChanged` says the list
   moved. The C ABI has `quorra_attach` and `quorra_detach` already, because an ABI has no gestures.
 - **The payload's descriptor route across the confinement, and the route now exists.**
-  `Edit::Attach` ships its bytes on the wire today, as `Command::Open` shipped a document's. Round
-  883 made the *document's* descriptor cross with `SCM_RIGHTS`, and that branch was not on `main`
-  when 885 branched — which is why the attach was built against the byte route. **Both are on
-  `main` since round 889's merge**, so the sentence that used to read *the day a source descriptor
-  route exists* is answered — it is `viewer-confined`'s `write_frame`, sending the descriptor as
-  `SCM_RIGHTS` beside `open_kind::ON_DISK` — and an attach is the second thing that should take it:
+  `Edit::Attach` ships its bytes on the wire today, as `Command::Open` shipped a document's. The
+  attach was built against the byte route because the *document's* descriptor route did not exist
+  yet; it does now, so a source descriptor route exists — it is `viewer-confined`'s `write_frame`,
+  sending the descriptor as `SCM_RIGHTS` beside `open_kind::ON_DISK` — and an attach is the second
+  thing that should take it:
   the host opens the file, the worker never sees a path, and a large attachment stops being copied
   through a pipe. `encode_edit`'s arm 4 is where it lands, and what it needs is a `Payload` that can
   name an open file rather than a `Vec`. **It has no sender yet**: `quorra-confined` is the only
   host on that boundary and makes no edit, so the route waits for the first host that attaches
   across it rather than being built with no caller (ADR 1316).
-- **Table 22's bit 5 is consulted since session 1147, and it took a command rather than a query.**
+- **Table 22's bit 5 is consulted, and it took a command rather than a query.**
   The entry above said a host had to say *this is a copy* and guessed at `Query::LogicalSelection`;
   the guess was wrong for a reason it named and one it did not. A readback cannot be refused without
   refusing the highlight a drag draws — and a query raises no events, so nothing can wait on one and
@@ -248,7 +246,7 @@ screen still takes the bar — that sentence is the reader asking rather than th
   level every face opens at *off* withholds nothing from a reader who did not ask for it. It is the
   standing answer to a two-voiced entry — read it, route it through the levels, and let the reader
   decide.
-- **§12.11.6's requirements processing is the seventh operation**, since session 1165: the penalty
+- **§12.11.6's requirements processing is the seventh operation**: the penalty
   a document's unmet requirements total, past §12.11.3's threshold, reaches the same four levels as
   the six Table 22 positions do. It is the one asked where a document *opens* rather than at a
   gesture, so `on` raises no `Event::Opened` at all, `ask` holds the whole open until
@@ -262,9 +260,9 @@ screen still takes the bar — that sentence is the reader asking rather than th
   ask of this machine, so its words are `refuse|ask|warn|open`, `ask` by default, read once by
   `viewer_host::may_open_extracted`, global, set from the menu in all three windows and by
   `--embedded-documents=`, and pinned to `refuse` in `quorra-confined` (ADR 1331).
-- **Every position of Table 22 that has a meaning reaches an operation**, since session 1183. Bit 3
-  is `Operation::Print` — `pdf-transform`'s page render, and a window's own `Command::Print` since
-  session 1171. Bit 11 is `Operation::Assemble`, consumed where assembling happens: `pdf-transform`'s
+- **Every position of Table 22 that has a meaning reaches an operation.** Bit 3 is
+  `Operation::Print` — `pdf-transform`'s page render, and a window's own `Command::Print` (ADR 1180).
+  Bit 11 is `Operation::Assemble`, consumed where assembling happens: `pdf-transform`'s
   `split` and `merge`, and `pdf-vfs`'s `InsertPages` and `DeletePage`. **Bit 12 is
   `Operation::PrintFaithfully`**, asked of the same press as bit 3 and at a level of its own, because
   the cell states two consequences — bit 3 clear withholds printing and bit 12 clear limits a print
@@ -286,7 +284,7 @@ screen still takes the bar — that sentence is the reader asking rather than th
 - **No attach or detach gesture ahead of the mockups.** The owner's word on 2026-09-03 asked for
   HTML mockups of *adding embedded files* in the GUIs, per platform, before those flows are built,
   and none has been supplied — so no drag-and-drop, no command palette and **no file dialog**, which
-  is session 885's ruling unchanged. It binds that feature and not this one: the restriction menu
+  is ADR 0814's ruling unchanged. It binds that feature and not this one: the restriction menu
   and the *ask* prompt are chrome for a policy the reader sets, they name no file and open no file
   dialog, and the interface deferral over them was lifted on 2026-09-16 (ADR 1145).
 - **No level enum shipped with one caller**, which is why two of four were absent rather than stubbed until they arrived *with* the event and the command (ADR 0814). ADR 0178's lesson, and it is discharged rather than retired: the next

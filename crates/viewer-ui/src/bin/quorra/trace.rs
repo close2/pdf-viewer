@@ -486,6 +486,7 @@ pub(crate) fn describe_event(event: &Event) -> String {
                 viewer_host::script_asks::text(question)
             )
         }
+        Event::ScriptQuestionWithdrawn { .. } => "script question withdrawn".to_owned(),
         Event::Copied {
             logical,
             page_order,

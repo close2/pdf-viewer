@@ -80,13 +80,6 @@
 //! - **`/Differences`** is the target document's own incremental updates, carried for a server;
 //!   applying it would mean *writing* the target file, which principle 5 puts outside this
 //!   project.
-//! - **`/RV`** on a field: the rich text string beside the value, which the import does not yet
-//!   carry; the value it replaces is drawn in the field's default style. `read_field` says it.
-//!   Table 249's
-//!   `/IF`, `/AP`, `/A` and `/AA` are **not** among them: an icon fit dictionary states names,
-//!   numbers and a boolean and nothing else, so it crosses whole and replaces Table 192's `/IF`
-//!   on the widget (ADR 1186); the other three cross by [`carry`], which is the rule below
-//!   (ADR 1223).
 //! - **`/APRef` naming another file**: Table 253's `/F` makes the page a *document* named, which
 //!   is §12.7.6.4's hazard — the bytes may come only from a directory a person supplied
 //!   (ADR 1155) — and this crate has no filesystem and must not acquire one. A reference stating
@@ -94,6 +87,12 @@
 //!   assumed that the page resides in the associated PDF file", so the page is one *this*
 //!   document holds under §12.7.7, and `crate::view::ViewState::import` makes the widget's
 //!   appearance out of it (ADR 1235).
+//!
+//! Table 249's `/RV`, `/IF`, `/AP`, `/A` and `/AA` are **not** among them. A rich text string is a
+//! text string and an icon fit dictionary states names, numbers and a boolean and nothing else, so
+//! each crosses whole: the first replaces Table 228's `/RV` on the field ([`Import::rich_value`],
+//! ADR 1648), the second Table 192's `/IF` on the widget (ADR 1186). The other three cross by
+//! [`carry`], which is the rule below (ADR 1223).
 //!
 //! # How an entry whose value lives in the other file crosses
 //!
@@ -390,6 +389,14 @@ pub struct FdfField {
     ///
     /// `None` where the field states neither, and where the copy exceeded its budget.
     pub actions: Option<Dictionary>,
+    /// Table 249's `/RV`, "[a] rich text string, as in Adobe XML Architecture, XML Forms
+    /// Architecture (XFA) Specification, version 3.3", decoded as §7.9.2.2's text string.
+    ///
+    /// A text string names nothing in the FDF file, so it crosses whole, and Table 228's `/RV` on
+    /// the target field is the corresponding entry it replaces. `None` where the field states
+    /// none, which leaves the target's own `/RV` standing — the replacing sentence is about the
+    /// entries the FDF field states. ADR 1648.
+    pub rich_value: Option<String>,
     /// What this field states and this program does not apply, by entry name.
     pub owed: Vec<&'static str>,
 }
@@ -1193,15 +1200,27 @@ fn read_field(
         }
     }
     // `/RV` is the rich text string of the value beside it, which a field's appearance is laid
-    // out in (ADR 1634). An import carries the value and not this entry yet, so the imported
-    // value is drawn in the field's default style and the entry is named here. ADRs 1186, 1223,
-    // 1635.
-    if !document.get_key(field, "RV").is_null() {
-        owed.push(
-            "/RV: the rich text string beside the value, which an import does not carry yet; the \
-             value is drawn in the field's default style",
-        );
-    }
+    // out in (ADR 1634); it is read as `/V` is, through §7.9.2.2's text string or §7.9.3's text
+    // stream, and a registered character set this program has no table for is refused at the
+    // entry rather than at the file, as the value is (ADR 1648).
+    let stated_rich = document.get_key(field, "RV");
+    let rich_value = match &stated_rich {
+        Object::Null => None,
+        Object::String(bytes) => {
+            let decoded = encoding.decode(bytes).ok();
+            if decoded.is_none() {
+                owed.push("/RV in a character set this program has no table for");
+            }
+            decoded
+        }
+        other => {
+            let text = crate::variable_text::value_text(document, other);
+            if text.is_none() {
+                owed.push("/RV: neither the text string nor the text stream Table 249 requires");
+            }
+            text
+        }
+    };
     FdfField {
         name,
         value,
@@ -1212,6 +1231,7 @@ fn read_field(
         appearance,
         appearance_reference,
         actions: (!actions.is_empty()).then_some(actions),
+        rich_value,
         owed,
     }
 }
@@ -1473,6 +1493,12 @@ pub struct Import {
     /// Read by `crate::action::for_annotation` as though it were the widget's own dictionary,
     /// which is what lets Table 197's precedence between the two apply unchanged. ADR 1223.
     pub actions: Option<Dictionary>,
+    /// Table 249's `/RV`, which replaces Table 228's `/RV` on the target field.
+    ///
+    /// Read beside the imported value by the field's layout, which draws it where it states the
+    /// value's characters — the rule a stored `/RV` is drawn by (ADR 1635) — so an import of a
+    /// rich value shows its formatting. `None` leaves the target's own `/RV` standing. ADR 1648.
+    pub rich_value: Option<String>,
 }
 
 /// Pairs an FDF file's fields with a target document's widgets, by fully qualified name.
@@ -1530,6 +1556,7 @@ pub fn match_fields(
                     appearance: field.appearance.clone(),
                     appearance_reference: field.appearance_reference.clone(),
                     actions: field.actions.clone(),
+                    rich_value: field.rich_value.clone(),
                 },
             ));
         }
@@ -1772,13 +1799,9 @@ mod tests {
         assert_eq!(data.annotations.len(), 1);
         assert_eq!(data.annotations[0].page, Some(3));
         assert_eq!(data.annotations[0].subtype.as_deref(), Some("Text"));
-        assert_eq!(
-            data.fields[0].owed,
-            [
-                "/RV: the rich text string beside the value, which an import does not carry yet; \
-                 the value is drawn in the field's default style"
-            ]
-        );
+        // Table 249's `/RV` is carried rather than named: a text string crosses whole (ADR 1648).
+        assert!(data.fields[0].owed.is_empty());
+        assert_eq!(data.fields[0].rich_value.as_deref(), Some("rich"));
         // Named one by one rather than counted: an assertion on a length would accept any five
         // sentences, including five of the wrong ones (trap 27).
         assert_eq!(

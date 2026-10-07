@@ -292,15 +292,18 @@ and Table 200's five run at the close, the save and the print a host marks, a sc
 command, put on `quorra`'s card and on GTK's and Qt's dialogues titled with the document that asks,
 with the script's buttons or an entry holding its default, the window's thread never waiting
 while the script is held in its worker and what it does once answered applied late (ADRs 1627,
-1628) — the runner every window supplies is `pdf_script_worker::ScriptWorker`, which
+1628), an answer only ever the question's the window took (ADR 1641), and a script's write to
+`this.pageNum` a page turn the window makes (ADR 1640) — the runner every window supplies is `pdf_script_worker::ScriptWorker`, which
 runs each script in a third confined process started at the first trigger, under the narrowest of
 `pdf_sandbox`'s three profiles, a deadline per trigger and a named loss (ADRs 1608, 1609), a script's
 nesting bounded before it is parsed (ADR 1626), the worker built with the engine in a Cargo run of its own and installed beside the windows (ADR 1625); **a rich text field's value and a free text
 note's `/RC` are drawn in their formatting**, because Table 228's `/RV` and `/DS`, Table 177's `/RC`
 and `/DS` and Table 231 bit 26 are ISO 32000-2's own rich text string and not the XFA template
 architecture `CLAUDE.md` excludes: XFA 3.3's Rich Text Reference is held and each run is set in the
-face, size, colour, alignment and spacing it states, a changed rich value regenerating the whole
-appearance and a save writing `/RV` beside `/V` (ADRs 1197, 1634, 1635); **a file-select control takes a
+face, size, width, colour, alignment, spacing and tab stops it states — in a comb's cells, in UAX
+#9's order, with a host's caret, point and range answered from the runs — a changed rich value
+regenerating the whole appearance, a save writing `/RV` beside `/V` and an import carrying Table
+249's `/RV` and XFDF's `<value-richtext>` (ADRs 1197, 1634, 1635, 1648, 1649); **a file-select control takes a
 file rather than a value**, because Table 231 bit 21 makes the field's text "the pathname of a file
 whose contents shall be submitted as the field's value" and only a host has a filesystem to read
 them from — the path a *person* typed, under one policy function with a stated memory budget, which
@@ -327,7 +330,7 @@ of them drew nothing of it at all: the clause gives a popup "no appearance strea
 furniture rather than ink and each host places its own, over one reading of the two clauses that say
 what goes in it (ADR 0613), drawn in all three as opaque paper with an edge (ADR 1466) — **with the subject and the creation date beside the title and the
 text**, and the two dates kept apart, because Table 172 states when an annotation was made and
-Table 166 when it was last changed (ADR 1224); a **cursor changes over §12.5.6.5's activation region** in all three,
+Table 166 when it was last changed (ADR 1224), and **Table 172's `/RC` drawn formatted** run by run — Pango spans, Qt's rich text, `quorra`'s chrome — with what a window did not draw said under the note (ADR 1642); a **cursor changes over §12.5.6.5's activation region** in all three,
 which no clause states and which is therefore recorded as this program's convention; a person can
 **measure a drawing** — §12.9's viewports, traced by pointer in all four windows on the key `m`
 and over the C ABI's `quorra_measure`, with the arithmetic and

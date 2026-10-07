@@ -751,13 +751,30 @@ PopupWindow::PopupWindow(const QtPopup& window, QWidget* parent) : QFrame(parent
 
     // Table 166's `/Contents`: the text in the window, wrapped by Qt — which is the whole reason a
     // native host puts a label here instead of breaking lines for itself.
-    auto* note = new QLabel(text(window.text), this);
-    note->setTextFormat(Qt::PlainText);
+    //
+    // Table 172's `/RC` where the note states one this program reads — "[a] rich text string ...
+    // that shall be displayed in the popup window when the annotation is opened" — as the rich
+    // text `viewer_host::popup::html` wrote: every character escaped and every element its own,
+    // so `Qt::RichText` shows the note's formatting and nothing of the document's as markup.
+    const bool rich = !window.rich.empty();
+    auto* note = new QLabel(text(rich ? window.rich : window.text), this);
+    note->setTextFormat(rich ? Qt::RichText : Qt::PlainText);
+    note->setOpenExternalLinks(false);
+    note->setTextInteractionFlags(Qt::NoTextInteraction);
     note->setWordWrap(true);
     note->setAlignment(Qt::AlignLeft | Qt::AlignTop);
     note->setContentsMargins(kPopupPadding, kPopupPadding, kPopupPadding, kPopupPadding);
     note->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     column->addWidget(note, 1);
+    // What the window did not draw of the rich note, said rather than dropped (ADR 1642).
+    if (!window.not_drawn.empty()) {
+        auto* said = new QLabel(text(window.not_drawn), this);
+        said->setTextFormat(Qt::PlainText);
+        said->setWordWrap(true);
+        said->setEnabled(false);
+        said->setContentsMargins(kPopupPadding, 0, kPopupPadding, 0);
+        column->addWidget(said, 0);
+    }
 
     // ISO 32000-2 §12.5.6.2's thread, under the note it answers. Table 172: "[i]nteractive PDF
     // processors shall not display replies to an annotation individually but together in the form
@@ -765,8 +782,11 @@ PopupWindow::PopupWindow(const QtPopup& window, QWidget* parent) : QFrame(parent
     // `viewer_host::popup::thread` composed the indentation, in the one place all three hosts
     // share, and it is empty for a window nobody replied to.
     if (!window.thread.empty()) {
-        auto* thread = new QLabel(text(window.thread), this);
-        thread->setTextFormat(Qt::PlainText);
+        const bool richThread = !window.rich_thread.empty();
+        auto* thread = new QLabel(text(richThread ? window.rich_thread : window.thread), this);
+        thread->setTextFormat(richThread ? Qt::RichText : Qt::PlainText);
+        thread->setOpenExternalLinks(false);
+        thread->setTextInteractionFlags(Qt::NoTextInteraction);
         thread->setWordWrap(true);
         thread->setAlignment(Qt::AlignLeft | Qt::AlignTop);
         thread->setContentsMargins(kPopupPadding, 0, kPopupPadding, kPopupPadding);
@@ -2541,7 +2561,7 @@ void MainWindow::rebuildPopups()
     popups_.clear();
 
     const qreal scale = page_->devicePixelRatioF() > 0.0 ? page_->devicePixelRatioF() : 1.0;
-    const rust::Vec<QtPopup> wanted = host_->popups();
+    const rust::Vec<QtPopup> wanted = host_->popups(static_cast<float>(page_->font().pointSizeF()));
     for (const QtPopup& window : wanted) {
         auto* widget = new PopupWindow(window, page_);
         widget->setGeometry(QRect(qRound(window.x / scale), qRound(window.y / scale),
@@ -2741,7 +2761,24 @@ void MainWindow::askForAScript()
     if (entry != nullptr) {
         entry->setFocus();
     }
+    // When the script's wait runs out the Rust side sends a tick of no time, after which the
+    // viewer says whether the question was withdrawn; a withdrawn one closes this dialogue, and
+    // the answer sent after `exec` then reaches nothing (ADR 1643).
+    QTimer wake;
+    wake.setSingleShot(true);
+    connect(&wake, &QTimer::timeout, &dialog, [this, &dialog] {
+        bool outstanding = true;
+        {
+            Busy guard(busy_);
+            outstanding = host_->poll_script_question();
+        }
+        if (!outstanding) {
+            dialog.reject();
+        }
+    });
+    wake.start(static_cast<int>(host_->script_question_wait()));
     dialog.exec();
+    wake.stop();
     const QString typed = entry != nullptr ? entry->text() : QString();
     const QByteArray bytes = typed.toUtf8();
     Busy guard(busy_);

@@ -36,6 +36,15 @@ use crate::function::{Function, Value};
 /// of transient `Color` at the limit.
 const MAX_FUNCTION_CELLS: u64 = 1 << 22;
 
+/// The most numbers a [`Cache`]'s memo of parsed functions keeps, summed over every function it
+/// holds ([`Function::held_values`]).
+///
+/// 2^22 is the most samples `Function::parse` admits in one type 0 function, so the memo costs a
+/// cache at most what one function at the parser's own limit costs while it is evaluated — 16 MiB
+/// of `f32`. A group that would take it past this is parsed for the build that asked and not
+/// kept, which costs a parse and never a colour.
+const MAX_PARSED_VALUES: usize = 1 << 22;
+
 /// Why a shading could not be built.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
@@ -136,6 +145,124 @@ pub struct Cache {
     /// cache's life; it is there so that the table is exact by construction rather than by
     /// that argument.
     spaces: BTreeMap<(ObjectId, Option<u128>, Separations), ColourSpace>,
+    /// Every `/Function` group stated by reference, parsed once for the cache's life; see
+    /// [`Parsed`].
+    functions: Parsed,
+}
+
+/// The `/Function` groups a [`Cache`] has parsed, keyed by the objects that state them.
+///
+/// # Why this exists, with the measurement that asked for it
+///
+/// [`Cache::built`] is keyed by the [`Conversion`] a shading's colours were made under, and has
+/// to be: one ramp under two conversions is two sets of colours. The function is not — §7.10's
+/// function is its object and nothing else — and a page builds one shading under several
+/// conversions: a group composited in four components is drawn once per plane (§11.4.7), and a
+/// soft mask's group under its own. Each such build parsed the function again, a type 0
+/// function's stream inflated and its samples decoded each time: on `bug1721218_reduced.pdf`,
+/// 137 parses of 41 function objects, 145.3 M of a turn's 1 357.6 M instructions. Remembered,
+/// they are 41 parses and 47.0 M, and the turn 1 258.9 M (ADR 1644). What it costs is a map
+/// lookup a build and the functions held to the interpretation's end, under the bound below.
+///
+/// # Why it is exact
+///
+/// `Function::parse_group` reads the document and the object it is handed and nothing else: no
+/// conversion, no resource dictionary, no graphics state. A reference resolves to one object in
+/// one immutable document, and one cache serves one document — the interpreter takes it out for
+/// the span of an imported page (§8.10.4) — so the group a key names is the group a second parse
+/// would make. A `/Function` stated inline has no identity to key by and is parsed as it was.
+///
+/// # What it holds
+///
+/// At most [`MAX_PARSED_VALUES`] numbers, counted as each group is kept; past that a group is
+/// parsed and not kept. A failed parse is not kept, for [`Cache::build`]'s reason.
+#[derive(Debug)]
+struct Parsed {
+    /// Each group, by how the shading's `/Function` entry names it.
+    groups: BTreeMap<Stated, Arc<[Function]>>,
+    /// The numbers [`Self::groups`] holds between them.
+    held: usize,
+    /// The most numbers it may hold: [`MAX_PARSED_VALUES`] everywhere but a test.
+    limit: usize,
+}
+
+impl Default for Parsed {
+    fn default() -> Self {
+        Self {
+            groups: BTreeMap::new(),
+            held: 0,
+            limit: MAX_PARSED_VALUES,
+        }
+    }
+}
+
+/// How a shading's `/Function` entry names the objects its group is parsed from.
+///
+/// Two variants rather than one list, because the two spellings are two different questions to
+/// `Function::parse_group`: `/Function 12 0 R` takes the group from whatever object 12 is — one
+/// function, or an array of them — while `/Function [12 0 R]` takes object 12 as a function, and
+/// refuses it if it is an array. Keyed as one list, the second would be answered with the first's
+/// group.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum Stated {
+    /// `/Function 12 0 R`.
+    Reference(ObjectId),
+    /// `/Function [12 0 R 13 0 R 14 0 R]`, every member a reference.
+    Members(Vec<ObjectId>),
+}
+
+impl Stated {
+    /// The key a `/Function` entry states, or `None` where any of it is stated inline.
+    fn of(entry: Option<&Object>) -> Option<Self> {
+        match entry? {
+            Object::Reference(id) => Some(Self::Reference(*id)),
+            Object::Array(items) => items
+                .iter()
+                .map(Object::as_reference)
+                .collect::<Option<Vec<_>>>()
+                .map(Self::Members),
+            _ => None,
+        }
+    }
+}
+
+impl Parsed {
+    /// The shading dictionary `dict`'s `/Function` group, parsed or remembered.
+    ///
+    /// # Errors
+    ///
+    /// [`ShadingError::Malformed`] with the parser's own reason, as every caller reported it.
+    fn group(
+        &mut self,
+        document: &Document,
+        dict: &Dictionary,
+    ) -> Result<Arc<[Function]>, ShadingError> {
+        let key = Stated::of(dict.get("Function"));
+        if let Some(group) = key.as_ref().and_then(|key| self.groups.get(key)) {
+            return Ok(Arc::clone(group));
+        }
+        let group: Arc<[Function]> =
+            Function::parse_group(document, &document.get_key(dict, "Function"))
+                .map_err(|e| ShadingError::Malformed {
+                    detail: e.to_string(),
+                })?
+                .into();
+        if let Some(key) = key {
+            let values = group
+                .iter()
+                .map(Function::held_values)
+                .fold(0, usize::saturating_add);
+            if let Some(held) = self
+                .held
+                .checked_add(values)
+                .filter(|held| *held <= self.limit)
+            {
+                self.held = held;
+                self.groups.insert(key, Arc::clone(&group));
+            }
+        }
+        Ok(group)
+    }
 }
 
 /// The half of a shading [`Cache`] can remember: everything but the caller's transform.
@@ -242,7 +369,14 @@ impl Cache {
             });
         }
         let space = self.space_of(document, object, resources, colouring.into);
-        let built = kind_of(document, object, resources, space, colouring)?;
+        let built = kind_of(
+            document,
+            object,
+            resources,
+            space,
+            colouring,
+            &mut self.functions,
+        )?;
         if let Some(id) = key {
             self.built
                 .insert((id, resolution, colouring.into.clone()), built.clone());
@@ -325,6 +459,7 @@ pub fn build(
         resources,
         None,
         Colouring::new(None, &Conversion::device()),
+        &mut Parsed::default(),
     )?;
     Ok(Shaded {
         shading: Shading {
@@ -352,6 +487,7 @@ fn kind_of(
     resources: &Dictionary,
     space: Option<ColourSpace>,
     colouring: Colouring<'_>,
+    functions: &mut Parsed,
 ) -> Result<Built, ShadingError> {
     let resolved = document.resolve(object);
     let dict = match &resolved {
@@ -398,19 +534,21 @@ fn kind_of(
         // being carried separately, so the display list needs only one transform per
         // shading.
         1 => (
-            function_based(document, &dict, &space, colouring)?,
+            function_based(document, &dict, &space, colouring, functions)?,
             matrix_of(document, &dict, "Matrix"),
         ),
         2 => (
-            axial(document, &dict, &space, colouring)?,
+            axial(document, &dict, &space, colouring, functions)?,
             Transform::IDENTITY,
         ),
         3 => (
-            radial(document, &dict, &space, colouring)?,
+            radial(document, &dict, &space, colouring, functions)?,
             Transform::IDENTITY,
         ),
         4..=7 => {
-            let (kind, read) = mesh(document, &resolved, &dict, &space, kind, colouring)?;
+            let (kind, read) = mesh(
+                document, &resolved, &dict, &space, kind, colouring, functions,
+            )?;
             truncated = read.truncated;
             coarse = read.coarse;
             (kind, Transform::IDENTITY)
@@ -558,13 +696,9 @@ fn ramp(
     dict: &Dictionary,
     space: &ColourSpace,
     colouring: Colouring<'_>,
+    parsed: &mut Parsed,
 ) -> Result<Ramp, ShadingError> {
-    let functions =
-        Function::parse_group(document, &document.get_key(dict, "Function")).map_err(|e| {
-            ShadingError::Malformed {
-                detail: e.to_string(),
-            }
-        })?;
+    let functions = parsed.group(document, dict)?;
     if functions.is_empty() {
         return Err(ShadingError::Malformed {
             detail: "no /Function".to_owned(),
@@ -663,6 +797,7 @@ fn axial(
     dict: &Dictionary,
     space: &ColourSpace,
     colouring: Colouring<'_>,
+    parsed: &mut Parsed,
 ) -> Result<ShadingKind, ShadingError> {
     let coords = coords(document, dict, 4).ok_or_else(|| ShadingError::Malformed {
         detail: "an axial shading needs four /Coords".to_owned(),
@@ -670,7 +805,7 @@ fn axial(
     Ok(ShadingKind::Axial {
         start: Point::new(coords[0], coords[1]),
         end: Point::new(coords[2], coords[3]),
-        ramp: ramp(document, dict, space, colouring)?,
+        ramp: ramp(document, dict, space, colouring, parsed)?,
         extend: extend(document, dict),
     })
 }
@@ -680,6 +815,7 @@ fn radial(
     dict: &Dictionary,
     space: &ColourSpace,
     colouring: Colouring<'_>,
+    parsed: &mut Parsed,
 ) -> Result<ShadingKind, ShadingError> {
     let coords = coords(document, dict, 6).ok_or_else(|| ShadingError::Malformed {
         detail: "a radial shading needs six /Coords".to_owned(),
@@ -695,7 +831,7 @@ fn radial(
         start_radius: coords[2],
         end: Point::new(coords[3], coords[4]),
         end_radius: coords[5],
-        ramp: ramp(document, dict, space, colouring)?,
+        ramp: ramp(document, dict, space, colouring, parsed)?,
         extend: extend(document, dict),
     })
 }
@@ -721,6 +857,7 @@ fn mesh(
     space: &ColourSpace,
     kind: i64,
     colouring: Colouring<'_>,
+    parsed: &mut Parsed,
 ) -> Result<(ShadingKind, MeshBounds), ShadingError> {
     let stream = object.as_stream().ok_or_else(|| ShadingError::Malformed {
         detail: "a mesh shading must be a stream".to_owned(),
@@ -729,12 +866,8 @@ fn mesh(
     // A mesh may state colours directly or as a single parameter through a function; the
     // reader needs to know which, so `/Function` is optional here rather than required.
     let functions = match document.get_key(dict, "Function") {
-        Object::Null => Vec::new(),
-        object => {
-            Function::parse_group(document, &object).map_err(|e| ShadingError::Malformed {
-                detail: e.to_string(),
-            })?
-        }
+        Object::Null => Arc::from([]),
+        _ => parsed.group(document, dict)?,
     };
 
     let read = crate::mesh::read(document, stream, kind, space, &functions, colouring).ok_or_else(
@@ -761,13 +894,9 @@ fn function_based(
     dict: &Dictionary,
     space: &ColourSpace,
     colouring: Colouring<'_>,
+    parsed: &mut Parsed,
 ) -> Result<ShadingKind, ShadingError> {
-    let functions =
-        Function::parse_group(document, &document.get_key(dict, "Function")).map_err(|e| {
-            ShadingError::Malformed {
-                detail: e.to_string(),
-            }
-        })?;
+    let functions = parsed.group(document, dict)?;
     if functions.is_empty() {
         return Err(ShadingError::Malformed {
             detail: "no /Function".to_owned(),
@@ -890,8 +1019,9 @@ fn device_program(
 /// `pdf_render::ColoursAtDeviceScale`. Self-contained for ADR 0210's reason: `Document`
 /// caches behind `RefCell` and is not `Sync`, and a display list is drawn on every core.
 struct FunctionColours {
-    /// The shading's `/Function` group: one 2-in n-out function, or n 2-in 1-out ones.
-    functions: Vec<Function>,
+    /// The shading's `/Function` group: one 2-in n-out function, or n 2-in 1-out ones —
+    /// shared with the [`Cache`]'s memo, which is why it is an `Arc`.
+    functions: Arc<[Function]>,
     /// The shading's colour space, resolved when the shading was built.
     space: ColourSpace,
     /// How the colours are converted: the target (ADR 0220) and §8.6.5.9's black point.
@@ -1188,5 +1318,186 @@ fn narrow(value: f64) -> f32 {
     )]
     {
         value as f32
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pdf_render::Transform;
+    use pdf_syntax::{Dictionary, Document, Object, ObjectId};
+
+    use super::{Cache, Colouring};
+    use crate::colour::{Compositing, Conversion, DeviceSpots, Plane, device_ink_press};
+    use crate::icc::Rendering;
+
+    /// A file of five shadings over shared functions, each spelling its `/Function` one way.
+    ///
+    /// Every shading states `/DeviceCMYK` by *name*, which [`Cache::built`] does not key, so each
+    /// build below goes through the memo of parsed functions and nothing else is remembered.
+    ///
+    /// - 1: `/Function 2 0 R`, a type 0 function of four outputs (§7.10.2), its samples a stream.
+    /// - 3: `/Function [4 0 R 5 0 R 6 0 R 7 0 R]`, one type 2 function per component.
+    /// - 9: `/Function 8 0 R`, where object 8 is that same array of four.
+    /// - 10: `/Function [8 0 R]`, which names the array as though it were one function.
+    fn document() -> Document {
+        let shading = |function: &str| {
+            format!(
+                "<< /ShadingType 2 /ColorSpace /DeviceCMYK /Coords [0 0 100 0] \
+                 /Function {function} >>"
+            )
+        };
+        let component =
+            |c1: &str| format!("<< /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [{c1}] /N 1 >>");
+        let mut bytes = b"%PDF-1.7\n".to_vec();
+        let mut object = |number: u32, body: &[u8]| {
+            bytes.extend_from_slice(format!("{number} 0 obj\n").as_bytes());
+            bytes.extend_from_slice(body);
+            bytes.extend_from_slice(b"\nendobj\n");
+        };
+        object(1, shading("2 0 R").as_bytes());
+        // Two samples of four components each, eight bits a component: cyan rising, black
+        // falling, so that the two planes of §11.4.7 make two different ramps of it.
+        let mut sampled = b"<< /FunctionType 0 /Domain [0 1] /Range [0 1 0 1 0 1 0 1] \
+                            /Size [2] /BitsPerSample 8 /Length 8 >>\nstream\n"
+            .to_vec();
+        sampled.extend_from_slice(&[0x00, 0x20, 0x40, 0xff, 0xff, 0x20, 0x40, 0x00]);
+        sampled.extend_from_slice(b"\nendstream");
+        object(2, &sampled);
+        object(3, shading("[4 0 R 5 0 R 6 0 R 7 0 R]").as_bytes());
+        object(4, component("1").as_bytes());
+        object(5, component("0.5").as_bytes());
+        object(6, component("0.25").as_bytes());
+        object(7, component("0.75").as_bytes());
+        object(8, b"[4 0 R 5 0 R 6 0 R 7 0 R]");
+        object(9, shading("8 0 R").as_bytes());
+        object(10, shading("[8 0 R]").as_bytes());
+        bytes.extend_from_slice(b"trailer\n<< /Root 11 0 R >>\n");
+        Document::open(bytes).expect("the fixture opens")
+    }
+
+    fn reference(number: u32) -> Object {
+        Object::Reference(ObjectId {
+            number,
+            generation: 0,
+        })
+    }
+
+    /// The black plane of a `DeviceCMYK` group (§11.4.7), which is the conversion a page's
+    /// four-component group builds its shadings under a second time.
+    fn black_plane() -> Conversion {
+        Conversion::new(
+            Compositing::Subtractive(Plane::Black, device_ink_press(), DeviceSpots::default()),
+            Rendering::default(),
+        )
+    }
+
+    /// The memo hands the second conversion's build the functions the first parsed, and that
+    /// build is the one a cache that never saw the first makes — bit for bit, on both.
+    #[test]
+    fn a_function_parsed_under_one_conversion_builds_what_a_parse_builds_under_another() {
+        let document = document();
+        let resources = Dictionary::default();
+        let device = Conversion::device();
+        let black = black_plane();
+        let mut cache = Cache::default();
+        for (number, groups) in [(1, 1), (3, 2), (9, 3)] {
+            let mut built = Vec::new();
+            for into in [&device, &black] {
+                let colouring = Colouring::new(None, into);
+                let memoised = cache
+                    .build(
+                        &document,
+                        &reference(number),
+                        &resources,
+                        Transform::IDENTITY,
+                        colouring,
+                    )
+                    .expect("builds");
+                let fresh = Cache::default()
+                    .build(
+                        &document,
+                        &reference(number),
+                        &resources,
+                        Transform::IDENTITY,
+                        colouring,
+                    )
+                    .expect("builds");
+                assert_eq!(memoised.shading, fresh.shading, "shading {number}");
+                built.push(memoised.shading);
+            }
+            assert_ne!(
+                built[0], built[1],
+                "shading {number}: the two planes make two ramps, so the conversion is still asked"
+            );
+            assert_eq!(
+                cache.functions.groups.len(),
+                groups,
+                "after shading {number}"
+            );
+        }
+    }
+
+    /// `/Function 8 0 R` and `/Function [8 0 R]` are two questions, and the second is refused by
+    /// §7.10.1's own rule that a function is a dictionary or a stream: object 8 is an array.
+    #[test]
+    fn a_reference_to_an_array_is_not_an_array_of_one_reference() {
+        let document = document();
+        let resources = Dictionary::default();
+        let device = Conversion::device();
+        let colouring = Colouring::new(None, &device);
+        let mut cache = Cache::default();
+        cache
+            .build(
+                &document,
+                &reference(9),
+                &resources,
+                Transform::IDENTITY,
+                colouring,
+            )
+            .expect("the array object is a group of four");
+        assert!(
+            cache
+                .build(
+                    &document,
+                    &reference(10),
+                    &resources,
+                    Transform::IDENTITY,
+                    colouring
+                )
+                .is_err(),
+            "an array named as one function was answered with the group the array makes"
+        );
+    }
+
+    /// A group the bound will not hold is parsed for the build that asked and not kept.
+    #[test]
+    fn a_group_past_the_bound_is_parsed_and_not_kept() {
+        let document = document();
+        let resources = Dictionary::default();
+        let device = Conversion::device();
+        let colouring = Colouring::new(None, &device);
+        let mut cache = Cache::default();
+        cache.functions.limit = 1;
+        let shaded = cache
+            .build(
+                &document,
+                &reference(1),
+                &resources,
+                Transform::IDENTITY,
+                colouring,
+            )
+            .expect("builds");
+        let fresh = Cache::default()
+            .build(
+                &document,
+                &reference(1),
+                &resources,
+                Transform::IDENTITY,
+                colouring,
+            )
+            .expect("builds");
+        assert_eq!(shaded.shading, fresh.shading);
+        assert!(cache.functions.groups.is_empty());
+        assert_eq!(cache.functions.held, 0);
     }
 }

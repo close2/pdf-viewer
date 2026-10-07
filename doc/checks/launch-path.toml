@@ -258,6 +258,17 @@ calibration_ms = 0.62 .. 0.78
 # itself rather than as a slower page. The Vulkan loader's software driver, `lavapipe`, is about
 # 3.5 ms of every figure here, and only a launcher's environment can leave it out
 # (`doc/questions/Q270`). The device thread's steps are printed beneath this figure on every run.
+#
+# **It keeps its band and this reason, read again on a quiet machine** (ADR 1647). Sixteen gate runs
+# on 2026-10-07 at a one-minute load of 0.96 to 2.87 read 15.51 to 19.76 ms in fifteen and 21.26 in
+# one; round 1398's 20.70 is the same excursion. Children born after 1.5 s of idle read 4.4 ms
+# more on average than children born back to back, the adapter check carrying 2.5 of it, and a
+# 30 ms spin on the pinned cores first moved nothing
+# (19.4 to 24.5 against 19.9 to 25.5), so it is the device's idle state rather than the processor's
+# clock and no warm-up of this gate's can remove it. The file's rule over the sixteen would put the
+# ceiling at 25.5, inside the 25.2 to 28.3 that GL's return read, which is the regression this
+# band exists to name; one run in sixteen past the edge by 0.66 ms is not a band failing on
+# alternate runs.
 bring_up_ms = 13.6 .. 20.6
 
 # What the device costs in *allocated* memory, in the same process that has done nothing else.
@@ -424,11 +435,20 @@ warm_open_ms = 0.23 .. 0.35
 # both arms; the interpretation alone at one rayon thread reads 36.4 against 35.7 MiB resident,
 # and at two to eight 39.0 to 39.5 against 47.7 to 48.0. The three gate runs read 53.24, 53.24 and
 # 53.46 MiB against 44.5 to 46.2 before, and the band is this file's allocation rule over them.
+#
+# **The floor was 47.5 and is 41.0, because the overlap is the scheduler's** (ADR 1647). Whether the
+# stencils' and the images' transient buffers are held at once is decided by which thread gets
+# where first, so the figure has two modes: sixteen gate runs on 2026-10-07 at a load of 0.96 to
+# 2.87 read 52.81 to 55.60 MiB in fifteen and 45.91 in one, and forty children born after 1.5 s of
+# idle read 53.5 to 54.7 in thirty-nine and 46.3 in the first. The low mode is the figure before
+# the two ran side by side, 44.5 to 46.2. The floor is this file's allocation rule over the new
+# smallest, 45.91 less a tenth, rounded down to half a mebibyte; the ceiling stays, 3.4 MiB above
+# the largest reading of either mode.
 first_page_ms = 24.0 .. 36.2
 turn_ms = none
 script_spawn_ms = none
 script_first_run_ms = none
-peak_anon_mib = 47.5 .. 59.0
+peak_anon_mib = 41.0 .. 59.0
 open_peak_mib = 5 .. 9
 read_kib = 83 .. 87
 read_calls = 23 .. 27

@@ -957,6 +957,12 @@ pub struct PopupWindow {
     /// first and a document's freshness by the second. `pdf_model::popup::Popup::created_date`
     /// is the parsed form for a host that formats it.
     pub created: Option<String>,
+    /// Table 172's `/RC` with its formatting: "[a] rich text string … that shall be displayed in
+    /// the popup window when the annotation is opened".
+    ///
+    /// A host draws this in place of [`Self::text`] where it is `Some`, and says each of its
+    /// `unapplied` phrases under the note; `None` is a window whose text is plain (ADR 1642).
+    pub rich: Option<pdf_model::popup::RichNote>,
     /// §12.5.6.2's thread: the replies this window shows rather than opening windows of their own.
     ///
     /// Table 172 makes that a `shall` on a processor — "[i]nteractive PDF processors shall not

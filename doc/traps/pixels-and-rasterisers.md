@@ -540,6 +540,16 @@ the cores the child is NOT pinned to give 13.3–13.9 ms on both trees at a load
 one package, one clock and power budget (ADR 1556). The band keeps its reason; a gate that warms the
 processor before measuring would be a decision of its own.
 
+### 127. An excess that follows idle time is not always the processor's clock, and a "before" build never waits on a pipe
+
+Bring-up read 4.4 ms higher in children born after an idle second, 2.5 ms of it in the adapter check; a 30 ms spin on the pinned cores
+before the child moved nothing, so the idle state is the device's or the kernel's and the gate's processor warm-up cannot hold it —
+the band keeps its width with that reason (ADR 1647). The next step is `strace -T` of the ioctls of an idle-born child against a
+back-to-back one. And a round's "before" build in the shared worktree is a reversed patch sitting in the tree: round 1404's
+`tools/bounded.sh … | tail -1` hung for twenty minutes behind a descriptor the mid-edit wrapper left open, the re-apply step
+after it never ran, and HEAD's own code stood in the tree meanwhile — re-apply in a step that runs whatever the build's exit,
+and never behind a pipe.
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

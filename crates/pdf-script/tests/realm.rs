@@ -324,6 +324,53 @@ fn calculate_now_and_reset_form_are_edits() {
     );
 }
 
+/// Adobe's "Doc properties" page: `pageNum` is the current page, zero-based, read and written, with
+/// `this.pageNum = 0` and `this.pageNum++` as its two examples. The requests here are on page 1 of
+/// four; a value that names no page is this tree's documented choice (ADR 1640).
+#[test]
+fn a_write_to_page_num_is_a_page_turn_the_script_reads_back() {
+    let mut realm = realm();
+    let first = calculate(&mut realm, "this.pageNum = 0; event.value = this.pageNum;");
+    assert_eq!(first.ending, Ending::Finished, "{first:?}");
+    assert_eq!(first.edits, vec![ScriptEdit::GoTo { page: 0 }]);
+    assert_eq!(first.value.as_deref(), Some("0"));
+    assert!(first.refusals.is_empty(), "{first:?}");
+
+    let next = calculate(&mut realm, "this.pageNum++; event.value = this.pageNum;");
+    assert_eq!(next.edits, vec![ScriptEdit::GoTo { page: 2 }]);
+    assert_eq!(next.value.as_deref(), Some("2"));
+
+    let twice = calculate(&mut realm, "this.pageNum = 3; this.pageNum = '1.7';");
+    assert_eq!(
+        twice.edits,
+        vec![ScriptEdit::GoTo { page: 1 }],
+        "the latest turn of a run is carried, its number truncated"
+    );
+
+    let nowhere = calculate(
+        &mut realm,
+        "this.pageNum = 4; this.pageNum = -1; this.pageNum = 'x'; event.value = this.pageNum;",
+    );
+    assert_eq!(nowhere.ending, Ending::Finished, "{nowhere:?}");
+    assert!(nowhere.edits.is_empty(), "{nowhere:?}");
+    assert_eq!(nowhere.value.as_deref(), Some("1"), "the page stays");
+    assert_eq!(
+        nowhere
+            .notes
+            .iter()
+            .filter(|note| note.contains("names no page of this document's 4"))
+            .count(),
+        3,
+        "{nowhere:?}"
+    );
+
+    let thrown = calculate(&mut realm, "this.pageNum = 2; throw new Error('late');");
+    assert!(
+        thrown.edits.is_empty(),
+        "a run that throws turns nothing: {thrown:?}"
+    );
+}
+
 #[test]
 fn the_event_names_its_site_its_target_and_its_source() {
     let mut realm = realm();

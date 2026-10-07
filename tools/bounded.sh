@@ -18,7 +18,7 @@
 #
 # So the bound here is the *walk's*, and a shard takes a share of it:
 #
-#   tools/bounded.sh [--shards N] [--data GiB] [--tree GiB] [--tasks N] [--nice n] -- <command> [args…]
+#   tools/bounded.sh [--lock [--round N]] [--shards N] [--data GiB] [--tree GiB] [--tasks N] [--nice n] -- <command> [args…]
 #
 #   --shards N   this process is one of N run side by side (default 1). It gets nproc/N rayon
 #                threads and (walk budget)/N of data, so the walk as a whole never exceeds the
@@ -37,6 +37,13 @@
 #                so it is written down once (`ulimit -u "$(tools/bounded.sh --task-budget)"`).
 #   --nice n     the niceness (default 19: everything here runs behind the owner's desktop and
 #                behind any round's gates).
+#   --lock       take the heavy-walk lock (/home/AI/heavy-walk.lock) before the command starts, hold
+#                it until the wrapper ends, and append one line to /home/AI/heavy-walk.log saying how
+#                long the run queued for it and how long it held it (below). An ancestor that holds
+#                the lock already — `flock <lock> tools/bounded.sh --lock …` — is found and used,
+#                never queued behind.
+#   --round N    the round's session number, written on that line so a round's lock time can be
+#                read off the log (default `-`).
 #   --self-test  run the sampler against synthetic process tables and against live trees — one
 #                that fans out, one that crosses the ceiling, one whose sampler stalls, one that
 #                forks past a task limit of its own — and exit 0 only if every case holds. `tools/conformance/tests/bounded.rs` runs it under
@@ -96,6 +103,16 @@
 # nor the tree ceiling, which a stalled `ps` cannot sample anyway, was the bound that could act.
 # RLIMIT_NPROC is: `fork` and `clone` fail with EAGAIN once the user holds that many tasks, at the
 # call, with nothing to sample. ADR 1612.
+#
+# **And the lock's cost was nobody's number.** One heavy walk on the machine at a time is rule 1
+# above, kept by `flock` on one file; three records put a round's queue for it at 350 to 3 900 s,
+# each by hand, and the question whether the machine wants a second lock was declined for want of
+# a count (doc/reviews/1401, section 3). So `--lock` takes the lock here and writes one line per run
+# when the wrapper ends — `<asked> batch=<branch> round=<N> wait=<s> hold=<s> exit=<status>
+# cmd=<command>`, the branch being the batch's (that of the tree this script is in) —
+# and `tools/state.sh gates-cost` prints the last batch's lines and each round's sum. The descriptor
+# is inherited by the command, as `flock <lock> <command>` leaves it, so the lock is held while
+# anything the walk started still runs, a wrapper killed under it included. ADR 1646.
 
 set -u -o pipefail
 
@@ -130,6 +147,13 @@ blind_limit=6
 task_budget=8192
 tasks=$task_budget
 
+# The lock every round's walks queue on, and the log of what they paid for it. The two variables
+# exist for the self-test, which takes a lock of its own and must never queue behind a real walk.
+lock_path=${HEAVY_WALK_LOCK:-/home/AI/heavy-walk.lock}
+lock_log=${HEAVY_WALK_LOG:-/home/AI/heavy-walk.log}
+take_lock=
+round=-
+
 while [ $# -gt 0 ]; do
     case "$1" in
         --shards) shards=$2; shift 2 ;;
@@ -138,6 +162,8 @@ while [ $# -gt 0 ]; do
         --tasks) tasks=$2; shift 2 ;;
         --task-budget) echo "$task_budget"; exit 0 ;;
         --nice) niceness=$2; shift 2 ;;
+        --lock) take_lock=1; shift ;;
+        --round) round=$2; shift 2 ;;
         --self-test) self_test=1; shift ;;
         --) shift; break ;;
         -h|--help) usage ;;
@@ -240,6 +266,51 @@ watch_tree() {
         sleep "$sample_interval"
     done
 }
+
+# ---------------------------------------------------------------------------------------------
+# The lock.
+#
+# `lock_take` sets `lock_fd`, `asked_ms` and `held_ms`. A descriptor this process already has open
+# on the lock file is an ancestor's — `flock <lock> tools/bounded.sh --lock …` — and is locked
+# again rather than a second one opened: `flock` locks an open file description, so a second
+# description of the same file would queue behind the caller's own lock for ever, while the
+# inherited one is granted at once. The wait is printed when there is one, so a round watching its
+# shell knows what it is waiting for.
+now_ms() { echo $(( $(date +%s%N) / 1000000 )); }
+lock_take() {
+    local target link
+    lock_fd=
+    if [ -e "$lock_path" ]; then
+        target=$(readlink -f -- "$lock_path")
+        for link in /proc/$$/fd/*; do
+            if [ "$(readlink -- "$link" 2>/dev/null)" = "$target" ]; then
+                lock_fd=${link##*/}
+                break
+            fi
+        done
+    fi
+    [ -n "$lock_fd" ] || exec {lock_fd}>>"$lock_path" || return 1
+    asked_ms=$(now_ms)
+    if ! flock -n "$lock_fd"; then
+        echo "bounded: queued for the heavy-walk lock $lock_path at $(date '+%H:%M:%S')" >&2
+        flock "$lock_fd" || return 1
+    fi
+    held_ms=$(now_ms)
+}
+
+# `lock_record STATUS` appends the run's one line, if it held the lock. Shorter than `PIPE_BUF`
+# and written with `O_APPEND` while the lock is still held, so two wrappers cannot interleave one.
+lock_record() {
+    [ -n "${held_ms:-}" ] || return 0
+    local ended_ms
+    ended_ms=$(now_ms)
+    printf '%s batch=%s round=%s wait=%ss hold=%ss exit=%s cmd=%s\n' \
+        "$(date -d "@$(( asked_ms / 1000 ))" '+%Y-%m-%dT%H:%M:%S')" "$batch" "$round" \
+        "$(seconds $(( held_ms - asked_ms )))" "$(seconds $(( ended_ms - held_ms )))" "$1" \
+        "$command_words" >> "$lock_log" ||
+        echo "bounded: the lock was held, and its line could not be appended to $lock_log" >&2
+}
+seconds() { awk -v ms="$1" 'BEGIN { printf "%.1f", ms / 1000 }'; }
 
 # ---------------------------------------------------------------------------------------------
 # The self-test: each case prints one line, and the script exits 1 on the first that fails.
@@ -368,6 +439,37 @@ print(f"all {born} forks succeeded", file=sys.stderr)
         echo "bounded --self-test: NOT RUN — the task-limit case wants python3 for its fork loop, and there is none" >&2
     fi
 
+    # 7. The lock, on a file of the case's own. A holder keeps it for two seconds: a `--lock` run
+    #    queues behind it, passes its command's status through, and writes one line whose wait is
+    #    at least a second — the calibration, since a wrapper that did not take the lock reads 0.0.
+    #    A second run finds it free and waits nothing; a third runs under `flock` on the same file
+    #    and must finish rather than queue behind its own caller; and the lock is free afterwards.
+    lock_case() { HEAVY_WALK_LOCK="$scratch/lock" HEAVY_WALK_LOG="$scratch/lock.log" "$self" "$@"; }
+    ( flock "$scratch/lock" sh -c ': > "$0"; sleep 2' "$scratch/held" ) &
+    holder=$!
+    for _ in $(seq 50); do [ -e "$scratch/held" ] && break; sleep 0.1; done
+    [ -e "$scratch/held" ] || fail "lock: the case's own holder never took its lock"
+    lock_case --lock --round 7 --tree 1 --data 1 --nice 0 -- sh -c 'exit 3' > /dev/null 2> "$scratch/lock.err"
+    status=$?
+    wait "$holder"
+    [ "$status" -eq 3 ] || fail "lock: exit $status, wanted the command's 3: $(tail -n 1 "$scratch/lock.err")"
+    grep -q 'queued for the heavy-walk lock' "$scratch/lock.err" || fail "lock: the wait was not said: $(cat "$scratch/lock.err")"
+    lock_case --lock --round 7 --tree 1 --data 1 --nice 0 -- true > /dev/null 2>&1 || fail "lock: a free lock's run failed"
+    timeout 20 flock "$scratch/lock" env HEAVY_WALK_LOCK="$scratch/lock" HEAVY_WALK_LOG="$scratch/lock.log" \
+        "$self" --lock --round 7 --tree 1 --data 1 --nice 0 -- true > /dev/null 2>&1 ||
+        fail "lock: a run under its caller's flock did not finish (exit $?): it queued behind its own caller"
+    flock -n "$scratch/lock" true || fail "lock: the lock is still held after every run ended"
+    [ "$(wc -l < "$scratch/lock.log")" = 3 ] || fail "lock: $(wc -l < "$scratch/lock.log") lines logged, wanted 3: $(cat "$scratch/lock.log")"
+    first_wait=$(sed -n '1s/.* wait=\([0-9.]*\)s .*/\1/p' "$scratch/lock.log")
+    awk -v w="$first_wait" 'BEGIN { exit !(w >= 1.0) }' || fail "lock: the queued run logged wait=${first_wait}s, wanted at least a second: $(head -n 1 "$scratch/lock.log")"
+    grep -q '^[0-9T:-]* batch=[^ ]* round=7 wait=[0-9.]*s hold=[0-9.]*s exit=3 cmd=sh -c exit 3 *$' "$scratch/lock.log" ||
+        fail "lock: the line is not the shape the header states: $(head -n 1 "$scratch/lock.log")"
+    for line in 2 3; do
+        [ "$(sed -n "${line}s/.* wait=\([0-9.]*\)s .*/\1/p" "$scratch/lock.log")" = 0.0 ] ||
+            fail "lock: run $line found the lock free or its caller's and still waited: $(sed -n "${line}p" "$scratch/lock.log")"
+    done
+    echo "bounded --self-test: a run queued ${first_wait}s behind a holder, one found the lock free and one its caller's, each logged"
+
     echo "bounded --self-test: every case holds"
     exit 0
 fi
@@ -402,9 +504,25 @@ tree_kib=$(( tree_gib * 1024 * 1024 ))
 # caller that has set it already knows better than the share.
 export RAYON_NUM_THREADS="${RAYON_NUM_THREADS:-$threads}"
 
+# A signal ends the wrapper through `exit`, so the trap below still writes the lock's line; the
+# command is a child and keeps its own dispositions.
+scratch=
+trap 'code=$?; lock_record "$code"; [ -z "$scratch" ] || rm -rf "$scratch"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+if [ -n "$take_lock" ]; then
+    command_words=$(printf '%s ' "$@" | tr '\n\t' '  ' | cut -c1-200)
+    # The branch of the tree this script is in, not of the directory it was called from: a round
+    # measuring in a private export of HEAD calls the batch worktree's wrapper from there, and its
+    # line is still the batch's.
+    batch=$(git -C "$(dirname -- "${BASH_SOURCE[0]}")" rev-parse --abbrev-ref HEAD 2>/dev/null) || batch=-
+    lock_take || { echo "bounded: could not take the heavy-walk lock $lock_path" >&2; exit 75; }
+fi
+
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/bounded.XXXXXX") || exit 1
 errlog="$scratch/stderr"
-trap 'rm -rf "$scratch"' EXIT
 
 # The command's standard error goes through a pipe and `tee`, never straight to a file: a file
 # is what a limit can reach (trap 18) and a pipe is not. Its standard output stays its own —

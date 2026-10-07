@@ -1516,6 +1516,7 @@ pub(super) fn encode_popups(writer: &mut Writer, popups: &[PopupWindow]) {
             subject,
             created,
             colour,
+            rich,
             replies,
         } = popup;
         writer
@@ -1539,6 +1540,7 @@ pub(super) fn encode_popups(writer: &mut Writer, popups: &[PopupWindow]) {
                 writer.u8(0);
             }
         }
+        encode_rich(writer, rich.as_ref());
         // §12.5.6.2's thread. It crosses the boundary with the window because Table 172 makes
         // showing it there a `shall` — replies are not displayed "individually but together in
         // the form of threaded comments" — so a panel that received the window without them
@@ -1554,6 +1556,7 @@ pub(super) fn encode_popups(writer: &mut Writer, popups: &[PopupWindow]) {
                 modified,
                 subject,
                 created,
+                rich,
             } = reply;
             writer.object(*annotation).option_object(*parent);
             writer.usize(*depth);
@@ -1563,8 +1566,145 @@ pub(super) fn encode_popups(writer: &mut Writer, popups: &[PopupWindow]) {
                 .option_str(modified.as_deref())
                 .option_str(subject.as_deref())
                 .option_str(created.as_deref());
+            encode_rich(writer, rich.as_ref());
         }
     }
+}
+
+/// Encodes Table 172's `/RC` as a window shows it, which crosses with the window for the reason
+/// the thread does: the formatting is a `shall` about the popup window (ADR 1642).
+fn encode_rich(writer: &mut Writer, rich: Option<&pdf_model::popup::RichNote>) {
+    let Some(note) = rich else {
+        writer.u8(0);
+        return;
+    };
+    writer.u8(1).usize(note.paragraphs.len());
+    for paragraph in &note.paragraphs {
+        writer.u8(match paragraph.align {
+            None => 0,
+            Some(pdf_model::popup::RichAlign::Left) => 1,
+            Some(pdf_model::popup::RichAlign::Centre) => 2,
+            Some(pdf_model::popup::RichAlign::Right) => 3,
+            Some(pdf_model::popup::RichAlign::Justify) => 4,
+        });
+        writer.u32(u32::from(paragraph.level));
+        match &paragraph.tag {
+            Some(tag) => {
+                writer.u8(1);
+                encode_run(writer, tag);
+            }
+            None => {
+                writer.u8(0);
+            }
+        }
+        writer.usize(paragraph.runs.len());
+        for run in &paragraph.runs {
+            encode_run(writer, run);
+        }
+    }
+    writer.strings(&note.unapplied);
+}
+
+/// One run of a rich note, every field of it.
+fn encode_run(writer: &mut Writer, run: &pdf_model::popup::RichRun) {
+    let pdf_model::popup::RichRun {
+        text,
+        families,
+        size,
+        bold,
+        italic,
+        colour,
+        underlines,
+        underline_by_word,
+        line_through,
+        rise,
+    } = run;
+    writer.str(text).strings(families);
+    writer.f32(size.per_base).f32(size.points);
+    writer.bool(*bold).bool(*italic);
+    match colour {
+        Some(Color { r, g, b, a }) => {
+            writer.u8(1).f32(*r).f32(*g).f32(*b).f32(*a);
+        }
+        None => {
+            writer.u8(0);
+        }
+    }
+    writer
+        .u8(*underlines)
+        .bool(*underline_by_word)
+        .bool(*line_through);
+    writer.f32(rise.per_base).f32(rise.points);
+}
+
+/// Reads what [`encode_rich`] wrote.
+fn decode_rich(
+    reader: &mut Reader<'_>,
+) -> Result<Option<pdf_model::popup::RichNote>, ProtocolError> {
+    if !reader.bool("a popup's rich text")? {
+        return Ok(None);
+    }
+    let paragraphs = reader.list("a rich note's paragraphs", |reader| {
+        let what = "a rich paragraph's alignment";
+        let align = match reader.u8(what)? {
+            0 => None,
+            1 => Some(pdf_model::popup::RichAlign::Left),
+            2 => Some(pdf_model::popup::RichAlign::Centre),
+            3 => Some(pdf_model::popup::RichAlign::Right),
+            4 => Some(pdf_model::popup::RichAlign::Justify),
+            value => return Err(unrecognised(what, value)),
+        };
+        let what = "a rich paragraph's list level";
+        let level = reader.u32(what)?;
+        let level =
+            u16::try_from(level).map_err(|_| ProtocolError::Unrecognised { what, value: level })?;
+        let tag = if reader.bool("a list item's tag")? {
+            Some(decode_run(reader)?)
+        } else {
+            None
+        };
+        Ok(pdf_model::popup::RichParagraph {
+            align,
+            level,
+            tag,
+            runs: reader.list("a rich paragraph's runs", decode_run)?,
+        })
+    })?;
+    Ok(Some(pdf_model::popup::RichNote {
+        paragraphs,
+        unapplied: reader.strings("a rich note's unapplied properties")?,
+    }))
+}
+
+/// Reads what [`encode_run`] wrote.
+fn decode_run(reader: &mut Reader<'_>) -> Result<pdf_model::popup::RichRun, ProtocolError> {
+    Ok(pdf_model::popup::RichRun {
+        text: reader.string("a rich run's text")?,
+        families: reader.strings("a rich run's families")?,
+        size: pdf_model::popup::Measure {
+            per_base: reader.f32("a rich run's size")?,
+            points: reader.f32("a rich run's size")?,
+        },
+        bold: reader.bool("a rich run's weight")?,
+        italic: reader.bool("a rich run's posture")?,
+        colour: if reader.bool("a rich run's colour")? {
+            Some(Color {
+                r: reader.f32("a rich run's colour")?,
+                g: reader.f32("a rich run's colour")?,
+                b: reader.f32("a rich run's colour")?,
+                a: reader.f32("a rich run's colour")?,
+            })
+        } else {
+            None
+        },
+        underlines: reader.u8("a rich run's underline")?,
+        underline_by_word: reader.bool("a rich run's underline")?,
+        line_through: reader.bool("a rich run's line through")?,
+        rise: pdf_model::popup::Measure {
+            per_base: reader.f32("a rich run's rise")?,
+            points: reader.f32("a rich run's rise")?,
+        },
+    })
 }
 
 /// Reads §12.5.6.14's open popup windows.
@@ -1589,6 +1729,7 @@ pub(super) fn decode_popups(reader: &mut Reader<'_>) -> Result<Vec<PopupWindow>,
             } else {
                 None
             },
+            rich: decode_rich(reader)?,
             replies: reader.list("a popup's thread", |reader| {
                 Ok(Comment {
                     annotation: reader.object("a reply")?,
@@ -1599,6 +1740,7 @@ pub(super) fn decode_popups(reader: &mut Reader<'_>) -> Result<Vec<PopupWindow>,
                     modified: reader.option_string("a reply's modification date")?,
                     subject: reader.option_string("a reply's subject")?,
                     created: reader.option_string("a reply's creation date")?,
+                    rich: decode_rich(reader)?,
                 })
             })?,
         })

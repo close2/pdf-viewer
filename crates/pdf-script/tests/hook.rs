@@ -188,6 +188,8 @@ fn with_no_runner_the_open_says_how_many_document_level_scripts_went_unrun() {
 
 #[cfg(feature = "engine")]
 mod engine {
+    use std::fmt::Write as _;
+
     use super::{Entered, ViewState, document, one_field, text_field};
     use pdf_model::action::{PageTrigger, Trigger as AnnotationTrigger};
     use pdf_model::view::{Committed, Property};
@@ -494,6 +496,98 @@ mod engine {
             view.script_reports()
                 .iter()
                 .all(|sentence| !sentence.contains("Field.textColor")),
+            "{:?}",
+            view.script_reports()
+        );
+    }
+
+    /// Three pages, objects 3 to 5, and the text fields `fields`, objects from 6, each on the
+    /// zero-based page it names and holding the `/K` script it names.
+    fn three_pages(fields: &[(&str, usize, &str)]) -> Document {
+        let mut bodies = vec![
+            format!(
+                "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [{}] >> >>",
+                (0..fields.len())
+                    .map(|index| format!("{} 0 R", index.saturating_add(6)))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            ),
+            "<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 >>".to_owned(),
+        ];
+        for page in 0..3_usize {
+            let annots: Vec<String> = fields
+                .iter()
+                .enumerate()
+                .filter(|(_, (_, on, _))| *on == page)
+                .map(|(index, _)| format!("{} 0 R", index.saturating_add(6)))
+                .collect();
+            bodies.push(format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Annots [{}] >>",
+                annots.join(" ")
+            ));
+        }
+        for (name, page, script) in fields {
+            bodies.push(format!(
+                "<< /Type /Annot /Subtype /Widget /FT /Tx /T ({name}) /Rect [10 10 210 40] /F 4 \
+                 /P {} 0 R /DA (/Helv 10 Tf 0 g) /AA << /K << /S /JavaScript /JS ({script}) >> >> >>",
+                page.saturating_add(3)
+            ));
+        }
+        let mut out = String::from("%PDF-1.7\n");
+        let mut offsets = Vec::new();
+        for (index, body) in bodies.iter().enumerate() {
+            offsets.push(out.len());
+            let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index.saturating_add(1));
+        }
+        let xref_at = out.len();
+        let size = bodies.len().saturating_add(1);
+        let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+        for offset in &offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            out,
+            "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+        );
+        Document::open(out.into_bytes()).expect("the fixture opens")
+    }
+
+    /// Adobe's "Doc properties" page: `this.pageNum++` advances the document to the next page. A
+    /// field's script reads the page its widget is on, so the turn counts from there; the view
+    /// state holds the turn for a host to make, once, and a turn past the last page is said rather
+    /// than made (ADR 1640).
+    #[test]
+    fn a_field_script_s_page_turn_counts_from_its_own_page_and_waits_for_the_host() {
+        let next = "if \\(event.willCommit\\) this.pageNum++;";
+        let document = three_pages(&[("Middle", 1, next), ("Last", 2, next)]);
+        let mut view = engine_view(&document);
+        assert_eq!(
+            view.take_page_request(),
+            None,
+            "no script has turned a page"
+        );
+        assert!(view.set_field(&document, "Middle", &Entered::Text("1".to_owned())) > 0);
+        assert_eq!(view.commit_field(&document, "Middle"), Committed::Accepted);
+        assert_eq!(
+            view.take_page_request(),
+            Some(2),
+            "{:?}",
+            view.script_reports()
+        );
+        assert_eq!(view.take_page_request(), None, "taken once");
+
+        assert!(view.set_field(&document, "Last", &Entered::Text("1".to_owned())) > 0);
+        assert_eq!(view.commit_field(&document, "Last"), Committed::Accepted);
+        assert_eq!(
+            view.take_page_request(),
+            None,
+            "{:?}",
+            view.script_reports()
+        );
+        assert!(
+            view.script_reports()
+                .iter()
+                .any(|sentence| sentence.contains("names no page of this document's 3")),
             "{:?}",
             view.script_reports()
         );

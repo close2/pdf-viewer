@@ -153,6 +153,15 @@ impl ApplicationHandler for App {
     /// event, so a still window spends no tick, wakes for nothing and presents nothing. The rate
     /// is a ceiling on latency and never a duty to draw.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // A script's question whose wait has run out: a tick of no time is the command after which
+        // the viewer asks, and the withdrawal it then sends takes the card down (ADR 1643).
+        if self
+            .script_wait
+            .is_some_and(|wake| std::time::Instant::now() >= wake)
+        {
+            self.script_wait = None;
+            self.dispatch(Command::Tick { millis: 0 });
+        }
         // The next document named beside this one, outside every pump: a document that settles
         // does so inside one, and starting the next from there would nest a second (ADR 1275).
         if std::mem::take(&mut self.arrival_due) {
@@ -199,7 +208,10 @@ impl ApplicationHandler for App {
             // the turn after it ran out, which is what makes this a *transition* rather than a
             // second presentation mode (ADR 1216).
             let Some(effect) = self.effect.as_mut() else {
-                event_loop.set_control_flow(ControlFlow::Wait);
+                event_loop.set_control_flow(
+                    self.script_wait
+                        .map_or(ControlFlow::Wait, ControlFlow::WaitUntil),
+                );
                 return;
             };
             // Armed and not yet begun is not spent: the effect is drawn when the page it moves

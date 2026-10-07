@@ -41,9 +41,15 @@ fn pdf(annotation: &str, form: &str) -> Vec<u8> {
 
 /// The same, with object definitions numbered from 8 written after the seven every fixture has.
 fn pdf_with(annotation: &str, form: &str, extra: &str) -> Vec<u8> {
+    pdf_with_fonts(annotation, form, extra, "")
+}
+
+/// The same, with more `/DR` fonts named beside the two.
+fn pdf_with_fonts(annotation: &str, form: &str, extra: &str, fonts: &str) -> Vec<u8> {
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm \
-         << /Fields [5 0 R] /DR << /Font << /Helv 6 0 R /HeBo 7 0 R >> >> {form} >> >>\nendobj\n\
+         << /Fields [5 0 R] /DR << /Font << /Helv 6 0 R /HeBo 7 0 R {fonts} >> >> {form} >> >>\n\
+         endobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] \
          /Resources << >> /Contents 4 0 R /Annots [5 0 R] >>\nendobj\n\
@@ -924,4 +930,385 @@ fn a_save_writes_the_rich_text_string_beside_the_value() {
         reopened.get_key(&dict, "RV").is_null(),
         "a value gone takes its /RV with it"
     );
+}
+
+/// An FDF file with the header §12.7.8.2.2 states and the trailer §12.7.8.2.4 does.
+fn fdf(fdf_dictionary: &str) -> Document {
+    let bytes = format!(
+        "%FDF-1.2\n1 0 obj\n<< /FDF {fdf_dictionary} >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n"
+    );
+    Document::open(bytes.into_bytes()).expect("an FDF file is opened by the PDF reader")
+}
+
+/// Page one under a view, as its reports and its raster.
+fn draw_with(
+    document: &Document,
+    view: &pdf_model::view::ViewState,
+) -> (Vec<String>, pdf_render::Raster) {
+    let page = pdf_model::Pages::new(document).get(0).expect("page one");
+    let interpretation = pdf_model::content::interpret_with(document, &page, view);
+    let reports = interpretation
+        .unsupported
+        .iter()
+        .map(|item| format!("{item:?}"))
+        .collect();
+    let list = interpretation.display_list;
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    let raster = CpuRasterizer::new()
+        .with_medium(pdf_render::Medium::NONE)
+        .rasterize(&list, target)
+        .expect("supported");
+    (reports, raster)
+}
+
+/// How wide the ink is.
+fn ink_width(raster: &pdf_render::Raster) -> u32 {
+    let (from, to) = columns(raster);
+    to.saturating_sub(from)
+}
+
+/// Table 249's `/RV` replaces Table 228's: §12.7.8.3.2's "importing a field causes the values of
+/// the entries in the FDF field dictionary to replace those of the corresponding entries in the
+/// field with the same fully qualified name in the target document". An imported value with a bold
+/// `/RV` beside it is drawn bold — the width the same rich string draws at when the file states it
+/// — and one whose `/RV` states other characters is drawn as the value, said (ADRs 1635, 1648).
+#[test]
+fn an_imported_rich_value_is_drawn_in_its_formatting() {
+    let (_, stated_bold) = draw(rich("Wide", "<b>Wide</b>"));
+    let (_, plain) = draw(rich("Wide", "Wide"));
+    let target = rich("Old", "Old");
+    let document = Document::open(target).expect("a valid PDF");
+
+    let mut view = pdf_model::view::ViewState::of(&document);
+    let data = pdf_model::forms_data::FormsData::read(&fdf(
+        "<< /Fields [ << /T (f) /V (Wide) /RV (<body><p><b>Wide</b></p></body>) >> ] >>",
+    ))
+    .expect("an FDF catalog");
+    assert!(data.fields[0].owed.is_empty(), "{:?}", data.fields[0].owed);
+    assert_eq!(view.import(&document, &data).widgets, 1);
+    let (reports, imported) = draw_with(&document, &view);
+    assert!(reports.is_empty(), "{reports:?}");
+    assert_eq!(ink_width(&imported), ink_width(&stated_bold));
+    assert!(ink_width(&imported) > ink_width(&plain));
+
+    // The target's own `/RV` is not replaced by an FDF field stating none, and it describes `Old`:
+    // the imported value is drawn as it stands, and the disagreement is said.
+    let mut view = pdf_model::view::ViewState::of(&document);
+    let data =
+        pdf_model::forms_data::FormsData::read(&fdf("<< /Fields [ << /T (f) /V (Wide) >> ] >>"))
+            .expect("an FDF catalog");
+    assert_eq!(view.import(&document, &data).widgets, 1);
+    let (reports, imported) = draw_with(&document, &view);
+    assert_eq!(ink_width(&imported), ink_width(&plain));
+    assert!(
+        reports.iter().any(|report| report.contains("/RV")),
+        "{reports:?}"
+    );
+}
+
+/// XFDF 3.0's `<value-richtext>` is Table 249's `/RV`, and with no `<value>` beside it the field's
+/// value is the string's characters (*The value and value-richtext elements in fields*, page 31;
+/// *value-richtext*, page 36): the import draws the formatting the element states (ADR 1648).
+#[test]
+fn an_xfdf_value_richtext_is_imported_as_the_rich_value() {
+    let (_, stated_bold) = draw(rich("Wide", "<b>Wide</b>"));
+    let document = Document::open(rich("Old", "Old")).expect("a valid PDF");
+    let data = pdf_model::xfdf::read(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+         <xfdf xmlns=\"http://ns.adobe.com/xfdf/\" xml:space=\"preserve\"><fields>\
+         <field name=\"f\"><value-richtext><body xmlns=\"http://www.w3.org/1999/xhtml\">\
+         <p><b>Wide</b></p></body></value-richtext></field>\
+         <field name=\"g\"><value-richtext>plain words</value-richtext></field>\
+         </fields></xfdf>"
+            .as_bytes(),
+    )
+    .expect("well-formed XFDF");
+    assert!(data.owed.is_empty(), "{:?}", data.owed);
+    let text = |at: usize| {
+        data.fields[at]
+            .value
+            .as_ref()
+            .and_then(pdf_syntax::Object::as_string)
+            .map(pdf_syntax::text_string)
+    };
+    assert_eq!(text(0).as_deref(), Some("Wide"));
+    assert!(
+        data.fields[0]
+            .rich_value
+            .as_deref()
+            .is_some_and(|markup| markup.starts_with("<body") && markup.contains("<b>Wide</b>")),
+        "{:?}",
+        data.fields[0].rich_value
+    );
+    // Plain text inside the element is the value, and there is no rich text string to carry.
+    assert_eq!(text(1).as_deref(), Some("plain words"));
+    assert_eq!(data.fields[1].rich_value, None);
+
+    let mut view = pdf_model::view::ViewState::of(&document);
+    assert_eq!(view.import(&document, &data).widgets, 1);
+    let (reports, imported) = draw_with(&document, &view);
+    assert!(reports.is_empty(), "{reports:?}");
+    assert_eq!(ink_width(&imported), ink_width(&stated_bold));
+}
+
+/// Table 231 bit 25, `Comb`: `1 << 24`.
+const COMB: u32 = 16_777_216;
+
+/// A caret at a byte of the value, asked at the middle of the fixture's box.
+fn caret(bytes: &[u8], offset: usize) -> [f32; 4] {
+    let document = Document::open(bytes.to_vec()).expect("a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let view = pdf_model::view::ViewState::of(&document);
+    view.caret_at(&document, &page, 150.0, 100.0, offset)
+        .expect("the field lays its text out")
+}
+
+/// The glyphs a host's text interface is told of, left to right.
+fn glyphs(bytes: &[u8]) -> Vec<pdf_model::view::FieldGlyph> {
+    let document = Document::open(bytes.to_vec()).expect("a valid PDF");
+    let view = pdf_model::view::ViewState::of(&document);
+    view.field_glyphs(&document, pdf_syntax::ObjectId::new(5, 0))
+        .expect("the field lays its text out")
+}
+
+/// A host's caret, point and range are answered from the runs as drawn, each in its own size:
+/// the caret after three 24-point capitals stands three of Helvetica's 944-unit advances at 24
+/// points past the caret before them — §9.4.4's `w0 × Tfs` — where a one-style answer would put it
+/// half as far (ADR 1649).
+#[test]
+fn a_caret_point_and_range_follow_the_runs_as_drawn() {
+    let bytes = rich("aWWWb", "a<span style=\"font-size:24pt\">WWW</span>b");
+    let (before, after) = (caret(&bytes, 1), caret(&bytes, 4));
+    let expected = 3.0 * 0.944 * 24.0;
+    assert!(
+        (after[0] - before[0] - expected).abs() < 0.05,
+        "{before:?} {after:?}"
+    );
+    // The caret stands between the line's descent and ascent, and the line holds a 24-point run.
+    assert!(after[3] - after[1] > 20.0, "{after:?}");
+
+    let document = Document::open(bytes.clone()).expect("a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let view = pdf_model::view::ViewState::of(&document);
+    let offset = view.offset_at(
+        &document,
+        &page,
+        (150.0, 100.0),
+        (after[0] + 0.5, (after[1] + after[3]) * 0.5),
+    );
+    assert_eq!(offset, Some(4), "a point at a caret names its offset");
+    let shapes = view
+        .field_selection(&document, &page, (150.0, 100.0), (1, 4))
+        .expect("a range");
+    assert_eq!(shapes.len(), 1, "{shapes:?}");
+    assert!((shapes[0][0] - before[0]).abs() < 0.01 && (shapes[0][2] - after[0]).abs() < 0.01);
+
+    let placed = glyphs(&bytes);
+    let ranges: Vec<_> = placed.iter().map(|glyph| glyph.bytes.clone()).collect();
+    assert_eq!(ranges, [0..1, 1..2, 2..3, 3..4, 4..5]);
+}
+
+/// The offsets a host sends are the value's, and a rich text string compresses the value's white
+/// space (chapter 27, page 1194): the caret after a doubled space in `/V` stands where the one
+/// space the string draws ends.
+#[test]
+fn a_caret_offset_is_the_values_where_the_string_compresses_its_spaces() {
+    let bytes = rich("a  b", "a b");
+    let doubled = caret(&bytes, 3);
+    let single = caret(&rich("a b", "a b"), 2);
+    assert!(
+        (doubled[0] - single[0]).abs() < 0.01,
+        "{doubled:?} {single:?}"
+    );
+}
+
+/// Table 231 bit 25 over the runs: the field is divided into `/MaxLen` equally spaced positions
+/// and the text laid out into them, and each character a run states is set in its cell in that
+/// run's face — the bold one here — with nothing laid out in one style.
+#[test]
+fn a_comb_field_sets_each_cell_in_its_runs_style() {
+    let bytes = field(
+        RICH | COMB,
+        "abcde",
+        "<body><p>ab<b>c</b>de</p></body>",
+        "/MaxLen 5",
+    );
+    let (content, _) = appearance(bytes.clone());
+    assert!(content.contains("/HeBo"), "{content}");
+    let (reports, _) = draw(bytes.clone());
+    assert!(reports.is_empty(), "{reports:?}");
+    let placed = glyphs(&bytes);
+    assert_eq!(placed.len(), 5);
+    let widths: Vec<f32> = placed
+        .iter()
+        .map(|glyph| glyph.quad[2] - glyph.quad[0])
+        .collect();
+    for width in &widths {
+        assert!((width - widths[0]).abs() < 0.01, "equal cells: {widths:?}");
+    }
+    assert!(
+        (widths[0] * 5.0 - 278.0).abs() < 0.5,
+        "five cells across the box inside its border: {widths:?}"
+    );
+}
+
+/// UAX #9 across runs: a right-to-left override makes the whole run read right to left, so its
+/// last character — the bold one — is displayed first, and a caret at the value's end stands at
+/// the line's left (ADRs 1413, 1649).
+#[test]
+fn a_right_to_left_run_is_displayed_in_uax_9_order_across_its_styles() {
+    // `/V` as §7.9.2.2's UTF-16BE text string, `/RV` with XML's character reference.
+    let bytes = pdf(
+        &format!(
+            "<< /Type /Annot /Subtype /Widget /Rect [10 10 290 190] /F 4 /FT /Tx \
+             /Ff {RICH_MULTILINE} /T (f) /V <FEFF202E00610062> \
+             /RV (<body><p>&#x202E;a<b>b</b></p></body>) /DA (/Helv 12 Tf 0 g) >>"
+        ),
+        "",
+    );
+    let placed = glyphs(&bytes);
+    let starts: Vec<usize> = placed.iter().map(|glyph| glyph.bytes.start).collect();
+    assert_eq!(starts, [4, 3], "b is shown left of a: {placed:?}");
+    let (start, end) = (caret(&bytes, 3), caret(&bytes, 5));
+    assert!(end[0] < start[0], "{start:?} {end:?}");
+    let (content, _) = appearance(bytes);
+    let bold = content.find("/HeBo").expect("the bold run");
+    let regular = content.rfind("/Helv").expect("the regular run");
+    assert!(
+        bold < regular,
+        "the bold run is written first, leftmost: {content}"
+    );
+}
+
+/// `font-stretch` is chapter 27's width (*Font*, page 1201), and Table 120's `/FontStretch` names
+/// the same nine widths in the same order: a run asking for `condensed` is set in the `/DR` face
+/// whose descriptor states `/Condensed`, and nothing is reported (ADR 1649). Where no face states
+/// the width, the run is drawn in its family's normal one and the width is said
+/// (`a_property_not_carried_out_is_named`).
+#[test]
+fn a_width_is_set_in_the_face_whose_descriptor_states_it() {
+    let bytes = pdf_with_fonts(
+        "<< /Type /Annot /Subtype /Widget /Rect [10 10 290 190] /F 4 /FT /Tx /Ff 33558528 \
+         /T (f) /V (ab) /RV (<body><p>a<span style=\"font-stretch:condensed\">b</span></p></body>) \
+         /DA (/Helv 12 Tf 0 g) >>",
+        "",
+        "8 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Condensed \
+         /Encoding /WinAnsiEncoding /FontDescriptor 9 0 R >>\nendobj\n\
+         9 0 obj\n<< /Type /FontDescriptor /FontName /Helvetica-Condensed \
+         /FontFamily (Helvetica) /FontStretch /Condensed /FontWeight 400 /Flags 32 \
+         /FontBBox [0 -200 800 900] /ItalicAngle 0 /Ascent 750 /Descent -250 /CapHeight 700 \
+         /StemV 80 >>\nendobj\n",
+        "/HeCo 8 0 R",
+    );
+    let (content, _) = appearance(bytes.clone());
+    assert!(content.contains("/HeCo"), "{content}");
+    let (reports, _) = draw(bytes);
+    assert!(reports.is_empty(), "{reports:?}");
+}
+
+/// Where each glyph of a field starts, by line, from the glyphs a host is told of.
+fn starts_by_line(bytes: &[u8]) -> Vec<Vec<f32>> {
+    let mut lines: Vec<Vec<f32>> = Vec::new();
+    for glyph in glyphs(bytes) {
+        if lines.len() <= glyph.line {
+            lines.resize(glyph.line.saturating_add(1), Vec::new());
+        }
+        if let Some(line) = lines.get_mut(glyph.line) {
+            line.push(glyph.quad[0]);
+        }
+    }
+    lines
+}
+
+/// The left margin of the fixture's box: `/Rect`'s left side inset by the one-point border.
+const MARGIN: f32 = 11.0;
+
+/// `tab-interval` and `xfa-tab-count` — *Tab Stops*, Example 27.26 (page 1206): default stops at
+/// every multiple of the interval from the left margin, and a count of two advances past two of
+/// them. Half an inch is 36 points, so after a one-letter run the second stop is at 72 and the
+/// next past the following letter at 108.
+#[test]
+fn a_tab_count_advances_by_the_default_stops() {
+    let bytes = field(
+        RICH_MULTILINE,
+        "XYZ",
+        "<body><p style=\"tab-interval:0.5in\">X<span style=\"xfa-tab-count:2\"/>Y\
+         <span style=\"xfa-tab-count:1\"/>Z</p></body>",
+        "",
+    );
+    let (reports, _) = draw(bytes.clone());
+    assert!(reports.is_empty(), "{reports:?}");
+    let lines = starts_by_line(&bytes);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    let starts = &lines[0];
+    assert!((starts[0] - MARGIN).abs() < 0.01, "{starts:?}");
+    assert!((starts[1] - (MARGIN + 72.0)).abs() < 0.01, "{starts:?}");
+    assert!((starts[2] - (MARGIN + 108.0)).abs() < 0.01, "{starts:?}");
+}
+
+/// `tab-stops` at stated positions — Example 27.27 (page 1207): two left stops, and a `br` that
+/// sends the cursor back to the margin and the tab index to zero, so both lines' second words
+/// start at the second stop.
+#[test]
+fn stated_tab_stops_align_each_line_and_a_break_restarts_them() {
+    let bytes = field(
+        RICH_MULTILINE,
+        "Ann Lee\rBo Ng",
+        "<body><p style=\"tab-stops:left 0.5in left 2in\"><span style=\"xfa-tab-count:1\"/>Ann \
+         <span style=\"xfa-tab-count:1\"/>Lee<br/><span style=\"xfa-tab-count:1\"/>Bo \
+         <span style=\"xfa-tab-count:1\"/>Ng</p></body>",
+        "",
+    );
+    let lines = starts_by_line(&bytes);
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    for line in &lines {
+        assert!((line[0] - (MARGIN + 36.0)).abs() < 0.01, "{lines:?}");
+    }
+    assert!((lines[0][4] - (MARGIN + 144.0)).abs() < 0.01, "{lines:?}");
+    assert!((lines[1][3] - (MARGIN + 144.0)).abs() < 0.01, "{lines:?}");
+}
+
+/// A decimal stop — Example 27.28 (page 1207): each line's first radix character stands at the
+/// stop, and a line with none ends there. Courier's every advance is 600 units, 7.2 points at
+/// twelve, so the arithmetic is the clause's and the font's alone.
+#[test]
+fn a_decimal_stop_aligns_the_radix_or_the_right_edge() {
+    let bytes = field(
+        RICH_MULTILINE,
+        "1.25\r99\r.5",
+        "<body><p style=\"font-family:Courier;tab-stops:decimal 0.5in\">\
+         <span style=\"xfa-tab-count:1\"/>1.25<br/><span style=\"xfa-tab-count:1\"/>99<br/>\
+         <span style=\"xfa-tab-count:1\"/>.5</p></body>",
+        "",
+    );
+    let lines = starts_by_line(&bytes);
+    assert_eq!(lines.len(), 3, "{lines:?}");
+    let stop = MARGIN + 36.0;
+    assert!(
+        (lines[0][1] - stop).abs() < 0.01,
+        "the radix at the stop: {lines:?}"
+    );
+    assert!(
+        (lines[1][0] - (stop - 14.4)).abs() < 0.01,
+        "the right edge: {lines:?}"
+    );
+    assert!((lines[2][0] - stop).abs() < 0.01, "{lines:?}");
+}
+
+/// `xfa-tab-stops`' leader (chapter 2's *Tab Leader Pattern*, page 63) is named where it is not the
+/// blank one, and the stop it belongs to is still used.
+#[test]
+fn a_tab_leader_is_named_and_its_stop_used() {
+    let bytes = field(
+        RICH_MULTILINE,
+        "AB",
+        "<body><p style=\"xfa-tab-stops:left leader(dots()) 1in\">A\
+         <span style=\"xfa-tab-count:1\"/>B</p></body>",
+        "",
+    );
+    let (reports, _) = draw(bytes.clone());
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    assert!(reports[0].contains("tab leader"), "{reports:?}");
+    let lines = starts_by_line(&bytes);
+    assert!((lines[0][1] - (MARGIN + 72.0)).abs() < 0.01, "{lines:?}");
 }

@@ -46,8 +46,8 @@ character its chosen face lacks — or a face this binary carries that is addres
 §9.6.2.2's fourteen are not: they are name-keyed CFF, which §9.7.4.2 leaves unreachable for a
 composite font.
 
-**And `freetext_no_appearance.pdf` is not this section's witness either**, which `doc/todo/22`
-filed here for a long time and session 513 read out (ADR 0348). A per-character chain would draw
+**And `freetext_no_appearance.pdf` is not this section's witness either**, although `doc/todo/22`
+filed it here (ADR 0348). A per-character chain would draw
 that value's Arabic in isolated forms left-to-right even where it found every glyph — trap 1's
 wrong-but-plausible page, worse than the refusal it would replace. What that document needs is a
 glyph source (no compiled-in face has one Arabic glyph — measured; Liberation Sans's `cmap` maps
@@ -75,8 +75,8 @@ and `CodeMapping::Substituted` applied the ranking once per **font**: it held a 
 hundred lines away, asked both per code. Two routes over one clause, disagreeing, and the page
 could read back a character it did not draw.
 
-Session 981 made the drawing route read the two tables the font already holds, in the clause's
-order, per code (`LoadedFont::substituted_character`), and deleted the copy. The population is a
+The drawing route reads the two tables the font already holds, in the clause's order, per code
+(`LoadedFont::substituted_character`), and keeps no copy of them. The population is a
 command rather than a sentence:
 
 ```sh
@@ -95,7 +95,7 @@ the two are now written down apart so that neither is mistaken for the other aga
 Composite fonts naming an `Identity` ordering, where the codes are indices into a font nobody
 supplied and §9.10.2's third method has nothing to read. §9.7.4.2 leaves such a font reachable
 only through `/ToUnicode`, which addresses by character; without one there is no question to ask.
-Honest refusals. The `-UCS2` `CMap`s closed the rest of this population in session 156 (ADR 0140).
+Honest refusals. The `-UCS2` `CMap`s close the rest of this population (ADR 0140).
 
 ## 3. A font is reported as a whole — measured, and the silence was half spaces
 

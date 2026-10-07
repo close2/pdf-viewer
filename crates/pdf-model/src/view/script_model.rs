@@ -649,6 +649,13 @@ pub enum ScriptEdit {
         /// The field.
         field: String,
     },
+    /// `this.pageNum = n`: the zero-based page a script turned to, which a host carries out as a
+    /// person's page turn — a view state holds the request and shows no page of its own
+    /// ([`ViewState::take_page_request`], ADR 1640).
+    GoTo {
+        /// The zero-based page.
+        page: u32,
+    },
     /// An `OCG` object's `state` set: §8.11's group switched as a person's layer switch would
     /// switch it ([`ViewState::set_group`], ADR 1626).
     Layer {

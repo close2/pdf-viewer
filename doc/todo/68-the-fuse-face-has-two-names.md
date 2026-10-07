@@ -1,6 +1,6 @@
 # 68 — The FUSE face is `quorrafs` on disk and `pdffs` everywhere it speaks
 
-Status: **open**, found by round 1156 while packaging the snapshot. A 10-band defect numbered past
+Status: **open**, found while packaging the snapshot. A 10-band defect numbered past
 its band because the band is full.
 Priority: **low** — nothing computes wrong; a person meets two names for one program.
 Code: `crates/pdf-fuse/src/main.rs` (module docs, the usage line, every diagnostic prefix and the
@@ -19,4 +19,4 @@ table.
 One deliberate rename, not a drive-by: `FSName` is user-visible state a script may match on, so the
 change is recorded as a change (an ADR if anything argued for keeping the old name, otherwise the
 record), the docs that mention the mount name are swept (`grep -rn pdffs doc crates`), and the
-`pdf-fuse` tests that assert on the prefix move with it. Round 1156 deliberately did not half-do it.
+`pdf-fuse` tests that assert on the prefix move with it. It is not to be half-done.

@@ -830,6 +830,39 @@ section_gates_cost() {
         printf "the log's first line is the summary: that run's standard output was the log itself, and it\n"
         printf "overwrote the first gate's line, so its gate ran and its clock is lost, not its verdict\n"
     fi
+    lock_cost
+}
+
+# What the rounds paid for the heavy-walk lock: every line `tools/bounded.sh --lock` appended for
+# the log's last batch — the batch being the branch the last line names — then each round's runs,
+# queue and hold summed. The sums are this section's, taken from the lines printed above them in
+# the same run, so they cannot drift from what they add up; the log is the wrapper's and is read,
+# never written (ADR 1646). A run that took the lock with a bare `flock` is on no line, which is
+# why the rounds' own walks go through `--lock`.
+lock_cost() {
+    local log=${HEAVY_WALK_LOG:-/home/AI/heavy-walk.log} batch
+    heading "what the heavy-walk lock cost: the last batch's runs under tools/bounded.sh --lock" "$log"
+    [ -r "$log" ] || { printf 'no lock log at %s — no run on this machine has taken the lock through --lock\n' "$log"; return 0; }
+    batch=$(grep -E ' batch=[^ ]+ round=' "$log" | tail -1 | sed -E 's/.* batch=([^ ]+) .*/\1/')
+    [ -n "$batch" ] || { printf 'the lock log %s holds no line in the shape --lock writes\n' "$log"; return 0; }
+    awk -v batch="$batch" '
+        $2 == "batch=" batch {
+            round = $3; sub(/^round=/, "", round)
+            wait = $4; sub(/^wait=/, "", wait); sub(/s$/, "", wait)
+            hold = $5; sub(/^hold=/, "", hold); sub(/s$/, "", hold)
+            code = $6; sub(/^exit=/, "", code)
+            cmd = $0; sub(/.* cmd=/, "", cmd)
+            printf "  %s  round %-5s wait %8.1fs  hold %8.1fs  exit %-3s %s\n", $1, round, wait, hold, code, substr(cmd, 1, 90)
+            if (!(round in runs)) order[++rounds] = round
+            runs[round]++; waited[round] += wait; held[round] += hold
+        }
+        END {
+            printf "batch %s, by round:\n", batch
+            for (i = 1; i <= rounds; i++) {
+                r = order[i]
+                printf "  round %-5s %3d run(s)  queued %8.1fs  held %8.1fs\n", r, runs[r], waited[r], held[r]
+            }
+        }' "$log"
 }
 
 # Every gate name `tools/batch.sh`'s `gates()` runs, its two loops expanded, in its order.

@@ -570,6 +570,10 @@ fn triggers_wait_behind_a_question_and_a_question_nobody_answers_is_withdrawn() 
     let queued = worker.run(&format_event("event.value = 'after ' + global.n;"));
     assert!(worker.waiting(), "{queued:?}");
     assert!(worker.take_resumed().is_none());
+    assert!(
+        worker.take_question().is_some(),
+        "the host puts the question"
+    );
     std::thread::sleep(Duration::from_millis(300));
     assert!(worker.question_withdrawn());
     assert!(!worker.question_withdrawn(), "said once");
@@ -589,6 +593,70 @@ fn triggers_wait_behind_a_question_and_a_question_nobody_answers_is_withdrawn() 
     // An answer that comes after the wait finds nothing waiting, and is kept nowhere.
     worker.answer(pdf_script::Answer::Typed(Some("late".to_owned())));
     assert!(worker.take_resumed().is_none());
+    assert!(worker.deaths().is_empty(), "{:?}", worker.deaths());
+}
+
+/// The text a response question asks.
+fn asked(question: &pdf_script::Question) -> &str {
+    match question {
+        pdf_script::Question::Response { question, .. } => question,
+        pdf_script::Question::Alert { message, .. } => message,
+    }
+}
+
+/// A card is dropped once its question's wait runs out, and a press on it that arrives after is
+/// never handed to the question a queued script asked since, which nobody has read (ADR 1641).
+#[test]
+fn a_late_answer_is_never_handed_to_the_question_asked_after_it() {
+    let worker = ScriptWorker::with_program(WORKER).with_answer_wait(Duration::from_millis(200));
+    worker.run(&format_event(
+        "event.value = String(app.response('First?'));",
+    ));
+    worker.run(&format_event(
+        "event.value = String(app.response('Second?'));",
+    ));
+    assert!(
+        worker.question_deadline().is_none(),
+        "no host took a question"
+    );
+    let first = worker.take_question().expect("the first script asked");
+    assert_eq!(asked(&first), "First?");
+    let deadline = worker
+        .question_deadline()
+        .expect("a taken question has a deadline");
+    assert!(deadline > Instant::now(), "{deadline:?}");
+    std::thread::sleep(Duration::from_millis(300));
+
+    // The first card's answer, after its wait ran out and before the host polled again.
+    worker.answer(pdf_script::Answer::Typed(Some("late".to_owned())));
+    let withdrawn = worker
+        .take_resumed()
+        .expect("the first run was answered for it");
+    assert_eq!(
+        withdrawn.result.value.as_deref(),
+        Some("null"),
+        "{withdrawn:?}"
+    );
+    assert!(worker.take_resumed().is_none(), "the second still waits");
+    assert!(worker.question_withdrawn(), "the first card is dropped");
+    assert!(
+        worker.question_deadline().is_none(),
+        "the second is not taken"
+    );
+
+    let second = worker.take_question().expect("the queued script asked");
+    assert_eq!(asked(&second), "Second?");
+    worker.answer(pdf_script::Answer::Typed(Some("on time".to_owned())));
+    let answered = worker.take_resumed().expect("the second run finished");
+    assert_eq!(
+        answered.result.value.as_deref(),
+        Some("on time"),
+        "{answered:?}"
+    );
+    assert!(
+        !worker.question_withdrawn(),
+        "an answered question is not withdrawn"
+    );
     assert!(worker.deaths().is_empty(), "{:?}", worker.deaths());
 }
 

@@ -1,6 +1,6 @@
 # 62 — The exemption no row stated: a named resource nothing references
 
-Status: **taken**, session 1001 (ADR 1021), after ADR 0935 deferred it with an argument and ADR
+Status: **taken** (ADR 1021), after ADR 0935 deferred it with an argument and ADR
 0941 measured what was being deferred. What blocked it was named in this file for three sessions —
 "a whole-file reachability answer available to every row, which is a change to `Examination`'s
 contract rather than to any one predicate" — and that answer is now `crate::reach`.
@@ -48,7 +48,7 @@ applicable carve-out, which `reach::exemption_narrows` reads and `crate::check` 
   the Type 3 font that states it. A dictionary with no such owner — an `/AcroForm` `/DR` is the
   standing case, and a `/Type /Pages` node holding what its descendants inherit is the dangerous
   one — exempts nothing, because the clause's premise is an *associated content stream* and there
-  is none. The measurement that ran from session 944 to session 1001 had this wrong for the
+  is none. The measurement taken before the implementation (ADR 0941) had this wrong for the
   second case and over-exempted; ADR 1021 §4 has the correction and what it moved.
 - **Every name operand counts as a reference**, with no operator table, and a dictionary two
   owners share carries the union of their names. Both can only make the exempt set smaller, so the
@@ -60,7 +60,7 @@ applicable carve-out, which `reach::exemption_narrows` reads and `crate::check` 
 
 ## 3. What the measurement found, and why it decided the order
 
-Session 944 measured this before it was implemented, and the finding is what made A010 a
+ADR 0941 measured this before it was implemented, and the finding is what made A010 a
 precondition rather than a refinement. Every document whose **entire verdict** turns on an object
 the exemption reaches fails under a clause the applicable carve-out **keeps**: the part 4
 witnesses under sections 6.1.6.1 and 6.1.7, inside part 4's own published 6.1.6 to 6.1.9; the part
@@ -68,7 +68,7 @@ witnesses under sections 6.1.6.1 and 6.1.7, inside part 4's own published 6.1.6 
 
 Two consequences, and the second is why this file said "in the same commit or not at all":
 
-- **Implementing the exemption cost the corpus nothing**, and session 1001 confirmed it from the
+- **Implementing the exemption cost the corpus nothing**, and ADR 1021 confirmed it from the
   other side by running the validator's corpus gate with the narrowing switched off and on: the
   same six columns on all six targets, `over` zero throughout. So the sweep could not rank this
   work — `CLAUDE.md`'s two denominators, a coverage question the robustness instrument is blind to.
@@ -114,10 +114,10 @@ standard that no row of this table stated. The general shape is worth keeping: *
 whose subject is a population rather than a rule has no row to hang on**, which is why
 `clarification::CLARIFICATIONS` has no entry for A010 and why the record is that module's prose.
 
-## 7. What session 1007 added, and the two questions it separated
+## 7. The audit, and the two questions it separates
 
-This item was closed by session 1001 and stays closed; what follows is the *audit* of what it
-built, which the closing round could not do from inside the same commit.
+This item is closed (ADR 1021); what follows is the *audit* of what it built (ADR 1026), which
+could not be done from inside the commit that closed it.
 
 **The reach is now measurable per requirement**, and not only per document:
 
@@ -131,7 +131,7 @@ cargo run --release -p pdf-archive --example withdrawn -- --threads 6 --max-mb 9
 ```
 
 **Name the subdirectories rather than the corpus on a walk that long.** A report is printed per
-root, so a walk stopped by a bound keeps what it has; session 1007 lost 87 000 documents' worth of
+root, so a walk stopped by a bound keeps what it has; one walk lost 87 000 documents' worth of
 answer to one `RLIMIT_DATA` because it passed `corpus-cache` as a single root (ADR 1026 §5.2).
 
 `examples/unreferenced.rs` counts the *population* — documents stating a named resource nothing

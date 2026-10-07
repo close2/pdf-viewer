@@ -85,10 +85,9 @@ const HELD_EXCEEDED: usize = 0;
 /// Most runs that may end in an uncaught throw.
 const HELD_THREW: usize = 9_541;
 
-/// Most runs that may finish having been refused a call: three, each a script that catches the
-/// refusal of a write to `this.pageNum` — a page turn, which this bridge does not carry — once the
-/// members before it in the same script are carried (ADR 1626).
-const HELD_FINISHED_REFUSED: usize = 3;
+/// Most runs that may finish having been refused a call: none, since a write to `this.pageNum` —
+/// the one refusal three scripts caught — is a page turn the host makes (ADR 1640).
+const HELD_FINISHED_REFUSED: usize = 0;
 
 /// Most runs whose script may not parse.
 const HELD_UNPARSED: usize = 8;
@@ -113,8 +112,11 @@ struct Tally {
     members: Mutex<BTreeMap<String, usize>>,
     /// Every budget a run exceeded, by its sentence's kind.
     budgets: Mutex<BTreeMap<String, usize>>,
-    /// Every uncaught throw, by its first words.
-    throws: Mutex<BTreeMap<String, usize>>,
+    /// Every uncaught throw, by its first words, with how many runs and which documents.
+    throws: Mutex<BTreeMap<String, (usize, BTreeSet<String>)>>,
+    /// Every uncaught throw, by the document it was thrown in, with the commonest first words
+    /// there: what decides whether a class is one form's slip or the world's habit.
+    throwing_documents: Mutex<BTreeMap<String, BTreeMap<String, usize>>>,
     /// Every uncaught throw, by the error's name.
     kinds: Mutex<BTreeMap<String, usize>>,
     /// Every name a `ReferenceError` found undefined, with how many runs and which documents.
@@ -141,6 +143,8 @@ struct Counting {
     engine: Engine,
     /// The document's file name, for the largest library.
     document: String,
+    /// Whether each throw is printed with its site, field and script: one document's reading.
+    print_throws: bool,
 }
 
 impl ScriptRunner for Counting {
@@ -184,9 +188,27 @@ impl ScriptRunner for Counting {
                 &self.tally.exceeded
             }
             Ending::Threw(thrown) | Ending::Declined(thrown) => {
+                if self.print_throws {
+                    let script: String = event.script.chars().take(400).collect();
+                    println!(
+                        "--- {:?} on {:?}: {}\n{script}",
+                        event.site,
+                        event.field,
+                        thrown.lines().take(6).collect::<Vec<_>>().join(" / ")
+                    );
+                }
+                let words: String = thrown.chars().take(80).collect();
                 if let Ok(mut throws) = self.tally.throws.lock() {
-                    let words: String = thrown.chars().take(60).collect();
-                    let held = throws.entry(words).or_default();
+                    let held = throws.entry(words.clone()).or_default();
+                    held.0 = held.0.saturating_add(1);
+                    held.1.insert(self.document.clone());
+                }
+                if let Ok(mut documents) = self.tally.throwing_documents.lock() {
+                    let held = documents
+                        .entry(self.document.clone())
+                        .or_default()
+                        .entry(words)
+                        .or_default();
                     *held = held.saturating_add(1);
                 }
                 if let Ok(mut kinds) = self.tally.kinds.lock() {
@@ -223,8 +245,8 @@ impl ScriptRunner for Counting {
 }
 
 /// Runs the open sequence and every field script of one document that Tier 0 does not, answering
-/// how many fields had one.
-fn examine(path: &Path, tally: &Arc<Tally>) -> usize {
+/// how many fields had one; `print_throws` prints each throw with its script.
+fn examine(path: &Path, tally: &Arc<Tally>, print_throws: bool) -> usize {
     if std::fs::metadata(path).is_ok_and(|meta| meta.len() > MAX_FILE_BYTES) {
         return 0;
     }
@@ -267,6 +289,7 @@ fn examine(path: &Path, tally: &Arc<Tally>) -> usize {
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_default(),
+        print_throws,
     })));
     view.run_open_scripts(&document, 0);
     for name in &scripted {
@@ -290,6 +313,15 @@ fn examine(path: &Path, tally: &Arc<Tally>) -> usize {
     ] {
         view.run_document_scripts(&document, trigger, 0);
     }
+    if print_throws {
+        // What a reader is told: the view state's report, one sentence each, repeats folded.
+        let reports = view.script_reports();
+        println!("{} report sentence(s); the first:", reports.len());
+        for sentence in reports.iter().take(6) {
+            let sentence: String = sentence.chars().take(240).collect();
+            println!("  {sentence}");
+        }
+    }
     scripted.len()
 }
 
@@ -300,7 +332,10 @@ fn every_script_tier_0_does_not_run_is_run_in_its_document_s_realm_and_counted()
     let root = repository();
     let files = population(&root);
     let tally = Arc::new(Tally::default());
-    let fields: usize = files.par_iter().map(|path| examine(path, &tally)).sum();
+    let fields: usize = files
+        .par_iter()
+        .map(|path| examine(path, &tally, false))
+        .sum();
     let count = |column: &AtomicUsize| column.load(Ordering::Relaxed);
     let runs = [
         &tally.finished,
@@ -378,18 +413,51 @@ fn every_script_tier_0_does_not_run_is_run_in_its_document_s_realm_and_counted()
             println!("refused {refused:>6}  {member}");
         }
     }
-    if let Ok(throws) = tally.throws.lock() {
-        let mut ranked: Vec<(&String, &usize)> = throws.iter().collect();
-        ranked.sort_by(|left, right| right.1.cmp(left.1).then(left.0.cmp(right.0)));
-        for (thrown, count) in ranked.iter().take(25) {
-            println!("threw {count:>6}  {thrown}");
-        }
-    }
+    throws_by_cause(&tally);
     assert!(
         fields == 0 || runs > 0,
         "the hook handed none of {fields} field script(s) to the engine"
     );
     hold(&tally, runs);
+}
+
+/// Prints the commonest uncaught throws with the documents they were thrown in, and the documents
+/// that threw most with what each threw most: a throw counted per run says how often a reader meets
+/// it, and counted per document whether it is one form's or many forms'.
+fn throws_by_cause(tally: &Tally) {
+    if let Ok(throws) = tally.throws.lock() {
+        let mut ranked: Vec<(&String, &(usize, BTreeSet<String>))> = throws.iter().collect();
+        ranked.sort_by(|left, right| right.1.0.cmp(&left.1.0).then(left.0.cmp(right.0)));
+        for (thrown, (count, documents)) in ranked.iter().take(40) {
+            let first = documents.iter().next().map_or("", String::as_str);
+            println!(
+                "threw {count:>6} in {:>4} document(s)  {thrown}  (first: {first})",
+                documents.len()
+            );
+        }
+    }
+    if let Ok(documents) = tally.throwing_documents.lock() {
+        let mut ranked: Vec<(usize, &str, &str, usize)> = documents
+            .iter()
+            .map(|(document, throws)| {
+                let total = throws
+                    .values()
+                    .copied()
+                    .fold(0_usize, usize::saturating_add);
+                let (words, count) = throws
+                    .iter()
+                    .max_by(|left, right| left.1.cmp(right.1).then(right.0.cmp(left.0)))
+                    .map_or(("", 0), |(words, count)| (words.as_str(), *count));
+                (total, document.as_str(), words, count)
+            })
+            .collect();
+        ranked.sort_by(|left, right| right.0.cmp(&left.0).then(left.1.cmp(right.1)));
+        println!("documents that threw: {}", ranked.len());
+        for (total, document, words, count) in ranked.iter().take(25) {
+            let words = words.lines().next().unwrap_or_default();
+            println!("document {total:>6}  {document}  ({count} of them: {words})");
+        }
+    }
 }
 
 /// Prints the deepest script's estimate and the runs that put a question (ADRs 1626, 1627).
@@ -444,6 +512,28 @@ fn hold(tally: &Tally, runs: usize) {
         "the Tier 1 column moved past what it holds — a run a budget stopped, a script that now \
          throws or is refused, or fewer runs ({runs} against {HELD_RUNS}): {over:?}. Read the \
          throws and refusals above before moving a figure (ADR 1625)"
+    );
+}
+
+/// One document's throws, each printed with its site, its field and its script, as the column runs
+/// them — what a class in the column's ranking is read from (ADR 1641):
+///
+/// ```text
+/// PDF_SCRIPT_THROWS_DOCUMENT=<path> cargo test --profile gates -p pdf-script --features engine \
+///     --test script_corpus one_document -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore = "reads one document named by PDF_SCRIPT_THROWS_DOCUMENT"]
+fn one_document_s_throws_are_printed_with_their_scripts() {
+    let Some(path) = std::env::var_os("PDF_SCRIPT_THROWS_DOCUMENT") else {
+        println!("no document named: set PDF_SCRIPT_THROWS_DOCUMENT to a path");
+        return;
+    };
+    let tally = Arc::new(Tally::default());
+    let fields = examine(Path::new(&path), &tally, true);
+    println!(
+        "{fields} scripted field(s); {} run(s) threw",
+        tally.threw.load(Ordering::Relaxed)
     );
 }
 

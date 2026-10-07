@@ -68,14 +68,14 @@ On the general question, the honest answer: **yes, a reader should expect a larg
 memory, and every viewer works that way** — but the discipline that makes it acceptable is that the
 cost is *bounded and legible*, not that it is small. This tree already has the pattern in three
 places: `MASK_BUDGET` (32 MB), the confined worker's address-space ceiling (4 GiB), and
-`MAX_SAMPLES` (halved on measurement in session 396). A fourth for the readback is the same shape.
+`MAX_SAMPLES` (halved on measurement). A fourth for the readback is the same shape.
 
 ## The audit: what is load-bearing, what is habit
 
 **Keep, and they are not negotiable — these are the security decisions and they are cheap:**
 
-- **`#![forbid(unsafe_code)]` in every crate that touches PDF bytes.** It has a real cost: session
-  404 priced a `memfd` document hand-off and stopped on exactly this, and it forecloses SIMD
+- **`#![forbid(unsafe_code)]` in every crate that touches PDF bytes.** It has a real cost: a priced
+  `memfd` document hand-off stopped on exactly this, and it forecloses SIMD
   intrinsics. Keep it anyway — hostile input reaching `unsafe` is the failure this project cannot
   recover from, and the escape hatch already exists in the right place (`viewer-qt` and
   `viewer-ffi` lift it; neither parses a document).
@@ -86,8 +86,8 @@ places: `MASK_BUDGET` (32 MB), the confined worker's address-space ceiling (4 Gi
   document" flag that lifted them is *plausible* but should be argued as a whole, not per constant.
   **What they cost is measured, over 65 944 crawled documents** (ADR 0269): 48 reach `MAX_TILES`,
   31 `MAX_OPERATIONS`, 4 `MAX_FORM_DEPTH` and 1 `MAX_STATE_DEPTH` — **84 refusals over 83
-  documents, 0.127% of the web** (`7680183.pdf` reports two of them), against 0.2% of
-  session 430's 4000 and 0.105% of session 425's 1896, so the rate is stable at three sample sizes.
+  documents, 0.127% of the web** (`7680183.pdf` reports two of them), against 0.2% of a
+  sample of 4000 and 0.105% of one of 1896, so the rate is stable at three sample sizes.
   ~~What is still owed is one of the 84 read with the bound lifted in a scratch build, to
   find out whether the constant costs a mark or stops a bomb.~~ **Done for all 83** (ADR 0271),
   one process apiece with the bound lifted, and the

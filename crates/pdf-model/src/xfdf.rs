@@ -166,6 +166,10 @@ enum Element {
     /// Anything inside a `<contents-richtext>`: its rich text is taken as markup rather than read
     /// as elements.
     RichText,
+    /// A field's `<value-richtext>`, whose content is Table 249's `/RV`.
+    ValueRichText,
+    /// Anything inside a `<value-richtext>`: markup of the rich text string, not field data.
+    ValueRichTextInner,
     /// Anything else. Its children are `Other` too, so nothing inside an element this reader does
     /// not know can be mistaken for field data.
     Other,
@@ -214,6 +218,22 @@ struct Reader {
     /// Whether a close tag arrived with nothing open, which is the other half of [`read`]'s
     /// balance check.
     unbalanced: bool,
+    /// The `<value-richtext>` being read, if one is open.
+    rich_value: Option<RichValue>,
+    /// Every `<value-richtext>` read, resolved against the file's text by [`Self::finish`].
+    rich_values: Vec<RichValue>,
+}
+
+/// One field's `<value-richtext>`, as offsets into the file and the characters inside it.
+struct RichValue {
+    /// Which of [`Reader::fields`] it belongs to.
+    field: usize,
+    /// Where its content begins and ends in the file.
+    markup: (usize, usize),
+    /// Whether any element opened inside it: rich text, where plain characters are a value.
+    has_elements: bool,
+    /// Its character content, for one that holds plain text.
+    text: String,
 }
 
 impl Reader {
@@ -269,6 +289,9 @@ impl Reader {
             Some(Element::Captured | Element::RichText) => {
                 self.capture.last_mut().map(|node| &mut node.text)
             }
+            Some(Element::ValueRichText | Element::ValueRichTextInner) => {
+                self.rich_value.as_mut().map(|rich| &mut rich.text)
+            }
             _ => None,
         }
     }
@@ -281,6 +304,12 @@ impl Reader {
             // captured whole and read by `annotations::read` once the file is done (ADR 1297).
             Some(Element::Annots | Element::Captured) => self.capture_element(local),
             Some(Element::RichText) => Element::RichText,
+            Some(Element::ValueRichText | Element::ValueRichTextInner) => {
+                if let Some(rich) = self.rich_value.as_mut() {
+                    rich.has_elements = true;
+                }
+                Element::ValueRichTextInner
+            }
             // Nothing below an unread element is read, whatever it is called.
             Some(Element::Other) => Element::Other,
             _ => match local {
@@ -290,13 +319,10 @@ impl Reader {
                 }
                 "fields" | "field" => Element::Field,
                 "value" if parent == Some(Element::Field) => Element::Value,
-                "value-richtext" if parent == Some(Element::Field) => {
-                    self.owe(
-                        "<value-richtext>: Table 249's /RV, the rich text string beside the \
-                         value, which an import does not carry yet",
-                    );
-                    Element::Other
-                }
+                // XFDF 3.0's *value-richtext* (page 36) makes the element the field's value as a
+                // rich text string and the counterpart of the variable text field's `/RV`, which
+                // is Table 249's entry; it is read whole as markup, as `<contents-richtext>` is.
+                "value-richtext" if parent == Some(Element::Field) => Element::ValueRichText,
                 "f" => Element::File,
                 "ids" => Element::Ids,
                 "annots" => Element::Annots,
@@ -378,6 +404,15 @@ impl Reader {
                 }
             }
             Element::Value => self.value = Some(String::new()),
+            Element::ValueRichText => {
+                let field = self.open.iter().rev().find_map(|enclosing| enclosing.field);
+                self.rich_value = field.map(|field| RichValue {
+                    field,
+                    markup: (offset, offset),
+                    has_elements: false,
+                    text: String::new(),
+                });
+            }
             Element::Field if frame.named => {
                 let index = self.record();
                 if let Some(frame) = self.open.last_mut() {
@@ -420,6 +455,12 @@ impl Reader {
                 ));
             }
         }
+        if frame.element == Element::ValueRichText
+            && let Some(mut rich) = self.rich_value.take()
+        {
+            rich.markup.1 = offset.max(rich.markup.0);
+            self.rich_values.push(rich);
+        }
         if frame.named {
             self.path.pop();
         }
@@ -451,9 +492,42 @@ impl Reader {
             appearance: None,
             appearance_reference: Vec::new(),
             actions: None,
+            rich_value: None,
             owed: Vec::new(),
         });
         Some(index)
+    }
+
+    /// One `<value-richtext>`, onto the field it belongs to.
+    ///
+    /// XFDF 3.0's *The value and value-richtext elements in fields* (page 31) maps the element to
+    /// the `/RV` entry, and plain text inside it to the `/V` entry; its *value-richtext* (page 36)
+    /// says the element holds the field's value formatted as rich text. So markup becomes Table
+    /// 249's `/RV`, and the value the field takes where the file states no `<value>` beside it is
+    /// that string's characters — §12.7.5.3's text, which Table 231 bit 26 has the `/RV` specify.
+    /// A `<value>` stated beside it stands, and the layout draws the `/RV` only where its
+    /// characters are that value's (ADR 1635). ADR 1648.
+    fn rich_value(&mut self, rich: RichValue, source: &str) {
+        let Some(field) = self.fields.get_mut(rich.field) else {
+            return;
+        };
+        let value = if rich.has_elements {
+            let markup = source
+                .get(rich.markup.0..rich.markup.1)
+                .unwrap_or_default()
+                .trim();
+            field.rich_value = Some(markup.to_owned());
+            crate::rich_text::characters(markup)
+        } else {
+            Some(rich.text)
+        };
+        if field.value.is_none()
+            && let Some(value) = value
+        {
+            field.value = Some(pdf_syntax::Object::String(
+                pdf_syntax::text_string::encode_text_string(&value).into(),
+            ));
+        }
     }
 
     /// Records one sentence about what this file states and this reader does not apply.
@@ -471,6 +545,9 @@ impl Reader {
     /// `source` is the file's text, which a `<contents-richtext>`'s markup is taken from.
     fn finish(mut self, source: &str) -> FormsData {
         let annotations = annotations::read(&self.captured, source, &mut self.owed);
+        for rich in std::mem::take(&mut self.rich_values) {
+            self.rich_value(rich, source);
+        }
         let identifier = match self.ids {
             [Some(original), Some(modified)] => Some([original, modified]),
             // Half an identifier compared against a whole one would answer, which is

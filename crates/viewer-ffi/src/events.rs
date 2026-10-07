@@ -203,6 +203,9 @@ impl Events {
             Event::ScriptAsking { question, .. } => {
                 format!("a script asks: {}", script_question_text(question))
             }
+            Event::ScriptQuestionWithdrawn { .. } => {
+                "a script's question is withdrawn: its wait ran out".to_owned()
+            }
             Event::AttachmentsChanged { document } => format!(
                 "document {}'s embedded files changed; read the panel again",
                 document.0
@@ -330,7 +333,8 @@ impl Events {
             | Event::Copied { document, .. }
             | Event::Printing { document, .. }
             | Event::AskingToRunScripts { document, .. }
-            | Event::ScriptAsking { document, .. } => document.0,
+            | Event::ScriptAsking { document, .. }
+            | Event::ScriptQuestionWithdrawn { document } => document.0,
             Event::NeedsRender(request) => request.document.0,
             Event::Damage(_) => return Err(Status::WrongKind),
         })

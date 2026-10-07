@@ -46,6 +46,10 @@
 # by a script under `--scripts off`, `on` and `ask` answered both ways, and the confined window
 # pinned to `off` (ADR 1616); and in the three, a push-button a script paints red, drawn so at `on`
 # and not at `off` (ADR 1617).
+# A script's alert left unanswered under a four-second wait is withdrawn and its dialogue comes down,
+# and an open action's `this.pageNum = 2` shows the third page (ADR 1643); and in the three, a
+# note's popup draws its /RC's red run red and the same note with /Contents alone draws none (ADR
+# 1642).
 #
 # And two things a screen reader does, through AT-SPI alone: it asks which window is the active one,
 # whose frame says so with the keyboard in it and not without (ADR 1565), and it clicks a text field
@@ -487,6 +491,36 @@ pdf.Root.AcroForm = Dictionary(Fields=Array(list(asked.values())), DA=text,
 pdf.Root.OpenAction = Dictionary(S=Name.JavaScript,
                                  JS=String('app.alert("Welcome to the drive", 2, 2, "Drive");'))
 pdf.save(f"{out}/drive-asks.pdf")
+
+# drive-goto.pdf: three pages and an open action whose script turns to the third — Adobe's
+# `this.pageNum = 2`, which a host performs as a page turn (ADR 1643).
+pdf = pikepdf.new()
+font = helv(pdf)
+for name in ["Turn one", "Turn two", "Turn three"]:
+    page(pdf, font, name)
+pdf.Root.OpenAction = Dictionary(S=Name.JavaScript, JS=String('this.pageNum = 2;'))
+pdf.save(f"{out}/drive-goto.pdf")
+
+# drive-rich.pdf and drive-rich-plain.pdf: a note whose popup opens with the page, its Table 172
+# /RC colouring two words pure red and bold, and the same note with /Contents alone — the control,
+# under which no red may be drawn (ADR 1642).
+for rich in [True, False]:
+    pdf = pikepdf.new()
+    font = helv(pdf)
+    p1 = page(pdf, font, "Rich")
+    note = Dictionary(Type=Name.Annot, Subtype=Name.Text, Rect=[60, 600, 84, 624],
+                      Contents=String("Plain words and a red word."), T=String("Drive"),
+                      Name=Name.Comment, F=4)
+    if rich:
+        note.RC = String('<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml">'
+                         '<p>Plain words and a <span style="color:#ff0000;font-weight:bold;'
+                         'font-size:20pt">red word</span>.</p></body>')
+    note = pdf.make_indirect(note)
+    popup = pdf.make_indirect(Dictionary(Type=Name.Annot, Subtype=Name.Popup,
+                                         Rect=[100, 380, 500, 560], Parent=note, Open=True, F=4))
+    note.Popup = popup
+    p1.obj.Annots = Array([note, popup])
+    pdf.save(f"{out}/drive-rich.pdf" if rich else f"{out}/drive-rich-plain.pdf")
 
 # drive-painted.pdf: a push-button whose background the document's open action sets red by
 # script — Table 192's /BG, which the appearance is constructed from once a script has changed it
@@ -2051,6 +2085,78 @@ PY
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 
+# A script's question nobody answers, in all four windows (ADR 1643): the open action's alert
+# under a four-second wait, left alone until the window says it was withdrawn; then the dialogue
+# is gone — `quorra`'s card takes no key, and the two toolkits' dialogue window has closed. The
+# confined window answers every question as it arrives, so it has none to withdraw.
+script_withdrawn() {
+    local form="$OUT/$WINDOW-withdrawn.pdf" mark
+    if [ ! -x "$BIN/pdf-script-worker" ]; then
+        verdict 48-script-withdrawn "not offered" "no $BIN/pdf-script-worker beside the windows"; return
+    fi
+    if [ "$WINDOW" = quorra-confined ]; then
+        verdict 48-script-withdrawn "not offered" "pinned to off: no question is put, so none is withdrawn"
+        return
+    fi
+    cp "$FIXTURES/drive-asks.pdf" "$form"; rm -f "${form%.pdf}.edited.pdf"
+    PDF_VIEWER_SCRIPT_ANSWER_WAIT_MS=4000 launch "$form" --scripts on
+    wait_for 20 said_since 0 'alerts (Question, No/Yes): Welcome to the drive'
+    if [ "$WINDOW" != quorra ]; then wait_for 10 asked_titled; fi
+    shot 48-script-withdrawn-up
+    wait_for 20 said_since 0 'was withdrawn: nobody answered it within 4 s'
+    shot 48-script-withdrawn
+    local gone=no
+    if [ "$WINDOW" = quorra ]; then
+        mark=$(lines)
+        key y; sleep 0.5
+        [ "$(tail -n "+$((mark + 1))" "$LOG" | grep -c "you answered the script's alert")" -eq 0 ] && gone=yes
+    else
+        wait_for 10 not_asked_titled && gone=yes
+    fi
+    if [ "$(said 'was withdrawn: nobody answered it within 4 s')" -gt 0 ] && [ "$gone" = yes ]; then
+        verdict 48-script-withdrawn works "$(grep -m1 -o 'the question a script in .* was withdrawn' "$LOG"); and the dialogue is down"
+    else
+        verdict 48-script-withdrawn wrong "withdrawn said $(said 'was withdrawn'), dialogue gone $gone: $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+not_asked_titled() { [ -z "$(script_title)" ]; }
+
+# `this.pageNum = 2` in an open action, in all four windows (ADR 1643): the window turns to the
+# third page, as a person's turn. The confined window is pinned to off, so its script does not run
+# and it stays on the first page, which is the pinning's witness.
+script_goto() {
+    if [ ! -x "$BIN/pdf-script-worker" ]; then
+        verdict 49-script-goto "not offered" "no $BIN/pdf-script-worker beside the windows"; return
+    fi
+    if [ "$WINDOW" = quorra-confined ]; then
+        launch "$FIXTURES/drive-goto.pdf" --scripts on
+        expect_title 49-script-goto "page 1 of 3"
+    else
+        launch "$FIXTURES/drive-goto.pdf" --scripts on
+        expect_title 49-script-goto "page 3 of 3"
+    fi
+    shot 49-script-goto
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
+# Table 172's /RC drawn formatted in the popup window, in the three windows that draw one (ADR
+# 1642): pure red pixels on the photograph where the note colours two words, and none where the same
+# note states /Contents alone — the control that says the red is the run's.
+popup_rich() {
+    local rich plain
+    launch "$FIXTURES/drive-rich-plain.pdf"; sleep 0.5; shot 50-popup-plain
+    plain=$(coloured "$OUT/shots/$WINDOW/50-popup-plain.png" "#ff0000")
+    launch "$FIXTURES/drive-rich.pdf"; sleep 0.5; shot 50-popup-rich
+    rich=$(coloured "$OUT/shots/$WINDOW/50-popup-rich.png" "#ff0000")
+    if [ "${rich:-0}" -gt 40 ] && [ "${plain:-1}" -eq 0 ]; then
+        verdict 50-popup-rich works "$rich red pixels with /RC, $plain with /Contents alone"
+    else
+        verdict 50-popup-rich wrong "red pixels: ${rich:-?} with /RC, ${plain:-?} without: $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
 # §12.10's position, in all four windows (ADR 1593): measuring on, one press on the geographic map,
 # and the window's sentence carries a latitude and a longitude inside the map's own rectangle of
 # degrees, six places each; a press on a projected map whose /GPTS are degrees says why it gives no
@@ -2110,6 +2216,8 @@ for WINDOW in "${WINDOWS[@]}"; do
         combo_commit
         scripts_levels
         script_asks
+        script_withdrawn
+        script_goto
         located
         continue
     fi
@@ -2121,6 +2229,9 @@ for WINDOW in "${WINDOWS[@]}"; do
     scripts_levels
     script_painted
     script_asks
+    script_withdrawn
+    script_goto
+    popup_rich
     located
 done
 echo "drive-windows: $(grep -c "	works	" "$RESULTS") works, $(grep -c "	wrong	" "$RESULTS") wrong," \

@@ -61,6 +61,17 @@ pub trait ScriptAsks: std::fmt::Debug + Send + Sync {
     /// The person's answer to the question last taken. A runner whose script is no longer
     /// waiting — the wait ran out, or the worker was lost — keeps nothing of it.
     fn answer(&self, answer: ScriptAnswer);
+
+    /// Whether the question last taken has been withdrawn since this was last asked: its wait ran
+    /// out and the runner answered it as a closed dialogue answers. True once per withdrawal, and
+    /// asked before [`Self::take_question`] after every command, which is
+    /// [`crate::Event::ScriptQuestionWithdrawn`]'s order (ADR 1643).
+    ///
+    /// The default is a runner whose questions are never withdrawn — one that waits for as long as
+    /// the person takes.
+    fn withdrawn(&self) -> bool {
+        false
+    }
 }
 
 /// Whether this viewer runs a document's scripts, as the host's level for them says

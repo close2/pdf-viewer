@@ -379,8 +379,8 @@ in `tools/batch.sh gates`; a row that moves moves its band there with its reason
 | `bug1743245.pdf` p1, tight bends | turn | 37.95 (455%) | 3.38 | 0.44 | **33.25** | 0.34 | 0.41 | 0.12 | 2026-10-06, ADR 1577 |
 | | seventh | 39.78 (477%) | 3.60 | 0.36 | 35.12 | 0.09 | 0.47 | 0.13 | 2026-10-07, ADR 1607 |
 | | step | 34.96 (420%) | — | — | **34.12** | 0.12 | 0.48 | 0.24 | 2026-10-06, ADR 1577 |
-| `bug1721218_reduced.pdf` p1, a four-component group of 3 518 clipped shadings, drawn as two frames | turn | 149.10 (1789%) | 67.13 | **78.91** | 1.38 | 0.43 | 0.97 | 0.28 | 2026-10-07, ADR 1631 |
-| | seventh | 147.23 (1767%) | 67.29 | 76.67 | 1.41 | 0.52 | 0.92 | 0.42 | 2026-10-07, ADR 1631 |
+| `bug1721218_reduced.pdf` p1, a four-component group of 3 518 clipped shadings, drawn as two frames | turn | 141.00 (1692%) | 59.88 | **77.97** | 1.36 | 0.45 | 1.06 | 0.28 | 2026-10-07, ADR 1644 |
+| | seventh | 140.97 (1692%) | 59.07 | 78.71 | 1.39 | 0.50 | 0.91 | 0.41 | 2026-10-07, ADR 1644 |
 | | step | 81.61 (979%) | — | **78.07** | 1.52 | 0.27 | 0.69 | 1.06 | 2026-10-07, ADR 1631 |
 
 **The `seventh` rows are the turn on a device that has lived** (ADR 1607): the same page, lane and
@@ -396,6 +396,16 @@ first uses its seventh does not. The text page is the one whose quickest run is 
 against 6.85–7.99, its `encode` 5.07–5.36 against 3.83–4.51: a long-lived device's glyph atlas already holds
 another document's glyphs, which this table does not divide further. Growing `wgpu`'s pool of command
 encoders ahead of the frames was measured on both kinds of device and is not built (ADR 1606).
+
+**`bug1721218_reduced.pdf`'s turn and seventh rows were re-taken on 2026-10-07 after ADR 1644**,
+three runs of five rounds interleaved with three of the tree before it, pinned, load 1.3 (the tree
+before read turn 144.00–145.37, seventh 142.16–143.74, step 81.75–83.33): a shading's functions are
+parsed once an interpretation rather than once a build under each conversion, 41 parses a run where
+it made 137, and no byte moved on six arms. Per interleaved pair the turn was 1.9 to 3.5 ms quicker,
+its `interp` 2.5 to 3.8, and the seventh frame 0.8 to 2.8; the step, which interprets nothing, read
+81.87–82.51 and keeps its row. Callgrind puts the turn's interpretation at 1 357.6 → 1 258.9 M
+instructions. Its black run, 486.6 M of that, stays: the black list is not a function of the
+chromatic one (ADR 1645).
 
 **`bug1721218_reduced.pdf`'s three rows were re-taken on 2026-10-07 after ADRs 1630 and 1631**,
 eight runs of five rounds interleaved against exports of the tree before them and of ADR 1630 alone,

@@ -228,7 +228,7 @@ struct State {
     resumed: VecDeque<Resumed>,
     /// Whether the last run handed back was held rather than finished.
     holding: bool,
-    /// Set when a question's wait ran out and the runner answered it; taken by
+    /// Set when the wait of a question a host took ran out and the runner answered it; taken by
     /// [`ScriptWorker::question_withdrawn`].
     withdrawn: bool,
 }
@@ -508,26 +508,43 @@ impl ScriptWorker {
     /// finished run waits for [`ScriptRunner::take_resumed`] (ADR 1627).
     ///
     /// Nothing waits where the question's wait has run out, or the worker was lost, and then the
-    /// answer is kept nowhere.
+    /// answer is kept nowhere. **An answer is only ever the taken question's** (ADR 1641): the wait
+    /// is checked first, so an answer that arrives after it ran out is not handed to a question a
+    /// queued script asked since, which the host has not taken and the person has not read.
     #[expect(
         clippy::needless_pass_by_value,
         reason = "the answer is the host's to hand over, and a host hands over what the person gave"
     )]
     pub fn answer(&self, answer: Answer) {
         let mut state = self.state();
-        if state.waiting.is_none() {
+        self.expire(&mut state);
+        if !state.waiting.as_ref().is_some_and(|waiting| waiting.taken) {
             return;
         }
         self.resume(&mut state, &answer, None);
     }
 
-    /// Whether a question this runner put has been withdrawn since last asked: its wait ran out
-    /// and the runner answered it as a closed dialogue answers, so a host showing it drops it.
-    /// True once per withdrawal.
+    /// Whether a question a host took has been withdrawn since last asked: its wait ran out and
+    /// the runner answered it as a closed dialogue answers, so the host drops the card it shows.
+    /// True once per withdrawal, and never for a question no host took (ADR 1641).
+    ///
+    /// A host asks this before [`Self::take_question`] in the same poll, so that a card is dropped
+    /// before the card of a question a queued script asked since is put.
     pub fn question_withdrawn(&self) -> bool {
         let mut state = self.state();
         self.expire(&mut state);
         std::mem::take(&mut state.withdrawn)
+    }
+
+    /// When the question a host has taken is withdrawn if nobody answers it: the moment a host
+    /// with nothing else to do wakes to ask [`Self::question_withdrawn`], so that the card is
+    /// dropped as the wait runs out rather than at the person's next action, the runner keeping no
+    /// thread of its own (ADR 1641). `None` where no taken question waits.
+    #[must_use]
+    pub fn question_deadline(&self) -> Option<Instant> {
+        let state = self.state();
+        let waiting = state.waiting.as_ref().filter(|waiting| waiting.taken)?;
+        waiting.since.checked_add(self.answer_wait)
     }
 
     /// Answers a question that has waited past [`ANSWER_WAIT`] with its closed-dialogue answer.
@@ -539,14 +556,14 @@ impl ScriptWorker {
         if !expired {
             return;
         }
-        let Some(question) = state
+        let Some((question, taken)) = state
             .waiting
             .as_ref()
-            .map(|waiting| waiting.question.clone())
+            .map(|waiting| (waiting.question.clone(), waiting.taken))
         else {
             return;
         };
-        state.withdrawn = true;
+        state.withdrawn |= taken;
         let note = format!(
             "its question was not answered within {} ms, so the runner answered it as a closed \
              dialogue answers (ADR 1627)",

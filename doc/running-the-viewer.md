@@ -396,8 +396,18 @@ letter, with Enter for the affirming one and Escape for the one a closed dialogu
 else No, else OK); a response carries an entry holding the script's default, bullets for a password,
 answered by Enter or by OK and cancelled by Escape. Each window prints the question as it puts it and
 the answer as it is given, a password's text never. The script waits in its worker, never the
-window, and a question left unanswered past the worker's wait is answered as a closed dialogue;
-`quorra-confined`, pinned to `off`, refuses one by name.
+window, and a question left unanswered past the worker's wait — two minutes, or
+`PDF_VIEWER_SCRIPT_ANSWER_WAIT_MS` — is answered as a closed dialogue: the card or dialogue comes
+down by itself and the window says the question was withdrawn (ADR 1643); `quorra-confined`, pinned
+to `off`, refuses one by name. A script's `this.pageNum = n` turns the page as a person's turn
+would, `/C` and `/O` included.
+
+**A note's popup window shows its rich text formatted** (ADR 1642): where Table 172's `/RC` states
+the same characters as `/Contents`, each run is drawn in its weight, posture, size, colour,
+underlines, line through and rise, each paragraph in its alignment and list indent — Pango spans in
+`quorra-gtk`, Qt's rich text in `quorra-qt`, `quorra`'s own chrome — and whatever the window did not
+draw of it (a letter-spacing, a tab stop, in `quorra` a face other than its own Helvetica) is said
+under the note.
 
 An editable combo box's text — Table 233 bit 19 — is typed into and committed like a single-line
 field's in all four windows: Tab out of it or Enter in it runs its `/K` commit form and `/V`.

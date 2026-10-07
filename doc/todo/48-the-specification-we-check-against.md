@@ -142,7 +142,7 @@ defect in the standard. ADR 0252 has the argument.
    recorded in this file's history and none has been swept for.
 5. **Only then** the substrate question (the old step 4) — and **the cost is measured now rather than
    feared**, by `tools/pdf-retrieve/examples/substitution_cost.rs`, which asks the gate's own two
-   questions of both substrates (session 421, ADR 0257). **Clause existence is free**: all 506
+   questions of both substrates (ADR 0257). **Clause existence is free**: all 506
    distinct clauses this tree cites are among the 946 numbered items of §12.3.3's outline, resolved
    in 23 ms with nothing interpreted, against `doc/md/`'s 1034 headings. **The quotation half is 29
    readings**: of 582 blockquotes, 40 are found in this reader's extraction by the gate's own
@@ -150,13 +150,13 @@ defect in the standard. ADR 0252 has the argument.
    leaving 29. The gap is typography rather than words — `doc/md/` writes `Table 87 -Additional
    entries` where the standard prints `Table 87 — Additional entries`, so 59 of this tree's
    quotations carry the converter's dash. **Still a separate round from the API**, for the reason
-   session 413's decision gives.
+   `doc/todo/63` gives.
 
 ## What would make this item wrong
 
 It was written with the closing condition "if the annotations are links and bookmarks, steps 2 to 4
 buy nothing". Eleven of the fourteen documents met it and the three that matter did not, so the
-condition was spent, and session 416 replaced it: **if reading the remaining passages turns up no
+condition was spent, and this one replaced it: **if reading the remaining passages turns up no
 clause this tree implements differently, the errata are a documentation concern and not a
 correctness one, and this item drops into the notes.**
 

@@ -1,7 +1,8 @@
 //! The host object model a document's realm runs against (ADRs 1591, 1602, 1603).
 //!
 //! What is carried: the document as the global object — `getField` of any field, `getNthFieldName`,
-//! `numFields`, `calculateNow`, `resetForm`, `pageNum` and `numPages`; a `Field` for every field the
+//! `numFields`, `calculateNow`, `resetForm`, `pageNum` — whose write is a page turn the host makes
+//! (ADR 1640) — and `numPages`; a `Field` for every field the
 //! realm was told of, with the properties RFC 0008 section 4.2 admits for a field's value and its
 //! appearance (`value`, `valueAsString`, `name`, `type`, `display`, `hidden`, `readonly`,
 //! `required`, `textColor`, `fillColor`, `strokeColor`, `borderStyle`, `alignment`, `charLimit`,
@@ -170,7 +171,6 @@ fn document(context: &mut Context) -> JsResult<()> {
     for (name, read) in [
         ("numFields", Document::Fields),
         ("numPages", Document::Pages),
-        ("pageNum", Document::Page),
     ] {
         let getter = function(
             context,
@@ -186,8 +186,8 @@ fn document(context: &mut Context) -> JsResult<()> {
                 Err(refuse(
                     format!("this.{name}="),
                     RefusalKind::Unreachable(
-                        "the document's page count, field count and page are the document's and \
-                         the viewer's to state, and a script reads them"
+                        "the document's page count and field count are the document's to state, \
+                         and a script reads them"
                             .to_owned(),
                     ),
                     context,
@@ -196,6 +196,7 @@ fn document(context: &mut Context) -> JsResult<()> {
         );
         accessor(&global, name, getter, setter, context)?;
     }
+    page_num(&global, context)?;
     members::document(&global, context)?;
     refusers(&global, Holder::Doc, context)?;
     refusers(&global, Holder::Global, context)?;
@@ -578,6 +579,81 @@ fn document_number(read: Document, context: &Context) -> JsValue {
         Document::Page => JsValue::from(table.page),
     })
     .unwrap_or_default()
+}
+
+/// `this.pageNum`: read from the realm's table, and written as a page turn ([`write_page_num`]).
+fn page_num(global: &JsObject, context: &mut Context) -> JsResult<()> {
+    let getter = function(
+        context,
+        "pageNum",
+        NativeFunction::from_copy_closure(|_this, _arguments, context| {
+            Ok(document_number(Document::Page, context))
+        }),
+    );
+    let setter = function(
+        context,
+        "pageNum",
+        NativeFunction::from_fn_ptr(write_page_num),
+    );
+    accessor(global, "pageNum", getter, setter, context)?;
+    Ok(())
+}
+
+/// `this.pageNum = n`: a page turn the host performs, recorded as [`ScriptEdit::GoTo`] (ADR 1640).
+///
+/// Adobe's "Doc properties" page makes `pageNum` the document's current page, zero-based, read and
+/// written, with `this.pageNum = 0` and `this.pageNum++` as its examples. It states nothing for a
+/// value that names no page, so this is a documented choice: the value is read as ECMAScript's
+/// `ToNumber` and truncated toward zero, and a value that is not finite or falls outside
+/// `0..numPages` turns no page — the run says so in its notes, and the script goes on, as a turn a
+/// person asks for past the last page goes nowhere. The script reads back the page it turned to for
+/// the rest of the run; the latest turn of a run is the one carried.
+fn write_page_num(
+    _this: &JsValue,
+    arguments: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let asked = arguments
+        .first()
+        .cloned()
+        .unwrap_or_default()
+        .to_number(context)?;
+    let pages = State::table(context, |table| table.pages).unwrap_or(0);
+    let Some(page) = page_named(asked, pages) else {
+        State::with(context, |record| {
+            record.note(&format!(
+                "the script set this.pageNum to {asked}, which names no page of this document's \
+                 {pages}; no page is turned (ADR 1640)"
+            ));
+        });
+        return Ok(JsValue::undefined());
+    };
+    State::table(context, |table| table.page = page);
+    State::with(context, |record| {
+        if let Some(earlier) = record
+            .edits
+            .iter_mut()
+            .find(|edit| matches!(edit, ScriptEdit::GoTo { .. }))
+        {
+            *earlier = ScriptEdit::GoTo { page };
+        } else if record.edits.len() < super::MAX_EDITS {
+            record.edits.push(ScriptEdit::GoTo { page });
+        }
+    });
+    Ok(JsValue::undefined())
+}
+
+/// The zero-based page `asked` names among `pages`, truncated toward zero: `None` for a value that
+/// is not a number, is infinite, or falls outside `0..pages`.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the value is held inside `0..pages`, a `u32`'s range, and already whole before it is \
+              converted, so the conversion is exact"
+)]
+fn page_named(asked: f64, pages: u32) -> Option<u32> {
+    let truncated = asked.trunc();
+    (truncated >= 0.0 && truncated < f64::from(pages)).then_some(truncated as u32)
 }
 
 /// `this.getField(cName)`: the field of that name, or of every field below it, or `null`.

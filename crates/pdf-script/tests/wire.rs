@@ -82,6 +82,7 @@ fn outcome() -> Outcome {
             ScriptEdit::Focus {
                 field: "Total".to_owned(),
             },
+            ScriptEdit::GoTo { page: 3 },
         ],
         ending: Ending::Exceeded(Exceeded::Wall(Duration::from_millis(100))),
         refusals: vec![

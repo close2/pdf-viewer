@@ -1751,6 +1751,28 @@ pub fn scripting(level: Scripts) -> viewer_core::Scripting {
     }
 }
 
+/// The environment name for how long, in milliseconds, a script's question waits on a person
+/// before its runner answers it as a closed dialogue does.
+///
+/// `pdf_script_worker::ANSWER_WAIT` where it is unset or is not a number: the wait RFC 0008 section
+/// 4.2's questions are given (ADR 1627). The name exists so that `tools/drive-windows.sh` can watch
+/// a question withdrawn in each window without waiting the whole of it, the way
+/// [`MACHINE_FONTS_VARIABLE`] lets a window started from no terminal take a setting (ADR 1643).
+pub const SCRIPT_ANSWER_WAIT_VARIABLE: &str = "PDF_VIEWER_SCRIPT_ANSWER_WAIT_MS";
+
+/// How long a script's question waits on a person: [`SCRIPT_ANSWER_WAIT_VARIABLE`] where it states
+/// a number of milliseconds, `pdf_script_worker::ANSWER_WAIT` otherwise.
+#[must_use]
+pub fn script_answer_wait() -> std::time::Duration {
+    std::env::var(SCRIPT_ANSWER_WAIT_VARIABLE)
+        .ok()
+        .and_then(|millis| millis.trim().parse::<u64>().ok())
+        .map_or(
+            pdf_script_worker::ANSWER_WAIT,
+            std::time::Duration::from_millis,
+        )
+}
+
 /// What makes each document's runner at the levels that run scripts.
 #[derive(Debug)]
 struct Workers {
@@ -1771,7 +1793,9 @@ impl viewer_core::ScriptRunners for Workers {
         std::sync::Arc<dyn pdf_model::view::ScriptRunner>,
         Option<std::sync::Arc<dyn viewer_core::ScriptAsks>>,
     ) {
-        let worker = std::sync::Arc::new(pdf_script_worker::ScriptWorker::new());
+        let worker = std::sync::Arc::new(
+            pdf_script_worker::ScriptWorker::new().with_answer_wait(script_answer_wait()),
+        );
         let desk: std::sync::Arc<dyn viewer_core::ScriptAsks> = std::sync::Arc::new(Desk {
             worker: std::sync::Arc::clone(&worker),
         });
@@ -1800,6 +1824,10 @@ impl viewer_core::ScriptAsks for Desk {
 
     fn answer(&self, answer: viewer_core::ScriptAnswer) {
         self.worker.answer(answered_with(&answer));
+    }
+
+    fn withdrawn(&self) -> bool {
+        self.worker.question_withdrawn()
     }
 }
 

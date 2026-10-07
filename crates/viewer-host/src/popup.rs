@@ -96,6 +96,11 @@ pub struct Window<'a> {
     /// form of threaded comments", so a host drawing only [`Self::text`] has dropped them.
     /// `pdf_model::popup::Comment::depth` is how far each is indented.
     pub replies: &'a [pdf_model::popup::Comment],
+    /// Table 172's `/RC` with its formatting, which a host draws in place of [`Self::text`] where
+    /// it is `Some` — "[a] rich text string … that shall be displayed in the popup window when the
+    /// annotation is opened". The runs say what each character is set in; [`size`], [`rise`],
+    /// [`family`] and [`not_drawn`] are the readings of them the three windows share (ADR 1642).
+    pub rich: Option<&'a pdf_model::popup::RichNote>,
 }
 
 /// Every window in an answer that has somewhere to go, in the order the page listed them.
@@ -122,6 +127,7 @@ pub fn windows(popups: &[PopupWindow]) -> Vec<Window<'_>> {
                 colour: popup.colour,
                 place,
                 replies: &popup.replies,
+                rich: popup.rich.as_ref(),
             })
         })
         .collect()
@@ -168,6 +174,230 @@ pub fn thread(window: &Window<'_>) -> String {
     out
 }
 
+/// The smallest a run is drawn, as a multiple of the window's base size.
+///
+/// A choice, and the window's rather than the note's: §12.5.6.4 lets the processor choose "a font
+/// and size" for a note's window, and a size a person cannot read, or one larger than the
+/// document's own rectangle, would be this program showing a window that says nothing. Chapter 27
+/// states no bound of its own; these keep `sub` of `sub` legible and a `72pt` heading inside the
+/// window (ADR 1642).
+pub const SMALLEST_RUN: f32 = 0.5;
+
+/// The largest a run is drawn, as a multiple of the window's base size — [`SMALLEST_RUN`]'s
+/// choice, from the other end.
+pub const LARGEST_RUN: f32 = 3.0;
+
+/// The size a rich run is drawn at, in the host's own unit.
+///
+/// `base` is the window's text size and `per_point` how many of the same unit one point is: a
+/// toolkit that sizes text in points passes its font's point size and `1.0`, and a host that
+/// draws in pixels passes its pixel size and its pixels per point. The run's relative sizes are
+/// multiples of `base` and its absolute ones are points, which is `pdf_model::popup::Measure`'s
+/// split; the result is held between [`SMALLEST_RUN`] and [`LARGEST_RUN`] of `base`.
+#[must_use]
+pub fn size(run: &pdf_model::popup::RichRun, base: f32, per_point: f32) -> f32 {
+    let wanted = run.size.per_base.mul_add(base, run.size.points * per_point);
+    wanted.clamp(base * SMALLEST_RUN, base * LARGEST_RUN)
+}
+
+/// How far a rich run's baseline is raised, in the unit [`size`] answers in — negative is
+/// lowered — held within the run's own size so that a `vertical-align` of a page's height does
+/// not take the run out of its line.
+#[must_use]
+pub fn rise(run: &pdf_model::popup::RichRun, base: f32, per_point: f32) -> f32 {
+    let size = size(run, base, per_point);
+    run.rise
+        .per_base
+        .mul_add(base, run.rise.points * per_point)
+        .clamp(-size, size)
+}
+
+/// The first family a run's `font-family` names that a toolkit may be handed, or `None` for the
+/// window's own face.
+///
+/// Chapter 27's `font-family` is a search path (page 1201); a toolkit takes one name and finds its
+/// own nearest face, so the nearest is what crosses. **A name is handed over only where every
+/// character of it is a letter, a digit, a space, a hyphen or a low line**: the name is the
+/// document's, and it goes into a Pango markup attribute and into Qt's rich text, where a quote
+/// or a semicolon would end the attribute and start one the document wrote. CSS2's generic
+/// families cross as themselves, which both toolkits understand.
+#[must_use]
+pub fn family(run: &pdf_model::popup::RichRun) -> Option<&str> {
+    run.families.iter().map(String::as_str).find(|name| {
+        !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == ' ' || c == '-' || c == '_')
+    })
+}
+
+/// The sentence a window says under a rich note about what it did not draw, or `None` where it
+/// drew everything the note states.
+///
+/// `pdf_model::popup::RichNote::unapplied` is the list — chapter 27's properties this program
+/// does not carry out — and `also` is what this host adds of its own, such as a face its chrome
+/// cannot set. Said rather than dropped, because a formatting a person cannot see and is not told
+/// about is trap 5 in an interface.
+#[must_use]
+pub fn not_drawn(note: &pdf_model::popup::RichNote, also: &[String]) -> Option<String> {
+    let all: Vec<&str> = note
+        .unapplied
+        .iter()
+        .chain(also)
+        .map(String::as_str)
+        .collect();
+    (!all.is_empty()).then(|| format!("[formatting not drawn: {}]", all.join(", ")))
+}
+
+/// A rich note as Qt's rich text spells it, for a host that hands a toolkit one string.
+///
+/// `base` is the window's text size in points. Every character of the note is escaped and every
+/// attribute is one this function writes — a size and a rise in points, a colour as six hex
+/// digits, a family [`family`] has passed — so the string carries no markup the document wrote:
+/// no element, no image, no link a label could follow. A `'\n'` is a `br`, a paragraph a `p`
+/// with its alignment, a list item its tag and a margin per level.
+#[must_use]
+pub fn html(note: &pdf_model::popup::RichNote, base: f32) -> String {
+    let mut out = String::new();
+    html_into(&mut out, note, base, 0.0);
+    out
+}
+
+/// §12.5.6.2's thread in Qt's rich text, where a reply in it states a rich note — `None` where
+/// none does, and [`thread`]'s plain block is then the whole of it.
+///
+/// [`thread`]'s layout in markup: each reply's author on its own line, dimmed, and its note under
+/// that, indented two base sizes per `/IRT` hop up to four. A reply with no `/RC` is its plain
+/// text, escaped.
+#[must_use]
+pub fn thread_html(window: &Window<'_>, base: f32) -> Option<String> {
+    use std::fmt::Write as _;
+    if window.replies.iter().all(|reply| reply.rich.is_none()) {
+        return None;
+    }
+    let mut out = String::new();
+    for reply in window.replies {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a depth held at four is exactly representable"
+        )]
+        let indent = reply.depth.min(4) as f32 * base * 2.0;
+        if let Some(who) = reply.title.as_deref().filter(|who| !who.is_empty()) {
+            let _ = write!(
+                out,
+                "<p style=\"margin-top:0; margin-bottom:0; margin-left:{indent:.1}pt; \
+                 color:#777777\">"
+            );
+            escape_into(&mut out, who);
+            out.push_str("</p>");
+        }
+        if let Some(note) = reply.rich.as_ref() {
+            html_into(&mut out, note, base, indent);
+        } else {
+            let _ = write!(
+                out,
+                "<p style=\"margin-top:0; margin-bottom:0; margin-left:{indent:.1}pt\">"
+            );
+            escape_into(&mut out, reply.text.as_deref().unwrap_or_default());
+            out.push_str("</p>");
+        }
+    }
+    Some(out)
+}
+
+/// Escapes a document's characters for Qt's rich text, a line end as a `br`.
+fn escape_into(out: &mut String, text: &str) {
+    for character in text.chars() {
+        match character {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\r' => {}
+            '\n' => out.push_str("<br/>"),
+            other => out.push(other),
+        }
+    }
+}
+
+/// [`html`], every paragraph `indent` points further in.
+fn html_into(out: &mut String, note: &pdf_model::popup::RichNote, base: f32, indent: f32) {
+    use std::fmt::Write as _;
+    for paragraph in &note.paragraphs {
+        let align = match paragraph.align {
+            None | Some(pdf_model::popup::RichAlign::Left) => "left",
+            Some(pdf_model::popup::RichAlign::Centre) => "center",
+            Some(pdf_model::popup::RichAlign::Right) => "right",
+            Some(pdf_model::popup::RichAlign::Justify) => "justify",
+        };
+        let indent = f32::from(paragraph.level).mul_add(base * 2.0, indent);
+        let _ = write!(
+            out,
+            "<p align=\"{align}\" style=\"margin-top:0; margin-bottom:0; margin-left:{indent:.1}pt\">"
+        );
+        if let Some(tag) = &paragraph.tag {
+            span(out, tag, base);
+            out.push(' ');
+        }
+        for run in &paragraph.runs {
+            span(out, run, base);
+        }
+        out.push_str("</p>");
+    }
+}
+
+/// One run as a Qt rich text `span`.
+fn span(out: &mut String, run: &pdf_model::popup::RichRun, base: f32) {
+    use std::fmt::Write as _;
+    let _ = write!(out, "<span style=\"font-size:{:.2}pt", size(run, base, 1.0));
+    if let Some(name) = family(run) {
+        let _ = write!(out, "; font-family:'{name}'");
+    }
+    out.push_str(if run.bold {
+        "; font-weight:700"
+    } else {
+        "; font-weight:400"
+    });
+    if run.italic {
+        out.push_str("; font-style:italic");
+    }
+    if let Some(colour) = run.colour {
+        let _ = write!(out, "; color:#{}", hex(colour));
+    }
+    match (run.underlines > 0, run.line_through) {
+        (true, true) => out.push_str("; text-decoration:underline line-through"),
+        (true, false) => out.push_str("; text-decoration:underline"),
+        (false, true) => out.push_str("; text-decoration:line-through"),
+        (false, false) => {}
+    }
+    let raised = rise(run, base, 1.0);
+    if raised > 0.0 {
+        out.push_str("; vertical-align:super");
+    } else if raised < 0.0 {
+        out.push_str("; vertical-align:sub");
+    }
+    out.push_str("\">");
+    escape_into(out, &run.text);
+    out.push_str("</span>");
+}
+
+/// An sRGB colour as six hex digits.
+#[must_use]
+pub fn hex(colour: pdf_render::Color) -> String {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "each component is clamped to 0..=1 and scaled to 0..=255 first"
+    )]
+    let level = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
+    format!(
+        "{:02x}{:02x}{:02x}",
+        level(colour.r),
+        level(colour.g),
+        level(colour.b)
+    )
+}
+
 /// Table 166's `/M` as [`Window::modified`] should be shown, or `None` where there is none.
 ///
 /// Separate from [`windows`] because it allocates and the rest of a window does not: a host asks
@@ -183,6 +413,74 @@ mod tests {
     use super::{modified, windows};
     use viewer_core::PopupWindow;
 
+    /// A run as the tests below state one: the window's own size and nothing else.
+    fn run(text: &str) -> pdf_model::popup::RichRun {
+        pdf_model::popup::RichRun {
+            text: text.to_owned(),
+            families: Vec::new(),
+            size: pdf_model::popup::Measure {
+                per_base: 1.0,
+                points: 0.0,
+            },
+            bold: false,
+            italic: false,
+            colour: None,
+            underlines: 0,
+            underline_by_word: false,
+            line_through: false,
+            rise: pdf_model::popup::Measure::default(),
+        }
+    }
+
+    /// The note's characters and family names are the document's, so nothing of them reaches Qt's
+    /// rich text as markup: every character is escaped and a family that could end its attribute
+    /// is not handed over.
+    #[test]
+    fn a_rich_note_reaches_qt_as_escaped_text_in_spans_this_program_wrote() {
+        let mut hostile = run("<img src=\"/etc/passwd\"> & more\nnext");
+        hostile.families = vec!["x'; color:red".to_owned(), "Times New Roman".to_owned()];
+        hostile.bold = true;
+        let note = pdf_model::popup::RichNote {
+            paragraphs: vec![pdf_model::popup::RichParagraph {
+                align: Some(pdf_model::popup::RichAlign::Centre),
+                level: 0,
+                tag: None,
+                runs: vec![hostile],
+            }],
+            unapplied: Vec::new(),
+        };
+        let html = super::html(&note, 10.0);
+        assert!(!html.contains("<img"), "{html}");
+        assert!(html.contains("&lt;img src=&quot;/etc/passwd&quot;&gt; &amp; more<br/>next"));
+        assert!(html.contains("font-family:'Times New Roman'"), "{html}");
+        assert!(!html.contains("color:red"), "{html}");
+        assert!(html.contains("align=\"center\""));
+        assert!(html.contains("font-weight:700"));
+    }
+
+    /// A size is the base's multiple plus its points, held inside the window's two bounds.
+    #[test]
+    fn a_runs_size_is_relative_where_stated_so_and_bounded() {
+        let mut absolute = run("x");
+        absolute.size = pdf_model::popup::Measure {
+            per_base: 0.0,
+            points: 14.0,
+        };
+        assert!((super::size(&absolute, 10.0, 1.0) - 14.0).abs() < 1e-4);
+        assert!(
+            (super::size(&absolute, 10.0, 2.0) - 28.0).abs() < 1e-4,
+            "points in pixels"
+        );
+        absolute.size.points = 500.0;
+        assert!(
+            (super::size(&absolute, 10.0, 1.0) - 30.0).abs() < 1e-4,
+            "held at the largest"
+        );
+        let mut relative = run("x");
+        relative.size.per_base = 0.66;
+        assert!((super::size(&relative, 20.0, 1.0) - 13.2).abs() < 1e-4);
+    }
+
     /// One window whose `/Rect` is an upright box `wide` by `tall` at the origin.
     fn window(wide: f32, tall: f32) -> PopupWindow {
         PopupWindow {
@@ -195,6 +493,7 @@ mod tests {
             subject: None,
             created: None,
             colour: None,
+            rich: None,
             replies: Vec::new(),
         }
     }

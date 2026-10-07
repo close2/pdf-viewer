@@ -2471,6 +2471,9 @@ mod event_kind {
     // RFC 0008 section 4.2's `app.alert` and `app.response`, which cross for `ASKING`'s reason: a
     // script that asks runs beside the view, and the window holds the person (ADR 1628).
     pub(super) const SCRIPT_ASKING: u8 = 23;
+    // The question `SCRIPT_ASKING` put, withdrawn when its wait ran out (ADR 1643). This window
+    // answers every question at once, so it is the arm a newer worker's event lands in.
+    pub(super) const SCRIPT_QUESTION_WITHDRAWN: u8 = 24;
 }
 
 /// Encodes one event.
@@ -2712,6 +2715,9 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
             writer.u8(k::SCRIPT_ASKING).document(*document);
             write_script_question(&mut writer, question);
         }
+        Event::ScriptQuestionWithdrawn { document } => {
+            writer.u8(k::SCRIPT_QUESTION_WITHDRAWN).document(*document);
+        }
         Event::Reported {
             document,
             page,
@@ -2927,6 +2933,9 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
         k::SCRIPT_ASKING => Event::ScriptAsking {
             document: reader.document(what)?,
             question: read_script_question(&mut reader)?,
+        },
+        k::SCRIPT_QUESTION_WITHDRAWN => Event::ScriptQuestionWithdrawn {
+            document: reader.document(what)?,
         },
         k::REPORTED => Event::Reported {
             document: reader.document(what)?,
@@ -5807,6 +5816,52 @@ mod tests {
                     b: 0.3,
                     a: 0.4,
                 }),
+                // Table 172's `/RC` with its formatting, every field of a run set (ADR 1642).
+                rich: Some(pdf_model::popup::RichNote {
+                    paragraphs: vec![pdf_model::popup::RichParagraph {
+                        align: Some(pdf_model::popup::RichAlign::Centre),
+                        level: 2,
+                        tag: Some(pdf_model::popup::RichRun {
+                            text: "1.".to_owned(),
+                            families: Vec::new(),
+                            size: pdf_model::popup::Measure {
+                                per_base: 1.0,
+                                points: 0.0,
+                            },
+                            bold: false,
+                            italic: false,
+                            colour: None,
+                            underlines: 0,
+                            underline_by_word: false,
+                            line_through: false,
+                            rise: pdf_model::popup::Measure::default(),
+                        }),
+                        runs: vec![pdf_model::popup::RichRun {
+                            text: "bold\nred".to_owned(),
+                            families: vec!["Times".to_owned(), "serif".to_owned()],
+                            size: pdf_model::popup::Measure {
+                                per_base: 0.66,
+                                points: 3.0,
+                            },
+                            bold: true,
+                            italic: true,
+                            colour: Some(pdf_render::Color {
+                                r: 1.0,
+                                g: 0.0,
+                                b: 0.0,
+                                a: 1.0,
+                            }),
+                            underlines: 2,
+                            underline_by_word: true,
+                            line_through: true,
+                            rise: pdf_model::popup::Measure {
+                                per_base: 0.31,
+                                points: -1.0,
+                            },
+                        }],
+                    }],
+                    unapplied: vec!["letter-spacing in a popup window".to_owned()],
+                }),
                 // §12.5.6.2's thread, which Table 172 makes part of what this window shows.
                 replies: vec![
                     pdf_model::popup::Comment {
@@ -5818,6 +5873,7 @@ mod tests {
                         modified: Some("D:20240102000000Z".to_owned()),
                         subject: Some("a reply's subject".to_owned()),
                         created: Some("D:20240101120000Z".to_owned()),
+                        rich: None,
                     },
                     pdf_model::popup::Comment {
                         annotation: ObjectId::new(35, 0),
@@ -5828,6 +5884,7 @@ mod tests {
                         modified: None,
                         subject: None,
                         created: None,
+                        rich: None,
                     },
                 ],
             },
@@ -5841,6 +5898,7 @@ mod tests {
                 subject: None,
                 created: None,
                 colour: None,
+                rich: None,
                 replies: Vec::new(),
             },
         ];

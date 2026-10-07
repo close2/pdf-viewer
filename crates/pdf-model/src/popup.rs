@@ -41,6 +41,10 @@
 
 use pdf_syntax::{Dictionary, Document, ObjectId};
 
+mod rich;
+
+pub use rich::{Measure, RichAlign, RichNote, RichParagraph, RichRun};
+
 use crate::Page;
 
 /// One popup window, read.
@@ -122,6 +126,14 @@ pub struct Popup {
     /// state has still said *when*, and dropping it would show a comment with no date and report
     /// nothing (trap 5). A group attribute, like the four beside it. ADR 1224.
     pub created: Option<String>,
+    /// Table 172's `/RC` with its formatting, which a host draws in place of [`Self::text`] — "a
+    /// rich text string … that shall be displayed in the popup window when the annotation is
+    /// opened".
+    ///
+    /// `None` where the annotation states no `/RC`, where it is not a rich text string this
+    /// program reads, or where its characters are not [`Self::text`]'s — Table 166's `/Contents`
+    /// is then what the window shows (ADR 1642).
+    pub rich: Option<RichNote>,
     /// §12.5.6.2's thread: every reply whose own window this one has absorbed, deepest last.
     ///
     /// Empty for the overwhelming majority of windows, which nobody has replied to. See
@@ -167,6 +179,8 @@ pub struct Comment {
     /// A thread is read in the order its replies were *written*, which is what this entry states
     /// and what [`Popup::modified`] does not: a comment edited last is not the comment made last.
     pub created: Option<String>,
+    /// Table 172's `/RC` with its formatting, for this reply — [`Popup::rich`]'s entry.
+    pub rich: Option<RichNote>,
 }
 
 impl Popup {
@@ -276,6 +290,7 @@ pub fn popups(document: &Document, page: &Page, view: &crate::view::ViewState) -
                     modified: popup.modified,
                     subject: popup.subject,
                     created: popup.created,
+                    rich: popup.rich,
                 },
                 popup.open,
             )),
@@ -421,6 +436,7 @@ fn read(document: &Document, id: ObjectId, dict: &Dictionary) -> Option<Popup> {
     // off a subordinate, and the erratum text a reader is looking for is in the primary.
     let source = crate::markup::group_source(document, source);
     let rect = rectangle(document, dict)?;
+    let contents = text(document, &source, "Contents");
     Some(Popup {
         annotation: id,
         parent,
@@ -430,7 +446,8 @@ fn read(document: &Document, id: ObjectId, dict: &Dictionary) -> Option<Popup> {
         // Table 166's `/Contents` first, and Table 172's `/RC` only where there is none: NOTE 1
         // makes the two "textually equivalent" where both are present, and the plain string is
         // the one this crate can hand over without reading a specification it does not have.
-        text: text(document, &source, "Contents").or_else(|| rich_text(document, &source)),
+        rich: rich::note(document, &source, contents.as_deref()),
+        text: contents.or_else(|| rich_text(document, &source)),
         modified: text(document, &source, "M"),
         colour: colour(document, &source),
         // Both are §12.5.6.2 group attributes and both are read from `source` for that reason —
@@ -499,11 +516,10 @@ fn is_open(document: &Document, dict: &Dictionary) -> bool {
 ///
 /// # What is read, and what is deliberately not
 ///
-/// **The characters; the window's formatting is a host's to draw.** The format is XFA 3.3's rich
-/// text, which `crate::rich_text` reads and lays out for the two entries whose text this crate
-/// draws itself (ADRs 1197, 1634); a popup window is a host's to draw (§12.5.6.14), so what this
-/// hands over is the element content, the text the clause requires displayed, and the window's
-/// faces and colours stay with the host that draws it. The clause's own NOTE 1 says the
+/// **The characters; the formatting goes beside them.** The format is XFA 3.3's rich text, which
+/// `crate::rich_text` reads; a popup window is a host's to draw (§12.5.6.14), so this is the
+/// element content — the text a window shows where nothing else is drawn — and [`Popup::rich`]
+/// carries the same string's runs for the host to set (ADR 1642). The clause's own NOTE 1 says the
 /// characters are the text, by making `/RC` and `/Contents` "textually equivalent" where a file
 /// states both.
 ///
@@ -1023,7 +1039,7 @@ mod tests {
     /// > opened.
     ///
     /// The characters, which are what the clause requires shown and what NOTE 1 makes equivalent
-    /// to `/Contents`; the window is a host's to draw and its formatting with it. A closing
+    /// to `/Contents`; the formatting is [`super::Popup::rich`]'s, tested below. A closing
     /// paragraph is the newline §12.5.6.2 asks a plain `/Contents` to spell with a carriage
     /// return.
     #[test]
@@ -1065,6 +1081,96 @@ mod tests {
         let view = crate::view::ViewState::of(&document);
         let popups = popups(&document, &page(&document), &view);
         assert_eq!(popups[0].text.as_deref(), Some("the plain one"));
+    }
+
+    /// Table 172's `/RC` "shall be displayed in the popup window", so its formatting crosses to
+    /// the host that draws the window: each run's weight, posture, size, colour, lines and rise,
+    /// and each paragraph's alignment and list tag, as the cascade computed them (ADR 1642).
+    #[test]
+    fn a_rich_note_carries_each_runs_formatting() {
+        let document = document(
+            "4 0 R 5 0 R",
+            "4 0 obj << /Type /Annot /Subtype /Text /Rect [10 10 30 30] /Popup 5 0 R \
+             /RC (<body xmlns=\"http://www.w3.org/1999/xhtml\">\
+             <p style=\"text-align:center\"><b>bold</b> <span style=\"font-size:14pt;\
+             color:#ff0000;text-decoration:underline\">red</span> x<sup>2</sup></p>\
+             <ol><li>first</li></ol></body>) >> endobj\n\
+             5 0 obj << /Type /Annot /Subtype /Popup /Rect [40 40 200 140] /Parent 4 0 R >> \
+             endobj\n",
+        );
+        let view = crate::view::ViewState::of(&document);
+        let popups = popups(&document, &page(&document), &view);
+        let note = popups[0].rich.as_ref().expect("a rich text string");
+        assert_eq!(note.paragraphs.len(), 2);
+        let first = &note.paragraphs[0];
+        assert_eq!(first.align, Some(super::RichAlign::Centre));
+        let bold = &first.runs[0];
+        assert_eq!(bold.text, "bold");
+        assert!(bold.bold && !bold.italic);
+        assert!(
+            (bold.size.at(10.0) - 10.0).abs() < 1e-4,
+            "the window's own size"
+        );
+        let red = first
+            .runs
+            .iter()
+            .find(|run| run.text == "red")
+            .expect("red");
+        assert!(
+            (red.size.at(10.0) - 14.0).abs() < 1e-4,
+            "an absolute size is points"
+        );
+        assert_eq!(red.underlines, 1);
+        assert_eq!(
+            red.colour,
+            Some(pdf_render::Color {
+                r: 1.0,
+                g: 0.0,
+                b: 0.0,
+                a: 1.0
+            })
+        );
+        let raised = first.runs.last().expect("the superscript");
+        assert_eq!(raised.text, "2");
+        assert!(raised.rise.at(10.0) > 0.0, "sup raises the baseline");
+        assert!(raised.size.at(10.0) < 10.0, "and sets it smaller");
+        let item = &note.paragraphs[1];
+        assert_eq!(item.level, 1);
+        assert_eq!(item.tag.as_ref().map(|tag| tag.text.as_str()), Some("1."));
+        assert_eq!(item.runs[0].text, "first");
+        assert!(note.unapplied.is_empty());
+    }
+
+    /// Where `/Contents` states other characters, NOTE 1's expectation is broken and the plain
+    /// text is what the window shows; where it states the same ones, the formatting stands.
+    #[test]
+    fn a_rich_note_is_drawn_only_where_its_characters_are_the_contents() {
+        let with = |contents: &str| {
+            document(
+                "4 0 R 5 0 R",
+                &format!(
+                    "4 0 obj << /Type /Annot /Subtype /Text /Rect [10 10 30 30] /Popup 5 0 R \
+                     /Contents ({contents}) /RC (<body xmlns=\"http://www.w3.org/1999/xhtml\">\
+                     <p><i>the note</i></p></body>) >> endobj\n\
+                     5 0 obj << /Type /Annot /Subtype /Popup /Rect [40 40 200 140] /Parent 4 0 R \
+                     >> endobj\n"
+                ),
+            )
+        };
+        let same = with("the note");
+        let view = crate::view::ViewState::of(&same);
+        let popups_same = popups(&same, &page(&same), &view);
+        assert!(
+            popups_same[0]
+                .rich
+                .as_ref()
+                .is_some_and(|note| note.paragraphs[0].runs[0].italic)
+        );
+        let other = with("another note");
+        let view = crate::view::ViewState::of(&other);
+        let popups_other = popups(&other, &page(&other), &view);
+        assert_eq!(popups_other[0].rich, None);
+        assert_eq!(popups_other[0].text.as_deref(), Some("another note"));
     }
 
     /// Malformed markup keeps what it had read rather than emptying the window.

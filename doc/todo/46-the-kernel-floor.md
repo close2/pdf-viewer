@@ -1,7 +1,7 @@
 # The kernel floor: the zoom step is the compute kernels, and the floor is the walk, not the registers
 
 Status: **open — re-priced.** The last structural idea this file carried,
-flatten-from-quadratics, was built whole and declined on its numbers in session 843
+flatten-from-quadratics, was built whole and declined on its numbers
 (quorra ADR 0096, this tree's ADR 0770). What remains has the step's magnitude only as
 *designs*, each with its own argument still owed; nothing here is an evening's
 experiment any more.
@@ -18,7 +18,7 @@ at this lane.
 
 ## Where the time is
 
-Re-measured in session 843 (ADR 0770), consistent with rounds 840 and earlier: an
+Measured for ADR 0770, consistent with every earlier measurement: an
 Entwurf moved-view step is 62–67 ms on the 890M — kernels 42–47 (count 12.5–19.9,
 emit ~16.5, deposit ~13.5, the emit/deposit split taken by rescoping the coverage query
 for one sitting), host encode 9–10 record-replayed, residency+records ~4, transfer ~5.

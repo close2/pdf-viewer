@@ -83,6 +83,27 @@ pub fn answered(answer: &ScriptAnswer, password: bool) -> String {
     }
 }
 
+/// The line a window prints when [`viewer_core::Event::ScriptQuestionWithdrawn`] takes a question
+/// down: the script stopped waiting, so what it was given is the closed dialogue's answer and a
+/// press at the dialogue afterwards reaches nothing (ADR 1643).
+#[must_use]
+pub fn withdrawn(document: &str) -> String {
+    format!(
+        "the question a script in {document} asked was withdrawn: nobody answered it within {} s, \
+         so the script was answered as a closed dialogue answers (ADR 1643)",
+        crate::policy::script_answer_wait().as_secs_f32()
+    )
+}
+
+/// How long after a script's question goes up a window wakes to have it withdrawn, if nobody has
+/// answered it: the runner's wait ([`crate::policy::script_answer_wait`]) and a tenth of a second,
+/// because the runner withdraws a question whose wait has *passed* and the window's clock started
+/// after the runner's (ADR 1643).
+#[must_use]
+pub fn wake_after() -> std::time::Duration {
+    crate::policy::script_answer_wait().saturating_add(std::time::Duration::from_millis(100))
+}
+
 /// What a window with no dialogue for a script says, beside the
 /// [`ScriptAnswer::Unanswerable`] it sends.
 ///

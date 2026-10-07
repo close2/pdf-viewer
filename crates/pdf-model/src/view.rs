@@ -615,6 +615,11 @@ pub enum FieldValue<'a> {
         /// Carried with the value because the flags decide how the value is *drawn*: Table 231's
         /// multiline, comb and password bits each change §12.7.4.3's layout of the same string.
         flags: crate::forms_data::FlagChange,
+        /// Table 249's `/RV`, the rich text string the import states beside the value.
+        ///
+        /// `None` where the FDF field states none, which leaves the field's own `/RV` standing:
+        /// §12.7.8.3.2 replaces the entries the FDF field states (ADR 1648).
+        rich: Option<&'a str>,
     },
 }
 
@@ -1576,6 +1581,7 @@ impl ViewState {
                 FieldValue::Imported {
                     value: import.value.as_ref(),
                     flags: import.field_flags,
+                    rich: import.rich_value.as_deref(),
                 }
             } else if self.reset.contains(&annotation) {
                 FieldValue::Default

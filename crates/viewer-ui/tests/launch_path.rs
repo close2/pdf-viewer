@@ -1994,13 +1994,26 @@ fn run_phase(phase: &str, document: Option<&Path>) -> Result<Fields, String> {
     let exe = std::env::current_exe().map_err(|error| format!("no current exe: {error}"))?;
     // Pinned to the machine's fastest cores where it has more than one kind, and never to a
     // list this file wrote down: see [`the_performance_cores`].
-    let mut child = match pinning() {
-        Some(cores) => {
-            let mut wrapper = Child::new("taskset");
-            wrapper.arg("-c").arg(cores).arg(exe);
-            wrapper
-        }
-        None => Child::new(exe),
+    //
+    // **And rayon is given the cores the child is pinned to, never the caller's
+    // `RAYON_NUM_THREADS`** — `turn_path`'s rule (trap 122). A child that inherits the variable
+    // measures the pool its caller chose: the heavy-walk lock's prefix sets four, and
+    // `tools/bounded.sh` sets one a CPU of the machine, so the same binary's first page ran on two
+    // pools of different widths depending on who started the gate. Where the child is not pinned
+    // the variable is removed, and rayon finds the machine by itself (ADR 1646).
+    let mut child = if let Some(cores) = pinning() {
+        let mut wrapper = Child::new("taskset");
+        let count = cores.split(',').count();
+        wrapper
+            .arg("-c")
+            .arg(cores)
+            .arg(exe)
+            .env("RAYON_NUM_THREADS", count.to_string());
+        wrapper
+    } else {
+        let mut bare = Child::new(exe);
+        bare.env_remove("RAYON_NUM_THREADS");
+        bare
     };
     if let Some(calibration) = CALIBRATION_DOCUMENT.get() {
         child.env(CALIBRATION_PATH, calibration);

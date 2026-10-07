@@ -172,6 +172,7 @@ fn edits() -> Vec<ScriptEdit> {
             generation: 0,
             on: false,
         },
+        ScriptEdit::GoTo { page: 2 },
     ]
 }
 

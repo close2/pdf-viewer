@@ -20,7 +20,7 @@ setting.
 ## What binds
 
 - **Default off**, and the refusal names the clause and the path rather than failing quietly.
-- **When on, it is asked** — per document, through the machinery sessions 916 built:
+- **When on, it is asked** — per document, through the machinery ADRs 0874 and 0875 built:
   `pdf_transform::consult` out and `Query::Consented` back, so the policy is still asked once in
   `pdf_model::restriction::decide` and the *question* is what crosses the confinement.
 - **The broker opens, never the worker**, exactly as in [59](59-the-resource-port.md): the worker

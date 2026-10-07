@@ -1,12 +1,11 @@
 # 58 — The file-system faces: what RFC 0003 owes after its core
 
 Status: **open**, the standing item of RFC 0003's stream, as `doc/todo/57` is of RFC 0002's.
-Priority: 50-band — the core landed in session 899, the confined worker in 902, the write side in
-906, the FUSE face in 909, its first mount in 911, the KIO face in 913 and **its question channel
-in 916**, so **both faces exist, one of them has been used by a person, and one of them can put
-`CLAUDE.md` principle 3's question to one**; what is left is a decision the owner has not been
-asked, the read side's corpus walk, and the other face's own first use — nobody has opened a PDF
-in Dolphin.
+Priority: 50-band — the core, the confined worker, the write side, the FUSE face, its first mount,
+the KIO face and **its question channel** are built, so **both faces exist, one of them has been
+used by a person, and one of them can put `CLAUDE.md` principle 3's question to one**; what is left
+is a decision the owner has not been asked, the read side's corpus walk, and the other face's own
+first use — nobody has opened a PDF in Dolphin.
 Corpus witnesses: `doc/PDF20_AN001-BPC.pdf` (five pages, §12.3.3's outline, §12.4.2's labels);
 `doc/PDF-Declarations.pdf` (two §7.11.4 embedded files whose names hold a COLON, so it is the
 sanitisation witness); `doc/Tagged-PDF-Best-Practice-Guide.pdf` (images on pages 35, 36, 51, 60
@@ -26,7 +25,7 @@ ADRs 0840, 0841, 0846, 0847, 0854, 0855, 0860, 0861, 0864, 0865, 0868, 0869, 087
 
 ## What is done
 
-Session 899, RFC 0003's first landing: **the shared core, read side only.**
+RFC 0003's first landing: **the shared core, read side only.**
 `pdf_vfs::layout::LAYOUT` is §4's tree as one declarative table — path pattern, directory or file,
 what generates it, and what writing and deleting it would each mean — and `path::resolve` is the
 one place in the crate that reads a path's text. Six of the eight generators are a
@@ -43,7 +42,7 @@ write side lands, and §5.2's five verbs are refused by the operation's own name
 is `pdf_vfs::worker`'s two traits, with `InProcess` the unconfined implementation and the confined
 one a transport change for the reasons ADR 0841 §2 states.
 
-Session 902, RFC 0003's second landing: **the confined worker**, which §4 below used to be about.
+RFC 0003's second landing: **the confined worker**, which §4 below is about.
 `pdf-vfs-worker` is a separate program that confines itself before it reads a byte, takes the
 document as ADR 0812's descriptor, and answers `Query`s over the wire `crates/confined-transport`
 now holds for it and for `pdf-view-worker` both (ADR 0846) — `viewer-confined` was moved onto that
@@ -55,7 +54,7 @@ cores it had, which is an `openat` a confined process is killed for, so `RenderP
 `strips` (ADR 0847 §2). Six probes hold the boundary rather than describing it, and a worker that
 dies is a named error with a fresh worker behind it rather than a hang.
 
-Session 906, RFC 0003's third landing: **the write side, and the transaction around it.** All five
+RFC 0003's third landing: **the write side, and the transaction around it.** All five
 of §5.2's verbs work — a PDF copied into `pages/` inserts its pages at the position the name
 states, `rm pages/NNNN.pdf` deletes one, a file copied into `attachments/` is embedded, deleting
 one removes it, and `meta/info.json` is overwritable, which answers §9's fourth open question
@@ -70,7 +69,7 @@ than looking like somebody else's edit, and a write staged against a generation 
 a staged write is visible in the tree and absent from the document, and every refusal has an
 `errno` the core names. ADRs 0854 and 0855.
 
-Session 909, RFC 0003's fourth landing: **the write side's corpus walk, and the FUSE face.**
+RFC 0003's fourth landing: **the write side's corpus walk, and the FUSE face.**
 `crates/pdf-vfs/tests/write_corpus.rs` drives all five verbs over every corpus document the core
 opens, on a fresh backing per verb, and holds §7.5.6's prefix property read off the file, the
 document re-opening at the page count the edit stated, the renumbered listing, §14.7.5.4's carried
@@ -87,7 +86,7 @@ string — so what binds there is the length. And `crates/pdf-fuse` is the first
 no C linkage, no layout knowledge, an inode per name, every refusal logged as a sentence as well
 as returned as a number, and RFC section 5.4's invalidation on a thread of its own (ADR 0861).
 
-Session 911, RFC 0003's fifth landing: **the face was mounted, by hand, and ten things were
+RFC 0003's fifth landing: **the face was mounted, by hand, and ten things were
 wrong.** ADR 0864 has the seven the kernel found and ADR 0865 the three that were underneath the
 face and had nothing to do with FUSE. The largest is that `cp new.pdf pages/0004.pdf` — the verb
 RFC §5.2 leads with — could not be done at all, because `cp` issues `open(O_WRONLY|O_TRUNC)` on a
@@ -104,7 +103,7 @@ come out of `pages/`, under a false sentence hiding a real ordering defect in §
 second `ls -l` of a thousand-page document cost more than the first. All ten are fixed and each
 has a test.
 
-Session 913, RFC 0003's sixth landing: **the KIO face, and the C ABI under it.**
+RFC 0003's sixth landing: **the KIO face, and the C ABI under it.**
 `crates/pdf-vfs-ffi` is RFC section 7's boundary — thirty-five `extern "C"` functions with
 `viewer-ffi`'s shape and its two self-checks, a hand-written header held against `src/abi.rs` as
 text and a C program compiled with `-Werror` and run over a document and a scratch copy. Four
@@ -131,7 +130,7 @@ extracting every image in the document, because a file form depends on the codec
 can name a file a read cannot produce. Per page, the listing and the read are one call and cannot
 disagree. Nothing else in §4's layout moved.
 
-## 2. The write side — **done in session 906**, and what is left of it
+## 2. The write side — **done** (ADRs 0854, 0855), and what is left of it
 
 RFC §5.2's five verbs all work, and §5.3's four refusals each carry their own `errno`. What this
 item still owes on the write side is three things, none of them blocking a face:
@@ -150,7 +149,7 @@ item still owes on the write side is three things, none of them blocking a face:
 
 ## 3. The two faces, in the RFC's own order
 
-- **The FUSE face — done in session 909** (ADR 0861), **and mounted by hand in 911** (ADRs 0864,
+- **The FUSE face — done** (ADR 0861), **and mounted by hand** (ADRs 0864,
   0865). The commands, and what each of them came back with, are in `doc/history/911-*.md`; the
   paragraph below is kept because its argument still binds — a mount stays out of every gate, and
   the *next* mount by hand is owed the same way this one was, on the next round that changes the
@@ -192,7 +191,7 @@ item still owes on the write side is three things, none of them blocking a face:
   - **`: > mnt/pages/0002.pdf` is loud in the log and silent in the shell**, because `bash` does
     not check `close(2)`. Nothing can be done about the shell; what could be done is refusing the
     truncation itself, which would make a legitimate `cp` fail. Stated rather than chosen.
-- **The KIO face — done in session 913** (ADRs 0868, 0869), **and given a question channel in 916**
+- **The KIO face — done** (ADRs 0868, 0869), **and given a question channel**
   (ADRs 0874, 0875). `PdfWorker::mayProceed` consults the core before `get`, `put` and `del`, puts
   the sentence through `KIO::WorkerBase::messageBox(QuestionTwoActions, …)` where the verdict is
   *ask*, carries the answer back with `quorra_vfs_answer`, and then performs the verb unchanged; a
@@ -215,9 +214,9 @@ item still owes on the write side is three things, none of them blocking a face:
   - **Nothing has ever opened it in Dolphin.** The harness proves the protocol and says nothing
     about a person: not how a listing renders, not the `archiveMimetype` association that should
     make a click on a PDF *enter* it rather than open it, not drag and drop out of `pages/`, not
-    what a refusal's dialogue looks like, and — since session 916 — not what the *ask* level's
-    message box looks like or whether its two button labels read well in it. What is owed is the same shape as the mount's: install
-    the plugin, open a PDF in Dolphin, and write up what happened. The mime association in
+    what a refusal's dialogue looks like, and not what the *ask* level's message box looks like or
+    whether its two button labels read well in it. What is owed is the same shape as the mount's:
+    install the plugin, open a PDF in Dolphin, and write up what happened. The mime association in
     particular is asserted by the metadata and exercised by nothing.
   - **The plugin is not installed anywhere and nothing packages it.** `make install` puts `pdf.so`
     in KF6's plugin directory; nothing puts `pdf-vfs-worker` where the plugin will find it, and
@@ -228,7 +227,7 @@ item still owes on the write side is three things, none of them blocking a face:
     *directory* of PDFs replaces it per document, and nothing reaps or bounds. That is the broker
     half of section 4's first bullet, now with a face that provokes it.
 
-## 4. The confined worker — **done in session 902**, and what is left of it
+## 4. The confined worker — **done** (ADRs 0846, 0847), and what is left of it
 
 `pdf_vfs::ConfinedWorkers` is RFC §6's worker: a separate program under seccomp-BPF, Landlock and a
 4 GiB ceiling, holding the document as a descriptor it could not have opened, answering the same
@@ -245,7 +244,7 @@ worker lives and draws from the compiled-in faces; what was owed was the fidelit
 the answer is the one ADR 0812 already used for the document: the broker is unconfined, so the
 broker hands the face across.
 
-**Session 920 built that, and it is `doc/todo/59` rather than this item** (ADRs 0880, 0881). The
+**That is built, and it is `doc/todo/59` rather than this item** (ADRs 0880, 0881). The
 worker asks by *description* and the broker answers with the face it matched; the allow-list did not
 move and no host can move it; every face is off by default, so a host that says nothing is the host
 this paragraph described. `pdffs --machine-fonts`, `quorra-confined --machine-fonts` or
@@ -264,36 +263,34 @@ Three things this item still owes, none of them blocking a face:
   asks `Worker::is_alive` beside the generation key, so the operation after a death gets a fresh
   worker — but the operation that *found* the death still fails, and a face has to decide whether
   to show that or to retry once. Stated rather than chosen, because it is a face's policy.
-- **The encrypted page that died was a font lookup — closed in session 917, and it was ADR 0870's
-  defect rather than a fourth one.** Session 916 found `bug1815476.pdf` killed on
-  `Query::RenderPage` while every other question was answered, and read encryption as the
-  difference because the four committed fixtures are unencrypted. Session 917 measured it:
-  `syscall=257`, and `strace -ff` names the path — `openat("/usr/share/fonts", O_DIRECTORY)`, from
-  `pdf_font::substitute` standing in for a face the document names and does not embed. Session
-  914's `no_machine_fonts()` fixes it and this tree carries that fix; **no second fix was written
-  and no test named after the accident was added**, because `tests/read_corpus.rs` already reads
-  every file of that document's layout through the confinement. ADR 0876 has the audit line, the
-  four system calls before the corpse, and why one document can never say which of its properties
-  killed the worker.
+- **The encrypted page that died was a font lookup — closed, and it was ADR 0870's defect rather
+  than a fourth one.** `bug1815476.pdf` was killed on `Query::RenderPage` while every other question
+  was answered, which read at first as encryption because the four committed fixtures are
+  unencrypted. The audit line says `syscall=257`, and `strace -ff` names the path —
+  `openat("/usr/share/fonts", O_DIRECTORY)`, from `pdf_font::substitute` standing in for a face the
+  document names and does not embed. `no_machine_fonts()` fixes it and this tree carries that fix;
+  **no second fix was written and no test named after the accident was added**, because
+  `tests/read_corpus.rs` already reads every file of that document's layout through the confinement.
+  ADR 0876 has the audit line, the four system calls before the corpse, and why one document can
+  never say which of its properties killed the worker.
 - **A `Canceller` reaches the worker and nothing reaches it through `Vfs`.** `Confined::canceller`
   exists and `Vfs` holds `Box<dyn Worker>`, so a face that wants to end a render a person navigated
   away from has to hold its own factory the way `tests/confined.rs` does. That is a small piece of
   `Vfs` API and it wants a face's requirement to shape it.
-- **The awkward classes are the read walk's population now — done in session 919** (ADR 0878).
-  Session 917's `tests/awkward_classes.rs` asked whether the confined worker survives, over a
-  population drawn from every corpus root on the disk; session 914's `tests/read_corpus.rs` asked
-  whether the two transports agree, byte for byte, over `doc/pdf.js`. §4 of this file said which
-  way the two merge and that is what happened: the read walk now takes `doc/pdf.js` whole *and* a
-  class-balanced sample of every other root, so those documents are held to their generators'
-  bytes rather than only to survival, and the matrix file is deleted rather than inherited. What
-  came over with the population is the half a byte comparison does not have — a **death** is told
-  from a refusal by the sentence `confined-transport` words it with, any death fails the run
-  wherever it appears, and each mount is asked one more question afterwards so that session 902's
-  recovery is measured. The classes, the roots and the stride are `crates/corpus-classes`, a crate
-  rather than a helper, because the *viewer's* worker is swept over the same population and two
-  copies of a population are two populations (ADR 0879).
+- **The awkward classes are the read walk's population** (ADR 0878). `tests/awkward_classes.rs`
+  asked whether the confined worker survives, over a population drawn from every corpus root on the
+  disk; `tests/read_corpus.rs` (ADR 0871) asked whether the two transports agree, byte for byte,
+  over `doc/pdf.js`. §4 of this file said which way the two merge and that is what happened: the
+  read walk now takes `doc/pdf.js` whole *and* a class-balanced sample of every other root, so those
+  documents are held to their generators' bytes rather than only to survival, and the matrix file is
+  deleted rather than inherited. What came over with the population is the half a byte comparison
+  does not have — a **death** is told from a refusal by the sentence `confined-transport` words it
+  with, any death fails the run wherever it appears, and each mount is asked one more question
+  afterwards so that the fresh worker behind a death is measured. The classes, the roots and the
+  stride are `crates/corpus-classes`, a crate rather than a helper, because the *viewer's* worker is
+  swept over the same population and two copies of a population are two populations (ADR 0879).
 
-  **What is owed of it is the cost**, which is the reason session 917 gave for keeping two
+  **What is owed of it is the cost**, which is the reason once given for keeping two
   instruments and which the merge has to carry instead: the widening is bounded by `PER_CLASS`
   documents a class a root, and that constant is set against this walk's own wall clock rather
   than for coverage. A round that finds the line too slow lowers it and says so; a round that
@@ -308,8 +305,8 @@ Three things this item still owes, none of them blocking a face:
 - The cache has a memory bound and no disk half, which §5.5 offers as optional.
 - ~~An encrypted document opens only under §7.6.4.1's default user password … a mount that
   survives a change of the file needs a design for re-supplying the password — a lending `Secret`,
-  or a `SecretSource` a face implements.~~ **The lending `Secret` is the one that landed, in
-  session 1011 (ADR 1030)**, and it is the cheaper of the two this line named: `Workers::spawn`
+  or a `SecretSource` a face implements.~~ **The lending `Secret` is the one that landed
+  (ADR 1030)**, and it is the cheaper of the two this line named: `Workers::spawn`
   takes `Option<&Secret>`, so the mount holds §7.6.4.1's password for its own life and lends it to
   every generation's worker — no new trait, and the `Clone` this type refuses is still refused.
   `Vfs::with_password` is where a face hands one over and `pdffs --password-fd <n>` is the first
@@ -321,18 +318,18 @@ Three things this item still owes, none of them blocking a face:
   entry point and a version bump, and it is what `doc/todo/58` still owes here.
   `doc/todo/57` §1 records the same shape for `merge`.
 - ~~A *listing* of `images/NNNN/` re-runs that page's extraction every time … Caching the listing
-  itself is a second kind of entry the cache does not have.~~ **Closed in session 923 (ADR 0886),
+  itself is a second kind of entry the cache does not have.~~ **Closed (ADR 0886),
   and it was worse than this line said**: not only the listing but *every* question about a path
   under `images/NNNN/` re-ran the extraction, because that is how `locate_in` validated the name.
   The cache now has that second kind of entry — a directory's own names, kept beside the sizes and
   past the eviction of the bytes — and a listing warms the whole run. The numbers are below.
-- **Both sides now have a corpus walk** — the write side in session 909 (ADR 0860), the read side
-  in session 914 (ADR 0871), each with its line in `doc/todo/02` §2. `tests/read_corpus.rs` lists
+- **Both sides have a corpus walk** — the write side's (ADR 0860) and the read side's
+  (ADR 0871), each with its line in `doc/todo/02` §2. `tests/read_corpus.rs` lists
   the whole layout for every corpus document, `stat`s every entry, reads every file and holds each
   against the generator the table delegates to, over the **confined** transport. What it found on
   its first sixty documents is ADR 0870 and is below. Two things it does *not* measure, and they
   are the shortfalls this round created rather than closed:
-  - **The substitution gap ADR 0870 opened — closed in session 920, and the walk is unchanged.** A
+  - **The substitution gap ADR 0870 opened — closed, and the walk is unchanged.** A
     confined worker has no machine fonts, so a document naming an uninstalled face is drawn from the
     compiled-in ones; the walk puts its own process in that posture so that its columns measure the
     transport rather than two machines. `doc/todo/59`'s port is what closes it (ADRs 0880, 0881):
@@ -353,7 +350,7 @@ Three things this item still owes, none of them blocking a face:
   and the number is in its own output. A population with more multi-page documents — the SafeDocs
   crawl, `format-corpus` — would be a stronger denominator for that one verb.
 - ~~**A `stat` generates, and on a *wide* directory that is worse than on a long document.**~~
-  **Closed in session 923, and the recorded diagnosis was wrong.** Session 919's witness stands —
+  **Closed (ADR 0886), and the recorded diagnosis was wrong.** ADR 0878's witness stands —
   `corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-186-0.pdf` states **10 084 images on one
   page**, each two pixels by one, so `/images/0001/` is a directory of ten thousand files and
   `stat`ing and reading every one of them is twenty thousand questions — but the reason given for
@@ -376,15 +373,15 @@ Three things this item still owes, none of them blocking a face:
   And on an ordinary document, `doc/Tagged-PDF-Best-Practice-Guide.pdf` page 60, which places two
   images: the first `stat` was 53 ms and each question after it 17 ms; they are now 4 µs and 2 µs,
   because the listing that found the names put the bytes in the cache on the way past.
-- **And on a long document it is minutes too.** `ls -l pages/` on ISO
-  32000-2's 1023 pages took **2 min 45 s** (round 911), which is 1023 page extractions at about
-  160 ms each, and the pieces are about **1.8 MB** apiece — the closure of a heavily shared
-  document — so `pages/` reports 1.9 GB for a 12 MB file. A second listing is now free (ADR 0865
-  §3 put the sizes in the cache past eviction), and the *first* one is the shortfall: a file
-  manager opening such a mount waits three minutes. What would answer it is a generator that can
-  state a piece's length without writing it, which nothing in the transform layer offers, or a
-  listing that reports no size until asked — which §5.5 forbids for the reason ffmpegfs paid for.
-- **The cost floor is here, and it is a count.** Session 927's, and it closes what the entry below
+- **And on a long document it is minutes too.** `ls -l pages/` on ISO 32000-2's 1023 pages took
+  **2 min 45 s** on the first mount by hand, which is 1023 page extractions at about 160 ms each, and
+  the pieces are about **1.8 MB** apiece — the closure of a heavily shared document — so `pages/`
+  reports 1.9 GB for a 12 MB file. A second listing is now free (ADR 0865 §3 put the sizes in the
+  cache past eviction), and the *first* one is the shortfall: a file manager opening such a mount
+  waits three minutes. What would answer it is a generator that can state a piece's length without
+  writing it, which nothing in the transform layer offers, or a listing that reports no size until
+  asked — which §5.5 forbids for the reason ffmpegfs paid for.
+- **The cost floor is here, and it is a count**, and it closes what the entry below
   calls the sharpest thing missing: `Vfs::questions` counts the questions a mount puts to its worker
   and how many of them are about a subject it had already answered (`Query::subject`), and
   `Vfs::forgotten` counts what the cache stopped holding within a generation — an eviction, or an
@@ -395,7 +392,7 @@ Three things this item still owes, none of them blocking a face:
   clock on purpose — ADR 0884's five-part construction is what a duration costs on this machine, and
   a corpus walk cannot be pinned — so no neighbouring round's load can move either side of it. It
   found a defect of its own on the first run (§14.3.2's stream, ADR 0895 §1). ADR 0894.
-- **A refusal is not remembered, so it is paid for on every question.** Session 927's floor found
+- **A refusal is not remembered, so it is paid for on every question.** The cost floor above found
   it: a page whose codec this reader does not have, or a plan `pdf_transform` declines by name,
   produces no bytes — so there is nothing for the cache to hold and the next `stat` or `open` of
   that path runs the generator again. Over the corpus it is the whole of the walk's
@@ -408,14 +405,14 @@ Three things this item still owes, none of them blocking a face:
 - **There is still no gate, and there are now numbers.** `crates/pdf-vfs/examples/vfs_cost.rs`
   prints, per document: a worker per generation in each transport, one question of each shape in
   each transport, the largest answer and the bound past which the confinement refuses one, a
-  `stat` that generates beside the same `stat` cached, and — session 923 — one `images/NNNN/`
-  listed, listed again, and `cp -r`'d entry by entry. Session 902's run is in that round's record.
+  `stat` that generates beside the same `stat` cached, and one `images/NNNN/` listed, listed
+  again, and `cp -r`'d entry by entry. Its first run is in `doc/history/902-*.md`.
   What is *not* measured, and what the next round of this stream should take: `text/document.txt`
   on a long document, which is the streaming shortfall above, priced. And none of it is a floor:
   RFC 0002's suite got its perf floor in its second round (ADR 0801) and this crate still has no
   line in `doc/todo/02` §2 beyond the core's — **which was the sharpest thing missing here**,
   because the defect ADR 0886 fixed was a hundredfold and no gate in the sequence could see it.
-  **Session 927 took that**, and the entry above is what it built; what is still unfloored is
+  **The count above answers that** (ADR 0894); what is still unfloored is
   everything a *count* cannot state — `ls images/` on a scanned book, the cache's hit rate under a
   `cp -r`, `text/document.txt` on a long document — because each of those is a duration and ADR
   0895 §3 says what a duration costs to make believable here.
@@ -424,8 +421,8 @@ Three things this item still owes, none of them blocking a face:
 
 ## 6. RFC §9's open questions — one answered, six standing
 
-**The fourth is answered: `meta/info.json` writes are in v1, yes.** Session 906 implemented them
-and ADR 0855 §5 has the argument — the file *is* §14.3.3's Table 349, the write is the read's
+**The fourth is answered: `meta/info.json` writes are in v1, yes.** They are implemented, and
+ADR 0855 §5 has the argument — the file *is* §14.3.3's Table 349, the write is the read's
 inverse, and reading the file and writing it straight back changes nothing the document states.
 The owner may of course overrule it; what it is not any more is undecided.
 

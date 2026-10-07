@@ -382,6 +382,13 @@ most of it in the adapter check. No route inside the binary leaves it out (ADR 1
 admissible route is a launcher's `VK_LOADER_DRIVERS_DISABLE=*lvp*`, and that is the owner's
 `doc/questions/Q270`.
 
+**And a launch after an idle second pays about 4.4 ms more**, 2.5 of it in the adapter check: the
+gate's children born after 1.5 s of idle read 19.4 to 25.5 ms where children born back to back read
+16.0 to 17.7, and a 30 ms spin on the pinned cores first moved nothing, so it is the device's idle
+state and not the processor's clock (ADR 1647). Whether the GPU's power gating is what the kernel
+driver is waking from, and whether a launcher could keep it awake for less, is unmeasured; the
+`strace -T` of the two children's ioctls side by side is the first step.
+
 ### 5. The first frame pays ~12 ms of first-use allocation, and it is **not** the shaders
 
 Measured on the machine's real adapter, headless

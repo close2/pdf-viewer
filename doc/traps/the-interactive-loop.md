@@ -339,3 +339,13 @@ Drive step `45-combo-commit` found GTK giving the keyboard to an editable combo 
 because GTK's own Tab may already have put the keyboard in the entry, and moving forward from
 there leaves it — which is a commit. `controls::give_the_keyboard` names the entry (ADR 1629). A
 multiline field's `GtkScrolledWindow` is the next composed control a drive step will meet.
+
+### 126. A module's "API" is checked for visibility, and a "cannot happen" is read against its code
+
+Batch sixty-three's brief told the host round that `rich_text`'s layout API was what to call; every
+item was `pub(crate)` and `lay_out` wrote a content stream, so the round built `popup::RichNote` and
+the enabling hunk landed in a sibling's file (round 1403). A brief that names an API has checked
+`pub`. And ADR 1628 said a late answer to a withdrawn question "is dropped" — true only when nothing
+was queued: a press on a withdrawn card could answer the next queued script's question, which nobody
+had seen (ADR 1641 fixed it). A claim about what cannot happen is read against the code that
+enforces it, and a test pins it.

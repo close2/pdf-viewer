@@ -703,6 +703,15 @@ stated them; `issue9418.pdf`'s newest trailer has no `/Pages` and nothing said s
 plausible render (ADR 1533). Before a reason is written into a list, run the search it implies;
 and a recovered page carries its report.
 
+### 125. A column's throws are counted by document before a class is named
+
+The Tier 1 column's 9 541 throws ranked by message looked like a world of missing functions; by
+document, 8 892 are one form's `TFMC`, undefined in its own library and re-run at every commit of
+hundreds of fields, and the real classes are nine files, five and one (round 1402). Count by
+document as well as by run before a class is called the world's or one form's — and remember the
+report's 256-sentence cap fills before a late throw is reported, so a document's last throw may be
+in the column and not in the reader's sentences.
+
 ## Things worth knowing
 
 - **The oracle's artefacts are the fastest diagnostic in the tree.** Every non-agreeing page leaves

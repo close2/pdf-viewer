@@ -8,16 +8,16 @@ traps 31 and 32.
 
 ## The class
 
-Six sessions have now met a confined worker dying on a system call **no document caused**:
+A confined worker has died six times on a system call **no document caused**:
 
-| session | what asked | what it read | how it was fixed |
+| instance | what asked | what it read | how it was fixed |
 |---|---|---|---|
-| 902 | `available_parallelism` in the render path | `/proc/self/cgroup` | the answer taken before confinement (`RenderPlan::strips`) |
-| 911 | glibc sizing a per-thread arena | `/sys/devices/system/cpu/online` | `MALLOC_ARENA_MAX=1` at the spawn |
-| 914 | `pdf_font::substitute` looking for a face | `/usr/share/fonts` | `no_machine_fonts()` before the lockdown — **and this one *is* [59](59-the-resource-port.md)'s demand, not this item's** |
-| 917 | the same as 914, reached by a different question | the same | round 914's fix, no second fix written |
-| 920 | `std::os::fd::OwnedFd::drop`, closing a *face* the broker handed over | nothing — it asks `fcntl(fd, F_GETFD)` first, under `core::ub_checks::check_library_ub()`, to catch a double close | the resource port sends bytes instead of a descriptor (ADR 0880) |
-| 924 | the same, closing the **document's** descriptor, which cannot cross any other way (ADR 0812) | the same | `fcntl` admitted for the interpreter profile alone, **narrowed by argument to `F_GETFD`** (ADR 0888) |
+| parallelism | `available_parallelism` in the render path | `/proc/self/cgroup` | the answer taken before confinement (`RenderPlan::strips`) |
+| arena | glibc sizing a per-thread arena | `/sys/devices/system/cpu/online` | `MALLOC_ARENA_MAX=1` at the spawn |
+| font | `pdf_font::substitute` looking for a face | `/usr/share/fonts` | `no_machine_fonts()` before the lockdown — **and this one *is* [59](59-the-resource-port.md)'s demand, not this item's** |
+| font, again | the same as *font*, reached by a different question | the same | *font*'s fix, no second fix written |
+| face close | `std::os::fd::OwnedFd::drop`, closing a *face* the broker handed over | nothing — it asks `fcntl(fd, F_GETFD)` first, under `core::ub_checks::check_library_ub()`, to catch a double close | the resource port sends bytes instead of a descriptor (ADR 0880) |
+| document close | the same, closing the **document's** descriptor, which cannot cross any other way (ADR 0812) | the same | `fcntl` admitted for the interpreter profile alone, **narrowed by argument to `F_GETFD`** (ADR 0888) |
 
 ## The rule
 
@@ -27,15 +27,15 @@ boundary a little, and the boundary is the product. [59](59-the-resource-port.md
 resources the document names; nothing in this table is that, except the font lookup, which is in
 that item precisely because it is the exception.
 
-**And the table has two shapes in it, which is what sessions 920 and 924 established.** The rule
+**And the table has two shapes in it, which its last two rows establish.** The rule
 above is about the first; the second is not a probe at all and must not be treated as one, in
 either direction — neither answered before the lockdown, which is impossible, nor waved through as
 "the same kind of thing":
 
 | shape | what the process is doing | what to do | rows |
 |---|---|---|---|
-| a probe | asking the **machine** about itself, so that a library can size itself | answer it before the lockdown | 902, 911, 914, 917 |
-| a precondition | the standard library checking a resource the worker was **given**, at the moment it is given back | send the resource another way; where it cannot cross another way, **one command, narrowed by argument** | 920, 924 |
+| a probe | asking the **machine** about itself, so that a library can size itself | answer it before the lockdown | parallelism, arena, font, font again |
+| a precondition | the standard library checking a resource the worker was **given**, at the moment it is given back | send the resource another way; where it cannot cross another way, **one command, narrowed by argument** | face close, document close |
 
 The second column of the second row has an order and both halves have been spent. Sending the
 resource another way is the first answer and ADR 0880 §6 is where it worked — a face crosses as
@@ -46,17 +46,17 @@ the second first.
 
 ## The precondition shape, and how the two instances of it were answered differently
 
-Session 920 found it by building `doc/todo/59`'s port. **It is not the environment being probed at
+Building `doc/todo/59`'s port is what found it. **It is not the environment being probed at
 all**: nothing asks the machine anything, no library is sizing itself, and no filesystem call
 appears in the code. It is the standard library checking a *precondition* on a descriptor the worker
 legitimately holds, with a system call that is not on the allow-list, at `Drop`. Trap 32 has the
 trace.
 
-- **A face crosses as bytes** (920, ADR 0880 §6). The fix was not a permission: the answer frame
+- **A face crosses as bytes** (ADR 0880 §6). The fix was not a permission: the answer frame
   carries the resource rather than a descriptor the worker would have to drop, at the cost of one
   copy of a file that is tens of megabytes at worst, in the process that has the memory. This is the
   first answer to reach for and it is the one that leaves the boundary alone.
-- **The document cannot** (924, ADR 0888). ADR 0812 hands the worker a descriptor per open document
+- **The document cannot** (ADR 0888). ADR 0812 hands the worker a descriptor per open document
   precisely so that a 6 GB file does not cross as bytes — the route it would have to take is the one
   that aborted the *host* at 10.44 GiB. So the second answer was spent here: `fcntl` on the
   interpreter profile, **narrowed by argument** to `F_GETFD`, which reads the close-on-exec flag of a
@@ -71,23 +71,23 @@ trace.
 **What this cost the item, stated plainly**: the allow-list moved, for the first time since ADR 0812,
 and the rule at the top of this file is what says that is not a precedent. A probe is still answered
 before the lockdown and still never becomes a permission. The next round to reach for the second row
-of that table owes the first column of it first — *can the resource cross another way?* — and 920 is
+of that table owes the first column of it first — *can the resource cross another way?* — and ADR 0880 is
 the evidence that the answer is usually yes.
 
 ## What is owed
 
-1. **Find the next instance before it finds us — the instrument exists and runs.** Session 917's
-   ten classes are `crates/pdf-vfs/tests/read_corpus.rs`'s population since session 919 (ADR 0878),
+1. **Find the next instance before it finds us — the instrument exists and runs.** ADR 0877's
+   ten classes are `crates/pdf-vfs/tests/read_corpus.rs`'s population (ADR 0878),
    over every corpus root on the disk, with the fix removed as its own calibration. What is owed is
    not another instrument: it is that a round taking a *new* dependency into either confined worker
    runs the two sweeps below and says what they printed.
-2. **The same sweep through `pdf-view-worker` — done in session 919** (ADR 0879).
+2. **The same sweep through `pdf-view-worker` — done** (ADR 0879).
    `crates/viewer-confined/tests/awkward_classes.rs` opens and draws the same population through
    the confined viewer, which is the program whose death costs a person the page they were reading
    rather than one generated file. `doc/verify.md` has the line; it is not a `doc/todo/02` §2 gate,
    because the read walk gates the same class of defect every round and this is the run a round
    touching the confinement owes.
-3. **Close a document in a confined worker, in a debug build — done in session 924** (ADRs 0888,
+3. **Close a document in a confined worker, in a debug build — done** (ADRs 0888,
    0889). `viewer-confined`'s
    `a_document_closed_in_the_confined_process_leaves_a_worker_that_still_answers` is the witness and
    is no longer `#[ignore]`d; it is a gate under `cargo nextest run --workspace`, which is the run

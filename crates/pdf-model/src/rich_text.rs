@@ -36,6 +36,13 @@ pub(crate) use style::Character;
 use markup::{ListIndent, Paragraph, Piece};
 use style::{Block, Declarations, Unapplied};
 
+/// The names a reader outside this module matches a read string's pieces by: §12.5.6.14's popup
+/// window, which hands Table 172's `/RC` to a host as runs rather than laying it out (ADR 1642).
+pub(crate) mod parts {
+    pub(crate) use super::markup::{ListIndent, Piece};
+    pub(crate) use super::style::Align;
+}
+
 /// What a field or a note is drawn from, once its entries are read.
 pub(crate) struct Chosen {
     /// The text, with its formatting.
@@ -78,13 +85,28 @@ pub(crate) fn same_characters(rich: &str, plain: &str) -> bool {
     words(rich) == words(plain)
 }
 
+/// What a rich text field's current value comes with, beside its characters.
+#[derive(Clone, Copy)]
+pub(crate) struct Stated<'a> {
+    /// The value's text as it stands, which Table 231 bit 26 makes a rich text string.
+    pub(crate) markup: Option<&'a str>,
+    /// Table 249's `/RV`, where an import stated one beside its value.
+    pub(crate) imported_rich: Option<&'a str>,
+    /// Whether the value is the file's own `/V` or an import's, as it stands: an edit or a reset
+    /// replaces it with a value no `/RV` describes.
+    pub(crate) stored: bool,
+}
+
 /// A rich text field's text, where Table 231 bit 26 is set and the file states formatting.
 ///
 /// `chain` is the field's own `/Parent` chain, nearest first; `plain` the characters §12.7.5.3
-/// makes the field's text, already read from whichever value is current; `stored` whether that
-/// value is the file's own `/V` — an edit, a reset or an import replaces it, and the `/RV` the
-/// file states then describes a value the field no longer has. `root` is the style of text nothing
-/// styles, from the `/DA`'s face.
+/// makes the field's text, already read from whichever value is current; `stated` what came with
+/// that value. An edit or a reset replaces the value, and the `/RV` the file states then describes
+/// a value the field no longer has; an import replaces it **and** the `/RV`, where the FDF field
+/// states one — §12.7.8.3.2's "importing a field causes the values of the entries in the FDF
+/// field dictionary to replace those of the corresponding entries in the field", and Table 249's
+/// `/RV` corresponds to Table 228's (ADR 1648). `root` is the style of text nothing styles, from
+/// the `/DA`'s face.
 ///
 /// `None` is a field the plain layout draws: the flag clear, or nothing in the file stating
 /// formatting — no `/RV`, no `/DS`, no markup in the value.
@@ -101,17 +123,21 @@ pub(crate) fn for_field(
     document: &Document,
     chain: &[Dictionary],
     plain: &str,
-    stored_markup: Option<&str>,
-    stored: bool,
+    stated: Stated<'_>,
     root: &Character,
 ) -> Option<Chosen> {
     let default_style =
         nearest(document, chain, "DS").and_then(|(_, value)| entry_text(document, &value));
     let default_style = default_style.as_deref();
-    if stored {
-        if let Some(rich) = nearest(document, chain, "RV")
-            .and_then(|(_, value)| entry_text(document, &value))
-            .and_then(|markup| markup::parse(&markup, default_style, root.clone()))
+    if stated.stored {
+        let rich_value = match stated.imported_rich {
+            Some(imported) => Some(imported.to_owned()),
+            None => {
+                nearest(document, chain, "RV").and_then(|(_, value)| entry_text(document, &value))
+            }
+        };
+        if let Some(rich) =
+            rich_value.and_then(|markup| markup::parse(&markup, default_style, root.clone()))
         {
             if same_characters(&rich.text(), plain) {
                 return Some(Chosen {
@@ -128,8 +154,9 @@ pub(crate) fn for_field(
                 }),
             });
         }
-        if let Some(rich) =
-            stored_markup.and_then(|markup| markup::parse(markup, default_style, root.clone()))
+        if let Some(rich) = stated
+            .markup
+            .and_then(|markup| markup::parse(markup, default_style, root.clone()))
         {
             return Some(Chosen {
                 rich,
@@ -202,6 +229,15 @@ pub(crate) fn for_free_text(
     }
 }
 
+/// A rich text string's characters, read by the walk that lays it out: paragraphs as carriage
+/// returns, white space as chapter 27 compresses it.
+///
+/// `None` for a string that is not well formed. What an XFDF `<value-richtext>` with no
+/// `<value>` beside it makes the field's value (`crate::xfdf`, ADR 1648).
+pub(crate) fn characters(markup: &str) -> Option<String> {
+    markup::parse(markup, None, Character::root()).map(|rich| rich.text())
+}
+
 /// Plain characters as a rich text string with nothing but a default style: one paragraph per
 /// line, every character kept as it stands.
 ///
@@ -222,6 +258,7 @@ pub(crate) fn plain_text(text: &str, default_style: Option<&str>, root: &Charact
         );
     }
     character.spacerun = true;
+    character.tab_count = 0;
     let mut paragraphs = Vec::new();
     for line in text.split("\r\n").flat_map(|line| line.split(['\r', '\n'])) {
         let pieces = if line.is_empty() {

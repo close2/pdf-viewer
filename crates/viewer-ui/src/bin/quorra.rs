@@ -423,6 +423,7 @@ fn main() {
         remote_documents,
         submitter: viewer_host::submit::Submitter::new(),
         asked: None,
+        script_wait: None,
         refused: viewer_ui::chrome::Refusal::default(),
         locked: None,
         drawn_without_a_page: false,

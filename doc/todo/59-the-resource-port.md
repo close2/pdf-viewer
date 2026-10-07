@@ -1,6 +1,6 @@
 # 59 — The resource port: what a confined worker may be given, and by whom
 
-Status: **built for fonts** by session 920 (ADRs 0880, 0881); the item stays open for what "What is
+Status: **built for fonts** (ADRs 0880, 0881); the item stays open for what "What is
 still owed" below names. Originally **accepted** by the project owner on 2026-09-04, in these
 words: *"I think we need to rethink our 'no access to the filesystem' policy. what do you think about a clean layer, which
 every implementation must (can?) overwrite. the cli would wrap the access with a flag. GUIs could
@@ -17,8 +17,8 @@ Code: `crates/pdf-font/src/substitute.rs`, `crates/pdf-vfs/src/worker.rs`,
 ## Why this exists
 
 The confinement admits two syscalls beyond the interpreter's set (ADR 0812), and a worker that
-looks for a font dies on the second of them. Sessions 902, 911, 914 and 917 each met that kill, and
-914's fix — `pdf_font::substitute::no_machine_fonts()` before the lockdown — bought a live worker
+looks for a font dies on the second of them. Four separate runs met that kill, and the fix —
+`pdf_font::substitute::no_machine_fonts()` before the lockdown (ADR 0870) — bought a live worker
 with a **stated fidelity cost**: a confined mount draws a face the document names and does not
 embed from the compiled-in Latin faces. Four documents in the first sixty of the corpus are in that
 population (`XiaoBiaoSong.pdf`, `SimFang-variant.pdf`, `90ms_rksj_h_sample.pdf`,
@@ -32,7 +32,7 @@ change it: a worker asks the broker for a resource **by description** — a fami
 of code points — and the broker matches, opens, and passes a **descriptor** over the channel
 §7.5.6's document already crosses (`SCM_RIGHTS`, ADR 0812), which the worker reads positionally
 with the `pread64` it already has. A font name out of an untrusted file therefore never becomes a
-path lookup inside the process that parses untrusted bytes, and session 917's ten-class matrix keeps
+path lookup inside the process that parses untrusted bytes, and ADR 0877's ten-class matrix keeps
 meaning what it means.
 
 **`can`, not `must`** — the owner's own parenthetical, answered. The trait's default
@@ -58,7 +58,7 @@ leave implied: **the broker would parse the user's own fonts in an unconfined pr
 moves attack surface in the wrong direction, though the input is the user's rather than the
 document's.
 
-## What landed, in session 920
+## What is built
 
 1. **The port itself** — `crates/pdf-font/src/provider.rs`: the description (a family, a weight, a
    slope, the characters a script needs, and how many answers to pass over — never a path), the
@@ -81,8 +81,7 @@ document's.
    byte identity as the comparison. ADR 0881 has the figures: over all 974 documents of
    `doc/pdf.js`, 40 pages differed from what this machine draws unconfined and are now
    byte-identical to it, 0 are offered and still different, and twelve of the forty were blank
-   before. **`crates/corpus-classes`, which session 919 made the confined sweeps' population (ADRs
-   0878, 0879), is the wider denominator this example should take next** — it is a different
+   before. **`crates/corpus-classes`, the confined sweeps' population (ADRs 0878, 0879), is the wider denominator this example should take next** — it is a different
    question from the sweeps' own (they ask whether the worker survives; this asks what it drew) and
    it is the same population.
 

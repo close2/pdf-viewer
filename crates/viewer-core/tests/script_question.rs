@@ -83,6 +83,7 @@ fn form_with(catalog: &str) -> Vec<u8> {
 struct Desk {
     waiting: Mutex<Option<ScriptQuestion>>,
     answers: Mutex<Vec<ScriptAnswer>>,
+    withdrawn: Mutex<bool>,
 }
 
 impl ScriptAsks for Desk {
@@ -92,6 +93,10 @@ impl ScriptAsks for Desk {
 
     fn answer(&self, answer: ScriptAnswer) {
         self.answers.lock().expect("one test thread").push(answer);
+    }
+
+    fn withdrawn(&self) -> bool {
+        std::mem::take(&mut *self.withdrawn.lock().expect("one test thread"))
     }
 }
 
@@ -233,4 +238,34 @@ fn at_off_nothing_asks_and_an_answer_is_dropped() {
         })
         .collect();
     assert!(questions(&events).is_empty());
+}
+
+/// A question whose wait ran out is withdrawn once, after the next command, and before a question
+/// a queued script asked since — the order in which a host drops one card and puts the next (ADR
+/// 1643).
+#[test]
+fn a_withdrawn_question_is_said_once_and_before_the_next_question() {
+    let askers = Arc::new(Askers::default());
+    let mut viewer = opened(Scripting::Run(Arc::clone(&askers) as Arc<dyn ScriptRunners>));
+    viewer.handle(Command::Tick { millis: 0 }).for_each(drop);
+    *askers.desk.withdrawn.lock().expect("one test thread") = true;
+    *askers.desk.waiting.lock().expect("one test thread") = Some(alert());
+    let events: Vec<Event> = viewer.handle(Command::Tick { millis: 0 }).collect();
+    let withdrawn = events
+        .iter()
+        .position(|event| matches!(event, Event::ScriptQuestionWithdrawn { document } if *document == DOCUMENT));
+    let asked = events
+        .iter()
+        .position(|event| matches!(event, Event::ScriptAsking { .. }));
+    assert!(
+        withdrawn.is_some_and(|withdrawn| asked.is_some_and(|asked| withdrawn < asked)),
+        "{events:?}"
+    );
+    let later: Vec<Event> = viewer.handle(Command::Tick { millis: 0 }).collect();
+    assert!(
+        !later
+            .iter()
+            .any(|event| matches!(event, Event::ScriptQuestionWithdrawn { .. })),
+        "said once"
+    );
 }

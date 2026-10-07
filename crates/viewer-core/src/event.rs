@@ -264,6 +264,19 @@ pub enum Event {
         /// What it asks.
         question: crate::ScriptQuestion,
     },
+    /// The question [`Self::ScriptAsking`] put for this document is no longer asked: its wait ran
+    /// out, and the runner answered it as a closed dialogue answers (ADR 1627) — so the host drops
+    /// the dialogue or the card it shows, and an answer the person gives it afterwards reaches
+    /// nothing.
+    ///
+    /// Sent before a later question of the same document's, so that a host reading events in order
+    /// drops the old card before it puts the new one. A host that holds the window open without
+    /// any command arriving sends [`crate::Command::Tick`] of no time when the wait would run out,
+    /// which is what makes the viewer ask (ADR 1643).
+    ScriptQuestionWithdrawn {
+        /// Which document's question.
+        document: DocumentId,
+    },
     /// An operation the document restricts was performed, and this is what the document said —
     /// the answer of [`crate::RestrictionLevel::Warn`], and the *warn before the operation* level
     /// of `CLAUDE.md`'s four.

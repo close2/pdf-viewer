@@ -489,6 +489,38 @@ impl Function {
         self.range.as_deref()
     }
 
+    /// How many numbers this function holds — its samples and their spline coefficients, its
+    /// coefficients, its bounds, its instructions, its sub-functions' — which is what keeping it
+    /// costs.
+    ///
+    /// A count of numbers rather than of bytes because each is one `f32`, one pair member or one
+    /// instruction, so a bound written in them says what it bounds without an argument about
+    /// layout. `crate::shading`'s memo of parsed functions is held to one.
+    pub(crate) fn held_values(&self) -> usize {
+        let own = match &self.kind {
+            Kind::Sampled(sampled) => {
+                let coefficients = match &sampled.interpolation {
+                    Interpolation::Multilinear => 0,
+                    Interpolation::CubicSpline(coefficients) => coefficients.len(),
+                };
+                sampled.samples.len().saturating_add(coefficients)
+            }
+            Kind::Exponential { c0, c1, .. } => c0.len().saturating_add(c1.len()),
+            // Recursion as deep as `MAX_STITCH_DEPTH`, the depth the parser built to.
+            Kind::Stitching {
+                functions,
+                bounds,
+                encode,
+            } => functions.iter().map(Self::held_values).fold(
+                bounds.len().saturating_add(encode.len()),
+                usize::saturating_add,
+            ),
+            Kind::PostScript(program) => program.len(),
+        };
+        own.saturating_add(self.domain.len())
+            .saturating_add(self.range.as_ref().map_or(0, Vec::len))
+    }
+
     /// Selects the sub-function covering an input and re-maps the input onto its domain.
     ///
     /// The sub-function writes into the same buffer, so a chain of stitched functions costs

@@ -2254,6 +2254,38 @@ impl Host {
         }
     }
 
+    /// [`Event::ScriptQuestionWithdrawn`]: that document's question is taken, so the dialogue's
+    /// next [`Self::poll_script_question`] sees it gone (ADR 1643).
+    fn withdraw_script_question(&mut self, document: DocumentId) {
+        if self
+            .script_question
+            .as_ref()
+            .is_some_and(|(asked, ..)| *asked == document)
+        {
+            self.script_question = None;
+        }
+        let name = self.documents.label_of(document);
+        self.say(&viewer_host::script_asks::withdrawn(&name));
+    }
+
+    /// How long the dialogue waits before asking [`Self::poll_script_question`], in milliseconds:
+    /// `viewer_host::script_asks::wake_after` (ADR 1643).
+    #[expect(
+        clippy::unused_self,
+        reason = "a `cxx` bridge method is called on the host, and the wait is the reader's"
+    )]
+    pub(crate) fn script_question_wait(&self) -> u32 {
+        u32::try_from(viewer_host::script_asks::wake_after().as_millis()).unwrap_or(u32::MAX)
+    }
+
+    /// Sends a tick of no time, after which the viewer asks whether the script's question was
+    /// withdrawn, and answers whether it is still outstanding — `false` is a dialogue to close
+    /// without answering (ADR 1643).
+    pub(crate) fn poll_script_question(&mut self) -> bool {
+        self.pump(vec![Command::Tick { millis: 0 }]);
+        self.script_question.is_some()
+    }
+
     /// What the person answered: the index of the button pressed into
     /// [`Self::script_question_buttons`], or a negative number for a dialogue closed without one,
     /// with the entry's text beside it.
@@ -3332,7 +3364,10 @@ impl Host {
     /// is nothing of it in the page's pixels and a window is the platform's to draw. The three
     /// texts and the box are `viewer_host::popup`'s, so this host and `viewer-gtk` say the same
     /// thing about one clause.
-    pub(crate) fn popups(&self) -> Vec<QtPopup> {
+    pub(crate) fn popups(&self, base: f32) -> Vec<QtPopup> {
+        // Qt answers -1 for a font sized in pixels, which has no point size to scale by; ten
+        // points is then the base, which is a common label size and only a stand-in.
+        let base = if base > 0.0 { base } else { 10.0 };
         let placed = viewer_host::popup::windows(&self.popups_shown);
         placed
             .iter()
@@ -3350,6 +3385,15 @@ impl Host {
                     modified: viewer_host::popup::modified(window).unwrap_or_default(),
                     text: window.text.to_owned(),
                     thread: viewer_host::popup::thread(window),
+                    rich: window
+                        .rich
+                        .map(|note| viewer_host::popup::html(note, base))
+                        .unwrap_or_default(),
+                    not_drawn: window
+                        .rich
+                        .and_then(|note| viewer_host::popup::not_drawn(note, &[]))
+                        .unwrap_or_default(),
+                    rich_thread: viewer_host::popup::thread_html(window, base).unwrap_or_default(),
                     coloured: colour.is_some(),
                     red: colour.map_or(0, |rgb| rgb.0),
                     green: colour.map_or(0, |rgb| rgb.1),
@@ -4047,6 +4091,10 @@ impl Host {
                 self.script_question = Some((document, name, question));
                 self.update.script_question = true;
             }
+            // The question's wait ran out and the runner answered it as a closed dialogue does:
+            // taken here, so the dialogue's `poll_script_question` sees it gone and closes, and the
+            // answer it then sends reaches nothing (ADR 1643).
+            Event::ScriptQuestionWithdrawn { document } => self.withdraw_script_question(document),
             // §7.11.4's list moved under the files tab: rebuilt from the same answer it was
             // built from, which is the only thing a window may do here this round — display
             // the list it already shows.

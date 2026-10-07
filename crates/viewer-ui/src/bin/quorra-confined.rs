@@ -941,6 +941,15 @@ impl Host {
                     answer: viewer_core::ScriptAnswer::Unanswerable,
                 });
             }
+            // A question is answered the moment it arrives, so none stands for a withdrawal to
+            // take down; the arm says so rather than receiving a newer worker's event in silence
+            // (ADR 1643).
+            Event::ScriptQuestionWithdrawn { .. } => {
+                eprintln!(
+                    "note: a script's question was withdrawn, and this window had answered it \
+                     already: it has no dialogue for a document's script"
+                );
+            }
             Event::Reported { page, notes, .. } => {
                 for note in notes {
                     match page {

@@ -437,6 +437,10 @@ pub(crate) struct App {
     /// the event loop than the one that put it up — and `None` while nothing is outstanding, so
     /// that a card dismissed twice answers once.
     pub(crate) asked: Option<Pending>,
+    /// When a script's question on the card stops being asked if nobody answers it, where one is
+    /// up: the loop wakes then and sends a tick of no time, so that the viewer asks and the card
+    /// is dropped as the wait runs out rather than at the person's next key (ADR 1643).
+    pub(crate) script_wait: Option<std::time::Instant>,
     /// Why there is no document, where there is none — `Event::OpenFailed`, or a page tree with no
     /// leaves. **Held rather than a `std::process::exit(1)`**, so that this host says the sentence
     /// and stays up as the other two do (ADR 0564).

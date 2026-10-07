@@ -131,6 +131,9 @@ why = "this tree's own sample unpacking and soft-mask combination (ADRs 1433, 14
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/issue14415.pdf"
+# Ten runs on 2026-10-07 at a load of 1.4 to 3.3 read the step at 8.37 to 8.66 ms and fifteen sets of three
+# children, ten born after 1.5 s of idle, 8.31 to 8.69; round 1398's 10.73 did not recur, the busy end of
+# trap 110, and the band keeps its reason (ADR 1647).
 page = 1
 commands = 959
 # observed 15.80 .. 17.08 ms (turn), 8.22 .. 8.62 ms (step)
@@ -180,11 +183,12 @@ why = "tight bends: the tiling's own cost, which ADR 1505 divided across the fan
 path = "doc/pdf.js/test/pdfs/bug1721218_reduced.pdf"
 page = 1
 commands = 1
-# observed 149.10 .. 156.20 ms (turn), 81.61 .. 84.61 ms (step): eight frame_budget runs on an
-# export of the tree with ADRs 1630 and 1631 and one gate run on the same export, 2026-10-07,
-# pinned, warm cores, load 1.0 to 3.2 for the runs and 5.4 to 8.4 for the gate
-turn_ms = 126.7 .. 187.5
-# seventh frame of a long-lived device (ADR 1607): observed 147.23 .. 155.79 ms
-seventh_ms = 125.1 .. 187.0
+# observed 141.00 .. 147.51 ms (turn), 81.87 .. 84.38 ms (step): three frame_budget runs on the
+# tree with ADR 1644, interleaved with three of the tree before it, and two gate runs, 2026-10-07,
+# pinned, warm cores, load 1.3 for the runs and 1.4 to 2.2 for the gate; the step interprets
+# nothing, did not move and keeps its band
+turn_ms = 119.8 .. 177.1
+# seventh frame of a long-lived device (ADR 1607): observed 140.97 .. 145.61 ms
+seventh_ms = 119.8 .. 174.8
 step_ms = 69.3 .. 101.6
-why = "a four-component group of 3 518 residue-clipped shadings, drawn as two frames of one geometry (ADRs 1471, 1529), whose exact meets are made beside the walk (ADR 1541) and whose shading quads read one buffer of their numbers at their own offsets (ADR 1555): the tree before that read 191 to 203 and 118 to 126 ms beside it, past the top of both bands, so the bands hold that change. Its 132 ramps, first seen on the turn, are sampled beside each other (ADR 1567), and its meets of a disc with a dot clip are measured from the two convex polygons (ADR 1582), which took the turn's scene 5 ms quicker beside the tree before it; a run of its shading quads is one instanced draw (ADR 1594) and its black frame is walked while the device draws the chromatic one (ADR 1595), which took the turn 1.5 ms quicker and leaves the step where it was, a device of its own paying for wgpu's command encoders as the overlap first needs them; a child's composite is drawn in the pass of the marks after it and the frame's end timestamp on its last pass, 193 passes a turn where it recorded 222 (ADR 1618), which took each row 0.6 to 1.4 ms quicker beside the tree before it and, in one sitting, read the seventh frame the quicker of the two; a composite's backdrop is copied by a transfer (ADR 1630) and a composite waits past the next child where their rectangles stand apart and the priced peak holds both (ADR 1631), 114 passes a turn where it recorded 193, which took every row quicker than the tree before them in each of eight interleaved pairs, the turn by 0.57 to 3.49 ms; the bands follow that re-take"
+why = "a four-component group of 3 518 residue-clipped shadings, drawn as two frames of one geometry (ADRs 1471, 1529), whose exact meets are made beside the walk (ADR 1541) and whose shading quads read one buffer of their numbers at their own offsets (ADR 1555): the tree before that read 191 to 203 and 118 to 126 ms beside it, past the top of both bands, so the bands hold that change. Its 132 ramps, first seen on the turn, are sampled beside each other (ADR 1567), and its meets of a disc with a dot clip are measured from the two convex polygons (ADR 1582), which took the turn's scene 5 ms quicker beside the tree before it; a run of its shading quads is one instanced draw (ADR 1594) and its black frame is walked while the device draws the chromatic one (ADR 1595), which took the turn 1.5 ms quicker and leaves the step where it was, a device of its own paying for wgpu's command encoders as the overlap first needs them; a child's composite is drawn in the pass of the marks after it and the frame's end timestamp on its last pass, 193 passes a turn where it recorded 222 (ADR 1618), which took each row 0.6 to 1.4 ms quicker beside the tree before it and, in one sitting, read the seventh frame the quicker of the two; a composite's backdrop is copied by a transfer (ADR 1630) and a composite waits past the next child where their rectangles stand apart and the priced peak holds both (ADR 1631), 114 passes a turn where it recorded 193, which took every row quicker than the tree before them in each of eight interleaved pairs, the turn by 0.57 to 3.49 ms; its 41 shadings' functions are parsed once an interpretation rather than once a build under each conversion, 41 parses a run where it made 137 (ADR 1644), which took the turn 1.9 to 3.5 ms quicker and the seventh frame 0.8 to 2.8 in each of three interleaved pairs, the turn's interp 2.5 to 3.8; the bands follow that re-take, and its black run, 486.6 M instructions of the turn's 1 258.9 M, is not drawn from the chromatic list because the black component is not in that list (ADR 1645)"

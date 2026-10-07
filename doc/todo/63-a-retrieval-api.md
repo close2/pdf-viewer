@@ -2,7 +2,7 @@
 
 Note from the human after this file had been created: ignore the rest-api!
 
-Status: **the CLI is built and the three joins are closed** — session 421, ADR 0257. What is left is
+Status: **the CLI is built and the three joins are closed** — ADR 0257. What is left is
 one message on the pipe and the substitution itself, both below with their measured sizes.
 Priority: 30-band — capability. It was the last consumer `viewer-core` was built for and had never
 had: not a person, not a toolkit, but a program asking a document questions. **This file was
@@ -36,7 +36,7 @@ pdf-retrieve <document|outline|sections|page|section> <file.pdf> [<n>|<address>]
    and are documented as choices: that a number is the title's leading token, and where a section
    ends.
 2. **`Tree::walk`'s bound: fixed, not routed around.** It was worse than this file recorded — 65 536
-   *items* over the whole tree, so session 416's 71 371 was the bound rather than the tree, which is
+   *items* over the whole tree, so the 71 371 once counted was the bound rather than the tree, which is
    **129 389** — and the walk was quadratic besides, at **16.8 s** for ISO 32000-2. It is 151 ms,
    bounded at 2²⁰, and `Reading::truncated` says when the bound is reached; `logical_text` (now
    `Option<String>`) and `logical_range` refuse rather than answer a prefix. `doc/todo/49` item 5.
@@ -85,8 +85,8 @@ And the 59 that need the dash fold are a finding about *this tree*: `doc/md/` wr
 `Table 87 -Additional entries` where the standard prints `Table 87 — Additional entries`, so those
 quotations carry the converter's typography. They are the standard's words and not its characters.
 
-**Doing it is still a separate round**, and the reason is unchanged: session 413 declined a 417-span
-migration for less, and a gate that changes what it compares against on the same day the comparison
+**Doing it is still a separate round**, and the reason is unchanged: a 417-span migration was declined
+for less, and a gate that changes what it compares against on the same day the comparison
 is written has nothing independent left to check it.
 
 ## The bootstrapping hazard, and what keeps it honest

@@ -1058,8 +1058,8 @@ against a clause; a document at the head of a chunk with no diagnosis belongs in
 not here. And the check needs no reference renderer at all — reports and this tree's own ink — so
 it costs seconds and cannot drift under `poppler` having a bad day.
 
-It is seeded with the documents sessions 603, 613, 615, 619 and 621 fixed, each *re-measured*
-rather than copied out of a history file.
+It is seeded with the documents earlier fixes made right, each *re-measured* rather than copied
+out of a history file.
 ### 21. Ten archives, and two extents
 
 **Taken: `0669`, `0915`, `1530`, `2391`, `3129`, `4113`, `5220`, `6204`, `7311` and `7926`, whole,
@@ -1945,8 +1945,8 @@ and renaming `/SA` to `/S1` takes ours to 7.2840 while leaving both references *
 which is ADR 0688's finding confirmed a second time — neither reference reads the entry.
 
 **The transferable half is about the instrument, and it is the third way to be wrong with this
-ranking.** Round 876 recorded two — `pdftoppm` without `-cropbox`, and reading our alpha channel as
-ink — and both are operating errors. This one is not: at 72 dpi the ranking can put this tree at
+ranking.** Two are recorded already — `pdftoppm` without `-cropbox`, and reading our alpha channel
+as ink — and both are operating errors. This one is not: at 72 dpi the ranking can put this tree at
 the head of a directory **for obeying a clause neither reference reads**, and the page looks wrong
 beside them, boldly and over every glyph, so trap 1's "look at the page" confirms the false reading
 instead of breaking it. Two cheap instruments break it: the **ladder**, four renders, which

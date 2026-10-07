@@ -292,6 +292,18 @@ pub mod ffi {
         /// list because this bridge carries one label per block of text. Empty for a window
         /// nobody replied to, which is almost every window.
         thread: String,
+        /// Table 172's `/RC` in Qt's rich text, as `viewer_host::popup::html` writes it, which the
+        /// window shows in place of [`QtPopup::text`] where it is not empty (ADR 1642).
+        ///
+        /// Every character escaped and every element and attribute `viewer_host` wrote, so a
+        /// label set to `Qt::RichText` with it shows the note's formatting and nothing the
+        /// document could have made markup.
+        rich: String,
+        /// What the window did not draw of [`QtPopup::rich`], said under it; empty where nothing.
+        not_drawn: String,
+        /// §12.5.6.2's thread in Qt's rich text, where a reply in it states a rich note, which the
+        /// window shows in place of [`QtPopup::thread`] where it is not empty.
+        rich_thread: String,
         /// Whether Table 166's `/C` gave the title bar a colour of its own.
         ///
         /// A flag beside the three components rather than an absent value, because `cxx` carries
@@ -678,6 +690,11 @@ pub mod ffi {
         /// What the person answered: the index of the button pressed, or a negative number for a
         /// dialogue closed without one, and the entry's text.
         fn answer_script_question(self: &mut Host, button: i32, typed: &str);
+        /// How long the script's dialogue waits before asking `poll_script_question`, in ms.
+        fn script_question_wait(self: &Host) -> u32;
+        /// Sends a tick of no time and answers whether the script's question is still
+        /// outstanding: `false` is a question withdrawn, its dialogue to close (ADR 1643).
+        fn poll_script_question(self: &mut Host) -> bool;
         /// The headings the restrictions menu bar carries, one per group of `restriction_menu`'s
         /// entries at depth 0 — `viewer_host::Restrictions::headings`.
         ///
@@ -821,7 +838,10 @@ pub mod ffi {
         /// §12.5.1's focus ring: one quadrilateral, or none.
         fn focus(self: &Host) -> Vec<QtQuad>;
         /// §12.5.6.14's open popup windows, placed. Asked when `QtUpdate::popups` says so.
-        fn popups(self: &Host) -> Vec<QtPopup>;
+        ///
+        /// `base` is the point size of the font the window's labels are set in, which a rich
+        /// note's relative sizes are multiples of.
+        fn popups(self: &Host, base: f32) -> Vec<QtPopup>;
         /// Whether the pointer is over §12.5.6.5's activation region.
         ///
         /// Asked when `QtUpdate::cursor` says so, which is when the answer *changed*: what a

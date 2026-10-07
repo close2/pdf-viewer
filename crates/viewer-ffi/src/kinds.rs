@@ -100,6 +100,10 @@ pub enum EventKind {
     /// no caller of this ABI for [`Self::AskingToRunScripts`]'s reason: its sessions run no
     /// script (ADR 1628).
     ScriptAsking = 23,
+    /// [`viewer_core::Event::ScriptQuestionWithdrawn`] — the question a script put is withdrawn,
+    /// its wait run out. Sent to no caller of this ABI, for [`Self::ScriptAsking`]'s reason (ADR
+    /// 1643).
+    ScriptQuestionWithdrawn = 24,
 }
 
 impl EventKind {
@@ -108,7 +112,7 @@ impl EventKind {
     /// **The number a C caller checks its header against**, which is the whole of what this ABI
     /// can offer in place of a build failure. It is written out rather than counted by a macro so
     /// that adding a variant is a line a person writes beside the variant, in the same commit.
-    pub const COUNT: u32 = 24;
+    pub const COUNT: u32 = 25;
 
     /// Which kind an event is.
     ///
@@ -142,6 +146,7 @@ impl EventKind {
             Event::Printing { .. } => Self::Printing,
             Event::AskingToRunScripts { .. } => Self::AskingToRunScripts,
             Event::ScriptAsking { .. } => Self::ScriptAsking,
+            Event::ScriptQuestionWithdrawn { .. } => Self::ScriptQuestionWithdrawn,
         }
     }
 
@@ -177,6 +182,7 @@ impl EventKind {
             Self::Printing => "Printing\0",
             Self::AskingToRunScripts => "AskingToRunScripts\0",
             Self::ScriptAsking => "ScriptAsking\0",
+            Self::ScriptQuestionWithdrawn => "ScriptQuestionWithdrawn\0",
         }
     }
 
@@ -212,6 +218,7 @@ impl EventKind {
             21 => Self::Printing,
             22 => Self::AskingToRunScripts,
             23 => Self::ScriptAsking,
+            24 => Self::ScriptQuestionWithdrawn,
             _ => return None,
         })
     }

@@ -26,10 +26,14 @@ use std::fmt::Write as _;
 use pdf_syntax::{Dictionary, Document, Name, Object};
 
 use super::markup::{ListIndent, Piece, RichText};
-use super::style::{Align, Character, Linear, Spacing, Underline, VerticalAlign};
-use crate::variable_text::{
-    self, DefaultAppearance, Face, LaidOut, Owed, Placed, Quadding, Resolution,
+use super::style::{
+    Align, Character, Linear, NORMAL_STRETCH, STRETCHES, Spacing, Underline, VerticalAlign,
 };
+use crate::variable_text::{
+    self, Asked, Caret, DefaultAppearance, Face, Glyph, LaidOut, Order, Owed, Placed, Quadding,
+    Resolution,
+};
+use pdf_font::shaping::{Paragraphs as Levels, Shaped};
 
 /// Chapter 27's single list indent: half an inch, which *List Layout* fixes (page 1218).
 const LIST_INDENT: f32 = 36.0;
@@ -68,6 +72,13 @@ pub(crate) struct Request<'a> {
     /// Whether the text may run over several lines: Table 231 bit 13 for a field, and always for
     /// a free text annotation.
     pub(crate) multiline: bool,
+    /// Table 231 bit 25's cells, where the field is a comb of this many.
+    pub(crate) comb: Option<u32>,
+    /// What a host asked of the layout beside the stream: a caret, a point, a range, the glyphs.
+    pub(crate) asked: Asked,
+    /// The characters the offsets in [`Self::asked`] index, and the answers' offsets index: the
+    /// value a host edits, whose words [`Self::rich`] states (ADR 1635's comparison).
+    pub(crate) value: &'a str,
 }
 
 /// Lays the string out.
@@ -85,7 +96,10 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
     };
     let mut faces = Faces::new(document, request.resources, &base_name)?;
     let styles = Styles::collect(request.rich);
-    let paragraphs = encode(request, &styles, &mut faces);
+    let characters = request.rich.text();
+    let levels = Levels::new(&characters);
+    let shaping = Shaping::of(&characters, levels.as_ref());
+    let paragraphs = encode(request, &styles, &mut faces, &shaping);
     if !paragraphs.missing.is_empty() && faces.invented_in_use() {
         return Err(Owed::InventedFontFellShort {
             name: base_name,
@@ -105,7 +119,14 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         // string states relative to it following it, and every absolute one standing.
         _ => auto_size(&measure, &paragraphs.list, area, request),
     };
-    let plan = plan(&measure, &paragraphs.list, root, area, request);
+    let plan = plan(
+        &measure,
+        &paragraphs.list,
+        root,
+        area,
+        request,
+        levels.as_ref(),
+    );
 
     let mut stream = String::new();
     let (width, height) = (
@@ -136,28 +157,50 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
     stream.push_str(&decorations);
     stream.push_str("Q\nEMC\n");
 
-    let mut owed = None;
-    if paragraphs.truncated {
-        owed = Some(Owed::Truncated(variable_text::MAX_CODES));
-    } else if !paragraphs.missing.is_empty() {
-        owed = Some(Owed::CharactersNotInFont(paragraphs.missing));
-    } else if !request.rich.unapplied.is_empty() {
-        owed = Some(Owed::RichTextUnapplied(request.rich.unapplied.phrase()));
-    }
-    if faces.base_resolution == Resolution::StoodIn {
-        owed = Some(Owed::FontNotInResources(base_name));
-    }
+    let owed = if faces.base_resolution == Resolution::StoodIn {
+        Some(Owed::FontNotInResources(base_name))
+    } else {
+        owed_by(paragraphs, request, &faces, &plan)
+    };
+    let answers = if request.asked == Asked::default() {
+        Answers::default()
+    } else {
+        answer(&plan, request, &Alignment::of(&characters, request.value))
+    };
     Ok(LaidOut {
         content: stream,
         owed,
-        overflows: plan.overflows(request.multiline),
-        caret: None,
-        offset: None,
-        selection: Vec::new(),
-        glyphs: Vec::new(),
+        overflows: plan.overflows(request),
+        caret: answers.caret,
+        offset: answers.offset,
+        selection: answers.selection,
+        glyphs: answers.glyphs,
         advance: plan.advance,
         fonts: faces.invented(),
     })
+}
+
+/// What the layout could not show, most telling first: what was cut, what no face draws, what is
+/// drawn in a form other than the one displayed, and what the string states that is not carried
+/// out.
+fn owed_by(paragraphs: Paragraphs, request: &Request, faces: &Faces, plan: &Plan) -> Option<Owed> {
+    if paragraphs.truncated {
+        return Some(Owed::Truncated(variable_text::MAX_CODES));
+    }
+    if !paragraphs.missing.is_empty() {
+        return Some(Owed::CharactersNotInFont(paragraphs.missing));
+    }
+    if !paragraphs.unformed.is_empty() {
+        return Some(Owed::FormsNotInFont(paragraphs.unformed));
+    }
+    let mut unapplied = request.rich.unapplied.clone();
+    for width in &faces.unmet_widths {
+        unapplied.note(format!("font-stretch:{width}"));
+    }
+    if plan.tabs_reversed {
+        unapplied.note("a tab stop in a line read right to left");
+    }
+    (!unapplied.is_empty()).then(|| Owed::RichTextUnapplied(unapplied.phrase()))
 }
 
 /// Every distinct character style the string uses, so a glyph names its style by index.
@@ -208,8 +251,8 @@ struct Held {
     used: std::cell::Cell<bool>,
 }
 
-/// What a search path is resolved from: the family list, bold, italic.
-type StyleKey = (Vec<String>, bool, bool);
+/// What a search path is resolved from: the family list, bold, italic, and the width.
+type StyleKey = (Vec<String>, bool, bool, u8);
 
 /// The faces of one layout, and which of them a style's family list reaches.
 ///
@@ -235,11 +278,13 @@ struct Faces<'a> {
     document: &'a Document,
     resources: &'a Dictionary,
     held: Vec<Held>,
-    /// The `/DA`'s face's family, weight and posture.
-    base: (String, bool, bool),
+    /// The `/DA`'s face's family, weight, posture and width.
+    base: (String, bool, bool, u8),
     base_resolution: Resolution,
     /// Each style's search path, by the key it is resolved from.
     paths: Vec<(StyleKey, Vec<usize>)>,
+    /// The widths a run asked for and no face of its family was found in, by chapter 27's name.
+    unmet_widths: std::collections::BTreeSet<&'static str>,
 }
 
 impl<'a> Faces<'a> {
@@ -263,12 +308,18 @@ impl<'a> Faces<'a> {
             base,
             base_resolution: resolution,
             paths: Vec::new(),
+            unmet_widths: std::collections::BTreeSet::new(),
         })
     }
 
     /// The faces a style's characters are looked for in, nearest first, the `/DA`'s last.
     fn path(&mut self, style: &Character) -> Vec<usize> {
-        let key = (style.families.clone(), style.bold(), style.italic);
+        let key = (
+            style.families.clone(),
+            style.bold(),
+            style.italic,
+            style.stretch,
+        );
         if let Some((_, path)) = self.paths.iter().find(|(known, _)| *known == key) {
             return path.clone();
         }
@@ -279,7 +330,7 @@ impl<'a> Faces<'a> {
         };
         let mut path = Vec::new();
         for family in &families {
-            if let Some(index) = self.resolve(family, style.bold(), style.italic)
+            if let Some(index) = self.resolve(family, style.bold(), style.italic, style.stretch)
                 && !path.contains(&index)
             {
                 path.push(index);
@@ -292,9 +343,13 @@ impl<'a> Faces<'a> {
         path
     }
 
-    fn resolve(&mut self, family: &str, bold: bool, italic: bool) -> Option<usize> {
+    fn resolve(&mut self, family: &str, bold: bool, italic: bool, stretch: u8) -> Option<usize> {
         let wanted = normalised(family);
-        if wanted == normalised(&self.base.0) && bold == self.base.1 && italic == self.base.2 {
+        if wanted == normalised(&self.base.0)
+            && bold == self.base.1
+            && italic == self.base.2
+            && stretch == self.base.3
+        {
             return Some(0);
         }
         // Table 224's `/DR`, the document's own faces.
@@ -304,8 +359,13 @@ impl<'a> Faces<'a> {
                 let Some(dict) = self.document.resolve(entry).as_dict().cloned() else {
                     continue;
                 };
-                let (stated, stated_bold, stated_italic) = family_of(self.document, &dict);
-                if normalised(&stated) == wanted && stated_bold == bold && stated_italic == italic {
+                let (stated, stated_bold, stated_italic, stated_stretch) =
+                    family_of(self.document, &dict);
+                if normalised(&stated) == wanted
+                    && stated_bold == bold
+                    && stated_italic == italic
+                    && stated_stretch == stretch
+                {
                     if let Some(index) = self.held.iter().position(|held| held.name == *name) {
                         return Some(index);
                     }
@@ -313,6 +373,14 @@ impl<'a> Faces<'a> {
                     return Some(self.hold(name.clone(), face, false));
                 }
             }
+        }
+        // §9.6.2.2's fourteen come in one width, and §9.6.3's spelling of a stand-in states none:
+        // a width no face of `/DR` was found in is drawn in the family's normal one, and said.
+        if stretch != NORMAL_STRETCH {
+            if let Some(name) = STRETCHES.get(usize::from(stretch)) {
+                self.unmet_widths.insert(name);
+            }
+            return self.resolve(family, bold, italic, NORMAL_STRETCH);
         }
         let base_font = standard_face(&wanted, bold, italic)
             .map_or_else(|| stand_in_name(family, bold, italic), str::to_owned);
@@ -396,13 +464,14 @@ fn normalised(family: &str) -> String {
     folded
 }
 
-/// A font dictionary's family, and whether it is bold and italic.
+/// A font dictionary's family, whether it is bold and italic, and its width.
 ///
-/// Table 120's `/FontFamily` and `/FontWeight` (PDF 1.5, the version rich text arrived in) and
-/// `/Flags` bit 7, Italic, where the descriptor states them; the `/BaseFont` read the way
-/// §9.6.2.2's fourteen and §9.6.3's `,Bold`-suffixed names spell a style otherwise, with a subset
-/// tag (§9.9.2's six letters and a plus) taken off first.
-fn family_of(document: &Document, dict: &Dictionary) -> (String, bool, bool) {
+/// Table 120's `/FontFamily`, `/FontStretch` and `/FontWeight` (PDF 1.5, the version rich text
+/// arrived in) and `/Flags` bit 7, Italic, where the descriptor states them; the `/BaseFont` read
+/// the way §9.6.2.2's fourteen and §9.6.3's `,Bold`-suffixed names spell a style otherwise, with a
+/// subset tag (§9.9.2's six letters and a plus) taken off first. A descriptor stating no
+/// `/FontStretch` is taken as `Normal`, the width the fourteen and an unstyled run are set in.
+fn family_of(document: &Document, dict: &Dictionary) -> (String, bool, bool, u8) {
     let base = base_font_of(dict);
     let base = match base.split_once('+') {
         Some((tag, rest)) if tag.len() == 6 && tag.chars().all(|c| c.is_ascii_uppercase()) => {
@@ -421,6 +490,7 @@ fn family_of(document: &Document, dict: &Dictionary) -> (String, bool, bool) {
         "Times" => "Times".to_owned(),
         other => other.to_owned(),
     };
+    let mut stretch = NORMAL_STRETCH;
     let descriptor = variable_text::descriptor_of(document, dict);
     if let Some(descriptor) = descriptor.as_dict() {
         if let Some(stated) = document.get_key(descriptor, "FontFamily").as_string() {
@@ -429,13 +499,25 @@ fn family_of(document: &Document, dict: &Dictionary) -> (String, bool, bool) {
         if let Some(weight) = document.get_key(descriptor, "FontWeight").as_number() {
             bold = weight > 500.0;
         }
+        // Table 120: "It shall be one of these names (ordered from narrowest to widest):
+        // UltraCondensed, ExtraCondensed, Condensed, SemiCondensed, Normal, SemiExpanded,
+        // Expanded, ExtraExpanded or UltraExpanded".
+        if let Some(name) = document.get_key(descriptor, "FontStretch").as_name() {
+            let stated = String::from_utf8_lossy(name.as_bytes()).to_ascii_lowercase();
+            if let Some(at) = STRETCHES
+                .iter()
+                .position(|width| width.replace('-', "") == stated)
+            {
+                stretch = u8::try_from(at).unwrap_or(NORMAL_STRETCH);
+            }
+        }
         if let Some(flags) = document.get_key(descriptor, "Flags").as_integer() {
             // Table 121's bit 7, Italic; bit 19, ForceBold, says the face is drawn bold.
             italic = italic || flags & (1 << 6) != 0;
             bold = bold || flags & (1 << 18) != 0;
         }
     }
-    (family, bold, italic)
+    (family, bold, italic, stretch)
 }
 
 /// A font dictionary's `/BaseFont`, as text.
@@ -487,13 +569,38 @@ fn stand_in_name(family: &str, bold: bool, italic: bool) -> String {
     }
 }
 
-/// One glyph: its face, its code, and the style it is set in.
+/// One glyph: its face, its code, the style it is set in, and where in the string's characters
+/// it came from.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Atom {
     face: usize,
     code: pdf_font::Code,
     space: bool,
     style: usize,
+    /// The byte of [`RichText::text`] its character starts at; `None` for a list tag's, which
+    /// chapter 27 generates rather than states.
+    byte: Option<usize>,
+    /// How many tab stops this advances by: an `xfa-tab-count`, which draws nothing and is as
+    /// wide as the way to its stop (*Tab Stops*, page 1206). Zero for a glyph.
+    tab: u16,
+    /// Whether the character is the radix a decimal tab stop aligns: the full stop, a choice the
+    /// chapter leaves to the implementation (page 1207).
+    radix: bool,
+}
+
+impl Atom {
+    /// An advance of `count` tab stops, standing at `byte` of the string's characters.
+    fn tab(count: u16, style: usize, byte: usize) -> Self {
+        Self {
+            face: 0,
+            code: pdf_font::Code::single_byte(0),
+            space: false,
+            style,
+            byte: Some(byte),
+            tab: count,
+            radix: false,
+        }
+    }
 }
 
 impl Atom {
@@ -506,10 +613,23 @@ impl Atom {
     }
 }
 
+/// One thing a paragraph holds, in order.
+#[derive(Debug, Clone, Copy)]
+enum Item {
+    Glyph(Atom),
+    /// XHTML's `br`, at the byte of [`RichText::text`] it stands at; `consumes` where that text
+    /// spells it as a carriage return, which a paragraph's closing break it does not.
+    Break {
+        at: usize,
+        consumes: bool,
+    },
+}
+
 /// A paragraph as glyphs.
 struct Encoded {
-    /// `None` is a line break.
-    items: Vec<Option<Atom>>,
+    items: Vec<Item>,
+    /// The bytes of [`RichText::text`] the paragraph's characters occupy.
+    span: (usize, usize),
     block: super::style::Block,
     strut: usize,
     tag: Option<Vec<Atom>>,
@@ -520,45 +640,124 @@ struct Encoded {
 struct Paragraphs {
     list: Vec<Encoded>,
     missing: String,
+    /// The letters drawn as stored where their joined form or mirror image has no code.
+    unformed: String,
     truncated: bool,
 }
 
+/// The string's characters, shaped once across every run.
+///
+/// Cursive joining is a property of the character sequence and not of its styling, so a word
+/// set half in one colour joins across the boundary; and UAX #9's levels are the whole string's,
+/// because a run's direction depends on its neighbours (ADR 1649).
+struct Shaping<'a> {
+    characters: Vec<(usize, char)>,
+    shaped: Vec<Shaped>,
+    levels: Option<&'a Levels<'a>>,
+}
+
+impl<'a> Shaping<'a> {
+    fn of(text: &str, levels: Option<&'a Levels<'a>>) -> Self {
+        let characters: Vec<(usize, char)> = text.char_indices().collect();
+        let letters: Vec<char> = characters.iter().map(|(_, character)| *character).collect();
+        Self {
+            shaped: pdf_font::shaping::shape(&letters),
+            characters,
+            levels,
+        }
+    }
+}
+
 /// Turns each run into codes of the first face in its path that draws each character.
-fn encode(request: &Request, styles: &Styles, faces: &mut Faces) -> Paragraphs {
+///
+/// Walks the paragraphs in step with [`RichText::text`], so each glyph knows the byte of that
+/// text its character came from — what a host's caret, point and range are answered in.
+fn encode(request: &Request, styles: &Styles, faces: &mut Faces, shaping: &Shaping) -> Paragraphs {
     let mut out = Paragraphs {
         list: Vec::new(),
         missing: String::new(),
+        unformed: String::new(),
         truncated: false,
     };
     let mut total = 0_usize;
-    for paragraph in &request.rich.paragraphs {
+    let mut cursor = 0_usize;
+    let mut next = 0_usize;
+    for (index, paragraph) in request.rich.paragraphs.iter().enumerate() {
+        if index > 0 {
+            cursor = cursor.saturating_add(1);
+        }
+        let begins = cursor;
         let mut items = Vec::new();
-        for piece in &paragraph.pieces {
+        let last = paragraph.pieces.len().saturating_sub(1);
+        for (at, piece) in paragraph.pieces.iter().enumerate() {
             match piece {
-                Piece::Break => items.push(None),
+                Piece::Tab(count) => items.push(Item::Glyph(Atom::tab(
+                    *count,
+                    styles.index(&paragraph.strut),
+                    cursor,
+                ))),
+                Piece::Break => {
+                    let consumes = at < last;
+                    items.push(Item::Break {
+                        at: cursor,
+                        consumes,
+                    });
+                    cursor = cursor.saturating_add(usize::from(consumes));
+                }
                 Piece::Text(text, style) => {
+                    let span = cursor..cursor.saturating_add(text.len());
+                    cursor = span.end;
                     let index = styles.index(style);
-                    let atoms = encode_run(text, style, index, faces, &mut out.missing);
+                    while shaping
+                        .shaped
+                        .get(next)
+                        .and_then(|item| shaping.characters.get(item.source))
+                        .is_some_and(|(byte, _)| *byte < span.start)
+                    {
+                        next = next.saturating_add(1);
+                    }
+                    let from = next;
+                    while shaping
+                        .shaped
+                        .get(next)
+                        .and_then(|item| shaping.characters.get(item.source))
+                        .is_some_and(|(byte, _)| *byte < span.end)
+                    {
+                        next = next.saturating_add(1);
+                    }
+                    let atoms = encode_items(
+                        shaping.shaped.get(from..next).unwrap_or_default(),
+                        &shaping.characters,
+                        shaping.levels,
+                        (style, index),
+                        faces,
+                        (&mut out.missing, &mut out.unformed),
+                        true,
+                    );
                     total = total.saturating_add(atoms.len());
                     if total > variable_text::MAX_CODES {
                         out.truncated = true;
                         break;
                     }
-                    items.extend(atoms.into_iter().map(Some));
+                    items.extend(atoms.into_iter().map(Item::Glyph));
                 }
             }
         }
         let tag = paragraph.tag.as_ref().map(|tag| {
-            encode_run(
-                &tag.text,
-                &tag.style,
-                styles.index(&tag.style),
+            let tag_shaping = Shaping::of(&tag.text, None);
+            encode_items(
+                &tag_shaping.shaped,
+                &tag_shaping.characters,
+                None,
+                (&tag.style, styles.index(&tag.style)),
                 faces,
-                &mut out.missing,
+                (&mut out.missing, &mut out.unformed),
+                false,
             )
         });
         out.list.push(Encoded {
             items,
+            span: (begins, cursor),
             block: paragraph.block.clone(),
             strut: styles.index(&paragraph.strut),
             tag,
@@ -571,66 +770,61 @@ fn encode(request: &Request, styles: &Styles, faces: &mut Faces) -> Paragraphs {
     out
 }
 
-/// One run's characters, each from the first face of its path that has a code for it, and the
-/// consecutive characters one face draws encoded together so a cursive script joins within them.
-fn encode_run(
-    text: &str,
-    style: &Character,
-    index: usize,
+/// Shaped characters of one run, each from the first face of its style's path that has a code
+/// for the stored character, asked for the form the joining rules and rule L4 display.
+///
+/// The same choice [`variable_text::encode`] makes for a plain value, per character: the
+/// displayed form where the face has it, the stored letter where it has only that — said in
+/// `unformed` — and nothing where it has neither, said in `missing`. `bytes` is whether the
+/// characters are the string's own, so each glyph carries the byte it came from.
+fn encode_items(
+    items: &[Shaped],
+    characters: &[(usize, char)],
+    levels: Option<&Levels>,
+    (style, index): (&Character, usize),
     faces: &mut Faces,
-    missing: &mut String,
+    (missing, unformed): (&mut String, &mut String),
+    bytes: bool,
 ) -> Vec<Atom> {
     let path = faces.path(style);
-    let mut atoms = Vec::new();
-    let mut segment = String::new();
-    let mut segment_face: Option<usize> = None;
-    let flush =
-        |segment: &mut String, face: Option<usize>, atoms: &mut Vec<Atom>, faces: &Faces| {
-            let Some(face) = face else {
-                return;
-            };
-            let Some(held) = faces.get(face) else {
-                return;
-            };
-            held.used.set(true);
-            for placed in held.face.encode(segment).codes {
-                match placed {
-                    Placed::Shown(code) => atoms.push(Atom {
-                        face,
-                        code,
-                        space: false,
-                        style: index,
-                    }),
-                    Placed::Space(code) => atoms.push(Atom {
-                        face,
-                        code,
-                        space: true,
-                        style: index,
-                    }),
-                    Placed::Break => {}
-                }
-            }
-            segment.clear();
+    let mut atoms = Vec::with_capacity(items.len());
+    for item in items {
+        let Some(&(at, original)) = characters.get(item.source) else {
+            continue;
         };
-    for character in text.chars() {
         let face = path.iter().copied().find(|face| {
             faces
                 .get(*face)
-                .is_some_and(|held| held.face.code(character).is_some())
+                .is_some_and(|held| held.face.code(original).is_some())
         });
-        let Some(face) = face else {
-            if !missing.contains(character) {
-                missing.push(character);
+        let Some((face, held)) = face.and_then(|face| faces.get(face).map(|held| (face, held)))
+        else {
+            if !missing.contains(original) {
+                missing.push(original);
             }
             continue;
         };
-        if segment_face != Some(face) {
-            flush(&mut segment, segment_face, &mut atoms, faces);
-            segment_face = Some(face);
-        }
-        segment.push(character);
+        let drawn = pdf_font::shaping::displayed(item.character, at, levels);
+        let lookup = |character: char| held.face.code(character);
+        let Some(code) =
+            variable_text::code_of(&lookup, (drawn, original), item.unformed, unformed)
+        else {
+            if !missing.contains(original) {
+                missing.push(original);
+            }
+            continue;
+        };
+        held.used.set(true);
+        atoms.push(Atom {
+            face,
+            code,
+            space: original == ' ',
+            style: index,
+            byte: bytes.then_some(at),
+            tab: 0,
+            radix: original == '.',
+        });
     }
-    flush(&mut segment, segment_face, &mut atoms, faces);
     atoms
 }
 
@@ -710,7 +904,12 @@ impl Measure<'_> {
                 .map_or(1.0, |style| style.horizontal_scale)
     }
 
+    /// A glyph's advance; a tab's is its stop's, which [`tab_advance`] measures from where the
+    /// tab stands, so it is nothing here.
     fn width(&self, atom: Atom, root: f32) -> f32 {
+        if atom.tab > 0 {
+            return 0.0;
+        }
         let Some(style) = self.style(atom.style) else {
             return 0.0;
         };
@@ -782,33 +981,59 @@ fn size_at(style: &Character, root: f32) -> f32 {
 
 /// One line, placed.
 struct Line {
+    /// The glyphs, in the order they are displayed: UAX #9's rule L2 over the logical order.
     atoms: Vec<Atom>,
+    /// Which logical glyph each displayed one is, and back.
+    order: Order,
     /// Where the line starts, after its alignment.
     x: f32,
     baseline: f32,
+    /// How far the line reaches above and below its baseline, which is where a caret stands.
+    ascent: f32,
+    descent: f32,
     /// Extra space after each space on the line: a justified line's.
     gap: f32,
     tag: Option<(Vec<Atom>, f32)>,
+    /// Where each displayed glyph is drawn from: Table 231 bit 25's cell centres, on a comb.
+    cells: Option<Vec<f32>>,
+    /// The boundaries between displayed glyphs, left to right, one more than there are glyphs:
+    /// the advances the line is written with, or a comb's cell edges.
+    edges: Vec<f32>,
+    /// The bytes of [`RichText::text`] the line holds, a soft wrap's trailing spaces included.
+    span: (usize, usize),
 }
 
 /// The whole text, placed.
 struct Plan {
     lines: Vec<Line>,
+    fit: Fit,
+    /// Whether a line holding a right-to-left run holds a tab, which advances nothing there.
+    tabs_reversed: bool,
+    advance: f32,
+}
+
+/// Whether the text fits, on each of the axes Table 231 bit 24 asks about.
+#[derive(Default)]
+struct Fit {
     /// Whether some line is longer than the room it was given: a word longer than a line, or a
     /// single line's whole text.
     too_wide: bool,
     /// Whether the block is taller than the box.
     too_tall: bool,
-    advance: f32,
+    /// Whether a comb's characters outnumber its cells.
+    too_many: bool,
 }
 
 impl Plan {
-    /// Table 231 bit 24's question, on the axis the clause names for the shape.
-    fn overflows(&self, multiline: bool) -> bool {
-        if multiline {
-            self.too_tall
+    /// Table 231 bit 24's question, on the axis the clause names for the shape: across the box
+    /// for one line, down it for several, and in cells for a comb, as the plain layout asks it.
+    fn overflows(&self, request: &Request) -> bool {
+        if request.comb.is_some() {
+            self.fit.too_many
+        } else if request.multiline {
+            self.fit.too_tall
         } else {
-            self.too_wide
+            self.fit.too_wide
         }
     }
 }
@@ -820,6 +1045,8 @@ struct Broken {
     paragraph: usize,
     first: bool,
     last: bool,
+    /// The bytes of [`RichText::text`] it holds.
+    span: (usize, usize),
 }
 
 /// Breaks every paragraph into lines that fit its room.
@@ -836,41 +1063,67 @@ fn break_lines(
         // Paragraphs and breaks join, as the plain layout's breaks draw nothing on one line.
         let atoms: Vec<Atom> = paragraphs
             .iter()
-            .flat_map(|paragraph| paragraph.items.iter().filter_map(|item| *item))
+            .flat_map(|paragraph| paragraph.items.iter())
+            .filter_map(|item| match item {
+                Item::Glyph(atom) => Some(*atom),
+                Item::Break { .. } => None,
+            })
             .collect();
         out.push(Broken {
             atoms,
             paragraph: 0,
             first: true,
             last: true,
+            span: (
+                paragraphs.first().map_or(0, |first| first.span.0),
+                paragraphs.last().map_or(0, |last| last.span.1),
+            ),
         });
         return out;
     }
     for (index, paragraph) in paragraphs.iter().enumerate() {
         let start_at = out.len();
-        let (_, width) = horizontal(measure, paragraph, root, area, true);
-        let (_, rest_width) = horizontal(measure, paragraph, root, area, false);
+        let (first_start, width) = horizontal(measure, paragraph, root, area, true);
+        let (origin, rest_width) = horizontal(measure, paragraph, root, area, false);
+        let mut from_margin = first_start - origin;
         let mut line: Vec<Atom> = Vec::new();
+        let mut begins = paragraph.span.0;
         let mut reached = 0.0_f32;
         let mut last_space: Option<usize> = None;
         let mut limit = width;
-        let push = |out: &mut Vec<Broken>, atoms: Vec<Atom>| {
+        let push = |out: &mut Vec<Broken>, atoms: Vec<Atom>, span: (usize, usize)| {
             out.push(Broken {
                 atoms,
                 paragraph: index,
                 first: false,
                 last: false,
+                span,
             });
         };
-        for item in &paragraph.items {
-            let Some(atom) = item else {
-                push(&mut out, std::mem::take(&mut line));
-                reached = 0.0;
-                last_space = None;
-                limit = rest_width;
-                continue;
+        for (at_item, item) in paragraph.items.iter().enumerate() {
+            let atom = match item {
+                Item::Glyph(atom) => atom,
+                Item::Break { at, consumes } => {
+                    push(&mut out, std::mem::take(&mut line), (begins, *at));
+                    begins = at.saturating_add(usize::from(*consumes));
+                    reached = 0.0;
+                    last_space = None;
+                    limit = rest_width;
+                    from_margin = 0.0;
+                    continue;
+                }
             };
-            reached += measure.width(*atom, root);
+            reached += if atom.tab > 0 {
+                tab_advance(
+                    measure,
+                    &paragraph.block,
+                    (from_margin + reached, atom.tab),
+                    &aligned_by(&paragraph.items, at_item),
+                    root,
+                )
+            } else {
+                measure.width(*atom, root)
+            };
             line.push(*atom);
             if atom.space {
                 last_space = Some(line.len());
@@ -884,13 +1137,19 @@ fn break_lines(
                 .filter(|at| *at < line.len())
                 .unwrap_or(line.len().saturating_sub(1));
             let carried = line.split_off(at);
-            push(&mut out, std::mem::take(&mut line));
+            let wraps_at = carried.first().and_then(|atom| atom.byte).unwrap_or(begins);
+            push(&mut out, std::mem::take(&mut line), (begins, wraps_at));
+            begins = wraps_at;
             line = carried;
-            reached = measure.widths(&line, root);
+            from_margin = 0.0;
+            reached = advances(measure, &paragraph.block, &line, root, Some(0.0))
+                .last()
+                .copied()
+                .unwrap_or_default();
             last_space = None;
             limit = rest_width;
         }
-        push(&mut out, line);
+        push(&mut out, line, (begins, paragraph.span.1.max(begins)));
         if let Some(first) = out.get_mut(start_at) {
             first.first = true;
         }
@@ -899,6 +1158,19 @@ fn break_lines(
         }
     }
     out
+}
+
+/// The glyphs a tab at `at` aligns: those after it, up to the next tab or line break.
+fn aligned_by(items: &[Item], at: usize) -> Vec<Atom> {
+    items
+        .get(at.saturating_add(1)..)
+        .unwrap_or_default()
+        .iter()
+        .map_while(|item| match item {
+            Item::Glyph(next) if next.tab == 0 => Some(*next),
+            Item::Glyph(_) | Item::Break { .. } => None,
+        })
+        .collect()
 }
 
 /// Where a paragraph's line may start, and how long it may be: the box less the body's and the
@@ -1014,10 +1286,12 @@ fn plan(
     root: f32,
     area: Room,
     request: &Request,
+    levels: Option<&Levels>,
 ) -> Plan {
-    let broken = break_lines(measure, paragraphs, root, area, request.multiline);
+    let multiline = request.multiline && request.comb.is_none();
+    let broken = break_lines(measure, paragraphs, root, area, multiline);
     let (baselines, total) = stack(measure, paragraphs, &broken, root, area);
-    let valign = area.valign.unwrap_or(if request.multiline {
+    let valign = area.valign.unwrap_or(if multiline {
         VerticalAlign::Top
     } else {
         VerticalAlign::Middle
@@ -1030,37 +1304,63 @@ fn plan(
 
     let mut lines = Vec::with_capacity(broken.len());
     let mut advance = 0.0_f32;
-    let too_tall = total > area.height();
-    let mut too_wide = false;
+    let mut fit = Fit {
+        too_tall: total > area.height(),
+        ..Fit::default()
+    };
+    let mut tabs_reversed = false;
     for (line, baseline) in broken.into_iter().zip(baselines) {
         let Some(paragraph) = paragraphs.get(line.paragraph) else {
             continue;
         };
+        let (ascent, descent, _) = line_extent(measure, &line, paragraphs, root);
         let (start, width) = horizontal(measure, paragraph, root, area, line.first);
-        let shown = trimmed(&line.atoms);
-        let used = measure.widths(shown, root);
+        let (origin, _) = horizontal(measure, paragraph, root, area, false);
+        let (order, shown, reversed) = displayed(trimmed(&line.atoms), line.span, levels);
+        // Stops are measured from the left margin, which is where a line read left to right
+        // starts; a line holding a right-to-left run would measure them from its other side, and
+        // this tree does not, so its tabs advance nothing and the report says so.
+        if reversed && shown.iter().any(|atom| atom.tab > 0) {
+            tabs_reversed = true;
+        }
+        let shown = shown.as_slice();
+        if let Some(cells) = request.comb {
+            let (placed, many) = comb_line(measure, shown, root, (start, width), cells, request);
+            // Auto-sizing a comb asks the plain layout's question, the whole advance against the
+            // box; whether it overflows is asked in cells.
+            fit.too_wide |= measure.widths(shown, root) > width;
+            fit.too_many |= many;
+            advance = advance.max(placed.edges.last().copied().unwrap_or(start) - start);
+            lines.push(Line {
+                atoms: shown.to_vec(),
+                order,
+                x: start,
+                baseline: offset + baseline,
+                ascent,
+                descent,
+                gap: 0.0,
+                tag: None,
+                cells: Some(placed.cells),
+                edges: placed.edges,
+                span: line.span,
+            });
+            continue;
+        }
+        let (x, gap, edges) = aligned(
+            measure,
+            (paragraph, &line),
+            shown,
+            root,
+            (start, width, (!reversed).then_some(start - origin)),
+            request,
+        );
+        let used = edges.last().copied().unwrap_or(x)
+            - x
+            - gap * variable_text::count(shown.iter().filter(|atom| atom.space).count());
         advance = advance.max(used);
         if used > width {
-            too_wide = true;
+            fit.too_wide = true;
         }
-        let align = paragraph.block.align.unwrap_or(match request.quadding {
-            Quadding::Left => Align::Left,
-            Quadding::Centred => Align::Centre,
-            Quadding::Right => Align::Right,
-        });
-        let spaces = shown.iter().filter(|atom| atom.space).count();
-        let justified = match align {
-            Align::Justify => !line.last,
-            Align::JustifyAll => true,
-            Align::Left | Align::Centre | Align::Right => false,
-        } && spaces > 0
-            && used < width;
-        let (x, gap) = match align {
-            _ if justified => (start, (width - used) / variable_text::count(spaces)),
-            Align::Centre => (start + (width - used) * 0.5, 0.0),
-            Align::Right => (start + width - used, 0.0),
-            Align::Left | Align::Justify | Align::JustifyAll => (start, 0.0),
-        };
         let tag = if line.first {
             paragraph.tag.as_ref().map(|tag| {
                 let tag_width = measure.widths(tag, root);
@@ -1071,18 +1371,240 @@ fn plan(
         };
         lines.push(Line {
             atoms: shown.to_vec(),
+            order,
             x,
             baseline: offset + baseline,
+            ascent,
+            descent,
             gap,
             tag,
+            cells: None,
+            edges,
+            span: line.span,
         });
     }
     Plan {
         lines,
-        too_wide,
-        too_tall,
+        fit,
+        tabs_reversed,
         advance,
     }
+}
+
+/// Where a line starts after its alignment, the extra room after each space a justified line
+/// takes, and the boundaries between its displayed glyphs.
+fn aligned(
+    measure: &Measure,
+    (paragraph, line): (&Encoded, &Broken),
+    shown: &[Atom],
+    root: f32,
+    (start, width, from_margin): (f32, f32, Option<f32>),
+    request: &Request,
+) -> (f32, f32, Vec<f32>) {
+    let advanced = advances(measure, &paragraph.block, shown, root, from_margin);
+    let used = advanced.last().copied().unwrap_or_default();
+    let align = paragraph.block.align.unwrap_or(match request.quadding {
+        Quadding::Left => Align::Left,
+        Quadding::Centred => Align::Centre,
+        Quadding::Right => Align::Right,
+    });
+    let spaces = shown.iter().filter(|atom| atom.space).count();
+    let justified = match align {
+        Align::Justify => !line.last,
+        Align::JustifyAll => true,
+        Align::Left | Align::Centre | Align::Right => false,
+    } && spaces > 0
+        && used < width;
+    let (x, gap) = match align {
+        _ if justified => (start, (width - used) / variable_text::count(spaces)),
+        Align::Centre => (start + (width - used) * 0.5, 0.0),
+        Align::Right => (start + width - used, 0.0),
+        Align::Left | Align::Justify | Align::JustifyAll => (start, 0.0),
+    };
+    let mut edges = Vec::with_capacity(shown.len().saturating_add(1));
+    let mut extra = 0.0_f32;
+    edges.push(x);
+    for (atom, at) in shown.iter().zip(advanced.iter().skip(1)) {
+        if atom.space {
+            extra += gap;
+        }
+        edges.push(x + at + extra);
+    }
+    (x, gap, edges)
+}
+
+/// The running advance at each boundary of a line's glyphs, from zero, a tab as wide as the way
+/// to its stop. `from_margin` is how far the line starts from the paragraph's left margin, which
+/// is where *Tab Stops* measures every stop from (page 1207); `None` where the stops are not
+/// measured on this line, whose tabs then advance nothing.
+fn advances(
+    measure: &Measure,
+    block: &super::style::Block,
+    atoms: &[Atom],
+    root: f32,
+    from_margin: Option<f32>,
+) -> Vec<f32> {
+    let mut out = Vec::with_capacity(atoms.len().saturating_add(1));
+    let mut at = 0.0_f32;
+    out.push(at);
+    for (index, atom) in atoms.iter().enumerate() {
+        at += match from_margin {
+            Some(from_margin) if atom.tab > 0 => {
+                let group: Vec<Atom> = atoms
+                    .get(index.saturating_add(1)..)
+                    .unwrap_or_default()
+                    .iter()
+                    .take_while(|next| next.tab == 0)
+                    .copied()
+                    .collect();
+                tab_advance(measure, block, (from_margin + at, atom.tab), &group, root)
+            }
+            _ => measure.width(*atom, root),
+        };
+        out.push(at);
+    }
+    out
+}
+
+/// How far a tab at `position` from the left margin advances, by `count` stops, before `group` —
+/// the text it aligns, up to the next tab or the line's end.
+///
+/// *Tab Stops* (pages 1205 to 1207): the stated stops first, then the default ones at every
+/// multiple of `tab-interval` beyond the last stated; each tab moves to the next stop past the
+/// cursor, and the last one reached aligns the group — its left edge at a left stop, its right
+/// edge at a right one, its middle at a centred one, and its first radix at a decimal one, or its
+/// right edge where it has none. A stop the group would have to start behind the cursor to meet
+/// is met as near as the cursor allows, and no stop past the cursor is no advance: the chapter
+/// sets none where neither property states one.
+fn tab_advance(
+    measure: &Measure,
+    block: &super::style::Block,
+    (position, count): (f32, u16),
+    group: &[Atom],
+    root: f32,
+) -> f32 {
+    use super::style::TabAlign;
+    let stated: Vec<(TabAlign, f32)> = block
+        .tab_stops
+        .iter()
+        .map(|(align, at)| (*align, at.at(root)))
+        .collect();
+    let interval = block
+        .tab_interval
+        .map(|interval| interval.at(root))
+        .filter(|interval| *interval > 0.0);
+    let last_stated = stated.iter().map(|(_, at)| *at).fold(0.0_f32, f32::max);
+    let mut cursor = position;
+    let mut reached: Option<(TabAlign, f32)> = None;
+    for _ in 0..count {
+        let next = stated
+            .iter()
+            .copied()
+            .find(|(_, at)| *at > cursor + f32::EPSILON)
+            .or_else(|| {
+                let interval = interval?;
+                let from = cursor.max(last_stated);
+                let steps = (from / interval).floor() + 1.0;
+                Some((TabAlign::Left, steps * interval))
+            });
+        let Some(stop) = next else {
+            break;
+        };
+        cursor = stop.1;
+        reached = Some(stop);
+    }
+    let Some((align, stop)) = reached else {
+        return 0.0;
+    };
+    let whole = measure.widths(group, root);
+    let lead = match align {
+        TabAlign::Left => 0.0,
+        TabAlign::Centre => whole * 0.5,
+        TabAlign::Right => whole,
+        TabAlign::Decimal => group
+            .iter()
+            .position(|atom| atom.radix)
+            .map_or(whole, |radix| {
+                measure.widths(group.get(..radix).unwrap_or_default(), root)
+            }),
+    };
+    (stop - lead - position).max(0.0)
+}
+
+/// A line's glyphs in display order, the order itself, and whether any reads right to left.
+fn displayed(
+    logical: &[Atom],
+    span: (usize, usize),
+    levels: Option<&Levels>,
+) -> (Order, Vec<Atom>, bool) {
+    let levels = line_levels(logical, span, levels);
+    let reversed = levels.iter().any(|level| level % 2 == 1);
+    let order = Order::from_levels(&levels);
+    let shown = order
+        .visual
+        .iter()
+        .filter_map(|index| logical.get(*index).copied())
+        .collect();
+    (order, shown, reversed)
+}
+
+/// Each glyph's level, by UAX #9 over the whole string with rule L1 applied at this line's ends;
+/// every level 0 where the string has no right-to-left character.
+fn line_levels(atoms: &[Atom], span: (usize, usize), levels: Option<&Levels>) -> Vec<u8> {
+    let Some(levels) = levels else {
+        return vec![0; atoms.len()];
+    };
+    let by_byte = levels.line_levels(span.0..span.1.max(span.0));
+    atoms
+        .iter()
+        .map(|atom| {
+            atom.byte
+                .and_then(|byte| by_byte.get(byte.saturating_sub(span.0)).copied())
+                .unwrap_or_default()
+        })
+        .collect()
+}
+
+/// A comb's line: where each displayed glyph is drawn, and the cell edges between them.
+struct CombLine {
+    cells: Vec<f32>,
+    edges: Vec<f32>,
+}
+
+/// Table 231 bit 25: the box divided into `cells` equal positions and one character in each,
+/// left to right in display order, each glyph centred in its cell at its own size — the plain
+/// comb's placement (`variable_text`'s `comb`), run by run. The second answer is whether the
+/// characters outnumber the cells.
+fn comb_line(
+    measure: &Measure,
+    shown: &[Atom],
+    root: f32,
+    (start, width): (f32, f32),
+    cells: u32,
+    request: &Request,
+) -> (CombLine, bool) {
+    let count = variable_text::count(usize::try_from(cells).unwrap_or(usize::MAX)).max(1.0);
+    let used = variable_text::count(shown.len());
+    let first = match request.quadding {
+        Quadding::Left => 0.0,
+        Quadding::Centred => ((count - used) * 0.5).max(0.0).floor(),
+        Quadding::Right => (count - used).max(0.0),
+    };
+    let cell = width / count;
+    let edge = |slot: f32| cell.mul_add(slot.min(count), start);
+    let mut placed = CombLine {
+        cells: Vec::with_capacity(shown.len()),
+        edges: vec![edge(first)],
+    };
+    for (index, atom) in shown.iter().enumerate() {
+        let slot = first + variable_text::count(index);
+        let advance = measure.width(*atom, root);
+        placed
+            .cells
+            .push(cell.mul_add(slot, (cell - advance) * 0.5) + start);
+        placed.edges.push(edge(slot + 1.0));
+    }
+    (placed, used > count)
 }
 
 /// A line's ascent, descent and tallest em, from its glyphs or, for an empty line, its
@@ -1121,8 +1643,10 @@ fn line_extent(
 /// its room and the block fits the box, found by the same bounded halving the plain layout uses.
 fn auto_size(measure: &Measure, paragraphs: &[Encoded], area: Room, request: &Request) -> f32 {
     let fits = |root: f32| {
-        let planned = plan(measure, paragraphs, root, area, request);
-        !planned.too_wide && !planned.too_tall
+        // The order a line is displayed in moves nothing that fits or does not, so the levels
+        // are not asked for here.
+        let planned = plan(measure, paragraphs, root, area, request, None);
+        !planned.fit.too_wide && !planned.fit.too_tall
     };
     let mut low = variable_text::MIN_AUTO_SIZE;
     let mut high = area.height().max(variable_text::MIN_AUTO_SIZE);
@@ -1202,18 +1726,38 @@ fn write_line(
             root,
         );
     }
-    let mut x = line.x;
+    // Table 231 bit 25: a glyph to a cell, each written where its cell centres it.
+    if let Some(cells) = &line.cells {
+        for (atom, x) in line.atoms.iter().zip(cells) {
+            write_group(
+                stream,
+                decorations,
+                state,
+                measure,
+                std::slice::from_ref(atom),
+                *x,
+                line.baseline,
+                root,
+            );
+        }
+        return;
+    }
     let mut start = 0_usize;
     while start < line.atoms.len() {
         let Some(first) = line.atoms.get(start) else {
             break;
         };
+        // A tab draws nothing: the boundary after it is where the next group starts.
+        if first.tab > 0 {
+            start = start.saturating_add(1);
+            continue;
+        }
         // A group is the longest run of one face and one style, and on a justified line it ends
-        // after each space, where the extra room is inserted.
+        // after each space, where the extra room is inserted; a tab ends it too.
         let mut end = start.saturating_add(1);
         if !(line.gap > 0.0 && first.space) {
             while let Some(next) = line.atoms.get(end) {
-                if next.face != first.face || next.style != first.style {
+                if next.face != first.face || next.style != first.style || next.tab > 0 {
                     break;
                 }
                 end = end.saturating_add(1);
@@ -1223,6 +1767,9 @@ fn write_line(
             }
         }
         let group = line.atoms.get(start..end).unwrap_or_default();
+        // Each group is written at the boundary the line was placed with, so the stream and a
+        // host's answers read one set of positions.
+        let x = line.edges.get(start).copied().unwrap_or(line.x);
         write_group(
             stream,
             decorations,
@@ -1233,10 +1780,6 @@ fn write_line(
             line.baseline,
             root,
         );
-        x += measure.widths(group, root);
-        if group.last().is_some_and(|atom| atom.space) {
-            x += line.gap;
-        }
         start = end;
     }
 }
@@ -1369,9 +1912,10 @@ pub(crate) fn root_style(
     let mut root = Character::root();
     if let Some(name) = DefaultAppearance::parse(default_appearance).font {
         let (dict, _) = variable_text::resolve_font(document, resources, &name);
-        let (_, bold, italic) = family_of(document, &dict);
+        let (_, bold, italic, stretch) = family_of(document, &dict);
         root.weight = if bold { 700 } else { 400 };
         root.italic = italic;
+        root.stretch = stretch;
     }
     root
 }
@@ -1387,9 +1931,9 @@ pub(crate) struct OneStyle {
     pub(crate) quadding: Option<Quadding>,
 }
 
-/// The one-style form of a string: what a value in a right-to-left script, a comb field, or a
-/// question a host asks of the text is laid out with, until the runs reach those constructions
-/// too.
+/// The one-style form of a string: what a string none of whose run faces draws a character, in a
+/// face this program chose, is laid out with — the plain layout reaches a machine face for it
+/// (ADR 1414) and the runs' faces do not.
 ///
 /// # Errors
 ///
@@ -1405,7 +1949,7 @@ pub(crate) fn one_style(document: &Document, request: &Request) -> Result<OneSty
         .and_then(|paragraph| {
             paragraph.pieces.iter().find_map(|piece| match piece {
                 Piece::Text(_, style) => Some(style.clone()),
-                Piece::Break => None,
+                Piece::Break | Piece::Tab(_) => None,
             })
         })
         .or_else(|| first.map(|paragraph| paragraph.strut.clone()))
@@ -1446,6 +1990,272 @@ pub(crate) fn one_style(document: &Document, request: &Request) -> Result<OneSty
     })
 }
 
+/// What a host asked, answered from the lines as they were placed.
+#[derive(Default)]
+struct Answers {
+    caret: Option<Caret>,
+    offset: Option<usize>,
+    selection: Vec<[f32; 8]>,
+    glyphs: Vec<Glyph>,
+}
+
+/// How the bytes of a rich text string's characters ([`RichText::text`]) meet the bytes of the
+/// value a host edits.
+///
+/// The two state the same words — ADR 1635 draws a rich text string only where they do — and
+/// differ only in white space: chapter 27 compresses a run of it to one space and keeps none at a
+/// paragraph's ends (page 1194), and a paragraph is one carriage return where the value may spell
+/// a line end as two characters. So the characters that are not white space correspond one to
+/// one, in order, and a run of white space in one is the run between the same two characters in
+/// the other. Where the two are one text, as for a value a person is typing, this is the identity.
+struct Alignment {
+    /// For each byte of the characters, and their end, the value's byte.
+    to_value: Vec<usize>,
+    /// For each byte of the value, and its end, the characters' byte.
+    to_rich: Vec<usize>,
+}
+
+impl Alignment {
+    fn of(rich: &str, value: &str) -> Self {
+        let mut to_value = vec![value.len(); rich.len().saturating_add(1)];
+        let mut to_rich = vec![rich.len(); value.len().saturating_add(1)];
+        let letters: Vec<(usize, char)> = rich.char_indices().collect();
+        let stated: Vec<(usize, char)> = value.char_indices().collect();
+        let byte = |at: usize| stated.get(at).map_or(value.len(), |(byte, _)| *byte);
+        let white = |at: usize| {
+            stated
+                .get(at)
+                .is_some_and(|(_, letter)| letter.is_whitespace())
+        };
+        let fill = |map: &mut Vec<usize>, range: std::ops::Range<usize>, to: usize| {
+            for slot in map.get_mut(range).unwrap_or_default() {
+                *slot = to;
+            }
+        };
+        let mut next = 0_usize;
+        for (index, &(at, letter)) in letters.iter().enumerate() {
+            let ends = at.saturating_add(letter.len_utf8());
+            let from = byte(next);
+            if letter.is_whitespace() {
+                fill(&mut to_value, at..ends, from);
+                let more = letters
+                    .get(index.saturating_add(1))
+                    .is_some_and(|(_, after)| after.is_whitespace());
+                if more {
+                    // One of several the string keeps: one of the value's, a CR LF being one.
+                    let pair = stated.get(next).is_some_and(|(_, first)| *first == '\r')
+                        && stated
+                            .get(next.saturating_add(1))
+                            .is_some_and(|(_, second)| *second == '\n');
+                    if white(next) {
+                        next = next.saturating_add(if pair { 2 } else { 1 });
+                    }
+                } else {
+                    while white(next) {
+                        next = next.saturating_add(1);
+                    }
+                }
+                fill(&mut to_rich, from..byte(next), at);
+            } else {
+                while white(next) {
+                    next = next.saturating_add(1);
+                }
+                fill(&mut to_rich, from..byte(next), at);
+                let here = byte(next);
+                fill(&mut to_value, at..ends, here);
+                if next < stated.len() {
+                    next = next.saturating_add(1);
+                    fill(&mut to_rich, here..byte(next), at);
+                }
+            }
+        }
+        let rest = byte(next);
+        fill(
+            &mut to_rich,
+            rest..value.len().saturating_add(1),
+            rich.len(),
+        );
+        Self { to_value, to_rich }
+    }
+
+    /// The value's byte for a byte of the characters.
+    fn value(&self, rich: usize) -> usize {
+        self.to_value
+            .get(rich)
+            .or_else(|| self.to_value.last())
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// The characters' byte for a byte of the value.
+    fn rich(&self, value: usize) -> usize {
+        self.to_rich
+            .get(value)
+            .or_else(|| self.to_rich.last())
+            .copied()
+            .unwrap_or_default()
+    }
+}
+
+/// The caret, the point, the range and the glyphs a host asked about, from the placed lines.
+///
+/// **None of this is ISO 32000-2's**, as none of the plain layout's answers is (ADRs 0211, 0225);
+/// what makes them right is that they are read off the lines the stream was written from — the
+/// same edges, the same baselines, the same order — so a caret stands where the next glyph of
+/// *this* layout goes, in its own run's face and size. The conventions are the plain layout's:
+/// a caret on the first line whose end the offset reaches, between the line's descent and ascent;
+/// a point nearest a line vertically and then a boundary along it; a range as one box per run of
+/// the line it covers; and on a comb, cells in place of advances (ADR 1649).
+fn answer(plan: &Plan, request: &Request, alignment: &Alignment) -> Answers {
+    let asked = request.asked;
+    // Each line's glyph bytes in logical order, so a boundary is a count of glyphs before a byte.
+    // A tab stands at the byte of the run it advances to and counts as before it, so a caret at
+    // that run's first byte stands past the tab, where the run is drawn.
+    let logical: Vec<Vec<Stood>> = plan
+        .lines
+        .iter()
+        .map(|line| {
+            let mut bytes = vec![
+                Stood {
+                    byte: line.span.0,
+                    tab: false
+                };
+                line.atoms.len()
+            ];
+            for (shown_at, index) in line.order.visual.iter().enumerate() {
+                if let (Some(slot), Some(atom)) = (bytes.get_mut(*index), line.atoms.get(shown_at))
+                {
+                    *slot = Stood {
+                        byte: atom.byte.unwrap_or(line.span.0),
+                        tab: atom.tab > 0,
+                    };
+                }
+            }
+            bytes
+        })
+        .collect();
+    let lines: Vec<(&Line, &[Stood])> = plan
+        .lines
+        .iter()
+        .zip(logical.iter().map(Vec::as_slice))
+        .collect();
+    let mut out = Answers {
+        caret: asked
+            .caret
+            .and_then(|caret| caret_at(&lines, alignment.rich(caret))),
+        offset: asked
+            .point
+            .and_then(|point| byte_at(&lines, point))
+            .map(|byte| alignment.value(byte)),
+        ..Answers::default()
+    };
+    if let Some((from, to)) = asked.selection {
+        let (from, to) = (alignment.rich(from), alignment.rich(to));
+        for (line, bytes) in &lines {
+            let (bottom, top) = (line.baseline + line.descent, line.baseline + line.ascent);
+            for (first, last) in line.order.runs(before(bytes, from)..before(bytes, to)) {
+                let (x0, x1) = (edge(line, first), edge(line, last));
+                if x1 > x0 {
+                    out.selection
+                        .push([x0, top, x1, top, x1, bottom, x0, bottom]);
+                }
+            }
+        }
+    }
+    if asked.glyphs {
+        for (index, (line, bytes)) in lines.iter().enumerate() {
+            let (bottom, top) = (line.baseline + line.descent, line.baseline + line.ascent);
+            for (shown_at, at) in line.order.visual.iter().enumerate() {
+                if line.atoms.get(shown_at).is_some_and(|atom| atom.tab > 0) {
+                    continue;
+                }
+                let start = bytes.get(*at).map_or(line.span.0, |stood| stood.byte);
+                let end = bytes
+                    .get(at.saturating_add(1))
+                    .map_or(line.span.1, |stood| stood.byte);
+                let (x0, x1) = (edge(line, shown_at), edge(line, shown_at.saturating_add(1)));
+                out.glyphs.push(Glyph {
+                    line: index,
+                    bytes: alignment.value(start)..alignment.value(end),
+                    quad: [x0, top, x1, top, x1, bottom, x0, bottom],
+                });
+            }
+        }
+    }
+    out
+}
+
+/// Where in the string's characters a placed glyph or tab stands.
+#[derive(Debug, Clone, Copy)]
+struct Stood {
+    byte: usize,
+    /// A tab stands at the byte of the run it advances to and counts as before it, so a caret at
+    /// that run's first byte stands past the tab, where the run is drawn.
+    tab: bool,
+}
+
+/// How many of a line's glyphs and tabs, in logical order, stand before a byte.
+fn before(bytes: &[Stood], at: usize) -> usize {
+    bytes
+        .iter()
+        .filter(|stood| stood.byte < at || (stood.tab && stood.byte <= at))
+        .count()
+}
+
+/// The `shown`-th boundary of a line from its left, clamped to its last.
+fn edge(line: &Line, shown: usize) -> f32 {
+    line.edges
+        .get(shown)
+        .or_else(|| line.edges.last())
+        .copied()
+        .unwrap_or(line.x)
+}
+
+/// Where a caret at a byte of the characters stands: on the first line whose end it reaches.
+fn caret_at(lines: &[(&Line, &[Stood])], at: usize) -> Option<Caret> {
+    let found = lines
+        .iter()
+        .find(|(line, _)| line.span.0 <= at && at <= line.span.1)
+        .or_else(|| lines.last())?;
+    let (line, bytes) = found;
+    let x = edge(line, line.order.visual_boundary(before(bytes, at)));
+    Some(Caret {
+        from: [x, line.baseline + line.descent],
+        to: [x, line.baseline + line.ascent],
+    })
+}
+
+/// The byte of the characters a point is nearest: the nearest line vertically, then the nearest
+/// boundary along it.
+fn byte_at(lines: &[(&Line, &[Stood])], [px, py]: [f32; 2]) -> Option<usize> {
+    let mut nearest: Option<(f32, f32, usize)> = None;
+    for (line, bytes) in lines {
+        let (bottom, top) = (line.baseline + line.descent, line.baseline + line.ascent);
+        let dy = if py < bottom {
+            bottom - py
+        } else if py > top {
+            py - top
+        } else {
+            0.0
+        };
+        let mut best = (f32::INFINITY, 0_usize);
+        for (shown, x) in line.edges.iter().enumerate() {
+            let distance = (px - x).abs();
+            if distance < best.0 {
+                best = (distance, shown);
+            }
+        }
+        let at = line.order.logical_boundary(best.1);
+        let byte = bytes.get(at).map_or(line.span.1, |stood| stood.byte);
+        if nearest
+            .is_none_or(|(best_y, best_x, _)| dy < best_y || (dy <= best_y && best.0 < best_x))
+        {
+            nearest = Some((dy, best.0, byte));
+        }
+    }
+    nearest.map(|(_, _, byte)| byte)
+}
+
 /// `fmt::Write` onto a byte buffer, for the `/DA` string [`one_style`] extends.
 struct ByteWriter<'a>(&'a mut Vec<u8>);
 
@@ -1453,5 +2263,48 @@ impl std::fmt::Write for ByteWriter<'_> {
     fn write_str(&mut self, text: &str) -> std::fmt::Result {
         self.0.extend_from_slice(text.as_bytes());
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Alignment;
+
+    /// The same text is the identity, both ways.
+    #[test]
+    fn one_text_aligns_with_itself() {
+        let alignment = Alignment::of("ab c", "ab c");
+        for at in 0..=4 {
+            assert_eq!(alignment.value(at), at);
+            assert_eq!(alignment.rich(at), at);
+        }
+    }
+
+    /// A run of the value's white space the string compresses to one space, and a CR LF the
+    /// string spells as one carriage return, each meet at their ends (chapter 27, page 1194).
+    #[test]
+    fn compressed_white_space_meets_at_its_ends() {
+        let alignment = Alignment::of("a b\rc", " a   b\r\nc");
+        assert_eq!(alignment.value(0), 1, "a");
+        assert_eq!(alignment.value(1), 2, "the space");
+        assert_eq!(alignment.value(2), 5, "b");
+        assert_eq!(alignment.value(4), 8, "c");
+        assert_eq!(alignment.value(5), 9, "the end");
+        assert_eq!(alignment.rich(5), 2, "b's own byte");
+        assert_eq!(alignment.rich(3), 1, "inside the run is the space");
+        assert_eq!(alignment.rich(8), 4, "c");
+        assert_eq!(alignment.rich(9), 5, "the end");
+    }
+
+    /// Spaces the string keeps (`xfa-spacerun:yes`) are the value's one for one, and a line end
+    /// between two kept breaks is one of the value's.
+    #[test]
+    fn kept_white_space_meets_one_for_one() {
+        let alignment = Alignment::of("a  b\r\rc", "a  b\r\n\r\nc");
+        assert_eq!(alignment.value(2), 2);
+        assert_eq!(alignment.value(3), 3);
+        assert_eq!(alignment.value(4), 4);
+        assert_eq!(alignment.value(5), 6);
+        assert_eq!(alignment.value(6), 8);
     }
 }

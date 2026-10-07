@@ -506,6 +506,10 @@ pub struct Host {
     /// [`Host::armed`] has one clause over: `pump_drawing` re-arms only while `Drawing::interval`
     /// answers `Some`, and it answers `None` the moment the thread is idle.
     drawing_armed: Option<glib::SourceId>,
+    /// The dialogue a script's question stands on, while it is up: which document asked, the
+    /// window, and whether it has been answered — what [`Event::ScriptQuestionWithdrawn`] takes
+    /// down, marked answered first so that closing it does not answer the script twice (ADR 1643).
+    script_dialogue: Option<(DocumentId, gtk4::Window, Rc<Cell<bool>>)>,
     /// The launch timeline.
     pub(crate) trace: Trace,
     /// The widgets.
@@ -772,6 +776,7 @@ impl Host {
                 // that nothing page one does not need happens before page one.
                 drawing: viewer_host::Drawing::new(),
                 drawing_armed: None,
+                script_dialogue: None,
                 trace,
                 ui,
                 chrome,
@@ -1029,7 +1034,9 @@ impl Host {
         let password = matches!(question, ScriptQuestion::Response { password: true, .. });
         // Whether it was answered lives beside the dialogue, for `put_a_question`'s reason.
         let answered = Rc::new(Cell::new(false));
+        let answered_flag = Rc::clone(&answered);
         let answer: ScriptAnswered = Rc::new(move |host: &mut Self, answer: ScriptAnswer| {
+            host.script_dialogue = None;
             host.say(&script_asks::answered(&answer, password));
             host.dispatch(Command::AnswerScript { document, answer });
         });
@@ -1073,6 +1080,33 @@ impl Host {
         if let Some(entry) = entered {
             entry.grab_focus();
         }
+        // A tick of no time when the wait runs out is the command after which the viewer asks
+        // whether the question was withdrawn, so a dialogue nobody answers comes down on time
+        // rather than at the person's next action (ADR 1643).
+        let me = self.me.clone();
+        glib::timeout_add_local_once(script_asks::wake_after(), move || {
+            with(&me, |host| {
+                if host.script_dialogue.is_some() {
+                    host.dispatch(Command::Tick { millis: 0 });
+                }
+            });
+        });
+        self.script_dialogue = Some((document, dialog, Rc::clone(&answered_flag)));
+    }
+
+    /// [`Event::ScriptQuestionWithdrawn`]: the dialogue of that document's question comes down,
+    /// marked answered first so that closing it does not answer the script again (ADR 1643).
+    fn withdraw_script_question(&mut self, document: DocumentId) {
+        if let Some((asked, dialogue, answered)) = self.script_dialogue.take() {
+            if asked == document {
+                answered.set(true);
+                dialogue.close();
+            } else {
+                self.script_dialogue = Some((asked, dialogue, answered));
+            }
+        }
+        let name = self.documents.label_of(document);
+        self.say(&viewer_host::script_asks::withdrawn(&name));
     }
 
     /// `CLAUDE.md`'s *ask* level over §12.6.4.8's link, in the same window.
@@ -2040,6 +2074,9 @@ impl Host {
             Event::ScriptAsking { document, question } => {
                 self.ask_for_a_script(document, &question);
             }
+            // The question's wait ran out and the runner answered it as a closed dialogue does, so
+            // the dialogue comes down without answering again (ADR 1643).
+            Event::ScriptQuestionWithdrawn { document } => self.withdraw_script_question(document),
             // §7.11.4's list moved under the files tab: a file attached this sitting is in it
             // before anything is saved, and one detached is out of it. The tab is rebuilt from
             // the same answer it was built from, which is the only thing a window may do here
@@ -5074,18 +5111,11 @@ fn popup_window(window: &viewer_host::Window<'_>) -> gtk4::Overlay {
     painted.set_measure_overlay(&bar, true);
     column.append(&painted);
 
-    // Table 166's `/Contents`: the text in the window. Wrapped by Pango, which is the whole reason
-    // a native host places a label here instead of breaking lines for itself.
-    let note = gtk4::Label::new(Some(window.text));
-    note.set_xalign(0.0);
-    note.set_yalign(0.0);
-    note.set_wrap(true);
-    note.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
-    note.set_vexpand(true);
-    note.set_margin_start(POPUP_PADDING);
-    note.set_margin_end(POPUP_PADDING);
-    note.set_margin_top(POPUP_PADDING);
-    column.append(&note);
+    // Table 172's `/RC` where the note states one this program reads, with each run's formatting
+    // — "[a] rich text string … that shall be displayed in the popup window when the annotation is
+    // opened" — and Table 166's `/Contents` otherwise. Wrapped by Pango either way, which is the
+    // whole reason a native host places labels here instead of breaking lines for itself.
+    column.append(&popup_body(window));
 
     // §12.5.6.2's thread, under the note it answers. Table 172: "[i]nteractive PDF processors
     // shall not display replies to an annotation individually but together in the form of
@@ -5108,18 +5138,146 @@ fn popup_window(window: &viewer_host::Window<'_>) -> gtk4::Overlay {
             author.add_css_class("dim-label");
             comment.append(&author);
         }
-        let said = gtk4::Label::new(Some(reply.text.as_deref().unwrap_or_default()));
-        said.set_xalign(0.0);
-        said.set_yalign(0.0);
-        said.set_wrap(true);
-        said.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
-        comment.append(&said);
+        if let Some(rich) = reply.rich.as_ref() {
+            comment.append(&rich_note(rich));
+        } else {
+            let said = gtk4::Label::new(Some(reply.text.as_deref().unwrap_or_default()));
+            said.set_xalign(0.0);
+            said.set_yalign(0.0);
+            said.set_wrap(true);
+            said.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+            comment.append(&said);
+        }
         column.append(&comment);
     }
 
     frame.add_overlay(&column);
     frame.set_measure_overlay(&column, true);
     frame
+}
+
+/// The window's text: [`rich_note`] where the note states a rich text string this program reads,
+/// and Table 166's `/Contents` in one wrapped label otherwise.
+fn popup_body(window: &viewer_host::Window<'_>) -> gtk4::Widget {
+    if let Some(rich) = window.rich {
+        return rich_note(rich).upcast();
+    }
+    let note = gtk4::Label::new(Some(window.text));
+    note.set_xalign(0.0);
+    note.set_yalign(0.0);
+    note.set_wrap(true);
+    note.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+    note.set_vexpand(true);
+    note.set_margin_start(POPUP_PADDING);
+    note.set_margin_end(POPUP_PADDING);
+    note.set_margin_top(POPUP_PADDING);
+    note.upcast()
+}
+
+/// Table 172's `/RC` as GTK draws it: one wrapped label per paragraph, each run a Pango `span`
+/// carrying what the note states about it (ADR 1642).
+///
+/// A label per paragraph because alignment is a label's, and chapter 27's `text-align` is a
+/// paragraph's. The base size is the label's own font's, which is the size §12.5.6.4 lets the
+/// processor choose; `viewer_host::popup` turns each run's relative and absolute sizes into points
+/// against it, and says under the note what was not drawn.
+fn rich_note(note: &pdf_model::popup::RichNote) -> gtk4::Box {
+    let body = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    body.set_vexpand(true);
+    body.set_margin_start(POPUP_PADDING);
+    body.set_margin_end(POPUP_PADDING);
+    body.set_margin_top(POPUP_PADDING);
+    let probe = gtk4::Label::new(None);
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a font size in Pango units is far inside f32's exact integer range"
+    )]
+    let base = probe
+        .pango_context()
+        .font_description()
+        .map(|description| description.size() as f32 / gtk4::pango::SCALE as f32)
+        .filter(|size| *size > 0.0)
+        .unwrap_or(10.0);
+    for paragraph in &note.paragraphs {
+        let mut markup = String::new();
+        if let Some(tag) = &paragraph.tag {
+            markup.push_str(&pango_span(tag, base));
+            markup.push(' ');
+        }
+        for run in &paragraph.runs {
+            markup.push_str(&pango_span(run, base));
+        }
+        let label = gtk4::Label::new(None);
+        label.set_markup(&markup);
+        label.set_wrap(true);
+        label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+        let (xalign, justify) = match paragraph.align {
+            None | Some(pdf_model::popup::RichAlign::Left) => (0.0, gtk4::Justification::Left),
+            Some(pdf_model::popup::RichAlign::Centre) => (0.5, gtk4::Justification::Center),
+            Some(pdf_model::popup::RichAlign::Right) => (1.0, gtk4::Justification::Right),
+            Some(pdf_model::popup::RichAlign::Justify) => (0.0, gtk4::Justification::Fill),
+        };
+        label.set_xalign(xalign);
+        label.set_justify(justify);
+        label.set_margin_start(
+            POPUP_PADDING
+                .saturating_mul(3)
+                .saturating_mul(i32::from(paragraph.level)),
+        );
+        body.append(&label);
+    }
+    if let Some(sentence) = viewer_host::popup::not_drawn(note, &[]) {
+        let said = gtk4::Label::new(Some(&sentence));
+        said.set_xalign(0.0);
+        said.set_wrap(true);
+        said.add_css_class("dim-label");
+        body.append(&said);
+    }
+    body
+}
+
+/// One rich run as a Pango markup `span`: the characters escaped, and every attribute one this
+/// function writes from the run's own fields — a family `viewer_host::popup::family` has passed,
+/// so nothing the document wrote reaches the markup as markup.
+fn pango_span(run: &pdf_model::popup::RichRun, base: f32) -> String {
+    use std::fmt::Write as _;
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        reason = "a size held within three times a label's own is far inside i32's range in \
+                  Pango units, and Pango's scale of 1024 is exact in f32"
+    )]
+    let units = |points: f32| (points * gtk4::pango::SCALE as f32).round() as i32;
+    let mut out = String::new();
+    let _ = write!(
+        out,
+        "<span size=\"{}\" weight=\"{}\" style=\"{}\"",
+        units(viewer_host::popup::size(run, base, 1.0)),
+        if run.bold { "bold" } else { "normal" },
+        if run.italic { "italic" } else { "normal" },
+    );
+    if let Some(name) = viewer_host::popup::family(run) {
+        let _ = write!(out, " font_family=\"{name}\"");
+    }
+    if let Some(colour) = run.colour {
+        let _ = write!(out, " foreground=\"#{}\"", viewer_host::popup::hex(colour));
+    }
+    match run.underlines {
+        0 => {}
+        1 => out.push_str(" underline=\"single\""),
+        _ => out.push_str(" underline=\"double\""),
+    }
+    if run.line_through {
+        out.push_str(" strikethrough=\"true\"");
+    }
+    let raised = viewer_host::popup::rise(run, base, 1.0);
+    if raised.abs() > f32::EPSILON {
+        let _ = write!(out, " rise=\"{}\"", units(raised));
+    }
+    out.push('>');
+    out.push_str(&glib::markup_escape_text(&run.text));
+    out.push_str("</span>");
+    out
 }
 
 /// Device pixels as the logical ones GTK lays out in.

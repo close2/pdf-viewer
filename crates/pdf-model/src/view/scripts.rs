@@ -233,6 +233,8 @@ pub(super) struct Scripting {
     pages: Option<BTreeMap<ObjectId, usize>>,
     /// The field a script last asked the focus for, until a host takes the request.
     focus: Option<String>,
+    /// The zero-based page a script last turned to, until a host takes the request (ADR 1640).
+    page: Option<usize>,
     /// The properties scripts set that a widget's appearance draws, by widget: what
     /// [`super::AnnotationView::scripted`] carries (ADR 1617).
     pub(super) drawn: BTreeMap<ObjectId, Vec<Property>>,
@@ -610,6 +612,18 @@ impl ViewState {
         self.scripting.focus.take()
     }
 
+    /// The zero-based page a script's `this.pageNum = n` last turned to, taken: `None` once a host
+    /// has taken it, and where no script turned one.
+    ///
+    /// Which page is shown is the host's, as the focus is, so a view state holds the request and a
+    /// host carries it out after any call that ran scripts, as the page turn a person asks for —
+    /// Table 198's `/C` of the page left and `/O` of the page reached run as they would for a
+    /// person's turn. The page is one of the document's, checked when the script's run was applied;
+    /// the latest request stands (ADR 1640).
+    pub fn take_page_request(&mut self) -> Option<usize> {
+        self.scripting.page.take()
+    }
+
     /// What one field displays: its value through its format script, or as it stands.
     ///
     /// [`Self::field_value`] answers with the characters a host edits; this answers with what the
@@ -741,8 +755,15 @@ impl ViewState {
     ) -> Option<(ScriptResult, Applied)> {
         let runner = self.runner.0.clone()?;
         let (fields, whole) = self.tell(document, table);
+        let page = match event.site {
+            ScriptSite::Field(_) => self
+                .field_page(document, table, event.field)
+                .unwrap_or(event.page),
+            _ => event.page,
+        };
         let result = runner.run(&ScriptEvent {
             fields: &fields,
+            page,
             pages: crate::page::Pages::new(document).len(),
             dirty: self.unsaved(),
             document: whole.as_ref(),
@@ -757,6 +778,28 @@ impl ViewState {
         }
         let applied = self.apply_edits(document, table, &result.edits);
         Some((result, applied))
+    }
+
+    /// The zero-based page Table 166's `/P` names for a field's first widget: the page a person is
+    /// on when they type into the field, and so what `this.pageNum` reads at its own events, which
+    /// a script's page turn counts from (ADR 1640). `None` where the widget names no page.
+    fn field_page(
+        &mut self,
+        document: &Document,
+        table: &BTreeMap<String, Vec<ObjectId>>,
+        name: &str,
+    ) -> Option<usize> {
+        let widget = *table.get(name)?.first()?;
+        let page = document
+            .get(widget)
+            .as_dict()?
+            .get("P")
+            .and_then(Object::as_reference)?;
+        self.scripting
+            .pages
+            .get_or_insert_with(|| crate::page::Pages::new(document).indices())
+            .get(&page)
+            .copied()
     }
 
     /// Every field whose state differs from what the realm was last told, read now, and the
@@ -920,6 +963,17 @@ impl ViewState {
                     generation,
                     on,
                 } => self.switch_layer(document, *number, *generation, *on),
+                ScriptEdit::GoTo { page } => {
+                    let pages = crate::page::Pages::new(document).len();
+                    match usize::try_from(*page) {
+                        Ok(page) if page < pages => self.scripting.page = Some(page),
+                        _ => self.report(format!(
+                            "a script turned to page {}, and this document has {pages}, so no \
+                             page is turned (ADR 1640)",
+                            u64::from(*page).saturating_add(1)
+                        )),
+                    }
+                }
             }
         }
         applied

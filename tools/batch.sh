@@ -18,6 +18,7 @@
 #   tools/batch.sh open  batch-1038-1043   # worktree at /home/AI/pdf-viewer-rounds, guard on
 #   tools/batch.sh gates                   # tiers 2 and 3, one line per gate, into batch-gates.log
 #   tools/batch.sh raster-examples         # CI's raster examples with --check under Xvfb (one gate of those)
+#   tools/batch.sh arms [<dir>]            # HEAD's six corpus arms, by page, once a batch (open runs it)
 #   tools/batch.sh check                   # what a merge would otherwise look at by hand, one line each
 #   tools/batch.sh commit /path/message    # stage the whole population by name, count it, commit
 #   tools/batch.sh install                 # after the fast-forward: what a person runs, into main's target/
@@ -93,6 +94,7 @@ open_batch() {
     done < <(git -C "$wt" ls-files --stage | awk '$1 == "160000" { print $2, $4 }')
     echo "$branch: $wt  (status: $(git -C "$wt" status --short | wc -l) changed; must be 0)"
     warm
+    arms_at_open
 }
 
 # The batch's first build, started by `open` and left running while the briefs are written, so
@@ -111,6 +113,112 @@ warm() {
     (cd "$wt" && setsid nohup cargo build --workspace --all-targets \
         > "$wt/scratchpad/open/build.log" 2>&1 < /dev/null &
      echo "warming the build directory: pid $!, scratchpad/open/build.log")
+}
+
+# HEAD's six corpus arms, exported once per batch so that a pixels round compares its pages against
+# them and exports nothing: five pixel rounds in nine batches built and walked HEAD again for that
+# comparison (ADR 1638 section 4). An arm is one lane (`cpu`, `gpu`, `compute`) at one scale (1, 4)
+# of `render-raster`'s corpus gate, and the export is two files an arm: `<lane>-<scale>x.txt`, the
+# gate's own `--nocapture` output, and `<lane>-<scale>x.tsv`, the per-page `PDFVIEWER_RASTER_TIMES`
+# file whose fourth column is the frame's digest (ADR 1443) — the gate's printed output names only
+# the pages that differ from the oracle, so a comparison by page reads the second. Into
+# `/home/AI/arms-<first>/`, the batch's first session read off the branch name, or the directory
+# given; `README`'s first line names the commit, which is what keys the export.
+#
+# **It is HEAD's only if the tree is.** So it refuses a worktree holding anything uncommitted
+# outside `scratchpad/`, and `open` starts it before any round is briefed. The test binary and the
+# sandbox worker are built once and copied out of the build directory, and all six arms run the
+# copies under one hold of the heavy-walk lock: a sibling's edit, or a sibling's `--bins` rebuild,
+# landing between two arms would otherwise be built into the second (trap 109), and the export
+# would be of no commit. The copies' digests go into `README` and the copies are deleted. An export
+# already complete for this commit is kept; one for another commit is refused, never overwritten.
+arms_complete() {
+    local out=$1 commit=$2 arm
+    [ "$(head -1 "$out/README" 2>/dev/null | awk '{ print $4 }' | tr -d ,)" = "$commit" ] || return 1
+    grep -q '^done ' "$out/README" && ! grep -q ' exit [0-9]' "$out/README" || return 1
+    for arm in $arm_names; do [ -s "$out/$arm.tsv" ] || return 1; done
+}
+arm_names="cpu-1x gpu-1x compute-1x cpu-4x gpu-4x compute-4x"
+
+export_arms() {
+    cd "$wt" || return 1
+    local out=${1:-} commit branch dirty
+    commit=$(git -C "$wt" rev-parse HEAD)
+    if [ -z "$out" ]; then
+        branch=$(git -C "$wt" rev-parse --abbrev-ref HEAD)
+        [[ "$branch" =~ ^batch-([0-9]+)-[0-9]+$ ]] ||
+            { echo "arms: $branch does not name its first session as batch-<first>-<last>; give the directory"; return 1; }
+        out=${BATCH_ARMS_ROOT:-/home/AI}/arms-${BASH_REMATCH[1]}
+    fi
+    dirty=$(population | tr '\0' '\n') || { echo "arms: cannot read $wt's status — nothing exported"; return 1; }
+    [ -z "$dirty" ] || {
+        echo "arms: $wt holds $(printf '%s\n' "$dirty" | grep -c .) uncommitted path(s) outside scratchpad/, so an export from it would be of no commit — export at open, or from a clean checkout of HEAD:"
+        printf '%s\n' "$dirty" | head -10 | sed 's/^/    /'
+        return 1
+    }
+    if [ -e "$out/README" ]; then
+        local named; named=$(head -1 "$out/README" | awk '{ print $4 }' | tr -d ,)
+        [ "$named" = "$commit" ] ||
+            { echo "arms: $out holds the arms of ${named:-no commit}, not $commit — move it aside; an export is never overwritten by another commit's"; return 1; }
+        arms_complete "$out" "$commit" && { echo "arms: $out holds every arm of $commit already"; return 0; }
+    fi
+    [ -f "$wt/Cargo.toml" ] || { echo "arms: no workspace at $wt"; return 1; }
+    # The lock first and the directory after it, so that a second export of the same directory
+    # queues behind the first and then finds it complete rather than writing beside it.
+    local lock bin=$out/bin exe rc arm lane scale queued
+    queued=$(date +%s)
+    exec {lock}>/home/AI/heavy-walk.lock
+    flock "$lock"
+    arms_complete "$out" "$commit" && { exec {lock}>&-; echo "arms: $out holds every arm of $commit already"; return 0; }
+    mkdir -p "$out"
+    printf 'HEAD arms of %s, exported %s from %s\nfiles: <lane>-<scale>x.txt = the corpus gate'"'"'s --nocapture output; <lane>-<scale>x.tsv = its PDFVIEWER_RASTER_TIMES file, one page a line: name, oracle ms, raster ms, frame digest, mean error\n' \
+        "$commit" "$(date '+%Y-%m-%d %H:%M')" "$wt" > "$out/README"
+    echo "lock: queued $(($(date +%s) - queued)) s, held from $(date '+%H:%M:%S')" >> "$out/README"
+    # One build for every arm, and the test binary's path asked of Cargo rather than guessed (trap 15).
+    if RAYON_NUM_THREADS=4 "$wt/tools/bounded.sh" --tree 12 -- cargo build --profile gates -p pdf-sandbox --bins > "$out/build.log" 2>&1 &&
+        RAYON_NUM_THREADS=4 "$wt/tools/bounded.sh" --tree 12 -- cargo test --profile gates -p render-raster --test corpus --no-run \
+            --message-format=json-render-diagnostics > "$out/build.json" 2>> "$out/build.log"; then
+        exe=$(grep -o '"executable":"[^"]*"' "$out/build.json" | tail -1 | sed 's/^"executable":"//; s/"$//' || true)
+    fi
+    rm -f "$out/build.json"
+    local worker; worker=$(dirname "${exe:-/nonexistent/x}")/../pdf-sandbox-worker
+    if [ -z "${exe:-}" ] || [ ! -x "$exe" ] || [ ! -x "$worker" ]; then
+        echo "build exit 1 — no test binary or no worker; build.log says why" >> "$out/README"
+        exec {lock}>&-
+        echo "arms: the build failed — $out/build.log"; return 1
+    fi
+    mkdir -p "$bin"; cp "$exe" "$bin/corpus"; cp "$worker" "$bin/pdf-sandbox-worker"
+    (cd "$bin" && sha256sum corpus pdf-sandbox-worker) | sed 's/^/built: /' >> "$out/README"
+    if [ -n "$(population | tr '\0' '\n')" ]; then
+        echo "tree exit 1 — a path changed in $wt while the build ran, so the binaries are of no commit" >> "$out/README"
+        rm -rf "$bin"; exec {lock}>&-
+        echo "arms: the tree changed under the build — nothing walked"; return 1
+    fi
+    for arm in $arm_names; do
+        lane=${arm%-*}; scale=${arm#*-}; scale=${scale%x}
+        (cd "$wt/crates/render-raster" &&
+            RAYON_NUM_THREADS=4 PDFVIEWER_RASTER_SCALE=$scale PDFVIEWER_RASTER_COVERAGE=$lane \
+            PDFVIEWER_RASTER_TIMES=$out/$arm.tsv PDF_SANDBOX_WORKER=$bin/pdf-sandbox-worker \
+            "$wt/tools/bounded.sh" --tree 12 -- "$bin/corpus" --ignored --nocapture) > "$out/$arm.txt" 2>&1 && rc=0 || rc=$?
+        if [ "$rc" -eq 0 ] && ! grep -qE 'test result: ok\. [1-9][0-9]* passed' "$out/$arm.txt"; then rc=98; fi
+        [ "$rc" -eq 0 ] && [ -s "$out/$arm.tsv" ] || echo "$arm exit $rc" >> "$out/README"
+        printf 'arms: %-11s exit=%s  %s page line(s)\n' "$arm" "$rc" "$(wc -l < "$out/$arm.tsv" 2>/dev/null || echo 0)"
+    done
+    rm -rf "$bin"
+    exec {lock}>&-
+    echo "done $(date '+%Y-%m-%d %H:%M'), the lock held $(($(date +%s) - queued)) s from the queue's start" >> "$out/README"
+    arms_complete "$out" "$commit" || { echo "arms: $out is incomplete — README names the arm"; return 1; }
+    echo "arms: $out holds every arm of $commit"
+}
+
+# `open`'s call of the above, detached as `warm` is and for the same reason: its cost is the
+# orchestrator's, paid while the briefs are written, and it reads the tree before any round edits it.
+# Skipped where `warm` is skipped, and by `BATCH_ARMS=0`.
+arms_at_open() {
+    [ "${BATCH_ARMS:-1}" = 0 ] || [ ! -f "$wt/Cargo.toml" ] && return 0
+    mkdir -p "$wt/scratchpad/open"
+    (cd "$wt" && setsid nohup "$wt/tools/batch.sh" arms > "$wt/scratchpad/open/arms.log" 2>&1 < /dev/null &
+     echo "exporting HEAD's six corpus arms: pid $!, scratchpad/open/arms.log")
 }
 
 # One line per gate: name, exit, the seconds it ran, the seconds it queued for the lock before
@@ -668,6 +776,7 @@ case "${1:-}" in
     open)  open_batch "${2:?branch name}" ;;
     gates) gates ;;
     raster-examples) raster_examples "${2:-}" ;;
+    arms)  export_arms "${2:-}" ;;
     check) check_batch ;;
     commit) commit_batch "${2:?a commit message file}" ;;
     install) install_batch ;;

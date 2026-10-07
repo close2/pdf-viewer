@@ -3727,7 +3727,8 @@ fn field_text(
                         .value
                         .as_ref()
                         .and_then(|value| variable_text::value_text(document, value)),
-                    stored: !field.overridden && value == unformatted,
+                    stored: (!field.overridden || field.imported) && value == unformatted,
+                    imported_rich: field.imported_rich.clone(),
                 });
             }
             (value, field.text_shape(document, annotation))
@@ -3789,8 +3790,11 @@ fn field_text(
             document,
             &field.ancestry,
             &text,
-            source.markup.as_deref(),
-            source.stored,
+            crate::rich_text::Stated {
+                markup: source.markup.as_deref(),
+                imported_rich: source.imported_rich.as_deref(),
+                stored: source.stored,
+            },
             &root,
         ) {
             let route = RichRoute {
@@ -3800,6 +3804,7 @@ fn field_text(
                 quadding,
                 shape,
                 asked,
+                value: &text,
             };
             return rich_laid_out(document, &chosen, &route)
                 .map(|mut laid_out| {
@@ -3842,8 +3847,11 @@ fn field_text(
 struct RichSource {
     /// The value's text as it stands, which bit 26 makes a rich text string.
     markup: Option<String>,
-    /// Whether the value is the file's own `/V`, unformatted — the value its `/RV` describes.
+    /// Whether the value is the file's own `/V`, or an import's, unformatted — the value an
+    /// `/RV` describes.
     stored: bool,
+    /// Table 249's `/RV`, where an import stated one beside its value (ADR 1648).
+    imported_rich: Option<String>,
 }
 
 /// Where a rich text string is laid out, and what the plain layout around it was given.
@@ -3854,20 +3862,21 @@ struct RichRoute<'a> {
     quadding: Quadding,
     shape: Shape,
     asked: Asked,
+    /// The characters a host's offsets index: the value it edits.
+    value: &'a str,
 }
 
-/// Lays a field's or a note's rich text string out (ADRs 1634, 1635).
+/// Lays a field's or a note's rich text string out (ADRs 1634, 1635, 1649).
 ///
-/// **The runs, each in its own style**, by [`crate::rich_text::lay_out`], for every drawing of a
-/// one-line or a multiline box. Three things take the one-style form instead
-/// ([`crate::rich_text::one_style`]), each reported as [`Owed::RichTextOneStyle`]: a comb field,
-/// whose cells Table 231 bit 25 states for one style; a value holding a right-to-left run, whose
-/// order UAX #9 decides in the one-style layout alone (ADR 1413); and a string the runs' faces
-/// cannot draw whole, where the one-style layout reaches a machine face (ADR 1414). A question a
-/// host asks — where a caret stands, what a point or a range covers — is answered by the one-style
-/// form too, which is where those answers are computed; the next build carries them into the
-/// runs. A shortfall the string itself owes — what the file states that disagrees, a property
-/// chapter 27 names and this tree does not carry out — is said beside whatever was drawn.
+/// **The runs, each in its own style**, by [`crate::rich_text::lay_out`], for every shape a text
+/// field or a note takes: one line, several, and Table 231 bit 25's comb, a character to a cell in
+/// its own run's face; in UAX #9's display order where the string holds a right-to-left run; and
+/// with a host's caret, point, range and glyph questions answered from the same lines. One case
+/// takes the one-style form instead ([`crate::rich_text::one_style`]), reported as
+/// [`Owed::RichTextOneStyle`]: a string the runs' faces cannot draw whole, where the one-style
+/// layout reaches a machine face (ADR 1414). A shortfall the string itself owes — what the file
+/// states that disagrees, a property chapter 27 names and this tree does not carry out — is said
+/// beside whatever was drawn.
 fn rich_laid_out(
     document: &Document,
     chosen: &crate::rich_text::Chosen,
@@ -3880,30 +3889,23 @@ fn rich_laid_out(
         resources: route.resources,
         quadding: route.quadding,
         multiline: matches!(route.shape, Shape::Multiline),
-    };
-    let text = chosen.rich.text();
-    let one_style = if matches!(route.shape, Shape::Comb(_)) {
-        Some("Table 231 bit 25 lays a comb field's characters out one to a cell")
-    } else if pdf_font::shaping::Paragraphs::new(&text).is_some() {
-        Some("it holds a right-to-left run, which UAX #9 orders in the one-style layout")
-    } else if route.asked == Asked::default() {
-        None
-    } else {
-        Some("a host's question about a caret, a point or a range is answered there")
-    };
-    let laid_out = match one_style {
-        None => match crate::rich_text::lay_out(document, &request) {
-            Ok(laid_out) => Ok(laid_out),
-            Err(Owed::NoFont) => Err(Owed::NoFont),
-            Err(_) => one_style_laid_out(
-                document,
-                &request,
-                route,
-                &text,
-                "a character none of its faces draws is set in the one-style layout's face",
-            ),
+        comb: match route.shape {
+            Shape::Comb(cells) => Some(cells),
+            Shape::SingleLine | Shape::Multiline | Shape::ListBox => None,
         },
-        Some(reason) => one_style_laid_out(document, &request, route, &text, reason),
+        asked: route.asked,
+        value: route.value,
+    };
+    let laid_out = match crate::rich_text::lay_out(document, &request) {
+        Ok(laid_out) => Ok(laid_out),
+        Err(Owed::NoFont) => Err(Owed::NoFont),
+        Err(_) => one_style_laid_out(
+            document,
+            &request,
+            route,
+            &chosen.rich.text(),
+            "a character none of its faces draws is set in the one-style layout's face",
+        ),
     };
     laid_out.map(|mut laid_out| {
         if let Some(disagrees) = &chosen.disagrees {
@@ -4893,6 +4895,7 @@ fn free_text_layout(
             quadding,
             shape: Shape::Multiline,
             asked,
+            value: retyped.or(contents.as_deref()).unwrap_or(&text),
         };
         return rich_laid_out(document, &chosen, &route)
             .map(Some)
@@ -5042,6 +5045,11 @@ pub(crate) struct Field {
     /// import makes it another file's, and in either case the `/AS` in the document describes
     /// the state that was replaced.
     overridden: bool,
+    /// Whether the value above is an import's: §12.7.8.3.2's replacing value, which an `/RV`
+    /// beside it describes as a stored `/RV` describes `/V` (ADR 1648).
+    imported: bool,
+    /// Table 249's `/RV`, where an import stated one; it replaces Table 228's `/RV`.
+    pub(crate) imported_rich: Option<String>,
 }
 
 impl Field {
@@ -5079,6 +5087,11 @@ impl Field {
             ancestry: Vec::new(),
             too_deep: false,
             overridden: !matches!(source, FieldValue::Stored),
+            imported: matches!(source, FieldValue::Imported { .. }),
+            imported_rich: match source {
+                FieldValue::Imported { rich, .. } => rich.map(str::to_owned),
+                _ => None,
+            },
         };
         let stated_value = match source {
             FieldValue::Stored => Some("V"),

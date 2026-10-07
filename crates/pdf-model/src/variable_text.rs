@@ -251,8 +251,8 @@ pub(crate) enum Owed {
     ///
     /// **A report beside a complete drawing.** The string's runs are laid out in the faces, sizes,
     /// colours, alignments and spacing it states (`crate::rich_text`, ADR 1634); what the phrase
-    /// names is a property whose value no part of this program acts on — a face of another width,
-    /// pair kerning, a tab stop, a hyperlink a reader could follow — and leaving it out silently
+    /// names is a property whose value no part of this program acts on — a width no face of `/DR`
+    /// states, pair kerning, a tab leader, a hyperlink a reader could follow — and leaving it out silently
     /// would be trap 5's silence inside a feature otherwise built.
     RichTextUnapplied(String),
     /// A rich text string states characters other than its plain twin's, so the plain one is
@@ -272,11 +272,11 @@ pub(crate) enum Owed {
         /// The clause that makes the plain entry the text, as the report states it.
         clause: &'static str,
     },
-    /// A rich text string is laid out in one style, its default one, for the reason given.
+    /// A rich text string is laid out in one style, its first run's, for the reason given.
     ///
-    /// The construction a value in a right-to-left script or a comb field needs is the one-style
-    /// layout's, which carries UAX #9's order and Table 231 bit 25's cells; the runs' own faces,
-    /// sizes and colours do not reach it yet.
+    /// One case: a character none of the runs' faces draws, in a face this program chose, where
+    /// the one-style layout reaches a machine face for it (ADR 1414) and the runs' faces do not.
+    /// A comb, a right-to-left run and a host's questions are the runs' own (ADR 1649).
     RichTextOneStyle(&'static str),
     /// Table 199's `/F`: the field's format script is not one Tier 0 runs, or its one call
     /// refused, so the value is drawn as it stands. The sentence is the dispatch's own (ADR 1579).
@@ -677,17 +677,6 @@ impl Face {
         self.font
             .code_for(character)
             .or_else(|| substitutable(character, &self.font))
-    }
-
-    /// A run of characters as this face's codes, through the same [`encode`] a value goes
-    /// through.
-    pub(crate) fn encode(&self, text: &str) -> Encoded {
-        encode(
-            &|character| self.code(character),
-            text,
-            Asked::default(),
-            None,
-        )
     }
 }
 
@@ -2120,7 +2109,7 @@ pub(crate) fn encode(
 /// The code `lookup` gives the displayed character, or failing that the stored one it is a form
 /// of — in which case, and wherever joining wanted a form no presentation block holds, the
 /// letter is added to `unformed`.
-fn code_of(
+pub(crate) fn code_of(
     lookup: &dyn Fn(char) -> Option<pdf_font::Code>,
     (drawn, original): (char, char),
     wanted_a_missing_form: bool,
@@ -2401,9 +2390,9 @@ fn write_lines(
 /// the convention the annex's reordering implies: a boundary is drawn at the edge of the code
 /// after it on that code's own reading side, so a caret before a right-to-left letter stands at
 /// its right edge.
-struct Order {
+pub(crate) struct Order {
     /// For each display position, the index into the line of the code shown there.
-    visual: Vec<usize>,
+    pub(crate) visual: Vec<usize>,
     /// For each index into the line, its display position.
     position: Vec<usize>,
     /// For each index into the line, whether its level is odd.
@@ -2430,8 +2419,16 @@ impl Order {
             }
             None => vec![0; count],
         };
+        Self::from_levels(&levels)
+    }
+
+    /// The order of a line whose codes resolved to `levels`, one per code in logical order:
+    /// rule L2, and the identity where every level is 0. `crate::rich_text`'s runs are ordered
+    /// by it, so a line of several styles is reordered by the same arithmetic as a line of one.
+    pub(crate) fn from_levels(levels: &[u8]) -> Self {
+        let count = levels.len();
         let visual = if levels.iter().any(|level| *level > 0) {
-            pdf_font::shaping::visual_order(&levels)
+            pdf_font::shaping::visual_order(levels)
         } else {
             (0..count).collect()
         };
@@ -2449,7 +2446,7 @@ impl Order {
     }
 
     /// The line's codes in display order.
-    fn shown(&self, codes: &[Placed]) -> Vec<Placed> {
+    pub(crate) fn shown(&self, codes: &[Placed]) -> Vec<Placed> {
         self.visual
             .iter()
             .filter_map(|index| codes.get(*index).copied())
@@ -2462,7 +2459,7 @@ impl Order {
     }
 
     /// How many displayed codes stand left of the boundary before logical index `at`.
-    fn visual_boundary(&self, at: usize) -> usize {
+    pub(crate) fn visual_boundary(&self, at: usize) -> usize {
         let count = self.visual.len();
         let position = |index: usize| self.position.get(index).copied().unwrap_or(count);
         if at < count {
@@ -2476,7 +2473,7 @@ impl Order {
 
     /// The logical boundary drawn `boundary` displayed codes from the left: [`Self::visual_boundary`]
     /// run backwards.
-    fn logical_boundary(&self, boundary: usize) -> usize {
+    pub(crate) fn logical_boundary(&self, boundary: usize) -> usize {
         let count = self.visual.len();
         let edge = |shown_at: usize, right_edge: bool| {
             let index = self.visual.get(shown_at).copied().unwrap_or(count);
@@ -2493,7 +2490,7 @@ impl Order {
     }
 
     /// The runs of display positions a logical range of the line covers, as `[first, last)`.
-    fn runs(&self, range: std::ops::Range<usize>) -> Vec<(usize, usize)> {
+    pub(crate) fn runs(&self, range: std::ops::Range<usize>) -> Vec<(usize, usize)> {
         let mut out: Vec<(usize, usize)> = Vec::new();
         for (shown_at, index) in self.visual.iter().enumerate() {
             if !range.contains(index) {

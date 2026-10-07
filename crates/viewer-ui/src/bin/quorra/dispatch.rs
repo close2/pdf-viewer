@@ -522,6 +522,24 @@ answers in two places"
             Event::ScriptAsking { document, question } => {
                 self.put_script_question(document, question);
             }
+            // The question's wait ran out and the runner answered it as a closed dialogue does, so
+            // the card it is on comes down and a key pressed at it afterwards answers nothing (ADR
+            // 1643).
+            Event::ScriptQuestionWithdrawn { document } => {
+                if matches!(
+                    &self.asked,
+                    Some(crate::app::Pending::Script { document: asked, .. }) if *asked == document
+                ) {
+                    self.asked = None;
+                    self.script_wait = None;
+                    self.question.answered();
+                    self.redraw();
+                }
+                println!(
+                    "note: {}",
+                    viewer_host::script_asks::withdrawn(&self.documents.label_of(document))
+                );
+            }
             // §7.11.4's list moved: the copy `gather` took when the document opened is stale,
             // which is the one way "a property of an immutable document" stopped being true of
             // this list. Read again, and only this list.
@@ -884,6 +902,7 @@ impl App {
             entry,
         );
         self.asked = Some(crate::app::Pending::Script { document, question });
+        self.script_wait = std::time::Instant::now().checked_add(script_asks::wake_after());
         self.redraw();
     }
 
@@ -969,6 +988,7 @@ impl App {
             (ScriptQuestion::Response { .. }, _) => return,
         };
         self.asked = None;
+        self.script_wait = None;
         self.question.answered();
         self.redraw();
         println!("note: {}", script_asks::answered(&answer, password));

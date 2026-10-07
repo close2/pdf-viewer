@@ -541,7 +541,7 @@ Plus: source-over there is 32 of 255 out at a half-covered pixel under a half-op
 
 **§11.7.4.4's `B` and §9.3.8's text object were drawn flat wherever a part blended or wore a soft
 mask, and the two corpus documents that showed it were both a `B` in one colour under a blend
-mode** (ADR 1000, session 979). `transparency::knockout_group_elements` answered the two implicit
+mode** (ADR 1000). `transparency::knockout_group_elements` answered the two implicit
 callers and refused both cases, while `knockout_elements` — forty lines above it, ADR 0234's
 `Command::Shaped` for a form's knockout group — had stated a masked part's shape all along, and
 §11.6.2's ledger row had recorded the refusal as deliberate. `implicit_knockout_group` is the
