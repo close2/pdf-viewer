@@ -1035,6 +1035,10 @@ cd fuzz && cargo +nightly fuzz run script_wire  -- -max_total_time=1200 -rss_lim
   # confined worker sends back to a host that is not. What decodes once decodes again to the same,
   # and re-encodes to the same. Seeded by `pdf-script-worker`'s `examples/wire_seeds`, every site
   # and every ending through the real encoders, and a script at the wire's 1 MiB bound.
+  # **A `wire::VERSION` bump turns every seed on disk into a version refusal**: the first byte no
+  # longer matches, so the disk corpus reaches 44 edges to fresh seeds' 594, and `seeds.sh check
+  # script_wire` says STALE. `wire_seeds` names its files by what they carry, so a re-seed after
+  # the bump overwrites the old seeds rather than adding beside them (ADR 1694).
 cd fuzz && cargo +nightly fuzz run fetched_import -- -max_total_time=1200 -rss_limit_mb=2048 -timeout=20
   # a server's answer as a host hands it over, `Command::Respond` into `interact::import` (ADR
   # 1527): Annex O's `fdf` fetched, or §12.7.6.2's submission answered, against a form with a field

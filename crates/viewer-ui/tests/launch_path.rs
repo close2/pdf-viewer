@@ -66,12 +66,12 @@
 //!   really asking about.** `open_kinstructions` counts the instructions a process executes to
 //!   open the document; it does not move with the processor's clock, with a neighbour inside the
 //!   same core, with the page cache or with the disk, so it is judged on every machine under
-//!   every load. Round 938 added it after measuring that the clock figures' contention has a
-//!   component nothing beside them can subtract — see below.
+//!   every load. It is there because the clock figures' contention has a component nothing
+//!   beside them can subtract (ADR 0917) — see below.
 //! - **Every duration is elapsed time less the wait for a processor.** The kernel counts that
 //!   wait exactly, per thread, in nanoseconds (`sched_info.run_delay`), and it is time somebody
-//!   else took rather than time this program spent, so it comes off — the same subtraction round
-//!   935 made on the memory high-water, in another unit. [`corrected`] has the measurement.
+//!   else took rather than time this program spent, so it comes off — the same subtraction the
+//!   memory high-water makes, in another unit (ADRs 0910, 0916). [`corrected`] has the measurement.
 //! - **Every figure is the *minimum* of [`SAMPLES`] fresh processes.** Contention adds time and
 //!   never removes it, so the fastest of nine is the closest estimate of a quiet machine that a
 //!   loaded one can produce. A run fails only if *every* sample was slow.
@@ -96,7 +96,7 @@
 //!   still failed at 0.841 ms against 0.49 .. 0.80 while its child's calibration sat dead centre,
 //!   because no amount of CPU probing can see a neighbour queueing the disk.
 //!
-//!   **And they answer only what a probe can answer, which round 938 measured.** With eight
+//!   **And they answer only what a probe can answer, as measured (ADR 0916).** With eight
 //!   spinning processes on exactly the eight CPUs these children are pinned to, a warm open rose
 //!   43% and the calibration probe rose 74% — while the kernel's wait counter read *exactly zero*
 //!   in all twenty samples. The neighbour was not taking a turn on the processor, it was sitting
@@ -107,8 +107,9 @@
 //!   many bytes an open reads, what an open costs in memory, and how much this program has
 //!   allocated when page one is drawn are the same under any load, so the claims principle 2
 //!   makes about *what the launch path does* are gated even when the clock is not. The third of
-//!   them was the process's whole high-water until round 935 and was **not** in this group then,
-//!   because most of that figure belongs to the driver's shared objects — see
+//!   them is the high-water's anonymous share and not the process's whole high-water, which
+//!   would not belong in this group, because most of that figure is the driver's shared objects
+//!   (ADR 0910) — see
 //!   [`anonymous_high_water_mib`] and [`Judged::steady`].
 //! - **The profile is checked.** `[profile.gates]` costs `Document::open` 4.06% to 12.30% against
 //!   `[profile.release]` (`Cargo.toml`'s own table, ADR 0666), which is larger than the band; a
@@ -314,7 +315,7 @@ fn peak_resident_kib() -> Option<u64> {
 ///
 /// **The other half of a high-water mark, and the half nothing in this program decides.**
 /// `Rss - Anonymous` is every resident page that came from a mapped file — the shared objects
-/// the dynamic loader and the Vulkan loader brought in, and this binary's own text. Round 935
+/// the dynamic loader and the Vulkan loader brought in, and this binary's own text. ADR 0910
 /// measured what that is worth here: a process that brings the graphics device up and does
 /// nothing else has a 108 MiB high-water of which **97 MiB is file-backed**, 52 of those in
 /// `libLLVM.so` — which `libvulkan_radeon.so` links directly — and 26 in `libgallium.so`, which
@@ -370,9 +371,9 @@ fn scheduling() -> Option<(u64, u64)> {
 /// One phase's elapsed time less the time it spent waiting for a processor, then the elapsed time
 /// and the wait themselves — the three numbers every clock figure here is printed as.
 ///
-/// **The subtraction is round 938's, and it is round 935's subtraction in another unit.** That
-/// round found nine tenths of a memory high-water was resident pages of somebody else's shared
-/// libraries and banded `VmHWM - mapped` in its place; this takes the same step on a clock, on
+/// **The subtraction is the memory high-water's in another unit (ADRs 0910, 0916).** Nine tenths
+/// of a memory high-water was found to be resident pages of somebody else's shared libraries, and
+/// `VmHWM - mapped` is banded in its place; this takes the same step on a clock, on
 /// the same argument — a gate should band a quantity that does not contain the mechanism that
 /// moves it.
 ///
@@ -434,7 +435,7 @@ fn read_chars() -> Option<u64> {
 
 /// How many read calls the process has made, off `/proc/self/io`.
 ///
-/// **The other counted half of a cold open, and round 938's second.** A cold open's elapsed time
+/// **The other counted half of a cold open (ADR 0917).** A cold open's elapsed time
 /// is the program's work plus one round trip to the disk *for each read that misses the page
 /// cache*, and the second term is the machine's rather than this program's — it is what moved
 /// this gate's smallest rows out of band on afternoons when nothing else had. What belongs to
@@ -670,8 +671,8 @@ fn measured(fields: &[(&str, String)]) {
 /// **Nothing at all where the wait was zero**, which is the ordinary case even under heavy load:
 /// a figure of a millisecond or two is rarely preempted, because a freshly woken short task is
 /// what this scheduler runs first. Printing `+0.000 ms waiting` on every line would bury the
-/// samples where it is the whole story — round 938 measured one warm open in fifteen at 3.947 ms
-/// of which 2.825 was this.
+/// samples where it is the whole story — one warm open in fifteen was measured at 3.947 ms of
+/// which 2.825 was this (ADR 0916).
 fn waiting(fields: &Fields, key: &str) -> String {
     match field(fields, key) {
         Some(waited) if waited > 0.0 => {
@@ -1312,7 +1313,7 @@ struct Row {
     /// that is deliberate rather than an oversight: it was identical across all forty-four runs
     /// its band was derived from and has not moved since, because the only large file this
     /// process maps is the test binary itself. It is what the same figure looks like when no
-    /// driver is in the process, which is why round 935's finding did not reach it — and the
+    /// driver is in the process, which is why ADR 0910's finding does not reach it — and the
     /// line prints its allocated share beside it so that a reader can see both halves here too.
     open_peak_mib: Pin,
     /// The band on how many bytes of the file an open reads, in kibibytes.
@@ -1327,10 +1328,10 @@ struct Row {
     /// The band on how many thousands of instructions an open *executes*.
     ///
     /// **The figure with no machine in it at all, and the one this gate was missing.** Every
-    /// other duration here is a claim about an afternoon: round 938 measured a warm open rising
-    /// 43% under eight spinning neighbours with the kernel's own wait counter at exactly zero,
-    /// which is a machine executing the same instructions more slowly and is not something any
-    /// clock beside the figure can subtract. An instruction count cannot move that way. It is
+    /// other duration here is a claim about an afternoon: a warm open was measured rising 43%
+    /// under eight spinning neighbours with the kernel's own wait counter at exactly zero (ADR
+    /// 0916), which is a machine executing the same instructions more slowly and is not something
+    /// any clock beside the figure can subtract. An instruction count cannot move that way. It is
     /// the same number on a loaded machine, on a quiet one, on a slower processor and on a
     /// faster one, so it is judged always — and what principle 2 asks a cold-open gate for,
     /// *did opening a document become more expensive*, is exactly what it answers.
@@ -1366,7 +1367,7 @@ struct Check {
     ///
     /// Principle 2 makes cold bring-up a gate of its own "so that a regression in the driver, the
     /// adapter selection or the shader set is legible as itself"; the driver's memory is part of
-    /// what that sentence is about, and until round 935 no figure here carried it. This is the
+    /// what that sentence is about, and this is the figure here that carries it (ADR 0911): the
     /// device's share of a document row's [`Row::peak_anon_mib`], measured in a process that has
     /// done nothing else.
     bring_up_anon_mib: Option<Band>,
@@ -1835,8 +1836,8 @@ fn field(fields: &Fields, key: &str) -> Option<f64> {
 
 /// How much of a child's high-water mark was memory *this program* asked for, in mebibytes.
 ///
-/// **The figure round 935 put in place of the process's own high-water, and the reason is
-/// measured rather than argued.** `VmHWM` counts every resident page, and in a process that has
+/// **The figure judged in place of the process's own high-water, and the reason is measured
+/// rather than argued (ADR 0910).** `VmHWM` counts every resident page, and in a process that has
 /// brought a graphics device up nine tenths of them are pages of a *mapped file* — the Vulkan
 /// loader's shared objects, `libLLVM.so` and `libgallium.so` above all. How many of those the
 /// kernel keeps resident is decided by the page cache and by fault-around, not by this program:
@@ -1934,7 +1935,7 @@ fn the_physical_cores() -> Option<usize> {
 /// the one thing that makes this a threshold rather than a superstition. A load average of one per
 /// physical core is the point at which a freshly woken child can no longer be given a core of its
 /// own: above it the scheduler has to put somebody on the other hardware thread of a core this
-/// gate's child is already on, and round 938 measured what that costs — eight spinning processes
+/// gate's child is already on, and what that costs was measured — eight spinning processes
 /// on exactly the eight CPUs these children are pinned to raised a warm open 43% and the
 /// calibration probe 74% while the kernel's own wait counter read *exactly zero* in all twenty
 /// samples (ADR 0916). That is contention with nothing to subtract, so the only honest answer is
@@ -2090,7 +2091,7 @@ fn run_phase(phase: &str, document: Option<&Path>) -> Result<Fields, String> {
 /// How many thousands of instructions a process that opens `document` and does nothing else
 /// executes, and how many pages it found — counted by callgrind.
 ///
-/// **The one figure here with no machine in it**, and the reason round 938 added it. Every other
+/// **The one figure here with no machine in it**, and the reason it is here (ADR 0917). Every other
 /// duration this gate judges is a claim about an afternoon, and the check file's own header now
 /// says what such a claim is worth on a machine three rounds share. An instruction count is not
 /// that kind of claim: it does not move with a processor's clock, with a neighbour inside the
@@ -2361,8 +2362,8 @@ const IO_LATENCY_BYTES: usize = 128 << 10;
 
 /// How long a cold read of a *small* fixed file takes right now, in milliseconds.
 ///
-/// **The disk probe made of the same stuff as the figure it guards, which round 938 added and
-/// trap 34 asks for.** [`cold_read_ms`] reads eight mebibytes, so what it measures is the disk's
+/// **The disk probe made of the same stuff as the figure it guards, which trap 34 asks for (ADR
+/// 0916).** [`cold_read_ms`] reads eight mebibytes, so what it measures is the disk's
 /// *throughput*; a five-page document's cold open is a hundred kibibytes fetched in a handful of
 /// seeks, so what decides it is the disk's *latency*, and the two move independently. Measured on
 /// a quiet machine, this gate's own copies read cold in 0.125 ms (one extent, 134 KB) and 0.199
@@ -2464,9 +2465,9 @@ struct Judged {
     /// reader. Every *duration* is in the other group, and is judged only where the calibration
     /// probe says this is the machine the bands were taken on.
     ///
-    /// **Every memory figure here is in the first group since round 935, and one of them used to
-    /// be in the second.** What was judged as the memory high-water was the whole process's
-    /// `VmHWM`, and that fell away from its band three times — 12%, then 13%, with no change to
+    /// **Every memory figure here is in the first group, and the high-water is its anonymous
+    /// share for that reason (ADR 0910).** The whole process's `VmHWM`, judged as the high-water,
+    /// fell away from its band three times — 12%, then 13%, with no change to
     /// any code on the launch path — because nine tenths of it is resident pages of the Vulkan
     /// loader's shared objects and how many of those the kernel keeps is not this program's
     /// decision (see [`anonymous_high_water_mib`] and [`mapped_resident_kib`]). The figure banded
@@ -2771,7 +2772,7 @@ fn the_launch_path_stays_inside_its_bands() {
         );
         // The same fixed work measured the way every figure below is measured — once, in a
         // process that has not done it before. Printed and not judged; the check file says what
-        // round 938 measured when it went to derive a band for it.
+        // was measured when a band for it was derived (ADR 0916).
         match quickest(
             "calibrate",
             "calibration_first_ms",

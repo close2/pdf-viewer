@@ -99,7 +99,7 @@
 //! **in this process** by the same `pdf_transform` plan [`pdf_vfs::worker::InProcess`] runs. Each
 //! comparison is therefore two things at once: the delegation check RFC section 7 asks for, and
 //! the two-transport comparison `tests/confined.rs` makes on four documents, here made over the
-//! corpus. Round 911's worker kill was invisible to every in-process test and would fail this
+//! corpus. A worker kill like ADR 0865's is invisible to every in-process test and fails this
 //! walk on the document that carries it.
 //!
 //! **This process puts itself in the worker's font posture**, and that is not a convenience: a
@@ -198,9 +198,9 @@ const PAGES_SAMPLED: usize = 2;
 /// 919 found `tika-issue-tracker/batch1/PDFBOX/PDFBOX-186-0.pdf` — 10 084 images on one page, so
 /// `/images/0001/` is a directory of ten thousand files — holding this walk for twenty-five
 /// minutes, and bounded the reads to four entries a directory to get past it. That was a bound on
-/// the *instrument*: a walk that skips the pathological case cannot see the next one. Round 923
-/// measured what was actually costing the time (a name validated by re-running the extraction that
-/// named it, ADR 0886) and fixed it in the core, and that document's whole ten-thousand-entry
+/// the *instrument*: a walk that skips the pathological case cannot see the next one. What was
+/// actually costing the time was a name validated by re-running the extraction that named it,
+/// which the core no longer does (ADR 0886), and that document's whole ten-thousand-entry
 /// directory is now listed, `stat`ed and read in seconds. So the entries are whole again, and only
 /// the pages are bounded.
 #[derive(Debug, Clone, Copy)]
@@ -1268,7 +1268,7 @@ fn meta(vfs: &Vfs, here: &Vfs, local: &mut Local, path: &Path, name: &str) {
 
 /// The second pass: the listings again, then every file again.
 ///
-/// Two claims, and neither of them is a clock (round 911 measured the regression it is about
+/// Two claims, and neither of them is a clock (ADR 0865 measured the regression it is about
 /// with one, and `Vfs::generated` is what actually discriminates):
 ///
 /// - **A second `stat` of a file this generation has already produced generates nothing.** ADR

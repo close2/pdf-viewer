@@ -349,3 +349,13 @@ the enabling hunk landed in a sibling's file (round 1403). A brief that names an
 was queued: a press on a withdrawn card could answer the next queued script's question, which nobody
 had seen (ADR 1641 fixed it). A claim about what cannot happen is read against the code that
 enforces it, and a test pins it.
+
+### 132. A `GtkOverlay` sizes its overlay child by preference, and a resize queued inside an allocation is dropped
+
+To hand a right-to-left paragraph's tab stops over per width, round 1427 needed the label's
+allocated width. With the label as the overlay child it was allocated its preferred size — a wrapped
+label got its narrowest-width height, 35 px inside an 18 px overlay, and its words were drawn through
+the next line — and a `queue_resize` issued inside the allocation was dropped, so the tab array took
+effect while the label kept its old height. The construction that works: the widget being measured is
+the overlay's main child, a `GtkDrawingArea` over it (drawing nothing, taking no pointer) reports its
+`resize`, and the label is re-measured once from an idle callback (ADR 1690).

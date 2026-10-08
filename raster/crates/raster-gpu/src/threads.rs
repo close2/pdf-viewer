@@ -3,8 +3,10 @@
 //! A frame enters threads inside [`Device::render`](crate::device::Device::render) and has left
 //! them before the call returns (`encode/parallel.rs`'s module comment has the host's reasons), so
 //! every fan-out that takes threads spawns them again: the encode's rasterising fan-out once per
-//! drain of its queue, the exact meet's helpers once per frame that reaches their floor, and the
-//! device's ramp tables and image reductions once per realisation that reaches theirs. What that
+//! drain of its queue — whose threads also make the exact meets that drain's commit records
+//! (ADR 1692) — the exact meet's own helpers once per frame that records a meet past their floor
+//! where no drain is lending, and the device's ramp tables and image reductions once per
+//! realisation that reaches theirs. What that
 //! costs a page turn is a question about how many there are, and no other instrument says:
 //! `strace -f` can count `clone3` but cannot tell one frame from the next, and the kernel keeps no
 //! running count a process can read.

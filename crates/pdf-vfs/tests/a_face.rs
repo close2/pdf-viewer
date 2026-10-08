@@ -309,7 +309,7 @@ fn an_image_is_read_under_exactly_the_name_its_own_listing_gave() {
 /// Workers that record what every question put to them was **about**.
 ///
 /// **What `Vfs::generated` cannot see.** That counter says how many virtual files the tree
-/// produced the bytes of, and it stayed at *one* through the whole defect round 923 fixed: the
+/// produced the bytes of, and it stayed at *one* through the whole of ADR 0886's defect: the
 /// bytes were produced once and cached, and every subsequent question re-ran the extraction
 /// anyway — to validate a *name* (ADR 0886). A property about how often a generator runs has to
 /// count the generator running, which is what this does (trap 33).
@@ -456,7 +456,7 @@ fn walk_everything(vfs: &Vfs, from: &str) -> usize {
 #[test]
 fn the_whole_layout_walked_twice_asks_no_generator_twice() {
     // **The third pair is the population, not a repetition.** With `image_names` taken out of
-    // `locate_in` — round 923's defect, restored to check this test against it (trap 13) — the
+    // `locate_in` — ADR 0886's defect, restored to check this test against it (trap 13) — the
     // first two documents passed, because neither of them places an image and the walk therefore
     // never entered `images/NNNN/`. A floor whose population cannot reach the defect is trap 25
     // with a counter on it. `/images` alone for that one, because walking the whole layout of a
@@ -541,9 +541,10 @@ fn the_metadata_stream_is_one_question_however_often_meta_is_read() {
 /// Listing `images/NNNN/`, `stat`ing every entry and reading every entry is **one** extraction.
 ///
 /// RFC 0003 section 4's `images/NNNN/` is the one directory whose listing *is* an extraction's own
-/// output names — deliberately, so that a listing and a read cannot disagree — and until round 923
-/// that made every question about a path under it run the extraction again, because that is how the
-/// name was validated. On `tika-issue-tracker/batch1/PDFBOX/PDFBOX-186-0.pdf`, which states 10 084
+/// output names — deliberately, so that a listing and a read cannot disagree — and a name
+/// validated by that extraction makes every question about a path under it run the extraction
+/// again, which the directory's inventory exists to stop (ADR 0886). On
+/// `tika-issue-tracker/batch1/PDFBOX/PDFBOX-186-0.pdf`, which states 10 084
 /// images on one page, twenty thousand questions at 176 ms each held a corpus walk for
 /// twenty-five minutes (ADR 0878) while the bytes sat in the cache (ADR 0886).
 ///

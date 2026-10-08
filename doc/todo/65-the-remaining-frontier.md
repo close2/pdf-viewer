@@ -201,7 +201,8 @@ regenerates the whole appearance, a save writes `/RV` beside `/V`, and an import
 
 - §12.7.4.3 — `kerning-mode:pair` in §9.6.2.2's fourteen, reported as `Owed::RichTextUnapplied`,
   which needs pair data no file of this tree holds (`doc/questions/Q308`); a face the document
-  embeds is kerned by its own `GPOS` or `kern` pairs (ADR 1682). Leaders, right-to-left tabs, every list type,
+  embeds is kerned by its own `GPOS` or `kern` pairs (ADR 1682), `GPOS`'s from the script table the run's
+  characters select, and a contextual lookup is not pair kerning (ADR 1696). Leaders, right-to-left tabs, every list type,
   the nearest width and a machine face per character are built, and following a link and resolving
   `xfa:embed` are choices the clause's delegation of formatting leaves (ADR 1660).
 - §12.7.5.3 — Table 231 bit 26, the same residue seen from the field's own table.

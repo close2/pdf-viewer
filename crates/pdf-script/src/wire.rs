@@ -28,8 +28,9 @@ use crate::{
 /// changes, the unsaved mark, the document's information dictionary and groups, a push-button's
 /// captions, a layer's switch, the depth budget, a run's notes, and a question and its answer
 /// (ADRs 1626, 1627); 5 a script's page turn (ADR 1640); 6 a field's widgets each with its own
-/// state, and a property set on one of them (ADR 1664).
-pub const VERSION: u8 = 6;
+/// state, and a property set on one of them (ADR 1664); 7 the widget a focus request names (ADR
+/// 1688), and the on state of a toggling widget (ADR 1689).
+pub const VERSION: u8 = 7;
 
 /// Most fields one request may tell a realm of, and most edits one outcome may carry.
 ///
@@ -491,6 +492,7 @@ fn put_widget(out: &mut Vec<u8>, widget: &WidgetState) {
     for caption in &widget.captions {
         put_str(out, caption);
     }
+    put_optional(out, widget.on_state.as_deref());
 }
 
 /// Writes a number that may be absent: 0, or 1 and the number.
@@ -620,9 +622,10 @@ fn put_edit(out: &mut Vec<u8>, edit: &ScriptEdit) {
             }
         }
         ScriptEdit::Calculate => put_u8(out, 3),
-        ScriptEdit::Focus { field } => {
+        ScriptEdit::Focus { field, widget } => {
             put_u8(out, 4);
             put_str(out, field);
+            put_optional_u32(out, *widget);
         }
         ScriptEdit::Layer {
             number,
@@ -895,6 +898,7 @@ impl<'a> Reader<'a> {
             alignment: self.tagged(&ALIGNMENTS, "alignment")?,
             rect: [self.f64()?, self.f64()?, self.f64()?, self.f64()?],
             captions: [self.string()?, self.string()?, self.string()?],
+            on_state: self.optional()?,
         })
     }
 
@@ -972,6 +976,7 @@ impl<'a> Reader<'a> {
             3 => ScriptEdit::Calculate,
             4 => ScriptEdit::Focus {
                 field: self.string()?,
+                widget: self.optional_u32()?,
             },
             5 => ScriptEdit::Layer {
                 number: self.u32()?,

@@ -41,7 +41,9 @@ pub use script_model::{
     FieldState, FieldType, Glyph, InfoEntry, Layer, Property, ScriptEdit, ScriptSite, TextFlag,
     WidgetState,
 };
-pub use scripts::{Committed, Displayed, Resumed, ScriptEvent, ScriptResult, ScriptRunner};
+pub use scripts::{
+    Committed, Displayed, FocusRequest, Resumed, ScriptEvent, ScriptResult, ScriptRunner,
+};
 
 /// Deepest nesting of `/Kids`, and longest `/Parent` chain, walked in §12.7.4.1's field tree.
 ///

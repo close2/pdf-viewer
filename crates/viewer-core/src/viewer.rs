@@ -4959,8 +4959,9 @@ impl Viewer {
         }
     }
 
-    /// A script's `setFocus`, carried out: the field's first widget takes the keyboard, on its own
-    /// page, with Table 197's `/Bl` and `/Fo` raised as a tab raises them (ADR 1615).
+    /// A script's `setFocus`, carried out: the widget the script's `Field` stood for takes the
+    /// keyboard — the field's first, for a `Field` of every widget — on its own page, with Table
+    /// 197's `/Bl` and `/Fo` raised as a tab raises them (ADRs 1615, 1688).
     ///
     /// Held to [`MAX_FOCUS_HOPS`] in one command, because a `/Fo` script may ask for the focus
     /// again and a document whose focus scripts hand it round in a ring would hold the command
@@ -4971,27 +4972,36 @@ impl Viewer {
             let Some(open) = self.documents.get_mut(&id) else {
                 return;
             };
-            let Some(field) = open.view.take_focus_request() else {
+            let Some(request) = open.view.take_focus_request() else {
                 return;
             };
+            // The view state counted the widget in this same table when it took the request.
             let widget = pdf_model::view::widgets_by_field_name(&open.document)
-                .get(&field)
-                .and_then(|widgets| widgets.first().copied());
+                .get(&request.field)
+                .and_then(|widgets| widgets.get(request.widget).copied());
             let Some(widget) = widget else {
                 events.push(Event::Reported {
                     document: id,
                     page: None,
                     notes: vec![format!(
-                        "a script asked for the keyboard focus on {field}, which has no widget                          on any page, so the focus stays where it is"
+                        "a script asked for the keyboard focus on widget {} of {}, which this \
+                         document does not have, so the focus stays where it is",
+                        request.widget, request.field
                     )],
                 });
                 return;
             };
+            // Table 166's `/P` is an indirect reference to the page, so it is read unresolved:
+            // `get_key` would hand back the page dictionary, which names no page index.
             let page = open
                 .document
                 .get(widget)
                 .as_dict()
-                .and_then(|dictionary| open.document.get_key(dictionary, "P").as_reference())
+                .and_then(|dictionary| {
+                    dictionary
+                        .get("P")
+                        .and_then(pdf_syntax::Object::as_reference)
+                })
                 .and_then(|page| open.page_indices().get(&page).copied());
             if let Some(page) = page
                 && page != open.page_index

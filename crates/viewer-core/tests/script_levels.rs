@@ -2,7 +2,7 @@
 //! a runner of its own, and `ask` puts one question per document at its first script and holds the
 //! answer (ADR 1616).
 //!
-//! The fixture is round 1371's three-field shape with one change: the total's Table 199 `/C` is a
+//! The fixture is ADR 1579's three-field shape with one change: the total's Table 199 `/C` is a
 //! script rather than one call of the `AF` library, so Tier 0 does not run it and only a runner
 //! can. The runner here is the test's own, keeping a realm of field values as the real one does
 //! (ADR 1602) and computing the sum a calculation asks for; whether a script runs is what is
@@ -314,6 +314,7 @@ impl ScriptRunner for Recording {
         let edits = if event.site == ScriptSite::OpenAction {
             vec![ScriptEdit::Focus {
                 field: "Price2".to_owned(),
+                widget: None,
             }]
         } else {
             Vec::new()
@@ -404,5 +405,113 @@ fn the_documents_moments_and_a_focus_request_reach_the_runner() {
             DocumentTrigger::DidPrint,
             DocumentTrigger::WillClose
         ]
+    );
+}
+
+/// A runner answering the open action with `setFocus` through a `Field` of the second widget —
+/// `this.getField("Name.1").setFocus()`.
+#[derive(Debug, Default)]
+struct SecondWidget;
+
+impl ScriptRunner for SecondWidget {
+    fn run(&self, event: &ScriptEvent<'_>) -> ScriptResult {
+        let edits = if event.site == ScriptSite::OpenAction {
+            vec![ScriptEdit::Focus {
+                field: "Name".to_owned(),
+                widget: Some(1),
+            }]
+        } else {
+            Vec::new()
+        };
+        ScriptResult {
+            rc: true,
+            value: None,
+            change: None,
+            edits,
+            report: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct SecondWidgets;
+
+impl ScriptRunners for SecondWidgets {
+    fn runner(&self) -> Arc<dyn ScriptRunner> {
+        Arc::new(SecondWidget)
+    }
+}
+
+/// One field shown by two widgets, object 6 on page one and object 7 on page two (§12.7.4.1's
+/// `/Kids` order), and an open action that is a script.
+fn two_page_field() -> Vec<u8> {
+    let page = |widget: u32| {
+        format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Annots [{widget} 0 R] >>")
+    };
+    let widget = |page: u32| {
+        format!(
+            "<< /Type /Annot /Subtype /Widget /Parent 5 0 R /P {page} 0 R /F 4 \
+             /Rect [20 350 220 380] >>"
+        )
+    };
+    let bodies = [
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] /DA (/Helv 12 Tf 0 g) \
+         /DR << /Font << /Helv 8 0 R >> >> >> /OpenAction << /S /JavaScript /JS (focus\\(\\);) >> >>"
+            .to_owned(),
+        "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>".to_owned(),
+        page(6),
+        page(7),
+        "<< /FT /Tx /T (Name) /Kids [6 0 R 7 0 R] >>".to_owned(),
+        widget(3),
+        widget(4),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_owned(),
+    ];
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for (index, body) in bodies.iter().enumerate() {
+        offsets.push(out.len());
+        let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index.saturating_add(1));
+    }
+    let xref_at = out.len();
+    let size = bodies.len().saturating_add(1);
+    let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// A script's `setFocus` through one widget's `Field` puts the keyboard on that widget and turns
+/// to its page, where the field's first widget is on another (ADR 1688).
+#[test]
+fn a_focus_request_through_the_second_widget_focuses_the_second_widget() {
+    let mut viewer = Viewer::new(800, 300, 1.0);
+    viewer
+        .handle(Command::Scripts(Scripting::Run(Arc::new(SecondWidgets))))
+        .for_each(drop);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: two_page_field().into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    viewer.handle(Command::Presented).for_each(drop);
+    let Answer::Focus { object, .. } = viewer.query(Query::Focus) else {
+        panic!("the open action's setFocus put the keyboard on a widget");
+    };
+    assert_eq!(object.number, 7, "the second widget, not the first");
+    assert!(
+        matches!(
+            viewer.query(Query::CurrentPage),
+            Answer::Page { index: 1, .. }
+        ),
+        "the page the second widget is on: {:?}",
+        viewer.query(Query::CurrentPage)
     );
 }

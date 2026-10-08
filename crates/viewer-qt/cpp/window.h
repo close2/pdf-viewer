@@ -283,10 +283,32 @@ public:
 protected:
     /// Lays the document out at the widget's width, inside its padding, and draws it.
     void paintEvent(QPaintEvent* event) override;
+    /// Hands each right-to-left paragraph its stops again for the new width (ADR 1690).
+    void resizeEvent(QResizeEvent* event) override;
 
 private:
+    /// One paragraph read right to left whose tabs reach stops: Qt measures a stop in such a
+    /// block from its start edge, the right, so the stops `viewer_host::popup::tab_stops` placed
+    /// from the left margin are kept here and set as distances from that edge at each width.
+    struct Leftward {
+        /// The paragraph's block in `document_`.
+        int block;
+        /// Its indent from the right edge, in the document's pixels.
+        qreal indent;
+        /// Its stops from the left margin, nearest it first, in the document's pixels, each with
+        /// `QtTab::side`.
+        std::vector<std::pair<qreal, std::uint8_t>> stops;
+    };
+
+    /// Sets every `leftward_` paragraph's stops for a document `inner` pixels wide.
+    void handLeftwardTabs(qreal inner);
+
     /// The note, owned here.
     QTextDocument* document_;
+    /// The paragraphs whose stops depend on the width.
+    std::vector<Leftward> leftward_;
+    /// The width they were last handed for, or below zero before the first.
+    qreal handedFor_ = -1.0;
 };
 
 /// The page's pixels, the form's controls, and the chrome over both.

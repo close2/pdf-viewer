@@ -320,7 +320,7 @@ fn draw(name: &str, bytes: &[u8]) -> Option<Vec<u8>> {
             annotations: true,
             names: "page.ppm".parse().expect("a pattern"),
             // The unconfined default: this suite draws in its own process and `render-cpu` asks
-            // the machine how many cores it has (round 902 / ADR 0847).
+            // the machine how many cores it has (ADR 0847).
             strips: None,
         }),
         &[source(name, bytes)],

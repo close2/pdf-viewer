@@ -1,6 +1,7 @@
 //! The members the census found refused and RFC 0008 section 4.2 admits, carried (ADRs 1626,
 //! 1627): `global`, `this.dirty`, `this.info`, `this.getOCGs` and the `OCG` object, `util.printf`,
-//! a button's `buttonGetCaption` and `buttonSetCaption`, and the two calls that need a host,
+//! a button's `buttonGetCaption` and `buttonSetCaption`, a check box's `isBoxChecked` and
+//! `checkThisBox` (ADR 1689), and the two calls that need a host,
 //! `app.alert` and `app.response`. `event.commitKey`, `fieldFull` and `changeEx` are the event's own
 //! and are installed with it (`bridge::begin`).
 //!
@@ -20,6 +21,7 @@ use pdf_model::view::{Face, FieldState, FieldType, Layer, Property, ScriptEdit};
 
 use super::bridge::{
     accessor, data, field_name, function, integral, refusers, terminals, text_argument, widget_of,
+    write_value,
 };
 use super::{State, guard, refuse};
 use crate::surface::Holder;
@@ -180,6 +182,30 @@ pub(super) fn field(prototype: &JsObject, context: &mut Context) -> JsResult<()>
         prototype,
         "buttonSetCaption",
         JsValue::from(set),
+        false,
+        context,
+    )?;
+    let checked = function(
+        context,
+        "isBoxChecked",
+        NativeFunction::from_fn_ptr(is_box_checked),
+    );
+    data(
+        prototype,
+        "isBoxChecked",
+        JsValue::from(checked),
+        false,
+        context,
+    )?;
+    let check = function(
+        context,
+        "checkThisBox",
+        NativeFunction::from_fn_ptr(check_this_box),
+    );
+    data(
+        prototype,
+        "checkThisBox",
+        JsValue::from(check),
         false,
         context,
     )
@@ -603,6 +629,98 @@ fn set_caption(this: &JsValue, arguments: &[JsValue], context: &mut Context) -> 
         });
     }
     Ok(JsValue::undefined())
+}
+
+/// `field.isBoxChecked(nWidget)`: whether widget `nWidget` of a check box or radio button is on —
+/// whether the field's value is the name that widget's §12.7.5.2.3 on state is selected by.
+///
+/// The reference's "Field methods" page counts `nWidget` from zero; the count here is the field
+/// table's, as `getField("name.N")`'s is (ADR 1664). Widgets that share an on state are checked
+/// together, which is the page's own note on radio buttons sharing an export value. A widget the
+/// field does not have, or one of a field that does not toggle, is not checked (ADR 1689).
+fn is_box_checked(
+    this: &JsValue,
+    arguments: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let index = widget_argument(arguments, "Field.isBoxChecked", context)?;
+    let checked = first_state(this, context)?.is_some_and(|state| {
+        state
+            .widgets
+            .get(index)
+            .and_then(|widget| widget.on_state.as_deref())
+            .is_some_and(|on| on == state.value)
+    });
+    Ok(JsValue::from(checked))
+}
+
+/// `field.checkThisBox(nWidget, bCheckIt)`: widget `nWidget` of a check box or radio button
+/// turned on, or a check box's turned off, as the value its on state is selected by — the same
+/// edit `field.value` makes, so the view state writes §12.7.5.2.3's `/V` and `/AS` as for a
+/// person's click (ADR 1689).
+///
+/// `bCheckIt` is true where it is not passed. The reference's "Field methods" page lets only a
+/// check box be unchecked this way, so `false` on a radio button changes nothing; and unchecking a
+/// widget that is not the one on changes nothing either. A field that does not toggle, and a widget
+/// with no on state to set, are refused by name.
+fn check_this_box(
+    this: &JsValue,
+    arguments: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let index = widget_argument(arguments, "Field.checkThisBox", context)?;
+    let check = arguments
+        .get(1)
+        .filter(|value| !value.is_undefined())
+        .is_none_or(JsValue::to_boolean);
+    let Some(state) = first_state(this, context)? else {
+        return Ok(JsValue::undefined());
+    };
+    let toggles = matches!(state.kind, FieldType::CheckBox | FieldType::RadioButton);
+    let Some(on) = state
+        .widgets
+        .get(index)
+        .and_then(|widget| widget.on_state.clone())
+        .filter(|_| toggles)
+    else {
+        return Err(refuse(
+            "Field.checkThisBox".to_owned(),
+            RefusalKind::Unreachable(format!(
+                "{} has no check box or radio button widget {index} with an on state to set",
+                state.name
+            )),
+            context,
+        ));
+    };
+    let value = if check {
+        on
+    } else if state.kind == FieldType::CheckBox && state.value == on {
+        "Off".to_owned()
+    } else {
+        return Ok(JsValue::undefined());
+    };
+    write_value(
+        &state.name,
+        &JsValue::from(JsString::from(value.as_str())),
+        context,
+    )?;
+    Ok(JsValue::undefined())
+}
+
+/// The zero-based widget a check box method's first argument names; a negative or absent one is
+/// a `RangeError`, since the reference makes `nWidget` required.
+fn widget_argument(arguments: &[JsValue], member: &str, context: &mut Context) -> JsResult<usize> {
+    let number = arguments
+        .first()
+        .cloned()
+        .unwrap_or_default()
+        .to_number(context)?;
+    if !number.is_finite() || number < 0.0 {
+        return Err(JsNativeError::range()
+            .with_message(format!("{member}: nWidget is a widget's index from zero"))
+            .into());
+    }
+    Ok(usize::try_from(integral(number)).unwrap_or(usize::MAX))
 }
 
 /// The arguments of a call the reference lets a script pass positionally or as one object of

@@ -214,7 +214,9 @@ are used. The same directory holds five more files of the same database, version
 unchanged — `ArabicShaping.txt`, `DerivedJoiningType.txt`, `UnicodeData.txt`, `BidiMirroring.txt`
 and `BidiCharacterTest.txt` — the first four compiled by `crates/pdf-font/build.rs` into the tables
 a field value in a right-to-left, cursive script is shaped and ordered by, and the fifth read by a
-test; the same file records their hashes and which fields are used.
+test; the same file records their hashes and which fields are used. Two more, `Scripts.txt` and
+`PropertyValueAliases.txt`, version 18.0.0, unchanged, are compiled by the same build script into
+the table a rich text run's script is resolved by.
 
 Unicode's terms of use put one obligation on a copy — that this notice travel with it.
 

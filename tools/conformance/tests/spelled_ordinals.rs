@@ -24,7 +24,8 @@
 //! The capitalised digit form (`Session 944`) is held at zero beside it. `CLAUDE.md`'s grep cannot
 //! see it, because the grep is case-sensitive, and a viewer's, an FFI's and a desktop bus's
 //! `Session` are nouns of their own — so the form held is the word followed by a digit, which none
-//! of those nouns is.
+//! of those nouns is. The tree's commonest spelling, `round` and a number in a comment, is
+//! `round_numbers.rs`'s, which lexes the source to tell a comment from a string (ADR 1698).
 //!
 //! # The todo files, held by a ratchet
 //!

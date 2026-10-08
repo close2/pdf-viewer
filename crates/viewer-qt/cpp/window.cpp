@@ -819,6 +819,43 @@ void PopupWindow::paintEvent(QPaintEvent* event)
 // RichNoteView
 // ---------------------------------------------------------------------------------------------
 
+namespace {
+
+/// Stops `(position, QtTab::side)` from the left margin as Qt's tab list takes them: as they are
+/// for a paragraph read left to right, and for one read right to left as distances from `edge`,
+/// where its line starts, nearest it first and only those left of it — the subtraction
+/// `viewer_host::popup::from_start_edge` makes for `quorra-gtk` (ADR 1690). Qt names a kind by the
+/// edge as drawn, not by the direction: measured, a `LeftTab` 100 px from a right-to-left line's
+/// start in a document 400 px wide put the text after the tab with its left edge at 300 px, so a
+/// side keeps its kind in both directions.
+QList<QTextOption::Tab> tabs(const std::vector<std::pair<qreal, std::uint8_t>>& stops, qreal edge,
+                             bool fromRight)
+{
+    QList<QTextOption::Tab> handed;
+    const auto hand = [&handed](qreal at, std::uint8_t side) {
+        switch (side) {
+        case 1: handed.append(QTextOption::Tab(at, QTextOption::CenterTab)); break;
+        case 2: handed.append(QTextOption::Tab(at, QTextOption::RightTab)); break;
+        case 3: handed.append(QTextOption::Tab(at, QTextOption::DelimiterTab, QChar('.'))); break;
+        default: handed.append(QTextOption::Tab(at, QTextOption::LeftTab)); break;
+        }
+    };
+    if (!fromRight) {
+        for (const auto& [at, side] : stops) {
+            hand(at, side);
+        }
+        return handed;
+    }
+    for (auto stop = stops.rbegin(); stop != stops.rend(); ++stop) {
+        if (stop->first < edge) {
+            hand(edge - stop->first, stop->second);
+        }
+    }
+    return handed;
+}
+
+} // namespace
+
 RichNoteView::RichNoteView(const rust::Vec<QtRichParagraph>& paragraphs, const QFont& font,
                            QWidget* parent)
     : QWidget(parent), document_(new QTextDocument())
@@ -849,23 +886,24 @@ RichNoteView::RichNoteView(const rust::Vec<QtRichParagraph>& paragraphs, const Q
             block.setLeftMargin(paragraph.indent * pixelsPerPoint);
         }
         // `viewer_host::popup::tab_stops`' stops; chapter 27's `after` and `before` are already
-        // a side, so each is one of Qt's four kinds.
-        QList<QTextOption::Tab> tabs;
+        // a side, so each is one of Qt's four kinds. A paragraph read right to left is handed its
+        // stops by `handLeftwardTabs` once the width is known.
+        Leftward leftward{0, paragraph.indent * pixelsPerPoint, {}};
         for (const QtTab& stop : paragraph.tabs) {
-            const qreal at = stop.at * pixelsPerPoint;
-            switch (stop.side) {
-            case 1: tabs.append(QTextOption::Tab(at, QTextOption::CenterTab)); break;
-            case 2: tabs.append(QTextOption::Tab(at, QTextOption::RightTab)); break;
-            case 3: tabs.append(QTextOption::Tab(at, QTextOption::DelimiterTab, QChar('.'))); break;
-            default: tabs.append(QTextOption::Tab(at, QTextOption::LeftTab)); break;
-            }
+            leftward.stops.emplace_back(stop.at * pixelsPerPoint, stop.side);
         }
-        block.setTabPositions(tabs);
+        if (!paragraph.right_to_left) {
+            block.setTabPositions(tabs(leftward.stops, 0.0, false));
+        }
         if (first) {
             cursor.setBlockFormat(block);
             first = false;
         } else {
             cursor.insertBlock(block);
+        }
+        if (paragraph.right_to_left && !leftward.stops.empty()) {
+            leftward.block = cursor.block().blockNumber();
+            leftward_.push_back(std::move(leftward));
         }
         for (const QtRichRun& run : paragraph.runs) {
             QTextCharFormat format;
@@ -915,10 +953,34 @@ RichNoteView::~RichNoteView()
     delete document_;
 }
 
+void RichNoteView::resizeEvent(QResizeEvent* event)
+{
+    QWidget::resizeEvent(event);
+    handLeftwardTabs(std::max(1, width() - 2 * kPopupPadding));
+}
+
+void RichNoteView::handLeftwardTabs(qreal inner)
+{
+    if (inner == handedFor_) {
+        return;
+    }
+    handedFor_ = inner;
+    for (const Leftward& paragraph : leftward_) {
+        const QTextBlock block = document_->findBlockByNumber(paragraph.block);
+        if (!block.isValid()) {
+            continue;
+        }
+        QTextBlockFormat format = block.blockFormat();
+        format.setTabPositions(tabs(paragraph.stops, inner - paragraph.indent, true));
+        QTextCursor(block).setBlockFormat(format);
+    }
+}
+
 void RichNoteView::paintEvent(QPaintEvent* /*event*/)
 {
     QPainter painter(this);
     const qreal inner = std::max(1, width() - 2 * kPopupPadding);
+    handLeftwardTabs(inner);
     document_->setTextWidth(inner);
     painter.translate(kPopupPadding, kPopupPadding);
     painter.setClipRect(QRectF(0, 0, inner, height() - 2 * kPopupPadding));

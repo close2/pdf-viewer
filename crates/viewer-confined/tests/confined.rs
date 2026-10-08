@@ -1684,7 +1684,7 @@ fn a_confined_interpreter_cannot_reach_the_network() {
 /// A confined interpreter can stand in for a font it cannot look up.
 ///
 /// **The defect this is about was found in `pdf-vfs`'s corpus walk and is the viewer's too**
-/// (round 914, ADR 0870): a page naming a face the machine has and the document does not embed
+/// (ADR 0870): a page naming a face the machine has and the document does not embed
 /// sends `pdf_font::substitute` walking `/usr/share/fonts`, and `read_dir` is `openat`, which is
 /// off the allow-list. `SECCOMP_RET_KILL_PROCESS` does not hand back the `Err` that code is
 /// written to shrug off — it ends the worker, and the viewer loses the page rather than a glyph.

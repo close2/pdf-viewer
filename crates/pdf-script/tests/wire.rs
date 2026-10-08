@@ -45,6 +45,7 @@ fn request(site: ScriptSite) -> Request {
                     alignment: Alignment::Right,
                     rect: [1.0, 2.5, 3.0, -4.0],
                     captions: Default::default(),
+                    on_state: None,
                 },
                 WidgetState {
                     display: Display::Hidden,
@@ -55,6 +56,7 @@ fn request(site: ScriptSite) -> Request {
                     alignment: Alignment::Center,
                     rect: [10.0, 20.0, 30.0, 40.0],
                     captions: ["Yes".to_owned(), String::new(), "Over".to_owned()],
+                    on_state: Some("On".to_owned()),
                 },
             ],
         }],
@@ -98,6 +100,11 @@ fn outcome() -> Outcome {
             },
             ScriptEdit::Focus {
                 field: "Total".to_owned(),
+                widget: None,
+            },
+            ScriptEdit::Focus {
+                field: "Total".to_owned(),
+                widget: Some(1),
             },
             ScriptEdit::GoTo { page: 3 },
         ],

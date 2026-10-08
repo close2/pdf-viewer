@@ -522,3 +522,10 @@ every reader of it is found, and each keeps or replaces the sentence on purpose.
 Batch sixty-six's clause slot carried "`doc/todo/22`'s edges list, one item, if time remains"; the
 file's own Status line says done, nothing owed (round 1424). A brief's optional item costs one line
 to check and a slot's attention to carry.
+
+## A sweep's held population is mapped from the record, not from an ADR's summary of it
+
+ADR 1680's map from each round to the ADR it wrote named one ADR for round 911, which wrote two, and
+the first rewrite made from the map put the wrong number into `pdf-vfs/tests/confined.rs` (round
+1431 caught it). Before a citation is rewritten from a map, the map's entry is checked against the
+record itself: `grep -l 'Session <n>' doc/adr/` names every ADR a round wrote.

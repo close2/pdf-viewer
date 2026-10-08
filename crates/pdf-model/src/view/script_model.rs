@@ -680,6 +680,11 @@ pub struct WidgetState {
     /// `Field.buttonGetCaption`'s three captions, in [`Face`] order: Table 192's `/CA`, `/AC` and
     /// `/RC` of the widget's `/MK`, each empty where it states none.
     pub captions: [String; 3],
+    /// The name §12.7.5.2.3's on state is selected by, for a check box's or a radio button's
+    /// widget: what `Field.isBoxChecked` compares the field's value with and `checkThisBox`
+    /// sets it to. `None` for any other widget, and where the file names no single on state
+    /// (ADR 1689).
+    pub on_state: Option<String>,
 }
 
 impl WidgetState {
@@ -722,6 +727,7 @@ impl Default for WidgetState {
             alignment: Alignment::Left,
             rect: [0.0; 4],
             captions: Default::default(),
+            on_state: None,
         }
     }
 }
@@ -846,6 +852,10 @@ pub enum ScriptEdit {
     Focus {
         /// The field.
         field: String,
+        /// The one widget asked for, counted from zero in the field table's order — the index
+        /// `getField("name.N")` names — or `None` through a `Field` of every widget, whose focus
+        /// is its first widget's (ADR 1688).
+        widget: Option<u32>,
     },
     /// `this.pageNum = n`: the zero-based page a script turned to, which a host carries out as a
     /// person's page turn — a view state holds the request and shows no page of its own
@@ -1035,6 +1045,13 @@ impl ViewState {
             },
             rect: rect_of(document, widget),
             captions: captions_of(document, &characteristics),
+            on_state: match field.kind {
+                Some(crate::appearance::FieldKind::Button { toggling: true }) => {
+                    crate::appearance::on_state(document, widget)
+                        .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
+                }
+                _ => None,
+            },
         })
     }
 }

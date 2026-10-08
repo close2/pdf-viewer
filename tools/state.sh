@@ -17,12 +17,14 @@
 #   tools/state.sh quick           # only the sections that need no corpus run (seconds)
 #   tools/state.sh ledger oracle   # named sections, in the order given
 #   tools/state.sh --list          # the section names
+#   tools/state.sh --round 1431 save   # the walks' lock lines name the round
 #
 # Exit status is the worst of the commands it ran, so a round may trust a zero.
 #
 # Every section reads and none writes: a command that counts may not write, because six rounds edit
 # one worktree at once and the merge fast-forwards from it (ADR 1487, `tools/conformance/tests/
-# read_only.rs`).
+# read_only.rs`). The one line a walk adds is its lock's, to `/home/AI/heavy-walk.log`, outside every
+# tree (`walk` below).
 
 set -u -o pipefail
 
@@ -68,6 +70,41 @@ run() {
         status=1
     }
     return 0
+}
+
+# A corpus walk, behind the heavy-walk lock in the lane its kind takes: `walk <kind>
+# [<tools/bounded.sh option>…] -- <command>`. **A section may not walk unlocked**, because
+# `doc/environment.md`'s first rule is one heavy walk on each of the lock's lanes and a section is
+# run by a round as often as by a person; a walk this script ran bare was a walk beside whatever
+# held the lock, on no line of its log (ADR 1698). The kind is declared, never measured, because a
+# lane is granted before the walk starts (ADR 1684):
+#
+# - `small` — the second lane, killed at 6 GiB: a walk the merge's lines show peaking at half that
+#   or less;
+# - `large` — the first lane and 12 GiB: every other walk;
+# - `clock` — both lanes, alone: a walk whose verdict is a time, which a neighbour's load can move —
+#   every gate `tools/batch.sh`'s `clock_gates` names, and the launch and frame figures beside them.
+#
+# Four threads unless the caller set its own, as the merge's gates run, because a walk's peak is the
+# documents it holds in flight (ADR 0798) and the kinds were read off the merge's lines. A walk run
+# inside a hold of the lock — the merge's, or a round's own `--lock` line around this script — runs
+# under that hold rather than queueing behind it; a `clock` walk there is refused, and the cure is to
+# run the section bare. `--round <session>`, the script's first argument, names the round on the
+# walk's line.
+walk() {
+    local kind=$1 tree=12 clock=
+    shift
+    case $kind in
+    small) tree=6 ;;
+    large) ;;
+    clock) clock=--clock ;;
+    *)
+        printf 'walk: no such kind %s (small, large or clock)\n' "$kind" >&2
+        return 64
+        ;;
+    esac
+    RAYON_NUM_THREADS="${RAYON_NUM_THREADS:-4}" \
+        tools/bounded.sh --lock $clock --round "$walk_round" --tree "$tree" "$@"
 }
 
 section_ledger() {
@@ -258,30 +295,30 @@ section_conformance() {
 
 section_tests() {
     gate_binaries
-    run "tests" 'Summary|tests run|test result' cargo nextest run --workspace
+    run "tests" 'Summary|tests run|test result' walk large -- cargo nextest run --workspace
     # Only the crate that has one; two dozen "0 passed" lines are not a summary.
-    run "doctests" 'test result: ok\. [1-9]' cargo test --workspace --doc
+    run "doctests" 'test result: ok\. [1-9]' walk large -- cargo test --workspace --doc
 }
 
 section_corpus() {
     gate_binaries
     run "corpus (974 pdf.js documents, page one)" \
         '^[0-9]+ documents in|^  codes ' \
-        cargo test --profile gates -p pdf-model --test corpus -- --ignored --nocapture
+        walk small -- cargo test --profile gates -p pdf-model --test corpus -- --ignored --nocapture
 }
 
 section_golden() {
     gate_binaries
     run "our own output held by name — the raster golden over the tracked corpus, a change detector and not a verdict (ADR 1016)" \
         '^[0-9]+ tracked documents on disk|^held [0-9]+|^  (moved|unheld|left):' \
-        cargo test --profile gates -p pdf-model --test raster_golden -- --ignored --nocapture
+        walk large -- cargo test --profile gates -p pdf-model --test raster_golden -- --ignored --nocapture
 }
 
 section_oracle() {
     gate_binaries
     run "oracle (poppler, mupdf, ghostscript)" \
         '^[0-9]+ pages in|^  (agrees|contradicted|ambiguous|our geometry|reference geometry|not comparable|no render) |undiagnosed' \
-        cargo test --profile gates -p pdf-model --test oracle -- --ignored --nocapture
+        walk clock -- cargo test --profile gates -p pdf-model --test oracle -- --ignored --nocapture
 }
 
 # The oracle's held pages, from its own constants and without the walk: per verdict the count, the
@@ -300,7 +337,7 @@ section_text() {
     # 0424 and are therefore two lines worth keeping.
     run "text (pdftotext, PDFBox's frozen extraction, and where the words are)" \
         '^[0-9]+ documents in|^[0-9]+ of [0-9]+ documents judged|^verdict:' \
-        cargo test --profile gates -p pdf-model --test text_extraction -- --ignored --nocapture
+        walk clock -- cargo test --profile gates -p pdf-model --test text_extraction -- --ignored --nocapture
 }
 
 # ADR 0323's instrument 1, composed half: the loop from a press to a selection, which the line
@@ -309,7 +346,7 @@ section_text() {
 section_selection() {
     run "the selection loop (a drag across poppler's word boxes)" \
         '^[0-9]+ documents in|^the (drag|readback|caret)|^[0-9]+ of [0-9]+ documents refused|^ +[0-9]+ +[a-z/]|^  [a-z]' \
-        cargo test --profile gates -p viewer-core --test selection_census -- --ignored --nocapture
+        walk small -- cargo test --profile gates -p viewer-core --test selection_census -- --ignored --nocapture
 }
 
 # ADR 0323's third instrument, and the only one of the three with no reference to disagree with
@@ -319,7 +356,7 @@ section_selection() {
 section_accessibility() {
     run "the accessibility tree (§14.7–§14.9, a ratchet: no reference to disagree with)" \
         '^[0-9]+ documents in|^(structure|pages that answer|elements reached|untagged pages)|^  [a-z§]' \
-        cargo test --profile gates -p viewer-core --test accessibility_census -- --ignored --nocapture
+        walk small -- cargo test --profile gates -p viewer-core --test accessibility_census -- --ignored --nocapture
 }
 
 # The adapter crate is `render-raster` (`doc/questions/A05`: the rendering library is named for
@@ -331,21 +368,21 @@ section_quorra() {
     gate_binaries
     run "raster against the CPU oracle" \
         '^[0-9]+ pages compared|^  (rasterisation|median page)' \
-        cargo test --profile gates -p render-raster --test corpus -- --ignored --nocapture
+        walk clock -- cargo test --profile gates -p render-raster --test corpus -- --ignored --nocapture
 }
 
 section_fixed() {
     gate_binaries
     run "documents a round fixed outside the gates (doc/checks/fixed-documents.toml)" \
         '^fixed-documents:|no longer do what' \
-        cargo test --profile gates -p pdf-model --test fixed_documents -- --ignored --nocapture
+        walk small -- cargo test --profile gates -p pdf-model --test fixed_documents -- --ignored --nocapture
 }
 
 section_transform() {
     gate_binaries
     run "the transform suite (RFC 0002 section 12's floor, and inventories held to the document)" \
         '^transform:' \
-        cargo test --profile gates -p pdf-transform --test gate -- --ignored --nocapture
+        walk clock -- cargo test --profile gates -p pdf-transform --test gate -- --ignored --nocapture
 }
 
 # RFC 0002 section 9's walk for the writer: every corpus document the suite opens, a file
@@ -355,26 +392,26 @@ section_writer() {
     gate_binaries
     run "the transform writer over the corpus (attach, read back, remove)" \
         '^transform-writer:' \
-        cargo test --profile gates -p pdf-transform --test writer_corpus -- --ignored --nocapture
+        walk small -- cargo test --profile gates -p pdf-transform --test writer_corpus -- --ignored --nocapture
     run "split over the corpus (RFC 0002 section 9's layers 2 and 3, first page)" \
         '^transform-split:' \
-        cargo test --profile gates -p pdf-transform --test split_corpus -- --ignored --nocapture
+        walk small -- cargo test --profile gates -p pdf-transform --test split_corpus -- --ignored --nocapture
     run "merge over the corpus (RFC 0002 section 9's layers 2 and 3, plus each reconciliation)" \
         '^transform-merge:' \
-        cargo test --profile gates -p pdf-transform --test merge_corpus -- --ignored --nocapture
+        walk small -- cargo test --profile gates -p pdf-transform --test merge_corpus -- --ignored --nocapture
     run "pages over the corpus (a quarter turn and a page out, RFC 0002 section 9's layers 2 and 3)" \
         '^transform-pages:' \
-        cargo test --profile gates -p pdf-transform --test pages_corpus -- --ignored --nocapture
+        walk small -- cargo test --profile gates -p pdf-transform --test pages_corpus -- --ignored --nocapture
     run "optimize over the corpus (RFC 0002 section 9's layers 2 and 3, and its idempotence gate)" \
         '^transform-optimize:' \
-        cargo test --profile gates -p pdf-transform --test optimize_corpus -- --ignored --nocapture
+        walk small -- cargo test --profile gates -p pdf-transform --test optimize_corpus -- --ignored --nocapture
     # RFC 0002 section 9's fourth layer, and the only gate here that asks somebody else: the five
     # writers' output read by poppler, mupdf and qpdf, each foreign reading compared with that
     # same reader's reading of the source. It prints a skip line under its own prefix where the
     # readers are not installed, so this line stays green on a machine without them.
     run "the five writers' output read by poppler, mupdf and qpdf (RFC 0002 section 9's foreign readback)" \
         '^transform-foreign:' \
-        cargo test --profile gates -p pdf-transform --test foreign_corpus -- --ignored --nocapture
+        walk clock -- cargo test --profile gates -p pdf-transform --test foreign_corpus -- --ignored --nocapture
 }
 
 # `CLAUDE.md` principle 2's four numbers, plus the fifth it makes a gate of its own — and the
@@ -395,7 +432,7 @@ section_launch() {
     cargo build --release -p pdf-script-worker --features engine --bins >/dev/null 2>&1 || status=1
     run "the launch path (principle 2's four numbers, doc/checks/launch-path.toml)" \
         '^launch-path:' \
-        cargo test --release -p viewer-ui --test launch_path -- --ignored --nocapture
+        walk clock -- cargo test --release -p viewer-ui --test launch_path -- --ignored --nocapture
 }
 
 # Principle 2's fifth number, which is the one a person feels after the launch: what a *frame*
@@ -410,7 +447,7 @@ section_launch() {
 section_frame() {
     run "what a frame costs, stage by stage (doc/todo/36's budget)" \
         '^frame budget|minima of|^the budget is|page [0-9]+ —|^  (turn|warm|seventh|step) |of one refresh' \
-        cargo run --release -q -p render-raster --example frame_budget
+        walk clock -- cargo run --release -q -p render-raster --example frame_budget
 }
 
 # The same rows held to bands: every `turn` and `step` figure of `doc/performance.md` section 3e
@@ -419,7 +456,7 @@ section_frame() {
 section_turn() {
     run "the turn path (doc/performance.md 3e's rows, doc/checks/turn-path.toml)" \
         '^turn path:|figures banded' \
-        cargo test --release -p render-raster --test turn_path -- --ignored --nocapture
+        walk clock -- cargo test --release -p render-raster --test turn_path -- --ignored --nocapture
     turn_provenance
 }
 
@@ -479,23 +516,22 @@ section_vfs() {
     cargo build --profile gates -p pdf-vfs --bins >/dev/null 2>&1 || status=1
     run "the five write verbs over the corpus, through the core (RFC 0003 section 5.2)" \
         '^vfs-write:' \
-        cargo test --profile gates -p pdf-vfs --test write_corpus -- --ignored --nocapture
+        walk small -- cargo test --profile gates -p pdf-vfs --test write_corpus -- --ignored --nocapture
     run "the whole layout listed, stat'd and read over the corpus (RFC 0003 section 4)" \
         '^vfs-read:' \
-        cargo test --profile gates -p pdf-vfs --test read_corpus -- --ignored --nocapture
+        walk small -- cargo test --profile gates -p pdf-vfs --test read_corpus -- --ignored --nocapture
 }
 
 # The other confined program — `pdf-view-worker`, the process a person reads pages in — over a
 # document of each awkward class from every corpus on the disk (ADR 0879), and a `doc/todo/02` §2
 # line (ADR 1015). What fails it is a death, and the filter
 # keeps the per-root and per-class counts and the `killed:` line; the reasons listed under them
-# are for a reader. The `--bins` build is trap 10 for this crate's own worker, and the walk runs
-# under `tools/bounded.sh` because it is the heaviest of ADR 1015's lines by memory.
+# are for a reader. The `--bins` build is trap 10 for this crate's own worker.
 section_confined() {
     cargo build --profile gates -p viewer-confined --bins >/dev/null 2>&1 || status=1
     run "the confined viewer over every awkward class on the disk (what fails it is a death)" \
         '^view-awkward:   [a-z]|^view-awkward: killed|^bounded:' \
-        tools/bounded.sh -- cargo test --profile gates -p viewer-confined --test awkward_classes -- --ignored --nocapture
+        walk small -- cargo test --profile gates -p viewer-confined --test awkward_classes -- --ignored --nocapture
 }
 
 # The mitigation catalogue's own gap, which `doc/todo/66` names as an instrument gap rather than
@@ -600,18 +636,18 @@ section_archive() {
     section_remedies
     run "the validator against the veraPDF corpus (ISO 19005, clause by clause per target)" \
         '^== PDF_A|^  clause |^  all |not here|^bounded:' \
-        tools/bounded.sh -- cargo test --profile gates -p pdf-archive --test corpus -- --ignored --nocapture
+        walk small -- cargo test --profile gates -p pdf-archive --test corpus -- --ignored --nocapture
     run "the converter over the veraPDF corpus (conforms in, conforms out, no glyph moves)" \
         '^archive |^    answering nothing|not here|^bounded:' \
-        tools/bounded.sh -- cargo test --profile gates -p pdf-transform --test archive_corpus -- --ignored --nocapture
+        walk small -- cargo test --profile gates -p pdf-transform --test archive_corpus -- --ignored --nocapture
     run "the survey's resource selections held to the interpreter's (A61, ADR 1055)" \
         '^cross-check: |not here|^bounded:' \
-        tools/bounded.sh -- cargo test --profile gates -p pdf-archive --test cross_check -- --ignored --nocapture
+        walk small -- cargo test --profile gates -p pdf-archive --test cross_check -- --ignored --nocapture
 }
 
 section_dates() {
     run "dates (§7.9.4)" '^[0-9]+ date strings' \
-        cargo test --profile gates -p pdf-model --test dates -- --ignored --nocapture
+        walk small -- cargo test --profile gates -p pdf-model --test dates -- --ignored --nocapture
 }
 
 # RFC 0008 section 6.7's two columns over the census population. Tier 0's form: every field script
@@ -621,16 +657,16 @@ section_dates() {
 # corpus walks, behind the lock.
 section_scripts() {
     run "field scripts, Tier 0 (RFC 0008)" '^[0-9]+ (PDF\(s\) walked|held)' \
-        cargo test --profile gates -p pdf-model --test script_corpus -- --ignored --nocapture
+        walk small -- cargo test --profile gates -p pdf-model --test script_corpus -- --ignored --nocapture
     run "field scripts, Tier 1 in the engine (RFC 0008 section 6.7, ADR 1625)" \
         '^[0-9]+ PDF\(s\) walked|^held: |^ratchet: |^budgets exceeded|^bounded:' \
-        tools/bounded.sh --data 8 --tree 12 -- \
+        walk small --data 8 -- \
         cargo test --profile gates -p pdf-script --features engine --test script_corpus -- --ignored --nocapture
 }
 
 section_xmp() {
     run "XMP (§14.3.2)" "^[0-9]+ documents carry" \
-        cargo test --profile gates -p pdf-model --test xmp -- --ignored --nocapture
+        walk small -- cargo test --profile gates -p pdf-model --test xmp -- --ignored --nocapture
 }
 
 # §7.5.6's incremental update over the corpus, read back by this tree and by poppler and mupdf
@@ -638,7 +674,7 @@ section_xmp() {
 section_save() {
     run "save round-trip (§7.5.6)" \
         '^[0-9]+ documents in|^Restrict\((On|Off)\)|^  (prefix failed|readback failed|reference disagreed|reference would not answer|panicked)|ratchet' \
-        tools/bounded.sh -- cargo test --profile gates -p pdf-model --test save_round_trip -- --ignored --nocapture
+        walk small -- cargo test --profile gates -p pdf-model --test save_round_trip -- --ignored --nocapture
 }
 
 # §12.6.3's page-scoped triggers counted over the corpus and held in both directions, and
@@ -647,7 +683,7 @@ section_save() {
 section_actions() {
     run "actions (§12.6.3's triggers over the corpus, held both ways; §12.6.4's embedded go-to)" \
         '^/[A-Z]+: [0-9]+ in|skipping|^bounded:' \
-        tools/bounded.sh -- cargo test --profile gates -p pdf-model --test actions -- --ignored --nocapture
+        walk small -- cargo test --profile gates -p pdf-model --test actions -- --ignored --nocapture
 }
 
 # ADR 0809's argument, run: every corpus document opened from disk and from memory and every
@@ -655,13 +691,13 @@ section_actions() {
 section_on_disk() {
     run "on disk against in memory (ADR 0809: every corpus object read both ways)" \
         'documents agree on|nothing walked|^bounded:' \
-        tools/bounded.sh -- cargo test --profile gates -p pdf-syntax --test on_disk -- --ignored --nocapture
+        walk small -- cargo test --profile gates -p pdf-syntax --test on_disk -- --ignored --nocapture
 }
 
 section_jpeg2000() {
     run "JPEG 2000 against ISO/IEC 15444-5's reference software" \
         '^[0-9]+ (codestreams|differing|not comparable)' \
-        cargo test --profile gates -p pdf-model --test jpeg2000 -- --nocapture
+        walk large -- cargo test --profile gates -p pdf-model --test jpeg2000 -- --nocapture
 }
 
 # Annex O's parameters. `Parameter::unhonoured` is the program's own answer rather than a count in
@@ -1501,8 +1537,11 @@ section_ratchets() {
         [ -z "$profile" ] &&
             printf 'doc/todo/02 §2 names no line for %s --test %s, so it runs under the default profile\n' \
                 "$package" "$target"
+        # A `clock` walk each, alone on both lanes: the loop's population holds gates whose verdict is
+        # a time (`tools/batch.sh`'s `clock_gates`), it is derived rather than listed, and a composed
+        # section nobody runs beside the merge pays nothing for running alone.
         run "$package --test $target" '^ratchet: ' \
-            tools/bounded.sh -- "$cargo" test $profile -p "$package" --test "$target" -- $ignored --nocapture
+            walk clock -- "$cargo" test $profile -p "$package" --test "$target" -- $ignored --nocapture
     done
 }
 
@@ -1514,6 +1553,14 @@ quick="ledger departures flags names cited last-sentences navigation superlative
 # `--list`, because a section a reader cannot discover is a section nobody runs. `remedies` is in
 # `quick` as well, since it is the one line of `archive` that needs no corpus.
 composed="ratchets remedies frontier"
+
+# The round a walk's lock line names (`walk` above); `-`, the wrapper's own default, where none is
+# given.
+walk_round=-
+if [ "${1-}" = --round ]; then
+    walk_round=${2:?--round takes the session number}
+    shift 2
+fi
 
 case ${1-} in
 --list) printf '%s\n' $all $composed; exit 0 ;;

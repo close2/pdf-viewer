@@ -23,10 +23,10 @@
 //!   scanned book, the cache's hit rate under a `cp -r` of one directory", and this is that: the
 //!   first page of the document that states any image has its `images/NNNN/` listed, listed again,
 //!   and then every entry of it `stat`ed and read — which is what `cp -r` of that directory is.
-//!   **The clock is the whole of the discriminator here, and that is worth saying**: round 923
-//!   found `images/NNNN/` costing one extraction per *question* rather than per run, and
-//!   `Vfs::generated` — the tree's own count of what it produced — stayed at one throughout,
-//!   because the work was in validating the name rather than in producing the bytes (ADR 0886).
+//!   **The clock is the whole of the discriminator here, and that is worth saying**: an
+//!   `images/NNNN/` that costs one extraction per *question* rather than per run leaves
+//!   `Vfs::generated` — the tree's own count of what it produced — at one throughout, because
+//!   the work is in validating the name rather than in producing the bytes (ADR 0886).
 //!   It is printed beside the clock all the same, as the statement that the reads came out of the
 //!   cache.
 //! - **The peak, and where it is.** The broker's own resident high-water mark beside the largest

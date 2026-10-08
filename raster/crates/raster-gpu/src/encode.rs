@@ -366,7 +366,7 @@ pub(crate) fn encode(
     // The last run of marks, which no later command drained. Everything below reads the
     // sheet, the budget and the plans, and every one of those is what the queue has yet
     // to touch.
-    encoder.drain_queue()?;
+    encoder.drain_last()?;
 
     finish(encoder, commands.len())
 }
@@ -476,7 +476,7 @@ pub(crate) fn replay(
             }
         }
     }
-    encoder.drain_queue()?;
+    encoder.drain_last()?;
     finish(encoder, commands.len())
 }
 

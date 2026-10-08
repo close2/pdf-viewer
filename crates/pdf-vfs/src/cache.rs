@@ -28,10 +28,10 @@
 //! The budget above is on *content*, and content is not the only thing a generation costs. Two
 //! notes are therefore kept past eviction, each derived from a run that actually happened:
 //!
-//! - **a length** ([`Held::sizes`]), so that a second `stat` is free — round 911's finding; and
+//! - **a length** ([`Held::sizes`]), so that a second `stat` is free (ADR 0865); and
 //! - **a directory's own names** ([`Held::inventories`]), so that a path under `images/NNNN/` can
-//!   be validated, listed and `stat`ed without re-running the extraction that named it — round
-//!   923's.
+//!   be validated, listed and `stat`ed without re-running the extraction that named it (ADR
+//!   0886).
 //!
 //! Both are bounded by the document rather than by a number, and [`Cache::retain`] drops them with
 //! everything else when the generation changes.
@@ -110,7 +110,7 @@ struct Held {
     /// larger than the budget therefore used to cost its whole generation *on every listing*: on
     /// ISO 32000-2's own 1023 pages, `ls -l pages/` took 2 min 45 s the first time and **4 min
     /// 03 s the second**, because 1023 pieces of about 1.8 MB do not fit in the budget and every
-    /// entry had been evicted by the time the listing came round again (round 911).
+    /// entry had been evicted by the time the listing came round again (ADR 0865).
     ///
     /// Bounded by the document rather than by a number: one note per path per generation, and
     /// [`Cache::retain`] drops every other generation's along with its bytes. A note is a path
@@ -118,7 +118,7 @@ struct Held {
     sizes: HashMap<Key, u64>,
     /// The names one *directory's* generator produced, where producing them is the expensive part.
     ///
-    /// **The second kind of entry `doc/todo/58` §5 said this cache did not have**, and round 923
+    /// **The second kind of entry `doc/todo/58` §5 said this cache did not have**, and ADR 0886
     /// measured what its absence cost. `images/NNNN/` is the one directory in RFC 0003 section 4
     /// whose listing *is* an extraction's own output names — deliberately, so that a listing and a
     /// read cannot disagree — and every path under it is therefore validated by running that
@@ -183,7 +183,7 @@ impl Cache {
         };
         // The length is remembered whatever happens to the bytes, **including for an entry too
         // large to store at all** — which is the case the first version of this got wrong and a
-        // gate caught (round 911, trap 13): a page out of a real document is often bigger than a
+        // gate caught (ADR 0865, trap 13): a page out of a real document is often bigger than a
         // small budget, and those are exactly the files whose `stat` is expensive.
         held.sizes
             .insert(key.clone(), u64::try_from(shared.len()).unwrap_or(u64::MAX));

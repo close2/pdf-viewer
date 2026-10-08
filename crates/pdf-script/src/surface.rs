@@ -270,7 +270,8 @@ pub const EXCLUDED: &[Excluded] = &[
 /// flags' writes (ADR 1615), and `global`, `event.commitKey`, `fieldFull` and `changeEx`,
 /// `this.dirty`, `info` and `getOCGs`, `util.printf`, the button captions, `app.alert` and
 /// `app.response` (ADRs 1626, 1627), one widget of a field (ADR 1664) and `Field.style` (ADR
-/// 1665); each of these is the next thing a round adds, and until then a property that says so.
+/// 1665), and a check box's `isBoxChecked` and `checkThisBox` (ADR 1689); each of these is the
+/// next thing a round adds, and until then a property that says so.
 pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
     (
         Holder::Event,
@@ -290,8 +291,6 @@ pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
             "insertItemAt",
             "deleteItemAt",
             "clearItems",
-            "checkThisBox",
-            "isBoxChecked",
         ],
     ),
     (

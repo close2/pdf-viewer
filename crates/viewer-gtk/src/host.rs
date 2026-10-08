@@ -5215,18 +5215,17 @@ fn rich_note(note: &pdf_model::popup::RichNote) -> gtk4::Box {
         }
         let label = gtk4::Label::new(None);
         label.set_markup(&markup);
+        let right_to_left = viewer_host::popup::right_to_left(paragraph);
         let stops = viewer_host::popup::tab_stops(paragraph, base, 1.0, POPUP_TAB_ROOM);
-        if !stops.is_empty() {
-            label.set_tabs(Some(&pango_tabs(&stops)));
+        if !stops.is_empty() && !right_to_left {
+            label.set_tabs(Some(&pango_tabs(&stops, false)));
         }
         label.set_wrap(true);
         label.set_wrap_mode(pango::WrapMode::WordChar);
         // A paragraph stating no alignment starts at its own start edge, the right for one that
         // reads right to left, as the other two windows start it (ADR 1654).
         let (xalign, justify) = match paragraph.align {
-            None if viewer_host::popup::right_to_left(paragraph) => {
-                (1.0, gtk4::Justification::Right)
-            }
+            None if right_to_left => (1.0, gtk4::Justification::Right),
             None | Some(pdf_model::popup::RichAlign::Left) => (0.0, gtk4::Justification::Left),
             Some(pdf_model::popup::RichAlign::Centre) => (0.5, gtk4::Justification::Center),
             Some(pdf_model::popup::RichAlign::Right) => (1.0, gtk4::Justification::Right),
@@ -5239,12 +5238,17 @@ fn rich_note(note: &pdf_model::popup::RichNote) -> gtk4::Box {
         let indent = POPUP_PADDING
             .saturating_mul(3)
             .saturating_mul(i32::from(paragraph.level));
-        if viewer_host::popup::right_to_left(paragraph) {
+        if right_to_left && viewer_host::popup::tabbed(paragraph) && !stops.is_empty() {
+            let measured = leftward_tabs(&label, stops);
+            measured.set_margin_end(indent);
+            body.append(&measured);
+        } else if right_to_left {
             label.set_margin_end(indent);
+            body.append(&label);
         } else {
             label.set_margin_start(indent);
+            body.append(&label);
         }
-        body.append(&label);
     }
     // Pango states no glyph scale per run, so a font scale is said rather than dropped, with what
     // Pango's tab array cannot say (ADRs 1654, 1666).
@@ -5263,17 +5267,71 @@ fn rich_note(note: &pdf_model::popup::RichNote) -> gtk4::Box {
 /// shows, so that a line never reaches the end of them.
 const POPUP_TAB_ROOM: f32 = 4096.0;
 
+/// A right-to-left paragraph's label, whose tabs reach leftward to stops placed from its left
+/// margin (ADR 1690): Pango measures a stop in a line read right to left from the line's start
+/// edge, the right, which is not known until GTK allocates the label, so the stops are handed
+/// again as distances from that edge whenever the label's width changes
+/// (`viewer_host::popup::from_start_edge`).
+///
+/// **A label states no allocation of its own, and this crate forbids the `unsafe` a subclass
+/// would take**, so the width is read from a drawing area laid over the label — the title bar's
+/// composition turned round. The label is the overlay's main child, which is allocated exactly the
+/// overlay's size, and the drawing area an overlay child that fills it, draws nothing, takes no
+/// pointer and reports that size through `resize`; the other way round, `GtkOverlay` places an
+/// overlay child at its preferred size, which for a wrapped label is its height at its narrowest,
+/// and the note's next line was drawn through the paragraph (measured: a one-line paragraph
+/// allocated 35 px of an 18 px overlay). The indent goes on the overlay, so the two widths are one.
+///
+/// Two more things the handler does are measured rather than assumed. `resize` is emitted on
+/// every allocation, the ones a change of the tabs causes among them, so the stops are handed only
+/// when the width differs from the last handed. And a label's resize queued from inside an
+/// allocation is dropped: the tabs drawn are the new ones, but a paragraph they wrap onto a second
+/// line kept one line's height until something else measured it again (measured: two lines laid out
+/// in 18 px). So the label is measured again from the main loop, once, after each change.
+fn leftward_tabs(label: &gtk4::Label, stops: Vec<viewer_host::popup::TabStop>) -> gtk4::Overlay {
+    let measured = gtk4::Overlay::new();
+    let ruler = gtk4::DrawingArea::new();
+    ruler.set_can_target(false);
+    measured.set_child(Some(label));
+    measured.add_overlay(&ruler);
+    let handed = Cell::new(None);
+    let label = label.clone();
+    ruler.connect_resize(move |_, width, _| {
+        if handed.replace(Some(width)) != Some(width) {
+            // Logical pixels to points, 96 to the inch, as `pango_tabs` takes them back.
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "a widget's width in pixels is far inside f32's exact integer range"
+            )]
+            let edge = width as f32 * 72.0 / 96.0;
+            let leftward = viewer_host::popup::from_start_edge(&stops, edge);
+            label.set_tabs(Some(&pango_tabs(&leftward, true)));
+            let again = label.clone();
+            glib::idle_add_local_once(move || again.queue_resize());
+        }
+    });
+    measured
+}
+
 /// A paragraph's tab stops as Pango's tab array takes them, in the label's logical pixels — the
 /// unit step 53 measured Pango's letter spacing to be in, 96 to the inch (ADRs 1654, 1666).
-fn pango_tabs(stops: &[viewer_host::popup::TabStop]) -> pango::TabArray {
+///
+/// `from_right` is for a paragraph read right to left, whose stops are already distances from the
+/// line's start edge: Pango names an alignment by that edge, so a stop whose text stands with its
+/// left edge at it is `Right` there, and one whose text ends at it `Left` (measured: in a layout
+/// 400 px wide read right to left, a `Left` stop at 100 px put the text after the tab from 300 px
+/// leftward, a `Right` one from 300 px rightward; ADR 1690).
+fn pango_tabs(stops: &[viewer_host::popup::TabStop], from_right: bool) -> pango::TabArray {
     let count = i32::try_from(stops.len()).unwrap_or(i32::MAX);
     let mut tabs = pango::TabArray::new(count, true);
     for (index, stop) in (0..count).zip(stops) {
-        let align = match stop.side {
-            viewer_host::popup::TabSide::Left => pango::TabAlign::Left,
-            viewer_host::popup::TabSide::Centre => pango::TabAlign::Center,
-            viewer_host::popup::TabSide::Right => pango::TabAlign::Right,
-            viewer_host::popup::TabSide::Decimal => pango::TabAlign::Decimal,
+        let align = match (stop.side, from_right) {
+            (viewer_host::popup::TabSide::Left, false)
+            | (viewer_host::popup::TabSide::Right, true) => pango::TabAlign::Left,
+            (viewer_host::popup::TabSide::Centre, _) => pango::TabAlign::Center,
+            (viewer_host::popup::TabSide::Right, false)
+            | (viewer_host::popup::TabSide::Left, true) => pango::TabAlign::Right,
+            (viewer_host::popup::TabSide::Decimal, _) => pango::TabAlign::Decimal,
         };
         #[expect(
             clippy::cast_possible_truncation,
@@ -6402,5 +6460,34 @@ mod tests {
     fn an_unbound_key_is_nothing_rather_than_something() {
         assert_eq!(key_pressed(Gdk::F1), None);
         assert_eq!(key_pressed(Gdk::b), None);
+    }
+
+    /// A right-to-left paragraph's stops reach Pango from the line's start edge with each side
+    /// renamed by that edge (ADR 1690): in a label 400 px wide, a stop 75 points (100 px) from the
+    /// left margin whose text ends at it is 300 px from the right and `Left` there, and one whose
+    /// text starts at it `Right`; a paragraph read left to right keeps both as they are.
+    #[test]
+    fn a_right_to_left_stop_reaches_pango_from_the_right_edge_by_its_name_there() {
+        use viewer_host::popup::{TabSide, TabStop};
+        let stop = |side, at| TabStop {
+            side,
+            at,
+            leader: None,
+        };
+        let stops = [stop(TabSide::Right, 75.0), stop(TabSide::Left, 150.0)];
+        let handed = |tabs: pango::TabArray| -> Vec<(pango::TabAlign, i32)> {
+            (0..tabs.size()).map(|index| tabs.tab(index)).collect()
+        };
+        assert_eq!(
+            handed(super::pango_tabs(
+                &viewer_host::popup::from_start_edge(&stops, 300.0),
+                true
+            )),
+            vec![(pango::TabAlign::Right, 200), (pango::TabAlign::Left, 300)]
+        );
+        assert_eq!(
+            handed(super::pango_tabs(&stops, false)),
+            vec![(pango::TabAlign::Right, 100), (pango::TabAlign::Left, 200)]
+        );
     }
 }

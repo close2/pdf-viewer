@@ -17,8 +17,8 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 
 use pdf_model::view::{
-    Alignment, BorderStyle, Colour, FieldState, Glyph, Property, ScriptEdit, ScriptEvent,
-    ScriptResult, ScriptRunner, ScriptSite, ViewState,
+    Alignment, BorderStyle, Colour, FieldState, FocusRequest, Glyph, Property, ScriptEdit,
+    ScriptEvent, ScriptResult, ScriptRunner, ScriptSite, ViewState,
 };
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
@@ -455,16 +455,76 @@ fn a_property_set_on_one_widget_reaches_that_widget_alone() {
     assert!(drawn.contains("0 0 1 rg"), "the blue text: {drawn}");
 }
 
+/// A runner answering the open action with `setFocus` through a `Field` of the widget it holds —
+/// `this.getField("Field.1").setFocus()` for `Some(1)`.
+#[derive(Debug)]
+struct Focusing(Option<u32>);
+
+impl ScriptRunner for Focusing {
+    fn run(&self, event: &ScriptEvent<'_>) -> ScriptResult {
+        let edits = if event.site == ScriptSite::OpenAction {
+            vec![ScriptEdit::Focus {
+                field: "Field".to_owned(),
+                widget: self.0,
+            }]
+        } else {
+            Vec::new()
+        };
+        ScriptResult {
+            rc: true,
+            value: None,
+            change: None,
+            edits,
+            report: Vec::new(),
+        }
+    }
+}
+
+/// A focus request through one widget's `Field` is handed on with that widget's place in the
+/// field table's order, a `Field` of every widget asks for the first, and a place past the
+/// field's last widget is reported and asks for nothing (ADR 1688).
+#[test]
+fn a_focus_request_names_the_widget_its_field_stood_for() {
+    let document = two_widget_document();
+    for (asked, handed) in [(Some(1), Some(1)), (None, Some(0)), (Some(2), None)] {
+        let mut view = ViewState::of(&document);
+        view.run_scripts_with(Some(Arc::new(Focusing(asked))));
+        view.run_open_scripts(&document, 0);
+        assert_eq!(
+            view.take_focus_request(),
+            handed.map(|widget| FocusRequest {
+                field: "Field".to_owned(),
+                widget,
+            }),
+            "{asked:?}"
+        );
+        assert_eq!(view.take_focus_request(), None, "a request is taken once");
+        assert_eq!(
+            view.script_reports()
+                .iter()
+                .any(|sentence| sentence.contains("its widget 2, and the field has 2")),
+            handed.is_none(),
+            "{:?}",
+            view.script_reports()
+        );
+    }
+}
+
 /// A check box (object 4), on, whose `/DA` selects `face` and whose stored states draw a tick
 /// (object 6) and nothing (object 7); its `/MK` names the tick's code as its caption.
 fn check_box_document(face: &str) -> Document {
+    check_box_in(face, "Yes")
+}
+
+/// [`check_box_document`], its value and `/AS` naming `state`.
+fn check_box_in(face: &str, state: &str) -> Document {
     let [pages, page] = pages("4 0 R");
     assembled(&[
         catalog(),
         pages,
         page,
         format!(
-            "<< /Type /Annot /Subtype /Widget /FT /Btn /T (Field) /V /Yes /AS /Yes \
+            "<< /Type /Annot /Subtype /Widget /FT /Btn /T (Field) /V /{state} /AS /{state} \
              /Rect [10 10 30 30] /F 4 /P 3 0 R /DA ({face} 0 Tf 0 g) \
              /MK << /BG [1] /BC [0] /CA (4) >> \
              /AP << /N << /Yes 6 0 R /Off 7 0 R >> /D << /Yes 6 0 R /Off 7 0 R >> >> >>"
@@ -477,6 +537,77 @@ fn check_box_document(face: &str) -> Document {
          0 0 20 20 re S\nendstream"
             .to_owned(),
     ])
+}
+
+/// A runner answering the open action with `this.getField("Field").checkThisBox(0)` as the
+/// realm makes it — the value the widget's on state is selected by — and keeping what it was told.
+#[derive(Debug, Default)]
+struct Checking {
+    /// The field's state as the open action was told it.
+    told: std::sync::Mutex<Option<FieldState>>,
+}
+
+impl ScriptRunner for Checking {
+    fn run(&self, event: &ScriptEvent<'_>) -> ScriptResult {
+        if let Some(field) = event.fields.iter().find(|field| field.name == "Field")
+            && let Ok(mut told) = self.told.lock()
+        {
+            *told = Some(field.clone());
+        }
+        let edits = if event.site == ScriptSite::OpenAction {
+            vec![ScriptEdit::Value {
+                field: "Field".to_owned(),
+                value: "Yes".to_owned(),
+            }]
+        } else {
+            Vec::new()
+        };
+        ScriptResult {
+            rc: true,
+            value: None,
+            change: None,
+            edits,
+            report: Vec::new(),
+        }
+    }
+}
+
+/// A realm is told each toggling widget's §12.7.5.2.3 on state, and the value `checkThisBox` sets
+/// from it is saved as that state: `/V` and `/AS` both name it (ADR 1689).
+#[test]
+fn a_check_box_s_on_state_is_told_and_checking_it_saves_that_state() {
+    let document = check_box_in("/ZaDb", "Off");
+    let runner = Arc::new(Checking::default());
+    let mut view = ViewState::of(&document);
+    view.run_scripts_with(Some(Arc::clone(&runner) as Arc<dyn ScriptRunner>));
+    view.run_open_scripts(&document, 0);
+    let told = runner
+        .told
+        .lock()
+        .ok()
+        .and_then(|told| told.clone())
+        .expect("the realm is told of the field");
+    assert_eq!(told.value, "Off");
+    assert_eq!(
+        told.widgets
+            .iter()
+            .map(|widget| widget.on_state.clone())
+            .collect::<Vec<_>>(),
+        vec![Some("Yes".to_owned())]
+    );
+    let written = view.save(&document).expect("the update writes");
+    let saved = Document::open(written.bytes).expect("the update reads back");
+    let widget = object(&saved, 4);
+    for key in ["V", "AS"] {
+        assert_eq!(
+            saved
+                .get_key(&widget, key)
+                .as_name()
+                .map(|name| name.as_bytes().to_vec()),
+            Some(b"Yes".to_vec()),
+            "{key}: {widget:?}"
+        );
+    }
 }
 
 /// The decoded stream a saved widget's `/AP /N` names for appearance state `state`.

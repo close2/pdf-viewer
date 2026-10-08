@@ -1,0 +1,193 @@
+# OpenType's registered script tags, one per line: the tag between single quotes (four bytes,
+# spaces included), a tab, and the registry's name for the script. Taken from the registry
+# page "Script tags (OpenType 1.9.1)"; data/opentype/PROVENANCE.md says from where and when.
+'adlm'	Adlam
+'ahom'	Ahom
+'hluw'	Anatolian Hieroglyphs
+'arab'	Arabic
+'armn'	Armenian
+'avst'	Avestan
+'bali'	Balinese
+'bamu'	Bamum
+'bass'	Bassa Vah
+'batk'	Batak
+'beng'	Bangla
+'bng2'	Bangla v.2
+'berf'	Beria Erfe
+'bhks'	Bhaiksuki
+'bopo'	Bopomofo
+'brah'	Brahmi
+'brai'	Braille
+'bugi'	Buginese
+'buhd'	Buhid
+'byzm'	Byzantine Music
+'cans'	Canadian Syllabics
+'cari'	Carian
+'aghb'	Caucasian Albanian
+'cakm'	Chakma
+'cham'	Cham
+'cher'	Cherokee
+'chrs'	Chorasmian
+'hani'	CJK Ideographic
+'copt'	Coptic
+'cprt'	Cypriot Syllabary
+'cpmn'	Cypro-Minoan
+'cyrl'	Cyrillic
+'DFLT'	Default
+'dsrt'	Deseret
+'deva'	Devanagari
+'dev2'	Devanagari v.2
+'diak'	Dives Akuru
+'dogr'	Dogra
+'dupl'	Duployan
+'egyp'	Egyptian Hieroglyphs
+'elba'	Elbasan
+'elym'	Elymaic
+'ethi'	Ethiopic
+'gara'	Garay
+'geor'	Georgian
+'glag'	Glagolitic
+'goth'	Gothic
+'gran'	Grantha
+'grek'	Greek
+'gujr'	Gujarati
+'gjr2'	Gujarati v.2
+'gong'	Gunjala Gondi
+'guru'	Gurmukhi
+'gur2'	Gurmukhi v.2
+'gukh'	Gurung Khema
+'hang'	Hangul
+'jamo'	Hangul Jamo
+'rohg'	Hanifi Rohingya
+'hano'	Hanunoo
+'hatr'	Hatran
+'hebr'	Hebrew
+'kana'	Hiragana
+'armi'	Imperial Aramaic
+'phli'	Inscriptional Pahlavi
+'prti'	Inscriptional Parthian
+'java'	Javanese
+'jurc'	Jurchen
+'kthi'	Kaithi
+'knda'	Kannada
+'knd2'	Kannada v.2
+'kana'	Katakana
+'kawi'	Kawi
+'kali'	Kayah Li
+'khar'	Kharosthi
+'kits'	Khitan Small Script
+'khmr'	Khmer
+'khoj'	Khojki
+'sind'	Khudawadi
+'krai'	Kirat Rai
+'lao '	Lao
+'latn'	Latin
+'lepc'	Lepcha
+'limb'	Limbu
+'lina'	Linear A
+'linb'	Linear B
+'lisu'	Lisu (Fraser)
+'lyci'	Lycian
+'lydi'	Lydian
+'mahj'	Mahajani
+'maka'	Makasar
+'mlym'	Malayalam
+'mlm2'	Malayalam v.2
+'mand'	Mandaic, Mandaean
+'mani'	Manichaean
+'marc'	Marchen
+'gonm'	Masaram Gondi
+'math'	Mathematical text layout
+'medf'	Medefaidrin (Oberi Okaime, Oberi Ɔkaimɛ)
+'mtei'	Meitei Mayek (Meithei, Meetei)
+'mend'	Mende Kikakui
+'merc'	Meroitic Cursive
+'mero'	Meroitic Hieroglyphs
+'plrd'	Miao
+'modi'	Modi
+'mong'	Mongolian
+'mroo'	Mro
+'mult'	Multani
+'musc'	Musical Symbols
+'mymr'	Myanmar
+'mym2'	Myanmar v.2
+'nbat'	Nabataean
+'nagm'	Nag Mundari
+'nand'	Nandinagari
+'newa'	Newa
+'talu'	New Tai Lue
+'nko '	N'Ko
+'nshu'	Nüshu
+'hmnp'	Nyiakeng Puachue Hmong
+'orya'	Odia
+'ory2'	Odia v.2
+'ogam'	Ogham
+'olck'	Ol Chiki
+'onao'	Ol Onal
+'ital'	Old Italic
+'hung'	Old Hungarian
+'narb'	Old North Arabian
+'perm'	Old Permic
+'xpeo'	Old Persian Cuneiform
+'sogo'	Old Sogdian
+'sarb'	Old South Arabian
+'orkh'	Old Turkic, Orkhon Runic
+'ougr'	Old Uyghur
+'osge'	Osage
+'osma'	Osmanya
+'hmng'	Pahawh Hmong
+'palm'	Palmyrene
+'pauc'	Pau Cin Hau
+'phag'	Phags-pa
+'phnx'	Phoenician
+'pcun'	Proto-Cuneiform
+'phlp'	Psalter Pahlavi
+'rjng'	Rejang
+'runr'	Runic
+'samr'	Samaritan
+'saur'	Saurashtra
+'seal'	Seal (“Small Seal”)
+'shrd'	Sharada
+'shaw'	Shavian
+'sidd'	Siddham
+'sidt'	Sidetic
+'sgnw'	Sign Writing
+'sinh'	Sinhala
+'sogd'	Sogdian
+'sora'	Sora Sompeng
+'soyo'	Soyombo
+'xsux'	Sumero-Akkadian Cuneiform
+'sund'	Sundanese
+'sunu'	Sunuwar
+'sylo'	Syloti Nagri
+'syrc'	Syriac
+'tglg'	Tagalog
+'tagb'	Tagbanwa
+'tale'	Tai Le
+'lana'	Tai Tham (Lanna)
+'tavt'	Tai Viet
+'tayo'	Tai Yo
+'takr'	Takri
+'taml'	Tamil
+'tml2'	Tamil v.2
+'tnsa'	Tangsa
+'tang'	Tangut
+'telu'	Telugu
+'tel2'	Telugu v.2
+'thaa'	Thaana
+'thai'	Thai
+'tibt'	Tibetan
+'tfng'	Tifinagh
+'tirh'	Tirhuta
+'todr'	Todhri
+'tols'	Tolong Siki
+'toto'	Toto
+'tutg'	Tulu-Tigalari
+'ugar'	Ugaritic Cuneiform
+'vai '	Vai
+'vith'	Vithkuqi
+'wcho'	Wancho
+'wara'	Warang Citi
+'yezi'	Yezidi
+'yi  '	Yi
+'zanb'	Zanabazar Square (Zanabazarin Dörböljin Useg, Xewtee Dörböljin Bicig, Horizontal Square Script)

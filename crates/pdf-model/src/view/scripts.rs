@@ -220,6 +220,21 @@ pub struct Displayed {
     pub shown: String,
 }
 
+/// A script's `setFocus`, held until a host carries it out: which widget of which field takes the
+/// keyboard (ADRs 1615, 1688).
+///
+/// The widget is a place in the field's list of [`super::widgets_by_field_name`], which is
+/// §12.7.4.1's `/Kids` order and the index `getField("name.N")` counts from zero; a `Field` of
+/// every widget asks for the first. The place is checked against that list when the script's run
+/// is applied, so a host that reads the same list finds the widget.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FocusRequest {
+    /// The field's fully qualified name.
+    pub field: String,
+    /// The widget's place among the field's widgets, from zero.
+    pub widget: usize,
+}
+
 /// The state scripts keep beside the edit log.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(super) struct Scripting {
@@ -231,8 +246,8 @@ pub(super) struct Scripting {
     pub(super) formatted: BTreeMap<ObjectId, Displayed>,
     /// Every page's index, by object, once a field's page has been asked for.
     pages: Option<BTreeMap<ObjectId, usize>>,
-    /// The field a script last asked the focus for, until a host takes the request.
-    focus: Option<String>,
+    /// The widget a script last asked the focus for, until a host takes the request.
+    focus: Option<FocusRequest>,
     /// The zero-based page a script last turned to, until a host takes the request (ADR 1640).
     page: Option<usize>,
     /// The properties scripts set that a widget's appearance draws, by widget: what
@@ -611,15 +626,16 @@ impl ViewState {
             .map_or(&[], |overrides| overrides.set.as_slice())
     }
 
-    /// The field a script's `setFocus` last asked the keyboard focus for, taken: `None` once a host
-    /// has taken it, and where no script asked.
+    /// The widget a script's `setFocus` last asked the keyboard focus for, taken: `None` once a
+    /// host has taken it, and where no script asked.
     ///
     /// The focus is the host's — which widget a key reaches, and the page turned or the view
     /// scrolled to show it, as Adobe's "Field methods" page describes `setFocus` — so a view state
     /// holds the request and a host carries it out after any call that ran scripts, raising Table
     /// 197's `/Bl` and `/Fo` as a press would (ADR 1615). The latest request stands: a script that
-    /// asks twice has asked for the second.
-    pub fn take_focus_request(&mut self) -> Option<String> {
+    /// asks twice has asked for the second. The widget is the one the script's `Field` stood for
+    /// (ADR 1688).
+    pub fn take_focus_request(&mut self) -> Option<FocusRequest> {
         self.scripting.focus.take()
     }
 
@@ -942,16 +958,7 @@ impl ViewState {
                     applied.values = true;
                 }
                 ScriptEdit::Calculate => applied.calculate = true,
-                ScriptEdit::Focus { field } => {
-                    if table.contains_key(field) {
-                        self.scripting.focus = Some(field.clone());
-                    } else {
-                        self.report(format!(
-                            "a script asked for the focus on {field}, which is not a field of \
-                             this document"
-                        ));
-                    }
-                }
+                ScriptEdit::Focus { field, widget } => self.ask_focus(table, field, *widget),
                 ScriptEdit::Layer {
                     number,
                     generation,
@@ -971,6 +978,35 @@ impl ViewState {
             }
         }
         applied
+    }
+
+    /// Holds a script's `setFocus` for a host, on the widget it names or on its field's first, or
+    /// reports why no widget can take it (ADRs 1615, 1688).
+    fn ask_focus(
+        &mut self,
+        table: &BTreeMap<String, Vec<ObjectId>>,
+        field: &str,
+        widget: Option<u32>,
+    ) {
+        let Some(widgets) = table.get(field) else {
+            self.report(format!(
+                "a script asked for the focus on {field}, which is not a field of this document"
+            ));
+            return;
+        };
+        let index = widget.map_or(0, |index| usize::try_from(index).unwrap_or(usize::MAX));
+        if index >= widgets.len() {
+            self.report(format!(
+                "{field}: a script asked for the focus on its widget {index}, and the field has \
+                 {} widget(s), so the focus stays where it is (ADR 1688)",
+                widgets.len()
+            ));
+            return;
+        }
+        self.scripting.focus = Some(FocusRequest {
+            field: field.to_owned(),
+            widget: index,
+        });
     }
 
     /// Applies one property a script set, on the widget it names or on every widget of its field,

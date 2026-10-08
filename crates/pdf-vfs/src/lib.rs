@@ -521,7 +521,7 @@ pub struct Vfs {
     /// The instrument the cache's own numbers do not give: bytes held say what is remembered,
     /// this says what was *done*. A gate that means "and it did not generate it again" has no
     /// other way to say so — a size is the same number whether it was remembered or recomputed,
-    /// which is exactly what made a test of [`Cache::size_of`] pass without it (round 911, trap
+    /// which is exactly what made a test of [`Cache::size_of`] pass without it (ADR 0865, trap
     /// 13). An `AtomicU64` because every operation here is behind `&self`.
     generated: std::sync::atomic::AtomicU64,
     /// What this mount has asked its workers, over every generation it has served.
@@ -1640,7 +1640,7 @@ impl Vfs {
             //
             // Our own commit is a different thing, and it used to be refused as though it were
             // the same one — two writes in flight at once in a single mount, the first
-            // committing, the second `ESTALE` (round 911). What decides there is whether the
+            // committing, the second `ESTALE` (ADR 0864). What decides there is whether the
             // *name* still means what it meant. An embedded file's name and the information
             // dictionary are identities, so they still do. A page's ordinal is a **position** —
             // RFC 0003 section 5.2: "[o]rdinal names are positions, not identities … after any
@@ -2156,7 +2156,7 @@ fn locate_in(
             let page = captures.page.ok_or_else(missing)?;
             let name = captures.name.clone().ok_or_else(missing)?;
             // The inventory rather than the extraction. Validating a name by re-running the run
-            // that produced it is what made a wide directory quadratic (round 923, ADR 0886): on
+            // that produced it is what made a wide directory quadratic (ADR 0886): on
             // a page of ten thousand images every `stat` and every `open` paid 176 ms here while
             // the bytes it was about sat in the cache.
             if !spells(current, path, page) || !image_names(cache, current, page)?.contains(&name) {
@@ -2326,7 +2326,7 @@ fn images_directory(current: &Current, page: usize) -> String {
 /// one call cannot disagree — so every question about a path under it used to run the extraction:
 /// [`locate_in`]'s validation, [`Vfs::entries_of`]'s listing, and the [`Vfs::stat`] and
 /// [`Vfs::open`] that go through the first of those. On a page of ten thousand images that is one
-/// extraction per question rather than per run (round 923, ADR 0886).
+/// extraction per question rather than per run (ADR 0886).
 ///
 /// So the *names* are kept where the content is kept, past the eviction of the content, exactly as
 /// a length is: `Cache::inventory`. They are a run's own output names rather than a guess, which is

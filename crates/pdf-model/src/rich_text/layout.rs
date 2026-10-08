@@ -787,6 +787,9 @@ struct Shaping<'a> {
     characters: Vec<(usize, char)>,
     shaped: Vec<Shaped>,
     levels: Option<&'a Levels<'a>>,
+    /// Each character's script, resolved across the whole string the first time a run asks for
+    /// pair kerning, since a neutral character takes its script from its neighbours (ADR 1696).
+    scripts: std::cell::OnceCell<Vec<pdf_font::pairs::Script>>,
 }
 
 impl<'a> Shaping<'a> {
@@ -797,7 +800,24 @@ impl<'a> Shaping<'a> {
             shaped: pdf_font::shaping::shape(&letters),
             characters,
             levels,
+            scripts: std::cell::OnceCell::new(),
         }
+    }
+
+    /// The script of the character starting at `byte` of the string; no script where no
+    /// character starts there.
+    fn script(&self, byte: Option<usize>) -> pdf_font::pairs::Script {
+        let scripts = self.scripts.get_or_init(|| {
+            let letters: Vec<char> = self.characters.iter().map(|(_, c)| *c).collect();
+            pdf_font::pairs::scripts(&letters)
+        });
+        byte.and_then(|byte| {
+            self.characters
+                .binary_search_by_key(&byte, |(at, _)| *at)
+                .ok()
+        })
+        .and_then(|index| scripts.get(index).copied())
+        .unwrap_or_default()
     }
 }
 
@@ -876,7 +896,7 @@ fn encode(request: &Request, styles: &Styles, faces: &mut Faces, shaping: &Shapi
                     // Table 231 bit 25 divides a comb into "equally spaced positions", which
                     // leaves no room between two glyphs for a pair to adjust.
                     if style.kerning == Kerning::Pair && request.comb.is_none() {
-                        kern(&mut atoms, faces, shaping.levels, &mut out.unkerned);
+                        kern(&mut atoms, faces, shaping, &mut out.unkerned);
                     }
                     total = total.saturating_add(atoms.len());
                     if total > variable_text::MAX_CODES {
@@ -934,7 +954,7 @@ fn encode_tag(
         true,
     );
     if tag.style.kerning == Kerning::Pair {
-        kern(&mut atoms, faces, tag_levels.as_ref(), &mut out.unkerned);
+        kern(&mut atoms, faces, &tag_shaping, &mut out.unkerned);
     }
     let levels: Vec<u8> = atoms
         .iter()
@@ -1025,15 +1045,17 @@ fn encode_items(
 ///
 /// A pair is two glyphs of the run set in one face, adjacent in logical order — the order
 /// OpenType's pairs are stated in — and the face is the one each glyph is drawn in, so a
-/// character a later face of the search path draws pairs with nothing across the change. A
+/// character a later face of the search path draws pairs with nothing across the change. The
+/// face's script table is the one the characters' script selects (ADR 1696). A
 /// face that states no pairs is said, with the reason, rather than kerned by numbers that are
 /// not its own: §9.6.2.2's fourteen among them until `doc/questions/Q308` is answered.
 fn kern(
     atoms: &mut [Atom],
     faces: &Faces,
-    levels: Option<&Levels>,
+    shaping: &Shaping,
     unkerned: &mut std::collections::BTreeSet<String>,
 ) {
+    let levels = shaping.levels;
     for run in atoms.chunk_by_mut(|one, other| one.face == other.face) {
         let Some(held) = run.first().and_then(|first| faces.get(first.face)) else {
             continue;
@@ -1046,6 +1068,8 @@ fn kern(
             }
         };
         let codes: Vec<pdf_font::Code> = run.iter().map(|atom| atom.code).collect();
+        let scripts: Vec<pdf_font::pairs::Script> =
+            run.iter().map(|atom| shaping.script(atom.byte)).collect();
         let right_to_left: Vec<bool> = run
             .iter()
             .map(|atom| {
@@ -1057,7 +1081,7 @@ fn kern(
         let adjusted = held
             .face
             .font
-            .pair_adjustments(pairs, &codes, &right_to_left);
+            .pair_adjustments(pairs, &codes, &scripts, &right_to_left);
         for ((atom, adjustment), reversed) in
             run.iter_mut().zip(&adjusted.glyphs).zip(&right_to_left)
         {

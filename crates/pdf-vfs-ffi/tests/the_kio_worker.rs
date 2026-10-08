@@ -234,10 +234,10 @@ fn what_came_back(said: &str) {
         // A `get` of exactly as many bytes as the `stat` promised, which is what "agreeing with
         // the stat 1" says and is RFC 0003 section 5.5's whole point: an estimate would truncate
         // the page for every reader, the ffmpegfs lesson that section records. **The number is
-        // not written here**, and that is a correction rather than laziness — it was, and the
-        // merge that brought rounds 910 and 911 in moved an extracted page from 36 265 bytes to
-        // 36 997 with nothing about this face changed. A derived file's length is the writer's
-        // figure, so pinning it here would make this face's gate fail for the transform suite's
+        // not written here**, and that is a correction rather than laziness: a change to the
+        // transform suite alone has moved an extracted page from 36 265 bytes to 36 997 with
+        // nothing about this face changed (ADRs 0862 and 0865). A derived file's length is the
+        // writer's figure, so pinning it here would make this face's gate fail for the transform suite's
         // reasons. What binds is the agreement, and it is read off both lines below.
         "stat: 0001.pdf, directory 0, ",
         ", type application/pdf",

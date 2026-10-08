@@ -41,6 +41,7 @@ fn field(name: &str, kind: FieldType, value: &str) -> FieldState {
             alignment: Alignment::Left,
             rect: [10.0, 10.0, 210.0, 40.0],
             captions: Default::default(),
+            on_state: None,
         }],
     }
 }
@@ -166,6 +167,11 @@ fn edits() -> Vec<ScriptEdit> {
         },
         ScriptEdit::Focus {
             field: "Total".to_owned(),
+            widget: None,
+        },
+        ScriptEdit::Focus {
+            field: "Total".to_owned(),
+            widget: Some(1),
         },
         ScriptEdit::Property {
             field: "Send".to_owned(),

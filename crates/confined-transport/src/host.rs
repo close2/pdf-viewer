@@ -142,7 +142,7 @@ impl Host {
             // `doc/Tagged-PDF-Best-Practice-Guide.pdf` was killed with `SIGSYS`, `syscall=257`
             // in the kernel's own audit line, while every page with one image was fine —
             // `rayon` runs a single item on the calling thread and hands two to the pool
-            // (round 911).
+            // (ADR 0865).
             //
             // `MALLOC_ARENA_MAX` is read by `glibc` at start-up, so it has to be set *here*,
             // by whoever spawns: the worker itself is already past it by `main`, and the

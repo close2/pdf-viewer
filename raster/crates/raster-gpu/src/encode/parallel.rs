@@ -90,7 +90,7 @@
 //! determinism claim at all.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 
 use raster_scene::{Color, OutlineId, Rect, Segment, Stroke};
@@ -102,6 +102,7 @@ use super::DrawStyle;
 use super::clips::ResolvedClip;
 use super::expansion::{self, Expansion, Slot};
 use super::fill::SolidFill;
+use super::meet::Lent;
 
 mod commit;
 
@@ -624,18 +625,49 @@ pub(super) fn rasterise(job: &Job<'_>) -> Rasterised {
 /// machine's two classes of core either (`doc/habits/measuring.md` 48). A claim is one atomic
 /// addition, against a job that costs microseconds for a glyph and milliseconds for a tight
 /// stroke (ADR 1505).
+#[cfg(test)]
 pub(super) fn rasterise_all(jobs: &[Job<'_>], threads: usize) -> Vec<Rasterised> {
+    rasterise_then(jobs, threads, (None, false), |masks| masks)
+}
+
+/// [`rasterise_all`]'s masks, handed to `then` — the drain's commit — and, where `lent` is
+/// given, with the fan-out's threads lent to the frame's exact meets for as long as `then`
+/// runs (ADR 1692), and after it until nothing is given where `last` says the walk has nothing
+/// left to do but settle them ([`Lent::finish`]).
+///
+/// **Why the commit runs inside the fan-out's scope.** The commit is where a mark under a
+/// residue clip meets it, and it records each meet whose exact pixels are still to be made
+/// (`meet::deferred`); the frame's helpers make those beside the walk. Committed after the
+/// scope had joined its threads, a drain's meets found none of them alive, and a frame whose
+/// meets were all recorded in one drain's commit started a second set of threads to make them
+/// — the stroked Type 3 page started 46 a frame, 23 of them for a few hundred pixels (ADR 1686
+/// section 5). Committed inside it, each fan-out thread that finds no job left claims meets
+/// instead ([`Lent::help`]) until `then` returns, so the frame starts one set.
+///
+/// The masks reach `then` only when every thread has handed its own back, so what `then` reads
+/// is what it read after the join; a thread that panicked while rasterising hands back none,
+/// and its panic is the scope's, as it was. However `then` leaves — an error or a panic among
+/// the ways — the lent threads are let go before the scope joins them.
+pub(super) fn rasterise_then<R>(
+    jobs: &[Job<'_>],
+    threads: usize,
+    (lent, last): (Option<&Lent>, bool),
+    then: impl FnOnce(Vec<Rasterised>) -> R,
+) -> R {
     if threads <= 1 || jobs.len() < 2 {
-        return jobs.iter().map(rasterise).collect();
+        return then(jobs.iter().map(rasterise).collect());
     }
     let order = makers_first(
         jobs.iter()
             .map(|job| job.expansion.as_ref().map(Arc::as_ptr)),
     );
     let next = AtomicUsize::new(0);
-    let made: Mutex<Vec<Vec<(usize, Rasterised)>>> = Mutex::new(Vec::with_capacity(threads));
-    let work = || {
-        let mut mine = Vec::new();
+    let handed = Handed::default();
+    let claim_jobs = || {
+        let mut mine = HandBack {
+            handed: &handed,
+            made: Vec::new(),
+        };
         loop {
             let claimed = next.fetch_add(1, Ordering::Relaxed);
             let Some((index, job)) = order
@@ -644,34 +676,103 @@ pub(super) fn rasterise_all(jobs: &[Job<'_>], threads: usize) -> Vec<Rasterised>
             else {
                 break;
             };
-            mine.push((index, rasterise(job)));
+            mine.made.push((index, rasterise(job)));
         }
-        made.lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(mine);
     };
     // Every thread but this one is spawned and this one claims jobs too, so `threads`
     // threads is `threads - 1` spawns and the calling thread is not left waiting.
     let spawns = threads.min(jobs.len()).saturating_sub(1);
     crate::threads::count(spawns);
+    if let Some(lent) = lent {
+        lent.count_in(spawns);
+    }
     thread::scope(|scope| {
+        // First, so that a panic on this thread lets the lent threads go as well.
+        let release = Release(lent);
         for _ in 0..spawns {
-            scope.spawn(work);
+            scope.spawn(|| {
+                claim_jobs();
+                if let Some(lent) = lent {
+                    lent.help();
+                }
+            });
         }
-        work();
-    });
-    let mut results: Vec<Rasterised> = (0..jobs.len()).map(|_| None).collect();
-    for (index, mask) in made
-        .into_inner()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .into_iter()
-        .flatten()
-    {
-        if let Some(slot) = results.get_mut(index) {
-            *slot = mask;
+        claim_jobs();
+        let made = handed.all(spawns.saturating_add(1));
+        let mut results: Vec<Rasterised> = (0..jobs.len()).map(|_| None).collect();
+        for (index, mask) in made.into_iter().flatten() {
+            if let Some(slot) = results.get_mut(index) {
+                *slot = mask;
+            }
+        }
+        let result = then(results);
+        if let Some(lent) = lent.filter(|_| last) {
+            lent.finish();
+        }
+        drop(release);
+        result
+    })
+}
+
+/// One thread's masks, each beside its job's place in the drain.
+type ThreadMasks = Vec<(usize, Rasterised)>;
+
+/// The masks each fan-out thread has handed back, and how many threads have.
+#[derive(Default)]
+struct Handed {
+    made: Mutex<(Vec<ThreadMasks>, usize)>,
+    changed: Condvar,
+}
+
+impl Handed {
+    /// Every thread's masks, once `threads` of them have handed theirs back.
+    fn all(&self, threads: usize) -> Vec<ThreadMasks> {
+        let mut made = self
+            .made
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        while made.1 < threads {
+            made = self
+                .changed
+                .wait(made)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        std::mem::take(&mut made.0)
+    }
+}
+
+/// One thread's masks, handed back when it has no job left to claim — or when a panic in
+/// [`rasterise`] ends its claiming, so that the drain's thread is never left waiting for a
+/// thread that has stopped.
+struct HandBack<'h> {
+    handed: &'h Handed,
+    made: ThreadMasks,
+}
+
+impl Drop for HandBack<'_> {
+    fn drop(&mut self) {
+        let mut handed = self
+            .handed
+            .made
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        handed.0.push(std::mem::take(&mut self.made));
+        handed.1 = handed.1.saturating_add(1);
+        drop(handed);
+        self.handed.changed.notify_all();
+    }
+}
+
+/// Lets a drain's lent threads go however the commit leaves the scope, so that the scope's
+/// join never waits on a thread waiting for a meet.
+struct Release<'l>(Option<&'l Lent>);
+
+impl Drop for Release<'_> {
+    fn drop(&mut self) {
+        if let Some(lent) = self.0 {
+            lent.release();
         }
     }
-    results
 }
 
 /// The order the jobs are claimed in, given beside each job the expansion it shares, if any:

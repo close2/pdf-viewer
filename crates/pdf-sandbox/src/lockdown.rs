@@ -45,8 +45,10 @@
 pub enum Profile {
     /// One image, decoded on one thread: `pdf-sandbox-worker`.
     ///
-    /// The narrower of the two, and the default because a caller who has not thought about it
-    /// should get the list that permits less. It creates no thread, so `clone` is absent.
+    /// The narrower of the two profiles that decode or draw — [`Profile::Script`] is narrower
+    /// still, sized against the one engine it confines — and the default because a caller who has
+    /// not thought about it should get the list that permits less. It creates no thread, so
+    /// `clone` is absent.
     #[default]
     Decoder,
     /// A document, its interpretation and its rasterisation: `pdf-view-worker`.

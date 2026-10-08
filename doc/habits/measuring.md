@@ -797,3 +797,11 @@ The rule line forbids a `pgrep -f` whose pattern appears in the grepping command
 holder file names the pid for exactly this: `kill -0 $(cut -d' ' -f1 <lock>.holder)` ends when the
 hold ends, where a pattern wait matches itself and never does (round 1425; trap 124's incident is
 the same shape with a `pkill -P`).
+
+## 75. A change around a thread join is profiled on the page whose walk goes on after the join
+
+Round 1428's first version kept a drain's lent threads until no exact meet was left, which held
+`bug1721218_reduced.pdf`'s walk at the join and slowed its pinned turn from about 140 to 147 ms while
+the Type 3 page it targeted improved (ADR 1692). A change that moves where work happens around a
+join is measured on a page whose walk continues past that join as well as on the page it is for; the
+targeted page alone shows only the gain.

@@ -1,7 +1,7 @@
 //! The pair kerning an embedded font program states, read out of the program itself.
 //!
-//! XFA 3.3 chapter 27's `kerning-mode:pair` (*Kerning*, pages 1203 and 1204) asks for kerning
-//! "based purely on the two adjacent glyphs" (the version 2.8 change list), and the numbers are
+//! XFA 3.3 chapter 27's `kerning-mode:pair` (*Kerning*, pages 1203 and 1204) asks for kerning by
+//! the two adjacent glyphs and nothing else (the version 2.8 change list), and the numbers are
 //! the face's: a rich text run set in a font the document embeds is kerned by the pairs that
 //! program states, and by nothing else. The program states them in one of two places, and the
 //! font format's own specification (ISO/IEC 14496-22, OpenType) says what each means:
@@ -18,11 +18,17 @@
 //! - **`GPOS` first.** A program stating a `kern` feature is kerned by it and its `kern` table is
 //!   not read; one stating none is kerned by its `kern` table. OpenType makes `GPOS` the only
 //!   table a CFF-flavoured program may kern with and states no order between the two otherwise.
-//! - **The feature is found by tag alone**, every script's together, as `crate::vertical` finds
-//!   `vert`: a PDF names no script or language system for a field's text, and the lookups apply
-//!   in lookup-list order as OpenType applies the lookups of one feature set.
-//! - **Only pair adjustment is read.** A contextual lookup under the same feature positions
-//!   glyphs by their context, which is not the "two adjacent glyphs" chapter 27 names.
+//! - **The feature is the one the run's script selects** (ADR 1696), as OpenType's layout selects
+//!   a feature set: the script table registered for the script the run's characters resolve to
+//!   ([`scripts`]), the `DFLT` table where the program registers none for it or the run has no
+//!   specific script, and in either the default language system — a PDF names no language system
+//!   for a field's text. Its `kern` lookups apply in lookup-list order. Two glyphs of different
+//!   scripts are not a pair: text is laid out one script at a time.
+//! - **Only pair adjustment is read** (ADR 1696). A contextual lookup under the same feature —
+//!   `ContextPos` or `ChainContextPos`, even one reaching a pair adjustment — positions a pair by
+//!   the glyphs around it, and the version 2.8 change list defines pair kerning as kerning by the
+//!   two adjacent glyphs alone; so it is not this property's to apply, and nothing the property
+//!   asks for is left undone by leaving it.
 //! - **Device tables and variation deltas are not applied**: they are adjustments at a pixel size
 //!   or a design-space location, and an appearance stream is laid out in neither.
 //! - **Vertical values are not applied and are said** ([`Adjusted::vertical`]): a pair stating a
@@ -83,10 +89,132 @@ impl NoPairs {
 /// Where a program's pairs come from.
 #[derive(Debug, Clone)]
 enum Source {
-    /// `GPOS`'s `kern` feature: the pair-adjustment lookups it reaches, in lookup-list order.
-    Positioning(Vec<u16>),
+    /// `GPOS`'s `kern` feature, as each script table's default language system reaches it.
+    Positioning(Scripted),
     /// The legacy `kern` table.
     Kerning,
+}
+
+/// `GPOS`'s script tables, each with the pair-adjustment lookups its default language system's
+/// `kern` feature reaches, ascending — empty where it reaches none.
+#[derive(Debug, Clone)]
+struct Scripted {
+    tables: Vec<(Tag, Vec<u16>)>,
+}
+
+impl Scripted {
+    /// The lookups OpenType's layout selects for a run of `script`: the table registered for it,
+    /// and `DFLT`'s where none is or the run has no specific script — "[a]n application should
+    /// use a DFLT script table if there is not a script table associated with the specific script
+    /// of the text being formatted, or if the text does not have a specific script" (ISO/IEC
+    /// 14496-22, *OpenType Layout common table formats*, `ScriptList` table). A program
+    /// registering neither gives the run no lookups.
+    fn lookups(&self, script: Script) -> &[u16] {
+        let find = |tag: Tag| {
+            self.tables
+                .iter()
+                .find(|(registered, _)| *registered == tag)
+                .map(|(_, lookups)| lookups.as_slice())
+        };
+        script
+            .0
+            .into_iter()
+            .flat_map(tags)
+            .flatten()
+            .find_map(find)
+            .or_else(|| find(Tag::new(b"DFLT")))
+            .unwrap_or_default()
+    }
+}
+
+/// The script a character is set in, as far as choosing a program's script table goes: the ISO
+/// 15924 code of its Unicode `Script` property, a `Common` or `Inherited` character taking its
+/// neighbours' ([`scripts`]); no code where the text around it has no specific script.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Script(Option<[u8; 4]>);
+
+impl Script {
+    /// The ISO 15924 code, `Latn` or `Arab`; `None` for text of no specific script.
+    #[must_use]
+    pub fn code(self) -> Option<[u8; 4]> {
+        self.0
+    }
+
+    /// The tag a run of this script is laid out under, so that two scripts sharing one script
+    /// table — `Hira` and `Kana` under `kana` — are one run.
+    fn run(self) -> Option<Tag> {
+        self.0.and_then(|code| tags(code)[0])
+    }
+}
+
+/// The scripts of a run of characters, one per character.
+///
+/// Each character takes its Unicode `Script` property (`Scripts.txt`, compiled in by
+/// `build.rs`). One whose property is `Common` or `Inherited` — a space, a digit, punctuation, a
+/// combining mark — takes the script of the nearest specific character before it, or after it
+/// where none precedes, which is the processing OpenType's `ScriptList` note describes:
+/// "\[a\]pplications may process script-neutral characters together with immediately-preceding or
+/// following script-specific characters". A run of neutral characters alone has no script, and
+/// is laid out under `DFLT`.
+#[must_use]
+pub fn scripts(characters: &[char]) -> Vec<Script> {
+    let own: Vec<Option<[u8; 4]>> = characters.iter().map(|c| script_of(*c)).collect();
+    // The first specific script of the run is what its leading neutral characters take.
+    let first = own.iter().find_map(|script| *script);
+    let mut before = None;
+    own.iter()
+        .map(|script| {
+            before = script.or(before);
+            Script(before.or(first))
+        })
+        .collect()
+}
+
+/// A character's own `Script` property, as an ISO 15924 code; `None` for `Common`, `Inherited`
+/// and an unassigned character.
+fn script_of(character: char) -> Option<[u8; 4]> {
+    let at = tables::SCRIPTS.partition_point(|(_, last, _)| *last < character);
+    tables::SCRIPTS
+        .get(at)
+        .filter(|(first, _, _)| *first <= character)
+        .map(|(_, _, code)| *code)
+}
+
+/// The script tags OpenType registers for an ISO 15924 code, in the order they are tried.
+///
+/// The registry (*Script tags*, OpenType 1.9.1) gives each script its tag, and for almost every
+/// script `Scripts.txt` names its tag is the code in lower case. The rest are the registry's own
+/// rows: Hiragana shares Katakana's `kana`; Lao, N'Ko, Vai and Yi are padded with spaces rather
+/// than spelled as their ISO codes; and ten scripts carry a second tag, "v.2", registered for a
+/// later layout implementation, which is tried before the first because a program carrying both
+/// was built for both and the later is the one its maker revised. `data/opentype/script-tags.txt`
+/// is the registry's list, and a test reads every code against it.
+fn tags(code: [u8; 4]) -> [Option<Tag>; 2] {
+    let one = |tag: &[u8; 4]| [Some(Tag::new(tag)), None];
+    let two = |newer: &[u8; 4], older: &[u8; 4]| [Some(Tag::new(newer)), Some(Tag::new(older))];
+    match &code {
+        b"Hira" => one(b"kana"),
+        b"Laoo" => one(b"lao "),
+        b"Nkoo" => one(b"nko "),
+        b"Vaii" => one(b"vai "),
+        b"Yiii" => one(b"yi  "),
+        b"Beng" => two(b"bng2", b"beng"),
+        b"Deva" => two(b"dev2", b"deva"),
+        b"Gujr" => two(b"gjr2", b"gujr"),
+        b"Guru" => two(b"gur2", b"guru"),
+        b"Knda" => two(b"knd2", b"knda"),
+        b"Mlym" => two(b"mlm2", b"mlym"),
+        b"Mymr" => two(b"mym2", b"mymr"),
+        b"Orya" => two(b"ory2", b"orya"),
+        b"Taml" => two(b"tml2", b"taml"),
+        b"Telu" => two(b"tel2", b"telu"),
+        _ => one(&code.map(|byte| byte.to_ascii_lowercase())),
+    }
+}
+
+/// The table `build.rs` writes from `data/unicode/Scripts.txt`.
+mod tables {
+    include!(concat!(env!("OUT_DIR"), "/scripts.rs"));
 }
 
 /// One program's pair kerning, ready to be asked about runs of glyphs.
@@ -132,7 +260,7 @@ impl Pairs {
         let (source, unread) = {
             let font = FontRef::new(&data).map_err(|_| NoPairs::Unreadable)?;
             match kern_feature_lookups(&font)? {
-                Some(lookups) => (Source::Positioning(lookups), None),
+                Some(scripted) => (Source::Positioning(scripted), None),
                 None => (Source::Kerning, kern_table_shape(&font)?),
             }
         };
@@ -150,11 +278,17 @@ impl Pairs {
         self.unread
     }
 
-    /// The adjustments of a run of glyphs in logical order; `right_to_left` says, per glyph,
-    /// whether it reads right to left. A `None` glyph — a code reaching none of the program's —
-    /// pairs with nothing, and two glyphs of different directions are not a pair.
+    /// The adjustments of a run of glyphs in logical order; `scripts` gives, per glyph, the
+    /// script its character resolves to ([`scripts`]) and `right_to_left` whether it reads right
+    /// to left. A `None` glyph — a code reaching none of the program's — pairs with nothing, and
+    /// two glyphs of different directions or of different scripts are not a pair.
     #[must_use]
-    pub fn adjust(&self, glyphs: &[Option<u16>], right_to_left: &[bool]) -> Adjusted {
+    pub fn adjust(
+        &self,
+        glyphs: &[Option<u16>],
+        scripts: &[Script],
+        right_to_left: &[bool],
+    ) -> Adjusted {
         let mut out = Adjusted {
             glyphs: vec![Adjustment::default(); glyphs.len()],
             vertical: false,
@@ -162,26 +296,31 @@ impl Pairs {
         let Ok(font) = FontRef::new(&self.data) else {
             return out;
         };
+        let script = |at: usize| scripts.get(at).copied().unwrap_or_default();
         let pair = |at: usize| {
+            let next = at.checked_add(1)?;
             let first = glyphs.get(at).copied().flatten()?;
-            let second = glyphs.get(at.checked_add(1)?).copied().flatten()?;
+            let second = glyphs.get(next).copied().flatten()?;
             let direction = right_to_left.get(at).copied().unwrap_or(false);
-            let other = right_to_left
-                .get(at.checked_add(1)?)
-                .copied()
-                .unwrap_or(false);
-            (direction == other).then_some((first, second, direction))
+            let other = right_to_left.get(next).copied().unwrap_or(false);
+            (direction == other && script(at).run() == script(next).run())
+                .then_some((first, second, direction))
         };
         match &self.source {
-            Source::Positioning(lookups) => {
-                self.positioned(&font, lookups, glyphs.len(), &pair, &mut out);
+            Source::Positioning(scripted) => {
+                let chosen: Vec<&[u16]> = (0..glyphs.len())
+                    .map(|at| scripted.lookups(script(at)))
+                    .collect();
+                self.positioned(&font, &chosen, &pair, &mut out);
             }
             Source::Kerning => self.kerned(&font, glyphs.len(), &pair, &mut out),
         }
         out
     }
 
-    /// OpenType's pair adjustment, one lookup at a time over the whole run.
+    /// OpenType's pair adjustment, one lookup at a time over the whole run; `chosen` is, per
+    /// glyph, the lookups its script selects, so a lookup passes over a pair its script's table
+    /// does not reach.
     ///
     /// Within a lookup the first subtable that matches a pair applies, and where its second
     /// value format is not empty the pair's second glyph is not the first of the next pair:
@@ -190,8 +329,7 @@ impl Pairs {
     fn positioned(
         &self,
         font: &FontRef,
-        lookups: &[u16],
-        count: usize,
+        chosen: &[&[u16]],
         pair: &dyn Fn(usize) -> Option<(u16, u16, bool)>,
         out: &mut Adjusted,
     ) {
@@ -201,17 +339,29 @@ impl Pairs {
         let Ok(list) = gpos.lookup_list() else {
             return;
         };
-        for index in lookups {
-            let Ok(lookup) = list.lookups().get(usize::from(*index)) else {
+        let count = chosen.len();
+        let mut every: Vec<u16> = chosen
+            .iter()
+            .flat_map(|lookups| lookups.iter().copied())
+            .collect();
+        every.sort_unstable();
+        every.dedup();
+        for index in every {
+            let Ok(lookup) = list.lookups().get(usize::from(index)) else {
                 continue;
             };
             let Ok(PositionSubtables::Pair(subtables)) = lookup.subtables() else {
                 continue;
             };
             let subtables: Vec<PairPos> = subtables.iter().flatten().collect();
+            let selects = |at: usize| {
+                chosen
+                    .get(at)
+                    .is_some_and(|lookups| lookups.binary_search(&index).is_ok())
+            };
             let mut at = 0_usize;
             while at.saturating_add(1) < count {
-                let Some((first, second, _)) = pair(at) else {
+                let Some((first, second, _)) = pair(at).filter(|_| selects(at)) else {
                     at = at.saturating_add(1);
                     continue;
                 };
@@ -399,34 +549,67 @@ fn pair_values(subtables: &[PairPos], first: u16, second: u16) -> Option<Matched
     None
 }
 
-/// The pair-adjustment lookups `GPOS`'s `kern` feature reaches, ascending; `None` where the
-/// program registers no such feature, or one reaching no pair adjustment.
-fn kern_feature_lookups(font: &FontRef) -> Result<Option<Vec<u16>>, NoPairs> {
+/// `GPOS`'s script tables with the pair-adjustment lookups each one's default language system
+/// reaches through its `kern` feature; `None` where no script table's default language system
+/// reaches one.
+///
+/// A language system names its features by index, the required feature among them, and OpenType
+/// applies those and no others; a `kern` feature record no selected language system names is
+/// not applied. The budget is over every pair subtable any script reaches.
+fn kern_feature_lookups(font: &FontRef) -> Result<Option<Scripted>, NoPairs> {
     let Ok(gpos) = font.gpos() else {
         return Ok(None);
     };
-    let (Ok(features), Ok(list)) = (gpos.feature_list(), gpos.lookup_list()) else {
+    let (Ok(scripts), Ok(features), Ok(list)) =
+        (gpos.script_list(), gpos.feature_list(), gpos.lookup_list())
+    else {
         return Err(NoPairs::Unreadable);
     };
-    let mut indices = std::collections::BTreeSet::new();
-    for record in features
-        .feature_records()
-        .iter()
-        .filter(|record| record.feature_tag() == Tag::new(b"kern"))
-    {
-        let Ok(feature) = record.feature(features.offset_data()) else {
-            continue;
-        };
-        indices.extend(
-            feature
-                .lookup_list_indices()
+    let kern = Tag::new(b"kern");
+    let mut reached: Vec<(Tag, std::collections::BTreeSet<u16>)> = Vec::new();
+    for record in scripts.script_records() {
+        let mut indices = std::collections::BTreeSet::new();
+        let language = record
+            .script(scripts.offset_data())
+            .ok()
+            .and_then(|script| script.default_lang_sys())
+            .and_then(Result::ok);
+        if let Some(language) = language {
+            let required = language.required_feature_index();
+            let named = language
+                .feature_indices()
                 .iter()
-                .map(skrifa::raw::types::BigEndian::get),
-        );
+                .map(skrifa::raw::types::BigEndian::get)
+                .chain((required != 0xFFFF).then_some(required));
+            for feature_index in named {
+                let Some(feature_record) =
+                    features.feature_records().get(usize::from(feature_index))
+                else {
+                    continue;
+                };
+                if feature_record.feature_tag() != kern {
+                    continue;
+                }
+                let Ok(feature) = feature_record.feature(features.offset_data()) else {
+                    continue;
+                };
+                indices.extend(
+                    feature
+                        .lookup_list_indices()
+                        .iter()
+                        .map(skrifa::raw::types::BigEndian::get),
+                );
+            }
+        }
+        reached.push((record.script_tag(), indices));
     }
+    let every: std::collections::BTreeSet<u16> = reached
+        .iter()
+        .flat_map(|(_, indices)| indices.iter().copied())
+        .collect();
     let mut subtables = 0_usize;
-    let mut pairs = Vec::new();
-    for index in indices {
+    let mut pairs = std::collections::BTreeSet::new();
+    for index in every {
         let Ok(lookup) = list.lookups().get(usize::from(index)) else {
             continue;
         };
@@ -437,9 +620,19 @@ fn kern_feature_lookups(font: &FontRef) -> Result<Option<Vec<u16>>, NoPairs> {
         if subtables > MAX_SUBTABLES {
             return Err(NoPairs::OverBudget);
         }
-        pairs.push(index);
+        pairs.insert(index);
     }
-    Ok((!pairs.is_empty()).then_some(pairs))
+    if pairs.is_empty() {
+        return Ok(None);
+    }
+    let tables = reached
+        .into_iter()
+        .map(|(tag, indices)| {
+            let lookups = indices.into_iter().filter(|index| pairs.contains(index));
+            (tag, lookups.collect())
+        })
+        .collect();
+    Ok(Some(Scripted { tables }))
 }
 
 /// Whether the `kern` table holds a subtable this reader applies, and what it holds that it
@@ -497,7 +690,7 @@ mod tests {
     //! in, so every expected value below is the table this test wrote, divided by the face's
     //! 2048 units per em (trap 8).
 
-    use super::{Adjustment, NoPairs, Pairs};
+    use super::{Adjustment, NoPairs, Pairs, Script, scripts};
     use skrifa::MetadataProvider as _;
     use std::sync::Arc;
 
@@ -628,10 +821,21 @@ mod tests {
             .into()
     }
 
+    /// The adjustments of `glyphs`, every one taken as Latin.
     fn advances(pairs: &Pairs, glyphs: &[u16], right_to_left: bool) -> Vec<Adjustment> {
+        written(pairs, glyphs, &vec!['A'; glyphs.len()], right_to_left)
+    }
+
+    /// The adjustments of `glyphs`, each glyph of the script its character in `text` resolves to.
+    fn written(
+        pairs: &Pairs,
+        glyphs: &[u16],
+        text: &[char],
+        right_to_left: bool,
+    ) -> Vec<Adjustment> {
         let glyphs: Vec<Option<u16>> = glyphs.iter().copied().map(Some).collect();
         pairs
-            .adjust(&glyphs, &vec![right_to_left; glyphs.len()])
+            .adjust(&glyphs, &scripts(text), &vec![right_to_left; glyphs.len()])
             .glyphs
     }
 
@@ -845,7 +1049,11 @@ mod tests {
             )]),
         )]);
         let pairs = Pairs::read(program, EM).expect("read");
-        let adjusted = pairs.adjust(&[Some(a), Some(v)], &[false, false]);
+        let adjusted = pairs.adjust(
+            &[Some(a), Some(v)],
+            &[Script::default(); 2],
+            &[false, false],
+        );
         assert!(adjusted.vertical);
         assert!(
             (adjusted.glyphs[0].advance - (-200.0 / EM)).abs() < 1e-6,
@@ -862,6 +1070,262 @@ mod tests {
         assert!(
             Pairs::read(LIBERATION.into(), EM).is_ok(),
             "Liberation Sans kerns by GPOS"
+        );
+    }
+
+    /// A `GPOS` table of the given script tables, each one's default language system naming the
+    /// one `kern` feature given by index; each feature names its lookups, and each lookup is
+    /// `(type, subtable)`. The script tags are given sorted, as `ScriptList` requires.
+    fn gpos_built(
+        scripts: &[(&[u8; 4], u16)],
+        features: &[&[u16]],
+        lookups: &[(u16, Vec<u8>)],
+    ) -> Vec<u8> {
+        let n = u16::try_from(scripts.len()).expect("few");
+        let mut script_list = words(&[n]);
+        for (at, (tag, _)) in (0_u16..).zip(scripts) {
+            script_list.extend(tag.as_slice());
+            script_list.extend(words(&[2 + 6 * n + 12 * at]));
+        }
+        for (_, feature) in scripts {
+            // defaultLangSysOffset 4, no language-specific systems; the LangSys names one feature.
+            script_list.extend(words(&[4, 0, 0, 0xFFFF, 1, *feature]));
+        }
+        let f = u16::try_from(features.len()).expect("few");
+        let mut feature_list = words(&[f]);
+        let mut at = 2 + 6 * f;
+        for named in features {
+            feature_list.extend(b"kern");
+            feature_list.extend(words(&[at]));
+            at += 4 + 2 * u16::try_from(named.len()).expect("few");
+        }
+        for named in features {
+            feature_list.extend(words(&[0, u16::try_from(named.len()).expect("few")]));
+            feature_list.extend(words(named));
+        }
+        let l = u16::try_from(lookups.len()).expect("few");
+        let mut lookup_list = words(&[l]);
+        let mut at = 2 + 2 * l;
+        let mut bodies = Vec::new();
+        for (kind, subtable) in lookups {
+            lookup_list.extend(words(&[at]));
+            let body = [words(&[*kind, 0, 1, 8]), subtable.clone()].concat();
+            at += u16::try_from(body.len()).expect("small");
+            bodies.extend(body);
+        }
+        lookup_list.extend(bodies);
+        let scripts_at = 10_u16;
+        let features_at = scripts_at + u16::try_from(script_list.len()).expect("small");
+        let lookups_at = features_at + u16::try_from(feature_list.len()).expect("small");
+        [
+            words(&[1, 0, scripts_at, features_at, lookups_at]),
+            script_list,
+            feature_list,
+            lookup_list,
+        ]
+        .concat()
+    }
+
+    /// `PairPosFormat1` kerning one pair by an `XAdvance` on its first glyph.
+    fn kerns(pair: (u16, u16), value: i16) -> (u16, Vec<u8>) {
+        (
+            2,
+            pair_format1(pair, (0x0004, 0), (&[value.cast_unsigned()], &[])),
+        )
+    }
+
+    fn close(adjustment: Adjustment, units: f32) -> bool {
+        (adjustment.advance - units / EM).abs() < 1e-6
+    }
+
+    #[test]
+    fn a_neutral_character_takes_the_script_beside_it() {
+        let code = |text: &str| -> Vec<Option<[u8; 4]>> {
+            scripts(&text.chars().collect::<Vec<_>>())
+                .into_iter()
+                .map(Script::code)
+                .collect()
+        };
+        let (latin, greek) = (Some(*b"Latn"), Some(*b"Grek"));
+        // A leading bracket takes the script after it; the digit, space and stop the one before.
+        assert_eq!(code("(A1 Ω."), [latin, latin, latin, latin, greek, greek]);
+        // A combining mark is `Inherited`, and takes its base's.
+        assert_eq!(code("e\u{301}"), [latin, latin]);
+        assert_eq!(code("12."), [None, None, None], "no specific script at all");
+        // Hiragana and Katakana are two scripts and one script table.
+        let kana = scripts(&['あ', 'ア']);
+        assert_ne!(kana[0], kana[1]);
+        assert_eq!(kana[0].run(), kana[1].run());
+    }
+
+    #[test]
+    fn every_script_reaches_a_registered_tag() {
+        let registry: std::collections::BTreeSet<[u8; 4]> =
+            include_str!("../../../data/opentype/script-tags.txt")
+                .lines()
+                .filter(|line| !line.starts_with('#'))
+                .map(|line| {
+                    let tag = line.split('\t').next().expect("a tag column");
+                    let tag = tag.trim_matches('\'').as_bytes();
+                    <[u8; 4]>::try_from(tag).expect("a four-byte tag")
+                })
+                .collect();
+        let mut reached = std::collections::BTreeSet::new();
+        for (_, _, code) in &super::tables::SCRIPTS {
+            for tag in super::tags(*code).into_iter().flatten() {
+                assert!(
+                    registry.contains(&tag.to_be_bytes()),
+                    "{} maps to {tag}, which the registry does not hold",
+                    String::from_utf8_lossy(code)
+                );
+                reached.insert(tag.to_be_bytes());
+            }
+        }
+        // What no `Script` value reaches is what is no script of text: the default table, math
+        // layout, the two music notations `Scripts.txt` gives as `Common`, and the Jamo tag the
+        // registry says not to use.
+        let unreached: Vec<&[u8; 4]> = registry.difference(&reached).collect();
+        assert_eq!(
+            unreached,
+            [b"DFLT", b"byzm", b"jamo", b"math", b"musc"],
+            "{unreached:?}"
+        );
+    }
+
+    #[test]
+    fn a_run_takes_the_kern_lookups_of_its_own_script() {
+        let (a, v) = (glyph('A'), glyph('V'));
+        // DFLT kerns A V by -100 and latn by -300; a reading of every script's lookups together
+        // applies both, -400.
+        let program = face(&[(
+            *b"GPOS",
+            gpos_built(
+                &[(b"DFLT", 0), (b"latn", 1)],
+                &[&[0], &[1]],
+                &[kerns((a, v), -100), kerns((a, v), -300)],
+            ),
+        )]);
+        let pairs = Pairs::read(program, EM).expect("read");
+        let latin = written(&pairs, &[a, v], &['A', 'V'], false);
+        assert!(close(latin[0], -300.0), "{latin:?}");
+        // Cyrillic has no table of its own here, so it is laid out under DFLT.
+        let cyrillic = written(&pairs, &[a, v], &['А', 'В'], false);
+        assert!(close(cyrillic[0], -100.0), "{cyrillic:?}");
+        // So is text of no specific script.
+        let neutral = written(&pairs, &[a, v], &['1', '2'], false);
+        assert!(close(neutral[0], -100.0), "{neutral:?}");
+    }
+
+    #[test]
+    fn a_script_with_a_table_of_its_own_does_not_borrow_dflts() {
+        let (a, v, t, o) = (glyph('A'), glyph('V'), glyph('T'), glyph('o'));
+        // latn's table kerns only T o, so A V in Latin is not kerned although DFLT states it.
+        let program = face(&[(
+            *b"GPOS",
+            gpos_built(
+                &[(b"DFLT", 0), (b"latn", 1)],
+                &[&[0], &[1]],
+                &[kerns((a, v), -100), kerns((t, o), -200)],
+            ),
+        )]);
+        let pairs = Pairs::read(program, EM).expect("read");
+        let latin = written(&pairs, &[a, v, t, o], &['A', 'V', 'T', 'o'], false);
+        assert!(latin[0].advance.abs() < 1e-9, "{latin:?}");
+        assert!(close(latin[2], -200.0), "{latin:?}");
+    }
+
+    #[test]
+    fn two_glyphs_of_two_scripts_are_no_pair() {
+        let (a, v) = (glyph('A'), glyph('V'));
+        let program = face(&[(
+            *b"GPOS",
+            gpos_built(&[(b"DFLT", 0)], &[&[0]], &[kerns((a, v), -100)]),
+        )]);
+        let pairs = Pairs::read(program, EM).expect("read");
+        assert!(close(
+            written(&pairs, &[a, v], &['A', 'V'], false)[0],
+            -100.0
+        ));
+        let across = written(&pairs, &[a, v], &['A', 'Ω'], false);
+        assert!(across[0].advance.abs() < 1e-9, "{across:?}");
+    }
+
+    #[test]
+    fn a_second_version_tag_is_chosen_before_the_first() {
+        let (a, v) = (glyph('A'), glyph('V'));
+        let both = face(&[(
+            *b"GPOS",
+            gpos_built(
+                &[(b"dev2", 0), (b"deva", 1)],
+                &[&[0], &[1]],
+                &[kerns((a, v), -300), kerns((a, v), -100)],
+            ),
+        )]);
+        let devanagari = ['क', 'ख'];
+        let pairs = Pairs::read(both, EM).expect("read");
+        assert!(close(
+            written(&pairs, &[a, v], &devanagari, false)[0],
+            -300.0
+        ));
+        let older = face(&[(
+            *b"GPOS",
+            gpos_built(&[(b"deva", 0)], &[&[0]], &[kerns((a, v), -100)]),
+        )]);
+        let pairs = Pairs::read(older, EM).expect("read");
+        assert!(close(
+            written(&pairs, &[a, v], &devanagari, false)[0],
+            -100.0
+        ));
+    }
+
+    /// `ChainContextPos` format 3: after `backtrack`, the `input` pair takes lookup `nested` at
+    /// its first glyph.
+    fn chained(backtrack: u16, input: (u16, u16), nested: u16) -> (u16, Vec<u8>) {
+        let table = [
+            words(&[3, 1, 20, 2, 26, 32, 0, 1, 0, nested]),
+            coverage(&[backtrack]),
+            coverage(&[input.0]),
+            coverage(&[input.1]),
+        ]
+        .concat();
+        (8, table)
+    }
+
+    #[test]
+    fn a_pair_positioned_by_its_context_is_not_pair_kerning() {
+        let (t, a, v) = (glyph('T'), glyph('A'), glyph('V'));
+        // The kern feature names lookup 0, A V after T by way of lookup 1 at -250, and lookup 2,
+        // V A at -100. Lookup 1 is reached only through the context.
+        let program = face(&[(
+            *b"GPOS",
+            gpos_built(
+                &[(b"DFLT", 0)],
+                &[&[0, 2]],
+                &[
+                    chained(t, (a, v), 1),
+                    kerns((a, v), -250),
+                    kerns((v, a), -100),
+                ],
+            ),
+        )]);
+        let pairs = Pairs::read(program, EM).expect("the pair lookup is read");
+        let adjusted = written(&pairs, &[t, a, v, a], &['T', 'A', 'V', 'A'], false);
+        // OpenType's whole kern feature would move A by -250 here; pair kerning, by the two
+        // adjacent glyphs alone, does not, and V A is kerned as the program states it.
+        assert!(adjusted[1].advance.abs() < 1e-9, "{adjusted:?}");
+        assert!(close(adjusted[2], -100.0), "{adjusted:?}");
+        // A feature reaching contextual lookups alone states no pair kerning at all.
+        let contextual_only = face(&[(
+            *b"GPOS",
+            gpos_built(
+                &[(b"DFLT", 0)],
+                &[&[0]],
+                &[chained(t, (a, v), 1), kerns((a, v), -250)],
+            ),
+        )]);
+        assert_eq!(
+            Pairs::read(contextual_only, EM).map(|_| ()),
+            Err(NoPairs::NoPairData)
         );
     }
 }

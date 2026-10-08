@@ -1,7 +1,8 @@
 # 1664 — One widget of a field is a `Field` of its own, and the value stays the field's
 
-Status: accepted and **built**. Session 1414. Supersedes ADR 1652 section 2 (the refusal of
-`getField("name.N")`); builds on ADR 1603's realm table, ADR 1617's drawn properties and ADR 1653's
+Status: accepted and **built**. Session 1414; **superseded in part by ADR 1688 (session 1426)**: the
+last choice of section 2, `setFocus` refused on a widget after the first, is answered — a focus
+request names its widget. Supersedes ADR 1652 section 2 (the refusal of `getField("name.N")`); builds on ADR 1603's realm table, ADR 1617's drawn properties and ADR 1653's
 field table.
 Code: `crates/pdf-model/src/view/script_model.rs` (`FieldState`, `WidgetState`, `FieldState::apply`,
 `Property::is_widget_level`, `ScriptEdit::Property`'s `widget`, `Overrides`, `widget_state`),

@@ -420,6 +420,33 @@ pub fn tab_stops(
     stops
 }
 
+/// A right-to-left paragraph's stops as a toolkit that measures a stop from a line's start edge
+/// is handed them: each one's distance from `edge`, where the line starts, measured like the
+/// stops from the paragraph's left margin and in their unit — nearest that edge first, and only
+/// those left of it, since a tab there reaches leftward and none reaches a stop at or beyond the
+/// line's start (ADR 1690).
+///
+/// Chapter 2's *Tab Stops* places a stop from the left margin and has a right-to-left
+/// paragraph's tab reach the next one on its left (page 61), which is how [`tab_stops`] places
+/// them. Pango and Qt both measure a stop in a block read right to left from its start edge, the
+/// right — measured: a stop at 100 px in a line 400 px wide stood at 300 px from its left in both,
+/// and at 200 px in a line 300 px wide — so the same stop is a different number in every width,
+/// and a window hands these again whenever the toolkit gives the note another one. Each stop keeps
+/// its side; what a side is called in a block read right to left is the toolkit's (Pango names
+/// the edge the text starts from, Qt the left or right edge as drawn).
+#[must_use]
+pub fn from_start_edge(stops: &[TabStop], edge: f32) -> Vec<TabStop> {
+    stops
+        .iter()
+        .rev()
+        .filter(|stop| stop.at < edge - f32::EPSILON)
+        .map(|stop| TabStop {
+            at: edge - stop.at,
+            ..stop.clone()
+        })
+        .collect()
+}
+
 /// Whether a paragraph's tabs advance at all: chapter 27 sets no stop where neither
 /// `tab-interval` nor `tab-stops` states one, so a toolkit — which puts its own default stops
 /// every so many spaces — is handed the text without its tab characters there.
@@ -451,15 +478,17 @@ pub fn leader_unapplied(note: &pdf_model::popup::RichNote) -> Option<String> {
 }
 
 /// What a window that sets a note through a toolkit says it did not draw, beside
-/// `pdf_model::popup::RichNote::unapplied` (ADRs 1654, 1666, 1679). `quorra` lays its lines out
-/// itself and draws all of these; neither toolkit can draw the first two.
+/// `pdf_model::popup::RichNote::unapplied` (ADRs 1654, 1666, 1679, 1690). `quorra` lays its lines
+/// out itself and draws all of these; neither toolkit can draw the first two.
 ///
-/// - **A tab in a right-to-left paragraph**, whose stops chapter 2's *Tab Stops* has the text reach
-///   leftward (page 61) at positions from the left margin. Pango measures a stop from a
-///   right-to-left line's start edge, the right (measured: a stop at 100 in a layout 400 wide put
-///   the text after the tab at 300), so a stop from the left margin would have to be handed as
-///   its distance from a right edge the label is not given until it is allocated. How Qt places
-///   a stop in a right-to-left block has not been measured, so the case is said there too.
+/// - **A decimal tab in a right-to-left paragraph.** Both toolkits reach a right-to-left
+///   paragraph's stops leftward once each is handed as its distance from the line's start edge
+///   ([`from_start_edge`]), but both place a decimal stop's text as though what is stored before
+///   its full stop stood on the stop's right: a number, which reads left to right inside the
+///   paragraph, has its integer digits there instead of on the left (measured: `123.45` at a
+///   decimal stop standing 300 px from a line's left edge put its full stop at 306 px in Pango and
+///   304 px in Qt, where a stop at 100 px in a paragraph read left to right put it at 98 and
+///   100 px; ADR 1690).
 /// - **A tab leader**: neither Pango's tab array nor Qt's `QTextOption::Tab` has a fill, only a
 ///   position, an alignment and (Qt) a delimiter.
 /// - **A font scale**, where `scales` is false: Pango's attributes state none per run (its
@@ -478,12 +507,15 @@ pub fn toolkit_unapplied(note: &pdf_model::popup::RichNote, scales: bool) -> Vec
             .flat_map(|paragraph| paragraph.tag.iter().chain(&paragraph.runs))
     };
     let mut said = Vec::new();
-    if note
-        .paragraphs
-        .iter()
-        .any(|paragraph| tabbed(paragraph) && advances(paragraph) && right_to_left(paragraph))
-    {
-        said.push("a tab in a right-to-left paragraph".to_owned());
+    if note.paragraphs.iter().any(|paragraph| {
+        tabbed(paragraph)
+            && right_to_left(paragraph)
+            && paragraph
+                .tab_stops
+                .iter()
+                .any(|stop| stop.align == pdf_model::popup::RichTabAlign::Decimal)
+    }) {
+        said.push("a decimal tab in a right-to-left paragraph".to_owned());
     }
     said.extend(leader_unapplied(note));
     if !scales && runs().any(scaled) {
@@ -951,13 +983,79 @@ mod tests {
             paragraphs: vec![paragraph],
             unapplied: Vec::new(),
         };
+        // Every stop above is reached leftward by both toolkits once handed from the line's
+        // start edge, so only the leader is said (ADR 1690).
         assert_eq!(
             super::toolkit_unapplied(&note, true),
+            vec!["a tab leader in a popup window".to_owned()]
+        );
+    }
+
+    /// A right-to-left paragraph's stops reach a toolkit as distances from the line's start edge,
+    /// nearest it first, and a stop at or right of that edge is reached by no tab (ADR 1690):
+    /// stops at 50, 100, 150 and 180 points in a line whose right edge is 160 points from the left
+    /// margin stand 10, 60 and 110 points from it.
+    #[test]
+    fn a_right_to_left_paragraphs_stops_are_handed_from_the_lines_start_edge() {
+        let stop = |side, at| super::TabStop {
+            side,
+            at,
+            leader: None,
+        };
+        let stops = [
+            stop(super::TabSide::Right, 50.0),
+            stop(super::TabSide::Centre, 100.0),
+            stop(super::TabSide::Left, 150.0),
+            stop(super::TabSide::Right, 180.0),
+        ];
+        assert_eq!(
+            super::from_start_edge(&stops, 160.0),
             vec![
-                "a tab in a right-to-left paragraph".to_owned(),
-                "a tab leader in a popup window".to_owned(),
+                stop(super::TabSide::Left, 10.0),
+                stop(super::TabSide::Centre, 60.0),
+                stop(super::TabSide::Right, 110.0),
             ]
         );
+        assert_eq!(super::from_start_edge(&stops, 50.0), Vec::new());
+    }
+
+    /// A decimal stop in a right-to-left paragraph is the one leftward tab neither toolkit places
+    /// (ADR 1690), and a decimal stop in a paragraph read left to right is not said.
+    #[test]
+    fn a_decimal_tab_is_said_only_where_the_paragraph_reads_right_to_left() {
+        use pdf_model::popup::{Measure, RichTabAlign, RichTabStop};
+        let paragraph = |text: &str| pdf_model::popup::RichParagraph {
+            align: None,
+            level: 0,
+            tag: None,
+            runs: vec![run(text)],
+            tab_interval: Some(Measure {
+                per_base: 0.0,
+                points: 50.0,
+            }),
+            tab_stops: vec![RichTabStop {
+                align: RichTabAlign::Decimal,
+                at: Measure {
+                    per_base: 0.0,
+                    points: 120.0,
+                },
+                leader: None,
+            }],
+        };
+        let said = |text: &str| {
+            super::toolkit_unapplied(
+                &pdf_model::popup::RichNote {
+                    paragraphs: vec![paragraph(text)],
+                    unapplied: Vec::new(),
+                },
+                true,
+            )
+        };
+        assert_eq!(
+            said("\u{5d0}\t12.5"),
+            vec!["a decimal tab in a right-to-left paragraph".to_owned()]
+        );
+        assert_eq!(said("a\t12.5"), Vec::<String>::new());
     }
 
     /// The note's characters and family names are the document's, so nothing of them reaches Qt's

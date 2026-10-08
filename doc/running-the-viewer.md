@@ -409,9 +409,11 @@ and a right-to-left one in UAX #9's order across its runs, a list item's tag at 
 at the paragraph's stops — Pango spans and a tab array in `quorra-gtk`, a `QTextDocument` built run by
 run in `quorra-qt`, `quorra`'s own chrome, which sets a run in the one of §9.6.2.2's families its
 `font-family` reaches (ADRs 1654, 1666); chapter 27's font scales are drawn in `quorra` and
-`quorra-qt`, and a tab's leader and a right-to-left paragraph's leftward tabs in `quorra` (ADR 1679)
-— and whatever the window did not draw of it (in the two toolkit windows a tab leader and a tab in a
-right-to-left paragraph; in `quorra-gtk` a font scale) is said under the note.
+`quorra-qt`, a tab's leader in `quorra` (ADR 1679), and a right-to-left paragraph's leftward tabs in
+all three, the two toolkits handed each stop as its distance from the line's right edge at every
+width (ADR 1690) — and whatever the window did not draw of it (in the two toolkit windows a tab
+leader and a decimal tab in a right-to-left paragraph; in `quorra-gtk` a font scale) is said under
+the note.
 
 **A measured point on a geospatial map is written in the file's display system** (Table 269's
 `/DCS`, ADR 1678): beside its latitude and longitude, in degrees where `/DCS` is geographic and as an

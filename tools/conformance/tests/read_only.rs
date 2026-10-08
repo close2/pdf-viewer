@@ -400,21 +400,24 @@ fn findings(script: &str, root: &Path) -> (Vec<String>, usize) {
 }
 
 /// The index of the command word: past assignments and the wrappers this script runs a command
-/// through (`run` and `prose_line` with their quoted title and filter, `env`, `tools/bounded.sh --`).
+/// through (`run` and `prose_line` with their quoted title and filter, `env`, `walk` and its kind,
+/// and `tools/bounded.sh` with its options up to `--`).
 fn first_command(words: &[String]) -> usize {
-    words
-        .iter()
-        .position(|word| {
-            !(word.contains('=')
-                || word == "Q"
-                || word == "env"
-                || word == "run"
-                || word == "prose_line"
-                || word == "command"
-                || word == "tools/bounded.sh"
-                || word == "--")
-        })
-        .unwrap_or(0)
+    let mut index = 0;
+    while let Some(word) = words.get(index) {
+        let skipped = match word.as_str() {
+            "walk" => 2,
+            "tools/bounded.sh" => words
+                .get(index..)
+                .and_then(|rest| rest.iter().position(|word| word == "--"))
+                .map_or(1, |end| end.saturating_add(1)),
+            "Q" | "env" | "run" | "prose_line" | "command" | "--" => 1,
+            assignment if assignment.contains('=') => 1,
+            _ => return index,
+        };
+        index = index.saturating_add(skipped);
+    }
+    0
 }
 
 /// The binary a `cargo run … -p conformance … --bin <name>` command runs, if it is one.
@@ -475,6 +478,8 @@ section_x() {
     printf '%s' \"$y\" | sed \"s/^/a:/\" >> \"$sorted\"
     rm -f \"$sorted\"
     rm -f doc/keep.md
+    run \"walk\" '.' walk small -- rm -f doc/walked.md
+    tools/bounded.sh --lock --round 1 --tree 6 -- cp a doc/b
     python3 tools/comment-history.py
     PYTHONDONTWRITEBYTECODE=1 python3 tools/main-checkout.py
     git -C \"$main\" status --porcelain
@@ -490,6 +495,8 @@ TEXT
     let expected = [
         "a redirection into `doc/out.txt`",
         "`rm -f doc/keep.md` writes",
+        "`run Q Q walk small -- rm -f doc/walked.md` writes",
+        "`tools/bounded.sh --lock --round 1 --tree 6 -- cp a doc/b` writes",
         "`python3 tools/comment-history.py` may write __pycache__ (trap 69)",
         "`git -C $main status --porcelain` takes index.lock",
         "`sed -i Q doc/x.md` edits in place",

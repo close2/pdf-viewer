@@ -241,7 +241,7 @@ fn a_confined_worker_answers_exactly_what_the_in_process_one_answers() {
 /// opens a file — what does is `glibc`, creating a per-thread allocator arena at the *first*
 /// allocation of `rayon`'s pool thread and sizing the arena count from
 /// `/sys/devices/system/cpu/online`. One image never reached that thread, because `rayon` runs a
-/// single item on the caller's; two did (round 911, ADR 0864).
+/// single item on the caller's; two did (ADR 0865).
 ///
 /// So the discriminator is **two**, and the fix is `MALLOC_ARENA_MAX` in
 /// `confined_transport::Host::start`, which is the only place early enough to be read.

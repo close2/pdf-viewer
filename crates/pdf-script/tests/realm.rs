@@ -39,6 +39,7 @@ fn field(name: &str, value: &str) -> FieldState {
             alignment: Alignment::Left,
             rect: [10.0, 10.0, 210.0, 40.0],
             captions: Default::default(),
+            on_state: None,
         }],
     }
 }
@@ -630,6 +631,94 @@ fn one_widget_of_a_field_answers_its_own_widget_members_and_the_field_s_value() 
                 value: "B".to_owned(),
             },
         ]
+    );
+}
+
+#[test]
+fn set_focus_through_one_widget_asks_for_that_widget() {
+    // The reference makes `setFocus` a widget's method: a `Field` of the second widget asks for
+    // the second, and a `Field` of every widget for the first (ADR 1688).
+    let mut realm = Realm::new(Budget::FIELD_EVENT).expect("a realm");
+    let mut fields = form();
+    fields.push(two_widgets());
+    let told = realm.run(&request(ScriptSite::Library, "", "", fields));
+    assert_eq!(told.ending, Ending::Finished, "{told:?}");
+    let ran = calculate(
+        &mut realm,
+        r#"this.getField("Choice.1").setFocus(); this.getField("Choice").setFocus();"#,
+    );
+    assert_eq!(ran.ending, Ending::Finished, "{ran:?}");
+    assert!(ran.refusals.is_empty(), "{ran:?}");
+    assert_eq!(
+        ran.edits,
+        vec![
+            ScriptEdit::Focus {
+                field: "Choice".to_owned(),
+                widget: Some(1),
+            },
+            ScriptEdit::Focus {
+                field: "Choice".to_owned(),
+                widget: None,
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_box_is_checked_where_the_value_names_its_on_state_and_checking_it_sets_that_value() {
+    // The reference's "Field methods": `isBoxChecked(nWidget)` and `checkThisBox(nWidget,
+    // bCheckIt)`, a widget counted from zero; a radio button is not unchecked this way (ADR 1689).
+    let mut realm = Realm::new(Budget::FIELD_EVENT).expect("a realm");
+    let on = |name: &str| WidgetState {
+        on_state: Some(name.to_owned()),
+        ..widget()
+    };
+    let mut fields = form();
+    fields.push(FieldState {
+        kind: FieldType::RadioButton,
+        widgets: vec![on("A"), on("B")],
+        ..field("Choice", "B")
+    });
+    fields.push(FieldState {
+        kind: FieldType::CheckBox,
+        widgets: vec![on("Yes")],
+        ..field("Box", "Off")
+    });
+    let told = realm.run(&request(ScriptSite::Library, "", "", fields));
+    assert_eq!(told.ending, Ending::Finished, "{told:?}");
+    let ran = calculate(
+        &mut realm,
+        r#"var b = this.getField("Box"), c = this.getField("Choice");
+           var read = [b.isBoxChecked(0), c.isBoxChecked(0), c.isBoxChecked(1), c.isBoxChecked(5)];
+           b.checkThisBox(0); c.checkThisBox(0, true); c.checkThisBox(0, false);
+           read.push(b.isBoxChecked(0), b.value, c.value, c.isBoxChecked(0), c.isBoxChecked(1));
+           b.checkThisBox(0, false);
+           read.push(b.value);
+           event.value = read.join(" ");"#,
+    );
+    assert_eq!(ran.ending, Ending::Finished, "{ran:?}");
+    assert_eq!(
+        ran.value.as_deref(),
+        Some("false false true false true Yes A true false Off"),
+        "{ran:?}"
+    );
+    let value = |field: &str, value: &str| ScriptEdit::Value {
+        field: field.to_owned(),
+        value: value.to_owned(),
+    };
+    assert_eq!(
+        ran.edits,
+        vec![
+            value("Box", "Yes"),
+            value("Choice", "A"),
+            value("Box", "Off")
+        ]
+    );
+    let text = calculate(&mut realm, r#"this.getField("Line.1").checkThisBox(0);"#);
+    assert!(matches!(text.ending, Ending::Threw(_)), "{text:?}");
+    assert_eq!(
+        text.refusals.first().map(|refusal| refusal.member.as_str()),
+        Some("Field.checkThisBox")
     );
 }
 

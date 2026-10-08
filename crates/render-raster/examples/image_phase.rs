@@ -4,8 +4,8 @@
 //! every device pixel maps to one sample, so the clause's answer is that sample, unfiltered;
 //! `pdf_render::Image::is_smoothed` answers `false` there before it reads `/Interpolate` (ADR 1107
 //! section 3), and ADR 0025's departure stays scoped to the *reduced* case, where several samples
-//! share a pixel. Round 1097 first read this the other way, as a defect of the oracle's; the clause
-//! decided it, and this example is the measurement that separates the two answers.
+//! share a pixel. Which backend is right is the clause's to decide rather than either backend's,
+//! and this example is the measurement that separates the two answers.
 //!
 //! # The placement that separates them
 //!

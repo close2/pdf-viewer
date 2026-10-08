@@ -51,7 +51,7 @@ use std::rc::Rc;
 
 use pdf_model::view::{
     Alignment, BorderStyle, Colour, CommitKey, Display, DocumentState, DocumentTrigger, FieldState,
-    FieldType, InfoEntry, Layer, ScriptEvent, ScriptSite,
+    FieldType, InfoEntry, Layer, ScriptEvent, ScriptSite, WidgetState,
 };
 use pdf_script::{Answer, Asker, Budget, Button, Ending, Nobody, Question, Realm, Request, wire};
 
@@ -133,16 +133,19 @@ fn field(name: &str, kind: FieldType, value: &str) -> FieldState {
         kind,
         value: value.to_owned(),
         flags: 0,
-        display: Display::Visible,
-        text_color: Some(Colour::Gray(0.0)),
-        fill_color: Some(Colour::Rgb([1.0, 1.0, 0.5])),
-        stroke_color: None,
-        border_style: BorderStyle::Solid,
-        alignment: Alignment::Left,
         char_limit: Some(12),
         page: Some(0),
-        rect: [10.0, 10.0, 210.0, 40.0],
-        captions: ["Send".to_owned(), String::new(), String::new()],
+        widgets: vec![WidgetState {
+            display: Display::Visible,
+            text_color: Some(Colour::Gray(0.0)),
+            fill_color: Some(Colour::Rgb([1.0, 1.0, 0.5])),
+            stroke_color: None,
+            border_style: BorderStyle::Solid,
+            alignment: Alignment::Left,
+            rect: [10.0, 10.0, 210.0, 40.0],
+            captions: ["Send".to_owned(), String::new(), String::new()],
+            on_state: None,
+        }],
     }
 }
 

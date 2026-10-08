@@ -558,6 +558,14 @@ rich_body("rtl-list", "\u05e9\u05dc\u05d5\u05dd",
           '</li></ol>')
 rich_body("tab", "HH", f'<p style="tab-stops:right 150pt"><span style="{red20}">H</span>'
           '<span style="color:#0000ff;font-size:20pt;xfa-tab-count:1">H</span></p>')
+# A tab in a paragraph read right to left (ADR 1690): an `after` stop 100 points from the left
+# margin, which a green H in a paragraph of its own marks, so the blue word after the tab ends there
+# wherever the window's right edge is.
+rich_body("tab-rtl", "H\r\u05e9\u05dc\u05d5\u05dd\u05e2\u05d5\u05dc\u05dd",
+          '<p><span style="color:#00ff00;font-size:20pt">H</span></p>'
+          f'<p style="tab-stops:after 100pt"><span style="{red20}">\u05e9\u05dc\u05d5\u05dd</span>'
+          '<span style="color:#0000ff;font-size:20pt;xfa-tab-count:1">\u05e2\u05d5\u05dc\u05dd</span>'
+          '</p>')
 rich_note("rtl", "\u05e9\u05dc\u05d5\u05dd \u05e2\u05d5\u05dc\u05dd",
           f'<span style="{red20}">\u05e9\u05dc\u05d5\u05dd</span> '
           '<span style="color:#0000ff;font-size:20pt">\u05e2\u05d5\u05dc\u05dd</span>')
@@ -2353,6 +2361,27 @@ popup_tab() {
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 
+# A tab in a paragraph read right to left reaches leftward to its stop (ADR 1690): an `after` stop
+# 100 points from the left margin, so the blue word after the tab ends 133 px — 100 points at 96 to
+# the inch — right of where the green H above it begins, give or take the letters' side bearings
+# (127 to 129 px measured in the three windows). A stop measured from the right edge instead, which
+# is where both toolkits put one in a line read right to left, ended it 305 px from the H in a
+# window 400 px wide.
+popup_tab_rtl() {
+    local green blue
+    launch "$FIXTURES/drive-rich-tab-rtl.pdf"; sleep 1; shot 59-popup-tab-rtl
+    green=$(box_of "$OUT/shots/$WINDOW/59-popup-tab-rtl.png" "#00ff00")
+    blue=$(box_of "$OUT/shots/$WINDOW/59-popup-tab-rtl.png" "#0000ff")
+    local green_left=${green#* } blue_width=${blue% *} blue_left=${blue#* }
+    local reach=$((blue_left + blue_width - green_left))
+    if [ "${green% *}" -gt 0 ] && [ "$blue_width" -gt 0 ] && [ "$reach" -ge 122 ] && [ "$reach" -le 140 ]; then
+        verdict 59-popup-tab-rtl works "the blue word ends $reach px right of the green H's left edge"
+    else
+        verdict 59-popup-tab-rtl wrong "green (width left) $green, blue $blue, reach $reach px: $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
 # §12.10's position, in all four windows (ADR 1593): measuring on, one press on the geographic map,
 # and the window's sentence carries a latitude and a longitude inside the map's own rectangle of
 # degrees, six places each; a press on a projected map whose /GPTS are degrees says why it gives no
@@ -2452,6 +2481,7 @@ for WINDOW in "${WINDOWS[@]}"; do
     popup_tall
     popup_list_rtl
     popup_tab
+    popup_tab_rtl
     located
     located_displayed
 done

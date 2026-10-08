@@ -1316,7 +1316,7 @@ fn toggling_states(
 ///
 /// §12.7.5.2.3 gives a check box two states and names only the off one, so the on state's name is
 /// the file's: `None` where the file states none, or states two (ADR 1676).
-fn on_state(document: &Document, annotation: &Dictionary) -> Option<Name> {
+pub(crate) fn on_state(document: &Document, annotation: &Dictionary) -> Option<Name> {
     let normal = document
         .get_key(annotation, "AP")
         .as_dict()

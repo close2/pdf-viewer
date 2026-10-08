@@ -59,7 +59,7 @@ impl Mount {
 /// Whose the mount's files are.
 ///
 /// **Not zero, which is what they used to be.** A mount by hand put `root root` on every line of
-/// every `ls -l` of a document owned by uid 1001 (round 911): the kernel does no permission check
+/// every `ls -l` of a document owned by uid 1001 (ADR 0864): the kernel does no permission check
 /// of its own here — `default_permissions` is not among the mount options and the access-control
 /// list is the mounting user alone — so nothing was *permitted* that should not have been, but
 /// every program that reads a listing rather than trying the operation was told the wrong thing,
@@ -201,7 +201,7 @@ impl fuser::Filesystem for Mount {
     /// **The times were the half of that sentence the code did not keep**, and a mount by hand
     /// found it the way the paragraph above predicts: `touch mnt/pages/0001.pdf` exited 0 and
     /// changed nothing, so `make`, `rsync -t` and every incremental build would believe a
-    /// timestamp this tree cannot hold (round 911, trap 28 — the comment above the guard was a
+    /// timestamp this tree cannot hold (ADR 0864, trap 28 — the comment above the guard was a
     /// different claim from the guard).
     #[expect(
         clippy::similar_names,
@@ -569,7 +569,7 @@ mod tests {
         assert_eq!(file.blocks, 9);
         assert_eq!(seen(Kind::Directory, None, true).size, 0);
         // The mount's own user and group, never root's. A mount by hand put `root root` on every
-        // line of every listing of a document owned by uid 1001 (round 911, `owner`).
+        // line of every listing of a document owned by uid 1001 (ADR 0864, `owner`).
         assert_eq!((file.uid, file.gid), (1001, 1002));
     }
 

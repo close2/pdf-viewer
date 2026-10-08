@@ -339,8 +339,9 @@ pub mod ffi {
         tagged: bool,
         /// The runs, the tag first where there is one.
         runs: Vec<QtRichRun>,
-        /// The paragraph's tab stops, nearest its start edge first, as
-        /// `viewer_host::popup::tab_stops` places them.
+        /// The paragraph's tab stops, nearest its left margin first, as
+        /// `viewer_host::popup::tab_stops` places them; a paragraph read right to left is handed
+        /// them as distances from its line's start edge once its width is known (ADR 1690).
         tabs: Vec<QtTab>,
     }
 
@@ -386,7 +387,7 @@ pub mod ffi {
     struct QtTab {
         /// 0 left, 1 centre, 2 right, 3 at the first full stop.
         side: u8,
-        /// The stop's distance from the paragraph's start, in points.
+        /// The stop's distance from the paragraph's left margin, in points.
         at: f32,
     }
 

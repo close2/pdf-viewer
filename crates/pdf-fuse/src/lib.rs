@@ -203,7 +203,7 @@ impl Face {
     /// wrong about the alternative. A mount by hand showed what the epoch costs: every file dated
     /// `1. Jän 1970`, a file manager sorting by date putting the document before every other file
     /// on the disk, and `make`, `rsync -t` and `find -newer` reading a mount as older than
-    /// anything they could compare it with (round 911).
+    /// anything they could compare it with (ADR 0864).
     ///
     /// `None` where the backing states no modification time, which
     /// [`pdf_vfs::generation::Generation`] already allows for; the epoch is then the honest
@@ -233,7 +233,7 @@ impl Face {
         // only message channel into noise: a file manager probes `.directory` in every directory
         // it opens, macOS's writes `.DS_Store`, and `git` looks for `.gitignore` — one line each,
         // per directory, per visit. A mount by hand produced fifteen such lines before it had
-        // been asked to do anything at all (round 911).
+        // been asked to do anything at all (ADR 0864).
         if !matches!(errno, Errno::NoSuchFile) {
             (self.sink)(&format!("{verb}: {error} [{}]", errno.as_str()));
         }
@@ -387,7 +387,7 @@ impl Face {
     /// `create` for it. It issues `open(O_WRONLY|O_TRUNC)`, which this method used to answer with
     /// a **read** handle, so the first `write(2)` was `EPERM` and the verb the RFC leads with was
     /// unreachable through `cp`, `install`, `dd`, a shell redirect or a file manager's drop
-    /// (round 911; `strace` has it as `openat(…, O_WRONLY|O_TRUNC) = 4` followed by
+    /// (ADR 0864; `strace` has it as `openat(…, O_WRONLY|O_TRUNC) = 4` followed by
     /// `write(4, …) = -1 EPERM`).
     ///
     /// The same change moves every refusal to where a program looks for it. `> mnt/text/0001.txt`
@@ -504,7 +504,7 @@ impl Face {
     /// zero issued between the `open` and the first `write` and **without an `fh`**. A face that
     /// only handled the `fh` form accepted it and did nothing, which is the shape of lie
     /// [`crate::Mount`]'s own `setattr` refuses `chmod` for: `: > mnt/pages/0002.pdf` then exited
-    /// 0 having changed neither the file nor the document, and said nothing anywhere (round 911).
+    /// 0 having changed neither the file nor the document, and said nothing anywhere (ADR 0864).
     ///
     /// So it is resolved against the writes in flight, by path. There is exactly one — a second
     /// `create` at the same path is refused by the core before it is staged — and finding none

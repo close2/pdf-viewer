@@ -44,6 +44,7 @@ fn field(name: &str, kind: FieldType) -> FieldState {
             alignment: Alignment::Left,
             rect: [0.0, 0.0, 100.0, 20.0],
             captions: ["Send".to_owned(), String::new(), String::new()],
+            on_state: None,
         }],
     }
 }

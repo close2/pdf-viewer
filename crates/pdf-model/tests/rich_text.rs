@@ -1637,9 +1637,97 @@ fn kerned_face() -> Vec<u8> {
     pdf_font::embedding::with_tables(&bare, &[(*b"kern", kern)]).expect("the table goes in")
 }
 
+/// Liberation Sans with its own kerning taken out and a `GPOS` written in whose `kern` feature
+/// differs by script: `DFLT`'s default language system kerns `A V` by −100 of 2048 units, and
+/// `latn`'s by −300 (ADR 1696).
+fn scripted_face() -> Vec<u8> {
+    const LIBERATION: &[u8] =
+        include_bytes!("../../../data/standard-fonts/LiberationSans-Regular.ttf");
+    let font = read_fonts::FontRef::new(LIBERATION).expect("Liberation Sans is an sfnt");
+    let cmap = read_fonts::TableProvider::cmap(&font).expect("a cmap");
+    let glyph = |character: char| {
+        u16::try_from(
+            cmap.map_codepoint(character)
+                .expect("Liberation Sans draws it")
+                .to_u32(),
+        )
+        .expect("a 16-bit glyph index")
+    };
+    let words = |values: &[u16]| -> Vec<u8> {
+        values
+            .iter()
+            .flat_map(|value| value.to_be_bytes())
+            .collect()
+    };
+    let (a, v) = (glyph('A'), glyph('V'));
+    // PairPosFormat1, one pair, an XAdvance on the first glyph: its pair set at 12, its coverage
+    // at 18.
+    let pair = |value: i16| {
+        words(&[
+            1,
+            18,
+            0x0004,
+            0,
+            1,
+            12,
+            1,
+            v,
+            value.cast_unsigned(),
+            1,
+            1,
+            a,
+        ])
+    };
+    // ScriptList: DFLT and latn, each default language system naming one feature (12 bytes a
+    // script table after the 14-byte list head).
+    let scripts = [
+        words(&[2]),
+        b"DFLT".to_vec(),
+        words(&[14]),
+        b"latn".to_vec(),
+        words(&[26]),
+        words(&[4, 0, 0, 0xFFFF, 1, 0]),
+        words(&[4, 0, 0, 0xFFFF, 1, 1]),
+    ]
+    .concat();
+    let features = [
+        words(&[2]),
+        b"kern".to_vec(),
+        words(&[14]),
+        b"kern".to_vec(),
+        words(&[20]),
+        words(&[0, 1, 0]),
+        words(&[0, 1, 1]),
+    ]
+    .concat();
+    let first = [words(&[2, 0, 1, 8]), pair(-100)].concat();
+    let second = [words(&[2, 0, 1, 8]), pair(-300)].concat();
+    let second_at = u16::try_from(first.len().saturating_add(6)).expect("small");
+    let lookups = [words(&[2, 6, second_at]), first, second].concat();
+    let features_at = u16::try_from(scripts.len().saturating_add(10)).expect("small");
+    let lookups_at =
+        u16::try_from(usize::from(features_at).saturating_add(features.len())).expect("small");
+    let gpos = [
+        words(&[1, 0, 10, features_at, lookups_at]),
+        scripts,
+        features,
+        lookups,
+    ]
+    .concat();
+    let bare = pdf_font::embedding::without_tables(LIBERATION, &[*b"GPOS", *b"kern"])
+        .expect("Liberation Sans is an sfnt");
+    pdf_font::embedding::with_tables(&bare, &[(*b"GPOS", gpos)]).expect("the table goes in")
+}
+
 /// A rich text field set in `/Kern`, the face [`kerned_face`] embeds, with `markup` as its `/RV`.
 fn in_kerned_face(value: &str, markup: &str) -> Vec<u8> {
-    let program = kerned_face().iter().fold(String::new(), |mut hex, byte| {
+    in_face(&kerned_face(), value, markup)
+}
+
+/// A rich text field set in `/Kern`, a TrueType font embedding `program`, with `markup` as its
+/// `/RV`.
+fn in_face(program: &[u8], value: &str, markup: &str) -> Vec<u8> {
+    let program = program.iter().fold(String::new(), |mut hex, byte| {
         let _ = write!(hex, "{byte:02X}");
         hex
     });
@@ -1694,6 +1782,22 @@ fn pair_kerning_draws_a_pair_the_face_states_closer() {
     assert!(reports.is_empty(), "{reports:?}");
     let narrower = ink_width(&plain_raster).saturating_sub(ink_width(&kerned_raster));
     assert!((3..=4).contains(&narrower), "{narrower} px");
+}
+
+/// A Latin run is kerned by the `latn` script table its characters select, not by `DFLT`'s and
+/// not by both: −300/2048 of an em, the `TJ` number 1000 × 300 / 2048 = 146.484375, where `DFLT`
+/// alone would write 48.828125 and the two together 195.3125 (ADR 1696).
+#[test]
+fn pair_kerning_takes_the_script_table_its_characters_select() {
+    let (content, _) = appearance(in_face(
+        &scripted_face(),
+        "AVAV",
+        "<span style=\"kerning-mode:pair\">AVAV</span>",
+    ));
+    assert!(
+        content.contains("[(A) 146.48438 (VA) 146.48438 (V)] TJ"),
+        "{content}"
+    );
 }
 
 /// A face that states no pairs is not kerned by numbers that are not its own, and the run says

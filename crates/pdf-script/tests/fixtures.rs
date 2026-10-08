@@ -38,6 +38,7 @@ fn field(name: &str, value: &str) -> FieldState {
             alignment: Alignment::Left,
             rect: [10.0, 10.0, 210.0, 40.0],
             captions: Default::default(),
+            on_state: None,
         }],
     }
 }

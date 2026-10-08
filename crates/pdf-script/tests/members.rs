@@ -38,6 +38,7 @@ fn field(name: &str, kind: FieldType, flags: u32, char_limit: Option<u32>) -> Fi
             alignment: Alignment::Left,
             rect: [0.0, 0.0, 100.0, 20.0],
             captions: Default::default(),
+            on_state: None,
         }],
     }
 }
@@ -171,7 +172,8 @@ fn set_focus_is_an_edit_the_host_carries_out() {
     assert_eq!(
         ran.edits,
         vec![ScriptEdit::Focus {
-            field: "Group.a".to_owned()
+            field: "Group.a".to_owned(),
+            widget: None,
         }]
     );
 }

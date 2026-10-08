@@ -605,7 +605,13 @@ it, because a window's scene draws the medium on the device (ADR 1687). **The en
 starts its threads at every drain past the floor**: the text page's turn starts 115 at 24 threads
 and 35 at eight, every other row of the table once a frame or never (`frame_budget`'s `threads`
 column); a pool of the frame's own, started once, moved that turn's encode by 0.1 to 0.4 ms, mostly
-inside its spread and not at all pinned, and is not built (ADR 1686).
+inside its spread and not at all pinned, and is not built (ADR 1686). **A drain whose jobs meet a
+residue clip lends those threads to the exact meets its commit records**, so the stroked Type 3 page,
+every meet of which is recorded in its one drain's commit, starts 23 a frame at 24 threads and 7
+pinned where it started 46 and 14, its rows inside their spreads; `bug1721218_reduced.pdf` keeps its
+second set, the frame's own helpers making the meets recorded in the walk after its drain. The
+photograph's 23 are its reduction's row split, one scope a turn and none a step, and the frame's only
+set (ADR 1692).
 
 ## What a soft mask cost, and what naming one constant took off it
 

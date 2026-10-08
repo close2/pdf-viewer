@@ -15,7 +15,8 @@ names; a round reads this block, and opens the section only where a line bites (
   a time — a band, a floor, an A/B, a reference program on a budget — says `--clock` and runs alone,
   declared by the outermost wrapper (ADR 1684); the wrapper taking the lock so that the wait is a line of `/home/AI/heavy-walk.log` — never a bare
   `flock`, which is on no line (ADR 1646) and hands its descriptor to whatever daemon the walk
-  starts, where the wrapper keeps it and hands the command `HEAVY_WALK_HELD_BY` (ADR 1674); `--data` never above 12 GiB; a corpus gate rebuilds `pdf-sandbox --bins` for its profile inside
+  starts, where the wrapper keeps it and hands the command `HEAVY_WALK_HELD_BY` (ADR 1674); a `tools/state.sh` section takes the lock itself, each walk in the lane it declares, so it
+  runs bare as `tools/state.sh --round <session> <section>` and never walks unlocked (ADR 1698); `--data` never above 12 GiB; a corpus gate rebuilds `pdf-sandbox --bins` for its profile inside
   the lock (trap 109); never a tool that forks per package or per input without the bound (trap 116).
   `cargo test -p conformance` and crate-scoped unit tests are not walks.
 - **No `git stash`, no `git checkout -- .`, no `git restore .`, no `git add -A` or `-u`, no

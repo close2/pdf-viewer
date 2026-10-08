@@ -899,7 +899,7 @@ fn a_file_that_is_not_a_document_is_not_inserted() {
 /// *somebody else's* update — committing over it "would discard whatever changed it" — and our
 /// own commit discards nothing, because §7.5.6 appends. A mount by hand lost the second of two
 /// files copied into `attachments/` with both descriptors open, and lost it quietly, because
-/// `close(2)`'s error is a thing most programs do not look at (round 911).
+/// `close(2)`'s error is a thing most programs do not look at (ADR 0864).
 ///
 /// What still decides is whether the **name** means what it meant. An embedded file's name and
 /// the information dictionary are identities. A page's ordinal is a position — RFC 0003 section
@@ -948,7 +948,7 @@ fn two_writes_in_flight_in_one_mount_both_land() {
 /// page" — and a length taken off the bytes themselves is not an estimate. With a budget too
 /// small to hold a directory, every entry is evicted before the listing comes round again, and
 /// `ls -l` used to cost the whole extraction *every time*: on ISO 32000-2's 1023 pages, 2 min 45 s
-/// the first time and 4 min 03 s the second (round 911).
+/// the first time and 4 min 03 s the second (ADR 0865).
 #[test]
 fn a_stat_after_an_eviction_does_not_generate_again() {
     let bytes = std::fs::read(committed(FIVE_PAGES)).expect("a committed document");

@@ -712,6 +712,12 @@ document as well as by run before a class is called the world's or one form's â€
 report's 256-sentence cap fills before a late throw is reported, so a document's last throw may be
 in the column and not in the reader's sentences.
 
+And a member the column never reaches is not a member nobody uses. The Tier 1 column runs some of a
+document's script sites and stops a script at its first `ReferenceError`, so its census reached one
+of fifty listed members where the static census over the same files found `getAnnots` in 34
+documents and `app.beep` in 24 (round 1426, ADR 1689). A zero from a column is read beside the
+static census before it is called unused.
+
 ## Things worth knowing
 
 - **The oracle's artefacts are the fastest diagnostic in the tree.** Every non-agreeing page leaves

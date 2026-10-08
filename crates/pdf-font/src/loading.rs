@@ -2661,17 +2661,20 @@ impl LoadedFont {
     }
 
     /// The adjustments [`Self::pairs`] gives a run of this font's codes, in logical order;
-    /// `right_to_left` says, per code, whether it reads right to left. A code reaching no glyph
-    /// of the program, or its `.notdef`, pairs with nothing.
+    /// `scripts` gives, per code, the script its character resolves to
+    /// ([`crate::pairs::scripts`]), which selects the program's script table, and
+    /// `right_to_left` whether it reads right to left. A code reaching no glyph of the program,
+    /// or its `.notdef`, pairs with nothing.
     #[must_use]
     pub fn pair_adjustments(
         &self,
         pairs: &crate::pairs::Pairs,
         codes: &[Code],
+        scripts: &[crate::pairs::Script],
         right_to_left: &[bool],
     ) -> crate::pairs::Adjusted {
         let glyphs: Vec<Option<u16>> = codes.iter().map(|code| self.pair_glyph(*code)).collect();
-        pairs.adjust(&glyphs, right_to_left)
+        pairs.adjust(&glyphs, scripts, right_to_left)
     }
 
     /// The program glyph a code reaches for pair kerning: [`Self::program_glyph`]'s mapping,

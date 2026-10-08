@@ -40,6 +40,7 @@ fn grouped(value: usize) -> String {
 
 fn main() {
     unicode_tables();
+    script_table();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/cmaps");
     println!("cargo::rerun-if-changed={}", root.display());
 
@@ -501,4 +502,68 @@ fn mirroring_table(out: &mut String) {
             .collect::<Vec<_>>()
             .join(", ")
     );
+}
+
+/// Writes `scripts.rs` into `OUT_DIR`: `Scripts.txt`'s ranges under each one's ISO 15924 code, the
+/// table `pairs` resolves a character's script by (ADR 1696).
+///
+/// `PropertyValueAliases.txt`'s `sc` rows give each `Script` value's short alias, which is the
+/// ISO 15924 code the OpenType script tags are registered beside. `Common` and `Inherited` are
+/// left out — the reader resolves both from their neighbours — and adjacent ranges of one script
+/// are merged, so what is compiled in is the fewest ranges that say the same thing.
+fn script_table() {
+    let mut codes = std::collections::BTreeMap::new();
+    for fields in ucd("PropertyValueAliases.txt") {
+        if fields.first().is_some_and(|property| property == "sc") {
+            codes.insert(fields[2].clone(), fields[1].clone());
+        }
+    }
+    let mut ranges: Vec<(char, char, String)> = ucd("Scripts.txt")
+        .iter()
+        .filter(|fields| !matches!(fields[1].as_str(), "Common" | "Inherited"))
+        .map(|fields| {
+            let (first, last) = points(&fields[0]);
+            let code = codes
+                .get(&fields[1])
+                .unwrap_or_else(|| panic!("Scripts.txt: {} has no sc alias", fields[1]));
+            assert!(
+                code.len() == 4 && code.is_ascii(),
+                "{code} is no ISO 15924 code"
+            );
+            (first, last, code.clone())
+        })
+        .collect();
+    ranges.sort_unstable();
+    let mut merged: Vec<(char, char, String)> = Vec::new();
+    for (first, last, code) in ranges {
+        if let Some(previous) = merged.last_mut()
+            && previous.2 == code
+            && u32::from(previous.1).checked_add(1) == Some(u32::from(first))
+        {
+            previous.1 = last;
+            continue;
+        }
+        merged.push((first, last, code));
+    }
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "/// `Scripts.txt`: first, last, and the ISO 15924 code of the range's `Script`, sorted; \
+         `Common` and `Inherited` are not listed.\n\
+         pub(crate) static SCRIPTS: [(char, char, [u8; 4]); {}] = [",
+        merged.len()
+    );
+    for (first, last, code) in &merged {
+        let _ = writeln!(
+            out,
+            "    ({}, {}, *b\"{code}\"),",
+            literal(*first),
+            literal(*last)
+        );
+    }
+    out.push_str("];\n");
+    let target = std::path::PathBuf::from(
+        std::env::var_os("OUT_DIR").expect("cargo sets OUT_DIR for a build script"),
+    );
+    std::fs::write(target.join("scripts.rs"), out).expect("the table is writable");
 }

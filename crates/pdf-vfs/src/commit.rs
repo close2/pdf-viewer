@@ -109,7 +109,7 @@ pub(crate) struct Staged {
     /// The discriminator between the two reasons a staged write can find the document moved.
     /// Somebody else's edit is what [`Provenance::Foreign`] names and what `ESTALE` is for:
     /// committing over it could discard it, and RFC 0003 section 5.4 does not let a face do that.
-    /// **Our own commit is not that**, and refusing it is what a mount by hand found (round 911):
+    /// **Our own commit is not that**, and refusing it is what a mount by hand found (ADR 0864):
     /// two files copied into `attachments/` with both descriptors open lost the second, because
     /// the first one's commit moved the key the second was staged against — and `close(2)`'s
     /// error is a thing most programs do not look at, so it lost it *quietly*.
@@ -124,7 +124,7 @@ pub(crate) struct Staged {
     /// the same either way until somebody acts on it. `touch(1)` opens `O_WRONLY|O_CREAT`, sets
     /// the times and closes without writing a byte, and a mount by hand had that arrive as a
     /// commit of zero bytes and fail "not a PDF: no %PDF- header in the first 0 bytes" — an
-    /// input/output error about a document nobody had touched (round 911). A `close(2)` of a
+    /// input/output error about a document nobody had touched (ADR 0864). A `close(2)` of a
     /// file nothing was written to is not a write.
     pub(crate) touched: bool,
     /// Whether a `flush` has already made it real, so that a second `flush` — which the kernel

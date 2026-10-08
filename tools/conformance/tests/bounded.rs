@@ -50,8 +50,13 @@
 //!
 //! **A lane is granted on what a run declared**, never on what it turns out to peak at, so every
 //! `--lock` a person or a script is told to run says its kind: `--tree` (6 GiB or less a small walk,
-//! more a large one) or `--clock` (ADR 1684). The last two tests hold every tracked instruction to
+//! more a large one) or `--clock` (ADR 1684). The next two tests hold every tracked instruction to
 //! that, and the merge's list of clock gates to the gates the merge runs.
+//!
+//! **And no state section walks unlocked** (ADR 1698). `tools/state.sh` is run by rounds as often
+//! as by a person, and a walk it ran bare took no lane and wrote no line. The last test holds every
+//! walk it runs to its `walk` helper and a declared kind, and a gate the merge also runs to the
+//! merge's own answer on whether its verdict is a time.
 
 #![expect(
     clippy::expect_used,
@@ -244,9 +249,9 @@ fn every_lock_a_tool_takes_is_taken_by_the_wrapper_that_logs_it() {
 }
 
 /// `tools/state.sh gates-cost` counts a lock line for the batch it belongs to even where the line
-/// names no batch branch: a wrapper run from a detached export of HEAD writes `batch=HEAD`, and two
-/// of round 1405's runs, 1 921.9 s of its queue, were counted for no batch until the line was
-/// placed by its round (ADR 1675). The planted log puts such a line inside a batch, one whose round
+/// names no batch branch: a wrapper run from a detached export of HEAD writes `batch=HEAD`, and
+/// such a line is placed by its round, which is where a round's queue would otherwise go uncounted
+/// (ADR 1675). The planted log puts such a line inside a batch, one whose round
 /// no batch holds, and that one last, so the last batch is found by its branch and not by the last
 /// line. Calibrated by planting (trap 13): the previous reading, which took the last line's branch
 /// and counted only lines naming it, printed `batch HEAD` and nothing of the batch.
@@ -458,7 +463,7 @@ fn undeclared_locks(source: &str) -> Vec<(usize, String)> {
 
 /// The files that still tell a person to run `--lock` with no kind, each another round's to
 /// declare: a ratchet, so a file leaves this list the day it says `--tree` or `--clock`.
-const HELD_UNDECLARED_LOCKS: [&str; 1] = ["crates/pdf-model/examples/substitution_census.rs"];
+const HELD_UNDECLARED_LOCKS: [&str; 0] = [];
 
 /// Every `--lock` a tool runs or a document tells a person to run declares its kind, so the lane it
 /// is granted is a decision written down rather than the wrapper's default (ADR 1684). The
@@ -553,10 +558,21 @@ fn every_lock_a_caller_takes_declares_its_kind() {
 /// The names `tools/batch.sh`'s `gates()` runs, with its `for t in …` loops expanded, whether the
 /// loop's `run` is on the `for` line or the next.
 fn merge_gate_names(source: &str) -> Vec<String> {
-    let mut names = Vec::new();
+    merge_gates(source)
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect()
+}
+
+/// Every gate `tools/batch.sh`'s `gates()` runs, as its name and its command line — a command
+/// continued with `\` joined into one, and a loop's `$t` replaced by each of the loop's words in
+/// both.
+fn merge_gates(source: &str) -> Vec<(String, String)> {
+    let mut gates = Vec::new();
     let mut inside = false;
     let mut looped: Vec<String> = Vec::new();
-    for line in source.lines() {
+    for (_, line) in joined_lines(source) {
+        let line = line.as_str();
         if line.starts_with("gates() {") {
             inside = true;
             continue;
@@ -584,16 +600,42 @@ fn merge_gate_names(source: &str) -> Vec<String> {
             .map(|name| name.trim_matches('"'))
         {
             if name.contains("$t") {
-                names.extend(looped.iter().map(|each| name.replace("$t", each)));
+                gates.extend(
+                    looped
+                        .iter()
+                        .map(|each| (name.replace("$t", each), call.replace("$t", each))),
+                );
             } else {
-                names.push(name.to_owned());
+                gates.push((name.to_owned(), call.to_owned()));
             }
         }
         if call.contains("done") {
             looped.clear();
         }
     }
-    names
+    gates
+}
+
+/// The lines of a shell script with every command continued by `\` joined into the line it starts
+/// on, so that a reader of words sees one command per line, each with the number of that first line.
+fn joined_lines(source: &str) -> Vec<(usize, String)> {
+    let mut joined: Vec<(usize, String)> = Vec::new();
+    let mut continuing = false;
+    for (index, line) in source.lines().enumerate() {
+        match joined.last_mut() {
+            Some((_, last)) if continuing => {
+                last.push(' ');
+                last.push_str(line.trim_start());
+            }
+            _ => joined.push((index.saturating_add(1), line.to_owned())),
+        }
+        continuing = line.trim_end().ends_with('\\');
+        if continuing && let Some((_, last)) = joined.last_mut() {
+            let kept = last.trim_end().trim_end_matches('\\').len();
+            last.truncate(kept);
+        }
+    }
+    joined
 }
 
 /// The merge's clock gates — the ones `tools/batch.sh` runs `--clock`, alone on both lanes — are
@@ -636,5 +678,208 @@ fn every_clock_gate_the_merge_names_is_a_gate_it_runs() {
     assert!(
         strangers.is_empty(),
         "tools/batch.sh's clock_gates names gates the merge does not run: {strangers:?}"
+    );
+}
+
+/// One walk a shell script runs: the line it starts on, the kind its `walk` declares, and the gate
+/// it is where the line states one literally.
+#[derive(Debug, PartialEq, Eq)]
+struct Walk {
+    /// The number of the line the command starts on.
+    line: usize,
+    /// The word after `walk`, or `None` where the command runs no `walk`.
+    kind: Option<String>,
+    /// `<package> --test <target>` or `<package> --example <name>`, where both are literal.
+    gate: Option<String>,
+}
+
+/// The `<package> --test <target>` or `<package> --example <name>` a command's words state, where
+/// both are literal rather than a shell variable.
+fn gate_of(words: &[&str]) -> Option<String> {
+    let after = |flag: &str| {
+        words
+            .windows(2)
+            .find(|pair| pair.first() == Some(&flag))
+            .and_then(|pair| pair.get(1))
+            .map(|word| word.trim_matches('"'))
+            .filter(|word| !word.contains('$'))
+    };
+    let package = after("-p")?;
+    ["--test", "--example"]
+        .iter()
+        .find_map(|flag| after(flag).map(|name| format!("{package} {flag} {name}")))
+}
+
+/// Every walk in a shell script: a command, continued lines joined, whose `cargo test`, `cargo
+/// nextest run` or `cargo run` builds under `--profile gates` or `--release` (or a profile held in a
+/// variable), or runs over the whole `--workspace`. Every other `cargo` a state section runs is a
+/// `conformance` count or a dev-profile lookup that holds no corpus, and a `cargo build` is a build.
+/// A comment is not a command.
+fn state_walks(source: &str) -> Vec<Walk> {
+    let mut walks = Vec::new();
+    for (line, text) in joined_lines(source) {
+        if text.trim_start().starts_with('#') {
+            continue;
+        }
+        let words: Vec<&str> = text.split_whitespace().collect();
+        let runs_cargo = words.windows(2).any(|pair| {
+            pair.first()
+                .is_some_and(|word| word.trim_matches('"').ends_with("cargo"))
+                && pair
+                    .get(1)
+                    .is_some_and(|verb| matches!(*verb, "test" | "nextest" | "run"))
+        });
+        let profile = words.windows(2).any(|pair| pair == ["--profile", "gates"])
+            || words
+                .iter()
+                .any(|word| matches!(*word, "--release" | "--workspace" | "$profile"));
+        if !(runs_cargo && profile) {
+            continue;
+        }
+        let kind = words
+            .windows(2)
+            .find(|pair| pair.first() == Some(&"walk"))
+            .and_then(|pair| pair.get(1))
+            .map(|kind| (*kind).to_owned());
+        walks.push(Walk {
+            line,
+            kind,
+            gate: gate_of(&words),
+        });
+    }
+    walks
+}
+
+/// The kind a state section's walk owes beside the merge's own line for the same gate: `clock` where
+/// `tools/batch.sh` runs the gate as a clock run, and anything but `clock` where it runs it as a walk.
+fn merge_clocks(batch: &str) -> Vec<(String, bool)> {
+    let clocks: Vec<&str> = batch
+        .lines()
+        .find_map(|line| line.strip_prefix("clock_gates=\""))
+        .and_then(|rest| rest.strip_suffix('"'))
+        .map(|list| list.split_whitespace().collect())
+        .unwrap_or_default();
+    merge_gates(batch)
+        .into_iter()
+        .filter_map(|(name, call)| {
+            let words: Vec<&str> = call.split_whitespace().collect();
+            gate_of(&words).map(|gate| (gate, clocks.contains(&name.as_str())))
+        })
+        .collect()
+}
+
+/// The findings for one script against the merge's gates: a walk with no `walk`, a kind that is not
+/// one of the three, and a gate the merge runs as a clock run declared as a walk here, or the other
+/// way round.
+fn walk_findings(script: &str, merge: &[(String, bool)]) -> Vec<String> {
+    let mut found = Vec::new();
+    for walk in state_walks(script) {
+        let Walk { line, kind, gate } = &walk;
+        let named = gate.as_deref().unwrap_or("a command with no literal gate");
+        let Some(kind) = kind else {
+            found.push(format!("line {line}: {named} walks unlocked"));
+            continue;
+        };
+        if !matches!(kind.as_str(), "small" | "large" | "clock") {
+            found.push(format!("line {line}: {named} declares `{kind}`"));
+            continue;
+        }
+        let merge_clock = gate
+            .as_ref()
+            .and_then(|gate| merge.iter().find(|(merged, _)| merged == gate))
+            .map(|(_, clock)| *clock);
+        if let Some(clock) = merge_clock
+            && clock != (kind == "clock")
+        {
+            let merge_kind = if clock { "a clock run" } else { "a walk" };
+            found.push(format!(
+                "line {line}: {named} is `{kind}` here and {merge_kind} in the merge"
+            ));
+        }
+    }
+    found
+}
+
+/// **No `tools/state.sh` section walks unlocked** (ADR 1698). Every walk it runs goes through its
+/// `walk` helper, which takes the heavy-walk lock in the lane the declared kind takes (ADR 1684), and
+/// a gate the merge also runs is a `clock` walk here exactly where `tools/batch.sh`'s `clock_gates`
+/// makes it a clock run there — a gate whose verdict is a time is one whoever runs it. Calibrated by
+/// planting (trap 13): the reader names a walk run bare across a continuation, a kind no lane
+/// knows, and a merge clock gate declared `large`, and passes a declared walk, a walk whose gate is
+/// a variable, a `conformance` count and a comment.
+#[test]
+fn every_walk_a_state_section_runs_is_locked_in_its_declared_lane() {
+    let merge_planted = "gates() {\n    run t2-clocked cargo test --release -p e --test clocked -- --ignored\n    \
+                         for t in d; do\n        run \"t2-$t\" cargo test --profile gates -p c --test \"$t\" -- --ignored; done\n}\n\
+                         clock_gates=\"t2-clocked\"\n";
+    let merge = merge_clocks(merge_planted);
+    assert_eq!(
+        merge,
+        [
+            ("e --test clocked".to_owned(), true),
+            ("c --test d".to_owned(), false)
+        ],
+        "the merge's reader is not the shape it states"
+    );
+    let planted = "section_a() {\n    run \"a\" 'x' \\\n        cargo test --profile gates -p a --test b -- --ignored\n    \
+                   run \"c\" 'x' walk small -- cargo test --profile gates -p c --test d -- --ignored\n    \
+                   run \"e\" 'x' walk large -- cargo test --release -p e --test clocked -- --ignored\n    \
+                   run \"f\" 'x' cargo test -p conformance --test f -- --nocapture\n    \
+                   # cargo test --profile gates -p g --test h\n    \
+                   run \"g\" 'x' walk tiny -- cargo nextest run --workspace\n    \
+                   run \"h\" 'x' walk clock -- \"$cargo\" test $profile -p \"$package\" --test \"$target\"\n}\n";
+    assert_eq!(
+        walk_findings(planted, &merge),
+        [
+            "line 2: a --test b walks unlocked",
+            "line 5: e --test clocked is `large` here and a clock run in the merge",
+            "line 8: a command with no literal gate declares `tiny`",
+        ],
+        "the reader is not the shape it states"
+    );
+
+    let read = |path: &str| {
+        std::fs::read_to_string(repository_root().join(path))
+            .unwrap_or_else(|why| panic!("{path} is this gate's population: {why}"))
+    };
+    let merge = merge_clocks(&read("tools/batch.sh"));
+    let script = read("tools/state.sh");
+    let walks = state_walks(&script);
+    let count = |kind: &str| {
+        walks
+            .iter()
+            .filter(|walk| walk.kind.as_deref() == Some(kind))
+            .count()
+    };
+    let shared = walks
+        .iter()
+        .filter(|walk| {
+            walk.gate
+                .as_ref()
+                .is_some_and(|gate| merge.iter().any(|(merged, _)| merged == gate))
+        })
+        .count();
+    println!(
+        "tools/state.sh runs {} walk(s): {} small, {} large, {} clock; {shared} of them gates the \
+         merge's {} also run",
+        walks.len(),
+        count("small"),
+        count("large"),
+        count("clock"),
+        merge.len()
+    );
+    assert!(
+        walks.len() > 30 && merge.len() > 20 && shared > 20,
+        "{} walk(s) in tools/state.sh, {} gate(s) in the merge, {shared} shared: the population is \
+         not the scripts'",
+        walks.len(),
+        merge.len()
+    );
+    let found = walk_findings(&script, &merge);
+    assert!(
+        found.is_empty(),
+        "tools/state.sh walks outside its `walk` helper, or in a lane the merge does not; run each \
+         as `walk small|large|clock -- <command>` (ADR 1698):\n{}",
+        found.join("\n")
     );
 }

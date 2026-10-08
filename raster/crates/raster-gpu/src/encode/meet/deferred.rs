@@ -13,9 +13,11 @@
 //! afterwards reads the bytes they decide: the tile is packed onto the sheet and drawn from
 //! it, and the sheet is read once, by the device, after the walk's `finish`. So the walk
 //! records each such meet beside the place its tile was packed at and goes on; helper threads
-//! make the areas meanwhile ([`super::Helpers`]), and the settle writes them where the walk put
-//! each tile. A frame whose meets never reach [`EXACT_FLOOR_PIXELS`], or a host that allowed
-//! one thread, starts no helper and makes the areas at the settle on the walk's thread.
+//! make the areas meanwhile ([`super::Helpers`]) — the threads of the drain whose commit
+//! recorded the meet, where one is lending them, and otherwise the frame's own — and the settle
+//! writes them where the walk put each tile. A frame whose meets never reach
+//! [`EXACT_FLOOR_PIXELS`] outside a lending drain, or a host that allowed one thread, starts no
+//! helper and makes the areas at the settle on the walk's thread.
 //!
 //! **The bytes are the bytes the walk would have written**, by construction: the same
 //! function of the same inputs, written over the same `min`, whichever thread made them and in
@@ -156,9 +158,10 @@ impl ExactMeet {
 
 impl Encoder<'_> {
     /// Record `exact`, whose tile the walk just packed at `at`, to be settled with the
-    /// frame's other meets; hand it to the helpers where the frame has them, start them where
-    /// the recorded meets have just reached [`EXACT_FLOOR_PIXELS`], and settle every recorded
-    /// meet now where what they hold has passed the queue's limit.
+    /// frame's other meets; hand it to the helpers where the frame has them, start the frame's
+    /// own where no thread is claiming and the recorded meets have reached
+    /// [`EXACT_FLOOR_PIXELS`], and settle every recorded meet now where what they hold has
+    /// passed the queue's limit.
     pub(in crate::encode) fn place_exact(&mut self, at: (u32, u32), exact: ExactMeet) {
         self.exact_held = self.exact_held.saturating_add(exact.held());
         self.exact_pixels = self.exact_pixels.saturating_add(exact.inputs.cut.len());
@@ -167,19 +170,43 @@ impl Encoder<'_> {
             helpers.give(index, Arc::clone(&exact.inputs));
         }
         self.exact_meets.push((at, exact));
-        if self.exact_helpers.is_none()
-            && self.threads > 1
-            && self.exact_pixels >= EXACT_FLOOR_PIXELS
-        {
-            let helpers = Helpers::start(self.threads.saturating_sub(1));
-            for (index, (_, meet)) in self.exact_meets.iter().enumerate() {
-                helpers.give(index, Arc::clone(&meet.inputs));
-            }
-            self.exact_helpers = Some(helpers);
-        }
+        self.start_helpers_if(|_| true);
         if self.exact_held > self.in_flight_limit {
             self.settle_exact();
         }
+    }
+
+    /// Hand the meets a drain's lent threads left given to the frame's own helpers, started
+    /// for them where the frame has none and its meets have reached [`EXACT_FLOOR_PIXELS`],
+    /// so that the walk goes on beside them rather than making them at the settle.
+    pub(in crate::encode) fn hand_on_waiting_meets(&mut self) {
+        self.start_helpers_if(Helpers::waiting);
+    }
+
+    /// Start the frame's own helpers where the host allowed threads, the frame's meets have
+    /// reached [`EXACT_FLOOR_PIXELS`], no thread is claiming them, and `wanted` says so.
+    fn start_helpers_if(&mut self, wanted: impl FnOnce(&Helpers) -> bool) {
+        if self.threads > 1 && self.exact_pixels >= EXACT_FLOOR_PIXELS {
+            let count = self.threads.saturating_sub(1);
+            let helpers = self.meet_helpers();
+            if !helpers.started() && !helpers.claimed_by_someone() && wanted(helpers) {
+                helpers.start(count);
+            }
+        }
+    }
+
+    /// The frame's meets to be made beside the walk, made idle where the frame has none yet
+    /// and given every meet recorded so far, so that a thread that starts or is lent to them
+    /// finds the frame's whole unsettled work.
+    pub(in crate::encode) fn meet_helpers(&mut self) -> &mut Helpers {
+        let recorded = &self.exact_meets;
+        self.exact_helpers.get_or_insert_with(|| {
+            let helpers = Helpers::idle();
+            for (index, (_, meet)) in recorded.iter().enumerate() {
+                helpers.give(index, Arc::clone(&meet.inputs));
+            }
+            helpers
+        })
     }
 
     /// Make every recorded meet's exact pixels that the helpers have not, write each finished

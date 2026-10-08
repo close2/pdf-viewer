@@ -1383,19 +1383,14 @@ fn get_array(this: &JsValue, _arguments: &[JsValue], context: &mut Context) -> J
 
 /// `field.setFocus()`: the keyboard focus asked for on this field — its first terminal field, for a
 /// name that stands for a subtree — as an edit the host carries out (ADR 1615).
+///
+/// The reference makes `setFocus` a widget's, so a `Field` of one widget asks for that widget and
+/// a `Field` of every widget for the first; the host focuses the widget the edit names (ADR 1688).
 fn set_focus(this: &JsValue, _arguments: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
     let name = field_name(this, context)?;
-    // The reference makes `setFocus` a widget's; a host takes a focus request by field and focuses
-    // its first widget, so a `Field` of one widget asks what the host cannot yet carry (ADR 1664).
-    if widget_of(this, context)?.is_some_and(|widget| widget > 0) {
-        return Err(refuse(
-            "Field.setFocus".to_owned(),
-            RefusalKind::NotBridged,
-            context,
-        ));
-    }
+    let widget = widget_of(this, context)?;
     if let Some(field) = terminals(context, &name).into_iter().next() {
-        State::note(context, ScriptEdit::Focus { field });
+        State::note(context, ScriptEdit::Focus { field, widget });
     }
     Ok(JsValue::undefined())
 }
@@ -1404,7 +1399,7 @@ fn set_focus(this: &JsValue, _arguments: &[JsValue], context: &mut Context) -> J
 ///
 /// A keystroke, format or validate script's own field is refused, because those three change their
 /// field through `event.value`.
-fn write_value(name: &str, value: &JsValue, context: &mut Context) -> JsResult<()> {
+pub(super) fn write_value(name: &str, value: &JsValue, context: &mut Context) -> JsResult<()> {
     let (own, site) =
         State::with(context, |record| (record.field.clone(), record.site)).unwrap_or_default();
     if own == name

@@ -21,7 +21,7 @@ use super::super::fill::SolidFill;
 use super::super::instance::CoverageSource;
 use super::super::meet::MarkInputs;
 use super::super::{Encoder, ResolvedClip};
-use super::{Draw, Job, Made, Place, Rasterised, fan_out, rasterise, rasterise_all};
+use super::{Draw, Job, Made, Place, Rasterised, fan_out, rasterise, rasterise_then};
 use crate::raster::Rule;
 
 impl<'a> Encoder<'a> {
@@ -208,6 +208,18 @@ impl<'a> Encoder<'a> {
     /// own (ADR 1409); the next commit drains it before placing anything, and the loop
     /// drains what the last one left, so the queue is empty when this returns.
     pub(in crate::encode) fn drain_queue(&mut self) -> Result<(), RenderError> {
+        self.drain(false)
+    }
+
+    /// [`Encoder::drain_queue`] at the frame's end, where the walk has nothing left to do but
+    /// settle the frame's meets: a drain's lent threads stay until no meet is waiting
+    /// (ADR 1692).
+    pub(in crate::encode) fn drain_last(&mut self) -> Result<(), RenderError> {
+        self.drain(true)
+    }
+
+    /// The drain, `last` where the frame's settle is all that follows it.
+    fn drain(&mut self, last: bool) -> Result<(), RenderError> {
         while !self.queue.is_empty() {
             let jobs = std::mem::take(&mut self.queue);
             self.queued_keys.clear();
@@ -219,10 +231,19 @@ impl<'a> Encoder<'a> {
             // instrument's subject is what the frame spent, not what one thread did
             // (ADR 0023).
             let span = if weight > 0 { self.clock.start() } else { None };
-            let masks = rasterise_all(&jobs, threads);
-            self.clock.geometry(span);
-            for (job, mask) in jobs.iter().zip(masks) {
-                self.commit(job, mask)?;
+            // A drain whose commit can record an exact meet — a job under a residue clip —
+            // lends its fan-out's threads to the frame's meets while it commits (ADR 1692).
+            let lent = (threads > 1 && jobs.iter().any(|job| job.draw.residue.is_some()))
+                .then(|| self.meet_helpers().lend());
+            rasterise_then(&jobs, threads, (lent.as_ref(), last), |masks| {
+                self.clock.geometry(span);
+                for (job, mask) in jobs.iter().zip(masks) {
+                    self.commit(job, mask)?;
+                }
+                Ok::<(), RenderError>(())
+            })?;
+            if lent.is_some() && !last {
+                self.hand_on_waiting_meets();
             }
         }
         Ok(())

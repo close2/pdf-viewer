@@ -6,7 +6,7 @@
 //! `Pages`' recovery scan. This file is the second consumer, and the reason it may come through
 //! is a sentence of §9.6.4 rather than a relaxation of ADR 0784.
 //!
-//! # Why this consumer, and not the one round 896 refused
+//! # Why this consumer, and not the one ADR 0836 refused
 //!
 //! §7.3.7 makes the entries "unordered even though an arbitrary order may be imposed upon them
 //! when written in a file", so a prefix is a **subset of the producer's own entries** and never
@@ -35,7 +35,7 @@
 //!
 //! `corpus-cache/tika-issue-tracker/batch5/cairo/cairo-85141-0.zip-3.pdf`, whose object 76 is
 //! `/F16`'s `/CharProcs` and whose bytes stop mid-entry at `/a112 57` under another stream's
-//! data. Round 908 stopped the parser walking out of that object (ADR 0858) and left forty glyph
+//! data. The parser stops at the end of that object (ADR 0858), which leaves forty glyph
 //! procedures behind this door; ADR 0866 is what takes them.
 
 #![expect(
@@ -90,7 +90,7 @@ const WHOLE: &str = "<< /square 7 0 R /triangle 8 0 R >>";
 ///
 /// `/triangle`'s value reads as the integer `8` — the `0 R` that would have made it a reference
 /// is not there — and the next token where a key belongs is `endobj`, which §7.3.10 gives a
-/// structural meaning, so round 908's arm stops the body there (ADR 0858). The prefix therefore
+/// structural meaning, so ADR 0858's arm stops the body there. The prefix therefore
 /// holds **two** entries and **one** description.
 const DAMAGED: &str = "<< /square 7 0 R /triangle 8";
 

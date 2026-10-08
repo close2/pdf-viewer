@@ -62,7 +62,8 @@ use pdf_model::view::{
     DocumentTrigger, Entered, ScriptEvent, ScriptResult, ScriptRunner, ScriptSite, ViewState,
     widgets_by_field_name,
 };
-use pdf_script::{Budget, Ending, Engine, Request};
+use pdf_script::surface::NOT_BRIDGED;
+use pdf_script::{Budget, Ending, Engine, RefusalKind, Request};
 use pdf_syntax::{Document, Limits};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
@@ -95,6 +96,10 @@ const HELD_UNPARSED: usize = 8;
 /// Fewest runs the walk may hand the engine.
 const HELD_RUNS: usize = 21_101;
 
+/// One refused member's runs, the documents they were in, and whether the refusal was of an
+/// admitted member the bridge does not carry.
+type Refused = (usize, BTreeSet<String>, bool);
+
 /// How the runs ended, counted across the walk.
 #[derive(Debug, Default)]
 struct Tally {
@@ -108,8 +113,9 @@ struct Tally {
     threw: AtomicUsize,
     /// Runs whose script does not parse.
     unparsed: AtomicUsize,
-    /// Every refusal, by member.
-    members: Mutex<BTreeMap<String, usize>>,
+    /// Every refusal, by member, with how many runs, which documents, and whether it was an
+    /// admitted member the bridge does not carry.
+    members: Mutex<BTreeMap<String, Refused>>,
     /// Every budget a run exceeded, by its sentence's kind.
     budgets: Mutex<BTreeMap<String, usize>>,
     /// Every uncaught throw, by its first words, with how many runs and which documents.
@@ -237,7 +243,9 @@ impl ScriptRunner for Counting {
         if let Ok(mut members) = self.tally.members.lock() {
             for refusal in &outcome.refusals {
                 let held = members.entry(refusal.member.clone()).or_default();
-                *held = held.saturating_add(1);
+                held.0 = held.0.saturating_add(1);
+                held.1.insert(self.document.clone());
+                held.2 = refusal.kind == RefusalKind::NotBridged;
             }
         }
         outcome.result()
@@ -407,11 +415,15 @@ fn every_script_tier_0_does_not_run_is_run_in_its_document_s_realm_and_counted()
         println!("throws by name: {kinds:?}");
     }
     if let Ok(members) = tally.members.lock() {
-        let mut ranked: Vec<(&String, &usize)> = members.iter().collect();
-        ranked.sort_by(|left, right| right.1.cmp(left.1).then(left.0.cmp(right.0)));
-        for (member, refused) in ranked.iter().take(25) {
-            println!("refused {refused:>6}  {member}");
+        let mut ranked: Vec<_> = members.iter().collect();
+        ranked.sort_by(|left, right| right.1.0.cmp(&left.1.0).then(left.0.cmp(right.0)));
+        for (member, (refused, documents, _)) in ranked.iter().take(25) {
+            println!(
+                "refused {refused:>6} run(s) {:>4} document(s)  {member}",
+                documents.len()
+            );
         }
+        not_bridged(&members);
     }
     throws_by_cause(&tally);
     assert!(
@@ -419,6 +431,47 @@ fn every_script_tier_0_does_not_run_is_run_in_its_document_s_realm_and_counted()
         "the hook handed none of {fields} field script(s) to the engine"
     );
     hold(&tally, runs);
+}
+
+/// The census of what RFC 0008 section 4.2 admits and the bridge does not carry: every member of
+/// [`NOT_BRIDGED`], with the runs and documents that reached it — a zero is printed, so that a
+/// member no document reaches is seen not to be reached — and any `NotBridged` refusal of a member
+/// the list does not hold, which a refusal raised outside the list would be (ADR 1689).
+fn not_bridged(members: &BTreeMap<String, Refused>) {
+    let listed: BTreeSet<String> = NOT_BRIDGED
+        .iter()
+        .flat_map(|(holder, members)| {
+            members
+                .iter()
+                .map(move |member| format!("{}{member}", holder.prefix()))
+        })
+        .collect();
+    let mut reached = 0_usize;
+    for member in &listed {
+        let (runs, documents) = members
+            .get(member)
+            .map_or((0, 0), |(runs, documents, _)| (*runs, documents.len()));
+        if runs > 0 {
+            reached = reached.saturating_add(1);
+        }
+        let first = members
+            .get(member)
+            .and_then(|(_, documents, _)| documents.iter().next())
+            .map_or("", String::as_str);
+        println!("not bridged {runs:>6} run(s) {documents:>4} document(s)  {member}  {first}");
+    }
+    println!(
+        "not bridged: {reached} of {} listed member(s) reached",
+        listed.len()
+    );
+    for (member, (runs, documents, kind)) in members {
+        if *kind && !listed.contains(member) {
+            println!(
+                "not bridged, outside the list {runs:>6} run(s) {:>4} document(s)  {member}",
+                documents.len()
+            );
+        }
+    }
 }
 
 /// Prints the commonest uncaught throws with the documents they were thrown in, and the documents

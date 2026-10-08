@@ -21,8 +21,9 @@
 //! standard says does not exist (`CLAUDE.md` principle 5).
 //!
 //! What follows is that the reader owed is the one `pdf_syntax::tree` already is — the shape
-//! round 1121 and round 1145 both landed on, where a reader general over any tree leaves no
-//! item-specific reader and no consumer owed. This file is that claim's witness.
+//! §14.6.2's object metadata and an image's associated files have too, where a reader general
+//! over any tree leaves no item-specific reader and no consumer owed. This file is that claim's
+//! witness.
 //!
 //! **Measured, so that the prohibition is not merely quoted**
 //! (`crates/pdf-model/examples/name_dictionary_and_file_spec_census.rs`): of 3427 documents

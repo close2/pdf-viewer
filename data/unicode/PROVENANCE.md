@@ -79,5 +79,20 @@ table so that nothing is parsed at launch:
 - `BidiCharacterTest.txt` is **not compiled in**: `crates/pdf-font/tests/bidi_character_test.rs`
   reads it at test time and runs every line through `pdf_font::shaping`.
 
+## The script data (ADR 1696)
+
+A rich text run asking for pair kerning is kerned by the `GPOS` script table its characters'
+script selects, and two more files of the UCD say what that script is. Both were fetched from
+<https://www.unicode.org/Public/UCD/latest/ucd/> on 2026-10-08, each names version **18.0.0** on
+its first line, and both are shipped unchanged.
+
+    sha256  0071fd81b6aeae25f6e8bce8efec3066a6476a91b49bdb2f52dc76e817862a6a  Scripts.txt
+    sha256  06c4c8eaf7b0bf34abe73b113da1215bd784ac254d4c223600b90267caa4bbbd  PropertyValueAliases.txt
+
+- `Scripts.txt`, both fields — every range's `Script` value but `Common` and `Inherited`, which
+  the reader resolves from the characters beside them; compiled by `crates/pdf-font/build.rs`.
+- `PropertyValueAliases.txt`, the `sc` rows' first two value fields — each `Script` value's short
+  alias, the ISO 15924 code the table is written in.
+
 The bidirectional algorithm's own class data is `unicode-bidi`'s, a Cargo dependency whose licence
 `cargo deny` reads; these files are what the same notice in `/NOTICE` section 5 covers.

@@ -425,8 +425,8 @@ fn the_notifier_is_told_exactly_when_the_document_changed() {
 /// the reason is one sentence: `cp(1)` does not issue `create` for a name that exists. It issues
 /// `openat(…, O_WRONLY|O_TRUNC)` and then `write(2)` — and this face answered that with a *read*
 /// handle, so `cp new.pdf mnt/pages/0004.pdf`, the example RFC 0003 section 5.2 leads with, could
-/// not be done at all: the first byte came back `EPERM`. `strace` has it verbatim in round 911's
-/// record.
+/// not be done at all: the first byte came back `EPERM`. `strace` has it verbatim in ADR
+/// 0864.
 ///
 /// So the three shapes are held here together, because they are one decision:
 ///
@@ -484,7 +484,7 @@ fn a_write_open_on_a_name_that_exists_is_the_verb_cp_actually_uses() {
 ///
 /// `touch(1)` opens `O_WRONLY|O_CREAT`, sets the times and closes without a byte. Committing that
 /// as a zero-length write made `touch mnt/pages/0001.pdf` fail with "not a PDF: no %PDF- header in
-/// the first 0 bytes" — an input/output error about a document nobody had touched (round 911).
+/// the first 0 bytes" — an input/output error about a document nobody had touched (ADR 0864).
 /// The times themselves are still refused, which is what `touch` should be told.
 #[test]
 fn an_open_for_writing_that_writes_nothing_commits_nothing_and_says_nothing() {
@@ -519,7 +519,7 @@ fn an_open_for_writing_that_writes_nothing_commits_nothing_and_says_nothing() {
 /// RFC 0003 section 5.3's requirement is about *refusals*, which is what the mount's own log
 /// exists for. A file manager probes `.directory` in every directory it opens, macOS writes
 /// `.DS_Store` and `git` looks for `.gitignore`; a mount by hand produced fifteen `ENOENT` lines
-/// before it had been asked to do anything at all (round 911).
+/// before it had been asked to do anything at all (ADR 0864).
 #[test]
 fn a_name_the_document_does_not_have_is_not_a_refusal() {
     let (_backing, face, log) = mounted(FIVE_PAGES);

@@ -1218,9 +1218,12 @@ them, so a document whose scripts throw on every field fills the report with its
    (ADR 1665). The reference's widget addressing — `getField("myRadio.0")` is one widget — is
    answered: a field's state is its own members and one state per widget across the wire, a
    widget member set through one widget's `Field` reaches that widget alone, and the value stays
-   the field's (ADR 1664). `setFocus` through a widget after the first stays refused by name: the
-   request crosses to a host as a field's name (`ViewState::take_focus_request`), and the host
-   focuses that field's first widget, so answering it changes both sides of that boundary at once.
+   the field's (ADR 1664). `setFocus` is a widget's too: the request carries the widget's place in
+   the field table's order across the wire and through `ViewState::take_focus_request`, and the
+   host focuses that widget and turns to the page its `/P` names (ADR 1688). A check box's
+   `isBoxChecked` and `checkThisBox` read and set the value by each widget's §12.7.5.2.3 on state,
+   which crosses with the widget; what the column's `not bridged` lines and the static census rank
+   after them — `getAnnots`, `app.beep`, the timers — is ADR 1689's tail.
 
 No throw is a Tier 2 member's: every refusal the column meets is caught or carried.
 

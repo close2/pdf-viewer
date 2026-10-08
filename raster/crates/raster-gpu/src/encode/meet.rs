@@ -30,7 +30,7 @@ mod kept;
 
 pub(in crate::encode) use convex::ChainLink;
 pub(in crate::encode) use deferred::ExactMeet;
-pub(in crate::encode) use helpers::Helpers;
+pub(in crate::encode) use helpers::{Helpers, Lent};
 pub(crate) use kept::KeptMeets;
 pub(in crate::encode) use kept::KeptRegion;
 
