@@ -7251,6 +7251,120 @@ fn a_host_may_open_a_popup_without_a_pointer() {
     );
 }
 
+/// A 300×300 page carrying one `Text` annotation that states no `/Popup`, its icon at `left`.
+fn with_a_note_alone(open: bool, left: f32) -> Vec<u8> {
+    use std::fmt::Write as _;
+
+    let right = left + 20.0;
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] \
+         /Resources << >> /Contents 4 0 R /Annots [5 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /Annot /Subtype /Text /Rect [{left} 260 {right} 280] \
+         /T (the author) /Contents (a note of its own) /Open {open} >>\nendobj\n"
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// Opens `with_a_note_alone` into a 400×400 viewport and settles the first frame.
+fn note_alone_viewer(open: bool, left: f32) -> Viewer {
+    let mut viewer = Viewer::new(400, 400, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_a_note_alone(open, left).into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    viewer
+}
+
+#[test]
+fn a_text_note_with_no_popup_opens_a_window_of_its_own() {
+    // §12.5.6.4: "when open, it shall display a popup window containing the text of the note",
+    // and Table 175's `/Open` is "[a] flag specifying whether the annotation shall initially be
+    // displayed open" — so a note that states no `/Popup` and is open shows its text in a window
+    // this program places: three inches by two, its top-left corner at the icon's top-right one
+    // (ADR 1723).
+    let viewer = note_alone_viewer(true, 10.0);
+    let Answer::Popups(windows) = viewer.query(Query::Popups) else {
+        panic!("a popup query answers with popups");
+    };
+    assert_eq!(windows.len(), 1, "{windows:?}");
+    let window = &windows[0];
+    assert_eq!(window.annotation, pdf_syntax::ObjectId::new(5, 0));
+    assert_eq!(window.parent, None);
+    assert_eq!(window.text.as_deref(), Some("a note of its own"));
+    assert_eq!(window.title.as_deref(), Some("the author"));
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("the page on the screen has a geometry");
+    };
+    let width = window.quad[2] - window.quad[0];
+    let height = window.quad[5] - window.quad[3];
+    assert!((width - 216.0 * geometry.scale).abs() < 0.01, "{width}");
+    assert!((height - 144.0 * geometry.scale).abs() < 0.01, "{height}");
+    let (icon_x, icon_y) = device_point(&viewer, [10.0, 260.0, 30.0, 280.0], 300.0);
+    assert!((window.quad[0] - (icon_x + 10.0 * geometry.scale)).abs() < 0.01);
+    assert!((window.quad[1] - (icon_y - 10.0 * geometry.scale)).abs() < 0.01);
+
+    // Where the window would cross the crop box's right edge it stands at the icon's left.
+    let viewer = note_alone_viewer(true, 250.0);
+    let Answer::Popups(windows) = viewer.query(Query::Popups) else {
+        panic!("a popup query answers with popups");
+    };
+    let (icon_x, _) = device_point(&viewer, [250.0, 260.0, 270.0, 280.0], 300.0);
+    let right = windows.first().map(|window| window.quad[2]);
+    assert!(
+        right.is_some_and(|right| (right - (icon_x - 10.0 * geometry.scale)).abs() < 0.01),
+        "{right:?} against the icon at {icon_x}"
+    );
+}
+
+#[test]
+fn a_text_note_with_no_popup_is_opened_and_closed_by_its_activation() {
+    // §12.5.1's exhibition, on the note itself, which is what names its own window.
+    let mut viewer = note_alone_viewer(false, 10.0);
+    assert!(
+        matches!(viewer.query(Query::Popups), Answer::Popups(windows) if windows.is_empty()),
+        "the file says closed, so nothing is open"
+    );
+    viewer
+        .handle(Command::Activate(pdf_syntax::ObjectId::new(5, 0)))
+        .for_each(drop);
+    assert!(
+        matches!(viewer.query(Query::Popups), Answer::Popups(windows) if windows.len() == 1),
+        "activating the note opens its own window"
+    );
+    viewer
+        .handle(Command::Activate(pdf_syntax::ObjectId::new(5, 0)))
+        .for_each(drop);
+    assert!(
+        matches!(viewer.query(Query::Popups), Answer::Popups(windows) if windows.is_empty()),
+        "and activating it again puts the window away"
+    );
+}
+
 /// §12.5.6.10: a person marks up what they selected, and undo takes it away again.
 ///
 /// The first edit that *adds* an object to a document rather than changing one it holds, which

@@ -67,6 +67,17 @@
 //! meanwhile. The last test holds `tools/state.sh` to no `cargo build` of its own — each walk takes
 //! its builds with `--build`, inside its hold — and holds the worker each walk derives, and the
 //! `pdfref-hayro` a walk whose test asks `Reference::Hayro` declares, to what the script prints.
+//!
+//! **Nor tells a person to, nor builds in the merge what no gate needs** (ADR 1718). An instruction
+//! that opens a line with `cargo build … -p pdf-sandbox --bins` is trap 109's defect spelled for a
+//! person to copy, and one test holds every tracked instruction to the walk's own `--build`; another
+//! holds every build `tools/batch.sh`'s merge runs to a gate after it that spawns that program from
+//! another package, and every gate that spawns one to a build ahead of it under its own profile.
+//!
+//! **And a run that is not a walk is named where the lock's cost is read.** The rule line says
+//! `cargo test -p conformance` and crate-scoped tests are not walks; one waited 1 820.8 s behind the
+//! lock all the same (ADR 1706). The last test plants a log and holds `tools/state.sh gates-cost` to
+//! naming those runs, with their queue, and to passing every shape a walk has.
 
 #![expect(
     clippy::expect_used,
@@ -1126,5 +1137,423 @@ fn a_walk_whose_test_asks_hayro_builds_it_inside_its_hold() {
         found.is_empty(),
         "these walks ask Reference::Hayro and build no pdfref-hayro inside their hold:\n{}",
         found.join("\n")
+    );
+}
+
+/// Whether `line` tells a person to build the sandbox worker with a `cargo build` of its own: a
+/// command that opens the line — after a comment's marker, behind environment assignments, or after a
+/// `;` or `&&` — naming `pdf-sandbox` with `--bins`, or `pdf-sandbox-worker`. A walk takes that build
+/// as its wrapper's `--build`, inside its hold (trap 109, ADR 1710), and a build spelled before the
+/// lock is as old as the moment the walk stopped queueing. Prose that names the build as what makes
+/// the worker opens no line with it, and is not an instruction to run it before anything.
+fn spells_a_worker_build_outside_the_hold(line: &str) -> bool {
+    let text = line.trim_start();
+    let text = ["//!", "///", "//", "#"]
+        .iter()
+        .find_map(|marker| text.strip_prefix(marker))
+        .unwrap_or(text);
+    let words: Vec<&str> = text.split_whitespace().collect();
+    words.windows(2).enumerate().any(|(at, pair)| {
+        let opens = words.get(..at).is_some_and(|before| {
+            before
+                .iter()
+                .all(|word| word.contains('=') && !word.starts_with('-'))
+                || before
+                    .last()
+                    .is_some_and(|word| *word == "&&" || word.ends_with(';'))
+        });
+        let builds = pair.first().is_some_and(|word| word.ends_with("cargo"))
+            && pair.get(1) == Some(&"build");
+        let command: Vec<&str> = words
+            .iter()
+            .skip(at.saturating_add(2))
+            .take_while(|word| !matches!(**word, "&&" | "||" | "|" | "#") && !word.ends_with(';'))
+            .copied()
+            .collect();
+        opens
+            && builds
+            && ((command.contains(&"pdf-sandbox") && command.contains(&"--bins"))
+                || command.contains(&"pdf-sandbox-worker"))
+    })
+}
+
+/// The files that still tell a person to run the worker's build before a walk rather than as its
+/// `--build`, each another round's to re-spell: a ratchet, so a file leaves this list the day it is
+/// re-spelled and none joins it.
+const HELD_WORKER_BUILD_INSTRUCTIONS: [&str; 5] = [
+    "crates/pdf-model/tests/raster_golden.rs",
+    "doc/checks/fixed-documents.toml",
+    "doc/checks/launch-path.toml",
+    "doc/todo/02-every-round.md",
+    "doc/todo/03-more-corpora.md",
+];
+
+/// Every instruction a person reads builds the sandbox worker inside the walk's hold: the scripts
+/// already do (the test above), and the doc comments a round copies a walk from told it to run
+/// `cargo build … -p pdf-sandbox --bins` first, which is trap 109's defect spelled as an instruction.
+/// The population is the bare-`flock` sweep's: every tracked text file but the records and this
+/// file. Calibrated by planting (trap 13): the reader names the build in a doc comment, in a shell
+/// comment, behind an assignment and after `;`, and by the worker's own name; it passes the
+/// wrapper's `--build`, the merge's gate line, a build of another package and the build named in
+/// prose.
+#[test]
+fn every_instruction_a_person_reads_builds_the_worker_inside_the_walks_hold() {
+    for planted in [
+        "//! cargo build --profile gates -p pdf-sandbox --bins     # trap 10",
+        "#   cargo build --release -p pdf-sandbox --bins",
+        "RAYON_NUM_THREADS=4 cargo build -p pdf-sandbox --bins",
+        "ulimit -u 8192; cargo build --profile gates -p pdf-sandbox --bins && tools/bounded.sh --lock",
+        "cargo build --release --bin quorra --bin pdf-sandbox-worker   # what the measurement runs",
+    ] {
+        assert!(
+            spells_a_worker_build_outside_the_hold(planted),
+            "the reader passed {planted:?}"
+        );
+    }
+    for clean in [
+        "//! tools/bounded.sh --lock --round <session> --tree 12 --build '--profile gates -p pdf-sandbox --bins' -- \\",
+        "    run build-sandbox  cargo build --profile gates -p pdf-sandbox --bins",
+        "//! cargo build --release -p pdf-script-worker --features engine --bins",
+        "Build it with `cargo build --release -p pdf-sandbox --bins` and put it beside this binary.",
+        "`cargo build --release -p pdf-sandbox --bins`, and `$C` is",
+    ] {
+        assert!(
+            !spells_a_worker_build_outside_the_hold(clean),
+            "the reader named {clean:?}"
+        );
+    }
+
+    let listed = Command::new("git")
+        .arg("-C")
+        .arg(repository_root())
+        .args(["ls-files", "-z"])
+        .output()
+        .expect("git lists the tree");
+    assert!(listed.status.success(), "git ls-files failed");
+    let records = ["doc/adr/", "doc/history/", "doc/reviews/"];
+    let text = ["rs", "md", "sh", "py", "toml", "txt", "yml", "yaml"];
+    let mut read = 0_usize;
+    let mut owed = Vec::new();
+    let mut spelled: Vec<String> = Vec::new();
+    for path in String::from_utf8_lossy(&listed.stdout).split('\0') {
+        let is_text = Path::new(path)
+            .extension()
+            .is_some_and(|extension| text.iter().any(|kind| extension == *kind));
+        if !is_text
+            || records.iter().any(|record| path.starts_with(record))
+            || path == "tools/conformance/tests/bounded.rs"
+        {
+            continue;
+        }
+        let Ok(source) = std::fs::read_to_string(repository_root().join(path)) else {
+            continue;
+        };
+        read = read.saturating_add(1);
+        let lines: Vec<usize> = source
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| spells_a_worker_build_outside_the_hold(line))
+            .map(|(index, _)| index.saturating_add(1))
+            .collect();
+        if lines.is_empty() {
+            continue;
+        }
+        spelled.push(path.to_owned());
+        if !HELD_WORKER_BUILD_INSTRUCTIONS.contains(&path) {
+            owed.push(format!("{path}:{lines:?}"));
+        }
+    }
+    println!(
+        "{read} tracked text file(s) read for a worker build outside a walk's hold; {} held, {} owed",
+        spelled.len().saturating_sub(owed.len()),
+        owed.len()
+    );
+    assert!(
+        read >= 1000,
+        "{read} file(s) read: the population is not the tree"
+    );
+    assert!(
+        owed.is_empty(),
+        "these lines tell a person to build the sandbox worker before a walk; spell it as the walk's \
+         own `tools/bounded.sh --lock … --build '<profile> -p pdf-sandbox --bins' --`:\n{}",
+        owed.join("\n")
+    );
+    let fixed: Vec<&str> = HELD_WORKER_BUILD_INSTRUCTIONS
+        .iter()
+        .copied()
+        .filter(|held| !spelled.iter().any(|path| path == held))
+        .collect();
+    assert!(
+        fixed.is_empty(),
+        "these files no longer build the worker outside a walk's hold, so they leave the held list: \
+         {fixed:?}"
+    );
+}
+
+/// The programs a gate's test spawns from another package, which Cargo does not build for it (trap
+/// 10): what the test file says that shows it spawns one — a call, since an exemption may name the
+/// requirement it does not make — and the package whose build makes it. A
+/// package's own programs are not here, because Cargo builds those for its integration tests.
+const SPAWNED_PROGRAMS: [(&str, &str); 2] = [
+    ("require_the_sandbox(", "pdf-sandbox"),
+    ("Reference::Hayro", "hayro-compare"),
+];
+
+/// The cargo subcommand a gate's command runs and the words of that command up to its own `--`:
+/// a command under `tools/bounded.sh` is read after the wrapper's `--`.
+fn cargo_command(call: &str) -> Option<(String, Vec<String>)> {
+    let words: Vec<&str> = call.split_whitespace().collect();
+    let at = words.windows(2).position(|pair| {
+        pair.first().is_some_and(|word| word.ends_with("cargo"))
+            && pair
+                .get(1)
+                .is_some_and(|word| matches!(*word, "build" | "test"))
+    })?;
+    let subcommand = (*words.get(at.saturating_add(1))?).to_owned();
+    let command = words
+        .iter()
+        .skip(at.saturating_add(2))
+        .take_while(|word| **word != "--")
+        .map(|word| (*word).to_owned())
+        .collect();
+    Some((subcommand, command))
+}
+
+/// The profile a cargo command's words state, as `cargo build` takes it: `--release`, `--profile
+/// <name>`, or nothing for the dev profile.
+fn profile_of(words: &[String]) -> String {
+    if words.iter().any(|word| word == "--release") {
+        return "--release".to_owned();
+    }
+    words
+        .windows(2)
+        .find(|pair| pair.first().is_some_and(|word| word == "--profile"))
+        .and_then(|pair| pair.get(1))
+        .map_or_else(String::new, |name| format!("--profile {name}"))
+}
+
+/// What the merge's builds and gates disagree on: a gate whose test spawns another package's
+/// program that no build ahead of it makes under the gate's profile, and a build that no gate after
+/// it spawns from another package. `source_of` reads a gate's test file; the count is of the gates
+/// that spawn one.
+fn merge_build_findings(
+    script: &str,
+    source_of: impl Fn(&str) -> Option<String>,
+) -> (Vec<String>, usize) {
+    let mut found = Vec::new();
+    let mut spawning = 0_usize;
+    let mut builds: Vec<(String, String, String, bool)> = Vec::new();
+    for (name, call) in merge_gates(script) {
+        let Some((subcommand, words)) = cargo_command(&call) else {
+            continue;
+        };
+        let profile = profile_of(&words);
+        let package = words
+            .windows(2)
+            .find(|pair| pair.first().is_some_and(|word| word == "-p"))
+            .and_then(|pair| pair.get(1))
+            .cloned()
+            .unwrap_or_default();
+        if subcommand == "build" {
+            builds.push((name, profile, package, false));
+            continue;
+        }
+        let refs: Vec<&str> = words.iter().map(String::as_str).collect();
+        let Some(source) = gate_of(&refs).and_then(|gate| source_of(&gate)) else {
+            continue;
+        };
+        let mut spawns = false;
+        for (marker, program) in SPAWNED_PROGRAMS {
+            if !source.contains(marker) || package == program {
+                continue;
+            }
+            spawns = true;
+            match builds
+                .iter_mut()
+                .find(|(_, built, made, _)| *built == profile && made == program)
+            {
+                Some(build) => build.3 = true,
+                None => found.push(format!(
+                    "{name}: its test spawns {program}'s program under `{}` and no build ahead of \
+                     it makes one",
+                    if profile.is_empty() { "dev" } else { &profile }
+                )),
+            }
+        }
+        spawns.then(|| spawning = spawning.saturating_add(1));
+    }
+    for (name, profile, package, used) in builds {
+        if !used {
+            found.push(format!(
+                "{name}: builds {package} under `{profile}` and no gate after it spawns that \
+                 program from another package"
+            ));
+        }
+    }
+    (found, spawning)
+}
+
+/// **Every program a merge gate spawns from another package is built ahead of it, and every build
+/// the merge runs is one a gate needs** (trap 10, ADR 1718). A gate whose worker no build makes
+/// measures whatever worker the last build left, and a build no gate needs is a line nobody can say
+/// the reason for: the `pdf-vfs` and `viewer-confined` builds were their packages' own programs,
+/// which Cargo builds for the package's integration tests. Calibrated by planting (trap 13): the
+/// reader names a gate with no build, one whose build is another profile's, one whose build comes
+/// after it, and a build of a gate's own package; it passes a gate that spawns nothing and one whose
+/// exemption names the requirement without calling it.
+#[test]
+fn every_program_a_merge_gate_spawns_is_built_ahead_of_it_and_no_build_is_idle() {
+    let planted = "gates() {\n    run build-sandbox cargo build --profile gates -p pdf-sandbox --bins\n    \
+                   run build-own cargo build --profile gates -p own --bins\n    \
+                   for t in decodes plain; do\n        run \"t2-$t\" cargo test --profile gates -p m --test \"$t\" -- --ignored; done\n    \
+                   run t2-release cargo test --release -p m --test decodes -- --ignored\n    \
+                   run t2-says cargo test --release -p m --test says -- --ignored\n    \
+                   run t2-wrapped tools/bounded.sh --data 8 --tree 12 -- cargo test --profile gates -p m --test asks -- --ignored\n    \
+                   run build-hayro cargo build --profile gates -p hayro-compare --bin pdfref-hayro\n    \
+                   run t3-own cargo test --profile gates -p own --test plain -- --ignored\n}\n";
+    let (found, spawning) = merge_build_findings(planted, |gate| {
+        Some(
+            match gate.rsplit(' ').next() {
+                Some("decodes") => "require_the_sandbox();",
+                Some("asks") => "require_the_sandbox(); Reference::Hayro",
+                Some("says") => {
+                    "// no sandbox worker: a page that adds one owes `require_the_sandbox`"
+                }
+                _ => "// no sandbox worker: none",
+            }
+            .to_owned(),
+        )
+    });
+    assert_eq!(
+        (found, spawning),
+        (
+            vec![
+                "t2-release: its test spawns pdf-sandbox's program under `--release` and no build \
+                 ahead of it makes one"
+                    .to_owned(),
+                "t2-wrapped: its test spawns hayro-compare's program under `--profile gates` and no \
+                 build ahead of it makes one"
+                    .to_owned(),
+                "build-own: builds own under `--profile gates` and no gate after it spawns that \
+                 program from another package"
+                    .to_owned(),
+                "build-hayro: builds hayro-compare under `--profile gates` and no gate after it \
+                 spawns that program from another package"
+                    .to_owned(),
+            ],
+            3
+        ),
+        "the merge's build reader is not the shape it states"
+    );
+
+    let script = std::fs::read_to_string(repository_root().join("tools/batch.sh"))
+        .expect("tools/batch.sh is in the tree");
+    let (found, spawning) = merge_build_findings(&script, test_source);
+    println!("{spawning} merge gate(s) spawn a program another package builds");
+    assert!(
+        spawning >= 5,
+        "{spawning} merge gate(s) spawn another package's program: the population is not the merge's"
+    );
+    assert!(
+        found.is_empty(),
+        "the merge's builds and the programs its gates spawn disagree:\n{}",
+        found.join("\n")
+    );
+}
+
+/// `tools/state.sh gates-cost` names every run of the last batch that took the lock for a command
+/// the rule line says is not a walk — `cargo test -p conformance` and a crate-scoped test, which is
+/// a dev-profile `cargo test` or `cargo nextest run` asking no `--ignored` test — with its queue, and
+/// sums them (ADR 1706's 1 820.8 s, ADR 1718). Calibrated by planting (trap 13): the reader names
+/// the conformance run, a crate's `nextest` and one under `bash -c`, and passes a gate under
+/// `--profile gates`, a `--release` test, an `--ignored` dev walk, a `--workspace` run, a build,
+/// and a conformance run of an earlier batch.
+#[test]
+fn the_lock_cost_names_a_run_that_is_not_a_walk() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_nanos());
+    let scratch = std::env::temp_dir().join(format!("not-a-walk-{}-{nanos}", std::process::id()));
+    std::fs::create_dir_all(&scratch).expect("a temporary directory");
+    let log = scratch.join("heavy-walk.log");
+    let line = |round: &str, wait: &str, cmd: &str| {
+        format!(
+            "2026-10-08T05:00:00 batch=batch-{} round={round} wait={wait}s hold=1.0s exit=0 peak=0.10GiB behind=- kind=small lane=1 cmd={cmd} \n",
+            if round == "90" { "90-95" } else { "100-105" }
+        )
+    };
+    let planted = [
+        line("90", "50.0", "cargo test -p conformance"),
+        line(
+            "101",
+            "1820.8",
+            "cargo test -j 4 -p conformance --test round_numbers",
+        ),
+        line(
+            "101",
+            "2.0",
+            "cargo nextest run -j 6 -p raster-gpu --no-fail-fast",
+        ),
+        line(
+            "102",
+            "3.0",
+            "bash -c cargo clippy -p a --all-targets && cargo nextest run -p a",
+        ),
+        line(
+            "102",
+            "4.0",
+            "cargo test --profile gates -p pdf-model --test jpeg2000 -- --nocapture",
+        ),
+        line(
+            "103",
+            "5.0",
+            "cargo test --release -p viewer-ui --test launch_path -- --ignored --nocapture",
+        ),
+        line(
+            "103",
+            "6.0",
+            "cargo test -p pdf-model --test corpus -- --ignored --nocapture",
+        ),
+        line("104", "7.0", "cargo nextest run --workspace"),
+        line("104", "8.0", "cargo build --release -p pdf-sandbox --bins"),
+    ]
+    .concat();
+    std::fs::write(&log, planted).expect("a planted lock log");
+    let gates = scratch.join("batch-gates.log");
+    std::fs::write(&gates, "").expect("an empty gate log");
+    let output = Command::new("bash")
+        .arg(repository_root().join("tools/state.sh"))
+        .arg("gates-cost")
+        .env("HEAVY_WALK_LOG", &log)
+        .env("BATCH_GATES_LOG", &gates)
+        .output()
+        .expect("bash runs tools/state.sh");
+    let _ = std::fs::remove_dir_all(&scratch);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let named: Vec<String> = stdout
+        .lines()
+        .filter(|line| line.trim_start().starts_with("not a walk:"))
+        .map(|line| {
+            line.split_whitespace()
+                .skip(4)
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect();
+    assert_eq!(
+        named,
+        [
+            "round 101 wait 1820.8s cargo test -j 4 -p conformance --test round_numbers",
+            "round 101 wait 2.0s cargo nextest run -j 6 -p raster-gpu --no-fail-fast",
+            "round 102 wait 3.0s bash -c cargo clippy -p a --all-targets && cargo nextest run -p a",
+        ],
+        "the runs named as not walks are not the planted ones:\n{stdout}"
+    );
+    assert!(
+        stdout.contains(
+            "3 run(s) of batch batch-100-105 took the lock for a dev-profile test asking no --ignored, \
+             which the rule line says is not a walk: 1825.8s of queue"
+        ),
+        "the not-a-walk runs are not summed:\n{stdout}"
     );
 }

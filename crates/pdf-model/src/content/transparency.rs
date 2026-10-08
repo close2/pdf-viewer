@@ -265,8 +265,8 @@ fn space_departure(document: &Document, entry: &Object) -> Option<Departure> {
 /// gamma 1 inside a `CalRGB` of gamma 2.2 is a change of space with a conversion between the
 /// two at its `Do`, and until ADR 0797 the two compared equal by name and the inner one
 /// inherited in silence. The hash is of the space's own parameters — Table 62's and 63's
-/// entries, a profile's bytes, `Lab`'s range — and is compared within one interpretation,
-/// which is all `std::hash::DefaultHasher` promises.
+/// entries, a profile's bytes, `Lab`'s white point and range — and is compared within one
+/// interpretation, which is all `std::hash::DefaultHasher` promises.
 fn space_identity(space: &ColourSpace) -> Option<u64> {
     use std::hash::{DefaultHasher, Hash, Hasher};
     let mut hasher = DefaultHasher::new();
@@ -274,7 +274,10 @@ fn space_identity(space: &ColourSpace) -> Option<u64> {
         ColourSpace::Icc { profile } => profile.identity().hash(&mut hasher),
         ColourSpace::CalGray { .. } => space.grey_identity()?.hash(&mut hasher),
         ColourSpace::CalRgb { .. } => space.rgb_identity()?.hash(&mut hasher),
-        ColourSpace::Lab { range } => range.map(f32::to_bits).hash(&mut hasher),
+        ColourSpace::Lab { white, range, .. } => {
+            white.map(f32::to_bits).hash(&mut hasher);
+            range.map(f32::to_bits).hash(&mut hasher);
+        }
         _ => return None,
     }
     Some(hasher.finish())

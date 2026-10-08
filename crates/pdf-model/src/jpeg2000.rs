@@ -288,6 +288,114 @@ impl ColourSpecification<'_> {
     pub const RESTRICTED_ICC: u8 = 2;
     /// Part 1 Table I-9's value 1, the Enumerated method.
     pub const ENUMERATED: u8 = 1;
+    /// T.801 Table M.25's value 14, CIE Lab.
+    pub const CIELAB: u32 = 14;
+
+    /// The illuminant a CIE Lab specification's values were computed under, or `None` for any
+    /// other specification.
+    ///
+    /// T.801 M.11.7.4.1 lays `EP` out as six four-byte range and offset fields and then `IL`, and
+    /// makes an omitted field its default, which for `IL` is CIE Illuminant D50. So a box whose
+    /// `EP` stops before `IL` states D50.
+    #[must_use]
+    pub fn cielab_illuminant(&self) -> Option<Illuminant> {
+        /// `RL`, `OL`, `RA`, `OA`, `RB` and `OB`, four bytes each, before `IL`. T.801 Table M.30.
+        const RANGES: usize = 24;
+        if self.enumerated != Some(Self::CIELAB) {
+            return None;
+        }
+        Some(
+            self.parameters
+                .get(RANGES..RANGES.saturating_add(4))
+                .and_then(|field| <[u8; 4]>::try_from(field).ok())
+                .map_or(Illuminant::D50, Illuminant::from_field),
+        )
+    }
+}
+
+/// A CIE Lab specification's `IL` field: T.801 M.11.7.4.1 and T.801 Table M.29, which take their
+/// codes from ITU-T T.4 Annex E, section E.6.7.
+///
+/// The field names an illuminant rather than stating the white point the Lab values are relative
+/// to, so the white point is this type's to supply, and [`Self::white_point`] says where each one
+/// comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Illuminant {
+    /// CIE Illuminant D50, the field's default.
+    D50,
+    /// CIE Illuminant D65.
+    D65,
+    /// CIE Illuminant D75.
+    D75,
+    /// CIE standard illuminant A, coded `SA`.
+    A,
+    /// CIE illuminant C, coded `SC`.
+    C,
+    /// CIE illuminant F2.
+    F2,
+    /// CIE illuminant F7.
+    F7,
+    /// CIE illuminant F11.
+    F11,
+    /// An illuminant stated by its colour temperature alone, in kelvin: `CT` and two bytes.
+    ColourTemperature(u16),
+    /// Four bytes neither table codes.
+    Unknown([u8; 4]),
+}
+
+impl Illuminant {
+    /// The illuminant four `IL` bytes code.
+    #[must_use]
+    pub fn from_field(field: [u8; 4]) -> Self {
+        match field {
+            [0x00, 0x44, 0x35, 0x30] => Self::D50,
+            [0x00, 0x44, 0x36, 0x35] => Self::D65,
+            [0x00, 0x44, 0x37, 0x35] => Self::D75,
+            [0x00, 0x00, 0x53, 0x41] => Self::A,
+            [0x00, 0x00, 0x53, 0x43] => Self::C,
+            [0x00, 0x00, 0x46, 0x32] => Self::F2,
+            [0x00, 0x00, 0x46, 0x37] => Self::F7,
+            [0x00, 0x46, 0x31, 0x31] => Self::F11,
+            [b'C', b'T', high, low] => Self::ColourTemperature(u16::from_be_bytes([high, low])),
+            other => Self::Unknown(other),
+        }
+    }
+
+    /// The illuminant's white point, as CIE 1931 XYZ with `Y` at 1.0, or `None` where the code
+    /// names no spectrum.
+    ///
+    /// Each value is a held text's or the CIE's own data's, never a renderer's (ADR 1713):
+    ///
+    /// - **D50** is the white point ITU-T T.4 section E.6.4 states for its default illuminant,
+    ///   X 96.422, Y 100 and Z 82.521, scaled to `Y` = 1.
+    /// - **D65** is the one ISO 32000-2 §8.6.5.4's EXAMPLE writes in a `Lab` space's
+    ///   `/WhitePoint`, `[0.9505 1.00 1.0890]`.
+    /// - **The other six** are the tristimulus sums of the CIE's published relative spectral
+    ///   distributions against its 1931 2° colour-matching functions, at every wavelength both
+    ///   tables state, rounded to five places; `data/cie/` holds the tables and
+    ///   `every_white_point_is_the_cie_datas_own_sum` recomputes each value from them.
+    ///
+    /// - **A colour temperature** is the Planckian radiator's at that temperature, which is what
+    ///   the CIE's vocabulary defines the term as: [`pdf_colour::planckian::white_point`].
+    ///
+    /// A code no table defines names nothing, and has no white point.
+    #[must_use]
+    pub fn white_point(self) -> Option<[f32; 3]> {
+        match self {
+            Self::D50 => Some([0.964_22, 1.0, 0.825_21]),
+            Self::D65 => Some([0.950_5, 1.0, 1.089]),
+            Self::D75 => Some([0.949_72, 1.0, 1.226_37]),
+            Self::A => Some([1.098_5, 1.0, 0.355_85]),
+            Self::C => Some([0.980_73, 1.0, 1.182_33]),
+            Self::F2 => Some([0.991_86, 1.0, 0.673_94]),
+            Self::F7 => Some([0.950_42, 1.0, 1.087_49]),
+            Self::F11 => Some([1.009_61, 1.0, 0.643_51]),
+            Self::ColourTemperature(kelvin) => {
+                pdf_colour::planckian::white_point(f64::from(kelvin))
+            }
+            Self::Unknown(_) => None,
+        }
+    }
 }
 
 /// The `ftyp` box, ISO/IEC 15444-1:2000 I.5.2.
@@ -1513,6 +1621,140 @@ mod tests {
         let headers = Headers::parse(&data).expect("the file is well formed");
         assert_eq!(headers.colour[0].enumerated, Some(14));
         assert_eq!(headers.colour[0].parameters, &[0, 0, 0, 100]);
+    }
+
+    /// T.801 M.11.7.4.1: `IL` is the seventh four-byte field of a CIE Lab box's `EP`, coded as
+    /// T.801 Table M.29 and T.4 section E.6.7 code it, and D50 where the box stops before it.
+    #[test]
+    fn a_cielab_box_states_its_illuminant() {
+        let illuminant = |parameters: &[u8]| {
+            let mut colour = enumerated_colour(0, ColourSpecification::CIELAB);
+            colour.extend_from_slice(parameters);
+            let mut header = boxed(IMAGE_HEADER, &image_header(3, 7));
+            header.extend_from_slice(&boxed(COLOUR_SPECIFICATION, &colour));
+            let data = jp2(&header, &[7, 7, 7]);
+            Headers::parse(&data)
+                .expect("the file is well formed")
+                .colour[0]
+                .cielab_illuminant()
+        };
+        let ranges = [0u8; 24];
+        let with = |code: [u8; 4]| {
+            let mut parameters = ranges.to_vec();
+            parameters.extend_from_slice(&code);
+            illuminant(&parameters)
+        };
+        assert_eq!(illuminant(&[]), Some(Illuminant::D50));
+        assert_eq!(illuminant(&ranges), Some(Illuminant::D50));
+        for (code, named) in [
+            ([0x00, 0x44, 0x35, 0x30], Illuminant::D50),
+            ([0x00, 0x44, 0x36, 0x35], Illuminant::D65),
+            ([0x00, 0x44, 0x37, 0x35], Illuminant::D75),
+            ([0x00, 0x00, 0x53, 0x41], Illuminant::A),
+            ([0x00, 0x00, 0x53, 0x43], Illuminant::C),
+            ([0x00, 0x00, 0x46, 0x32], Illuminant::F2),
+            ([0x00, 0x00, 0x46, 0x37], Illuminant::F7),
+            ([0x00, 0x46, 0x31, 0x31], Illuminant::F11),
+            // M.11.7.4.1's own example of a colour temperature, 7500 K.
+            (
+                [0x43, 0x54, 0x1D, 0x4C],
+                Illuminant::ColourTemperature(7500),
+            ),
+            ([1, 2, 3, 4], Illuminant::Unknown([1, 2, 3, 4])),
+        ] {
+            assert_eq!(with(code), Some(named), "{code:02x?}");
+        }
+        assert_eq!(
+            Illuminant::ColourTemperature(7500).white_point(),
+            pdf_colour::planckian::white_point(7500.0)
+        );
+        assert_eq!(Illuminant::ColourTemperature(0).white_point(), None);
+        assert_eq!(Illuminant::Unknown([1, 2, 3, 4]).white_point(), None);
+
+        let mut srgb = enumerated_colour(0, 16);
+        srgb.extend_from_slice(&[0; 28]);
+        let mut header = boxed(IMAGE_HEADER, &image_header(3, 7));
+        header.extend_from_slice(&boxed(COLOUR_SPECIFICATION, &srgb));
+        let data = jp2(&header, &[7, 7, 7]);
+        let headers = Headers::parse(&data).expect("the file is well formed");
+        assert_eq!(
+            headers.colour[0].cielab_illuminant(),
+            None,
+            "sRGB has no illuminant"
+        );
+    }
+
+    /// Every CIE-derived white point of [`Illuminant::white_point`] is the tristimulus sum of the
+    /// CIE's own spectral distribution against its 1931 2° colour-matching functions, at every
+    /// wavelength both tables state, `Y` scaled to 1 — recomputed here from `data/cie/`, so a
+    /// mistyped digit fails rather than tinting every Lab image under that illuminant.
+    ///
+    /// D65 is §8.6.5.4's EXAMPLE's rather than a sum, and is held to the CIE's within the four
+    /// places the EXAMPLE prints, give or take the CCIR value's last digit.
+    #[test]
+    fn every_white_point_is_the_cie_datas_own_sum() {
+        let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/cie");
+        let table = |name: &str| -> Vec<Vec<f64>> {
+            std::fs::read_to_string(directory.join(name))
+                .unwrap_or_else(|error| panic!("data/cie/{name}: {error}"))
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .map(|line| {
+                    line.trim()
+                        .split(',')
+                        .map(|field| field.parse::<f64>().expect("a number"))
+                        .collect()
+                })
+                .collect()
+        };
+        let observer: std::collections::BTreeMap<i64, [f64; 3]> = table("CIE_xyz_1931_2deg.csv")
+            .into_iter()
+            .map(|row| {
+                #[expect(clippy::cast_possible_truncation, reason = "a wavelength in nm")]
+                let at = row[0].round() as i64;
+                (at, [row[1], row[2], row[3]])
+            })
+            .collect();
+        let white = |name: &str, column: usize| -> [f64; 3] {
+            let mut sum = [0.0f64; 3];
+            for row in table(name) {
+                #[expect(clippy::cast_possible_truncation, reason = "a wavelength in nm")]
+                let at = row[0].round() as i64;
+                if let Some(functions) = observer.get(&at) {
+                    for (axis, function) in functions.iter().enumerate() {
+                        sum[axis] += row[column] * function;
+                    }
+                }
+            }
+            [sum[0] / sum[1], 1.0, sum[2] / sum[1]]
+        };
+        for (illuminant, file, column) in [
+            (Illuminant::A, "CIE_std_illum_A_1nm.csv", 1),
+            (Illuminant::C, "CIE_illum_C.csv", 1),
+            (Illuminant::D75, "CIE_illum_D75.csv", 1),
+            (Illuminant::F2, "CIE_illum_FLs.csv", 2),
+            (Illuminant::F7, "CIE_illum_FLs.csv", 7),
+            (Illuminant::F11, "CIE_illum_FLs.csv", 11),
+        ] {
+            let stated = illuminant.white_point().expect("a standard illuminant");
+            let summed = white(file, column);
+            for axis in 0..3 {
+                assert!(
+                    (f64::from(stated[axis]) - summed[axis]).abs() < 6e-6,
+                    "{illuminant:?} axis {axis}: {stated:?} against the data's {summed:?}"
+                );
+            }
+        }
+        let example = Illuminant::D65
+            .white_point()
+            .expect("a standard illuminant");
+        let summed = white("CIE_std_illum_D65.csv", 1);
+        for axis in 0..3 {
+            assert!(
+                (f64::from(example[axis]) - summed[axis]).abs() < 2e-4,
+                "D65 axis {axis}: {example:?} against the data's {summed:?}"
+            );
+        }
     }
 
     /// The file type box and the order of the top-level boxes, I.5.2 and T.801 M.9.2.7.

@@ -2,8 +2,9 @@
 //! enumeration, and how many of them §7.4.9 lets decide anything.
 //!
 //! ISO 32000-2 §7.4.9 asks a reader to "support the JPX baseline set of enumerated colour spaces",
-//! and three of them — e-sRGB (20), e-sYCC (24) and CIE Jab (19), with CIE Lab (14) under an
-//! illuminant other than D50 — are defined by texts this project does not hold. This is the
+//! and three of them — e-sRGB (20), e-sYCC (24) and CIE Jab (19) — are defined by texts this
+//! project does not hold; CIE Lab (14) is drawn under whichever illuminant it states (ADR 1713),
+//! and is counted here by illuminant for the same reason as the others. This is the
 //! command that says whether any document in reach states one where it decides the colour: a
 //! `/ColorSpace` on the image dictionary sets every `colr` box aside ("the colour space
 //! specifications in the JPEG 2000 data shall be ignored"), so each box is counted twice — once
@@ -26,11 +27,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use pdf_model::jpeg2000::{ColourSpecification, Headers};
+use pdf_model::jpeg2000::{ColourSpecification, Headers, Illuminant};
 use pdf_syntax::{Document, Object, ObjectId};
-
-/// T.801 Table M.29's code for CIE Illuminant D50, `IL`'s default.
-const ILLUMINANT_D50: [u8; 4] = [0x00, 0x44, 0x35, 0x30];
 
 /// `RL`, `OL`, `RA`, `OA`, `RB` and `OB`, four bytes each, before `IL` (T.801 Table M.30).
 const LAB_RANGES: usize = 24;
@@ -38,13 +36,17 @@ const LAB_RANGES: usize = 24;
 /// What one `colr` box is, as a row label: method, and enumeration where it has one.
 fn label(colour: &ColourSpecification<'_>) -> String {
     match (colour.method, colour.enumerated) {
-        (ColourSpecification::ENUMERATED, Some(14)) => {
-            match colour.parameters.get(LAB_RANGES..LAB_RANGES + 4) {
-                None => "enumerated 14 (CIELab), illuminant D50 by default".to_owned(),
-                Some(stated) if stated == ILLUMINANT_D50 => {
-                    "enumerated 14 (CIELab), illuminant D50 stated".to_owned()
-                }
-                Some(stated) => format!("enumerated 14 (CIELab), illuminant {stated:02x?}"),
+        (ColourSpecification::ENUMERATED, Some(ColourSpecification::CIELAB)) => {
+            let illuminant = colour.cielab_illuminant().unwrap_or(Illuminant::D50);
+            let how = if colour.parameters.len() >= LAB_RANGES + 4 {
+                "stated"
+            } else {
+                "by default"
+            };
+            if illuminant.white_point().is_some() {
+                format!("enumerated 14 (CIELab), illuminant {illuminant:?} {how}")
+            } else {
+                format!("enumerated 14 (CIELab), illuminant {illuminant:?}, no white point")
             }
         }
         (ColourSpecification::ENUMERATED, Some(code)) => {
@@ -147,7 +149,7 @@ fn main() {
         );
     }
     for (label, tally) in &rows {
-        let undefined = ["(CIEJab)", "(e-sRGB)", "(e-sYCC)", "illuminant ["]
+        let undefined = ["(CIEJab)", "(e-sRGB)", "(e-sYCC)", "no white point"]
             .iter()
             .any(|marker| label.contains(marker));
         if undefined {

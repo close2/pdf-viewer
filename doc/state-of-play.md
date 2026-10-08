@@ -101,8 +101,9 @@ backend **bands a target the device cannot draw in one pass**, because its worki
 constants with no knob and a page of small text at a laptop's resolution can exceed them. JBIG2 and
 JPEG 2000 in a confined worker — its colour specification chosen by §7.4.9's precedence rather
 than the codec's first box, every enumerated space of the JPX baseline that ITU-T T.801 M.9.2.4
-lists drawn as defined except the three whose defining texts are not held, which take the clause's
-device fallback rather than a refusal (ADR 1383) — Group 3 and Group 4 fax there too through this tree's own ITU-T T.4
+lists drawn as defined, CIE Lab under the white point of whichever illuminant it names, except the
+three whose defining texts are not held, which take the clause's device fallback rather than a
+refusal (ADRs 1383, 1713) — Group 3 and Group 4 fax there too through this tree's own ITU-T T.4
 and T.6 decoder, which conceals the damaged rows §7.4.6's `/DamagedRowsBeforeError` tolerates as the
 clause states (ADR 1349), and Table 13's `/ColorTransform` read where the clause states it —
 the entry, the `APP14` segment that silences it, and the component count, ranked in the order
@@ -245,8 +246,9 @@ counted down in the ticks every window sends only while a document holds one, an
 sound GTK and Qt play and `quorra` refuses by name (ADR 1702), `getField("name.N")` one widget of a
 field whose widget members are its own and whose value is the field's (ADR 1664),
 `Field.style` a check box's glyph redrawn (ADR 1665), and `this.getAnnots` the document's markup
-annotations, whose `hidden`, `popupOpen` and free-text `contents` a script sets as a reader's edit
-and a save writes (ADR 1700) — the runner every window supplies is `pdf_script_worker::ScriptWorker`, which
+annotations, filtered by Table 167 as the page is drawn, whose `hidden`, `popupOpen` and free-text
+or text-note `contents` a script sets as a reader's edit and a save writes, a window's state the
+later of a click and a script's write (ADRs 1700, 1720, 1721) — the runner every window supplies is `pdf_script_worker::ScriptWorker`, which
 runs each script in a third confined process started at the first trigger, under the narrowest of
 `pdf_sandbox`'s three profiles, a deadline per trigger and a named loss (ADRs 1608, 1609), a script's
 nesting bounded before it is parsed (ADR 1626), the worker built with the engine in a Cargo run of its own and installed beside the windows (ADR 1625); **a rich text field's value and a free text
@@ -280,11 +282,12 @@ button over it, and a click, or Space or Enter at §12.5.1's focus, performs its
 declining the toolkit's own focus chain so that Tab walks the document's `/Tabs` (ADR 1357); a
 click on a markup annotation
 **opens the window §12.5.6.14 gives it**, which is the second half of §12.5.1's sentence about
-activation (ADR 0191) — **in all three windows**: the clause gives a popup "no appearance stream", so the window is
+activation (ADR 0191), and a text note that states no popup opens one of its own beside its icon,
+§12.5.6.4's (ADR 1723) — **in all three windows**: the clause gives a popup "no appearance stream", so the window is
 furniture rather than ink and each host places its own, over one reading of the two clauses that say
 what goes in it (ADR 0613), drawn in all three as opaque paper with an edge (ADR 1466) — **with the subject and the creation date beside the title and the
 text**, and the two dates kept apart, because Table 172 states when an annotation was made and
-Table 166 when it was last changed (ADR 1224), and **Table 172's `/RC` drawn formatted** run by run — Pango spans, a `QTextDocument` built run by run, `quorra`'s chrome, each run in its own face and a right-to-left paragraph in one order across its runs, its tab stops set, leftward in a paragraph read right to left (ADRs 1679, 1690), and a list tag at its start edge, the font scales in two of the three — with what a window did not draw said under the note (ADRs 1642, 1654, 1666), and handed to a C caller as runs and stops (ADRs 1655, 1667); a **cursor changes over §12.5.6.5's activation region** in all three,
+Table 166 when it was last changed (ADR 1224), and **Table 172's `/RC` drawn formatted** run by run — Pango spans, a `QTextDocument` built run by run, `quorra`'s chrome, each run in its own face and a right-to-left paragraph in one order across its runs, its tab stops set, leftward in a paragraph read right to left, with their leaders (ADRs 1679, 1690, 1722), and a list tag at its start edge, the font scales in two of the three — with what a window did not draw said under the note (ADRs 1642, 1654, 1666), and handed to a C caller as runs and stops (ADRs 1655, 1667); a **cursor changes over §12.5.6.5's activation region** in all three,
 which no clause states and which is therefore recorded as this program's convention; a person can
 **measure a drawing** — §12.9's viewports, traced by pointer in all four windows on the key `m`
 and over the C ABI's `quorra_measure`, with the arithmetic and

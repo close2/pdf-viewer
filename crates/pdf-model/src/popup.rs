@@ -57,7 +57,8 @@ use crate::Page;
 /// title bar is set in — belongs to whatever draws it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Popup {
-    /// The popup annotation itself.
+    /// The popup annotation itself, or the text annotation whose own window this is where it
+    /// states no popup (`own_window`, ADR 1723).
     pub annotation: ObjectId,
     /// Table 186's `/Parent`: the markup annotation this window belongs to.
     ///
@@ -66,7 +67,8 @@ pub struct Popup {
     /// by itself" — and the note says what to do with it anyway, so it is read rather than
     /// refused. Four of the corpus's 128 popups are like this.
     pub parent: Option<ObjectId>,
-    /// Table 166's `/Rect`, normalised to `[x0, y0, x1, y1]` with `x0 <= x1` and `y0 <= y1`.
+    /// Table 166's `/Rect`, normalised to `[x0, y0, x1, y1]` with `x0 <= x1` and `y0 <= y1`; for
+    /// a text annotation's own window, the place this program chose beside its icon.
     pub rect: [f32; 4],
     /// Whether the window opens with the page, which **two** entries can each say.
     ///
@@ -247,12 +249,14 @@ pub fn popups(document: &Document, page: &Page, view: &crate::view::ViewState) -
         let Some(dict) = resolved.as_dict() else {
             continue;
         };
-        if document
-            .get_key(dict, "Subtype")
-            .as_name()
-            .map(pdf_syntax::Name::as_bytes)
-            != Some(b"Popup")
-        {
+        let subtype = document.get_key(dict, "Subtype");
+        let subtype = subtype.as_name().map(pdf_syntax::Name::as_bytes);
+        if subtype == Some(b"Text") {
+            read_windows
+                .extend(own_window(document, page, view, id, dict).map(|own| (own, None, 0)));
+            continue;
+        }
+        if subtype != Some(b"Popup") {
             continue;
         }
         if !crate::annotation::displayed(document, dict, view.annotation(id)) {
@@ -265,6 +269,15 @@ pub fn popups(document: &Document, page: &Page, view: &crate::view::ViewState) -
         // it stands where the file's `/Open` stood.
         if let Some(open) = view.popup_opened(id) {
             popup.open = open;
+        }
+        // A retyping of the note stands where its `/Contents` stood, and its `/RC` only where the
+        // characters still agree (ADR 1721).
+        if let Some((note, text)) = retyped_note(document, dict, view) {
+            popup.rich = document
+                .get(note)
+                .as_dict()
+                .and_then(|source| rich::note(document, source, Some(text)));
+            popup.text = Some(text.to_owned());
         }
         // The annotation whose text the window shows — Table 186's `/Parent`, or the window
         // itself for the parentless case this clause's NOTE 3 describes.
@@ -319,6 +332,63 @@ pub fn popups(document: &Document, page: &Page, view: &crate::view::ViewState) -
     }
     out
 }
+
+/// The window a text annotation that states no `/Popup` displays when it is open: ISO 32000-2
+/// §12.5.6.4, which makes the window the note's own (ADR 1723).
+///
+/// > When closed, the annotation shall appear as an icon; when open, it shall display a popup
+/// > window containing the text of the note in a font and size chosen by the interactive PDF
+/// > processor.
+///
+/// Table 175's `/Open` opens it with the page, and a person's click or a script's `popupOpen`
+/// since, which the view state keys by the note itself because a click on the note names it. Its
+/// text is read as [`read`] reads a popup with no parent — the note's own `/Contents`, `/T`, `/M`,
+/// `/C` and `/RC` through §12.5.6.2's group rule — with a person's retyping in its place.
+///
+/// **A note stating `/IRT` has none of its own**: a reply is shown together with what it answers
+/// (Table 172's `/RT`), and a group subordinate's window is its primary's.
+///
+/// **Where it goes is this program's choice**, since the clause states the window's text and not
+/// its place: [`OWN_WINDOW`] points wide and tall, its top-left corner at the icon's top-right
+/// one, moved to the icon's left where it would cross the crop box's right edge and up where it
+/// would cross its bottom.
+fn own_window(
+    document: &Document,
+    page: &Page,
+    view: &crate::view::ViewState,
+    id: ObjectId,
+    note: &Dictionary,
+) -> Option<Popup> {
+    if note.get("IRT").is_some()
+        || popup_of(document, note).is_some()
+        || !crate::annotation::displayed(document, note, view.annotation(id))
+    {
+        return None;
+    }
+    let mut window = read(document, id, note)?;
+    if let Some(open) = view.popup_opened(id) {
+        window.open = open;
+    }
+    if let Some(text) = view.note_text(id) {
+        window.rich = rich::note(document, note, Some(text));
+        window.text = Some(text.to_owned());
+    }
+    let [icon_left, _, icon_right, icon_top] = window.rect;
+    let [page_left, page_bottom, page_right, _] = page.crop_box;
+    let (width, height) = OWN_WINDOW;
+    let left = if icon_right + width > page_right && icon_left - width >= page_left {
+        icon_left - width
+    } else {
+        icon_right
+    };
+    let bottom = (icon_top - height).max(page_bottom);
+    window.rect = [left, bottom, left + width, bottom + height];
+    Some(window)
+}
+
+/// The size, in default user space units, of the window [`own_window`] places for a text note
+/// that states no popup: three inches by two, a documented choice (ADR 1723).
+const OWN_WINDOW: (f32, f32) = (216.0, 144.0);
 
 /// How far a chain of Table 172 `/IRT` replies is followed before a file is read as cyclic.
 ///
@@ -465,6 +535,30 @@ fn read(document: &Document, id: ObjectId, dict: &Dictionary) -> Option<Popup> {
         created: text(document, &source, "CreationDate"),
         replies: Vec::new(),
     })
+}
+
+/// The text note whose `/Contents` this window shows and what a person or a script retyped it to,
+/// where one did (`ViewState::set_note_text`).
+///
+/// Table 186's `/Parent` names the note, or — for §12.5.6.2's subordinate, whose `Contents` is a
+/// group attribute — its `/IRT` names the primary whose text the window shows instead.
+fn retyped_note<'a>(
+    document: &Document,
+    popup: &Dictionary,
+    view: &'a crate::view::ViewState,
+) -> Option<(ObjectId, &'a str)> {
+    let parent = popup
+        .get("Parent")
+        .and_then(pdf_syntax::Object::as_reference)?;
+    let resolved = document.get(parent);
+    let owner = resolved.as_dict()?;
+    let note = match crate::markup::group_source(document, owner) {
+        std::borrow::Cow::Borrowed(_) => parent,
+        std::borrow::Cow::Owned(_) => owner
+            .get("IRT")
+            .and_then(pdf_syntax::Object::as_reference)?,
+    };
+    Some((note, view.note_text(note)?))
 }
 
 /// Whether the file asks for this window to be open when the page appears.

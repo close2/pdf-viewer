@@ -1081,6 +1081,13 @@ unchanged under `data/unicode/`, with their hashes and the fields used in
 and the fifth is read by a test. The annex and chapter 9 are cited by rule number and paraphrased in
 source, never quoted, because the quotation gate reads quotation marks as ISO 32000-2's.
 
+The CIE's open-access datasets — the 1931 2° colour-matching functions and the relative spectral
+distributions of the illuminants ITU-T T.4 Annex E codes (A, C, D65, D75 and the fluorescent set) —
+are held unchanged as CSV under `data/cie/`, CC BY-SA 4.0, with their sources and hashes in
+`data/cie/PROVENANCE.md`. Nothing reads them at run time: a JPX CIE Lab box's white point is compiled
+into `crates/pdf-model/src/jpeg2000.rs`, and a test recomputes each value from these files, which is
+what makes the compiled numbers checkable (ADR 1713). D65 is §8.6.5.4's own EXAMPLE and D50 is T.4's.
+
 **`unicode-bidi` 0.3.18, taken rather than written.** Servo's crate was already in the lock under
 `stringprep`, so the dependency adds no package; it is MIT or Apache-2.0, and `cargo deny check`
 passes with `pdf-font` naming it. Its coverage was measured rather than read off its README: every

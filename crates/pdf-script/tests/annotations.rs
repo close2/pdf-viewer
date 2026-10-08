@@ -1,5 +1,5 @@
 //! `this.getAnnots`, `this.getAnnot` and the `Annotation` object, over the annotations a realm is
-//! told of (ADR 1700).
+//! told of (ADRs 1700, 1721).
 //!
 //! Every expected value is one an annotation state this test wrote states, or the order and the
 //! refusals ADR 1700 records as choices; the property spellings are Adobe's "Annotation
@@ -12,7 +12,9 @@
 )]
 
 use pdf_model::aform::Trigger;
-use pdf_model::view::{AnnotationChange, AnnotationState, DocumentState, ScriptEdit, ScriptSite};
+use pdf_model::view::{
+    AnnotationChange, AnnotationReach, AnnotationState, DocumentState, ScriptEdit, ScriptSite,
+};
 use pdf_script::{Budget, Ending, Event, Outcome, Realm, Request};
 
 /// One annotation on `page`, numbered `number`.
@@ -29,6 +31,13 @@ fn annotation(number: u32, page: u32, kind: &str, author: &str) -> AnnotationSta
         modified: Some(1_704_465_015_000),
         hidden: false,
         read_only: number == 12,
+        // Table 167 as the three filters read it: 10 is not printed, 11 is not seen, and 12 —
+        // `ReadOnly` — takes no pointer.
+        reach: AnnotationReach {
+            printed: number != 10,
+            viewed: number != 11,
+            interactive: number != 12,
+        },
         popup_open: (kind == "Text").then_some(false),
     }
 }
@@ -203,7 +212,7 @@ fn every_other_write_is_refused_by_name() {
             "Annotation.author=",
         ),
         (
-            "this.getAnnot(0, 'note-10').contents = 'x';",
+            "this.getAnnot(2, 'note-12').contents = 'x';",
             "Annotation.contents=",
         ),
         (
@@ -211,8 +220,20 @@ fn every_other_write_is_refused_by_name() {
             "Annotation.popupOpen=",
         ),
         (
-            "this.getAnnots({nFilterBy: ANFB_ShouldPrint});",
-            "this.getAnnots(nFilterBy: ANFB_ShouldPrint)",
+            "this.getAnnots({nFilterBy: ANFB_ShouldAppearInPanel});",
+            "this.getAnnots(nFilterBy: ANFB_ShouldAppearInPanel)",
+        ),
+        (
+            "this.getAnnots({nFilterBy: ANFB_ShouldSummarize});",
+            "this.getAnnots(nFilterBy: ANFB_ShouldSummarize)",
+        ),
+        (
+            "this.getAnnots({nFilterBy: ANFB_ShouldExport});",
+            "this.getAnnots(nFilterBy: ANFB_ShouldExport)",
+        ),
+        (
+            "this.getAnnots({nFilterBy: 7});",
+            "this.getAnnots(nFilterBy: a number that names none of the reference's seven)",
         ),
     ] {
         let ran = realm.run(&request(
@@ -228,6 +249,56 @@ fn every_other_write_is_refused_by_name() {
         );
         assert!(ran.edits.is_empty(), "{script}: {:?}", ran.edits);
     }
+}
+
+#[test]
+fn the_flag_filters_keep_what_table_167_lets_reach_paper_a_screen_and_a_pointer() {
+    let mut realm = realm();
+    let names = |filter: &str| {
+        format!(
+            "var a = this.getAnnots({{nFilterBy: {filter}}}); \
+             event.value = a === null ? 'null' : a.map(function (x) {{ return x.name; }}).join(',');"
+        )
+    };
+    for (filter, kept) in [
+        ("ANFB_ShouldNone", "note-10,note-11,note-12"),
+        ("ANFB_ShouldPrint", "note-11,note-12"),
+        ("ANFB_ShouldView", "note-10,note-12"),
+        ("ANFB_ShouldEdit", "note-10,note-11"),
+    ] {
+        let (ran, read) = value(&mut realm, &names(filter));
+        assert_eq!(ran.ending, Ending::Finished, "{filter}: {ran:?}");
+        assert_eq!(read.as_deref(), Some(kept), "{filter}");
+    }
+    // Table 167's `Hidden` suppresses an annotation on paper, on a screen and for a pointer, and
+    // the filter reads the bit a script has just written.
+    let (_, after) = value(
+        &mut realm,
+        &format!(
+            "this.getAnnot(2, 'note-12').hidden = true; {}",
+            names("ANFB_ShouldPrint")
+        ),
+    );
+    assert_eq!(after.as_deref(), Some("note-11"));
+}
+
+#[test]
+fn a_text_note_s_contents_is_written_as_a_free_text_annotation_s_is() {
+    let mut realm = realm();
+    let (ran, read) = value(
+        &mut realm,
+        "var t = this.getAnnot(0, 'note-10'); t.contents = 'new note'; event.value = t.contents;",
+    );
+    assert_eq!(ran.ending, Ending::Finished, "{ran:?}");
+    assert_eq!(read.as_deref(), Some("new note"));
+    assert_eq!(
+        ran.edits,
+        vec![ScriptEdit::Annotation {
+            number: 10,
+            generation: 0,
+            change: AnnotationChange::Contents("new note".to_owned()),
+        }]
+    );
 }
 
 #[test]

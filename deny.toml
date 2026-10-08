@@ -131,28 +131,18 @@ deny = [
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-# The one git dependency: the commissioned document renderer (see the workspace
-# manifest), first-party and pinned through Cargo.lock.
+# The git dependencies, each pinned by revision through Cargo.lock: the commissioned document
+# renderer (see the workspace manifest), first-party, and the codecs below.
 allow-git = [
     "https://github.com/close2/quorra",
-    # The second, third-party, and temporary — and a *fork*, which is the part to justify.
-    # ISO/IEC 15444-1's E-6 reconstruction term is missing entirely from `hayro-jpeg2000`
-    # 0.4.0 and was missing for fully decoded coefficients upstream; the second half was found
-    # here and is **merged upstream now**, as #1340 and in upstream's own reimplementation of
-    # it. Worst sample error against the reference software: 87 levels to 1. What is left, and
-    # the whole reason this entry survives, is a reduced-resolution decode that no longer
-    # allocates the full-resolution image — rebased onto upstream's main as `64efcaca` so the
-    # fork is that one commit and no more, and offered upstream as a pull request (ADR 0233).
-    # Pinned by revision in Cargo.lock; it goes back to crates.io the moment a release carries
-    # that commit.
-    #
-    # **Two more crates ride the same revision since the six-hundred-and-twenty-first session,
-    # and neither is a fork at all.** `hayro-jbig2` 0.3.0 refuses a §7.4.7 text region declaring
-    # more than a flat 10 000 symbol instances, which three crawled documents exceed; upstream
-    # replaced the constant with a bound proportional to the segment's own length in `1be7ab10`
-    # and has published no release carrying it, so this takes the *commit* — the same commit
-    # already pinned above, which contains it. `hayro-ccitt` follows because `hayro-jbig2`
-    # names it by path inside that workspace and two sources for one crate is a version nobody
-    # chose. Both go back to crates.io on the release, independently of the JPEG 2000 fork.
-    "https://github.com/close2/hayro",
+    # The second, third-party: upstream's repository of the JBIG2, JPEG 2000 and CCITT codecs, at
+    # the commit their crates.io releases `hayro-jbig2` 0.3.1, `hayro-jpeg2000` 0.4.1 and
+    # `hayro-ccitt` 0.4.0 were published from, whose `src/` each is byte for byte. A git source
+    # rather than crates.io for one reason: it is a different package from the crates.io copy the
+    # reference renderer `tools/hayro-compare` reaches through `hayro-syntax`, whose `unsafe`
+    # feature turns on `simd`, and Cargo unifies a package's features over a build — so the
+    # worker's codecs would otherwise be compiled with `fearless_simd` by any build that also
+    # selects the reference renderer (ADR 1714). The owner's fork `close2/hayro` takes this
+    # entry's place the day it carries `doc/patches/hayro-jbig2-*.patch` and the manifest pins it.
+    "https://github.com/LaurenzV/hayro",
 ]

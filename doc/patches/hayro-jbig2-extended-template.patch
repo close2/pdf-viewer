@@ -1,11 +1,16 @@
-Repository: https://github.com/close2/hayro
-Base: 64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2
+Repository: https://github.com/LaurenzV/hayro (crate hayro-jbig2)
+Base: ea9c81dc70cde40c64205986fdcfcd481fe934d8
+Fork: https://github.com/close2/hayro
 
-The owner applies this to the fork and bumps the `rev` the root Cargo.toml pins for
-hayro-jbig2, hayro-jpeg2000 and hayro-ccitt; `tools/state.sh main-checkout` lists it until then.
+The base is hayro-jbig2 0.3.1: upstream tags the commit `hayro-jbig2-v0.3.1`, the published
+crate's `.cargo_vcs_info.json` names it, and its `src/` is byte for byte the published one. The
+root Cargo.toml pins the three hayro codecs to upstream's repository at that commit (ADR 1714). The
+paths below are the repository's, so the patch applies at its root with `git apply`. The owner
+applies this to the fork on that base, pushes, and moves the three stanzas to the fork at the
+pushed commit; `tools/state.sh main-checkout` lists it until then.
 
 The extended reference template of a generic region (ITU-T T.88 sections 6.2.5.3 Figure 3(b),
-6.2.5.4, 7.4.6.2 bit 4, 7.4.6.3 Figure 50). The pinned codec reads EXTTEMPLATE and ignores it: it
+6.2.5.4, 7.4.6.2 bit 4, 7.4.6.3 Figure 50). The codec at the base reads EXTTEMPLATE and ignores it: it
 parses four AT pixels where the segment carries twelve, starts the arithmetic decoder sixteen bytes
 early, and draws a wrong bitmap without a refusal. Annex K item 7 (codeStreamTest1_TT7.jb2)
 exercises it. That stream departs from T.88 elsewhere too (ADR 1459 section 2), so it is refused

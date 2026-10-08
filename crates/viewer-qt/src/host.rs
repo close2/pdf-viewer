@@ -4828,19 +4828,79 @@ fn rich_paragraphs(
                 runs,
                 tabs: viewer_host::popup::tab_stops(paragraph, base, 1.0, room)
                     .into_iter()
-                    .map(|stop| QtTab {
-                        side: match stop.side {
-                            viewer_host::popup::TabSide::Left => 0,
-                            viewer_host::popup::TabSide::Centre => 1,
-                            viewer_host::popup::TabSide::Right => 2,
-                            viewer_host::popup::TabSide::Decimal => 3,
-                        },
-                        at: stop.at,
-                    })
+                    .map(|stop| qt_tab(&stop))
                     .collect(),
             }
         })
         .collect()
+}
+
+/// One placed stop as the bridge carries it, its leader with it (ADR 1722).
+fn qt_tab(stop: &viewer_host::popup::TabStop) -> QtTab {
+    use pdf_model::popup::RichRuleStyle;
+    use viewer_host::popup::LeaderPattern;
+    let (leader, rule_style, rule_thickness, content) =
+        match stop.leader.as_ref().map(|leader| &leader.pattern) {
+            None => (0, 0, -1.0, String::new()),
+            Some(LeaderPattern::Dots) => (1, 0, -1.0, String::new()),
+            Some(LeaderPattern::Rule { style, thickness }) => (
+                2,
+                match style {
+                    RichRuleStyle::Solid => 0,
+                    RichRuleStyle::Dashed => 1,
+                    RichRuleStyle::Dotted => 2,
+                },
+                thickness.unwrap_or(-1.0),
+                String::new(),
+            ),
+            Some(LeaderPattern::Content(characters)) => (3, 0, -1.0, characters.clone()),
+        };
+    QtTab {
+        side: match stop.side {
+            viewer_host::popup::TabSide::Left => 0,
+            viewer_host::popup::TabSide::Centre => 1,
+            viewer_host::popup::TabSide::Right => 2,
+            viewer_host::popup::TabSide::Decimal => 3,
+        },
+        at: stop.at,
+        leader,
+        leader_width: stop.leader.as_ref().map_or(0.0, |leader| leader.width),
+        rule_style,
+        rule_thickness,
+        content,
+    }
+}
+
+/// [`viewer_host::popup::reached_stop`] as the bridge hands it to `RichNoteView`, whose stops
+/// are pixels from the paragraph's left margin: the stop's place, or −1 (ADR 1722).
+pub(crate) fn reached_stop(positions: &[f32], from: f32, right_to_left: bool) -> i32 {
+    viewer_host::popup::reached_stop(positions, from, right_to_left)
+        .and_then(|reached| i32::try_from(reached).ok())
+        .unwrap_or(-1)
+}
+
+/// [`viewer_host::popup::leader_cycles`], for the grid `RichNoteView` paints a leader on.
+pub(crate) fn leader_cycles(from: f32, to: f32, margin: f32, cycle: f32) -> Vec<f32> {
+    viewer_host::popup::leader_cycles(from, to, margin, cycle)
+}
+
+/// [`viewer_host::popup::rule_pieces`], each piece's left edge and width one after the other.
+pub(crate) fn rule_pieces(style: u8, thickness: f32, from: f32, to: f32, margin: f32) -> Vec<f32> {
+    use pdf_model::popup::RichRuleStyle;
+    let style = match style {
+        1 => RichRuleStyle::Dashed,
+        2 => RichRuleStyle::Dotted,
+        _ => RichRuleStyle::Solid,
+    };
+    viewer_host::popup::rule_pieces(style, thickness, (from, to), margin)
+        .into_iter()
+        .flat_map(|(left, width)| [left, width])
+        .collect()
+}
+
+/// [`viewer_host::popup::rule_thickness`], a thickness below zero being none stated.
+pub(crate) fn rule_thickness(stated: f32, em: f32) -> f32 {
+    viewer_host::popup::rule_thickness((stated >= 0.0).then_some(stated), em)
 }
 
 /// One run as [`QtRichRun`] carries it: its size and stretch from

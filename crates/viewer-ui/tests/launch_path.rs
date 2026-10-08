@@ -119,10 +119,16 @@
 //! # Running it
 //!
 //! ```text
-//! cargo build --release -p pdf-sandbox --bins           # trap 10: nothing else builds it
-//! cargo build --release -p pdf-script-worker --features engine --bins   # trap 10, the script stage
-//! cargo test  --release -p viewer-ui --test launch_path -- --ignored --nocapture
+//! ulimit -u 8192; RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --clock --tree 12 \
+//!     --build '--release -p pdf-sandbox --bins' \
+//!     --build '--release -p pdf-script-worker --features engine --bins' -- \
+//!     cargo test --release -p viewer-ui --test launch_path -- --ignored --nocapture
 //! ```
+//!
+//! A clock run, alone on both of the lock's lanes, because its verdict is a time; the two workers
+//! are other packages' programs, which Cargo does not build for this test (trap 10), and the
+//! wrapper builds them inside the hold so that neither is older than the tree the run measures
+//! (trap 109, ADR 1710).
 //!
 //! Without the script worker beside the test binary the script stage is printed `NOT MEASURED`
 //! with the line that builds it, and counted, as a missing `valgrind` is.

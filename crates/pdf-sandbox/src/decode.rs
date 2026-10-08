@@ -827,8 +827,8 @@ fn jpx_within_budget(
 /// shall match" check is against the data's statement, not against what this budget chose to
 /// synthesise — see [`Raster::stated_width`].
 ///
-/// The reduction became *usable* with `close2/hayro`'s `feat/reduced-resolution-allocates-less`
-/// (the `1dc833f7` revision this workspace pins): before it, asking for a reduced level skipped
+/// The reduction is *usable* because `hayro-jpeg2000` 0.4.1 sizes its coefficient buffer by the
+/// resolution asked for (upstream #1352, ADR 1714): before that, asking for a reduced level skipped
 /// the bit-planes and the wavelet but still reserved a coefficient for every sample of the
 /// full-resolution image — one 3.4 GB allocation for `issue19517.pdf` however small a raster
 /// was asked for, which [`crate::lockdown`]'s gigabyte turns into a dead worker rather than a

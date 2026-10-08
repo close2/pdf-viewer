@@ -57,8 +57,10 @@ place exited 0 and said nothing. 160 inner `#![allow]` stand in the tree today.
 `cargo test -p pdf-model` builds pdf-sandbox's *library*, not its `pdf-sandbox-worker` binary —
 Cargo never builds another package's binaries. So the tests run against whatever worker was last
 compiled. Not hypothetical: the seventh session inverted the black-and-white sense of every JBIG2
-sample and the test passed. `cargo test --workspace` or `cargo build -p pdf-sandbox --bins` builds
-it. A missing worker and a stale one look nothing alike.
+sample and the test passed. `cargo test --workspace` builds it, and a walk builds it as its
+wrapper's own `--build '<the walk's profile> -p pdf-sandbox --bins'`, inside its hold, so that it is
+no older than the tree the walk reads (trap 109, ADR 1710). A missing worker and a stale one look
+nothing alike.
 
 **"Both gates fail loudly if the worker is missing" was this paragraph's last sentence, and it was
 true of *two* gates out of eight.** `pdf-model`'s `corpus` and `oracle` check; the accessibility
@@ -99,7 +101,8 @@ pages of −11 to −23 levels against both references that were the instrument 
 The dev profile has a worker of its own. After a round's `--profile gates` builds, a plain
 `cargo nextest run -p pdf-model` showed 38 decoder failures that read as a regression until
 `cargo build -p pdf-sandbox --bins` had been run for `dev` as well (round 1414): the two profiles
-keep two workers, and a test under one profile finds only that profile's.
+keep two workers, and a test under one profile finds only that profile's. That build is a plain one,
+because a crate-scoped test is no walk and takes no lock; a walk's is its `--build`.
 
 ### 10b. A *new module file* is a fifth thing Cargo will hand you stale
 
@@ -464,6 +467,12 @@ sites in 20 files said `round 911` and the like (round 1423, ADR 1680): the swee
 against the spellings its author imagined, not against the tree's. Before a sweep's clean answer is
 believed, one real instance of the debt is found by eye and the sweep is shown to name it.
 
+A census that `continue`s past a document it cannot open has silently shrunk its population: round
+1440's Lab census skipped every encrypted file without a word, and the arms then moved a page it had
+never seen (`bug1782186.pdf`, a D65 Lab under a `Separation` in an encrypted file). A census opens
+encrypted documents with the corpus passwords and prints every document it could not open, so a
+skipped file is a line in the output rather than a hole in the count.
+
 ### 18. A limit a process is under can destroy the channel it reports through
 
 `viewer-confined`'s worker inherited the host's standard error, with a comment saying why: "so that
@@ -634,6 +643,11 @@ A brief's "the N lines" is one of these. Batch sixty-five's instruments slot was
 three bare-`flock` instructions in two files; a sweep over the tree found twelve in eight (round
 1419, ADR 1674). A sweep a brief asks for is widened from the lines the brief names to the tree,
 and the test that holds the result derives its population from the tree too.
+
+A brief's list of API members is the same thing. Batch sixty-nine named six `ANFB_*` filters for the
+script round to build; Adobe's reference at the pinned commit lists six beside `ShouldNone`, and two of
+the brief's six (`ShouldNoView`, `ShouldNoZoom`) are not among them (round 1438). A member list in a
+brief is read off the source at its pinned commit before anything is built from it.
 
 ### 27. An assertion on a substring passes for every answer that shares it
 
@@ -1089,8 +1103,8 @@ checkout first. And a bounded campaign's one crash may be a known one: `jpeg_ban
 
 A corpus gate waits behind the heavy-walk lock while five siblings edit the tree; when its turn
 comes it spawns `pdf-sandbox-worker` from the last build, which no longer matches the library it
-links against, and fails at once (round 1363's first corpus attempt). Rebuild `pdf-sandbox --bins`
-for the gate's profile inside the same lock, then walk. And a measurement binary copied aside for an
+links against, and fails at once (round 1363's first corpus attempt). The walk builds `pdf-sandbox
+--bins` for the gate's profile inside the same hold, as the wrapper's `--build`, then walks. And a measurement binary copied aside for an
 A/B has no worker beside it: it draws no CCITT, JBIG2 or JPX image and says nothing — round 1361
 read 157 M instructions for `bug1815476.pdf` with no fax decode in the profile. Copy the worker too,
 or set `PDF_SANDBOX_WORKER` (trap 99).

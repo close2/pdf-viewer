@@ -70,18 +70,19 @@ permanent) or an owner decision to acquire a specification.
 - §7.4.7 — a generic region on ISO/IEC 14492's extended template is refused out loud: the pinned
   `hayro-jbig2` reads EXTTEMPLATE and ignores it, and `doc/patches/hayro-jbig2-extended-template.patch`
   waits on the owner's fork (ADR 1459); `crates/pdf-sandbox/tests/t88_conformance.rs` says the day the
-  codec takes it. No corpus stream uses it. Read on 2026-10-08: the fork, `close2/hayro`, exists and is
-  what the manifest pins, and none of its branches, nor upstream's 0.3.1 release, carries the patch.
+  codec takes it. No corpus stream uses it. Read on 2026-10-08: the manifest takes the codec from
+  upstream's repository at `ea9c81dc`, the commit 0.3.1 was released from, and neither it nor any
+  branch of the owner's fork `close2/hayro` carries the patch; applying it there is the owner's step
+  (ADR 1714).
 - §7.4.9 — the one sentence of this clause addressed to a processor asks for *support* of the JPX
   baseline enumerated colour spaces, which ITU-T T.801 M.9.2.4 lists — the held identical text of
   ISO/IEC 15444-2 (`doc/questions/A169`, ADR 1383). CMYK, sRGB, its grey, sYCC, ROMM-RGB and CIE Lab
-  under D50 are drawn as defined; e-sRGB and e-sYCC (PIMA 7667), CIE Jab (CIE Publication 131) and
-  CIE Lab under another illuminant take §7.4.9's device fallback. The first two because their texts
-  are not held (read on 2026-10-08, the row's note says where): PIMA 7667 is sold by IS&T, and CIE
-  131 is sold, superseded by CIE 159, itself withdrawn in 2022 for CIE 248. The third is no longer a
-  missing text: §8.6.5.4's own EXAMPLE prints D65's white point and the CIE publishes every standard
-  illuminant T.4 Annex E codes free under CC BY-SA 4.0; what it waits on is this tree's `Lab`, which
-  carries no white point. Checking the restriction on a file is not a reader's job and is not counted as debt
+  under every illuminant its `IL` field names — the white point §8.6.5.4's EXAMPLE, T.4 or the CIE's
+  free data states, and a colour temperature's Planckian radiator (ADRs 1712, 1713) — are drawn as
+  defined; e-sRGB and e-sYCC (PIMA 7667) and CIE Jab (CIE Publication 131) take §7.4.9's device
+  fallback, because their texts are not held (read on 2026-10-08, the row's note says where): PIMA
+  7667 is sold by IS&T, and CIE 131 is sold, superseded by CIE 159, itself withdrawn in 2022 for CIE
+  248. Checking the restriction on a file is not a reader's job and is not counted as debt
   (ADR 1184); `pdf-archive` checks all of M.9.2 for ISO 19005 (ADRs 1383, 1399). The thirteen
   corpus codestreams a level off the reference software on the irreversible path are not debt:
   ISO/IEC 15444-1 leaves that path's reconstruction and precision to the decoder (ADR 1574).
@@ -274,10 +275,9 @@ row is in this bucket when its note names none of those three.
   would be fitted through is built and waits on that answer alone. A `/DCS` on another datum stays
   outside A171's scope.
 
-§7.4.9 is not here and one of its three cases is buildable: a CIE Lab image under an illuminant
-other than D50 now waits on this tree's `ColourSpace::Lab`, which carries no white point, and not on a
-text — §8.6.5.4's EXAMPLE and the CIE's free illuminant data state it, as the row's note cites. The
-row stays in bucket 2 for e-sRGB, e-sYCC and CIE Jab, whose texts are not held.
+§7.4.9 is not here: its buildable case, a CIE Lab image under an illuminant other than D50, is drawn
+under that illuminant's white point (ADR 1713), and the row stays in bucket 2 for e-sRGB, e-sYCC and
+CIE Jab, whose texts are not held.
 
 §7.10.2 is `implemented`: Table 39's `/Order 3` is the not-a-knot cubic spline, the choice ADR 1636
 writes down against the clause's own four-sample threshold, and §7.10 settles with it.

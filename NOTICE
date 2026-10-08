@@ -253,3 +253,20 @@ Unicode's terms of use put one obligation on a copy — that this notice travel 
     Except as contained in this notice, the name of a copyright holder shall not be used in
     advertising or otherwise to promote the sale, use or other dealings in these Data Files or
     Software without prior written authorization of the copyright holder.
+
+
+-------------------------------------------------------------------------------
+6. The CIE 1931 colour-matching functions
+-------------------------------------------------------------------------------
+
+`data/cie/CIE_xyz_1931_2deg.csv` is the International Commission on Illumination's table of the
+CIE 1931 2° standard observer's colour-matching functions, 1 nm from 360 to 830 nm (dataset DOI
+10.25039/CIE.DS.xvudnb9b, from CIE 018:2019), compiled into this binary unchanged and read on the
+first JPEG 2000 CIE Lab image that states its illuminant as a colour temperature; the white point
+of that temperature's Planckian radiator is summed from it (`crates/pdf-colour/src/planckian.rs`).
+`data/cie/PROVENANCE.md` records it, its hash, and the five illuminant tables beside it, which are
+read only by tests.
+
+    © CIE, International Commission on Illumination, Vienna. Licensed under the Creative Commons
+    Attribution-ShareAlike 4.0 International licence (CC BY-SA 4.0),
+    https://creativecommons.org/licenses/by-sa/4.0/ — the table is shipped unaltered.

@@ -127,9 +127,14 @@
 //! # Running it
 //!
 //! ```text
-//! cargo build --profile gates -p pdf-vfs --bins
-//! tools/bounded.sh --data 12 --tree 12 -- cargo test --profile gates -p pdf-vfs --test read_corpus -- --ignored --nocapture
+//! ulimit -u 8192; RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --tree 6 \
+//!     --build '--profile gates -p pdf-sandbox --bins' -- \
+//!     cargo test --profile gates -p pdf-vfs --test read_corpus -- --ignored --nocapture
 //! ```
+//!
+//! A small walk, as `tools/state.sh vfs` runs it. `pdf-vfs-worker` is this package's own program,
+//! which Cargo builds for its integration tests; the sandbox worker that decodes a page's images is
+//! another package's, so the wrapper builds it inside the hold (trap 109, ADR 1710).
 
 #![expect(
     clippy::expect_used,

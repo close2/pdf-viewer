@@ -95,8 +95,15 @@ const FOUR: &[u8] = &[
     0xd9,
 ];
 
-/// T.801 Table M.29's CIE Illuminant D65, for the one test that states another illuminant.
+/// T.801 Table M.29's CIE Illuminant D65.
 const ILLUMINANT_D65: [u8; 4] = [0x00, 0x44, 0x36, 0x35];
+
+/// T.801 M.11.7.4.1's own example of an illuminant stated by colour temperature alone, 7500 K.
+const COLOUR_TEMPERATURE_7500: [u8; 4] = [0x43, 0x54, 0x1D, 0x4C];
+
+/// The white point of a Planckian radiator at 7500 K, as `pdf_colour::planckian` sums it, to four
+/// places — what a `Lab` space states to draw a 7500 K CIELab box's colours as that box means them.
+const RADIATOR_AT_7500: &str = "0.9680 1 1.2550";
 
 /// T.801 Table M.29's CIE Illuminant D50, the `IL` field's default.
 const ILLUMINANT_D50: [u8; 4] = [0x00, 0x44, 0x35, 0x30];
@@ -456,24 +463,92 @@ fn cielab_is_drawn_through_lab() {
     }
 }
 
+/// CIELab (14) under CIE Illuminant D65 is drawn as the `Lab` space §8.6.5.4's own EXAMPLE
+/// writes for that white point, `[0.9505 1.00 1.0890]` (ADR 1713) — and that is a different
+/// picture from the same samples read under D50, by more than a level on every chromatic pixel,
+/// which is why the illuminant may not be dropped.
+#[test]
+fn cielab_under_d65_is_drawn_through_lab_with_that_white_point() {
+    sandbox();
+    let fills = [
+        "/L cs 58.823529 0 25.098039 sc".to_owned(),
+        "/L cs 58.823529 14.666667 42.352941 sc".to_owned(),
+        "/L cs 100 0 0 sc".to_owned(),
+        "/L cs 0 0 0 sc".to_owned(),
+    ];
+    let under = |white: &str| {
+        painted(
+            4,
+            &format!(
+                "/ColorSpace << /L [/Lab << /WhitePoint [{white}] /Range [-128 127 -128 127] >>] \
+                 >>"
+            ),
+            &fills,
+            &[],
+        )
+    };
+    let d65 = under("0.9505 1.00 1.0890");
+    let d50 = under("0.9642 1 0.8249");
+    let mut parameters = lab_parameters();
+    parameters.extend_from_slice(&ILLUMINANT_D65);
+    let pixels = drawn(4, &jpx(THREE, (4, 3), &[enumerated(0, 14, &parameters)]));
+    assert_near(&pixels, &d65, "CIELab under D65 against the D65 Lab space");
+    for (index, (one, other)) in pixels.iter().zip(&d50).enumerate().take(2) {
+        assert!(
+            one.iter().zip(other).any(|(x, y)| x.abs_diff(*y) > 1),
+            "pixel {index} under D65 is not its D50 reading: {pixels:?} against {d50:?}"
+        );
+    }
+}
+
+/// CIELab under an illuminant stated as a colour temperature alone, M.11.7.4.1's own 7500 K, is
+/// drawn under the white point of the Planckian radiator at that temperature, which is what CIE S
+/// 017's vocabulary calls a colour temperature (ADR 1713).
+#[test]
+fn cielab_under_a_colour_temperature_is_drawn_under_the_radiators_white_point() {
+    sandbox();
+    let expected = painted(
+        4,
+        &format!(
+            "/ColorSpace << /L [/Lab << /WhitePoint [{RADIATOR_AT_7500}] /Range [-128 127 -128 \
+             127] >>] >>"
+        ),
+        &[
+            "/L cs 58.823529 0 25.098039 sc".to_owned(),
+            "/L cs 58.823529 14.666667 42.352941 sc".to_owned(),
+            "/L cs 100 0 0 sc".to_owned(),
+            "/L cs 0 0 0 sc".to_owned(),
+        ],
+        &[],
+    );
+    let mut parameters = lab_parameters();
+    parameters.extend_from_slice(&COLOUR_TEMPERATURE_7500);
+    let pixels = drawn(4, &jpx(THREE, (4, 3), &[enumerated(0, 14, &parameters)]));
+    assert_near(
+        &pixels,
+        &expected,
+        "CIELab at 7500 K against its radiator's Lab space",
+    );
+}
+
 /// The codes this tree does not draw as their definitions state take §7.4.9's fallback: three
 /// ordinary channels are `DeviceRGB`, and the image is drawn rather than refused.
 ///
 /// CIEJab (19), e-sRGB (20) and e-sYCC (24) are baseline and defined in texts not held (ADR
-/// 1383); YCbCr(2) (3) is not baseline at all; a CIELab stating an illuminant other than D50 is
-/// one this tree's `Lab` has no white point for.
+/// 1383); YCbCr(2) (3) is not baseline at all; a CIELab whose `IL` is a code neither T.801 nor T.4
+/// defines names no white point (ADR 1713).
 #[test]
 fn a_space_not_drawn_falls_back_to_the_device_space_of_its_channel_count() {
     sandbox();
-    let mut d65 = lab_parameters();
-    d65.extend_from_slice(&ILLUMINANT_D65);
+    let mut undefined = lab_parameters();
+    undefined.extend_from_slice(&[1, 2, 3, 4]);
     let expected = painted(4, "", &three_filled("", "rg"), &[]);
     for colour in [
         enumerated(0, 19, &[]),
         enumerated(0, 20, &[]),
         enumerated(0, 24, &[]),
         enumerated(0, 3, &[]),
-        enumerated(0, 14, &d65),
+        enumerated(0, 14, &undefined),
     ] {
         let pixels = drawn(4, &jpx(THREE, (4, 3), &[colour]));
         assert_near(&pixels, &expected, "the DeviceRGB fallback");

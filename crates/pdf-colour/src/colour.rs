@@ -2017,8 +2017,15 @@ pub enum ColourSpace {
     Rgb,
     /// Four components, cyan, magenta, yellow and black.
     Cmyk,
-    /// Three components in the CIE L*a*b* space, with the given axis ranges.
+    /// Three components in the CIE L*a*b* space: ISO 32000-2 §8.6.5.4, Table 64.
     Lab {
+        /// The diffuse white point, as CIE 1931 XYZ: the `X_W`, `Y_W` and `Z_W` the clause's
+        /// second transformation stage multiplies by, and the white [`cie_to_srgb`] adapts
+        /// onto D50.
+        white: [f32; 3],
+        /// The diffuse black point, as CIE 1931 XYZ. Read, and deliberately not applied —
+        /// [`cie_to_srgb`] has the argument.
+        black: [f32; 3],
         /// The `a` and `b` axis bounds, as `[a_min, a_max, b_min, b_max]`.
         range: [f32; 4],
     },
@@ -2428,6 +2435,8 @@ impl ColourSpace {
             b"Lab" => {
                 let dict = items.get(1).map(|item| document.resolve(item));
                 let dict = dict.as_ref().and_then(Object::as_dict);
+                let white = white_point(document, dict);
+                let black = numbers(document, dict, "BlackPoint").unwrap_or([0.0, 0.0, 0.0]);
                 let range = dict
                     .and_then(|dict| {
                         let array = document.get_key(dict, "Range");
@@ -2439,7 +2448,11 @@ impl ColourSpace {
                         <[f32; 4]>::try_from(values.as_slice()).ok()
                     })
                     .unwrap_or([-100.0, 100.0, -100.0, 100.0]);
-                Some(Self::Lab { range })
+                Some(Self::Lab {
+                    white,
+                    black,
+                    range,
+                })
             }
             b"ICCBased" => {
                 Self::parse_icc_based(document, items.get(1)?, resources, reading, depth)
@@ -3144,7 +3157,7 @@ impl ColourSpace {
                 (0.0, top)
             }
             Self::Icc { profile } => profile.component_range(component),
-            Self::Lab { range } => match component {
+            Self::Lab { range, .. } => match component {
                 0 => (0.0, 100.0),
                 other => {
                     let at = other.saturating_sub(1).saturating_mul(2);
@@ -3349,7 +3362,7 @@ impl ColourSpace {
             // the space's Range entry, in which case the nearest valid value shall be
             // substituted." Lab's `a` and `b` carry that range here; an ICCBased space's
             // `/Range` is not read, and zero is inside it for every profile the corpus has.
-            Self::Lab { range } => vec![
+            Self::Lab { range, .. } => vec![
                 0.0,
                 0.0_f32.clamp(range[0], range[1]),
                 0.0_f32.clamp(range[2], range[3]),
@@ -3815,7 +3828,7 @@ impl ColourSpace {
     ///
     /// The same arithmetic [`Self::to_rgb_at`] runs for the four CIE-based families up to the
     /// one matrix that turns an XYZ into a pixel — `CalGray` and `CalRGB` adapted from their own
-    /// white point onto D50 as [`cie_to_srgb`] does, `Lab` on the D50 white §8.6.5.4 gives it,
+    /// white point onto D50 as [`cie_to_srgb`] does, `Lab` the same way from Table 64's own,
     /// a profile through its `A2B` with §8.6.5.9's compensation as asked — so that a colour
     /// converted *between* two CIE-based spaces (§10.3.1) takes exactly the route it would have
     /// taken to the screen, minus the screen.
@@ -3826,7 +3839,11 @@ impl ColourSpace {
         let at = |index: usize| values.get(index).copied().unwrap_or(0.0);
         match self {
             Self::Icc { profile } => Some(profile.to_xyz_with(values, rendering)),
-            Self::Lab { range } => Some(lab_xyz(at(0), at(1), at(2), *range)),
+            Self::Lab { white, range, .. } => Some(adapt(
+                lab_xyz(at(0), at(1), at(2), *range, *white),
+                *white,
+                D50,
+            )),
             Self::CalGray {
                 white,
                 black: _,
@@ -3881,7 +3898,8 @@ impl ColourSpace {
             Self::Rgb => Color::rgb(channel(at(0)), channel(at(1)), channel(at(2))),
             Self::Cmyk => cmyk(at(0), at(1), at(2), at(3)),
             Self::Icc { profile } => profile.to_rgb_with(values, rendering),
-            Self::Lab { range } => lab(at(0), at(1), at(2), *range),
+            // `black` is read but not applied, as for the two spaces below.
+            Self::Lab { white, range, .. } => lab(at(0), at(1), at(2), *range, *white),
             // `black` is read but not applied — `cie_to_srgb` carries the argument.
             Self::CalGray {
                 white,
@@ -5698,20 +5716,25 @@ pub(crate) fn xyz_d50_to_linear_srgb(xyz: [f32; 3]) -> [f32; 3] {
     [r, g, b]
 }
 
-/// Converts CIE L*a*b* to sRGB through XYZ, using the D50 white point PDF specifies.
-fn lab(lightness: f32, a: f32, b: f32, range: [f32; 4]) -> Color {
-    // PDF's default white point for Lab is D50, which is already the connection space's,
-    // so no adaptation stands between this and the matrix.
-    xyz_d50_to_srgb(lab_xyz(lightness, a, b, range))
+/// Converts CIE L\*a\*b\* to sRGB through XYZ, under the space's own diffuse white.
+///
+/// Table 64 makes `/WhitePoint` required and gives it no default, and the clause's second
+/// stage multiplies by it, so a `Lab` colour's XYZ is relative to that white rather than to
+/// D50; it then takes the adaptation every CIE-based space takes onto the connection space
+/// (ADRs 0012, 1712). §8.6.5.4's own EXAMPLE states D65.
+fn lab(lightness: f32, a: f32, b: f32, range: [f32; 4], white: [f32; 3]) -> Color {
+    cie_to_srgb(lab_xyz(lightness, a, b, range, white), white)
 }
 
-/// The D50 XYZ of a `Lab` colour, with §8.6.5.4's ranges applied.
+/// The XYZ of a `Lab` colour under its own diffuse white, with §8.6.5.4's ranges applied: the
+/// clause's two transformation stages, the second of which multiplies `g(L)`, `g(M)` and
+/// `g(N)` by the white point's `X_W`, `Y_W` and `Z_W` — the last line here.
 #[expect(
     clippy::many_single_char_names,
     reason = "L*, a*, b*, X, Y and Z are the colour space's own names for its axes; \
               renaming them would make this harder to check against the formulae"
 )]
-fn lab_xyz(lightness: f32, a: f32, b: f32, range: [f32; 4]) -> [f32; 3] {
+fn lab_xyz(lightness: f32, a: f32, b: f32, range: [f32; 4], white: [f32; 3]) -> [f32; 3] {
     let bound = |value: f32, low: f32, high: f32| {
         if value.is_nan() {
             low
@@ -5727,7 +5750,11 @@ fn lab_xyz(lightness: f32, a: f32, b: f32, range: [f32; 4]) -> [f32; 3] {
     let l = m + a / 500.0;
     let n = m - b / 200.0;
 
-    [D50[0] * expand(l), D50[1] * expand(m), D50[2] * expand(n)]
+    [
+        white[0] * expand(l),
+        white[1] * expand(m),
+        white[2] * expand(n),
+    ]
 }
 
 /// The L*a*b* companding function, the inverse of [`expand`].
@@ -5844,12 +5871,13 @@ fn numbers<const N: usize>(
     <[f32; N]>::try_from(values.as_slice()).ok()
 }
 
-/// Reads a `WhitePoint` entry, which Tables 62 and 63 both make required.
+/// Reads a `WhitePoint` entry, which Tables 62, 63 and 64 all make required.
 ///
 /// A dictionary without one is not a CIE-based space at all, and there is nothing in the
 /// file to recover the intent from. D50 is the substitute because it is the connection
 /// space's own white, which makes the adaptation stage vanish and leaves the space's
-/// `Gamma` and `Matrix` — the parts the document *did* state — doing exactly what they say.
+/// `Gamma` and `Matrix`, or a `Lab` space's `Range` — the parts the document *did* state —
+/// doing exactly what they say.
 fn white_point(document: &Document, dict: Option<&Dictionary>) -> [f32; 3] {
     numbers(document, dict, "WhitePoint")
         // "The numbers X_W and Z_W shall be positive, and Y_W shall be equal to 1.0."
@@ -6019,6 +6047,8 @@ mod tests {
         );
 
         let lab = ColourSpace::Lab {
+            white: super::D50,
+            black: [0.0; 3],
             range: [-100.0, 100.0, -100.0, 100.0],
         };
         let from_lab = lab.to_cmyk(&[50.0, 20.0, -30.0], Rendering::compensating(), &press);
@@ -6715,19 +6745,92 @@ mod tests {
     #[test]
     fn lab_maps_its_anchor_colours() {
         let range = [-100.0, 100.0, -100.0, 100.0];
-        let white = super::lab(100.0, 0.0, 0.0, range);
+        let white = super::lab(100.0, 0.0, 0.0, range, super::D50);
         assert!(
             white.r > 0.99 && white.g > 0.99 && white.b > 0.99,
             "{white:?}"
         );
-        let black = super::lab(0.0, 0.0, 0.0, range);
+        let black = super::lab(0.0, 0.0, 0.0, range, super::D50);
         assert!(
             black.r < 0.01 && black.g < 0.01 && black.b < 0.01,
             "{black:?}"
         );
         // A strongly positive a* axis is red.
-        let red = super::lab(54.0, 81.0, 70.0, range);
+        let red = super::lab(54.0, 81.0, 70.0, range, super::D50);
         assert!(red.r > red.g && red.r > red.b, "{red:?}");
+    }
+
+    /// A `Lab` space is read under the white point Table 64 makes it state, and §8.6.5.4's own
+    /// EXAMPLE is the fixture: the D65 space it writes, run through the parser and the
+    /// conversion (ADR 1712).
+    ///
+    /// The clause's second stage makes a colour's XYZ a multiple of that white, and ADR 0012's
+    /// Bradford adaptation takes it onto D50, so the space's own white is the display's white
+    /// and its neutrals stay neutral — but a chromatic colour is a different colour under D65
+    /// than the same three numbers under D50, by more than a level of 255, which is the
+    /// difference reading every `Lab` space as D50 had erased.
+    #[test]
+    fn a_lab_space_is_read_under_its_own_white_point() {
+        let space_of = |dictionary: &str| {
+            let source = format!(
+                "%PDF-1.7\n1 0 obj\n[/Lab {dictionary}]\nendobj\n\
+                 trailer\n<< /Size 2 /Root 1 0 R >>\n"
+            );
+            let document = Document::open(source.into_bytes()).expect("a document");
+            let object = document.get(pdf_syntax::ObjectId {
+                number: 1,
+                generation: 0,
+            });
+            ColourSpace::parse(&document, &object, &Dictionary::new()).expect("a Lab space")
+        };
+        let example = space_of("<</WhitePoint [0.9505 1.00 1.0890] /Range [-128 127 -128 127] >>");
+        let ColourSpace::Lab {
+            white,
+            black,
+            range,
+        } = &example
+        else {
+            panic!("§8.6.5.4's EXAMPLE is a Lab space: {example:?}");
+        };
+        assert_eq!(*white, [0.9505, 1.0, 1.089]);
+        assert_eq!(*black, [0.0; 3], "Table 64's default BlackPoint");
+        assert_eq!(*range, [-128.0, 127.0, -128.0, 127.0]);
+        assert_eq!(example.component_range(1), (-128.0, 127.0));
+
+        let d50 = space_of("<</WhitePoint [0.9642 1 0.8249] /Range [-128 127 -128 127] >>");
+        let level = |colour: Color| [colour.r, colour.g, colour.b].map(|c| (c * 255.0).round());
+        for neutral in [[100.0, 0.0, 0.0], [50.0, 0.0, 0.0], [0.0, 0.0, 0.0]] {
+            let one = level(example.to_rgb(&neutral));
+            assert!(
+                (one[0] - one[1]).abs() <= 1.0 && (one[1] - one[2]).abs() <= 1.0,
+                "L* {} with no chroma is neutral under D65: {one:?}",
+                neutral[0]
+            );
+            assert_eq!(one, level(d50.to_rgb(&neutral)), "{neutral:?}");
+        }
+        for chromatic in [[50.0, 40.0, -40.0], [60.0, -30.0, 30.0]] {
+            let one = level(example.to_rgb(&chromatic));
+            let other = level(d50.to_rgb(&chromatic));
+            assert!(
+                one.iter().zip(&other).any(|(x, y)| (x - y).abs() > 1.0),
+                "{chromatic:?} under D65 is {one:?}, and under D50 {other:?}"
+            );
+        }
+        assert_eq!(
+            example.cie_xyz_at(&[60.0, -30.0, 30.0], 0, Rendering::compensating()),
+            Some(super::adapt(
+                super::lab_xyz(60.0, -30.0, 30.0, *range, *white),
+                *white,
+                super::D50
+            )),
+            "the XYZ handed to another CIE-based space is the one the screen gets"
+        );
+
+        let unstated = space_of("<< >>");
+        assert!(
+            matches!(unstated, ColourSpace::Lab { white, .. } if white == super::D50),
+            "a dictionary without its required WhitePoint is read as the connection space's"
+        );
     }
 
     /// The folded D50→sRGB matrix must equal adapting to D65 and then converting.
@@ -6739,8 +6842,8 @@ mod tests {
     /// typo in any of the nine numbers, or in either Bradford constant, fails here.
     ///
     /// The bound is 1e-3 because the published D50-adapted matrix was computed with
-    /// D50 = [0.96422, 1.0, 0.82521], four digits finer than the value PDF states for `Lab`
-    /// and this module therefore uses.
+    /// D50 = [0.96422, 1.0, 0.82521], four digits finer than the value ICC.1 states for the
+    /// connection space's illuminant and this module therefore uses.
     #[test]
     fn a_folded_matrix_equals_adapting_then_converting() {
         // IEC 61966-2-1: XYZ (D65) to linear sRGB.

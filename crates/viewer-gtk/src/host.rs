@@ -5292,9 +5292,21 @@ fn rich_note(note: &pdf_model::popup::RichNote) -> gtk4::Box {
         let indent = POPUP_PADDING
             .saturating_mul(3)
             .saturating_mul(i32::from(paragraph.level));
-        if right_to_left && viewer_host::popup::tabbed(paragraph) && !stops.is_empty() {
-            let measured = leftward_tabs(&label, stops);
-            measured.set_margin_end(indent);
+        let tabbed = viewer_host::popup::tabbed(paragraph);
+        let leaders = (tabbed && stops.iter().any(|stop| stop.leader.is_some())).then(|| Leaders {
+            runs: tab_runs(paragraph),
+            stops: stops.clone(),
+            right_to_left,
+            base,
+            context: context.clone(),
+        });
+        if (right_to_left && tabbed && !stops.is_empty()) || leaders.is_some() {
+            let measured = measured_label(&label, stops, right_to_left, leaders);
+            if right_to_left {
+                measured.set_margin_end(indent);
+            } else {
+                measured.set_margin_start(indent);
+            }
             body.append(&measured);
         } else if right_to_left {
             label.set_margin_end(indent);
@@ -5321,11 +5333,14 @@ fn rich_note(note: &pdf_model::popup::RichNote) -> gtk4::Box {
 /// shows, so that a line never reaches the end of them.
 const POPUP_TAB_ROOM: f32 = 4096.0;
 
-/// A right-to-left paragraph's label, whose tabs reach leftward to stops placed from its left
-/// margin (ADR 1690): Pango measures a stop in a line read right to left from the line's start
-/// edge, the right, which is not known until GTK allocates the label, so the stops are handed
-/// again as distances from that edge whenever the label's width changes
-/// (`viewer_host::popup::from_start_edge`).
+/// A tabbed paragraph's label under a drawing area of its own size, for the two things Pango's
+/// tab array cannot do by itself: a right-to-left paragraph's tabs, which reach leftward to stops
+/// placed from its left margin (ADR 1690), and the leaders before its stops, which the drawing
+/// area paints over the laid-out text ([`paint_leaders`], ADR 1722).
+///
+/// Pango measures a stop in a line read right to left from the line's start edge, the right,
+/// which is not known until GTK allocates the label, so the stops are handed again as distances
+/// from that edge whenever the label's width changes (`viewer_host::popup::from_start_edge`).
 ///
 /// **A label states no allocation of its own, and this crate forbids the `unsafe` a subclass
 /// would take**, so the width is read from a drawing area laid over the label — the title bar's
@@ -5342,12 +5357,24 @@ const POPUP_TAB_ROOM: f32 = 4096.0;
 /// allocation is dropped: the tabs drawn are the new ones, but a paragraph they wrap onto a second
 /// line kept one line's height until something else measured it again (measured: two lines laid out
 /// in 18 px). So the label is measured again from the main loop, once, after each change.
-fn leftward_tabs(label: &gtk4::Label, stops: Vec<viewer_host::popup::TabStop>) -> gtk4::Overlay {
+fn measured_label(
+    label: &gtk4::Label,
+    stops: Vec<viewer_host::popup::TabStop>,
+    right_to_left: bool,
+    leaders: Option<Leaders>,
+) -> gtk4::Overlay {
     let measured = gtk4::Overlay::new();
     let ruler = gtk4::DrawingArea::new();
     ruler.set_can_target(false);
     measured.set_child(Some(label));
     measured.add_overlay(&ruler);
+    if let Some(leaders) = leaders {
+        let painted = label.clone();
+        ruler.set_draw_func(move |_, cr, _, _| paint_leaders(&painted, &leaders, cr));
+    }
+    if !right_to_left {
+        return measured;
+    }
     let handed = Cell::new(None);
     let label = label.clone();
     ruler.connect_resize(move |_, width, _| {
@@ -5365,6 +5392,141 @@ fn leftward_tabs(label: &gtk4::Label, stops: Vec<viewer_host::popup::TabStop>) -
         }
     });
     measured
+}
+
+/// What [`paint_leaders`] needs of one paragraph, kept beside its label.
+struct Leaders {
+    /// The run each of the paragraph's tabs is set in, in the order its label's text holds them:
+    /// a leader's dots and content are that run's glyphs, and a rule its colour.
+    runs: Vec<pdf_model::popup::RichRun>,
+    /// The paragraph's stops from its left margin, in points, nearest it first.
+    stops: Vec<viewer_host::popup::TabStop>,
+    /// Whether the paragraph reads right to left, which is the direction a tab reaches in.
+    right_to_left: bool,
+    /// The label's own size in points, which a run's relative size is of.
+    base: f32,
+    /// The label's context, which measures a share of a space for a run's letter spacing.
+    context: pango::Context,
+}
+
+/// The run each of a paragraph's tabs is set in, in reading order: the run whose text holds it.
+fn tab_runs(paragraph: &pdf_model::popup::RichParagraph) -> Vec<pdf_model::popup::RichRun> {
+    paragraph
+        .runs
+        .iter()
+        .flat_map(|run| std::iter::repeat_n(run, run.text.matches('\t').count()))
+        .cloned()
+        .collect()
+}
+
+/// Paints each tab's leader over the label's laid-out text: chapter 2's *Tab Leader Pattern*
+/// (pages 63 to 65), as `quorra` draws it (ADR 1679), on `viewer_host::popup`'s grid (ADR 1722).
+///
+/// Pango's tab array holds a position, an alignment and a decimal point and no fill, so the
+/// leader is composed rather than asked for: the label's own `pango::Layout` gives each tab's
+/// extent (`index_to_pos`) and its line's baseline, the stop it reached is the nearest beyond its
+/// start in the paragraph's direction (`reached_stop`), and the dots or content are a layout of
+/// the tab's run's own span, appended once per whole repetition on the grid from the label's left
+/// edge, which is the paragraph's left margin. A rule is a rectangle in the run's colour centred
+/// on the baseline. Drawn through a render node because the drawing area hands a cairo context
+/// and `gtk4` binds no Pango-on-cairo call; the node draws the layout as GTK's own text nodes do.
+fn paint_leaders(label: &gtk4::Label, leaders: &Leaders, cr: &gtk4::cairo::Context) {
+    use viewer_host::popup::LeaderPattern;
+    // Points to the label's logical pixels, 96 to the inch, as `pango_tabs` hands the stops.
+    const PIXELS: f32 = 96.0 / 72.0;
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "Pango's scale of 1024 is exact in f32"
+    )]
+    let scale = pango::SCALE as f32;
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a position inside a popup window in Pango units is far inside f32's exact \
+                  integer range"
+    )]
+    let pixels = |units: i32| units as f32 / scale;
+    let layout = label.layout();
+    let (left, top) = label.layout_offsets();
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a label's offset in pixels is far inside f32's exact integer range"
+    )]
+    let (left, top) = (left as f32, top as f32);
+    let positions: Vec<f32> = leaders.stops.iter().map(|stop| stop.at * PIXELS).collect();
+    let ink = label.color();
+    let snapshot = gtk4::Snapshot::new();
+    let text = layout.text();
+    for (run, (index, _)) in leaders.runs.iter().zip(text.match_indices('\t')) {
+        let Ok(index) = i32::try_from(index) else {
+            break;
+        };
+        let extent = layout.index_to_pos(index);
+        let (one, other) = (
+            pixels(extent.x()),
+            pixels(extent.x().saturating_add(extent.width())),
+        );
+        let (from, to) = (one.min(other), one.max(other));
+        let start = if leaders.right_to_left { to } else { from };
+        let Some(leader) =
+            viewer_host::popup::reached_stop(&positions, start, leaders.right_to_left)
+                .and_then(|reached| leaders.stops.get(reached))
+                .and_then(|stop| stop.leader.as_ref())
+        else {
+            continue;
+        };
+        let (line, _) = layout.index_to_line_x(index, false);
+        let mut lines = layout.iter();
+        for _ in 0..line {
+            if !lines.next_line() {
+                break;
+            }
+        }
+        let baseline = top + pixels(lines.baseline());
+        let colour = run.colour.map_or(ink, |colour| {
+            gtk4::gdk::RGBA::new(colour.r, colour.g, colour.b, 1.0)
+        });
+        match &leader.pattern {
+            LeaderPattern::Dots | LeaderPattern::Content(_) => {
+                let mut shown = run.clone();
+                shown.text = match &leader.pattern {
+                    LeaderPattern::Content(content) => content.clone(),
+                    _ => ".".to_owned(),
+                };
+                shown.underlines = 0;
+                shown.line_through = false;
+                let piece = label.create_pango_layout(None);
+                piece.set_markup(&pango_span(&shown, leaders.base, &leaders.context, true));
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "a few glyphs' width in pixels is far inside f32's exact integer range"
+                )]
+                let inherent = piece.pixel_extents().1.width() as f32;
+                let cycle = inherent.max(leader.width * PIXELS);
+                let raised = baseline - pixels(piece.baseline());
+                for at in viewer_host::popup::leader_cycles(from, to, 0.0, cycle) {
+                    snapshot.save();
+                    snapshot.translate(&gtk4::graphene::Point::new(left + at, raised));
+                    snapshot.append_layout(&piece, &colour);
+                    snapshot.restore();
+                }
+            }
+            LeaderPattern::Rule { style, thickness } => {
+                let em = viewer_host::popup::size(run, leaders.base, 1.0) * PIXELS;
+                let thick = viewer_host::popup::rule_thickness(thickness.map(|at| at * PIXELS), em);
+                let rise = viewer_host::popup::rise(run, leaders.base, 1.0) * PIXELS;
+                let y = baseline - rise - thick * 0.5;
+                for (x, width) in viewer_host::popup::rule_pieces(*style, thick, (from, to), 0.0) {
+                    snapshot.append_color(
+                        &colour,
+                        &gtk4::graphene::Rect::new(left + x, y, width, thick),
+                    );
+                }
+            }
+        }
+    }
+    if let Some(node) = snapshot.to_node() {
+        node.draw(cr);
+    }
 }
 
 /// A paragraph's tab stops as Pango's tab array takes them, in the label's logical pixels — the

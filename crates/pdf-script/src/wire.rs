@@ -13,9 +13,9 @@ use std::time::Duration;
 use pdf_model::action::{PageTrigger, Trigger as AnnotationTrigger};
 use pdf_model::aform::Trigger;
 use pdf_model::view::{
-    Alignment, AnnotationChange, AnnotationState, BorderStyle, Colour, Display, DocumentState,
-    DocumentTrigger, Face, FieldState, FieldType, Glyph, InfoEntry, Layer, Property, ScriptEdit,
-    ScriptSite, Sound, TextFlag, WidgetState,
+    Alignment, AnnotationChange, AnnotationReach, AnnotationState, BorderStyle, Colour, Display,
+    DocumentState, DocumentTrigger, Face, FieldState, FieldType, Glyph, InfoEntry, Layer, Property,
+    ScriptEdit, ScriptSite, Sound, TextFlag, WidgetState,
 };
 
 use crate::{
@@ -32,8 +32,9 @@ use crate::{
 /// state, and a property set on one of them (ADR 1664); 7 the widget a focus request names (ADR
 /// 1688), and the on state of a toggling widget (ADR 1689); 8 a timer's site, a timer set and
 /// cleared, and a sound asked for (ADR 1702), and the document's annotations and a script's change
-/// to one (ADR 1700).
-pub const VERSION: u8 = 8;
+/// to one (ADR 1700); 9 what an annotation's Table 167 flags let it reach — paper, a screen, a
+/// pointer — beside its two bits (ADR 1721).
+pub const VERSION: u8 = 9;
 
 /// Most fields one request may tell a realm of, and most edits one outcome may carry.
 ///
@@ -560,6 +561,9 @@ fn put_annotation(out: &mut Vec<u8>, annotation: &AnnotationState) {
     }
     put_bool(out, annotation.hidden);
     put_bool(out, annotation.read_only);
+    put_bool(out, annotation.reach.printed);
+    put_bool(out, annotation.reach.viewed);
+    put_bool(out, annotation.reach.interactive);
     match annotation.popup_open {
         None => put_u8(out, 0),
         Some(false) => put_u8(out, 1),
@@ -1061,6 +1065,11 @@ impl<'a> Reader<'a> {
             },
             hidden: self.boolean()?,
             read_only: self.boolean()?,
+            reach: AnnotationReach {
+                printed: self.boolean()?,
+                viewed: self.boolean()?,
+                interactive: self.boolean()?,
+            },
             popup_open: match self.u8()? {
                 0 => None,
                 1 => Some(false),

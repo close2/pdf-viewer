@@ -529,3 +529,19 @@ ADR 1680's map from each round to the ADR it wrote named one ADR for round 911, 
 the first rewrite made from the map put the wrong number into `pdf-vfs/tests/confined.rs` (round
 1431 caught it). Before a citation is rewritten from a map, the map's entry is checked against the
 record itself: `grep -l 'Session <n>' doc/adr/` names every ADR a round wrote.
+
+## A scratch copy of a drive script is regenerated after every fixture edit
+
+Round 1439 iterated the drive from a scratch copy of `tools/drive-windows.sh` and read one
+iteration's figures off fixtures the copy had been written before, so the numbers were stale and the
+step looked wrong for a reason that did not exist. A copy made to iterate on is remade after each edit
+to the fixtures it embeds, or the drive is run from the tree's own script.
+
+## A parallel transform's pieces are taken by the name the report gives them, never by position
+
+`split` writes its pieces in parallel and its sinks keep outputs in the order they were opened, so
+`foreign_corpus`'s `first_output` compared chapter two's parent tree with the source's page 1 whenever
+the machine was loaded enough to reorder the opens — the gate's "`mutool` short answer under load"
+story was never the cause (round 1443, ADR 1718). A test that needs one piece of a multi-output plan
+takes it by the name the report gives (`first_written`), and a flake blamed on another program is
+read against the test's own indexing first.

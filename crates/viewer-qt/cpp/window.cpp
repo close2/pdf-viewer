@@ -53,6 +53,7 @@
 #include <QTabWidget>
 #include <QAbstractTextDocumentLayout>
 #include <QTextBlock>
+#include <QTextLayout>
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTimer>
@@ -905,6 +906,20 @@ RichNoteView::RichNoteView(const rust::Vec<QtRichParagraph>& paragraphs, const Q
             leftward.block = cursor.block().blockNumber();
             leftward_.push_back(std::move(leftward));
         }
+        // A leader is painted over the block once Qt has laid it out (ADR 1722).
+        const bool leadered = std::any_of(paragraph.tabs.begin(), paragraph.tabs.end(),
+                                          [](const QtTab& stop) { return stop.leader != 0; });
+        if (leadered) {
+            Leadered painted{cursor.block().blockNumber(), paragraph.right_to_left, {}};
+            for (const QtTab& stop : paragraph.tabs) {
+                painted.stops.push_back(LeaderStop{
+                    stop.at * pixelsPerPoint, stop.leader, stop.leader_width * pixelsPerPoint,
+                    stop.rule_style,
+                    stop.rule_thickness < 0 ? -1.0 : stop.rule_thickness * pixelsPerPoint,
+                    text(stop.content)});
+            }
+            leadered_.push_back(std::move(painted));
+        }
         for (const QtRichRun& run : paragraph.runs) {
             QTextCharFormat format;
             QFont face = font;
@@ -988,6 +1003,92 @@ void RichNoteView::paintEvent(QPaintEvent* /*event*/)
     context.palette = palette();
     context.palette.setColor(QPalette::Text, palette().color(QPalette::WindowText));
     document_->documentLayout()->draw(&painter, context);
+    paintLeaders(painter);
+}
+
+void RichNoteView::paintLeaders(QPainter& painter) const
+{
+    // Chapter 2's *Tab Leader Pattern* (pages 63 to 65), as `quorra` draws it (ADR 1679):
+    // `QTextOption::Tab` holds a position, a kind and a delimiter and no fill, so each tab's extent
+    // is read off the laid-out line — `QTextLine::cursorToX` on either side of the tab character —
+    // and the leader of the stop it reached is painted across it, on `viewer_host::popup`'s grid
+    // from the paragraph's left margin, in the tab's run's face and colour (ADR 1722).
+    for (const Leadered& paragraph : leadered_) {
+        const QTextBlock block = document_->findBlockByNumber(paragraph.block);
+        const QTextLayout* layout = block.isValid() ? block.layout() : nullptr;
+        if (layout == nullptr) {
+            continue;
+        }
+        const QPointF origin = layout->position();
+        // Qt measures a stop from the line's start edge inside the block's margin; the left margin
+        // is the paragraph's indent where it reads left to right and nothing where it does not.
+        const qreal margin = block.blockFormat().leftMargin();
+        std::vector<float> positions;
+        positions.reserve(paragraph.stops.size());
+        for (const LeaderStop& stop : paragraph.stops) {
+            positions.push_back(static_cast<float>(stop.at));
+        }
+        const rust::Slice<const float> handed(positions.data(), positions.size());
+        const QString characters = block.text();
+        for (int at = 0; at < characters.size(); ++at) {
+            if (characters.at(at) != QChar('\t')) {
+                continue;
+            }
+            const QTextLine line = layout->lineForTextPosition(at);
+            if (!line.isValid()) {
+                continue;
+            }
+            const qreal one = line.cursorToX(at) - margin;
+            const qreal other = line.cursorToX(at + 1) - margin;
+            const float from = static_cast<float>(std::min(one, other));
+            const float to = static_cast<float>(std::max(one, other));
+            const int reached = reached_stop(handed, paragraph.rightToLeft ? to : from,
+                                             paragraph.rightToLeft);
+            if (reached < 0 || static_cast<std::size_t>(reached) >= paragraph.stops.size()) {
+                continue;
+            }
+            const LeaderStop& stop = paragraph.stops[static_cast<std::size_t>(reached)];
+            if (stop.kind == 0) {
+                continue;
+            }
+            QTextCharFormat format = block.charFormat();
+            for (auto fragment = block.begin(); !fragment.atEnd(); ++fragment) {
+                const QTextFragment piece = fragment.fragment();
+                const int start = piece.position() - block.position();
+                if (piece.isValid() && at >= start && at < start + piece.length()) {
+                    format = piece.charFormat();
+                    break;
+                }
+            }
+            QFont face = format.font();
+            face.setUnderline(false);
+            face.setStrikeOut(false);
+            const QColor colour = format.hasProperty(QTextFormat::ForegroundBrush)
+                                      ? format.foreground().color()
+                                      : palette().color(QPalette::WindowText);
+            const qreal left = origin.x() + margin;
+            const qreal baseline = origin.y() + line.y() + line.ascent();
+            if (stop.kind == 2) {
+                const float em = static_cast<float>(QFontInfo(face).pixelSize());
+                const float thick = rule_thickness(static_cast<float>(stop.ruleThickness), em);
+                const rust::Vec<float> pieces = rule_pieces(stop.ruleStyle, thick, from, to, 0.0f);
+                for (std::size_t piece = 0; piece + 1 < pieces.size(); piece += 2) {
+                    painter.fillRect(QRectF(left + pieces[piece], baseline - thick / 2.0,
+                                            pieces[piece + 1], thick),
+                                     colour);
+                }
+                continue;
+            }
+            const QString shown = stop.kind == 3 ? stop.content : QStringLiteral(".");
+            const QFontMetricsF metrics(face, this);
+            const qreal cycle = std::max(metrics.horizontalAdvance(shown), stop.width);
+            painter.setFont(face);
+            painter.setPen(colour);
+            for (const float x : leader_cycles(from, to, 0.0f, static_cast<float>(cycle))) {
+                painter.drawText(QPointF(left + x, baseline), shown);
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------

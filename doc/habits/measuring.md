@@ -828,3 +828,11 @@ GTK's script-timer clock reset to `now` on every tick and told the core 299 of 3
 for ever — 184 173 ticks of nothing, seen only by the drive (round 1433, ADR 1702). A ticker that
 hands out whole units keeps the remainder and rounds its waits up; a test that ticks a known span
 and counts the ticks is the one that would have caught it before the drive did.
+
+## 79. A long campaign's targets share one hold, started when the other lane is free
+
+Round 1442 ran five fuzz targets side by side in one hold of the second lane for an hour, where
+five holds in sequence would have been three and a half hours of a lane; even so, four siblings'
+small walks queued 860 to 1 134 s behind it while the arms held the first lane (ADR 1716). A campaign
+that will hold a lane for long is one hold for every target it owns, and it is asked when the other
+lane is free, so the batch's short walks keep a lane of their own.

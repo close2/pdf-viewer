@@ -468,3 +468,12 @@ update's own copy, so a second rewrite of the same holder in one save silently d
 free-text annotation's `/DR` font went missing under the `/NeedAppearances` flag (round 1420,
 ADR 1677). A writer that rewrites a holder another writer may also rewrite reads it through
 `Update::current`, and the test that proves it combines two writers in one save.
+
+## A dependency's features are read off the worker's unit graph before it is taken from crates.io
+
+Cargo unifies a package's features across the workspace: with `hayro-jbig2` from crates.io, the
+reference renderer's `unsafe`/`simd` features would have reached the shipped sandbox worker's decoder,
+although the worker's own line said `default-features = false` (round 1441, ADR 1714). Before a
+dependency is moved, `cargo +nightly build --release --bin pdf-sandbox-worker --unit-graph -Z
+unstable-options` is read for that package's features on the worker's units; a pin to the release
+commit in git keeps the two copies apart where crates.io would merge them.

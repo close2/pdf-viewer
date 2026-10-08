@@ -3358,7 +3358,7 @@ pub struct JpxSamples {
 pub const ORDINARY_JPX_SAMPLES: u64 = pdf_sandbox::ORDINARY_SAMPLES;
 
 /// The colour space a `JPXDecode` image's samples are in, by §7.4.9's precedence.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum JpxSpace {
     /// The image dictionary states one, and "any colour space specifications in the JPEG 2000
     /// data shall be ignored" — so the dictionary's entry describes the samples as it stands.
@@ -3371,10 +3371,13 @@ pub enum JpxSpace {
     Cmyk,
     /// The codestream's own ICC profile, which this crate can read.
     Icc(Vec<u8>),
-    /// The codestream's enumerated CIE Lab under CIE Illuminant D50, T.801 M.11.7.4.1, whose
-    /// samples are §8.6.5.4's `Lab` over a `Range` of `[-128 127 -128 127]` and the D50 white
-    /// point (ADR 1383).
-    Lab,
+    /// The codestream's enumerated CIE Lab, T.801 M.11.7.4.1, whose samples are §8.6.5.4's `Lab`
+    /// over a `Range` of `[-128 127 -128 127]` under the white point of the illuminant its `IL`
+    /// field names (ADRs 1383, 1713).
+    Lab {
+        /// That white point, as CIE 1931 XYZ: [`crate::jpeg2000::Illuminant::white_point`].
+        white: [f32; 3],
+    },
 }
 
 /// Decodes a `JPXDecode` image's samples through the confined decoder without converting them.
@@ -3451,7 +3454,7 @@ pub fn jpx_samples(
         JpxSpace::Stated
     } else {
         match (&space, &raster.colour) {
-            (crate::colour::ColourSpace::Lab { .. }, _) => JpxSpace::Lab,
+            (crate::colour::ColourSpace::Lab { white, .. }, _) => JpxSpace::Lab { white: *white },
             (crate::colour::ColourSpace::Icc { .. }, pdf_sandbox::Colour::Icc(profile)) => {
                 JpxSpace::Icc(profile.clone())
             }
@@ -3920,9 +3923,6 @@ struct JpxColourChoice<'a> {
     space: Option<crate::colour::ColourSpace>,
 }
 
-/// T.801 Table M.25's CIE Lab.
-const JPX_CIELAB: u32 = 14;
-
 /// The enumerated colour spaces the codec draws as their definitions state, besides CIE Lab.
 ///
 /// Part 1 Table I-10's sRGB (16) and greyscale (17), and T.801 Table M.25's CMYK (12), sYCC (18)
@@ -3933,9 +3933,6 @@ const JPX_CIELAB: u32 = 14;
 /// (20) and e-sYCC (24) are defined by PIMA 7667 and CIE Jab (19) by CIE Publication 131, none of
 /// them held, and §7.4.9's fallback is what a processor then does (ADR 1383).
 const JPX_ENUMERATED_DRAWN: [u32; 5] = [12, 16, 17, 18, 21];
-
-/// T.801 Table M.29's CIE Illuminant D50, the `IL` field's default under M.11.7.4.1.
-const JPX_ILLUMINANT_D50: [u8; 4] = [0x00, 0x44, 0x35, 0x30];
 
 /// Which of a `JPXDecode` image's colour specifications its samples are read through.
 ///
@@ -4023,22 +4020,24 @@ enum JpxDrawn {
 /// Whether this crate draws one colour specification, and in which space where that is its own.
 ///
 /// `None` for a specification it does not draw. Enumerated CIE Lab is drawn as §8.6.5.4's `Lab`:
-/// the codec applies T.801's Equation M-18 with M.11.7.4.1's defaults and returns lightness over
-/// 0 to 100 and a\* and b\* offset by 128, which is `Lab`'s default `Decode` over a `Range` of
-/// `[-128 127 -128 127]`. Only under CIE Illuminant D50, the field's default and the white
-/// point this crate's `Lab` is drawn under; an `EP` naming another illuminant is not drawn.
+/// the codec applies T.801's Equation M-18 with `EP`'s ranges and offsets, or M.11.7.4.1's
+/// defaults, and returns lightness over 0 to 100 and a\* and b\* offset by 128, which is `Lab`'s
+/// default `Decode` over a `Range` of `[-128 127 -128 127]`. The codec reads no `IL`, and the
+/// space carries it instead: the white point of the illuminant the field names, which the `Lab`
+/// adapts onto D50 as every CIE-based space is adapted. A code neither T.801 nor T.4 defines names
+/// no white point and is not drawn, which leaves §7.4.9's fallback (ADR 1713).
 fn jpx_drawn(colour: &crate::jpeg2000::ColourSpecification<'_>) -> Option<JpxDrawn> {
-    /// `RL`, `OL`, `RA`, `OA`, `RB` and `OB`, four bytes each, before `IL`. T.801 Table M.30.
-    const RANGES: usize = 24;
     match (colour.method, colour.enumerated, colour.profile) {
-        (_, Some(JPX_CIELAB), _) => {
-            let illuminant = colour.parameters.get(RANGES..RANGES + 4);
-            illuminant
-                .is_none_or(|stated| stated == JPX_ILLUMINANT_D50)
-                .then_some(JpxDrawn::As(crate::colour::ColourSpace::Lab {
+        (_, Some(crate::jpeg2000::ColourSpecification::CIELAB), _) => colour
+            .cielab_illuminant()
+            .and_then(crate::jpeg2000::Illuminant::white_point)
+            .map(|white| {
+                JpxDrawn::As(crate::colour::ColourSpace::Lab {
+                    white,
+                    black: [0.0; 3],
                     range: [-128.0, 127.0, -128.0, 127.0],
-                }))
-        }
+                })
+            }),
         (_, Some(space), _) => JPX_ENUMERATED_DRAWN
             .contains(&space)
             .then_some(JpxDrawn::ByTheCodec),

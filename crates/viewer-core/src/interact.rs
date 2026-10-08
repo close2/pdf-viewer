@@ -67,12 +67,13 @@ pub(crate) struct Outcome {
     pub(crate) redraw: bool,
 }
 
-/// Whether this dictionary is one of §12.5.6.14's popup annotations.
-fn is_popup(document: &Document, dict: &Dictionary) -> bool {
+/// Whether this dictionary is one of §12.5.6.14's popup annotations, or a §12.5.6.4 text
+/// annotation, which displays a window of its own where it states no popup (ADR 1723).
+fn has_a_window(document: &Document, dict: &Dictionary) -> bool {
     document
         .get_key(dict, "Subtype")
         .as_name()
-        .is_some_and(|subtype| subtype.as_bytes() == b"Popup")
+        .is_some_and(|subtype| matches!(subtype.as_bytes(), b"Popup" | b"Text"))
 }
 
 /// The annotation under a point in default user space of one page, where it is a link.
@@ -160,7 +161,8 @@ pub(crate) fn activate_object(open: &mut Open, id: ObjectId) -> Outcome {
     // annotation carrying one of §12.5.6.14's windows exhibits it. Asked before `/A` and `/Dest`
     // because a markup annotation states neither and would otherwise activate nothing — and a
     // popup is not an outline item, so nothing here can mean both.
-    if pdf_model::popup::popup_of(&open.document, dict).is_some() || is_popup(&open.document, dict)
+    if pdf_model::popup::popup_of(&open.document, dict).is_some()
+        || has_a_window(&open.document, dict)
     {
         return Outcome {
             redraw: open.toggle_popup(id),

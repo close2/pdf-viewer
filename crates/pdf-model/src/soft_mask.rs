@@ -764,7 +764,7 @@ mod tests {
             reason = "layout arithmetic on a fixture's own constants, which cannot overflow"
         )]
 
-        /// D50, the white point §8.6.5.4 gives a Lab space and ICC gives its connection space.
+        /// D50, the white point ICC.1 gives its connection space.
         const WHITE: [f32; 3] = [0.964_2, 1.0, 0.824_9];
 
         /// A 128-byte header, the tag count, one 12-byte entry per tag, then the tags themselves.

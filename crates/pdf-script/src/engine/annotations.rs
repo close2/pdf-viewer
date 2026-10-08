@@ -16,13 +16,18 @@
 //! - **The sort and filter constants are numbered from zero in the order the reference lists
 //!   them**; the reference names them and publishes no number, so a script that spells the name
 //!   reads the same constant either way.
-//! - **Only `ANFB_ShouldNone` filters**: the other six are Acrobat's rules for its comments panel,
-//!   summary and export, which the reference names and does not define; each is refused by name.
+//! - **Four filters are answered and three refused** (ADR 1721). `ANFB_ShouldNone` keeps every
+//!   annotation; `ANFB_ShouldPrint`, `ANFB_ShouldView` and `ANFB_ShouldEdit` — "can be printed",
+//!   "can be viewed", "can be edited" — are §12.5.3's flags as this program draws and hit-tests
+//!   by them, `Hidden` included. `ANFB_ShouldAppearInPanel`, `ANFB_ShouldSummarize` and
+//!   `ANFB_ShouldExport` are Acrobat's comments pane, summary and export, which no clause defines
+//!   and this program does not have; each is refused by name.
 //! - **`syncAnnotScan()` does nothing**: the reference makes it wait for a background scan of
 //!   every page, and a realm is told every page's annotations before its first script runs.
 //! - **Three properties are written, the three a person's own edit reaches** (RFC 0008 section
-//!   4.2): `hidden`, `popupOpen` and `contents` — the last on a free text annotation alone, whose
-//!   `/Contents` a person retypes. Every other property refuses a write by name.
+//!   4.2): `hidden`, `popupOpen` and `contents` — the last on a free text annotation and a text
+//!   note, whose `/Contents` a person retypes (ADR 1721). Every other property, and `contents` on
+//!   the other fifteen subtypes, refuses a write by name.
 
 use boa_engine::object::ObjectInitializer;
 use boa_engine::object::builtins::JsArray;
@@ -122,31 +127,31 @@ fn get_annots(_this: &JsValue, arguments: &[JsValue], context: &mut Context) -> 
         ));
     };
     let reverse = value(2).to_boolean();
-    match choice(&value(3), &FILTERS, context)? {
-        Some(0) => {}
-        filter => {
-            let name = filter.and_then(|place| FILTERS.get(place)).map_or_else(
-                || "a number that names none of the reference's seven".to_owned(),
-                |name| (*name).to_owned(),
-            );
-            return Err(refuse(
-                format!("this.getAnnots(nFilterBy: {name})"),
-                RefusalKind::Unreachable(
-                    "the reference's filters other than ANFB_ShouldNone are Acrobat's rules for \
-                     its comments panel, summaries and export, which it names and does not \
-                     define; getAnnots with no filter answers every annotation (ADR 1700)"
-                        .to_owned(),
-                ),
-                context,
-            ));
-        }
-    }
+    let place = choice(&value(3), &FILTERS, context)?;
+    let Some(keeps) = place.and_then(filter) else {
+        let name = place.and_then(|place| FILTERS.get(place)).map_or_else(
+            || "a number that names none of the reference's seven".to_owned(),
+            |name| (*name).to_owned(),
+        );
+        return Err(refuse(
+            format!("this.getAnnots(nFilterBy: {name})"),
+            RefusalKind::Unreachable(
+                "ANFB_ShouldAppearInPanel, ANFB_ShouldSummarize and ANFB_ShouldExport are \
+                 Acrobat's comments pane, summary and export, which no clause of ISO 32000-2 \
+                 defines and this program does not have; getAnnots with no filter answers every \
+                 annotation (ADR 1721)"
+                    .to_owned(),
+            ),
+            context,
+        ));
+    };
     let mut annotations: Vec<AnnotationState> = State::table(context, |table| {
         table
             .document
             .annotations
             .iter()
             .filter(|annotation| page.is_none_or(|page| i64::from(annotation.page) == page))
+            .filter(|annotation| keeps(annotation))
             .cloned()
             .collect()
     })
@@ -168,6 +173,22 @@ fn get_annots(_this: &JsValue, arguments: &[JsValue], context: &mut Context) -> 
         objects.push(JsValue::from(annotation_object(annotation, context)?));
     }
     Ok(JsValue::from(JsArray::from_iter(objects, context)))
+}
+
+/// What one of the reference's filters keeps, by its place in [`FILTERS`]; `None` for the three
+/// this program refuses and for a number that names none (ADR 1721).
+///
+/// Each is §12.5.3's flags as the page is drawn and hit-tested by them, and `Hidden` — which a
+/// script may have written since the realm was told — is composed here: the bit suppresses the
+/// annotation on paper, on a screen and for a pointer alike.
+fn filter(place: usize) -> Option<fn(&AnnotationState) -> bool> {
+    match place {
+        0 => Some(|_| true),
+        1 => Some(|annotation| !annotation.hidden && annotation.reach.printed),
+        2 => Some(|annotation| !annotation.hidden && annotation.reach.viewed),
+        3 => Some(|annotation| !annotation.hidden && annotation.reach.interactive),
+        _ => None,
+    }
 }
 
 /// `this.getAnnot(nPage, cName)`: the annotation on that page whose Table 166 `/NM` is the name,
@@ -351,13 +372,13 @@ fn write(
                 context,
             ));
         }
-        Member::Contents if annotation.kind == "FreeText" => {
+        Member::Contents if matches!(annotation.kind.as_str(), "FreeText" | "Text") => {
             AnnotationChange::Contents(value.to_string(context)?.to_std_string_lossy())
         }
         Member::Contents => {
             return Err(unreachable(
-                "a reader's edit retypes the contents of a free text annotation alone, and a \
-                 script reaches what a reader's edit does (ADR 1700)",
+                "a reader's edit retypes the contents of a free text annotation and a text note \
+                 alone, and a script reaches what a reader's edit does (ADR 1721)",
                 context,
             ));
         }

@@ -1,8 +1,13 @@
-Repository: https://github.com/close2/hayro
-Base: 64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2
+Repository: https://github.com/LaurenzV/hayro (crate hayro-jbig2)
+Base: ea9c81dc70cde40c64205986fdcfcd481fe934d8
+Fork: https://github.com/close2/hayro
 
-The owner applies this to the fork and bumps the `rev` the root Cargo.toml pins for
-hayro-jbig2, hayro-jpeg2000 and hayro-ccitt; `tools/state.sh main-checkout` lists it until then.
+The base is hayro-jbig2 0.3.1: upstream tags the commit `hayro-jbig2-v0.3.1`, the published
+crate's `.cargo_vcs_info.json` names it, and its `src/` is byte for byte the published one. The
+root Cargo.toml pins the three hayro codecs to upstream's repository at that commit (ADR 1714). The
+paths below are the repository's, so the patch applies at its root with `git apply`. The owner
+applies this to the fork on that base, pushes, and moves the three stanzas to the fork at the
+pushed commit; `tools/state.sh main-checkout` lists it until then.
 
 ITU-T T.88 Annex H.2's test sequence for the arithmetic coder, as a unit test of hayro-jbig2's
 arithmetic decoder (ADR 1485). The decoder is `pub(crate)`, so nothing outside the crate can run it

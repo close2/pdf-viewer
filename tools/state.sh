@@ -900,6 +900,15 @@ section_gates_cost() {
 #
 # A line names the lane it held, `1`, `2` or `1+2` for a clock run's both; a line written before the
 # lock had two lanes names none and held the only one, the first (ADR 1684).
+#
+# **And a run the rule line says is not a walk is named.** `doc/environment.md`'s rule line says
+# `cargo test -p conformance` and crate-scoped unit tests are not walks, and one round queued 1 820.8 s
+# behind the arms export and a campaign to run the first (ADR 1706). Such a run is a `cargo test` or
+# `cargo nextest run` of named packages under the dev profile that asks no `--ignored` test: tier 1's
+# shape, since every walk the gates and the sections run states `--profile`, `--release`, `--ignored`
+# or `--workspace`. Each is
+# printed with its queue, and the batch's are summed; the line is not refused, because the lock is
+# not this section's to give (ADR 1718).
 lock_cost() {
     local log=${HEAVY_WALK_LOG:-/home/AI/heavy-walk.log}
     heading "what the heavy-walk lock cost: the last batch's runs under tools/bounded.sh --lock" "$log"
@@ -935,6 +944,10 @@ lock_cost() {
             if (!(round in runs)) order[++rounds] = round
             runs[round]++; waited[round] += wait; held[round] += hold
             if (by_round != "") { relabelled++; relabelled_wait += wait }
+            if (cmd ~ /(^|[ \/])cargo( \+[^ ]+)? (test|nextest run)( |$)/ && cmd !~ / --ignored( |$)/ && cmd !~ / --(profile|release|workspace)( |=|$)/) {
+                not_walks[++unwalked] = sprintf("  not a walk: %s  round %-5s wait %8.1fs  %s", $1, round, wait, substr(cmd, 1, 70))
+                unwalked_wait += wait
+            }
         }
         END {
             if (last == "") exit
@@ -945,6 +958,8 @@ lock_cost() {
             }
             if (relabelled) printf "%d of those line(s) name no batch branch and are counted by their round, %.1fs of queue\n", relabelled, relabelled_wait
             if (unplaced) printf "%d line(s) of the log name no batch branch and a round no batch on the log holds, counted for none\n", unplaced
+            for (i = 1; i <= unwalked; i++) print not_walks[i]
+            printf "%d run(s) of batch %s took the lock for a dev-profile test asking no --ignored, which the rule line says is not a walk: %.1fs of queue\n", unwalked, last, unwalked_wait
         }' "$log" "$log"
 }
 

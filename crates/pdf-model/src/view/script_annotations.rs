@@ -10,9 +10,14 @@
 //!
 //! **A script reaches what a person's edit already reaches, and no further** (RFC 0008 section
 //! 4.2): `hidden` is §12.6.4.11's hide, `contents` is a person's retyping of §12.5.6.6's free text
-//! annotation, and `popupOpen` is what a click on a note does to its window. Each is a log beside
-//! the document, and §7.5.6's update is how a save writes it: the annotation's dictionary replaced
-//! with the entry changed, the producer's bytes left beneath it.
+//! annotation or §12.5.6.4's text note, and `popupOpen` is what a click on a note does to its
+//! window. Each is a log beside the document, and §7.5.6's update is how a save writes it: the
+//! annotation's dictionary replaced with the entry changed, the producer's bytes left beneath it.
+//!
+//! **A window's state has one writer at a time, and it is the later one** (ADR 1720): a person's
+//! click and a script's `popupOpen` land in the same map, so whichever came last is what the
+//! window shows and what the realm reads back. Only a script's write is saved, as only a script's
+//! `hidden` is; a click is this sitting's.
 //!
 //! **The file's statement is read once per realm**, the first time a realm is told of the document,
 //! and every later telling lays the view state's changes over that reading: a page's `/Annots` is
@@ -20,11 +25,11 @@
 //! with no page answers every page; it is made only where a runner is supplied and a script runs,
 //! never on the launch path (ADR 1700 section 3 has its cost).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
-use super::script_model::{AnnotationChange, AnnotationState};
+use super::script_model::{AnnotationChange, AnnotationReach, AnnotationState};
 use super::{Update, ViewState};
 
 /// The subtypes a script's `getAnnots` answers: the seventeen Adobe's "Annotation types" page
@@ -88,9 +93,13 @@ pub(super) struct Annotations {
     left_out: usize,
     /// Each annotation a script set `hidden` on, and the value it set — what a save writes.
     pub(super) hidden: BTreeMap<ObjectId, bool>,
-    /// Each popup — or text annotation with no popup — a script opened or closed, and whether it
-    /// is open: what the window shows and a save writes as its `/Open`.
-    pub(super) opened: BTreeMap<ObjectId, bool>,
+    /// Each popup — or text annotation with no popup — whose window a person or a script has
+    /// opened or closed, and whether it is open now: the later writer's word, whichever side it
+    /// was (ADR 1720).
+    windows: BTreeMap<ObjectId, bool>,
+    /// The windows of [`Self::windows`] a script wrote at least once: the ones a save writes, each
+    /// as it is shown when the save is made.
+    scripted_windows: BTreeSet<ObjectId>,
 }
 
 impl ViewState {
@@ -152,11 +161,32 @@ impl ViewState {
         states
     }
 
-    /// Whether a script opened or closed this popup's window, or a text annotation's with no
-    /// popup, where one did.
+    /// Whether this popup's window — or a text annotation's with no popup — is open, where a
+    /// person or a script has opened or closed it since the file's `/Open` was read: the later of
+    /// the two (ADR 1720).
     #[must_use]
     pub(crate) fn popup_opened(&self, popup: ObjectId) -> Option<bool> {
-        self.scripting.annotations.opened.get(&popup).copied()
+        self.scripting.annotations.windows.get(&popup).copied()
+    }
+
+    /// Opens or closes §12.5.6.14's window, the way a person's click on the note does.
+    ///
+    /// `window` is the popup annotation, or a text annotation with no popup, whose window §12.5.6.4
+    /// makes the note's own. A person's act and a script's `popupOpen` write the same entry, so the
+    /// later of them is what the window shows (ADR 1720); a person's is not saved, since Table
+    /// 186's `/Open` states how the window is *initially* displayed and a click is this sitting's.
+    pub fn set_popup_open(&mut self, window: ObjectId, open: bool) {
+        self.scripting.annotations.windows.insert(window, open);
+    }
+
+    /// The windows a save writes and how: each one a script opened or closed, as it is shown now.
+    pub(super) fn written_windows(&self) -> BTreeMap<ObjectId, bool> {
+        let annotations = &self.scripting.annotations;
+        annotations
+            .scripted_windows
+            .iter()
+            .filter_map(|window| Some((*window, *annotations.windows.get(window)?)))
+            .collect()
     }
 
     /// A script's change to one annotation, made as a person's edit of it would be made, or
@@ -197,17 +227,21 @@ impl ViewState {
                     .insert(annotation, *hidden);
             }
             AnnotationChange::Contents(text) => {
-                if !self.set_free_text(document, annotation, text) {
+                if !self.set_free_text(document, annotation, text)
+                    && !self.set_note_text(document, annotation, text)
+                {
                     self.report(format!(
                         "a script set the contents of annotation {} {}, and a reader's edit \
-                         retypes only a free text annotation's, so nothing changes (ADR 1700)",
+                         retypes only a free text annotation's or a text note's that is not a \
+                         group's subordinate, so nothing changes (ADR 1721)",
                         annotation.number, annotation.generation
                     ));
                 }
             }
             AnnotationChange::PopupOpen(open) => match window.flatten() {
                 Some(window) => {
-                    self.scripting.annotations.opened.insert(window, *open);
+                    self.set_popup_open(window, *open);
+                    self.scripting.annotations.scripted_windows.insert(window);
                 }
                 None => self.report(format!(
                     "a script opened or closed the window of annotation {} {}, which has none, \
@@ -220,6 +254,9 @@ impl ViewState {
 
     /// Writes what scripts set on annotations: Table 167's `Hidden` bit into `/F`, and Table 186's
     /// `/Open` on each popup a script opened or closed (ADR 1700).
+    ///
+    /// **The `/Open` written is the window as it is shown**, which a person's later click may have
+    /// changed since the script wrote it (ADR 1720), as the `Hidden` bit is.
     ///
     /// **The `Hidden` bit written is the one the reader sees**, which a later hide action may have
     /// changed since the script set it: a save writes the page as it is shown. A popup closed by a
@@ -245,14 +282,14 @@ impl ViewState {
             update.stamp(&mut dict);
             update.put(*annotation, Object::Dictionary(dict));
         }
-        for (popup, open) in &self.scripting.annotations.opened {
-            let Some(mut dict) = update.current(document, *popup) else {
+        for (popup, open) in self.written_windows() {
+            let Some(mut dict) = update.current(document, popup) else {
                 continue;
             };
-            dict.insert(Name::new(&b"Open"[..]), Object::Boolean(*open));
+            dict.insert(Name::new(&b"Open"[..]), Object::Boolean(open));
             let parent = dict.get("Parent").and_then(Object::as_reference);
-            update.put(*popup, Object::Dictionary(dict));
-            if *open {
+            update.put(popup, Object::Dictionary(dict));
+            if open {
                 continue;
             }
             let Some(parent) = parent else {
@@ -350,10 +387,53 @@ fn read_one(document: &Document, id: ObjectId, dict: &Dictionary, page: usize) -
             modified: text(document, dict, "M").and_then(|text| moment(&text)),
             hidden: flags & HIDDEN != 0,
             read_only: flags & READ_ONLY != 0,
+            reach: reach(document, dict),
             popup_open,
         },
         window,
     })
+}
+
+/// What `crate::annotation` answers for paper, a screen and a pointer, asked once as though a
+/// hide action had cleared `Hidden` — the bit the realm holds beside these and a script writes,
+/// so a filter composes the two rather than reading the file's word twice.
+///
+/// **The same functions the page is drawn by**, so a script's filter and the drawing cannot come
+/// apart: bit 3's three sentences on paper, `NoView` as bit 9 inverts it on a screen, and
+/// `NoView` with `ReadOnly` for a pointer. A screen is asked twice, at Table 170's normal and
+/// rollover appearances, because `ToggleNoView` makes an annotation one a reader can see when the
+/// pointer is on it — "causing the annotation to be visible when the mouse pointer hovers over
+/// the annotation".
+fn reach(document: &Document, dict: &Dictionary) -> AnnotationReach {
+    let shown = super::AnnotationView {
+        hidden_by_action: Some(false),
+        ..super::AnnotationView::default()
+    };
+    let on = |purpose, appearance| {
+        crate::annotation::displayed(
+            document,
+            dict,
+            super::AnnotationView {
+                appearance,
+                purpose,
+                ..shown
+            },
+        )
+    };
+    AnnotationReach {
+        printed: on(
+            crate::optional_content::Purpose::Print,
+            super::Appearance::Normal,
+        ),
+        viewed: on(
+            crate::optional_content::Purpose::View,
+            super::Appearance::Normal,
+        ) || on(
+            crate::optional_content::Purpose::View,
+            super::Appearance::Rollover,
+        ),
+        interactive: crate::annotation::interacts(document, dict, shown),
+    }
 }
 
 /// Table 166's `/Rect`, normalised so that the first corner is the lower left, as §7.9.5 reads any

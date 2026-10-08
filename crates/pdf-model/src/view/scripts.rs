@@ -313,7 +313,7 @@ struct Saved {
     drawn: BTreeMap<ObjectId, Vec<Property>>,
     /// The `hidden` scripts set on annotations, which a save writes.
     annotations_hidden: BTreeMap<ObjectId, bool>,
-    /// The popups scripts opened or closed, which a save writes.
+    /// The popups scripts opened or closed, as a save writes them.
     popups_opened: BTreeMap<ObjectId, bool>,
 }
 
@@ -1791,7 +1791,7 @@ impl ViewState {
             unfiled: self.unfiled.clone(),
             drawn: self.scripting.drawn.clone(),
             annotations_hidden: self.scripting.annotations.hidden.clone(),
-            popups_opened: self.scripting.annotations.opened.clone(),
+            popups_opened: self.written_windows(),
         }
     }
 
@@ -1812,7 +1812,7 @@ impl ViewState {
                     || saved.unfiled != self.unfiled
                     || saved.drawn != self.scripting.drawn
                     || saved.annotations_hidden != self.scripting.annotations.hidden
-                    || saved.popups_opened != self.scripting.annotations.opened
+                    || saved.popups_opened != self.written_windows()
             }
             None => {
                 !(self.edited.is_empty()
@@ -1824,7 +1824,7 @@ impl ViewState {
                     && self.unfiled.is_empty()
                     && self.scripting.drawn.is_empty()
                     && self.scripting.annotations.hidden.is_empty()
-                    && self.scripting.annotations.opened.is_empty())
+                    && self.written_windows().is_empty())
             }
         }
     }

@@ -63,23 +63,14 @@
 //! timeout already got. `doc/todo/02` §2's rule about a gate that spawns another program is the
 //! same rule.
 //!
-//! **And a `§14.7 fault` can move between two runs of one unchanged tree**, although ADR 0852
-//! records that only the *identical* rows move by one or two and that the faults, the differences
-//! and the warnings carry a verdict. With three rounds' gates on the machine at once the
-//! `bookmarks` lane has failed on `bug1997343.pdf` because [`parent_tree_shape`] made 90 members of
-//! the source's parent-tree entry and 79 of ours, and the same command on the same bytes ninety
-//! seconds later made the lane state **no fault at all** and one more identical page. Nothing here
-//! is seeded and nothing here is timed, so the moving quantity is what `mutool show` *printed* — a
-//! short answer under load reads as a short array, and [`array_shape`] cannot tell that from a
-//! shorter tree.
-//!
-//! So the honest reading of a §14.7 fault today is **a reading list rather than a verdict**, the
-//! same as this suite's page comparisons, and a round that meets one runs the lane again before
-//! believing it. What would make it a verdict is a guard `show` does not have: the length
-//! `mutool show` states for the array against the members it prints, so a truncated answer is
-//! *no* answer rather than a small one. That is a defect in the instrument and it is written
-//! down here rather than fixed, because the round that found it was reading ledger rows and had
-//! no business rewriting this gate on the way past (trap 3, trap 11).
+//! **And every lane compares the derived file's first piece, taken by name.** `split` writes its
+//! pieces across rayon and [`MemorySinks`] holds them in the order they were opened, so the first
+//! output *opened* is whichever thread got there: on `bug1997343.pdf`, whose `--at-bookmarks`
+//! split makes two chapters, the second chapter's page — 79 members in its parent-tree entry,
+//! against the source page 1's 90 — was compared with the source's page 1 under load and read as a
+//! `§14.7 fault`. [`first_written`] takes the output the report names first, which is the first
+//! piece whatever order the threads finished in, so a fault here is a verdict and not a schedule
+//! (ADR 1718).
 //!
 //! # The population
 //!
@@ -334,12 +325,24 @@ fn fixed_second() -> Vec<u8> {
 
 /// The first output of a plan, or a refusal.
 fn first_output(plan: &Plan, sources: &[Source], sinks: MemorySinks) -> Result<Vec<u8>, Refusal> {
-    apply(plan, sources, &sinks, &Policy::default(), &budget())?;
-    let mut outputs = sinks.into_outputs();
-    if outputs.is_empty() {
-        return Err(Refusal::Assembly("no file was written".to_owned()));
-    }
-    Ok(outputs.remove(0).1)
+    let report = apply(plan, sources, &sinks, &Policy::default(), &budget())?;
+    let first = report.outputs.first().map(|output| output.name.as_str());
+    first_written(first, sinks.into_outputs())
+        .ok_or_else(|| Refusal::Assembly("no file was written".to_owned()))
+}
+
+/// The bytes of the output the report names first, out of the sinks' outputs.
+///
+/// By name and not by position, because the sinks hold the outputs in the order they were
+/// *opened*, and `split` writes its pieces across rayon: under load the second chapter of an
+/// `--at-bookmarks` split is opened first often enough to have been compared as though it were
+/// the first. The report lists the outputs in piece order whatever order the threads finished in.
+fn first_written(first: Option<&str>, outputs: Vec<(String, Vec<u8>)>) -> Option<Vec<u8>> {
+    let first = first?;
+    outputs
+        .into_iter()
+        .find(|(name, _)| name == first)
+        .map(|(_, bytes)| bytes)
 }
 
 /// The five derived files, each of which states the source's page 1 as **its own** page 1.
@@ -1174,4 +1177,65 @@ fn the_scan_of_mupdfs_output_reads_both_forms_of_a_parent_tree_value() {
     assert_ne!(array_shape("[ null ]").as_deref(), Some("rr"));
     assert_eq!(array_shape("null").as_deref(), None);
     assert_eq!(array_shape("<< /Nums [ 0 1 ] >>").as_deref(), None);
+}
+
+/// The first piece is the one the report names first, not the first the sinks opened: pieces are
+/// written across rayon, and the sinks keep the order they were opened in. Calibrated (trap 13):
+/// the outputs below are opened second chapter first, and taking the first opened answers the
+/// second chapter.
+#[test]
+fn the_first_piece_is_the_one_the_report_names_first() {
+    let opened = vec![
+        ("chapter-2.pdf".to_owned(), b"two".to_vec()),
+        ("chapter-1.pdf".to_owned(), b"one".to_vec()),
+    ];
+    assert_eq!(
+        opened.first().map(|(_, bytes)| bytes.as_slice()),
+        Some(&b"two"[..]),
+        "the planted order is not the one a late first thread leaves"
+    );
+    assert_eq!(
+        first_written(Some("chapter-1.pdf"), opened.clone()).as_deref(),
+        Some(&b"one"[..])
+    );
+    assert_eq!(first_written(Some("chapter-3.pdf"), opened.clone()), None);
+    assert_eq!(first_written(None, opened), None);
+}
+
+/// A split at bookmarks of a committed document with two chapters answers its first chapter
+/// through [`first_output`], on every one of a number of runs, whatever order rayon opened them in.
+#[test]
+fn a_split_at_bookmarks_is_compared_by_its_first_chapter() {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/pdf.js/test/pdfs/bug1997343.pdf");
+    let Ok(bytes) = std::fs::read(&path) else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+    let plan = Plan::Split(SplitPlan {
+        source: 0,
+        pages: "1-end".parse::<Selection>().expect("a selection"),
+        pieces: Pieces::AtBookmarks(1),
+        names: "chapter-%d.pdf".parse().expect("a pattern"),
+    });
+    let sources = [Source::new(bytes)];
+    let reference = {
+        let sinks = MemorySinks::new();
+        let report = apply(&plan, &sources, &sinks, &Policy::default(), &budget())
+            .expect("the split applies");
+        assert!(
+            report.outputs.len() >= 2,
+            "the document no longer splits in two"
+        );
+        let first = report.outputs.first().map(|output| output.name.clone());
+        assert_eq!(first.as_deref(), Some("chapter-1.pdf"));
+        first_written(first.as_deref(), sinks.into_outputs()).expect("the first chapter")
+    };
+    for _ in 0..8 {
+        let piece = first_output(&plan, &sources, MemorySinks::new()).expect("the split applies");
+        assert!(
+            piece == reference,
+            "a run answered another piece than the first chapter"
+        );
+    }
 }

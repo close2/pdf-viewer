@@ -339,11 +339,30 @@ pub struct AnnotationState {
     pub hidden: bool,
     /// Table 167's `ReadOnly` bit: `readOnly`.
     pub read_only: bool,
+    /// Where §12.5.3's other flags let it go, `Hidden` set aside: what `getAnnots`'s three flag
+    /// filters read beside [`Self::hidden`] (ADR 1721).
+    pub reach: AnnotationReach,
     /// Whether the annotation's popup window opens with the page — Table 186's `/Open`, or Table
     /// 175's on a text annotation, which is the whole statement for one with no popup — or `None`
     /// for the three subtypes Adobe's `popupOpen` is not a property of and for an annotation that
     /// has no window to open (ADR 1700).
     pub popup_open: Option<bool>,
+}
+
+/// Where Table 167's flags let an annotation go, with its `Hidden` bit set aside — the bit a hide
+/// action and a script change, which suppresses it on paper, on a screen and for a pointer alike,
+/// and which [`AnnotationState::hidden`] carries beside this (ADR 1721).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct AnnotationReach {
+    /// A printed page: bit 3's three sentences, as `crate::annotation` reads them for paper.
+    /// What `ANFB_ShouldPrint` keeps.
+    pub printed: bool,
+    /// A screen, with the pointer away from the annotation or on it: `NoView`, as `ToggleNoView`
+    /// inverts it under the pointer. What `ANFB_ShouldView` keeps.
+    pub viewed: bool,
+    /// A pointer: `NoView` and `ReadOnly`, as `crate::annotation` reads them for interaction.
+    /// What `ANFB_ShouldEdit` keeps.
+    pub interactive: bool,
 }
 
 /// What a script set on one annotation: the three of Adobe's `Annotation` properties a reader's
@@ -354,7 +373,8 @@ pub enum AnnotationChange {
     Hidden(bool),
     /// `popupOpen`: whether the annotation's window opens with the page.
     PopupOpen(bool),
-    /// `contents`: Table 166's `/Contents`, as a person's retyping of a free text annotation.
+    /// `contents`: Table 166's `/Contents`, as a person's retyping of a free text annotation or a
+    /// text note.
     Contents(String),
 }
 

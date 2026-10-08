@@ -39,9 +39,9 @@ mod scripts;
 
 use crate::optional_content::{Audience, OptionalContent, Purpose};
 pub use script_model::{
-    Alignment, AnnotationChange, AnnotationState, BorderStyle, Colour, CommitKey, Display,
-    DocumentState, DocumentTrigger, Face, FieldState, FieldType, Glyph, InfoEntry, Layer, Property,
-    ScriptEdit, ScriptSite, Sound, TextFlag, WidgetState,
+    Alignment, AnnotationChange, AnnotationReach, AnnotationState, BorderStyle, Colour, CommitKey,
+    Display, DocumentState, DocumentTrigger, Face, FieldState, FieldType, Glyph, InfoEntry, Layer,
+    Property, ScriptEdit, ScriptSite, Sound, TextFlag, WidgetState,
 };
 pub use script_timers::{MAX_TIMERS, MIN_PERIOD};
 pub use scripts::{
@@ -252,7 +252,8 @@ pub struct ViewState {
     /// that it has an identity for as long as the document is open — which is what the pointer,
     /// a later edit and the writer all need to name it by.
     added: Vec<Added>,
-    /// What a person retyped into a free text annotation **the file itself states**.
+    /// What a person retyped into a free text annotation or a text note **the file itself
+    /// states**.
     ///
     /// The sixth thing in this struct that comes from outside the document, and the only one that
     /// contradicts something the file already says: `added` puts a new object beside the
@@ -2152,6 +2153,50 @@ impl ViewState {
         true
     }
 
+    /// Retypes the text of §12.5.6.4's text annotation the file states — the note its popup
+    /// window shows — the way a person typing into that window does; `false` where the
+    /// annotation is not one whose own `/Contents` the window shows.
+    ///
+    /// > When closed, the annotation shall appear as an icon; when open, it shall display a popup
+    /// > window containing the text of the note
+    ///
+    /// So the text is the window's and the icon is the appearance, and **the appearance stays
+    /// the producer's**: unlike [`Self::set_free_text`], nothing drawn on the page depends on the
+    /// text, and a save writes Table 166's `/Contents` alone. The retyping is held where a free
+    /// text annotation's is, read back by the realm and the window alike, and written by §7.5.6's
+    /// update (ADR 1721).
+    ///
+    /// **A subordinate of §12.5.6.2's group is refused**, because its `Contents` is one of the
+    /// group attributes whose "corresponding entries in the subordinate annotations shall be
+    /// ignored": a retyping the window could never show is not an edit a person could make.
+    /// Table 167's `LockedContents` is the document's assertion and is read by
+    /// [`crate::restriction::asserted`], as for a free text annotation, not here.
+    pub fn set_note_text(&mut self, document: &Document, annotation: ObjectId, text: &str) -> bool {
+        let Some(dict) = document.get(annotation).as_dict().cloned() else {
+            return false;
+        };
+        if !is_text_note(document, &dict) {
+            return false;
+        }
+        // `group_source` borrows the annotation's own dictionary unless a group's primary stands
+        // in for it.
+        if matches!(
+            crate::markup::group_source(document, &dict),
+            std::borrow::Cow::Owned(_)
+        ) {
+            return false;
+        }
+        self.retyped.insert(annotation, text.to_owned());
+        true
+    }
+
+    /// What a person retyped into an annotation's Table 166 `/Contents`, where they retyped it:
+    /// what a popup window showing that annotation's text shows in its place.
+    #[must_use]
+    pub(crate) fn note_text(&self, annotation: ObjectId) -> Option<&str> {
+        self.retyped.get(&annotation).map(String::as_str)
+    }
+
     /// The free text annotation a person added at a point, and what it says now.
     ///
     /// The point is in **default user space**, as every other question here takes it, and the
@@ -3369,7 +3414,7 @@ impl ViewState {
         (freed, still_reached)
     }
 
-    /// Writes every free text annotation of the file's own that a person retyped.
+    /// Writes every free text annotation and text note of the file's own that a person retyped.
     ///
     /// Two entries of one object, and the second is what keeps the file consistent with itself.
     /// Table 166's `/Contents` is what the person typed; Table 166's `/AP` is **replaced** with the
@@ -3418,7 +3463,8 @@ impl ViewState {
             let Some(mut dict) = update.current(document, *annotation) else {
                 continue;
             };
-            if !is_free_text(document, &dict) {
+            let free_text = is_free_text(document, &dict);
+            if !free_text && !is_text_note(document, &dict) {
                 continue;
             }
             dict.insert(
@@ -3426,7 +3472,9 @@ impl ViewState {
                 Object::String(pdf_syntax::text_string::encode_text_string(text).into()),
             );
             update.stamp(&mut dict);
-            if !write_retyped_appearance(document, update, &mut dict, text) {
+            // A text note's appearance is its icon, which §12.5.6.4 draws whatever the note says,
+            // so the producer's `/AP` stays (`ViewState::set_note_text`).
+            if free_text && !write_retyped_appearance(document, update, &mut dict, text) {
                 unappeared.push(*annotation);
             }
             update.put(*annotation, Object::Dictionary(dict));
@@ -5395,6 +5443,14 @@ fn is_free_text(document: &Document, annotation: &Dictionary) -> bool {
         .get_key(annotation, "Subtype")
         .as_name()
         .is_some_and(|subtype| subtype.as_bytes() == b"FreeText")
+}
+
+/// Whether an annotation is §12.5.6.4's text annotation.
+fn is_text_note(document: &Document, annotation: &Dictionary) -> bool {
+    document
+        .get_key(annotation, "Subtype")
+        .as_name()
+        .is_some_and(|subtype| subtype.as_bytes() == b"Text")
 }
 
 /// Whether Table 166's `/Rect` covers a point in default user space.

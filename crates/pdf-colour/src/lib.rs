@@ -5,8 +5,8 @@
 //! CIE-based and device families ([`colour`]), the ICC profiles a document embeds ([`icc`]),
 //! the §7.10 functions those and shadings evaluate ([`function`]), the §8.7.4 shadings and their
 //! §8.7.4.5 mesh tessellation ([`shading`], [`mesh`]), §10.4.2.4's black-generation and
-//! undercolour-removal functions ([`black_generation`]) and §10.5's transfer function
-//! ([`transfer`]).
+//! undercolour-removal functions ([`black_generation`]), §10.5's transfer function
+//! ([`transfer`]), and the white point a colour temperature names ([`planckian`]).
 //!
 //! # Why a crate of its own
 //!
@@ -30,5 +30,6 @@ pub mod colour;
 pub mod function;
 pub mod icc;
 pub mod mesh;
+pub mod planckian;
 pub mod shading;
 pub mod transfer;

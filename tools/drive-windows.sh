@@ -50,7 +50,9 @@
 # and an open action's `this.pageNum = 2` shows the third page (ADR 1643); an interval and a
 # timeout an open action sets each turn a page on the window's own ticks, and `app.beep` is played
 # or refused by name (ADR 1702); and in the three, a note's popup draws its /RC's red run red and
-# the same note with /Contents alone draws none (ADR 1642).
+# the same note with /Contents alone draws none (ADR 1642); a tab's dots, rule and content leader
+# reach its stop in both directions (ADR 1722); and a text note with no /Popup opens a window of its
+# own when a script's `popupOpen` or the file's /Open opens it, and none when closed (ADR 1723).
 #
 # And two things a screen reader does, through AT-SPI alone: it asks which window is the active one,
 # whose frame says so with the keyboard in it and not without (ADR 1565), and it clicks a text field
@@ -587,9 +589,44 @@ rich_body("tab-rtl", "H\r\u05e9\u05dc\u05d5\u05dd\u05e2\u05d5\u05dc\u05dd",
           f'<p style="tab-stops:after 100pt"><span style="{red20}">\u05e9\u05dc\u05d5\u05dd</span>'
           '<span style="color:#0000ff;font-size:20pt;xfa-tab-count:1">\u05e2\u05d5\u05dc\u05dd</span>'
           '</p>')
+# Three leaders before a left stop 200 points from the left margin (ADR 1722): dots, a 3-point
+# rule and a repeated plus sign, each in the colour of the run whose text holds the tab, before a
+# blue H at the stop; and a paragraph read right to left whose cyan word's tab reaches leftward to
+# an `after` stop 100 points from the margin, its dots cyan.
+def leadered(leader, colour):
+    return (f'<p style="tab-stops:left {leader} 200pt">'
+            f'<span style="color:{colour};font-size:16pt">H</span>'
+            '<span style="color:#0000ff;font-size:16pt;xfa-tab-count:1">H</span></p>')
+rich_body("leader", "HH\rHH\rHH\r\u05e9\u05dc\u05d5\u05dd\u05e2\u05d5\u05dc\u05dd",
+          leadered("leader(dots)", "#ff0000") + leadered("leader(rule(solid 3pt))", "#00ff00")
+          + leadered("leader(use-content('+'))", "#ff00ff")
+          + '<p style="tab-stops:after leader(dots) 100pt">'
+          '<span style="color:#00ffff;font-size:16pt">\u05e9\u05dc\u05d5\u05dd</span>'
+          '<span style="color:#000000;font-size:16pt;xfa-tab-count:1">'
+          '\u05e2\u05d5\u05dc\u05dd</span></p>')
 rich_note("rtl", "\u05e9\u05dc\u05d5\u05dd \u05e2\u05d5\u05dc\u05dd",
           f'<span style="{red20}">\u05e9\u05dc\u05d5\u05dd</span> '
           '<span style="color:#0000ff;font-size:20pt">\u05e2\u05d5\u05dc\u05dd</span>')
+
+# drive-note-<how>.pdf: a text note that states no /Popup, its /RC colouring a word pure red,
+# whose own window §12.5.6.4 displays when the note is open (ADR 1723): opened by a script's
+# `popupOpen` in an open action, opened by the file's Table 175 /Open, and closed — the control,
+# under which no red may be drawn.
+for how in ["script", "file", "closed"]:
+    pdf = pikepdf.new()
+    font = helv(pdf)
+    p1 = page(pdf, font, "Note")
+    note = Dictionary(Type=Name.Annot, Subtype=Name.Text, Rect=[60, 600, 84, 624], F=4,
+                      Contents=String("A red word."), T=String("Drive"), NM=String("note"),
+                      Name=Name.Comment, Open=(how == "file"),
+                      RC=String('<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml">'
+                                '<p>A <span style="color:#ff0000;font-weight:bold;font-size:20pt">'
+                                'red word</span>.</p></body>'))
+    p1.obj.Annots = Array([pdf.make_indirect(note)])
+    if how == "script":
+        pdf.Root.OpenAction = Dictionary(S=Name.JavaScript, JS=String(
+            'this.getAnnot(0, "note").popupOpen = true;'))
+    pdf.save(f"{out}/drive-note-{how}.pdf")
 
 # drive-painted.pdf: a push-button whose background the document's open action sets red by
 # script — Table 192's /BG, which the appearance is constructed from once a script has changed it
@@ -2464,6 +2501,59 @@ popup_tab_rtl() {
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 
+# A tab leader drawn in every window (ADR 1722): three paragraphs, each a coloured H, a tab whose
+# stop 200 points from the left margin states a leader, and a blue H at the stop. Each leader is in
+# its H's colour — the run holding the tab — so that colour reaches from the H across the room to
+# within a cycle of the blue H (267 px from the margin at 96 to the inch) and not past it; without a
+# leader it would be the H's own 11 px. The right-to-left paragraph's cyan reaches from its word at
+# the right edge leftward across the room to its stop, well over the word's own 60 px.
+popup_leader() {
+    local blue colour box width left seen=""
+    launch "$FIXTURES/drive-rich-leader.pdf"; sleep 1; shot 62-popup-leader
+    blue=$(box_of "$OUT/shots/$WINDOW/62-popup-leader.png" "#0000ff")
+    local blue_left=${blue#* }
+    for colour in "#ff0000" "#00ff00" "#ff00ff"; do
+        box=$(box_of "$OUT/shots/$WINDOW/62-popup-leader.png" "$colour")
+        width=${box% *}; left=${box#* }
+        if [ "${blue% *}" -le 0 ] || [ "$width" -lt 220 ] || [ $((left + width)) -gt $((blue_left + 3)) ]; then
+            verdict 62-popup-leader wrong "$colour (width left) $box, blue $blue: $LOG"
+            kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+            return
+        fi
+        seen="$seen $colour ${width} px to $((left + width));"
+    done
+    box=$(box_of "$OUT/shots/$WINDOW/62-popup-leader.png" "#00ffff")
+    if [ "${box% *}" -lt 200 ]; then
+        verdict 62-popup-leader wrong "right to left: #00ffff (width left) $box: $LOG"
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    verdict 62-popup-leader works "dots, rule and content:$seen the blue H from $blue_left; leftward dots ${box% *} px from ${box#* }"
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
+# A text note that states no /Popup opens a window of its own (ADR 1723): §12.5.6.4's "when open, it
+# shall display a popup window", opened by a script's `popupOpen` and by the file's own Table 175
+# /Open, its /RC's red word drawn red; the same note closed draws no red.
+note_window() {
+    if [ ! -x "$BIN/pdf-script-worker" ]; then
+        verdict 63-note-window "not offered" "no $BIN/pdf-script-worker beside the windows"; return
+    fi
+    local scripted filed closed
+    launch "$FIXTURES/drive-note-script.pdf" --scripts on; sleep 1; shot 63-note-window-script
+    scripted=$(coloured "$OUT/shots/$WINDOW/63-note-window-script.png" "#ff0000")
+    launch "$FIXTURES/drive-note-file.pdf"; sleep 1; shot 63-note-window-file
+    filed=$(coloured "$OUT/shots/$WINDOW/63-note-window-file.png" "#ff0000")
+    launch "$FIXTURES/drive-note-closed.pdf"; sleep 1; shot 63-note-window-closed
+    closed=$(coloured "$OUT/shots/$WINDOW/63-note-window-closed.png" "#ff0000")
+    if [ "${scripted:-0}" -gt 40 ] && [ "${filed:-0}" -gt 40 ] && [ "${closed:-1}" -eq 0 ]; then
+        verdict 63-note-window works "red pixels: $scripted opened by popupOpen, $filed by /Open, $closed closed"
+    else
+        verdict 63-note-window wrong "red pixels: ${scripted:-?} by popupOpen, ${filed:-?} by /Open, ${closed:-?} closed: $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
 # §12.10's position, in all four windows (ADR 1593): measuring on, one press on the geographic map,
 # and the window's sentence carries a latitude and a longitude inside the map's own rectangle of
 # degrees, six places each; a press on a projected map whose /GPTS are degrees says why it gives no
@@ -2568,6 +2658,8 @@ for WINDOW in "${WINDOWS[@]}"; do
     popup_list_rtl
     popup_tab
     popup_tab_rtl
+    popup_leader
+    note_window
     located
     located_displayed
 done

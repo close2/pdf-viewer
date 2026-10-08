@@ -1030,7 +1030,9 @@ cd fuzz && cargo +nightly fuzz run script       -- -max_total_time=1200 -rss_lim
   # (ADRs 1626, 1627). Bracket nesting past 256 is not run; the realm's own bounds stop a script
   # below that. Seeded by `fuzz/seed_script.py` with every site, each member carried and refused,
   # every budget at its number and one past it, chains deep without brackets, and a script at the
-  # `-max_len` above.
+  # `-max_len` above. **A run's escape is the time its thread spent on a processor**, not the wall
+  # clock's: at nice 19 under siblings' builds a seed at the element budget waited past the bound and
+  # stopped `seeds.sh check script` as "not judged" (ADR 1717).
 cd fuzz && cargo +nightly fuzz run script_wire  -- -max_total_time=1200 -rss_limit_mb=2048
   # the script worker's wire from both sides (ADR 1609): the run a host sends and the reply a
   # confined worker sends back to a host that is not. What decodes once decodes again to the same,
@@ -1097,7 +1099,12 @@ cd fuzz && cargo +nightly fuzz run vfs_write    -- -max_total_time=600 -rss_limi
 # which `ContentStreamCycleType3insideType3.pdf` among its seeds needs — and `jbig2` runs past
 # `hayro-jbig2`'s known timeouts with its line's `-fork=1 -ignore_timeouts=1`. Read `INITED` for
 # the disk's corpus and for fresh seeds before spending the run: a corpus far below what fresh
-# seeds reach is a corpus to regenerate (ADRs 1423, 1495).
+# seeds reach is a corpus to regenerate (ADRs 1423, 1495). A campaign meant to last an hour runs
+# `-fork=1 -ignore_crashes=1 -ignore_timeouts=1 -ignore_ooms=1` with `TMPDIR` in scratch, so one
+# stop does not end it; a fork parent prints no `INITED` and its `cov` is not an in-process run's,
+# so the figure after is a `-runs=0` pass over the disk corpus with the finds beside it. Several
+# targets fit one `--tree 6` hold side by side, and an hour's hold is an hour a sibling's small walk
+# may wait (ADR 1716).
 # `tools/state.sh fuzz` prints what the disk holds of every target: its seeds, and the crashes,
 # timeouts and memory refusals sitting in `fuzz/artifacts/`.
 ```

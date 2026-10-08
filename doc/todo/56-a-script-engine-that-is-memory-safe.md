@@ -1228,10 +1228,14 @@ them, so a document whose scripts throw on every field fills the report with its
    after them — `getAnnots`, `app.beep`, the timers — is ADR 1689's tail. `this.getAnnots`,
    `getAnnot` and `syncAnnotScan` are bridged: every page's markup annotations cross to the realm
    at its first telling, each `Annotation` reads ten properties from §12.5.2's entries, and
-   `hidden`, `popupOpen` and a free text annotation's `contents` are a reader's edits that a save
-   writes by §7.5.6 (ADR 1700). No run of the column reaches them: the static census's documents
-   call them from Adobe's attachments shim, which a viewer at version 7 or later skips, and from
-   annotation events the column does not raise.
+   `hidden`, `popupOpen` and a free text annotation's or a text note's `contents` are a reader's
+   edits that a save writes by §7.5.6 (ADRs 1700, 1721); a window's state is the later of a
+   person's click and a script's write (ADR 1720); the print, view and edit filters read Table 167
+   as the page is drawn, and the pane, summary and export filters are refused by name (ADR 1721).
+   No run of the column reaches them: the static census's documents call them from Adobe's
+   attachments shim, which calls `getAnnots` only for a `viewerVersion` from 6 to below 7 and so
+   never here, where it answers 0.1 (ADR 1615), and from annotation events the column does not
+   raise.
 
 No throw is a Tier 2 member's: every refusal the column meets is caught or carried.
 

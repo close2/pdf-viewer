@@ -2856,8 +2856,9 @@ impl Viewer {
 
     /// §12.5.6.14's open popup windows, placed on the screen.
     ///
-    /// The state is the file's `/Open` unless a person has said otherwise since, which is what
-    /// `Open::popups` holds and why Table 186's word "initially" is load-bearing.
+    /// The state is the file's `/Open` unless a person or a script has said otherwise since,
+    /// the later of the two, which `pdf_model::popup::popups` lays over it from the view state
+    /// (ADR 1720) and is why Table 186's word "initially" is load-bearing.
     fn popup_windows(&self, open: &Open) -> Vec<PopupWindow> {
         // Every page the arrangement shows rather than the current one alone: a window belongs to
         // the page its annotation is on, and a `OneColumn` reader looking at two pages would
@@ -2867,7 +2868,7 @@ impl Viewer {
             .flat_map(|on_screen| {
                 pdf_model::popup::popups(&open.document, &on_screen.object, &open.view)
                     .into_iter()
-                    .filter(|popup| open.popup_is_open(popup))
+                    .filter(|popup| popup.open)
                     .filter_map(|popup| {
                         Some(PopupWindow {
                             annotation: popup.annotation,

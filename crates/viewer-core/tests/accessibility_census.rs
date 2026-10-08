@@ -1465,10 +1465,12 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
         // `issue21579.pdf` and `encrypted-attachment.pdf` open with the passwords
         // `corpus_passwords.rs` publishes (ADRs 1377 and 1534), so each one's untagged page is in
         // this population as it is in the tracked one.
+        // 891 → 892 with ADR 1723: a text note with no `/Popup` now has a window of its own, so a page
+        // whose only annotation is such a note answers where it answered nothing.
         gate_ratchet::floor(
             "untagged pages answering honestly, whole population",
             census.untagged_honest,
-            891,
+            892,
         );
         // ADR 1369's two counts, new with it, over the whole population.
         gate_ratchet::floor(

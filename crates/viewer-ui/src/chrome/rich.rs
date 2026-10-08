@@ -516,17 +516,6 @@ fn line_start(
     }
 }
 
-/// The most cycles one leader draws: a window's width over the narrowest glyph is far below it,
-/// and a pattern of a hair's width is not a reason to draw a million of them.
-const MOST_CYCLES: usize = 4096;
-
-/// The share of a dashed rule's cycle a dash takes, and its cycle in thicknesses; a dotted rule's
-/// cycle is a square dot and its own width of gap. Chapter 2 states neither, and these are a field
-/// appearance's choices (ADR 1660), kept so that one leader is not drawn two ways in one program.
-const DASH_CYCLE: f32 = 4.0;
-/// A dotted rule's cycle, in thicknesses.
-const DOT_CYCLE: f32 = 2.0;
-
 /// A tab stop's leader across the `room` a tab advanced from `from`, on the line's baseline: chapter 2's *Tab Leader Pattern*
 /// (pages 63 to 65), as a field's appearance draws it (ADR 1660), in this window's pixels.
 ///
@@ -535,33 +524,20 @@ const DOT_CYCLE: f32 = 2.0;
 /// the room cannot hold whole is left blank, as the chapter has a processor leave a partial one. A
 /// cycle is the larger of `leaderPatternWidth` and the pattern's own width; dots and content are
 /// the tab's run's own glyphs, and a rule is drawn in its colour, centred on the baseline, a
-/// dashed or dotted one in pieces (ADR 1679).
+/// dashed or dotted one in pieces (ADR 1679). The grid and the pieces are `viewer_host::popup`'s,
+/// which the two toolkit windows paint by over their own lines (ADR 1722).
 fn draw_leader(
     chrome: &Chrome,
     list: &mut DisplayList,
     (item, setting, stop): (&Item<'_>, &Setting, &viewer_host::popup::TabStop),
     ((from, baseline), room, margin): ((f32, f32), f32, f32),
 ) {
-    use pdf_model::popup::RichRuleStyle;
     use viewer_host::popup::LeaderPattern;
     let Some(leader) = stop.leader.as_ref() else {
         return;
     };
     let to = from + room;
     let colour = item.run.colour.unwrap_or(Color::BLACK);
-    let cycles = |inherent: f32| -> Vec<f32> {
-        let cycle = inherent.max(leader.width);
-        if !cycle.is_finite() || cycle <= 0.0 || to <= from {
-            return Vec::new();
-        }
-        let mut index = ((from - margin) / cycle).ceil();
-        let mut out = Vec::new();
-        while margin + (index + 1.0) * cycle <= to + f32::EPSILON && out.len() < MOST_CYCLES {
-            out.push(margin + index * cycle);
-            index += 1.0;
-        }
-        out
-    };
     let glyphs = |text: &str| -> Vec<(char, f32)> {
         text.chars()
             .map(|character| {
@@ -580,7 +556,8 @@ fn draw_leader(
                 _ => ".",
             });
             let inherent: f32 = glyphs.iter().map(|(_, advance)| advance).sum();
-            for at in cycles(inherent) {
+            let cycle = inherent.max(leader.width);
+            for at in viewer_host::popup::leader_cycles(from, to, margin, cycle) {
                 let mut x = at;
                 for (character, advance) in &glyphs {
                     if *character != ' ' {
@@ -598,23 +575,9 @@ fn draw_leader(
             }
         }
         LeaderPattern::Rule { style, thickness } => {
-            let thick = thickness.unwrap_or((setting.em.1 * 0.05).max(1.0)).max(0.0);
-            if thick <= 0.0 || to <= from {
-                return;
-            }
+            let thick = viewer_host::popup::rule_thickness(*thickness, setting.em.1);
             let top = baseline - setting.rise - thick * 0.5;
-            let pieces: Vec<(f32, f32)> = match style {
-                RichRuleStyle::Solid => vec![(from, to - from)],
-                RichRuleStyle::Dashed => cycles(DASH_CYCLE * thick)
-                    .into_iter()
-                    .map(|x| (x, DASH_CYCLE * thick * 0.5))
-                    .collect(),
-                RichRuleStyle::Dotted => cycles(DOT_CYCLE * thick)
-                    .into_iter()
-                    .map(|x| (x, thick))
-                    .collect(),
-            };
-            for (x, width) in pieces {
+            for (x, width) in viewer_host::popup::rule_pieces(*style, thick, (from, to), margin) {
                 rectangle(list, (x, top, width, thick), colour);
             }
         }

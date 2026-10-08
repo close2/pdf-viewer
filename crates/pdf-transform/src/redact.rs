@@ -5868,14 +5868,11 @@ fn own_dictionary(
         pdf_model::image::JpxSpace::Gray => Some(Object::Name(Name::new(&b"DeviceGray"[..]))),
         pdf_model::image::JpxSpace::Rgb => Some(Object::Name(Name::new(&b"DeviceRGB"[..]))),
         pdf_model::image::JpxSpace::Cmyk => Some(Object::Name(Name::new(&b"DeviceCMYK"[..]))),
-        pdf_model::image::JpxSpace::Lab => {
-            // §8.6.5.4's `Lab`, under the D50 white point and the range the codestream's CIELab
-            // samples were delivered over (ADR 1383).
+        pdf_model::image::JpxSpace::Lab { white } => {
+            // §8.6.5.4's `Lab`, under the white point of the codestream's illuminant and the
+            // range its CIELab samples were delivered over (ADRs 1383, 1713).
             let mut parameters = Dictionary::new();
-            parameters.insert(
-                Name::new(&b"WhitePoint"[..]),
-                reals(&[0.964_2, 1.0, 0.824_9]),
-            );
+            parameters.insert(Name::new(&b"WhitePoint"[..]), reals(white));
             parameters.insert(
                 Name::new(&b"Range"[..]),
                 reals(&[-128.0, 127.0, -128.0, 127.0]),

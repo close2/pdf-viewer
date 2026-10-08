@@ -464,9 +464,108 @@ pub fn tabbed(paragraph: &pdf_model::popup::RichParagraph) -> bool {
     paragraph.runs.iter().any(|run| run.text.contains('\t'))
 }
 
-/// The sentence for a note one of whose tabs reaches a stop with a leader, said by a window that
-/// draws no leader: the two toolkit windows ([`toolkit_unapplied`]), and the C ABI, which hands a
-/// stop's position and alignment and not its fill (ADR 1679).
+/// Which of a paragraph's stops a tab that starts at `from` reaches: the nearest beyond it in the
+/// direction the paragraph reads — the first right of it, or in a paragraph read right to left the
+/// first left of it — by its place in `positions`, the stops' distances from the left margin,
+/// nearest it first.
+///
+/// Chapter 2's *Tab Stops* has a tab advance to the next stop (page 61), and it is the rule both
+/// toolkits lay a tab out by, which is why a window that paints a leader over a toolkit's line
+/// asks it of the tab's own extent rather than counting tabs: a run longer than the room before a
+/// stop carries its tab on to the one after. `None` where no stop lies beyond, the toolkit's own
+/// default advance, which [`toolkit_unapplied`] says.
+#[must_use]
+pub fn reached_stop(positions: &[f32], from: f32, right_to_left: bool) -> Option<usize> {
+    if right_to_left {
+        positions.iter().rposition(|at| *at < from - REACH_SLACK)
+    } else {
+        positions.iter().position(|at| *at > from + REACH_SLACK)
+    }
+}
+
+/// How far a tab must start short of a stop for the stop to be the one it reaches: Pango takes a
+/// stop at least one of its units (a thousand-and-twenty-fourth of a pixel) past the line's
+/// width, and a stop a window rounded to a whole pixel is within half of one of where it is placed
+/// here.
+const REACH_SLACK: f32 = 0.01;
+
+/// The most cycles one leader draws: a window's width over the narrowest glyph is far below it,
+/// and a pattern of a hair's width is not a reason to draw a million of them.
+const MOST_CYCLES: usize = 4096;
+
+/// The share of a dashed rule's cycle a dash takes, and its cycle in thicknesses; a dotted rule's
+/// cycle is a square dot and its own width of gap. Chapter 2 states neither, and these are a
+/// field appearance's choices (ADR 1660), kept so that one leader is not drawn two ways in one
+/// program.
+const DASH_CYCLE: f32 = 4.0;
+/// A dotted rule's cycle, in thicknesses.
+const DOT_CYCLE: f32 = 2.0;
+
+/// Where each whole repetition of a leader starts across the room a tab advanced, `from` to
+/// `to`: chapter 2's *Tab Leader Pattern* (pages 63 to 65) as a field's appearance draws it (ADR
+/// 1660), in whatever unit the three are in.
+///
+/// The repetitions are laid on a grid from the paragraph's left margin, `margin`, so that leaders
+/// on different lines line up — `leaderAlignment`'s `none` leaves that to the processor — and one
+/// the room cannot hold whole is left blank, as the chapter has a processor leave a partial one.
+/// `cycle` is the larger of `leaderPatternWidth` and the pattern's own width, which only the
+/// window that set the pattern can measure. The three windows draw by this one grid (ADR 1722).
+#[must_use]
+pub fn leader_cycles(from: f32, to: f32, margin: f32, cycle: f32) -> Vec<f32> {
+    if !cycle.is_finite() || cycle <= 0.0 || !from.is_finite() || !to.is_finite() || to <= from {
+        return Vec::new();
+    }
+    let mut index = ((from - margin) / cycle).ceil();
+    let mut out = Vec::new();
+    while margin + (index + 1.0) * cycle <= to + f32::EPSILON && out.len() < MOST_CYCLES {
+        out.push(margin + index * cycle);
+        index += 1.0;
+    }
+    out
+}
+
+/// A rule leader's thickness: the one it states, or where it states none the thickness this
+/// program draws an underline at, a twentieth of the run's em and never under one pixel — `em`
+/// and the answer in the window's pixels (ADR 1679).
+#[must_use]
+pub fn rule_thickness(stated: Option<f32>, em: f32) -> f32 {
+    stated.unwrap_or((em * 0.05).max(1.0)).max(0.0)
+}
+
+/// A rule leader across `from` to `to`, as `(left, width)` pieces: one for a solid rule, a dash
+/// of two thicknesses every four for a dashed one and a square dot every two for a dotted one, on
+/// [`leader_cycles`]' grid from `margin` (ADR 1660's pieces).
+#[must_use]
+pub fn rule_pieces(
+    style: pdf_model::popup::RichRuleStyle,
+    thickness: f32,
+    (from, to): (f32, f32),
+    margin: f32,
+) -> Vec<(f32, f32)> {
+    use pdf_model::popup::RichRuleStyle;
+    if !thickness.is_finite()
+        || thickness <= 0.0
+        || !from.is_finite()
+        || !to.is_finite()
+        || to <= from
+    {
+        return Vec::new();
+    }
+    match style {
+        RichRuleStyle::Solid => vec![(from, to - from)],
+        RichRuleStyle::Dashed => leader_cycles(from, to, margin, DASH_CYCLE * thickness)
+            .into_iter()
+            .map(|x| (x, DASH_CYCLE * thickness * 0.5))
+            .collect(),
+        RichRuleStyle::Dotted => leader_cycles(from, to, margin, DOT_CYCLE * thickness)
+            .into_iter()
+            .map(|x| (x, thickness))
+            .collect(),
+    }
+}
+
+/// The sentence for a note one of whose tabs reaches a stop with a leader, said where no leader is
+/// drawn: by the C ABI, which hands a stop's position and alignment and not its fill (ADR 1679). The two toolkit windows paint each leader over their own line (ADR 1722).
 #[must_use]
 pub fn leader_unapplied(note: &pdf_model::popup::RichNote) -> Option<String> {
     note.paragraphs
@@ -478,8 +577,8 @@ pub fn leader_unapplied(note: &pdf_model::popup::RichNote) -> Option<String> {
 }
 
 /// What a window that sets a note through a toolkit says it did not draw, beside
-/// `pdf_model::popup::RichNote::unapplied` (ADRs 1654, 1666, 1679, 1690). `quorra` lays its lines
-/// out itself and draws all of these; neither toolkit can draw the first two.
+/// `pdf_model::popup::RichNote::unapplied` (ADRs 1654, 1666, 1690, 1722). `quorra` lays its lines
+/// out itself and draws all of these; neither toolkit can draw the first.
 ///
 /// - **A decimal tab in a right-to-left paragraph.** Both toolkits reach a right-to-left
 ///   paragraph's stops leftward once each is handed as its distance from the line's start edge
@@ -489,8 +588,6 @@ pub fn leader_unapplied(note: &pdf_model::popup::RichNote) -> Option<String> {
 ///   decimal stop standing 300 px from a line's left edge put its full stop at 306 px in Pango and
 ///   304 px in Qt, where a stop at 100 px in a paragraph read left to right put it at 98 and
 ///   100 px; ADR 1690).
-/// - **A tab leader**: neither Pango's tab array nor Qt's `QTextOption::Tab` has a fill, only a
-///   position, an alignment and (Qt) a delimiter.
 /// - **A font scale**, where `scales` is false: Pango's attributes state none per run (its
 ///   `font_stretch` chooses a face's width, it does not scale one), so `quorra-gtk` passes false;
 ///   Qt's `QTextCharFormat::setFontStretch` scales, and `quorra-qt` sets it.
@@ -517,7 +614,6 @@ pub fn toolkit_unapplied(note: &pdf_model::popup::RichNote, scales: bool) -> Vec
     }) {
         said.push("a decimal tab in a right-to-left paragraph".to_owned());
     }
-    said.extend(leader_unapplied(note));
     if !scales && runs().any(scaled) {
         said.push("a font scale in a popup window".to_owned());
     }
@@ -984,11 +1080,65 @@ mod tests {
             unapplied: Vec::new(),
         };
         // Every stop above is reached leftward by both toolkits once handed from the line's
-        // start edge, so only the leader is said (ADR 1690).
+        // start edge (ADR 1690), and both paint the leader over their line (ADR 1722), so nothing
+        // is said; the C ABI, which hands no fill, still says the leader.
+        assert!(super::toolkit_unapplied(&note, true).is_empty());
         assert_eq!(
-            super::toolkit_unapplied(&note, true),
-            vec!["a tab leader in a popup window".to_owned()]
+            super::leader_unapplied(&note),
+            Some("a tab leader in a popup window".to_owned())
         );
+    }
+
+    /// A tab reaches the nearest stop beyond where it starts, in the direction its paragraph
+    /// reads (chapter 2's *Tab Stops*, page 61): from 120 that is 150 rightward and 100
+    /// leftward, a tab starting on a stop goes on to the next, and none lies beyond the last.
+    #[test]
+    fn a_tab_reaches_the_nearest_stop_beyond_it_in_its_paragraphs_direction() {
+        let stops = [50.0, 100.0, 150.0];
+        assert_eq!(super::reached_stop(&stops, 120.0, false), Some(2));
+        assert_eq!(super::reached_stop(&stops, 120.0, true), Some(1));
+        assert_eq!(super::reached_stop(&stops, 100.0, false), Some(2));
+        assert_eq!(super::reached_stop(&stops, 100.0, true), Some(0));
+        assert_eq!(super::reached_stop(&stops, 150.0, false), None);
+        assert_eq!(super::reached_stop(&stops, 50.0, true), None);
+    }
+
+    /// A leader's repetitions lie on a grid from the paragraph's left margin and a partial one is
+    /// left blank (chapter 2's *Tab Leader Pattern*): a 6-unit cycle from a margin at 10 across
+    /// 25 to 50 starts at 28, 34 and 40, and 46 would end past 50.
+    #[test]
+    fn a_leaders_cycles_lie_on_the_margins_grid_and_a_partial_one_is_blank() {
+        assert_eq!(
+            super::leader_cycles(25.0, 50.0, 10.0, 6.0),
+            vec![28.0, 34.0, 40.0]
+        );
+        assert!(super::leader_cycles(25.0, 30.0, 10.0, 6.0).is_empty());
+        assert!(super::leader_cycles(25.0, 50.0, 10.0, 0.0).is_empty());
+        assert!(super::leader_cycles(50.0, 25.0, 10.0, 6.0).is_empty());
+    }
+
+    /// A rule leader is one piece solid, a dash of two thicknesses every four dashed and a square
+    /// dot every two dotted, on the same grid; with no thickness stated it is a twentieth of the
+    /// em, never under a pixel.
+    #[test]
+    fn a_rule_leader_is_drawn_in_its_styles_pieces() {
+        use pdf_model::popup::RichRuleStyle;
+        assert_eq!(
+            super::rule_pieces(RichRuleStyle::Solid, 2.0, (10.0, 30.0), 0.0),
+            vec![(10.0, 20.0)]
+        );
+        assert_eq!(
+            super::rule_pieces(RichRuleStyle::Dashed, 2.0, (10.0, 34.0), 0.0),
+            vec![(16.0, 4.0), (24.0, 4.0)]
+        );
+        assert_eq!(
+            super::rule_pieces(RichRuleStyle::Dotted, 2.0, (10.0, 20.0), 0.0),
+            vec![(12.0, 2.0), (16.0, 2.0)]
+        );
+        assert!(super::rule_pieces(RichRuleStyle::Solid, 0.0, (10.0, 30.0), 0.0).is_empty());
+        assert!((super::rule_thickness(None, 40.0) - 2.0).abs() < f32::EPSILON);
+        assert!((super::rule_thickness(None, 10.0) - 1.0).abs() < f32::EPSILON);
+        assert!((super::rule_thickness(Some(3.0), 10.0) - 3.0).abs() < f32::EPSILON);
     }
 
     /// A right-to-left paragraph's stops reach a toolkit as distances from the line's start edge,

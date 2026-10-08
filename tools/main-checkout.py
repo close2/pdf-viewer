@@ -300,7 +300,11 @@ def patches(main, owed):
     A round may not push to a fork, so a fix to a dependency is a patch beside the tree whose
     preamble names the repository and the revision it was written against; the owner applies it
     to the fork and bumps the `rev` the manifest pins. A patch is owed while the manifest still
-    pins its base: a bumped `rev` is the patch applied, and it drops off the list.
+    pins its base: a bumped `rev` is the patch applied, and it drops off the list. Where the manifest
+    pins the upstream repository itself and the preamble names the `Fork:` to carry the patch — the
+    `hayro` codecs, taken at upstream's release commit so that the reference renderer's features
+    cannot reach the worker's copy (ADR 1714) — the owner applies it to the fork and moves those
+    pins to it.
 
     A patch to a dependency the manifest takes from crates.io — `zune-jpeg` — has no fork to apply
     it to until one exists. While the question its preamble names is unanswered it is listed as
@@ -347,7 +351,7 @@ def patches(main, owed):
         held = [package for package in sorted(packages)
                 if pins.get(package, (None, None)) == (repository, base)]
         if held:
-            to_apply.setdefault((repository, base), []).append(name)
+            to_apply.setdefault((repository, base, fork), []).append(name)
         else:
             applied += 1
     for fork, (repository, base, place, packages, answer, names) in forks_owed.items():
@@ -356,15 +360,17 @@ def patches(main, owed):
             f"{fork}, apply " + " ".join(f"doc/patches/{n}" for n in names) + f" on {base} with "
             f"`git apply --directory={place}`, push, and put the pushed commit in the `rev` of the "
             f"stanza the root Cargo.toml's comment above `{crate} =` writes out, in place of that line")
-    for (repository, base), names in to_apply.items():
-        owe(owed, APPLY, f"apply " + " ".join(f"doc/patches/{n}" for n in names) + f" to {repository} "
-            f"on {base[:12]}, push, and move every `rev` the root Cargo.toml pins to it to the "
-            f"pushed commit; then `cargo update` the packages and `cargo test -p conformance --test "
-            f"fuzz_workspace`")
+    for (repository, base, fork), names in to_apply.items():
+        moved = (f"move every stanza the root Cargo.toml pins to {repository} at {base[:12]} to "
+                 f"{fork} at the pushed commit" if fork and fork != repository else
+                 f"move every `rev` the root Cargo.toml pins to it to the pushed commit")
+        owe(owed, APPLY, f"apply " + " ".join(f"doc/patches/{n}" for n in names) + f" to "
+            f"{fork or repository} on {base[:12]}, push, and {moved}; then `cargo update` the "
+            f"packages and `cargo test -p conformance --test fuzz_workspace`")
     for report in reports(directory):
         owe(owed, REPORT, report)
     owed_count = sum(len(names) for names in to_apply.values())
-    lines = [f"doc/patches: {owed_count} owed to a fork the manifest still pins at the patch's base, "
+    lines = [f"doc/patches: {owed_count} owed while the manifest still pins the patch's base, "
              f"{applied} whose base it no longer pins, {len(to_fork)} for a fork the owner is to "
              f"create, {len(waiting)} waiting for a fork the manifest does not have, "
              f"{len(unstated)} stating no base"]

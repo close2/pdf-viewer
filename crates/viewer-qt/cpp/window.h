@@ -300,13 +300,46 @@ private:
         std::vector<std::pair<qreal, std::uint8_t>> stops;
     };
 
+    /// One stop of a paragraph whose tabs reach a leader, as `QtTab` carried it, in the
+    /// document's pixels.
+    struct LeaderStop {
+        /// Its distance from the paragraph's left margin.
+        qreal at;
+        /// `QtTab::leader`: 0 nothing, 1 full stops, 2 a rule, 3 `content`.
+        std::uint8_t kind;
+        /// `leaderPatternWidth`, 0 where none is stated.
+        qreal width;
+        /// `QtTab::rule_style`.
+        std::uint8_t ruleStyle;
+        /// A rule's thickness, below zero where none is stated.
+        qreal ruleThickness;
+        /// What a content leader repeats.
+        QString content;
+    };
+
+    /// One paragraph with a leader before one of its stops, which Qt's tab list has no fill for:
+    /// painted over the laid-out block by `paintLeaders` (ADR 1722).
+    struct Leadered {
+        /// The paragraph's block in `document_`.
+        int block;
+        /// Whether it reads right to left, the direction its tabs reach in.
+        bool rightToLeft;
+        /// Its stops, nearest the left margin first.
+        std::vector<LeaderStop> stops;
+    };
+
     /// Sets every `leftward_` paragraph's stops for a document `inner` pixels wide.
     void handLeftwardTabs(qreal inner);
+    /// Paints each `leadered_` paragraph's leaders over the document as laid out, in the
+    /// document's own coordinates.
+    void paintLeaders(QPainter& painter) const;
 
     /// The note, owned here.
     QTextDocument* document_;
     /// The paragraphs whose stops depend on the width.
     std::vector<Leftward> leftward_;
+    /// The paragraphs whose tabs may reach a leader.
+    std::vector<Leadered> leadered_;
     /// The width they were last handed for, or below zero before the first.
     qreal handedFor_ = -1.0;
 };

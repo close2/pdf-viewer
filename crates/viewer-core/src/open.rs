@@ -343,15 +343,6 @@ pub(crate) struct Open {
     /// opened rather than of what a person is doing, and nothing in this vocabulary asks for it
     /// to be taken away.
     pub(crate) highlights: Vec<Highlighted>,
-    /// Which of §12.5.6.14's popup windows a person has opened or closed, by annotation.
-    ///
-    /// **The file states only the first frame.** Table 186's `/Open` is "[a] flag specifying
-    /// whether the popup annotation shall *initially* be displayed open", so what is here is
-    /// every window whose state has since been changed — absent means the file's answer still
-    /// stands. That is the same division `ViewState` makes for §12.6.4's actions and the edit log
-    /// makes for a field's value: the document says what it says, and what a person did is a log
-    /// beside it (`CLAUDE.md`'s rule 1).
-    pub(crate) popups: BTreeMap<ObjectId, bool>,
     /// The readback of pages this document has already been read, under a byte budget.
     ///
     /// What a document-wide search costs is interpreting pages nobody is looking at, and ADR 0250
@@ -933,7 +924,6 @@ impl Open {
             searching: None,
             opening_file: None,
             highlights: Vec::new(),
-            popups: BTreeMap::new(),
             readbacks: crate::readback::Readbacks::default(),
             fonts: pdf_model::FontCache::new(),
             references: Arc::new(pdf_model::reference::Supply::none()),
@@ -1486,17 +1476,6 @@ impl Open {
             .map(|page| pdf_model::content::displayed_size(&page))
     }
 
-    /// Whether one of §12.5.6.14's windows is open now.
-    ///
-    /// Table 186's `/Open` answers for a window nobody has touched — "shall *initially* be
-    /// displayed open" — and [`Self::popups`] answers for every one somebody has.
-    pub(crate) fn popup_is_open(&self, popup: &pdf_model::popup::Popup) -> bool {
-        self.popups
-            .get(&popup.annotation)
-            .copied()
-            .unwrap_or(popup.open)
-    }
-
     /// The activation §12.5.1 describes, for an annotation that has one of §12.5.6.14's windows.
     ///
     /// ISO 32000-2 §12.5.1:
@@ -1507,6 +1486,11 @@ impl Open {
     /// The clause says *exhibits*, not *toggles*: what a second click does is not in the standard,
     /// and closing the window is the choice every reader of a sticky note makes. Recorded as a
     /// choice. Returns whether anything changed, which is what tells the caller to repaint.
+    ///
+    /// **The click is written where a script's `popupOpen` is**, the view state's map of windows:
+    /// Table 186's `/Open` is "[a] flag specifying whether the popup annotation shall *initially*
+    /// be displayed open", so the file states the first frame and the map every change since, and
+    /// whichever of a person and a script wrote last is the window's state (ADR 1720).
     pub(crate) fn toggle_popup(&mut self, annotation: ObjectId) -> bool {
         let Some(page) = self.shown_page() else {
             return false;
@@ -1521,11 +1505,11 @@ impl Open {
         let Some(state) = pdf_model::popup::popups(&self.document, page, &self.view)
             .iter()
             .find(|window| window.annotation == popup)
-            .map(|window| self.popup_is_open(window))
+            .map(|window| window.open)
         else {
             return false;
         };
-        self.popups.insert(popup, !state);
+        self.view.set_popup_open(popup, !state);
         true
     }
 

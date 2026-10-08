@@ -2379,8 +2379,8 @@ checksum = "9f4d0e94ddd48749f06bbe4e5389fb9799a0c45bcaf00495042076ef05e3241a"
 
 [[package]]
 name = "hayro-ccitt"
-version = "0.3.0"
-source = "git+https://github.com/close2/hayro?rev=64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2#64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2"
+version = "0.4.0"
+source = "git+https://github.com/LaurenzV/hayro?rev=ea9c81dc70cde40c64205986fdcfcd481fe934d8#ea9c81dc70cde40c64205986fdcfcd481fe934d8"
 
 [[package]]
 name = "hayro-cmap"
@@ -2430,15 +2430,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "69374b3668dd45aeb3d3145cda68f2c7b4f223aaa2511e67d076f1c7d741388d"
 dependencies = [
  "fearless_simd",
- "hayro-ccitt 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "hayro-ccitt 0.3.0",
 ]
 
 [[package]]
 name = "hayro-jbig2"
-version = "0.3.0"
-source = "git+https://github.com/close2/hayro?rev=64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2#64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2"
+version = "0.3.1"
+source = "git+https://github.com/LaurenzV/hayro?rev=ea9c81dc70cde40c64205986fdcfcd481fe934d8#ea9c81dc70cde40c64205986fdcfcd481fe934d8"
 dependencies = [
- "hayro-ccitt 0.3.0 (git+https://github.com/close2/hayro?rev=64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2)",
+ "hayro-ccitt 0.4.0",
 ]
 
 [[package]]
@@ -2452,8 +2452,8 @@ dependencies = [
 
 [[package]]
 name = "hayro-jpeg2000"
-version = "0.4.0"
-source = "git+https://github.com/close2/hayro?rev=64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2#64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2"
+version = "0.4.1"
+source = "git+https://github.com/LaurenzV/hayro?rev=ea9c81dc70cde40c64205986fdcfcd481fe934d8#ea9c81dc70cde40c64205986fdcfcd481fe934d8"
 
 [[package]]
 name = "hayro-postscript"
@@ -2468,8 +2468,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0edeafd70aa2db743de8ede8637d07ec87db05efe69cde371d03f1b185fcef27"
 dependencies = [
  "flate2",
- "hayro-ccitt 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "hayro-jbig2 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "hayro-ccitt 0.3.0",
+ "hayro-jbig2 0.3.0",
  "hayro-jpeg2000 0.3.5",
  "memchr",
  "rustc-hash 2.1.3",
@@ -3687,7 +3687,7 @@ dependencies = [
  "criterion",
  "flate2",
  "gate-ratchet",
- "hayro-ccitt 0.3.0 (git+https://github.com/close2/hayro?rev=64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2)",
+ "hayro-ccitt 0.4.0",
  "iai-callgrind",
  "md-5",
  "pdf-ccitt",
@@ -3734,8 +3734,8 @@ dependencies = [
 name = "pdf-sandbox"
 version = "0.1.0"
 dependencies = [
- "hayro-jbig2 0.3.0 (git+https://github.com/close2/hayro?rev=64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2)",
- "hayro-jpeg2000 0.4.0",
+ "hayro-jbig2 0.3.1",
+ "hayro-jpeg2000 0.4.1",
  "landlock",
  "libc",
  "memmap2",

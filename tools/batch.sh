@@ -316,10 +316,13 @@ gates() {
     # `/dev/stdout` inside a command substitution is the substitution's own pipe and never the log.
     local onto_the_log=
     [ /dev/stdout -ef "$log" ] && onto_the_log=1
+    # The programs a gate spawns from another package, which Cargo does not build for its test
+    # (trap 10): the sandbox worker every image-decoding gate asks, and the oracle's `pdfref-hayro`.
+    # A package's own program — `pdf-vfs-worker`, `pdf-view-worker` — is built by the gate's own
+    # test build, and `tests/bounded.rs` names a build here that no gate after it spawns as well as
+    # a gate whose program no build here makes (ADR 1718).
     run build-sandbox  cargo build --profile gates -p pdf-sandbox --bins
     run build-hayro    cargo build --profile gates -p hayro-compare --bin pdfref-hayro
-    run build-vfs      cargo build --profile gates -p pdf-vfs --bins
-    run build-confined cargo build --profile gates -p viewer-confined --bins
     for t in corpus raster_golden script_corpus dates xmp; do
         run "t2-$t" cargo test --profile gates -p pdf-model --test "$t" -- --ignored --nocapture; done
     # The Tier 1 column of RFC 0008 section 6.7: every script Tier 0 does not run, run in its
@@ -450,9 +453,13 @@ check_batch() {
     # function `commit` stages from, so a path git would print quoted (a space, a non-ASCII
     # character) is excluded by its real directory rather than by the spelling of its quotes. A
     # workspace's `Cargo.lock` is admitted by name: every workspace here tracks its lock (ADR 1439).
+    # The CIE's illuminant and observer tables are admitted the same way as a profile, by path:
+    # `data/cie/` holds them as the CSV the CIE publishes, `NOTICE` section 6 and
+    # `data/cie/PROVENANCE.md` are what they owe, and a `.csv` anywhere else is somebody's export (ADR 1713).
     found=$(untracked_paths |
         grep -vE '\.(rs|md|toml|tsv|txt|py|pem|der|crt|xfdf|j2k|jp2|sh|jpg|patch)$' |
-        grep -vE '^data/icc/[^/]+\.icc$' | grep -vE '(^|/)Cargo\.lock$' || true)
+        grep -vE '^data/icc/[^/]+\.icc$' | grep -vE '^data/cie/[^/]+\.csv$' |
+        grep -vE '(^|/)Cargo\.lock$' || true)
     printf 'untracked, unexpected extension  %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) file(s)")"
     [ -z "$found" ] || { printf '%s\n' "$found" | sed 's/^/    /'; bad=1; }
 

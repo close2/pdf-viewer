@@ -20,9 +20,13 @@
 //!
 //! Beyond never panicking — overflow checks stay on in this profile — three properties:
 //!
-//! - **The budgets hold.** A run returns within [`ESCAPED`]: eight times the worker's deadline,
-//!   which a run the engine's own budgets stop answers well inside (ADR 1609). A run past it is one
-//!   the worker would have killed, and is a budget the engine did not enforce.
+//! - **The budgets hold.** A run spends less than [`ESCAPED`] on a processor: eight times the
+//!   worker's deadline, which a run the engine's own budgets stop answers well inside (ADR 1609). A
+//!   run past it is one the worker would have killed, and is a budget the engine did not enforce.
+//!   The time is the run's thread's own and not the wall clock's, because a campaign runs at nice
+//!   19 on a machine its siblings are building on, and a run that waited seconds for a
+//!   processor enforced every budget it had (ADR 1717); a run that blocks is libFuzzer's
+//!   `-timeout`, which is a wall clock.
 //! - **A run that did not finish changed nothing**: `rc` true, no value, no change, no edit.
 //! - **The outcome crosses the wire as it is**, which is what the host reads.
 //!
@@ -116,9 +120,20 @@ fn document() -> DocumentState {
     }
 }
 
-/// How long a run may take before it is a budget the engine did not enforce: eight times the
-/// worker's deadline per trigger.
+/// How long a run may spend on a processor before it is a budget the engine did not enforce: eight
+/// times the worker's deadline per trigger.
 const ESCAPED: Duration = Duration::from_secs(2);
+
+/// This thread's time on a processor and its time waiting in the run queue for one, the first two
+/// fields of `/proc/thread-self/schedstat` in nanoseconds; `None` where the kernel offers no such
+/// file, and the run is then judged by the wall clock, which the property's message says.
+fn on_processor() -> Option<(Duration, Duration)> {
+    let stat = std::fs::read_to_string("/proc/thread-self/schedstat").ok()?;
+    let mut fields = stat.split_whitespace().map(str::parse::<u64>);
+    let ran = fields.next()?.ok()?;
+    let waited = fields.next()?.ok()?;
+    Some((Duration::from_nanos(ran), Duration::from_nanos(waited)))
+}
 
 /// The stack the run is given: eight times the worker's main thread's, so that what overflows here
 /// is not what the worker's own stack would.
@@ -211,6 +226,7 @@ fn run(data: &[u8]) {
     let request = Request::of(&event, 1_704_465_015_000, 0);
 
     let started = Instant::now();
+    let before = on_processor();
     let asker: Rc<dyn Asker> = if selector & 0x40 != 0 {
         Rc::new(Answering(change.clone().into_owned()))
     } else {
@@ -220,11 +236,23 @@ fn run(data: &[u8]) {
         Ok(mut realm) => realm.run(&request),
         Err(why) => panic!("a realm could not be constructed: {why}"),
     };
-    let spent = started.elapsed();
-    assert!(
-        spent < ESCAPED,
-        "a run took {spent:?}, past every budget the engine holds a run to"
-    );
+    let wall = started.elapsed();
+    match before.zip(on_processor()) {
+        Some(((ran_before, waited_before), (ran_after, waited_after))) => {
+            let spent = ran_after.saturating_sub(ran_before);
+            let waited = waited_after.saturating_sub(waited_before);
+            assert!(
+                spent < ESCAPED,
+                "a run spent {spent:?} on a processor ({wall:?} of wall time, {waited:?} of it \
+                 waiting for one), past every budget the engine holds a run to"
+            );
+        }
+        None => assert!(
+            wall < ESCAPED,
+            "a run took {wall:?} of wall time, measured by the wall clock because this kernel \
+             offers no /proc/thread-self/schedstat, past every budget the engine holds a run to"
+        ),
+    }
 
     if outcome.ending != Ending::Finished {
         assert!(

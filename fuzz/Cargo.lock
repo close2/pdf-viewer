@@ -1041,21 +1041,21 @@ dependencies = [
 
 [[package]]
 name = "hayro-ccitt"
-version = "0.3.0"
-source = "git+https://github.com/close2/hayro?rev=64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2#64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2"
+version = "0.4.0"
+source = "git+https://github.com/LaurenzV/hayro?rev=ea9c81dc70cde40c64205986fdcfcd481fe934d8#ea9c81dc70cde40c64205986fdcfcd481fe934d8"
 
 [[package]]
 name = "hayro-jbig2"
-version = "0.3.0"
-source = "git+https://github.com/close2/hayro?rev=64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2#64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2"
+version = "0.3.1"
+source = "git+https://github.com/LaurenzV/hayro?rev=ea9c81dc70cde40c64205986fdcfcd481fe934d8#ea9c81dc70cde40c64205986fdcfcd481fe934d8"
 dependencies = [
  "hayro-ccitt",
 ]
 
 [[package]]
 name = "hayro-jpeg2000"
-version = "0.4.0"
-source = "git+https://github.com/close2/hayro?rev=64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2#64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2"
+version = "0.4.1"
+source = "git+https://github.com/LaurenzV/hayro?rev=ea9c81dc70cde40c64205986fdcfcd481fe934d8#ea9c81dc70cde40c64205986fdcfcd481fe934d8"
 
 [[package]]
 name = "heck"

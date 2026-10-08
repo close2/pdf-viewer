@@ -40,7 +40,7 @@
 //! is the only crate permitted `unsafe`" was a rule about promises a reviewer has to check, and
 //! that one promise in one place, with a test on it, is what keeps it.
 
-use crate::host::Host;
+use crate::host::{Host, leader_cycles, reached_stop, rule_pieces, rule_thickness};
 
 /// The generated bridge.
 ///
@@ -389,6 +389,18 @@ pub mod ffi {
         side: u8,
         /// The stop's distance from the paragraph's left margin, in points.
         at: f32,
+        /// What fills the room before the stop, which `RichNoteView` paints over its line (ADR
+        /// 1722): 0 nothing, 1 the run's full stops, 2 a rule, 3 [`Self::content`].
+        leader: u8,
+        /// `leaderPatternWidth`, the least width of one repetition, in points; 0 where none is
+        /// stated.
+        leader_width: f32,
+        /// A rule's style: 0 solid, 1 dashed, 2 dotted.
+        rule_style: u8,
+        /// A rule's thickness in points, below zero where none is stated.
+        rule_thickness: f32,
+        /// The characters a content leader repeats; empty for the others.
+        content: String,
     }
 
     /// Where a window is on the screen, in the screen's own pixels.
@@ -1054,6 +1066,20 @@ pub mod ffi {
         fn painted(self: &mut Host, bytes: usize, nanos: u64);
         /// One sentence from the C++ side, on the topic a host's window belongs to.
         fn note(self: &Host, what: &str);
+
+        /// `viewer_host::popup::reached_stop`: which of a paragraph's stops, at `positions` from
+        /// its left margin nearest it first, a tab starting at `from` reaches; −1 where none lies
+        /// beyond it (ADR 1722).
+        fn reached_stop(positions: &[f32], from: f32, right_to_left: bool) -> i32;
+        /// `viewer_host::popup::leader_cycles`: where each whole repetition of a leader `cycle`
+        /// wide starts across `from` to `to`, on the grid from the left margin `margin`.
+        fn leader_cycles(from: f32, to: f32, margin: f32, cycle: f32) -> Vec<f32>;
+        /// `viewer_host::popup::rule_pieces`, flattened: each piece's left edge, then its width.
+        /// `style` is `QtTab::rule_style`.
+        fn rule_pieces(style: u8, thickness: f32, from: f32, to: f32, margin: f32) -> Vec<f32>;
+        /// `viewer_host::popup::rule_thickness`: `stated`, or where it is below zero the
+        /// thickness this program draws an underline at in a run `em` pixels tall.
+        fn rule_thickness(stated: f32, em: f32) -> f32;
     }
 
     unsafe extern "C++" {

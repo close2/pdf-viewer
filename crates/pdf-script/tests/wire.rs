@@ -5,9 +5,9 @@ use std::time::Duration;
 use pdf_model::action::Trigger as AnnotationTrigger;
 use pdf_model::aform::Trigger;
 use pdf_model::view::{
-    Alignment, AnnotationChange, AnnotationState, BorderStyle, Colour, Display, DocumentState,
-    DocumentTrigger, FieldState, FieldType, Property, ScriptEdit, ScriptSite, TextFlag,
-    WidgetState,
+    Alignment, AnnotationChange, AnnotationReach, AnnotationState, BorderStyle, Colour, Display,
+    DocumentState, DocumentTrigger, FieldState, FieldType, Property, ScriptEdit, ScriptSite,
+    TextFlag, WidgetState,
 };
 use pdf_script::wire::{WireError, decode_outcome, decode_request, encode_outcome, encode_request};
 use pdf_script::{Ending, Event, Exceeded, Outcome, Refusal, RefusalKind, Request};
@@ -78,6 +78,11 @@ fn request(site: ScriptSite) -> Request {
                     modified: Some(1_704_465_015_000),
                     hidden: true,
                     read_only: false,
+                    reach: AnnotationReach {
+                        printed: true,
+                        viewed: false,
+                        interactive: true,
+                    },
                     popup_open: Some(true),
                 },
                 AnnotationState {
@@ -92,6 +97,11 @@ fn request(site: ScriptSite) -> Request {
                     modified: None,
                     hidden: false,
                     read_only: true,
+                    reach: AnnotationReach {
+                        printed: false,
+                        viewed: true,
+                        interactive: false,
+                    },
                     popup_open: None,
                 },
             ],
