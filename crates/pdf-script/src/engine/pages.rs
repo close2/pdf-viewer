@@ -1,5 +1,6 @@
-//! The document's pages, its named destinations, `title`, `calculate` and `app.activeDocs`: the
-//! `Doc` members RFC 0008 section 4.2 admits that the view state already answers (ADR 1724).
+//! The document's pages, their words, its named destinations, `title`, `calculate` and
+//! `app.activeDocs`: the `Doc` members RFC 0008 section 4.2 admits that the view state already
+//! answers (ADRs 1724, 1762).
 //!
 //! Each member's meaning is Adobe's *JavaScript for Acrobat API Reference* — "Doc methods", "Doc
 //! properties", "app properties" — cited and never quoted, a documented choice each under
@@ -22,8 +23,16 @@ use crate::RefusalKind;
 ///
 /// The engine's, where a property cannot be defined.
 pub(super) fn document(global: &JsObject, context: &mut Context) -> JsResult<()> {
-    let methods: [(&str, NativeFunction); 4] = [
+    let methods: [(&str, NativeFunction); 6] = [
         ("getPageLabel", NativeFunction::from_fn_ptr(get_page_label)),
+        (
+            "getPageNumWords",
+            NativeFunction::from_fn_ptr(get_page_num_words),
+        ),
+        (
+            "getPageNthWord",
+            NativeFunction::from_fn_ptr(get_page_nth_word),
+        ),
         ("getPageBox", NativeFunction::from_fn_ptr(get_page_box)),
         (
             "getPageRotation",
@@ -240,6 +249,21 @@ fn page_argument(
     member: &str,
     context: &mut Context,
 ) -> JsResult<(usize, PageState)> {
+    let index = page_index(values, position, member, context)?;
+    let page = State::table(context, |table| table.document.pages.get(index).cloned())
+        .flatten()
+        .ok_or_else(|| JsNativeError::error().with_message("the realm holds no document"))?;
+    Ok((index, page))
+}
+
+/// The zero-based page the argument at `position` names — page one where it is absent — checked
+/// against the document's pages and against those the realm is told of.
+fn page_index(
+    values: &[JsValue],
+    position: usize,
+    member: &str,
+    context: &mut Context,
+) -> JsResult<usize> {
     let value = values.get(position).cloned().unwrap_or_default();
     let number = if value.is_undefined() {
         0.0
@@ -266,10 +290,117 @@ fn page_argument(
             context,
         ));
     }
-    let page = State::table(context, |table| table.document.pages.get(index).cloned())
-        .flatten()
-        .ok_or_else(|| JsNativeError::error().with_message("the realm holds no document"))?;
-    Ok((index, page))
+    Ok(index)
+}
+
+/// What one of the word pair reads of a page: how many words it has, or one of them.
+#[derive(Debug, Clone, Copy)]
+enum Words {
+    /// `getPageNumWords`.
+    Count,
+    /// `getPageNthWord`'s word, stripped or not.
+    Nth(usize, bool),
+}
+
+/// The word pair's one reading of the page the view state told the realm the words of (ADR 1762):
+/// a count, or the word, a `RangeError` for a word the page does not have, and a refusal naming
+/// why for a page whose words were not read.
+fn read_words(
+    index: usize,
+    asked: Words,
+    member: &str,
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let answer = State::table(context, |table| {
+        let words = table.document.pages.get(index)?.words.as_ref()?;
+        Some(match asked {
+            Words::Count => Ok(JsValue::from(
+                u32::try_from(words.len()).unwrap_or(u32::MAX),
+            )),
+            Words::Nth(nth, strip) => words
+                .get(nth)
+                .map(|word| {
+                    let word = if strip { stripped(word) } else { word.clone() };
+                    JsValue::from(JsString::from(word.as_str()))
+                })
+                .ok_or(words.len()),
+        })
+    })
+    .flatten();
+    match answer {
+        None => Err(refuse(
+            member.to_owned(),
+            RefusalKind::Unreachable(format!(
+                "the words of page {} were not read: the view state reads a document's words for \
+                 a script that spells getPageNumWords or getPageNthWord, up to its bound (ADR 1762)",
+                index.saturating_add(1)
+            )),
+            context,
+        )),
+        Some(Ok(answer)) => Ok(answer),
+        Some(Err(count)) => Err(JsNativeError::range()
+            .with_message(format!(
+                "{member}: page {} has {count} word(s), and no word {}",
+                index.saturating_add(1),
+                match asked {
+                    Words::Nth(nth, _) => nth,
+                    Words::Count => 0,
+                }
+            ))
+            .into()),
+    }
+}
+
+/// A word with the punctuation and white space at either end removed: the reference's `bStrip`.
+/// What punctuation is, is a documented choice: every character that is neither a letter nor a
+/// digit, Unicode's alphanumeric classes being the ones Rust's `char` knows.
+fn stripped(word: &str) -> String {
+    word.trim_matches(|character: char| !character.is_alphanumeric())
+        .to_owned()
+}
+
+/// `this.getPageNumWords(nPage)`: how many words the page has (ADR 1762).
+fn get_page_num_words(
+    _this: &JsValue,
+    arguments: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let values = named(arguments, &["nPage"], context)?;
+    let index = page_index(&values, 0, "this.getPageNumWords", context)?;
+    read_words(index, Words::Count, "this.getPageNumWords", context)
+}
+
+/// `this.getPageNthWord(nPage, nWord, bStrip)`: the page's word at a zero-based index, with its
+/// punctuation stripped unless `bStrip` is false (ADR 1762).
+fn get_page_nth_word(
+    _this: &JsValue,
+    arguments: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let values = named(arguments, &["nPage", "nWord", "bStrip"], context)?;
+    let index = page_index(&values, 0, "this.getPageNthWord", context)?;
+    let word = values.get(1).cloned().unwrap_or_default();
+    let nth = if word.is_undefined() {
+        0.0
+    } else {
+        word.to_number(context)?
+    };
+    if !nth.is_finite() || nth < 0.0 {
+        return Err(JsNativeError::range()
+            .with_message(format!("this.getPageNthWord: nWord {nth} names no word"))
+            .into());
+    }
+    let strip = values
+        .get(2)
+        .filter(|value| !value.is_undefined())
+        .is_none_or(JsValue::to_boolean);
+    let nth = usize::try_from(integral(nth)).unwrap_or(usize::MAX);
+    read_words(
+        index,
+        Words::Nth(nth, strip),
+        "this.getPageNthWord",
+        context,
+    )
 }
 
 /// `this.gotoNamedDest(cName)`: §12.3.2.4's named destination asked for, which the view state

@@ -542,7 +542,7 @@ pub struct Host {
     /// The controls over the page, and which fields they are for.
     placed: Vec<Placed>,
     /// §12.5.6.14's open popup windows, as the widgets placed for them.
-    popups: Vec<gtk4::Overlay>,
+    popups: Vec<PlacedPopup>,
     /// The answer those widgets were built from, so that a repaint that changes nothing rebuilds
     /// nothing. `viewer_core::PopupWindow` is `PartialEq`, which is what makes the comparison the
     /// whole test.
@@ -553,6 +553,8 @@ pub struct Host {
     /// The note whose window the press now held went down on, which its release does not reach
     /// the page for either.
     pressed_a_note: Option<pdf_syntax::ObjectId>,
+    /// The keys the core was last told of (ADR 1771).
+    keys_told: pdf_model::view::Keys,
     /// Whether the press now held went down on one of §12.7's controls placed over the page, so
     /// that the core is told of its release however far the pointer has moved (ADR 1752).
     pressed_a_control: bool,
@@ -804,6 +806,7 @@ impl Host {
                 popups: Vec::new(),
                 popups_shown: Vec::new(),
                 note_editor: None,
+                keys_told: pdf_model::view::Keys::default(),
                 pressed_a_note: None,
                 pressed_a_control: false,
                 dragging_a_control: false,
@@ -2190,6 +2193,11 @@ impl Host {
             // `app.beep`: the display's one system sound, whichever of the five was asked for
             // (ADR 1702).
             Event::Beep { document, sound } => self.beep(document, sound),
+            // This window's console is its log, so the request is said (ADR 1771).
+            Event::Console { document, request } => self.say(&viewer_host::script_timers::console(
+                &self.documents.label_of(document),
+                request,
+            )),
             // §7.11.4's list moved under the files tab: a file attached this sitting is in it
             // before anything is saved, and one detached is out of it. The tab is rebuilt from
             // the same answer it was built from, which is the only thing a window may do here
@@ -2452,8 +2460,8 @@ impl Host {
         if self.popups_shown == popups {
             return;
         }
-        for widget in self.popups.drain(..) {
-            self.ui.popups.remove(&widget);
+        for placed in self.popups.drain(..) {
+            self.ui.popups.remove(&placed.widget);
         }
         let scale = f64::from(self.scale);
         let placed = viewer_host::popup::windows(popups);
@@ -2476,7 +2484,7 @@ impl Host {
                     .move_(&editor.frame, f64::from(x) / scale, f64::from(y) / scale);
                 continue;
             }
-            let widget = popup_window(window);
+            let (widget, texts) = popup_window(window);
             widget.set_size_request(
                 logical(f64::from(width), scale),
                 logical(f64::from(height), scale),
@@ -2484,7 +2492,11 @@ impl Host {
             self.ui
                 .popups
                 .put(&widget, f64::from(x) / scale, f64::from(y) / scale);
-            self.popups.push(widget);
+            self.popups.push(PlacedPopup {
+                widget,
+                note: window.note,
+                texts,
+            });
         }
         // On what the *answer* held rather than on what was placed, so that a window the page
         // states and this host could not put anywhere is a line rather than a silence — which is
@@ -2513,7 +2525,10 @@ impl Host {
     /// Escape, or the window closing, gives the keyboard back to the page. The window's `/RC`
     /// formatting is the label's and not the editor's: a retyping is plain characters, and the
     /// window shows the note's formatting again where those still agree with it (ADR 1721).
-    fn edit_note(&mut self, note: pdf_syntax::ObjectId) {
+    ///
+    /// The caret starts at `place`, the byte of `/Contents` the press that opened the editor was
+    /// on ([`Host::note_place`]), and at the text's end where the press was on no character.
+    fn edit_note(&mut self, note: pdf_syntax::ObjectId, place: Option<usize>) {
         if self
             .note_editor
             .as_ref()
@@ -2539,7 +2554,12 @@ impl Host {
         let buffer = view.buffer();
         // Before the handler is connected, so that putting the text in sends no edit.
         buffer.set_text(&text);
-        buffer.place_cursor(&buffer.end_iter());
+        // A text buffer counts its offsets in characters, the place is a byte of the same text.
+        let caret = place
+            .and_then(|byte| text.get(..byte))
+            .and_then(|before| i32::try_from(before.chars().count()).ok());
+        buffer
+            .place_cursor(&caret.map_or_else(|| buffer.end_iter(), |at| buffer.iter_at_offset(at)));
         let me = self.me.clone();
         buffer.connect_changed(move |buffer| {
             let text = buffer
@@ -2592,6 +2612,102 @@ impl Host {
         glib::idle_add_local_once(move || {
             focused.grab_focus();
         });
+    }
+
+    /// Tells the core the keyboard's Shift and Control, read off the display's keyboard, where they
+    /// changed since it was last told: a script reads them at the event the pointer raises next
+    /// (ADRs 1762, 1771).
+    fn tell_keys(&mut self) {
+        let Some(held) = gtk4::gdk::Display::default()
+            .and_then(|display| display.default_seat())
+            .and_then(|seat| seat.keyboard())
+            .map(|keyboard| keyboard.modifier_state())
+        else {
+            return;
+        };
+        let keys = pdf_model::view::Keys {
+            shift: held.contains(gtk4::gdk::ModifierType::SHIFT_MASK),
+            modifier: held.contains(gtk4::gdk::ModifierType::CONTROL_MASK),
+            arrows: false,
+        };
+        if keys != self.keys_told {
+            self.keys_told = keys;
+            self.dispatch(Command::Keys(keys));
+        }
+    }
+
+    /// The byte of a note's `/Contents` that a press at `at`, in logical pixels of the page's
+    /// overlay, is on — read from the label that set the text under it, whose Pango layout says
+    /// which character a point is on: Table 166's `/Contents` where the window is plain, a rich
+    /// paragraph's character aligned to `/Contents` by `viewer_host::popup::rich_offsets` where it
+    /// is drawn from Table 172's `/RC` (ADR 1770). `None` for a press on no label of the text — the
+    /// title bar, a reply, the paper below the last line.
+    fn note_place(&self, note: pdf_syntax::ObjectId, at: (f64, f64)) -> Option<usize> {
+        let window = self
+            .popups_shown
+            .iter()
+            .find(|window| window.note == Some(note))?;
+        let contents = window.text.as_deref().unwrap_or_default();
+        let placed = self
+            .popups
+            .iter()
+            .find(|placed| placed.note == Some(note))?;
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a pointer position inside a window is far inside f32's exact integer range"
+        )]
+        let point = gtk4::graphene::Point::new(at.0 as f32, at.1 as f32);
+        placed.texts.iter().find_map(|text| {
+            let inside = self.ui.popups.compute_point(&text.label, &point)?;
+            if !text
+                .label
+                .contains(f64::from(inside.x()), f64::from(inside.y()))
+            {
+                return None;
+            }
+            let layout = text.label.layout();
+            let (left, top) = text.label.layout_offsets();
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "a point inside a label, in Pango units, is far inside i32's range"
+            )]
+            let (_, index, trailing) = layout.xy_to_index(
+                ((f64::from(inside.x()) - f64::from(left)) * f64::from(pango::SCALE)) as i32,
+                ((f64::from(inside.y()) - f64::from(top)) * f64::from(pango::SCALE)) as i32,
+            );
+            let shown = layout.text();
+            let shown = shown.as_str();
+            let at = usize::try_from(index).ok()?;
+            // Pango answers the character a point is on and whether it is on its trailing half,
+            // which puts the caret after it.
+            let byte = match usize::try_from(trailing).ok().filter(|count| *count > 0) {
+                Some(count) => shown
+                    .get(at..)?
+                    .char_indices()
+                    .nth(count)
+                    .map_or(shown.len(), |(after, _)| at.saturating_add(after)),
+                None => at,
+            };
+            match text.paragraph {
+                None => contents.is_char_boundary(byte).then_some(byte),
+                Some(paragraph) => {
+                    let rich = window.rich.as_ref()?;
+                    let runs: String = rich
+                        .paragraphs
+                        .get(paragraph)?
+                        .runs
+                        .iter()
+                        .map(|run| run.text.as_str())
+                        .collect();
+                    // A list item's tag stands before its runs in the label and is no part of
+                    // `/Contents`.
+                    let prefix = shown.strip_suffix(runs.as_str())?.len();
+                    let within = byte.saturating_sub(prefix).min(runs.len());
+                    let tables = viewer_host::popup::rich_offsets(contents, rich)?;
+                    tables.get(paragraph)?.get(within).copied()
+                }
+            }
+        })
     }
 
     /// Takes the note's editor away and gives the keyboard back to the page.
@@ -4824,7 +4940,8 @@ impl Host {
                     .find(|window| viewer_host::covers(window.quad, at))
                     .and_then(|window| window.note);
                 if let Some(note) = self.pressed_a_note {
-                    self.edit_note(note);
+                    let place = self.note_place(note, (x, y));
+                    self.edit_note(note, place);
                     return;
                 }
             }
@@ -4836,6 +4953,7 @@ impl Host {
             }
             _ => {}
         }
+        self.tell_keys();
         self.dispatch(Command::Pointer { at, action });
         self.show_whether_it_is_a_link(at);
     }
@@ -5363,6 +5481,24 @@ struct NoteEditor {
     frame: gtk4::ScrolledWindow,
 }
 
+/// A popup window placed over the page, and the labels that set its text (ADR 1770).
+struct PlacedPopup {
+    /// The window.
+    widget: gtk4::Overlay,
+    /// [`viewer_core::PopupWindow::note`]: the note a press on this window retypes.
+    note: Option<pdf_syntax::ObjectId>,
+    /// The labels that set the note's own text, in order.
+    texts: Vec<NoteText>,
+}
+
+/// One label that sets a note window's text, and which of it.
+struct NoteText {
+    /// The label, whose Pango layout says which character a point is on.
+    label: gtk4::Label,
+    /// The rich note's paragraph it sets, or `None` for Table 166's `/Contents` in one label.
+    paragraph: Option<usize>,
+}
+
 /// One of §12.5.6.14's popup windows, as the widgets GTK draws it with.
 ///
 /// The clause gives a popup "no appearance stream", so there is nothing on the page to show and a
@@ -5370,7 +5506,7 @@ struct NoteEditor {
 /// this is a real [`gtk4::Frame`] rather than a rectangle painted on the chrome layer. What is
 /// this host's is only the *look*: the border, the fonts and the two style classes below.
 /// The three texts and the box are `viewer_host::popup`'s, shared with the other two hosts.
-fn popup_window(window: &viewer_host::Window<'_>) -> gtk4::Overlay {
+fn popup_window(window: &viewer_host::Window<'_>) -> (gtk4::Overlay, Vec<NoteText>) {
     // The paper and the one-pixel edge are the three windows' one choice (ADR 1466): opaque, so
     // the page's words do not show through the note's, and not the page's white, so the window's
     // extent can be seen. Painted under the content rather than asked of a `GtkFrame`, whose theme
@@ -5459,7 +5595,8 @@ fn popup_window(window: &viewer_host::Window<'_>) -> gtk4::Overlay {
     // — "[a] rich text string … that shall be displayed in the popup window when the annotation is
     // opened" — and Table 166's `/Contents` otherwise. Wrapped by Pango either way, which is the
     // whole reason a native host places labels here instead of breaking lines for itself.
-    column.append(&popup_body(window));
+    let (body, texts) = popup_body(window);
+    column.append(&body);
 
     // §12.5.6.2's thread, under the note it answers. Table 172: "[i]nteractive PDF processors
     // shall not display replies to an annotation individually but together in the form of
@@ -5483,7 +5620,7 @@ fn popup_window(window: &viewer_host::Window<'_>) -> gtk4::Overlay {
             comment.append(&author);
         }
         if let Some(rich) = reply.rich.as_ref() {
-            comment.append(&rich_note(rich));
+            comment.append(&rich_note(rich).0);
         } else {
             let said = gtk4::Label::new(Some(reply.text.as_deref().unwrap_or_default()));
             said.set_xalign(0.0);
@@ -5507,14 +5644,15 @@ fn popup_window(window: &viewer_host::Window<'_>) -> gtk4::Overlay {
     held.set_child(Some(&column));
     frame.add_overlay(&held);
     frame.set_measure_overlay(&held, true);
-    frame
+    (frame, texts)
 }
 
 /// The window's text: [`rich_note`] where the note states a rich text string this program reads,
-/// and Table 166's `/Contents` in one wrapped label otherwise.
-fn popup_body(window: &viewer_host::Window<'_>) -> gtk4::Widget {
+/// and Table 166's `/Contents` in one wrapped label otherwise; with the labels that set it.
+fn popup_body(window: &viewer_host::Window<'_>) -> (gtk4::Widget, Vec<NoteText>) {
     if let Some(rich) = window.rich {
-        return rich_note(rich).upcast();
+        let (body, texts) = rich_note(rich);
+        return (body.upcast(), texts);
     }
     let note = gtk4::Label::new(Some(window.text));
     note.set_xalign(0.0);
@@ -5525,7 +5663,11 @@ fn popup_body(window: &viewer_host::Window<'_>) -> gtk4::Widget {
     note.set_margin_start(POPUP_PADDING);
     note.set_margin_end(POPUP_PADDING);
     note.set_margin_top(POPUP_PADDING);
-    note.upcast()
+    let texts = vec![NoteText {
+        label: note.clone(),
+        paragraph: None,
+    }];
+    (note.upcast(), texts)
 }
 
 /// Table 172's `/RC` as GTK draws it: one wrapped label per paragraph, each run a Pango `span`
@@ -5534,8 +5676,9 @@ fn popup_body(window: &viewer_host::Window<'_>) -> gtk4::Widget {
 /// A label per paragraph because alignment is a label's, and chapter 27's `text-align` is a
 /// paragraph's. The base size is the label's own font's, which is the size §12.5.6.4 lets the
 /// processor choose; `viewer_host::popup` turns each run's relative and absolute sizes into points
-/// against it, and says under the note what was not drawn.
-fn rich_note(note: &pdf_model::popup::RichNote) -> gtk4::Box {
+/// against it, and says under the note what was not drawn. The labels come back beside the box,
+/// each with the paragraph it sets.
+fn rich_note(note: &pdf_model::popup::RichNote) -> (gtk4::Box, Vec<NoteText>) {
     let body = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     body.set_vexpand(true);
     body.set_margin_start(POPUP_PADDING);
@@ -5553,7 +5696,8 @@ fn rich_note(note: &pdf_model::popup::RichNote) -> gtk4::Box {
         .filter(|size| *size > 0.0)
         .unwrap_or(10.0);
     let context = probe.pango_context();
-    for paragraph in &note.paragraphs {
+    let mut texts = Vec::with_capacity(note.paragraphs.len());
+    for (number, paragraph) in note.paragraphs.iter().enumerate() {
         let advances = viewer_host::popup::advances(paragraph);
         let mut markup = String::new();
         // A list tag is one left-to-right label at the paragraph's start edge, outside its order:
@@ -5569,6 +5713,10 @@ fn rich_note(note: &pdf_model::popup::RichNote) -> gtk4::Box {
         }
         let label = gtk4::Label::new(None);
         label.set_markup(&markup);
+        texts.push(NoteText {
+            label: label.clone(),
+            paragraph: Some(number),
+        });
         let right_to_left = viewer_host::popup::right_to_left(paragraph);
         let stops = viewer_host::popup::tab_stops(paragraph, base, 1.0, POPUP_TAB_ROOM);
         if !stops.is_empty() && !right_to_left {
@@ -5626,7 +5774,7 @@ fn rich_note(note: &pdf_model::popup::RichNote) -> gtk4::Box {
         said.add_css_class("dim-label");
         body.append(&said);
     }
-    body
+    (body, texts)
 }
 
 /// How far, in points, a popup paragraph's default tab stops are placed: past any window a screen

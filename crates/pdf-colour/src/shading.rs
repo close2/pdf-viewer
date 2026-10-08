@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use pdf_render::{Color, ColourGrid, Point, Ramp, Shading, ShadingKind, Transform};
-use pdf_syntax::{Dictionary, Document, Object, ObjectId};
+use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 use rayon::iter::{IndexedParallelIterator as _, ParallelIterator as _};
 use rayon::slice::ParallelSliceMut as _;
 
@@ -113,18 +113,43 @@ impl<'a> Colouring<'a> {
 /// `Function::parse` 6.7%, `Function::eval` 4.1% and `shading::ramp` 3.2% of a 54 G
 /// instruction page. Caching the kind removed all of it (ADR 0069).
 ///
-/// # What is not cached, and why the key is not just an identity
+/// # Why the key is not just an identity
 ///
-/// A shading's `/ColorSpace` may be a *name*, which §8.6.5.1 resolves through the resource
-/// dictionary in force — so one object can mean two things under two resource dictionaries.
-/// Those are not cached at all, which is exact rather than approximately right: the six
-/// named spaces are not cached at all, which is exact rather than approximately right. An
-/// array or a stream states the space in the object itself and is cached.
+/// What a shading's `/ColorSpace` means depends on the resource dictionary in force, whatever
+/// the entry's spelling. A *name* other than a family's is looked up in that dictionary's
+/// `/ColorSpace` subdictionary (§8.6.5.1), and §8.6.5.6 remaps a device space through the same
+/// subdictionary however the space reached the painting:
+///
+/// > A colour space is selected for painting each graphics object. This is either the current
+/// > colour space parameter in the graphics state or a colour space given as an entry in an
+/// > image XObject, inline image, or shading dictionary. Regardless of how the colour space is
+/// > specified, it shall be subject to remapping as described below.
+///
+/// That is the bare name, the array form ADR 1001 gives it and a reference to either — and the
+/// same clause carries the remapping into the base of an `Indexed` space and the alternate of a
+/// `Separation` or `DeviceN` one. So one object under two resource dictionaries can be two sets
+/// of colours however its space is written.
+///
+/// That subdictionary is the whole of what a build reads of the resources, and the build is
+/// *handed* a dictionary holding it alone, so the claim is structural rather than a reading of
+/// `colour.rs` — the shape `pdf_model`'s `image::RasterCache` gives its decodes. It joins the key
+/// as an index into [`Self::colour_spaces`], which holds each distinct entry once: an entry is
+/// compared by value, and two equal entries name the same objects of one immutable document, so
+/// equality is the claim that the lookups agree (ADR 1765).
 #[derive(Debug, Default)]
 pub struct Cache {
-    /// Everything about a shading that depends on the object alone, keyed by that object,
-    /// §10.7.3's sample count and the [`Conversion`] its colours were made under.
-    built: BTreeMap<(ObjectId, usize, Conversion), Built>,
+    /// Everything about a shading that depends on the object and the resources' `/ColorSpace`
+    /// entry, keyed by that object, §10.7.3's sample count, the [`Conversion`] its colours were
+    /// made under and the entry's index in [`Self::colour_spaces`].
+    built: BTreeMap<(ObjectId, usize, Conversion, usize), Built>,
+    /// Every resource dictionary's `/ColorSpace` entry a build has been handed, unresolved, each
+    /// distinct one once, and [`Object::Null`] for a dictionary stating none.
+    ///
+    /// Held once rather than in every key because an entry can be large and a page can build many
+    /// shadings under one: a cloned entry per key would be a cost no budget charges, the shape
+    /// ADR 0798 measured in the image cache. Growing only for a *distinct* entry, it holds at most
+    /// one per resource dictionary the page paints a shading from.
+    colour_spaces: Vec<Object>,
     /// A `/ColorSpace` stated as an **indirect object**, parsed once.
     ///
     /// [`Self::built`] cannot help a page of *distinct* shadings, and one exists:
@@ -143,8 +168,9 @@ pub struct Cache {
     /// `/DeviceCMYK` reference parses to depends on §14.11.5's intent (ADR 1008). One
     /// interpretation has one intent, so the second half of the key never varies within a
     /// cache's life; it is there so that the table is exact by construction rather than by
-    /// that argument.
-    spaces: BTreeMap<(ObjectId, Option<u128>, Separations), ColourSpace>,
+    /// that argument. And by the resources' `/ColorSpace` entry, for the reason the type's own
+    /// documentation gives: a reference to `/DeviceRGB` is remapped by the dictionary in force.
+    spaces: BTreeMap<(ObjectId, Option<u128>, Separations, usize), ColourSpace>,
     /// Every `/Function` group stated by reference, parsed once for the cache's life; see
     /// [`Parsed`].
     functions: Parsed,
@@ -345,18 +371,12 @@ impl Cache {
         // painted under two `/SM` values is two sets of colours, and a page that changes it
         // between paintings has said so.
         let resolution = colouring.resolution;
-        let key = object.as_reference().filter(|_| {
-            // A `/ColorSpace` stated as a *name* is the one thing about a shading that is
-            // not a property of the object alone: §8.6.5.1 resolves it through the resource
-            // dictionary in force, and even the device names go through §8.6.5.6's
-            // `/DefaultGray`, `/DefaultRGB` and `/DefaultCMYK` there. So a named space is
-            // not cached at all, which is exact; an array or a stream is the object's own.
-            let space =
-                dictionary_of(document, object).map(|dict| document.get_key(&dict, "ColorSpace"));
-            !matches!(space, Some(Object::Name(_)))
-        });
+        let colour_spaces = self.colour_spaces_of(resources);
+        let key = object.as_reference();
         if let Some(id) = key
-            && let Some(built) = self.built.get(&(id, resolution, colouring.into.clone()))
+            && let Some(built) =
+                self.built
+                    .get(&(id, resolution, colouring.into.clone(), colour_spaces))
         {
             return Ok(Shaded {
                 shading: Shading {
@@ -368,18 +388,21 @@ impl Cache {
                 coarse: built.coarse,
             });
         }
-        let space = self.space_of(document, object, resources, colouring.into);
+        let handed = self.handed(colour_spaces);
+        let space = self.space_of(document, object, (&handed, colour_spaces), colouring.into);
         let built = kind_of(
             document,
             object,
-            resources,
+            &handed,
             space,
             colouring,
             &mut self.functions,
         )?;
         if let Some(id) = key {
-            self.built
-                .insert((id, resolution, colouring.into.clone()), built.clone());
+            self.built.insert(
+                (id, resolution, colouring.into.clone(), colour_spaces),
+                built.clone(),
+            );
         }
         Ok(Shaded {
             shading: Shading {
@@ -396,12 +419,13 @@ impl Cache {
     ///
     /// `None` where there is nothing to remember — an inline space, or a name — and
     /// [`kind_of`] then parses it itself, which is what it did for every shading before this
-    /// table existed.
+    /// table existed. `resources` is the dictionary [`Self::colour_spaces_of`] handed the build,
+    /// with its entry's index.
     fn space_of(
         &mut self,
         document: &Document,
         object: &Object,
-        resources: &Dictionary,
+        (resources, colour_spaces): (&Dictionary, usize),
         into: &Conversion,
     ) -> Option<ColourSpace> {
         let dict = dictionary_of(document, object)?;
@@ -413,6 +437,7 @@ impl Cache {
             id,
             intent.as_ref().and_then(ColourSpace::profile_identity),
             into.separations(),
+            colour_spaces,
         );
         if let Some(space) = self.spaces.get(&key) {
             return Some(space.clone());
@@ -426,7 +451,40 @@ impl Cache {
         self.spaces.insert(key, space.clone());
         Some(space)
     }
+
+    /// The index of `resources`' `/ColorSpace` entry in [`Self::colour_spaces`], which a hit
+    /// pays one comparison per distinct entry for and nothing else: the entry is cloned only the
+    /// first time it is seen.
+    fn colour_spaces_of(&mut self, resources: &Dictionary) -> usize {
+        let entry = resources.get(COLOUR_SPACES).unwrap_or(&NO_COLOUR_SPACES);
+        if let Some(index) = self.colour_spaces.iter().position(|seen| seen == entry) {
+            return index;
+        }
+        self.colour_spaces.push(entry.clone());
+        self.colour_spaces.len().saturating_sub(1)
+    }
+
+    /// The dictionary a build is handed in place of the resources: the `/ColorSpace` entry at
+    /// `index` and nothing else, so that a lookup of anything else finds nothing on a miss and
+    /// nothing on a hit alike.
+    fn handed(&self, index: usize) -> Dictionary {
+        let mut handed = Dictionary::new();
+        if let Some(entry) = self
+            .colour_spaces
+            .get(index)
+            .filter(|entry| !matches!(entry, Object::Null))
+        {
+            handed.insert(Name::new(COLOUR_SPACES.as_bytes()), entry.clone());
+        }
+        handed
+    }
 }
+
+/// The key of §7.8.3 Table 34's entry a shading's colour space is resolved through.
+const COLOUR_SPACES: &str = "ColorSpace";
+
+/// What a resource dictionary without a `/ColorSpace` entry is compared as.
+static NO_COLOUR_SPACES: Object = Object::Null;
 
 /// The shading dictionary of an object, whether it is a dictionary or a stream.
 pub(crate) fn dictionary_of(document: &Document, object: &Object) -> Option<Dictionary> {

@@ -1970,3 +1970,51 @@ fn every_build_a_walk_declares_is_spelled_as_cargo_takes_it() {
         "these files now spell every --build as cargo takes it, so they leave the held list: {fixed:?}"
     );
 }
+
+/// A run under `--lock` gets four rayon threads, the merge's figure and the one each lane's ceiling
+/// was measured at, whatever the machine's cores; a run outside the lock keeps its share of them,
+/// and a caller that set the variable keeps its own (ADR 1766). Calibrated (trap 13): the wrapper
+/// before this rule handed a locked run the machine's 24.
+#[test]
+fn a_locked_run_walks_at_the_merges_four_threads() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_nanos());
+    let scratch = std::env::temp_dir().join(format!("threads-{}-{nanos}", std::process::id()));
+    std::fs::create_dir_all(&scratch).expect("a temporary directory");
+    let threads = |arguments: &[&str], set: Option<&str>| {
+        let mut command = Command::new("bash");
+        command
+            .arg(repository_root().join("tools/bounded.sh"))
+            .args(arguments)
+            .args([
+                "--tree",
+                "1",
+                "--",
+                "sh",
+                "-c",
+                "echo \"$RAYON_NUM_THREADS\"",
+            ])
+            .env("HEAVY_WALK_LOCK", scratch.join("lock"))
+            .env("HEAVY_WALK_LOG", scratch.join("log"))
+            .env_remove("RAYON_NUM_THREADS");
+        if let Some(value) = set {
+            command.env("RAYON_NUM_THREADS", value);
+        }
+        let output = command.output().expect("bash runs tools/bounded.sh");
+        assert!(output.status.success(), "{output:?}");
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    };
+    let cores = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
+    let locked = threads(&["--lock", "--round", "1"], None);
+    let unlocked = threads(&[], None);
+    let caller = threads(&["--lock", "--round", "1"], Some("7"));
+    let _ = std::fs::remove_dir_all(&scratch);
+    assert_eq!(locked, "4", "a locked run's rayon threads");
+    assert_eq!(
+        unlocked,
+        cores.to_string(),
+        "an unlocked run's rayon threads"
+    );
+    assert_eq!(caller, "7", "a caller's own setting");
+}

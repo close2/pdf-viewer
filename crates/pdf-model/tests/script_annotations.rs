@@ -251,7 +251,11 @@ fn an_annotation_with_no_page_entry_is_on_the_page_that_lists_it() {
         generation: 0,
     };
     let ran = view.run_annotation_scripts(&document, square, pdf_model::action::Trigger::Up);
-    assert_eq!(ran, 1);
+    assert_eq!(ran.handed, 1);
+    assert!(
+        ran.changed,
+        "the script opened a popup, which the page draws"
+    );
     assert_eq!(*runner.pages.lock().expect("the record"), vec![1]);
     let written = view.save(&document).expect("the update writes");
     let saved = Document::open(written.bytes).expect("the update reads back");

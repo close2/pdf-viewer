@@ -39,6 +39,56 @@ const MAX_LIBRARY: usize = 1024;
 /// Most actions one chain's walk visits, the same bound `crate::action` reads a chain under.
 const MAX_CHAIN: usize = 256;
 
+/// What a host's request to run an event's scripts did (ADR 1762).
+///
+/// The two answers a host acts on separately: whether the runner was handed the event's scripts,
+/// so that the action path's refusal of the same chain's ECMAScript actions is not said as well
+/// (ADR 1752), and whether what a page draws may have changed, so that the page is interpreted
+/// again only then — a cursor crossing a widget whose `/E` script only logs or asks a question
+/// changes nothing a page draws.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ScriptsRan {
+    /// How many scripts the runner was handed: 0 where the level is `off`, where the chain holds
+    /// none, and before the open sequence has run.
+    pub handed: usize,
+    /// Whether a script's edits can have changed what a page draws ([`ScriptEdit::redraws`],
+    /// a value written over a different one, or a walk of `/CO` that may write one).
+    ///
+    /// [`ScriptEdit::redraws`]: super::ScriptEdit::redraws
+    pub changed: bool,
+}
+
+/// One sequence's tally while it runs.
+#[derive(Debug, Clone, Copy, Default)]
+struct Ran {
+    /// Scripts handed to the runner.
+    handed: usize,
+    /// Whether a value changed, which walks `/CO`.
+    values: bool,
+    /// Whether a script asked for `/CO` to be walked.
+    calculate: bool,
+    /// Whether what a page draws may have changed.
+    drawn: bool,
+}
+
+impl Ran {
+    /// One more script run, and what applying its edits did.
+    fn count(&mut self, applied: super::scripts::Applied) {
+        self.handed = self.handed.saturating_add(1);
+        self.values |= applied.values;
+        self.calculate |= applied.calculate;
+        self.drawn |= applied.drawn;
+    }
+
+    /// Another sequence's tally added to this one.
+    fn add(&mut self, other: Self) {
+        self.handed = self.handed.saturating_add(other.handed);
+        self.values |= other.values;
+        self.calculate |= other.calculate;
+        self.drawn |= other.drawn;
+    }
+}
+
 impl ViewState {
     /// Runs the open sequence of RFC 0008 section 6.5 step 1, after the first present: every
     /// entry of Table 32's `/JavaScript` name tree in the tree's order, then the catalog's
@@ -110,21 +160,21 @@ impl ViewState {
                 self.report_each("the document's open action", result.report);
             }
         }
-        let (ran, page_changed, page_calculate) =
-            self.page_scripts(document, &table, page, PageTrigger::Open);
-        handed = handed.saturating_add(ran);
+        let ran = self.page_scripts(document, &table, page, PageTrigger::Open);
+        handed = handed.saturating_add(ran.handed);
         self.after_scripts(
             document,
             &table,
-            changed || page_changed,
-            calculate || page_calculate,
+            changed || ran.values,
+            calculate || ran.calculate,
         );
         self.refresh_formatted(document, &table);
         handed
     }
 
     /// Runs Table 198's `/O` or `/C` of page `page` and its annotations' matching Table 197
-    /// events, in the order the two tables state, and answers how many scripts were handed over.
+    /// events, in the order the two tables state, and answers how many scripts were handed over
+    /// and whether what a page draws may have changed ([`ScriptsRan`]).
     ///
     /// Table 197's `/PO` "shall be executed after the O action in the page's additional - actions
     /// dictionary", so an open runs the page's script first and then each annotation's `/PO` and
@@ -145,34 +195,30 @@ impl ViewState {
         document: &Document,
         page: usize,
         trigger: PageTrigger,
-    ) -> usize {
+    ) -> ScriptsRan {
         if self.runner.0.is_none() {
-            return 0;
+            return ScriptsRan::default();
         }
         // Cheap where the turn holds no script, which is nearly every turn: the fields are read
         // only once one is found.
         let held = page_turn_scripts(document, page, trigger);
         if held == 0 {
-            return 0;
+            return ScriptsRan::default();
         }
         if !self.scripting.opened {
             if trigger == PageTrigger::Close {
                 self.before_open(held, &format!("page {}'s close", page.saturating_add(1)));
             }
-            return 0;
+            return ScriptsRan::default();
         }
         // The page turned to or from, and no other (ADR 1653 section 4).
         let table = super::field_table_on_page(document, page);
-        let (ran, changed, calculate) = self.page_scripts(document, &table, page, trigger);
-        if ran > 0 {
-            self.after_scripts(document, &table, changed, calculate);
-            self.refresh_formatted(document, &table);
-        }
-        ran
+        let ran = self.page_scripts(document, &table, page, trigger);
+        self.finish(document, &table, ran)
     }
 
     /// Runs one of Table 197's events' scripts on one annotation, and answers how many were handed
-    /// over.
+    /// over and whether what a page draws may have changed ([`ScriptsRan`]).
     ///
     /// The chain is the one `crate::action::for_annotation` reads — `/U`'s with Table 197's
     /// precedence, the annotation's `/A` where it has one — and its ECMAScript actions are run in
@@ -192,18 +238,18 @@ impl ViewState {
         document: &Document,
         annotation: ObjectId,
         trigger: AnnotationTrigger,
-    ) -> usize {
+    ) -> ScriptsRan {
         if self.runner.0.is_none() {
-            return 0;
+            return ScriptsRan::default();
         }
         let Some(dictionary) = document.get(annotation).as_dict().cloned() else {
-            return 0;
+            return ScriptsRan::default();
         };
         let scripts = annotation_chain(document, &dictionary, trigger)
             .map(|entry| scripts_in(document, &entry))
             .unwrap_or_default();
         if scripts.is_empty() {
-            return 0;
+            return ScriptsRan::default();
         }
         if !self.scripting.opened {
             self.before_open(
@@ -214,17 +260,30 @@ impl ViewState {
                     annotation.number
                 ),
             );
-            return 0;
+            return ScriptsRan::default();
         }
         let table = super::widgets_by_field_name(document);
         let page = page_of(document, annotation, &dictionary);
-        let (ran, changed, calculate) =
-            self.annotation_scripts(document, &table, annotation, &scripts, trigger, page);
-        if ran > 0 {
-            self.after_scripts(document, &table, changed, calculate);
-            self.refresh_formatted(document, &table);
+        let ran = self.annotation_scripts(document, &table, annotation, &scripts, trigger, page);
+        self.finish(document, &table, ran)
+    }
+
+    /// What a host's request ends with once its scripts have run: `/CO` walked where they changed
+    /// a value or asked for it, the formats refreshed, and the answer.
+    fn finish(
+        &mut self,
+        document: &Document,
+        table: &BTreeMap<String, Vec<ObjectId>>,
+        ran: Ran,
+    ) -> ScriptsRan {
+        if ran.handed > 0 {
+            self.after_scripts(document, table, ran.values, ran.calculate);
+            self.refresh_formatted(document, table);
         }
-        ran
+        ScriptsRan {
+            handed: ran.handed,
+            changed: ran.drawn,
+        }
     }
 
     /// Runs Table 200's script for one moment of the document as a whole, and answers how many
@@ -352,22 +411,15 @@ impl ViewState {
         table: &BTreeMap<String, Vec<ObjectId>>,
         page: usize,
         trigger: PageTrigger,
-    ) -> (usize, bool, bool) {
+    ) -> Ran {
         let Some(found) = crate::page::Pages::new(document).get(page) else {
-            return (0, false, false);
+            return Ran::default();
         };
         let annotations = page_annotations(document, &found.dict);
         let page_scripts = page_entry_scripts(document, &found.dict, trigger);
-        let mut total = (0_usize, false, false);
-        let mut add = |ran: (usize, bool, bool)| {
-            total = (
-                total.0.saturating_add(ran.0),
-                total.1 | ran.1,
-                total.2 | ran.2,
-            );
-        };
+        let mut total = Ran::default();
         let run_page = |view: &mut Self| {
-            let mut ran = (0_usize, false, false);
+            let mut ran = Ran::default();
             for script in &page_scripts {
                 let event = ScriptEvent {
                     script,
@@ -375,11 +427,7 @@ impl ViewState {
                     ..ScriptEvent::at(ScriptSite::Page(trigger), "")
                 };
                 if let Some((result, applied)) = view.run_event(document, table, event) {
-                    ran = (
-                        ran.0.saturating_add(1),
-                        ran.1 | applied.values,
-                        ran.2 | applied.calculate,
-                    );
+                    ran.count(applied);
                     view.report_each(
                         &format!(
                             "page {}'s {} script",
@@ -393,7 +441,7 @@ impl ViewState {
             ran
         };
         if trigger == PageTrigger::Open {
-            add(run_page(self));
+            total.add(run_page(self));
         }
         // Each annotation's pair together, the order a host raises them in for their other
         // actions: Table 197 orders `/PO` and `/PC` against the page's own entry and states no
@@ -409,11 +457,13 @@ impl ViewState {
                 if scripts.is_empty() {
                     continue;
                 }
-                add(self.annotation_scripts(document, table, annotation, &scripts, each, page));
+                total.add(
+                    self.annotation_scripts(document, table, annotation, &scripts, each, page),
+                );
             }
         }
         if trigger == PageTrigger::Close {
-            add(run_page(self));
+            total.add(run_page(self));
         }
         total
     }
@@ -427,7 +477,7 @@ impl ViewState {
         scripts: &[String],
         trigger: AnnotationTrigger,
         page: usize,
-    ) -> (usize, bool, bool) {
+    ) -> Ran {
         let field = table
             .iter()
             .find(|(_, widgets)| widgets.contains(&annotation))
@@ -438,7 +488,7 @@ impl ViewState {
         } else {
             self.text_of(document, annotation).unwrap_or_default()
         };
-        let mut ran = (0_usize, false, false);
+        let mut ran = Ran::default();
         for script in scripts {
             let event = ScriptEvent {
                 script,
@@ -447,11 +497,7 @@ impl ViewState {
                 ..ScriptEvent::at(ScriptSite::Annotation(trigger), &field)
             };
             if let Some((result, applied)) = self.run_event(document, table, event) {
-                ran = (
-                    ran.0.saturating_add(1),
-                    ran.1 | applied.values,
-                    ran.2 | applied.calculate,
-                );
+                ran.count(applied);
                 let subject = if field.is_empty() {
                     format!("the annotation of object {}", annotation.number)
                 } else {

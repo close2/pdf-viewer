@@ -36,6 +36,9 @@ fn field(name: &str, value: &str) -> FieldState {
             stroke_color: None,
             border_style: BorderStyle::Solid,
             alignment: Alignment::Left,
+            line_width: 1.0,
+            text_size: None,
+            text_font: String::new(),
             rect: [10.0, 10.0, 210.0, 40.0],
             captions: Default::default(),
             on_state: None,
@@ -69,6 +72,10 @@ fn request(
             field_full: false,
             change_ex: String::new(),
             source: String::new(),
+            shift: false,
+            modifier: false,
+            key_down: false,
+            rich_value: String::new(),
         },
         fields: vec![field("Amount", value)],
         page: 0,
@@ -376,17 +383,23 @@ fn submit_form_is_refused_by_name_and_stops_an_uncaught_script() {
 }
 
 #[test]
-fn an_admitted_member_this_bridge_does_not_carry_says_so() {
+fn every_member_section_4_2_admits_is_carried_or_refused_by_name() {
+    // RFC 0008 section 4.2's last 21 names are bridged (ADR 1762); the list stays, as the place a
+    // later admitted member waits, and is empty.
+    assert!(
+        pdf_script::surface::NOT_BRIDGED.is_empty(),
+        "{:?}",
+        pdf_script::surface::NOT_BRIDGED
+    );
     let ran = outcome(&request(
         Trigger::Keystroke,
-        "if (event.keyDown) event.rc = false;",
+        "if (event.richValue !== undefined) event.rc = false;",
         "1",
         "",
         true,
     ));
-    let refusal = ran.refusals.first().expect("one refusal");
-    assert_eq!(refusal.member, "event.keyDown");
-    assert_eq!(refusal.kind, RefusalKind::NotBridged);
+    assert!(ran.refusals.is_empty(), "{:?}", ran.refusals);
+    assert!(ran.rc, "a field that is not rich text has no richValue");
 }
 
 #[test]
@@ -460,6 +473,7 @@ fn every_refused_member_throws_not_allowed_error_by_name() {
                     on: true,
                     initially_on: true,
                     locked: false,
+                    intent: vec!["View".to_owned()],
                 }],
                 annotations: Vec::new(),
                 pages: Vec::new(),

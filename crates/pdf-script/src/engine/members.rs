@@ -590,8 +590,43 @@ fn ocg(layer: &Layer, context: &mut Context) -> JsResult<JsObject> {
         false,
         context,
     )?;
+    get_intent(&object, id, context)?;
     refusers(&object, Holder::Layer, context)?;
     Ok(object)
+}
+
+/// `OCG.getIntent()`: the group's intent array, Table 96's `/Intent` as the view state read it,
+/// per the reference's "OCG methods" (ADR 1762).
+fn get_intent(object: &JsObject, id: (u32, u16), context: &mut Context) -> JsResult<()> {
+    let get_intent = function(
+        context,
+        "getIntent",
+        NativeFunction::from_copy_closure(move |_this, _arguments, context| {
+            let intent = State::table(context, |table| {
+                table
+                    .document
+                    .layers
+                    .iter()
+                    .find(|held| (held.number, held.generation) == id)
+                    .map(|layer| layer.intent.clone())
+            })
+            .flatten()
+            .unwrap_or_default();
+            Ok(JsValue::from(JsArray::from_iter(
+                intent
+                    .iter()
+                    .map(|name| JsValue::from(JsString::from(name.as_str()))),
+                context,
+            )))
+        }),
+    );
+    data(
+        object,
+        "getIntent",
+        JsValue::from(get_intent),
+        false,
+        context,
+    )
 }
 
 /// Which of an `OCG`'s properties an accessor reads.

@@ -101,6 +101,7 @@ fn document() -> DocumentState {
         on: true,
         initially_on: true,
         locked,
+        intent: vec!["View".to_owned(), "Design".to_owned()],
     };
     DocumentState {
         info: vec![
@@ -124,16 +125,19 @@ fn document() -> DocumentState {
                 label: Some("i".to_owned()),
                 boxes: [[0.0, 0.0, 612.0, 792.0]; 5],
                 rotate: 90,
+                words: None,
             },
             PageState {
                 label: None,
                 boxes: [[0.0, 0.0, 612.0, 792.0]; 5],
                 rotate: 0,
+                words: None,
             },
             PageState {
                 label: Some("A-1".to_owned()),
                 boxes: [[-10.0, 5.0, 300.0, 400.0]; 5],
                 rotate: 270,
+                words: None,
             },
         ],
     }
@@ -177,6 +181,9 @@ fn field(name: &str, kind: FieldType, value: &str) -> FieldState {
             stroke_color: None,
             border_style: BorderStyle::Solid,
             alignment: Alignment::Left,
+            line_width: 1.0,
+            text_size: None,
+            text_font: String::new(),
             rect: [10.0, 10.0, 210.0, 40.0],
             captions: ["Send".to_owned(), String::new(), String::new()],
             on_state: None,
@@ -249,6 +256,8 @@ fn run(data: &[u8]) {
             zoom: Some(100.0),
             ..pdf_model::view::WindowView::default()
         },
+        keys: pdf_model::view::Keys::default(),
+        rich_value: "",
     };
     let request = Request::of(&event, 1_704_465_015_000, 0);
 

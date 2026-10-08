@@ -305,6 +305,8 @@ pub(crate) mod tests {
             dirty: false,
             document: None,
             view: pdf_model::view::WindowView::default(),
+            keys: pdf_model::view::Keys::default(),
+            rich_value: "",
         };
         Request::of(&event, 1_704_465_015_000, 3600)
     }

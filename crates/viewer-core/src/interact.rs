@@ -125,13 +125,14 @@ pub(crate) fn activate(open: &mut Open, page: usize, x: f32, y: f32) -> Outcome 
     drop(links);
     // The click is Table 197's `/U` on the link, and a link's `/A` is that event's chain by the
     // table's own precedence, so its scripts are handed to the runner here as a widget's are at
-    // the same event (ADRs 1750, 1752).
-    let scripted = link_id.is_some_and(|id| {
+    // the same event (ADRs 1750, 1752); the page is interpreted again only where what the scripts
+    // did can have changed what it draws (ADR 1771).
+    let ran = link_id.map(|id| {
         open.view
             .run_annotation_scripts(&open.document, id, Trigger::Up)
-            > 0
     });
-    if scripted {
+    let scripted = ran.is_some_and(|ran| ran.handed > 0);
+    if ran.is_some_and(|ran| ran.changed) {
         open.stale();
     }
     let actions = handed_over(actions, scripted);

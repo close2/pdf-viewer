@@ -57,10 +57,15 @@ are told to the realm with every event and a script's write to them or its `scro
 history of views (ADR 1736); a choice field's items are read from `/Opt`, `currentValueIndices` is a
 person's choice (ADR 1725), and the four methods that rewrite `/Opt` set one property the page, a
 host's control and the save read (ADR 1737). The census walk through the worker raises every
-annotation's pointer and focus events and turns the pages (ADR 1750). **What is next** is chosen from the throws' causes below, then
-the other Tier 1 members `crates/pdf-script/src/surface.rs` lists — `getPageNumWords` and
-`getPageNthWord` first, five documents each — and the owner's amendment of
-`CLAUDE.md`'s exclusion, which `doc/questions/Q286` proposes. Every window commits through
+annotation's pointer and focus events and turns the pages (ADR 1750). **The last 21 members RFC
+0008 section 4.2 admits are bridged** (ADR 1762): `event.shift`, `modifier` and `keyDown` from the
+keys a host tells, `richValue` and `richChange` read-only as spans of the field's `/RV`, a field's
+`lineWidth`, `textSize` and `textFont` from `/BS` and the `/DA`'s `Tf`, `console`'s three as
+requests a host takes, the page's words read once for a script that spells the pair, `util`'s seven
+as pure functions, and `OCG.getIntent`; `surface::NOT_BRIDGED` is empty, and the two runners answer
+whether a page changed beside how many scripts ran. **What is next** is chosen from the throws'
+causes below, and the owner's amendment of `CLAUDE.md`'s exclusion, which `doc/questions/Q286`
+proposes. Every window commits through
 `viewer-core` — Table 197's `/Bl` wherever the focus leaves a widget, `Command::CommitField` for
 Enter in a single-line field and for a toolkit control losing the keyboard — and says a refusal
 (ADR 1592); `Query::Fields` carries what a field displays beside its characters, and the two toolkit

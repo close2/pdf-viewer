@@ -796,7 +796,11 @@ comment says what it runs; a cost outside it needs another instrument, not a row
 The rule line forbids a `pgrep -f` whose pattern appears in the grepping command, and the lock's
 holder file names the pid for exactly this: `kill -0 $(cut -d' ' -f1 <lock>.holder)` ends when the
 hold ends, where a pattern wait matches itself and never does (round 1425; trap 124's incident is
-the same shape with a `pkill -P`).
+the same shape with a `pkill -P`). It is not only the lock: round 1460 waited for its own
+`tools/batch.sh check` with `until ! pgrep -f 'tools/batch.sh check' …; do sleep 5; done`, the
+loop's shell carried the pattern on its own command line, and the loop ran 614 s and was stopped by
+hand, 382 s of it after the check it waited for had ended. A job you started is waited on by the pid
+or the output file you gave it, never by a pattern its waiter also spells.
 
 ## 75. A change around a thread join is profiled on the page whose walk goes on after the join
 
@@ -836,3 +840,10 @@ five holds in sequence would have been three and a half hours of a lane; even so
 small walks queued 860 to 1 134 s behind it while the arms held the first lane (ADR 1716). A campaign
 that will hold a lane for long is one hold for every target it owns, and it is asked when the other
 lane is free, so the batch's short walks keep a lane of their own.
+
+## 80. A status line is waited for by its prefix, never by equality with the whole line
+
+`tools/batch.sh arms` ends its README with `done <date>, the lock held <n> s …`; a wait written as
+`[ "$(tail -1 README)" = done ]` never matched it and round 1466 waited about 480 s after the export
+had finished. A wait on a status file reads `grep -q '^done'` or the file's own stated prefix, and it
+is bounded, so a line whose tail changes shape does not hold a round for the shape it remembered.

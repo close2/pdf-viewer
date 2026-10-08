@@ -38,8 +38,8 @@ use std::time::{Duration, Instant};
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
 use super::script_model::{
-    CommitKey, DocumentState, FieldState, Overrides, Property, ScriptEdit, ScriptSite, ViewChange,
-    WindowView,
+    CommitKey, ConsoleRequest, DocumentState, FieldState, FontName, Keys, Overrides, Property,
+    ScriptEdit, ScriptSite, ViewChange, WindowView,
 };
 use super::{Entry, ViewState};
 use crate::action::{ResetForm, ResetTarget};
@@ -125,6 +125,13 @@ pub struct ScriptEvent<'a> {
     /// `this.zoomType` and `this.layout` (ADR 1736). Small, so it is handed with every event
     /// rather than measured against what the realm last heard.
     pub view: WindowView,
+    /// What the host's keyboard held at the event: `event.shift`, `event.modifier` and
+    /// `event.keyDown`, as a host last told the view state ([`ViewState::set_keys`], ADR 1762).
+    pub keys: Keys,
+    /// The XFA rich text string `event.richValue` is read from, at a rich text field's event:
+    /// Table 228's `/RV` where it holds the characters the value does, the value as a save writes
+    /// it otherwise (ADR 1635); empty for every other field and site (ADR 1762).
+    pub rich_value: &'a str,
 }
 
 /// What a [`ScriptRunner`] made of a [`ScriptEvent`].
@@ -289,7 +296,30 @@ pub(super) struct Scripting {
     /// Whether [`ViewState::run_open_scripts`] has run: until it has, the functions Table 32's
     /// name tree defines do not exist, so no event a host raises runs a script (ADR 1750).
     pub(super) opened: bool,
+    /// What the host's keyboard held, as a host last told ([`ViewState::set_keys`], ADR 1762).
+    keys: Keys,
+    /// The requests scripts made of the host's console, in order, until a host takes them; at
+    /// most [`MAX_CONSOLE_REQUESTS`] (ADR 1762).
+    console: Vec<ConsoleRequest>,
+    /// Every page's words as `getPageNthWord` reads them, once a script of the document has
+    /// spelled either member: `None` per page past what the reading reached (ADR 1762).
+    words: Option<Vec<Option<Vec<String>>>>,
 }
+
+/// Most console requests a view state holds for a host: a script that clears the console in a
+/// loop has asked for its last clear.
+const MAX_CONSOLE_REQUESTS: usize = 16;
+
+/// Most pages whose words are read for a document's scripts, and the longest the reading may
+/// take: a page's words are its interpretation's text, so reading them costs what drawing the page
+/// does, and the reading stops at whichever bound it meets first (ADR 1762).
+const MAX_WORD_PAGES: usize = 1024;
+
+/// The longest the reading of a document's words may take; see [`MAX_WORD_PAGES`].
+const MAX_WORD_TIME: Duration = Duration::from_secs(2);
+
+/// Most words read of one page.
+const MAX_PAGE_WORDS: usize = 1 << 16;
 
 /// Most changes to the window's view a view state holds for a host: a script that sets the zoom
 /// in a loop has asked for its last one, and four of each kind is more than any script needs to
@@ -367,6 +397,8 @@ struct Told {
     /// fewer fields than one read for the whole document later, and a field first met in the
     /// wider one is told then (ADR 1653 section 4).
     names: BTreeSet<String>,
+    /// Whether the pages' words had been read when the realm was told (ADR 1762).
+    words: bool,
 }
 
 /// What applying one result's edits did, for the sequence that ran it.
@@ -376,6 +408,10 @@ pub(super) struct Applied {
     pub(super) values: bool,
     /// Whether the script asked for `/CO` to be walked again.
     pub(super) calculate: bool,
+    /// Whether what a page draws may have changed: a value, a property, a layer, an annotation,
+    /// a reset, a choice, or a walk of `/CO` that may write any of them (ADR 1762). A host draws
+    /// the page again only where a run answered this.
+    pub(super) drawn: bool,
 }
 
 /// What Table 199's `/K`, in its typing form, made of a whole value.
@@ -706,6 +742,24 @@ impl ViewState {
         self.scripting.window = Some(view);
     }
 
+    /// Says what the host's keyboard holds, so that the next event a runner is handed carries it as
+    /// `event.shift`, `event.modifier` and `event.keyDown` (ADR 1762).
+    ///
+    /// A host calls it with each pointer or keyboard event it raises a script's event for — a
+    /// widget's `/D` with shift held, a list box's selection made with the arrows — and again
+    /// when the keys are let go; until a host calls it every key reads as up.
+    pub fn set_keys(&mut self, keys: Keys) {
+        self.scripting.keys = keys;
+    }
+
+    /// The requests scripts made of the host's console since a host last took them, in the order
+    /// made: `console.show`, `hide` and `clear` (ADR 1762). What a console shows is what scripts
+    /// logged and every sentence [`Self::script_reports`] holds; a host without a console drops
+    /// them.
+    pub fn take_console_requests(&mut self) -> Vec<ConsoleRequest> {
+        std::mem::take(&mut self.scripting.console)
+    }
+
     /// What one field displays: its value through its format script, or as it stands.
     ///
     /// [`Self::field_value`] answers with the characters a host edits; this answers with what the
@@ -843,7 +897,22 @@ impl ViewState {
         event: ScriptEvent<'_>,
     ) -> Option<(ScriptResult, Applied)> {
         let runner = self.runner.0.clone()?;
+        if self.scripting.words.is_none() && spells_words(event.script) {
+            self.read_words(document);
+        }
         let (fields, whole) = self.tell(document, table);
+        let rich_value = match event.site {
+            // The reference makes the pair a field event's, so a cursor crossing a widget reads no
+            // rich text string.
+            ScriptSite::Field(_) if !event.field.is_empty() => {
+                table.get(event.field).and_then(|widgets| {
+                    widgets
+                        .first()
+                        .and_then(|widget| self.rich_value_of(document, *widget))
+                })
+            }
+            _ => None,
+        };
         let page = match event.site {
             ScriptSite::Field(_) => self
                 .field_page(document, table, event.field)
@@ -857,6 +926,8 @@ impl ViewState {
             dirty: self.unsaved(),
             document: whole.as_ref(),
             view: self.window_view(document),
+            keys: self.scripting.keys,
+            rich_value: rich_value.as_deref().unwrap_or(event.rich_value),
             ..event
         });
         if runner.waiting() && self.scripting.pending.len() < MAX_PENDING {
@@ -907,10 +978,12 @@ impl ViewState {
         table: &BTreeMap<String, Vec<ObjectId>>,
     ) -> (Vec<FieldState>, Option<DocumentState>) {
         let annotations = self.annotation_states(document);
+        let words = self.scripting.words.is_some();
         let whole = match self.scripting.told.as_deref() {
             Some(told)
                 if told.optional_content == self.optional_content
-                    && told.annotations == annotations =>
+                    && told.annotations == annotations
+                    && told.words == words =>
             {
                 None
             }
@@ -974,6 +1047,7 @@ impl ViewState {
             optional_content: self.optional_content.clone(),
             annotations,
             names: told_names,
+            words,
         }));
         (states, whole)
     }
@@ -1079,9 +1153,42 @@ impl ViewState {
                 ScriptEdit::Destination { name } => self.go_to_named(document, name),
                 ScriptEdit::Calculation { on } => self.scripting.calculations_off = !*on,
                 ScriptEdit::View { change } => self.ask_view(document, *change),
+                ScriptEdit::Console(command) => self.ask_console(*command),
             }
         }
+        applied.drawn =
+            applied.values || applied.calculate || edits.iter().any(ScriptEdit::redraws);
         applied
+    }
+
+    /// `textFont` as the `/DA` writes it: the script named a font by what it reads back, and the
+    /// `/DA`'s `Tf` names it by a resource of the form's `/DR`, which §12.7.4.3 requires (ADR 1762).
+    /// `None`, reported, where the form holds no such font.
+    fn form_font(&mut self, document: &Document, field: &str, asked: &str) -> Option<Property> {
+        let Some((base, resource)) = crate::appearance::form_font(document, asked) else {
+            self.report(format!(
+                "{field}: a script set Field.textFont to {asked:?}, which no font of the form's \
+                 /DR is named, by its resource name or its /BaseFont, so the field keeps its font \
+                 (ADR 1762)"
+            ));
+            return None;
+        };
+        Some(Property::TextFont(FontName { base, resource }))
+    }
+
+    /// Holds a script's request of the host's console, at the report it applies after; past
+    /// [`MAX_CONSOLE_REQUESTS`] the latest replaces the last held (ADR 1762).
+    fn ask_console(&mut self, command: crate::view::ConsoleCommand) {
+        let request = ConsoleRequest {
+            command,
+            at: self.script_reports.len(),
+        };
+        let console = &mut self.scripting.console;
+        if console.len() < MAX_CONSOLE_REQUESTS {
+            console.push(request);
+        } else if let Some(last) = console.last_mut() {
+            *last = request;
+        }
     }
 
     /// Holds a script's change to the window's view for a host, or reports why it names nothing
@@ -1280,6 +1387,16 @@ impl ViewState {
             ));
             return;
         }
+        let resolved;
+        let property = if let Property::TextFont(asked) = property {
+            let Some(found) = self.form_font(document, field, &asked.base) else {
+                return;
+            };
+            resolved = found;
+            &resolved
+        } else {
+            property
+        };
         let member = property.member();
         if widget.is_some() {
             self.scripting
@@ -1314,6 +1431,9 @@ impl ViewState {
             | Property::StrokeColor(_)
             | Property::BorderStyle(_)
             | Property::Alignment(_)
+            | Property::LineWidth(_)
+            | Property::TextSize(_)
+            | Property::TextFont(_)
             | Property::CharLimit(_)
             | Property::Required(_)
             | Property::Caption(..)
@@ -1377,6 +1497,79 @@ impl ViewState {
             "a script set the layer {name:?} {}, and it stays as it was: {why}",
             if on { "on" } else { "off" }
         ));
+    }
+
+    /// Reads every page's words for the document's scripts, once, bounded by [`MAX_WORD_PAGES`]
+    /// and [`MAX_WORD_TIME`], and says where the reading stopped short (ADR 1762).
+    ///
+    /// A page's words are what its interpretation reads back, so the page is interpreted as it is
+    /// drawn, against this view state. Table 22's bit 5, which withholds "[c]opy or otherwise
+    /// extract text and graphics from the document", is not consulted: the words go to the
+    /// document's own scripts, in a realm with no path out of the process, and leave the
+    /// document for nobody (ADR 1762).
+    fn read_words(&mut self, document: &Document) {
+        let pages = crate::page::Pages::new(document);
+        let count = pages.len();
+        let started = Instant::now();
+        let mut words = Vec::with_capacity(count.min(MAX_WORD_PAGES));
+        let mut stopped = None;
+        for index in 0..count {
+            if index >= MAX_WORD_PAGES || started.elapsed() > MAX_WORD_TIME {
+                stopped = Some(index);
+                break;
+            }
+            words.push(pages.get(index).map(|page| {
+                page_words(&crate::content::interpret_with(document, &page, self).text)
+            }));
+        }
+        if let Some(index) = stopped {
+            self.report(format!(
+                "the document's scripts read the pages' words, and the reading stopped at page {} \
+                 of {count}, at its bound of {MAX_WORD_PAGES} pages or {} ms: a script asking for \
+                 a later page's words is refused (ADR 1762)",
+                index.saturating_add(1),
+                MAX_WORD_TIME.as_millis()
+            ));
+        }
+        self.scripting.words = Some(words);
+    }
+
+    /// The pages' words as a realm is told them, where they have been read.
+    pub(super) fn words_of(&self, page: usize) -> Option<Vec<String>> {
+        self.scripting
+            .words
+            .as_ref()
+            .and_then(|words| words.get(page).cloned().flatten())
+    }
+
+    /// The rich text string `event.richValue` reads for a rich text field's widget (ADR 1762):
+    /// Table 228's `/RV` where it holds the characters the field's value does, and otherwise — a
+    /// value a person or a script set since — the value written as the save writes it, its own
+    /// characters with no formatting of their own (ADR 1635). `None` for a field Table 231 bit 26
+    /// does not make rich text.
+    fn rich_value_of(&self, document: &Document, widget: ObjectId) -> Option<String> {
+        /// Table 231 bit 26, `RichText`.
+        const RICH_TEXT: i64 = 1 << 25;
+        let dictionary = document.get(widget);
+        let dictionary = dictionary.as_dict()?;
+        let field =
+            crate::appearance::Field::read(document, dictionary, self.annotation(widget).value);
+        if field.flags & RICH_TEXT == 0 {
+            return None;
+        }
+        let value = self.text_of(document, widget).unwrap_or_default();
+        let stated = field.ancestry.iter().find_map(|level| {
+            crate::variable_text::value_text(document, &document.get_key(level, "RV"))
+        });
+        Some(
+            stated
+                .filter(|rich| {
+                    crate::rich_text::characters(rich).is_some_and(|characters| {
+                        crate::rich_text::same_characters(&characters, &value)
+                    })
+                })
+                .unwrap_or_else(|| crate::rich_text::written(&value)),
+        )
     }
 
     /// Records each of a runner's sentences against the field it ran for.
@@ -2014,6 +2207,31 @@ impl ViewState {
     }
 }
 
+/// Whether a script's text spells `getPageNumWords` or `getPageNthWord`, the two members that read
+/// the pages' words (ADR 1762).
+///
+/// Read off the text rather than asked at the call, because a request is data handed across the
+/// process boundary before the script runs (ADR 1591): a script that builds either name at run
+/// time is told no words, and its call is refused with a sentence saying they were not read.
+fn spells_words(script: &str) -> bool {
+    script.contains("getPageNumWords") || script.contains("getPageNthWord")
+}
+
+/// One page's words: its interpretation's text cut at white space (ADR 1762).
+///
+/// **The word rule is a choice.** §9.4.4 places glyphs and says nothing of words, and
+/// §14.8.2.6.2 leaves an untagged page's words to "heuristics based on information such as glyph
+/// positioning on the page"; the readback already holds this program's heuristic — a gap along
+/// the line past a share of the font's space is a space (`content::text`, ADRs 1502, 1515) — so a
+/// word is a maximal run of characters that are not white space in it. Adobe's reference leaves
+/// its own word finder undefined; what punctuation `bStrip` removes is the realm's.
+fn page_words(text: &str) -> Vec<String> {
+    text.split_whitespace()
+        .take(MAX_PAGE_WORDS)
+        .map(str::to_owned)
+        .collect()
+}
+
 /// What a keystroke's whole value makes of Adobe's `event.change`, `changeEx` and `fieldFull`
 /// (ADR 1626).
 ///
@@ -2119,6 +2337,8 @@ impl<'a> ScriptEvent<'a> {
             dirty: false,
             document: None,
             view: WindowView::default(),
+            keys: Keys::default(),
+            rich_value: "",
         }
     }
 }

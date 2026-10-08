@@ -17,6 +17,8 @@
 //! - `markup` — the XHTML subset chapter 27 names, walked into paragraphs of styled runs.
 //! - `layout` — those runs set into §12.7.4.3's appearance stream, each in its own face, size and
 //!   colour.
+//! - [`span`] — the same runs as the flat list of styled spans a script holds, and written back
+//!   (ADR 1762).
 //!
 //! This file is where the five entries meet them: which string a field or a note is drawn from
 //! ([`for_field`], [`for_free_text`]), and the `/RV` a value this program set is saved with
@@ -25,6 +27,7 @@
 
 mod layout;
 mod markup;
+pub mod span;
 mod style;
 
 use pdf_syntax::{Dictionary, Document, Object};

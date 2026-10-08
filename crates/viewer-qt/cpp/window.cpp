@@ -698,8 +698,8 @@ void ChromeOverlay::paintEvent(QPaintEvent*)
 // PopupWindow
 // ---------------------------------------------------------------------------------------------
 
-PopupWindow::PopupWindow(const QtPopup& window, QWidget* parent, std::function<void()> pressed)
-    : QFrame(parent), pressed_(window.retypes ? std::move(pressed) : std::function<void()>())
+PopupWindow::PopupWindow(const QtPopup& window, QWidget* parent, std::function<void(int)> pressed)
+    : QFrame(parent), pressed_(window.retypes ? std::move(pressed) : std::function<void(int)>())
 {
     // §12.5.6.14: a popup has "no appearance stream or associated actions of its own", so there is
     // nothing on it to activate — and a widget over the page that swallowed a press would take the
@@ -775,6 +775,7 @@ PopupWindow::PopupWindow(const QtPopup& window, QWidget* parent, std::function<v
         auto* note = new RichNoteView(window.rich, font(), this);
         note->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
         column->addWidget(note, 1);
+        rich_ = note;
     } else {
         auto* note = new QLabel(text(window.text), this);
         note->setTextFormat(Qt::PlainText);
@@ -818,8 +819,15 @@ void PopupWindow::mousePressEvent(QMouseEvent* event)
 {
     if (pressed_) {
         event->accept();
+        // Where the press was in the rich note's document, read now from the document's own
+        // layout: the window is gone by the time the editor is built (ADR 1770). A plain window's
+        // `QLabel` answers no point for a character, so its editor starts at the text's end.
+        int position = -1;
+        if (rich_ != nullptr) {
+            position = rich_->positionAt(rich_->mapFrom(this, event->position().toPoint()));
+        }
         // Queued: the editor replaces this window, which is still delivering the press.
-        QTimer::singleShot(0, this, pressed_);
+        QTimer::singleShot(0, this, [pressed = pressed_, position] { pressed(position); });
         return;
     }
     QFrame::mousePressEvent(event);
@@ -983,6 +991,17 @@ RichNoteView::RichNoteView(const rust::Vec<QtRichParagraph>& paragraphs, const Q
 RichNoteView::~RichNoteView()
 {
     delete document_;
+}
+
+int RichNoteView::positionAt(QPoint point) const
+{
+    // The layout `paintEvent` draws, at the width it draws it and inside the same padding.
+    const QPointF inside = QPointF(point) - QPointF(kPopupPadding, kPopupPadding);
+    const QAbstractTextDocumentLayout* layout = document_->documentLayout();
+    if (inside.y() < 0.0 || inside.y() > layout->documentSize().height()) {
+        return -1;
+    }
+    return layout->hitTest(inside, Qt::FuzzyHit);
 }
 
 void RichNoteView::resizeEvent(QResizeEvent* event)
@@ -1461,6 +1480,7 @@ MainWindow::MainWindow(rust::Box<Host> host)
             return;
         }
         Busy guard(busy_);
+        keys();
         host_->pointer(x, y, action);
         applyUpdates();
     });
@@ -2215,6 +2235,7 @@ void MainWindow::pointerThroughControl(QObject* watched, QEvent* event)
     const QPointF onPage = widget->mapTo(page_, at);
     const qreal scale = page_->devicePixelRatioF();
     Busy guard(busy_);
+    keys();
     host_->pointer(static_cast<float>(onPage.x() * scale), static_cast<float>(onPage.y() * scale),
                    action);
     applyUpdates();
@@ -2957,7 +2978,8 @@ void MainWindow::rebuildPopups()
             continue;
         }
         const QtPopup copy = window;
-        auto* widget = new PopupWindow(window, page_, [this, copy] { editNote(copy); });
+        auto* widget
+            = new PopupWindow(window, page_, [this, copy](int position) { editNote(copy, position); });
         widget->setGeometry(place);
         widget->show();
         popups_.push_back(widget);
@@ -2972,7 +2994,7 @@ void MainWindow::rebuildPopups()
     page_->chrome()->raise();
 }
 
-void MainWindow::editNote(const QtPopup& window)
+void MainWindow::editNote(const QtPopup& window, int position)
 {
     if (noteEditor_ != nullptr && noteNumber_ == window.note_number
         && noteGeneration_ == window.note_generation) {
@@ -2986,7 +3008,18 @@ void MainWindow::editNote(const QtPopup& window)
     auto* editor = new QPlainTextEdit(page_);
     // Before the handler is connected, so that putting the text in sends no edit.
     editor->setPlainText(text(window.text));
-    editor->moveCursor(QTextCursor::End);
+    // The character the press was on in the rich note's document, as a place in `/Contents`
+    // (ADR 1770); the text's end where the host has none.
+    const int place = position < 0 ? -1
+                                   : host_->note_place(window.note_number, window.note_generation,
+                                                       position);
+    if (place >= 0) {
+        QTextCursor caret = editor->textCursor();
+        caret.setPosition(std::min(place, editor->document()->characterCount() - 1));
+        editor->setTextCursor(caret);
+    } else {
+        editor->moveCursor(QTextCursor::End);
+    }
     editor->setGeometry(QRect(qRound(window.x / scale), qRound(window.y / scale),
                               qRound(window.width / scale), qRound(window.height / scale)));
     const std::uint32_t number = window.note_number;
@@ -3011,6 +3044,14 @@ void MainWindow::editNote(const QtPopup& window)
     editor->show();
     editor->setFocus(Qt::MouseFocusReason);
     rebuildPopups();
+}
+
+void MainWindow::keys()
+{
+    // What the keyboard holds as the pointer message is sent, for a script that reads Shift or
+    // Control at the event the message raises (ADR 1771).
+    const Qt::KeyboardModifiers held = QGuiApplication::keyboardModifiers();
+    host_->keys(held.testFlag(Qt::ShiftModifier), held.testFlag(Qt::ControlModifier));
 }
 
 void MainWindow::endNote()

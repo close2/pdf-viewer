@@ -370,6 +370,11 @@ pub(crate) fn describe_command(command: &Command) -> String {
         Command::AnswerScript { answer, .. } => describe_script_answer(answer),
         Command::Delegate(appearances) => format!("widget appearances {appearances:?}"),
         Command::Tick { millis } => format!("tick {millis} ms"),
+        Command::Keys(keys) => format!(
+            "keys: shift {}, control {}",
+            if keys.shift { "down" } else { "up" },
+            if keys.modifier { "down" } else { "up" }
+        ),
         Command::Present(mode) => format!("presentation {mode:?}"),
         Command::Layout(layout) => format!("page layout {layout:?}"),
         Command::Focus(id) => format!("focus {id:?}"),
@@ -496,6 +501,7 @@ pub(crate) fn describe_event(event: &Event) -> String {
         }
         Event::ScriptQuestionWithdrawn { .. } => "script question withdrawn".to_owned(),
         Event::Beep { sound, .. } => format!("beep {}", sound.name()),
+        Event::Console { request, .. } => format!("console {:?}", request.command),
         Event::Copied {
             logical,
             page_order,

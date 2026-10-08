@@ -392,9 +392,54 @@ pub(super) fn draw(
     size: f32,
     scale: f32,
 ) -> f32 {
+    lay_out(chrome, (Some(list), None), note, box_, size, scale)
+}
+
+/// One glyph [`draw`] drew, where it drew it: what a caret over a rich note stands beside.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Placed {
+    /// Which of the note's paragraphs it is in.
+    pub(super) paragraph: usize,
+    /// The bytes of the paragraph's runs' text, taken together, that it draws — empty for a line
+    /// that draws nothing, which still has a place at its start.
+    pub(super) stored: std::ops::Range<usize>,
+    /// Where its stored text begins and ends across the window, in the window's pixels: the left
+    /// edge then the right for a glyph read left to right, the right then the left for one read
+    /// right to left, UAX #9's level deciding which.
+    pub(super) edges: (f32, f32),
+    /// Its line's baseline.
+    pub(super) baseline: f32,
+    /// Its line's tallest em, which is how far above the baseline the line reaches.
+    pub(super) height: f32,
+}
+
+/// Every glyph [`draw`] would draw for `note` in `box_`, where it would draw it, and nothing
+/// drawn: the one layout read twice, so that a caret stands where the glyph is (ADR 1770).
+pub(super) fn placed(
+    chrome: &Chrome,
+    note: &RichNote,
+    box_: (f32, f32, f32, f32),
+    size: f32,
+    scale: f32,
+) -> Vec<Placed> {
+    let mut places = Vec::new();
+    lay_out(chrome, (None, Some(&mut places)), note, box_, size, scale);
+    places
+}
+
+/// [`draw`]'s layout, drawing into the list where one is given and saying where each glyph went
+/// where `places` is given.
+fn lay_out(
+    chrome: &Chrome,
+    (mut list, mut places): (Option<&mut DisplayList>, Option<&mut Vec<Placed>>),
+    note: &RichNote,
+    box_: (f32, f32, f32, f32),
+    size: f32,
+    scale: f32,
+) -> f32 {
     let (left, mut top, room, bottom) = box_;
     let per_point = PIXELS_PER_POINT * scale;
-    for paragraph in &note.paragraphs {
+    for (number, paragraph) in note.paragraphs.iter().enumerate() {
         let tag = paragraph
             .tag
             .as_ref()
@@ -424,17 +469,9 @@ pub(super) fn draw(
         let final_line = broken.len().saturating_sub(1);
         for (index, range) in broken.iter().enumerate() {
             let line = items.get(range.clone()).unwrap_or_default();
+            let line_from = line.first().map_or(0, |item| item.byte);
             let ends_paragraph = index == final_line || line.last().is_some_and(|item| item.end);
-            // A line neither begins nor ends with the spaces it broke at, nor draws its `br`.
-            let lead = line
-                .iter()
-                .position(|item| !item.space && !item.end)
-                .unwrap_or(line.len());
-            let tail = line
-                .iter()
-                .rposition(|item| !item.space && !item.end)
-                .map_or(lead, |at| at.saturating_add(1));
-            let line = line.get(lead..tail.max(lead)).unwrap_or_default();
+            let line = trimmed(line);
             let tallest = line
                 .iter()
                 .filter_map(|item| settings.get(item.setting))
@@ -461,11 +498,24 @@ pub(super) fn draw(
                 } else {
                     left + indent
                 };
-                draw_tag(chrome, Some(&mut *list), (tag, setting), (at, baseline));
+                draw_tag(chrome, list.as_deref_mut(), (tag, setting), (at, baseline));
             }
-            for item in ordered(line, levels.as_ref()) {
+            let shown = ordered(line, levels.as_ref());
+            if let Some(places) = places.as_deref_mut() {
+                let line = Placed {
+                    paragraph: number,
+                    stored: line_from..line_from,
+                    edges: (x, x),
+                    baseline,
+                    height: tallest,
+                };
+                place_line(places, line, &shown, widen);
+            }
+            for (item, _) in shown {
                 let advance = item.advance + if item.space { widen } else { 0.0 };
-                if let Some(setting) = settings.get(item.setting) {
+                if let (Some(list), Some(setting)) =
+                    (list.as_deref_mut(), settings.get(item.setting))
+                {
                     if let Some(stop) = item.stop.and_then(|stop| stops.get(stop)) {
                         draw_leader(
                             chrome,
@@ -489,6 +539,45 @@ pub(super) fn draw(
         }
     }
     top + size
+}
+
+/// A line without the spaces it broke at, at either end, or its `br`, none of which it draws.
+fn trimmed<'l, 'a>(line: &'l [Item<'a>]) -> &'l [Item<'a>] {
+    let lead = line
+        .iter()
+        .position(|item| !item.space && !item.end)
+        .unwrap_or(line.len());
+    let tail = line
+        .iter()
+        .rposition(|item| !item.space && !item.end)
+        .map_or(lead, |at| at.saturating_add(1));
+    line.get(lead..tail.max(lead)).unwrap_or_default()
+}
+
+/// Where each glyph of a line drawn left to right as `shown` stands, from `start` — the line's
+/// paragraph, its first stored byte, where it starts across and its baseline and height — each
+/// space `widen` wider, as the drawing below advances them: one place a glyph, at the edges of its
+/// stored characters, and one place at the start of a line that draws nothing.
+fn place_line(places: &mut Vec<Placed>, start: Placed, shown: &[(&Item<'_>, u8)], widen: f32) {
+    let mut x = start.edges.0;
+    if shown.is_empty() {
+        places.push(start);
+        return;
+    }
+    for (item, level) in shown {
+        let advance = item.advance + if item.space { widen } else { 0.0 };
+        let edges = if level % 2 == 1 {
+            (x + advance, x)
+        } else {
+            (x, x + advance)
+        };
+        places.push(Placed {
+            stored: item.byte..item.byte.saturating_add(item.bytes),
+            edges,
+            ..start.clone()
+        });
+        x += advance;
+    }
 }
 
 /// Where a line of `line`'s glyphs starts in the room from `start` that is `available` wide, and
@@ -617,14 +706,15 @@ fn draw_tag(
     at - left
 }
 
-/// A line's glyphs left to right on the screen: UAX #9's rule L1 over the line's own bytes and
-/// rule L2's reversals over its glyphs, the levels resolved over the whole paragraph.
+/// A line's glyphs left to right on the screen, each with the level it resolved to: UAX #9's rule
+/// L1 over the line's own bytes and rule L2's reversals over its glyphs, the levels resolved over
+/// the whole paragraph.
 fn ordered<'l, 'a>(
     line: &'l [Item<'a>],
     levels: Option<&pdf_font::shaping::Paragraphs<'_>>,
-) -> Vec<&'l Item<'a>> {
+) -> Vec<(&'l Item<'a>, u8)> {
     let (Some(levels), Some(first), Some(last)) = (levels, line.first(), line.last()) else {
-        return line.iter().collect();
+        return line.iter().map(|item| (item, 0)).collect();
     };
     let from = first.byte;
     let by_byte = levels.line_levels(from..last.byte.saturating_add(last.bytes));
@@ -639,7 +729,7 @@ fn ordered<'l, 'a>(
         .collect();
     pdf_font::shaping::visual_order(&per_glyph)
         .into_iter()
-        .filter_map(|at| line.get(at))
+        .filter_map(|at| Some((line.get(at)?, per_glyph.get(at).copied().unwrap_or(0))))
         .collect()
 }
 

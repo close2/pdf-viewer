@@ -693,6 +693,9 @@ pub mod ffi {
         fn key(self: &mut Host, code: u32, shift: bool, ctrl: bool);
         /// The pointer moved or a button changed: 0 moved, 1 pressed, 2 dragged, 3 released.
         fn pointer(self: &mut Host, x: f32, y: f32, action: u8);
+        /// What the keyboard holds, read by the window before each pointer message it sends: a
+        /// script reads Shift and Control at the event the pointer raises (ADR 1771).
+        fn keys(self: &mut Host, shift: bool, control: bool);
         /// The wheel turned, in device pixels of the viewport.
         fn scrolled(self: &mut Host, dx: f32, dy: f32);
         /// Control and the wheel: `amount` turned away from the person, in notches or — where
@@ -711,6 +714,9 @@ pub mod ffi {
         fn set_note(self: &mut Host, number: u32, generation: u16, text: &str);
         /// The note's window took the keyboard, or gave it back to the page: said to the person.
         fn note_editing(self: &mut Host, number: u32, generation: u16, editing: bool);
+        /// Where a press at `position` of a note's rich window's document puts the caret in its
+        /// `/Contents`, in UTF-16 units as Qt counts a plain text, or -1 for no place (ADR 1770).
+        fn note_place(self: &Host, number: u32, generation: u16, position: i32) -> i32;
         /// §12.7.4.3's commit: a person finished with a line edit — Enter, or the keyboard gone
         /// elsewhere — which is `QLineEdit::editingFinished` (ADR 1592).
         fn commit_control(self: &mut Host, index: usize);

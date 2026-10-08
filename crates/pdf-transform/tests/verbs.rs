@@ -90,7 +90,8 @@ fn a_rendered_page_is_the_oracle_backends_raster_byte_for_byte() {
         page_box: None,
         annotations: true,
         names: "page-%d.png".parse().expect("a pattern"),
-        strips: None,
+        // The program's count, so that the seam, the program and the oracle draw one division.
+        strips: Some(render_cpu::MAX_STRIPS),
     });
     let report = apply(
         &plan,

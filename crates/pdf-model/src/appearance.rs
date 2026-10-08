@@ -1388,6 +1388,10 @@ pub(crate) fn scripted_entries(
     let mut entries = ScriptedEntries::default();
     let mut characteristics: Option<Dictionary> = None;
     let mut style: Option<Dictionary> = None;
+    // The operators the properties put after the producer's `/DA`, in the order set: one `/DA`
+    // carries them all, so a colour and a size set together both stand.
+    let mut appended: Vec<String> = Vec::new();
+    let mut font: Option<(Option<String>, Option<f64>)> = None;
     let field = Field::read(document, annotation, FieldValue::Stored);
     for property in properties {
         match property {
@@ -1401,7 +1405,15 @@ pub(crate) fn scripted_entries(
                     .get_or_insert_with(|| widget_characteristics(document, annotation))
                     .insert(Name::new(key.as_bytes()), colour_array(*colour));
             }
-            Property::BorderStyle(border) => {
+            // Table 168's `/S` and `/W`, in the one `/BS` both belong to.
+            Property::BorderStyle(_) | Property::LineWidth(_) => {
+                let (key, value) = match property {
+                    Property::BorderStyle(border) => {
+                        ("S", Object::Name(Name::new(border_style_name(*border))))
+                    }
+                    Property::LineWidth(width) => ("W", Object::Real(*width)),
+                    _ => continue,
+                };
                 style
                     .get_or_insert_with(|| {
                         document
@@ -1410,30 +1422,16 @@ pub(crate) fn scripted_entries(
                             .cloned()
                             .unwrap_or_default()
                     })
-                    .insert(
-                        Name::new(&b"S"[..]),
-                        Object::Name(Name::new(border_style_name(*border))),
-                    );
+                    .insert(Name::new(key.as_bytes()), value);
             }
             Property::TextColor(colour) => {
-                let Some(operator) = colour_operator(*colour) else {
-                    continue;
-                };
-                let form = interactive_form(document).unwrap_or_default();
-                let sources: Vec<&Dictionary> = field
-                    .ancestry
-                    .iter()
-                    .chain(std::iter::once(&form))
-                    .collect();
-                let mut appearance =
-                    variable_text::bytes(document, &sources, "DA").unwrap_or_default();
-                if !appearance.is_empty() {
-                    appearance.push(b' ');
+                if let Some(operator) = colour_operator(*colour) {
+                    appended.push(operator);
                 }
-                appearance.extend_from_slice(operator.as_bytes());
-                entries
-                    .field
-                    .push((Name::new(&b"DA"[..]), Object::String(appearance.into())));
+            }
+            Property::TextSize(size) => font.get_or_insert((None, None)).1 = Some(*size),
+            Property::TextFont(named) => {
+                font.get_or_insert((None, None)).0 = Some(named.resource.clone());
             }
             Property::Alignment(alignment) => entries.field.push((
                 Name::new(&b"Q"[..]),
@@ -1474,6 +1472,9 @@ pub(crate) fn scripted_entries(
             _ => {}
         }
     }
+    if let Some(appearance) = scripted_appearance(document, &field, font, appended) {
+        entries.field.push(appearance);
+    }
     if let Some(characteristics) = characteristics {
         entries
             .widget
@@ -1485,6 +1486,90 @@ pub(crate) fn scripted_entries(
             .push((Name::new(&b"BS"[..]), Object::Dictionary(style)));
     }
     entries
+}
+
+/// The one `/DA` a script's text properties write: the producer's string, the colour operators
+/// after it, and one `Tf` where `textFont` or `textSize` was set (ADR 1762). `None` where no
+/// property wrote one.
+fn scripted_appearance(
+    document: &Document,
+    field: &Field,
+    font: Option<(Option<String>, Option<f64>)>,
+    mut appended: Vec<String>,
+) -> Option<(Name, Object)> {
+    let form = interactive_form(document).unwrap_or_default();
+    let sources: Vec<&Dictionary> = field
+        .ancestry
+        .iter()
+        .chain(std::iter::once(&form))
+        .collect();
+    let mut appearance = variable_text::bytes(document, &sources, "DA").unwrap_or_default();
+    // **`textFont` and `textSize` are one `Tf` after the producer's**, its other operand the
+    // producer's own: §12.7.4.3 requires a `Tf` in every `/DA`, and the later of two in the
+    // replayed string is the one the text is shown in (ADR 1762).
+    if let Some((resource, size)) = font {
+        let stated = variable_text::DefaultAppearance::parse(&appearance);
+        let resource = resource.or_else(|| {
+            stated
+                .font
+                .as_ref()
+                .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
+        });
+        let size = size.or_else(|| stated.size.map(f64::from)).unwrap_or(0.0);
+        if let Some(resource) = resource {
+            appended.push(format!("/{resource} {} Tf", format_number(size)));
+        }
+    }
+    if appended.is_empty() {
+        return None;
+    }
+    for operator in &appended {
+        if !appearance.is_empty() {
+            appearance.push(b' ');
+        }
+        appearance.extend_from_slice(operator.as_bytes());
+    }
+    Some((Name::new(&b"DA"[..]), Object::String(appearance.into())))
+}
+
+/// The font of the interactive form's `/DR` a script's `textFont` names, as `(base, resource)`:
+/// the resource whose key is `asked`, or failing that the first whose `/BaseFont` is (ADR 1762).
+///
+/// §12.7.4.3 has a `/DA`'s `Tf` name a font of the `/DR` resource dictionary, so a font is written
+/// by a key the form already holds, and only by one whose characters need no `#` escape in a name —
+/// every key a producer writes for a form's font.
+pub(crate) fn form_font(document: &Document, asked: &str) -> Option<(String, String)> {
+    let form = interactive_form(document)?;
+    let resources = document.get_key(&form, "DR");
+    let fonts = document.get_key(resources.as_dict()?, "Font");
+    let fonts = fonts.as_dict()?;
+    let base_of = |font: &Object| {
+        document
+            .resolve(font)
+            .as_dict()
+            .and_then(|font| document.get_key(font, "BaseFont").as_name().cloned())
+            .map(|base| String::from_utf8_lossy(base.as_bytes()).into_owned())
+    };
+    let plain = |key: &[u8]| {
+        key.iter()
+            .all(|byte| byte.is_ascii_graphic() && !b"()<>[]{}/%#".contains(byte))
+    };
+    let found = fonts
+        .iter()
+        .find(|(key, _)| key.as_bytes() == asked.as_bytes())
+        .or_else(|| {
+            fonts
+                .iter()
+                .find(|(_, font)| base_of(font).as_deref() == Some(asked))
+        })?;
+    if !plain(found.0.as_bytes()) {
+        return None;
+    }
+    let resource = String::from_utf8_lossy(found.0.as_bytes()).into_owned();
+    Some((
+        base_of(found.1).unwrap_or_else(|| resource.clone()),
+        resource,
+    ))
 }
 
 /// Table 234's `/Opt` as a script rewrote it (ADR 1737). ISO 32000-2 Table 234: "[e]ach element
@@ -1650,6 +1735,19 @@ fn colour_array(colour: crate::view::Colour) -> Object {
             .map(|component| Object::Real(component.clamp(0.0, 1.0)))
             .collect(),
     )
+}
+
+/// A number as an operand of the `/DA` a script's property writes: at most four decimals, and no
+/// trailing zero.
+fn format_number(value: f64) -> String {
+    let mut text = format!("{value:.4}");
+    while text.contains('.') && text.ends_with('0') {
+        text.pop();
+    }
+    if text.ends_with('.') {
+        text.pop();
+    }
+    text
 }
 
 /// An Adobe colour as the nonstroking colour operator §8.6.8 gives its device space, or `None` for

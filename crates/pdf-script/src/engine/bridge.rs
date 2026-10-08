@@ -9,8 +9,9 @@
 //! the flags `multiline`, `password`, `comb`, `doNotScroll`, `style`, and `page`, `rect`, `doc`)
 //! and its `getArray` and `setFocus`, and a `Field` of one widget of a field (ADR 1664); `event`
 //! with what each site raises; `app`'s six properties naming the
-//! viewer, `util.printd` and `util.printx` (ADR 1615); the reference's `display`, `border` and
-//! `color` constants; `console.println`; and the `AF*` library, each function a native that hands
+//! viewer, `util.printd` and `util.printx` (ADR 1615); the reference's `display`, `border`, `font`
+//! and `color` constants; `console` (ADR 1762); a field's `lineWidth`, `textSize` and `textFont`
+//! and `event`'s keys and rich pair (ADR 1762); and the `AF*` library, each function a native that hands
 //! its arguments to
 //! `pdf_model::aform` — the Rust Tier 0 runs, so that a format called from a script and a format
 //! that is the whole script write the same characters. Everything else [`crate::surface`] lists is
@@ -39,8 +40,8 @@ use pdf_model::aform::{
     parse_date,
 };
 use pdf_model::view::{
-    Alignment, BorderStyle, Colour, Display, FieldState, FieldType, Glyph, Property, ScriptEdit,
-    ScriptSite, TextFlag,
+    Alignment, BorderStyle, Colour, ConsoleCommand, Display, FieldState, FieldType, Glyph,
+    Property, ScriptEdit, ScriptSite, TextFlag,
 };
 
 use super::{State, guard, members, refuse};
@@ -129,6 +130,11 @@ pub(super) fn begin(context: &mut Context, request: &Request) -> JsResult<JsObje
         ("commitKey", JsValue::from(request.event.commit_key), false),
         ("fieldFull", JsValue::from(request.event.field_full), false),
         ("changeEx", text(&request.event.change_ex), false),
+        // The reference's "event properties" page makes the three read-only; the host told the
+        // view state its keys (ADR 1762).
+        ("shift", JsValue::from(request.event.shift), false),
+        ("modifier", JsValue::from(request.event.modifier), false),
+        ("keyDown", JsValue::from(request.event.key_down), false),
         ("target", target, false),
         ("source", source, false),
         ("targetName", text(target_name), false),
@@ -136,6 +142,9 @@ pub(super) fn begin(context: &mut Context, request: &Request) -> JsResult<JsObje
         ("type", text(kind), false),
     ] {
         data(&event, key, value, writable, context)?;
+    }
+    if matches!(request.site, ScriptSite::Field(_)) && !request.event.rich_value.is_empty() {
+        rich_pair(&event, request, context)?;
     }
     refusers(&event, Holder::Event, context)?;
     let global = context.global_object();
@@ -150,6 +159,48 @@ pub(super) fn begin(context: &mut Context, request: &Request) -> JsResult<JsObje
         context,
     )?;
     Ok(event)
+}
+
+/// `event.richValue` and `event.richChange` at a rich text field's event, both read-only as RFC
+/// 0008 section 4.2 admits them (ADR 1762).
+///
+/// The value is the field's rich text string read into the reference's `Span` objects by
+/// `pdf_model::span::spans` — in this process, so the document's markup is parsed where nothing
+/// else is reached — at the reference's 12 points where the string states no absolute size. The
+/// change is one span of `event.change`, styled as the span the selection starts in: the
+/// reference makes a keystroke a single-member array, and what style a typed character takes is
+/// the run it is typed into, a documented choice. A string the reader does not take leaves the
+/// pair undefined, as on a field that is not rich text.
+fn rich_pair(event: &JsObject, request: &Request, context: &mut Context) -> JsResult<()> {
+    let Some(spans) = pdf_model::span::spans(&request.event.rich_value, None, 12.0) else {
+        return Ok(());
+    };
+    let mut objects = Vec::with_capacity(spans.len());
+    for span in &spans {
+        objects.push(JsValue::from(super::util::span_object(span, context)?));
+    }
+    let value = JsArray::from_iter(objects, context);
+    data(event, "richValue", JsValue::from(value), false, context)?;
+    let mut units = 0_u64;
+    let start = u64::from(request.event.selection_start);
+    let typed_into = spans
+        .iter()
+        .find(|span| {
+            let length = u64::try_from(span.text.encode_utf16().count()).unwrap_or(u64::MAX);
+            units = units.saturating_add(length);
+            units >= start
+        })
+        .or_else(|| spans.last());
+    let change = pdf_model::span::Span {
+        text: request.event.change.clone(),
+        ..typed_into.cloned().unwrap_or_default()
+    };
+    let change = JsArray::from_iter(
+        [JsValue::from(super::util::span_object(&change, context)?)],
+        context,
+    );
+    data(event, "richChange", JsValue::from(change), false, context)?;
+    Ok(())
 }
 
 /// The global object as the document: its methods, `app`, `util`, `console`, the library, and
@@ -221,25 +272,10 @@ fn document(context: &mut Context) -> JsResult<()> {
         data(&util, name, JsValue::from(callable), false, context)?;
     }
     members::util(&util, context)?;
+    super::util::install(&util, context)?;
     refusers(&util, Holder::Util, context)?;
     data(&global, "util", JsValue::from(util), false, context)?;
-    let console = ObjectInitializer::new(context).build();
-    let println = function(
-        context,
-        "println",
-        NativeFunction::from_copy_closure(|_this, arguments, context| {
-            let line = arguments
-                .first()
-                .cloned()
-                .unwrap_or_default()
-                .to_string(context)?
-                .to_std_string_lossy();
-            State::with(context, |record| record.log(&line));
-            Ok(JsValue::undefined())
-        }),
-    );
-    data(&console, "println", JsValue::from(println), false, context)?;
-    refusers(&console, Holder::Console, context)?;
+    let console = console_object(context)?;
     data(&global, "console", JsValue::from(console), false, context)?;
 
     for library in Function::ALL {
@@ -257,6 +293,58 @@ fn document(context: &mut Context) -> JsResult<()> {
     }
     members::library(&global, context)?;
     Ok(())
+}
+
+/// `console`: `println`, which logs a line, and `show`, `hide` and `clear`, each a request to the
+/// host's console (ADR 1762).
+fn console_object(context: &mut Context) -> JsResult<JsObject> {
+    let console = ObjectInitializer::new(context).build();
+    let println = function(
+        context,
+        "println",
+        NativeFunction::from_copy_closure(|_this, arguments, context| {
+            let line = arguments
+                .first()
+                .cloned()
+                .unwrap_or_default()
+                .to_string(context)?
+                .to_std_string_lossy();
+            State::with(context, |record| record.log(&line));
+            Ok(JsValue::undefined())
+        }),
+    );
+    data(&console, "println", JsValue::from(println), false, context)?;
+    for (name, command) in [
+        ("show", ConsoleCommand::Show),
+        ("hide", ConsoleCommand::Hide),
+        ("clear", ConsoleCommand::Clear),
+    ] {
+        let native = function(
+            context,
+            name,
+            NativeFunction::from_copy_closure(move |_this, _arguments, context| {
+                ask_console(command, context);
+                Ok(JsValue::undefined())
+            }),
+        );
+        data(&console, name, JsValue::from(native), false, context)?;
+    }
+    refusers(&console, Holder::Console, context)?;
+    Ok(console)
+}
+
+/// `console.show`, `hide` or `clear`: a request to the host's console, which shows what scripts
+/// log (ADR 1762). Adobe's "console methods" page is the meaning of each, a documented choice.
+///
+/// A `clear` also drops the lines this run logged before it, which the host has not been handed
+/// yet, so that what the console shows after the run is what the script logged after its clear.
+fn ask_console(command: ConsoleCommand, context: &mut Context) {
+    State::with(context, |record| {
+        if command == ConsoleCommand::Clear {
+            record.clear_log();
+        }
+        record.push_edit(ScriptEdit::Console(command));
+    });
 }
 
 /// `app`'s six properties that say which viewer a script runs in, each this program's own answer
@@ -494,10 +582,42 @@ pub(super) fn text_argument(
         .to_std_string_lossy())
 }
 
+/// The reference's `font` object: its keys and the §9.6.2.2 standard font each names, which
+/// `Field.textFont` is set with (ADR 1762).
+fn font_constants(global: &JsObject, context: &mut Context) -> JsResult<()> {
+    let font = ObjectInitializer::new(context).build();
+    for (key, base) in [
+        ("Times", "Times-Roman"),
+        ("TimesB", "Times-Bold"),
+        ("TimesI", "Times-Italic"),
+        ("TimesBI", "Times-BoldItalic"),
+        ("Helv", "Helvetica"),
+        ("HelvB", "Helvetica-Bold"),
+        ("HelvI", "Helvetica-Oblique"),
+        ("HelvBI", "Helvetica-BoldOblique"),
+        ("Cour", "Courier"),
+        ("CourB", "Courier-Bold"),
+        ("CourI", "Courier-Oblique"),
+        ("CourBI", "Courier-BoldOblique"),
+        ("Symbol", "Symbol"),
+        ("ZapfD", "ZapfDingbats"),
+    ] {
+        data(
+            &font,
+            key,
+            JsValue::from(JsString::from(base)),
+            false,
+            context,
+        )?;
+    }
+    data(global, "font", JsValue::from(font), false, context)
+}
+
 /// The reference's `display`, `border` and `color` objects: constants a script compares and
 /// assigns, and `color.equal`.
 fn constants(context: &mut Context) -> JsResult<()> {
     let global = context.global_object();
+    font_constants(&global, context)?;
     let display = ObjectInitializer::new(context).build();
     for (name, constant) in [
         ("visible", Display::Visible),
@@ -1028,11 +1148,17 @@ enum FieldProperty {
     Doc,
     /// `style`: a check box's or radio button's glyph (ADR 1665).
     Style,
+    /// `lineWidth`: Table 168's `/W` (ADR 1762).
+    LineWidth,
+    /// `textSize`: the `/DA`'s `Tf` size (ADR 1762).
+    TextSize,
+    /// `textFont`: the `/DA`'s `Tf` font (ADR 1762).
+    TextFont,
 }
 
 impl FieldProperty {
     /// Every property, in the order the prototype defines them.
-    const ALL: [Self; 21] = [
+    const ALL: [Self; 24] = [
         Self::Value,
         Self::ValueAsString,
         Self::Type,
@@ -1054,6 +1180,9 @@ impl FieldProperty {
         Self::Rect,
         Self::Doc,
         Self::Style,
+        Self::LineWidth,
+        Self::TextSize,
+        Self::TextFont,
     ];
 
     /// The reference's spelling.
@@ -1077,6 +1206,9 @@ impl FieldProperty {
             Self::Rect => "rect",
             Self::Doc => "doc",
             Self::Style => "style",
+            Self::LineWidth => "lineWidth",
+            Self::TextSize => "textSize",
+            Self::TextFont => "textFont",
         }
     }
 }
@@ -1156,6 +1288,11 @@ fn read_property(
             .first()
             .and_then(|caption| Glyph::of_caption(caption))
             .map_or_else(JsValue::undefined, |glyph| text(glyph.adobe())),
+        FieldProperty::LineWidth => JsValue::from(shown.line_width),
+        // A `/DA` with no `Tf` states no size, which is §12.7.4.3's auto-size as well as the
+        // reference's zero.
+        FieldProperty::TextSize => JsValue::from(shown.text_size.unwrap_or(0.0)),
+        FieldProperty::TextFont => text(&shown.text_font),
     })
 }
 
@@ -1251,6 +1388,9 @@ fn write_property(
             Property::CharLimit(u32::try_from(limit).unwrap_or(u32::MAX))
         }
         FieldProperty::Style => style_of(&name, value, context)?,
+        FieldProperty::LineWidth | FieldProperty::TextSize | FieldProperty::TextFont => {
+            typographic(property, value, context)?
+        }
         FieldProperty::ValueAsString
         | FieldProperty::Type
         | FieldProperty::Page
@@ -1273,6 +1413,50 @@ fn write_property(
         });
     }
     Ok(())
+}
+
+/// `lineWidth`, `textSize` or `textFont` set: the property each writes, or the refusal of a value
+/// the reference's "Field properties" page does not admit (ADR 1762).
+fn typographic(
+    property: FieldProperty,
+    value: &JsValue,
+    context: &mut Context,
+) -> JsResult<Property> {
+    let refused = |why: &str, context: &mut Context| {
+        refuse(
+            format!("Field.{}=", property.name()),
+            RefusalKind::Unreachable(why.to_owned()),
+            context,
+        )
+    };
+    Ok(match property {
+        // Any integer, 0 for none, widths past 5 distorting the field; a negative or non-finite
+        // width is no width at all.
+        FieldProperty::LineWidth => {
+            let width = value.to_number(context)?;
+            if !width.is_finite() || width < 0.0 {
+                return Err(refused(
+                    "lineWidth takes a width in points, 0 or more",
+                    context,
+                ));
+            }
+            Property::LineWidth(width)
+        }
+        // 0 to 32767 inclusive, 0 the auto-size.
+        FieldProperty::TextSize => {
+            let size = value.to_number(context)?;
+            if !(0.0..=32767.0).contains(&size) {
+                return Err(refused("textSize takes a size from 0 to 32767", context));
+            }
+            Property::TextSize(size)
+        }
+        // The view state finds the font among the form's `/DR` resources, by the name given or
+        // the `/BaseFont` it names; the realm reads back what it wrote.
+        _ => Property::TextFont(pdf_model::view::FontName {
+            base: value.to_string(context)?.to_std_string_lossy(),
+            resource: String::new(),
+        }),
+    })
 }
 
 /// `Field.style` set: one of the style constants, on a field the name stands for that is a check

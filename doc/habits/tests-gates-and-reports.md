@@ -568,3 +568,11 @@ Steps 68 to 70 passed alone while the whole drive failed GTK's steps 64 and 67: 
 the keyboard off a field on a page press also took it off the note editor the same press had just
 opened (round 1458, ADR 1752). A step run by itself cannot see what its rule does to another step's
 keyboard; after a focus rule changes, the drive runs whole before the record is written.
+
+## A measurement patch is applied and reversed as a patch file, never by hand
+
+A census that counts members or instructions is a patch on an example that must leave the tree
+as it found it; round 1463 kept its counting patch under `scratchpad/r1463/census-members.patch`,
+applied it with `git apply` and reversed it with `git apply -R`, so the reversal was exact and
+`git diff` on the example read empty (ADR 1762). An edit made by hand and undone by hand is how a
+counting line stays in a tree (trap 127's "before" build is the same shape).

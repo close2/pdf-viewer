@@ -10,7 +10,9 @@ Every rule below is an incident with an argument, and the argument is in the sec
 names; a round reads this block, and opens the section only where a line bites (ADR 1639).
 
 - **One heavy walk on the machine at a time**, or two on the lock's two lanes, in the foreground, and
-  you wait in it: `ulimit -u 8192; RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --tree 12 -- <command>`;
+  you wait in it: `ulimit -u 8192; tools/bounded.sh --lock --round <session> --tree 12 -- <command>`,
+  which runs a locked command at the four rayon threads every lane's ceiling was measured at, a caller's
+  own `RAYON_NUM_THREADS` kept (ADR 1766);
   a walk that stays under 6 GiB says `--tree 6` and may run beside another, and a run whose verdict is
   a time — a band, a floor, an A/B, a reference program on a budget — says `--clock` and runs alone,
   declared by the outermost wrapper (ADR 1684); a run whose length is its own choice — a fuzz campaign,

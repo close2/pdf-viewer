@@ -314,7 +314,11 @@ mod engine {
         );
         let mut view = engine_view(&document);
         view.run_open_scripts(&document, 0);
-        assert_eq!(view.run_page_scripts(&document, 0, PageTrigger::Close), 2);
+        assert_eq!(
+            view.run_page_scripts(&document, 0, PageTrigger::Close)
+                .handed,
+            2
+        );
         assert_eq!(value(&view, &document, "Log"), "PC");
     }
 
@@ -341,7 +345,11 @@ mod engine {
         let mut view = engine_view(&document);
         assert_eq!(view.run_open_scripts(&document, 0), 3);
         assert_eq!(value(&view, &document, "Log"), "OPV");
-        assert_eq!(view.run_page_scripts(&document, 0, PageTrigger::Close), 3);
+        assert_eq!(
+            view.run_page_scripts(&document, 0, PageTrigger::Close)
+                .handed,
+            3
+        );
         assert_eq!(value(&view, &document, "Log"), "OPVciC");
     }
 
@@ -378,7 +386,8 @@ mod engine {
             AnnotationTrigger::Exit,
         ] {
             assert_eq!(
-                view.run_annotation_scripts(&document, id(4), trigger),
+                view.run_annotation_scripts(&document, id(4), trigger)
+                    .handed,
                 1,
                 "{trigger:?}: {:?}",
                 view.script_reports()
@@ -403,7 +412,8 @@ mod engine {
         );
         let mut view = engine_view(&document);
         assert_eq!(
-            view.run_annotation_scripts(&document, id(4), AnnotationTrigger::Up),
+            view.run_annotation_scripts(&document, id(4), AnnotationTrigger::Up)
+                .handed,
             0
         );
         assert_eq!(value(&view, &document, "Log"), "before");
@@ -417,10 +427,44 @@ mod engine {
         );
         view.run_open_scripts(&document, 0);
         assert_eq!(
-            view.run_annotation_scripts(&document, id(4), AnnotationTrigger::Up),
+            view.run_annotation_scripts(&document, id(4), AnnotationTrigger::Up)
+                .handed,
             1
         );
         assert_eq!(value(&view, &document, "Log"), "ran");
+    }
+
+    #[test]
+    fn a_widget_s_script_answers_whether_the_page_it_draws_changed() {
+        // A cursor entering a widget whose /E only logs changes nothing a page draws, so a host
+        // need not interpret the page again; one that writes a field does (ADR 1762).
+        let document = document(
+            "/AcroForm << /Fields [4 0 R 5 0 R] >>",
+            "",
+            &[4, 5],
+            &[
+                text_field(
+                    "Quiet",
+                    "/E << /S /JavaScript /JS (console.println\\('entered'\\);) >> \
+                     /X << /S /JavaScript /JS (this.getField\\('Out'\\).value = 'left';) >>",
+                    "/V ()",
+                ),
+                text_field("Out", "", "/V (before)"),
+            ],
+        );
+        let mut view = engine_view(&document);
+        view.run_open_scripts(&document, 0);
+        let entered = view.run_annotation_scripts(&document, id(4), AnnotationTrigger::Enter);
+        assert_eq!((entered.handed, entered.changed), (1, false));
+        let left = view.run_annotation_scripts(&document, id(4), AnnotationTrigger::Exit);
+        assert_eq!((left.handed, left.changed), (1, true));
+        assert_eq!(value(&view, &document, "Out"), "left");
+        let again = view.run_annotation_scripts(&document, id(4), AnnotationTrigger::Exit);
+        assert_eq!(
+            (again.handed, again.changed),
+            (1, false),
+            "the same value written again changes nothing drawn"
+        );
     }
 
     #[test]
@@ -444,7 +488,8 @@ mod engine {
         let mut view = engine_view(&document);
         view.run_open_scripts(&document, 0);
         assert_eq!(
-            view.run_annotation_scripts(&document, id(4), AnnotationTrigger::Up),
+            view.run_annotation_scripts(&document, id(4), AnnotationTrigger::Up)
+                .handed,
             1
         );
         assert_eq!(value(&view, &document, "Out"), "pressed");
@@ -583,7 +628,8 @@ mod engine {
         let mut view = engine_view(&document);
         view.run_open_scripts(&document, 0);
         assert_eq!(
-            view.run_annotation_scripts(&document, id(4), AnnotationTrigger::Blur),
+            view.run_annotation_scripts(&document, id(4), AnnotationTrigger::Blur)
+                .handed,
             1
         );
         assert_eq!(view.annotation_hidden(id(5)), Some(true));

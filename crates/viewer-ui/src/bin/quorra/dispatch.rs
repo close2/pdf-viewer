@@ -625,6 +625,12 @@ answers in two places"
                     "this window's toolkit, winit, has no system sound to play"
                 )
             ),
+            // `console.show`, `hide` and `clear`: this window's console is its log, so the request
+            // is said by name (ADR 1771).
+            Event::Console { document, request } => println!(
+                "note: {}",
+                viewer_host::script_timers::console(&self.documents.label_of(document), request)
+            ),
             Event::ScriptQuestionWithdrawn { document } => {
                 if matches!(
                     &self.asked,

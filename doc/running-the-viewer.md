@@ -413,8 +413,12 @@ reference's five was asked for; `quorra`'s toolkit has no sound, and it says so.
 and leaving a widget, a press and a release in it, its taking and losing the focus, and the page
 shown changing each hand Table 197's or Table 198's script to the runner, in all three windows — a
 press on a toolkit's own entry or list included, which the window reads before the control and
-passes on. Step 68, 69 and 70 of `tools/drive-windows.sh` drive the three classes; `--step
-script_triggers` runs them alone.
+passes on. A script whose edits change nothing a page draws — a `/E` that only logs — leaves the
+page as it was interpreted; a script reads the window's Shift and Control as `event.shift` and
+`event.modifier`, and its `console.show`, `hide` and `clear` are said by name, every window's console
+being its log (ADR 1771). Step 68, 69 and 70 of `tools/drive-windows.sh` drive the three
+classes, step 68 with `quorra`'s count of renders a logging `/E` asked for; `--step
+script_triggers` runs them alone; step 71 (`--step script_keys`) drives the keys and the console.
 
 **A note's popup window shows its rich text formatted** (ADR 1642): where Table 172's `/RC` states
 the same characters as `/Contents`, each run is drawn in its face, weight, posture, size, colour,
@@ -433,7 +437,9 @@ by two, where the file's `/Open`, a click or a script's `popupOpen` opens it (AD
 **A text note is retyped in its window** (ADR 1726): a press on an open window whose text is a
 §12.5.6.4 note gives it the keyboard — a text view over the window in `quorra-gtk` and `quorra-qt`,
 the window's focus ring and a caret in `quorra`, which a press places in the window's text and the
-four arrows, Home and End move, a window drawn from `/RC` keeping it at the note's end (ADR 1739) —
+four arrows, Home and End move, a window drawn from `/RC` as much as a plain one (ADRs 1739, 1770);
+the toolkits' text view starts with its caret at the character the press was on, except a plain
+note in `quorra-qt`, whose label answers no point and starts at the end —
 every change is the note's
 `/Contents`, an undo takes it back, a save writes it with the producer's icon kept, and Escape gives
 the keyboard back to the page. Another markup annotation's window takes no press. A reply that states

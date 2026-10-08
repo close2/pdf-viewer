@@ -177,6 +177,9 @@ pub struct Viewer {
     /// Whether a document's scripts run — RFC 0008 section 6.3's level, as [`Command::Scripts`]
     /// last supplied it, and [`crate::Scripting::Off`] until a host says otherwise (ADR 1616).
     scripting: crate::Scripting,
+    /// What the window's keyboard holds, as [`Command::Keys`] last said: none down until a host
+    /// says otherwise (ADR 1771).
+    keys: pdf_model::view::Keys,
     /// Who draws §12.7's form widgets, as the host has said (§6.3.2.2).
     ///
     /// Held here rather than per document because it is a fact about the *host*: a program that
@@ -273,6 +276,7 @@ impl Viewer {
             restrictions: crate::RestrictionPolicy::default(),
             trust: crate::TrustPolicy::default(),
             scripting: crate::Scripting::Off,
+            keys: pdf_model::view::Keys::default(),
             delegated: pdf_model::view::WidgetAppearances::default(),
             audience: pdf_model::optional_content::Audience::NONE,
             clock: None,
@@ -660,6 +664,13 @@ impl Viewer {
                 }
             }
             Command::References(files) => self.supply_references(&files),
+            // A script reads the keys at its event, in whichever document raises it (ADR 1771).
+            Command::Keys(keys) => {
+                self.keys = keys;
+                for open in self.documents.values_mut() {
+                    open.view.set_keys(keys);
+                }
+            }
             // RFC 0008 section 6.3's level, applied to every open document and to every one
             // opened afterwards — `Command::Restrict`'s rule, for its reason (ADR 1616).
             Command::Scripts(scripting) => {
@@ -950,6 +961,8 @@ impl Viewer {
         // to be asked, said it about every document this window will show (ADR 1616).
         let runner = crate::scripting::runner_for(&self.scripting, &mut open.consent);
         open.view.run_scripts_with(runner);
+        // The keys, on the same rule: a key held is held over every document (ADR 1771).
+        open.view.set_keys(self.keys);
         // A document opened *during* a presentation arrives in the mode the host is in: §12.4.4.2's
         // node is a property of the page being shown and NOTE 2's saved groups of the document, so
         // both are taken here rather than only on `Command::Present`.
@@ -1471,10 +1484,12 @@ impl Viewer {
                     let ran = open
                         .view
                         .run_annotation_scripts(&open.document, annotation, event);
-                    if ran > 0 {
+                    // Interpreted again only where the scripts can have changed what the page
+                    // draws: a `/E` that logs leaves the page as it was (ADR 1771).
+                    if ran.changed {
                         open.stale();
                     }
-                    ran > 0
+                    ran.handed > 0
                 }
                 // `page_events` hands these four to the runner with the page's own, whenever
                 // there is one, and the open sequence hands them over for the page an open shows.
@@ -4524,12 +4539,17 @@ impl Viewer {
 
     /// Runs Table 198's `/O` or `/C` scripts of page `page` of the document in front, and its
     /// annotations' Table 197 `/PO` and `/PV` or `/PC` and `/PI`, under the runner the reader's
-    /// level supplied; a page whose ink a script changed is drawn again (ADRs 1750, 1752).
+    /// level supplied; a page whose ink a script changed is drawn again, and only such a page
+    /// (ADRs 1750, 1752, 1771).
     fn page_scripts(&mut self, page: usize, trigger: pdf_model::action::PageTrigger) {
         let Some(open) = self.focused_mut() else {
             return;
         };
-        if open.view.run_page_scripts(&open.document, page, trigger) > 0 {
+        if open
+            .view
+            .run_page_scripts(&open.document, page, trigger)
+            .changed
+        {
             open.stale();
         }
     }
@@ -5273,14 +5293,20 @@ impl Viewer {
         }
     }
 
-    /// Every sound a document's script asked for, put after the command whose scripts asked
-    /// (ADR 1702).
+    /// Every sound and every console request a document's script asked for, put after the
+    /// command whose scripts asked (ADRs 1702, 1771).
     fn ask_for_sounds(&mut self, events: &mut Vec<Event>) {
         for (id, open) in &mut self.documents {
             for sound in open.view.take_beeps() {
                 events.push(Event::Beep {
                     document: *id,
                     sound,
+                });
+            }
+            for request in open.view.take_console_requests() {
+                events.push(Event::Console {
+                    document: *id,
+                    request,
                 });
             }
         }

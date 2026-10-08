@@ -15,10 +15,10 @@ use pdf_model::aform::Trigger;
 use pdf_model::destination::View;
 use pdf_model::form::Choice;
 use pdf_model::view::{
-    Alignment, AnnotationChange, AnnotationReach, AnnotationState, BorderStyle, Colour, Display,
-    DocumentState, DocumentTrigger, Face, FieldState, FieldType, Glyph, InfoEntry, Layer,
-    PageState, Property, ScriptEdit, ScriptSite, Sound, TextFlag, ViewChange, WidgetState,
-    WindowView, ZoomType,
+    Alignment, AnnotationChange, AnnotationReach, AnnotationState, BorderStyle, Colour,
+    ConsoleCommand, Display, DocumentState, DocumentTrigger, Face, FieldState, FieldType, FontName,
+    Glyph, InfoEntry, Layer, PageState, Property, ScriptEdit, ScriptSite, Sound, TextFlag,
+    ViewChange, WidgetState, WindowView, ZoomType,
 };
 use pdf_model::viewer_preferences::PageLayout;
 
@@ -41,8 +41,17 @@ use crate::{
 /// named destination asked for and the calculations switched (ADR 1724), and a field's `/Opt`, its
 /// selected items and a choice by index (ADR 1725); 11 the window's view with every request, and a
 /// script's change to it (ADR 1736), and a field's `/Opt` as a script rewrote it (ADR 1737); 12 a
-/// named destination's page and view as one change to the window's view (ADR 1751).
-pub const VERSION: u8 = 12;
+/// named destination's page and view as one change to the window's view (ADR 1751); 13 the keys
+/// held at the event, the field's rich value, a widget's line width and its `/DA` font and size, a
+/// group's intent, the pages' words, and a request to the host's console (ADR 1762).
+pub const VERSION: u8 = 13;
+
+/// The console's three requests, in the order their tag counts them (ADR 1762).
+const CONSOLE_COMMANDS: [ConsoleCommand; 3] = [
+    ConsoleCommand::Show,
+    ConsoleCommand::Hide,
+    ConsoleCommand::Clear,
+];
 
 /// Table 29's six page layouts, in the order their tag counts them.
 const LAYOUTS: [PageLayout; 6] = [
@@ -98,6 +107,10 @@ pub fn encode_request(request: &Request) -> Vec<u8> {
     put_bool(&mut out, request.event.field_full);
     put_str(&mut out, &request.event.change_ex);
     put_str(&mut out, &request.event.source);
+    put_bool(&mut out, request.event.shift);
+    put_bool(&mut out, request.event.modifier);
+    put_bool(&mut out, request.event.key_down);
+    put_str(&mut out, &request.event.rich_value);
     put_len(&mut out, request.fields.len());
     for field in &request.fields {
         put_field(&mut out, field);
@@ -142,6 +155,10 @@ pub fn decode_request(bytes: &[u8]) -> Result<Request, WireError> {
         field_full: reader.boolean()?,
         change_ex: reader.string()?,
         source: reader.string()?,
+        shift: reader.boolean()?,
+        modifier: reader.boolean()?,
+        key_down: reader.boolean()?,
+        rich_value: reader.string()?,
     };
     let count = reader.count()?;
     let mut fields = Vec::new();
@@ -516,6 +533,15 @@ fn put_widget(out: &mut Vec<u8>, widget: &WidgetState) {
     }
     put_u8(out, tag_of(&BORDER_STYLES, &widget.border_style));
     put_u8(out, tag_of(&ALIGNMENTS, &widget.alignment));
+    put_f64(out, widget.line_width);
+    match widget.text_size {
+        None => put_u8(out, 0),
+        Some(size) => {
+            put_u8(out, 1);
+            put_f64(out, size);
+        }
+    }
+    put_str(out, &widget.text_font);
     for coordinate in widget.rect {
         put_f64(out, coordinate);
     }
@@ -558,6 +584,10 @@ fn put_document(out: &mut Vec<u8>, document: &DocumentState) {
         put_bool(out, layer.on);
         put_bool(out, layer.initially_on);
         put_bool(out, layer.locked);
+        put_len(out, layer.intent.len());
+        for intent in &layer.intent {
+            put_str(out, intent);
+        }
     }
     put_len(out, document.annotations.len());
     for annotation in &document.annotations {
@@ -570,6 +600,16 @@ fn put_document(out: &mut Vec<u8>, document: &DocumentState) {
             put_f64(out, *corner);
         }
         out.extend_from_slice(&page.rotate.to_le_bytes());
+        match &page.words {
+            None => put_u8(out, 0),
+            Some(words) => {
+                put_u8(out, 1);
+                put_len(out, words.len());
+                for word in words {
+                    put_str(out, word);
+                }
+            }
+        }
     }
 }
 
@@ -776,6 +816,10 @@ fn put_edit(out: &mut Vec<u8>, edit: &ScriptEdit) {
             put_u8(out, 14);
             put_view_change(out, change);
         }
+        ScriptEdit::Console(command) => {
+            put_u8(out, 15);
+            put_u8(out, tag_of(&CONSOLE_COMMANDS, command));
+        }
     }
 }
 
@@ -864,6 +908,19 @@ fn put_property(out: &mut Vec<u8>, property: &Property) {
         Property::Options(options) => {
             put_u8(out, 12);
             put_options(out, options);
+        }
+        Property::LineWidth(width) => {
+            put_u8(out, 13);
+            put_f64(out, *width);
+        }
+        Property::TextSize(size) => {
+            put_u8(out, 14);
+            put_f64(out, *size);
+        }
+        Property::TextFont(font) => {
+            put_u8(out, 15);
+            put_str(out, &font.base);
+            put_str(out, &font.resource);
         }
     }
 }
@@ -1178,6 +1235,13 @@ impl<'a> Reader<'a> {
             stroke_color: self.optional_colour()?,
             border_style: self.tagged(&BORDER_STYLES, "border style")?,
             alignment: self.tagged(&ALIGNMENTS, "alignment")?,
+            line_width: self.f64()?,
+            text_size: match self.u8()? {
+                0 => None,
+                1 => Some(self.f64()?),
+                _ => return Err(WireError::Invalid("text size")),
+            },
+            text_font: self.string()?,
             rect: [self.f64()?, self.f64()?, self.f64()?, self.f64()?],
             captions: [self.string()?, self.string()?, self.string()?],
             on_state: self.optional()?,
@@ -1209,6 +1273,14 @@ impl<'a> Reader<'a> {
                 on: self.boolean()?,
                 initially_on: self.boolean()?,
                 locked: self.boolean()?,
+                intent: {
+                    let count = self.count()?;
+                    let mut intent = Vec::new();
+                    for _ in 0..count {
+                        intent.push(self.string()?);
+                    }
+                    intent
+                },
             });
         }
         let count = self.count()?;
@@ -1224,10 +1296,24 @@ impl<'a> Reader<'a> {
             for corner in boxes.iter_mut().flatten() {
                 *corner = self.f64()?;
             }
+            let rotate = u16::from_le_bytes(self.array()?);
+            let words = match self.u8()? {
+                0 => None,
+                1 => {
+                    let count = self.count()?;
+                    let mut words = Vec::new();
+                    for _ in 0..count {
+                        words.push(self.string()?);
+                    }
+                    Some(words)
+                }
+                _ => return Err(WireError::Invalid("words")),
+            };
             pages.push(PageState {
                 label,
                 boxes,
-                rotate: u16::from_le_bytes(self.array()?),
+                rotate,
+                words,
             });
         }
         Ok(DocumentState {
@@ -1296,6 +1382,12 @@ impl<'a> Reader<'a> {
                     10 => Property::Caption(self.tagged(&FACES, "face")?, self.string()?),
                     11 => Property::Style(self.tagged(&Glyph::ALL, "style")?),
                     12 => Property::Options(self.options()?),
+                    13 => Property::LineWidth(self.f64()?),
+                    14 => Property::TextSize(self.f64()?),
+                    15 => Property::TextFont(FontName {
+                        base: self.string()?,
+                        resource: self.string()?,
+                    }),
                     _ => return Err(WireError::Invalid("property")),
                 };
                 ScriptEdit::Property {
@@ -1361,6 +1453,7 @@ impl<'a> Reader<'a> {
             14 => ScriptEdit::View {
                 change: self.view_change()?,
             },
+            15 => ScriptEdit::Console(self.tagged(&CONSOLE_COMMANDS, "console command")?),
             _ => return Err(WireError::Invalid("edit")),
         })
     }

@@ -207,6 +207,9 @@ impl Events {
                 "a script's question is withdrawn: its wait ran out".to_owned()
             }
             Event::Beep { sound, .. } => format!("a script asks for the {} sound", sound.name()),
+            Event::Console { request, .. } => {
+                viewer_host::script_timers::console("the document", *request)
+            }
             Event::SignaturePoliciesPublished { policies, .. } => format!(
                 "a signature names its policy's published copy at {} (ETSI EN 319 122-1 clause \
                  5.2.9.2, under §12.8.3.4.4); fetching it is this machine's decision",
@@ -346,6 +349,7 @@ impl Events {
             | Event::ScriptAsking { document, .. }
             | Event::ScriptQuestionWithdrawn { document }
             | Event::Beep { document, .. }
+            | Event::Console { document, .. }
             | Event::SignaturePoliciesPublished { document, .. } => document.0,
             Event::NeedsRender(request) => request.document.0,
             Event::Damage(_) => return Err(Status::WrongKind),

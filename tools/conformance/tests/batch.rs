@@ -590,7 +590,9 @@ fn check_prints_the_tasks_held_and_the_limit_where_called() {
 /// `check` compiles the fuzz workspace, which is a workspace of its own and so outside every tier-1
 /// line a round runs: the `script` target stopped compiling for a batch that way (ADR 1694). A clean
 /// target reads `clean`, one planted with a type error `fails` with the error named, and a tree with
-/// no fuzz manifest says so rather than reading clean (trap 13; ADR 1710).
+/// no fuzz manifest says so rather than reading clean (trap 13; ADR 1710). The compile is a build and
+/// not a walk, so it takes the lock as a small walk and its line says the second lane: as a large
+/// walk it queued 4 659.8 s behind the first lane's holders in one batch for 6.6 s of hold (ADR 1766).
 #[test]
 fn check_compiles_the_fuzz_workspace_and_names_a_target_that_does_not() {
     let manifest = "[package]\nname = \"fuzz\"\nversion = \"0.0.0\"\nedition = \"2024\"\n\
@@ -612,6 +614,15 @@ fn check_compiles_the_fuzz_workspace_and_names_a_target_that_does_not() {
     );
     let report = text(&sandbox.batch(&["check"]));
     assert!(check_line(&report, label).ends_with(" clean"), "{report}");
+    let log = std::fs::read_to_string(sandbox.base.join("heavy-walk.log")).unwrap_or_default();
+    let line = log
+        .lines()
+        .find(|line| line.contains(" round=check ") && line.contains("fuzz/Cargo.toml"))
+        .unwrap_or_else(|| panic!("the fuzz workspace's check wrote no lock line: {log}"));
+    assert!(
+        line.contains(" kind=small lane=2 "),
+        "the fuzz workspace's check is a build, a small walk on the second lane: {line}"
+    );
     sandbox.write(
         "fuzz/fuzz_targets/one.rs",
         "fn main() {\n    let _: u8 = \"a string\";\n}\n",

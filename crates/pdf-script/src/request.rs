@@ -66,6 +66,13 @@ impl Request {
                 field_full: event.field_full,
                 change_ex: event.change_ex.to_owned(),
                 source: event.source.to_owned(),
+                shift: event.keys.shift,
+                modifier: event.keys.modifier,
+                // The reference makes `keyDown` a list box's or a combo box's keystroke's alone; a
+                // host sets the arrows only with one, so every other site reads it false.
+                key_down: event.keys.arrows
+                    && event.site == ScriptSite::Field(pdf_model::aform::Trigger::Keystroke),
+                rich_value: event.rich_value.to_owned(),
             },
             fields: event.fields.to_vec(),
             page: u32::try_from(event.page).unwrap_or(u32::MAX),
@@ -83,6 +90,10 @@ impl Request {
 ///
 /// Offsets are in UTF-16 code units, which is what an ECMAScript string index counts.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each is one of the reference's boolean event properties, carried as it is named"
+)]
 pub struct Event {
     /// `event.value`: the field's text before the event.
     pub value: String,
@@ -103,6 +114,14 @@ pub struct Event {
     /// The name of `event.source`'s field — the field whose change a calculation answers — or
     /// empty.
     pub source: String,
+    /// `event.shift` (ADR 1762).
+    pub shift: bool,
+    /// `event.modifier` (ADR 1762).
+    pub modifier: bool,
+    /// `event.keyDown`: whether an arrow key made a choice field's selection (ADR 1762).
+    pub key_down: bool,
+    /// Table 228's `/RV` of the event's field, which `event.richValue` reads, or empty (ADR 1762).
+    pub rich_value: String,
 }
 
 /// Every ceiling one run is held to (ADR 1590 gives each number its reason).

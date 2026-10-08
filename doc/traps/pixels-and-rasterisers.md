@@ -568,6 +568,13 @@ under a Multiply highlight, photographs under a blend steeper than one, to three
 golden now holds the corpus bound with those eight named at their own ceilings (round 1461, ADR 1758).
 A per-pixel tolerance derived from one mark is held over the corpus, with its exceptions named.
 
+And a page's part drawn from a sub-list is drawn under another plan: a list of a cell's two images is
+planned in one strip, so a probe built that way saw no division at all; the cell is isolated by setting
+every other command's alpha to 0 on the full list, which keeps the planner's cuts where the real page
+has them (round 1467, ADR 1768). And a fixture page that is byte-identical at 4 and 16 strips cannot
+see a stated count — the transform's `verbs.rs` tests passed with one side unstated, and only page
+100's bytes caught it (ADR 1769).
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

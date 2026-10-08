@@ -709,6 +709,10 @@ impl ScriptWorker {
                 field_full: false,
                 change_ex: String::new(),
                 source: String::new(),
+                shift: false,
+                modifier: false,
+                key_down: false,
+                rich_value: String::new(),
             };
             request.fields = if state.told {
                 Vec::new()

@@ -465,3 +465,11 @@ three code names stale (`RgbRoute::from_xyz` for `components_with_xyz`, `Graphic
 for `black_point_under`, "five routes" where four were named); a script that grepped each cited name
 found them in a minute (round 1459, ADR 1754). A row's note is read for its claims and for its names,
 and a name the tree no longer has is corrected in the same pass.
+
+## A navigational re-read starts with a census of modules, not with the pointer sweeps
+
+The pointer and quotation sweeps found nothing in the four navigational documents while seven
+modules built since the last re-read were named nowhere in them — an unnamed module is not a broken
+pointer (round 1462, ADR 1760). A re-read compares each crate-map row's named modules with `ls src`
+and with `git diff --diff-filter=A <last re-read's commit> HEAD --name-only` before it reads a sentence,
+so an omission is found by the file that exists rather than by the sentence that does not.

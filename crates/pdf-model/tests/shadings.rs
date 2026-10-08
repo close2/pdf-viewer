@@ -223,6 +223,77 @@ fn a_named_colour_space_is_resolved_against_the_resources_that_paint_it() {
     assert_eq!(pixel(&raster, 50, 25).0, 0);
 }
 
+/// A shading whose colour space *contains* a device name is remapped by the resources that paint
+/// it, however the space is spelled.
+///
+/// §8.6.5.6:
+///
+/// > When a device colour space is selected, the ColorSpace subdictionary of the current resource
+/// > dictionary (see 7.8.3, "Resource dictionaries") is checked for the presence of an entry
+/// > designating a corresponding default colour space
+///
+/// and it applies to a space given as an entry in an image `XObject`, an inline image or a shading
+/// dictionary, and to the alternate of a `Separation` or `DeviceN` space. So the space a shading
+/// means depends on the resources in force even where it is an array or a reference rather than
+/// a name. The page paints `/Sh0` first under no default; the form paints the same object under a
+/// `/DefaultRGB` whose `CalRGB` matrix puts the first component on sRGB's green primary, so red
+/// comes out green — a CIE-based default because §8.6.6.4 admits no special space as an
+/// alternate. A cache keyed by the shading object alone answers the page's red twice. The three
+/// spellings are the array form ADR 1001 gives a device name, a reference to the name, and a
+/// `Separation` whose alternate is the device space (ADR 1765).
+#[test]
+fn a_device_space_inside_a_shadings_colour_space_is_remapped_by_the_resources_that_paint_it() {
+    let mut wrong = Vec::new();
+    for (spelling, space) in [
+        ("the array form", "[/DeviceRGB]"),
+        ("a reference to the name", "7 0 R"),
+        (
+            "a Separation's alternate",
+            "[/Separation /Ink /DeviceRGB << /FunctionType 2 /Domain [0 1] /C0 [1 1 1] \
+             /C1 [1 0 0] /N 1 >>]",
+        ),
+    ] {
+        let function = if space.starts_with("[/Separation") {
+            "/C0 [1] /C1 [1]"
+        } else {
+            "/C0 [1 0 0] /C1 [1 0 0]"
+        };
+        let page = "q /Sh0 sh Q q 1 0 0 1 0 50 cm /Fm Do Q";
+        let form = "/Sh0 sh";
+        let body = format!(
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+             2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+             3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+             /Resources << /Shading << /Sh0 5 0 R >> /XObject << /Fm 6 0 R >> >> \
+             /Contents 4 0 R >>\nendobj\n\
+             4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
+             5 0 obj\n<< /ShadingType 2 /ColorSpace {space} /Coords [0 0 100 0] \
+             /Extend [true true] /Function << /FunctionType 2 /Domain [0 1] {function} \
+             /N 1 >> >>\nendobj\n\
+             6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 50] \
+             /Resources << /Shading << /Sh0 5 0 R >> /ColorSpace << /DefaultRGB \
+             [/CalRGB << /WhitePoint [0.9505 1 1.089] /Matrix [0.3576 0.7152 0.1192 \
+             0.4124 0.2126 0.0193 0.1805 0.0722 0.9505] >>] >> >> \
+             /Length {} >>\nstream\n{form}\nendstream\nendobj\n\
+             7 0 obj\n/DeviceRGB\nendobj\n",
+            page.len().saturating_add(1),
+            form.len().saturating_add(1),
+        );
+        let raster = render(assemble(&body));
+        // Device row 75 is the page's own `sh`, row 25 the form's.
+        let (painted, remapped) = (pixel(&raster, 50, 75), pixel(&raster, 50, 25));
+        let (r, g, b, _) = remapped;
+        if painted != (255, 0, 0, 255) || !(r < 40 && g > 215 && b < 40) {
+            wrong.push(format!("{spelling}: page {painted:?}, form {remapped:?}"));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "the page's shading is red and the form's /DefaultRGB makes the same object green: \
+         {wrong:#?}"
+    );
+}
+
 #[test]
 fn an_axial_shading_runs_from_its_first_colour_to_its_second() {
     // `sh` paints the whole clip, so the page is covered by the gradient.

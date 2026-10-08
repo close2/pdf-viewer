@@ -256,6 +256,8 @@ fn the_event_kinds(expected: &mut BTreeMap<String, i64>) {
             "QUORRA_EVENT_SIGNATURE_POLICIES_PUBLISHED",
             EventKind::SignaturePoliciesPublished,
         ),
+        // A script's `console.show`, `hide` and `clear` (ADR 1771).
+        ("QUORRA_EVENT_CONSOLE", EventKind::Console),
     ] {
         expected.insert(name.to_owned(), i64::from(kind.code()));
     }

@@ -6,22 +6,30 @@
     grep -rE "hundred-and-|session" --include=*.rs crates tools
 
 and that grep is printed here first, unchanged, so the number a reader of `CLAUDE.md` would get is
-the number this prints. It is a reading list rather than a count of defects, because `session` is
-also a word this program uses for itself — a viewer's `Session`, a FUSE session, a desktop's session
-bus — and in code every hit is an identifier. So each hit is sorted by shape, first match wins:
+the number this prints. **The grep is a reading list and this script is what reads it; the rule's
+debts are held elsewhere, at zero**: `tools/conformance/tests/spelled_ordinals.rs` holds the spelled
+ordinal (`-and-`) and the capitalised `Session <number>`, and `round_numbers.rs` lexes every comment
+for `round <number>`, the tree's own spelling of a round (ADR 1698). What is left to this script is
+what neither gate can hold, because `session` is also a word this program uses for itself — a
+viewer's `Session`, a FUSE session, a desktop's session bus, the session `setsid` starts — and in
+code every hit is an identifier. So each hit is sorted by shape, first match wins:
 
   code          the hit is outside a `//` comment: an identifier or a string, never history.
   legitimate    a comment naming a session that is this program's or the desktop's (the shapes
                 are `LEGITIMATE` below, each one a use the rule does not reach).
-  history       a comment carrying a session by ordinal or number ("the four-hundred-and-
-                seventy-first session", "session 945", "for four hundred sessions") or by
-                pointing at one ("this session", "the session that landed it").
-  unread        a comment the two lists above do not decide — a reading list, printed by name
-                with `--list unread`, because whether "a session that reads it" is advice or
-                history is a question about English.
+  history       a comment naming or counting a round: a session by ordinal or number ("the
+                four-hundred-and-seventy-first session", "session 945", "for four hundred
+                sessions"), or a pointer that can only be at one ("this session", "a later
+                session"). A shape between double quotes, the lines around it joined first, is a
+                mention, not a use.
+  unread        a comment the two lists above do not decide — "a session", "the session",
+                "every session" — printed by name with `--list unread`, because whether "a
+                session supplies no runner" is a round is a question about English.
 
-A comment carries the current reason and cites the ADR that argued it; the session that changed it
-is `doc/history/`'s (ADR 1023). This script counts; it rewrites nothing. `raster/` is counted apart,
+**`history` reads zero on the tree, and a figure above zero is a sentence to rewrite**: the article
+forms that once counted there were all this program's sessions, so they are `unread` (ADR 1767). A
+comment carries the current reason and cites the ADR that argued it; the session that changed it is
+`doc/history/`'s (ADR 1023). This script counts; it rewrites nothing. `raster/` is counted apart,
 because `CLAUDE.md`'s grep does not reach it and its hits are the same rule's (ADR 1403).
 
     tools/comment-history.py                  # the counts
@@ -61,7 +69,7 @@ LEGITIMATE = re.compile(
     r"|edit of a session|a session opens|session's$|session is not asked|offers it to the session"
     r"|a session that (?:measures|felt)|rest of the session|from their session"
     r"|session that fixed it, for the history file|with this session, and|name for this session"
-    r"|session bookkeeping",
+    r"|session bookkeeping|(?:branch's|names? its) first\W+session|session of its own",
     re.IGNORECASE,
 )
 
@@ -70,8 +78,7 @@ HISTORY = re.compile(
     rf"|\b{ORDINAL}\W{{0,3}}sessions?\b"
     r"|\bsessions? [0-9]"
     rf"|\b{NUMBER}\W{{0,3}}sessions\b"
-    r"|\b(?:this|that|the same|a later|an earlier|the previous|the next|the last|one|whose"
-    r"|which|the|each|every|some|a) session\b"
+    r"|\b(?:this|that|the same|a later|an earlier|the previous|the next|the last) session\b"
     r"|\bsessions? (?:of|later|earlier|ago|before|since|after|in a row|while|with|on|were)\b"
     r"|\buntil session|\bsince session|\bin session\b",
     re.IGNORECASE,
@@ -109,6 +116,15 @@ def strip_code_spans(comment):
     return re.sub(r"`[^`]*`", "", comment)
 
 
+def strip_quotations(comment):
+    """A comment with its double-quoted spans removed; an unpaired mark is left where it is.
+
+    A quotation is removed for the code span's reason: a gate's comment that quotes the shape it
+    holds — "the twenty-seventh session" — mentions the shape and uses none.
+    """
+    return re.sub(r'"[^"]*"', "", comment)
+
+
 def classify(previous, text, following=""):
     """The class of one hit; see the module comment for the order and the reasons.
 
@@ -130,6 +146,9 @@ def classify(previous, text, following=""):
     after = comment_of(following)
     if after is not None and re.search(r"session\W*$", comment, re.IGNORECASE):
         comment = comment.rstrip() + " " + strip_code_spans(after).lstrip()[:40]
+    # Quotations go once the lines are joined, because a quotation wraps as an ordinal does and a
+    # mark paired on one line alone would pair a closing mark with the next opening one.
+    comment = strip_quotations(comment)
     # A legitimate phrase is removed rather than excusing its line, so a line naming the session
     # bus and a round's ordinal is still history.
     rest = LEGITIMATE.sub("", comment)

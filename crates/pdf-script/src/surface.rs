@@ -298,27 +298,13 @@ pub const REFUSED: &[Excluded] = &[
 /// `getAnnot` with the `Annotation` object (ADR 1700), the document's pages, its named
 /// destinations, `title`, `calculate` and `app.activeDocs` (ADR 1724), a field's options
 /// read from `/Opt` (ADR 1725), the window's `zoom`, `zoomType`, `layout` and `scroll` (ADR
-/// 1736), and the four members that rewrite a field's `/Opt` (ADR 1737); each of these is the next thing a round adds, and until then a
-/// property that says so.
-pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
-    (
-        Holder::Event,
-        &["shift", "modifier", "keyDown", "richValue", "richChange"],
-    ),
-    (Holder::Field, &["lineWidth", "textSize", "textFont"]),
-    (Holder::Doc, &["getPageNumWords", "getPageNthWord"]),
-    (
-        Holder::Util,
-        &[
-            "scand",
-            "crackURL",
-            "spansToXML",
-            "xmlToSpans",
-            "streamFromString",
-            "stringFromStream",
-            "iconStreamFromIcon",
-        ],
-    ),
-    (Holder::Console, &["show", "hide", "clear"]),
-    (Holder::Layer, &["getIntent"]),
-];
+/// 1736), the four members that rewrite a field's `/Opt` (ADR 1737), and the last 21 (ADR 1762):
+/// `event.shift`, `modifier`, `keyDown`, `richValue` and `richChange`, a field's `lineWidth`,
+/// `textSize` and `textFont`, the page's words, `util`'s `scand`, `crackURL`, `spansToXML`,
+/// `xmlToSpans`, `streamFromString`, `stringFromStream` and `iconStreamFromIcon` — the last refused
+/// with its reason — `console`'s `show`, `hide` and `clear`, and `OCG.getIntent`.
+///
+/// Empty: every member section 4.2 admits is carried, or refused by name in [`REFUSED`] or by its
+/// own native with a reason. The list stays as the place an admitted member waits, each a property
+/// that says so, should a later reading of the reference find one.
+pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[];

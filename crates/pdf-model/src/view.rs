@@ -40,10 +40,11 @@ mod scripts;
 use crate::optional_content::{Audience, OptionalContent, Purpose};
 pub use script_model::{
     Alignment, AnnotationChange, AnnotationReach, AnnotationState, BorderStyle, Colour, CommitKey,
-    Display, DocumentState, DocumentTrigger, Face, FieldState, FieldType, Glyph, InfoEntry, Layer,
-    MAX_PAGES, PageState, Property, ScriptEdit, ScriptSite, Sound, TextFlag, ViewChange,
-    WidgetState, WindowView, ZoomType,
+    ConsoleCommand, ConsoleRequest, Display, DocumentState, DocumentTrigger, Face, FieldState,
+    FieldType, FontName, Glyph, InfoEntry, Keys, Layer, MAX_PAGES, PageState, Property, ScriptEdit,
+    ScriptSite, Sound, TextFlag, ViewChange, WidgetState, WindowView, ZoomType,
 };
+pub use script_sites::ScriptsRan;
 pub use script_timers::{MAX_TIMERS, MIN_PERIOD};
 pub use scripts::{
     Committed, Displayed, FocusRequest, Resumed, ScriptEvent, ScriptResult, ScriptRunner,

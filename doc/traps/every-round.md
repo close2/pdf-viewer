@@ -4,10 +4,10 @@ Status: **standing** — the every-round half of the trap index (ADR 1639).
 
 **This is the short list, and it is chosen by a count.** `tools/state.sh traps` counts which traps
 the rounds' records cite; the ten below carry about four-fifths of every citation ever made, and
-the other hundred-odd are cited once each or never. So a round reads these ten rows before it
-starts, and opens [`README.md`](README.md) — the full index, one row per trap, which is what any
-citation by number resolves through — only when its contract names a trap, or when the position
-column of a group file it was told to open bites.
+the rest share the last fifth, most of them cited a few times or never. So a round reads these
+ten rows before it starts, and opens [`README.md`](README.md) — the full index, one row per trap,
+which is what any citation by number resolves through — only when its contract names a trap, or
+when the position column of a group file it was told to open bites.
 
 **A row here is a lookup key and not the trap.** The incident, the evidence and the argument are in
 the group file the last column names; nothing is decided from a row alone (ADR 1036). The rows are

@@ -105,6 +105,28 @@ pub fn unplayed(document: &str, sound: Sound, why: &str) -> String {
     )
 }
 
+/// The line a window says for a script's `console.show`, `hide` or `clear` (ADRs 1762, 1771).
+///
+/// Each window's console is its log, where every line a script logs is said as it is logged, so
+/// it is always shown, cannot be hidden and keeps what it said: a request it carries out in no
+/// pane is said by name rather than dropped, as an unplayed sound is.
+#[must_use]
+pub fn console(document: &str, request: pdf_model::view::ConsoleRequest) -> String {
+    use pdf_model::view::ConsoleCommand;
+    let (asked, done) = match request.command {
+        ConsoleCommand::Show => (
+            "shown",
+            "it is this window's log, where every line a script logs is said",
+        ),
+        ConsoleCommand::Hide => (
+            "hidden",
+            "this window's log is no pane it can hide, so the lines go on being said",
+        ),
+        ConsoleCommand::Clear => ("cleared", "the lines this window's log has said stay said"),
+    };
+    format!("a script in {document} asked for the console to be {asked}: {done} (ADR 1771)")
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::{Duration, Instant};

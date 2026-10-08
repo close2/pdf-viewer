@@ -138,6 +138,8 @@ fn format_event(script: &str) -> ScriptEvent<'_> {
         dirty: false,
         document: None,
         view: pdf_model::view::WindowView::default(),
+        keys: pdf_model::view::Keys::default(),
+        rich_value: "",
     }
 }
 

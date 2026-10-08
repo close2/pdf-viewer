@@ -204,7 +204,7 @@ fn backdrop_half(
 fn luminosity(
     document: &Document,
     mask: &Dictionary,
-    space: &Object,
+    stated: &Object,
     (presses, inherited): (&Presses, &Dictionary),
     transfer: Option<&Transfer>,
     output_intent: Option<&ColourSpace>,
@@ -222,7 +222,7 @@ fn luminosity(
     // as it does for the page's own group. No resource dictionary: a group attributes
     // dictionary is not drawn from one, so a name here can only be a family's.
     let space =
-        ColourSpace::parse_with_output_intent(document, space, &Dictionary::new(), output_intent);
+        ColourSpace::parse_with_output_intent(document, stated, &Dictionary::new(), output_intent);
     // A `DeviceCMYK` group whose content blends is composited in its four components rather than
     // in one weighted channel: §11.3.5.2 applies a separable blend function to "corresponding
     // components of the colours 𝐶𝑟 , 𝐶𝑏 , and 𝐶𝑠 , expressed in additive form", and a weighted
@@ -270,7 +270,7 @@ fn luminosity(
         }
         _ => blended_ink,
     };
-    let weighed = backdrop(document, mask, space.as_ref());
+    let weighed = backdrop(document, mask, space.as_ref(), stated);
     // The black half's backdrop, where there is one: §11.6.5.1's `/BC` has four
     // components and each raster composites onto the ones it carries.
     let black_backdrop = ink.as_ref().zip(space.as_ref()).map(|((press, _), space)| {
@@ -278,7 +278,7 @@ fn luminosity(
             Plane::Black,
             press,
             space,
-            &backdrop_values(document, mask, space),
+            &backdrop_values(document, mask, space, stated),
         )
     });
     let backdrop = match (scale, &route, &additive, &ink, &space) {
@@ -290,14 +290,14 @@ fn luminosity(
         // own component, so `/BC` — "n numbers, where n is the number of components
         // in the colour space specified by the CS entry" — is that component.
         (None, Some(route), _, _, Some(space)) => {
-            Color::grey(route.component_of(space, &backdrop_values(document, mask, space)))
+            Color::grey(route.component_of(space, &backdrop_values(document, mask, space, stated)))
         }
         // And a three-component one's in its three components, which `/BC` states
         // as three numbers in that space.
         (None, None, Some((route, _)), _, Some(space)) => {
             let [a, b, c] = route.components_of(
                 space,
-                &backdrop_values(document, mask, space),
+                &backdrop_values(document, mask, space, stated),
                 Rendering::compensating(),
             );
             Color::rgb(a, b, c)
@@ -308,12 +308,12 @@ fn luminosity(
             Plane::Chromatic,
             press,
             space,
-            &backdrop_values(document, mask, space),
+            &backdrop_values(document, mask, space, stated),
         ),
         _ => Color {
             a: 1.0,
             ..space.as_ref().map_or(Color::BLACK, |space| {
-                space.to_rgb(&backdrop_values(document, mask, space))
+                space.to_rgb(&backdrop_values(document, mask, space, stated))
             })
         },
     };
@@ -523,10 +523,23 @@ fn ink_scale(space: &ColourSpace) -> Option<InkScale> {
 ///
 /// The count is what makes the group's `/CS` load-bearing here rather than decorative: the
 /// same three numbers mean different colours in `DeviceRGB` and in a `Lab` space, and a
-/// `/DeviceCMYK` backdrop is four. Where `/BC` is absent the default is "the colour space's
-/// initial value, representing black", which `ColourSpace::initial_colour` already holds
-/// for every space this crate reads (§8.6.8's five cases).
-fn backdrop_values(document: &Document, mask: &Dictionary, space: &ColourSpace) -> Vec<f32> {
+/// `/DeviceCMYK` backdrop is four.
+///
+/// Where `/BC` is absent the default is "the colour space's initial value, representing
+/// black", and the colour space is the one `/CS` *states* — `stated`, the entry as the file
+/// wrote it — rather than the space `space` resolved it to. A `/DeviceCMYK` group on a page
+/// whose §14.11.5 output intent is a four-component profile is parsed as that profile, whose
+/// own initial colour is no ink at all, the paper; the family's is §8.6.8's `[0.0 0.0 0.0
+/// 1.0]`, and the intent describes the device the family's colours were prepared for rather
+/// than replacing the family (ADR 1755). `ColourSpace::initial_colour_of` is that one
+/// question, asked of no resource dictionary because a group attributes dictionary is not
+/// drawn from one (ADR 1764).
+fn backdrop_values(
+    document: &Document,
+    mask: &Dictionary,
+    space: &ColourSpace,
+    stated: &Object,
+) -> Vec<f32> {
     document
         .get_key(mask, "BC")
         .as_array()
@@ -547,7 +560,7 @@ fn backdrop_values(document: &Document, mask: &Dictionary, space: &ColourSpace) 
                 .collect()
         })
         .filter(|values: &Vec<f32>| values.len() == space.components())
-        .unwrap_or_else(|| space.initial_colour())
+        .unwrap_or_else(|| space.initial_colour_of(document, stated, &Dictionary::new()))
 }
 
 /// The ink §10.4.2.3 weighs in Table 142's `/BC`.
@@ -559,9 +572,14 @@ fn backdrop_values(document: &Document, mask: &Dictionary, space: &ColourSpace) 
 /// §11.5.3 composites the group onto "a fully opaque backdrop of a specified colour", so an
 /// alpha a conversion happens to produce — a `/None` colourant's zero, say — is not this
 /// colour's.
-fn backdrop(document: &Document, mask: &Dictionary, space: Option<&ColourSpace>) -> f32 {
+fn backdrop(
+    document: &Document,
+    mask: &Dictionary,
+    space: Option<&ColourSpace>,
+    stated: &Object,
+) -> f32 {
     space.map_or(1.0, |space| {
-        space.ink(&backdrop_values(document, mask, space))
+        space.ink(&backdrop_values(document, mask, space, stated))
     })
 }
 
@@ -710,7 +728,9 @@ mod tests {
     use std::fmt::Write as _;
     use std::sync::Arc;
 
+    use pdf_render::{Rasterizer, TargetSpec};
     use pdf_syntax::{Document, Object, ObjectId};
+    use render_cpu::CpuRasterizer;
 
     use super::{SoftMaskEntry, entry_with_output_intent};
     use crate::colour::{ColourSpace, Compositing, InkScale, Plane, Presses};
@@ -942,6 +962,99 @@ mod tests {
             "with no intent the same group is §10.4.2.3's ink at the assumed press's scale, \
              not {:?}",
             without.compositing
+        );
+    }
+
+    /// A page painting black through a `/Luminosity` mask whose `/DeviceCMYK` group draws
+    /// nothing, on a page whose output intent is [`cmyk::two_way_cmyk_profile`] — so every
+    /// pixel of the mask is §11.5.3's luminosity of Table 142's backdrop alone. `backdrop` is
+    /// the mask dictionary's `/BC` entry, or nothing.
+    fn black_through_an_empty_cmyk_mask(backdrop: &str) -> Vec<u8> {
+        let mut hex = String::new();
+        for byte in cmyk::two_way_cmyk_profile() {
+            let _ = write!(hex, "{byte:02X}");
+        }
+        let content = "/GS gs 0 g 0 0 20 20 re f";
+        let objects = [
+            "<< /Type /Catalog /Pages 2 0 R /OutputIntents [<< /Type /OutputIntent /S /GTS_PDFX \
+             /OutputConditionIdentifier (fixture) /DestOutputProfile 6 0 R >>] >>"
+                .to_owned(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 20 20] /Contents 4 0 R \
+             /Resources << /ExtGState << /GS << /SMask << /S /Luminosity /G 5 0 R {backdrop} >> \
+             >> >> >> >>"
+                .replace("{backdrop}", backdrop),
+            format!(
+                "<< /Length {} >>\nstream\n{content}\nendstream",
+                content.len()
+            ),
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] \
+             /Group << /S /Transparency /CS /DeviceCMYK >> /Length 0 >>\nstream\n\nendstream"
+                .to_owned(),
+            format!(
+                "<< /N 4 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}>\nendstream",
+                hex.len().saturating_add(1)
+            ),
+        ];
+        let mut out = String::from("%PDF-1.7\n");
+        let mut offsets = Vec::new();
+        for (index, object) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            let _ = write!(out, "{} 0 obj\n{object}\nendobj\n", index.saturating_add(1));
+        }
+        let xref_at = out.len();
+        let size = objects.len().saturating_add(1);
+        let _ = writeln!(out, "xref\n0 {size}");
+        out.push_str("0000000000 65535 f \n");
+        for offset in &offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            out,
+            "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+        );
+        let document = Document::open(out.into_bytes()).expect("the fixture is a valid PDF");
+        let page = crate::Pages::new(&document).get(0).expect("page one");
+        let interpretation = crate::interpret(&document, &page);
+        assert!(
+            interpretation.is_complete(),
+            "the fixture draws completely: {:?}",
+            interpretation.unsupported
+        );
+        let list = interpretation.display_list;
+        let target = TargetSpec::for_page(&list, 1.0, 1 << 30).expect("a valid target");
+        CpuRasterizer::new()
+            .rasterize(&list, target)
+            .expect("supported")
+            .data
+            .clone()
+    }
+
+    /// Table 142's `/BC` defaults to the *family's* initial colour where an output intent stands
+    /// in for the group's `/DeviceCMYK`: "the colour space's initial value, representing black".
+    ///
+    /// §8.6.8 starts `DeviceCMYK` at `[0.0 0.0 0.0 1.0]`; the intent's profile, as a space of its
+    /// own, starts at no ink. [`cmyk::two_way_cmyk_profile`]'s press darkens by `0.9 k`, so the
+    /// family's black has a `Y` of 0.1 and the mask lets a tenth of the black through — about 230
+    /// on the white page — where the profile's zeros are the paper's `Y` of 1 and let all of it
+    /// through, 0. The default must draw what `/BC [0 0 0 1]` draws (ADR 1764).
+    #[test]
+    fn a_cmyk_mask_groups_default_backdrop_is_the_familys_black_under_an_intent() {
+        let level = |raster: &[u8]| raster[(10 * 20 + 10) * 4];
+        let defaulted = level(&black_through_an_empty_cmyk_mask(""));
+        let stated_black = level(&black_through_an_empty_cmyk_mask("/BC [0 0 0 1]"));
+        let stated_paper = level(&black_through_an_empty_cmyk_mask("/BC [0 0 0 0]"));
+        assert_eq!(
+            defaulted, stated_black,
+            "the default backdrop is the family's initial colour"
+        );
+        assert!(
+            (225..=235).contains(&defaulted),
+            "a tenth of the black comes through the family's black backdrop, not {defaulted}"
+        );
+        assert!(
+            stated_paper.abs_diff(defaulted) > 1,
+            "and the paper's backdrop, {stated_paper}, is more than a level away from it"
         );
     }
 }

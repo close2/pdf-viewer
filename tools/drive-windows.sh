@@ -537,7 +537,8 @@ pdf.save(f"{out}/drive-beep.pdf")
 # drive-triggers.pdf: two pages, the first carrying a text field whose Table 197 /AA states all six
 # pointer and focus events and a read-only field each of them writes its name into, so the log and
 # the saved /V each witness which ran and in which order; and both pages stating Table 198's /O and
-# /C, each logging its event (ADR 1752).
+# /C, each logging its event (ADR 1752). A third field's /E only logs, which changes nothing the page
+# draws, so the page is not interpreted again when the cursor enters it (ADR 1771).
 pdf = pikepdf.new()
 font = helv(pdf)
 t1 = page(pdf, font, "Triggers one")
@@ -555,6 +556,12 @@ triggers = {
     "Seen": pdf.make_indirect(Dictionary(
         Type=Name.Annot, Subtype=Name.Widget, T=String("Seen"), Rect=[72, 450, 540, 480], F=4, Ff=1,
         P=t1.obj, FT=Name.Tx, DA=text, V=String(""), MK=Dictionary(BC=[0, 0, 0], BG=[0.95, 0.95, 0.95]))),
+    "Quiet": pdf.make_indirect(Dictionary(
+        Type=Name.Annot, Subtype=Name.Widget, T=String("Quiet"), Rect=[72, 520, 540, 580], F=4, Ff=1,
+        P=t1.obj, FT=Name.Tx, DA=text, V=String(""), MK=Dictionary(BC=[0, 0, 0], BG=[1, 0.95, 0.9]),
+        AA=Dictionary(E=Dictionary(S=Name.JavaScript, JS=String(
+            'global.quiet = (global.quiet || 0) + 1; console.println("Q ran, entry " + global.quiet);'
+        ))))),
 }
 t1.obj.Annots = Array(list(triggers.values()))
 for index, at in enumerate(pdf.pages):
@@ -566,6 +573,23 @@ for index, at in enumerate(pdf.pages):
 pdf.Root.AcroForm = Dictionary(Fields=Array(list(triggers.values())), DA=text,
                                DR=Dictionary(Font=Dictionary(Helv=font)))
 pdf.save(f"{out}/drive-triggers.pdf")
+
+# drive-keys.pdf: a text field whose /U logs `event.shift` and `event.modifier`, numbered so each
+# line is new, and an open action asking the console to be shown, cleared and hidden (ADR 1771).
+pdf = pikepdf.new()
+font = helv(pdf)
+k1 = page(pdf, font, "Keys")
+keyed = pdf.make_indirect(Dictionary(
+    Type=Name.Annot, Subtype=Name.Widget, T=String("Keyed"), Rect=[72, 150, 540, 250], F=4,
+    P=k1.obj, FT=Name.Tx, DA=text, V=String(""), MK=Dictionary(BC=[0, 0, 0], BG=[0.9, 0.95, 1]),
+    AA=Dictionary(U=Dictionary(S=Name.JavaScript, JS=String(
+        'global.ups = (global.ups || 0) + 1; console.println("U " + global.ups + " shift "'
+        ' + event.shift + " control " + event.modifier);')))))
+k1.obj.Annots = Array([keyed])
+pdf.Root.AcroForm = Dictionary(Fields=Array([keyed]), DA=text, DR=Dictionary(Font=Dictionary(Helv=font)))
+pdf.Root.OpenAction = Dictionary(S=Name.JavaScript, JS=String(
+    'console.show(); console.clear(); console.hide();'))
+pdf.save(f"{out}/drive-keys.pdf")
 
 # drive-rich.pdf and drive-rich-plain.pdf: a note whose popup opens with the page, its Table 172
 # /RC colouring two words pure red and bold, and the same note with /Contents alone — the control,
@@ -2508,7 +2532,12 @@ script_beep() {
 # on the page, then the page turns forward and back. Each event's script logs its name and each of
 # the field's adds it to Seen, so the log says which ran and the saved /V the order. The toolkits
 # place their own entry over the field, so this is the press a toolkit's control took and handed on.
-# The confined window is pinned to off: nothing runs and nothing is logged.
+# The confined window is pinned to off: nothing runs and nothing is logged. Before any of that the
+# cursor enters a field whose /E only logs, three times: each entry logs, and `quorra`'s trace says
+# no render came back ready after them, since nothing the page draws changed (ADR 1771) — where the
+# triggered field's six events, which write Seen, are followed by at least one before the save, the
+# count's own control. The
+# toolkits' traces count a command's events without naming them, so the count is `quorra`'s.
 script_triggers() {
     local step
     if [ ! -x "$BIN/pdf-script-worker" ]; then
@@ -2517,19 +2546,37 @@ script_triggers() {
         done
         return
     fi
-    local form="$OUT/$WINDOW-triggers.pdf" mark x y fx fy bx by seen missing
+    local form="$OUT/$WINDOW-triggers.pdf" mark x y fx fy bx by qx qy seen missing quiet renders
     cp "$FIXTURES/drive-triggers.pdf" "$form"; rm -f "${form%.pdf}.edited.pdf"
     launch "$form" --scripts on
-    # Measured on this fixture at Xvfb's 1400x1100; the window's own answer replaces it below.
+    # Measured on this fixture at Xvfb's 1400x1100; the window's own answer replaces it below. The
+    # quiet field is 345 points above the triggered one, which is a third of the page's height.
     case "$WINDOW" in
         quorra-gtk) TRIGGERED="685 750" ;;
         quorra-qt) TRIGGERED="690 772" ;;
         *) TRIGGERED="399 747" ;;
     esac
+    QUIET=""
     [ "$WINDOW" != quorra-confined ] && asked TRIGGERED "*" "Triggered"
+    [ "$WINDOW" != quorra-confined ] && asked QUIET "*" "Quiet"
     read -r fx fy <<< "$TRIGGERED"
     bx=$fx; by=$((fy - 150))
     read -r x y <<< "$(origin)"
+    quiet=0; renders="not counted"; written="not counted"
+    if [ -n "$QUIET" ]; then
+        read -r qx qy <<< "$QUIET"
+        mark=$(lines)
+        for _ in 1 2 3; do
+            xdotool mousemove $((x + bx)) $((y + by)); sleep 0.3
+            xdotool mousemove $((x + qx)) $((y + qy)); sleep 0.5
+        done
+        wait_for 10 said_since "$mark" 'Q ran, entry 3'
+        sleep 0.5
+        quiet=$(tail -n "+$((mark + 1))" "$LOG" | grep -c 'logged: Q ran')
+        # Every render a pointer message asks for comes back as `render ready` under `events`.
+        [ "$WINDOW" = quorra ] && renders=$(tail -n "+$((mark + 1))" "$LOG" \
+            | sed -n '/Q ran, entry 1/,$p' | grep -c 'render ready')
+    fi
     xdotool mousemove $((x + bx)) $((y + by)); sleep 0.5
     mark=$(lines)
     xdotool mousemove $((x + fx)) $((y + fy)); wait_for 10 said_since "$mark" 'logged: E ran'
@@ -2560,10 +2607,13 @@ PY
 )
     missing=""
     for step in E D U X; do said_since "$mark" "logged: $step ran" || missing="$missing $step"; done
-    if [ -z "$missing" ] && [[ "$seen" == "E D Fo U X Bl" ]]; then
-        verdict 68-script-pointer works "/E /D /U /X logged at $fx,$fy ($(grep -c 'the script logged' "$LOG") lines); the saved Seen: $seen"
+    [ "$WINDOW" = quorra ] && written=$(tail -n "+$((mark + 1))" "$LOG" \
+        | sed -n '/logged: E ran/,$p' | grep -c 'render ready')
+    if [ -z "$missing" ] && [[ "$seen" == "E D Fo U X Bl" ]] && [ "$quiet" -eq 3 ] \
+        && { [ "$WINDOW" != quorra ] || { [ "$renders" = 0 ] && [ "$written" -ge 1 ]; }; }; then
+        verdict 68-script-pointer works "/E /D /U /X logged at $fx,$fy ($(grep -c 'the script logged' "$LOG") lines); the saved Seen: $seen; renders after a logging /E entered $quiet times: $renders, after the writing /E: $written"
     else
-        verdict 68-script-pointer wrong "at $fx,$fy, not logged:${missing:- none}; the saved Seen: ${seen:-nothing}: $LOG"
+        verdict 68-script-pointer wrong "at $fx,$fy, not logged:${missing:- none}; the saved Seen: ${seen:-nothing}; renders after a logging /E entered ${quiet:-0} times: $renders, after the writing /E: $written: $LOG"
     fi
     missing=""
     for step in Fo Bl; do said_since "$mark" "logged: $step ran" || missing="$missing $step"; done
@@ -2583,6 +2633,49 @@ PY
         verdict 70-script-page wrong "the turns ran: ${seen:-nothing}: $LOG"
     fi
     shot 70-script-page
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
+# The keys a script reads and the console it asks of, in the three windows that run scripts (ADR
+# 1771): an open action's console.show, clear and hide are each said by name, since every window's
+# console is its log; a release in the field with Shift and Control held logs them true, and one
+# without logs them false — the control that says the keys are the window's, not a constant.
+script_keys() {
+    local step=71-script-keys missing="" kx ky x y mark
+    if [ ! -x "$BIN/pdf-script-worker" ]; then
+        verdict "$step" "not offered" "no $BIN/pdf-script-worker beside the windows"; return
+    fi
+    if [ "$WINDOW" = quorra-confined ]; then
+        verdict "$step" "not offered" "pinned to off: no script runs to read a key or ask a console"; return
+    fi
+    launch "$FIXTURES/drive-keys.pdf" --scripts on
+    wait_for 10 said_since 0 'console to be hidden'
+    for asked in shown cleared hidden; do
+        [ "$(said "console to be $asked")" -gt 0 ] || missing="$missing $asked"
+    done
+    case "$WINDOW" in
+        quorra-gtk) KEYED="685 750" ;;
+        quorra-qt) KEYED="690 772" ;;
+        *) KEYED="399 747" ;;
+    esac
+    asked KEYED "*" "Keyed"
+    read -r kx ky <<< "$KEYED"
+    read -r x y <<< "$(origin)"
+    mark=$(lines)
+    xdotool mousemove $((x + kx)) $((y + ky)); sleep 0.5
+    # The window has the keyboard first: `quorra` hears a modifier from its own key events.
+    xdotool windowfocus --sync "$(main_window)" 2>/dev/null
+    xdotool keydown shift keydown ctrl; sleep 0.3
+    xdotool click 1; wait_for 10 said_since "$mark" 'U 1 shift'
+    xdotool keyup ctrl keyup shift; sleep 0.3
+    xdotool click 1; wait_for 10 said_since "$mark" 'U 2 shift'
+    shot "$step"
+    if [ -z "$missing" ] && said_since "$mark" 'U 1 shift true control true' \
+        && said_since "$mark" 'U 2 shift false control false'; then
+        verdict "$step" works "console shown, cleared and hidden said by name; a release with Shift and Control held read both true, one without both false"
+    else
+        verdict "$step" wrong "console requests not said:${missing:- none}; $(grep -o 'U [12] shift [a-z]* control [a-z]*' "$LOG" | tr '\n' ';'): $LOG"
+    fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 
@@ -2821,12 +2914,15 @@ note_window() {
 }
 
 # A person types into a text note's own window (ADR 1726): §12.5.6.14's popup "shall be used for
-# editing the parent's text". A press on the red word of drive-note-file.pdf's open window gives the
-# window the keyboard at the note's end, " typed" goes in, Escape gives the keyboard back, and the
-# saved file's /Contents is the note's text with the characters after it — the witness a photograph
-# cannot be.
+# editing the parent's text". drive-note-file.pdf's open window is drawn from its /RC, and a press
+# on the red word's first letters puts the caret there — at the glyph the window drew, on the
+# /Contents offset it is (ADR 1770) — and Right, Left, Left move it as in a plain note before "|"
+# goes in. Escape gives the keyboard back, and the saved file's /Contents is "A red word." with the
+# "|" at byte 1 to 4 — the witness a photograph cannot be: a caret left at the note's end puts it at
+# 9, and one at its start at 0. `quorra` says where the press put it; the toolkits' editors place
+# the press through their own text layouts.
 note_typed() {
-    local form="$OUT/$WINDOW-typed.pdf" box tall x y ox oy mark seen
+    local form="$OUT/$WINDOW-typed.pdf" box tall x y mark seen placed
     cp "$FIXTURES/drive-note-file.pdf" "$form"; rm -f "${form%.pdf}.edited.pdf"
     launch "$form"; sleep 1; shot 64-note-typed
     box=$(box_of "$OUT/shots/$WINDOW/64-note-typed.png" "#ff0000")
@@ -2836,13 +2932,17 @@ note_typed() {
         kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
         return
     fi
-    # The photograph is of the root window, so the press is placed there too.
-    x=$(( ${box#* } + ${box% *} / 2 )); y=$(( ${tall#* } + ${tall% *} / 2 ))
+    # The photograph is of the root window, so the press is placed there too: a sixteenth of the
+    # red run in from its left edge, which is on its "r" or its "e".
+    x=$(( ${box#* } + ${box% *} / 16 + 1 )); y=$(( ${tall#* } + ${tall% *} / 2 ))
     mark=$(lines)
     xdotool mousemove "$x" "$y" click 1
     wait_for 10 said_since "$mark" 'typing into the text note'
+    placed=$(tail -n "+$((mark + 1))" "$LOG" | grep -o 'typing into the text note [0-9]* [0-9]* at [0-9]* of [0-9]*' | head -1)
     sleep 0.5
-    type_then 'SetNoteText' ' typed'
+    shot 64-note-typed-pressed
+    key Right Left Left
+    type_then 'SetNoteText' '|'
     shot 64-note-typed-typing
     key_then 'the keyboard is back on the page' Escape
     shot 64-note-typed-after
@@ -2853,10 +2953,13 @@ p = pikepdf.open(sys.argv[1])
 print(str(p.pages[0].Annots[0].Contents))
 PY
 )
-    if [ "$seen" = 'A red word. typed' ]; then
-        verdict 64-note-typed works "pressed at $x,$y; the saved /Contents: $seen"
+    local at=-1 rest
+    if [[ "$seen" == *"|"* ]]; then rest=${seen#*|}; at=$(( ${#seen} - ${#rest} - 1 )); fi
+    if [ "${seen/|/}" = 'A red word.' ] && [ "$at" -ge 1 ] && [ "$at" -le 4 ] \
+        && { [ "$WINDOW" != quorra ] || [[ "$placed" =~ at\ ([2-5])\ of\ 11$ ]]; }; then
+        verdict 64-note-typed works "pressed at $x,$y${placed:+ ($placed)}; the saved /Contents: $seen"
     else
-        verdict 64-note-typed wrong "pressed at $x,$y; the saved /Contents: ${seen:-nothing}: $LOG"
+        verdict 64-note-typed wrong "pressed at $x,$y${placed:+ ($placed)}; the saved /Contents: ${seen:-nothing}: $LOG"
     fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
@@ -3089,6 +3192,7 @@ for WINDOW in "${WINDOWS[@]}"; do
     script_timer
     script_beep
     script_triggers
+    script_keys
     popup_rich
     popup_face
     popup_rtl

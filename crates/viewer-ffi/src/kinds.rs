@@ -112,6 +112,10 @@ pub enum EventKind {
     /// URL; fetching one is a decision about the caller's machine, and the comparison that binds a
     /// copy to the signer's digest is the Rust hosts' and is not offered here (ADR 1738).
     SignaturePoliciesPublished = 26,
+    /// [`viewer_core::Event::Console`] — a document's script asked something of the host's
+    /// console. Sent to no caller of this ABI, for [`Self::ScriptAsking`]'s reason: a session
+    /// supplies no runner (ADR 1771).
+    Console = 27,
 }
 
 impl EventKind {
@@ -120,7 +124,7 @@ impl EventKind {
     /// **The number a C caller checks its header against**, which is the whole of what this ABI
     /// can offer in place of a build failure. It is written out rather than counted by a macro so
     /// that adding a variant is a line a person writes beside the variant, in the same commit.
-    pub const COUNT: u32 = 27;
+    pub const COUNT: u32 = 28;
 
     /// Which kind an event is.
     ///
@@ -157,6 +161,7 @@ impl EventKind {
             Event::ScriptQuestionWithdrawn { .. } => Self::ScriptQuestionWithdrawn,
             Event::Beep { .. } => Self::Beep,
             Event::SignaturePoliciesPublished { .. } => Self::SignaturePoliciesPublished,
+            Event::Console { .. } => Self::Console,
         }
     }
 
@@ -195,6 +200,7 @@ impl EventKind {
             Self::ScriptQuestionWithdrawn => "ScriptQuestionWithdrawn\0",
             Self::Beep => "Beep\0",
             Self::SignaturePoliciesPublished => "SignaturePoliciesPublished\0",
+            Self::Console => "Console\0",
         }
     }
 
@@ -233,6 +239,7 @@ impl EventKind {
             24 => Self::ScriptQuestionWithdrawn,
             25 => Self::Beep,
             26 => Self::SignaturePoliciesPublished,
+            27 => Self::Console,
             _ => return None,
         })
     }

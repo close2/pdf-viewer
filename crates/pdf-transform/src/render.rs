@@ -130,9 +130,10 @@ pub struct RenderPlan {
     /// told no (ADR 0218). `pdf-vfs`'s confined worker draws through this plan, so the number has
     /// to be sayable here; it states one, taken before its confinement (ADR 0847).
     ///
-    /// It is `None` everywhere else, which is what this crate did before the field existed: a
-    /// batch render is already parallel across pages, and what the strips add on top of that is
-    /// the rasteriser's own judgement about one page.
+    /// **The command line states one too**, `render_cpu::MAX_STRIPS`, because what it writes is a
+    /// file and RFC 0002 section 9 makes a file a function of the plan, while a page's pixels follow
+    /// its strip count (ADRs 0219, 1769). `None` is left to a caller that compares two renders of
+    /// its own, each side asking the same machine.
     pub strips: Option<u32>,
 }
 

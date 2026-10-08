@@ -2,8 +2,9 @@
 
 Status: **standing** — the every-round half of the habits (ADR 1639).
 
-**This is the short list.** The six habit files hold about seventy habits between them and a
-round opens the one its kind of work is about (`tools/round.sh <kind>` names it); the ten below
+**This is the short list.** The six habit files hold the rest, one bold-led item each
+(`grep -c '^- \*\*' doc/habits/*.md` counts them), and a round opens the one its kind of work is
+about (`tools/round.sh <kind>` names it); the ten below
 are the ones the records of the last batches show rounds paying for most often, whatever the
 round was about. Each line is a pointer — the file and the heading — and the habit itself, with
 the incident that earned it, is under that heading. Nothing is decided from a line here alone.

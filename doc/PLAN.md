@@ -109,9 +109,12 @@ on it and on nothing else of ours. Clean under `clippy::pedantic` with warnings 
 than a bare `allow`**, so an exception that stops being necessary becomes a warning instead of
 lingering invisibly — trap 7, and the one trap that binds any round writing Rust at all.
 
-**The build system is Cargo and nothing else.** No CMake, no moc, no Corrosion; `kio/`'s CMake is
-outside the workspace and reached by no build script. `build.rs` in `pdf-spec` runs the Arlington
-codegen (§5), and `crates/pdf-sandbox/build.rs` bakes the confined worker's path.
+**The build system is Cargo and nothing else.** No CMake and no Corrosion; `kio/`'s CMake is
+outside the workspace and reached by no build script. Every generated step is a crate's own build
+script: `pdf-spec`'s runs the Arlington codegen (§5), `pdf-font`'s packs the predefined `CMap`s,
+`pdf-model`'s emits the case-folding table, `pdf-sandbox`'s stamps the build identity the worker's
+greeting compares (ADR 0458), and `viewer-qt`'s generates the `cxx` bridge and runs `moc` through
+`cxx-qt-build`. `ls crates/*/build.rs` is the list.
 
 ### The test layers
 
@@ -122,8 +125,8 @@ codegen (§5), and `crates/pdf-sandbox/build.rs` bakes the confined worker's pat
   them (trap 23). Every target has its invocation in `doc/verify.md` and its seed recipe as an arm
   of `fuzz/seeds.sh`, and the workspace's lock is tracked and held to the root lock's versions —
   `tools/conformance/tests/fuzz_workspace.rs` fails on either missing (ADR 1439). A campaign runs
-  each target without the sanitiser, behind the heavy-walk lock and `tools/bounded.sh`, from a
-  scratch corpus first (ADR 1423); `tools/fuzz.sh` asks whether a run fuzzed anything, and
+  each target without the sanitiser, under `tools/bounded.sh` as a `--long` run, which holds the
+  heavy-walk lock's second lane only (ADR 1756), from a scratch corpus first (ADR 1423); `tools/fuzz.sh` asks whether a run fuzzed anything, and
   `tools/state.sh fuzz` prints what the disk holds of every target; `fuzz/seeds.sh check` — the
   `fuzz-stale` section — says whether a corpus on disk is stale against fresh seeds (ADR 1559).
 - the reference-comparison harness (§4), and the self-golden beside it
@@ -304,9 +307,12 @@ it skips (ADR 1377).
 
 Snapshots of *our own* output, separate from reference comparison, catching commit-to-commit
 regressions including in deliberately-divergent areas. `crates/pdf-model/tests/raster_golden.rs`
-is the gate: it walks the tracked first pages through `render-cpu` and holds three digests and an
-outcome word per page **by name** in `raster_golden.tsv`, so a page that moves fails naming the
-page and the layer — interpreter, rasteriser or report — that moved it (ADR 1016). The oracle sees
+is the gate: it walks the tracked first pages through `render-cpu`, each drawn undivided (ADR
+1742), and holds three digests and an outcome word per page **by name** in `raster_golden.tsv`, so a
+page that moves fails naming the page and the layer — interpreter, rasteriser or report — that moved
+it (ADR 1016). Its second test draws each first page again divided and holds it to
+`strip_parallelism.rs`'s two bounds, or to a ceiling of its own where `PAST_THE_BOUND` names the
+page (ADR 1758). The oracle sees
 disagreement with other renderers; this is what sees *change* in our own, which matters most on
 the pages the oracle can only call ambiguous.
 
@@ -374,7 +380,7 @@ temptation stronger rather than weaker.
 2. **Their crate boundaries are worth copying where ours are missing.** `hayro-cmap` as its
    own crate is the shape the argument for a separate `pdf-syntax` points at: a `CMap` parser
    is self-contained, independently testable and independently fuzzable. Ours is `pdf-font`'s
-   `cmap.rs`, a fuzz target of its own (`fuzz/fuzz_targets/cmap.rs`) and not yet a crate.
+   `cmap.rs`, a fuzz target of its own (`fuzz/fuzz_targets/cmap.rs`) and not a crate of its own.
 3. **The `simd` feature pattern.** `hayro-jpeg2000` defaults vectorisation on and documents
    that turning it off "eliminates any usage of unsafe in this crate as well as its
    dependencies". The consumer picks the point on the curve and the cost is stated at both
@@ -473,9 +479,9 @@ clip nobody built (ADR 0022), `/SMask` honoured while `/Mask` beside it was not,
 compositing as though they were not knockouts. Reading the clause is the only thing that finds
 those, and every such finding was invisible to every other instrument here.
 
-**A one-word status cannot say "half of this is quiet".** §8.9.5.2's defaults are implemented and
-its general `/Decode` array is not, so that row is `partial` and the silence lives in its note — a
-reader hunting silence by status alone will miss it.
+**A one-word status cannot say "half of this is quiet".** A `partial` row names in its note which of
+its requirements are executed and which are not, and whether each of the second kind reports, so
+the silence lives in the note — a reader hunting silence by status alone will miss it.
 
 **`out-of-scope` is the status that would rot first, so it is the one the checker
 constrains.** `CLAUDE.md` principle 5 fixes a closed list of exclusions — clause 13, XFA,
@@ -572,9 +578,11 @@ one entry per kind of line `tools/main-checkout.py` prints, in its order (`tests
 no ledger note names a session, held at zero, because a note states what is, and an
 `out-of-scope` row names its exclusion and quotes its clause (`tests/ledger_notes.rs`, ADRs
 1547, 1548, 1610), no Rust source names a round, spelled out or as `Session <number>`
-(`tests/spelled_ordinals.rs`, ADR 1023) — which also prints, without holding it, how many lines under
+(`tests/spelled_ordinals.rs`, ADR 1023), nor a comment a round by its number (`tests/round_numbers.rs`,
+ADR 1698) — which also prints, without holding it, how many lines under
 `doc/todo/` still do, each todo file stating what is owed as of now (ADR 1576) — and a round's record fits its forty lines and states its gates in a `**Gates.**` paragraph with an
-exit status or a pass count (`tests/records.rs`, ADRs 1100, 1499). The sweeps under `src/bin/` —
+exit status or a pass count (`tests/records.rs`, ADRs 1100, 1499). `ls tools/conformance/tests/`
+is the population, and each file's header says what it holds. The sweeps under `src/bin/` —
 `pointers`, `overtaken`, `retired`, `unread`, `cited` and the rest — are reading lists and never
 gates, since each judges prose; `tools/state.sh` runs them by section. `tools/state.sh comments`
 is the same kind of list for `CLAUDE.md`'s comment rule: its grep, run as written, then each hit
@@ -731,8 +739,9 @@ is the *policy* about dependencies rather than the inventory of them.
 
 ### Packages
 
-**`vulkan-swrast` matters more than it looks**: it makes GPU output reproducible in CI, so visual
-diffs do not go flaky on a driver update. `vulkaninfo --summary` says which adapters this machine
+**`vulkan-swrast` matters more than it looks**: it is lavapipe, the software adapter CI's
+`mesa-vulkan-drivers` gives the tests, so a visual difference CI reports is reproduced here on the
+same driver rather than on a hardware one that moves with every update. `vulkaninfo --summary` says which adapters this machine
 offers.
 
 **KDE Frameworks 6 on Arch has no `kf6-` prefix** — the packages `kio/`'s worker builds against are

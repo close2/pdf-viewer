@@ -40,6 +40,9 @@ fn field(name: &str, kind: FieldType, value: &str) -> FieldState {
             stroke_color: None,
             border_style: BorderStyle::Solid,
             alignment: Alignment::Left,
+            line_width: 1.0,
+            text_size: None,
+            text_font: String::new(),
             rect: [10.0, 10.0, 210.0, 40.0],
             captions: Default::default(),
             on_state: None,
@@ -106,6 +109,12 @@ fn request(site: ScriptSite, fields: &[FieldState], value: &str, change: &str) -
             zoom_type: ZoomType::FitWidth,
             layout: PageLayout::TwoColumnLeft,
         },
+        keys: pdf_model::view::Keys {
+            shift: true,
+            modifier: false,
+            arrows: false,
+        },
+        rich_value: "",
     };
     Request::of(&event, 1_704_465_015_000, -3600)
 }

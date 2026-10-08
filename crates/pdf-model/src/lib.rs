@@ -69,6 +69,7 @@ pub mod restriction;
 pub mod retrieval;
 mod rich_text;
 pub use pdf_colour::shading;
+pub use rich_text::span;
 mod soft_mask;
 pub mod structure;
 pub mod submission;

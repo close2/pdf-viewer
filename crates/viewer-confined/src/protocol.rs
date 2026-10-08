@@ -56,7 +56,7 @@ mod panels;
 /// question — and a host would discover that at the worst moment there is, in the middle of putting
 /// a reader back after a death, as a refusal of something the reader never asked for. The greeting
 /// is the cheap place to find it out instead.
-pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF12";
+pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF13";
 
 /// Length of the worker's greeting: the magic, the Landlock level, the address-space limit, and
 /// whether system calls are filtered — the same three facts `pdf_sandbox`'s own worker reports,
@@ -1064,6 +1064,9 @@ mod command_kind {
     pub(super) const ANSWER_SCRIPTS: u8 = 39;
     // The person's answer to `Event::ScriptAsking`, which crosses for `ANSWER`'s reason (ADR 1628).
     pub(super) const ANSWER_SCRIPT: u8 = 40;
+    // The window's keys, which cross because a script reads them in the worker and the window
+    // holds the keyboard (ADR 1771).
+    pub(super) const KEYS: u8 = 41;
 }
 
 /// A script's question, on the wire: a kind byte, then its fields in [`viewer_core::ScriptQuestion`]'s
@@ -1408,6 +1411,11 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
         }
         Command::Tick { millis } => {
             writer.u8(k::TICK).u32(*millis);
+        }
+        Command::Keys(keys) => {
+            writer.u8(k::KEYS).u8(u8::from(keys.shift)
+                | u8::from(keys.modifier) << 1
+                | u8::from(keys.arrows) << 2);
         }
         Command::Close(document) => {
             writer.u8(k::CLOSE).document(*document);
@@ -1806,6 +1814,14 @@ pub(crate) fn decode_command_holding(
         k::TICK => Command::Tick {
             millis: reader.u32("a tick")?,
         },
+        k::KEYS => {
+            let held = reader.u8("the keys")?;
+            Command::Keys(pdf_model::view::Keys {
+                shift: held & 1 != 0,
+                modifier: held & 2 != 0,
+                arrows: held & 4 != 0,
+            })
+        }
         k::CLOSE => Command::Close(reader.document(what)?),
         k::FOCUS => Command::Focus(reader.document(what)?),
         k::RESIZE => Command::Resize {
@@ -2573,6 +2589,9 @@ mod event_kind {
     // §12.8.3.4.4's published policy copies, which cross because the worker reads the signature
     // and the window holds the network level and the person (ADR 1738).
     pub(super) const SIGNATURE_POLICIES_PUBLISHED: u8 = 26;
+    // A script's console request, which crosses for `BEEP`'s reason: the window holds the console
+    // (ADR 1771).
+    pub(super) const CONSOLE: u8 = 27;
 }
 
 /// Encodes one event.
@@ -2825,6 +2844,18 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
                 .unwrap_or(u8::MAX);
             writer.u8(k::BEEP).document(*document).u8(tag);
         }
+        Event::Console { document, request } => {
+            let command = match request.command {
+                pdf_model::view::ConsoleCommand::Show => 0,
+                pdf_model::view::ConsoleCommand::Hide => 1,
+                pdf_model::view::ConsoleCommand::Clear => 2,
+            };
+            writer
+                .u8(k::CONSOLE)
+                .document(*document)
+                .u8(command)
+                .u64(u64::try_from(request.at).unwrap_or(u64::MAX));
+        }
         Event::SignaturePoliciesPublished { document, policies } => {
             writer
                 .u8(k::SIGNATURE_POLICIES_PUBLISHED)
@@ -3065,6 +3096,27 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
                         what: "a sound",
                         value: u32::from(tag),
                     })?,
+            }
+        }
+        k::CONSOLE => {
+            let document = reader.document(what)?;
+            let tag = reader.u8("a console request")?;
+            let command = match tag {
+                0 => pdf_model::view::ConsoleCommand::Show,
+                1 => pdf_model::view::ConsoleCommand::Hide,
+                2 => pdf_model::view::ConsoleCommand::Clear,
+                _ => {
+                    return Err(ProtocolError::Unrecognised {
+                        what: "a console request",
+                        value: u32::from(tag),
+                    });
+                }
+            };
+            let at =
+                usize::try_from(reader.u64("a console request's place")?).unwrap_or(usize::MAX);
+            Event::Console {
+                document,
+                request: pdf_model::view::ConsoleRequest { command, at },
             }
         }
         k::SIGNATURE_POLICIES_PUBLISHED => Event::SignaturePoliciesPublished {

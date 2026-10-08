@@ -629,9 +629,10 @@ const PAST_THE_BOUND: [(&str, usize, u8, &str); 8] = [
         "blendmode.pdf p1",
         83,
         3,
-        "single pixels inside the photographs blended under eleven of the sixteen modes and none \
-         in the Normal or Multiply cells: a sample position at a shifted origin, through a blend \
-         function whose slope can exceed one",
+        "single pixels inside the photographs blended under eleven of the sixteen modes: one \
+         photograph's sample moved one level by the shifted origin, through the blend function's \
+         slope at that pixel, which reaches three under ColorDodge and Hue — \
+         `strip_parallelism.rs` holds the sample to its one level (ADR 1768)",
     ),
     (
         "comments.pdf p1",

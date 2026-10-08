@@ -477,3 +477,12 @@ although the worker's own line said `default-features = false` (round 1441, ADR 
 dependency is moved, `cargo +nightly build --release --bin pdf-sandbox-worker --unit-graph -Z
 unstable-options` is read for that package's features on the worker's units; a pin to the release
 commit in git keeps the two copies apart where crates.io would merge them.
+
+## A cache key is a claim about every input the build reads
+
+`shading::Cache` keyed a shading's build without the painting resources' `/ColorSpace` entry, which
+§8.6.5.6 says remaps a device space given inside a shading dictionary, so one shading painted from a
+form with a `/DefaultRGB` and from the page took whichever colours were built first; the image cache
+beside it had the entry in its key (round 1465, ADR 1765). Where a clause resolves a value "through
+the current resource dictionary", that dictionary's entry is in every cache over the value, and a
+fixture paints the same object under two resource dictionaries.

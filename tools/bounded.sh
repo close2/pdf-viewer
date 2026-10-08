@@ -24,6 +24,8 @@
 #   --shards N   this process is one of N run side by side (default 1). It gets nproc/N rayon
 #                threads and (walk budget)/N of data, so the walk as a whole never exceeds the
 #                budget or the machine's cores — eight shards of 24 threads each was the mistake.
+#                A run under --lock gets four rayon threads instead, whatever N: the figure the
+#                merge runs every gate at, and the one each lane's ceiling was measured at.
 #   --data GiB   RLIMIT_DATA for the command and everything it spawns, overriding the share.
 #                On Linux ≥ 4.7 this counts every private anonymous mapping, which is what the
 #                allocator hands out; RLIMIT_AS would count the file mappings and thread stacks a
@@ -368,6 +370,7 @@ lane2_path=$lock_path.lane2
 gate_path=$lock_path.gate
 clock_turn_path=$lock_path.clock
 small_lane_gib=6
+locked_threads=4
 poll_interval=0.5
 
 now_ms() { echo $(( $(date +%s%N) / 1000000 )); }
@@ -978,6 +981,11 @@ case "$shards" in ''|*[!0-9]*|0) echo "bounded: --shards wants a positive intege
 cores=$(nproc)
 threads=$(( cores / shards ))
 [ "$threads" -ge 1 ] || threads=1
+# A walk's peak is the documents in flight, one a thread (ADR 0798), so the lanes' ceilings and the
+# kind a walk declares were measured at the merge's four threads (ADR 1698). A locked run takes that
+# figure rather than the machine's cores: a small walk at 24 threads is not the walk its kind priced,
+# and the rule line no longer has to spell the four for the run to be the one it declared (ADR 1766).
+[ -n "$take_lock" ] && threads=$locked_threads
 if [ -z "$data_gib" ]; then
     data_gib=$(( walk_budget_gib / shards ))
     [ "$data_gib" -ge 1 ] || data_gib=1

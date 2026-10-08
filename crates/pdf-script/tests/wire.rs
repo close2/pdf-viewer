@@ -33,11 +33,13 @@ fn pages() -> Vec<pdf_model::view::PageState> {
             label: Some("iv".to_owned()),
             boxes: [[0.0, 0.0, 612.0, 792.0]; 5],
             rotate: 270,
+            words: Some(vec!["Größe,".to_owned(), "word".to_owned()]),
         },
         pdf_model::view::PageState {
             label: None,
             boxes: [[1.5, -2.0, 3.0, 4.0]; 5],
             rotate: 0,
+            words: None,
         },
     ]
 }
@@ -102,6 +104,10 @@ fn request(site: ScriptSite) -> Request {
             field_full: false,
             change_ex: String::new(),
             source: "Line.1".to_owned(),
+            shift: true,
+            modifier: false,
+            key_down: true,
+            rich_value: "<body><p>é</p></body>".to_owned(),
         },
         fields: vec![FieldState {
             name: "Total.Amount".to_owned(),
@@ -118,6 +124,9 @@ fn request(site: ScriptSite) -> Request {
                     stroke_color: None,
                     border_style: BorderStyle::Underline,
                     alignment: Alignment::Right,
+                    line_width: 2.5,
+                    text_size: Some(0.0),
+                    text_font: "Times-Roman".to_owned(),
                     rect: [1.0, 2.5, 3.0, -4.0],
                     captions: Default::default(),
                     on_state: None,
@@ -129,6 +138,9 @@ fn request(site: ScriptSite) -> Request {
                     stroke_color: Some(Colour::Cmyk([0.0, 0.5, 1.0, 0.0])),
                     border_style: BorderStyle::Beveled,
                     alignment: Alignment::Center,
+                    line_width: 1.0,
+                    text_size: None,
+                    text_font: String::new(),
                     rect: [10.0, 20.0, 30.0, 40.0],
                     captions: ["Yes".to_owned(), String::new(), "Over".to_owned()],
                     on_state: Some("On".to_owned()),
@@ -143,6 +155,15 @@ fn request(site: ScriptSite) -> Request {
         document: Some(DocumentState {
             annotations: annotations(),
             pages: pages(),
+            layers: vec![pdf_model::view::Layer {
+                number: 7,
+                generation: 0,
+                name: "Both".to_owned(),
+                on: true,
+                initially_on: false,
+                locked: false,
+                intent: vec!["View".to_owned(), "Design".to_owned()],
+            }],
             ..DocumentState::default()
         }),
         view: WINDOW,
@@ -219,6 +240,30 @@ fn view_and_option_edits() -> Vec<ScriptEdit> {
         widget: None,
         property: Property::Options(options()),
     }])
+    // The three typographic members and the console's three requests (ADR 1762).
+    .chain(
+        [
+            Property::LineWidth(3.0),
+            Property::TextSize(0.0),
+            Property::TextFont(pdf_model::view::FontName {
+                base: "Times-Roman".to_owned(),
+                resource: String::new(),
+            }),
+        ]
+        .map(|property| ScriptEdit::Property {
+            field: "Colour".to_owned(),
+            widget: Some(0),
+            property,
+        }),
+    )
+    .chain(
+        [
+            pdf_model::view::ConsoleCommand::Show,
+            pdf_model::view::ConsoleCommand::Hide,
+            pdf_model::view::ConsoleCommand::Clear,
+        ]
+        .map(ScriptEdit::Console),
+    )
     .collect()
 }
 

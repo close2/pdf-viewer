@@ -2051,10 +2051,102 @@ fn a_note_s_caret_stands_where_its_window_draws_the_text_and_a_press_there_finds
     );
 }
 
-/// The control (trap 13): a window drawn from Table 172's `/RC` is laid out run by run, so the
-/// plain layout has no place to give and the caret stays at the note's end.
+/// A rich note's caret stands at the glyphs `rich::draw` lays out and on the `/Contents` offsets
+/// their characters are (ADR 1770): every place round-trips through a press, a run twice the
+/// window's size is on the same line as its neighbours, the double space `/Contents` holds where
+/// the window draws one has one place, and a paragraph read right to left places its later
+/// offsets further left.
 #[test]
-fn a_rich_note_s_window_gives_no_place_for_a_caret() {
+fn a_rich_note_s_caret_stands_at_its_glyphs_and_a_press_there_finds_it() {
+    let chrome = Chrome::compiled_in_only().expect("§9.6.2.2's fourteen are compiled in");
+    let run = |text: &str, per_base: f32| pdf_model::popup::RichRun {
+        text: text.to_owned(),
+        families: Vec::new(),
+        size: pdf_model::popup::Measure {
+            per_base,
+            points: 0.0,
+        },
+        bold: false,
+        italic: false,
+        colour: None,
+        underlines: 0,
+        underline_by_word: false,
+        line_through: false,
+        rise: pdf_model::popup::Measure::default(),
+        letter_spacing: pdf_model::popup::RichSpacing::default(),
+        horizontal_scale: 1.0,
+        vertical_scale: 1.0,
+    };
+    let paragraph = |runs| pdf_model::popup::RichParagraph {
+        align: None,
+        level: 0,
+        tag: None,
+        runs,
+        tab_interval: None,
+        tab_stops: Vec::new(),
+    };
+    // "A  red word." then, after a carriage return, a Hebrew word: `/Contents` as a file holds
+    // it, the `/RC` as chapter 27 resolves it.
+    let mut note = window("A  red word.\r\u{5e9}\u{5dc}\u{5d5}\u{5dd}", Some("A"));
+    note.rich = Some(pdf_model::popup::RichNote {
+        paragraphs: vec![
+            paragraph(vec![run("A ", 1.0), run("red", 2.0), run(" word.", 1.0)]),
+            paragraph(vec![run("\u{5e9}\u{5dc}\u{5d5}\u{5dd}", 1.0)]),
+        ],
+        unapplied: Vec::new(),
+    });
+    let caret = |offset| {
+        viewer_ui::chrome::popup_caret(&chrome, &note, offset, 1.0)
+            .unwrap_or_else(|| panic!("a place for offset {offset}"))
+    };
+    let round_trip = |offset| {
+        let ((x, top), (_, bottom)) = caret(offset);
+        assert!(
+            (40.0..=240.0).contains(&x) && top >= 30.0 && bottom <= 150.0,
+            "offset {offset} at {x}, {top}..{bottom} is inside the window"
+        );
+        assert_eq!(
+            viewer_ui::chrome::popup_offset(&chrome, &note, (x, f32::midpoint(top, bottom)), 1.0),
+            Some(offset),
+            "a press on the caret at offset {offset} puts it back there"
+        );
+        (x, top)
+    };
+    let mut previous: Option<(f32, f32)> = None;
+    for offset in [0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] {
+        let (x, top) = round_trip(offset);
+        if let Some((was_x, was_top)) = previous {
+            assert!(
+                x > was_x && (top - was_top).abs() < f32::EPSILON,
+                "offset {offset} is right of the one before it on the same line"
+            );
+        }
+        previous = Some((x, top));
+    }
+    // The line is as tall as its tallest run, so the caret reaches its em.
+    let ((_, top), (_, bottom)) = caret(0);
+    assert!(bottom - top > 2.0 * 12.0, "{top}..{bottom}");
+    assert_eq!(
+        caret(2),
+        caret(1),
+        "the double space has one place each side"
+    );
+    let first_top = previous.map_or(0.0, |(_, top)| top);
+    let mut previous: Option<f32> = None;
+    for offset in [13, 15, 17, 19, 21] {
+        let (x, top) = round_trip(offset);
+        assert!(top > first_top, "the second paragraph is on a line below");
+        if let Some(was_x) = previous {
+            assert!(x < was_x, "offset {offset} is left of the one before it");
+        }
+        previous = Some(x);
+    }
+}
+
+/// The control (trap 13): a window whose `/RC` holds characters `/Contents` does not has no place
+/// to give, and the caret stays at the note's end.
+#[test]
+fn a_rich_note_that_is_not_its_contents_gives_no_place_for_a_caret() {
     let chrome = Chrome::compiled_in_only().expect("§9.6.2.2's fourteen are compiled in");
     let plain = window("A red word.", Some("A"));
     assert!(viewer_ui::chrome::popup_caret(&chrome, &plain, 2, 1.0).is_some());

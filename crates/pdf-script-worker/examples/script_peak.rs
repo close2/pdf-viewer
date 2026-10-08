@@ -94,6 +94,8 @@ fn measure(index: usize) {
         dirty: false,
         document: None,
         view: pdf_model::view::WindowView::default(),
+        keys: pdf_model::view::Keys::default(),
+        rich_value: "",
     };
     let request = Request::of(&event, 0, 0);
     let started = std::time::Instant::now();

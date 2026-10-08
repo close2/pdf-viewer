@@ -256,6 +256,105 @@ pub fn right_to_left(paragraph: &pdf_model::popup::RichParagraph) -> bool {
         .is_some_and(|levels| levels.paragraph_level(0) % 2 == 1)
 }
 
+/// Where each character boundary of a rich note's paragraphs falls in the window's text, Table
+/// 166's `/Contents`: one table per paragraph, indexed by the byte of the paragraph's runs' text
+/// taken together, each entry a byte offset into `contents`. `None` where the two do not hold the
+/// same characters in the same order.
+///
+/// **What a caret placed in a window drawn from `/RC` stands in is `/Contents`**: the text a
+/// person retypes is the note's `/Contents` (ADR 1721), and `pdf_model::popup` shows the `/RC`
+/// only where its words are `/Contents`' words — §12.5.6.2's NOTE 1 expects the two entries to
+/// be textually equivalent, and where they are not the plain text is drawn (ADR 1635). So every
+/// character that is not white space is the same character on both sides, in the same order, and
+/// it is the white space that differs: chapter 27 has resolved the string's, a paragraph is a
+/// break `/Contents` spells as a carriage return or a line feed, and a tab is a stop the string
+/// counted. A run of white space the window draws holds its places in step with the run
+/// `/Contents` has at that point, one character for one, and its last place is the end of
+/// `/Contents`' run whatever their lengths — the plain window's rule, where white space it draws
+/// as one space has one place each side of it (ADR 1739). The one alignment, made once, for every
+/// window that places a caret over a rich note (ADR 1770).
+#[must_use]
+pub fn rich_offsets(contents: &str, note: &pdf_model::popup::RichNote) -> Option<Vec<Vec<usize>>> {
+    let mut at = 0_usize;
+    let mut tables = Vec::with_capacity(note.paragraphs.len());
+    for paragraph in &note.paragraphs {
+        let text: String = paragraph.runs.iter().map(|run| run.text.as_str()).collect();
+        let mut table = vec![at; text.len().saturating_add(1)];
+        let characters: Vec<(usize, char)> = text.char_indices().collect();
+        let mut index = 0;
+        while let Some(&(byte, character)) = characters.get(index) {
+            if character.is_whitespace() {
+                // The window's run of white space, and the one `/Contents` has here.
+                let run_end = (index..characters.len())
+                    .find(|&next| characters.get(next).is_none_or(|(_, c)| !c.is_whitespace()))
+                    .unwrap_or(characters.len());
+                let theirs: Vec<usize> = contents
+                    .get(at..)
+                    .unwrap_or_default()
+                    .chars()
+                    .take_while(|c| c.is_whitespace())
+                    .map(char::len_utf8)
+                    .collect();
+                let whole: usize = theirs.iter().sum();
+                for (step, &(place, _)) in characters
+                    .get(index..run_end)
+                    .unwrap_or_default()
+                    .iter()
+                    .enumerate()
+                {
+                    let held: usize = theirs.iter().take(step).sum();
+                    if let Some(entry) = table.get_mut(place) {
+                        *entry = at.saturating_add(held.min(whole));
+                    }
+                }
+                at = at.saturating_add(whole);
+                let after = characters
+                    .get(run_end)
+                    .map_or(text.len(), |(place, _)| *place);
+                if let Some(entry) = table.get_mut(after) {
+                    *entry = at;
+                }
+                index = run_end;
+                continue;
+            }
+            // A paragraph's first character comes after the break `/Contents` spells as white
+            // space; nowhere else can `/Contents` hold white space the window's text does not.
+            let skipped: usize = contents
+                .get(at..)
+                .unwrap_or_default()
+                .chars()
+                .take_while(|c| c.is_whitespace())
+                .map(char::len_utf8)
+                .sum();
+            at = at.saturating_add(skipped);
+            if contents.get(at..)?.chars().next()? != character {
+                return None;
+            }
+            if let Some(entry) = table.get_mut(byte) {
+                *entry = at;
+            }
+            at = at.saturating_add(character.len_utf8());
+            let next = byte.saturating_add(character.len_utf8());
+            // The bytes inside the character, and the boundary after it.
+            for entry in table
+                .get_mut(byte.saturating_add(1)..=next)
+                .unwrap_or_default()
+            {
+                *entry = at;
+            }
+            index = index.saturating_add(1);
+        }
+        tables.push(table);
+    }
+    // Whatever `/Contents` holds past the window's last character is white space, or the two are
+    // not one text.
+    contents
+        .get(at..)?
+        .chars()
+        .all(char::is_whitespace)
+        .then_some(tables)
+}
+
 /// Whether a run states chapter 27's `xfa-font-horizontal-scale` or `xfa-font-vertical-scale`
 /// (page 1202) as anything but its whole size.
 #[must_use]
@@ -868,6 +967,58 @@ mod tests {
             horizontal_scale: 1.0,
             vertical_scale: 1.0,
         }
+    }
+
+    /// A note of two paragraphs, each of the given runs.
+    fn paragraphs(texts: &[&[&str]]) -> pdf_model::popup::RichNote {
+        pdf_model::popup::RichNote {
+            paragraphs: texts
+                .iter()
+                .map(|runs| pdf_model::popup::RichParagraph {
+                    align: None,
+                    level: 0,
+                    tag: None,
+                    runs: runs.iter().map(|text| run(text)).collect(),
+                    tab_interval: None,
+                    tab_stops: Vec::new(),
+                })
+                .collect(),
+            unapplied: Vec::new(),
+        }
+    }
+
+    /// Every character that is not white space is placed on itself in `/Contents`, across runs
+    /// and paragraphs; a run of white space holds its places one for one with `/Contents`' and
+    /// ends where that run ends; a note whose characters are not `/Contents`' has no places
+    /// (ADR 1770).
+    #[test]
+    fn a_rich_note_s_places_are_its_contents_offsets() {
+        // `/Contents` has a double space where the window draws one, and a carriage return
+        // where the window starts a paragraph; "é" is two bytes on both sides.
+        let contents = "ab  cé\rd\te";
+        let note = paragraphs(&[&["ab ", "cé"], &["d\te"]]);
+        let tables = super::rich_offsets(contents, &note).unwrap_or_default();
+        assert_eq!(tables.len(), 2);
+        let first = tables.first().cloned().unwrap_or_default();
+        // a b ␠ c é(2) — boundaries 0 1 2 3 4 6.
+        assert_eq!(first.first(), Some(&0));
+        assert_eq!(first.get(1), Some(&1));
+        assert_eq!(
+            first.get(2),
+            Some(&2),
+            "before the space is the end of the word"
+        );
+        assert_eq!(first.get(3), Some(&4), "after it is the start of the next");
+        assert_eq!(first.get(4), Some(&5));
+        assert_eq!(first.get(6), Some(&7), "after the two-byte letter");
+        let second = tables.get(1).cloned().unwrap_or_default();
+        assert_eq!(second.first(), Some(&8), "past the carriage return");
+        assert_eq!(second.get(1), Some(&9));
+        assert_eq!(second.get(2), Some(&10), "a tab for a tab");
+        assert_eq!(second.get(3), Some(&11));
+        assert_eq!(super::rich_offsets("ab cx\rd e", &note), None);
+        assert_eq!(super::rich_offsets("ab cé d e more", &note), None);
+        assert!(super::rich_offsets("  ab cé d\te \n", &note).is_some());
     }
 
     /// A letter spacing in points is points whatever the base and pixels where the host draws

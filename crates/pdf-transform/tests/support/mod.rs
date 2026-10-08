@@ -192,7 +192,10 @@ pub(crate) fn oracle(bytes: &[u8], index: usize) -> pdf_render::Raster {
     let list = interpretation.display_list;
     // ISO 32000-2 §8.3.2.3: 72 user-space units to the inch, so 150 dpi is 150/72.
     let target = pdf_render::TargetSpec::for_page(&list, 150.0 / 72.0, 1 << 28).expect("a target");
+    // The count `quorra-transform render` states, so that the comparison is of the program's
+    // pixels and not of two answers from whichever machine runs it (ADRs 1742, 1769).
     render_cpu::CpuRasterizer::new()
+        .with_strips(render_cpu::MAX_STRIPS)
         .rasterize(&list, target)
         .expect("drawn")
 }

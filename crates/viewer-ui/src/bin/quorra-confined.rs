@@ -970,6 +970,17 @@ impl Host {
                     )
                 );
             }
+            // Pinned to `off` as for a sound; the arm says so rather than receiving a newer
+            // worker's event in silence (ADR 1771).
+            Event::Console { document, request } => {
+                eprintln!(
+                    "note: {}",
+                    viewer_host::script_timers::console(
+                        &format!("document {}", document.0),
+                        request
+                    )
+                );
+            }
             Event::ScriptQuestionWithdrawn { .. } => {
                 eprintln!(
                     "note: a script's question was withdrawn, and this window had answered it \

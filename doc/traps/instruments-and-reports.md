@@ -1268,6 +1268,11 @@ it over the old one, and keep the exec bit: a Python rename lost it, and the que
 of queue for an exit 126. The side lesson from the same drive: a new fixture's name must not reuse an
 existing control's, which it silently overwrites — the control's step turned wrong.
 
+The third instance: round 1464 edited `tools/drive-windows.sh` while a whole drive of it held the
+lock, and the run died at line 3152 with a syntax error after every verdict had been written. A
+script is never edited while a run of it holds the lock; the edit goes to a copy, or waits for the
+hold to end.
+
 ### 131. A daemon started inside the lock keeps it after the walk
 
 An `sccache` server started by a `cargo` command inside round 1412's hold inherited the wrapper's

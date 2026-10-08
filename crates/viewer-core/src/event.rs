@@ -310,6 +310,18 @@ pub enum Event {
         /// Which sound it asked for.
         sound: pdf_model::view::Sound,
     },
+    /// A document's script asked something of the host's console: `console.show`, `hide` or
+    /// `clear` (ADRs 1762, 1771).
+    ///
+    /// The console is the host's, as a sound is: a host that shows script lines in a pane carries
+    /// the request out against [`pdf_model::view::ConsoleRequest::at`], and one whose console is
+    /// its log says what it did with it — never silence.
+    Console {
+        /// Which document's script.
+        document: DocumentId,
+        /// What it asked, and at which of the document's script sentences.
+        request: pdf_model::view::ConsoleRequest,
+    },
     /// An operation the document restricts was performed, and this is what the document said —
     /// the answer of [`crate::RestrictionLevel::Warn`], and the *warn before the operation* level
     /// of `CLAUDE.md`'s four.

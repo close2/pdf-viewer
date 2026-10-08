@@ -98,12 +98,12 @@ Each `AccessibilityNode` naming a text field or a combo box carries the field's 
 the shape `Answer::Fields` gives it, read through the view's state, which only the confined side
 holds; it crosses in the node's encoding, and no message was added (ADR 1489). Beside it,
 `value_lines` carries where §12.7.4.3's layout placed each character of that value, in the shape and
-under the invariant of the node's own `lines`; the greeting moved then (ADR 1501), and is `PDFVCF12`
+under the invariant of the node's own `lines`; the greeting moved then (ADR 1501), and is `PDFVCF13`
 since a rich paragraph's tab stops cross with it with their leaders (ADRs 1666, 1679), a located
 point's `/DCS` reading in either of Table 269's shapes (ADR 1678), a text note's retyping and the
 note a popup window names (ADR 1726), and §12.8.3.4.4's published policy copies, the event
 `Event::SignaturePoliciesPublished` that every window answers under the submissions level (ADR
-1738). Where the
+1738), and a script's keys and console requests (ADR 1771). Where the
 viewport sits in the window is a host's to say, and `quorra-gtk` says it to the bridge
 (`Reading::at`), never to the core: it is a fact about the toolkit's layout, and no message was added
 (ADR 1516).
@@ -268,6 +268,18 @@ both toolkits and the confined window — `QUORRA_EVENT_KIND_COUNT` moved 25 →
 gained `quorra_timer_due` and `QUORRA_EVENT_BEEP`; `QUORRA_ABI_VERSION` did not move. And because
 a window now ticks while a person reads, a tick advances §12.4.4.1's `/Dur` only under
 `Command::Present(On)`, the clause's own condition.
+
+**And a script's keys added a `Command`, and its console an `Event`** (ADR 1771), on that pattern.
+`event.shift`, `event.modifier` and `event.keyDown` are facts only a host has, so
+`Command::Keys(pdf_model::view::Keys)` carries them, sent by each window as Shift or Control
+changes — `quorra` at winit's `ModifiersChanged`, GTK and Qt read off the keyboard before each
+pointer message — and held for every open document and every one opened after. `console.show`,
+`hide` and `clear` are `Event::Console { document, request }`, a host's act as a sound is; every
+window's console is its log, so each says the request by name. The wire, the trace line, both
+toolkits and the confined window failed to compile (command kind 41, event kind 27);
+`QUORRA_EVENT_KIND_COUNT` moved 27 → **28** and the C ABI gained `QUORRA_EVENT_CONSOLE` and no
+entry point for the keys, since a session supplies no runner and nothing there reads them.
+`QUORRA_ABI_VERSION` did not move.
 
 **And the one-thousand-and-eighty-seventh added one `Command` and one entry point, on exactly that
 pattern, for §8.10.4's reference `XObject`s.** The clause writes a `shall` for a processor that

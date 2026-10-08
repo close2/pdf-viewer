@@ -266,7 +266,10 @@ nesting bounded before it is parsed (ADR 1626), the worker built with the engine
 note's `/RC` are drawn in their formatting**, because Table 228's `/RV` and `/DS`, Table 177's `/RC`
 and `/DS` and Table 231 bit 26 are ISO 32000-2's own rich text string and not the XFA template
 architecture `CLAUDE.md` excludes: XFA 3.3's Rich Text Reference is held and each run is set in the
-face, size, width, colour, alignment, spacing, tab stops and leaders it states, with every list
+face, size, width, colour, alignment, spacing, tab stops and leaders it states — and, where it asks
+for pair kerning, kerned by the pairs a face the document embeds states, under the script its
+characters select and the language system its annotation's language names (ADRs 1682, 1696,
+1708) — with every list
 type chapter 27 requires — in a comb's cells, in UAX #9's order, a tab moving to the stop on the
 left where its paragraph reads that way, a character no run's face draws set in a machine's face
 beside the runs, with a host's caret, point and range answered from the runs — a changed rich value
@@ -330,7 +333,7 @@ whose appearance this program did not construct, by §12.7.4.2's fully qualified
 leaving the reader to find out from the file (ADR 1159). Every annotation that update writes carries Table 166's `/M` where a
 host has said what time it is, and none where none has: the renderer has no clock, so the instant
 arrives as `Command::Clock` the way every other fact about the reader's machine does (ADR 1160).
-**No window has a gesture for the attach yet**, by the owner's word
+**No window has a gesture for the attach**, by the owner's word
 that the flows are being reviewed as mockups first; the C ABI has `quorra_attach` and `quorra_detach`,
 because an ABI has no gestures.
 
@@ -743,9 +746,8 @@ pass.
   than about the tree**: a C ABI writes its entry points as `pub unsafe extern "C" fn` by the
   hundred, which is what a C ABI is, and the crates that lift the denial are read off the test
   rather than counted here — `only_the_three_named_crates_in_the_tree_lift_the_denial`.
-  It brought **`crates/viewer-host`**,
-  because the second host wanted four of `viewer-gtk`'s modules unchanged — the panel rows, the
-  control decision, §12.7.6.4's file policy and the launch timeline named no GTK type. ADR 0246.
+  **`crates/viewer-host`** holds what the hosts decide alike and no toolkit type names — the panel
+  rows, the control decision, §12.7.6.4's file policy and the launch timeline among them. ADR 0246.
   **`viewer-host` also decides the *shape* of a thread for both hosts**:
   Rust never calls a Qt object here, so a finished page cannot be pushed into `QApplication::exec`
   and is *pulled* instead, on a timer whose interval `viewer-host` decides and each toolkit arms —
@@ -1001,6 +1003,13 @@ the new bytes do not support — and all of it reaches a reader rather than only
 still does not do**, it says that too: Table 255's `/V 1` states that "the Reference dictionary
 shall be considered critical to the validation of the signature", so a `/Reference` naming any
 *other* transform method is named in the note beside the questions that were answered (ADR 0637).
+**And a signature's policy is named, and its published copy checked against what the signer
+signed**: §12.8.3.4.4's explicit-policy profile carries a signature-policy identifier under CAdES's
+rules, and `pdf_signature::policy` reads it per signature as far as the held texts reach, every
+sentence saying the policy's constraints were not enforced (ADRs 1219, 1709); the copy at the URL
+the signer's qualifier names is fetched in every window only at the reader's submissions level,
+compared with the digest the signer signed, and opened beside the document only where it binds
+(ADRs 1728, 1738), and a C caller that fetched one itself hands the bytes in to be bound (ADR 1753).
 
 **Two more of §12.8's questions are answered from the file rather than from a network.**
 `pdf_signature::revocation` reads §12.8.4's document security store and §12.8.3.3.2's archival

@@ -489,11 +489,7 @@ impl ApplicationHandler for App {
 
             // Remembered rather than read at the wheel, because winit puts no modifier state in
             // the wheel's own event.
-            WindowEvent::ModifiersChanged(modifiers) => {
-                let held = modifiers_held(modifiers.state());
-                self.control = held.ctrl;
-                self.shift = held.shift;
-            }
+            WindowEvent::ModifiersChanged(modifiers) => self.modifiers_changed(modifiers.state()),
 
             WindowEvent::RedrawRequested => self.redraw_requested(),
 
@@ -511,6 +507,23 @@ impl ApplicationHandler for App {
 }
 
 impl App {
+    /// Shift and Control as the window holds them, remembered for this host's own keys and told to
+    /// the core as they change: a script reads them at its event, Control being the reference's
+    /// modifier here (ADRs 1762, 1771).
+    fn modifiers_changed(&mut self, state: winit::keyboard::ModifiersState) {
+        let held = modifiers_held(state);
+        if (held.shift, held.ctrl) == (self.shift, self.control) {
+            return;
+        }
+        self.control = held.ctrl;
+        self.shift = held.shift;
+        self.dispatch(Command::Keys(pdf_model::view::Keys {
+            shift: held.shift,
+            modifier: held.ctrl,
+            arrows: false,
+        }));
+    }
+
     /// A key press that reached the window, in the order the chrome over the page claims it.
     ///
     /// **The ordering is this host's and the meaning is not** (ADR 0526). Which widget has the

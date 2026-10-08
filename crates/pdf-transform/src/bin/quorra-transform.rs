@@ -740,7 +740,12 @@ fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
                 page_box,
                 annotations: !arguments.switch("--no-annotations"),
                 names: names("render")?,
-                strips: None,
+                // Stated rather than asked of the machine, because the bytes written must be the
+                // plan's: RFC 0002 section 9's first layer makes the same sources under the same
+                // plan the same bytes, and a page's pixels follow its strip count (ADR 0219).
+                // Sixteen is what every machine of sixteen CPUs or more already drew, and the count
+                // `tests/gate.rs` measures its floor at (ADR 1769).
+                strips: Some(render_cpu::MAX_STRIPS),
             }))
         }
         "images" => {

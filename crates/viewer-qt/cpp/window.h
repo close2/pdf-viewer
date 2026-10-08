@@ -43,6 +43,8 @@ class QTreeView;
 
 namespace quorra_qt {
 
+class RichNoteView;
+
 /// One of `viewer-core`'s three panel answers, as a Qt item model.
 ///
 /// **This is the shape Qt demanded that GTK did not.** `GtkTreeListModel` asks a closure for a
@@ -259,8 +261,10 @@ class PopupWindow : public QFrame
 public:
     /// Builds one window from what the host answered. Placed by the caller with `setGeometry`.
     /// `pressed` runs when a person presses a window whose text they may retype, and the window
-    /// takes no press otherwise (ADR 1726).
-    PopupWindow(const QtPopup& window, QWidget* parent, std::function<void()> pressed);
+    /// takes no press otherwise (ADR 1726); it is handed the position in the rich note's document
+    /// the press was on, or -1 where the window is plain or the press was on no character
+    /// (ADR 1770).
+    PopupWindow(const QtPopup& window, QWidget* parent, std::function<void(int)> pressed);
 
 protected:
     /// The paper is the palette's; the one-pixel edge is drawn here, over it (ADR 1466).
@@ -270,7 +274,9 @@ protected:
 
 private:
     /// What a press does, where the window's text is retyped.
-    std::function<void()> pressed_;
+    std::function<void(int)> pressed_;
+    /// The rich note's view, where the window is drawn from Table 172's `/RC`.
+    RichNoteView* rich_ = nullptr;
     /// `viewer_host::popup::EDGE`.
     QColor edge_;
 };
@@ -286,6 +292,9 @@ public:
     /// Builds the document from `paragraphs`, set in `font` where a run states nothing.
     RichNoteView(const rust::Vec<QtRichParagraph>& paragraphs, const QFont& font, QWidget* parent);
     ~RichNoteView() override;
+    /// The document position of the character at `point`, in this widget's coordinates, as the
+    /// document's own layout places it; -1 below the last line (ADR 1770).
+    int positionAt(QPoint point) const;
 
 protected:
     /// Lays the document out at the widget's width, inside its padding, and draws it.
@@ -450,7 +459,9 @@ private:
     /// §12.5.6.14's popup "shall be used for editing the parent's text": an editor in the note's
     /// window's place, holding its text, every change sent whole (ADR 1726). Escape, or the window
     /// closing, gives the keyboard back to the page.
-    void editNote(const QtPopup& window);
+    void editNote(const QtPopup& window, int position);
+    /// Tells the host the keyboard's Shift and Control before a pointer message (ADR 1771).
+    void keys();
     /// Takes the note's editor away.
     void endNote();
     /// §7.6.4.1's prompt, in a window of the platform's own.

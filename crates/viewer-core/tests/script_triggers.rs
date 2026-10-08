@@ -308,3 +308,217 @@ fn a_links_click_hands_its_script_to_the_runner() {
         "{events:?}"
     );
 }
+
+/// A runner that writes the widget's field at every event, which changes what the page draws.
+#[derive(Debug)]
+struct Writing;
+
+impl ScriptRunner for Writing {
+    fn run(&self, event: &ScriptEvent<'_>) -> ScriptResult {
+        ScriptResult {
+            rc: true,
+            value: None,
+            change: None,
+            edits: vec![pdf_model::view::ScriptEdit::Value {
+                field: "Name".to_owned(),
+                value: event.script.to_owned(),
+            }],
+            report: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Writers;
+
+impl ScriptRunners for Writers {
+    fn runner(&self) -> Arc<dyn ScriptRunner> {
+        Arc::new(Writing)
+    }
+}
+
+/// The ink each render request a pointer message asked for was of.
+fn inks(events: &[Event]) -> Vec<u64> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            Event::NeedsRender(request) => Some(request.ink),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A `/E` script that changes nothing a page draws leaves the page as it was interpreted: the
+/// cursor entering the widget asks for no render, where the same entry under a runner that writes
+/// the field asks for one of new ink (ADR 1771).
+#[test]
+fn a_script_that_changes_nothing_drawn_does_not_interpret_the_page_again() {
+    let handed = Handed::default();
+    let mut viewer = opened(Some(&handed));
+    let (on, beside) = (on_widget(&viewer), beside_widget(&viewer));
+    point(&mut viewer, beside, PointerAction::Moved);
+    let quiet = point(&mut viewer, on, PointerAction::Moved);
+    assert!(
+        handed
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .any(|(site, _)| *site == ScriptSite::Annotation(Trigger::Enter)),
+        "the /E script was handed over"
+    );
+    assert_eq!(inks(&quiet), Vec::<u64>::new(), "{quiet:?}");
+
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Scripts(Scripting::Run(Arc::new(Writers))))
+        .for_each(drop);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: two_pages().into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    viewer.handle(Command::Presented).for_each(drop);
+    point(&mut viewer, beside, PointerAction::Moved);
+    let written = point(&mut viewer, on, PointerAction::Moved);
+    assert_eq!(inks(&written).len(), 1, "{written:?}");
+}
+
+/// A runner whose every script asks the console to be shown, then cleared.
+#[derive(Debug)]
+struct Consoling;
+
+impl ScriptRunner for Consoling {
+    fn run(&self, _: &ScriptEvent<'_>) -> ScriptResult {
+        ScriptResult {
+            rc: true,
+            value: None,
+            change: None,
+            edits: vec![
+                pdf_model::view::ScriptEdit::Console(pdf_model::view::ConsoleCommand::Show),
+                pdf_model::view::ScriptEdit::Console(pdf_model::view::ConsoleCommand::Clear),
+            ],
+            report: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Consolers;
+
+impl ScriptRunners for Consolers {
+    fn runner(&self) -> Arc<dyn ScriptRunner> {
+        Arc::new(Consoling)
+    }
+}
+
+/// A script's `console.show` and `console.clear` reach the host as `Event::Console`, in the order
+/// asked, after the command whose script asked; and nothing the page draws changed (ADR 1771).
+#[test]
+fn a_scripts_console_requests_reach_the_host_in_order() {
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Scripts(Scripting::Run(Arc::new(Consolers))))
+        .for_each(drop);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: two_pages().into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    viewer.handle(Command::Presented).for_each(drop);
+    let (on, beside) = (on_widget(&viewer), beside_widget(&viewer));
+    point(&mut viewer, beside, PointerAction::Moved);
+    let entered = point(&mut viewer, on, PointerAction::Moved);
+    let asked: Vec<pdf_model::view::ConsoleCommand> = entered
+        .iter()
+        .filter_map(|event| match event {
+            Event::Console { document, request } if *document == DOCUMENT => Some(request.command),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        asked,
+        vec![
+            pdf_model::view::ConsoleCommand::Show,
+            pdf_model::view::ConsoleCommand::Clear
+        ],
+        "{entered:?}"
+    );
+    assert_eq!(inks(&entered), Vec::<u64>::new(), "{entered:?}");
+}
+
+/// Every key state a runner was handed at an event.
+type KeysSeen = Arc<Mutex<Vec<pdf_model::view::Keys>>>;
+
+/// A runner that records the keys each event carried.
+#[derive(Debug)]
+struct KeyReading(KeysSeen);
+
+impl ScriptRunner for KeyReading {
+    fn run(&self, event: &ScriptEvent<'_>) -> ScriptResult {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(event.keys);
+        ScriptResult {
+            rc: true,
+            value: None,
+            change: None,
+            edits: Vec::new(),
+            report: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct KeyReaders(KeysSeen);
+
+impl ScriptRunners for KeyReaders {
+    fn runner(&self) -> Arc<dyn ScriptRunner> {
+        Arc::new(KeyReading(Arc::clone(&self.0)))
+    }
+}
+
+/// The keys a host last sent are what a script reads at the event the pointer raises next, and
+/// in a document opened after they were sent (ADR 1771).
+#[test]
+fn a_script_reads_the_keys_the_host_last_sent() {
+    let seen = KeysSeen::default();
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Scripts(Scripting::Run(Arc::new(KeyReaders(
+            Arc::clone(&seen),
+        )))))
+        .for_each(drop);
+    let held = pdf_model::view::Keys {
+        shift: true,
+        modifier: true,
+        arrows: false,
+    };
+    viewer.handle(Command::Keys(held)).for_each(drop);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: two_pages().into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    viewer.handle(Command::Presented).for_each(drop);
+    let (on, beside) = (on_widget(&viewer), beside_widget(&viewer));
+    point(&mut viewer, beside, PointerAction::Moved);
+    seen.lock().unwrap_or_else(PoisonError::into_inner).clear();
+    point(&mut viewer, on, PointerAction::Moved);
+    viewer
+        .handle(Command::Keys(pdf_model::view::Keys::default()))
+        .for_each(drop);
+    point(&mut viewer, beside, PointerAction::Moved);
+    let read: Vec<pdf_model::view::Keys> =
+        seen.lock().unwrap_or_else(PoisonError::into_inner).clone();
+    assert_eq!(read, vec![held, pdf_model::view::Keys::default()]);
+}

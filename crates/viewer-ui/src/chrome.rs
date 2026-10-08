@@ -3093,14 +3093,15 @@ fn draw_plain(
 }
 
 /// Where a caret at byte `offset` of a note's window text stands, as the top and the bottom of a
-/// line in the window's own pixels — or `None` where [`popup_windows`] does not draw that text as
-/// plain lines or the place is below the window's bottom edge.
+/// line in the window's own pixels — or `None` where the window has no place for one or the place
+/// is below the window's bottom edge.
 ///
-/// **The same layout [`draw_plain`] draws**, read out of [`plain_carets`] rather than worked out
-/// a second time, so that the caret cannot stand where the next character does not go (ADR
-/// 1739). A window whose text is Table 172's `/RC` is laid out by `rich::draw` run by run, and its
-/// caret stays at the note's end, ringed; a white-space run the layout collapses to one space has
-/// one place for a caret, at the space.
+/// **The same layout [`popup_windows`] draws**, read out of [`popup_carets`] rather than worked
+/// out a second time, so that the caret cannot stand where the next character does not go (ADR
+/// 1739): [`draw_plain`]'s lines for Table 166's `/Contents`, and `rich::draw`'s glyphs for a
+/// window drawn from Table 172's `/RC`, each glyph's edges placed on the `/Contents` offsets its
+/// characters are (ADR 1770). A white-space run the layout draws as one space has one place for a
+/// caret each side of the space.
 #[must_use]
 pub fn popup_caret(
     chrome: &Chrome,
@@ -3108,14 +3109,13 @@ pub fn popup_caret(
     offset: usize,
     scale: f32,
 ) -> Option<((f32, f32), (f32, f32))> {
-    let size = TEXT_SIZE * scale;
-    let carets = plain_carets(chrome, window, scale)?;
+    let carets = popup_carets(chrome, window, scale)?;
     let nearest = carets
         .iter()
         .min_by_key(|caret| caret.offset.abs_diff(offset))?;
     Some((
-        (nearest.x, nearest.baseline - size),
-        (nearest.x, nearest.baseline + size * 0.25),
+        (nearest.x, nearest.baseline - nearest.height),
+        (nearest.x, nearest.baseline + nearest.height * 0.25),
     ))
 }
 
@@ -3129,12 +3129,11 @@ pub fn popup_offset(
     at: (f32, f32),
     scale: f32,
 ) -> Option<usize> {
-    let size = TEXT_SIZE * scale;
-    let carets = plain_carets(chrome, window, scale)?;
-    // The line whose band — the caret's own extent, `baseline - size` to `baseline + size / 4` —
-    // is nearest the press, and the nearest place on it.
+    let carets = popup_carets(chrome, window, scale)?;
+    // The line whose band — the caret's own extent, `baseline - height` to
+    // `baseline + height / 4` — is nearest the press, and the nearest place on it.
     let band = |caret: &PopupCaret| {
-        let middle = caret.baseline - size * 0.375;
+        let middle = caret.baseline - caret.height * 0.375;
         (at.1 - middle).abs()
     };
     let line = carets
@@ -3156,22 +3155,21 @@ struct PopupCaret {
     x: f32,
     /// The baseline of its line.
     baseline: f32,
+    /// How far its line reaches above the baseline: the text size for a plain line, the tallest
+    /// em for a rich one.
+    height: f32,
 }
 
 /// Every place a caret can stand in a note's window text, in the layout [`draw_popup`] gives it:
-/// each paragraph split where [`draw_plain`] splits it, collapsed and wrapped by [`Wrapped`], one
-/// place per character boundary of each line drawn above the window's bottom edge. `None` for a
-/// window whose text is not drawn plain.
-fn plain_carets(
+/// [`plain_carets`] for a window drawn from `/Contents`, [`rich_carets`] for one drawn from
+/// `/RC`. `None` for a window too narrow to hold text.
+fn popup_carets(
     chrome: &Chrome,
     popup: &viewer_core::PopupWindow,
     scale: f32,
 ) -> Option<Vec<PopupCaret>> {
     let placed = viewer_host::popup::windows(std::slice::from_ref(popup));
     let window = placed.first()?;
-    if window.rich.is_some() {
-        return None;
-    }
     let (x, y, w, h) = window.place;
     let size = TEXT_SIZE * scale;
     let padding = POPUP_PADDING * scale;
@@ -3180,10 +3178,65 @@ fn plain_carets(
         return None;
     }
     let bottom = y + h - padding;
-    let mut line = y + size * POPUP_TITLE_HEIGHT + size;
+    let line = y + size * POPUP_TITLE_HEIGHT + size;
+    let box_ = (x + padding, line, room, bottom);
+    match window.rich {
+        Some(note) => rich_carets(chrome, window.text, note, box_, scale),
+        None => Some(plain_carets(chrome, window.text, box_, size)),
+    }
+}
+
+/// The places of a window drawn from Table 172's `/RC`: each glyph `rich::draw` lays out above the
+/// window's bottom edge has one at each edge of its stored characters, at the `/Contents` offsets
+/// `viewer_host::popup::rich_offsets` aligns them to, and a line that draws nothing has one at its
+/// start (ADR 1770). `None` where the note's characters are not `/Contents`' — `pdf_model::popup`
+/// draws the plain text then, so a window reaching here with that is a disagreement nobody drew,
+/// and it keeps the caret at the end, as a window with no layout does.
+fn rich_carets(
+    chrome: &Chrome,
+    contents: &str,
+    note: &pdf_model::popup::RichNote,
+    (left, line, room, bottom): (f32, f32, f32, f32),
+    scale: f32,
+) -> Option<Vec<PopupCaret>> {
+    let size = TEXT_SIZE * scale;
+    let tables = viewer_host::popup::rich_offsets(contents, note)?;
+    // The box `draw_body` hands `rich::draw`, whose top is where the first line's em begins.
+    let glyphs = rich::placed(chrome, note, (left, line - size, room, bottom), size, scale);
+    let mut carets = Vec::with_capacity(glyphs.len().saturating_mul(2));
+    for glyph in glyphs {
+        let Some(table) = tables.get(glyph.paragraph) else {
+            continue;
+        };
+        for (byte, x) in [
+            (glyph.stored.start, glyph.edges.0),
+            (glyph.stored.end, glyph.edges.1),
+        ] {
+            if let Some(&offset) = table.get(byte) {
+                carets.push(PopupCaret {
+                    offset,
+                    x,
+                    baseline: glyph.baseline,
+                    height: glyph.height,
+                });
+            }
+        }
+    }
+    Some(carets)
+}
+
+/// The places of a window drawn from Table 166's `/Contents`: each paragraph split where
+/// [`draw_plain`] splits it, collapsed and wrapped by [`Wrapped`], one place per character
+/// boundary of each line drawn above the window's bottom edge.
+fn plain_carets(
+    chrome: &Chrome,
+    text: &str,
+    (left, mut line, room, bottom): (f32, f32, f32, f32),
+    size: f32,
+) -> Vec<PopupCaret> {
     let mut carets = Vec::new();
     let mut start = 0_usize;
-    for paragraph in window.text.split(['\r', '\n']) {
+    for paragraph in text.split(['\r', '\n']) {
         let wrapped = Wrapped::new(chrome, paragraph, size, room);
         // Each word's place in the paragraph as written and in the collapsed text the lines are
         // cut from, which differ wherever the paragraph has a run of white space.
@@ -3211,7 +3264,7 @@ fn plain_carets(
         };
         for range in &wrapped.lines {
             if line > bottom {
-                return Some(carets);
+                return carets;
             }
             let text = wrapped.text.get(range.clone()).unwrap_or_default();
             let boundaries = text
@@ -3221,8 +3274,9 @@ fn plain_carets(
             for at in boundaries {
                 carets.push(PopupCaret {
                     offset: start.saturating_add(written_at(range.start.saturating_add(at))),
-                    x: x + padding + chrome.caret(text, at, size, Style::default()),
+                    x: left + chrome.caret(text, at, size, Style::default()),
                     baseline: line,
+                    height: size,
                 });
             }
             line += size * 1.25;
@@ -3230,7 +3284,7 @@ fn plain_carets(
         // The separator is one byte, `\r` or `\n`, whichever split the paragraph off.
         start = start.saturating_add(paragraph.len()).saturating_add(1);
     }
-    Some(carets)
+    carets
 }
 
 /// Breaks a paragraph into lines that fit `room`, at word boundaries where it can.

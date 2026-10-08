@@ -308,6 +308,11 @@ pub struct PageState {
     pub boxes: [[f64; 4]; 5],
     /// Table 31's `/Rotate`, inherited and normalised to 0, 90, 180 or 270.
     pub rotate: u16,
+    /// The page's words as `getPageNumWords` counts them and `getPageNthWord` answers them, in
+    /// the order the content stream shows them: `None` where they were not read — no script of
+    /// the document has spelled either member, or the page lies past what the reading reached
+    /// (ADR 1762).
+    pub words: Option<Vec<String>>,
 }
 
 impl PageState {
@@ -327,6 +332,7 @@ impl PageState {
             label,
             boxes: Self::BOXES.map(|boundary| page.boundary(boundary).map(f64::from)),
             rotate: page.rotate,
+            words: None,
         }
     }
 }
@@ -438,6 +444,10 @@ pub struct Layer {
     pub initially_on: bool,
     /// Whether Table 99's `/Locked` names it, so that no person's switch changes it.
     pub locked: bool,
+    /// Table 96's `/Intent`, each name's characters in the order the entry lists them: what
+    /// `OCG.getIntent` answers (ADR 1762). Table 96 makes the default `View`, so a group stating
+    /// none, or stating a value that is neither a name nor an array of names, holds `["View"]`.
+    pub intent: Vec<String>,
 }
 
 impl ScriptSite {
@@ -812,6 +822,17 @@ pub struct WidgetState {
     pub border_style: BorderStyle,
     /// `Field.alignment`: Table 228's `/Q`, read up from the widget.
     pub alignment: Alignment,
+    /// `Field.lineWidth`: Table 168's `/W` of the widget's `/BS`, in points; Table 166's `/Border`
+    /// third element where the widget states no `/BS` (§12.5.4), and 1 — both tables' default —
+    /// where it states neither.
+    pub line_width: f64,
+    /// `Field.textSize`: the size operand of the `Tf` in Table 228's `/DA`, read up from the
+    /// widget; 0 is §12.7.4.3's auto-size. `None` where the `/DA` holds no `Tf`.
+    pub text_size: Option<f64>,
+    /// `Field.textFont`: the font the `/DA`'s `Tf` names — the `/BaseFont` of the resource it
+    /// names in the form's `/DR` where that resolves, the resource name otherwise; empty where
+    /// the `/DA` holds no `Tf` (ADR 1762).
+    pub text_font: String,
     /// `Field.rect`: Table 166's `/Rect`.
     pub rect: [f64; 4],
     /// `Field.buttonGetCaption`'s three captions, in [`Face`] order: Table 192's `/CA`, `/AC` and
@@ -834,6 +855,9 @@ impl WidgetState {
             Property::StrokeColor(colour) => self.stroke_color = Some(*colour),
             Property::BorderStyle(style) => self.border_style = *style,
             Property::Alignment(alignment) => self.alignment = *alignment,
+            Property::LineWidth(width) => self.line_width = *width,
+            Property::TextSize(size) => self.text_size = Some(*size),
+            Property::TextFont(font) => self.text_font.clone_from(&font.base),
             Property::Caption(face, caption) => {
                 if let Some(slot) = self.captions.get_mut(face.index()) {
                     slot.clone_from(caption);
@@ -863,6 +887,9 @@ impl Default for WidgetState {
             stroke_color: None,
             border_style: BorderStyle::Solid,
             alignment: Alignment::Left,
+            line_width: 1.0,
+            text_size: None,
+            text_font: String::new(),
             rect: [0.0; 4],
             captions: Default::default(),
             on_state: None,
@@ -889,6 +916,12 @@ pub enum Property {
     BorderStyle(BorderStyle),
     /// `alignment`.
     Alignment(Alignment),
+    /// `lineWidth`: Table 168's `/W`, in points (ADR 1762).
+    LineWidth(f64),
+    /// `textSize`: the `Tf` size of Table 228's `/DA`, 0 being §12.7.4.3's auto-size (ADR 1762).
+    TextSize(f64),
+    /// `textFont`: the `Tf` font of Table 228's `/DA`, a resource of the form's `/DR` (ADR 1762).
+    TextFont(FontName),
     /// `charLimit`.
     CharLimit(u32),
     /// One of Table 231's text field flags set or cleared.
@@ -931,6 +964,9 @@ impl Property {
             Self::StrokeColor(_) => "strokeColor",
             Self::BorderStyle(_) => "borderStyle",
             Self::Alignment(_) => "alignment",
+            Self::LineWidth(_) => "lineWidth",
+            Self::TextSize(_) => "textSize",
+            Self::TextFont(_) => "textFont",
             Self::CharLimit(_) => "charLimit",
             Self::TextFlag(flag, _) => flag.adobe(),
             Self::Caption(..) => "buttonSetCaption",
@@ -951,6 +987,9 @@ impl Property {
             | Self::StrokeColor(_)
             | Self::BorderStyle(_)
             | Self::Alignment(_)
+            | Self::LineWidth(_)
+            | Self::TextSize(_)
+            | Self::TextFont(_)
             | Self::Caption(..)
             | Self::Style(_) => true,
             Self::ReadOnly(_)
@@ -1080,6 +1119,86 @@ pub enum ScriptEdit {
         /// What the script changed.
         change: ViewChange,
     },
+    /// `console.show`, `console.hide` or `console.clear`: a request to the host's console, which
+    /// shows what scripts log (ADR 1762).
+    Console(ConsoleCommand),
+}
+
+/// What a script asked of the host's console (ADR 1762): Adobe's "console methods", each a
+/// documented choice under principle 5.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConsoleCommand {
+    /// `console.show`: the console is shown.
+    Show,
+    /// `console.hide`: the console is closed.
+    Hide,
+    /// `console.clear`: what the console shows is cleared.
+    Clear,
+}
+
+/// A request to the host's console as a view state holds it until a host takes it (ADR 1762).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConsoleRequest {
+    /// What the script asked.
+    pub command: ConsoleCommand,
+    /// How many of [`ViewState::script_reports`]'s sentences stood when the request was applied:
+    /// a host whose console shows those sentences clears the ones before this index, and the
+    /// lines the same run logged after its `clear` come after it.
+    pub at: usize,
+}
+
+/// What the host's keyboard held at the event a script runs for: Adobe's `event.shift`,
+/// `event.modifier` and `event.keyDown`, which a host tells the view state of
+/// ([`ViewState::set_keys`], ADR 1762).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Keys {
+    /// Whether a shift key is down.
+    pub shift: bool,
+    /// Whether the platform's modifier key is down: Control here, as on Adobe's Microsoft Windows
+    /// platform, since the reference names none for this platform (ADR 1762).
+    pub modifier: bool,
+    /// Whether an arrow key made a list box's or a combo box's pop-up selection; a host sets it
+    /// only with that keystroke, and it is read only at a choice field's keystroke.
+    pub arrows: bool,
+}
+
+/// A font a script named for `Field.textFont`, as the form's `/DR` holds it (ADR 1762).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FontName {
+    /// What `textFont` reads back: the resource's `/BaseFont`, or the resource name.
+    pub base: String,
+    /// The resource name a `/DA`'s `Tf` names it by: a key of `/DR`'s `/Font`, as its bytes'
+    /// characters. Empty in what a realm sends: the view state finds the resource.
+    pub resource: String,
+}
+
+impl ScriptEdit {
+    /// Whether applying this edit can change what a page draws, so that a host draws it again
+    /// (ADR 1762). A value, a property, a reset, a layer, an annotation and a choice each can; a
+    /// focus, a page turn, a view change, a destination, a timer and a beep are requests a host
+    /// carries out on its own, and `calculate` turning the walk on or off writes no value until a
+    /// walk runs. A value written over an equal one is counted where the view state reads it.
+    #[must_use]
+    pub fn redraws(&self) -> bool {
+        match self {
+            Self::Property { .. }
+            | Self::Reset { .. }
+            | Self::Layer { .. }
+            | Self::Annotation { .. }
+            | Self::Choose { .. }
+            | Self::Calculate => true,
+            Self::Value { .. }
+            | Self::Focus { .. }
+            | Self::GoTo { .. }
+            | Self::Timer { .. }
+            | Self::ClearTimer { .. }
+            | Self::Beep { .. }
+            | Self::Destination { .. }
+            | Self::Calculation { .. }
+            | Self::View { .. }
+            | Self::Console(_) => false,
+        }
+    }
 }
 
 /// One change a script asked of the window's view (ADR 1736).
@@ -1420,6 +1539,7 @@ impl ViewState {
         }
         // Table 228's `/DA` and `/Q` are inheritable and Table 224 states the form's default for
         // each, so each is read up this widget's own chain.
+        let tf = tf_of(document, &field.ancestry, form);
         Some(WidgetState {
             display,
             text_color: match inherited(document, &field.ancestry, form, "DA") {
@@ -1434,6 +1554,13 @@ impl ViewState {
                 Some(2) => Alignment::Right,
                 _ => Alignment::Left,
             },
+            line_width: line_width_of(document, widget),
+            text_size: tf.as_ref().and_then(|(_, size)| *size),
+            text_font: tf
+                .as_ref()
+                .and_then(|(font, _)| font.as_ref())
+                .map(|name| base_font_of(document, form, name))
+                .unwrap_or_default(),
             rect: rect_of(document, widget),
             captions: captions_of(document, &characteristics),
             on_state: match field.kind {
@@ -1501,6 +1628,9 @@ impl ViewState {
             }
         }
         state.pages = page_states(document);
+        for (index, page) in state.pages.iter_mut().enumerate() {
+            page.words = self.words_of(index);
+        }
         let Some(content) = self.optional_content.as_ref() else {
             return state;
         };
@@ -1534,6 +1664,7 @@ impl ViewState {
                     .and_then(|opened| opened.state(group))
                     .unwrap_or(on),
                 locked: content.is_locked(group),
+                intent: intent_of(document, group),
             });
         }
         state
@@ -1557,6 +1688,7 @@ fn page_states(document: &Document) -> Vec<PageState> {
                     label: label.clone(),
                     boxes: [[0.0; 4]; 5],
                     rotate: 0,
+                    words: None,
                 },
                 |page| PageState::of(&page, label.clone()),
             )
@@ -1629,6 +1761,89 @@ fn text_colour(bytes: &[u8]) -> Option<Colour> {
         }
     }
     colour
+}
+
+/// Table 168's `/W` of a widget's `/BS`, or the third element of Table 166's `/Border`, or 1.
+///
+/// §12.5.4: "If neither the Border nor the BS entry is present, the border shall be drawn as a
+/// solid line with a width of 1 point"; and Table 166's note on `/Border` makes `/BS` the one that
+/// counts where both are present: "If an annotation dictionary includes the BS entry, then the
+/// Border entry is ignored." A negative or non-finite width is no width and reads as the default.
+fn line_width_of(document: &Document, widget: &Dictionary) -> f64 {
+    let finite = |width: f64| (width.is_finite() && width >= 0.0).then_some(width);
+    if let Some(style) = document.get_key(widget, "BS").as_dict() {
+        return document
+            .get_key(style, "W")
+            .as_number()
+            .and_then(finite)
+            .unwrap_or(1.0);
+    }
+    if let Object::Array(border) = document.get_key(widget, "Border")
+        && let Some(width) = border
+            .get(2)
+            .and_then(|item| document.resolve(item).as_number())
+    {
+        return finite(width).unwrap_or(1.0);
+    }
+    1.0
+}
+
+/// The font name and size of the `Tf` in Table 228's `/DA`, read up the field's chain and then
+/// from the form, where the string holds one.
+fn tf_of(
+    document: &Document,
+    ancestry: &[Dictionary],
+    form: Option<&Dictionary>,
+) -> Option<(Option<pdf_syntax::Name>, Option<f64>)> {
+    let Object::String(bytes) = inherited(document, ancestry, form, "DA") else {
+        return None;
+    };
+    let parsed = crate::variable_text::DefaultAppearance::parse(&bytes);
+    parsed.font.as_ref()?;
+    Some((parsed.font, parsed.size.map(f64::from)))
+}
+
+/// What `textFont` reads for a `/DA` font resource: the `/BaseFont` of the font the form's `/DR`
+/// gives that name, or the name's own characters where it gives none.
+fn base_font_of(document: &Document, form: Option<&Dictionary>, name: &pdf_syntax::Name) -> String {
+    form.and_then(|form| document.get_key(form, "DR").as_dict().cloned())
+        .and_then(|resources| document.get_key(&resources, "Font").as_dict().cloned())
+        .and_then(|fonts| fonts.get_by_name(name).map(|font| document.resolve(font)))
+        .and_then(|font| {
+            font.as_dict()
+                .map(|font| document.get_key(font, "BaseFont"))
+        })
+        .and_then(|base| base.as_name().cloned())
+        .map_or_else(
+            || String::from_utf8_lossy(name.as_bytes()).into_owned(),
+            |base| String::from_utf8_lossy(base.as_bytes()).into_owned(),
+        )
+}
+
+/// Table 96's `/Intent` of a group, as `OCG.getIntent` answers it.
+///
+/// Table 96: "A single name or an array of names that represent the intended use of the graphics
+/// in the group." Its default is `View`, so a group stating none — or a value of another kind —
+/// answers that.
+fn intent_of(document: &Document, group: ObjectId) -> Vec<String> {
+    let text = |name: &pdf_syntax::Name| String::from_utf8_lossy(name.as_bytes()).into_owned();
+    let stated = document
+        .get(group)
+        .as_dict()
+        .map(|dictionary| document.get_key(dictionary, "Intent"));
+    let names: Vec<String> = match stated {
+        Some(Object::Name(name)) => vec![text(&name)],
+        Some(Object::Array(items)) => items
+            .iter()
+            .filter_map(|item| document.resolve(item).as_name().map(text))
+            .collect(),
+        _ => Vec::new(),
+    };
+    if names.is_empty() {
+        vec!["View".to_owned()]
+    } else {
+        names
+    }
 }
 
 /// A widget's Table 166 `/Rect`, or the empty rectangle where it states none readably.

@@ -429,6 +429,13 @@ pub enum Command {
     /// computed is on the page; a document asked under [`crate::Scripting::Ask`] keeps its answer
     /// (ADR 1616).
     Scripts(crate::Scripting),
+    /// What the window's keyboard holds: Adobe's `event.shift`, `event.modifier` and
+    /// `event.keyDown`, which a script reads at the event it runs for (ADRs 1762, 1771).
+    ///
+    /// A fact only a host has — no state machine over a file knows which keys are down — so a
+    /// host sends it whenever it changes, before the pointer or key that raises an event; every
+    /// open document's view state and every one opened afterwards holds it until it is sent again.
+    Keys(pdf_model::view::Keys),
     /// The person's answer to [`crate::Event::AskingToRunScripts`].
     ///
     /// [`Self::Answer`]'s shape, for a question about the document's scripts rather than about an

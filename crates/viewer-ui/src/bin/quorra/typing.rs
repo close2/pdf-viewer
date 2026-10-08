@@ -631,9 +631,10 @@ impl App {
     /// retypes, and the window's focus ring says it has the keyboard. **The caret goes where the
     /// press went**: this host lays a note's lines out itself, so the place is
     /// `chrome::popup_offset` over the layout `chrome::popup_windows` draws — the same lines, so
-    /// the caret stands where the next character goes. A window drawn from Table 172's `/RC` has
-    /// no such place and keeps its caret at the note's end (ADR 1739). A window whose text is not
-    /// retyped takes the press as before.
+    /// the caret stands where the next character goes (ADR 1739). A window drawn from Table 172's
+    /// `/RC` places it the same way, at the glyphs its runs lay out, on the `/Contents` offsets
+    /// their characters are (ADR 1770). A window whose text is not retyped takes the press as
+    /// before.
     pub(crate) fn press_on_note(&mut self, at: (f32, f32)) -> bool {
         let Answer::Popups(windows) = self.viewer.query(Query::Popups) else {
             return false;

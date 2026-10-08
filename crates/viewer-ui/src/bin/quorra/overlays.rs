@@ -338,8 +338,8 @@ impl App {
             .typing
             .filter(|typing| typing.note().is_some() == in_a_window)?;
         // A note's caret is in its window, which this host lays out, so the place is the window's
-        // own layout's (ADR 1739); `Query::Caret` answers for what is on the page under it. A
-        // window drawn from `/RC` has no place to give and shows the keyboard by its ring alone.
+        // own layout's (ADR 1739), a rich window's glyphs included (ADR 1770); `Query::Caret`
+        // answers for what is on the page under it.
         let (from, to) = if let Some(note) = typing.note() {
             let chrome = self.chrome.as_ref()?;
             let scale = self.window().map_or(1.0, |(_, _, scale)| scale);

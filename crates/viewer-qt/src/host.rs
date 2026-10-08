@@ -476,6 +476,8 @@ pub struct Host {
     /// Kept so that the cursor is changed when the answer changes rather than on every motion
     /// event, which is the same economy `viewer-gtk` makes for the same reason.
     over_link: bool,
+    /// The keys the core was last told of (ADR 1771).
+    keys_told: pdf_model::view::Keys,
     /// What has changed since the C++ side last asked.
     update: QtUpdate,
     /// Table 29's `/PageMode /FullScreen`, §12.2's chrome flags, and the way back out.
@@ -691,6 +693,7 @@ impl Host {
             placed: Vec::new(),
             popups_shown: Vec::new(),
             over_link: false,
+            keys_told: pdf_model::view::Keys::default(),
             update: nothing_changed(),
             presented: false,
             accessibility: None,
@@ -1595,6 +1598,20 @@ impl Host {
         }
     }
 
+    /// The keyboard's Shift and Control, told to the core where they changed since it was last
+    /// told (ADRs 1762, 1771).
+    pub(crate) fn keys(&mut self, shift: bool, control: bool) {
+        let keys = pdf_model::view::Keys {
+            shift,
+            modifier: control,
+            arrows: false,
+        };
+        if keys != self.keys_told {
+            self.keys_told = keys;
+            self.dispatch(Command::Keys(keys));
+        }
+    }
+
     /// The pointer moved or a button changed.
     pub(crate) fn pointer(&mut self, x: f32, y: f32, action: u8) {
         let action = match action {
@@ -1710,6 +1727,70 @@ impl Host {
             annotation: pdf_syntax::ObjectId::new(number, generation),
             text: text.to_owned(),
         }));
+    }
+
+    /// Where a press on a note's rich window puts the caret in its `/Contents`: `position` is the
+    /// place `QTextDocument`'s own layout found under the press, in the document
+    /// `rich_paragraphs` built, and the answer is the `/Contents` offset of that character in
+    /// UTF-16 units, which is what the plain editor counts; -1 where there is none (ADR 1770).
+    ///
+    /// The document's text is every paragraph's runs as handed over — a list item's tag first,
+    /// and a tab taken out where the paragraph's tabs advance by nothing — with one separator
+    /// between paragraphs and each XHTML `br` a block separator of its own, every one a single
+    /// unit; the runs' own characters are aligned to `/Contents` by
+    /// `viewer_host::popup::rich_offsets`, as in the other two windows.
+    pub(crate) fn note_place(&self, number: u32, generation: u16, position: i32) -> i32 {
+        let note = pdf_syntax::ObjectId::new(number, generation);
+        let place = (|| {
+            let window = self
+                .popups_shown
+                .iter()
+                .find(|window| window.note == Some(note))?;
+            let contents = window.text.as_deref().unwrap_or_default();
+            let rich = window.rich.as_ref()?;
+            let tables = viewer_host::popup::rich_offsets(contents, rich)?;
+            let mut left = usize::try_from(position).ok()?;
+            for (paragraph, (stated, handed)) in rich
+                .paragraphs
+                .iter()
+                .zip(rich_paragraphs(rich, 10.0, 1.0))
+                .enumerate()
+            {
+                let texts: Vec<&str> = handed.runs.iter().map(|run| run.text.as_str()).collect();
+                let units: usize = texts.iter().map(|text| text.encode_utf16().count()).sum();
+                if left > units {
+                    // Past this paragraph and the separator after it.
+                    left = left.saturating_sub(units.saturating_add(1));
+                    continue;
+                }
+                let skipped = usize::from(handed.tagged);
+                let tag_units: usize = texts
+                    .iter()
+                    .take(skipped)
+                    .map(|text| text.encode_utf16().count())
+                    .sum();
+                let mut within = left.saturating_sub(tag_units);
+                // Walk the stated runs' characters, skipping a tab the handed text does not hold,
+                // until `within` units of the handed text are behind.
+                let advances = viewer_host::popup::advances(stated);
+                let mut byte = 0_usize;
+                for run in &stated.runs {
+                    for character in run.text.chars() {
+                        if within == 0 {
+                            break;
+                        }
+                        if character != '\t' || advances {
+                            within = within.saturating_sub(character.len_utf16());
+                        }
+                        byte = byte.saturating_add(character.len_utf8());
+                    }
+                }
+                let offset = *tables.get(paragraph)?.get(byte)?;
+                return i32::try_from(contents.get(..offset)?.encode_utf16().count()).ok();
+            }
+            None
+        })();
+        place.unwrap_or(-1)
     }
 
     /// Says that a note's window took the keyboard, or that the page has it again (ADR 1726).
@@ -4248,6 +4329,11 @@ impl Host {
             // `app.beep`: `QApplication::beep`, the one system sound, whichever of the five was
             // asked for — a flag for `clipboard`'s reason, since Rust never calls Qt (ADR 1702).
             Event::Beep { document, sound } => self.beep(document, sound),
+            // This window's console is its log, so the request is said (ADR 1771).
+            Event::Console { document, request } => self.say(&viewer_host::script_timers::console(
+                &self.documents.label_of(document),
+                request,
+            )),
             // §7.11.4's list moved under the files tab: rebuilt from the same answer it was
             // built from, which is the only thing a window may do here this round — display
             // the list it already shows.

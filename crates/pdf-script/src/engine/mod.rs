@@ -32,6 +32,7 @@ mod choices;
 mod guard;
 mod members;
 mod pages;
+mod util;
 mod window;
 
 use std::cell::{Cell, RefCell};
@@ -581,6 +582,19 @@ impl Record {
         if self.notes.len() < MAX_NOTES {
             self.notes
                 .push(sentence.chars().take(MAX_LOG_CHARACTERS).collect());
+        }
+    }
+
+    /// Forgets the lines this run logged so far: a `console.clear` clears them with the console
+    /// (ADR 1762).
+    pub(crate) fn clear_log(&mut self) {
+        self.log.clear();
+    }
+
+    /// Records an edit that changes nothing the realm's table holds.
+    pub(crate) fn push_edit(&mut self, edit: ScriptEdit) {
+        if self.edits.len() < MAX_EDITS {
+            self.edits.push(edit);
         }
     }
 

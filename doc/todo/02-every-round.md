@@ -30,7 +30,8 @@ reads the section below it only where a line here sends it (ADR 1639).
    `cargo nextest run -p <crate>` for each crate you touched; `cargo test -p conformance`. Tier 2
    only for the subsystem the change reaches, by section 2's rule list and map, behind the lock,
    each run declaring its kind: `--tree 6` for a walk under 6 GiB, `--clock` for one whose verdict
-   is a time (ADR 1684).
+   is a time (ADR 1684), `--long` for a campaign or a census whose length is its own choice, which
+   holds the second lane only (ADR 1756).
    Tier 3 is the merge's. **A figure a gate already holds is read from the gate's band, ratchet or
    held list, not re-measured**; a round re-measures what its change can move.
 4. **Paperwork is one new record** `doc/history/<session>-<slug>.md` of at most forty lines with a
