@@ -7365,6 +7365,176 @@ fn a_text_note_with_no_popup_is_opened_and_closed_by_its_activation() {
     );
 }
 
+/// A 300×300 page carrying a text note with no `/Popup`, open; a text note replying to it that
+/// states no `/Popup` either; and a square whose own popup is open. Objects 5, 6, 7 and 8.
+fn with_a_note_its_reply_and_a_square() -> Vec<u8> {
+    use std::fmt::Write as _;
+
+    let body = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] \
+         /Resources << >> /Contents 4 0 R /Annots [5 0 R 6 0 R 7 0 R 8 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /Annot /Subtype /Text /Rect [10 260 30 280] /T (the author) \
+         /Contents (a note of its own) /Open true >>\nendobj\n\
+         6 0 obj\n<< /Type /Annot /Subtype /Text /Rect [40 260 60 280] /T (a second reader) \
+         /Contents (a reply) /IRT 5 0 R >>\nendobj\n\
+         7 0 obj\n<< /Type /Annot /Subtype /Square /Rect [10 10 60 60] /Contents (a square) \
+         /Popup 8 0 R >>\nendobj\n\
+         8 0 obj\n<< /Type /Annot /Subtype /Popup /Rect [70 10 200 90] /Parent 7 0 R \
+         /Open true >>\nendobj\n";
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// Opens `bytes` into a 400×400 viewport and settles the first frame.
+fn viewer_of(bytes: Vec<u8>) -> Viewer {
+    let mut viewer = Viewer::new(400, 400, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: bytes.into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    viewer
+}
+
+/// The open windows, by the annotation each is keyed by.
+fn popup_windows(viewer: &Viewer) -> Vec<viewer_core::PopupWindow> {
+    let Answer::Popups(windows) = viewer.query(Query::Popups) else {
+        panic!("a popup query answers with popups");
+    };
+    windows
+}
+
+#[test]
+fn a_reply_that_states_no_popup_is_a_comment_in_the_window_of_what_it_answers() {
+    // Table 172's `/RT` `R`: "Interactive PDF processors shall not display replies to an
+    // annotation individually but together in the form of threaded comments" — and `/Popup` is
+    // optional, so a reply without one is shown in the thread of the note it answers, which is the
+    // note's own window here (ADRs 1723, 1727).
+    let mut viewer = viewer_of(with_a_note_its_reply_and_a_square());
+    let windows = popup_windows(&viewer);
+    assert_eq!(
+        windows.len(),
+        2,
+        "the note's window and the square's: {windows:?}"
+    );
+    let note = &windows[0];
+    assert_eq!(note.annotation, pdf_syntax::ObjectId::new(5, 0));
+    assert_eq!(note.replies.len(), 1, "{:?}", note.replies);
+    let reply = &note.replies[0];
+    assert_eq!(reply.annotation, pdf_syntax::ObjectId::new(6, 0));
+    assert_eq!(reply.depth, 1);
+    assert_eq!(reply.text.as_deref(), Some("a reply"));
+    assert_eq!(reply.title.as_deref(), Some("a second reader"));
+    assert!(
+        windows
+            .iter()
+            .all(|window| window.annotation != pdf_syntax::ObjectId::new(6, 0)),
+        "and the reply has no window of its own"
+    );
+    // §12.5.1's activation of the reply exhibits the thread's window, which is the note's.
+    viewer
+        .handle(Command::Activate(pdf_syntax::ObjectId::new(6, 0)))
+        .for_each(drop);
+    assert!(
+        popup_windows(&viewer)
+            .iter()
+            .all(|window| window.annotation != pdf_syntax::ObjectId::new(5, 0)),
+        "activating the reply put the note's window away"
+    );
+}
+
+#[test]
+fn a_note_is_retyped_through_its_window_and_saved_as_its_contents() {
+    // §12.5.6.14's popup "shall be used for editing the parent's text": the window names the note,
+    // the edit names it back, and §7.5.6's update writes Table 166's `/Contents` (ADR 1726).
+    let mut viewer = viewer_of(with_a_note_its_reply_and_a_square());
+    let windows = popup_windows(&viewer);
+    let note = pdf_syntax::ObjectId::new(5, 0);
+    assert_eq!(
+        windows[0].note,
+        Some(note),
+        "the note's own window retypes the note"
+    );
+    viewer
+        .handle(Command::Edit(Edit::SetNoteText {
+            annotation: note,
+            text: "retyped".to_owned(),
+        }))
+        .for_each(drop);
+    assert_eq!(popup_windows(&viewer)[0].text.as_deref(), Some("retyped"));
+    let events: Vec<_> = viewer.handle(Command::Save).collect();
+    let Some(Event::Saved { bytes, .. }) = events
+        .iter()
+        .find(|event| matches!(event, Event::Saved { .. }))
+    else {
+        panic!("{events:?}")
+    };
+    let again = viewer_of(bytes.clone());
+    assert_eq!(
+        popup_windows(&again)[0].text.as_deref(),
+        Some("retyped"),
+        "a reader that never saw this session reads the retyping"
+    );
+    // And an undo takes it back, as every edit's.
+    viewer.handle(Command::Undo).for_each(drop);
+    assert_eq!(
+        popup_windows(&viewer)[0].text.as_deref(),
+        Some("a note of its own")
+    );
+}
+
+#[test]
+fn a_window_whose_text_is_not_a_note_s_offers_no_retyping_and_refuses_one() {
+    // The square's popup shows the square's `/Contents`, which this program does not retype
+    // (ADR 1721): its window names no note, and an edit naming the square is said, not logged.
+    let mut viewer = viewer_of(with_a_note_its_reply_and_a_square());
+    let windows = popup_windows(&viewer);
+    let square = windows
+        .iter()
+        .find(|window| window.annotation == pdf_syntax::ObjectId::new(8, 0))
+        .expect("the square's popup is open");
+    assert_eq!(square.note, None);
+    let events: Vec<_> = viewer
+        .handle(Command::Edit(Edit::SetNoteText {
+            annotation: pdf_syntax::ObjectId::new(7, 0),
+            text: "retyped".to_owned(),
+        }))
+        .collect();
+    assert!(
+        events.iter().any(|event| matches!(
+            event,
+            Event::Reported { notes, .. } if notes.iter().any(|note| note.contains("nothing was retyped"))
+        )),
+        "{events:?}"
+    );
+    let square = popup_windows(&viewer)
+        .into_iter()
+        .find(|window| window.annotation == pdf_syntax::ObjectId::new(8, 0))
+        .and_then(|window| window.text);
+    assert_eq!(square.as_deref(), Some("a square"));
+}
+
 /// §12.5.6.10: a person marks up what they selected, and undo takes it away again.
 ///
 /// The first edit that *adds* an object to a document rather than changing one it holds, which

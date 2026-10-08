@@ -98,9 +98,10 @@ Each `AccessibilityNode` naming a text field or a combo box carries the field's 
 the shape `Answer::Fields` gives it, read through the view's state, which only the confined side
 holds; it crosses in the node's encoding, and no message was added (ADR 1489). Beside it,
 `value_lines` carries where §12.7.4.3's layout placed each character of that value, in the shape and
-under the invariant of the node's own `lines`; the greeting moved then (ADR 1501), and is `PDFVCF10`
-since a rich paragraph's tab stops cross with it with their leaders (ADRs 1666, 1679) and a located
-point's `/DCS` reading in either of Table 269's shapes (ADR 1678). Where the
+under the invariant of the node's own `lines`; the greeting moved then (ADR 1501), and is `PDFVCF11`
+since a rich paragraph's tab stops cross with it with their leaders (ADRs 1666, 1679), a located
+point's `/DCS` reading in either of Table 269's shapes (ADR 1678), and a text note's retyping and the
+note a popup window names (ADR 1726). Where the
 viewport sits in the window is a host's to say, and `quorra-gtk` says it to the bridge
 (`Reading::at`), never to the core: it is a fact about the toolkit's layout, and no message was added
 (ADR 1516).
@@ -716,6 +717,21 @@ annotation is named by **object** where a field is named by §12.7.4.2's qualifi
 annotation has no name for anything to address it by. And an annotation the *file* states is
 deliberately not answered by `Query::FreeTextAt` at all: appending an object is the writing
 `CLAUDE.md` permits and replacing the producer's is a decision nobody has made.
+
+**And §12.5.6.4's note, retyped in its own window** (ADR 1726): `Edit::SetNoteText { annotation,
+text }`, and one field, `PopupWindow::note`. §12.5.6.14's popup "shall be used for editing the
+parent's text", and the view state already held a note's retyping (`set_note_text`, ADR 1721); what
+no host had was a way to name the note, because a window is keyed by its popup and a text note is
+one of several things a window's text can be. So the answer says it — the note the window's text is,
+or `None` for any other markup annotation's window, which a host offers no keyboard to — and the edit
+names it back, by object for `SetFreeText`'s reason. A note's caret is the toolkit's in the two
+native windows, which place a text view over the window, and at the note's end in `quorra`, which
+lays the window's lines out itself and asks the core no point for an offset. The confined wire, which
+matches `Edit` whole and spells a `PopupWindow` field by field, failed to compile, the greeting moved, `QUORRA_EVENT_KIND_COUNT` stayed where it was, and the C ABI gained
+`quorra_popup_note` and `quorra_set_note_text`, with four more for a tab stop's leader
+(`quorra_popup_rich_leader`, `_leader_text`, `quorra_leader_cycles`, `quorra_rule_pieces`), which
+crosses now as the toolkits receive it. §12.5.6.2's reply that states no `/Popup` needed no message
+at all: it is a comment in `PopupWindow::replies` like any other (ADR 1727).
 
 **And §7.11.4's file since the eight-hundred-and-eighty-fifth** (ADR 0814), which is the third
 kind of thing an `Edit` adds: not a value put into something the document holds, and not an

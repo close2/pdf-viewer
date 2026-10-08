@@ -359,3 +359,9 @@ the next line — and a `queue_resize` issued inside the allocation was dropped,
 effect while the label kept its old height. The construction that works: the widget being measured is
 the overlay's main child, a `GtkDrawingArea` over it (drawing nothing, taking no pointer) reports its
 `resize`, and the label is re-measured once from an idle callback (ADR 1690).
+
+The second instance: a threaded popup's column under an overlay was cut off below the window's edge
+in `quorra-gtk`, because an overlay child holding wrapped text is allocated the height it prefers at
+its narrowest width; the column now sits in a scrolled window that scrolls nothing, and only the
+drive's photograph of step 65 saw the clipping (round 1445, ADR 1727).
+

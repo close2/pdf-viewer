@@ -28,8 +28,10 @@
 
 mod annotations;
 mod bridge;
+mod choices;
 mod guard;
 mod members;
+mod pages;
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
@@ -360,6 +362,9 @@ pub(crate) struct Table {
     /// The key an interval or timeout object holds its number under: a symbol of the realm's, so
     /// that no property a script adds to the object can meet it (ADR 1702).
     pub(crate) timer_key: Option<boa_engine::JsSymbol>,
+    /// Whether a script set `this.calculate` false, which the realm reads back for its lifetime
+    /// as the view state holds it (ADR 1724).
+    pub(crate) calculations_off: bool,
 }
 
 /// One run's record.

@@ -423,6 +423,14 @@ tab in a right-to-left paragraph; in `quorra-gtk` a font scale) is said under
 the note. A text note that states no popup opens a window of its own beside its icon, three inches
 by two, where the file's `/Open`, a click or a script's `popupOpen` opens it (ADR 1723).
 
+**A text note is retyped in its window** (ADR 1726): a press on an open window whose text is a
+§12.5.6.4 note gives it the keyboard — a text view over the window in `quorra-gtk` and `quorra-qt`,
+the window's focus ring and a caret at the note's end in `quorra` — every change is the note's
+`/Contents`, an undo takes it back, a save writes it with the producer's icon kept, and Escape gives
+the keyboard back to the page. Another markup annotation's window takes no press. A reply that states
+no popup of its own is a comment in the window of the note it answers (ADR 1727), in all three, and
+`tools/drive-windows.sh` steps 64 and 65 drive both; `quorra-confined` draws no popup window.
+
 **A measured point on a geospatial map is written in the file's display system** (Table 269's
 `/DCS`, ADR 1678): beside its latitude and longitude, in degrees where `/DCS` is geographic and as an
 easting and a northing in the system's own unit, to two places, where it is projected — in all four

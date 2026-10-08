@@ -675,6 +675,13 @@ pub(crate) enum Done {
         /// What it now says.
         text: String,
     },
+    /// §12.5.6.4's note, retyped: Table 166's `/Contents` of a text annotation the file states.
+    SetNoteText {
+        /// The note.
+        annotation: ObjectId,
+        /// What it now says.
+        text: String,
+    },
     /// §7.11.4's file, put into one of §7.11.4.1's homes — the page and the rectangle resolved,
     /// where the home is a page, out of the viewport the point was measured in.
     ///
@@ -1264,6 +1271,9 @@ impl Open {
             crate::command::Edit::SetFreeText { annotation, text } => {
                 Some(Done::SetFreeText { annotation, text })
             }
+            crate::command::Edit::SetNoteText { annotation, text } => {
+                Some(Done::SetNoteText { annotation, text })
+            }
             crate::command::Edit::FreeText { colour, .. } => {
                 let [from, to] = drag?;
                 let page = self.page(self.page_index)?;
@@ -1385,6 +1395,9 @@ impl Open {
                 }
                 Done::SetFreeText { annotation, text } => {
                     self.view.set_free_text(&self.document, *annotation, text);
+                }
+                Done::SetNoteText { annotation, text } => {
+                    self.view.set_note_text(&self.document, *annotation, text);
                 }
             }
         }

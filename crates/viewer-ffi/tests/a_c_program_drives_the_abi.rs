@@ -67,9 +67,10 @@ fn form_fixture() -> Vec<u8> {
         appearance("0 0 1 rg"),
         appearance("1 1 1 rg"),
         // Table 172's `/RC`: one run red, bold, set in Courier and spaced two points (ADR 1655),
-        // and a tab at the paragraph's end to its one right-aligned stop (ADR 1667).
+        // and a tab at the paragraph's end to its one right-aligned stop (ADR 1667), a dashed
+        // two-point rule its leader (ADR 1726).
         "<body xmlns=\"http://www.w3.org/1999/xhtml\"><p style=\"tab-interval:36pt;\
-         tab-stops:right 72pt\">a <span style=\"color:#ff0000;font-weight:bold;\
+         tab-stops:right leader(rule(dashed 2pt)) 72pt\">a <span style=\"color:#ff0000;font-weight:bold;\
          font-family:Courier;letter-spacing:2pt\">red</span> word<span \
          style=\"xfa-tab-count:1\"/></p></body>",
     );
@@ -275,6 +276,13 @@ fn what_it_printed(said: &str) {
         // The paragraph's stops as it states them: the interval and one right-aligned stop.
         "rich tabs: 1 stated, interval 1 at 36.0pt",
         "rich tab 0: align 2 at 72.0pt",
+        // Its leader crosses with it (ADR 1726): a rule, dashed, two points thick, and broken
+        // across the stop's 72 points from the margin as a dash every eight — nine pieces, each
+        // a left edge and a width.
+        "rich leader 0: pattern 2 style 1 thickness 1 at 2.0pt; 18 float(s) across 72pt",
+        // The window names its note, object 9, and the note retyped through it is what the
+        // window shows next (ADR 1726).
+        "note 9 0 retyped: \"retyped\"",
         "ok",
     ] {
         assert!(

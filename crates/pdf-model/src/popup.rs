@@ -241,6 +241,8 @@ pub fn popups(document: &Document, page: &Page, view: &crate::view::ViewState) -
     // Two passes, because the second needs to know which windows the page actually shows: the
     // first reads every window the file states and the second threads them.
     let mut read_windows: Vec<(Popup, Option<ObjectId>, usize)> = Vec::new();
+    // Replies that state no window of their own, which are shown in their thread's or nowhere.
+    let mut folded_only: Vec<(Popup, Option<ObjectId>, usize)> = Vec::new();
     for entry in annotations {
         let Some(id) = entry.as_reference() else {
             continue;
@@ -251,6 +253,10 @@ pub fn popups(document: &Document, page: &Page, view: &crate::view::ViewState) -
         };
         let subtype = document.get_key(dict, "Subtype");
         let subtype = subtype.as_name().map(pdf_syntax::Name::as_bytes);
+        if subtype != Some(b"Popup") && is_reply(document, dict) {
+            folded_only.extend(popupless_reply(document, view, id, dict));
+            continue;
+        }
         if subtype == Some(b"Text") {
             read_windows
                 .extend(own_window(document, page, view, id, dict).map(|own| (own, None, 0)));
@@ -293,7 +299,11 @@ pub fn popups(document: &Document, page: &Page, view: &crate::view::ViewState) -
         .collect();
     let mut out: Vec<Popup> = Vec::new();
     let mut folded: Vec<(ObjectId, Comment, bool)> = Vec::new();
-    for (popup, host, depth) in read_windows {
+    let candidates = read_windows
+        .into_iter()
+        .map(|read| (read, true))
+        .chain(folded_only.into_iter().map(|read| (read, false)));
+    for ((popup, host, depth), stands_alone) in candidates {
         // A reply whose host is not one of this page's shown windows has nothing to be displayed
         // *together with*, so it keeps its own: the clause forbids showing replies separately
         // from what they reply to, not showing them at all. A window is never its own host
@@ -315,7 +325,10 @@ pub fn popups(document: &Document, page: &Page, view: &crate::view::ViewState) -
                 },
                 popup.open,
             )),
-            None => out.push(popup),
+            // A reply that states no window has none to keep: it is shown in its thread or not at
+            // all, since displaying it individually is what the clause forbids.
+            None if stands_alone => out.push(popup),
+            None => {}
         }
     }
     // Deepest last, `/Annots` order within a depth — which `sort_by_key` keeps, being stable.
@@ -327,10 +340,56 @@ pub fn popups(document: &Document, page: &Page, view: &crate::view::ViewState) -
         // Table 186's `/Open` of a folded reply opens the thread's window, by
         // `opens_with_the_page`'s reading: each entry states a condition under which a window is
         // open and none states one under which it is closed.
-        window.open = window.open || open;
+        // Each is the file's opinion of the first frame, so a person's or a script's write to the
+        // thread's window since stands over both (ADR 1720).
+        if view.popup_opened(host).is_none() {
+            window.open = window.open || open;
+        }
         window.replies.push(comment);
     }
     out
+}
+
+/// A markup annotation that replies to another and states no `/Popup` of its own, read as the
+/// comment it is in its thread's window, with that window and its depth (ADR 1727).
+///
+/// ISO 32000-2 §12.5.6.2, Table 172, the `/RT` value `R`:
+///
+/// > Interactive PDF processors shall not display replies to an annotation individually but
+/// > together in the form of threaded comments.
+///
+/// The sentence is about every reply, whether or not it names a popup, and Table 172 makes
+/// `/Popup` optional: so a reply without one is shown as a comment in the window of what it
+/// replies to, as one with a popup already is. Its text is read as [`read`] reads a parentless
+/// popup — the reply's own `/Contents`, `/T`, `/M`, `/Subj`, `/CreationDate` and `/RC` — with a
+/// person's retyping in its place. Only a text annotation's `/Open` counts, for
+/// [`opens_with_the_page`]'s reason. `None` for an annotation Table 171 makes no markup
+/// annotation, one that states a popup, and one §12.5.3's flags do not display.
+fn popupless_reply(
+    document: &Document,
+    view: &crate::view::ViewState,
+    id: ObjectId,
+    reply: &Dictionary,
+) -> Option<(Popup, Option<ObjectId>, usize)> {
+    if reply.get("Popup").is_some()
+        || !crate::submission::is_markup(document, reply)
+        || crate::annotation::is_watermark(document, reply)
+        || !crate::annotation::displayed(document, reply, view.annotation(id))
+    {
+        return None;
+    }
+    let mut comment = read(document, id, reply)?;
+    comment.open = document
+        .get_key(reply, "Subtype")
+        .as_name()
+        .is_some_and(|subtype| subtype.as_bytes() == b"Text")
+        && view.popup_opened(id).unwrap_or(comment.open);
+    if let Some(text) = view.note_text(id) {
+        comment.rich = rich::note(document, reply, Some(text));
+        comment.text = Some(text.to_owned());
+    }
+    let (host, depth) = thread_window(document, reply);
+    Some((comment, host, depth))
 }
 
 /// The window a text annotation that states no `/Popup` displays when it is open: ISO 32000-2
@@ -432,6 +491,7 @@ fn thread_window(document: &Document, annotation: &Dictionary) -> (Option<Object
         if !is_reply(document, &node) {
             break;
         }
+        let above_id = node.get("IRT").and_then(pdf_syntax::Object::as_reference);
         let Some(next) = document.get_key(&node, "IRT").as_dict().cloned() else {
             break;
         };
@@ -439,9 +499,24 @@ fn thread_window(document: &Document, annotation: &Dictionary) -> (Option<Object
         if let Some(above) = window_of(&node) {
             window = Some(above);
             found_at = hop;
+        } else if let Some(above) = above_id.filter(|_| states_its_own_window(document, &node)) {
+            window = Some(above);
+            found_at = hop;
         }
     }
     (window, found_at)
+}
+
+/// Whether this annotation is a text note [`own_window`] gives a window of its own: a text
+/// annotation that states no `/IRT` and no `/Popup` (ADR 1723), which a reply to it is threaded
+/// into (ADR 1727).
+fn states_its_own_window(document: &Document, annotation: &Dictionary) -> bool {
+    annotation.get("IRT").is_none()
+        && annotation.get("Popup").is_none()
+        && document
+            .get_key(annotation, "Subtype")
+            .as_name()
+            .is_some_and(|subtype| subtype.as_bytes() == b"Text")
 }
 
 /// Whether this annotation is Table 172's *reply* rather than a group's subordinate.
@@ -600,6 +675,46 @@ pub(crate) fn opens_with_the_page(
             .as_name()
             .is_some_and(|subtype| subtype.as_bytes() == b"Text")
             && is_open(document, &crate::markup::group_source(document, parent))
+    })
+}
+
+/// The text note a person retypes this window's text into, where the window shows one's own:
+/// §12.5.6.14's popup "shall be used for editing the parent's text", and §12.5.6.4's note is the
+/// one subtype whose text this program takes a retyping of (`ViewState::set_note_text`, ADRs 1721,
+/// 1726).
+///
+/// Table 186's `/Parent`, or the note itself for the window [`own_window`] gives one with no popup
+/// — and for §12.5.6.2's subordinate, whose `Contents` is a group attribute, the primary its
+/// `/IRT` names, since that is whose text the window shows. `None` for any other markup
+/// annotation's window, whose text this program does not retype.
+#[must_use]
+pub fn retyped_by(document: &Document, window: &Popup) -> Option<ObjectId> {
+    let owner = window.parent.unwrap_or(window.annotation);
+    let resolved = document.get(owner);
+    let dict = resolved.as_dict()?;
+    let note = match crate::markup::group_source(document, dict) {
+        std::borrow::Cow::Borrowed(_) => owner,
+        std::borrow::Cow::Owned(_) => dict.get("IRT").and_then(pdf_syntax::Object::as_reference)?,
+    };
+    retypable(document, note).then_some(note)
+}
+
+/// Whether a person may retype this annotation's text as a note's (`ViewState::set_note_text`):
+/// §12.5.6.4's text annotation, and no subordinate of §12.5.6.2's group, whose `Contents` is one
+/// of the attributes whose "corresponding entries in the subordinate annotations shall be
+/// ignored" (ADR 1721).
+#[must_use]
+pub fn retypable(document: &Document, annotation: ObjectId) -> bool {
+    let resolved = document.get(annotation);
+    resolved.as_dict().is_some_and(|dict| {
+        document
+            .get_key(dict, "Subtype")
+            .as_name()
+            .is_some_and(|subtype| subtype.as_bytes() == b"Text")
+            && matches!(
+                crate::markup::group_source(document, dict),
+                std::borrow::Cow::Borrowed(_)
+            )
     })
 }
 

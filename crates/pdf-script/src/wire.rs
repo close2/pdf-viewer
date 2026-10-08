@@ -12,10 +12,11 @@ use std::time::Duration;
 
 use pdf_model::action::{PageTrigger, Trigger as AnnotationTrigger};
 use pdf_model::aform::Trigger;
+use pdf_model::form::Choice;
 use pdf_model::view::{
     Alignment, AnnotationChange, AnnotationReach, AnnotationState, BorderStyle, Colour, Display,
-    DocumentState, DocumentTrigger, Face, FieldState, FieldType, Glyph, InfoEntry, Layer, Property,
-    ScriptEdit, ScriptSite, Sound, TextFlag, WidgetState,
+    DocumentState, DocumentTrigger, Face, FieldState, FieldType, Glyph, InfoEntry, Layer,
+    PageState, Property, ScriptEdit, ScriptSite, Sound, TextFlag, WidgetState,
 };
 
 use crate::{
@@ -33,8 +34,10 @@ use crate::{
 /// 1688), and the on state of a toggling widget (ADR 1689); 8 a timer's site, a timer set and
 /// cleared, and a sound asked for (ADR 1702), and the document's annotations and a script's change
 /// to one (ADR 1700); 9 what an annotation's Table 167 flags let it reach — paper, a screen, a
-/// pointer — beside its two bits (ADR 1721).
-pub const VERSION: u8 = 9;
+/// pointer — beside its two bits (ADR 1721); 10 every page's label, boundaries and rotation, a
+/// named destination asked for and the calculations switched (ADR 1724), and a field's `/Opt`, its
+/// selected items and a choice by index (ADR 1725).
+pub const VERSION: u8 = 10;
 
 /// Most fields one request may tell a realm of, and most edits one outcome may carry.
 ///
@@ -475,6 +478,15 @@ fn put_field(out: &mut Vec<u8>, field: &FieldState) {
     for widget in &field.widgets {
         put_widget(out, widget);
     }
+    put_len(out, field.options.len());
+    for option in &field.options {
+        put_optional(out, option.export.as_deref());
+        put_str(out, &option.label);
+    }
+    put_len(out, field.selected.len());
+    for index in &field.selected {
+        put_u32(out, *index);
+    }
 }
 
 /// Writes one widget's state.
@@ -537,6 +549,14 @@ fn put_document(out: &mut Vec<u8>, document: &DocumentState) {
     put_len(out, document.annotations.len());
     for annotation in &document.annotations {
         put_annotation(out, annotation);
+    }
+    put_len(out, document.pages.len());
+    for page in &document.pages {
+        put_optional(out, page.label.as_deref());
+        for corner in page.boxes.iter().flatten() {
+            put_f64(out, *corner);
+        }
+        out.extend_from_slice(&page.rotate.to_le_bytes());
     }
 }
 
@@ -642,6 +662,22 @@ fn put_edit(out: &mut Vec<u8>, edit: &ScriptEdit) {
             put_u32(out, *number);
             out.extend_from_slice(&generation.to_le_bytes());
             put_annotation_change(out, change);
+        }
+        ScriptEdit::Choose { field, indices } => {
+            put_u8(out, 11);
+            put_str(out, field);
+            put_len(out, indices.len());
+            for index in indices {
+                put_u32(out, *index);
+            }
+        }
+        ScriptEdit::Destination { name } => {
+            put_u8(out, 12);
+            put_str(out, name);
+        }
+        ScriptEdit::Calculation { on } => {
+            put_u8(out, 13);
+            put_bool(out, *on);
         }
     }
 }
@@ -982,6 +1018,19 @@ impl<'a> Reader<'a> {
         for _ in 0..count {
             widgets.push(self.widget()?);
         }
+        let count = self.count()?;
+        let mut options = Vec::new();
+        for _ in 0..count {
+            options.push(Choice {
+                export: self.optional()?,
+                label: self.string()?,
+            });
+        }
+        let count = self.count()?;
+        let mut selected = Vec::new();
+        for _ in 0..count {
+            selected.push(self.u32()?);
+        }
         Ok(FieldState {
             name,
             kind,
@@ -990,6 +1039,8 @@ impl<'a> Reader<'a> {
             char_limit,
             page,
             widgets,
+            options,
+            selected,
         })
     }
 
@@ -1040,10 +1091,25 @@ impl<'a> Reader<'a> {
         for _ in 0..count {
             annotations.push(self.annotation()?);
         }
+        let count = self.count()?;
+        let mut pages = Vec::new();
+        for _ in 0..count {
+            let label = self.optional()?;
+            let mut boxes = [[0.0; 4]; 5];
+            for corner in boxes.iter_mut().flatten() {
+                *corner = self.f64()?;
+            }
+            pages.push(PageState {
+                label,
+                boxes,
+                rotate: u16::from_le_bytes(self.array()?),
+            });
+        }
         Ok(DocumentState {
             info,
             layers,
             annotations,
+            pages,
         })
     }
 
@@ -1150,6 +1216,21 @@ impl<'a> Reader<'a> {
                     2 => AnnotationChange::Contents(self.string()?),
                     _ => return Err(WireError::Invalid("annotation change")),
                 },
+            },
+            11 => {
+                let field = self.string()?;
+                let count = self.count()?;
+                let mut indices = Vec::new();
+                for _ in 0..count {
+                    indices.push(self.u32()?);
+                }
+                ScriptEdit::Choose { field, indices }
+            }
+            12 => ScriptEdit::Destination {
+                name: self.string()?,
+            },
+            13 => ScriptEdit::Calculation {
+                on: self.boolean()?,
             },
             _ => return Err(WireError::Invalid("edit")),
         })

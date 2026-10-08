@@ -46,6 +46,8 @@ fn field(name: &str, kind: FieldType) -> FieldState {
             captions: ["Send".to_owned(), String::new(), String::new()],
             on_state: None,
         }],
+        options: Vec::new(),
+        selected: Vec::new(),
     }
 }
 
@@ -88,6 +90,7 @@ fn document() -> DocumentState {
             },
         ],
         annotations: Vec::new(),
+        pages: Vec::new(),
     }
 }
 

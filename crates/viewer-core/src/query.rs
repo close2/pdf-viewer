@@ -945,6 +945,11 @@ pub struct PopupWindow {
     pub annotation: ObjectId,
     /// The markup annotation whose text this is, where Table 186's `/Parent` names one.
     pub parent: Option<ObjectId>,
+    /// The text note a person retypes this window's text into, which [`crate::Edit::SetNoteText`]
+    /// names: §12.5.6.14's popup "shall be used for editing the parent's text", and §12.5.6.4's
+    /// note is the one subtype whose text this program takes a retyping of. `None` for any other
+    /// markup annotation's window, which a host shows and offers no keyboard to (ADR 1726).
+    pub note: Option<ObjectId>,
     /// The window's `/Rect` on the screen, `[x0, y0, … x3, y3]` clockwise from the top-left,
     /// y downwards — the same form [`Answer::Focus`] and [`Selected::quads`] take.
     pub quad: [f32; 8],

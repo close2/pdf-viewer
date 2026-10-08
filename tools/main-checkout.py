@@ -278,8 +278,8 @@ def patch_header(path):
     whose paths are relative to its package (`+++ b/src/...`, as a crates.io source is laid out)
     names the package's place in the repository with `Directory:`, and its package is that
     directory's last name; otherwise the packages are the first directory of each
-    `+++ b/<package>/...` line. `Fork:` names the repository under the owner's control that is to
-    carry a patch to a dependency the manifest still takes from crates.io."""
+    `+++ b/<package>/...` line. `Fork:` names the repository under the owner's control that carries
+    the patch, or is to."""
     header, packages = {}, set()
     with open(path, encoding="utf-8", errors="replace") as handle:
         for line in handle:
@@ -306,11 +306,12 @@ def patches(main, owed):
     cannot reach the worker's copy (ADR 1714) — the owner applies it to the fork and moves those
     pins to it.
 
-    A patch to a dependency the manifest takes from crates.io — `zune-jpeg` — has no fork to apply
-    it to until one exists. While the question its preamble names is unanswered it is listed as
-    waiting; once the answer is on the disk and the preamble names the `Fork:` to carry it, the
-    fork is the owner's to create, and the line after the patches says how in one sentence (ADR
-    1589). The day the manifest pins the fork, the patch is counted as applied.
+    A patch whose `Fork:` the manifest pins is applied: the fork carries it, as `close2/zune-image`
+    carries both `zune-jpeg` patches (ADR 1730). A patch to a dependency the manifest takes from
+    crates.io has no fork to apply it to until one exists. While the question its preamble names is
+    unanswered it is listed as waiting; once the answer is on the disk and the preamble names the
+    `Fork:` to carry it, the fork is the owner's to create, and the line after the patches says how
+    in one sentence (ADR 1589).
 
     What the owner does is the list's: one item per fork to create and one per fork to apply to,
     each naming its patches, so a patch is named once. An upstream report beside a patch (its `.md`,

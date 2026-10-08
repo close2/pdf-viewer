@@ -182,6 +182,8 @@ struct Note {
     annotation: ObjectRef,
     /// Table 186's `/Parent`, the markup annotation whose text this is.
     parent: Option<ObjectRef>,
+    /// The text note a person retypes the window's text into (ADR 1726).
+    retypes: Option<ObjectRef>,
     /// Its `/Rect` on the screen, `[x0, y0, … x3, y3]`, y downwards.
     quad: [f32; 8],
     /// §12.5.6.2's `/T`, Table 166's `/Contents`, and Table 166's `/M`, in that order.
@@ -218,16 +220,6 @@ struct Threaded {
     rich: Option<pdf_model::popup::RichNote>,
 }
 
-/// A rich note as the C ABI hands it: the note, with a leader said among what is not carried out,
-/// because `quorra_popup_rich_tab` hands a stop's position and alignment and not its fill
-/// (ADR 1679).
-fn abi_note(note: &pdf_model::popup::RichNote) -> pdf_model::popup::RichNote {
-    let mut note = note.clone();
-    note.unapplied
-        .extend(viewer_host::popup::leader_unapplied(&note));
-    note
-}
-
 impl Popups {
     /// Takes what [`viewer_core::Answer::Popups`] held.
     #[must_use]
@@ -240,6 +232,7 @@ impl Popups {
                     parent: window
                         .parent
                         .map(|parent| (parent.number, parent.generation)),
+                    retypes: window.note.map(|note| (note.number, note.generation)),
                     quad: window.quad,
                     text: [
                         window.title.clone(),
@@ -258,10 +251,10 @@ impl Popups {
                                 reply.text.clone(),
                                 reply.modified.clone(),
                             ],
-                            rich: reply.rich.as_ref().map(abi_note),
+                            rich: reply.rich.clone(),
                         })
                         .collect(),
-                    rich: window.rich.as_ref().map(abi_note),
+                    rich: window.rich.clone(),
                 })
                 .collect(),
         }
@@ -293,6 +286,21 @@ impl Popups {
             .get(index)
             .map(|note| (note.annotation, note.parent))
             .ok_or(Status::OutOfRange)
+    }
+
+    /// The text note a person retypes this window's text into, which `quorra_set_note_text` names
+    /// (ADR 1726).
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] where there is no such window, and [`Status::NoAnswer`] for a window
+    /// whose text this program does not retype — any markup annotation's but a text note's.
+    pub fn note(&self, index: usize) -> Result<ObjectRef, Status> {
+        self.windows
+            .get(index)
+            .ok_or(Status::OutOfRange)?
+            .retypes
+            .ok_or(Status::NoAnswer)
     }
 
     /// The window's rectangle on the screen, in device pixels of the viewport.
@@ -381,6 +389,23 @@ impl Popups {
         self.rich(index, note)?
             .paragraphs
             .get(paragraph)
+            .ok_or(Status::OutOfRange)
+    }
+
+    /// One of a paragraph's stated tab stops, in the order it states them, with its leader.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::rich_paragraph`], and [`Status::OutOfRange`] where there is no such stop.
+    pub fn rich_stop(
+        &self,
+        index: usize,
+        note: usize,
+        (paragraph, stop): (usize, usize),
+    ) -> Result<&pdf_model::popup::RichTabStop, Status> {
+        self.rich_paragraph(index, note, paragraph)?
+            .tab_stops
+            .get(stop)
             .ok_or(Status::OutOfRange)
     }
 
@@ -1024,10 +1049,10 @@ mod tests {
         assert!(Matches::default().is_empty());
     }
 
-    /// A stop's leader does not cross the C ABI, so a note whose tab reaches one says so among
-    /// what is not carried out, and a note without one says nothing more (ADR 1679).
+    /// A stop's leader crosses the C ABI with the stop (ADR 1726), so a note whose tab reaches one
+    /// says nothing about it among what is not carried out, and the stop answers its pattern.
     #[test]
-    fn a_leader_the_abi_does_not_hand_over_is_said() {
+    fn a_leader_crosses_with_its_stop_and_is_not_said() {
         use pdf_model::popup::{
             Measure, RichLeader, RichLeaderPattern, RichNote, RichParagraph, RichRun, RichSpacing,
             RichTabAlign, RichTabStop,
@@ -1050,33 +1075,57 @@ mod tests {
             horizontal_scale: 1.0,
             vertical_scale: 1.0,
         };
-        let stop = |leader| RichTabStop {
-            align: RichTabAlign::Left,
-            at: Measure {
-                per_base: 0.0,
-                points: 72.0,
-            },
-            leader,
+        let leader = RichLeader {
+            pattern: RichLeaderPattern::Dots,
+            width: None,
         };
-        let note = |leader| RichNote {
+        let note = RichNote {
             paragraphs: vec![RichParagraph {
                 align: None,
                 level: 0,
                 tag: None,
-                runs: vec![run.clone()],
+                runs: vec![run],
                 tab_interval: None,
-                tab_stops: vec![stop(leader)],
+                tab_stops: vec![RichTabStop {
+                    align: RichTabAlign::Left,
+                    at: Measure {
+                        per_base: 0.0,
+                        points: 72.0,
+                    },
+                    leader: Some(leader.clone()),
+                }],
             }],
             unapplied: Vec::new(),
         };
-        assert!(super::abi_note(&note(None)).unapplied.is_empty());
-        let dotted = note(Some(RichLeader {
-            pattern: RichLeaderPattern::Dots,
-            width: None,
-        }));
+        let popups = Popups::new(&[viewer_core::PopupWindow {
+            annotation: pdf_syntax::ObjectId {
+                number: 9,
+                generation: 0,
+            },
+            parent: None,
+            note: None,
+            quad: [0.0; 8],
+            title: None,
+            text: Some("a\tb".to_owned()),
+            modified: None,
+            colour: None,
+            subject: None,
+            created: None,
+            rich: Some(note),
+            replies: Vec::new(),
+        }]);
+        assert_eq!(popups.rich(0, 0).map(|note| note.unapplied.len()), Ok(0));
         assert_eq!(
-            super::abi_note(&dotted).unapplied,
-            vec!["a tab leader in a popup window".to_owned()]
+            popups
+                .rich_stop(0, 0, (0, 0))
+                .map(|stop| stop.leader.as_ref()),
+            Ok(Some(&leader))
+        );
+        assert_eq!(
+            popups
+                .rich_stop(0, 0, (0, 1))
+                .map(|stop| stop.leader.is_some()),
+            Err(Status::OutOfRange)
         );
     }
 

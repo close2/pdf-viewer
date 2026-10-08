@@ -223,8 +223,25 @@ impl App {
         width: u32,
         height: u32,
     ) -> Option<pdf_render::DisplayList> {
-        let Answer::Focus { quad, .. } = self.viewer.query(Query::Focus) else {
-            return None;
+        // A note's window that has the keyboard is ringed in place of §12.5.1's focus: it is where
+        // the next key goes (ADR 1726).
+        let typed_note = self
+            .typing
+            .and_then(crate::typing::Typing::note)
+            .and_then(|note| match self.viewer.query(Query::Popups) {
+                Answer::Popups(windows) => windows
+                    .into_iter()
+                    .find(|window| window.note == Some(note))
+                    .map(|window| window.quad),
+                _ => None,
+            });
+        let quad = if let Some(quad) = typed_note {
+            quad
+        } else {
+            let Answer::Focus { quad, .. } = self.viewer.query(Query::Focus) else {
+                return None;
+            };
+            quad
         };
         let mut quad = quad;
         for x in quad.iter_mut().step_by(2) {
@@ -313,7 +330,9 @@ impl App {
         width: u32,
         height: u32,
     ) -> Option<pdf_render::DisplayList> {
-        let typing = self.typing?;
+        // A note's window keeps its caret at the note's end and shows it by its ring (ADR 1726);
+        // `Query::Caret` answers for what is on the page under the window, not for the window.
+        let typing = self.typing.filter(|typing| typing.note().is_none())?;
         let Answer::Caret { from, to } = self.viewer.query(Query::Caret {
             at: typing.at,
             offset: typing.caret,

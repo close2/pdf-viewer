@@ -55,7 +55,7 @@ use std::rc::Rc;
 
 use pdf_model::view::{
     Alignment, BorderStyle, Colour, CommitKey, Display, DocumentState, DocumentTrigger, FieldState,
-    FieldType, InfoEntry, Layer, ScriptEvent, ScriptSite, WidgetState,
+    FieldType, InfoEntry, Layer, PageState, ScriptEvent, ScriptSite, WidgetState,
 };
 use pdf_script::{Answer, Asker, Budget, Button, Ending, Nobody, Question, Realm, Request, wire};
 
@@ -117,6 +117,25 @@ fn document() -> DocumentState {
         ],
         layers: vec![layer(7, "Watermark", false), layer(8, "English", true)],
         annotations: Vec::new(),
+        // The request's three pages, the first turned and labelled, so that a script's page
+        // members reach a page of each kind (ADR 1724).
+        pages: vec![
+            PageState {
+                label: Some("i".to_owned()),
+                boxes: [[0.0, 0.0, 612.0, 792.0]; 5],
+                rotate: 90,
+            },
+            PageState {
+                label: None,
+                boxes: [[0.0, 0.0, 612.0, 792.0]; 5],
+                rotate: 0,
+            },
+            PageState {
+                label: Some("A-1".to_owned()),
+                boxes: [[-10.0, 5.0, 300.0, 400.0]; 5],
+                rotate: 270,
+            },
+        ],
     }
 }
 
@@ -162,6 +181,8 @@ fn field(name: &str, kind: FieldType, value: &str) -> FieldState {
             captions: ["Send".to_owned(), String::new(), String::new()],
             on_state: None,
         }],
+        options: Vec::new(),
+        selected: Vec::new(),
     }
 }
 

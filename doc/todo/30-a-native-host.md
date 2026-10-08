@@ -150,7 +150,10 @@ These are the places where a native host's shape differs from the tier-2 host's,
   painting it over their own line from the tab's extent there (ADRs 1679, 1722); all three lay a right-to-left paragraph's tabs leftward, the toolkits from stops
   handed per width as distances from the line's right edge, and both toolkits say a decimal stop
   there, which each places as though the number read right to left (ADR 1690) — and the C ABI hands
-  the runs and the stops over (ADRs 1655, 1667). §12.3.5's collection is shown in all three.
+  the runs, the stops and each stop's leader over, with the grid the windows break a leader on
+  (ADRs 1655, 1667, 1726). A text note is retyped in its window in all three — a text view placed
+  over it in the toolkits, the caret at the note's end in `quorra` — and a reply stating no popup is
+  a comment in its note's window (ADRs 1726, 1727). §12.3.5's collection is shown in all three.
 - **A password is asked in all three**, and a document with no pages or one that failed to open is
   said rather than shown blank (`viewer_host::cannot_open`, `no_pages`, ADRs 0545, 0564).
 - **`?` shows `viewer_host::NOTICE`** in all three, because the compiled-in standard 14 font

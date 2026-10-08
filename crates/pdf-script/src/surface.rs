@@ -1,5 +1,6 @@
 //! The host object model's refused members, by name: RFC 0008 section 4.3's Tier 2 with each row's
-//! reason, and what section 4.2 admits to Tier 1 that this bridge does not yet carry.
+//! reason, what section 4.2 admits to Tier 1 that this program refuses with a reason of its own, and
+//! what section 4.2 admits that this bridge does not yet carry.
 //!
 //! Data, so that a test can walk it and a later round can move a member from one list to the
 //! bridge by deleting one line here. Each member becomes a property that throws a
@@ -263,6 +264,41 @@ pub const EXCLUDED: &[Excluded] = &[
     },
 ];
 
+/// What RFC 0008 section 4.2 admits to Tier 1 and this program refuses by name, each row with the
+/// reason, as the clause after "because it" (ADRs 1724, 1725).
+///
+/// Not Tier 2 — the RFC admits each — and not a member waiting to be bridged: each reaches
+/// something this program keeps out of a document's realm, or that no reader's edit reaches, and
+/// the row says which. A member moves from here to the bridge only by an argument that the reason
+/// no longer holds.
+pub const REFUSED: &[Excluded] = &[
+    Excluded {
+        holder: Holder::Doc,
+        members: &["zoom", "zoomType", "scroll", "layout"],
+        reason: "is the window's view of the document — its magnification, its scroll position, \
+                 its page layout — which a host keeps and a document's realm is not told, and no \
+                 host carries a script's request to change it",
+    },
+    Excluded {
+        holder: Holder::Doc,
+        members: &["documentFileName"],
+        reason: "is the name of a file on the reader's machine, which the confined worker has no \
+                 business knowing; the document's own name for itself is this.info.Title",
+    },
+    Excluded {
+        holder: Holder::App,
+        members: &["goBack", "goForward"],
+        reason: "walks the window's history of views, which a host keeps and a document's realm \
+                 is not told",
+    },
+    Excluded {
+        holder: Holder::Field,
+        members: &["setItems", "insertItemAt", "deleteItemAt", "clearItems"],
+        reason: "rewrites Table 234's /Opt, the field's own list of options, which no reader's \
+                 edit changes: a person chooses among the options and never rewrites them",
+    },
+];
+
 /// What RFC 0008 section 4.2 admits to Tier 1 and this bridge does not carry, by holder.
 ///
 /// The bridge carries the document's realm and its fields (ADRs 1591, 1602, 1603), the viewer's
@@ -270,49 +306,18 @@ pub const EXCLUDED: &[Excluded] = &[
 /// flags' writes (ADR 1615), and `global`, `event.commitKey`, `fieldFull` and `changeEx`,
 /// `this.dirty`, `info` and `getOCGs`, `util.printf`, the button captions, `app.alert` and
 /// `app.response` (ADRs 1626, 1627), one widget of a field (ADR 1664) and `Field.style` (ADR
-/// 1665), a check box's `isBoxChecked` and `checkThisBox` (ADR 1689), and `this.getAnnots` and
-/// `getAnnot` with the `Annotation` object (ADR 1700); each of these is the
-/// next thing a round adds, and until then a property that says so.
+/// 1665), a check box's `isBoxChecked` and `checkThisBox` (ADR 1689), `this.getAnnots` and
+/// `getAnnot` with the `Annotation` object (ADR 1700), the document's pages, its named
+/// destinations, `title`, `calculate` and `app.activeDocs` (ADR 1724), and a field's options
+/// read from `/Opt` (ADR 1725); each of these is the next thing a round adds, and until then a
+/// property that says so.
 pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
     (
         Holder::Event,
         &["shift", "modifier", "keyDown", "richValue", "richChange"],
     ),
-    (
-        Holder::Field,
-        &[
-            "lineWidth",
-            "textSize",
-            "textFont",
-            "currentValueIndices",
-            "numItems",
-            "exportValues",
-            "getItemAt",
-            "setItems",
-            "insertItemAt",
-            "deleteItemAt",
-            "clearItems",
-        ],
-    ),
-    (
-        Holder::Doc,
-        &[
-            "calculate",
-            "getPageLabel",
-            "getPageBox",
-            "getPageRotation",
-            "gotoNamedDest",
-            "scroll",
-            "zoom",
-            "zoomType",
-            "layout",
-            "documentFileName",
-            "title",
-            "getPageNumWords",
-            "getPageNthWord",
-        ],
-    ),
-    (Holder::App, &["activeDocs", "goBack", "goForward"]),
+    (Holder::Field, &["lineWidth", "textSize", "textFont"]),
+    (Holder::Doc, &["getPageNumWords", "getPageNthWord"]),
     (
         Holder::Util,
         &[

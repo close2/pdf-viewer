@@ -6,9 +6,9 @@ Fork: https://github.com/close2/zune-image
 The base is zune-jpeg 0.5.15 as crates.io publishes it: the crate's `.cargo_vcs_info.json` names
 that commit, its `src/` is byte for byte the published one, and upstream tags no 0.5.15. The paths
 below are the crate's own, so the patch applies in the repository with
-`git apply --directory=crates/zune-jpeg`. Carried by a fork under the owner's control, wired as the
-`hayro` fork is: doc/questions/Q227, answered (ADR 1589). The upstream report is the `.md` beside
-this file.
+`git apply --directory=crates/zune-jpeg`. Carried by the owner's fork `close2/zune-image`, branch
+`pdf-viewer/0.5.15-with-fixes`, at `1c7d01b8`, which the root Cargo.toml pins: doc/questions/Q227,
+answered (ADRs 1589, 1730). The upstream report is the `.md` beside this file.
 Found by the `jpeg_bands` fuzz target (ADR 1495); the analysis is ADR 1520. A baseline scan whose
 entropy-coded data holds every MCU and ends with no EOI after it (ITU-T T.81 section E.2.3 ends a
 scan on its MCU count) is decoded whole except its last MCU row, which comes back 128. The bit
@@ -22,8 +22,7 @@ the most rows that are neither those nor 128 at any truncation is the same; a wh
 instruction count does not rise (callgrind, 510.2 M before and 509.0 M after on a 4 MB photograph). The reproduction is the 348-byte codestream
 below (hexadecimal), decoded whole: lines 104 to 106 are 128 without the patch and equal the same
 codestream's decode with FF D9 appended with it. `crates/pdf-model/tests/banded_decodes.rs`'s
-`a_complete_last_row_without_its_eoi_is_grey_until_the_fork_takes_the_patch` holds the current bytes
-and fails the day the fork takes this.
+`a_complete_last_row_without_its_eoi_is_decoded_as_the_frame` holds the two decodes equal.
 #   ffd8ffe000104a46494600010100000100010000ffdb004300100b0c0e0c0a100e0d0e1211101318281a181616183123
 #   251d283a333d3c3933383740485c4e404457453738506d51575f626768673e4d71797064785c656763ffc0000b08006b
 #   006401011100ffc400190001000301010000000000000000000000000102030407ffc400191001010101010100000000

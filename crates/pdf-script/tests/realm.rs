@@ -41,6 +41,8 @@ fn field(name: &str, value: &str) -> FieldState {
             captions: Default::default(),
             on_state: None,
         }],
+        options: Vec::new(),
+        selected: Vec::new(),
     }
 }
 

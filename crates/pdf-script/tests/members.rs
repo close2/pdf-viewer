@@ -40,6 +40,8 @@ fn field(name: &str, kind: FieldType, flags: u32, char_limit: Option<u32>) -> Fi
             captions: Default::default(),
             on_state: None,
         }],
+        options: Vec::new(),
+        selected: Vec::new(),
     }
 }
 

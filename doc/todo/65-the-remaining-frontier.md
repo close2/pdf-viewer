@@ -93,7 +93,10 @@ permanent) or an owner decision to acquire a specification.
   own syntax is written in, and the signature *names* it, so the block is per file and named at
   runtime rather than one text to acquire (ADR 1219). The signatures on this disk name none, and the
   policy most of them sign under is a PDF bound by its own digest — human-readable, which a validator can
-  bind and show but not enforce (ADR 1709).
+  bind and show but not enforce (ADR 1709). That half is built: the copy at the qualifier's URL is
+  fetched under the reader's network level, bound by the signed digest and opened beside the document,
+  and the sentence says the constraints were not enforced (ADR 1728); no window calls it until
+  `viewer_core` hands a host the policy's URL.
 
 ISO/TS 32002's brainpoolP512r1 and Ed448 are not in this bucket: they are the tree's own under the
 owner's answer A170 (ADRs 1385 and 1386), so an upstream release is their *swap* condition rather
@@ -254,8 +257,8 @@ bullet in bucket 6), A192 closes the Ed448 search (bucket 2's curve paragraph), 
 JavaScript a build stream whose Tier 0 runs the one-call `AF*` scripts while §12.6.4.17 stays
 `out-of-scope` (ADRs 1578, 1579) and whose Tier 1 engine runs in every window at the reader's
 `Scripts` level, `off` by default, with the row's move waiting on the owner's amendment that
-`doc/questions/Q286` proposes (ADRs 1590, 1591, 1616), A227 has the `zune-jpeg` fork prepared for the owner to create
-(ADR 1589), and A209 owes nothing; none of the last four moves a row this map holds.
+`doc/questions/Q286` proposes (ADRs 1590, 1591, 1616), A227's `zune-jpeg` fork is the one the manifest pins, carrying
+both patches (ADRs 1589, 1730), and A209 owes nothing; none of the last four moves a row this map holds.
 
 ### 6. Genuinely buildable now — the campaign's next targets
 

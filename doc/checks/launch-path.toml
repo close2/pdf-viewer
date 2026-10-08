@@ -3,11 +3,15 @@
 # `CLAUDE.md` principle 2 names four figures — cold open, time-to-first-page, page-turn latency,
 # memory high-water — and makes cold graphics bring-up a fifth, "its own gate … so that a
 # regression in the driver, the adapter selection or the shader set is legible as itself rather
-# than as a slower page". This file is what each of them may be. The one command that runs them:
+# than as a slower page". This file is what each of them may be. The one command that runs them,
+# `tools/state.sh --round <session> launch` spelled out — a clock, so it takes both lanes, and the
+# two workers it spawns, which nothing else builds (trap 10), are its own `--build`s inside the hold
+# (trap 109, ADRs 1620, 1710):
 #
-#   cargo build --release -p pdf-sandbox --bins     # trap 10: nothing else builds it
-#   cargo build --release -p pdf-script-worker --features engine --bins   # the script stage's
-#   cargo test  --release -p viewer-ui --test launch_path -- --ignored --nocapture
+#   ulimit -u 8192; RAYON_NUM_THREADS=4 tools/bounded.sh --lock --clock --round <session> --tree 12 \
+#       --build '--release -p pdf-sandbox --bins' \
+#       --build '--release -p pdf-script-worker --features engine --bins' -- \
+#       cargo test --release -p viewer-ui --test launch_path -- --ignored --nocapture
 #
 # `crates/viewer-ui/tests/launch_path.rs` is the harness and its module comment says what each
 # figure contains. Every paragraph below is worth reading before a band is moved; ADR 0884 is the

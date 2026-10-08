@@ -634,9 +634,9 @@ cargo test -p conformance --test fuzz_workspace
 #   together, and both locks follow. The count goes when the manifest no longer pins the base (ADRs
 #   1447, 1463). A patch to a dependency the manifest takes from crates.io is a fork to create once
 #   the question its preamble names is answered on the disk and its `Fork:` is named: the list's
-#   "create the fork" item is the one sentence that creates and wires it (`zune-jpeg`, A227, ADR
-#   1589; the stanza is written out in a comment in the root Cargo.toml), and the day the manifest
-#   pins the fork those patches count as applied. Each upstream report beside a patch — the `.md`
+#   "create the fork" item is the one sentence that creates and wires it (ADR 1589), and the day the
+#   manifest pins the fork those patches count as applied — as `zune-jpeg`'s two are, the manifest
+#   pinning `close2/zune-image` by `rev` (A227, ADR 1730). Each upstream report beside a patch — the `.md`
 #   whose head says where it is filed — is the list's "file" item until the owner writes `Filed:
 #   <the issue>` at its head (ADR 1601). A `waiting:` line beneath is a patch with no fork to apply
 #   it to until the question it names is answered; a `no Repository:/Base: preamble:` line is a

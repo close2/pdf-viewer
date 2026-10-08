@@ -1812,6 +1812,63 @@ pub(crate) mod fixtures {
         )
     }
 
+    /// An `ETSI.CAdES.detached` value signed under a policy that is published rather than stored.
+    ///
+    /// The shape every explicit policy on this disk has (ADR 1709): clause 5.2.9.1's identifier
+    /// with a digest of `signed_over` under `function`, clause 5.2.9.2's URL qualifier naming `url`
+    /// and no other, and no clause 5.2.10 store — so the specification is left to the signature's
+    /// context and the only copy of the document is wherever the URL leads.
+    pub(crate) fn pades_under_a_published_policy(
+        digest: &[u8],
+        url: &str,
+        function: Digest,
+        signed_over: &[u8],
+    ) -> Vec<u8> {
+        let qualifiers = tagged(
+            0x30,
+            &[tagged(
+                0x30,
+                &[
+                    primitive(
+                        0x06,
+                        &[
+                            0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x05, 0x01,
+                        ],
+                    ),
+                    primitive(0x16, url.as_bytes()),
+                ],
+            )],
+        );
+        let policy = tagged(
+            0x30,
+            &[
+                primitive(0x06, &[0x2A, 0x03, 0x05]),
+                tagged(
+                    0x30,
+                    &[
+                        digest_algorithm(function),
+                        primitive(0x04, &function.compute(&[signed_over])),
+                    ],
+                ),
+                qualifiers,
+            ],
+        );
+        content_info(
+            Digest::Sha256,
+            ID_DATA,
+            None,
+            signer_with(
+                Digest::Sha256,
+                Some(vec![
+                    attribute(ID_CONTENT_TYPE, primitive(0x06, ID_DATA)),
+                    attribute(ID_MESSAGE_DIGEST, primitive(0x04, digest)),
+                    attribute(ID_AA_ETS_SIG_POLICY_ID, policy),
+                ]),
+                None,
+            ),
+        )
+    }
+
     fn content_info(
         digest: Digest,
         content_type: &[u8],

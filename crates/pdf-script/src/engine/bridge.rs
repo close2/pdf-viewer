@@ -45,7 +45,7 @@ use pdf_model::view::{
 
 use super::{State, guard, members, refuse};
 use crate::request::byte_offset;
-use crate::surface::{EXCLUDED, Holder, NOT_BRIDGED};
+use crate::surface::{EXCLUDED, Holder, NOT_BRIDGED, REFUSED};
 use crate::{Outcome, RefusalKind, Request, viewer};
 
 /// The objects a realm builds once and hands out many times.
@@ -199,6 +199,7 @@ fn document(context: &mut Context) -> JsResult<()> {
     }
     page_num(&global, context)?;
     members::document(&global, context)?;
+    super::pages::document(&global, context)?;
     super::annotations::install(&global, context)?;
     refusers(&global, Holder::Doc, context)?;
     refusers(&global, Holder::Global, context)?;
@@ -206,6 +207,7 @@ fn document(context: &mut Context) -> JsResult<()> {
     let app = ObjectInitializer::new(context).build();
     identity(&app, context)?;
     members::app(&app, context)?;
+    super::pages::app(&app, context)?;
     refusers(&app, Holder::App, context)?;
     data(&global, "app", JsValue::from(app), false, context)?;
     let util = ObjectInitializer::new(context).build();
@@ -981,6 +983,7 @@ fn field_prototype(context: &mut Context) -> JsResult<JsObject> {
         data(&prototype, name, JsValue::from(callable), false, context)?;
     }
     members::field(&prototype, context)?;
+    super::choices::field(&prototype, context)?;
     refusers(&prototype, Holder::Field, context)?;
     Ok(prototype)
 }
@@ -1882,7 +1885,24 @@ pub(super) fn refusers(object: &JsObject, holder: Holder, context: &mut Context)
     let prefix = holder.prefix();
     for row in EXCLUDED.iter().filter(|row| row.holder == holder) {
         for member in row.members {
-            refuser(object, prefix, member, Some(row.reason), context)?;
+            refuser(
+                object,
+                prefix,
+                member,
+                Some(Refused::Excluded(row.reason)),
+                context,
+            )?;
+        }
+    }
+    for row in REFUSED.iter().filter(|row| row.holder == holder) {
+        for member in row.members {
+            refuser(
+                object,
+                prefix,
+                member,
+                Some(Refused::Kept(row.reason)),
+                context,
+            )?;
         }
     }
     for (_, members) in NOT_BRIDGED.iter().filter(|(listed, _)| *listed == holder) {
@@ -1893,18 +1913,31 @@ pub(super) fn refusers(object: &JsObject, holder: Holder, context: &mut Context)
     Ok(())
 }
 
-/// One refused member: a getter and a setter that each throw its `NotAllowedError`.
+/// Why a member [`crate::surface`] lists is refused: Tier 2's reason, or Tier 1's member this
+/// program keeps out with a reason of its own (ADR 1724).
+#[derive(Debug, Clone, Copy)]
+pub(super) enum Refused {
+    /// RFC 0008 section 4.3's row.
+    Excluded(&'static str),
+    /// [`crate::surface::REFUSED`]'s row.
+    Kept(&'static str),
+}
+
+/// One refused member: a getter and a setter that each throw its `NotAllowedError` — Tier 2's or
+/// a kept member's where `reason` says which, one not yet bridged where it is `None`.
 pub(super) fn refuser(
     object: &JsObject,
     prefix: &'static str,
     member: &'static str,
-    reason: Option<&'static str>,
+    reason: Option<Refused>,
     context: &mut Context,
 ) -> JsResult<()> {
     let throws = move |_this: &JsValue, _arguments: &[JsValue], context: &mut Context| {
-        let kind = reason.map_or(RefusalKind::NotBridged, |reason| {
-            RefusalKind::Excluded(reason.to_owned())
-        });
+        let kind = match reason {
+            None => RefusalKind::NotBridged,
+            Some(Refused::Excluded(reason)) => RefusalKind::Excluded(reason.to_owned()),
+            Some(Refused::Kept(reason)) => RefusalKind::Unreachable(format!("it {reason}")),
+        };
         Err(refuse(format!("{prefix}{member}"), kind, context))
     };
     let getter = function(context, member, NativeFunction::from_copy_closure(throws));

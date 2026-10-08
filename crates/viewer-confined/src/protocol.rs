@@ -56,7 +56,7 @@ mod panels;
 /// question — and a host would discover that at the worst moment there is, in the middle of putting
 /// a reader back after a death, as a refusal of something the reader never asked for. The greeting
 /// is the cheap place to find it out instead.
-pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF10";
+pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF11";
 
 /// Length of the worker's greeting: the magic, the Landlock level, the address-space limit, and
 /// whether system calls are filtered — the same three facts `pdf_sandbox`'s own worker reports,
@@ -2309,6 +2309,10 @@ fn encode_edit(writer: &mut Writer, edit: &Edit) {
                 .bytes(bytes.bytes())
                 .option_str(mime.as_deref());
         }
+        // §12.5.6.4's note, retyped in its window (ADR 1726).
+        Edit::SetNoteText { annotation, text } => {
+            writer.u8(7).object(*annotation).str(text);
+        }
     }
 }
 
@@ -2392,6 +2396,10 @@ fn decode_edit(reader: &mut Reader<'_>) -> Result<Edit, ProtocolError> {
             pathname: reader.string("a chosen file's pathname")?,
             bytes: reader.owned_bytes("a chosen file")?.into(),
             mime: reader.option_string("a chosen file's media type")?,
+        },
+        7 => Edit::SetNoteText {
+            annotation: reader.object("a text note")?,
+            text: reader.string("a text note's contents")?,
         },
         value => {
             return Err(ProtocolError::Unrecognised {
@@ -4708,6 +4716,11 @@ mod tests {
                 annotation: ObjectId::new(19, 0),
                 text: "Reviewed".to_owned(),
             }),
+            // §12.5.6.4's note, retyped in its window (ADR 1726).
+            Command::Edit(Edit::SetNoteText {
+                annotation: ObjectId::new(20, 0),
+                text: "Seen".to_owned(),
+            }),
             // §7.11.4's file in both of §7.11.4.1's homes, and out again: the bytes cross whole
             // (ADR 0814).
             Command::Edit(Edit::Attach {
@@ -5866,6 +5879,7 @@ mod tests {
             PopupWindow {
                 annotation: ObjectId::new(30, 0),
                 parent: Some(ObjectId::new(31, 0)),
+                note: Some(ObjectId::new(31, 0)),
                 quad: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
                 title: Some("a title".to_owned()),
                 text: Some("a note".to_owned()),
@@ -6020,6 +6034,7 @@ mod tests {
             PopupWindow {
                 annotation: ObjectId::new(32, 0),
                 parent: None,
+                note: None,
                 quad: [0.0; 8],
                 title: None,
                 text: None,

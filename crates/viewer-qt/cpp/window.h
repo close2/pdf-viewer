@@ -32,6 +32,7 @@ class QTextDocument;
 
 class QLabel;
 class QLineEdit;
+class QPlainTextEdit;
 class QListView;
 class QSplitter;
 class QStackedWidget;
@@ -257,13 +258,19 @@ class PopupWindow : public QFrame
 
 public:
     /// Builds one window from what the host answered. Placed by the caller with `setGeometry`.
-    PopupWindow(const QtPopup& window, QWidget* parent);
+    /// `pressed` runs when a person presses a window whose text they may retype, and the window
+    /// takes no press otherwise (ADR 1726).
+    PopupWindow(const QtPopup& window, QWidget* parent, std::function<void()> pressed);
 
 protected:
     /// The paper is the palette's; the one-pixel edge is drawn here, over it (ADR 1466).
     void paintEvent(QPaintEvent* event) override;
+    /// A press on a window whose text is a note a person may retype.
+    void mousePressEvent(QMouseEvent* event) override;
 
 private:
+    /// What a press does, where the window's text is retyped.
+    std::function<void()> pressed_;
     /// `viewer_host::popup::EDGE`.
     QColor edge_;
 };
@@ -440,6 +447,12 @@ private:
     /// window holds neither — the clause gives it no actions of its own and
     /// `Qt::WA_TransparentForMouseEvents` means a press goes through it to the page.
     void rebuildPopups();
+    /// §12.5.6.14's popup "shall be used for editing the parent's text": an editor in the note's
+    /// window's place, holding its text, every change sent whole (ADR 1726). Escape, or the window
+    /// closing, gives the keyboard back to the page.
+    void editNote(const QtPopup& window);
+    /// Takes the note's editor away.
+    void endNote();
     /// §7.6.4.1's prompt, in a window of the platform's own.
     void askForAPassword();
     /// Ctrl + O's `QFileDialog`, whose answer opens beside the document in front (ADR 1275).
@@ -623,6 +636,11 @@ private:
     std::vector<QWidget*> controls_;
     /// ISO 32000-2 §12.5.6.14's open windows, in the order the host answered them.
     std::vector<QWidget*> popups_;
+    /// The editor standing in a note's window while a person types into it, and that note's
+    /// object (ADR 1726).
+    QPlainTextEdit* noteEditor_ = nullptr;
+    std::uint32_t noteNumber_ = 0;
+    std::uint16_t noteGeneration_ = 0;
     /// §12.4.4.1's clock, as one repeating timer that is stopped whenever nothing is presenting.
     ///
     /// One timer rather than a chain of `singleShot`s, because `applyUpdates` runs after every

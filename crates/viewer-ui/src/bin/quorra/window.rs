@@ -56,6 +56,10 @@ impl App {
             if self.press_on_choices(at) {
                 return;
             }
+            // §12.5.6.14's window is over the page too, and a note's takes the keyboard (ADR 1726).
+            if self.press_on_note(at) {
+                return;
+            }
             self.aim_at_field(at);
             // And the other half of §12.7.5.4 (ADR 0596): a press on a choice field lists its
             // options, because picking one is what the clause's two controls are *for* and typing a

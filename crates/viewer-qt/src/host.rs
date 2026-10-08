@@ -1695,6 +1695,25 @@ impl Host {
         }
     }
 
+    /// §12.5.6.4: the note's text as a person typed it into its window, sent whole as a field's
+    /// value is (ADR 1726). The note is the one `QtPopup` named; `viewer-core` refuses and says any
+    /// other.
+    pub(crate) fn set_note(&mut self, number: u32, generation: u16, text: &str) {
+        self.dispatch(Command::Edit(Edit::SetNoteText {
+            annotation: pdf_syntax::ObjectId::new(number, generation),
+            text: text.to_owned(),
+        }));
+    }
+
+    /// Says that a note's window took the keyboard, or that the page has it again (ADR 1726).
+    pub(crate) fn note_editing(&mut self, number: u32, generation: u16, editing: bool) {
+        if editing {
+            self.say(&format!("typing into the text note {number} {generation}"));
+        } else {
+            self.say("the keyboard is back on the page");
+        }
+    }
+
     /// §12.7.5.4: which of Table 234's `/Opt` entries are selected now.
     ///
     /// An empty set is a field with nothing chosen, which the clause makes a real state — "[t]he
@@ -3437,6 +3456,9 @@ impl Host {
                     blue: colour.map_or(0, |rgb| rgb.2),
                     paper: packed(viewer_host::popup::PAPER),
                     edge: packed(viewer_host::popup::EDGE),
+                    retypes: window.note.is_some(),
+                    note_number: window.note.map_or(0, |note| note.number),
+                    note_generation: window.note.map_or(0, |note| note.generation),
                 }
             })
             .collect()

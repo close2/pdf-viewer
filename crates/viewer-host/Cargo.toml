@@ -26,7 +26,9 @@ pdf-render.workspace = true
 render-cpu.workspace = true
 # §12.8.1's third question is a host's to answer: this crate reads certificates off a disk and
 # hands them in as RFC 5280 section 6.1.1's input (d). The crate is named for `Supply` and
-# `Acceptance` and for nothing else — no signature is read here (ADR 1039, ADR 1076).
+# `Acceptance`, and for a signature policy's published copy, which `policy` fetches at the reader's
+# level and checks against the digest the signer signed — no signature is read here (ADRs 1039,
+# 1076, 1728).
 pdf-signature.workspace = true
 # Every refusal in this crate is a typed error, as everywhere else in the tree.
 thiserror.workspace = true

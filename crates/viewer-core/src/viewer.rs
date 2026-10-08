@@ -2021,54 +2021,15 @@ impl Viewer {
         let Some(open) = self.focused_mut() else {
             return;
         };
-        // §7.9.6's keys "shall not overlap", and a detach needs something to detach: both are
-        // answered before the log is touched, and said, because an entry that did nothing would
-        // be an undo step over nothing.
-        match &edit {
-            crate::command::Edit::Attach { name, .. }
-                if open.view.attachment_named(&open.document, name) =>
-            {
-                events.push(Event::Reported {
-                    document: id,
-                    page: None,
-                    notes: vec![format!(
-                        "a file is already embedded under the name {name:?}, and a name tree's \
-                         keys shall not overlap (ISO 32000-2 §7.9.6) — nothing was attached"
-                    )],
-                });
-                return;
-            }
-            // Table 231 bit 21 is what makes a pathname a *value*; without it a file-select
-            // control is an ordinary text field and the bytes behind the path belong to nothing.
-            // Said rather than applied as text, which would be the wrong value under the right
-            // name (trap 5).
-            crate::command::Edit::ChooseFile { field, .. }
-                if !pdf_model::view::is_file_select(&open.document, field) =>
-            {
-                events.push(Event::Reported {
-                    document: id,
-                    page: None,
-                    notes: vec![format!(
-                        "field {field:?} does not set Table 231 bit 21 FileSelect, so it is not a \
-                         file-select control (ISO 32000-2 §12.7.5.3) — no file was chosen for it"
-                    )],
-                });
-                return;
-            }
-            crate::command::Edit::Detach { name }
-                if !open.view.attachment_named(&open.document, name) =>
-            {
-                events.push(Event::Reported {
-                    document: id,
-                    page: None,
-                    notes: vec![format!(
-                        "this document's /EmbeddedFiles tree names no file called {name:?} — \
-                         nothing was detached"
-                    )],
-                });
-                return;
-            }
-            _ => {}
+        // §7.9.6's keys "shall not overlap", a detach needs something to detach, and a retyping
+        // needs a note: each is answered before the log is touched, and said.
+        if let Some(note) = changes_nothing(open, &edit) {
+            events.push(Event::Reported {
+                document: id,
+                page: None,
+                notes: vec![note],
+            });
+            return;
         }
         // What was *done*, rather than what was asked for: `Edit::Markup` names its target as
         // "what is selected", and a replay after the selection moved would mark up something
@@ -2871,6 +2832,7 @@ impl Viewer {
                     .filter(|popup| popup.open)
                     .filter_map(|popup| {
                         Some(PopupWindow {
+                            note: pdf_model::popup::retyped_by(&open.document, &popup),
                             annotation: popup.annotation,
                             parent: popup.parent,
                             quad: self.device_quad(open, on_screen.page, popup.rect)?,
@@ -4722,6 +4684,7 @@ fn operation_of(edit: &crate::command::Edit) -> pdf_model::restriction::Operatio
         crate::command::Edit::Markup { .. }
         | crate::command::Edit::FreeText { .. }
         | crate::command::Edit::SetFreeText { .. }
+        | crate::command::Edit::SetNoteText { .. }
         | crate::command::Edit::Attach {
             home: crate::command::AttachHome::Page { .. },
             ..
@@ -4732,6 +4695,54 @@ fn operation_of(edit: &crate::command::Edit) -> pdf_model::restriction::Operatio
         }
         | crate::command::Edit::Detach { .. } => pdf_model::restriction::Operation::Modify,
     }
+}
+
+/// The sentence for an edit that would change nothing, said before the log is touched: an entry
+/// that did nothing would be an undo step over nothing.
+fn changes_nothing(open: &Open, edit: &crate::command::Edit) -> Option<String> {
+    let note = match edit {
+        crate::command::Edit::Attach { name, .. }
+            if open.view.attachment_named(&open.document, name) =>
+        {
+            format!(
+                "a file is already embedded under the name {name:?}, and a name tree's \
+                     keys shall not overlap (ISO 32000-2 §7.9.6) — nothing was attached"
+            )
+        }
+        // Table 231 bit 21 is what makes a pathname a *value*; without it a file-select
+        // control is an ordinary text field and the bytes behind the path belong to nothing.
+        // Said rather than applied as text, which would be the wrong value under the right
+        // name (trap 5).
+        crate::command::Edit::ChooseFile { field, .. }
+            if !pdf_model::view::is_file_select(&open.document, field) =>
+        {
+            format!(
+                "field {field:?} does not set Table 231 bit 21 FileSelect, so it is not a \
+                     file-select control (ISO 32000-2 §12.7.5.3) — no file was chosen for it"
+            )
+        }
+        // §12.5.6.4's note is the one annotation whose text a window retypes; any other is
+        // said rather than logged as an entry that changed nothing (ADR 1726).
+        crate::command::Edit::SetNoteText { annotation, .. }
+            if !pdf_model::popup::retypable(&open.document, *annotation) =>
+        {
+            format!(
+                "annotation {} {} is not a text note whose own text a popup window shows \
+                     (ISO 32000-2 §12.5.6.4) — nothing was retyped",
+                annotation.number, annotation.generation
+            )
+        }
+        crate::command::Edit::Detach { name }
+            if !open.view.attachment_named(&open.document, name) =>
+        {
+            format!(
+                "this document's /EmbeddedFiles tree names no file called {name:?} — \
+                     nothing was detached"
+            )
+        }
+        _ => return None,
+    };
+    Some(note)
 }
 
 /// Which field an [`crate::Edit`] names, where it names one.
@@ -4747,6 +4758,7 @@ fn field_of(edit: &crate::command::Edit) -> Option<&str> {
         crate::command::Edit::Markup { .. }
         | crate::command::Edit::FreeText { .. }
         | crate::command::Edit::SetFreeText { .. }
+        | crate::command::Edit::SetNoteText { .. }
         | crate::command::Edit::Attach { .. }
         | crate::command::Edit::Detach { .. } => None,
     }
@@ -4761,7 +4773,8 @@ fn field_of(edit: &crate::command::Edit) -> Option<&str> {
 /// the flag is read off an object the file already holds.
 fn annotation_of(edit: &crate::command::Edit) -> Option<ObjectId> {
     match edit {
-        crate::command::Edit::SetFreeText { annotation, .. } => Some(*annotation),
+        crate::command::Edit::SetFreeText { annotation, .. }
+        | crate::command::Edit::SetNoteText { annotation, .. } => Some(*annotation),
         crate::command::Edit::SetField { .. }
         | crate::command::Edit::ChooseFile { .. }
         | crate::command::Edit::Markup { .. }

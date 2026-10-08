@@ -195,6 +195,9 @@ pub(crate) enum Target {
     Field,
     /// §12.5.6.6's annotation, named by its object because it has no other name.
     FreeText(ObjectId),
+    /// §12.5.6.4's text note, typed into in its popup window rather than on the page — named by
+    /// its object for the free text annotation's reason (ADR 1726).
+    Note(ObjectId),
 }
 
 impl Typing {
@@ -211,6 +214,14 @@ impl Typing {
     /// The selected range, low end first — empty where the two offsets are the same.
     pub(crate) fn range(self) -> (usize, usize) {
         (self.caret.min(self.anchor), self.caret.max(self.anchor))
+    }
+
+    /// The note whose window has the keyboard, where one has.
+    pub(crate) fn note(self) -> Option<ObjectId> {
+        match self.target {
+            Target::Note(note) => Some(note),
+            Target::Field | Target::FreeText(_) => None,
+        }
     }
 }
 
@@ -611,6 +622,38 @@ impl App {
         }
     }
 
+    /// A press on an open popup window whose text is a note a person may retype: the keyboard goes
+    /// to the note, and the press goes no further, since the window is over the page and a press
+    /// on it is not a press on what is underneath (ADR 1726).
+    ///
+    /// §12.5.6.14's popup "shall be used for editing the parent's text", and
+    /// `viewer_core::PopupWindow::note` names the note where the window's text is one this program
+    /// retypes. **The caret stands at the end of the note** and the window's focus ring says it
+    /// has the keyboard: this host lays a note's lines out itself in `chrome::popup_windows`, which
+    /// answers no point for an offset, so a caret placed inside the text would be drawn where the
+    /// next character does not go. A window whose text is not retyped takes the press as before.
+    pub(crate) fn press_on_note(&mut self, at: (f32, f32)) -> bool {
+        let Answer::Popups(windows) = self.viewer.query(Query::Popups) else {
+            return false;
+        };
+        // The last window drawn is the one on top.
+        let Some((note, text)) = windows
+            .iter()
+            .rev()
+            .find(|window| viewer_host::covers(window.quad, at))
+            .and_then(|window| Some((window.note?, window.text.clone().unwrap_or_default())))
+        else {
+            return false;
+        };
+        println!(
+            "note: typing into the text note {} {}",
+            note.number, note.generation
+        );
+        self.typing = Some(Typing::at_offset(Target::Note(note), at, text.len()));
+        self.redraw();
+        true
+    }
+
     /// Aims the keyboard at §12.5.6.6's annotation under the point, whoever wrote it.
     ///
     /// The same two questions a field takes, in the same order and for the same reasons:
@@ -853,6 +896,15 @@ impl App {
     /// truncating a value is a thing the host *reads* rather than a thing it has to predict
     /// (ADR 0197). It costs a query per keystroke, which is a walk of one page's annotations.
     pub(crate) fn typed(&mut self, key: &Key<&str>) -> bool {
+        match self.typing.map(|typing| (typing, typing.note())) {
+            Some((typing, Some(note))) => self.typed_into_note(typing, note, key),
+            Some((_, None)) => self.typed_into_value(key),
+            None => false,
+        }
+    }
+
+    /// [`App::typed`] for a field or a free text annotation, whose caret the core places.
+    fn typed_into_value(&mut self, key: &Key<&str>) -> bool {
         let Some(typing) = self.typing else {
             return false;
         };
@@ -1032,7 +1084,57 @@ impl App {
                     _ => None,
                 }
             }
+            // A note's window is typed into by `typed_into_note`, which reads the window's text.
+            Target::Note(_) => None,
         }
+    }
+
+    /// One key press while a note's window has the keyboard, the caret at the note's end
+    /// ([`App::press_on_note`] says why): a character, a space or a return is added, Backspace
+    /// takes the last character away, and Escape gives the keyboard back to the page. Every other
+    /// key is consumed, so that a page does not turn under somebody typing.
+    fn typed_into_note(&mut self, typing: Typing, note: ObjectId, key: &Key<&str>) -> bool {
+        // The window's text as the core shows it — the note's retyping where there is one — while
+        // the window is still open on the screen; a window that closed takes the keyboard back.
+        let window = match self.viewer.query(Query::Popups) {
+            Answer::Popups(windows) => windows.into_iter().find(|window| window.note == Some(note)),
+            _ => None,
+        };
+        let Some(window) = window else {
+            self.typing = None;
+            return false;
+        };
+        let current = window.text.unwrap_or_default();
+        let current = current.as_str();
+        let next = match *key {
+            Key::Named(NamedKey::Escape) => {
+                self.typing = None;
+                println!("note: the keyboard is back on the page");
+                self.redraw();
+                return true;
+            }
+            Key::Character(_) if self.control => return true,
+            Key::Named(NamedKey::Backspace) => {
+                spliced(current, before(current, current.len()), current.len(), "")
+            }
+            Key::Named(NamedKey::Enter) => format!("{current}\n"),
+            Key::Named(NamedKey::Space) => format!("{current} "),
+            Key::Character(text) if !text.is_empty() => format!("{current}{text}"),
+            _ => return true,
+        };
+        if next != current {
+            self.dispatch(Command::Edit(Edit::SetNoteText {
+                annotation: note,
+                text: next.clone(),
+            }));
+        }
+        self.typing = Some(Typing {
+            caret: next.len(),
+            anchor: next.len(),
+            ..typing
+        });
+        self.redraw();
+        true
     }
 }
 

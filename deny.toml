@@ -145,4 +145,9 @@ allow-git = [
     # selects the reference renderer (ADR 1714). The owner's fork `close2/hayro` takes this
     # entry's place the day it carries `doc/patches/hayro-jbig2-*.patch` and the manifest pins it.
     "https://github.com/LaurenzV/hayro",
+    # The third, the owner's fork of the JPEG codec: `zune-jpeg` 0.5.15's own commit `31d81fed`
+    # with `doc/patches/zune-jpeg-*.patch` applied and nothing else, `zune-core` coming from the
+    # same revision because `zune-jpeg` names it by path (doc/questions/A227, ADR 1730). It gives
+    # this entry back the day a crates.io release carries both patches.
+    "https://github.com/close2/zune-image",
 ]

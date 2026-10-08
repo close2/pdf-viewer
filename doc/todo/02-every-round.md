@@ -105,11 +105,15 @@ cargo test -p conformance -- --nocapture    # seconds, and it reads the citation
 ```
 
 **Tier 2 — the round that touched the subsystem.** The map below says which of these this round
-owes; a round that owes none of them runs tier 1 and stops. The `--bins` lines are **not gates**:
-each is a prerequisite of the lines under it, and it is run with them or not at all (trap 10).
+owes; a round that owes none of them runs tier 1 and stops. **Every line is a walk**, and runs as
+its `tools/state.sh --round <session> <section>` runs it: under the wrapper, in the lane its section
+declares, with the sandbox worker it spawns built for its own profile as the wrapper's `--build`
+inside the hold — Cargo does not build another package's binary for a test (trap 10), and a build
+before the lock is as old as the moment the walk stopped queueing (trap 109, ADR 1710). The block's
+first line is that shape; the lines after it are what goes after its `--`.
 
 ```sh
-cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
+ulimit -u 8192; RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --tree <6|12> --build '<the line's profile> -p pdf-sandbox --bins' -- <the line>
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test raster_golden   -- --ignored --nocapture   # ADR 1016: our own output held by name — a change detector; PDFVIEWER_RASTER_GOLDEN=update regenerates
 cargo test  --profile gates -p pdf-model      --test script_corpus   -- --ignored --nocapture   # RFC 0008 section 6.7's Tier 0 form: every field script of the census population committed once, every displayed value held by name (ADR 1579); PDFVIEWER_SCRIPT_CORPUS=update regenerates
@@ -119,9 +123,7 @@ cargo test  --profile gates -p pdf-model      --test xmp             -- --ignore
 cargo test  --profile gates -p pdf-model      --test jpeg2000        -- --nocapture
 cargo test  --profile gates -p pdf-transform  --test gate            -- --ignored --nocapture   # RFC 0002 section 12's floor
 cargo test  --profile gates -p pdf-syntax     --test on_disk         -- --ignored --nocapture   # every corpus document read from disk and from memory, object for object (ADR 0809)
-cargo build --release       -p pdf-sandbox --bins   # trap 10 again, and `--release` on purpose: see below
-cargo build --release       -p pdf-script-worker --features engine --bins   # trap 10, for launch_path's script stage (ADR 1620)
-cargo test  --release       -p viewer-ui      --test launch_path    -- --ignored --nocapture   # principle 2's numbers, the counted half (doc/verify.md runs the clocks)
+cargo test  --release       -p viewer-ui      --test launch_path    -- --ignored --nocapture   # principle 2's numbers, the counted half (doc/verify.md runs the clocks); `--release` on purpose, see below; a `--clock`, whose script stage's worker is a second `--build` beside the sandbox's (ADR 1620; doc/checks/launch-path.toml spells both)
 cargo test  --release       -p render-raster  --test turn_path      -- --ignored --nocapture   # doc/performance.md 3e's turn and step rows, banded in doc/checks/turn-path.toml (ADR 1513)
 tools/batch.sh raster-examples   # ci.yml's fourteen raster examples, each with --check under Xvfb, one line each (ADR 1575)
 ```
@@ -130,11 +132,11 @@ tools/batch.sh raster-examples   # ci.yml's fourteen raster examples, each with 
 ordinary round does not run them; the round that merges a worktree into `main` runs all of them,
 and so does every fifth round (rule 4) and any round whose own subject *is* one of these walks —
 a change to `pdf-transform`'s writers, to `pdf-archive`'s validator or to `pdf-vfs` is a change to
-what these lines assert, and the map says so.
+what these lines assert, and the map says so. Each line runs as tier 2's do, its section's lane and
+its worker's `--build` inside the hold.
 
 ```sh
-cargo build --profile gates -p hayro-compare --bin pdfref-hayro      # trap 10 again, see below
-cargo test  --profile gates -p pdf-model      --test oracle          -- --ignored --nocapture
+cargo test  --profile gates -p pdf-model      --test oracle          -- --ignored --nocapture   # a `--clock`, whose second `--build` makes the reference program `pdfref-hayro` (trap 10 again, see below)
 cargo test  --profile gates -p pdf-model      --test text_extraction -- --ignored --nocapture   # three gates
 cargo test  --profile gates -p viewer-core    --test selection_census -- --ignored --nocapture
 cargo test  --profile gates -p viewer-core    --test accessibility_census -- --ignored --nocapture
@@ -151,10 +153,8 @@ cargo test  --profile gates -p pdf-transform  --test foreign_corpus -- --ignored
 cargo test  --profile gates -p pdf-archive    --test corpus          -- --ignored --nocapture   # the validator against the veraPDF corpus, clause by clause per target; `over` is the column that matters (ADR 1015)
 cargo test  --profile gates -p pdf-transform  --test archive_corpus  -- --ignored --nocapture   # the converter over the same corpus: conforms in, conforms out, no glyph moves — the walk that found ADR 1006's signature
 cargo test  --profile gates -p pdf-archive    --test cross_check     -- --ignored --nocapture   # A61: the survey's resource selections held to the interpreter's, within the constructs the survey walks; a disagreement names document, page, stream, operator and name (ADR 1055)
-cargo build --profile gates -p pdf-vfs        --bins   # trap 10 again: this crate has a worker program of its own
 cargo test  --profile gates -p pdf-vfs        --test write_corpus   -- --ignored --nocapture   # RFC 0003 section 5.2: the five write verbs over the corpus, through the core
 cargo test  --profile gates -p pdf-vfs        --test read_corpus    -- --ignored --nocapture   # RFC 0003 section 4: the whole layout listed, stat'd and read through the confined worker, over doc/pdf.js whole and a class-balanced sample of every other corpus on the disk
-cargo build --profile gates -p viewer-confined --bins   # trap 10 a fourth time: the confined viewer is a program of its own
 cargo test  --profile gates -p viewer-confined --test awkward_classes -- --ignored --nocapture   # the other confined program over the same classes from every corpus on the disk; what fails it is a death (ADR 0879, ADR 1015)
 ```
 
@@ -433,7 +433,7 @@ list it had read rather than the list it left:
   The profile is not a slip. `[profile.gates]` costs `Document::open` 4.06% to 12.30% against
   `[profile.release]` (`Cargo.toml`'s table, ADR 0666), which is wider than the bands, and a launch
   number is a claim about the program a person runs — so this line takes `release` and the harness
-  prints-without-judging under anything else. The `--release` sandbox build above it is trap 10 in
+  prints-without-judging under anything else. Its walk's `--release` worker build is trap 10 in
   the same profile: a `--release --test` line builds one test target and the worker beside it
   would otherwise be whatever an earlier round left, in the wrong profile or not at all. A cold
   `release` link of `viewer-ui` in a fresh worktree is about two and a half minutes and nothing
@@ -470,17 +470,18 @@ list it had read rather than the list it left:
   defect over more questions** (ADR 1015). It shares that walk's
   population and its filter and not its *program*: `pdf-view-worker` is the process a person reads
   pages in, and a system call in code the two workers do not share is caught by this line alone.
-  It needs the `--bins` line above it (trap 10), decodes its three confined codecs in-process so
-  no `pdf-sandbox-worker` can change what it holds, and runs under `tools/bounded.sh` like the
-  other walks — it is the heaviest of the six by memory, at a few gigabytes over its process tree.
+  Its program is its own package's, which Cargo builds for that package's integration test as it
+  builds `pdf-vfs-worker` for the `pdf-vfs` lines (ADR 1718 section 2); it decodes its three
+  confined codecs in-process so no `pdf-sandbox-worker` can change what it holds, and runs under
+  `tools/bounded.sh` like the other walks — it is the heaviest of the six by memory, at a few
+  gigabytes over its process tree.
 - **`pdfref-hayro` is the oracle's fourth reading and nothing built it.** It is a *program*, found
   beside the running test binary, and its absence costs no verdict — `Reference::Hayro` never
   votes — but it is what a person looks at on a page the three references cannot settle. It
   existed under `target/release/` only because some earlier round happened to run
-  `cargo build --release -p hayro-compare --bins`. Its line is placed *after* the corpus gate
-  rather than in front of it, which is worth several seconds: the corpus gate compiles
-  `pdf-model`'s rlib and its own test target in one graph, and `-p hayro-compare` on its own has
-  nothing to overlap.
+  `cargo build --release -p hayro-compare --bins`. It is the oracle walk's second `--build` now,
+  after the sandbox worker's and inside the same hold, as `tools/state.sh oracle` spells it (trap
+  109, ADR 1710).
 
 - **The quorra gate runs one of two coverage lanes, and the other one is a round's to ask for.**
   `PDFVIEWER_RASTER_COVERAGE=gpu` points the same gate at the lane `viewer-ui` switches to past ten
@@ -681,8 +682,9 @@ builds `--release` what it measures, in its own build directory, and runs it fro
 
 ```sh
 built=$(cargo metadata --no-deps --format-version 1 | jq -r .target_directory)/release
-cargo build --release --bin quorra --bin pdf-sandbox-worker   # what the measurement runs, and its workers
-"$built/quorra" --trace=launch doc/PDF20_AN001-BPC.pdf
+ulimit -u 8192; tools/bounded.sh --lock --clock --round <session> --tree 12 \
+    --build '--release --bin quorra --bin pdf-sandbox-worker' -- \
+    "$built/quorra" --trace=launch doc/PDF20_AN001-BPC.pdf   # what the measurement runs, and its workers, built inside its hold
 ```
 
 **Which directory that is has to be *asked for*, never written down.** The main checkout builds

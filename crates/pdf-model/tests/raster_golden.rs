@@ -59,14 +59,22 @@
 //! # Running it
 //!
 //! ```text
-//! cargo build --profile gates -p pdf-sandbox --bins     # trap 10: the worker decodes three filters
-//! cargo test  --profile gates -p pdf-model --test raster_golden -- --ignored --nocapture
+//! ulimit -u 8192; RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --tree 12 \
+//!     --build '--profile gates -p pdf-sandbox --bins' -- \
+//!     cargo test --profile gates -p pdf-model --test raster_golden -- --ignored --nocapture
 //! ```
+//!
+//! which is `tools/state.sh --round <session> golden`. The worker decodes three filters and Cargo
+//! does not build another package's binary for a test (trap 10), so the walk's own `--build` makes
+//! it inside the hold, as old as the walk rather than as the moment it stopped queueing (trap 109,
+//! ADR 1710).
 //!
 //! **To regenerate, after a change that moves pixels on purpose:**
 //!
 //! ```text
-//! PDFVIEWER_RASTER_GOLDEN=update cargo test --profile gates -p pdf-model --test raster_golden -- --ignored --nocapture
+//! ulimit -u 8192; PDFVIEWER_RASTER_GOLDEN=update RAYON_NUM_THREADS=4 tools/bounded.sh --lock \
+//!     --round <session> --tree 12 --build '--profile gates -p pdf-sandbox --bins' -- \
+//!     cargo test --profile gates -p pdf-model --test raster_golden -- --ignored --nocapture
 //! ```
 //!
 //! which rewrites `tests/raster_golden.tsv` whole, sorted, and prints exactly which entries

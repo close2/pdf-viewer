@@ -348,7 +348,7 @@ pub(super) fn field(prototype: &JsObject, context: &mut Context) -> JsResult<()>
 }
 
 /// A write to a member the reference makes read-only here, refused by name.
-fn read_only(member: &str, context: &mut Context) -> boa_engine::JsError {
+pub(super) fn read_only(member: &str, context: &mut Context) -> boa_engine::JsError {
     refuse(
         member.to_owned(),
         RefusalKind::Unreachable(

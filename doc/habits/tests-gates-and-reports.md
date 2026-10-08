@@ -545,3 +545,10 @@ the machine was loaded enough to reorder the opens — the gate's "`mutool` shor
 story was never the cause (round 1443, ADR 1718). A test that needs one piece of a multi-output plan
 takes it by the name the report gives (`first_written`), and a flake blamed on another program is
 read against the test's own indexing first.
+
+## A comment on a gate line in `doc/todo/02` section 2 names no flag
+
+`sandbox_gates.rs`, `batch.rs` and `state_sections.rs` read `-p` and `--test` off the whole of a
+`cargo test` line in the gate map, comment included, so a comment saying "`-p pdf-script-worker` is
+built by the second `--build`" made a sweep read the wrong package and fail by name (round 1448,
+ADR 1732). What a gate needs is said in words beside its line; the flags are the line's own.

@@ -12,6 +12,36 @@ use pdf_model::view::{
 use pdf_script::wire::{WireError, decode_outcome, decode_request, encode_outcome, encode_request};
 use pdf_script::{Ending, Event, Exceeded, Outcome, Refusal, RefusalKind, Request};
 
+/// A choice field's `/Opt`: a pair, then a text string.
+fn options() -> Vec<pdf_model::form::Choice> {
+    vec![
+        pdf_model::form::Choice {
+            export: Some("r".to_owned()),
+            label: "Red".to_owned(),
+        },
+        pdf_model::form::Choice {
+            export: None,
+            label: "Grün".to_owned(),
+        },
+    ]
+}
+
+/// Two pages as a realm is told of them: one labelled and turned, one neither.
+fn pages() -> Vec<pdf_model::view::PageState> {
+    vec![
+        pdf_model::view::PageState {
+            label: Some("iv".to_owned()),
+            boxes: [[0.0, 0.0, 612.0, 792.0]; 5],
+            rotate: 270,
+        },
+        pdf_model::view::PageState {
+            label: None,
+            boxes: [[1.5, -2.0, 3.0, 4.0]; 5],
+            rotate: 0,
+        },
+    ]
+}
+
 fn request(site: ScriptSite) -> Request {
     Request {
         site,
@@ -60,6 +90,8 @@ fn request(site: ScriptSite) -> Request {
                     on_state: Some("On".to_owned()),
                 },
             ],
+            options: options(),
+            selected: vec![0, 1],
         }],
         page: 3,
         pages: 9,
@@ -105,6 +137,7 @@ fn request(site: ScriptSite) -> Request {
                     popup_open: None,
                 },
             ],
+            pages: pages(),
             ..DocumentState::default()
         }),
         moment: 1_704_465_015_000,
@@ -165,6 +198,14 @@ fn outcome() -> Outcome {
                 generation: 0,
                 change: AnnotationChange::Contents("retyped".to_owned()),
             },
+            ScriptEdit::Choose {
+                field: "Colour".to_owned(),
+                indices: vec![0, 2],
+            },
+            ScriptEdit::Destination {
+                name: "chapter5".to_owned(),
+            },
+            ScriptEdit::Calculation { on: false },
         ],
         ending: Ending::Exceeded(Exceeded::Wall(Duration::from_millis(100))),
         refusals: vec![

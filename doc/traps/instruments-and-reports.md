@@ -649,6 +649,10 @@ script round to build; Adobe's reference at the pinned commit lists six beside `
 the brief's six (`ShouldNoView`, `ShouldNoZoom`) are not among them (round 1438). A member list in a
 brief is read off the source at its pinned commit before anything is built from it.
 
+And a population counted by the wrong part. A brief sized a build on "thirteen signatures" under one
+policy; the build needed the URL qualifier, which three of the thirteen carry (round 1446, ADR 1728).
+A population is counted by the part the build actually reads before the build is sized.
+
 ### 27. An assertion on a substring passes for every answer that shares it
 
 Trap 11 on the other side of the wire. A report is only as good as the condition it fires on; an

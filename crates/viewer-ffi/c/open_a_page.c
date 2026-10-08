@@ -492,12 +492,65 @@ static int read_the_rich_note(const quorra_viewer *viewer)
             if (tabs.stops > 0
                 && check("quorra_popup_rich_tab", quorra_popup_rich_tab(popups, 0, 0, 0, 0, &tab))) {
                 printf("rich tab 0: align %u at %.1fpt\n", tab.align, tab.at_points);
+                /* The stop's leader, broken as the toolkit windows break it (ADR 1726). */
+                quorra_rich_leader leader;
+                float pieces[64];
+                size_t floats = 0;
+                if (check("quorra_popup_rich_leader",
+                          quorra_popup_rich_leader(popups, 0, 0, 0, 0, &leader))
+                    && check("quorra_rule_pieces",
+                             quorra_rule_pieces(leader.rule_style, leader.thickness_points, 0.0f,
+                                                tab.at_points, 0.0f, pieces,
+                                                sizeof pieces / sizeof pieces[0], &floats))) {
+                    printf("rich leader 0: pattern %u style %u thickness %d at %.1fpt; %zu float(s) "
+                           "across %.0fpt\n",
+                           leader.pattern, leader.rule_style, leader.has_thickness ? 1 : 0,
+                           leader.thickness_points, floats, tab.at_points);
+                } else {
+                    ok = 0;
+                }
             } else if (tabs.stops > 0) {
                 ok = 0;
             }
         } else {
             ok = 0;
         }
+    }
+    quorra_popups_free(popups);
+    return ok;
+}
+
+/*
+ * §12.5.6.4's note retyped through its window (ADR 1726): the window names the note, the edit names
+ * it back, and the window's text is read again rather than assumed. Returns 1 on success.
+ */
+static int retype_the_note(quorra_viewer *viewer)
+{
+    quorra_popups *popups = NULL;
+    uint32_t number = 0;
+    uint16_t generation = 0;
+    if (!check("quorra_popups_read (note)", quorra_popups_read(viewer, &popups))) {
+        return 0;
+    }
+    int named = quorra_popups_len(popups) == 1
+                && check("quorra_popup_note", quorra_popup_note(popups, 0, &number, &generation));
+    quorra_popups_free(popups);
+    if (!named) {
+        return 0;
+    }
+    quorra_events *events = NULL;
+    if (!check("quorra_set_note_text",
+               quorra_set_note_text(viewer, number, generation, "retyped", &events))) {
+        return 0;
+    }
+    quorra_events_free(events);
+    char text[64] = {0};
+    size_t needed = 0;
+    int ok = check("quorra_popups_read (retyped)", quorra_popups_read(viewer, &popups))
+             && check("quorra_popup_text", quorra_popup_text(popups, 0, QUORRA_NOTE_CONTENTS, text,
+                                                             sizeof text, &needed));
+    if (ok) {
+        printf("note %u %u retyped: \"%s\"\n", number, generation, text);
     }
     quorra_popups_free(popups);
     return ok;
@@ -527,7 +580,7 @@ static int exercise_the_form(quorra_viewer *viewer, const char *path)
     free(bytes);
     quorra_events_free(events);
 
-    if (!read_the_rich_note(viewer)) {
+    if (!read_the_rich_note(viewer) || !retype_the_note(viewer)) {
         return 0;
     }
 

@@ -321,6 +321,13 @@ pub mod ffi {
         paper: u32,
         /// `viewer_host::popup::EDGE`, the line round the window, as `0xRRGGBB`.
         edge: u32,
+        /// Whether a person may retype the window's text: `viewer_core::PopupWindow::note` is a
+        /// text note, whose object the next two carry for `set_note` (ADR 1726).
+        retypes: bool,
+        /// The note's object number, where `retypes` is true.
+        note_number: u32,
+        /// Its generation.
+        note_generation: u16,
     }
 
     /// One paragraph of a rich note, as the popup window's `QTextDocument` takes it (ADR 1666).
@@ -699,6 +706,11 @@ pub mod ffi {
         fn show_page(self: &mut Host, index: usize);
         /// A control's value was typed into.
         fn set_control(self: &mut Host, index: usize, value: &str);
+        /// §12.5.6.4: a note's text was typed into in its popup window — the note a `QtPopup`
+        /// named, and the whole of what it says now (ADR 1726).
+        fn set_note(self: &mut Host, number: u32, generation: u16, text: &str);
+        /// The note's window took the keyboard, or gave it back to the page: said to the person.
+        fn note_editing(self: &mut Host, number: u32, generation: u16, editing: bool);
         /// §12.7.4.3's commit: a person finished with a line edit — Enter, or the keyboard gone
         /// elsewhere — which is `QLineEdit::editingFinished` (ADR 1592).
         fn commit_control(self: &mut Host, index: usize);

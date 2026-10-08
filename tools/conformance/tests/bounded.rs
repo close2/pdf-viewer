@@ -1180,13 +1180,7 @@ fn spells_a_worker_build_outside_the_hold(line: &str) -> bool {
 /// The files that still tell a person to run the worker's build before a walk rather than as its
 /// `--build`, each another round's to re-spell: a ratchet, so a file leaves this list the day it is
 /// re-spelled and none joins it.
-const HELD_WORKER_BUILD_INSTRUCTIONS: [&str; 5] = [
-    "crates/pdf-model/tests/raster_golden.rs",
-    "doc/checks/fixed-documents.toml",
-    "doc/checks/launch-path.toml",
-    "doc/todo/02-every-round.md",
-    "doc/todo/03-more-corpora.md",
-];
+const HELD_WORKER_BUILD_INSTRUCTIONS: [&str; 0] = [];
 
 /// Every instruction a person reads builds the sandbox worker inside the walk's hold: the scripts
 /// already do (the test above), and the doc comments a round copies a walk from told it to run

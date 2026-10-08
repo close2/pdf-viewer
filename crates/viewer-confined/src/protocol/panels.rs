@@ -1509,6 +1509,7 @@ pub(super) fn encode_popups(writer: &mut Writer, popups: &[PopupWindow]) {
         let PopupWindow {
             annotation,
             parent,
+            note,
             quad,
             title,
             text,
@@ -1522,6 +1523,7 @@ pub(super) fn encode_popups(writer: &mut Writer, popups: &[PopupWindow]) {
         writer
             .object(*annotation)
             .option_object(*parent)
+            .option_object(*note)
             .quad(*quad);
         // Table 172's `/Subj` and `/CreationDate` cross with the rest of the window: a panel on
         // the far side of the confinement that received less than the direct one would be the
@@ -1867,6 +1869,7 @@ pub(super) fn decode_popups(reader: &mut Reader<'_>) -> Result<Vec<PopupWindow>,
         Ok(PopupWindow {
             annotation: reader.object("a popup")?,
             parent: reader.option_object("a popup's parent")?,
+            note: reader.option_object("a popup's text note")?,
             quad: reader.quad("a popup's rectangle")?,
             title: reader.option_string("a popup's title")?,
             text: reader.option_string("a popup's text")?,

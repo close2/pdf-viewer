@@ -547,6 +547,12 @@ pub struct Host {
     /// nothing. `viewer_core::PopupWindow` is `PartialEq`, which is what makes the comparison the
     /// whole test.
     popups_shown: Vec<viewer_core::PopupWindow>,
+    /// The note whose window a person is typing into, and the editor standing in that window's
+    /// place (ADR 1726).
+    note_editor: Option<NoteEditor>,
+    /// The note whose window the press now held went down on, which its release does not reach
+    /// the page for either.
+    pressed_a_note: Option<pdf_syntax::ObjectId>,
     /// Whether the pointer was last over §12.5.6.5's activation region.
     ///
     /// Kept so that `Query::LinkAt` changes the cursor when the answer changes rather than on
@@ -792,6 +798,8 @@ impl Host {
                 placed: Vec::new(),
                 popups: Vec::new(),
                 popups_shown: Vec::new(),
+                note_editor: None,
+                pressed_a_note: None,
                 over_link: false,
                 presented: false,
                 accessibility: None,
@@ -2368,9 +2376,26 @@ impl Host {
         }
         let scale = f64::from(self.scale);
         let placed = viewer_host::popup::windows(popups);
+        let editing = self.note_editor.as_ref().map(|editor| editor.note);
         for window in &placed {
-            let widget = popup_window(window);
             let (x, y, width, height) = window.place;
+            // The note being typed into keeps its editor where its window is, so that a keystroke
+            // that changes the window's text does not take the keyboard away from it.
+            if let Some(editor) = self
+                .note_editor
+                .as_ref()
+                .filter(|editor| window.note == Some(editor.note))
+            {
+                editor.frame.set_size_request(
+                    logical(f64::from(width), scale),
+                    logical(f64::from(height), scale),
+                );
+                self.ui
+                    .fixed
+                    .move_(&editor.frame, f64::from(x) / scale, f64::from(y) / scale);
+                continue;
+            }
+            let widget = popup_window(window);
             widget.set_size_request(
                 logical(f64::from(width), scale),
                 logical(f64::from(height), scale),
@@ -2394,6 +2419,114 @@ impl Host {
             );
         }
         self.popups_shown = popups.to_vec();
+        // A window that closed or scrolled away takes its editor with it.
+        if editing.is_some() && !placed.iter().any(|window| window.note == editing) {
+            self.end_note();
+        }
+    }
+
+    /// Gives a person the note's text to type into, in its window's place (ADR 1726).
+    ///
+    /// A `GtkTextView` over the window, holding Table 166's `/Contents` as the window shows it, and
+    /// every change sent as `Edit::SetNoteText` — the whole text, as a field's value is sent.
+    /// Escape, or the window closing, gives the keyboard back to the page. The window's `/RC`
+    /// formatting is the label's and not the editor's: a retyping is plain characters, and the
+    /// window shows the note's formatting again where those still agree with it (ADR 1721).
+    fn edit_note(&mut self, note: pdf_syntax::ObjectId) {
+        if self
+            .note_editor
+            .as_ref()
+            .is_some_and(|editor| editor.note == note)
+        {
+            return;
+        }
+        self.end_note();
+        let Some(window) = self
+            .popups_shown
+            .iter()
+            .find(|window| window.note == Some(note))
+        else {
+            return;
+        };
+        let (x, y, width, height) = viewer_host::bounds(window.quad);
+        let text = window.text.clone().unwrap_or_default();
+        let view = gtk4::TextView::new();
+        view.set_wrap_mode(gtk4::WrapMode::WordChar);
+        view.set_left_margin(POPUP_PADDING);
+        view.set_right_margin(POPUP_PADDING);
+        view.set_top_margin(POPUP_PADDING);
+        let buffer = view.buffer();
+        // Before the handler is connected, so that putting the text in sends no edit.
+        buffer.set_text(&text);
+        buffer.place_cursor(&buffer.end_iter());
+        let me = self.me.clone();
+        buffer.connect_changed(move |buffer| {
+            let text = buffer
+                .text(&buffer.start_iter(), &buffer.end_iter(), false)
+                .to_string();
+            with(&me, |host| {
+                host.dispatch(Command::Edit(Edit::SetNoteText {
+                    annotation: note,
+                    text,
+                }));
+            });
+        });
+        let keys = gtk4::EventControllerKey::new();
+        let me = self.me.clone();
+        keys.connect_key_pressed(move |_, key, _, _| {
+            if key != gtk4::gdk::Key::Escape {
+                return glib::Propagation::Proceed;
+            }
+            let me = me.clone();
+            glib::idle_add_local_once(move || with(&me, Host::end_note));
+            glib::Propagation::Stop
+        });
+        view.add_controller(keys);
+        let frame = gtk4::ScrolledWindow::new();
+        frame.set_child(Some(&view));
+        frame.set_overflow(gtk4::Overflow::Hidden);
+        let scale = f64::from(self.scale);
+        frame.set_size_request(
+            logical(f64::from(width), scale),
+            logical(f64::from(height), scale),
+        );
+        // In the controls' layer rather than the windows', which takes no pointer: the editor is a
+        // control a person clicks into, as a field's is, and the keyboard there is a control's.
+        self.ui
+            .fixed
+            .put(&frame, f64::from(x) / scale, f64::from(y) / scale);
+        self.say(&format!(
+            "typing into the text note {} {}",
+            note.number, note.generation
+        ));
+        self.note_editor = Some(NoteEditor { note, frame });
+        // The window under the editor is taken away by the next placement.
+        self.popups_shown.clear();
+        let popups = match self.viewer.query(Query::Popups) {
+            Answer::Popups(windows) => windows,
+            _ => Vec::new(),
+        };
+        self.place_popups(&popups);
+        let focused = view.clone();
+        glib::idle_add_local_once(move || {
+            focused.grab_focus();
+        });
+    }
+
+    /// Takes the note's editor away and gives the keyboard back to the page.
+    fn end_note(&mut self) {
+        let Some(editor) = self.note_editor.take() else {
+            return;
+        };
+        self.ui.fixed.remove(&editor.frame);
+        self.say("the keyboard is back on the page");
+        self.popups_shown.clear();
+        let popups = match self.viewer.query(Query::Popups) {
+            Answer::Popups(windows) => windows,
+            _ => Vec::new(),
+        };
+        self.place_popups(&popups);
+        self.ui.page_area.grab_focus();
     }
 
     /// What the controls' minimum sizes say about the magnification, said once per placement.
@@ -4554,6 +4687,31 @@ impl Host {
             }
             return;
         }
+        // §12.5.6.14's popup "shall be used for editing the parent's text": a press on a window
+        // whose text is a note a person may retype gives it an editor, and the press and its
+        // release go no further — the window is over the page, and the page saw no press. The
+        // windows' layer takes no pointer (`page_area`), so the press is placed here (ADR 1726).
+        match action {
+            PointerAction::Pressed => {
+                self.pressed_a_note = self
+                    .popups_shown
+                    .iter()
+                    .rev()
+                    .find(|window| viewer_host::covers(window.quad, at))
+                    .and_then(|window| window.note);
+                if let Some(note) = self.pressed_a_note {
+                    self.edit_note(note);
+                    return;
+                }
+            }
+            PointerAction::Dragged | PointerAction::Released if self.pressed_a_note.is_some() => {
+                if matches!(action, PointerAction::Released) {
+                    self.pressed_a_note = None;
+                }
+                return;
+            }
+            _ => {}
+        }
         self.dispatch(Command::Pointer { at, action });
         self.show_whether_it_is_a_link(at);
     }
@@ -5073,6 +5231,14 @@ fn write_back(placed: &Placed, field: &FormField, widget: &viewer_core::FormWidg
     }
 }
 
+/// A note's window being typed into: which note, and the editor placed where its window is.
+struct NoteEditor {
+    /// The text note `Edit::SetNoteText` names.
+    note: pdf_syntax::ObjectId,
+    /// The scrolled `GtkTextView`, in the popups' layer.
+    frame: gtk4::ScrolledWindow,
+}
+
 /// One of §12.5.6.14's popup windows, as the widgets GTK draws it with.
 ///
 /// The clause gives a popup "no appearance stream", so there is nothing on the page to show and a
@@ -5205,8 +5371,18 @@ fn popup_window(window: &viewer_host::Window<'_>) -> gtk4::Overlay {
         column.append(&comment);
     }
 
-    frame.add_overlay(&column);
-    frame.set_measure_overlay(&column, true);
+    // **In a scrolled window that scrolls nothing**, because an overlay child is allocated the
+    // height it prefers at its narrowest width (trap 132): a column holding a thread was given the
+    // height of every word on a line of its own, and the replies under the note were drawn below
+    // the window's edge and clipped away. A scrolled window prefers no height of its own and hands
+    // the column the window's width, at which the column is as tall as its lines; what the window's
+    // rectangle cannot hold is still cut at its edge, as before.
+    let held = gtk4::ScrolledWindow::new();
+    held.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::External);
+    held.set_propagate_natural_height(false);
+    held.set_child(Some(&column));
+    frame.add_overlay(&held);
+    frame.set_measure_overlay(&held, true);
     frame
 }
 

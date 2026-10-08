@@ -118,6 +118,24 @@ pub const QUORRA_RICH_TAB_AFTER: u32 = 4;
 /// The edge the text ends at, the other way round.
 pub const QUORRA_RICH_TAB_BEFORE: u32 = 5;
 
+/// A stop with no leader, or a blank one: nothing fills the room before it
+/// (`quorra_rich_leader::pattern`, ADR 1726).
+pub const QUORRA_RICH_LEADER_NONE: u32 = 0;
+/// Chapter 2's `dots()`: the run's own full stop, repeated.
+pub const QUORRA_RICH_LEADER_DOTS: u32 = 1;
+/// `rule(ruleStyle [ruleThickness])`, in the text's colour.
+pub const QUORRA_RICH_LEADER_RULE: u32 = 2;
+/// `use-content(content)`: the characters `quorra_popup_rich_leader_text` answers, repeated.
+pub const QUORRA_RICH_LEADER_CONTENT: u32 = 3;
+
+/// A rule leader drawn unbroken (`quorra_rich_leader::rule_style`); `double`, `groove` and
+/// `ridge` are read as solid, which the chapter permits.
+pub const QUORRA_RICH_RULE_SOLID: u32 = 0;
+/// A dash of two thicknesses every four.
+pub const QUORRA_RICH_RULE_DASHED: u32 = 1;
+/// A square dot every two thicknesses.
+pub const QUORRA_RICH_RULE_DOTTED: u32 = 2;
+
 /// A paragraph's tab stops, as `quorra_popup_rich_tabs` answers them (ADR 1667): how many it
 /// states, and its `tab-interval` where it states one.
 ///
@@ -147,6 +165,35 @@ pub struct PdfvRichTab {
     pub at_per_base: f32,
     /// And so many points beside them.
     pub at_points: f32,
+}
+
+/// A stated stop's leader: chapter 2's *Tab Leader Pattern* (pages 63 to 65), as the two toolkit
+/// windows receive it from `viewer_host::popup::tab_stops` and in the units a stop's position
+/// crosses in (ADR 1726).
+///
+/// A struct added rather than [`PdfvRichTab`] widened, so [`QUORRA_ABI_VERSION`] does not move
+/// (ADR 0737).
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
+pub struct PdfvRichLeader {
+    /// `QUORRA_RICH_LEADER_*`.
+    pub pattern: u32,
+    /// `QUORRA_RICH_RULE_*`, for a rule; solid otherwise.
+    pub rule_style: u32,
+    /// Whether a rule states its `ruleThickness`; where it does not, the caller's own underline
+    /// thickness is the rule's.
+    pub has_thickness: bool,
+    /// The thickness: so many of the caller's text size.
+    pub thickness_per_base: f32,
+    /// And so many points beside them.
+    pub thickness_points: f32,
+    /// Whether the leader states `leaderPatternWidth`; where it does not, one repetition is the
+    /// pattern's own width as the caller sets it.
+    pub has_width: bool,
+    /// The least width of one repetition: so many of the caller's text size.
+    pub width_per_base: f32,
+    /// And so many points beside them.
+    pub width_points: f32,
 }
 
 /// One paragraph of Table 172's `/RC`, as `quorra_popup_rich_paragraph` answers it (ADR 1655).
@@ -2696,6 +2743,32 @@ pub unsafe extern "C" fn quorra_set_free_text(
     Status::Ok.code()
 }
 
+/// §12.5.6.4: says what a text note says, as a person typing into its popup window does — Table
+/// 166's `/Contents`, the icon appearance kept (ADR 1726). The note is the one
+/// [`quorra_popup_note`] names; any other annotation is refused and said among the events.
+///
+/// # Safety
+///
+/// See the module documentation. `text` is NUL-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_set_note_text(
+    viewer: *mut Session,
+    number: u32,
+    generation: u16,
+    text: *const c_char,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events), false) = (viewer.as_mut(), events.as_mut(), text.is_null())
+    else {
+        return Status::NullArgument.code();
+    };
+    let Ok(Some(text)) = owned_text(text) else {
+        return Status::NotUtf8.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.set_note_text(number, generation, text)));
+    Status::Ok.code()
+}
+
 /// Undoes the last edit.
 ///
 /// The surviving prefix of the log is *replayed* rather than inverted, which is why an edit can be
@@ -5134,6 +5207,35 @@ pub unsafe extern "C" fn quorra_popup_object(
     Status::Ok.code()
 }
 
+/// The text note a person retypes this window's text into, which [`quorra_set_note_text`] names:
+/// §12.5.6.14's popup "shall be used for editing the parent's text" (ADR 1726).
+/// [`Status::NoAnswer`] for a window whose text this program does not retype.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_popup_note(
+    popups: *const Popups,
+    index: usize,
+    number: *mut u32,
+    generation: *mut u16,
+) -> c_int {
+    let (Some(popups), Some(number), Some(generation)) =
+        (popups.as_ref(), number.as_mut(), generation.as_mut())
+    else {
+        return Status::NullArgument.code();
+    };
+    match popups.note(index) {
+        Ok(note) => {
+            *number = note.0;
+            *generation = note.1;
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
 /// The window's rectangle on the screen: `[x0, y0, … x3, y3]`, y downwards, eight floats.
 ///
 /// The same form `quorra_quads_get`, `quorra_focused_annotation` and `quorra_field_widget` take, in
@@ -5580,6 +5682,121 @@ pub unsafe extern "C" fn quorra_popup_rich_tab(
             };
             Status::Ok.code()
         }
+        Err(status) => status.code(),
+    }
+}
+
+/// One stated tab stop's leader, which fills the room a tab advanced before the text at the stop
+/// (ADR 1726).
+///
+/// Chapter 2's *Tab Leader Pattern* (pages 63 to 65), which ISO 32000-2 §12.7.4.3 brings in with
+/// chapter 27. A caller paints it over its own line from the tab's extent there, as the two
+/// toolkit windows do (ADR 1722), on [`quorra_leader_cycles`]' grid; a rule's pieces are
+/// [`quorra_rule_pieces`]'.
+///
+/// # Safety
+///
+/// See the module documentation. `into` is writable for one `quorra_rich_leader`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_popup_rich_leader(
+    popups: *const Popups,
+    index: usize,
+    note: usize,
+    paragraph: usize,
+    stop: usize,
+    into: *mut PdfvRichLeader,
+) -> c_int {
+    let (Some(popups), Some(into)) = (popups.as_ref(), into.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match popups.rich_stop(index, note, (paragraph, stop)) {
+        Ok(read) => {
+            *into = abi_leader(read.leader.as_ref());
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// A `use-content` leader's characters, two-call idiom; [`Status::NoAnswer`] for any other
+/// pattern (ADR 1726). They are the document's and never markup.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_popup_rich_leader_text(
+    popups: *const Popups,
+    index: usize,
+    note: usize,
+    paragraph: usize,
+    stop: usize,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(popups) = popups.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match popups
+        .rich_stop(index, note, (paragraph, stop))
+        .and_then(|read| leader_content(read.leader.as_ref()))
+    {
+        Ok(text) => copy_out(text, out, cap, needed),
+        Err(status) => status.code(),
+    }
+}
+
+/// Where each whole repetition of a leader starts across the room a tab advanced, `from` to
+/// `to`, on a grid from the paragraph's left margin `margin` so that leaders on different lines
+/// line up — the grid all three windows draw by (`viewer_host::popup::leader_cycles`, ADR 1722).
+/// `cycle` is the larger of the leader's `leaderPatternWidth` and the pattern's own width, which
+/// only the caller that set the pattern can measure. Two-call idiom over `float`s: `needed` is
+/// how many starts there are, and `out` takes them when `cap` holds that many (ADR 1726).
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` `float`s, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_leader_cycles(
+    from: f32,
+    to: f32,
+    margin: f32,
+    cycle: f32,
+    out: *mut f32,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    copy_floats(
+        &viewer_host::popup::leader_cycles(from, to, margin, cycle),
+        out,
+        cap,
+        needed,
+    )
+}
+
+/// A rule leader across `from` to `to`, as `(left, width)` pairs written one after the other: one
+/// for a solid rule, a dash of two thicknesses every four for a dashed one and a square dot every
+/// two for a dotted one, on [`quorra_leader_cycles`]' grid from `margin`
+/// (`viewer_host::popup::rule_pieces`, ADR 1726). `style` is `QUORRA_RICH_RULE_*`, and an unknown
+/// one is [`Status::OutOfRange`]. Two-call idiom over `float`s: `needed` is twice the pieces.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` `float`s, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_rule_pieces(
+    style: u32,
+    thickness: f32,
+    from: f32,
+    to: f32,
+    margin: f32,
+    out: *mut f32,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    match rule_pieces(style, thickness, (from, to), margin) {
+        Ok(pieces) => copy_floats(&pieces, out, cap, needed),
         Err(status) => status.code(),
     }
 }
@@ -6485,6 +6702,98 @@ unsafe fn owned_text(text: *const c_char) -> Result<Option<String>, ()> {
         .to_str()
         .map(|text| Some(text.to_owned()))
         .map_err(|_| ())
+}
+
+/// A stop's leader in the shape [`quorra_popup_rich_leader`] writes, `QUORRA_RICH_LEADER_NONE` for
+/// a stop that states none.
+fn abi_leader(leader: Option<&pdf_model::popup::RichLeader>) -> PdfvRichLeader {
+    use pdf_model::popup::{RichLeaderPattern, RichRuleStyle};
+    let mut out = PdfvRichLeader {
+        pattern: QUORRA_RICH_LEADER_NONE,
+        rule_style: QUORRA_RICH_RULE_SOLID,
+        has_thickness: false,
+        thickness_per_base: 0.0,
+        thickness_points: 0.0,
+        has_width: false,
+        width_per_base: 0.0,
+        width_points: 0.0,
+    };
+    let Some(leader) = leader else {
+        return out;
+    };
+    out.pattern = match &leader.pattern {
+        RichLeaderPattern::Dots => QUORRA_RICH_LEADER_DOTS,
+        RichLeaderPattern::Rule { style, thickness } => {
+            out.rule_style = match style {
+                RichRuleStyle::Solid => QUORRA_RICH_RULE_SOLID,
+                RichRuleStyle::Dashed => QUORRA_RICH_RULE_DASHED,
+                RichRuleStyle::Dotted => QUORRA_RICH_RULE_DOTTED,
+            };
+            if let Some(thickness) = thickness {
+                out.has_thickness = true;
+                out.thickness_per_base = thickness.per_base;
+                out.thickness_points = thickness.points;
+            }
+            QUORRA_RICH_LEADER_RULE
+        }
+        RichLeaderPattern::Content(_) => QUORRA_RICH_LEADER_CONTENT,
+    };
+    if let Some(width) = leader.width {
+        out.has_width = true;
+        out.width_per_base = width.per_base;
+        out.width_points = width.points;
+    }
+    out
+}
+
+/// A `use-content` leader's characters, and [`Status::NoAnswer`] for a stop with any other.
+fn leader_content(leader: Option<&pdf_model::popup::RichLeader>) -> Result<&str, Status> {
+    match leader.map(|leader| &leader.pattern) {
+        Some(pdf_model::popup::RichLeaderPattern::Content(content)) => Ok(content),
+        _ => Err(Status::NoAnswer),
+    }
+}
+
+/// [`quorra_rule_pieces`]' answer, the pairs written one after the other.
+fn rule_pieces(
+    style: u32,
+    thickness: f32,
+    (from, to): (f32, f32),
+    margin: f32,
+) -> Result<Vec<f32>, Status> {
+    use pdf_model::popup::RichRuleStyle;
+    let style = match style {
+        QUORRA_RICH_RULE_SOLID => RichRuleStyle::Solid,
+        QUORRA_RICH_RULE_DASHED => RichRuleStyle::Dashed,
+        QUORRA_RICH_RULE_DOTTED => RichRuleStyle::Dotted,
+        _ => return Err(Status::OutOfRange),
+    };
+    Ok(
+        viewer_host::popup::rule_pieces(style, thickness, (from, to), margin)
+            .into_iter()
+            .flat_map(|(left, width)| [left, width])
+            .collect(),
+    )
+}
+
+/// The two-call idiom over `float`s, [`copy_out`]'s shape: `needed` is how many there are, and
+/// `out` takes them when `cap` holds that many.
+///
+/// # Safety
+///
+/// `out` is null or writable for `cap` `float`s; `needed` is null or writable.
+unsafe fn copy_floats(values: &[f32], out: *mut f32, cap: usize, needed: *mut usize) -> c_int {
+    if let Some(needed) = needed.as_mut() {
+        *needed = values.len();
+    }
+    if values.is_empty() {
+        return Status::Ok.code();
+    }
+    if out.is_null() || cap < values.len() {
+        return Status::BufferTooSmall.code();
+    }
+    core::slice::from_raw_parts_mut(out, values.len()).copy_from_slice(values);
+    Status::Ok.code()
 }
 
 /// Writes a string and its terminating NUL into a caller's buffer.

@@ -1191,7 +1191,7 @@ fn annotations(document: &Document, view: &ViewState, owed: &mut Vec<String>) ->
 }
 
 /// Whether Table 171's `Markup` column says `Yes` of this dictionary's `/Subtype`.
-fn is_markup(document: &Document, annotation: &Dictionary) -> bool {
+pub(crate) fn is_markup(document: &Document, annotation: &Dictionary) -> bool {
     document
         .get_key(annotation, "Subtype")
         .as_name()

@@ -52,7 +52,9 @@
 # or refused by name (ADR 1702); and in the three, a note's popup draws its /RC's red run red and
 # the same note with /Contents alone draws none (ADR 1642); a tab's dots, rule and content leader
 # reach its stop in both directions (ADR 1722); and a text note with no /Popup opens a window of its
-# own when a script's `popupOpen` or the file's /Open opens it, and none when closed (ADR 1723).
+# own when a script's `popupOpen` or the file's /Open opens it, and none when closed (ADR 1723); a
+# person types into that window and the saved /Contents holds it (ADR 1726), and a reply stating no
+# /Popup is a comment in its note's window (ADR 1727).
 #
 # And two things a screen reader does, through AT-SPI alone: it asks which window is the active one,
 # whose frame says so with the keyboard in it and not without (ADR 1565), and it clicks a text field
@@ -627,6 +629,25 @@ for how in ["script", "file", "closed"]:
         pdf.Root.OpenAction = Dictionary(S=Name.JavaScript, JS=String(
             'this.getAnnot(0, "note").popupOpen = true;'))
     pdf.save(f"{out}/drive-note-{how}.pdf")
+
+# drive-reply-<how>.pdf: a text note that states no /Popup, open or closed, and a text note replying
+# to it by /IRT that states no /Popup either, its /RC colouring a word pure blue — shown in the note's
+# own window as §12.5.6.2's threaded comment (ADR 1727), and nowhere while that window is closed.
+for how in ["open", "closed"]:
+    pdf = pikepdf.new()
+    font = helv(pdf)
+    p1 = page(pdf, font, "Reply")
+    note = pdf.make_indirect(Dictionary(
+        Type=Name.Annot, Subtype=Name.Text, Rect=[60, 600, 84, 624], F=4,
+        Contents=String("A note."), T=String("Drive"), Name=Name.Comment, Open=(how == "open")))
+    reply = Dictionary(Type=Name.Annot, Subtype=Name.Text, Rect=[90, 600, 114, 624], F=4,
+                       Contents=String("A blue reply."), T=String("Second"), IRT=note,
+                       Name=Name.Comment,
+                       RC=String('<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml">'
+                                 '<p>A <span style="color:#0000ff;font-weight:bold;font-size:20pt">'
+                                 'blue reply</span>.</p></body>'))
+    p1.obj.Annots = Array([note, pdf.make_indirect(reply)])
+    pdf.save(f"{out}/drive-reply-{how}.pdf")
 
 # drive-painted.pdf: a push-button whose background the document's open action sets red by
 # script — Table 192's /BG, which the appearance is constructed from once a script has changed it
@@ -2554,6 +2575,65 @@ note_window() {
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 
+# A person types into a text note's own window (ADR 1726): §12.5.6.14's popup "shall be used for
+# editing the parent's text". A press on the red word of drive-note-file.pdf's open window gives the
+# window the keyboard at the note's end, " typed" goes in, Escape gives the keyboard back, and the
+# saved file's /Contents is the note's text with the characters after it — the witness a photograph
+# cannot be.
+note_typed() {
+    local form="$OUT/$WINDOW-typed.pdf" box tall x y ox oy mark seen
+    cp "$FIXTURES/drive-note-file.pdf" "$form"; rm -f "${form%.pdf}.edited.pdf"
+    launch "$form"; sleep 1; shot 64-note-typed
+    box=$(box_of "$OUT/shots/$WINDOW/64-note-typed.png" "#ff0000")
+    tall=$(tall_of "$OUT/shots/$WINDOW/64-note-typed.png" "#ff0000")
+    if [ "${box% *}" -le 0 ]; then
+        verdict 64-note-typed wrong "no red word in the note's window to press: $LOG"
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    # The photograph is of the root window, so the press is placed there too.
+    x=$(( ${box#* } + ${box% *} / 2 )); y=$(( ${tall#* } + ${tall% *} / 2 ))
+    mark=$(lines)
+    xdotool mousemove "$x" "$y" click 1
+    wait_for 10 said_since "$mark" 'typing into the text note'
+    sleep 0.5
+    type_then 'SetNoteText' ' typed'
+    shot 64-note-typed-typing
+    key_then 'the keyboard is back on the page' Escape
+    shot 64-note-typed-after
+    click 690 850; key_then "$SAVED" ctrl+s
+    seen=$(python3 - "${form%.pdf}.edited.pdf" <<'PY' 2>&1 | tail -1
+import sys, pikepdf
+p = pikepdf.open(sys.argv[1])
+print(str(p.pages[0].Annots[0].Contents))
+PY
+)
+    if [ "$seen" = 'A red word. typed' ]; then
+        verdict 64-note-typed works "pressed at $x,$y; the saved /Contents: $seen"
+    else
+        verdict 64-note-typed wrong "pressed at $x,$y; the saved /Contents: ${seen:-nothing}: $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
+# A reply that states no /Popup is a comment in the window of the note it answers (ADR 1727): Table
+# 172's "shall not display replies to an annotation individually but together in the form of
+# threaded comments". The reply's /RC word is blue in the open note's own window, and the same
+# reply draws no blue while that window is closed — it has no window of its own.
+reply_threaded() {
+    local opened closed
+    launch "$FIXTURES/drive-reply-open.pdf"; sleep 1; shot 65-reply-threaded
+    opened=$(coloured "$OUT/shots/$WINDOW/65-reply-threaded.png" "#0000ff")
+    launch "$FIXTURES/drive-reply-closed.pdf"; sleep 1; shot 65-reply-threaded-closed
+    closed=$(coloured "$OUT/shots/$WINDOW/65-reply-threaded-closed.png" "#0000ff")
+    if [ "${opened:-0}" -gt 40 ] && [ "${closed:-1}" -eq 0 ]; then
+        verdict 65-reply-threaded works "blue pixels: $opened in the open note's window, $closed with it closed"
+    else
+        verdict 65-reply-threaded wrong "blue pixels: ${opened:-?} open, ${closed:-?} closed: $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
 # §12.10's position, in all four windows (ADR 1593): measuring on, one press on the geographic map,
 # and the window's sentence carries a latitude and a longitude inside the map's own rectangle of
 # degrees, six places each; a press on a projected map whose /GPTS are degrees says why it gives no
@@ -2660,6 +2740,8 @@ for WINDOW in "${WINDOWS[@]}"; do
     popup_tab_rtl
     popup_leader
     note_window
+    note_typed
+    reply_threaded
     located
     located_displayed
 done

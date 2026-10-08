@@ -43,6 +43,25 @@ fn field(name: &str, kind: FieldType, value: &str) -> FieldState {
             captions: Default::default(),
             on_state: None,
         }],
+        options: if kind == FieldType::ComboBox {
+            vec![
+                pdf_model::form::Choice {
+                    export: Some("r".to_owned()),
+                    label: "Red".to_owned(),
+                },
+                pdf_model::form::Choice {
+                    export: None,
+                    label: "Green".to_owned(),
+                },
+            ]
+        } else {
+            Vec::new()
+        },
+        selected: if kind == FieldType::ComboBox {
+            vec![1]
+        } else {
+            Vec::new()
+        },
     }
 }
 
@@ -184,6 +203,14 @@ fn edits() -> Vec<ScriptEdit> {
             on: false,
         },
         ScriptEdit::GoTo { page: 2 },
+        ScriptEdit::Choose {
+            field: "Colour".to_owned(),
+            indices: vec![0, 2],
+        },
+        ScriptEdit::Destination {
+            name: "chapter5".to_owned(),
+        },
+        ScriptEdit::Calculation { on: false },
     ]
 }
 

@@ -697,13 +697,18 @@ void ChromeOverlay::paintEvent(QPaintEvent*)
 // PopupWindow
 // ---------------------------------------------------------------------------------------------
 
-PopupWindow::PopupWindow(const QtPopup& window, QWidget* parent) : QFrame(parent)
+PopupWindow::PopupWindow(const QtPopup& window, QWidget* parent, std::function<void()> pressed)
+    : QFrame(parent), pressed_(window.retypes ? std::move(pressed) : std::function<void()>())
 {
     // §12.5.6.14: a popup has "no appearance stream or associated actions of its own", so there is
     // nothing on it to activate — and a widget over the page that swallowed a press would take the
     // selection, the link and the form control underneath it away from the reader. The same
-    // sentence `gtk_widget_set_can_target(FALSE)` says in the other host.
-    setAttribute(Qt::WA_TransparentForMouseEvents);
+    // sentence `gtk_widget_set_can_target(FALSE)` says in the other host. The one press a window
+    // takes is the one the same clause gives it, "for entry and editing" of a note's text, where
+    // the text is a note a person may retype (ADR 1726).
+    if (!window.retypes) {
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+    }
     setFocusPolicy(Qt::NoFocus);
     // The paper and the one-pixel edge are the three windows' one choice (ADR 1466): opaque, so
     // the page's words do not show through the note's, and not the page's white, so the window's
@@ -806,6 +811,17 @@ PopupWindow::PopupWindow(const QtPopup& window, QWidget* parent) : QFrame(parent
         thread->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
         column->addWidget(thread, 1);
     }
+}
+
+void PopupWindow::mousePressEvent(QMouseEvent* event)
+{
+    if (pressed_) {
+        event->accept();
+        // Queued: the editor replaces this window, which is still delivering the press.
+        QTimer::singleShot(0, this, pressed_);
+        return;
+    }
+    QFrame::mousePressEvent(event);
 }
 
 void PopupWindow::paintEvent(QPaintEvent* event)
@@ -2128,6 +2144,17 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
     // own focus chain asks the page and is declined by `PageArea::focusNextPrevChild` — would
     // otherwise go to the page's parents, and each of them moves Qt's focus in Qt's order. Handing
     // it to `keyPressEvent` here is what makes it §12.5.1's key, in the document's order.
+    // A note's editor takes Escape before the window's own binding of the key does: accepting the
+    // override is what delivers the press to the editor at all (ADR 1726).
+    if (watched == noteEditor_ && noteEditor_ != nullptr
+        && (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress)
+        && static_cast<QKeyEvent*>(event)->key() == Qt::Key_Escape) {
+        event->accept();
+        if (event->type() == QEvent::KeyPress) {
+            QTimer::singleShot(0, this, [this] { endNote(); });
+        }
+        return true;
+    }
     if (watched == page_ && event->type() == QEvent::KeyPress) {
         auto* key = static_cast<QKeyEvent*>(event);
         const bool tab = key->key() == Qt::Key_Tab || key->key() == Qt::Key_Backtab;
@@ -2857,16 +2884,85 @@ void MainWindow::rebuildPopups()
 
     const qreal scale = page_->devicePixelRatioF() > 0.0 ? page_->devicePixelRatioF() : 1.0;
     const rust::Vec<QtPopup> wanted = host_->popups(static_cast<float>(page_->font().pointSizeF()));
+    bool editorPlaced = false;
     for (const QtPopup& window : wanted) {
-        auto* widget = new PopupWindow(window, page_);
-        widget->setGeometry(QRect(qRound(window.x / scale), qRound(window.y / scale),
-                                  qRound(window.width / scale), qRound(window.height / scale)));
+        const QRect place(qRound(window.x / scale), qRound(window.y / scale),
+                          qRound(window.width / scale), qRound(window.height / scale));
+        // The note being typed into keeps its editor where its window is, so that a keystroke that
+        // changes the window's text does not take the keyboard away from it.
+        if (noteEditor_ != nullptr && window.retypes && window.note_number == noteNumber_
+            && window.note_generation == noteGeneration_) {
+            noteEditor_->setGeometry(place);
+            editorPlaced = true;
+            continue;
+        }
+        const QtPopup copy = window;
+        auto* widget = new PopupWindow(window, page_, [this, copy] { editNote(copy); });
+        widget->setGeometry(place);
         widget->show();
         popups_.push_back(widget);
+    }
+    // A window that closed or scrolled away takes its editor with it.
+    if (noteEditor_ != nullptr && !editorPlaced) {
+        endNote();
+        return;
     }
     // Under the chrome layer: a selection, a match and §12.5.1's ring are marks *on the page*, and
     // a window that hid them would be furniture eating the document.
     page_->chrome()->raise();
+}
+
+void MainWindow::editNote(const QtPopup& window)
+{
+    if (noteEditor_ != nullptr && noteNumber_ == window.note_number
+        && noteGeneration_ == window.note_generation) {
+        return;
+    }
+    if (noteEditor_ != nullptr) {
+        noteEditor_->deleteLater();
+        noteEditor_ = nullptr;
+    }
+    const qreal scale = page_->devicePixelRatioF() > 0.0 ? page_->devicePixelRatioF() : 1.0;
+    auto* editor = new QPlainTextEdit(page_);
+    // Before the handler is connected, so that putting the text in sends no edit.
+    editor->setPlainText(text(window.text));
+    editor->moveCursor(QTextCursor::End);
+    editor->setGeometry(QRect(qRound(window.x / scale), qRound(window.y / scale),
+                              qRound(window.width / scale), qRound(window.height / scale)));
+    const std::uint32_t number = window.note_number;
+    const std::uint16_t generation = window.note_generation;
+    connect(editor, &QPlainTextEdit::textChanged, this, [this, editor, number, generation] {
+        if (busy_) {
+            return;
+        }
+        Busy guard(busy_);
+        const QByteArray utf8 = editor->toPlainText().toUtf8();
+        host_->set_note(number, generation,
+                        rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
+        applyUpdates();
+    });
+    // Escape is read off the editor's own key presses (`eventFilter`), since the window binds the
+    // key for itself.
+    editor->installEventFilter(this);
+    noteEditor_ = editor;
+    noteNumber_ = number;
+    noteGeneration_ = generation;
+    host_->note_editing(number, generation, true);
+    editor->show();
+    editor->setFocus(Qt::MouseFocusReason);
+    rebuildPopups();
+}
+
+void MainWindow::endNote()
+{
+    if (noteEditor_ == nullptr) {
+        return;
+    }
+    noteEditor_->deleteLater();
+    noteEditor_ = nullptr;
+    host_->note_editing(noteNumber_, noteGeneration_, false);
+    page_->setFocus(Qt::OtherFocusReason);
+    rebuildPopups();
 }
 
 void MainWindow::placeControls()

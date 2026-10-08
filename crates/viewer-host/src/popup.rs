@@ -52,6 +52,10 @@ pub const EDGE: pdf_render::Color = pdf_render::Color {
 pub struct Window<'a> {
     /// The popup annotation, which is what [`viewer_core::Command::Activate`] closes.
     pub annotation: pdf_syntax::ObjectId,
+    /// [`viewer_core::PopupWindow::note`]: the text note a person retypes this window's text into
+    /// with [`viewer_core::Edit::SetNoteText`], and `None` for a window a host offers no keyboard
+    /// to (ADR 1726).
+    pub note: Option<pdf_syntax::ObjectId>,
     /// §12.5.6.2's `/T`, which goes at the left of the title bar.
     ///
     /// > The text label that shall be displayed in the title bar of the annotation's popup window
@@ -121,6 +125,7 @@ pub fn windows(popups: &[PopupWindow]) -> Vec<Window<'_>> {
             let place = crate::bounds(popup.quad);
             (place.2 > 0.0 && place.3 > 0.0).then_some(Window {
                 annotation: popup.annotation,
+                note: popup.note,
                 title: popup.title.as_deref().unwrap_or_default(),
                 modified: popup.modified.as_deref(),
                 text: popup.text.as_deref().unwrap_or_default(),
@@ -562,18 +567,6 @@ pub fn rule_pieces(
             .map(|x| (x, thickness))
             .collect(),
     }
-}
-
-/// The sentence for a note one of whose tabs reaches a stop with a leader, said where no leader is
-/// drawn: by the C ABI, which hands a stop's position and alignment and not its fill (ADR 1679). The two toolkit windows paint each leader over their own line (ADR 1722).
-#[must_use]
-pub fn leader_unapplied(note: &pdf_model::popup::RichNote) -> Option<String> {
-    note.paragraphs
-        .iter()
-        .any(|paragraph| {
-            tabbed(paragraph) && paragraph.tab_stops.iter().any(|stop| stop.leader.is_some())
-        })
-        .then(|| "a tab leader in a popup window".to_owned())
 }
 
 /// What a window that sets a note through a toolkit says it did not draw, beside
@@ -1081,12 +1074,8 @@ mod tests {
         };
         // Every stop above is reached leftward by both toolkits once handed from the line's
         // start edge (ADR 1690), and both paint the leader over their line (ADR 1722), so nothing
-        // is said; the C ABI, which hands no fill, still says the leader.
+        // is said; the C ABI hands the leader over for its caller to paint (ADR 1726).
         assert!(super::toolkit_unapplied(&note, true).is_empty());
-        assert_eq!(
-            super::leader_unapplied(&note),
-            Some("a tab leader in a popup window".to_owned())
-        );
     }
 
     /// A tab reaches the nearest stop beyond where it starts, in the direction its paragraph
@@ -1264,6 +1253,7 @@ mod tests {
         PopupWindow {
             annotation: pdf_syntax::ObjectId::new(1, 0),
             parent: None,
+            note: None,
             quad: [0.0, 0.0, wide, 0.0, wide, tall, 0.0, tall],
             title: Some("A Reader".to_owned()),
             text: Some("a note".to_owned()),

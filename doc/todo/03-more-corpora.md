@@ -1046,11 +1046,14 @@ file and in no other document, which is exactly the failure they are about**:
   reports the page must and must not carry, an ink band, and the defect in one line with its ADR
   and clause. The file's own header says what each field means.
 - **The merge round runs it**, because the merge is the only place the combination exists. It is a
-  line in `doc/todo/02` §2, two commands, and about half a minute over the whole file:
+  line in `doc/todo/02` §2, one small walk whose worker nothing else builds (trap 10) and whose own
+  `--build` makes it inside the hold (trap 109, ADR 1710), and about half a minute over the whole
+  file — `tools/state.sh --round <session> fixed`, spelled out:
 
   ```sh
-  cargo build --profile gates -p pdf-sandbox --bins   # trap 10: nothing else builds it
-  cargo test  --profile gates -p pdf-model --test fixed_documents -- --ignored --nocapture
+  ulimit -u 8192; RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --tree 6 \
+      --build '--profile gates -p pdf-sandbox --bins' -- \
+      cargo test --profile gates -p pdf-model --test fixed_documents -- --ignored --nocapture
   ```
 
 **It is a regression check and not a second ranking.** A row goes in once its defect has been read

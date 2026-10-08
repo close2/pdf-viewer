@@ -40,6 +40,8 @@ fn field(name: &str, value: &str) -> FieldState {
             captions: Default::default(),
             on_state: None,
         }],
+        options: Vec::new(),
+        selected: Vec::new(),
     }
 }
 
@@ -432,7 +434,8 @@ fn date_answers_the_request_s_moment() {
 
 #[test]
 fn every_refused_member_throws_not_allowed_error_by_name() {
-    for row in pdf_script::surface::EXCLUDED {
+    let kept = pdf_script::surface::REFUSED;
+    for row in pdf_script::surface::EXCLUDED.iter().chain(kept) {
         for member in row.members {
             let spelled = format!("{}{member}", row.holder.prefix());
             let reached = match row.holder {
@@ -458,6 +461,7 @@ fn every_refused_member_throws_not_allowed_error_by_name() {
                     locked: false,
                 }],
                 annotations: Vec::new(),
+                pages: Vec::new(),
             });
             let ran = outcome(&asked);
             assert_eq!(ran.ending, Ending::Finished, "{spelled}: {:?}", ran.ending);
@@ -470,6 +474,14 @@ fn every_refused_member_throws_not_allowed_error_by_name() {
                 ran.refusals.first().map(|refusal| refusal.member.as_str()),
                 Some(spelled.as_str())
             );
+            // A Tier 1 member this program keeps out says its own reason, not Tier 2's (ADR 1724).
+            let kind = ran.refusals.first().map(|refusal| refusal.kind.clone());
+            let expected = if kept.contains(row) {
+                RefusalKind::Unreachable(format!("it {}", row.reason))
+            } else {
+                RefusalKind::Excluded(row.reason.to_owned())
+            };
+            assert_eq!(kind, Some(expected), "{spelled}'s reason");
         }
     }
 }

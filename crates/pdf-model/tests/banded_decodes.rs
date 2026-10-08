@@ -136,11 +136,10 @@ fn a_scan_the_data_ends_inside_its_last_interval_is_never_cut_differently() {
 }
 
 /// A grey frame of 100 × 107 whose entropy-coded data runs to the end of the stream with no `EOI`
-/// — the `jpeg_bands` fuzz target's second finding (ADR 1495). Section F.2.2.3's decoding finds all
-/// 182 blocks inside the data, which is what the entropy pass found; the whole decoder stops short
-/// of the last MCU row and leaves it at a DC of zero, so a cut at that row wrote 0 where the frame
-/// is 128. A scan with no `EOI` after it is the whole decoder's; the same frame ended by its `EOI`
-/// is cut, and is the whole frame.
+/// — the `jpeg_bands` fuzz target's second finding (ADR 1495). The row plan re-codes its last band
+/// as a codestream of its own, ended by an `EOI` the data does not have, so a scan with no `EOI`
+/// after it is left to the whole decoder (`image::cut`, ADR 1513); the same frame ended by its
+/// `EOI` is cut, and is the whole frame.
 #[test]
 fn a_scan_the_data_ends_inside_is_left_to_the_whole_decoder() {
     let data = grey_frame_without_its_eoi();
@@ -159,16 +158,15 @@ fn a_scan_the_data_ends_inside_is_left_to_the_whole_decoder() {
     );
 }
 
-/// The same frame decoded whole with and without the `EOI` its data lacks. Section E.2.3 ends the
-/// scan on its MCU count and all 182 blocks are in the data, so the two are one frame; `zune-jpeg`
-/// 0.5.15 instead fills the last MCU row — lines 104 to 106 — with 128, because its lookahead
-/// reached the end of the data while that row's bits were still unconsumed and it stops at the next
-/// row on having reached it. `doc/patches/zune-jpeg-scan-complete-without-eoi.patch` makes it stop
-/// only once it has consumed past the end, and `doc/questions/A227` has the tree carry it in a
-/// fork. **This holds the current bytes by name and waits on that patch: when the fork takes it the
-/// first assertion fails, and the guard is deleted for the frame's equality** (ADR 1520).
+/// The same frame decoded whole with and without the `EOI` its data lacks. ITU-T T.81 section
+/// E.2.3 ends the scan on its MCU count and all 182 blocks are in the data, so the two are one
+/// frame, its last MCU row — lines 104 to 106 — included. A decoder that stops at the row after its
+/// lookahead *reached* the end of the data, rather than after it consumed past it, fills that row
+/// with 128 instead; the fork the manifest pins carries
+/// `doc/patches/zune-jpeg-scan-complete-without-eoi.patch`, which is that difference (ADRs 1520,
+/// 1730).
 #[test]
-fn a_complete_last_row_without_its_eoi_is_grey_until_the_fork_takes_the_patch() {
+fn a_complete_last_row_without_its_eoi_is_decoded_as_the_frame() {
     let data = grey_frame_without_its_eoi();
     let mut ended = data.clone();
     ended.extend_from_slice(&[0xFF, 0xD9]);
@@ -179,40 +177,27 @@ fn a_complete_last_row_without_its_eoi_is_grey_until_the_fork_takes_the_patch() 
         .whole
         .expect("and reads it with its EOI");
     let row = 100 * 4;
-    assert_eq!(
-        (bare.len(), whole.len()),
-        (107 * row, 107 * row),
-        "100 × 107, RGBA"
-    );
+    assert_eq!(bare.len(), 107 * row, "100 × 107, RGBA");
     let first_of_the_last_row = 104 * row;
     assert!(
-        bare[first_of_the_last_row..]
+        whole[first_of_the_last_row..]
             .chunks_exact(4)
-            .all(|pixel| pixel[..3] == [128, 128, 128]),
-        "the patch is in: delete this guard and assert the two decodes equal"
+            .any(|pixel| pixel[..3] != [128, 128, 128]),
+        "the frame's last MCU row is not grey, so a grey one would be seen below"
     );
-    assert_eq!(
-        bare[..first_of_the_last_row],
-        whole[..first_of_the_last_row],
-        "every row above the last MCU row is the frame's"
-    );
-    assert_ne!(
-        bare[first_of_the_last_row..],
-        whole[first_of_the_last_row..],
-        "the frame's last row is not grey"
-    );
+    assert!(bare == whole, "the scan without its EOI is the whole frame");
 }
 
 /// A frame whose DC prediction leaves `i32` once it is multiplied by the quantiser's DC entry is
 /// decoded whole, and the decode returns. A DC category bounds each difference the scan codes
 /// (ITU-T T.81 Table F.1), not the sum of the differences a hostile frame accumulates, so a
-/// decoder meets such a sum and must not abort on it: `zune-jpeg` 0.5.15 updates the prediction
-/// with a wrapping add and then multiplies it unchecked, which panics wherever overflow checks are
-/// on (the dev, test and fuzz profiles). The frame header states 509 lines of 2122 samples, so the
-/// patched decode is that many RGBA pixels.
+/// decoder meets such a sum and must not abort on it. A prediction updated by a wrapping add and
+/// then multiplied unchecked panics wherever overflow checks are on (the dev, test and fuzz
+/// profiles); the fork the manifest pins carries
+/// `doc/patches/zune-jpeg-dc-prediction-overflow.patch`, which wraps the multiply as the add is
+/// wrapped (ADRs 1589, 1730). The frame header states 509 lines of 2122 samples, so the decode is
+/// that many RGBA pixels.
 #[test]
-// not a gate: it panics until the zune-jpeg fork carries doc/patches/zune-jpeg-dc-prediction-overflow.patch, which doc/questions/A227 has the owner create; the day it does, the ignore goes
-#[ignore = "panics on zune-jpeg 0.5.15 until the fork doc/questions/A227 owes carries the patch"]
 fn a_dc_prediction_past_i32_is_decoded_rather_than_aborting() {
     let decodes = banded_decodes(&dc_prediction_past_i32(), 16);
     let whole = decodes.whole.expect("the whole decoder reads it");

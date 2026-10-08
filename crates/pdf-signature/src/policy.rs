@@ -26,6 +26,11 @@
 //!   and that clause's own note states what the comparison buys: the store is unsigned, so an
 //!   alteration of the document in it is caught by the digests failing to agree.
 //!   [`SignaturePolicy::binding`] makes that comparison.
+//! - **Whether a copy fetched from where the signature says one is, is that document.** Clause
+//!   5.2.9.2's URL qualifier names where a copy can be obtained, and a fetched copy is as unsigned
+//!   as a stored one, so [`PublishedPolicy::binding`] makes the same comparison over what came
+//!   back. The fetch itself is a host's, under the reader's level: nothing in this crate reaches a
+//!   network (ADR 1728).
 //!
 //! # Why a mismatch is not called an alteration
 //!
@@ -120,8 +125,9 @@ pub enum Specification {
 pub enum Qualifier {
     /// A URL a copy of the policy document can be obtained from.
     ///
-    /// Reported and never fetched: this program makes no network request, and the clause makes
-    /// this a convenience for an application that does.
+    /// Never fetched by this crate, which makes no network request: the clause makes the URL a
+    /// convenience for an application that does, and [`SignaturePolicy::published`] is what hands
+    /// it to one with the digest it is to be checked against (ADR 1728).
     Uri(String),
     /// A notice clause 5.2.9.2 says is meant to be displayed whenever the signature is validated.
     UserNotice(UserNotice),
@@ -237,6 +243,129 @@ pub enum Binding {
     NoStoredDocument,
 }
 
+/// What a signer committed to about the policy document's digest, owned so that it can travel.
+///
+/// [`PolicyHash`]'s three answers without the borrow: a copy of the policy document fetched from
+/// clause 5.2.9.2's URL is compared by whoever fetched it, which is a host on the other side of a
+/// channel from the file this was read out of.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Commitment {
+    /// A digest under a function this crate has.
+    Stated {
+        /// The function it was computed with.
+        digest: Digest,
+        /// The digest itself.
+        value: Vec<u8>,
+    },
+    /// A digest under a function this crate does not compute, named by its own identifier.
+    UnderAnotherFunction {
+        /// The algorithm's object identifier as dotted decimal.
+        algorithm: String,
+    },
+    /// ETSI EN 319 122-1 clause 5.2.9.1's all-zero value: the digest is not known.
+    NotKnown,
+}
+
+impl From<&PolicyHash<'_>> for Commitment {
+    fn from(hash: &PolicyHash<'_>) -> Self {
+        match hash {
+            PolicyHash::Stated { digest, value } => Self::Stated {
+                digest: *digest,
+                value: value.to_vec(),
+            },
+            PolicyHash::UnderAnotherFunction { algorithm, .. } => Self::UnderAnotherFunction {
+                algorithm: algorithm.clone(),
+            },
+            PolicyHash::NotKnown => Self::NotKnown,
+        }
+    }
+}
+
+/// One URL a signature says a copy of its policy document can be obtained from, with everything a
+/// fetcher needs to say what the copy it got is.
+///
+/// ETSI EN 319 122-1 clause 5.2.9.2's URL qualifier names where a copy is; clause 5.2.9.1's digest
+/// is what the signer committed to. A copy fetched from a server is exactly as unsigned as the
+/// copy clause 5.2.10's store holds — that clause's note makes the digest the one thing that
+/// catches a substituted document, and the argument does not depend on where the octets came from
+/// — so [`Self::binding`] makes [`SignaturePolicy::binding`]'s comparison over the fetched octets,
+/// and its outcomes are not symmetrical for the same reason (ADR 1728).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublishedPolicy {
+    /// The policy's object identifier, as [`SignaturePolicy::identifier`] states it.
+    pub identifier: String,
+    /// The URL the qualifier names, exactly as the signature states it.
+    pub url: String,
+    /// What the signer committed to about the document's digest.
+    pub commitment: Commitment,
+    /// The specification the signer named for the document's syntax, where it named one
+    /// ([`SignaturePolicy::specification`]).
+    pub specification: Option<Specification>,
+}
+
+/// Whether a copy of the policy document fetched from its URL is the one the signer committed to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Published {
+    /// The fetched octets digest to the value the signer signed: decisive, as
+    /// [`Binding::Matches`] is.
+    Matches {
+        /// The function the comparison was made under.
+        digest: Digest,
+    },
+    /// The fetched octets digest to something else.
+    ///
+    /// **Not a substituted policy on its own**, for [`Binding::DoesNotMatchTheStoredOctets`]'s
+    /// reason: ETSI EN 319 122-1 clause 5.2.9.1 makes the digest's input depend on the policy's
+    /// technical specification, and where the signature names none — every signature in reach
+    /// (ADR 1709) — that specification is the signature's context, which this program does not
+    /// have.
+    DoesNotMatchTheFetchedOctets {
+        /// The function the comparison was made under.
+        digest: Digest,
+        /// The specification the signature named, where it named one.
+        specification: Option<Specification>,
+    },
+    /// The identifier states clause 5.2.9.1's all-zero value, so there is nothing to compare with.
+    PolicyHashNotKnown,
+    /// The digest is under a function this crate does not compute.
+    UnderAnotherFunction {
+        /// The algorithm's object identifier as dotted decimal.
+        algorithm: String,
+    },
+}
+
+impl PublishedPolicy {
+    /// Whether `octets`, fetched from [`Self::url`], are the policy document the signer committed
+    /// to.
+    #[must_use]
+    pub fn binding(&self, octets: &[u8]) -> Published {
+        match &self.commitment {
+            Commitment::NotKnown => Published::PolicyHashNotKnown,
+            Commitment::UnderAnotherFunction { algorithm } => Published::UnderAnotherFunction {
+                algorithm: algorithm.clone(),
+            },
+            Commitment::Stated { digest, value } => {
+                if digests_to(*digest, octets, value) {
+                    Published::Matches { digest: *digest }
+                } else {
+                    Published::DoesNotMatchTheFetchedOctets {
+                        digest: *digest,
+                        specification: self.specification.clone(),
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Whether `octets` digest under `digest` to `value`: the one comparison clause 5.2.10's note
+/// describes, made over a stored copy and a fetched one alike.
+fn digests_to(digest: Digest, octets: &[u8], value: &[u8]) -> bool {
+    let mut hasher = digest.hasher();
+    hasher.update(octets);
+    hasher.finish() == value
+}
+
 /// The signature policy a signer committed to, as far as the texts this project holds reach.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignaturePolicy<'a> {
@@ -325,9 +454,7 @@ impl<'a> SignaturePolicy<'a> {
                 algorithm: algorithm.clone(),
             },
             PolicyHash::Stated { digest, value } => {
-                let mut hasher = digest.hasher();
-                hasher.update(octets);
-                if hasher.finish() == *value {
+                if digests_to(*digest, octets, value) {
                     Binding::Matches { digest: *digest }
                 } else {
                     Binding::DoesNotMatchTheStoredOctets {
@@ -349,6 +476,27 @@ impl<'a> SignaturePolicy<'a> {
             .iter()
             .filter_map(|qualifier| match qualifier {
                 Qualifier::UserNotice(notice) => Some(notice),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Every URL clause 5.2.9.2's qualifier names a copy of the policy document at, each with the
+    /// digest a copy fetched from it is to be checked against, in the file's order.
+    ///
+    /// Empty for a policy that names none. A list because the clause lets a qualifier type appear
+    /// more than once, and each URL is its own request.
+    #[must_use]
+    pub fn published(&self) -> Vec<PublishedPolicy> {
+        self.qualifiers
+            .iter()
+            .filter_map(|qualifier| match qualifier {
+                Qualifier::Uri(url) => Some(PublishedPolicy {
+                    identifier: self.identifier.clone(),
+                    url: url.clone(),
+                    commitment: Commitment::from(&self.hash),
+                    specification: self.specification().cloned(),
+                }),
                 _ => None,
             })
             .collect()
@@ -599,8 +747,8 @@ fn notice_number(contents: &[u8]) -> Result<i64, PolicyError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        Binding, ID_SPQ_ETS_DOCSPEC, ID_SPQ_ETS_UNOTICE, ID_SPQ_ETS_URI, PolicyHash, Qualifier,
-        SignaturePolicy, Specification, Store,
+        Binding, Commitment, ID_SPQ_ETS_DOCSPEC, ID_SPQ_ETS_UNOTICE, ID_SPQ_ETS_URI, PolicyHash,
+        Published, PublishedPolicy, Qualifier, SignaturePolicy, Specification, Store,
     };
     use crate::cms::{Digest, fixtures, signed_data};
     use crate::der::Reader;
@@ -781,6 +929,93 @@ mod tests {
                 specification: Specification::ObjectIdentifier("1.2.3.6".to_owned()),
             }
         );
+    }
+
+    /// The policy document a published-policy fixture signs over: a one-page PDF, as the Spanish
+    /// policy the corpus's thirteen signatures name is (ADR 1709).
+    const PUBLISHED: &[u8] = b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n";
+
+    /// [`SignaturePolicy::published`] over a fixture whose one qualifier is a URL.
+    fn published(url: &str, function: Digest) -> PublishedPolicy {
+        let bytes = fixtures::pades_under_a_published_policy(&[0x11; 32], url, function, PUBLISHED);
+        let cms = signed_data(&bytes).expect("the fixture is a SignedData");
+        let policy = SignaturePolicy::read(&cms)
+            .expect("the fixture is the structure the clause defines")
+            .expect("and it states a policy");
+        assert_eq!(
+            policy.binding(),
+            Binding::NoStoredDocument,
+            "nothing is stored"
+        );
+        let mut published = policy.published();
+        assert_eq!(
+            published.len(),
+            1,
+            "one URL, one copy to fetch: {published:?}"
+        );
+        published.remove(0)
+    }
+
+    /// Clause 5.2.9.2's URL, handed out with clause 5.2.9.1's digest beside it: the shape every
+    /// explicit policy on this disk has, a URL and no store (ADR 1709).
+    #[test]
+    fn a_published_policy_names_where_its_copy_is_and_what_it_must_digest_to() {
+        let url = "http://127.0.0.1:8080/policy.pdf";
+        let published = published(url, Digest::Sha1);
+        assert_eq!(published.identifier, "1.2.3.5");
+        assert_eq!(published.url, url);
+        assert_eq!(
+            published.commitment,
+            Commitment::Stated {
+                digest: Digest::Sha1,
+                value: Digest::Sha1.compute(&[PUBLISHED]),
+            }
+        );
+        assert_eq!(
+            published.specification, None,
+            "no qualifier and no store names one, so clause 5.2.9.1 leaves it to the context"
+        );
+    }
+
+    /// The fetched copy is bound by the digest the signer signed, exactly as a stored one is.
+    #[test]
+    fn a_fetched_policy_document_is_bound_to_the_digest_the_signer_signed() {
+        let published = published("http://127.0.0.1:8080/policy.pdf", Digest::Sha1);
+        assert_eq!(
+            published.binding(PUBLISHED),
+            Published::Matches {
+                digest: Digest::Sha1
+            }
+        );
+    }
+
+    /// The control for the test above (trap 13): one octet of what came back turned over, and
+    /// nothing else in the fixture moved.
+    #[test]
+    fn a_fetched_policy_document_that_differs_by_one_octet_no_longer_matches() {
+        let published = published("http://127.0.0.1:8080/policy.pdf", Digest::Sha1);
+        let mut fetched = PUBLISHED.to_vec();
+        fetched[1] ^= 0x01;
+        assert_eq!(
+            published.binding(&fetched),
+            Published::DoesNotMatchTheFetchedOctets {
+                digest: Digest::Sha1,
+                specification: None,
+            }
+        );
+    }
+
+    /// Clause 5.2.9.1's all-zero value commits to no copy, so a fetched one is compared with
+    /// nothing — whatever it is.
+    #[test]
+    fn a_policy_whose_digest_is_not_known_binds_no_fetched_copy() {
+        let published = PublishedPolicy {
+            identifier: "1.2.3.5".to_owned(),
+            url: "http://127.0.0.1:8080/policy.pdf".to_owned(),
+            commitment: Commitment::NotKnown,
+            specification: None,
+        };
+        assert_eq!(published.binding(PUBLISHED), Published::PolicyHashNotKnown);
     }
 
     /// A signature under no policy at all is §12.8.3.4.4's basic profile, not a fault.

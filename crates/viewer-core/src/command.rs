@@ -763,7 +763,7 @@ pub enum PointerAction {
 
 /// One change a person made.
 ///
-/// Six variants, and they are the two halves of `CLAUDE.md`'s amended exclusion: a value put into
+/// Eight variants, and they are the two halves of `CLAUDE.md`'s amended exclusion: a value put into
 /// something the document already holds, and an object added to it — an annotation, or
 /// §7.11.4's embedded file (ADR 0814). All are a log beside an
 /// immutable document, and all leave through §7.5.6's incremental update.
@@ -867,6 +867,27 @@ pub enum Edit {
         annotation: ObjectId,
         /// What the annotation now says. Empty is an annotation with nothing in it, which is what
         /// one a person has just drawn is.
+        text: String,
+    },
+    /// §12.5.6.4: say what a text note says, as a person typing into its popup window does.
+    ///
+    /// ISO 32000-2 §12.5.6.14:
+    ///
+    /// > A popup annotation ( PDF 1.3 ) displays text in a popup window for entry and editing.
+    ///
+    /// and the note's window is where a person retypes its Table 166 `/Contents`. The annotation
+    /// is the note [`crate::PopupWindow::note`] names — the window's own where a text note states no
+    /// popup, Table 186's `/Parent` otherwise, a group's primary for its subordinate — because the
+    /// text is the note's and a window is only where it is shown. Its icon appearance stays the
+    /// producer's and the save writes `/Contents` alone (ADR 1721).
+    ///
+    /// **Only a note [`crate::PopupWindow::note`] names takes it**: any other annotation's text
+    /// is not retyped here, and the edit is refused and said rather than logged as an entry that
+    /// did nothing (ADR 1726).
+    SetNoteText {
+        /// The text note.
+        annotation: ObjectId,
+        /// What the note now says; empty is a note with nothing in it.
         text: String,
     },
     /// §12.7.5.3: fill a file-select control with a file a **person** chose.

@@ -1142,6 +1142,7 @@ fn window(text: &str, title: Option<&str>) -> viewer_core::PopupWindow {
     viewer_core::PopupWindow {
         annotation: ObjectId::new(7, 0),
         parent: Some(ObjectId::new(6, 0)),
+        note: None,
         // 200 × 120 at (40, 30), clockwise from the top-left, y downwards.
         quad: [40.0, 30.0, 240.0, 30.0, 240.0, 150.0, 40.0, 150.0],
         title: title.map(str::to_owned),

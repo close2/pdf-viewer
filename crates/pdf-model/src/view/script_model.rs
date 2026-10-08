@@ -291,7 +291,51 @@ pub struct DocumentState {
     /// Every annotation a script's `getAnnots` answers, in page order and then in the order of
     /// each page's `/Annots` (ADR 1700).
     pub annotations: Vec<AnnotationState>,
+    /// Every page in page order, as `getPageLabel`, `getPageBox` and `getPageRotation` read it
+    /// (ADR 1724); at most [`MAX_PAGES`].
+    pub pages: Vec<PageState>,
 }
+
+/// One page as a document's realm holds it: what Adobe's `getPageLabel`, `getPageBox` and
+/// `getPageRotation` read, each from the entry ISO 32000-2 states for it (ADR 1724).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PageState {
+    /// §12.4.2's label for the page, `None` where the document's `/PageLabels` labels it not.
+    pub label: Option<String>,
+    /// Table 31's five boundaries in [`PageState::BOXES`] order — `/MediaBox`, `/CropBox`,
+    /// `/BleedBox`, `/TrimBox`, `/ArtBox` — each after §14.11.2.1's defaults and its intersection
+    /// with the media box, as `[x0, y0, x1, y1]` in default user space.
+    pub boxes: [[f64; 4]; 5],
+    /// Table 31's `/Rotate`, inherited and normalised to 0, 90, 180 or 270.
+    pub rotate: u16,
+}
+
+impl PageState {
+    /// The boundaries [`Self::boxes`] holds, in its order.
+    pub const BOXES: [crate::page::Boundary; 5] = [
+        crate::page::Boundary::Media,
+        crate::page::Boundary::Crop,
+        crate::page::Boundary::Bleed,
+        crate::page::Boundary::Trim,
+        crate::page::Boundary::Art,
+    ];
+
+    /// The page as Table 31 states it: its five boundaries and its rotation, with §12.4.2's label.
+    #[must_use]
+    pub fn of(page: &crate::page::Page, label: Option<String>) -> Self {
+        Self {
+            label,
+            boxes: Self::BOXES.map(|boundary| page.boundary(boundary).map(f64::from)),
+            rotate: page.rotate,
+        }
+    }
+}
+
+/// Most pages a realm is told of, and most of one field's `/Opt` entries: half the wire's count, as
+/// for the annotations (ADR 1700). A page past it answers `getPageBox` and its two siblings with a
+/// refusal naming the bound (ADR 1724), and an option past it is no item `numItems` counts (ADR
+/// 1725).
+pub const MAX_PAGES: usize = 1 << 15;
 
 /// One entry of Table 349's document information dictionary, as `this.info` reads it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -713,6 +757,15 @@ pub struct FieldState {
     /// the order of §12.7.4.1's `/Kids` — which is the index `getField("name.N")` counts from
     /// zero. Empty only for a state no view state built.
     pub widgets: Vec<WidgetState>,
+    /// The field's inherited `/Opt`, each entry in both of its forms: Table 234's options for a
+    /// choice field, what `numItems` counts and `getItemAt` reads, and Table 230's export values
+    /// for a check box or a radio button, one text string per widget, which `exportValues` reads
+    /// (ADR 1725). Empty where the field states none.
+    pub options: Vec<crate::form::Choice>,
+    /// The zero-based indices into [`Self::options`] of the items selected now, ascending, read as
+    /// §12.7.5.4 reads `/V` and `/I`: what `currentValueIndices` answers (ADR 1725). Empty for a
+    /// field that is not a choice field and for one with nothing selected.
+    pub selected: Vec<u32>,
 }
 
 impl FieldState {
@@ -990,6 +1043,26 @@ pub enum ScriptEdit {
         /// Which of the reference's five.
         sound: Sound,
     },
+    /// `field.currentValueIndices = …`: §12.7.5.4's items selected by their indices into `/Opt`,
+    /// committed as a person's choice is ([`super::Entered::Chosen`], ADR 1725).
+    Choose {
+        /// The field.
+        field: String,
+        /// The zero-based indices, ascending.
+        indices: Vec<u32>,
+    },
+    /// `this.gotoNamedDest(cName)`: §12.3.2.4's named destination, whose page the host turns to as
+    /// it turns to a script's `this.pageNum` ([`ViewState::take_page_request`], ADR 1724).
+    Destination {
+        /// The name, as the script spelled it.
+        name: String,
+    },
+    /// `this.calculate = …`: whether Table 224's `/CO` is walked at all, until a script says
+    /// otherwise (ADR 1724).
+    Calculation {
+        /// Whether calculations are performed.
+        on: bool,
+    },
 }
 
 /// The field properties a script set, kept beside the edit log by field name.
@@ -1136,7 +1209,20 @@ impl ViewState {
                 .iter()
                 .filter_map(|widget| self.widget_state(document, *widget, form.as_ref()))
                 .collect(),
+            options: Vec::new(),
+            selected: Vec::new(),
         };
+        // Table 230's and Table 234's `/Opt` are each the field's, inherited, so one reading
+        // serves both kinds of field; only a choice field selects among them (ADR 1725).
+        let mut options = crate::form::options(document, &field);
+        options.truncate(MAX_PAGES);
+        if matches!(kind, FieldType::ComboBox | FieldType::ListBox) {
+            state.selected = crate::form::selected(document, &field, &options)
+                .into_iter()
+                .filter_map(|index| u32::try_from(index).ok())
+                .collect();
+        }
+        state.options = options;
         if let Some(overrides) = self.scripting.overrides.get(name) {
             for property in &overrides.set {
                 state.apply(None, property);
@@ -1267,6 +1353,7 @@ impl ViewState {
                 state.info.push(InfoEntry { key, text, moment });
             }
         }
+        state.pages = page_states(document);
         let Some(content) = self.optional_content.as_ref() else {
             return state;
         };
@@ -1304,6 +1391,30 @@ impl ViewState {
         }
         state
     }
+}
+
+/// Every page in page order, at most [`MAX_PAGES`], each with §12.4.2's label, Table 31's five
+/// boundaries and its `/Rotate` (ADR 1724).
+///
+/// A page the tree lists and [`crate::page::Pages::get`] cannot build is told as the empty page
+/// with no label, so that the realm's page numbers stay the document's; such a page is already
+/// reported by everything that draws it.
+fn page_states(document: &Document) -> Vec<PageState> {
+    let pages = crate::page::Pages::new(document);
+    let labels = crate::page_label::PageLabels::read(document);
+    (0..pages.len().min(MAX_PAGES))
+        .map(|index| {
+            let label = labels.label(index);
+            pages.get(index).map_or_else(
+                || PageState {
+                    label: label.clone(),
+                    boxes: [[0.0; 4]; 5],
+                    rotate: 0,
+                },
+                |page| PageState::of(&page, label.clone()),
+            )
+        })
+        .collect()
 }
 
 /// Table 192's three captions of a widget's `/MK`, in [`Face`] order, each empty where it states

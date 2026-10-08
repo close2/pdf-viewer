@@ -66,6 +66,15 @@
 //! the file holds, and a document that could assert who is reading would be choosing its own
 //! audience. [`audience`] is where the question is asked, and the answer is *nobody, in no stated
 //! language* unless a person said otherwise. ADR 1106.
+//!
+//! **And the signature policy's copy** — §12.8.3.4.4's explicit-policy profile hands its attribute
+//! to ETSI EN 319 122-1 clause 5.2.9, whose URL qualifier names where a copy of the policy
+//! document can be obtained. Fetching it tells that server this document is being validated here,
+//! which is the act class [`may_fetch_import`] already asks about, so it is asked at the same
+//! [`Submissions`] level by [`may_fetch_signature_policy`], and [`signature_policy_fetched`] is the
+//! sentence that goes beside the signature's verdict: bound and shown, a digest that does not
+//! match, or not fetched at this level — with the constraints the clause also requires enforced
+//! named as not enforced, because no syntax this program holds states them (ADRs 1709, 1728).
 
 use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -880,6 +889,273 @@ pub fn fetch_note(url: &str, refused: Option<&str>) -> String {
         Some(why) => format!("import-data: declined — {url} was not fetched: {why}"),
         None => format!("import-data: fetching GET {url}"),
     }
+}
+
+/// Whether the copy of a signature's policy document at the URL the signature names may be
+/// **fetched**.
+///
+/// ETSI EN 319 122-1 clause 5.2.9.2's URL qualifier says where a copy of the policy document can
+/// be obtained, and §12.8.3.4.4 makes clause 5.2.9's rules apply to a `PAdES-E-EPES` signature.
+/// A GET to that URL tells its server that this document is being validated here, which is
+/// [`may_fetch_import`]'s act class — a machine contacting a server on a document's word — so the
+/// level is [`Submissions`]' and nothing new: one network level, read in the places that use the
+/// network (ADRs 1527, 1728). [`may_submit`]'s order, for its reason: a scheme outside
+/// [`SUBMIT_SCHEMES`] and a URL that fails `crate::submit::check_url` are refused at every level
+/// before the level is read.
+#[must_use]
+pub fn may_fetch_signature_policy(
+    policy: &pdf_signature::policy::PublishedPolicy,
+    level: Submissions,
+) -> Sending {
+    if scheme_of(&policy.url).is_none() {
+        return Sending::Refuse(format!(
+            "{} states no scheme this reader could read, so it names no Web server (RFC 3986 \
+             section 3.1)",
+            policy.url
+        ));
+    }
+    if let Some(why) = unreachable_server(&policy.url, "fetches a signature policy from") {
+        return Sending::Refuse(why);
+    }
+    match level {
+        Submissions::Refuse => Sending::Refuse(format!(
+            "this reader is set to send nothing to a server on a document's behalf ({}: {}); {} \
+             puts the request to you first",
+            crate::restriction::SUBMITTING,
+            Submissions::Refuse.as_str(),
+            Submissions::Ask.as_str()
+        )),
+        Submissions::Ask => Sending::Ask(asked_to_fetch_policy(policy)),
+        Submissions::Warn => Sending::Warn(format!(
+            "it was fetched without asking you first, because this reader is set to {} ({})",
+            Submissions::Warn.as_str(),
+            crate::restriction::SUBMITTING
+        )),
+        Submissions::Send => Sending::Send,
+    }
+}
+
+/// What a window puts in front of a person when [`may_fetch_signature_policy`] answers
+/// [`Submissions::Ask`]: the URL whole, the policy it is for, and what fetching it does.
+#[must_use]
+pub fn asked_to_fetch_policy(
+    policy: &pdf_signature::policy::PublishedPolicy,
+) -> crate::restriction::Question {
+    crate::restriction::Question {
+        reasons: format!(
+            "A signature in this document was made under signature policy {}, and says a copy of \
+             that policy's document is at {}. Fetching it tells that server this document is \
+             being validated here; what comes back is checked against the digest the signer \
+             signed and, if it is theirs, opened beside this document.",
+            policy.identifier, policy.url
+        ),
+        choice: format!(
+            "You have set this reader to ask before anything is sent to a server on a document's \
+             behalf ({submitting}: {}). \"{}\" fetches this one and leaves the level where it is; \
+             \"{}\" fetches nothing. Setting {submitting} to {} in the restrictions menu stops the \
+             question being asked, and {} stops anything being fetched at all.",
+            Submissions::Ask.as_str(),
+            crate::restriction::GO_AHEAD,
+            crate::restriction::DO_NOT,
+            Submissions::Send.as_str(),
+            Submissions::Refuse.as_str(),
+            submitting = crate::restriction::SUBMITTING,
+        ),
+    }
+}
+
+/// Fetches a signature policy's document from the URL the signature names, blocking, and says what
+/// it is.
+///
+/// `crate::submit::fetch`'s client, checks and bounds, so a window calls this off its event thread
+/// for that module's reason. Asked first, at [`may_fetch_signature_policy`]: a window that has not
+/// had [`Sending::Send`] or [`Sending::Warn`] from it does not call this. `warned` is the
+/// [`Sending::Warn`] sentence, where the level gave one.
+#[must_use]
+pub fn fetch_signature_policy(
+    policy: &pdf_signature::policy::PublishedPolicy,
+    warned: Option<&str>,
+) -> crate::submit::Reply {
+    signature_policy_fetched(policy, crate::submit::fetch(&policy.url), warned)
+}
+
+/// What a fetch of a signature policy's document comes to: the document, opened beside this one,
+/// or a sentence.
+///
+/// **Only a copy that is bound is shown as the signer's policy.** ETSI EN 319 122-1 clause 5.2.10's
+/// note makes the signed digest the one thing that catches a substituted policy document in an
+/// unsigned store, and a server is no more signed than a store is, so a copy whose octets do not
+/// digest to the signed value, or that the signer committed to no particular copy of, is said and
+/// not opened. A bound copy that is a PDF — §7.5.2's header, which may follow arbitrary bytes — is
+/// [`crate::submit::Reply::Document`]: the window opens it beside the document whose signature
+/// named it, as it opens a PDF a server answered a form with. Only a 2xx is read, for
+/// `crate::submit::reply`'s reason.
+///
+/// **And every outcome says what is not done.** §12.8.3.4.4's validator "shall enforce signature
+/// policy constraints", the constraints are in the policy document, and their syntax is whichever
+/// specification the signature names under clause 5.2.9.2 — which no signature in reach names
+/// (ADR 1709). So the sentence ends by saying the constraints were not enforced and why, rather
+/// than letting a bound policy read as an enforced one.
+#[must_use]
+pub fn signature_policy_fetched(
+    policy: &pdf_signature::policy::PublishedPolicy,
+    answer: Result<crate::submit::Response, crate::submit::TransmitError>,
+    warned: Option<&str>,
+) -> crate::submit::Reply {
+    use crate::submit::Reply;
+    use pdf_signature::policy::Published;
+    use std::fmt::Write as _;
+
+    let mut note = format!("signature policy {}: ", policy.identifier);
+    let response = match answer {
+        Ok(response) => response,
+        Err(error) => {
+            // `fmt::Write for String` never answers `Err`: the discard is that infallibility.
+            let _ = write!(
+                note,
+                "its document could not be fetched from {}: {error}",
+                policy.url
+            );
+            return Reply::Say(closed(note, policy, warned));
+        }
+    };
+    let media = response.media_type.as_deref().unwrap_or("no media type");
+    let _ = write!(
+        note,
+        "{} answered {} ({media}, {} byte(s))",
+        policy.url,
+        response.status,
+        response.body.len()
+    );
+    if !(200..300).contains(&response.status) {
+        if let Some(location) = &response.location {
+            let _ = write!(
+                note,
+                " and points to {location}, which this reader does not follow on a document's \
+                 behalf"
+            );
+        }
+        note.push_str(", so no copy of the policy's document came back");
+        return Reply::Say(closed(note, policy, warned));
+    }
+    match policy.binding(&response.body) {
+        Published::Matches { digest } => {
+            let _ = write!(
+                note,
+                ", and that copy is the document the signer committed to: it hashes to the {} \
+                 digest they signed over it",
+                digest.name()
+            );
+            if is_a_pdf(&response.body) {
+                note.push_str(". It is opened beside this document");
+                Reply::Document {
+                    bytes: response.body,
+                    note: closed(note, policy, warned),
+                }
+            } else {
+                note.push_str(
+                    ". It is not a PDF, so this reader cannot show it; its media type is above",
+                );
+                Reply::Say(closed(note, policy, warned))
+            }
+        }
+        Published::DoesNotMatchTheFetchedOctets {
+            digest,
+            specification,
+        } => {
+            let _ = write!(
+                note,
+                ", and that copy does not hash to the {} digest the signer signed over it, so it \
+                 is not shown as their policy. That is not by itself a different policy: what \
+                 goes into the digest is decided by the specification the policy is written \
+                 under (ETSI EN 319 122-1 clause 5.2.9.1), which {}",
+                digest.name(),
+                specification.as_ref().map_or_else(
+                    || "this signature does not name and leaves to its context".to_owned(),
+                    |named| format!("this signature names as {}", specification_named(named)),
+                )
+            );
+            Reply::Say(closed(note, policy, warned))
+        }
+        Published::PolicyHashNotKnown => {
+            note.push_str(
+                ", and the signature commits to the policy by name and to no particular copy of \
+                 its document (ETSI EN 319 122-1 clause 5.2.9.1's all-zero digest), so that copy \
+                 cannot be bound to it and is not shown as the signer's",
+            );
+            Reply::Say(closed(note, policy, warned))
+        }
+        Published::UnderAnotherFunction { algorithm } => {
+            let _ = write!(
+                note,
+                ", and the digest that would bind that copy to the signature is under \
+                 {algorithm}, which this program does not compute, so the two were not compared \
+                 and the copy is not shown as the signer's"
+            );
+            Reply::Say(closed(note, policy, warned))
+        }
+    }
+}
+
+/// What a host says about a signature policy's document it did not fetch: the URL, and why.
+#[must_use]
+pub fn signature_policy_declined(
+    policy: &pdf_signature::policy::PublishedPolicy,
+    why: &str,
+) -> String {
+    closed(
+        format!(
+            "signature policy {}: its document at {} was not fetched — {why} — so whether that \
+             copy is the one the signer committed to is not known here",
+            policy.identifier, policy.url
+        ),
+        policy,
+        None,
+    )
+}
+
+/// The two sentences every signature-policy note ends with: the level's warning where it gave
+/// one, and what §12.8.3.4.4 also requires that this program does not do.
+fn closed(
+    mut note: String,
+    policy: &pdf_signature::policy::PublishedPolicy,
+    warned: Option<&str>,
+) -> String {
+    if let Some(warned) = warned {
+        note.push_str(" — ");
+        note.push_str(warned);
+    }
+    note.push_str(
+        ". §12.8.3.4.4 also requires a signature handler to enforce the policy's constraints, and \
+         this program does not: ",
+    );
+    match &policy.specification {
+        Some(specification) => {
+            note.push_str("they are written under ");
+            note.push_str(&specification_named(specification));
+            note.push_str(", a specification it does not hold");
+        }
+        None => note.push_str(
+            "the signature names no specification for the policy's syntax (ETSI EN 319 122-1 \
+             clause 5.2.9.2), so no syntax this program holds states them",
+        ),
+    }
+    note
+}
+
+/// How a signature named the specification its policy document is written under.
+fn specification_named(specification: &pdf_signature::policy::Specification) -> String {
+    use pdf_signature::policy::Specification;
+    match specification {
+        Specification::ObjectIdentifier(oid) => format!("the specification identified by {oid}"),
+        Specification::Uri(uri) => format!("the specification at {uri}"),
+    }
+}
+
+/// Whether `bytes` carry §7.5.2's header, anywhere: the clause's NOTE 1 admits arbitrary bytes
+/// before it, so a header found later is still the file's.
+fn is_a_pdf(bytes: &[u8]) -> bool {
+    bytes.windows(5).any(|window| window == b"%PDF-")
 }
 
 /// §12.6.4.8's URI, against the location of the document itself where the action left it partial.

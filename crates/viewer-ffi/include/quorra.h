@@ -395,6 +395,18 @@ extern "C" {
 #define QUORRA_RICH_TAB_AFTER    4u  /* the edge the text starts from */
 #define QUORRA_RICH_TAB_BEFORE   5u  /* the edge it ends at */
 
+/* What fills the room before a stated stop, as quorra_rich_leader carries it (ADR 1726): chapter 2's
+ * Tab Leader Pattern. NONE is a stop with no leader or a blank one. */
+#define QUORRA_RICH_LEADER_NONE     0u
+#define QUORRA_RICH_LEADER_DOTS     1u  /* the run's own full stop, repeated */
+#define QUORRA_RICH_LEADER_RULE     2u  /* a rule in the text's colour, centred on the baseline */
+#define QUORRA_RICH_LEADER_CONTENT  3u  /* quorra_popup_rich_leader_text's characters, repeated */
+
+/* How a rule leader is broken (double, groove and ridge are read as solid, which the chapter permits). */
+#define QUORRA_RICH_RULE_SOLID   0u
+#define QUORRA_RICH_RULE_DASHED  1u  /* a dash of two thicknesses every four */
+#define QUORRA_RICH_RULE_DOTTED  2u  /* a square dot every two thicknesses */
+
 /* Which of a §14.7 structure element's three strings `quorra_structure_text` answers. ROLE is
  * §14.7.4's /S AFTER §14.7.3's role map, which is a `shall` on us; mapping it onto YOUR platform's
  * vocabulary is a different mapping and is yours. */
@@ -639,6 +651,21 @@ typedef struct quorra_rich_tab {
     float    at_points;
 } quorra_rich_tab;
 
+/* A stated stop's leader (ADR 1726), in the units the stop's position crosses in. A rule with no
+ * thickness takes your underline's; a leader with no width repeats at the pattern's own width as you
+ * set it. Paint it over your own line from the tab's extent there, as the two toolkit windows do,
+ * whole repetitions only, on quorra_leader_cycles' grid; quorra_rule_pieces breaks a rule. */
+typedef struct quorra_rich_leader {
+    uint32_t pattern;     /* QUORRA_RICH_LEADER_* */
+    uint32_t rule_style;  /* QUORRA_RICH_RULE_*, for a rule */
+    bool     has_thickness;
+    float    thickness_per_base;
+    float    thickness_points;
+    bool     has_width;
+    float    width_per_base;
+    float    width_points;
+} quorra_rich_leader;
+
 /* One paragraph of a popup's rich note (ADR 1655). Its pieces are its list tag first, where
  * `has_tag` says it has one, then its runs; quorra_popup_rich_run reads each. */
 typedef struct quorra_rich_paragraph {
@@ -793,6 +820,10 @@ int32_t quorra_free_text(quorra_viewer *viewer, float from_x, float from_y, floa
                        float red, float green, float blue, quorra_events **events);
 /* §12.5.6.6: what one this session added says. Only one this session added. */
 int32_t quorra_set_free_text(quorra_viewer *viewer, uint32_t number, uint16_t generation,
+                           const char *text, quorra_events **events);
+/* §12.5.6.4: what a text note says, as a person typing into its window does; the note is the one
+ * quorra_popup_note names, the icon appearance is kept and a save writes /Contents (ADR 1726). */
+int32_t quorra_set_note_text(quorra_viewer *viewer, uint32_t number, uint16_t generation,
                            const char *text, quorra_events **events);
 /* §7.11.4: put a file into the document (QUORRA_ATTACH_*; x,y are the page point under PAGE), or
  * take one out by the /EmbeddedFiles key quorra_panel_name answered with. Both are edits: undone
@@ -1342,6 +1373,11 @@ size_t  quorra_popups_len(const quorra_popups *popups);
 int32_t quorra_popup_object(const quorra_popups *popups, size_t index, uint32_t *number,
                           uint16_t *generation, bool *has_parent, uint32_t *parent_number,
                           uint16_t *parent_generation);
+/* The text note a person retypes this window's text into — §12.5.6.14's popup "shall be used for
+ * editing the parent's text" — which quorra_set_note_text names back. QUORRA_NO_ANSWER for a window
+ * whose text this program does not retype: offer that one no keyboard (ADR 1726). */
+int32_t quorra_popup_note(const quorra_popups *popups, size_t index, uint32_t *number,
+                        uint16_t *generation);
 /* Eight floats, [x0, y0, … x3, y3], y downwards, in device pixels of the viewport. */
 int32_t quorra_popup_quad(const quorra_popups *popups, size_t index, float *into);
 int32_t quorra_popup_text(const quorra_popups *popups, size_t index, uint32_t which, char *out,
@@ -1376,6 +1412,20 @@ int32_t quorra_popup_rich_tabs(const quorra_popups *popups, size_t index, size_t
                                size_t paragraph, quorra_rich_tabs *into);
 int32_t quorra_popup_rich_tab(const quorra_popups *popups, size_t index, size_t note,
                               size_t paragraph, size_t stop, quorra_rich_tab *into);
+int32_t quorra_popup_rich_leader(const quorra_popups *popups, size_t index, size_t note,
+                                 size_t paragraph, size_t stop, quorra_rich_leader *into);
+/* A use-content leader's characters; QUORRA_NO_ANSWER for any other pattern. */
+int32_t quorra_popup_rich_leader_text(const quorra_popups *popups, size_t index, size_t note,
+                                      size_t paragraph, size_t stop, char *out, size_t cap,
+                                      size_t *needed);
+/* Where each whole repetition of a leader starts across the room a tab advanced, from..to, on a grid
+ * from the paragraph's left margin so that leaders on different lines line up; `cycle` is the larger
+ * of the leader's width and the pattern's own as you measure it. Two-call idiom over floats:
+ * `needed` is the count. A rule's (left, width) pieces come in pairs, `needed` twice their count. */
+int32_t quorra_leader_cycles(float from, float to, float margin, float cycle, float *out,
+                             size_t cap, size_t *needed);
+int32_t quorra_rule_pieces(uint32_t style, float thickness, float from, float to, float margin,
+                           float *out, size_t cap, size_t *needed);
 /* A piece's characters; a '\n' is XHTML's br, where the line ends whatever the width, and a '\t'
  * advances one tab stop (quorra_rich_tabs). */
 int32_t quorra_popup_rich_text(const quorra_popups *popups, size_t index, size_t note,

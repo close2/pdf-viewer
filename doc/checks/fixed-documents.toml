@@ -6,10 +6,13 @@
 # no common line can defeat each other with every gate green. `doc/todo/03` states the rule and
 # ADR 0458 has the session that paid for it.
 #
-# The one command that runs every row:
+# The one command that runs every row, `tools/state.sh --round <session> fixed` spelled out — a
+# small walk, whose worker nothing else builds (trap 10) and which its own `--build` makes inside
+# the hold (trap 109, ADR 1710):
 #
-#   cargo build --profile gates -p pdf-sandbox --bins       # trap 10: nothing else builds it
-#   cargo test  --profile gates -p pdf-model --test fixed_documents -- --ignored --nocapture
+#   ulimit -u 8192; RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --tree 6 \
+#       --build '--profile gates -p pdf-sandbox --bins' -- \
+#       cargo test --profile gates -p pdf-model --test fixed_documents -- --ignored --nocapture
 #
 # A row states, for one page:
 #

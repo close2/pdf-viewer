@@ -695,6 +695,15 @@ impl Session {
         }))
     }
 
+    /// §12.5.6.4: say what a text note says, as a person typing into its window does (ADR 1726).
+    #[must_use]
+    pub fn set_note_text(&mut self, number: u32, generation: u16, text: String) -> Events {
+        self.handle(Command::Edit(Edit::SetNoteText {
+            annotation: pdf_syntax::ObjectId::new(number, generation),
+            text,
+        }))
+    }
+
     /// §7.11.4: put a file into the document, in one of §7.11.4.1's two homes.
     #[must_use]
     pub fn attach(

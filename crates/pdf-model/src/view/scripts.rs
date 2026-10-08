@@ -272,6 +272,9 @@ pub(super) struct Scripting {
     /// The document's annotations as a realm was told of them, and what scripts set on them (ADR
     /// 1700).
     pub(super) annotations: super::script_annotations::Annotations,
+    /// Whether a script set `this.calculate` false, which stops Table 224's `/CO` from being
+    /// walked until a script sets it true again (ADR 1724).
+    calculations_off: bool,
 }
 
 /// A run its runner held rather than finished, and what its late outcome needs to be applied.
@@ -1028,9 +1031,82 @@ impl ViewState {
                 }
                 ScriptEdit::ClearTimer { id } => self.scripting.timers.clear(*id),
                 ScriptEdit::Beep { sound } => self.scripting.timers.beep(*sound),
+                ScriptEdit::Choose { field, indices } => {
+                    applied.values |= self.choose(document, table, field, indices);
+                }
+                ScriptEdit::Destination { name } => self.go_to_named(document, name),
+                ScriptEdit::Calculation { on } => self.scripting.calculations_off = !*on,
             }
         }
         applied
+    }
+
+    /// Applies a script's `currentValueIndices`: §12.7.5.4's items chosen by index, as a person's
+    /// choice is written — `/V` naming them and `/I` listing them — on every widget of the field
+    /// (ADR 1725). A field a person is typing into is not written under them.
+    fn choose(
+        &mut self,
+        document: &Document,
+        table: &BTreeMap<String, Vec<ObjectId>>,
+        field: &str,
+        indices: &[u32],
+    ) -> bool {
+        let Some(widgets) = table.get(field) else {
+            return false;
+        };
+        if widgets.iter().any(|widget| self.is_editing(*widget)) {
+            self.report(format!(
+                "{field}: a script chose items while a person was typing into the field, and what \
+                 they are typing stands"
+            ));
+            return false;
+        }
+        let indices: Vec<usize> = indices
+            .iter()
+            .filter_map(|index| usize::try_from(*index).ok())
+            .collect();
+        let Some(entry) = super::chosen(document, widgets.first().copied(), &indices) else {
+            self.report(format!(
+                "{field}: a script set currentValueIndices, and the field is not a choice field \
+                 whose options it names, so nothing is chosen (ADR 1725)"
+            ));
+            return false;
+        };
+        for widget in widgets {
+            self.reset.remove(widget);
+            self.imported.remove(widget);
+            self.edited.insert(*widget, entry.clone());
+        }
+        true
+    }
+
+    /// Holds a script's `gotoNamedDest` for a host as the page turn its destination names: §12.3.2.4's
+    /// name looked up where the clause keeps it, and the destination's page found as a link's is
+    /// (ADR 1724). The destination's view — Table 151's position and magnification — is not
+    /// carried, and the report says so, because the host's request for a script's turn is a page.
+    fn go_to_named(&mut self, document: &Document, name: &str) {
+        let key = Object::String(name.as_bytes().to_vec().into());
+        let pages = crate::page::Pages::new(document);
+        let Some(destination) = crate::destination::Destination::read(document, &key) else {
+            self.report(format!(
+                "a script asked for the named destination {name:?}, which this document does not \
+                 define (ISO 32000-2 §12.3.2.4), so no page is turned (ADR 1724)"
+            ));
+            return;
+        };
+        let Some(page) = destination.page_index(document, &pages) else {
+            self.report(format!(
+                "a script asked for the named destination {name:?}, whose page is not one of this \
+                 document's, so no page is turned (ADR 1724)"
+            ));
+            return;
+        };
+        self.scripting.page = Some(page);
+        self.report(format!(
+            "a script went to the named destination {name:?}: page {} is turned to, and the \
+             destination's own position and magnification are not applied (ADR 1724)",
+            page.saturating_add(1)
+        ));
     }
 
     /// Holds a script's `setFocus` for a host, on the widget it names or on its field's first, or
@@ -1386,6 +1462,11 @@ impl ViewState {
         table: &BTreeMap<String, Vec<ObjectId>>,
         source: Option<&str>,
     ) {
+        // Adobe's "Doc properties" page: while `calculate` is false, no calculation is performed
+        // for the document — `calculateNow` among them (ADR 1724).
+        if self.scripting.calculations_off {
+            return;
+        }
         let order = calculation_order(document);
         let count = order.len();
         let started = Instant::now();

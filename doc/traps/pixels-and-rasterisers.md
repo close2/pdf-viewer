@@ -550,6 +550,17 @@ back-to-back one. And a round's "before" build in the shared worktree is a rever
 after it never ran, and HEAD's own code stood in the tree meanwhile — re-apply in a step that runs whatever the build's exit,
 and never behind a pipe.
 
+
+### 134. A pixel golden drawn with a machine-chosen strip count holds a fact about the machine
+
+`CpuRasterizer::new()` lets `render_cpu::plan_strips` ask `available_parallelism` for the strip
+count, and ADR 0219 records that a page's pixels depend on how it is split into strips. So
+`raster_golden`'s held digests hold only on a process that may use this machine's 24 CPUs: round 1449's
+runs pinned to the eight fast cores exited 101 with 21 of 967 first pages reported as "raster only"
+changes, and the same binary passed unpinned at four and at eight rayon threads (ADR 1734). A golden
+states its strip count with `with_strips`, as `shadings.rs` and the transform suite's renderer do, and is
+regenerated once under it; the tell is a pixel move that disappears when the run is unpinned.
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in
